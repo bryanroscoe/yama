@@ -1,8 +1,10 @@
 import { Details } from "../components/ui";
 import type { CommanderLists, CommanderObservation, PreconEvidence, RatingV2, RealHistory } from "./api";
-import { fmtDate } from "./logic";
+import { fmtDate, count } from "@yama/core";
 
 const rate = (x: number, digits = 1) => `${x.toFixed(digits)}%`;
+/** A snapshot's day. Sources stamp snapshots at midnight UTC, so the day is UTC's, as the Datasets page shows it. */
+const asOf = (iso: string | null | undefined) => fmtDate(iso, { utc: true });
 
 /** Words for a trend in points per 30 days; small moves read as steady. */
 export function trendText(points: number | null | undefined): string | null {
@@ -18,11 +20,11 @@ function History({ real }: { real: RealHistory }) {
   return (
     <>
       <p style={{ margin: 0 }}>
-        All time: {rate(real.latest.rate)} wins in 4-player pods over {real.latest.games.toLocaleString()} games, as of {fmtDate(real.latest.as_of)}.
+        All time: {rate(real.latest.rate)} wins in 4-player pods over {count(real.latest.games)} games, as of {asOf(real.latest.as_of)}.
       </p>
       {real.recent && (
         <p style={{ margin: 0 }}>
-          Games since {fmtDate(real.recent.from)}: about {rate(real.recent.rate)} over {real.recent.games.toLocaleString()} newer games.{" "}
+          Games since {asOf(real.recent.from)}: about {rate(real.recent.rate)} over {count(real.recent.games)} newer games.{" "}
           {trendText(real.trend_points_per_30_days)}
         </p>
       )}
@@ -39,10 +41,10 @@ function History({ real }: { real: RealHistory }) {
               const i = intervals.get(s.as_of);
               return (
                 <tr key={s.as_of}>
-                  <td>{fmtDate(s.as_of)}</td>
-                  <td className="num">{s.games.toLocaleString()}</td>
+                  <td>{asOf(s.as_of)}</td>
+                  <td className="num">{count(s.games)}</td>
                   <td className="num">{rate(s.rate, 2)}</td>
-                  <td className="num">{i ? i.games.toLocaleString() : ""}</td>
+                  <td className="num">{i ? count(i.games) : ""}</td>
                   <td className="num">{i ? rate(i.rate) : ""}</td>
                 </tr>
               );
@@ -60,16 +62,16 @@ function History({ real }: { real: RealHistory }) {
 function Commander({ c }: { c: CommanderObservation }) {
   return (
     <p className="lab-note">
-      Commander, all lists: {c.url ? <a href={c.url} target="_blank" rel="noreferrer">{c.name}</a> : c.name} won {rate(c.rate)} of {c.games.toLocaleString()} games on {c.source.name} in the {c.window_days} days to {fmtDate(c.as_of)}. {c.note} {c.source.attribution}, {c.source.license}.
+      Commander, all lists: {c.url ? <a href={c.url} target="_blank" rel="noreferrer">{c.name}</a> : c.name} won {rate(c.rate)} of {count(c.games)} games on {c.source.name} in the {c.window_days} days to {asOf(c.as_of)}. {c.note} {c.source.attribution}, {c.source.license}.
     </p>
   );
 }
 
 function AllLists({ f }: { f: CommanderLists }) {
-  const decks = f.decks ? ` from ${f.decks.toLocaleString()} decks` : "";
+  const decks = f.decks ? ` from ${count(f.decks)} decks` : "";
   return (
     <p className="lab-note">
-      Commander, any list: {f.name} won {rate(f.rate)} of {f.games.toLocaleString()} games{decks} on {f.source.name}. {f.note} {f.source.attribution} {f.source.license}.
+      Commander, any list: {f.name} won {rate(f.rate)} of {count(f.games)} games{decks} on {f.source.name}. {f.note} {f.source.attribution} {f.source.license}.
     </p>
   );
 }
@@ -115,7 +117,7 @@ export function RatingV2Section({ v2, id }: { v2: RatingV2 | undefined; id: stri
       </p>
       <Details label="How it's tested">
         <p>{v2.note}</p>
-        {v2.calibration && <p>Test with the split at {fmtDate(v2.split)}, on {v2.calibration.cases} precons and {v2.calibration.held_out_games.toLocaleString()} later games: {v2.calibration.verdict}</p>}
+        {v2.calibration && <p>Test with the split at {asOf(v2.split)}, on {v2.calibration.cases} precons and {count(v2.calibration.held_out_games)} later games: {v2.calibration.verdict}</p>}
         {v2.simulation && <p>Simulation: {v2.simulation.name} ({v2.simulation.engine}), {v2.simulation.precons} precons.</p>}
         {v2.commander && (
           <p>

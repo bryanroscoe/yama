@@ -21,6 +21,7 @@ import {
   type ImportCard,
 } from "./importLogic";
 import { CommanderPicker, GuideTabs, LinkNote, Skipped, UnknownLines } from "./ImportParts";
+import { UnsavedPrompt, useUnsavedChanges } from "../unsaved";
 import { ACCEPT, useListImport } from "./useListImport";
 import "./import.css";
 
@@ -80,6 +81,8 @@ function ImportEditor() {
   const fileInput = useRef<HTMLInputElement>(null);
   const { text, preview, drafts, draft, setDraft, active, setActive, check, notice } = list;
   const deckNames = decks.data?.map((d) => d.name) ?? [];
+  // A list the person brought, a fix to its reading or a typed note: leaving asks first (unsaved.tsx).
+  const guard = useUnsavedChanges(list.unsaved || !!note.trim());
 
   return (
     <main className="page import-page">
@@ -167,14 +170,17 @@ function ImportEditor() {
             void qc.invalidateQueries({ queryKey: ["decks"] });
             void qc.invalidateQueries({ queryKey: ["deck", id] });
             // The deck page then offers to add the cards to the collection (CollectSheet).
+            guard.allow();
             navigate(`/decks/${id}?collect=1`, { replace: !!precon });
           }}
           onSavedMany={() => {
             void qc.invalidateQueries({ queryKey: ["decks"] });
+            guard.allow();
             navigate("/decks");
           }}
         />
       )}
+      <UnsavedPrompt guard={guard} what="this list" />
     </main>
   );
 }
@@ -316,7 +322,7 @@ function CardRow({ card, off }: { card: ImportCard; off: boolean }) {
           <span className="import-meta small dim">
             {print}
             {card.print_found === false && " (printing not found, the card's kept)"}
-            {off && <span className="import-warn">{print ? ", " : ""}outside the commander's colours</span>}
+            {off && <span className="import-warn">{print ? ", " : ""}outside the commander's colors</span>}
           </span>
         )}
       </span>

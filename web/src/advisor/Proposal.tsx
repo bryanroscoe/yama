@@ -3,6 +3,7 @@ import { Fragment } from "react";
 import { Details, ManaCost, ZoomableCard } from "../components/ui";
 import type { ProposalCard, ProposalPreview } from "./api";
 import { inline, parseAnswer } from "./logic";
+import { plural } from "@yama/core";
 
 function InlineText({ text }: { text: string }) {
   return <>{inline(text).map((s, i) => s.bold ? <b key={i}>{s.text}</b> : s.code ? <code key={i}>{s.text}</code> : <Fragment key={i}>{s.text}</Fragment>)}</>;
@@ -64,7 +65,7 @@ function CardList({ cards, label }: { cards: ProposalCard[]; label: string }) {
 
 export function proposalCounts(preview: ProposalPreview): string {
   const count = (cards: ProposalCard[]) => cards.reduce((n, c) => n + c.qty, 0);
-  const words = (n: number) => `${n} card${n === 1 ? "" : "s"}`;
+  const words = (n: number) => plural(n, "card");
   return `${words(count(preview.add))} in, ${words(count(preview.remove))} out`;
 }
 

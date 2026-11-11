@@ -1,9 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
-import { exportDeck } from "@yama/core";
+import { exportDeck, fmtDate } from "@yama/core";
 import { useState } from "react";
 import { Link } from "react-router";
 import { api, type AnalysisSummary, type DeckAnalysisView, type DeckEntry, type VectorKey } from "../api";
-import { localDay } from "../components/deckCheck";
 import "./deckAnalysis.css";
 
 export const VECTORS: { key: VectorKey; label: string; short: string }[] = [
@@ -80,7 +79,7 @@ export function PowerLine({ points }: { points: { id: string; number: number; po
         <polyline points={points.map((p, i) => `${x(i)},${y(p.power)}`).join(" ")} />
         {points.map((p, i) => (
           <circle key={p.id} cx={x(i)} cy={y(p.power)} r={3}>
-            <title>{`Version ${p.number}, ${localDay(p.created_at)}: ${p.power.toFixed(1)}`}</title>
+            <title>{`Version ${p.number}, ${fmtDate(p.created_at)}: ${p.power.toFixed(1)}`}</title>
           </circle>
         ))}
       </svg>

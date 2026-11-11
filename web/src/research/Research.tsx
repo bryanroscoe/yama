@@ -1,4 +1,3 @@
-import { fmtDate, usd } from "@yama/core/plan";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, type ReactNode } from "react";
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router";
@@ -21,6 +20,7 @@ import { useScrollToHash } from "../components/useScrollToHash";
 import { bracketLabel, cardsWord, deckHref, deckView, moved, noteHref, noteView, pickBuild, uptoOf, type GetId, type NoteView, type Totals } from "./view";
 import "../plan/plan.css";
 import "./research.css";
+import { fmtDate, usd } from "@yama/core";
 
 /**
  * A plan: a note an agent saved, or a copy of one someone shared (`/r/<token>`). Its pages show
@@ -284,7 +284,6 @@ function NotePage({ bundle }: { bundle: ResearchBundle }) {
 }
 
 function TotalCells({ t }: { t: Totals }) {
-  const money = (v: number | null) => (v == null ? "Unknown" : usd(v));
   const buy = t.buy_uncosted === 0 ? usd(t.buy_cost) : t.buy_uncosted === t.buy ? "cost unknown" : `${usd(t.buy_cost)} + ${t.buy_uncosted} without a price`;
   return (
     <>
@@ -295,8 +294,8 @@ function TotalCells({ t }: { t: Totals }) {
       <td className="num">
         {t.print}, {usd(t.print_cost)}
       </td>
-      <td className="num">{money(t.worth)}</td>
-      <td className="num">{money(t.cost)}</td>
+      <td className="num">{usd(t.worth)}</td>
+      <td className="num">{usd(t.cost)}</td>
     </>
   );
 }

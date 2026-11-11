@@ -10,6 +10,7 @@ import { useCopy } from "../decks/ShareDeck";
 import { noteShareUrl, reports } from "../research/api";
 import "./group.css";
 import "./sharing.css";
+import { NO_PRICE, fmtDate, usd } from "@yama/core";
 
 function SharedLink({ name, manage, url, visibility }: { name: string; manage: string; url: string | null; visibility: Visibility }) {
   const [copied, copy] = useCopy();
@@ -56,9 +57,9 @@ function TradeSection({ sharing }: { sharing: Sharing | undefined }) {
 }
 
 function money(n: number | null, date: string | null): string {
-  if (n == null) return "No market price";
-  const day = date ? new Date(`${date.slice(0, 10)}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : null;
-  return `$${n.toFixed(2)} market${day ? `, ${day}` : ""}`;
+  if (n == null) return NO_PRICE;
+  const day = date ? fmtDate(date.slice(0, 10)) : null;
+  return `${usd(n)} market${day ? `, ${day}` : ""}`;
 }
 
 function finishName(f: string): string {
@@ -84,7 +85,7 @@ function total(list: TradeMatch[]): string {
   const priced = list.filter((m) => m.market != null);
   if (!priced.length) return "";
   const sum = priced.reduce((t, m) => t + m.market! * Math.min(m.qty, m.copies), 0);
-  return ` About $${sum.toFixed(2)} at market${priced.length < list.length ? `, ${list.length - priced.length} without a price` : ""}.`;
+  return ` About ${usd(sum)} at market${priced.length < list.length ? `, ${list.length - priced.length} without a price` : ""}.`;
 }
 
 /** What you and a friend could trade, through what their profile shares. */

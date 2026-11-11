@@ -3,7 +3,7 @@ import { CardHover } from "../components/CardRef";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
-import { api, priceSource, usd, type Card, type SearchResult } from "../api";
+import { api, type Card, type SearchResult } from "../api";
 import { isNetworkError } from "../cardDetail";
 import { isGuest } from "../guest";
 import { CardImage, ErrorText, Sheet } from "../components/ui";
@@ -12,6 +12,7 @@ import { ReleaseCalendar } from "../components/Upcoming";
 import { queryChips, withoutTerm } from "./cardQuery";
 import { CardView } from "./CardView";
 import "./cards.css";
+import { priceSource, usd, plural } from "@yama/core";
 
 const EXAMPLES = [
   { q: "id<=ug is:commander", label: "Simic commanders" },
@@ -149,7 +150,7 @@ export function CardsPage() {
           <>
             <div className="cards-summary">
               <span className="cards-count">
-                {results.data.total.toLocaleString()} {results.data.total === 1 ? "card" : "cards"}
+                {plural(results.data.total, "card")}
                 {results.data.offline ? ", searched on this device while offline" : ""}
                 <span className="cards-narrow">{priceDate ? `. Prices: ${priceSource(priceDate)}.` : ""}</span>
               </span>

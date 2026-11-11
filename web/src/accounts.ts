@@ -1,10 +1,7 @@
 // Words for accounts in the admin area's People list.
 
 import type { AccountInfo } from "./api";
-
-function shortDate(iso: string) {
-  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}
+import { fmtDate } from "@yama/core";
 
 /** One plain line about an account: its email, how it came in, power user, and whether it's turned off. */
 export function accountLine(a: AccountInfo): string {
@@ -14,7 +11,7 @@ export function accountLine(a: AccountInfo): string {
   else if (a.limited) parts.push("No invite, so the smaller allowance");
   else if (a.password) parts.push("Password account");
   if (a.power_user && !a.is_admin) parts.push("Power user");
-  parts.push(`Joined ${shortDate(a.created_at)}`);
-  if (a.disabled_at) parts.push(`Disabled ${shortDate(a.disabled_at)}`);
+  parts.push(`Joined ${fmtDate(a.created_at)}`);
+  if (a.disabled_at) parts.push(`Disabled ${fmtDate(a.disabled_at)}`);
   return `${parts.join(". ")}.`;
 }

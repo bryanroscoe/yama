@@ -4,13 +4,14 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { api, shortDate, usd, type ConfigurationRef, type DeckSummary, type DeckView } from "../api";
+import { api, type ConfigurationRef, type DeckSummary, type DeckView } from "../api";
 import { bracketName } from "../components/Bracket";
 import { neededCost } from "../components/DeckPrices";
 import { MenuSeparator, MoreMenu } from "../components/MoreMenu";
 import { ErrorText } from "../components/ui";
 import { configurationLabel, legacyConfiguration } from "./buildCatalog";
 import { deckLists, listLabel } from "./DeckLists";
+import { shortDate, usd } from "@yama/core";
 
 type Tone = "good" | "warn" | "bad" | "dim";
 

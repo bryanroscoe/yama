@@ -1,12 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { api, ApiError, shortDate, usd, type CollectionItem, type Container, type Printing } from "../api";
+import { api, ApiError, type CollectionItem, type Container, type Printing } from "../api";
 import { CardRef } from "../components/CardRef";
 import { CardImage, ErrorText, Sheet } from "../components/ui";
 import type { ScanCandidate } from "../scanner";
 import { finishChoices, finishFor, finishWord, printingLabel, reprintOps, type Op, type Scope } from "./collectionEdit";
 // The scan choices and their notes, shown here outside the scanner too.
 import "../scanner/scanner.css";
+import { shortDate, usd } from "@yama/core";
 
 // The scanner pulls in OCR; load it only when someone rescans.
 const ScannerView = lazy(() => import("../scanner").then((m) => ({ default: m.ScannerView })));

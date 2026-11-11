@@ -3,8 +3,8 @@ import { useState } from "react";
 import { ErrorText } from "../components/ui";
 import { adminApi, type UsageRow } from "./api";
 import { advisorLine, holdings, nearLimits, searchAccounts, today } from "./logic";
+import { count } from "@yama/core";
 
-const n = (x: number) => x.toLocaleString("en-US");
 
 export function UsagePage() {
   const usage = useQuery({ queryKey: ["admin-usage"], queryFn: adminApi.usage, refetchInterval: 30_000 });
@@ -19,16 +19,16 @@ export function UsagePage() {
         <section className="admin-section" aria-labelledby="adm-totals">
           <h2 id="adm-totals">Everyone</h2>
           <div className="admin-figures">
-            <Figure value={n(t.accounts)} label={`accounts, ${n(t.open_signup_accounts)} without an invite${t.disabled ? `, ${n(t.disabled)} disabled` : ""}`} />
-            <Figure value={n(t.seen_today)} label="used Yama in the last 24 hours" />
-            <Figure value={n(t.lab_games_today)} label="lab games asked for in the last 24 hours" />
+            <Figure value={count(t.accounts)} label={`accounts, ${count(t.open_signup_accounts)} without an invite${t.disabled ? `, ${count(t.disabled)} disabled` : ""}`} />
+            <Figure value={count(t.seen_today)} label="used Yama in the last 24 hours" />
+            <Figure value={count(t.lab_games_today)} label="lab games asked for in the last 24 hours" />
             <Figure
-              value={n(t.lab_games_queued)}
-              label={`lab games waiting, of ${n(t.lab_queue_cap)} allowed; ${n(t.lab_open_queue_games)} of ${n(t.lab_open_queue_cap)} from accounts without an invite`}
+              value={count(t.lab_games_queued)}
+              label={`lab games waiting, of ${count(t.lab_queue_cap)} allowed; ${count(t.lab_open_queue_games)} of ${count(t.lab_open_queue_cap)} from accounts without an invite`}
             />
-            <Figure value={n(t.advisor_today)} label="questions to Claude in the last 24 hours" />
-            <Figure value={n(t.watch_running)} label="watched games running" />
-            <Figure value={n(t.online_games_live)} label="online games being played" />
+            <Figure value={count(t.advisor_today)} label="questions to Claude in the last 24 hours" />
+            <Figure value={count(t.watch_running)} label="watched games running" />
+            <Figure value={count(t.online_games_live)} label="online games being played" />
           </div>
         </section>
       )}
@@ -91,7 +91,7 @@ function AccountUsage({ a }: { a: UsageRow }) {
         {day && <span>{day}</span>}
         <span>
           {advisorLine(a)}
-          {a.advisor_total ? ` ${n(a.advisor_total)} questions so far.` : ""}
+          {a.advisor_total ? ` ${count(a.advisor_total)} questions so far.` : ""}
         </span>
       </div>
     </li>

@@ -1,3 +1,4 @@
+import { plural } from "@yama/core";
 // Mythic Tools import on the Collection page (server/src/collection/mythic.rs): the report the
 // server sends for a preview (?dry_run=1) and for the import itself, and the sentences shown.
 
@@ -43,7 +44,6 @@ export interface MythicReport {
   decks_kept: string[];
 }
 
-const n = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 
 /** "Sol Ring, CMM 410, foil, in box: bulk". */
 export function changeText(c: MythicChange, where = true): string {
@@ -62,13 +62,13 @@ export function keptText(c: MythicChange): string {
 
 /** The preview's sentences, before anything is written. */
 export function previewLines(r: MythicReport, day: (iso: string) => string = (iso) => iso.slice(0, 10)): string[] {
-  const out = [`${n(r.copies, "card")} in the file.`];
+  const out = [`${plural(r.copies, "card")} in the file.`];
   if (r.already_imported) {
     out.push(`You imported this exact file on ${day(r.already_imported.slice(0, 10))}, so nothing is added from it again.`);
   } else {
-    out.push(r.added ? `${n(r.added, "card")} to add.` : "Nothing new to add.");
+    out.push(r.added ? `${plural(r.added, "card")} to add.` : "Nothing new to add.");
   }
-  if (r.already_in_yama) out.push(`${n(r.already_in_yama, "card")} ${r.already_in_yama === 1 ? "is" : "are"} in Yama already.`);
+  if (r.already_in_yama) out.push(`${plural(r.already_in_yama, "card")} ${r.already_in_yama === 1 ? "is" : "are"} in Yama already.`);
   if (r.kept_where_moved) {
     const one = r.kept_where_moved === 1;
     out.push(`${r.kept_where_moved} of those ${one ? "is" : "are"} somewhere else in Yama than the file says (moved there, say) and ${one ? "stays" : "stay"} put.`);
@@ -83,7 +83,7 @@ export function previewLines(r: MythicReport, day: (iso: string) => string = (is
 export function missingText(r: Pick<MythicReport, "missing" | "missing_cards">): string {
   const places = [...new Set(r.missing_cards.map((c) => c.place))];
   const one = r.missing === 1;
-  return `${n(r.missing, "card")} in ${places.join(" and ")} ${one ? "isn't" : "aren't"} in this export. Yama keeps ${one ? "it" : "them"} unless you say so; boxes and binders the file doesn't name are never touched.`;
+  return `${plural(r.missing, "card")} in ${places.join(" and ")} ${one ? "isn't" : "aren't"} in this export. Yama keeps ${one ? "it" : "them"} unless you say so; boxes and binders the file doesn't name are never touched.`;
 }
 
 /** The checkbox for copies the file no longer lists. */
@@ -94,10 +94,10 @@ export function missingLabel(r: Pick<MythicReport, "missing">): string {
 /** After the import. */
 export function resultLines(r: MythicReport): string[] {
   const out: string[] = [];
-  if (r.added) out.push(`Added ${n(r.added, "card")}.`);
-  if (r.removed) out.push(`Removed ${n(r.removed, "card")} the file no longer lists.`);
+  if (r.added) out.push(`Added ${plural(r.added, "card")}.`);
+  if (r.removed) out.push(`Removed ${plural(r.removed, "card")} the file no longer lists.`);
   if (!r.added && !r.removed) out.push(r.already_imported ? "Nothing changed: you'd imported this file already." : "Nothing changed: Yama has everything in the file.");
-  if (r.missing > r.removed) out.push(`${n(r.missing - r.removed, "card")} the file no longer lists ${r.missing - r.removed === 1 ? "stays" : "stay"} in Yama.`);
+  if (r.missing > r.removed) out.push(`${plural(r.missing - r.removed, "card")} the file no longer lists ${r.missing - r.removed === 1 ? "stays" : "stay"} in Yama.`);
   if (r.decks_created.length) out.push(`New decks: ${r.decks_created.join(", ")}. Check each one's commander on the Decks tab.`);
   if (r.decks_updated.length) out.push(`Updated decks: ${r.decks_updated.join(", ")}.`);
   if (r.decks_kept.length) out.push(`Decks you made in Yama keep their own lists: ${r.decks_kept.join(", ")}.`);

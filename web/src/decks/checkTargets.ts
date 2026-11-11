@@ -6,6 +6,7 @@ import { bagSource, sourceContext, swapSource, type PlanBundle } from "@yama/cor
 import type { DeckCard, DeckEntry, DeckVersionRow, DeckView } from "../api";
 import type { BuildFamily, SwapPair } from "./buildCatalog";
 import type { CheckTarget, TargetCard } from "./deckCheck";
+import { fmtDate } from "@yama/core";
 
 /** A list to check against, before its cards are loaded. */
 export interface TargetOption {
@@ -21,7 +22,6 @@ export interface TargetOption {
 
 export const CURRENT = "current";
 
-const date = (iso: string) => new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 
 /** The choices for one deck, the current list first. */
 export function targetOptions(deck: Pick<DeckView, "id" | "name" | "version_id">, family: BuildFamily | undefined, versions: DeckVersionRow[] = []): TargetOption[] {
@@ -35,7 +35,7 @@ export function targetOptions(deck: Pick<DeckView, "id" | "name" | "version_id">
   }
   versions
     .filter((v) => v.id !== deck.version_id)
-    .forEach((v) => out.push({ id: `version:${v.id}`, label: `${v.note || "Saved version"}, ${date(v.created_at)}`, group: "Earlier versions", source: `History of ${deck.name}`, load: { version: v.id }, pairs: [] }));
+    .forEach((v) => out.push({ id: `version:${v.id}`, label: `${v.note || "Saved version"}, ${fmtDate(v.created_at)}`, group: "Earlier versions", source: `History of ${deck.name}`, load: { version: v.id }, pairs: [] }));
   for (const c of choices) {
     if (c.savedDeck || !c.list) continue;
     if (c.id.startsWith("plan:")) {

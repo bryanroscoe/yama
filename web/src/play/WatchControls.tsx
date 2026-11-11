@@ -9,6 +9,7 @@ import { ArtPanel } from "../components/ArtPanel";
 import { ErrorText } from "../components/ui";
 import { SPEEDS, seatName } from "./watch";
 import type { SeatInfo, Speed, View, WatchStatus } from "./types";
+import { count } from "@yama/core";
 
 export type WatchMessage =
   | { type: "play" }
@@ -50,7 +51,7 @@ export function WatchControls({ id, status, view, seats, art, pov, onPov, send, 
         <p className="watch-end">
           {status.stopped ?? (winner === null ? `A draw on turn ${view.turn}` : `${name(winner)} wins on turn ${view.turn}`)}
         </p>
-        <p className="small dim">{status.actions.toLocaleString()} moves by the computer.</p>
+        <p className="small dim">{count(status.actions)} moves by the computer.</p>
         <ErrorText error={again.error} />
         {power && (
           <div className="watch-end-buttons">

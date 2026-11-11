@@ -3,7 +3,7 @@
 // plan's changes into what the plan pages show: where each card comes from, what it costs, what's
 // left to do, and the line under a plan's title.
 
-import { fmtDate } from "./source";
+import { fmtDate, usd } from "../format";
 import { installedState } from "./marks";
 import { newestChecks } from "./quotes";
 import { cheapestMarket } from "./rules";
@@ -140,14 +140,12 @@ export function countChanges(changes: PlanChange[]): PlanCounts {
   };
 }
 
-const money = (n: number) => `$${n.toFixed(2)}`;
-
 /** "Have 1, from other decks 3, buy 6 ($5.00), print 28": what getting a plan's cards takes. */
 export function getLine(c: PlanCounts): string {
   const parts: string[] = [];
   if (c.have) parts.push(`have ${c.have}`);
   if (c.move) parts.push(`from other decks ${c.move}`);
-  if (c.buy) parts.push(`buy ${c.buy}${c.buyUsd != null ? ` (${money(c.buyUsd)}${c.buyUnpriced ? `, ${c.buyUnpriced} unpriced` : ""})` : " (no prices yet)"}`);
+  if (c.buy) parts.push(`buy ${c.buy}${c.buyUsd != null ? ` (${usd(c.buyUsd)}${c.buyUnpriced ? `, ${c.buyUnpriced} unpriced` : ""})` : " (no prices)"}`);
   if (c.print) parts.push(`print ${c.print}`);
   const s = parts.join(", ");
   return s ? s[0]!.toUpperCase() + s.slice(1) : "Nothing to get";
@@ -216,7 +214,7 @@ export function nextStep(steps: ChangeStep[]): string | null {
   return null;
 }
 
-/** "proposed 5 Nov 2026 in the commander-decks plan file, version 35", "from your note “Buildable now”". */
+/** "proposed Nov 5, 2026 in the commander-decks plan file, version 35", "from your note “Buildable now”". */
 export function sourceText(source: VersionSource | Record<string, unknown> | null | undefined, at: string | null | undefined, head?: PlanHead | null): string {
   const when = at ? ` ${fmtDate(at)}` : "";
   const s = (source ?? {}) as Record<string, unknown>;

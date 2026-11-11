@@ -714,11 +714,22 @@ pub fn generate_password() -> String {
     chars.chunks(5).map(|c| c.iter().collect::<String>()).collect::<Vec<_>>().join("-")
 }
 
-async fn logout(State(st): State<AppState>, jar: CookieJar) -> AppResult<CookieJar> {
+/// Every session token a request presents: the bearer (the native apps have no cookie) and the
+/// session cookie (the web). Usually one, or the same one twice.
+fn presented_session_tokens(headers: &HeaderMap) -> Vec<String> {
+    let mut tokens: Vec<String> = bearer_token(headers).into_iter().chain(cookie_token(headers)).collect();
+    tokens.dedup();
+    tokens
+}
+
+/// Sign out: end the session this request came with, whichever way it was sent. The native apps
+/// send only `Authorization: Bearer`, so deleting by cookie alone left their 90-day session live.
+async fn logout(State(st): State<AppState>, headers: HeaderMap, jar: CookieJar) -> AppResult<CookieJar> {
+    let hashes: Vec<String> = presented_session_tokens(&headers).iter().map(|t| sha256_hex(t)).collect();
     // Signing out while viewing as someone ends the view too (and every view of this session).
-    let jar = crate::view_as::end_for_logout(&st, jar).await?;
-    if let Some(c) = jar.get(SESSION_COOKIE) {
-        sqlx::query("DELETE FROM sessions WHERE token_hash = ?").bind(sha256_hex(c.value())).execute(&st.pool).await?;
+    let jar = crate::view_as::end_for_logout(&st, jar, &hashes).await?;
+    for hash in &hashes {
+        sqlx::query("DELETE FROM sessions WHERE token_hash = ?").bind(hash).execute(&st.pool).await?;
     }
     Ok(jar.remove(Cookie::build(SESSION_COOKIE).path("/")))
 }
@@ -1211,6 +1222,36 @@ mod tests {
 
         assert!(remove_local_password(&pool, "debug@example.com").await.unwrap());
         assert!(!remove_local_password(&pool, "debug@example.com").await.unwrap());
+    }
+
+    /// The native apps sign in with a bearer and have no cookie: signing out must end that
+    /// session too, not only one named by a cookie.
+    #[tokio::test]
+    async fn sign_out_ends_a_bearer_session_and_only_that_one() {
+        use axum::http::{Method, StatusCode};
+        let (app, pool) = crate::testutil::app().await;
+        let (id, phone) = crate::testutil::user(&pool, "pat@example.com").await;
+        // A second device of the same account, and another account, stay signed in.
+        let laptop = cli_session(&pool, "pat@example.com", 1).await.unwrap();
+        let (_, sam) = crate::testutil::user(&pool, "sam@example.com").await;
+
+        let (status, _) = crate::testutil::send(&app, Method::POST, "/api/auth/logout", Some(&phone), None).await;
+        assert!(status.is_success(), "{status}");
+        let (status, _) = crate::testutil::send(&app, Method::GET, "/api/me", Some(&phone), None).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        let left: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions WHERE token_hash = ?").bind(sha256_hex(&phone)).fetch_one(&pool).await.unwrap();
+        assert_eq!(left, 0);
+        for other in [&laptop, &sam] {
+            let (status, _) = crate::testutil::send(&app, Method::GET, "/api/me", Some(other), None).await;
+            assert_eq!(status, StatusCode::OK);
+        }
+        let mine: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions WHERE user_id = ?").bind(&id).fetch_one(&pool).await.unwrap();
+        assert_eq!(mine, 1);
+        // Signing out twice, or with no session at all, is still a success.
+        let (status, _) = crate::testutil::send(&app, Method::POST, "/api/auth/logout", Some(&phone), None).await;
+        assert!(status.is_success(), "{status}");
+        let (status, _) = crate::testutil::send(&app, Method::POST, "/api/auth/logout", None, None).await;
+        assert!(status.is_success(), "{status}");
     }
 
     #[tokio::test]

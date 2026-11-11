@@ -63,8 +63,8 @@ describe("a plan's state", () => {
   });
 
   it("has a plain version line", () => {
-    expect(versionLine(plan())).toBe("Version 1, proposed 5 Nov 2026 in the commander-decks plan file, version 35");
-    expect(versionLine(plan({ state: "in_progress", version: 2, approved_at: "2026-11-06" }))).toBe("Version 2, approved 6 Nov 2026");
+    expect(versionLine(plan())).toBe("Version 1, proposed Nov 5, 2026 in the commander-decks plan file, version 35");
+    expect(versionLine(plan({ state: "in_progress", version: 2, approved_at: "2026-11-06" }))).toBe("Version 2, approved Nov 6, 2026");
     expect(sourceText({ kind: "note", note: "n", title: "Buildable now" }, null)).toBe("from your note “Buildable now”");
   });
 

@@ -1,3 +1,4 @@
+import { count } from "@yama/core";
 // Lists of cards to sell, in the formats store buylists take. Each format follows the platform's
 // own documentation, read 2026-11-02:
 // - SortSwift (https://sortswift.com/docs/buylist/csv-format-requirements): a CSV with a Scryfall
@@ -161,7 +162,7 @@ export function sellable(format: SellFormat, cards: SellCard[]): SellCard[] {
 /** Card Kingdom's limits, said before the import tool refuses. */
 export function overLimit(format: SellFormat, t: SellText): string | null {
   if (format !== "cardkingdom") return null;
-  if (t.lines > CARD_KINGDOM_MAX_LINES) return `Card Kingdom takes at most ${CARD_KINGDOM_MAX_LINES} lines; this list has ${t.lines.toLocaleString()}. Send it in parts.`;
-  if (t.copies > CARD_KINGDOM_MAX_CARDS) return `Card Kingdom takes at most ${CARD_KINGDOM_MAX_CARDS.toLocaleString()} cards; this list has ${t.copies.toLocaleString()}. Send it in parts.`;
+  if (t.lines > CARD_KINGDOM_MAX_LINES) return `Card Kingdom takes at most ${CARD_KINGDOM_MAX_LINES} lines; this list has ${count(t.lines)}. Send it in parts.`;
+  if (t.copies > CARD_KINGDOM_MAX_CARDS) return `Card Kingdom takes at most ${count(CARD_KINGDOM_MAX_CARDS)} cards; this list has ${count(t.copies)}. Send it in parts.`;
   return null;
 }

@@ -297,6 +297,22 @@ async fn a_view_ends_when_the_admin_stops_loses_admin_or_signs_out() {
     assert_eq!(reasons, vec!["stopped", "ended", "replaced", "signed out"]);
 }
 
+/// The native app has no session cookie: signing out with the bearer ends the session and the
+/// views started from it.
+#[tokio::test]
+async fn signing_out_with_a_bearer_ends_the_session_and_its_views() {
+    let w = world().await;
+    let view = start(&w.app, &w.admin, &w.pat_id).await;
+    let (status, _, _) = call(&w.app, Method::POST, "/api/auth/logout", Some(&w.admin), &[], None, false).await;
+    assert!(status.is_success(), "{status}");
+    assert_eq!(count(&w.pool, "SELECT COUNT(*) FROM view_sessions WHERE ended_at IS NULL").await, 0);
+    let reason: String = sqlx::query_scalar("SELECT end_reason FROM view_sessions").fetch_one(&w.pool).await.unwrap();
+    assert_eq!(reason, "signed out");
+    assert_eq!(count(&w.pool, "SELECT COUNT(*) FROM sessions").await, 1, "only Pat's session is left");
+    let (status, _, _) = call(&w.app, Method::GET, "/api/me", Some(&w.admin), &[("yama_view", &view)], None, false).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
 #[tokio::test]
 async fn disabled_accounts_can_be_viewed() {
     let w = world().await;

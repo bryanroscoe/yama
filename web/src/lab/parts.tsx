@@ -115,7 +115,7 @@ const STATUS: Record<ExperimentStatus, string> = {
   running: "Playing",
   done: "Done",
   failed: "Failed",
-  cancelled: "Cancelled",
+  cancelled: "Canceled",
 };
 
 export function StatusTag({ status }: { status: ExperimentStatus }) {

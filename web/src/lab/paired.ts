@@ -6,7 +6,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api";
 import type { BatchComparison, BatchVariant, RunListItem } from "./api";
-import { fmtDate } from "./logic";
+import { fmtDate } from "@yama/core";
 
 export interface PlanVersion {
   /** "stock", "now", "after", or another state the export used ("proposed-bracket-3"). */

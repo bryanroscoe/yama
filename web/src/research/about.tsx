@@ -1,7 +1,7 @@
-import { fmtDate } from "@yama/core/plan";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { api, type DeckSummary } from "../api";
+import { fmtDate } from "@yama/core";
 
 /** Live main decks by lower-case name: the decks a note's deck names refer to. */
 function byName(decks: DeckSummary[]): Map<string, DeckSummary> {

@@ -7,9 +7,9 @@ import { useLocation } from "react-router";
 import type { DeckView } from "../api";
 import { useDeckCheck } from "../components/Bracket";
 import { DeclareBracket } from "../components/DeclareBracket";
-import { gameChangerFloor, localDay, SENDS_LIST } from "../components/deckCheck";
+import { gameChangerFloor, SENDS_LIST } from "../components/deckCheck";
 import { HelpPopover } from "../components/HelpPopover";
-import { day } from "../components/Rulings";
+import { fmtDate } from "@yama/core";
 
 /** The Game Changers at the bracket shown: the list's own, minus any the swap bag takes out. */
 export function gameChangersAt(listed: string[] | null, out: ReadonlySet<string>): { name: string; out: boolean }[] {
@@ -42,8 +42,8 @@ export function WhyBracket({ deck, at, outAt, onCard }: { deck: DeckView; at: nu
           <p>{deck.game_changers ? gameChangerFloor(kept) : "Game Changer flags aren't loaded on this server yet."}</p>
           <p>
             {[
-              deck.game_changers_as_of ? `Game Changers: Scryfall, ${day(deck.game_changers_as_of)}` : null,
-              r ? `Combos, land denial and extra turns: Commander Spellbook, ${localDay(r.checked_at)}` : null,
+              deck.game_changers_as_of ? `Game Changers: Scryfall, ${fmtDate(deck.game_changers_as_of)}` : null,
+              r ? `Combos, land denial and extra turns: Commander Spellbook, ${fmtDate(r.checked_at)}` : null,
             ]
               .filter(Boolean)
               .join(". ")}

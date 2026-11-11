@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FORMATS, formatLabel, type FunRating, type PlayerSetup, type TableFormat, type TableSetup, type WinCondition } from "@yama/core";
+import { FORMATS, formatLabel, type FunRating, type PlayerSetup, type TableFormat, type TableSetup, type WinCondition, fmtDateTime, fmtWeekday, shortDate, fmtDate } from "@yama/core";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { api, type DeckSummary, type DeckVersionRow, type GameDetail, type GameRow, type Playgroup } from "../api";
@@ -88,7 +88,7 @@ export function TableHome() {
         <section className="stack" style={{ marginBottom: "2rem" }}>
           <div className="page-head">
             <h1>Saved game on this device</h1>
-            <p className="small dim">Started {new Date(game.setup.startedAt).toLocaleString()}. Resume it only if this is the game you’re playing.</p>
+            <p className="small dim">Started {fmtDateTime(game.setup.startedAt)}. Resume it only if this is the game you’re playing.</p>
             <p className="dim" style={{ margin: 0 }}>{gameSummary(state)}</p>
           </div>
           <ol className="ip-rows" aria-label="Tap anyone to go back to the table">
@@ -629,11 +629,10 @@ function RecentGames({ waiting, notes }: { waiting: ReactNode; notes: ReactNode 
           const cmdr = winner?.commander_name;
           const a = cmdr ? art.get(cmdr) : undefined;
           const text = recentGameText(g);
-          const day = new Date(g.started_at);
           return (
             <li key={g.id}>
               {/* An online game keeps its replay with the online board; a table game has its own page. */}
-              <Link className="rg-row" to={g.mode === "in_person" ? `/table/games/${g.id}` : `/play/${g.id}`} aria-label={`${text.title}${text.with ? ` with ${text.with}` : ""}, ${day.toLocaleDateString("en-US", { month: "short", day: "numeric" })}. Details`}>
+              <Link className="rg-row" to={g.mode === "in_person" ? `/table/games/${g.id}` : `/play/${g.id}`} aria-label={`${text.title}${text.with ? ` with ${text.with}` : ""}, ${fmtDate(g.started_at, { year: false })}. Details`}>
               {winner ? (
                 <span className="rg-art">{a?.art && <img src={a.art} alt="" loading="lazy" />}</span>
               ) : (
@@ -649,8 +648,8 @@ function RecentGames({ waiting, notes }: { waiting: ReactNode; notes: ReactNode 
               </span>
               <span className="rg-when num">
                 <span>
-                  <span className="rg-weekday">{day.toLocaleDateString("en-US", { weekday: "short" })}, </span>
-                  {day.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                  <span className="rg-weekday">{fmtWeekday(g.started_at)}, </span>
+                  {shortDate(g.started_at)}
                 </span>
                 {g.turns ? <span className="rg-turns">{g.turns} turns</span> : g.status === "in_progress" ? <span className="rg-turns rg-live">Still going</span> : null}
               </span>

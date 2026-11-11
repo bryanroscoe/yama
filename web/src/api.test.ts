@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { errorMessage, priceSource, shortDate, unanswered, usd } from "./api";
+import { errorMessage, unanswered } from "./api";
+import { priceSource, shortDate, usd } from "@yama/core";
 
 describe("prices", () => {
   it("never shows a missing price as $0", () => {

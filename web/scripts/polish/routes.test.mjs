@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
-import { patternFor, patternMatcher, routesFromApp, sampleKey, slugFor } from "./routes.mjs";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { pageLinks, patternFor, patternMatcher, routesFromApp, sampleKey, slugFor } from "./routes.mjs";
 
 const APP = `
 <Routes>
@@ -44,5 +44,29 @@ describe("polish routes", () => {
     expect(slugFor(new URL("https://x/"))).toMatch(/^home-[0-9a-f]{6}$/);
     expect(slugFor(new URL("https://x/decks/plan/d/ab_c?x=1"))).toMatch(/^decks-plan-d-ab-c-x-1-[0-9a-f]{6}$/);
     expect(slugFor(new URL("https://x/cards?q=A-B"))).not.toBe(slugFor(new URL("https://x/cards?q=A.B")));
+  });
+});
+
+describe("links found on a page", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  /** An anchor as the page has it: HTML ones give `href` as a string, SVG ones as an SVGAnimatedString. */
+  const anchor = (href, attrs = {}) => ({ href, hasAttribute: (name) => name in attrs, getAttribute: (name) => attrs[name] ?? null });
+
+  it("reads an SVG link's address instead of crashing on it", () => {
+    vi.stubGlobal("document", { baseURI: "https://yama.ing/precons" });
+    const links = pageLinks([
+      anchor("https://yama.ing/precons/riders-of-rohan"),
+      // The charts on /precons link their marks: `href` is an object with baseVal, often relative.
+      anchor({ baseVal: "/precons/food-and-fellowship", animVal: "/precons/food-and-fellowship" }),
+      anchor({ baseVal: "methodology" }),
+    ]);
+    expect(links).toEqual(["https://yama.ing/precons/riders-of-rohan", "https://yama.ing/precons/food-and-fellowship", "https://yama.ing/methodology"]);
+    // Every one is an address the crawl can open.
+    for (const l of links) expect(() => new URL(l)).not.toThrow();
+  });
+
+  it("leaves out downloads and links that aren't addresses", () => {
+    vi.stubGlobal("document", { baseURI: "https://yama.ing/decks" });
+    expect(pageLinks([anchor("https://yama.ing/export.csv", { download: "" }), anchor({ baseVal: "" }), anchor("http://[broken"), anchor("https://yama.ing/cards")])).toEqual(["https://yama.ing/cards"]);
   });
 });

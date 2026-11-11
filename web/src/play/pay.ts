@@ -13,10 +13,10 @@ export const TAP_MANA: { id: TapMana; label: string }[] = [
   { id: "manual", label: "I'll tap" },
 ];
 
-/** ["C", "C"] reads "{C}{C}"; "any" reads "any colour". */
+/** ["C", "C"] reads "{C}{C}"; "any" reads "any color". */
 export function manaText(mana: string[]): string {
-  if (mana.length === 1 && mana[0] === "any") return "any colour";
-  return mana.map((m) => (m === "any" ? "any colour" : `{${m}}`)).join("");
+  if (mana.length === 1 && mana[0] === "any") return "any color";
+  return mana.map((m) => (m === "any" ? "any color" : `{${m}}`)).join("");
 }
 
 /** What a source costs beyond the tap, in words. */
@@ -133,7 +133,7 @@ export function keptNote(p: PaymentView): string | null {
         return `${k.name}'s tap can't be undone.`;
     }
   });
-  return `${lines.join(" ")} Cancelling won't undo ${p.kept.length > 1 ? "these" : "this"}.`;
+  return `${lines.join(" ")} Canceling won't undo ${p.kept.length > 1 ? "these" : "this"}.`;
 }
 
 /** The line under the payment's title. */

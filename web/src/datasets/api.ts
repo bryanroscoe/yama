@@ -1,3 +1,4 @@
+import { fmtDate, count as grouped } from "@yama/core";
 import { api } from "../api";
 
 export const KINDS = {
@@ -39,7 +40,7 @@ export const dataset = (id: string, params: URLSearchParams) => api<DatasetRead>
 export const recordName = (r: EvidenceRecord) => text(r.data.entity_name) || text(r.data.name) || r.entity;
 export const text = (v: unknown): string => typeof v === "string" ? v : "";
 export const object = (v: unknown): Record<string, unknown> => v && typeof v === "object" && !Array.isArray(v) ? v as Record<string, unknown> : {};
-export const count = (v: unknown): string => typeof v === "number" && Number.isFinite(v) ? v.toLocaleString("en-US") : "Unknown";
+export const count = (v: unknown): string => typeof v === "number" && Number.isFinite(v) ? grouped(v) : "Unknown";
 export const percent = (v: unknown): string => typeof v === "number" && Number.isFinite(v) ? `${v.toFixed(2)}%` : "Unknown";
 export function sourceUrl(v: unknown): string | undefined {
   if (typeof v !== "string") return;
@@ -47,9 +48,11 @@ export function sourceUrl(v: unknown): string | undefined {
 }
 export function periodLabel(value: unknown): string {
   const p = object(value);
-  if (p.kind === "calendar_month") return `Complete month ${text(p.start)} to ${text(p.end)}`;
-  if (p.kind === "rolling_window") return `${count(p.lookback_days)}-day window as of ${text(p.source_as_of).slice(0, 10)}`;
-  if (p.kind === "cumulative_snapshot") return `Cumulative snapshot${p.source_as_of ? ` as of ${text(p.source_as_of).slice(0, 10)}` : ""}`;
+  // A source's own days, as it wrote them (UTC), not the reader's.
+  const day = (v: unknown) => fmtDate(text(v).slice(0, 10));
+  if (p.kind === "calendar_month") return `Complete month ${day(p.start)} to ${day(p.end)}`;
+  if (p.kind === "rolling_window") return `${count(p.lookback_days)}-day window as of ${day(p.source_as_of)}`;
+  if (p.kind === "cumulative_snapshot") return `Cumulative snapshot${p.source_as_of ? ` as of ${day(p.source_as_of)}` : ""}`;
   return "Period unknown";
 }
 

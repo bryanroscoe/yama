@@ -2,30 +2,9 @@
 // than the writer's own text, so a shared page can leave out stores, dates and prices.
 // gotText is a port of commander-decks' swapdata.got_text.
 
+import { fmtDate, usd } from "../format";
 import { BASICS } from "./text";
 import type { Bag, Got, ItemRef, Order, OrderItem, PlanBundle, PlanDeck, Slot, Store, Swap } from "./types";
-
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-/** "2026-10-08" → "8 Oct 2026". Anything else is returned as given; a missing date is "". */
-export function fmtDate(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
-  if (!m) return iso;
-  // A moment (a time with its zone: "2026-11-05T04:30:00Z") is shown on the reader's own
-  // calendar: saved at 22:30 in Texas reads 4 Nov, not UTC's 5 Nov. A date alone stays as written.
-  if (/T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})$/.test(iso)) {
-    const at = new Date(iso);
-    if (!Number.isNaN(at.getTime())) return `${at.getDate()} ${MONTHS[at.getMonth()]} ${at.getFullYear()}`;
-  }
-  const month = MONTHS[Number(m[2]) - 1];
-  return month ? `${Number(m[3])} ${month} ${m[1]}` : iso;
-}
-
-/** Dollars with cents, or "no price". Never $0 for a missing price. */
-export function usd(v: number | null | undefined): string {
-  return v == null ? "no price" : `$${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
 
 export interface SourceContext {
   orders: Map<string, Order>;

@@ -131,3 +131,24 @@ export function slugFor(url) {
   const hash = createHash("sha256").update(url.pathname + url.search).digest("hex").slice(0, 6);
   return `${s || "home"}-${hash}`;
 }
+
+/**
+ * The links on a page, as absolute addresses. Runs inside the page (`page.$$eval("a[href]",
+ * pageLinks)`), so it uses nothing from this file. An SVG `<a>` (the charts on /precons) has an
+ * SVGAnimatedString for `href`, not a string: reading it as one crashed the laptop crawl and lost
+ * the page. Links that aren't addresses are left out.
+ */
+export function pageLinks(anchors) {
+  const links = [];
+  for (const a of anchors) {
+    if (a.hasAttribute("download")) continue;
+    const raw = typeof a.href === "string" ? a.href : (a.href?.baseVal ?? a.getAttribute("href"));
+    if (!raw) continue;
+    try {
+      links.push(new URL(raw, document.baseURI).href);
+    } catch {
+      // Not an address (a malformed href): nothing to follow.
+    }
+  }
+  return links;
+}

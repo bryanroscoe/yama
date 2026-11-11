@@ -1,4 +1,4 @@
-import { identityName } from "@yama/core";
+import { identityName, usd, plural } from "@yama/core";
 import {
   changeStep,
   countChanges,
@@ -49,7 +49,7 @@ export function progressSteps(view: PlanView, deck: PlanDeck, plan: DeckPlanStat
   }));
 }
 
-const cardsWord = (n: number) => (n === 1 ? "1 change" : `${n} changes`);
+const cardsWord = (n: number) => plural(n, "change");
 
 /** `/decks/plans`: every deck once, by its plan's state (design board "Main"). */
 export function Plans() {
@@ -248,7 +248,7 @@ function StartCard({ row, view }: { row: Row; view: PlanView }) {
   const c = waitingCounts(view, row.deck, row.plan);
   const commander = view.card(row.deck.commander[0]);
   const crop = view.art(row.deck);
-  const bits = [cardsWord(c.total), c.buy ? `${c.buyUsd != null ? `$${c.buyUsd.toFixed(2)}` : `${c.buy} cards`} to buy` : null, c.print ? `${c.print} to print` : null].filter(Boolean);
+  const bits = [cardsWord(c.total), c.buy ? `${c.buyUsd != null ? usd(c.buyUsd) : `${c.buy} cards`} to buy` : null, c.print ? `${c.print} to print` : null].filter(Boolean);
   return (
     <div className="plans-start-card">
       {crop && (

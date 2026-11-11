@@ -1,6 +1,7 @@
 import { api } from "../api";
 import { listEntries } from "./details";
 import type { Build, ResearchBundle, ResearchDeck } from "./api";
+import { plural } from "@yama/core";
 
 /**
  * A note's pages as the server works them out for its owner (`/api/research/{id}/view`,
@@ -181,7 +182,7 @@ export function bracketLabel(build: Build): string | null {
   return n != null && n >= 1 && n <= 5 ? `Bracket ${n}, ${BRACKETS[n]}` : null;
 }
 
-export const cardsWord = (n: number) => `${n} card${n === 1 ? "" : "s"}`;
+export const cardsWord = (n: number) => plural(n, "card");
 
 /** A plan as the Plans page lists it (`/api/research-plans`). */
 export interface PlanSummary {

@@ -335,8 +335,9 @@ async fn stop(State(st): State<AppState>, jar: CookieJar) -> AppResult<(CookieJa
     Ok((jar.remove(Cookie::build(VIEW_COOKIE).path("/")), StatusCode::NO_CONTENT))
 }
 
-/// For sign-out: end the view on this cookie and every view started from this session.
-pub async fn end_for_logout(st: &AppState, jar: CookieJar) -> AppResult<CookieJar> {
+/// For sign-out: end the view on this cookie and every view started from the sessions being
+/// signed out (`session_hashes`: the request's bearer and cookie sessions).
+pub async fn end_for_logout(st: &AppState, jar: CookieJar, session_hashes: &[String]) -> AppResult<CookieJar> {
     let at = now();
     if let Some(c) = jar.get(VIEW_COOKIE) {
         sqlx::query("UPDATE view_sessions SET ended_at = ?, end_reason = 'signed out' WHERE token_hash = ? AND ended_at IS NULL")
@@ -345,10 +346,10 @@ pub async fn end_for_logout(st: &AppState, jar: CookieJar) -> AppResult<CookieJa
             .execute(&st.pool)
             .await?;
     }
-    if let Some(c) = jar.get(crate::auth::SESSION_COOKIE) {
+    for hash in session_hashes {
         sqlx::query("UPDATE view_sessions SET ended_at = ?, end_reason = 'signed out' WHERE admin_session_hash = ? AND ended_at IS NULL")
             .bind(&at)
-            .bind(sha256_hex(c.value()))
+            .bind(hash)
             .execute(&st.pool)
             .await?;
     }

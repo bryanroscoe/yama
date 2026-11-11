@@ -2,14 +2,12 @@ import { CardRef } from "../components/CardRef";
 import {
   inForceBundle,
   boughtInfo,
-  fmtDate,
   hassleOrder,
   planTrip,
   PREFERENCE_TEXT,
   sealedFor,
   storePreference,
   storePremium,
-  usd,
   type PrintRow,
   type RuleSet,
   type SkipReason,
@@ -46,6 +44,7 @@ import { CopyButton } from "./parts";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
 import { TripHowTo } from "./howto";
 import type { PlanView } from "./view";
+import { fmtDate, usd, NO_PRICE, fmtDateTime } from "@yama/core";
 
 const CHOICES: StorePreference[] = ["favorite", "ok", "maybe", "never"];
 
@@ -317,7 +316,7 @@ export function Trip() {
                 {t.items.map((x) => (
                   <li key={x.want.id}>
                     <CardRef name={x.want.card} oracleId={view.oracleId(x.want.card)} image={view.card(x.want.card)?.image_normal} />{" "}
-                    <span className="dim">{x.market ? `${usd(x.market.usd)}, ${fmtDate(x.market.date)}` : "no market price"}</span>
+                    <span className="dim">{x.market ? `${usd(x.market.usd)}, ${fmtDate(x.market.date)}` : NO_PRICE}</span>
                   </li>
                 ))}
               </ul>
@@ -379,7 +378,7 @@ function snapshotText(s: StoreSnapshot): string {
       : s.status === "error"
         ? `failed${s.error ? `: ${s.error}` : ""}`
         : `${s.listings === 1 ? "1 listing" : `${s.listings} listings`}${s.failed ? `, ${s.failed} ${s.failed === 1 ? "card" : "cards"} unknown (a request failed)` : ""}`;
-  return `${fmtDate(when)} ${when.slice(11, 16)} UTC, ${what} from ${SOURCE_TEXT[s.source]}: ${how}.`;
+  return `${fmtDateTime(when, { utc: true })} UTC, ${what} from ${SOURCE_TEXT[s.source]}: ${how}.`;
 }
 
 /**
@@ -738,7 +737,7 @@ function StorePrefs({ stores, view, userId, skipped }: { stores: Store[]; view: 
     <section className="plan-section trip-prefs" aria-labelledby="trip-prefs">
       <h2 id="trip-prefs" className="plan-section-head">Your stores</h2>
       <p className="dim small">
-        Order stores by convenience. Favourites get qualifying cards within your premium; maybe stores fill gaps only.
+        Order stores by convenience. Favorites get qualifying cards within your premium; maybe stores fill gaps only.
       </p>
       {sorted.map((s, i) => {
         const missed = skipped.find((x) => x.store.key === s.key);

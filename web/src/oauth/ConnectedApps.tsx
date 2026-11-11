@@ -1,10 +1,10 @@
-import { fmtDate } from "@yama/core/plan";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ErrorText } from "../components/ui";
 import { CopyButton } from "../plan/parts";
 import { publicOrigin } from "../api";
 import { disconnectApp, listConnectedApps } from "./api";
 import { appKind, appName, claudeCodeCommand } from "./logic";
+import { fmtDate } from "@yama/core";
 
 /**
  * Decks, Plans, Settings: how to connect Claude to Yama by signing in (no key to paste), and the

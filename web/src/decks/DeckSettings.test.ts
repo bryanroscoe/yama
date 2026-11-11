@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { settingsPatch } from "./DeckSettings";
+import { settingsChanged, settingsPatch } from "./DeckSettings";
 
 const ref = (id: string) => ({ id, name: id, configuration: null, visibility: "private" as const, share_token: null });
 const choices = { name: " Revival Trance ", ownership: "owned" as const, container: "", parent: null, list: "" };
@@ -26,5 +26,18 @@ describe("deck settings", () => {
   it("drops the list name when a list becomes its own deck", () => {
     const p = settingsPatch({ parent_id: "main", configurations: [ref("main"), ref("s")] }, { ...choices, ownership: "" });
     expect(p).toMatchObject({ parent_id: null, configuration: null, acquisition_status: null });
+  });
+});
+
+describe("closing deck settings", () => {
+  const deck = { name: "Revival Trance", acquisition_status: null, container_id: "box1", parent_id: null, configuration: null };
+  const same = { name: "Revival Trance", ownership: "" as const, container: "box1", parent: null, list: "" };
+  it("asks first only when something was changed", () => {
+    expect(settingsChanged(deck, same)).toBe(false);
+    expect(settingsChanged(deck, { ...same, name: "Revival Trance 2" })).toBe(true);
+    expect(settingsChanged(deck, { ...same, ownership: "owned" })).toBe(true);
+    expect(settingsChanged(deck, { ...same, container: "" })).toBe(true);
+    expect(settingsChanged(deck, { ...same, parent: "main" })).toBe(true);
+    expect(settingsChanged({ ...deck, parent_id: "main", configuration: "Stock" }, { ...same, parent: "main", list: "Stock" })).toBe(false);
   });
 });

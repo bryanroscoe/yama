@@ -128,10 +128,10 @@ describe("trading with friends", () => {
     });
     expect(html).toContain("@pal is looking for, you have");
     expect(html).toContain("You have 3, 1 in deck boxes");
-    expect(html).toContain("$1.50 market, 7 Nov 2026");
+    expect(html).toContain("$1.50 market, Nov 7, 2026");
     expect(html).toContain("About $3.00 at market.");
     expect(html).toContain("They have 1: 1 CMM 1000 foil, NM");
-    expect(html).toContain("No market price");
+    expect(html).toContain("No price");
     expect(html).not.toContain("$0.00");
     expect(html).toContain('href="https://yama.ing/u/pal/wants"');
   });

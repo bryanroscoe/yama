@@ -62,7 +62,7 @@ describe("changeProblems", () => {
   it("warns about cards outside the commander's colours", () => {
     const p = changeProblems(base, [swap("Ponder", "Lightning Bolt", { inCard: { color_identity: "R" } })], "UG");
     expect(p.blocking).toEqual([]);
-    expect(p.warnings).toEqual(["Lightning Bolt is outside the commander's colours."]);
+    expect(p.warnings).toEqual(["Lightning Bolt is outside the commander's colors."]);
     // Colourless fits anything; unknown colours aren't flagged.
     expect(changeProblems(base, [swap("Ponder", "Arcane Signet", { inCard: { color_identity: "" } })], "UG").warnings).toEqual([]);
     expect(changeProblems(base, [swap("Ponder", "Mystery")], "UG").warnings).toEqual([]);

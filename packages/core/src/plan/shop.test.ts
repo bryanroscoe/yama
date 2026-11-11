@@ -23,7 +23,7 @@ import {
   spares,
   specialVersion,
   swapStatus,
-  usd,
+
   type Mark,
   type Order,
   type PlanBundle,
@@ -235,8 +235,8 @@ describe("rules and price flags", () => {
     expect(c.basis?.kind).toBe("printing");
     expect(c.overPct).toBe(42);
     expect(c.flags.map((f) => f.id)).toEqual(["over-market", "pricey-printing"]);
-    expect(c.flags[0]!.text).toBe("42% over the market for that printing ($0.53 for 2X2 #173, 18 Oct 2026); your limit is 25%.");
-    expect(c.flags[1]!.text).toBe("A pricier printing: the cheapest copy is $0.51 for Forgotten Realms Commander (AFC) #175, 18 Oct 2026.");
+    expect(c.flags[0]!.text).toBe("42% over the market for that printing ($0.53 for 2X2 #173, Oct 18, 2026); your limit is 25%.");
+    expect(c.flags[1]!.text).toBe("A pricier printing: the cheapest copy is $0.51 for Forgotten Realms Commander (AFC) #175, Oct 18, 2026.");
     // Without Yama's price for that printing it falls back to the cheapest copy (47%).
     expect(priceFlag({ card: "Rider", price: 0.75, date: "2026-10-18" }, bundle, settings).overPct).toBe(47);
   });
@@ -250,7 +250,7 @@ describe("rules and price flags", () => {
     const old = { ...bundle, market: { "o-rider": { ...bundle.market["o-rider"]!, date: "2026-07-01" } } };
     const s = priceFlag({ card: "Rider", price: 0.75, date: "2026-10-18" }, old, settings);
     expect(s.basis?.stale).toBe(true);
-    expect(s.flags[0]!.text).toContain("last priced 1 Jul 2026");
+    expect(s.flags[0]!.text).toContain("last priced Jul 1, 2026");
     expect(s.flags[0]!.text).toContain("older than the rest of Yama's prices");
     expect(isStale("2026-10-16", "2026-10-18")).toBe(false);
     expect(isStale("2026-10-14", "2026-10-18")).toBe(true);
@@ -264,7 +264,7 @@ describe("rules and price flags", () => {
     expect(c.basis?.usd).toBe(1.2);
     expect(c.flags.map((f) => f.id)).toEqual(["pricey-printing", "special"]);
     expect(c.flags[1]!.text).toBe(
-      "A foil version, while the cheapest non-foil copy is $0.51 for Forgotten Realms Commander (AFC) #175, 18 Oct 2026. Your rule: pay extra for a foil or special version only when there's no plain one.",
+      "A foil version, while the cheapest non-foil copy is $0.51 for Forgotten Realms Commander (AFC) #175, Oct 18, 2026. Your rule: pay extra for a foil or special version only when there's no plain one.",
     );
     expect(priceFlag({ card: "X", price: 1, date: "2026-10-18", store: stores[2], compareMarket: false }, bundle, settings).flags.map((f) => f.id)).toEqual(["not-local"]);
   });
@@ -296,7 +296,7 @@ describe("rules and price flags", () => {
     const c = priceFlag({ card: "Agent of Treachery", price: 3.5, date: "2026-10-18", text, printing: { set: "tle", num: "9" } }, cheaper, settings);
     const flag = c.flags.find((f) => f.id === "special")!;
     expect(flag.text).toBe(
-      "A borderless version, while the cheapest non-foil copy is $2.10 for Core Set 2020 (M20) #43, 18 Oct 2026. Yama can't tell whether that printing is a plain one. Your rule: pay extra for a foil or special version only when there's no plain one.",
+      "A borderless version, while the cheapest non-foil copy is $2.10 for Core Set 2020 (M20) #43, Oct 18, 2026. Yama can't tell whether that printing is a plain one. Your rule: pay extra for a foil or special version only when there's no plain one.",
     );
     expect(flag.text).not.toMatch(/plain copy/);
   });
@@ -379,7 +379,6 @@ describe("buyList", () => {
     const l = buyList({ ...bundle, quotes: qs, swaps: swaps.filter((s) => ["p-unpriced", "p-nowhere"].includes(s.key)) }, { answers });
     expect(l.stores).toEqual([]);
     expect(l.total).toBeNull();
-    expect(usd(l.total)).toBe("no price");
     expect([l.priced, l.unpriced, l.count]).toEqual([0, 2, 2]);
     const c = overviewCounts({ ...bundle, quotes: qs, swaps: swaps.filter((s) => ["p-unpriced", "p-nowhere"].includes(s.key)) }, { answers, marks: new Map(), today: "2026-10-19" });
     expect(c.buyTotal).toBeNull();

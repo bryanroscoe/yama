@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { api, ApiError, usd } from "../api";
+import { api, ApiError } from "../api";
 import { ErrorText } from "../components/ui";
 import type { SellCard } from "./sellList";
 import { canCheck, currentOffer, offerKey, offerTotals, type BuylistOffer } from "./buylistOffers";
+import { usd, fmtDateTime } from "@yama/core";
 
 const LABELS: Record<BuylistOffer["status"], string> = {
   accepting: "Online offer", not_accepting: "Not currently accepting", unmatched: "No exact match",
@@ -87,12 +88,12 @@ export function SellOffers({ cards, qty, onChoose }: { cards: SellCard[]; qty: (
           return <li key={key}>
             <div className="row"><b>{c.name}</b><span className="small dim">{c.set_code?.toUpperCase()} #{c.collector_number}, {c.finish}, {c.condition}</span></div>
             {o && <>
-              <p className="small">{currentOffer(o, now) ? LABELS[o.status] : "Past check"}{o.cash_usd != null ? `: ${usd(o.cash_usd)} cash each` : ""}{o.credit_usd != null ? ` / ${usd(o.credit_usd)} credit each` : ""}. {new Date(o.checked_at).toLocaleString()}.</p>
+              <p className="small">{currentOffer(o, now) ? LABELS[o.status] : "Past check"}{o.cash_usd != null ? `: ${usd(o.cash_usd)} cash each` : ""}{o.credit_usd != null ? ` / ${usd(o.credit_usd)} credit each` : ""}. {fmtDateTime(o.checked_at)}.</p>
               <p className="small dim">{o.note}</p>
             </>}
             <button className="quiet small" onClick={() => void history(c)}>Saved checks</button>
             {rows && <div className="small">
-              {rows.length === 0 ? "No saved checks for this printing yet." : <ul>{rows.map((r) => <li key={r.checked_at}>{new Date(r.checked_at).toLocaleString()}: {LABELS[r.status]}, cash {usd(r.cash_usd)}, credit {usd(r.credit_usd)}</li>)}</ul>}
+              {rows.length === 0 ? "No saved checks for this printing yet." : <ul>{rows.map((r) => <li key={r.checked_at}>{fmtDateTime(r.checked_at)}: {LABELS[r.status]}, cash {usd(r.cash_usd)}, credit {usd(r.credit_usd)}</li>)}</ul>}
             </div>}
           </li>;
         })}

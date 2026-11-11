@@ -1,5 +1,4 @@
-import { GROUP_ORDER, groupOf } from "@yama/core";
-import { fmtDate, usd } from "@yama/core/plan";
+import { GROUP_ORDER, groupOf, fmtDate, usd, NO_PRICE } from "@yama/core";
 import { useEffect, useState, type ReactNode } from "react";
 import { CardHover, CardRef } from "../components/CardRef";
 import { CardImage } from "../components/ui";
@@ -58,7 +57,6 @@ function buyMoney(t: Totals): string {
   return `about ${usd(t.buy_cost)} + ${t.buy_uncosted} without a price`;
 }
 
-const money = (v: number | null) => (v == null ? "Unknown" : usd(v));
 
 /** When the prices are from: one date, or the range. */
 function asOf(s: ShoppingData): string {
@@ -132,8 +130,8 @@ export function ShoppingTable({ s, decks = false }: { s: ShoppingData; decks?: b
               <td><CardLine name={t.name} n={t.n} image={t.image} /></td>
               {decks && <td className="dim">{t.decks.join(", ")}</td>}
               <td>{GET_LABEL[t.get]}</td>
-              <td className="num">{money(t.usd)}</td>
-              <td className="num">{money(t.cost)}</td>
+              <td className="num">{usd(t.usd)}</td>
+              <td className="num">{usd(t.cost)}</td>
             </tr>
           ))}
         </tbody>
@@ -148,7 +146,7 @@ export function ShoppingText({ s }: { s: ShoppingData }) {
     const items = s.items.filter((t) => t.get === get);
     if (!items.length) return [];
     const lines = [...items].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)).map((t) => `${t.n} ${t.name}`);
-    const title = { buy: "Buy locally", print: "Print", unknown: "No price yet" }[get];
+    const title = { buy: "Buy locally", print: "Print", unknown: NO_PRICE }[get];
     return [<CopyBox key={get} title={`${title} (${cardsWord(items.reduce((n, t) => n + t.n, 0))})`} text={`${lines.join("\n")}\n`} />];
   });
   return (

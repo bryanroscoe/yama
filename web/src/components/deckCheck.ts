@@ -3,6 +3,7 @@
 // without a browser.
 
 import type { DeckCheck } from "../api";
+import { fmtWhen } from "@yama/core";
 
 /** What Yama sends where, said wherever a check can start. */
 export const SENDS_LIST = "Yama sends this deck's card list (commander and main deck) to Commander Spellbook after each save, for the card flags and combos used in the suggestion.";
@@ -12,22 +13,6 @@ export function gameChangerFloor(count: number): string {
   if (count === 0) return "No Game Changers. That alone doesn't establish a bracket: speed, consistency and combos still matter.";
   if (count <= 3) return `${count} Game ${count === 1 ? "Changer" : "Changers"}: within bracket 3's limit, but the deck may belong higher.`;
   return `${count} Game Changers: above bracket 3's limit of three, so bracket 4 or 5 under the usual guidelines.`;
-}
-
-/** A moment (RFC 3339, UTC) as the reader's local calendar day: "Oct 18, 2026". Unlike `day()`
- *  for date-only values, a check at 9 pm Central stays on the day it happened. */
-export function localDay(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-}
-
-/** A moment as a local time, with the day when it isn't today: "9:30 PM" or "Oct 20, 9:30 AM". */
-export function localTime(iso: string, now = new Date()): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  const today = d.toDateString() === now.toDateString();
-  return d.toLocaleString(undefined, today ? { hour: "numeric", minute: "2-digit" } : { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 /** E is Spellbook's fallback, not proof of Exhibition intent. Handle it before the numeric
@@ -73,7 +58,7 @@ export function checkStatus(c: DeckCheck | undefined, now = new Date()): string 
   if (!c.enabled) return "Outside checks are off on this server.";
   if (c.archived) return "This deck is archived, so Commander Spellbook isn't asked about it.";
   if (c.error && c.gave_up) return `${failed}: ${c.error}. Stopped trying until you ask again.`;
-  if (c.error && c.retrying && c.next_try_at) return `${failed}: ${c.error}. Trying again at ${localTime(c.next_try_at, now)}.`;
+  if (c.error && c.retrying && c.next_try_at) return `${failed}: ${c.error}. Trying again at ${fmtWhen(c.next_try_at, now)}.`;
   if (c.error && c.pending) return `${failed}: ${c.error}. Trying again now.`;
   if (c.pending) return c.result ? "Checking again with Commander Spellbook." : "Checking with Commander Spellbook. This takes a few seconds after a save.";
   if (!c.result && !c.requested_at) return "Not checked yet.";

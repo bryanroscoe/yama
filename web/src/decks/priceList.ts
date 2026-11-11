@@ -1,5 +1,5 @@
-import { shortDate, usd, type CheapestPrinting, type DeckEntry, type PrintRef } from "../api";
-import { GROUP_ORDER, groupOf } from "@yama/core";
+import { type CheapestPrinting, type DeckEntry, type PrintRef } from "../api";
+import { GROUP_ORDER, groupOf, shortDate, usd } from "@yama/core";
 import { isBasic } from "./deckScan";
 
 /** The deck page's Prices view: every card with what its cheapest printing costs, and whether

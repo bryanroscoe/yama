@@ -6,6 +6,7 @@ import { useState } from "react";
 import { api, type Container, type DeckSummary, type DeckView } from "../api";
 import { SearchPicker } from "../components/SearchPicker";
 import { ErrorText, Sheet } from "../components/ui";
+import { UnsavedPrompt, useUnsavedChanges } from "../unsaved";
 import "./deck-settings.css";
 
 type Ownership = "owned" | "planned" | "";
@@ -31,7 +32,12 @@ export function settingsPatch(deck: Pick<DeckView, "parent_id" | "configurations
   };
 }
 
-export function DeckSettings({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
+/** Whether the sheet's choices differ from the deck's: closing then asks first. */
+export function settingsChanged(deck: Pick<DeckView, "name" | "acquisition_status" | "container_id" | "parent_id" | "configuration">, s: { name: string; ownership: Ownership; container: string; parent: string | null; list: string }): boolean {
+  return s.name !== deck.name || s.ownership !== (deck.acquisition_status ?? "") || s.container !== (deck.container_id ?? "") || s.parent !== deck.parent_id || s.list !== (deck.configuration ?? "");
+}
+
+export function DeckSettings({ deck, onClose: closeSheet }: { deck: DeckView; onClose: () => void }) {
   const qc = useQueryClient();
   const containers = useQuery({ queryKey: ["containers"], queryFn: ({ signal }) => api<Container[]>("/api/containers", { signal }) });
   const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
@@ -46,13 +52,17 @@ export function DeckSettings({ deck, onClose }: { deck: DeckView; onClose: () =>
   const boxName = containers.data?.find((c) => c.id === container)?.name ?? (container ? "A box" : "None");
   const parentName = mains.find((m) => m.id === parent)?.name ?? (parent ? deck.configurations[0]?.name ?? "Another deck" : null);
 
+  // Closing (Close, Cancel, Escape, a tap outside) or leaving the page with changes asks first.
+  const guard = useUnsavedChanges(settingsChanged(deck, { name, ownership, container, parent, list }), { onLeave: closeSheet });
+  const onClose = () => guard.close(closeSheet);
+
   const save = useMutation({
     mutationFn: () => api(`/api/decks/${encodeURIComponent(deck.id)}`, { method: "PATCH", json: settingsPatch(deck, { name, ownership, container, parent, list }) }),
     onSuccess: () => {
       // Every deck in its group lists the group.
       void qc.invalidateQueries({ queryKey: ["deck"] });
       void qc.invalidateQueries({ queryKey: ["decks"] });
-      onClose();
+      closeSheet();
     },
   });
 
@@ -82,6 +92,7 @@ export function DeckSettings({ deck, onClose }: { deck: DeckView; onClose: () =>
             />
           )}
         </div>
+        <UnsavedPrompt guard={guard} what="your changes to this deck" />
       </Sheet>
     );
   }
@@ -143,6 +154,7 @@ export function DeckSettings({ deck, onClose }: { deck: DeckView; onClose: () =>
           <button type="button" className="quiet" onClick={onClose}>Cancel</button>
         </div>
       </form>
+      <UnsavedPrompt guard={guard} what="your changes to this deck" />
     </Sheet>
   );
 }

@@ -13,11 +13,11 @@ import { DeckGames } from "./DeckGames";
 import { ErrorText } from "./ui";
 import "../plan/plans.css";
 import "../decks/deckTabs.css";
+import { fmtDate } from "@yama/core";
 
 /** Pairs shown before "Show all". */
 const PAIRS_SHOWN = 8;
 
-const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 
 const versionsQuery = (deckId: string, currentVersionId: string | null) => ({
   queryKey: ["deck-versions", deckId, currentVersionId] as const,
@@ -48,7 +48,7 @@ export function DeckHistoryBody({ deckId, currentVersionId }: { deckId: string; 
               return (
                 <button key={v.id} type="button" className="deck-history-version" aria-pressed={v.id === selected?.id} onClick={() => setPick(v.id)}>
                   <b>{v.note || (i === list.length - 1 ? "The first list" : "A saved list")}</b>
-                  <span className="dim">{now ? `Now, ${day(v.created_at)}` : v.history_only ? `Scan, ${day(v.created_at)}` : day(v.created_at)}</span>
+                  <span className="dim">{now ? `Now, ${fmtDate(v.created_at)}` : v.history_only ? `Scan, ${fmtDate(v.created_at)}` : fmtDate(v.created_at)}</span>
                 </button>
               );
             })}

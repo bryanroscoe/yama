@@ -1,4 +1,4 @@
-import { fmtDate, type ImportReport, type RowCounts } from "@yama/core/plan";
+import { type ImportReport, type RowCounts } from "@yama/core/plan";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router";
@@ -7,6 +7,7 @@ import { Details, ErrorText, Sheet } from "../components/ui";
 import { uploadPlan } from "./api";
 import { shortHash } from "./PlanLayout";
 import type { PlanView } from "./view";
+import { fmtDate } from "@yama/core";
 
 /**
  * Pick a plan file, read what importing it would do (a dry run that saves nothing), then import.

@@ -97,8 +97,5 @@ export function safeUrl(raw?: string): string | undefined {
   if (!raw) return undefined;
   try { const url = new URL(raw); return ["https:", "http:"].includes(url.protocol) ? url.href : undefined; } catch { return undefined; }
 }
-export function money(value?: number | null): string {
-  return value == null || !Number.isFinite(value) ? "Unknown" : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
-}
 export function targetForSwap(deck: string, build: string, swap: string): string { return `swap:${deck}:${build}:${swap}`; }
 export function changedAnswer(bundle: ResearchBundle, answer: Review): boolean { return bundle.target_hashes[answer.target] !== answer.target_hash; }

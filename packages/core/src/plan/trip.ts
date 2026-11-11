@@ -13,7 +13,7 @@
 import { boughtInfo, markIndex } from "./marks";
 import { newestChecks } from "./quotes";
 import { cheapestMarket, printingMarket, recordedMarket, rulesAt, type MarketBasis, type PriceData, type RuleSet, type Rules } from "./rules";
-import { usd } from "./source";
+import { usd } from "../format";
 import { answerIndex } from "./text";
 import { cartUrl } from "./buy";
 import { massEntryUrl, pasteText, proSearchUrl } from "./carts";
@@ -109,7 +109,7 @@ export function storePreference(b: Pick<PlanBundle, "store_prefs">, key: string)
 }
 
 export const PREFERENCE_TEXT: Record<StorePreference, string> = {
-  favorite: "Favourite, support them",
+  favorite: "Favorite, support them",
   ok: "Fine to go",
   maybe: "Maybe, one trip",
   never: "Won't go",

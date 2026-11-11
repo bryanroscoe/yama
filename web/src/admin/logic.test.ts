@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SharedGrant, SharedOverview, UsageRow } from "./api";
-import { advisorLine, ago, bytes, confirms, deleteSummary, duration, holdings, nearLimits, parseDailyCap, searchAccounts, sharedGrantLine, sharedSummary, today, usd } from "./logic";
+import { advisorLine, bytes, confirms, deleteSummary, duration, holdings, nearLimits, parseDailyCap, searchAccounts, sharedGrantLine, sharedSummary, today, usd } from "./logic";
+import { ago } from "@yama/core";
 
 const row = (over: Partial<UsageRow> = {}): UsageRow => ({
   id: "u1",
@@ -135,7 +136,7 @@ describe("admin words", () => {
       grants: [grant()],
     };
     expect(sharedSummary(o)).toBe("Spent this month (UTC): $1.50 of $10.00. Models: Claude Haiku 5.5.");
-    expect(sharedSummary({ ...o, spent_this_month: 10.2 })).toContain("paused until 1 November");
+    expect(sharedSummary({ ...o, spent_this_month: 10.2 })).toContain("paused until November 1");
     expect(sharedSummary({ ...o, key_on_sidecar: false })).toContain("deploy/advisor-shared-key.sh");
     expect(sharedSummary(o)).not.toContain("·");
   });

@@ -2,21 +2,19 @@
 // from fewer than `provisional_under` games are faded and marked provisional, win rates sit next
 // to the share a player would win by chance, and the page says when it was computed.
 
-import { winConditionLabel } from "@yama/core";
+import { winConditionLabel, count, fmtDate, fmtDateTime, percent } from "@yama/core";
 import { useState } from "react";
 import type { PlaygroupStats, PodSeats } from "../api";
 import "./stats.css";
 
-export const pct = (x: number) => `${Math.round(100 * x)}%`;
 const PLACES = ["Went first", "Second", "Third", "Fourth", "Fifth", "Sixth", "Seventh", "Eighth", "Ninth", "Tenth"];
 const names = (list: string[]) => (list.length <= 1 ? (list[0] ?? "") : `${list.slice(0, -1).join(", ")} and ${list[list.length - 1]}`);
 
-export const computedAt = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 
 function Rate({ wins, games, extra }: { wins: number; games: number; extra?: string }) {
   return (
     <span className="rate">
-      <b className="num">{games ? pct(wins / games) : "none"}</b>
+      <b className="num">{games ? percent(wins / games) : "none"}</b>
       <span className="num">{wins} of {games}{extra ? `, ${extra}` : ""}</span>
     </span>
   );
@@ -36,7 +34,7 @@ export function GroupStats({ s }: { s: PlaygroupStats }) {
   return (
     <div className="stack group-stats">
       <p className="computed">
-        Computed {computedAt(s.computed_at)} from finished games. Rates from fewer than {under} games are faded and marked provisional.
+        Computed {fmtDateTime(s.computed_at)} from finished games. Rates from fewer than {under} games are faded and marked provisional.
       </p>
       {/* One column on phones; side by side as the window allows on laptops. */}
       <div className="group-stats-grid">
@@ -76,7 +74,7 @@ function PodTable({ pod, reference, under }: { pod: PodSeats | null; reference: 
                 <Rate wins={pod.positions[i]?.wins ?? 0} games={pod.games} />
               </td>
             )}
-            <td className="r num">{pct(1 / n)}</td>
+            <td className="r num">{percent(1 / n)}</td>
             {reference && <td className="r num reference">{reference[i]?.toFixed(1)}%</td>}
           </tr>
         ))}
@@ -115,7 +113,7 @@ function TurnOrder({ s }: { s: PlaygroupStats }) {
       </div>
       {showRef && (
         <p className="small dim" style={{ marginTop: "0.6rem" }}>
-          The playgroup.gg column is from <a href={ref.url} target="_blank" rel="noreferrer">its turn-order page</a>: {ref.games.toLocaleString()} single-winner 4-player games, computed {new Date(`${ref.computed}T12:00:00`).toLocaleDateString(undefined, { dateStyle: "medium" })}. It's shown until this group has {ref.show_until_games} 4-player games of its own with a known first player.
+          The playgroup.gg column is from <a href={ref.url} target="_blank" rel="noreferrer">its turn-order page</a>: {count(ref.games)} single-winner 4-player games, computed {fmtDate(ref.computed)}. It's shown until this group has {ref.show_until_games} 4-player games of its own with a known first player.
         </p>
       )}
     </section>

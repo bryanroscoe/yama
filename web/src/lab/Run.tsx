@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { identityName, listText } from "@yama/core";
+import { identityName, listText, fmtDate, fmtDateTime } from "@yama/core";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { usePower } from "../auth";
@@ -17,7 +17,6 @@ import {
   caveat,
   deltaBound,
   durationText,
-  fmtDate,
   gameText,
   gamesToSettle,
   hasResults,
@@ -43,7 +42,9 @@ import { usePrecons } from "./Precons";
 import { usePace } from "./pickers";
 import { deckPath, tablePath } from "./RunTables";
 import { FEW_GAMES } from "./tables";
-import { gameChoices } from "./logic";
+import {
+  gameChoices,
+} from "./logic";
 
 const LIVE = new Set(["queued", "running"]);
 
@@ -274,7 +275,7 @@ export function RunPage() {
       {e.status === "failed" && <p className="error">This run failed: {e.error ?? "no reason recorded"}.</p>}
       {e.status === "cancelled" && (
         <p className="dim">
-          Cancelled after {e.progress.done} of {e.progress.total} games{s && !s.verdict.final ? "; games that were playing still count when they finish" : ""}.
+          Canceled after {e.progress.done} of {e.progress.total} games{s && !s.verdict.final ? "; games that were playing still count when they finish" : ""}.
         </p>
       )}
 
@@ -398,7 +399,7 @@ function ForgeWait({ e }: { e: ExperimentItem }) {
   if (!f.online)
     return (
       <p className="lab-note lab-warn">
-        Forge worker offline{f.last_seen ? ` (last answered ${new Date(f.last_seen).toLocaleString("en-US")})` : ""}. The Forge games wait and play when it's back.
+        Forge worker offline{f.last_seen ? ` (last answered ${fmtDateTime(f.last_seen)})` : ""}. The Forge games wait and play when it's back.
       </p>
     );
   return (
@@ -503,7 +504,7 @@ function Results({ e, s, engine }: { e: ExperimentDetail; s: Summary; engine: Ha
           : cancelled
             ? "Too few pods where both lists finished."
             : "Not enough pods where both lists finished yet."}
-        {cancelled ? " The rest of the games were cancelled." : !s.verdict.final ? " More games are still to come." : ""}
+        {cancelled ? " The rest of the games were canceled." : !s.verdict.final ? " More games are still to come." : ""}
       </p>
       <div className="lab-counts">
         <h3>How the games count</h3>
@@ -579,7 +580,7 @@ function Results({ e, s, engine }: { e: ExperimentDetail; s: Summary; engine: Ha
 
 /** The paired verdict in the two decks' names (the server words it for a change). */
 function compareVerdict(status: ExperimentStatus, s: Summary, a: string, b: string): string {
-  if (status === "cancelled" && s.verdict.kind === "unclear") return "Can't tell from the games played before it was cancelled";
+  if (status === "cancelled" && s.verdict.kind === "unclear") return "Can't tell from the games played before it was canceled";
   const d = s.paired.delta_win_rate;
   const ci = s.paired.delta_ci;
   if (s.verdict.kind === "unclear" || d == null || !ci) return "Can't tell yet: run more games";
@@ -882,7 +883,7 @@ function RunNotes({ e }: { e: ExperimentDetail }) {
 const MISSING: Record<ExperimentStatus, string> = {
   queued: "not played yet",
   running: "not played yet",
-  cancelled: "cancelled",
+  cancelled: "canceled",
   failed: "not played",
   done: "not played",
 };

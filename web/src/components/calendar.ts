@@ -1,6 +1,7 @@
 // Release calendar wording, kept apart from the components so it can be tested.
 
 import type { CalendarSet, PreconSummary } from "../api";
+import { count, plural } from "@yama/core";
 
 /** The reader's local date as YYYY-MM-DD (the server's "today" is UTC). */
 export function localToday(now = new Date()): string {
@@ -28,8 +29,8 @@ export function releaseLine(released: string | null, today: string, fmt: (d: str
 export function previewLine(set: Pick<CalendarSet, "card_count" | "printed_size">, out: boolean): string {
   const n = set.card_count;
   if (n === 0) return "No cards on Scryfall yet";
-  const cards = `${n.toLocaleString()} ${n === 1 ? "card" : "cards"}`;
-  if (set.printed_size && set.printed_size > n) return `${cards} of ${set.printed_size.toLocaleString()} on Scryfall`;
+  const cards = plural(n, "card");
+  if (set.printed_size && set.printed_size > n) return `${cards} of ${count(set.printed_size)} on Scryfall`;
   return out ? `${cards} on Scryfall` : `${cards} on Scryfall so far`;
 }
 

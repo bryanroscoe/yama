@@ -16,6 +16,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { api, errorMessage } from "../api";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
+import { fmtDateTime } from "@yama/core";
 
 /** Yama's answer from MPC Autofill (server/src/mpc.rs): images for each name, best first. */
 export interface MpcImages {
@@ -288,7 +289,7 @@ export function MpcPrint() {
                 )}
               </section>
               <p className="small dim">
-                Images: {images.data.source}, community sources named under each image, checked {new Date(images.data.fetched_at).toLocaleString()}. Yama stores none of them.
+                Images: {images.data.source}, community sources named under each image, checked {fmtDateTime(images.data.fetched_at)}. Yama stores none of them.
               </p>
             </>
           )}
