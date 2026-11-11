@@ -1610,10 +1610,39 @@ async fn rematch(State(st): State<AppState>, Player(user): Player, Path(id): Pat
     Ok(Json(serde_json::json!({ "id": new })))
 }
 
+/// Guests' new games one at a time, from the open-game check to the insert, so requests sent
+/// together can't all pass the guest caps before any is counted.
+static GUEST_CREATES: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// A guest's game with no move or change for this long is over: its player has gone.
+pub const GUEST_IDLE_MINUTES: i64 = 60;
+
+/// End and delete guests' games nobody has touched for [`GUEST_IDLE_MINUTES`]: a guest who closes
+/// the tab never comes back to finish, and its game would hold an engine thread and one of the
+/// guests' places (`guests::GUEST_MAX_OPEN_GAMES_ALL`) until the guest itself goes.
+pub async fn reap_idle_guest_games(st: &AppState) -> AppResult<usize> {
+    let before = (chrono::Utc::now() - chrono::Duration::minutes(GUEST_IDLE_MINUTES)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let idle: Vec<String> = sqlx::query_scalar(
+        "SELECT o.game_id FROM online_games o JOIN users u ON u.id = o.host_id
+         WHERE u.guest = 1 AND o.stage IN ('lobby','live') AND o.updated_at < ?",
+    )
+    .bind(before)
+    .fetch_all(&st.pool)
+    .await?;
+    for id in &idle {
+        st.play.stop(id);
+        // online_games and the seats go with the game (ON DELETE CASCADE).
+        sqlx::query("DELETE FROM games WHERE id = ? AND mode = 'online'").bind(id).execute(&st.pool).await?;
+        st.play.unavailable.lock().unwrap().remove(id);
+    }
+    Ok(idle.len())
+}
+
 /// Make a game from the lobby's seats; it starts at once when there's no friend to wait for.
 async fn create_game(st: &AppState, user: &User, body: &CreateRequest,
     auto_start: bool,) -> AppResult<String> {
     st.limits.play_creates.check_user(user)?;
+    let guest_gate = if user.guest { Some(GUEST_CREATES.lock().await) } else { None };
     check_open_games(&st.pool, user).await?;
     st.play.engine()?;
     if !(2..=6).contains(&body.seats.len()) {
@@ -1704,6 +1733,8 @@ async fn create_game(st: &AppState, user: &User, body: &CreateRequest,
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
+    // Counted now: the next guest's check sees this game.
+    drop(guest_gate);
     // With no friends to wait for, start right away.
     if auto_start
         && !seats.iter().any(|s| s.kind == "human" && s.user_id.is_none()) {

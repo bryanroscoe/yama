@@ -4,6 +4,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { API_BASE, api } from "./api";
+import { useMe } from "./auth";
 
 export interface GuestSession {
   /** Someone with no account may play as a guest here. */
@@ -12,6 +13,8 @@ export interface GuestSession {
   site_key: string | null;
   /** This browser is a guest already. */
   guest: boolean;
+  /** The guest's id, which online games name as their host and seats' player. */
+  id?: string | null;
   /** When this guest and its games are deleted. */
   expires_at: string | null;
 }
@@ -32,4 +35,11 @@ export function useGuestSession(enabled = true) {
     enabled,
     staleTime: 60_000,
   });
+}
+
+/** Who is playing: the signed-in account, else this browser's guest. Online games compare it with their host. */
+export function usePlayerId(): string | undefined {
+  const me = useMe();
+  const guest = useGuestSession(!me.data && !me.isPending);
+  return me.data?.id ?? (guest.data?.guest ? guest.data.id ?? undefined : undefined);
 }

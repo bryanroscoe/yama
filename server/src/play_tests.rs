@@ -2108,9 +2108,23 @@ async fn a_guest_plays_a_precon_against_the_computer_one_game_at_a_time() {
     let (status, page, _) = as_guest(&app, Method::GET, &format!("/api/play/{id}"), Some(&guest), None, None).await;
     assert_eq!(status, StatusCode::OK, "{page}");
 
-    // One unfinished game at a time.
-    let (status, _, _) = as_guest(&app, Method::POST, "/api/play", Some(&guest), None, Some(seats)).await;
-    assert_eq!(status, StatusCode::CONFLICT);
+    // One unfinished game at a time, even asked for several at once.
+    let tries = (0..4).map(|_| as_guest(&app, Method::POST, "/api/play", Some(&guest), None, Some(seats.clone())));
+    let answers = futures_util::future::join_all(tries).await;
+    assert!(answers.iter().all(|(status, _, _)| *status == StatusCode::CONFLICT), "{:?}", answers.iter().map(|a| a.0).collect::<Vec<_>>());
+    assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM online_games WHERE host_id = ?").bind(&guest_id).fetch_one(&pool).await.unwrap(), 1);
+
+    // A game left alone for an hour ends and goes, freeing the guest's place; an account's doesn't.
+    let st = crate::testutil::state().await;
+    let reaper = crate::routes::AppState { pool: pool.clone(), play: hub.clone(), ..st };
+    assert_eq!(reap_idle_guest_games(&reaper).await.unwrap(), 0);
+    sqlx::query("UPDATE online_games SET updated_at = '2026-01-01T00:00:00Z' WHERE game_id = ?").bind(&id).execute(&pool).await.unwrap();
+    assert_eq!(reap_idle_guest_games(&reaper).await.unwrap(), 1);
+    assert!(hub.live(&id).is_none());
+    assert_eq!(as_guest(&app, Method::GET, &format!("/api/play/{id}"), Some(&guest), None, None).await.0, StatusCode::NOT_FOUND);
+    let (status, made, _) = as_guest(&app, Method::POST, "/api/play", Some(&guest), None, Some(seats.clone())).await;
+    assert_eq!(status, StatusCode::OK, "{made}");
+    let id = made["id"].as_str().unwrap().to_string();
     hub.stop(&id);
 
     // Deleting the guest takes its games with it.

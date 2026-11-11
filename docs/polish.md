@@ -57,7 +57,7 @@ The states live in `STATES` in `polish.mjs`; when a new piece of UI depends on t
 
 ## Read-only on purpose
 
-On production, yama.ing runs Cloudflare's Super Bot Fight Mode, which challenges a headless browser. A signed-in run passes because the tool sends its saved session as an `Authorization` header on requests to the host only (a WAF rule lets requests with that header through); a signed-out run on production only screenshots the challenge, so shoot public pages signed out against a local server instead.
+On production, yama.ing runs Cloudflare's Super Bot Fight Mode, which challenges a headless browser. The tool gets past it by sending, on requests to the host only, this machine's agent check header (`x-yama-check`, read from `~/.config/yama/edge-check-header`) and, signed in, its saved session as `Authorization`; a WAF rule skips the bot check for both. Without that file a signed-out run on production only screenshots the challenge. Plain checks do the same: `curl -H "x-yama-check: $(cat ~/.config/yama/edge-check-header)" https://yama.ing/...`. Never print, commit or send the value anywhere else.
 
 A run can't change anyone's decks, collection, games, plans or settings, so it's safe on production. The only writes are sign-in bookkeeping: `--as` adds a session row (`user session`), and requests update the account's `last_seen_at`, as any visit does.
 

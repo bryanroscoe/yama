@@ -108,6 +108,8 @@ struct Status {
     site_key: Option<String>,
     /// This browser is a guest already.
     guest: bool,
+    /// The guest's id, so the web app knows which games it hosts.
+    id: Option<String>,
     /// When this guest and its games are deleted.
     expires_at: Option<String>,
 }
@@ -126,6 +128,7 @@ async fn status(State(st): State<AppState>, headers: HeaderMap) -> AppResult<Jso
         enabled: on,
         site_key: on.then(|| st.cfg.turnstile.as_ref().map(|t| t.site_key.clone())).flatten(),
         guest: guest.is_some(),
+        id: guest.map(|g| g.id),
         expires_at,
     }))
 }
@@ -158,7 +161,7 @@ async fn start(
         && let Some(guest) = guest_for_token(&st, &token).await?
     {
         let expires_at = expires_of(&st.pool, &guest.id).await?;
-        return Ok((jar, Json(Status { enabled: true, site_key: st.cfg.turnstile.as_ref().map(|t| t.site_key.clone()), guest: true, expires_at })));
+        return Ok((jar, Json(Status { enabled: true, site_key: st.cfg.turnstile.as_ref().map(|t| t.site_key.clone()), guest: true, id: Some(guest.id), expires_at })));
     }
     let key = address_key(addr);
     st.limits.new_guests_address.allows(&key)?;
@@ -202,6 +205,7 @@ async fn start(
             enabled: true,
             site_key: st.cfg.turnstile.as_ref().map(|t| t.site_key.clone()),
             guest: true,
+            id: Some(id),
             expires_at: Some(expires.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
         }),
     ))
@@ -226,6 +230,8 @@ struct SiteVerify {
     success: bool,
     #[serde(default)]
     action: Option<String>,
+    #[serde(default)]
+    hostname: Option<String>,
     #[serde(default, rename = "error-codes")]
     error_codes: Vec<String>,
 }
@@ -260,31 +266,53 @@ async fn verify_turnstile(st: &AppState, token: &str, addr: Option<std::net::IpA
         tracing::info!(errors = ?v.error_codes, "a guest's Turnstile check was refused");
         return Ok(false);
     }
+    // A token made on another of the widget's hostnames isn't for this server.
+    let host = st.cfg.public_url.as_deref().and_then(|u| reqwest::Url::parse(u).ok()).and_then(|u| u.host_str().map(str::to_string));
+    if let (Some(want), Some(got)) = (&host, &v.hostname)
+        && !want.eq_ignore_ascii_case(got)
+    {
+        tracing::info!(hostname = %got, "a guest's Turnstile token was for another hostname");
+        return Ok(false);
+    }
     Ok(v.action.as_deref() == Some(TURNSTILE_ACTION))
 }
 
-/// Delete guests older than [`GUEST_DAYS`], and everything they made, every hour.
+/// Every ten minutes: end guests' games left idle (`play::reap_idle_guest_games`), and delete
+/// guests older than [`GUEST_DAYS`] with everything they made.
 pub fn spawn_sweeper(st: AppState) {
     tokio::spawn(async move {
         loop {
+            match crate::play::reap_idle_guest_games(&st).await {
+                Ok(0) => {}
+                Ok(n) => tracing::info!(games = n, "ended guests' idle games"),
+                Err(err) => tracing::warn!(error = %err, "couldn't end guests' idle games"),
+            }
             match sweep(&st).await {
                 Ok(0) => {}
                 Ok(n) => tracing::info!(guests = n, "deleted guests past their week"),
-                Err(err) => tracing::warn!(error = %err, "couldn't delete old guests"),
+                Err(err) => tracing::warn!(error = %err, "couldn't list old guests"),
             }
-            tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+            tokio::time::sleep(std::time::Duration::from_secs(600)).await;
         }
     });
 }
 
-/// Delete the guests made more than [`GUEST_DAYS`] ago. Returns how many went.
+/// Delete the guests made more than [`GUEST_DAYS`] ago. Returns how many went. One that can't be
+/// deleted is logged and skipped, so it never holds up the rest.
 pub async fn sweep(st: &AppState) -> AppResult<usize> {
     let before = (Utc::now() - Duration::days(GUEST_DAYS)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-    let old: Vec<String> = sqlx::query_scalar("SELECT id FROM users WHERE guest = 1 AND created_at < ? LIMIT 500").bind(before).fetch_all(&st.pool).await?;
+    let old: Vec<String> = sqlx::query_scalar("SELECT id FROM users WHERE guest = 1 AND created_at < ? ORDER BY created_at LIMIT 500")
+        .bind(before)
+        .fetch_all(&st.pool)
+        .await?;
+    let mut gone = 0;
     for id in &old {
-        crate::admin::delete::delete_account(st, id).await?;
+        match crate::admin::delete::delete_account(st, id).await {
+            Ok(_) => gone += 1,
+            Err(err) => tracing::warn!(guest = %id, error = %err, "couldn't delete an old guest"),
+        }
     }
-    Ok(old.len())
+    Ok(gone)
 }
 
 #[cfg(test)]

@@ -207,19 +207,23 @@ function saveState(state) {
 }
 
 /**
- * The saved session for the host as an `Authorization` header, for production. yama.ing runs
- * Cloudflare's Super Bot Fight Mode, which challenges a headless browser; a request carrying
- * `Authorization` passes (a WAF skip rule for the apps, script keys and MCP), and the server takes
- * the session from it as from the cookie. Only ever sent to the host itself.
+ * Headers that get a run past Cloudflare's Super Bot Fight Mode on production, which challenges a
+ * headless browser: this machine's agent check header (`x-yama-check`, from
+ * ~/.config/yama/edge-check-header, which a WAF rule skips the check for) and the saved session as
+ * `Authorization` (also skipped; the server takes the session from it as from the cookie). Only
+ * ever sent to the host itself.
  */
 function sessionHeader() {
-  if (isLocal(base) || !existsSync(statePath)) return {};
+  if (isLocal(base)) return {};
+  const check = join(homedir(), ".config", "yama", "edge-check-header");
+  const edge = existsSync(check) ? { "x-yama-check": readFileSync(check, "utf8").trim() } : {};
+  if (!existsSync(statePath)) return edge;
   try {
     const state = JSON.parse(readFileSync(statePath, "utf8"));
     const cookie = (state.cookies ?? []).find((c) => c.name === SESSION_COOKIE && (base.hostname === c.domain.replace(/^\./, "") || base.hostname.endsWith(c.domain)));
-    return cookie ? { authorization: `Bearer ${cookie.value}` } : {};
+    return cookie ? { ...edge, authorization: `Bearer ${cookie.value}` } : edge;
   } catch {
-    return {};
+    return edge;
   }
 }
 
@@ -852,7 +856,7 @@ async function shoot() {
       }, items);
     }
     const auth = sessionHeader();
-    if (!args["allow-writes"] || auth.authorization) {
+    if (!args["allow-writes"] || Object.keys(auth).length) {
       await context.route("**/*", (route) => {
         const req = route.request();
         if (!args["allow-writes"] && !["GET", "HEAD", "OPTIONS"].includes(req.method())) {
@@ -860,7 +864,7 @@ async function shoot() {
           return route.abort("blockedbyclient");
         }
         // The session as a header past Cloudflare's bot check, to the host only (sessionHeader).
-        if (auth.authorization && new URL(req.url()).origin === base.origin) return route.continue({ headers: { ...req.headers(), ...auth } });
+        if (Object.keys(auth).length && new URL(req.url()).origin === base.origin) return route.continue({ headers: { ...req.headers(), ...auth } });
         return route.continue();
       });
     }

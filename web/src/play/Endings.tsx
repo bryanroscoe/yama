@@ -12,6 +12,7 @@ import { Link, useNavigate } from "react-router";
 import { GAME_WORDS, NOTE_MAX, WIN_CONDITIONS, winConditionLabel, wonText, type WinCondition } from "@yama/core";
 import { api } from "../api";
 import { useMe } from "../auth";
+import { usePlayerId } from "../guestPlay";
 import { ask } from "../components/confirm";
 import { FunPicker, WinConditionPicker } from "../components/GameCapture";
 import { serialQueue } from "./saveQueue";
@@ -170,7 +171,8 @@ export function GameOver(props: {
   // The host by account, not by seat: a table whose host chose who goes first is numbered from
   // that player, so the host isn't always seat 1.
   const me = useMe();
-  const host = !!game && !!me.data && game.host === me.data.id;
+  const playerId = usePlayerId();
+  const host = !!game && !!playerId && game.host === playerId;
   // The game's record: its group, when it started and ended, and a rematch once the host starts one.
   useEffect(() => {
     let stop = false;
