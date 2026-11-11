@@ -8,17 +8,24 @@
 //! signed and altered, and what was paid.
 //!
 //! - **Matching.** A row's Scryfall id wins if Yama has that printing. Otherwise the name finds
-//!   the card (exactly, then forgiving accents and punctuation), and the set and collector number
-//!   find the printing. A set or number Yama doesn't have for the card falls back to a regular
-//!   printing of it (`decks::collection_printing`), and the report says so. A row whose name
-//!   matches nothing but whose set and number do is taken by its number. A row that matches
+//!   the card (exactly, then forgiving accents, case and curly quotes), and the set and collector
+//!   number find the printing. A set or number Yama doesn't have for the card falls back to a
+//!   regular printing of it that comes in the row's finish (`decks::collection_printing`), and
+//!   the report says so. A row whose name matches nothing but whose set and number do is taken by
+//!   its number only if the name is close to that card's (a typo) or the row is in another
+//!   language; otherwise it stays unmatched, with that card as a suggestion. A row that matches
 //!   nothing stays in the report (`unmatched`), as written: never dropped.
 //! - **Where.** Every copy goes to one place the person picks: a container of theirs, or unfiled.
-//! - **Twice adds nothing.** The ops are named after a hash of the rows read, so the same list
-//!   again (retried, or chosen a second time) finds its ops applied and adds nothing; the report
-//!   says when it was imported. `top_up` is for a newer export of a collection that is partly in
-//!   Yama already: of each printing, finish and language it adds only the copies beyond what the
-//!   account has anywhere.
+//! - **Twice adds nothing.** Each line's op is named after a hash of the text (line endings and
+//!   blank lines aside) and the line's place in it, so the same list again (retried, or chosen a
+//!   second time) finds its ops applied and adds nothing; the report says when it was imported.
+//!   A line that matched no card then, and does now that card data has it, is still added.
+//!   `again` (a nonce from the page) is the person saying "add them again": the same list under
+//!   other op ids. `top_up` is for a newer export of a collection that is partly in Yama already:
+//!   of each printing, finish and language it adds only the copies beyond what the account has
+//!   anywhere (for a line that named no printing, beyond its copies of the card in any printing).
+//!   Without it, the report still counts those copies (`already_owned`), so the page can warn
+//!   before a collection is doubled.
 //! - `dry_run` plans everything and writes nothing: the web's preview.
 //!
 //! The Mythic Tools import (`mythic.rs`) stays the way to bring a Mythic Tools export up to date
@@ -27,7 +34,8 @@
 use super::{CopyKind, LANGS, MAX_OP_QTY, Op, OpKind, apply_op, owned_copies};
 use crate::auth::CurrentUser;
 use crate::deck_import::formats;
-use crate::deck_import::names::NameIndex;
+use crate::deck_import::names::{self, NameIndex};
+use crate::decks::PrintingChoice;
 use crate::error::{AppError, AppResult};
 use crate::routes::AppState;
 use crate::util::sha256_hex;
@@ -36,7 +44,7 @@ use axum::routing::post;
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// The most text one import reads, as the Mythic Tools import: about 20,000 rows.
 pub const IMPORT_MAX_BYTES: usize = super::mythic::MYTHIC_MAX_BYTES;
@@ -63,6 +71,8 @@ struct ImportRequest {
     top_up: bool,
     #[serde(default)]
     dry_run: bool,
+    /// "Add them again": a nonce the page makes once per asking, so a retry is still one import.
+    again: Option<String>,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -72,6 +82,8 @@ pub struct ImportOptions {
     /// language.
     pub top_up: bool,
     pub container_id: Option<String>,
+    /// Import a list that was imported before, again, under this nonce's op ids.
+    pub again: Option<String>,
 }
 
 /// A card line that matched, as the preview lists it.
@@ -90,15 +102,16 @@ pub struct Line {
     /// Copies added (to add, in a preview).
     pub qty: i64,
     /// How the printing was found: "id" (the row's Scryfall id), "exact" (set and number), "set"
-    /// (the set; no number, or one Yama doesn't have), "number" (set and number, the name didn't
-    /// match) or "default" (no printing named, or one Yama doesn't have for the card).
+    /// (the set; no number, or one Yama doesn't have), "number" (set and number, the name was
+    /// misspelled or in another language) or "default" (no printing named, or one Yama doesn't
+    /// have for the card).
     pub printing: &'static str,
 }
 
-/// A card line that matched nothing. It is listed, never dropped.
+/// A card line that wasn't added. It is listed, never dropped.
 #[derive(Serialize, Debug, Clone, PartialEq)]
 pub struct Unmatched {
-    /// The line as a list would write it: "2 Sol Rnig (C21) 263".
+    /// The line as a list would write it: "2 Sol Rnig (C21) 263 *F*".
     pub text: String,
     /// The row of the file it came from (CSV files only).
     pub row: Option<usize>,
@@ -113,9 +126,11 @@ pub struct ImportReport {
     /// A preview: nothing was written.
     pub dry_run: bool,
     pub top_up: bool,
+    /// The person asked for a list imported before to be added again.
+    pub again: bool,
     /// What the text looks like: "a ManaBox export", "a plain list".
     pub source: String,
-    /// When this exact list was imported before. Nothing is added from it again.
+    /// When this exact list was imported before. Its lines aren't added again.
     pub already_imported: Option<String>,
     /// Where the copies go, as people read it: "box: Bulk", or "unfiled".
     pub place: String,
@@ -126,7 +141,8 @@ pub struct ImportReport {
     /// Copies added (to add, in a preview).
     pub added: i64,
     pub added_cards: Vec<Line>,
-    /// With `top_up`: copies the list names that the account has already, so they aren't added.
+    /// Copies the list names that the account has already. With `top_up` they aren't added;
+    /// without it they are, and the page says so first.
     pub already_owned: i64,
     pub unmatched: Vec<Unmatched>,
     pub unmatched_copies: i64,
@@ -137,7 +153,12 @@ pub struct ImportReport {
 }
 
 async fn import(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(req): Json<ImportRequest>) -> AppResult<Json<ImportReport>> {
-    st.limits.imports.check_user(&user)?;
+    // A preview is asked again on each change, so it has more room than the import itself.
+    if req.dry_run {
+        st.limits.collection_previews.check_user(&user)?;
+    } else {
+        st.limits.imports.check_user(&user)?;
+    }
     if user.limited && req.text.len() > OPEN_IMPORT_MAX_BYTES {
         return Err(AppError::bad(format!(
             "That's {} KB. Your account can import up to {} KB at a time. {}",
@@ -152,7 +173,10 @@ async fn import(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json
     if req.text.trim().is_empty() {
         return Err(AppError::bad("paste a list of cards or choose a file"));
     }
-    let opts = ImportOptions { dry_run: req.dry_run, top_up: req.top_up, container_id: req.container_id.filter(|c| !c.is_empty()) };
+    if req.again.as_deref().is_some_and(|n| !(8..=40).contains(&n.len()) || !n.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')) {
+        return Err(AppError::bad("again must be 8 to 40 letters, digits or hyphens"));
+    }
+    let opts = ImportOptions { dry_run: req.dry_run, top_up: req.top_up, container_id: req.container_id.filter(|c| !c.is_empty()), again: req.again };
     Ok(Json(import_collection(&st.pool, &user.id, &req.text, req.file_name.as_deref(), opts).await?))
 }
 
@@ -205,7 +229,8 @@ impl Row {
         }
     }
 
-    /// The line as a list would write it, for the ones that match nothing: "2 Sol Rnig (C21) 263".
+    /// The line as a list would write it, for the ones that aren't added, so it can be copied,
+    /// fixed and pasted again: "2 Sol Rnig (C21) 263 *F*".
     fn as_written(&self) -> String {
         let mut s = format!("{} {}", self.qty, if self.name.is_empty() { "(no name)" } else { &self.name });
         if let Some(set) = &self.set_code {
@@ -214,29 +239,12 @@ impl Row {
                 s.push_str(&format!(" {n}"));
             }
         }
+        match self.finish {
+            "foil" => s.push_str(" *F*"),
+            "etched" => s.push_str(" *E*"),
+            _ => {}
+        }
         s
-    }
-
-    /// Everything the import reads from the line, for the hash that names its ops.
-    fn fingerprint(&self) -> String {
-        format!(
-            "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}{}{}{}|{}|{}",
-            self.qty,
-            self.name,
-            self.set_code.as_deref().unwrap_or(""),
-            self.set_name.as_deref().unwrap_or(""),
-            self.collector_number.as_deref().unwrap_or(""),
-            self.scryfall_id.as_deref().unwrap_or(""),
-            self.finish,
-            self.condition,
-            self.lang.unwrap_or(""),
-            u8::from(self.altered),
-            u8::from(self.signed),
-            u8::from(self.misprint),
-            u8::from(self.proxy),
-            self.purchase_price.map(|p| p.to_string()).unwrap_or_default(),
-            self.purchase_currency.as_deref().unwrap_or(""),
-        )
     }
 }
 
@@ -249,12 +257,16 @@ struct Source {
     /// Conditions and languages the source wrote that Yama doesn't know, each once.
     odd_conditions: Vec<String>,
     odd_langs: Vec<String>,
+    /// Rows with a count of 0 (a wishlist or tradelist row): not cards owned, left out.
+    zero_rows: usize,
+    /// A price paid was read from a file that names no currency: taken as US dollars.
+    dollars_assumed: bool,
 }
 
 /// Columns that hold a card's name, best first. Mythic Tools has the printed name and the English
-/// one; TCGplayer's "Name" carries the treatment ("Sol Ring (Extended Art)") and "Simple Name"
-/// doesn't.
-const NAME_COLS: [&str; 6] = ["english name", "simple name", "name", "card name", "card", "card_name"];
+/// one; TCGplayer's "Name" and "Product Name" carry the treatment ("Sol Ring (Extended Art)") and
+/// "Simple Name" doesn't.
+const NAME_COLS: [&str; 7] = ["english name", "simple name", "name", "card name", "card", "card_name", "product name"];
 const ID_COLS: [&str; 3] = ["scryfall id", "scryfall_id", "scryfallid"];
 
 fn read(text: &str, file_name: Option<&str>) -> Source {
@@ -336,6 +348,7 @@ fn read_csv(start: &CsvStart<'_>) -> Source {
         return src;
     }
     src.label = csv_label(&headers).to_string();
+    let deckbox = src.label == "a Deckbox export";
     let qty_c = col(&["quantity", "qty", "count", "amount", "total quantity", "total qty"]);
     let set_code_c = col(&["set code", "edition code", "set_code", "expansion code", "setcode"]);
     // Moxfield's "Edition" is a set code; Deckbox's and TCGplayer's "Edition" and "Set" are names.
@@ -348,7 +361,8 @@ fn read_csv(start: &CsvStart<'_>) -> Source {
     let signed_c = col(&["signed"]);
     let misprint_c = col(&["misprint"]);
     let proxy_c = col(&["proxy"]);
-    let price_c = col(&["purchase price", "purchase price (usd)", "price bought", "my price"]);
+    // What was paid. Not Deckbox's "My Price", which is what the owner asks for the card.
+    let price_c = col(&["purchase price", "purchase price (usd)", "price bought"]);
     let currency_c = col(&["purchase price currency", "purchase currency"]);
     for (i, rec) in rdr.records().enumerate() {
         let Ok(rec) = rec else {
@@ -357,9 +371,16 @@ fn read_csv(start: &CsvStart<'_>) -> Source {
         };
         let line = rec.position().map_or(i + 2, |p| p.line() as usize) + start.header_line - 1;
         let get = |c: Option<usize>| c.and_then(|i| rec.get(i)).map(str::trim).filter(|v| !v.is_empty());
+        if rec.iter().all(|f| f.trim().is_empty()) {
+            continue;
+        }
         let name = get(name_c).unwrap_or("");
         let scryfall_id = get(id_c).map(str::to_lowercase);
-        if name.is_empty() && scryfall_id.is_none() {
+        let set_code = get(set_code_c).or(get(set_c)).map(str::to_lowercase).filter(|s| is_set_code(s));
+        let collector_number = get(num_c).map(str::to_string);
+        // No name and no id: only a set and number can still say which card it is.
+        if name.is_empty() && scryfall_id.is_none() && (set_code.is_none() || collector_number.is_none()) {
+            src.skipped.push(format!("Row {line} has no card name."));
             continue;
         }
         let qty = match get(qty_c).map(str::parse::<i64>) {
@@ -371,18 +392,23 @@ fn read_csv(start: &CsvStart<'_>) -> Source {
             }
         };
         // Deckbox and Moxfield list cards with a count of 0 (a wishlist, a tradelist): not owned.
-        if qty <= 0 {
+        if qty == 0 {
+            src.zero_rows += 1;
+            continue;
+        }
+        if qty < 0 {
+            src.skipped.push(format!("Row {line}: {qty} isn't a number of copies ({name})."));
             continue;
         }
         let mut row = Row::named(name, qty);
         row.row = Some(line);
         row.scryfall_id = scryfall_id;
-        row.set_code = get(set_code_c).or(get(set_c)).map(str::to_lowercase).filter(|s| is_set_code(s));
+        row.set_code = set_code;
         row.set_name = get(set_c).map(str::to_string);
-        row.collector_number = get(num_c).map(str::to_string);
+        row.collector_number = collector_number;
         row.finish = finish_of(get(finish_c));
         if let Some(raw) = get(cond_c) {
-            match condition_code(raw) {
+            match condition_code(raw, deckbox) {
                 Some(c) => row.condition = c,
                 None => note_once(&mut src.odd_conditions, raw),
             }
@@ -401,8 +427,8 @@ fn read_csv(start: &CsvStart<'_>) -> Source {
         row.signed = get(signed_c).is_some_and(flag);
         row.misprint = get(misprint_c).is_some_and(flag);
         row.proxy = get(proxy_c).is_some_and(flag);
-        // What was paid, in the currency the file names (dollars if it names none). A price of 0
-        // is how these apps write "not entered": unknown, not free.
+        // What was paid, in the currency the file names (dollars if it names none, which the
+        // report says). A price of 0 is how these apps write "not entered": unknown, not free.
         let currency = match get(currency_c) {
             None => Some("USD".to_string()),
             Some(c) if c.len() == 3 && c.bytes().all(|b| b.is_ascii_alphabetic()) => Some(c.to_ascii_uppercase()),
@@ -413,6 +439,9 @@ fn read_csv(start: &CsvStart<'_>) -> Source {
         {
             row.purchase_price = Some(p);
             row.purchase_currency = Some(currency);
+            if currency_c.is_none() {
+                src.dollars_assumed = true;
+            }
         }
         src.rows.push(row);
     }
@@ -434,7 +463,7 @@ fn csv_label(headers: &[String]) -> &'static str {
         "a Mythic Tools export"
     } else if has("folder name") && has("trade quantity") {
         "a Dragon Shield export"
-    } else if has("simple name") || has("product id") {
+    } else if has("simple name") || has("product id") || has("product name") {
         "a TCGplayer export"
     } else if has("tradelist count") && (has("artist proof") || has("card number")) {
         "a Deckbox export"
@@ -469,21 +498,33 @@ fn flag(v: &str) -> bool {
     !matches!(v.trim().to_lowercase().as_str(), "" | "false" | "no" | "0" | "n")
 }
 
-/// "$1,234.50" → 1234.5. Nothing for 0 (not entered), a negative or something that isn't a price.
+/// A price paid, read only from a form that can't be misread: "12.34", "$1,234.50", "12" or,
+/// with a decimal comma, "1,50". Nothing for 0 (not entered), a negative, or anything else
+/// ("1.234,50", "-3", "free"): an amount is never guessed.
 fn price(raw: &str) -> Option<f64> {
-    let cleaned: String = raw.chars().filter(|c| c.is_ascii_digit() || *c == '.').collect();
-    if raw.trim_start().starts_with('-') {
+    let s = raw.trim().trim_start_matches(['$', '€', '£']).trim();
+    if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit() || b == b'.' || b == b',') {
         return None;
     }
-    cleaned.parse::<f64>().ok().filter(|p| p.is_finite() && *p > 0.0 && *p <= 10_000_000.0)
+    let groups: Vec<&str> = s.split(',').collect();
+    let plain = match (groups.len(), s.matches('.').count()) {
+        (1, 0 | 1) => s.to_string(),
+        // One comma and no point: thousands ("1,234") or a decimal comma ("1,50").
+        (2, 0) if groups[1].len() == 3 && !groups[0].is_empty() => groups.concat(),
+        (2, 0) if (1..=2).contains(&groups[1].len()) && !groups[0].is_empty() => format!("{}.{}", groups[0], groups[1]),
+        // Thousands commas before a decimal point: "1,234.50".
+        (_, 1) if !groups[0].is_empty() && groups[1..groups.len() - 1].iter().all(|g| g.len() == 3) && groups[groups.len() - 1].split('.').next().is_some_and(|g| g.len() == 3) => groups.concat(),
+        _ => return None,
+    };
+    plain.parse::<f64>().ok().filter(|p| p.is_finite() && *p > 0.0 && *p <= 10_000_000.0)
 }
 
 /// A condition as Yama keeps it. Apps use two scales. TCGplayer's (Moxfield, Archidekt, Mythic
 /// Tools): near mint, lightly, moderately and heavily played, damaged. Cardmarket's (ManaBox,
-/// Dragon Shield, Deckbox's is close): mint, near mint, excellent, good, light played, played,
-/// poor, read here as NM, NM, LP, MP, MP, HP, DMG, so a card is never filed as better than its
-/// grade.
-fn condition_code(raw: &str) -> Option<&'static str> {
+/// Dragon Shield): mint, near mint, excellent, good, light played, played, poor, read here as
+/// NM, NM, LP, MP, MP, HP, DMG, so a card is never filed as better than its grade. Deckbox has
+/// "Played" between "Good (Lightly Played)" and "Heavily Played": moderately played there.
+fn condition_code(raw: &str, deckbox: bool) -> Option<&'static str> {
     let key: String = raw.chars().filter(|c| c.is_ascii_alphabetic()).collect::<String>().to_ascii_lowercase();
     // TCGplayer: "Near Mint Foil".
     let key = key.strip_suffix("foil").unwrap_or(&key);
@@ -491,6 +532,7 @@ fn condition_code(raw: &str) -> Option<&'static str> {
         "m" | "mint" | "nm" | "nearmint" | "nmm" | "nearmintmint" | "mintnearmint" => "NM",
         "lp" | "lightlyplayed" | "sp" | "slightlyplayed" | "ex" | "excellent" | "goodlightlyplayed" => "LP",
         "mp" | "moderatelyplayed" | "gd" | "good" | "lightplayed" => "MP",
+        "played" if deckbox => "MP",
         "hp" | "heavilyplayed" | "pl" | "played" => "HP",
         "d" | "dmg" | "damaged" | "po" | "poor" => "DMG",
         _ => return None,
@@ -510,8 +552,8 @@ fn lang_code(raw: &str) -> Option<&'static str> {
         "japanese" | "jp" => "ja",
         "korean" | "kr" => "ko",
         "russian" => "ru",
-        "chinese simplified" | "simplified chinese" | "s-chinese" | "chinese" | "cs" | "zh-cn" | "zh_cn" => "zhs",
-        "chinese traditional" | "traditional chinese" | "t-chinese" | "ct" | "zh-tw" | "zh_tw" => "zht",
+        "chinese simplified" | "simplified chinese" | "chinese (s)" | "s-chinese" | "chinese" | "cs" | "zh-cn" | "zh_cn" => "zhs",
+        "chinese traditional" | "traditional chinese" | "chinese (t)" | "t-chinese" | "ct" | "zh-tw" | "zh_tw" => "zht",
         "hebrew" => "he",
         "latin" => "la",
         "ancient greek" => "grc",
@@ -530,39 +572,72 @@ fn lang_code(raw: &str) -> Option<&'static str> {
 #[derive(sqlx::FromRow, Debug, Clone)]
 struct Found {
     scryfall_id: String,
+    oracle_id: String,
     name: String,
     set_code: String,
     set_name: String,
     collector_number: String,
     lang: String,
+    /// JSON array: nonfoil | foil | etched
+    finishes: String,
+}
+
+impl Found {
+    fn comes_in(&self, finish: &str) -> bool {
+        self.finishes.contains(&format!("\"{finish}\""))
+    }
+
+    /// The finish a copy is filed under. A list that named no finish means the regular one; on a
+    /// printing that only comes in foil, that is the foil. A finish the row did name is kept.
+    fn finish_for(&self, wanted: &'static str) -> &'static str {
+        if wanted != "nonfoil" || self.comes_in("nonfoil") {
+            wanted
+        } else if self.comes_in("foil") {
+            "foil"
+        } else if self.comes_in("etched") {
+            "etched"
+        } else {
+            wanted
+        }
+    }
 }
 
 /// A row with the printing it means.
 struct Matched {
+    /// The row's place among the source's rows: it names the op, so it must not shift when
+    /// another row starts or stops matching.
+    index: usize,
     row: Row,
     found: Found,
     how: &'static str,
-    /// The language the copy is filed under.
+    /// The finish and language the copy is filed under.
+    finish: &'static str,
     lang: String,
+    /// The row named no printing: Yama chose one, and any printing of the card stands for it.
+    any_printing: bool,
 }
 
 async fn by_id(pool: &SqlitePool, id: &str) -> AppResult<Option<Found>> {
-    Ok(sqlx::query_as("SELECT scryfall_id, name, set_code, set_name, collector_number, lang FROM printings WHERE scryfall_id = ?").bind(id).fetch_optional(pool).await?)
+    Ok(sqlx::query_as("SELECT scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang, finishes FROM printings WHERE scryfall_id = ?")
+        .bind(id)
+        .fetch_optional(pool)
+        .await?)
 }
 
 /// A card's printing in the set the row names (by code or by name), with the number if given.
-/// The row's language first, then English.
+/// The row's language first, then English, then a printing that comes in the row's finish.
 async fn in_set(pool: &SqlitePool, oracle_id: &str, row: &Row, number: Option<&str>) -> AppResult<Option<Found>> {
     Ok(sqlx::query_as(
-        "SELECT scryfall_id, name, set_code, set_name, collector_number, lang FROM printings
+        "SELECT scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang, finishes FROM printings
          WHERE oracle_id = ?1 AND (set_code = ?2 OR set_name = ?3 COLLATE NOCASE) AND (?4 IS NULL OR collector_number = ?4)
-         ORDER BY (lang = ?5) DESC, (lang = 'en') DESC, length(collector_number), collector_number LIMIT 1",
+         ORDER BY (lang = ?5) DESC, (lang = 'en') DESC, (instr(finishes, ?6) > 0) DESC, length(collector_number), collector_number LIMIT 1",
     )
     .bind(oracle_id)
     .bind(&row.set_code)
     .bind(&row.set_name)
     .bind(number)
     .bind(row.lang.unwrap_or("en"))
+    .bind(format!("\"{}\"", row.finish))
     .fetch_optional(pool)
     .await?)
 }
@@ -572,6 +647,25 @@ fn plain_number(n: &str) -> String {
     let n = n.split('/').next().unwrap_or(n).trim();
     let stripped = n.trim_start_matches('0');
     if stripped.is_empty() { n.to_string() } else { stripped.to_string() }
+}
+
+/// Whether a name as written could be this card's, misspelled: one holds the other, or they are
+/// a few letters apart. A card with two faces may be written by either.
+fn names_agree(written: &str, card: &str) -> bool {
+    let a = names::normalize(written);
+    std::iter::once(card).chain(card.split(" // ")).any(|face| {
+        let b = names::normalize(face);
+        if a == b || a.contains(&b) || b.contains(&a) {
+            return true;
+        }
+        let max = (a.chars().count().max(b.chars().count()) / 4).max(2);
+        names::distance(&a, &b, max) <= max
+    })
+}
+
+/// Whether the name as written is the card's own, or one of its faces', whatever the case.
+fn is_own_name(written: &str, card: &str) -> bool {
+    std::iter::once(card).chain(card.split(" // ")).any(|face| face.eq_ignore_ascii_case(written))
 }
 
 /// Find each row's printing. Lookups run outside any transaction: a big file is thousands of
@@ -586,131 +680,163 @@ async fn match_rows(pool: &SqlitePool, rows: Vec<Row>, report: &mut ImportReport
         });
     }
     let mut names: Vec<String> = Vec::new();
+    let mut seen: HashSet<&str> = HashSet::new();
     for (r, hit) in rows.iter().zip(&by_ids) {
-        if hit.is_none() && !r.name.is_empty() && !names.contains(&r.name) {
+        if hit.is_none() && !r.name.is_empty() && seen.insert(r.name.as_str()) {
             names.push(r.name.clone());
         }
     }
     let exact = crate::cards::resolve_names(pool, &names).await?;
     let mut index: Option<NameIndex> = None;
-    // The printing a card gets when the row names none (or one Yama doesn't have), by oracle id.
-    let mut defaults: HashMap<String, Option<Found>> = HashMap::new();
+    // The printing a card gets when the row names none (or one Yama doesn't have), by oracle id
+    // and the finish it should come in.
+    let mut defaults: HashMap<(String, &'static str), Option<Found>> = HashMap::new();
     let mut matched = Vec::new();
-    let (mut no_printing_named, mut printing_not_found, mut suggested) = (0usize, 0usize, 0usize);
-    for (row, id_hit) in rows.into_iter().zip(by_ids) {
+    let (mut no_printing_named, mut printing_not_found, mut by_number, mut suggested) = (0usize, 0usize, 0usize, 0usize);
+    for (n, (row, id_hit)) in rows.into_iter().zip(by_ids).enumerate() {
         if !(1..=MAX_OP_QTY).contains(&row.qty) {
             report.unmatched_copies += row.qty;
             report.unmatched.push(Unmatched { text: row.as_written(), row: row.row, qty: row.qty, reason: format!("Yama adds at most {MAX_OP_QTY} copies of a card at a time."), suggestions: vec![] });
             continue;
         }
-        if let Some(found) = id_hit {
-            let lang = row.lang.map(str::to_string).unwrap_or_else(|| found.lang.clone());
-            matched.push(Matched { row, found, how: "id", lang });
-            continue;
-        }
-        let mut oracle = exact.get(&row.name).cloned();
-        if oracle.is_none() && !row.name.is_empty() {
-            if index.is_none() {
-                index = Some(NameIndex::load(pool).await?);
-            }
-            oracle = index.as_ref().and_then(|i| i.forgiving(&row.name)).map(|(_, oid)| oid);
-        }
+        let mut hit: Option<(Found, &'static str)> = id_hit.map(|f| (f, "id"));
+        let mut oracle: Option<String> = None;
+        // The card a set and number named, when the row's name was too far from it to trust.
+        let mut numbered: Option<String> = None;
         let named = row.set_code.is_some() || row.set_name.is_some();
-        let mut hit: Option<(Found, &'static str)> = None;
-        match &oracle {
-            Some(oid) => {
-                if named {
-                    if let Some(n) = &row.collector_number {
-                        hit = in_set(pool, oid, &row, Some(n.as_str())).await?.map(|f| (f, "exact"));
-                        if hit.is_none() && plain_number(n) != *n {
-                            hit = in_set(pool, oid, &row, Some(plain_number(n).as_str())).await?.map(|f| (f, "exact"));
+        if hit.is_none() {
+            oracle = exact.get(&row.name).cloned();
+            if oracle.is_none() && !row.name.is_empty() {
+                if index.is_none() {
+                    index = Some(NameIndex::load(pool).await?);
+                }
+                oracle = index.as_ref().and_then(|i| i.forgiving(&row.name)).map(|(_, oid)| oid);
+            }
+            match &oracle {
+                Some(oid) => {
+                    if named {
+                        if let Some(n) = &row.collector_number {
+                            hit = in_set(pool, oid, &row, Some(n.as_str())).await?.map(|f| (f, "exact"));
+                            if hit.is_none() && plain_number(n) != *n {
+                                hit = in_set(pool, oid, &row, Some(plain_number(n).as_str())).await?.map(|f| (f, "exact"));
+                            }
+                        }
+                        if hit.is_none() {
+                            hit = in_set(pool, oid, &row, None).await?.map(|f| (f, "set"));
+                            // A number was named and this set doesn't have it for the card.
+                            if hit.is_some() && row.collector_number.is_some() {
+                                printing_not_found += 1;
+                            }
                         }
                     }
                     if hit.is_none() {
-                        hit = in_set(pool, oid, &row, None).await?.map(|f| (f, "set"));
-                        // A number was named and this set doesn't have it for the card.
-                        if hit.is_some() && row.collector_number.is_some() {
-                            printing_not_found += 1;
+                        let key = (oid.clone(), row.finish);
+                        if !defaults.contains_key(&key) {
+                            let choices = crate::decks::printing_choices_for(pool, &[oid.as_str()]).await?;
+                            let all: &[PrintingChoice] = choices.get(oid).map_or(&[], Vec::as_slice);
+                            // A printing that comes in the row's finish, if the card has one.
+                            let wanted = format!("\"{}\"", row.finish);
+                            let fitting: Vec<PrintingChoice> = all.iter().filter(|c| c.finishes.contains(&wanted)).cloned().collect();
+                            let best = crate::decks::collection_printing(if fitting.is_empty() { all } else { &fitting }).map(|p| p.scryfall_id.clone());
+                            let found = match best {
+                                Some(id) => by_id(pool, &id).await?,
+                                None => None,
+                            };
+                            defaults.insert(key.clone(), found);
                         }
-                    }
-                }
-                if hit.is_none() {
-                    if !defaults.contains_key(oid) {
-                        let choices = crate::decks::printing_choices_for(pool, &[oid.as_str()]).await?;
-                        let best = choices.get(oid).and_then(|c| crate::decks::collection_printing(c)).map(|p| p.scryfall_id.clone());
-                        let found = match best {
-                            Some(id) => by_id(pool, &id).await?,
-                            None => None,
-                        };
-                        defaults.insert(oid.clone(), found);
-                    }
-                    hit = defaults.get(oid).cloned().flatten().map(|f| (f, "default"));
-                    if hit.is_some() {
-                        if named {
-                            printing_not_found += 1;
-                        } else {
-                            no_printing_named += 1;
-                        }
-                    }
-                }
-            }
-            // The name matched nothing (a typo, another language), but the set and number say
-            // which card it is.
-            None => {
-                if let (Some(set), Some(n)) = (&row.set_code, &row.collector_number) {
-                    for number in [n.clone(), plain_number(n)] {
+                        hit = defaults.get(&key).cloned().flatten().map(|f| (f, "default"));
                         if hit.is_some() {
-                            break;
+                            if named {
+                                printing_not_found += 1;
+                            } else {
+                                no_printing_named += 1;
+                            }
                         }
-                        hit = sqlx::query_as(
-                            "SELECT scryfall_id, name, set_code, set_name, collector_number, lang FROM printings
-                             WHERE set_code = ?1 AND collector_number = ?2 ORDER BY (lang = ?3) DESC, (lang = 'en') DESC LIMIT 1",
-                        )
-                        .bind(set)
-                        .bind(&number)
-                        .bind(row.lang.unwrap_or("en"))
-                        .fetch_optional(pool)
-                        .await?
-                        .map(|f| (f, "number"));
+                    }
+                }
+                // The name matched nothing, but the set and number say which card it is. That is
+                // believed for a typo, a name in another language, or no name at all; a name that
+                // is plainly another card's stays unmatched, with this card as a suggestion.
+                None => {
+                    if let (Some(set), Some(n)) = (&row.set_code, &row.collector_number) {
+                        let mut at_number: Option<Found> = None;
+                        for number in [n.clone(), plain_number(n)] {
+                            if at_number.is_some() {
+                                break;
+                            }
+                            at_number = sqlx::query_as(
+                                "SELECT scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang, finishes FROM printings
+                                 WHERE set_code = ?1 AND collector_number = ?2 ORDER BY (lang = ?3) DESC, (lang = 'en') DESC LIMIT 1",
+                            )
+                            .bind(set)
+                            .bind(&number)
+                            .bind(row.lang.unwrap_or("en"))
+                            .fetch_optional(pool)
+                            .await?;
+                        }
+                        if let Some(f) = at_number {
+                            if row.name.is_empty() || row.lang.is_some_and(|l| l != "en") || names_agree(&row.name, &f.name) {
+                                by_number += 1;
+                                hit = Some((f, "number"));
+                            } else {
+                                numbered = Some(f.name);
+                            }
+                        }
                     }
                 }
             }
         }
         match hit {
             Some((found, how)) => {
-                let lang = row.lang.unwrap_or("en").to_string();
-                matched.push(Matched { row, found, how, lang });
+                // The language the row names; else the printing's own (an id or a set and number
+                // can name a printing that isn't English).
+                let lang = row.lang.map(str::to_string).unwrap_or_else(|| found.lang.clone());
+                let finish = found.finish_for(row.finish);
+                matched.push(Matched { index: n, any_printing: how == "default" && !named, row, found, how, finish, lang });
             }
             None => {
-                let reason = match (&oracle, row.name.is_empty()) {
-                    (Some(_), _) => "Yama has no printing of this card yet.",
-                    (None, true) => "The row has no card name, and Yama doesn't have its Scryfall id.",
-                    (None, false) => "No card has this name.",
+                let reason = match (&oracle, &numbered, row.name.is_empty()) {
+                    (Some(_), _, _) => "Yama has no printing of this card yet.".to_string(),
+                    (None, Some(card), _) => format!("No card has this name, and that set and number is {card}."),
+                    (None, None, true) => "The row has no card name, and Yama doesn't have its Scryfall id.".to_string(),
+                    (None, None, false) => "No card has this name.".to_string(),
                 };
-                let mut suggestions = Vec::new();
+                let mut suggestions: Vec<String> = numbered.into_iter().collect();
                 if oracle.is_none() && !row.name.is_empty() && suggested < MAX_SUGGESTED {
                     suggested += 1;
                     if let Some(i) = &index {
-                        suggestions = i.suggest(&row.name, 3).into_iter().map(|(name, _)| name).collect();
+                        for (name, _) in i.suggest(&row.name, 3) {
+                            if !suggestions.contains(&name) {
+                                suggestions.push(name);
+                            }
+                        }
                     }
                 }
                 report.unmatched_copies += row.qty;
-                report.unmatched.push(Unmatched { text: row.as_written(), row: row.row, qty: row.qty, reason: reason.to_string(), suggestions });
+                report.unmatched.push(Unmatched { text: row.as_written(), row: row.row, qty: row.qty, reason, suggestions });
             }
         }
     }
+    let they = |n: usize| if n == 1 { "it's" } else { "they're" };
     if no_printing_named > 0 {
         report.notes.push(format!(
             "{} named no printing, so {} filed under a regular printing of the card. You can change a copy's printing from its row in your collection.",
             lines(no_printing_named),
-            if no_printing_named == 1 { "it's" } else { "they're" }
+            they(no_printing_named)
         ));
     }
     if printing_not_found > 0 {
         report.notes.push(format!(
             "{} named a set or number Yama doesn't have for that card, so {} filed under another printing of it.",
             lines(printing_not_found),
-            if printing_not_found == 1 { "it's" } else { "they're" }
+            they(printing_not_found)
+        ));
+    }
+    if by_number > 0 {
+        report.notes.push(format!(
+            "{} had a name that matched no card and {} matched by set and number instead. Each says what it was written as under Cards to add.",
+            lines(by_number),
+            if by_number == 1 { "was" } else { "were" }
         ));
     }
     Ok(matched)
@@ -727,13 +853,29 @@ fn lines(n: usize) -> String {
 /// Mythic Tools import counts them).
 type Key = (String, String, String, bool);
 
+/// Take up to `want` copies from these rows of the account's collection (indexes into `left`,
+/// what each still has to give); how many were there.
+fn take(want: i64, rows: Option<&Vec<usize>>, left: &mut [i64]) -> i64 {
+    let mut got = 0;
+    for &i in rows.into_iter().flatten() {
+        if got >= want {
+            break;
+        }
+        let t = left[i].min(want - got);
+        left[i] -= t;
+        got += t;
+    }
+    got
+}
+
 /// Import (or with `dry_run`, preview) a collection export or a pasted list. See the module notes.
 pub async fn import_collection(pool: &SqlitePool, owner: &str, text: &str, file_name: Option<&str>, opts: ImportOptions) -> AppResult<ImportReport> {
     let src = read(text, file_name);
     if src.rows.len() > MAX_LINES {
         return Err(AppError::bad(format!("That's {} card lines. Yama imports up to {MAX_LINES} at a time: split the list in two.", src.rows.len())));
     }
-    let mut report = ImportReport { dry_run: opts.dry_run, top_up: opts.top_up, source: src.label, lines: src.rows.len(), skipped: src.skipped, ..Default::default() };
+    let mut report =
+        ImportReport { dry_run: opts.dry_run, top_up: opts.top_up, again: opts.again.is_some(), source: src.label, lines: src.rows.len(), skipped: src.skipped, ..Default::default() };
     // Where they go. The container is the owner's own, or it isn't found.
     report.place = match &opts.container_id {
         None => "unfiled".to_string(),
@@ -743,16 +885,26 @@ pub async fn import_collection(pool: &SqlitePool, owner: &str, text: &str, file_
             format!("{kind}: {name}")
         }
     };
-    // The ops are named after what was read, not the bytes, so the same list with other line
-    // endings or a trailing blank line is still the same import.
-    let fingerprint: Vec<String> = src.rows.iter().map(Row::fingerprint).collect();
-    let hash = sha256_hex(&fingerprint.join("\n"));
-    let short = &hash[..16];
+    // The ops are named after the text as written, line endings and blank lines aside, so a
+    // list keeps its name when the way Yama reads a column changes. "Add them again" is the
+    // same list under the page's nonce.
+    let written: Vec<&str> = text.trim_start_matches('\u{feff}').lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    let hash = sha256_hex(&written.join("\n"));
+    let tag = match &opts.again {
+        Some(nonce) => format!("{}+{nonce}", &hash[..16]),
+        None => hash[..16].to_string(),
+    };
     if !src.odd_conditions.is_empty() {
         report.notes.push(format!("Yama doesn't know the condition {}, so those copies are filed as near mint.", quoted(&src.odd_conditions)));
     }
     if !src.odd_langs.is_empty() {
         report.notes.push(format!("Yama doesn't know the language {}, so those copies are filed as English.", quoted(&src.odd_langs)));
+    }
+    if src.zero_rows > 0 {
+        report.notes.push(format!("{} with a count of 0 (a wishlist or tradelist row) {} left out.", lines(src.zero_rows), if src.zero_rows == 1 { "was" } else { "were" }));
+    }
+    if src.dollars_assumed {
+        report.notes.push("The file names no currency, so the prices paid in it were read as US dollars.".to_string());
     }
     let matched = match_rows(pool, src.rows, &mut report).await?;
     report.copies = matched.iter().map(|m| m.row.qty).sum();
@@ -760,56 +912,68 @@ pub async fn import_collection(pool: &SqlitePool, owner: &str, text: &str, file_
     // From here it reads the collection and then writes it: immediate, so a commit landing in
     // between can't fail it. A preview only reads, and never takes the write lock.
     let mut tx = if opts.dry_run { pool.begin().await? } else { pool.begin_with("BEGIN IMMEDIATE").await? };
-    report.already_imported = sqlx::query_scalar("SELECT MIN(applied_at) FROM applied_ops WHERE owner_id = ?1 AND op_id LIKE 'import:' || ?2 || ':%'")
+    // The lines of this list already applied: they add nothing again. A line that matched no
+    // card last time has no op yet, so it is added now that it matches.
+    let applied: Vec<(String, String)> = sqlx::query_as("SELECT op_id, applied_at FROM applied_ops WHERE owner_id = ?1 AND op_id LIKE 'import:' || ?2 || ':%'")
         .bind(owner)
-        .bind(short)
-        .fetch_one(&mut *tx)
+        .bind(&tag)
+        .fetch_all(&mut *tx)
         .await?;
+    report.already_imported = applied.iter().map(|(_, at)| at.clone()).min();
+    let done: HashSet<&str> = applied.iter().map(|(id, _)| id.as_str()).collect();
+    let op_id = |m: &Matched| format!("import:{tag}:{}", m.index);
 
-    // How many copies of each line are still to add. Topping up, the account's copies stand for
-    // the list's lines of the same condition first, then any; what's left is added.
-    let mut open: Vec<i64> = matched.iter().map(|m| if report.already_imported.is_some() { 0 } else { m.row.qty }).collect();
-    let key_of = |m: &Matched| -> Key { (m.found.scryfall_id.clone(), m.row.finish.to_string(), m.lang.clone(), m.row.proxy) };
-    if opts.top_up && report.already_imported.is_none() {
-        let mut same_condition: HashMap<(Key, String), i64> = HashMap::new();
-        for c in owned_copies(&mut tx, owner).await? {
-            *same_condition.entry(((c.scryfall_id, c.finish, c.lang, c.proxy), c.condition)).or_insert(0) += c.qty;
+    // The copies the account has that stand for each line: of the same printing, finish and
+    // language, the same condition first and then any; for a line that named no printing, any
+    // printing of the card in that finish too. Topping up, those aren't added.
+    let owned = owned_copies(&mut tx, owner).await?;
+    let mut left: Vec<i64> = owned.iter().map(|c| c.qty).collect();
+    let mut same_condition: HashMap<(Key, String), Vec<usize>> = HashMap::new();
+    let mut same_kind: HashMap<Key, Vec<usize>> = HashMap::new();
+    let mut same_card: HashMap<(String, String, bool), Vec<usize>> = HashMap::new();
+    for (i, c) in owned.iter().enumerate() {
+        let key: Key = (c.scryfall_id.clone(), c.finish.clone(), c.lang.clone(), c.proxy);
+        same_condition.entry((key.clone(), c.condition.clone())).or_default().push(i);
+        same_kind.entry(key).or_default().push(i);
+        if let Some(oracle) = &c.oracle_id {
+            same_card.entry((oracle.clone(), c.finish.clone(), c.proxy)).or_default().push(i);
         }
-        for (i, m) in matched.iter().enumerate() {
-            if let Some(have) = same_condition.get_mut(&(key_of(m), m.row.condition.to_string())) {
-                let take = (*have).min(open[i]);
-                *have -= take;
-                open[i] -= take;
-            }
-        }
-        let mut any_condition: HashMap<Key, i64> = HashMap::new();
-        for ((key, _), left) in same_condition {
-            *any_condition.entry(key).or_insert(0) += left;
-        }
-        for (i, m) in matched.iter().enumerate() {
-            if let Some(have) = any_condition.get_mut(&key_of(m)) {
-                let take = (*have).min(open[i]);
-                *have -= take;
-                open[i] -= take;
-            }
-        }
-        report.already_owned = matched.iter().zip(&open).map(|(m, left)| m.row.qty - left).sum();
     }
+    let key_of = |m: &Matched| -> Key { (m.found.scryfall_id.clone(), m.finish.to_string(), m.lang.clone(), m.row.proxy) };
+    let fresh: Vec<bool> = matched.iter().map(|m| !done.contains(op_id(m).as_str())).collect();
+    let mut covered: Vec<i64> = vec![0; matched.len()];
+    for (i, m) in matched.iter().enumerate().filter(|(i, _)| fresh[*i]) {
+        let more = take(m.row.qty, same_condition.get(&(key_of(m), m.row.condition.to_string())), &mut left);
+        covered[i] += more;
+    }
+    for (i, m) in matched.iter().enumerate().filter(|(i, _)| fresh[*i]) {
+        let more = take(m.row.qty - covered[i], same_kind.get(&key_of(m)), &mut left);
+        covered[i] += more;
+    }
+    for (i, m) in matched.iter().enumerate().filter(|(i, _)| fresh[*i] && matched[*i].any_printing) {
+        let more = take(m.row.qty - covered[i], same_card.get(&(m.found.oracle_id.clone(), m.finish.to_string(), m.row.proxy)), &mut left);
+        covered[i] += more;
+    }
+    report.already_owned = covered.iter().sum();
 
     let mut ops: Vec<Op> = Vec::new();
     for (i, m) in matched.iter().enumerate() {
-        let qty = open[i];
+        let qty = match (fresh[i], opts.top_up) {
+            (false, _) => 0,
+            (true, true) => m.row.qty - covered[i],
+            (true, false) => m.row.qty,
+        };
         if qty == 0 {
             continue;
         }
         report.added += qty;
         report.added_cards.push(Line {
             name: m.found.name.clone(),
-            written_as: (!m.row.name.is_empty() && !m.row.name.eq_ignore_ascii_case(&m.found.name)).then(|| m.row.name.clone()),
+            written_as: (!m.row.name.is_empty() && !is_own_name(&m.row.name, &m.found.name)).then(|| m.row.name.clone()),
             set_code: m.found.set_code.clone(),
             set_name: m.found.set_name.clone(),
             collector_number: m.found.collector_number.clone(),
-            finish: m.row.finish.to_string(),
+            finish: m.finish.to_string(),
             condition: m.row.condition.to_string(),
             lang: m.lang.clone(),
             proxy: m.row.proxy,
@@ -817,15 +981,14 @@ pub async fn import_collection(pool: &SqlitePool, owner: &str, text: &str, file_
             printing: m.how,
         });
         ops.push(Op {
-            // The line's place in the list, so the same list names the same ops.
-            op_id: format!("import:{short}:{i}"),
+            op_id: op_id(m),
             device_id: Some("collection-import".to_string()),
             op: OpKind::Add {
                 scryfall_id: m.found.scryfall_id.clone(),
                 qty,
                 copy: CopyKind {
                     condition: m.row.condition.to_string(),
-                    finish: m.row.finish.to_string(),
+                    finish: m.finish.to_string(),
                     lang: m.lang.clone(),
                     altered: m.row.altered,
                     signed: m.row.signed,

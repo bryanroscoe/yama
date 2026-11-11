@@ -11,6 +11,8 @@ import {
   lineText,
   LIST_EXAMPLE,
   NEW_BOX,
+  newAgain,
+  nextCheck,
   previewImport,
   previewLines,
   resultLines,
@@ -36,8 +38,11 @@ export function ImportCollectionSheet({ containers, onClose, onMythic }: { conta
   const [newName, setNewName] = useState("");
   const [topUp, setTopUp] = useState(false);
   const [tooBig, setTooBig] = useState<Error | null>(null);
-  // What is being previewed. Each check gets a number, so the same text checked again asks again.
+  // What is being previewed. Each check gets a number of its own (nextCheck), so a preview is
+  // only ever shown for the text it was made from.
   const [check, setCheck] = useState<{ n: number; text: string; fileName: string | null } | null>(null);
+  // "Add them again", for a list imported before: a nonce the server names the new ops after.
+  const [again, setAgain] = useState<string | null>(null);
   const [result, setResult] = useState<ImportReport | null>(null);
 
   const start = (text: string, fileName: string | null) => {
@@ -48,17 +53,21 @@ export function ImportCollectionSheet({ containers, onClose, onMythic }: { conta
       return;
     }
     setTooBig(null);
-    setCheck({ n: (check?.n ?? 0) + 1, text, fileName });
+    setAgain(null);
+    setCheck({ n: nextCheck(), text, fileName });
   };
+  // Not under a "collection…" key: the import's own refresh of the collection must not ask for
+  // this again. Dropped as soon as nothing shows it.
   const preview = useQuery({
-    queryKey: ["collection-import-preview", check?.n, topUp],
-    queryFn: () => previewImport(api, check!, topUp),
+    queryKey: ["import-preview", check?.n, topUp, again],
+    queryFn: () => previewImport(api, check!, { topUp, again }),
     enabled: !!check && !result,
     retry: false,
     staleTime: Infinity,
+    gcTime: 0,
   });
   const apply = useMutation({
-    mutationFn: () => runImport(api, check!, { place, newName, topUp }),
+    mutationFn: () => runImport(api, check!, { place, newName, topUp, again }),
     onSuccess: (r) => {
       setResult(r);
       void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("collection") || q.queryKey[0] === "containers" });
@@ -115,7 +124,7 @@ export function ImportCollectionSheet({ containers, onClose, onMythic }: { conta
             <label>
               Put them in
               <select value={place} onChange={(e) => setPlace(e.target.value)}>
-                <option value="">Not filed anywhere</option>
+                <option value="">Not filed anywhere (loose cards)</option>
                 {containers.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name} ({c.kind === "deck" ? "deck box" : c.kind})
@@ -160,6 +169,10 @@ export function ImportCollectionSheet({ containers, onClose, onMythic }: { conta
             <button className="primary" disabled={apply.isPending || preview.isFetching || r.added === 0 || needsName} onClick={() => apply.mutate()}>
               {apply.isPending ? "Importing…" : r.added ? `Add ${count(r.added)} ${r.added === 1 ? "card" : "cards"}` : "Nothing to add"}
             </button>
+            {/* A list imported before adds nothing. Buying the same cards again is a reason to ask for it anyway. */}
+            {r.already_imported && r.added === 0 && r.copies > 0 && !again && (
+              <button className="outline" disabled={preview.isFetching} onClick={() => setAgain(newAgain())}>Add them again</button>
+            )}
             <button className="quiet" onClick={onClose}>Cancel</button>
             {needsName && <span className="dim small">Name the new box first.</span>}
           </div>
@@ -194,8 +207,8 @@ export function ImportReportView({ report: r, done }: { report: ImportReport; do
         </ul>
       )}
       {r.unmatched.length > 0 && (
-        <section className="stack" aria-label="Lines that matched no card">
-          <h3>Not matched</h3>
+        <section className="stack" aria-label="Lines that aren't added">
+          <h3>Not added</h3>
           <ul className="collect-cards small">{r.unmatched.map((u, i) => <li key={i}>{unmatchedText(u)}</li>)}</ul>
           <div className="row">
             <CopyButton className="outline small" text={unmatchedList(r)} label={r.unmatched.length === 1 ? "Copy this line" : "Copy these lines"} />
@@ -212,7 +225,10 @@ export function ImportReportView({ report: r, done }: { report: ImportReport; do
       )}
       {r.skipped.length > 0 && (
         <Details label="Lines Yama couldn't read">
-          <ul className="collect-cards small">{r.skipped.slice(0, SHOWN).map((s, i) => <li key={i}>{s}</li>)}</ul>
+          <ul className="collect-cards small">
+            {r.skipped.slice(0, SHOWN).map((s, i) => <li key={i}>{s}</li>)}
+            {r.skipped.length > SHOWN && <li className="dim">and {count(r.skipped.length - SHOWN)} more lines</li>}
+          </ul>
         </Details>
       )}
     </>

@@ -39,7 +39,7 @@ async fn seed(pool: &SqlitePool) {
 }
 
 fn opts(dry_run: bool, top_up: bool) -> ImportOptions {
-    ImportOptions { dry_run, top_up, container_id: None }
+    ImportOptions { dry_run, top_up, container_id: None, again: None }
 }
 
 /// One account's copies by (Scryfall id, finish, condition, language, place, copies), where place
@@ -145,9 +145,10 @@ async fn topping_up_adds_only_the_copies_the_account_lacks() {
     // A foil is another kind of copy: owning the nonfoil doesn't stand for it.
     let foil = import_collection(&pool, "u1", "1 Sol Ring (CMM) 410 *F*\n", None, opts(false, true)).await.unwrap();
     assert_eq!((foil.added, foil.already_owned), (1, 0));
-    // Without topping up, everything a list names is added.
+    // Without topping up, everything a list names is added; the report still counts the copies
+    // the account had, so the page can warn before a collection is doubled.
     let all = import_collection(&pool, "u1", "4 Sol Ring (CMM) 410\n", None, opts(false, false)).await.unwrap();
-    assert_eq!((all.added, all.already_owned), (4, 0));
+    assert_eq!((all.added, all.already_owned), (4, 4));
     assert_eq!(
         holdings(&pool, "u1").await,
         vec![h("p-bolt", "nonfoil", "NM", "en", "unfiled", 1), h("p-sol-cmm", "foil", "NM", "en", "unfiled", 1), h("p-sol-cmm", "nonfoil", "NM", "en", "unfiled", 8)]
@@ -195,7 +196,7 @@ async fn a_dragon_shield_file_matches_by_number_and_lists_the_row_it_could_not_p
         Binder,1,0,Sol Rnig,CMM,Commander Masters,410,Excellent,Normal,Japanese,0.00,2026-01-01\n\
         Binder,1,0,Storm Crow,XYZ,Nowhere,1,Good,Normal,English,0.00,2026-01-01\n";
     // No file name: the header row says it's a CSV.
-    let r = import_collection(&pool, "u1", file, None, ImportOptions { dry_run: false, top_up: false, container_id: Some(bulk) }).await.unwrap();
+    let r = import_collection(&pool, "u1", file, None, ImportOptions { dry_run: false, top_up: false, container_id: Some(bulk), again: None }).await.unwrap();
     assert_eq!(r.source, "a Dragon Shield export");
     assert_eq!((r.place.as_str(), r.lines, r.added), ("box: Bulk", 3, 3));
     // A misspelled name with a set and number that say which card it is.
@@ -210,7 +211,7 @@ async fn copies_go_only_into_a_container_of_ones_own() {
     seed(&pool).await;
     let theirs = ensure_container(&pool, "u2", "box", "Theirs").await.unwrap();
     for dry_run in [true, false] {
-        let refused = import_collection(&pool, "u1", "1 Lightning Bolt\n", None, ImportOptions { dry_run, top_up: false, container_id: Some(theirs.clone()) }).await;
+        let refused = import_collection(&pool, "u1", "1 Lightning Bolt\n", None, ImportOptions { dry_run, top_up: false, container_id: Some(theirs.clone()), again: None }).await;
         assert!(matches!(refused, Err(AppError::NotFound(_))));
     }
     assert!(holdings(&pool, "u1").await.is_empty());
@@ -309,15 +310,154 @@ fn conditions_languages_prices_and_numbers() {
         ("poor", "DMG"),
         ("Lightly Played Foil", "LP"),
     ] {
-        assert_eq!(condition_code(raw), Some(code), "{raw}");
+        assert_eq!(condition_code(raw, false), Some(code), "{raw}");
     }
-    assert_eq!(condition_code("Fair"), None);
-    assert_eq!(condition_code(""), None);
-    for (raw, code) in [("en", "en"), ("EN", "en"), ("English", "en"), ("Japanese", "ja"), ("jp", "ja"), ("Chinese Simplified", "zhs"), ("Portuguese", "pt")] {
+    assert_eq!(condition_code("Fair", false), None);
+    assert_eq!(condition_code("", false), None);
+    // Deckbox has "Played" between "Good (Lightly Played)" and "Heavily Played".
+    assert_eq!((condition_code("Played", true), condition_code("Heavily Played", true)), (Some("MP"), Some("HP")));
+    for (raw, code) in [("en", "en"), ("EN", "en"), ("English", "en"), ("Japanese", "ja"), ("jp", "ja"), ("Chinese Simplified", "zhs"), ("Chinese (T)", "zht"), ("Portuguese", "pt")] {
         assert_eq!(lang_code(raw), Some(code), "{raw}");
     }
     assert_eq!(lang_code("Klingon"), None);
-    assert_eq!((price("$1,234.50"), price("0"), price("-3"), price(""), price("free")), (Some(1234.5), None, None, None, None));
+    assert_eq!((price("$1,234.50"), price("12.34"), price("7"), price("1,234"), price("1,234,567.5")), (Some(1234.5), Some(12.34), Some(7.0), Some(1234.0), Some(1234567.5)));
+    // A decimal comma is read as one. Anything that could be misread is no price at all.
+    assert_eq!((price("1,50"), price("€0,5")), (Some(1.5), Some(0.5)));
+    for odd in ["0", "-3", "$-3.00", "", "free", "1.234,50", "1,2345", "1,23,456.7", "12 USD", "1.2.3"] {
+        assert_eq!(price(odd), None, "{odd}");
+    }
     assert_eq!((plain_number("0263"), plain_number("263/350"), plain_number("12a"), plain_number("0")), ("263".to_string(), "263".to_string(), "12a".to_string(), "0".to_string()));
     assert_eq!((finish_of(Some("Foil")), finish_of(Some("etched")), finish_of(Some("Normal")), finish_of(Some("nonfoil")), finish_of(None)), ("foil", "etched", "nonfoil", "nonfoil", "nonfoil"));
+}
+
+#[tokio::test]
+async fn a_set_and_number_stand_in_for_a_misspelled_name_but_not_for_another_cards_name() {
+    let pool = crate::db::test_pool().await;
+    seed(&pool).await;
+    let file = "Name,Set Code,Collector Number,Quantity\nTreasure Token,C21,263,1\n,C21,263,2\nSol Rnig,C21,263,1\n";
+    let r = import_collection(&pool, "u1", file, None, opts(false, false)).await.unwrap();
+    // C21 263 is Sol Ring. "Treasure Token" is plainly another card: not filed as a Sol Ring.
+    assert_eq!(
+        r.unmatched,
+        vec![Unmatched { text: "1 Treasure Token (C21) 263".into(), row: Some(2), qty: 1, reason: "No card has this name, and that set and number is Sol Ring.".into(), suggestions: vec!["Sol Ring".into()] }]
+    );
+    // A row with no name at all, and a typo, are taken by their number, and the report says so.
+    assert_eq!(r.added_cards.iter().map(|l| (l.qty, l.printing, l.written_as.as_deref())).collect::<Vec<_>>(), vec![(2, "number", None), (1, "number", Some("Sol Rnig"))]);
+    assert!(r.notes.iter().any(|n| n.starts_with("2 lines had a name that matched no card")), "{:?}", r.notes);
+    assert_eq!(holdings(&pool, "u1").await, vec![h("p-sol-c21", "nonfoil", "NM", "en", "unfiled", 3)]);
+}
+
+#[tokio::test]
+async fn a_line_that_matched_nothing_is_added_once_the_card_is_known() {
+    let pool = crate::db::test_pool().await;
+    seed(&pool).await;
+    let list = "1 Sol Ring\n1 Storm Crow\n";
+    let first = import_collection(&pool, "u1", list, None, opts(false, false)).await.unwrap();
+    assert_eq!((first.added, first.unmatched.len()), (1, 1));
+    // Card data catches up.
+    sqlx::query("INSERT INTO cards (oracle_id, name, type_line, updated_at) VALUES ('o-crow', 'Storm Crow', 'Creature', 'now')").execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO card_names (name, oracle_id) VALUES ('Storm Crow', 'o-crow')").execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO printings (scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang, finishes, updated_at)
+         VALUES ('p-crow', 'o-crow', 'Storm Crow', 'all', 'Alliances', '36', 'en', '[\"nonfoil\"]', 'now')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    // The same list: the line added before stays as it is, the other is added now.
+    let second = import_collection(&pool, "u1", list, None, opts(false, false)).await.unwrap();
+    assert!(second.already_imported.is_some());
+    assert_eq!((second.added, second.unmatched.len()), (1, 0));
+    assert_eq!(second.added_cards.iter().map(|l| l.name.as_str()).collect::<Vec<_>>(), vec!["Storm Crow"]);
+    let third = import_collection(&pool, "u1", list, None, opts(false, false)).await.unwrap();
+    assert_eq!(third.added, 0);
+    assert_eq!(holdings(&pool, "u1").await, vec![h("p-crow", "nonfoil", "NM", "en", "unfiled", 1), h("p-sol-cmm", "nonfoil", "NM", "en", "unfiled", 1)]);
+}
+
+#[tokio::test]
+async fn a_list_can_be_added_again_only_when_asked() {
+    let pool = crate::db::test_pool().await;
+    seed(&pool).await;
+    let list = "4 Lightning Bolt\n";
+    let again = |nonce: &str, dry_run: bool| ImportOptions { dry_run, top_up: false, container_id: None, again: Some(nonce.to_string()) };
+    assert_eq!(import_collection(&pool, "u1", list, None, opts(false, false)).await.unwrap().added, 4);
+    assert_eq!(import_collection(&pool, "u1", list, None, opts(false, false)).await.unwrap().added, 0);
+    // Asked for: four more. The same asking sent twice (a retry) is still one import.
+    let p = import_collection(&pool, "u1", list, None, again("nonce-0001", true)).await.unwrap();
+    assert_eq!((p.added, p.again, p.already_imported.is_some(), p.already_owned), (4, true, false, 4));
+    assert_eq!(import_collection(&pool, "u1", list, None, again("nonce-0001", false)).await.unwrap().added, 4);
+    assert_eq!(import_collection(&pool, "u1", list, None, again("nonce-0001", false)).await.unwrap().added, 0);
+    assert_eq!(holdings(&pool, "u1").await, vec![h("p-bolt", "nonfoil", "NM", "en", "unfiled", 8)]);
+}
+
+#[tokio::test]
+async fn a_line_with_no_printing_counts_any_printing_of_the_card_as_owned() {
+    let pool = crate::db::test_pool().await;
+    seed(&pool).await;
+    // An older printing than the one a bare name is filed under.
+    add(&pool, "u1", "have", "p-sol-c21", 1).await;
+    let plain = import_collection(&pool, "u1", "2 Sol Ring\n", None, opts(true, false)).await.unwrap();
+    assert_eq!((plain.added, plain.already_owned), (2, 1));
+    let topped = import_collection(&pool, "u1", "2 Sol Ring\n", None, opts(false, true)).await.unwrap();
+    assert_eq!((topped.added, topped.already_owned), (1, 1));
+    // A line that names a printing counts only that printing.
+    let named = import_collection(&pool, "u1", "1 Sol Ring (CMM) 410 *F*\n2 Sol Ring (CMM) 410\n", None, opts(false, true)).await.unwrap();
+    assert_eq!((named.added, named.already_owned), (2, 1));
+    assert_eq!(
+        holdings(&pool, "u1").await,
+        vec![h("p-sol-c21", "nonfoil", "NM", "en", "unfiled", 1), h("p-sol-cmm", "foil", "NM", "en", "unfiled", 1), h("p-sol-cmm", "nonfoil", "NM", "en", "unfiled", 2)]
+    );
+}
+
+#[tokio::test]
+async fn a_copy_is_filed_under_a_printing_that_comes_in_its_finish() {
+    let pool = crate::db::test_pool().await;
+    seed(&pool).await;
+    for (oid, name) in [("o-crypt", "Mana Crypt"), ("o-shiny", "Shiny Thing")] {
+        sqlx::query("INSERT INTO cards (oracle_id, name, type_line, updated_at) VALUES (?,?,'Artifact','now')").bind(oid).bind(name).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO card_names (name, oracle_id) VALUES (?, ?)").bind(name).bind(oid).execute(&pool).await.unwrap();
+    }
+    // Mana Crypt: an older printing that comes in foil, a newer one that doesn't. Shiny Thing only comes in foil.
+    for (sid, oid, name, set, finishes, released) in [
+        ("p-crypt-old", "o-crypt", "Mana Crypt", "emn", "[\"nonfoil\",\"foil\"]", "2016-07-22"),
+        ("p-crypt-new", "o-crypt", "Mana Crypt", "lci", "[\"nonfoil\"]", "2023-11-17"),
+        ("p-shiny", "o-shiny", "Shiny Thing", "lci", "[\"foil\"]", "2023-11-17"),
+    ] {
+        sqlx::query("INSERT INTO printings (scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang, finishes, released_at, updated_at) VALUES (?,?,?,?,'Set','1','en',?,?,'now')")
+            .bind(sid)
+            .bind(oid)
+            .bind(name)
+            .bind(set)
+            .bind(finishes)
+            .bind(released)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    import_collection(&pool, "u1", "1 Mana Crypt\n1 Mana Crypt *F*\n1 Shiny Thing\n", None, opts(false, false)).await.unwrap();
+    assert_eq!(
+        holdings(&pool, "u1").await,
+        vec![
+            // No finish named: the newest regular printing. Foil: one that comes in foil.
+            h("p-crypt-new", "nonfoil", "NM", "en", "unfiled", 1),
+            h("p-crypt-old", "foil", "NM", "en", "unfiled", 1),
+            // A list that names no finish, on a card that only comes in foil: the foil.
+            h("p-shiny", "foil", "NM", "en", "unfiled", 1),
+        ]
+    );
+}
+
+#[test]
+fn rows_are_kept_or_said_never_dropped() {
+    // A count of 0 is a wishlist row and is counted; a negative count and a nameless row are listed.
+    let src = read("Count,Name,Edition\n0,Sol Ring,cmm\n-1,Lightning Bolt,lea\n1,,\n,,\n2,Forest,cmm\n", None);
+    assert_eq!((src.rows.len(), src.zero_rows), (1, 1));
+    assert_eq!(src.skipped, vec!["Row 3: -1 isn't a number of copies (Lightning Bolt).".to_string(), "Row 4 has no card name.".to_string()]);
+    // A semicolon file with a byte order mark, and a foil line that is copied back as foil.
+    let src = read("\u{feff}Quantity;Name;Foil\n2;Sol Rnig;foil\n", None);
+    assert_eq!((src.rows.len(), src.rows[0].qty, src.rows[0].finish), (1, 2, "foil"));
+    assert_eq!(src.rows[0].as_written(), "2 Sol Rnig *F*");
+    // A TCGplayer seller file names the card in "Product Name".
+    let src = read("Product Name,Total Quantity,Set Name,Number,Condition\nSol Ring,3,Commander Masters,410,Near Mint\n", None);
+    assert_eq!((src.label.as_str(), src.rows[0].name.as_str(), src.rows[0].qty), ("a TCGplayer export", "Sol Ring", 3));
 }

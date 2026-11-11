@@ -1,4 +1,5 @@
 import { plural } from "@yama/core";
+import { languageName } from "./collectionEdit";
 // Importing a collection from another app's export or a pasted list (server/src/collection/
 // import.rs): the report the server sends for a preview (dry_run) and for the import itself, and
 // the sentences shown. The Mythic Tools import has its own (mythicImport.ts).
@@ -34,9 +35,11 @@ export interface UnmatchedLine {
 export interface ImportReport {
   dry_run: boolean;
   top_up: boolean;
+  /** The person asked for a list imported before to be added again. */
+  again: boolean;
   /** "a ManaBox export", "a plain list". */
   source: string;
-  /** When this exact list was imported before; nothing is added from it again. */
+  /** When this exact list was imported before; its lines aren't added again (one that matched no card then, and does now, is). */
   already_imported: string | null;
   /** "box: Bulk", or "unfiled". */
   place: string;
@@ -44,6 +47,7 @@ export interface ImportReport {
   copies: number;
   added: number;
   added_cards: ImportLine[];
+  /** Copies the list names that the account has already: not added when topping up, added (and said) otherwise. */
   already_owned: number;
   unmatched: UnmatchedLine[];
   unmatched_copies: number;
@@ -72,7 +76,7 @@ export function lineText(l: ImportLine): string {
   const bits = [l.name, `${l.set_code.toUpperCase()} ${l.collector_number}`.trim()];
   if (l.finish !== "nonfoil") bits.push(l.finish);
   if (l.condition !== "NM") bits.push(CONDITION[l.condition] ?? l.condition);
-  if (l.lang !== "en") bits.push(l.lang);
+  if (l.lang !== "en") bits.push(languageName(l.lang));
   if (l.proxy) bits.push("proxy");
   const written = l.written_as ? ` (written as “${l.written_as}”)` : "";
   const picked = l.printing === "default" ? " (a regular printing)" : "";
@@ -82,7 +86,9 @@ export function lineText(l: ImportLine): string {
 /** A line that matched nothing, with why and what it might have meant. */
 export function unmatchedText(u: UnmatchedLine): string {
   const where = u.row ? `Row ${u.row}: ` : "";
-  const meant = u.suggestions.length ? ` Did you mean ${u.suggestions.join(" or ")}?` : "";
+  // The server's reason may already name the card a set and number point at.
+  const others = u.suggestions.filter((s) => !u.reason.includes(s));
+  const meant = others.length ? ` Did you mean ${others.join(" or ")}?` : "";
   return `${where}${u.text}. ${u.reason}${meant}`;
 }
 
@@ -91,23 +97,37 @@ export function unmatchedList(r: Pick<ImportReport, "unmatched">): string {
   return r.unmatched.map((u) => u.text).join("\n");
 }
 
-/** The preview's sentences, before anything is written. */
+/** The preview's sentences, before anything is written. `day` words a timestamp as a date. */
 export function previewLines(r: ImportReport, day: (iso: string) => string = (iso) => iso.slice(0, 10)): string[] {
-  if (r.lines === 0) return ["Yama found no cards in that."];
+  // Nothing read: say why, if the file said (no card name column), rather than only "no cards".
+  if (r.lines === 0) return [`Yama found no cards in that.${r.skipped[0] ? ` ${r.skipped[0]}` : ""}`];
   const out = [`This looks like ${r.source} with ${plural(r.copies + r.unmatched_copies, "card")}.`];
-  if (r.already_imported) {
-    out.push(`You imported this exact list on ${day(r.already_imported.slice(0, 10))}, so nothing is added from it again.`);
+  const were = (n: number) => (n === 1 ? "is" : "are");
+  if (r.already_imported && !r.added) {
+    out.push(`You imported this exact list on ${day(r.already_imported)}, so nothing is added from it again.`);
+  } else if (r.already_imported) {
+    out.push(`You imported this list on ${day(r.already_imported)}. ${plural(r.added, "card")} that matched nothing then ${were(r.added)} added now, to ${placeText(r.place)}.`);
   } else {
-    out.push(r.added ? `${plural(r.added, "card")} to add to ${placeText(r.place)}.` : "Nothing to add.");
-    if (r.already_owned) out.push(`${plural(r.already_owned, "card")} ${r.already_owned === 1 ? "is" : "are"} in your collection already and ${r.already_owned === 1 ? "isn't" : "aren't"} added again.`);
+    out.push(r.added ? `${plural(r.added, "card")} to add to ${placeText(r.place)}${r.again ? ", again" : ""}.` : "Nothing to add.");
+  }
+  if (r.already_owned && r.top_up) out.push(`${plural(r.already_owned, "card")} ${were(r.already_owned)} in your collection already and ${r.already_owned === 1 ? "isn't" : "aren't"} added again.`);
+  // Without topping up, cards you have are added a second time: say so before it happens.
+  if (r.already_owned && !r.top_up && !r.again && r.added) {
+    out.push(`You already have ${r.already_owned} of these cards. ${r.already_owned === 1 ? "It is" : "They are"} added again unless you choose “Only add copies I don't have yet”.`);
   }
   if (r.unmatched.length) out.push(unmatchedSentence(r, false));
+  if (r.skipped.length) out.push(skippedSentence(r));
   return [...out, ...r.notes];
 }
 
 function unmatchedSentence(r: Pick<ImportReport, "unmatched">, done: boolean): string {
   const n = r.unmatched.length;
-  return `${plural(n, "line")} matched no card and ${n === 1 ? (done ? "wasn't" : "won't be") : done ? "weren't" : "won't be"} added. ${n === 1 ? "It's" : "They're"} listed below to fix by hand.`;
+  return `${plural(n, "line")} ${n === 1 ? (done ? "wasn't" : "won't be") : done ? "weren't" : "won't be"} added. ${n === 1 ? "It's" : "They're"} listed below to fix by hand.`;
+}
+
+function skippedSentence(r: Pick<ImportReport, "skipped">): string {
+  const n = r.skipped.length;
+  return `${plural(n, "line")} couldn't be read as ${n === 1 ? "a card" : "cards"}; ${n === 1 ? "it's" : "they're"} listed at the bottom.`;
 }
 
 /** After the import. */
@@ -115,10 +135,11 @@ export function resultLines(r: ImportReport): string[] {
   const out: string[] = [];
   if (r.added) out.push(`Added ${plural(r.added, "card")} to ${placeText(r.place)}.`);
   else if (r.already_imported) out.push("Nothing changed: you'd imported this list already.");
-  else if (r.already_owned) out.push("Nothing changed: your collection has everything in the list.");
+  else if (r.already_owned && r.top_up) out.push("Nothing changed: your collection has everything in the list.");
   else out.push("Nothing was added.");
-  if (r.added && r.already_owned) out.push(`${plural(r.already_owned, "card")} you had already ${r.already_owned === 1 ? "wasn't" : "weren't"} added again.`);
+  if (r.added && r.already_owned && r.top_up) out.push(`${plural(r.already_owned, "card")} you had already ${r.already_owned === 1 ? "wasn't" : "weren't"} added again.`);
   if (r.unmatched.length) out.push(unmatchedSentence(r, true));
+  if (r.skipped.length) out.push(skippedSentence(r));
   return out;
 }
 
@@ -134,17 +155,28 @@ export function chosenPlace(place: string, newName: string, containers: { id: st
 
 type Call = <T>(path: string, init: { method: string; json: unknown }) => Promise<T>;
 
+/**
+ * A number for each check of a list, never given twice while the page lives: the preview is kept
+ * under it, so a list edited and checked again (or the dialog opened again) is never shown
+ * another list's preview.
+ */
+let checks = 0;
+export const nextCheck = () => ++checks;
+
+/** What says "add this list again": made once per asking, so trying again is still one import. */
+export const newAgain = (id: () => string = () => crypto.randomUUID()) => id();
+
 /** What is sent for a preview: nothing is written, and the place doesn't change what matches. */
-export function previewImport(call: Call, source: { text: string; fileName: string | null }, topUp: boolean): Promise<ImportReport> {
-  return call<ImportReport>("/api/collection/import", { method: "POST", json: { text: source.text, file_name: source.fileName, top_up: topUp, dry_run: true } });
+export function previewImport(call: Call, source: { text: string; fileName: string | null }, o: { topUp: boolean; again: string | null }): Promise<ImportReport> {
+  return call<ImportReport>("/api/collection/import", { method: "POST", json: { text: source.text, file_name: source.fileName, top_up: o.topUp, again: o.again, dry_run: true } });
 }
 
 /**
  * The import itself. A new box is made first; making it again (a second try after a lost reply)
  * answers with the same box, and the same list again adds nothing, so trying again is safe.
  */
-export async function runImport(call: Call, source: { text: string; fileName: string | null }, o: { place: string; newName: string; topUp: boolean }): Promise<ImportReport> {
+export async function runImport(call: Call, source: { text: string; fileName: string | null }, o: { place: string; newName: string; topUp: boolean; again: string | null }): Promise<ImportReport> {
   let container: string | null = o.place && o.place !== NEW_BOX ? o.place : null;
   if (o.place === NEW_BOX && o.newName.trim()) container = (await call<{ id: string }>("/api/containers", { method: "POST", json: { kind: "box", name: o.newName.trim() } })).id;
-  return call<ImportReport>("/api/collection/import", { method: "POST", json: { text: source.text, file_name: source.fileName, container_id: container, top_up: o.topUp, dry_run: false } });
+  return call<ImportReport>("/api/collection/import", { method: "POST", json: { text: source.text, file_name: source.fileName, container_id: container, top_up: o.topUp, again: o.again, dry_run: false } });
 }
