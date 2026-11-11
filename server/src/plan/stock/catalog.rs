@@ -52,7 +52,7 @@ pub(super) async fn products(pool: &SqlitePool, f: &mut Fetcher, base: &str, ref
     let mut bytes = 0;
     let was_refresh = f.refresh;
     f.refresh = true;
-    let result = async {
+    let result = tokio::time::timeout(Duration::from_secs(1800), async {
         for page in 1..=MAX_PAGES {
             let url = format!("{base}/products.json?limit=250&page={page}");
             let answer = f.send(Kind::Shopify,"GET",&url,None,raw).await?;
@@ -76,7 +76,7 @@ pub(super) async fn products(pool: &SqlitePool, f: &mut Fetcher, base: &str, ref
             }
         }
         Err("Catalog page limit reached; previous cache preserved".into())
-    }.await;
+    }).await.unwrap_or_else(|_| Err("Catalog refresh timed out after 30 minutes; previous cache preserved".into()));
     f.refresh = was_refresh;
     result
 }

@@ -20,6 +20,20 @@ layout is in the [README](README.md#repository-layout).
 
 ## How Yama works today
 
+### Store sourcing data
+
+Explicit store refreshes cache complete public Shopify catalogs in SQLite. Card checks reuse the dated catalog and read variant-selected stock badges. Search-tile totals never become condition or finish quantities. Private saved source reports remain a separate snapshot, updated only through their normal read/save workflow.
+
+```mermaid
+flowchart LR
+  refresh["Explicit catalog refresh"] --> feed["Public Shopify product pages"]
+  feed --> cache[("Complete dated catalog cache")]
+  cache --> check["Card and variant stock checks"]
+  check --> quotes[("Owner's dated store snapshots")]
+  reports[("Owner's saved source report")] --> shop["All-decks sourcing page"]
+  quotes --> trip["Active plan store trip"]
+```
+
 ### The system at a glance
 
 ```mermaid
@@ -2454,6 +2468,6 @@ Sourcing exposes a per-card dollar ceiling initialized from the current account 
 
 Sourcing has one bulk-add action. Exclude unknown stock counts is a filter on offers and all cart calculations, rather than a second Add button with different hidden eligibility. Missing count is distinct from no stock; quantities and quote dates remain visible.
 
-### Public store catalog cache
+### Public store catalog cache (2026-11-11)
 
 Explicit Shopify catalog refreshes walk the public product feed with per-host pacing and existing account stock-check limits. A complete, bounded crawl replaces one compressed public cache per allowlisted storefront in SQLite; partial crawls preserve the old cache. Future card checks reuse it with its original date, then read variant-specific quantity evidence. Private reports, carts, account choices and market references are not part of this shared cache. The sourcing page displays all filtered rows and only bulk-allocates recorded quantities across eligible printings; unknown quantities require an explicit request.
