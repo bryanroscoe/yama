@@ -1325,7 +1325,8 @@ summary, .more-filters summary { min-height:44px; align-content:center; }
 
 /* Comparable figures share one row; expanding one panel needn't stretch its neighbours. */
 /* 220px, not 280px: at tablet width the three panels fit one row instead of leaving one alone. */
-.public-evidence { grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr)); align-items:start; }
+/* Cards in a row share its height: with align-items:start the four ended at four different depths. */
+.public-evidence { grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr)); }
 /* The interval's viewBox is 160 wide; at 100% width it was drawn centred, out of line with the text. */
 .public-panel .interval { width:160px; }
 /* The upgrade rubric (the only class-less table): its header and grades were centred,
@@ -1414,9 +1415,17 @@ a.source-chip:hover,a.source-chip:focus-visible {
 .commander-sources>div { margin-top:12px; }
 .commander-sources strong { display:block; font-size:.85rem; }
 
+/* Rows as dense as /precons: the sources fold sits tight under the count, and the precon a
+   commander leads is a line under its name instead of a column that mostly read "None". */
+.commander-table .commander-sources { margin-top:4px; padding:0; border:0; }
+.commander-table .commander-sources[open] { padding-bottom:8px; }
+.commander-precon { margin-top:4px; }
+.commander-precon a { color:var(--text); }
+@media(min-width:901px) and (pointer:fine) {
+  .commander-table .commander-sources summary { min-height:24px; }
+}
 @media(max-width:600px) {
   .commander-table tr { grid-template-columns:repeat(2,minmax(0,1fr)); }
-  .commander-table td:last-child { grid-column:1/-1; }
 }
 
 /* Sortable headings and the per-commander line under a stock list's real games. */

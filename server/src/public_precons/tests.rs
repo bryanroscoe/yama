@@ -369,7 +369,7 @@ async fn public_html_is_complete_escaped_and_links_only_public_catalog_in_sitema
     let (visible, explanation) = result.split_once("<details>").unwrap();
     assert!(visible.contains("Engine caution"));
     assert!(visible.contains("40 games"));
-    assert!(visible.contains("Analysed"));
+    assert!(visible.contains("Analyzed"));
     assert!(!visible.contains("Rank range"));
     assert!(explanation.starts_with("<summary>Result details &amp; limitations</summary>"));
     assert!(
@@ -786,8 +786,9 @@ async fn rating_v2_ranks_the_public_pages_once_a_real_game_source_is_enabled() {
     assert!(!json.contains("bryan@example.com"), "the owner stays private");
     let (_, _, html) = request(&app, "/precons", &[]).await;
     assert!(html.contains("Meta rank (rating v2) ranks 1 precon by"), "only the island deck has real games");
+    assert!(html.contains(" stock decks</p>"), "the hero counts the catalog");
     assert!(html.contains("real games of stock lists (Playgroup.gg)"), "Mythic isn't named as an input to the rank");
-    assert!(html.contains("Playgroup.gg: Playgroup.gg / Arcane Digital B.V. &lt;script&gt;x&lt;/script&gt;. Licence: CC BY 4.0."));
+    assert!(html.contains("Playgroup.gg: Playgroup.gg / Arcane Digital B.V. &lt;script&gt;x&lt;/script&gt;. License: CC BY 4.0."));
     assert!(html.contains("<span class=\"source-chip\">Mythic Tools, by commander</span>"));
     assert!(html.contains("<strong>44.4%</strong> Mythic Tools, any list: 7,984 games"));
     assert!(html.contains("<option value=\"commander\">Real games, any list (Mythic Tools)</option>"));
@@ -804,6 +805,10 @@ async fn rating_v2_ranks_the_public_pages_once_a_real_game_source_is_enabled() {
     assert!(html.contains("Mythic Tools, any list: 7,984 games from 3,077 decks"));
     let (_, _, html) = request(&app, "/precons/methodology", &[]).await;
     assert!(html.contains("id=\"v2\""));
+    // Each count says what it counts, against the catalog: the pages showed 174, 175 and 178
+    // side by side with nothing to say they were different things.
+    assert!(html.contains(" of the catalog's ") && html.contains(" precons are ranked, as of "), "the ranked count is out of the catalog");
+    assert!(html.contains("Coverage: 174 of the catalog's "), "so is the upgradeability inventory");
 
     // Stopping the source is seen on the next request, despite the cache.
     crate::precon_evidence::disable(&pool, &owner, "Playgroup.gg").await.unwrap();

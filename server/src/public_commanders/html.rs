@@ -145,21 +145,18 @@ fn evidence_cell(c: &Commander, sources: &[Source]) -> String {
     out
 }
 
+/// The precons a commander leads, as lines under its name ("Precon: Tramplesaurus Rex, rank #1").
+/// Most commanders lead none, and then there is nothing to say: a column reading "None" on 47 of
+/// 50 rows only made every row taller.
 fn precon_links(c: &Commander, ranks: &HashMap<String, usize>) -> String {
-    if c.precons.is_empty() {
-        return "<span class=\"dim\">None</span>".into();
-    }
     c.precons
         .iter()
         .map(|p| {
             format!(
-                "<a href=\"/precons/{}\">{}</a>{}",
+                "<small class=\"commander-precon\">Precon: <a href=\"/precons/{}\">{}</a>{}</small>",
                 e(&p.id),
                 e(&p.name),
-                ranks
-                    .get(&p.id)
-                    .map(|r| format!("<small>Precon rank #{r}</small>"))
-                    .unwrap_or_default()
+                ranks.get(&p.id).map(|r| format!(", rank #{r}")).unwrap_or_default()
             )
         })
         .collect::<Vec<_>>()
@@ -193,7 +190,7 @@ fn method(r: &Ranking) -> String {
         };
         write!(
             out,
-            "<li>{name}: {} commanders, {} reported games. {}. Licence: {}.</li>",
+            "<li>{name}: {} commanders, {} reported games. {}. License: {}.</li>",
             count(s.commanders as i64),
             count(s.games as i64),
             e(&s.attribution),
@@ -204,7 +201,7 @@ fn method(r: &Ranking) -> String {
     write!(
         out,
         "</ul><p>Figures derived {} UTC. Yama is not affiliated with these sources.</p>",
-        e(&r.as_of.format("%-d %b %Y %H:%M").to_string())
+        e(&r.as_of.format("%b %-d, %Y %H:%M").to_string())
     )
     .unwrap();
     out
@@ -356,7 +353,7 @@ pub(super) async fn index(
     if rows.is_empty() {
         body.push_str("<div class=\"empty-state\"><h2>No matching commanders</h2><p>Try fewer games, a different color or <a href=\"/commanders\">clear the filters</a>.</p></div>");
     } else {
-        body.push_str("<div class=\"public-table-wrap\"><table class=\"public-table commander-table\"><caption class=\"sr-only\">Commander ranking by observed win rate</caption><thead><tr><th scope=\"col\">Commander</th><th scope=\"col\">Combined win rate</th><th scope=\"col\">Games<small>Source details</small></th><th scope=\"col\">Precon<small>Its precon rank</small></th></tr></thead><tbody>");
+        body.push_str("<div class=\"public-table-wrap\"><table class=\"public-table commander-table\"><caption class=\"sr-only\">Commander ranking by observed win rate</caption><thead><tr><th scope=\"col\">Commander</th><th scope=\"col\">Combined win rate</th><th scope=\"col\">Games<small>Source details</small></th></tr></thead><tbody>");
         for (rank, c) in rows.iter().skip((current - 1) * PER_PAGE).take(PER_PAGE) {
             let thumb = c
                 .art
@@ -378,14 +375,9 @@ pub(super) async fn index(
                 .win_rate
                 .map(|r| format!("{:.1}%", r * 100.0))
                 .unwrap_or_else(|| "Unavailable".into());
-            write!(body, "<tr><th scope=\"row\"><span class=\"deck-link\">{thumb}<span><strong>{}</strong><span class=\"deck-meta\">{}</span></span></span><small class=\"thumb-credit\">{credit}</small></th><td class=\"meta-cell\" data-label=\"Combined win rate\"><span class=\"result-value\">{rate}</span><small>{rank_label}</small></td><td data-label=\"Games\">{}</td>",
-                e(&c.name), identity(&c.color_identity), evidence_cell(c, &r.sources)).unwrap();
-            write!(
-                body,
-                "<td data-label=\"Precon\">{}</td></tr>",
-                precon_links(c, &ranks)
-            )
-            .unwrap();
+            write!(body, "<tr><th scope=\"row\"><span class=\"deck-link\">{thumb}<span><strong>{}</strong><span class=\"deck-meta\">{}</span>{}</span></span><small class=\"thumb-credit\">{credit}</small></th><td class=\"meta-cell\" data-label=\"Combined win rate\"><span class=\"result-value\">{rate}</span><small>{rank_label}</small></td><td data-label=\"Games\">{}</td>",
+                e(&c.name), identity(&c.color_identity), precon_links(c, &ranks), evidence_cell(c, &r.sources)).unwrap();
+            body.push_str("</tr>");
         }
         body.push_str("</tbody></table></div>");
         write!(body, "<nav class=\"pagination\" aria-label=\"Commander pages\"><span>Page {current} of {pages}</span><div>").unwrap();

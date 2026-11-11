@@ -25,11 +25,11 @@ pub(crate) fn usd(n: Option<f64>) -> String {
     n.map(|n| format!("${n:.2}")).unwrap_or_else(|| "No price".into())
 }
 
-/// "28 Oct 2026" from a date or a timestamp.
+/// "Oct 28, 2026" from a date or a timestamp, the date style the app uses.
 pub(crate) fn when(s: &str) -> String {
     s.get(..10)
         .and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok())
-        .map(|d| d.format("%-d %b %Y").to_string())
+        .map(|d| d.format("%b %-d, %Y").to_string())
         .unwrap_or_else(|| "Date unavailable".into())
 }
 
@@ -406,7 +406,7 @@ pub(crate) fn sim_panel(run: &RunListItem, key: &str, shown: &[String], matches:
     let r = &run.run;
     let level = r.level.unwrap_or(0.9) * 100.;
     let mut s = format!(
-        "<section class=\"public-panel public-sim\" aria-labelledby=\"sim-head\"><h2 id=\"sim-head\">Simulated games</h2><p class=\"dim\">AI against AI in a rules engine: {}, {} AI, analysed {}. Raw win rates in {}-player pods, with {level:.0}% intervals; every list played the same pods.</p><div class=\"sim-rows\">",
+        "<section class=\"public-panel public-sim\" aria-labelledby=\"sim-head\"><h2 id=\"sim-head\">Simulated games</h2><p class=\"dim\">AI against AI in a rules engine: {}, {} AI, analyzed {}. Raw win rates in {}-player pods, with {level:.0}% intervals; every list played the same pods.</p><div class=\"sim-rows\">",
         e(r.engine.as_deref().unwrap_or("an unrecorded engine")),
         e(&r.difficulty.as_deref().unwrap_or("unrecorded").to_lowercase()),
         when(r.analysed_at.as_deref().unwrap_or(&r.created_at)),
