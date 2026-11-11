@@ -111,7 +111,7 @@ function AddedRow({ a, onFix, onRetry }: { a: Added; onFix: AddedListProps["onFi
           </div>
         </div>
       </div>
-      {a.pending && !a.pending.error && <Loading small>Saving…</Loading>}
+      {a.pending && !a.pending.error && <Loading small quiet>Saving…</Loading>}
       {a.pending?.error && (
         <div className="scan-step is-tap" role="alert">
           <p>

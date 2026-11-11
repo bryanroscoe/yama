@@ -46,7 +46,7 @@ export function OAuthConsent() {
           <section className="oauth-panel" role="status">
             <h1>The app's request didn't work</h1>
             <p>{bounce.error}</p>
-            <Loading small>Taking you back to the app to say so…</Loading>
+            <Loading small quiet>Taking you back to the app to say so…</Loading>
           </section>
         )}
         {check.data?.ok && (

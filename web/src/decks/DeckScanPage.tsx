@@ -323,7 +323,7 @@ function Review({ deck, draft, ops, onBack, onSaved }: { deck: DeckView; draft: 
     <section className="stack deck-scan-review" aria-live="polite">
       <h2>Before saving</h2>
       <ErrorText error={check.error} />
-      {!c && !check.error && <Loading>Comparing with the deck's list…</Loading>}
+      {!c && !check.error && <Loading quiet>Comparing with the deck's list…</Loading>}
       {c && (
         <>
           <Checks check={c} />

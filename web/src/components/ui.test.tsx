@@ -11,6 +11,10 @@ describe("Loading", () => {
     expect(renderToStaticMarkup(<Loading />)).toBe('<p class="loading dim" role="status">Loading…</p>');
   });
 
+  it("can leave the announcement to a live region it sits in", () => {
+    expect(renderToStaticMarkup(<Loading quiet small>Saving…</Loading>)).toBe('<p class="loading dim small">Saving…</p>');
+  });
+
   it("can be small, padded, or a whole page", () => {
     expect(renderToStaticMarkup(<Loading small>Saving…</Loading>)).toContain('class="loading dim small"');
     expect(renderToStaticMarkup(<Loading padded>Starting the scanner…</Loading>)).toContain('class="loading dim is-padded"');

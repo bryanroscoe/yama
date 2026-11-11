@@ -37,17 +37,18 @@ function uses(pattern: RegExp, allowed: (file: string, line: string) => boolean 
 const BOARD = /^web\/src\/play\//;
 
 describe("waiting and empty states use the shared components", () => {
-  it("no page writes its own Loading… paragraph", () => {
-    // Use <Loading>Loading the deck…</Loading> from components/ui.
-    const found = uses(/<(p|span|div|li)\b[^>]*>\s*Loading\b[^<{]*…/, (file) => file === "web/src/components/ui.tsx" || BOARD.test(file));
+  it("no page writes its own waiting paragraph", () => {
+    // Use <Loading>Loading the deck…</Loading> from components/ui, for any "Doing something…" line.
+    const found = uses(/<(p|span|div|li)\b[^>]*>\s*[A-Z][a-z]+ing\b[^<{]*…\s*</, (file) => file === "web/src/components/ui.tsx" || BOARD.test(file));
     expect(found).toEqual([]);
   });
 
   it("no page styles its own empty state", () => {
     // Use <EmptyState> from components/ui; its variants are plain, boxed, panel and compact.
     // An empty card slot (a dashed outline where a card goes) and a picker's "no match" row aren't empty states.
-    const slots = /\b(plan-pair-empty|mpc-thumb-empty|combo-empty)\b/;
-    const found = uses(/className="[^"]*\b[\w-]+-empty\b/, (file, line) => BOARD.test(file) || slots.test(line));
+    // The power-users-only note is a note, not an empty state.
+    const slots = /\b(plan-pair-empty|mpc-thumb-empty|combo-empty|power-only)\b/;
+    const found = uses(/className="(?:[^"]* )?(?:[\w-]+-)?empty(?:[" ])/, (file, line) => file === "web/src/components/ui.tsx" || BOARD.test(file) || slots.test(line));
     expect(found).toEqual([]);
   });
 });

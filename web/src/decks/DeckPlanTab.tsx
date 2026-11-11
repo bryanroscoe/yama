@@ -96,7 +96,9 @@ export function DeckPlanTab({ deckId, deckName }: { deckId: string; deckName: st
 
 function NoPlan() {
   return (
-    <EmptyState title="No plan for this deck" action={<Link to="/decks/plans">How plans work</Link>} />
+    <section aria-label="Plan">
+      <EmptyState title="No plan for this deck" action={<Link to="/decks/plans">How plans work</Link>} />
+    </section>
   );
 }
 

@@ -103,11 +103,12 @@ const cx = (...names: (string | false | null | undefined)[]) => names.filter(Boo
 /**
  * Something is on its way. Say what when the page knows ("Loading the deck…"); a screen reader
  * hears it once, politely. `page` is for a page with nothing else to draw yet, `padded` for a
- * line outside any page padding (an overlay still starting).
+ * line outside any page padding (an overlay still starting). `quiet` leaves the announcement
+ * out: for a line inside a region that is already live, or one drawn again for every row.
  */
-export function Loading({ children = "Loading…", small = false, page = false, padded = false, className }: { children?: ReactNode; small?: boolean; page?: boolean; padded?: boolean; className?: string }) {
+export function Loading({ children = "Loading…", small = false, page = false, padded = false, quiet = false, className }: { children?: ReactNode; small?: boolean; page?: boolean; padded?: boolean; quiet?: boolean; className?: string }) {
   const line = (
-    <p className={cx("loading", "dim", small && "small", padded && "is-padded", className)} role="status">
+    <p className={cx("loading", "dim", small && "small", padded && "is-padded", className)} role={quiet ? undefined : "status"}>
       {children}
     </p>
   );
