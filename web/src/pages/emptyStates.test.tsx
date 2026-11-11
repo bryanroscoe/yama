@@ -58,4 +58,14 @@ describe("empty pages lead somewhere", () => {
     expect(html.indexOf("Start or join a playgroup")).toBeLessThan(html.indexOf("Export games"));
     expect(html).not.toContain("No playgroup yet.");
   });
+
+  it("Group keeps the form out of the page until it knows where it goes", () => {
+    // Still loading: showing it at the bottom and then moving it to the top would drop what
+    // someone had typed.
+    expect(page("/group", <GroupPage />, [])).not.toContain("Start or join a playgroup");
+    const group = { id: "g1", name: "Friday pod", join_code: "ABC123", role: "owner", members: [] };
+    const html = page("/group", <GroupPage />, [[["playgroups"], [group]]]);
+    expect(html.match(/Start or join a playgroup/g)).toHaveLength(1);
+    expect(html.indexOf("Export games")).toBeLessThan(html.indexOf("Start or join a playgroup"));
+  });
 });

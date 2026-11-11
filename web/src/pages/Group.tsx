@@ -47,8 +47,9 @@ export function GroupPage() {
       </div>
       <ExportGames group={group} />
       <MythicImportEntry />
-      {/* With no playgroup yet, starting or joining one sits at the top instead. */}
-      {groups.data?.length !== 0 && <GroupActions />}
+      {/* With no playgroup, starting or joining one sits at the top instead. While the list is
+          still loading the form is in neither place, so it can't move under someone typing. */}
+      {(!!groups.data?.length || groups.isError) && <GroupActions />}
     </main>
   );
 }
