@@ -13,7 +13,7 @@
 // empty browser profile, so a run on production changes no one's data however many buttons it
 // presses (signing in still records the session and last_seen_at).
 
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
@@ -130,7 +130,7 @@ function usage(code = 0) {
 
 Sign-in for shoot: the saved session for the host, else with --as EMAIL a new one (dev login on
 localhost, else --ssh-session over SSH to YAMA_POLISH_SSH, default the deploy target from
-YAMA_DEPLOY_USER/YAMA_DEPLOY_HOST or deploy/.env).
+YAMA_DEPLOY_USER/YAMA_DEPLOY_HOST, deploy/.env or ~/.config/yama/deploy.env).
 
 Options for shoot:
   --viewports laptop,tablet,mobile   sizes to shoot (default all three)
@@ -213,13 +213,16 @@ async function whoAmI(request) {
   return me ? { name: me.name ?? me.user?.name ?? null, email: me.email ?? me.user?.email ?? null } : null;
 }
 
-/** user@host for --ssh-session: YAMA_POLISH_SSH, else the deploy target (environment, then the
- *  gitignored deploy/.env, as deploy/target.sh reads it). Saget's address never lives in this file. */
+/** user@host for --ssh-session: YAMA_POLISH_SSH, else the deploy target as deploy/target.sh reads it
+ *  (environment, then the gitignored deploy/.env, then this machine's file: YAMA_DEPLOY_ENV, else
+ *  ~/.config/yama/deploy.env). Saget's address never lives in this file. */
 function sshHost() {
   if (process.env.YAMA_POLISH_SSH) return process.env.YAMA_POLISH_SSH;
   const file = {};
-  const envPath = join(REPO, "deploy", ".env");
-  if (existsSync(envPath)) {
+  const machine =
+    process.env.YAMA_DEPLOY_ENV || join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "yama", "deploy.env");
+  for (const envPath of [join(REPO, "deploy", ".env"), machine]) {
+    if (!existsSync(envPath) || !statSync(envPath).isFile()) continue;
     for (const line of readFileSync(envPath, "utf8").split("\n")) {
       const m = /^(YAMA_DEPLOY_HOST|YAMA_DEPLOY_USER)=(.*)$/.exec(line.trim());
       if (m && !(m[1] in file)) file[m[1]] = m[2].replace(/^(["'])(.*)\1$/, "$2");
@@ -227,7 +230,11 @@ function sshHost() {
   }
   const host = process.env.YAMA_DEPLOY_HOST || file.YAMA_DEPLOY_HOST;
   const user = process.env.YAMA_DEPLOY_USER || file.YAMA_DEPLOY_USER || "root";
-  if (!host) throw new Error("Set YAMA_POLISH_SSH, or YAMA_DEPLOY_HOST in deploy/.env (see deploy/.env.example)");
+  if (!host) {
+    throw new Error(
+      "Set YAMA_POLISH_SSH, or YAMA_DEPLOY_HOST in ~/.config/yama/deploy.env or deploy/.env (see deploy/.env.example)",
+    );
+  }
   if (!/^[A-Za-z0-9.:_-]+$/.test(host) || !/^[A-Za-z0-9._-]+$/.test(user)) throw new Error("YAMA_DEPLOY_HOST/USER must be plain names");
   return `${user}@${host}`;
 }

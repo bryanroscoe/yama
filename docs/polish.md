@@ -18,7 +18,8 @@ On each page it takes:
 ## Running it
 
 ```sh
-# Production, as Bryan (mints a 3-hour session over SSH: `yama-server user session`)
+# Production, as Bryan (mints a 3-hour session over SSH: `yama-server user session`; saget's address
+# comes from the environment, deploy/.env or this machine's ~/.config/yama/deploy.env)
 npm run polish -- shoot --base https://yama.saget.org --as bryanroscoe@gmail.com
 
 # Local, on a copy of production's data, one command (copies the data if needed, builds and starts

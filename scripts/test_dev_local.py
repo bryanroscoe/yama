@@ -28,7 +28,8 @@ OFF = {
 
 class DevLocal(unittest.TestCase):
     def run_script(self, *args):
-        env = {**os.environ, "YAMA_DEPLOY_HOST": "", "PYTHONDONTWRITEBYTECODE": "1"}
+        # No target from this machine either: the tests must not depend on ~/.config/yama/deploy.env.
+        env = {**os.environ, "YAMA_DEPLOY_HOST": "", "YAMA_DEPLOY_ENV": os.devnull, "PYTHONDONTWRITEBYTECODE": "1"}
         return subprocess.run(["bash", str(SCRIPT), *args], cwd=ROOT, env=env, capture_output=True, text=True)
 
     def test_dry_run_turns_every_background_job_off_and_changes_nothing(self):
