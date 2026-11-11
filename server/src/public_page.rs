@@ -344,8 +344,8 @@ pub(crate) fn analysis_panel(a: &DeckAnalysis) -> String {
     let mut s = String::from("<section class=\"public-panel public-analysis\" aria-labelledby=\"analysis-head\"><h2 id=\"analysis-head\">Power level</h2>");
     write!(
         s,
-        "<p class=\"analysis-power\"><span class=\"result-value\">{:.1}</span> <span class=\"dim\">±{:.1}, {} confidence</span></p><p><b>{}</b>. {}</p>",
-        a.power, a.margin, a.confidence, e(a.label), e(a.description)
+        "<p class=\"analysis-power\"><span class=\"result-value\">{:.1}</span> <span class=\"dim\">±{:.1}, {}</span></p><p>Plays like {}. <b>{}</b>. {}</p>",
+        a.power, a.margin, crate::analysis::inputs_note(a.confidence), a.bracket.plays(), e(a.label), e(a.description)
     )
     .unwrap();
     s.push_str("<ul class=\"analysis-vectors\">");

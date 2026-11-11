@@ -595,7 +595,7 @@ async fn html_pagination_preserves_encoded_filters_and_clamps_large_pages() {
     assert!(results.starts_with("<p class=\"table-note\">26 of "));
     assert!(results.contains("</div></nav></div><section class=\"public-panel\"><h2>Power and win rates</h2>"));
     assert!(first.contains("Computed power"));
-    assert!(first.contains("Estimated bracket"));
+    assert!(first.contains("Plays like bracket"));
     assert!(results.split("</main>").next().unwrap().contains("rel=\"next\""));
     let (_, _, none) = request(&app, "/precons?q=nothing-matches", &[]).await;
     assert!(none.contains("<div id=\"results\" data-matched=\"0\"><p class=\"table-note\">"));
@@ -848,7 +848,8 @@ async fn stock_power_is_public_and_uses_the_same_analysis_as_decks() {
     assert_eq!(a.unknown_cards, 0);
     assert!((1.0..=10.0).contains(&a.level));
     assert!((2..=4).contains(&a.bracket));
-    assert!(a.margin >= 0.5); // No public stock Spellbook check.
+    assert!(a.margin >= 0.9 && !a.combo_check); // No stock list check is stored in this fixture.
+    assert!(a.plays_like[0] <= a.bracket && a.bracket <= a.plays_like[1]);
     let json = serde_json::to_string(&data).unwrap();
     assert!(!json.contains(PRIVATE));
     assert!(json.contains("\"power\""));
@@ -856,5 +857,5 @@ async fn stock_power_is_public_and_uses_the_same_analysis_as_decks() {
     assert!(chart.contains("Spearman"));
     assert!(chart.contains("not estimable")); // Only two fixture decks.
     assert!(!chart.contains(PRIVATE));
-    assert!(power::cell(p).contains("Estimated bracket"));
+    assert!(power::cell(p).contains("Plays like Bracket "));
 }

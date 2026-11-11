@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bandOf, isStockConfiguration, landFaceCopies, colorShares, curveColumns, curveSpread, DIAL, dialAngle, dialArc, dialPoint, groupTotal, marginSpan, pctWidth, points, POWER_BANDS, referenceOf } from "./statsTab";
+import { bandOf, isStockConfiguration, landFaceCopies, colorShares, curveColumns, curveSpread, DIAL, dialAngle, dialArc, dialPoint, groupTotal, marginSpan, playsLike, inputsNote, pctWidth, points, POWER_BANDS, referenceOf } from "./statsTab";
 
 const near = (a: number, b: number) => expect(Math.abs(a - b)).toBeLessThan(1e-9);
 
@@ -39,6 +39,14 @@ describe("the power dial", () => {
     expect(marginSpan(1.2, 0.5)).toEqual([1, 1.7]);
     expect(marginSpan(9.8, 0.5)).toEqual([9.3, 10]);
     expect(marginSpan(5, -1)).toEqual([5, 5]);
+  });
+
+  it("says what the list plays like, as a range when the margin reaches the next band", () => {
+    expect(playsLike({ power_bracket: 2, bracket: { plays_like: [2, 2] } })).toBe("Plays like Bracket 2");
+    expect(playsLike({ power_bracket: 3, bracket: { plays_like: [2, 3] } })).toBe("Plays like Bracket 2 to 3");
+    // An older server sends only the band.
+    expect(playsLike({ power_bracket: 4 })).toBe("Plays like Bracket 4");
+    expect([inputsNote("high"), inputsNote("medium"), inputsNote("low")]).toEqual(["Every card read", "Some inputs missing", "Many inputs missing"]);
   });
 });
 

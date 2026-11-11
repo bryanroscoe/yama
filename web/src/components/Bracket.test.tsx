@@ -47,7 +47,8 @@ describe("bracket suggestions", () => {
     </QueryClientProvider>);
     expect(html).toContain("Power level, 1 to 10");
     expect(html).toContain("5.4");
-    expect(html).toContain("±0.4");
+    expect(html).toContain("±0.7");
+    expect(html).toContain("Plays like Bracket 2 to 3");
     expect(html).toContain("Focused casual, unofficial Yama estimate");
     expect(html).not.toContain("·");
     client.clear();
