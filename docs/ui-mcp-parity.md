@@ -147,6 +147,7 @@ part of it). "Gap" rows are the backlog, in rough priority order inside each are
 | Game history, search, unfinished and unnamed games | Game history | `list_games` | Both (added 2026-11-09) |
 | One game, its event log or, for an online game, its log | Game detail | `get_game` | Both (added 2026-11-09; online log 2026-11-11) |
 | Life counter, share the table live | Table | — | UI only (live) |
+| Clock for the turn and the game (per device) | Table menu | — | UI only (live); a finished game's length is in its event times |
 | Log a past game, edit a logged game | Table setup, game detail | — | **Gap (MCP).** Stage `log_game` |
 | Delete a game | Game detail | — | Gap (MCP), staged |
 | Playgroups: list, stats (commanders, players, rivalries) | Playgroup | `list_playgroups` | Both (added 2026-11-09). Assistants get names, never account or member ids |

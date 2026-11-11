@@ -192,7 +192,8 @@ export function GameDetailPage() {
     how ? `Won by ${how.toLowerCase()}.` : null,
     first ? `${seatName(first)} went first.` : null,
     // How long it ran, from the times its record keeps (nothing for a game logged afterwards).
-    ...(logged ? [] : clockFacts(setup, log)),
+    // Turn figures only when every pass carries its own time (an old record's may not).
+    ...(logged ? [] : clockFacts(setup, log, g.events.every((e) => e.kind !== "pass_turn" || !!e.created_at))),
     // What the table wrote, as written (the old fixed "Logged after the game" isn't a note).
     noteText(g.note),
   ].filter(Boolean);

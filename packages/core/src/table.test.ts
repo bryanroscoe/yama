@@ -9,6 +9,7 @@ import {
   commanderTax,
   dangerOf,
   initialState,
+  longBreak,
   lossOf,
   FORMATS,
   formatLabel,
@@ -402,10 +403,12 @@ describe("the clock", () => {
   const ev = (seq: number, when: Date, event: TableEvent): LoggedEvent => ({ seq, at: when.toISOString(), event });
   const life = (seq: number, when: Date) => ev(seq, when, { type: "life", seat: 0, delta: -1 });
   const pass = (seq: number, when: Date) => ev(seq, when, { type: "pass_turn" });
+  const finish = (seq: number, when: Date) => ev(seq, when, { type: "finish", winnerSeat: 0, endedAt: when.toISOString() });
 
   it("times the game from its start and the turn from the last pass", () => {
-    // Nothing passed yet: the first turn has run as long as the game.
-    expect(clockAt(start, [life(1, at(1))], at(2, 30))).toEqual({ game: 150_000, turn: 150_000, running: true });
+    // Nothing passed yet: the table isn't known to count turns (it may start mid-game), so
+    // there is no turn to time, only the game.
+    expect(clockAt(start, [life(1, at(1))], at(2, 30))).toEqual({ game: 150_000, turn: null, running: true });
     const log = [life(1, at(1)), pass(2, at(4)), life(3, at(5)), pass(4, at(9, 20)), life(5, at(10))];
     expect(clockAt(start, log, at(12))).toEqual({ game: 720_000, turn: 160_000, running: true });
     // Undo takes the last pass out of the log, and the turn's time with it.
@@ -413,7 +416,7 @@ describe("the clock", () => {
   });
 
   it("stands still once the game is finished", () => {
-    const log = [pass(1, at(4)), ev(2, at(30), { type: "finish", winnerSeat: 0, endedAt: at(30).toISOString() })];
+    const log = [pass(1, at(4)), finish(2, at(30))];
     for (const now of [at(31), at(600)]) expect(clockAt(start, log, now)).toEqual({ game: 1_800_000, turn: 1_560_000, running: false });
   });
 
@@ -421,20 +424,35 @@ describe("the clock", () => {
     // A phone whose clock was set back, or an event stamped before the game's start.
     expect(clockAt(start, [pass(1, at(4))], at(3))).toEqual({ game: 180_000, turn: 0, running: true });
     expect(clockAt(start, [pass(1, at(-5))], at(2))).toEqual({ game: 120_000, turn: 120_000, running: true });
-    expect(clockAt(start, [], at(-1))).toEqual({ game: 0, turn: 0, running: true });
-    expect(clockAt({ startedAt: "not a date" }, [], at(1))).toEqual({ game: 0, turn: 0, running: true });
+    expect(clockAt(start, [], at(-1))).toEqual({ game: 0, turn: null, running: true });
+    expect(clockAt({ startedAt: "not a date" }, [], at(1))).toEqual({ game: 0, turn: null, running: true });
     expect(clockAt(start, [{ seq: 1, at: "nonsense", event: { type: "pass_turn" } }], at(2))).toEqual({ game: 120_000, turn: 120_000, running: true });
+    // A pass stamped before the one before it happened when that one did, for the clock and
+    // for the turns alike.
+    const backwards = [pass(1, at(8)), pass(2, at(4))];
+    expect(clockAt(start, backwards, at(10)).turn).toBe(120_000);
+    expect(turnSpans(start, backwards)).toEqual([0]);
   });
 
-  it("gives each finished turn's length, and none for a table that never passed", () => {
+  it("gives each player's turn its length: from one pass to the next", () => {
     expect(turnSpans(start, [life(1, at(1))])).toEqual([]);
-    const log = [pass(1, at(4)), life(2, at(5)), pass(3, at(9, 20))];
-    // The turn still running isn't one of them.
-    expect(turnSpans(start, log)).toEqual([240_000, 320_000]);
-    // A finished game's last turn ran to the end.
-    expect(turnSpans(start, [...log, ev(4, at(15), { type: "finish", winnerSeat: null, endedAt: at(15).toISOString() })])).toEqual([240_000, 320_000, 340_000]);
-    // Never passed, then finished: still no turns.
-    expect(turnSpans(start, [ev(1, at(15), { type: "finish", winnerSeat: null, endedAt: at(15).toISOString() })])).toEqual([]);
+    // One pass: the stretch before it (shuffling, or turns not counted yet) isn't a turn.
+    expect(turnSpans(start, [pass(1, at(47))])).toEqual([]);
+    const log = [pass(1, at(4)), life(2, at(5)), pass(3, at(9, 20)), pass(4, at(11))];
+    expect(turnSpans(start, log)).toEqual([320_000, 100_000]);
+    // The stretch after the last pass, until the result was entered, isn't one either.
+    expect(turnSpans(start, [...log, finish(5, at(15))])).toEqual([320_000, 100_000]);
+    expect(turnSpans(start, [finish(1, at(15))])).toEqual([]);
+  });
+
+  it("knows a game that was left for hours from one played through", () => {
+    const hour = 3_600_000;
+    expect(longBreak(start, [life(1, at(20)), pass(2, at(50)), finish(3, at(95))], 3 * hour)).toBe(false);
+    // Carried on the next day: nothing between 9 pm and 7 pm.
+    expect(longBreak(start, [life(1, at(120)), life(2, at(22 * 60)), finish(3, at(23 * 60))], 3 * hour)).toBe(true);
+    expect(longBreak(start, [finish(1, at(4 * 60))], 3 * hour)).toBe(true);
+    expect(longBreak(start, [], 3 * hour)).toBe(false);
+    expect(longBreak({ startedAt: "not a date" }, [life(1, at(1)), life(2, at(300))], 3 * hour)).toBe(true);
   });
 
   it("writes a span as a clock and in words", () => {

@@ -165,12 +165,12 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
     <>
       <div className="table-view-switch">
         <Segmented label="View" value={personal ? "mine" : "table"} onChange={chooseView} options={[["mine", "My seat"], ["table", "Whole table"]]} />
-        {/* My seat hides the middle of the table, so the clock sits up here. */}
-        {clock && personal && <TableClock setup={game.setup} log={game.log} counting={counting} className="table-clock-bar" />}
         <button className="quiet small" onClick={() => setChoosingSeat(true)}>{me ? "Change seat" : "Pick a seat"}</button>
         <button className="quiet small" onClick={() => setMenu(true)} aria-label="Table menu"><MenuIcon /></button>
       </div>
-      <div className={`table with-view-switch${personal ? " table-personal" : ""}${attack || taking !== null ? " attacking" : ""}`} style={{ gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${rows}, 1fr)` }}>
+      {/* The clock is a strip of its own under the bar, and the table starts below it: it covers nothing. */}
+      {clock && <TableClock setup={game.setup} log={game.log} counting={counting} following={!!following} />}
+      <div className={`table with-view-switch${clock ? " with-clock" : ""}${personal ? " table-personal" : ""}${attack || taking !== null ? " attacking" : ""}`} style={{ gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${rows}, 1fr)` }}>
       {personal ? <>
         <ul className="personal-others" aria-label="Everyone else">
           {state.players.filter((p) => p.seat !== me.seat).map((p) => {
@@ -194,12 +194,11 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
         </button>
       ) : (
         <button
-          className={`hub${counting ? "" : " hub-menu"}${clock ? " hub-clock" : ""}`}
+          className={`hub${counting ? "" : " hub-menu"}`}
           onClick={() => setMenu(true)}
           aria-label={`${counting ? `Turn ${state.turn}. ` : ""}${sharing ? "Shared with other phones. " : ""}Open table menu`}
         >
           {counting ? <span>{state.turn}</span> : <MenuIcon />}
-          {clock && <TableClock setup={game.setup} log={game.log} counting={counting} />}
           {/* Shared: a small dot on the hub. The join code is at the top of the menu. */}
           {sharing && <span className="hub-live" aria-hidden="true" />}
         </button>
@@ -237,7 +236,6 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
             aliveCount={alive.length}
             artFor={artFor}
             log={game.log}
-            setup={game.setup}
             turnSince={[...game.log].reverse().find((e) => e.event.type === "pass_turn")?.at ?? game.setup.startedAt}
           />
         </Dialog>
@@ -1207,7 +1205,7 @@ export const CloseIcon = () => (
 
 type Marker = "monarch" | "initiative" | "first";
 
-function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDice, aliveCount, artFor, log, setup, turnSince }: {
+function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDice, aliveCount, artFor, log, turnSince }: {
   following?: FollowingTable;
   state: TableState;
   onClose: () => void;
@@ -1219,8 +1217,6 @@ function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDic
   aliveCount: number;
   artFor: ArtFor;
   log: LoggedEvent[];
-  /** The game's start, for its clock. */
-  setup: Pick<LocalGame, "setup">["setup"];
   /** When the current turn started: the last pass, or the start of the game. */
   turnSince: string;
 }) {
@@ -1272,7 +1268,6 @@ function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDic
               <span className="dim">
                 {active?.name}'s turn, {minutes < 1 ? "just started" : `${minutes} min`}
               </span>
-              {clock && <TableClock setup={setup} log={log} counting className="table-clock-menu" />}
             </span>
           </div>
         ) : (
@@ -1280,7 +1275,6 @@ function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDic
             <span className="tm-turn-text">
               <h2>The table</h2>
               <span className="dim">{played < 1 ? "Just started" : played < 60 ? `${played} min in` : `${Math.floor(played / 60)} h ${played % 60} min in`}</span>
-              {clock && <TableClock setup={setup} log={log} counting={false} className="table-clock-menu" />}
             </span>
           </div>
         )}
@@ -1403,9 +1397,9 @@ function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDic
             <span className="small dim tm-setting-note">
               {clock
                 ? counting
-                  ? " How long this turn has taken, and the game, in the middle of the table. The times come from when each turn was passed, which the game already keeps."
-                  : " How long the game has run, in the middle of the table. Count turns to time each turn too."
-                : " Off: no times on the table."}
+                  ? " How long this turn and the game have run, in a strip at the top of the table."
+                  : " How long the game has run, in a strip at the top of the table. Count turns to time each turn too."
+                : " Off: no running clock on the table."}
             </span>
           </span>
         </label>

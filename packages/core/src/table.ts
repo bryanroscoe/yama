@@ -593,42 +593,62 @@ export function toServerEvents(log: LoggedEvent[]) {
 // no connection, comes back after a reload, follows an undo, and a saved game keeps its times.
 
 /**
- * How long the game and the current turn have run at `now`, in milliseconds. `turn` is the time
- * since the turn was last passed (since the start, before the first pass); it means something
- * only at a table that passes the turn. A finished game's clock stands where the game ended
- * (`running` false). A time never runs backwards: a phone whose clock was set back reads 0.
+ * The instants a clock reads from a game's record, in milliseconds, none earlier than the one
+ * before it: an event stamped before its predecessor (a phone's clock set back) counts as
+ * happening at the same moment, and one with no readable time too. `start` is NaN when the
+ * game's own start can't be read.
  */
-export function clockAt(setup: Pick<TableSetup, "startedAt">, log: LoggedEvent[], now: Date): { game: number; turn: number; running: boolean } {
+function clockMarks(setup: Pick<TableSetup, "startedAt">, log: LoggedEvent[]): { start: number; passes: number[]; end: number | null } {
   const start = Date.parse(setup.startedAt);
-  let turnStart = start;
+  let last = Number.isFinite(start) ? start : Number.NEGATIVE_INFINITY;
+  const after = (at: number) => (last = Number.isFinite(at) ? Math.max(last, at) : last);
+  const passes: number[] = [];
   let end: number | null = null;
   for (const l of log) {
-    if (l.event.type === "pass_turn") turnStart = Date.parse(l.at);
-    else if (l.event.type === "finish") end = Date.parse(l.event.endedAt) || Date.parse(l.at);
+    if (l.event.type === "pass_turn") passes.push(after(Date.parse(l.at)));
+    else if (l.event.type === "finish") end = after(Date.parse(l.event.endedAt) || Date.parse(l.at));
   }
-  const until = end ?? now.getTime();
-  const since = (from: number) => (Number.isFinite(from) && Number.isFinite(until) ? Math.max(0, until - from) : 0);
-  return { game: since(start), turn: since(Math.max(start, turnStart) || start), running: end === null };
+  return { start, passes, end };
 }
 
 /**
- * How long each turn ran, in order, in milliseconds: from the start (or the pass before) to each
- * pass, and the last one to the end of a finished game. Empty for a table that never passed the
- * turn. A turn still running isn't in it.
+ * How long the game and the current turn have run at `now`, in milliseconds. `turn` is the time
+ * since the turn was last passed, and null until it has been passed once: before that the table
+ * isn't known to be counting turns (it may start mid-game), so there is no turn to time. A
+ * finished game's clock stands where the game ended (`running` false). A time never runs
+ * backwards: a phone whose clock was set back reads 0.
+ */
+export function clockAt(setup: Pick<TableSetup, "startedAt">, log: LoggedEvent[], now: Date): { game: number; turn: number | null; running: boolean } {
+  const { start, passes, end } = clockMarks(setup, log);
+  const until = end ?? now.getTime();
+  const since = (from: number) => (Number.isFinite(from) && Number.isFinite(until) ? Math.max(0, until - from) : 0);
+  return { game: since(start), turn: passes.length > 0 ? since(passes[passes.length - 1]!) : null, running: end === null };
+}
+
+/**
+ * How long each player's turn ran, in order, in milliseconds: from one pass to the next. The
+ * stretch before the first pass (shuffling, or a game whose turns weren't counted yet) and the
+ * one after the last (until the result was entered, or still running) aren't a player's turn.
+ * Empty for a table that passed the turn fewer than twice.
  */
 export function turnSpans(setup: Pick<TableSetup, "startedAt">, log: LoggedEvent[]): number[] {
-  const spans: number[] = [];
-  let from = Date.parse(setup.startedAt);
-  let end: number | null = null;
+  const { passes } = clockMarks(setup, log);
+  return passes.slice(1).map((at, i) => at - passes[i]!).filter((ms) => Number.isFinite(ms));
+}
+
+/**
+ * Whether the record has a gap longer than `ms` with nothing in it: a game left on the table
+ * overnight, or carried on another day. Its start-to-finish time isn't how long it was played.
+ */
+export function longBreak(setup: Pick<TableSetup, "startedAt">, log: LoggedEvent[], ms: number): boolean {
+  let last = Date.parse(setup.startedAt);
   for (const l of log) {
-    if (l.event.type === "pass_turn") {
-      const at = Date.parse(l.at);
-      if (Number.isFinite(at) && Number.isFinite(from)) spans.push(Math.max(0, at - from));
-      if (Number.isFinite(at)) from = Math.max(from || at, at);
-    } else if (l.event.type === "finish") end = Date.parse(l.event.endedAt) || Date.parse(l.at);
+    const at = l.event.type === "finish" ? Date.parse(l.event.endedAt) || Date.parse(l.at) : Date.parse(l.at);
+    if (!Number.isFinite(at)) continue;
+    if (Number.isFinite(last) && at - last > ms) return true;
+    last = Number.isFinite(last) ? Math.max(last, at) : at;
   }
-  if (spans.length > 0 && end !== null && Number.isFinite(end)) spans.push(Math.max(0, end - from));
-  return spans;
+  return false;
 }
 
 /** A span as a clock shows it: "0:07", "4:12", "1:02:10". */
