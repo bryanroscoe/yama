@@ -100,4 +100,44 @@ describe("API authentication across origins", () => {
     setToken(null);
     expect(currentToken()).toBeNull();
   });
+
+  it("stops requests still out when the account changes, and the work that was making them", async () => {
+    vi.stubEnv("VITE_API_BASE", "");
+    vi.resetModules();
+    const urls: string[] = [];
+    // A server that never answers until the request is stopped.
+    const fetcher = vi.fn().mockImplementation(
+      (url: string, init: RequestInit) =>
+        new Promise((_, reject) => {
+          urls.push(url);
+          init.signal!.addEventListener("abort", () => reject(init.signal!.reason));
+        }),
+    );
+    vi.stubGlobal("fetch", fetcher);
+    const { api, abortRequests } = await import("./api");
+    // Adding several decks one after another, as the import page does.
+    const addAll = (async () => {
+      for (const name of ["one", "two", "three"]) await api("/api/decks", { method: "POST", json: { name } });
+    })();
+    await Promise.resolve();
+    abortRequests();
+    await expect(addAll).rejects.toThrow("The signed-in account changed");
+    // The first was in flight; the second and third were never sent.
+    expect(urls).toEqual(["/api/decks"]);
+
+    // Requests made afterwards, as the new account, go out as usual.
+    fetcher.mockImplementation(async () => new Response(JSON.stringify({ id: "me" }), { headers: { "Content-Type": "application/json" } }));
+    expect(await api("/api/me")).toEqual({ id: "me" });
+  });
+
+  it("still stops for the caller's own signal", async () => {
+    vi.stubEnv("VITE_API_BASE", "");
+    vi.resetModules();
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((_: string, init: RequestInit) => new Promise((_, reject) => init.signal!.addEventListener("abort", () => reject(init.signal!.reason)))));
+    const { api } = await import("./api");
+    const mine = new AbortController();
+    const request = api("/api/decks", { signal: mine.signal });
+    mine.abort(new DOMException("Typed past", "AbortError"));
+    await expect(request).rejects.toThrow("Typed past");
+  });
 });

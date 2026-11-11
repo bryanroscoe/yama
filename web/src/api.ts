@@ -75,6 +75,32 @@ export function currentToken(): string | null {
   return KEEPS_TOKEN ? localStorage.getItem(TOKEN_KEY) : null;
 }
 
+/**
+ * Every request still out belongs to the account that was signed in when it was made. When the
+ * account changes (session.ts), they are all stopped: a save made of several requests (adding
+ * many decks one after another) fails at the one in flight instead of carrying on as whoever
+ * signed in next, and nothing of the old account's comes back into the new one's cache.
+ */
+let requests = new AbortController();
+
+export function abortRequests() {
+  const stopped = requests;
+  requests = new AbortController();
+  stopped.abort(new DOMException("The signed-in account changed, so this was stopped.", "AbortError"));
+}
+
+/** Stops when either signal does. */
+function either(a: AbortSignal, b: AbortSignal | null | undefined): AbortSignal {
+  if (!b) return a;
+  if (typeof AbortSignal.any === "function") return AbortSignal.any([a, b]);
+  const both = new AbortController();
+  for (const s of [a, b]) {
+    if (s.aborted) both.abort(s.reason);
+    else s.addEventListener("abort", () => both.abort(s.reason), { once: true });
+  }
+  return both.signal;
+}
+
 async function apiResponse(path: string, init: RequestInit & { json?: unknown } = {}): Promise<Response> {
   const headers = new Headers(init.headers);
   const token = currentToken();
@@ -84,7 +110,7 @@ async function apiResponse(path: string, init: RequestInit & { json?: unknown } 
     headers.set("Content-Type", "application/json");
     body = JSON.stringify(init.json);
   }
-  const res = await fetch(API_BASE + path, { ...init, headers, body, credentials: FETCH_CREDENTIALS });
+  const res = await fetch(API_BASE + path, { ...init, headers, body, credentials: FETCH_CREDENTIALS, signal: either(requests.signal, init.signal) });
   if (!res.ok) {
     let message = `${res.status} ${res.statusText}`;
     let data: Record<string, unknown> | undefined;

@@ -13,7 +13,7 @@
 
 import type { Mutation, QueryClient } from "@tanstack/react-query";
 import { useSyncExternalStore } from "react";
-import { ApiError, type User } from "./api";
+import { abortRequests, ApiError, type User } from "./api";
 
 /** The cached user (auth.tsx keeps it): a change from another tab means the account changed there. */
 export const ME_KEY = "yama.me";
@@ -102,12 +102,14 @@ let sweeps = 0;
 const removeAccountQueries = () => client?.removeQueries({ predicate: (q) => !keptAcrossAccounts(q.queryKey) });
 
 /**
- * The account's data leaves the cache. Saves it left queued (paused offline) are dropped, so they
- * are never sent as whoever signs in next. A save already on its way can't be called back: when
- * it lands, its callbacks may write the old account's answer into the cache (some set a query
- * directly), so the cache is swept once more after each one settles.
+ * The account's data leaves the cache. Requests still out are stopped (api.ts): a save made of
+ * several requests fails at the one in flight instead of carrying on as whoever signs in next.
+ * Saves the account left queued (paused offline) are dropped. A save that was on its way still
+ * runs its callbacks as it fails or lands, and some write straight into the cache, so the cache
+ * is swept once more after each one settles.
  */
 const clearAccountData = () => {
+  abortRequests();
   if (!client) return;
   const mutations = client.getMutationCache();
   const onTheirWay = new Set<Mutation<unknown, Error, unknown, unknown>>(
