@@ -160,7 +160,8 @@ export function Segmented<T extends string | number | boolean | null>({
       {options.map((o) => {
         const s: Segment<T> = "value" in o ? o : { value: o[0], label: o[1] };
         return (
-          <button key={String(s.value)} type="button" {...segmentProps} title={s.title} aria-label={s.title} aria-pressed={s.value === value} disabled={disabled || s.disabled} onClick={() => onChange(s.value)}>
+          // The type is part of the key: null and a value spelled "null" are different segments.
+          <button key={`${typeof s.value}:${s.value}`} type="button" {...segmentProps} title={s.title} aria-label={s.title} aria-pressed={s.value === value} disabled={disabled || s.disabled} onClick={() => onChange(s.value)}>
             {s.label}
           </button>
         );

@@ -49,6 +49,14 @@ describe("Segmented", () => {
     expect(html).toMatch(/^<span class="segmented is-compact deck-view" role="group"/);
   });
 
+  it("keeps null apart from a value spelled null", () => {
+    // Both draw, with no duplicate-key warning: "All plans" (null) beside a plan whose key is "null".
+    const html = renderToStaticMarkup(<Segmented<string | null> label="Show plans" value={null} onChange={() => {}} options={[[null, "All plans"], ["null", "Null Rod"]]} />);
+    expect(html.match(/<button/g)).toHaveLength(2);
+    expect(html).toContain('aria-pressed="true">All plans<');
+    expect(html).toContain('aria-pressed="false">Null Rod<');
+  });
+
   it("never uses the radio or tab roles", () => {
     const html = renderToStaticMarkup(<Segmented label="View" value="list" onChange={() => {}} options={options} />);
     expect(html).not.toMatch(/role="(radio|radiogroup|tab|tablist)"/);

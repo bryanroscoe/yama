@@ -57,7 +57,7 @@ describe("choosing one of a few uses the shared control", () => {
   it("no page builds its own segmented control", () => {
     // Use <Segmented> from components/ui: a labelled group of aria-pressed buttons. The Decks
     // sections strip (DeckTabs) is the navigation form of the same track, with links.
-    const found = uses(/className="(seg|segmented)\b/, (file) => file === "web/src/components/DeckTabs.tsx" || /^web\/src\/play\/(Board|Decide)\.tsx$/.test(file));
+    const found = uses(/className="(seg|segmented)\b/, (file) => file === "web/src/components/DeckTabs.tsx");
     expect(found).toEqual([]);
   });
 });
