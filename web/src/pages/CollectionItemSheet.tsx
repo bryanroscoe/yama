@@ -4,7 +4,7 @@ import { api, ApiError, type CollectionItem, type Container, type Printing } fro
 import { CardRef } from "../components/CardRef";
 import { CardImage, ErrorText, Dialog, Loading, Segmented } from "../components/ui";
 import type { ScanCandidate } from "../scanner";
-import { finishChoices, finishFor, finishWord, printingLabel, reprintOps, type Op, type Scope } from "./collectionEdit";
+import { finishChoices, finishFor, finishWord, opIds, printingLabel, reprintOps, type Op, type Scope } from "./collectionEdit";
 // The scan choices and their notes, shown here outside the scanner too.
 import "../scanner/scanner.css";
 import { shortDate, usd } from "@yama/core";
@@ -38,14 +38,21 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
   const [scanError, setScanError] = useState<unknown>(null);
   const copies = item.qty === 1 ? "this copy" : scope === "all" ? `all ${item.qty} copies` : "one copy";
 
+  // One op id per change until the server confirms it: tapping again after a failed save (its
+  // answer may only have been lost) sends the same op, never a second copy.
+  const [ids] = useState(() => opIds());
   const send = useMutation({
     mutationFn: (ops: Op[]) => api("/api/collection/ops", { method: "POST", json: ops }),
-    onSuccess: () => void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("collection") || q.queryKey[0] === "containers" }),
+    onSuccess: () => {
+      ids.saved();
+      void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("collection") || q.queryKey[0] === "containers" });
+    },
   });
   const busy = send.isPending;
   const save = (ops: Op[], done?: string) => send.mutate(ops, { onSuccess: () => alive.current && onClose(done) });
-  const one = (body: Record<string, unknown>) => save([{ op_id: crypto.randomUUID(), kind: "update", item_id: item.id, ...body } as Op]);
-  const adjust = (delta: number) => save([{ op_id: crypto.randomUUID(), kind: "adjust", item_id: item.id, delta }]);
+  const one = (body: Record<string, unknown>) => save([{ op_id: ids.idFor(`update:${JSON.stringify(body)}`), kind: "update", item_id: item.id, ...body } as Op]);
+  const adjust = (delta: number) => save([{ op_id: ids.idFor(`adjust:${delta}`), kind: "adjust", item_id: item.id, delta }]);
+  const reprintId = (p: Printing) => () => ids.idFor(`reprint:${p.scryfall_id}:${scope}`);
   const name = item.name ?? "The card";
   const nowIs = (p: Printing) => `${scope === "one" && item.qty > 1 ? `One ${name}` : name} is now ${printingLabel(p)}.`;
   // Every printing of this card, newest first: the picker's list, the check on a rescan, and the
@@ -57,7 +64,7 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
   });
   const finishes = finishChoices(item.finish, printings.data?.find((p) => p.scryfall_id === item.scryfall_id)?.finishes);
   const reprint = (p: Printing) => {
-    const ops = reprintOps(item, p, scope, () => crypto.randomUUID());
+    const ops = reprintOps(item, p, scope, reprintId(p));
     if (ops.length === 0) onClose();
     else save(ops, nowIs(p));
   };
@@ -77,7 +84,7 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
         const known = await api<{ printings: Printing[] }>(`/api/scan/printings?id=${encodeURIComponent(c.scryfall_id)}`);
         const p = known.printings.find((x) => x.scryfall_id === c.scryfall_id);
         if (!p) throw new Error(`Couldn't find that printing of ${c.name}. Nothing was changed.`);
-        await send.mutateAsync(reprintOps(item, p, scope, () => crypto.randomUUID()));
+        await send.mutateAsync(reprintOps(item, p, scope, reprintId(p)));
         if (alive.current) onClose(`${c.name} is now ${printingLabel(p)}.`);
         return true;
       }
@@ -91,7 +98,7 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
       setScanNote(`It's the printing you have: ${printingLabel(p)}.`);
       return true;
     }
-    await send.mutateAsync(reprintOps(item, p, scope, () => crypto.randomUUID()));
+    await send.mutateAsync(reprintOps(item, p, scope, reprintId(p)));
     if (alive.current) onClose(nowIs(p));
     return true;
   };
@@ -240,7 +247,7 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
               <button
                 className="coll-danger"
                 disabled={busy}
-                onClick={() => save([{ op_id: crypto.randomUUID(), kind: "remove", item_id: item.id }], `Deleted ${item.qty === 1 ? name : `${item.qty} copies of ${name}`} from ${item.container_name ?? "your collection"}.`)}
+                onClick={() => save([{ op_id: ids.idFor("remove"), kind: "remove", item_id: item.id }], `Deleted ${item.qty === 1 ? name : `${item.qty} copies of ${name}`} from ${item.container_name ?? "your collection"}.`)}
               >
                 Delete
               </button>

@@ -1,6 +1,6 @@
 import { SinglesPrice } from "../components/DeckPrices";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { bottom, draw, expandDeck, newHand, rng, type Goldfish, priceSource } from "@yama/core";
+import { bottom, draw, expandDeck, newHand, rng, type Goldfish, plural, priceSource } from "@yama/core";
 import { deckCounts, deckLogs, swapSource, swapStatus, type PlanDeck, type Swap } from "@yama/core/plan";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
@@ -59,6 +59,11 @@ function ownership(owned: number | undefined, total: number, proxies = 0): { tex
     short: `Need ${total - have}`,
     tone: "warn",
   };
+}
+
+/** "1 card", "100 cards": a deck tile's size when ownership isn't known. */
+export function cardCount(n: number): string {
+  return plural(n, "card");
 }
 
 /** "6 wins, 3 losses" from finished games with the deck, or "Not played yet". */
@@ -145,7 +150,7 @@ function DeckTile({ d }: { d: DeckSummary }) {
               <span className="phone-only">{own.short}</span>
             </span>
           ) : (
-            <span>{d.card_count} cards</span>
+            <span>{cardCount(d.card_count)}</span>
           )}
           {played && <span className="deck-record">{played}</span>}
           {SHARED_LABEL[d.visibility] && <span className="deck-shared">{SHARED_LABEL[d.visibility]}</span>}

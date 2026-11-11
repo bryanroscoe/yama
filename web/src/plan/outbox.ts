@@ -14,7 +14,7 @@
 // generation is dropped, so a late reply can't write the user's answers back to the device.
 import type { LocalOp, PlanOp } from "@yama/core/plan";
 import { useSyncExternalStore } from "react";
-import { api, ApiError } from "../api";
+import { api, ApiError, isSignedInAs } from "../api";
 
 import { isViewing } from "../viewingFlag";
 
@@ -102,6 +102,8 @@ export class PlanOutbox {
     private kv: KV | null,
     private post: (ops: PlanOp[], signal?: AbortSignal) => Promise<InputsReply>,
     private autoSync = true,
+    /** Whether this user's box may be sent now: the server takes ops as whoever is signed in. */
+    private mayPost: (userId: string) => boolean = () => true,
   ) {}
 
   subscribe = (l: () => void) => {
@@ -182,6 +184,9 @@ export class PlanOutbox {
   sync(userId: string): Promise<void> {
     // An admin viewing as someone sends nothing (the server would refuse it anyway).
     if (isViewing()) return Promise.resolve();
+    // Another account is signed in now (or nobody): a delayed sync left from this user's taps
+    // must not go out under that sign-in. The box waits for its own account.
+    if (!this.mayPost(userId)) return Promise.resolve();
     const running = this.inflight.get(userId);
     if (running) return running;
     const gen = this.generation(userId);
@@ -216,7 +221,7 @@ export class PlanOutbox {
   private async send(userId: string, current: () => boolean, signal: AbortSignal): Promise<void> {
     for (let round = 0; round < 50; round++) {
       const batch = this.box(userId).pending.slice(0, BATCH);
-      if (!batch.length) return;
+      if (!batch.length || !this.mayPost(userId)) return;
       let reply: InputsReply;
       try {
         reply = await this.post(batch, signal);
@@ -278,6 +283,7 @@ export const outbox = new PlanOutbox(
   browser ? localStorage : null,
   (ops, signal) => api<InputsReply>("/api/plan/inputs", { method: "POST", json: ops, signal }),
   browser,
+  isSignedInAs,
 );
 
 /** This device's id, sent with each op so an inbox line says which device it came from. */

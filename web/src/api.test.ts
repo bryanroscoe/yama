@@ -67,4 +67,77 @@ describe("API authentication across origins", () => {
     expect(options.credentials).toBe(credentials);
     expect(options.headers.get("Authorization")).toBe(token ? `Bearer ${token}` : null);
   });
+
+  it("keeps no bearer token on the web, where the session cookie is the sign-in", async () => {
+    vi.stubEnv("VITE_API_BASE", "");
+    vi.resetModules();
+    // A token an older build stored. Its session may have ended, and the server reads
+    // Authorization before the cookie without falling back.
+    localStorage.setItem("yama.token", "stale-token");
+    const fetcher = vi.fn().mockImplementation(async () => new Response(JSON.stringify({ id: "me" }), { headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetcher);
+    const { api, currentToken, setToken } = await import("./api");
+    expect(localStorage.getItem("yama.token")).toBeNull();
+    expect(currentToken()).toBeNull();
+    await api("/api/me");
+    expect(fetcher.mock.calls[0]![1].headers.get("Authorization")).toBeNull();
+    expect(fetcher.mock.calls[0]![1].credentials).toBe("include");
+    // Signing in doesn't store one either.
+    setToken("fresh-token");
+    expect(localStorage.getItem("yama.token")).toBeNull();
+    await api("/api/me");
+    expect(fetcher.mock.calls[1]![1].headers.get("Authorization")).toBeNull();
+  });
+
+  it("keeps the bearer token in the native app, which has no cookie", async () => {
+    vi.stubEnv("VITE_API_BASE", "https://api.yama.example");
+    vi.resetModules();
+    localStorage.setItem("yama.token", "native-token");
+    const { currentToken, setToken } = await import("./api");
+    expect(currentToken()).toBe("native-token");
+    setToken("next-token");
+    expect(localStorage.getItem("yama.token")).toBe("next-token");
+    setToken(null);
+    expect(currentToken()).toBeNull();
+  });
+
+  it("stops requests still out when the account changes, and the work that was making them", async () => {
+    vi.stubEnv("VITE_API_BASE", "");
+    vi.resetModules();
+    const urls: string[] = [];
+    // A server that never answers until the request is stopped.
+    const fetcher = vi.fn().mockImplementation(
+      (url: string, init: RequestInit) =>
+        new Promise((_, reject) => {
+          urls.push(url);
+          init.signal!.addEventListener("abort", () => reject(init.signal!.reason));
+        }),
+    );
+    vi.stubGlobal("fetch", fetcher);
+    const { api, abortRequests } = await import("./api");
+    // Adding several decks one after another, as the import page does.
+    const addAll = (async () => {
+      for (const name of ["one", "two", "three"]) await api("/api/decks", { method: "POST", json: { name } });
+    })();
+    await Promise.resolve();
+    abortRequests();
+    await expect(addAll).rejects.toThrow("The signed-in account changed");
+    // The first was in flight; the second and third were never sent.
+    expect(urls).toEqual(["/api/decks"]);
+
+    // Requests made afterwards, as the new account, go out as usual.
+    fetcher.mockImplementation(async () => new Response(JSON.stringify({ id: "me" }), { headers: { "Content-Type": "application/json" } }));
+    expect(await api("/api/me")).toEqual({ id: "me" });
+  });
+
+  it("still stops for the caller's own signal", async () => {
+    vi.stubEnv("VITE_API_BASE", "");
+    vi.resetModules();
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((_: string, init: RequestInit) => new Promise((_, reject) => init.signal!.addEventListener("abort", () => reject(init.signal!.reason)))));
+    const { api } = await import("./api");
+    const mine = new AbortController();
+    const request = api("/api/decks", { signal: mine.signal });
+    mine.abort(new DOMException("Typed past", "AbortError"));
+    await expect(request).rejects.toThrow("Typed past");
+  });
 });

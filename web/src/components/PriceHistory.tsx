@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
-import { api } from "../api";
+import { useRef, useState } from "react";
+import { api, errorMessage } from "../api";
 import { usd } from "@yama/core";
 
 interface Point {
@@ -17,6 +17,17 @@ const W = 300;
 const H = 72;
 const PAD = { top: 8, right: 8, bottom: 8, left: 8 };
 
+/**
+ * What the history shows: nothing while it first loads, the failure (with Try again) when the last
+ * request failed and there is nothing to show, otherwise the prices. `failure` is the last error
+ * seen, kept through a retry.
+ */
+export function historyView({ hasData, loading }: { hasData: boolean; loading: boolean }, failure: unknown): "wait" | "failed" | "show" {
+  if (hasData) return "show";
+  if (failure) return "failed";
+  return loading ? "wait" : "show";
+}
+
 /** Daily market price for one printing and finish, with a hover readout and a table view. */
 export function PriceHistory({ scryfallId, finish, setName }: { scryfallId: string; finish: "nonfoil" | "foil" | "etched"; setName: string }) {
   const history = useQuery({ queryKey: ["prices", scryfallId], queryFn: ({ signal }) => api<Point[]>(`/api/printings/${scryfallId}/prices`, { signal }) });
@@ -25,7 +36,22 @@ export function PriceHistory({ scryfallId, finish, setName }: { scryfallId: stri
   const points = (history.data ?? []).map((p) => ({ date: p.date, value: pick(p) })).filter((p): p is { date: string; value: number } => p.value !== null);
   const label = `${setName}${finish === "nonfoil" ? "" : ` (${finish})`}`;
 
-  if (history.isPending) return null;
+  // The last failure stays on screen while Try again is out: the query drops its error (and reads
+  // as loading) for the length of the attempt.
+  const failure = useRef<unknown>(null);
+  if (history.error) failure.current = history.error;
+  else if (history.data) failure.current = null;
+  const view = historyView({ hasData: history.data !== undefined, loading: history.isPending }, failure.current);
+  if (view === "wait") return null;
+  // A request that failed says so: it isn't the same as a printing with no price on record.
+  if (view === "failed") {
+    return (
+      <p className="small" role="alert">
+        <span className="error">Couldn't load the price history for {label}: {errorMessage(failure.current)}</span>{" "}
+        <button type="button" className="small" disabled={history.isFetching} onClick={() => void history.refetch()}>{history.isFetching ? "Trying…" : "Try again"}</button>
+      </p>
+    );
+  }
   if (points.length === 0) return <p className="small dim">No market price recorded for {label}.</p>;
   if (points.length === 1) {
     return <p className="small dim">{label}: {usd(points[0]!.value)} on {points[0]!.date}. The chart fills in as daily prices arrive.</p>;
