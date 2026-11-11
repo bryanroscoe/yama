@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router";
 import { usePower } from "../auth";
 import { POWER_NOTE } from "../components/PowerOnly";
 import { api } from "../api";
+import { queryFailure, RefreshFailed } from "../components/QueryError";
 import { Details, ErrorText } from "../components/ui";
 import type { BatchComparison, ExperimentItem, PreconItem, RunDetail, RunListItem, ExperimentMode } from "./api";
 import { ConfidenceLine, ConfidenceMark, ConfidenceNote } from "./confidence";
@@ -311,7 +312,7 @@ function shortName(name: string): string {
 export function BatchPage() {
   const { id } = useParams();
   const run = useQuery({ queryKey: ["lab", "run", id], queryFn: ({ signal }) => api<RunDetail>(`/api/lab/runs/${id}`, { signal }) });
-  if (run.error) {
+  if (queryFailure(run) === "page") {
     return (
       <>
         <LabHead slim back={{ to: "/lab/runs", label: "Back to my runs" }} />
@@ -332,6 +333,7 @@ export function BatchPage() {
   return (
     <>
       <LabHead slim back={{ to: "/lab/runs", label: "Back to my runs" }} />
+      <RefreshFailed query={run} what="this run" />
       <div className="page-head">
         <div>
           <h1>{r.name}</h1>

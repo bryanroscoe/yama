@@ -7,6 +7,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { BackButton } from "../components/DeckTabs";
 import { api, ApiError, type DeckView } from "../api";
+import { LoadFailed, queryFailure, RefreshFailed } from "../components/QueryError";
 import { Details, ErrorText, Sheet } from "../components/ui";
 import { NameEntry } from "../scanner/NameEntry";
 import type { ScanCatalog } from "../scanner";
@@ -46,7 +47,8 @@ export function DeckScanPage() {
       return d;
     });
 
-  if (deck.error) return <main className="page"><ErrorText error={deck.error} /></main>;
+  // Only with no deck to show: a refresh that failed leaves the scan in progress on screen.
+  if (queryFailure(deck) === "page") return <main className="page"><LoadFailed query={deck} /></main>;
   if (!deck.data || !draft) return <main className="page"><p className="dim">Loading the deck…</p></main>;
   const d = deck.data;
   const p = progress(draft);
@@ -55,6 +57,7 @@ export function DeckScanPage() {
     <main className="page deck-scan stack">
       <BackButton to={`/decks/${d.id}`} label={`Back to ${d.name}`} text={d.name} />
       <h1>Scan {d.name}</h1>
+      <RefreshFailed query={deck} what="this deck" />
       {step === "scan" && (
         <>
           <p className="dim">

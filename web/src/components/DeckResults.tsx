@@ -3,6 +3,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { api, type DeckResults as Results } from "../api";
+import { queryFailure } from "./QueryError";
 import { Details, ErrorText } from "./ui";
 import { recordText } from "./statsText";
 import "./stats.css";
@@ -14,7 +15,7 @@ type VersionResult = Results["versions"][number];
 export function DeckResults({ deckId, versionId }: { deckId: string; versionId: string | null }) {
   const q = useQuery({ queryKey: ["deck-results", deckId, versionId], queryFn: ({ signal }) => api<Results>(`/api/decks/${deckId}/results`, { signal }) });
   const r = q.data;
-  if (q.error) return <ErrorText error={q.error} />;
+  if (queryFailure(q) === "page") return <ErrorText error={q.error} />;
   if (!r) return null;
   const current = r.versions.find((v) => v.current);
   const earlier = r.versions.filter((v) => !v.current);

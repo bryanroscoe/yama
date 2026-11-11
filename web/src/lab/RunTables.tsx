@@ -4,6 +4,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { api } from "../api";
 import { ArtPanel as SharedArtPanel, artCredits } from "../components/ArtPanel";
+import { queryFailure, RefreshFailed } from "../components/QueryError";
 import { Details, ErrorText, Pips } from "../components/ui";
 import type { ExperimentDetail, TableDeck, TableGame, TableView, Tables } from "./api";
 import { enginesOf } from "./engines";
@@ -122,7 +123,8 @@ export function RunDeckPage() {
   const pod = podOf(e);
   const record = useMemo(() => deckRecord(all, deck, pod), [all, deck, pod]);
   const met = useMemo(() => rivals(all, deck, label), [all, deck, label]);
-  if (!e || run.error) return <Wait id={id} error={run.error} />;
+  // A failed refresh of a run already on screen keeps the page (unless the run is gone).
+  if (!e || queryFailure(run) === "page") return <Wait id={id} error={run.error} />;
   const me = data?.decks.find((d) => d.id === deck);
   const display = me?.entrant != null ? e.entrants?.[me.entrant] : undefined;
   const shown = filterTables(all, deck, filter, vs);
@@ -138,6 +140,7 @@ export function RunDeckPage() {
   return (
     <>
       <Back e={e} />
+      <RefreshFailed query={run} what="this run" />
       <ArtPanel art={me?.art ?? display?.art}>
         <span className="dim small">
           <Link to={`/lab/runs/${e.id}`}>{e.name}</Link>
@@ -311,7 +314,7 @@ export function RunTablePage() {
   const engine = useEngine(e);
   const n = Number(table);
   const tables = useTables(id, engine, { table: n }, e?.progress.done, !!e && Number.isInteger(n) && n > 0);
-  if (!e || run.error) return <Wait id={id} error={run.error} />;
+  if (!e || queryFailure(run) === "page") return <Wait id={id} error={run.error} />;
   const data = tables.data;
   const t = data?.tables[0];
   const decks = new Map((data?.decks ?? []).map((d) => [d.id, d]));
@@ -320,6 +323,7 @@ export function RunTablePage() {
   return (
     <>
       <Back e={e} />
+      <RefreshFailed query={run} what="this run" />
       <header className="rt-head">
         <span className="dim small">
           <Link to={`/lab/runs/${e.id}`}>{e.name}</Link>

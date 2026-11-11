@@ -10,6 +10,7 @@ import { useNavigate, useParams } from "react-router";
 import { BackButton } from "../components/DeckTabs";
 import { api, type DeckSummary, type DeckVersion, type DeckVersionRow, type DeckView } from "../api";
 import { useMe } from "../auth";
+import { LoadFailed, queryFailure, RefreshFailed } from "../components/QueryError";
 import { Details, ErrorText, Sheet } from "../components/ui";
 import { usePlan } from "../plan/store";
 import { buildNotes, buildNotesKey } from "../research/api";
@@ -92,7 +93,8 @@ export function DeckCheckPage() {
     };
   }, []);
 
-  if (deck.error) return <main className="page"><ErrorText error={deck.error} /></main>;
+  // Only with no deck to show: a refresh that failed leaves the check in progress on screen.
+  if (queryFailure(deck) === "page") return <main className="page"><LoadFailed query={deck} /></main>;
   if (!deck.data || !draft) return <main className="page"><p className="dim">Loading the deck…</p></main>;
   const d = deck.data;
   const t = target.data;
@@ -113,6 +115,7 @@ export function DeckCheckPage() {
     <main className="page deck-scan deck-check stack">
       <BackButton to={`/decks/${d.id}`} label={`Back to ${d.name}`} text={d.name} />
       <h1>Check {d.name}</h1>
+      <RefreshFailed query={deck} what="this deck" />
       <p className="dim">
         Scan the box to find missing cards, extras and duplicates. Checking doesn't change your deck or collection.
       </p>

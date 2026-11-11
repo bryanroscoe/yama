@@ -212,7 +212,9 @@ export function App() {
   // answers: the frame of the app, so the screen isn't blank. Asking again later (the connection
   // came back after an unanswered start) leaves the open page, even a game, where it is.
   if (me.isPending && !answered.current) return <Shell pending />;
-  if (me.error && !guestChosen) {
+  // Only when it has never said who is signed in: once it has (signed out included), a later
+  // check that gets no answer leaves the app as it is.
+  if (me.error && me.data === undefined && !guestChosen) {
     return (
       <main className="login">
         <div className="login-inner">
