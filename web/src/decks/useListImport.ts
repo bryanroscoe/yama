@@ -1,7 +1,7 @@
 // Reading a pasted, typed, dropped or chosen list through the import preview: shared by Add a deck
 // (/decks/import) and Edit the list (/decks/:id/edit).
 import { useMutation } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { api } from "../api";
 import { guideFor } from "./guides";
 import type { Draft, ImportPreview, PreviewDeck } from "./importLogic";
@@ -13,6 +13,55 @@ export const ACCEPT = ".txt,.dek,.dec,.csv,.json,.cod,.mwdeck,text/plain,text/cs
 export interface Source {
   text: string;
   fileName?: string;
+}
+
+/**
+ * The box's typing and paste handlers. A paste never replaces a list that's already there
+ * (11 Nov 2026: pasting one line used to replace the whole list, past the reach of undo): Yama
+ * takes the paste over only when the box is empty; otherwise the browser puts it at the caret, or
+ * over the selection, with its own undo. Either way the list is checked at once instead of after
+ * the typing pause.
+ */
+export function boxEdits(
+  on: { setUserText: (text: string) => void; runCheck: (sources: Source[]) => void },
+  later: (fn: () => void) => void = (fn) => void setTimeout(fn, 0),
+) {
+  /** Set between a paste the browser is handling and the change it makes. */
+  let pasting = false;
+  return {
+    onChange: (e: { target: { value: string } }) => {
+      const next = e.target.value;
+      on.setUserText(next);
+      if (!pasting) return;
+      pasting = false;
+      if (next.trim()) on.runCheck([{ text: next }]);
+    },
+    onPaste: (e: { clipboardData: Pick<DataTransfer, "getData">; currentTarget: { value: string }; preventDefault: () => void }) => {
+      const t = e.clipboardData.getData("text/plain");
+      if (!t) return;
+      if (e.currentTarget.value.trim()) {
+        // The change event follows in this same task; a paste that changes nothing never sends
+        // one, so the mark is dropped right after.
+        pasting = true;
+        later(() => (pasting = false));
+        return;
+      }
+      e.preventDefault();
+      on.setUserText(t);
+      on.runCheck([{ text: t }]);
+    },
+  };
+}
+
+/**
+ * What a drop on the box does. Files are read. Text fills an empty box; over a box that has a
+ * list it is the browser's own insert at the drop point, and beside the box it does nothing, so a
+ * stray drop never replaces the list.
+ */
+export function dropPlan({ files, boxHasText, overBox }: { files: boolean; boxHasText: boolean; overBox: boolean }): "files" | "fill" | "insert" | "ignore" {
+  if (files) return "files";
+  if (!boxHasText) return "fill";
+  return overBox ? "insert" : "ignore";
 }
 
 /**
@@ -160,29 +209,27 @@ export function useListImport({ initialText, makeDraft }: { initialText: () => s
   };
 
   /** Props for the box: typing, a paste (checked at once) and a dropped file or text. */
-  const boxProps = {
-    value: text,
-    onChange: (e: { target: { value: string } }) => setUserText(e.target.value),
-    onPaste: (e: { clipboardData: DataTransfer; preventDefault: () => void }) => {
-      const t = e.clipboardData.getData("text/plain");
-      if (t) {
-        e.preventDefault();
-        setUserText(t);
-        runCheck([{ text: t }]);
-      }
-    },
-  };
+  const edits = useMemo(() => boxEdits({ setUserText, runCheck }), [setUserText, runCheck]);
+  const boxProps = { value: text, ...edits };
+  const planFor = (e: DragEvent, files: boolean) => dropPlan({ files, boxHasText: !!text.trim(), overBox: e.target instanceof HTMLTextAreaElement });
   const dropProps = {
     onDragOver: (e: DragEvent) => {
+      const plan = planFor(e, e.dataTransfer.types.includes("Files"));
+      // "insert" stays the browser's own drag over the box (it shows where the text will land);
+      // "ignore" isn't accepted at all.
+      if (plan === "insert" || plan === "ignore") return;
       e.preventDefault();
       setDragging(true);
     },
     onDragLeave: () => setDragging(false),
     onDrop: (e: DragEvent) => {
-      e.preventDefault();
       setDragging(false);
-      if (e.dataTransfer.files.length) void readFiles(e.dataTransfer.files);
-      else {
+      const plan = planFor(e, e.dataTransfer.files.length > 0);
+      // The browser's own drop into the box, at the drop point, with its undo.
+      if (plan === "insert") return;
+      e.preventDefault();
+      if (plan === "files") void readFiles(e.dataTransfer.files);
+      else if (plan === "fill") {
         const t = e.dataTransfer.getData("text/plain");
         if (t) setUserText(t);
       }

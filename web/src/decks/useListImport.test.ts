@@ -1,0 +1,74 @@
+import { describe, expect, it } from "vitest";
+import { boxEdits, dropPlan, type Source } from "./useListImport";
+
+/** The box as the handlers see it: what was set, what was checked, and the timers still to run. */
+function box() {
+  const texts: string[] = [];
+  const checked: Source[][] = [];
+  const timers: (() => void)[] = [];
+  const edits = boxEdits({ setUserText: (t) => void texts.push(t), runCheck: (s) => void checked.push(s) }, (fn) => void timers.push(fn));
+  const paste = (value: string, pasted: string) => {
+    let prevented = false;
+    edits.onPaste({ clipboardData: { getData: (type) => (type === "text/plain" ? pasted : "") }, currentTarget: { value }, preventDefault: () => (prevented = true) });
+    return prevented;
+  };
+  return { edits, texts, checked, paste, tick: () => timers.splice(0).forEach((fn) => fn()) };
+}
+
+describe("pasting into the list box", () => {
+  it("fills an empty box with the paste and checks it at once", () => {
+    const b = box();
+    expect(b.paste("", "1 Sol Ring\n1 Arcane Signet")).toBe(true);
+    expect(b.texts).toEqual(["1 Sol Ring\n1 Arcane Signet"]);
+    expect(b.checked).toEqual([[{ text: "1 Sol Ring\n1 Arcane Signet" }]]);
+    // A box holding only blank lines counts as empty.
+    expect(box().paste(" \n", "1 Sol Ring")).toBe(true);
+  });
+
+  it("leaves a paste into a list to the browser, so one pasted line never replaces the list", () => {
+    const b = box();
+    const list = "Commander\n1 Atraxa, Praetors' Voice\n\nDeck\n1 Sol Ring";
+    expect(b.paste(list, "1 Arcane Signet")).toBe(false);
+    expect(b.texts).toEqual([]);
+    expect(b.checked).toEqual([]);
+    // The browser then inserts at the caret and reports the whole box: that is what's checked.
+    b.edits.onChange({ target: { value: `${list}\n1 Arcane Signet` } });
+    expect(b.texts).toEqual([`${list}\n1 Arcane Signet`]);
+    expect(b.checked).toEqual([[{ text: `${list}\n1 Arcane Signet` }]]);
+  });
+
+  it("checks at once only for the change a paste made, not for later typing", () => {
+    const b = box();
+    b.paste("1 Sol Ring", "1 Arcane Signet");
+    b.edits.onChange({ target: { value: "1 Sol Ring\n1 Arcane Signet" } });
+    b.edits.onChange({ target: { value: "1 Sol Ring\n1 Arcane Signet\n1" } });
+    expect(b.checked).toHaveLength(1);
+    expect(b.texts).toHaveLength(2);
+
+    // A paste the browser didn't act on (nothing changed) doesn't make the next keystroke check.
+    const c = box();
+    c.paste("1 Sol Ring", "1 Arcane Signet");
+    c.tick();
+    c.edits.onChange({ target: { value: "1 Sol Ring\n" } });
+    expect(c.checked).toEqual([]);
+  });
+
+  it("ignores a paste with no text (an image), and doesn't check a box a paste left blank", () => {
+    const b = box();
+    expect(b.paste("", "")).toBe(false);
+    expect(b.paste("1 Sol Ring", "")).toBe(false);
+    expect(b.texts).toEqual([]);
+    b.paste("1 Sol Ring", " ");
+    b.edits.onChange({ target: { value: " " } });
+    expect(b.checked).toEqual([]);
+  });
+});
+
+describe("dropping onto the list box", () => {
+  it("reads files, fills an empty box, and never replaces a list with dropped text", () => {
+    expect(dropPlan({ files: true, boxHasText: true, overBox: true })).toBe("files");
+    expect(dropPlan({ files: false, boxHasText: false, overBox: false })).toBe("fill");
+    expect(dropPlan({ files: false, boxHasText: true, overBox: true })).toBe("insert");
+    expect(dropPlan({ files: false, boxHasText: true, overBox: false })).toBe("ignore");
+  });
+});
