@@ -176,11 +176,12 @@ a named bracket):
 - A Game Changer in a stock precon does not show in its results: the 8 such precons with 40 or
   more games won 21.6% of 2,248 games, the 77 without won 20.8% of 23,550, and the count's rank
   correlation with win rate is +0.02.
-- Bryan's builds: the same deck built for the next bracket up always scores higher (2 to 3 by
-  0.5, 3 to 4 by 1.4), but decks differ more than brackets do (Bracket 3 builds run from 4.4
-  to 6.3), so the band alone names the bracket a list was built for half the time.
-- Power ± margin reaches that bracket for 74% of them at today's ±0.5, 85% at ±0.7 and 94% at
-  ±1.0.
+- Bryan's builds (32 of the 78 lists read a stored combo check): the same deck built for the
+  next bracket up always scores higher (2 to 3 by 0.5, 3 to 4 by 1.8), but decks differ more
+  than brackets do (Bracket 3 builds run from 4.4 to 6.3), so the band alone names the bracket
+  a list was built for 56% of the time.
+- Power ± margin reaches that bracket for 71% of them at today's margins, 91% at ±0.7 and 94%
+  at ±1.0.
 
 ## Precon comparison (2026-11-09)
 
