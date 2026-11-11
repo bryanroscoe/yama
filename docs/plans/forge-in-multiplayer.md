@@ -25,7 +25,7 @@ disagree, the contract wins until Bryan changes it.
    game log, results in game history and playgroup stats, each labelled with its engine. Turn
    controls (stops, passing, full control) map onto Forge's own auto-pass and skip-step settings.
    Remembered answers need their own Forge version. Going back a step in a solo game isn't
-   available for Forge until saved points exist (step 5).
+   available for Forge until saved points are in the product (step 5).
 3. **Starting over in the other engine** (proposed first step towards switching): from a game in
    progress or a finished game's timeline, "Continue this position in Forge/Phase" makes a *new*
    game from that position. The original game is untouched. Every human seat has to agree before
@@ -154,8 +154,8 @@ ARCHITECTURE.md had marked for retirement: that's open decision 1 below.
 - A browser that drops reconnects to the running game, as Phase games do.
 - A Yama restart (every deploy) doesn't end a Forge game: the worker keeps it and Yama reattaches
   (section 2).
-- Until saved points exist, a Forge game can't survive its JVM or the `yama-forge` container
-  restarting. That includes a deploy that changes `forge-worker/` or the Forge build, which
+- Until restart recovery is in the product (step 5), a Forge game can't survive its JVM or the
+  `yama-forge` container restarting. That includes a deploy that changes `forge-worker/` or the Forge build, which
   rebuilds the container. Such a game ends as abandoned and says so plainly, and the host can
   rematch. Releases that touch the worker should wait for live Forge games to finish, or say they
   will end them.
@@ -164,13 +164,21 @@ ARCHITECTURE.md had marked for retirement: that's open decision 1 below.
   it). Results go to game history and playgroup stats with the engine and its build label, like
   Lab results.
 
-### 6. Saved points (contract step 3)
+### 6. Saved points
 
 Resume any recorded point without replaying earlier moves, for both engines, as
-[the contract](../game-engines-and-checkpoints.md) specifies. Phase has a checked restore boundary
-(`PersistedGameState`). Forge doesn't: its in-memory snapshot and board import don't cover a
-suspended choice, so this needs real persistence work inside Forge, kept in forge-referee with its
-own tests.
+[the contract](../game-engines-and-checkpoints.md) specifies. The contract says to build and test
+each engine's capture and restore *with* its adapter, not afterwards, so this is two pieces of
+work at two times:
+
+- **The primitives, in steps 1 and 2.** Capture to bytes and restore into a fresh runtime, with no
+  earlier actions replayed, are part of the engine interface from the start, and each adapter
+  passes the contract's restore tests before it's done. Phase has a checked restore boundary
+  (`PersistedGameState`). Forge doesn't: its in-memory snapshot and board import don't cover a
+  suspended choice, so this needs real persistence work inside Forge, kept in forge-referee with
+  its own tests. It's the biggest unknown in the Forge program and the spike looks at it first.
+- **The product, in step 5.** Writing saved points as the game goes, the timeline, "Resume from
+  here", recovery after a restart, and offline play on the same format (the contract's step 3).
 
 ### 7. Moving a game between engines
 
@@ -186,7 +194,7 @@ the source game.
   still in a pool, whose turn and which step, with cards matched by Oracle id and printing rather
   than name. Anything a position holds that the format doesn't cover makes it unclean, so it is
   refused rather than dropped.
-- **Clean positions first:** start of a step, empty stack, no pending choice, no delayed triggers
+- **Clean positions first:** start of a step, empty stack, no pending choice, no delayed triggers,
   no effects with a duration still running, and nothing the format can't carry. Anything else is
   refused with the reason. This is only the first stage: the contract requires widening coverage
   with fixtures until nonempty stacks and suspended choices move too (step 8 below).
@@ -202,19 +210,19 @@ the source game.
 
 | Step | Done when |
 |---|---|
-| 0. Spike | The Forge program plays a 2-player game on Yama's Forge build where one seat is answered by a script, and sends each seat a view with the others' hidden cards removed. The facts above are checked against that build. |
-| 1. Forge program and worker sessions | Every blocking `IGuiGame` dialog and every input `PlayerControllerHuman` can raise, listed from Forge's source rather than from games seen, has a fixture, or the program refuses a game that would need it with a reason. Duplicate and stale answers are refused; no seat receives another seat's hidden cards, in views or in decisions; sessions survive a Yama restart. |
-| 2. Engine boundary in Yama | Phase games, current and older builds, run through the new interface with no change in behaviour (existing play tests pass); Forge games start, take commands and end on the server; privacy, deletion and limit tests cover Forge games. |
+| 0. Spike | The Forge program plays a 2-player game on Yama's Forge build where one seat is answered by a script, and sends each seat a view with the others' hidden cards removed. The facts above are checked against that build, and there's a written answer on how Forge can capture and restore a game mid-decision. |
+| 1. Forge program and worker sessions | Every blocking `IGuiGame` dialog and every input `PlayerControllerHuman` can raise, listed from Forge's source rather than from games seen, is handled and has a fixture. No game can start and then hit a decision nobody can answer. Duplicate and stale answers are refused; no seat receives another seat's hidden cards, in views or in decisions; sessions survive a Yama restart. Capture and restore pass the contract's tests in Forge: saved to bytes, the JVM replaced, restored with no earlier actions replayed, the same decisions offered. |
+| 2. Engine boundary in Yama | The interface includes capture and restore from the start. Phase games, current and older builds, run through it with no change in behaviour (existing play tests pass), and Phase capture and restore pass the contract's tests. Forge games start, take commands and end on the server; privacy, deletion and limit tests cover Forge games. |
 | 3. Board | A Forge game plays start to finish on Yama's board, on a phone and a laptop, behind an admin-only flag. |
 | 4. Hosting choice | The engine choice, coverage per engine, rematch, watching, history and playgroup stats work for whoever decision 3 names, and Start explains when no Forge slot is free. |
-| 5. Saved points | The contract's acceptance evidence for both engines. |
+| 5. Saved points in the product | The timeline, "Resume from here", restart recovery and offline play, with the contract's acceptance evidence for both engines. |
 | 6. Continue in the other engine | Clean positions move both ways with the referee harness's checks; unclean ones are refused with a reason. |
 | 7. Switch in place | Consent from every human seat; the same checks as step 6. |
 | 8. Full switching coverage | Positions with a nonempty stack, pending triggers and suspended choices move both ways, as the contract requires, each with fixtures; whatever is still refused is listed with its reason. Switching isn't finished until this is done. |
 
 Steps 0 to 4 give Bryan engine choice at table creation. Step 6 is what most people mean by
-switching, at clean positions only; step 8 extends it to every position, as the contract requires.
-Step 7 may not be worth its cost once step 6 exists.
+switching, at clean positions only. Step 7, switching the live game, is part of the recorded
+requirement and stays in scope; step 8 extends both to every position, as the contract requires.
 
 ## Costs and risks
 
@@ -238,5 +246,6 @@ Step 7 may not be worth its cost once step 6 exists.
    limit, and whether they take priority over Lab runs on saget or need their own memory (or a
    remote worker).
 3. **Who gets it first.** Admins only, invited accounts, or everyone at step 4.
-4. **Switching.** Whether "continue this position in the other engine" (step 6) is enough, or the
-   in-place switch (step 7) is still wanted.
+4. **Switching order.** Switching a live game in place is already a requirement (ARCHITECTURE.md
+   and the contract) and stays in the plan. The open question is only whether "continue this
+   position in the other engine" ships first, as proposed, or waits for the in-place switch.
