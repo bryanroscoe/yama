@@ -4,6 +4,7 @@
 // is given the middle of the frame, so a small or far card is seen with more of the camera's pixels.
 
 import { useCallback, useRef, useState } from "react";
+import { Button } from "../components/ui";
 
 export interface CameraCaps {
   torch: boolean;
@@ -134,23 +135,23 @@ export function CameraControls({ c, live }: { c: CameraControlState; live: boole
   return (
     <div className="scan-tools">
       {c.caps.torch && (
-        <button className={`scan-tool${c.torch ? " is-on" : ""}`} onClick={() => void c.setTorch(!c.torch)} aria-pressed={c.torch} aria-label={c.torch ? "Turn the flashlight off" : "Turn the flashlight on"}>
+        <Button className={`scan-tool${c.torch ? " is-on" : ""}`} onClick={() => void c.setTorch(!c.torch)} aria-pressed={c.torch} aria-label={c.torch ? "Turn the flashlight off" : "Turn the flashlight on"}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M7 2h10v4l-3 4v11a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1V10L7 6z" />
             {c.torch && <path d="M12 13v3" />}
           </svg>
-        </button>
+        </Button>
       )}
       <div className="scan-zoom-buttons" role="group" aria-label="Zoom">
-        <button className="scan-tool" onClick={c.zoomIn} disabled={!c.canZoomIn} aria-label="Zoom in">
+        <Button className="scan-tool" onClick={c.zoomIn} disabled={!c.canZoomIn} aria-label="Zoom in">
           +
-        </button>
+        </Button>
         <span className="scan-zoom-level" aria-live="polite">
           {fmt(c.zoom)}
         </span>
-        <button className="scan-tool" onClick={c.zoomOut} disabled={!c.canZoomOut} aria-label="Zoom out">
+        <Button className="scan-tool" onClick={c.zoomOut} disabled={!c.canZoomOut} aria-label="Zoom out">
           −
-        </button>
+        </Button>
       </div>
       {c.error && <span className="scan-tool-error">{c.error}</span>}
     </div>

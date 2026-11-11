@@ -1,7 +1,7 @@
 import { GROUP_ORDER, groupOf, fmtDate, usd, NO_PRICE } from "@yama/core";
 import { useEffect, useState, type ReactNode } from "react";
 import { CardHover, CardRef } from "../components/CardRef";
-import { CardImage, Segmented, CopyButton } from "../components/ui";
+import { Button, CardImage, CopyButton, Segmented } from "../components/ui";
 import { cardsWord, smallOf, type ChangeRow, type GetId, type ListCard, type ShopItem, type ShoppingData, type Totals } from "./view";
 
 /**
@@ -15,9 +15,9 @@ export function Choices<T extends string>({ label, title, options, value, onChan
     <div className="choice-chips" role="group" aria-label={label}>
       {title && <span className="dim small">{title}</span>}
       {options.map((o) => (
-        <button key={o.id} type="button" className="choice-chip" aria-pressed={o.id === value} disabled={o.disabled} onClick={() => onChange(o.id)}>
+        <Button key={o.id} className="choice-chip" aria-pressed={o.id === value} disabled={o.disabled} onClick={() => onChange(o.id)}>
           {o.label}
-        </button>
+        </Button>
       ))}
     </div>
   );
@@ -42,7 +42,7 @@ export function CopyBox({ title, text, rows = 8 }: { title: string; text: string
     <div className="note-copy-box">
       <div className="note-copy-head">
         <b>{title}</b>
-        <CopyButton text={text} label="Copy" className="outline small" />
+        <CopyButton text={text} label="Copy" variant="outline" size="small" />
       </div>
       <textarea readOnly rows={rows} value={text} aria-label={title} onFocus={(e) => e.currentTarget.select()} />
     </div>
@@ -190,9 +190,9 @@ function UpTo({ value, max, onSet }: { value: number; max: number; onSet: (dolla
         <span aria-hidden="true">$</span>
         <input id="note-upto" type="number" inputMode="decimal" min={0} max={max} step={0.01} required value={draft} onChange={(e) => setDraft(e.target.value)} />
       </span>
-      <button type="submit" className="button outline">
+      <Button type="submit" variant="outline">
         Update
-      </button>
+      </Button>
     </form>
   );
 }
@@ -265,9 +265,8 @@ export function CardViews({ cards }: { cards: ListCard[] }) {
                   ))}
                 </div>
                 {rows.length > STACK_PEEK + 1 && (
-                  <button
-                    type="button"
-                    className="small stack-more"
+                  <Button
+                    size="small" className="stack-more"
                     onClick={() =>
                       setExpanded((cur) => {
                         const next = new Set(cur);
@@ -278,7 +277,7 @@ export function CardViews({ cards }: { cards: ListCard[] }) {
                     }
                   >
                     {expanded.has(group) ? "Show fewer" : `Show all ${rows.length}`}
-                  </button>
+                  </Button>
                 )}
               </section>
             );

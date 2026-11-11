@@ -29,7 +29,7 @@ import { createTesseractOcr, type TesseractOcr } from "./tesseract";
 import type { OcrEngine, Quad, RgbaImage, ScanCandidate, ScanCatalog, ScanResult } from "./types";
 import "./scanner.css";
 import { shortDate, usd } from "@yama/core";
-import { ErrorText } from "../components/ui";
+import { Button, ErrorText } from "../components/ui";
 
 export interface ScannerViewProps {
   /**
@@ -1076,25 +1076,25 @@ export function ScannerView({
           )}
         </div>
         {onClose && (
-          <button className="scan-close" onClick={onClose} aria-label="Close the scanner">
+          <Button className="scan-close" onClick={onClose} aria-label="Close the scanner">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
               <path d="M6 6l12 12M18 6 6 18" />
             </svg>
-          </button>
+          </Button>
         )}
         {addedCount > 0 &&
           (onShowAdded ? (
-            <button className="scan-count" onClick={onShowAdded}>
+            <Button className="scan-count" onClick={onShowAdded}>
               {addedWord} {addedCount}
               {unsavedCount > 0 ? `, ${unsavedCount} not saved` : ""}: review
-            </button>
+            </Button>
           ) : (
             <span className="scan-count">{addedWord} {addedCount} so far</span>
           ))}
         {lockOffered && (
-          <button className={`scan-lock${lockOn ? " is-on" : ""}`} onClick={() => setLockOpen((o) => !o)} aria-expanded={lockOpen}>
+          <Button className={`scan-lock${lockOn ? " is-on" : ""}`} onClick={() => setLockOpen((o) => !o)} aria-expanded={lockOpen}>
             {lockCodes.length === 0 ? "Any set" : lockOn ? `Only ${lockLabel}` : lockError ? "Set lock failed" : "Getting the set…"}
-          </button>
+          </Button>
         )}
         <CameraControls c={cam} live={live} />
         {typeof overlay === "function" ? overlay(isFound && found ? candidateOf(found, chosen) : null) : overlay}
@@ -1120,7 +1120,7 @@ export function ScannerView({
             </p>
             {closeupRead && <p className="scan-note">Reading: {closeupRead}</p>}
             <div className="scan-other-ways">
-              <button onClick={() => setCloseup(null)}>Back to scanning</button>
+              <Button onClick={() => setCloseup(null)}>Back to scanning</Button>
               <NameEntry onPick={(n) => fromName(n)} />
             </div>
             {/* The Close-ups switch among them: a fixed camera can't do this step. */}
@@ -1145,10 +1145,10 @@ export function ScannerView({
                   The last few cards were all from <strong>{suggestedName}</strong>. Scan only that set? Its printings are then filed without reading the corner.
                 </p>
                 <div className="scan-other-ways">
-                  <button className="primary" onClick={() => setLockCodes([suggested])}>
+                  <Button variant="primary" onClick={() => setLockCodes([suggested])}>
                     Only {suggested.toUpperCase()}
-                  </button>
-                  <button onClick={() => setSuggestDismissed(suggested)}>No thanks</button>
+                  </Button>
+                  <Button onClick={() => setSuggestDismissed(suggested)}>No thanks</Button>
                 </div>
               </div>
             )}
@@ -1170,9 +1170,9 @@ export function ScannerView({
               </label>
               <NameEntry onPick={(n) => fromName(n)} />
               {live && phase === "scanning" && (
-                <button className="scan-photo" onClick={() => setCloseup("title")}>
+                <Button className="scan-photo" onClick={() => setCloseup("title")}>
                   Read the name up close
-                </button>
+                </Button>
               )}
             </div>
             {mode === "text" && <p className="scan-note">Card recognition isn't available right now, so the scanner is reading text. Line the card up with the frame.</p>}
@@ -1206,9 +1206,9 @@ export function ScannerView({
                 )}
                 <span className="scan-method">{explain(found, identityOnly, lock.map((l) => l.name).join(" or "))}</span>
                 {!identityOnly && chosen && options && options.length > 1 && !found.picking && (
-                  <button className="scan-alt" onClick={() => setFound({ ...found, picking: true })}>
+                  <Button className="scan-alt" onClick={() => setFound({ ...found, picking: true })}>
                     Change printing ({options.length})
-                  </button>
+                  </Button>
                 )}
               </div>
             </div>
@@ -1221,10 +1221,10 @@ export function ScannerView({
                   Is it a card from another set?
                 </p>
                 <div className="scan-other-ways">
-                  <button className="primary" onClick={fromAnotherSet}>
+                  <Button variant="primary" onClick={fromAnotherSet}>
                     Yes, another set
-                  </button>
-                  <button onClick={() => setWrongOpen(true)}>Wrong card</button>
+                  </Button>
+                  <Button onClick={() => setWrongOpen(true)}>Wrong card</Button>
                 </div>
               </div>
             )}
@@ -1237,9 +1237,9 @@ export function ScannerView({
               </div>
             )}
             {live && !identityOnly && !closeup && !chosen && !found.outside && options && options.length > 1 && !found.reading && (
-              <button className="scan-alt" onClick={() => setCloseup("collector")}>
+              <Button className="scan-alt" onClick={() => setCloseup("collector")}>
                 Read the collector number up close
-              </button>
+              </Button>
             )}
             {showPicker && options && (!chosen || found.picking) && !closeup && (
               <div ref={tapRef} className="scan-step is-tap">
@@ -1251,7 +1251,7 @@ export function ScannerView({
             {showPicker && options && (
               <div className="scan-printings" role="listbox" aria-label="Printings">
                 {(showAll ? options : options.slice(0, PICKER_FIRST)).map((p) => (
-                  <button
+                  <Button
                     key={p.scryfall_id}
                     role="option"
                     aria-selected={p === chosen}
@@ -1268,12 +1268,12 @@ export function ScannerView({
                       {p.released_at ? `, ${p.released_at.slice(0, 4)}` : ""}
                       {p.lang !== "en" ? `, ${p.lang}` : ""}
                     </span>
-                  </button>
+                  </Button>
                 ))}
                 {!showAll && options.length > PICKER_FIRST && (
-                  <button className="scan-alt" onClick={() => setShowAll(true)}>
+                  <Button className="scan-alt" onClick={() => setShowAll(true)}>
                     Show all {options.length}
-                  </button>
+                  </Button>
                 )}
               </div>
             )}
@@ -1286,9 +1286,9 @@ export function ScannerView({
                   card's bottom-left corner shows {chosen.set_code.toUpperCase()} {chosen.collector_number}.
                 </p>
                 {live && (
-                  <button className="scan-alt" onClick={() => setCloseup("collector")}>
+                  <Button className="scan-alt" onClick={() => setCloseup("collector")}>
                     Read the collector number up close
-                  </button>
+                  </Button>
                 )}
               </div>
             )}
@@ -1309,8 +1309,8 @@ export function ScannerView({
                       </select>
                     </label>
                   )}
-                  <button
-                    className="primary"
+                  <Button
+                    variant="primary"
                     disabled={!ready}
                     onClick={() => {
                       if (unread && !confirming) return setConfirming(true);
@@ -1325,14 +1325,14 @@ export function ScannerView({
                     }}
                   >
                     {!ready ? (options && !found.reading ? "Pick the printing" : "Finding the printing…") : confirming ? `${acceptLabel} anyway` : acceptLabel}
-                  </button>
+                  </Button>
                 </div>
               )}
-              <button onClick={again}>{onAccept ? "Skip" : "Scan next"}</button>
+              <Button onClick={again}>{onAccept ? "Skip" : "Scan next"}</Button>
               {!wrongOpen && (
-                <button className="scan-alt" onClick={() => setWrongOpen(true)}>
+                <Button className="scan-alt" onClick={() => setWrongOpen(true)}>
                   Wrong card?
-                </button>
+                </Button>
               )}
             </div>
             {wrongOpen && (
@@ -1344,15 +1344,15 @@ export function ScannerView({
                 {found.others.length > 0 && (
                   <div className="scan-other-ways">
                     {found.others.map((m) => (
-                      <button key={m.index} onClick={() => pickOther(m)}>
+                      <Button key={m.index} onClick={() => pickOther(m)}>
                         {m.name}
-                      </button>
+                      </Button>
                     ))}
                   </div>
                 )}
                 <div className="scan-other-ways">
                   <NameEntry onPick={(n) => fromName(n, "typed", { shot: found.shot, guess: found.guess ?? guessOf(found) })} />
-                  <button onClick={wrongAgain}>Scan it again</button>
+                  <Button onClick={wrongAgain}>Scan it again</Button>
                 </div>
               </div>
             )}
@@ -1364,9 +1364,9 @@ export function ScannerView({
                     {found.others.map((m, i) => (
                       <span key={m.index}>
                         {i > 0 && " or "}
-                        <button className="scan-alt" onClick={() => pickOther(m)}>
+                        <Button className="scan-alt" onClick={() => pickOther(m)}>
                           {m.name}
-                        </button>
+                        </Button>
                       </span>
                     ))}
                     .{" "}
@@ -1471,7 +1471,7 @@ function SavePhotosSwitch() {
         {on && summary && summary.count > 0 && (
           <>
             {summary.count} saved.{" "}
-            <button
+            <Button
               className="scan-alt"
               onClick={() =>
                 deleteSamples().then(
@@ -1484,7 +1484,7 @@ function SavePhotosSwitch() {
               }
             >
               Delete them
-            </button>
+            </Button>
           </>
         )}
         {note && <span className="dim"> {note}</span>}

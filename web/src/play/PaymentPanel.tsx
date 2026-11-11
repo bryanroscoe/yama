@@ -11,6 +11,7 @@ import { artCredits } from "../components/ArtPanel";
 import { Warn } from "./Decide";
 import { TAP_MANA, choiceAct, keptNote, paidInFull, paymentStatus, penaltyText, pipsLabel, poolText, sourceClick, sourceChip } from "./pay";
 import type { Act, CardMeta, ManaChoiceView, ManaSourceView, PaymentView, TapMana } from "./types";
+import { Button } from "../components/ui";
 
 /** A mana colour's fill for a dot ("any" is a split of all five). */
 function fill(code: string): string {
@@ -53,9 +54,9 @@ function Delve({ p, meta, onAct, disabled }: { p: PaymentView; meta: Record<stri
       <span className="dim small">Your graveyard. Each card you exile pays {"{1}"}.</span>
       <div className="pay-delve-cards">
         {cards.map((s) => (
-          <button key={s.id} type="button" className="pay-delve-card pick" disabled={disabled} aria-label={`Exile ${s.name}`} onClick={() => onAct(choiceAct(s, s.choices[0]!))}>
+          <Button key={s.id} className="pay-delve-card pick" disabled={disabled} aria-label={`Exile ${s.name}`} onClick={() => onAct(choiceAct(s, s.choices[0]!))}>
             {meta[s.name]?.image ? <img src={meta[s.name]!.image!} alt="" /> : <span>{s.name}</span>}
-          </button>
+          </Button>
         ))}
       </div>
     </div>
@@ -158,9 +159,8 @@ export function PaymentSheet({ p, meta, onAct, menu, onMenu, disabled, cardName,
           const art = meta[n]?.art ?? null;
           const can = !!click && click.does !== "untap";
           return (
-            <button
+            <Button
               key={id}
-              type="button"
               className={`pay-source${can ? " pick" : ""}${chip?.tapped ? " tapped" : ""}`}
               disabled={disabled || !click}
               aria-label={`${n}, ${chip?.text ?? ""}`}
@@ -175,7 +175,7 @@ export function PaymentSheet({ p, meta, onAct, menu, onMenu, disabled, cardName,
                 <b>{n}</b>
                 <span className="small">{chip?.text}</span>
               </span>
-            </button>
+            </Button>
           );
         })}
       </div>
@@ -194,7 +194,7 @@ function ChoiceList({ source, onPick, disabled }: { source: ManaSourceView; onPi
   return (
     <div className="mana-choices" role="menu" aria-label={`Use ${source.name}`}>
       {source.choices.map((c) => (
-        <button key={c.key} type="button" role="menuitem" className="mana-choice" disabled={disabled} onClick={() => onPick(c)}>
+        <Button key={c.key} role="menuitem" className="mana-choice" disabled={disabled} onClick={() => onPick(c)}>
           <span className="mana-dots" aria-hidden="true">
             {c.mana.map((m, i) => (
               <span key={i} className="mana-dot" style={{ background: fill(m) }} />
@@ -203,7 +203,7 @@ function ChoiceList({ source, onPick, disabled }: { source: ManaSourceView; onPi
           <span className="mana-choice-text">{c.text}</span>
           {/* A land's row says it taps; an ability's text and convoke's say so themselves. */}
           <span className={`mana-choice-cost${c.penalty ? " bad" : ""}`}>{c.penalty ? penaltyText(c.penalty) : c.kind === "tap" ? "Tap" : ""}</span>
-        </button>
+        </Button>
       ))}
     </div>
   );

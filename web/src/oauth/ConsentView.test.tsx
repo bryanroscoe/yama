@@ -26,8 +26,8 @@ describe("the consent page", () => {
     expect(html).toContain("bryan@example.com");
     expect(html).toContain("Read your decks, plans, Review, collection and lab runs");
     expect(html).toContain("/mcp in Claude Code");
-    expect(html).toMatch(/<button class="primary"[^>]*>Allow<\/button>/);
-    expect(html).toMatch(/<button class="outline"[^>]*>Deny<\/button>/);
+    expect(html).toMatch(/<button type="button" class="primary"[^>]*>Allow<\/button>/);
+    expect(html).toMatch(/<button type="button" class="outline"[^>]*>Deny<\/button>/);
   });
 
   it("offers less than the app asked for, with what it asked for chosen", () => {

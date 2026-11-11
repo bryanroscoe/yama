@@ -10,7 +10,7 @@ import { usePlayerId } from "../guestPlay";
 import { ArtPanel, artCredit } from "../components/ArtPanel";
 import { ask } from "../components/confirm";
 import { queryFailure, RefreshFailed } from "../components/QueryError";
-import { ErrorText, Pips } from "../components/ui";
+import { Button, ErrorText, Pips } from "../components/ui";
 import { AlphaTag, ALPHA_NOTE } from "../components/AlphaTag";
 import { BracketChips } from "../components/Bracket";
 import { useCardArt } from "../components/useCardArt";
@@ -127,7 +127,7 @@ function Lobby({ game, notice }: { game: OnlineGame; notice?: ReactNode }) {
             <span className="lobby-code-label">Table code</span>
             <span className="lobby-code-value">{game.code}</span>
           </span>
-          <button type="button" onClick={share}>{copied ? "Copied" : <><span className="lobby-copy-long">Copy link</span><span className="lobby-copy-short">Share</span></>}</button>
+          <Button onClick={share}>{copied ? "Copied" : <><span className="lobby-copy-long">Copy link</span><span className="lobby-copy-short">Share</span></>}</Button>
         </div>
       </div>
 
@@ -173,17 +173,16 @@ function Lobby({ game, notice }: { game: OnlineGame; notice?: ReactNode }) {
         </div>
         {isHost && (
           <div className="lobby-actions">
-            <button
-              type="button"
-              className="quiet"
+            <Button
+              variant="quiet"
               disabled={cancel.isPending || start.isPending}
               onClick={async () => (await ask({ title: "Close this table?", body: "Its code stops working, and the table closes for anyone who joined.", confirm: "Close the table", danger: true })) && cancel.mutate()}
             >
               {cancel.isPending ? "Closing…" : "Close this table"}
-            </button>
-            <button type="button" className="primary lobby-start" disabled={open > 0 || start.isPending || cancel.isPending} onClick={() => start.mutate()}>
+            </Button>
+            <Button variant="primary" className="lobby-start" disabled={open > 0 || start.isPending || cancel.isPending} onClick={() => start.mutate()}>
               {open > 0 ? "Start when everyone's in" : "Start the game"}
-            </button>
+            </Button>
           </div>
         )}
       </div>

@@ -5,7 +5,7 @@ import { useMe } from "../auth";
 import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
 import { CardRef, CardText } from "../components/CardRef";
 import { AreaHead, BackButton } from "../components/DeckTabs";
-import { ErrorText, Pips, Loading } from "../components/ui";
+import { Button, ButtonLink, ErrorText, Loading, Pips } from "../components/ui";
 import { saveFile } from "../download";
 import { copySharedNote, report, targetForSwap, type Build, type GameplayProfile, type Power, type ResearchBundle, type ResearchDeck } from "./api";
 import { DeckChanged, useDeckNamed } from "./about";
@@ -124,7 +124,7 @@ function NotePage({ bundle }: { bundle: ResearchBundle }) {
         </p>
         {doc.summary && <p className="note-summary">{doc.summary}</p>}
         {Array.isArray(doc.local_sources) && doc.local_sources.length > 0 && (
-          <p><Link className="button outline" to={`/decks/plans/get/sourcing?report=${encodeURIComponent(doc.id)}`}>Source cards across all these decks</Link></p>
+          <p><ButtonLink variant="outline" to={`/decks/plans/get/sourcing?report=${encodeURIComponent(doc.id)}`}>Source cards across all these decks</ButtonLink></p>
         )}
         <p className="dim">
           {doc.decks.length} {doc.decks.length === 1 ? "deck" : "decks"}. Saved {fmtDate(bundle.updated_at)}
@@ -316,9 +316,9 @@ function NoteLists({ doc, lists: given, onAll }: { doc: ResearchBundle["document
       </SectionHead>
       <p className="small dim note-how">
         Standard text lists (Commander, then Deck), for Moxfield, Archidekt or Yama's own import. The builds follow the shopping list's choice;{" "}
-        <button type="button" className="link-button" onClick={onAll}>
+        <Button className="link-button" onClick={onAll}>
           every build
-        </button>{" "}
+        </Button>{" "}
         lists them all.
       </p>
       {lists.length > 1 && <CopyBox title={`Every list (${lists.length})`} text={every} />}
@@ -747,9 +747,9 @@ function DeckPage({ bundle, deck }: { bundle: ResearchBundle; deck: ResearchDeck
             Decklist
           </SectionHead>
           <div className="row">
-            <button type="button" className="primary" onClick={download}>
+            <Button variant="primary" onClick={download}>
               Download the list
-            </button>
+            </Button>
           </div>
           <CopyBox title="Standard list (Commander, then Deck)" text={listText} rows={12} />
           {v && <CardViews cards={v.cards} />}

@@ -3,7 +3,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { ErrorText } from "../components/ui";
+import { Button, ErrorText } from "../components/ui";
 import { deleteAllConversations, removeKey, saveKey, setModel, type AdvisorStatus } from "./api";
 import { useAdvisorStatus } from "./AskClaude";
 import { modeLine } from "./logic";
@@ -47,9 +47,9 @@ export function AdvisorSettings({ className = "grp-you-row grp-you-stack" }: { c
         </span>
         {s.can_save_key && s.mode !== "subscription" && !adding && (
           s.has_key ? (
-            <button type="button" className="outline" onClick={() => remove.mutate()} disabled={remove.isPending}>Remove key</button>
+            <Button variant="outline" onClick={() => remove.mutate()} disabled={remove.isPending}>Remove key</Button>
           ) : (
-            <button type="button" onClick={() => setAdding(true)}>Add key</button>
+            <Button onClick={() => setAdding(true)}>Add key</Button>
           )
         )}
       </div>
@@ -69,8 +69,8 @@ export function AdvisorSettings({ className = "grp-you-row grp-you-stack" }: { c
             From console.anthropic.com. Stored encrypted for your questions; removable anytime.
           </p>
           <div className="row">
-            <button className="primary" disabled={!key.trim() || save.isPending}>Save key</button>
-            <button type="button" className="quiet" onClick={() => { setAdding(false); setKey(""); }}>Cancel</button>
+            <Button type="submit" variant="primary" disabled={!key.trim() || save.isPending}>Save key</Button>
+            <Button variant="quiet" onClick={() => { setAdding(false); setKey(""); }}>Cancel</Button>
           </div>
         </form>
       )}
@@ -86,7 +86,7 @@ export function AdvisorSettings({ className = "grp-you-row grp-you-stack" }: { c
               ))}
             </select>
           </label>
-          <button type="button" className="quiet" onClick={() => clear.mutate()} disabled={clear.isPending}>Delete all conversations</button>
+          <Button variant="quiet" onClick={() => clear.mutate()} disabled={clear.isPending}>Delete all conversations</Button>
         </div>
       )}
       {cleared && <p className="small" role="status">Every conversation is deleted.</p>}

@@ -5,7 +5,7 @@
 // whoever may look at them: the server names them for that seat alone.
 
 import { useEffect, useMemo, useState } from "react";
-import { Dialog } from "../components/ui";
+import { Button, Dialog } from "../components/ui";
 import { cameText, type Names } from "./feed";
 import type { CardMeta, CardView, View } from "./types";
 import { WideOverlay } from "./Inspector";
@@ -77,14 +77,13 @@ export function ZoneBrowser(props: {
       <div className="gz-head">
         {a.art ? <img className="gz-art" src={a.art} alt="" style={{ ["--seat" as string]: props.tone(seat) ? `var(--${props.tone(seat)})` : undefined } as React.CSSProperties} /> : <span className="gz-art blank" />}
         <h2>{whose} cards</h2>
-        <button type="button" className="gi-close" aria-label="Close" onClick={onClose}>×</button>
+        <Button className="gi-close" aria-label="Close" onClick={onClose}>×</Button>
       </div>
       {/* Whose cards: every player's public zones can be read, at any time. */}
       <div className="gz-seats" role="group" aria-label="Player">
         {view.players.map((p) => (
-          <button
+          <Button
             key={p.seat}
-            type="button"
             className={`gz-seat${p.seat === seat ? " on" : ""}`}
             aria-pressed={p.seat === seat}
             style={props.tone(p.seat) ? ({ ["--seat" as string]: `var(--${props.tone(p.seat)})` } as React.CSSProperties) : undefined}
@@ -92,32 +91,31 @@ export function ZoneBrowser(props: {
           >
             <span className="seat-dot" aria-hidden="true" />
             {p.seat === names.you ? "You" : names.Who(p.seat)}
-          </button>
+          </Button>
         ))}
       </div>
       <div role="tablist" aria-label="Zone" className="gi-tabs">
         {tabs.map((t) => (
-          <button key={t.id} type="button" role="tab" aria-selected={zone === t.id} className={zone === t.id ? "on" : undefined} onClick={() => props.onPick(seat, t.id)}>
+          <Button key={t.id} role="tab" aria-selected={zone === t.id} className={zone === t.id ? "on" : undefined} onClick={() => props.onPick(seat, t.id)}>
             {t.label}
-          </button>
+          </Button>
         ))}
-        <button type="button" role="tab" aria-selected={false} aria-disabled="true" disabled className="gz-hidden">
+        <Button role="tab" aria-selected={false} aria-disabled="true" disabled className="gz-hidden">
           Library {player?.library ?? 0}, hidden
-        </button>
+        </Button>
       </div>
       <div className="gz-types" role="group" aria-label="Card types">
         {TYPE_FILTERS.map((t) => (
-          <button key={t.id} type="button" className={`gz-type${type === t.id ? " on" : ""}`} aria-pressed={type === t.id} onClick={() => setType(t.id)}>
+          <Button key={t.id} className={`gz-type${type === t.id ? " on" : ""}`} aria-pressed={type === t.id} onClick={() => setType(t.id)}>
             {t.label} {all.filter(t.test).length}
-          </button>
+          </Button>
         ))}
         {all.length > 12 && <input type="search" placeholder="Filter by name or type" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Filter by name or type" />}
       </div>
       <div className="gz-grid">
         {shown.map((c) => (
           <figure key={c.id} className="gz-card">
-            <button
-              type="button"
+            <Button
               className="zone-card"
               aria-label={`${c.name}${c.came ? `, ${cameText(c.came)}` : ""}`}
               onClick={() => props.onRead(c)}
@@ -127,7 +125,7 @@ export function ZoneBrowser(props: {
             >
               {meta[c.name]?.image ? <img src={meta[c.name]!.image!} alt="" loading="lazy" /> : <span className="hc-name">{c.name}</span>}
               {c.face_down && <span className="gz-down">Face down</span>}
-            </button>
+            </Button>
             {c.came && <figcaption>{cameText(c.came)}</figcaption>}
           </figure>
         ))}

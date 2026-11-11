@@ -220,4 +220,5 @@ Every button in the app is a `Button`; every link that looks like one is a `Butt
   `className` and keeps its look.
 - `CopyButton`, `MoreMenu` and `ConnectButton` take the same `variant` (and `size`) and pass
   them to their button.
-- Don't write `<button>` in a page. `conventions.test.ts` lists the areas still moving over.
+- Don't write `<button>` or `className="button"` in a page: `conventions.test.ts` fails on
+  either, everywhere but the online board's `Board.tsx` and `Decide.tsx`.

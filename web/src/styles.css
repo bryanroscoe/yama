@@ -1014,14 +1014,6 @@ button.list-row:hover {
     gap: 16px;
   }
 }
-.card-grid button {
-  padding: 0;
-  border: none;
-  background: none;
-  min-height: 0;
-  display: block;
-  border-radius: var(--card-radius);
-}
 .card-img {
   width: 100%;
   aspect-ratio: 488 / 680;
@@ -1473,11 +1465,6 @@ table.plain tr.few td {
   border-top: 1px solid var(--line);
 }
 
-/* New game: on phones the start button follows the seats; on laptops it sits beside the title. */
-.setup-start button {
-  flex: 1 1 auto;
-  min-height: 56px;
-}
 @media (min-width: 900px) {
   .new-game {
     grid-template-columns: minmax(0, 1fr) auto;
@@ -1494,9 +1481,6 @@ table.plain tr.few td {
   .new-game > .setup-start {
     grid-area: start;
     align-self: end;
-  }
-  .setup-start button {
-    min-height: var(--target-primary);
   }
   .new-game > .setup-controls {
     grid-area: controls;

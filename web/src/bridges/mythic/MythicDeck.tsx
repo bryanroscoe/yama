@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { api, publicOrigin, type DeckView } from "../../api";
-import { Details, ErrorText, Dialog, Loading } from "../../components/ui";
+import { Button, Details, Dialog, ErrorText, Loading } from "../../components/ui";
 import { sendCards, useMythicBridge, type MythicDeckLink } from "./mythic";
 import { mythicSendSnippet } from "./snippet";
 import "./mythic.css";
@@ -17,7 +17,7 @@ const PRIVACY: { value: string; label: string }[] = [
 /** The deck page's button for sending the deck to Mythic Tools, when the bridge is on. */
 export function MythicSendButton({ className, onClick }: { className: string; onClick: () => void }) {
   if (!useMythicBridge()) return null;
-  return <button className={className} onClick={onClick}>Send to Mythic Tools</button>;
+  return <Button className={className} onClick={onClick}>Send to Mythic Tools</Button>;
 }
 
 /**
@@ -78,8 +78,8 @@ export function MythicSend({ deck, onClose }: { deck: DeckView; onClose: () => v
         )}
         {!snippet ? (
           <div className="row">
-            <button disabled={send.isPending || !deck.version_id} onClick={() => send.mutate()}>Make the snippet</button>
-            {linked && <button className="outline" disabled={unlink.isPending} onClick={() => unlink.mutate()}>Unlink</button>}
+            <Button disabled={send.isPending || !deck.version_id} onClick={() => send.mutate()}>Make the snippet</Button>
+            {linked && <Button variant="outline" disabled={unlink.isPending} onClick={() => unlink.mutate()}>Unlink</Button>}
           </div>
         ) : (
           <>
@@ -89,7 +89,7 @@ export function MythicSend({ deck, onClose }: { deck: DeckView; onClose: () => v
               <li>Paste the snippet and press Enter. When it's done it opens Yama to link the deck; if your browser blocks that, open the link it prints.</li>
             </ol>
             <div className="row">
-              <button onClick={() => void copy()}>{copied ? "Copied" : "Copy the snippet"}</button>
+              <Button onClick={() => void copy()}>{copied ? "Copied" : "Copy the snippet"}</Button>
             </div>
             <p className="small dim">The snippet works once, for a day. Make a new one after changing the deck.</p>
             <Details label="What the snippet does">

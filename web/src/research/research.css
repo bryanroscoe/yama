@@ -156,7 +156,7 @@ a.note-pill-link:hover { box-shadow: inset 0 0 0 1px var(--dim); }
 .note-upto label { color: var(--dim); }
 .note-upto-field { display: inline-flex; align-items: center; gap: 6px; }
 .note-upto input { width: 7.5em; min-height: 40px; font-variant-numeric: tabular-nums; }
-.note-upto .button { min-height: 40px; }
+.note-upto button { min-height: 40px; }
 
 /* Track this build: what tracking does, or what's tracked, with its actions. */
 .note-track { margin: 16px 0; padding: 14px 18px; border-radius: 16px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); }

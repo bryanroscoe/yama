@@ -3,7 +3,7 @@ import { useState } from "react";
 import { accountLine } from "../accounts";
 import { api, type AccountInfo } from "../api";
 import { useAuthConfig, useMe } from "../auth";
-import { ErrorText, Dialog } from "../components/ui";
+import { Button, Dialog, ErrorText } from "../components/ui";
 import { adminApi, type SharedGrant, type SharedOverview, type ViewLogRow } from "./api";
 import { startViewing } from "../viewing";
 import { confirms, deleteSummary, parseDailyCap, searchAccounts, sharedGrantLine, sharedSummary } from "./logic";
@@ -93,21 +93,21 @@ export function PeoplePage() {
               </div>
               {!a.is_admin && a.id !== me.data?.id && (
                 <div className="admin-actions">
-                  <button className="outline" onClick={() => flipInvite(a)} disabled={invite.isPending}>
+                  <Button variant="outline" onClick={() => flipInvite(a)} disabled={invite.isPending}>
                     {a.invited ? "Remove invite" : "Invite"}
-                  </button>
-                  <button className="outline" onClick={() => flipPower(a)} disabled={power.isPending} title="Power users may start simulations and watched AI games and ask Claude">
+                  </Button>
+                  <Button variant="outline" onClick={() => flipPower(a)} disabled={power.isPending} title="Power users may start simulations and watched AI games and ask Claude">
                     {a.power_user ? "Remove power user" : "Make power user"}
-                  </button>
-                  <button className="outline" onClick={() => flip(a)} disabled={toggle.isPending}>
+                  </Button>
+                  <Button variant="outline" onClick={() => flip(a)} disabled={toggle.isPending}>
                     {a.disabled_at ? "Enable" : "Disable"}
-                  </button>
-                  <button className="outline" onClick={() => view.mutate(a)} disabled={view.isPending} title="See Yama as they do, read only, for up to 30 minutes">
+                  </Button>
+                  <Button variant="outline" onClick={() => view.mutate(a)} disabled={view.isPending} title="See Yama as they do, read only, for up to 30 minutes">
                     View as
-                  </button>
-                  <button className="outline danger" onClick={() => setDeleting(a)}>
+                  </Button>
+                  <Button variant="outline" danger onClick={() => setDeleting(a)}>
                     Delete
-                  </button>
+                  </Button>
                 </div>
               )}
               {sharing && a.id !== me.data?.id && <SharedKeyControl account={a} grant={shared.data!.grants.find((g) => g.user_id === a.id)} />}
@@ -169,7 +169,7 @@ function WhoCanSignIn({ open }: { open: boolean }) {
           <span>Invite someone by their Google email</span>
           <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="friend@gmail.com" required />
         </label>
-        <button disabled={add.isPending}>Invite</button>
+        <Button type="submit" disabled={add.isPending}>Invite</Button>
       </form>
       <ErrorText error={add.error ?? remove.error ?? invites.error} />
       {n > 0 && (
@@ -181,9 +181,9 @@ function WhoCanSignIn({ open }: { open: boolean }) {
                 <span>
                   {i.email} <span className="dim">invited {ago(i.created_at)}</span>
                 </span>
-                <button className="quiet" onClick={async () => (await ask({ title: `Remove the invite for ${i.email}?`, confirm: "Remove invite", danger: true })) && remove.mutate(i.email)}>
+                <Button variant="quiet" onClick={async () => (await ask({ title: `Remove the invite for ${i.email}?`, confirm: "Remove invite", danger: true })) && remove.mutate(i.email)}>
                   Remove
-                </button>
+                </Button>
               </li>
             ))}
           </ul>
@@ -240,9 +240,9 @@ function SharedKeyControl({ account, grant }: { account: AccountInfo; grant: Sha
               <span>Daily cap (blank for the usual)</span>
               <input inputMode="numeric" value={cap} onChange={(e) => setCap(e.target.value)} placeholder="Usual allowance" aria-invalid={parsed === "invalid"} />
             </label>
-            <button className="outline" disabled={busy || parsed === "invalid" || parsed === grant.daily_limit}>
+            <Button type="submit" variant="outline" disabled={busy || parsed === "invalid" || parsed === grant.daily_limit}>
               Save cap
-            </button>
+            </Button>
           </form>
           {parsed === "invalid" && <span className="error small">A daily cap is a whole number from 1 to 1,000, or blank for the usual allowance.</span>}
         </>
@@ -274,12 +274,12 @@ function DeleteSheet({ account, onClose, onDone }: { account: AccountInfo; onClo
         </label>
         <ErrorText error={del.error} />
         <div className="admin-actions">
-          <button className="outline" onClick={onClose}>
+          <Button variant="outline" onClick={onClose}>
             Cancel
-          </button>
-          <button className="danger-fill" disabled={!ok || del.isPending} onClick={() => del.mutate()}>
+          </Button>
+          <Button variant="destructive" disabled={!ok || del.isPending} onClick={() => del.mutate()}>
             {del.isPending ? "Deleting…" : "Delete account and data"}
-          </button>
+          </Button>
         </div>
       </div>
     </Dialog>

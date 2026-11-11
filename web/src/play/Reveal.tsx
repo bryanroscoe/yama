@@ -5,6 +5,7 @@
 
 import { cardName, list, type Names, type Shown } from "./feed";
 import type { CardMeta } from "./types";
+import { Button } from "../components/ui";
 
 export function RevealPanel({ group, more, names, meta, tone, onRead, onClose, wide }: {
   /** One reveal, or a run of them by the same player. */
@@ -28,16 +29,16 @@ export function RevealPanel({ group, more, names, meta, tone, onRead, onClose, w
       <span className="reveal-head">
         <span className="seat-dot" aria-hidden="true" />
         <b>{title}</b>
-        <button type="button" className="gi-close" aria-label="Dismiss" onClick={onClose}>×</button>
+        <Button className="gi-close" aria-label="Dismiss" onClick={onClose}>×</Button>
       </span>
       <div className={`reveal-cards${cards.length > 1 ? " many" : ""}`}>
         {cards.map((c, i) => {
           const img = c.name ? meta[c.name]?.image : null;
           return (
             // Keyed by name too, so a new card never shows the last one's image while it loads.
-            <button key={`${i}:${c.name ?? ""}`} type="button" className="zone-card" onClick={() => c.name && onRead(c.name)} onContextMenu={(e) => (e.preventDefault(), c.name && onRead(c.name))} aria-label={cardName(c)}>
+            <Button key={`${i}:${c.name ?? ""}`} className="zone-card" onClick={() => c.name && onRead(c.name)} onContextMenu={(e) => (e.preventDefault(), c.name && onRead(c.name))} aria-label={cardName(c)}>
               {img ? <img src={img} alt="" /> : <span className="hc-name">{cardName(c)}</span>}
-            </button>
+            </Button>
           );
         })}
       </div>
@@ -46,7 +47,7 @@ export function RevealPanel({ group, more, names, meta, tone, onRead, onClose, w
         <span className="reveal-tag">{h.kind === "revealed" ? "Seen by everyone" : "Only you see these"}</span>
         <span className="reveal-tag">In the game log</span>
       </span>
-      {more > 0 && <button type="button" className="outline small" onClick={onClose}>Next ({more} more)</button>}
+      {more > 0 && <Button variant="outline" size="small" onClick={onClose}>Next ({more} more)</Button>}
     </aside>
   );
 }

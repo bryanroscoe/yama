@@ -147,21 +147,20 @@ describe("choosing one of a few uses the shared control", () => {
 
 describe("buttons use the shared components", () => {
   const BUTTON = "web/src/components/Button.tsx";
-  // The areas still to move over, one pull request each. This list only shrinks: don't add to it.
-  const NOT_YET = /^web\/src\/(admin|advisor|bridges|datasets|oauth|play|research|scanner)\//;
 
   it("no page writes a raw <button>", () => {
     // Use <Button> from components/ui: variant="primary", "outline", "quiet" or "destructive"
     // (secondary with none), size="small" for a row action, `danger` for --bad words. It is
     // type="button" unless you say type="submit". A row or a tile that is itself the control
     // keeps its own className.
-    const found = uses(/<button\b/, (file) => file === BUTTON || NOT_YET.test(file));
+    const found = uses(/<button\b/, (file) => file === BUTTON || BOARD_FILES.test(file));
     expect(found).toEqual([]);
   });
 
   it("no link is dressed as a button by hand", () => {
     // Use <ButtonLink to="…"> (a page in the app) or <ButtonLink href="…"> from components/ui.
-    const found = uses(/className="button\b/, (file) => file === BUTTON || NOT_YET.test(file));
+    // The class written as a string, in braces, in a template or as cx's first name.
+    const found = uses(/className=\{?\s*(cx\()?["'`]button[\s"'`]/, (file) => file === BUTTON || BOARD_FILES.test(file));
     expect(found).toEqual([]);
   });
 });

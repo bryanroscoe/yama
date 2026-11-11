@@ -1,10 +1,10 @@
 // One watched all-AI game: the online board in watch mode (Board, `watch`).
 
 import { useQuery } from "@tanstack/react-query";
-import { Link, useParams } from "react-router";
+import { useParams } from "react-router";
 import { api } from "../api";
 import { queryFailure } from "../components/QueryError";
-import { ErrorText } from "../components/ui";
+import { ButtonLink, ErrorText } from "../components/ui";
 import { Board } from "./Board";
 import type { WatchSummary } from "./watch";
 import "./play.css";
@@ -20,7 +20,7 @@ export function WatchGame() {
       <main className="page stack">
         <ErrorText error={game.error} />
         <p className="dim">Watched games end when the server restarts, and finished ones are cleared after half an hour.</p>
-        <Link to="/play/watch" className="button outline">Set up a game</Link>
+        <ButtonLink to="/play/watch" variant="outline">Set up a game</ButtonLink>
       </main>
     );
   }

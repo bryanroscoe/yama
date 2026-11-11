@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { ErrorText } from "../components/ui";
+import { Button, ErrorText } from "../components/ui";
 import { adminApi, type LabRun } from "./api";
 import { ago, count } from "@yama/core";
 import { ask } from "../components/confirm";
@@ -58,10 +58,10 @@ function RunRow({ run }: { run: LabRun }) {
               <span className="visually-hidden">New name for {run.name}</span>
               <input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} autoFocus />
             </label>
-            <button disabled={rename.isPending || !name.trim()}>Save</button>
-            <button type="button" className="quiet" onClick={() => setEditing(false)}>
+            <Button type="submit" disabled={rename.isPending || !name.trim()}>Save</Button>
+            <Button variant="quiet" onClick={() => setEditing(false)}>
               Cancel
-            </button>
+            </Button>
           </form>
         ) : (
           <b>{run.name}</b>
@@ -77,16 +77,16 @@ function RunRow({ run }: { run: LabRun }) {
       </div>
       {!editing && (
         <div className="admin-actions">
-          <button className="outline" onClick={() => setEditing(true)}>
+          <Button variant="outline" onClick={() => setEditing(true)}>
             Rename
-          </button>
-          <button
-            className="outline danger"
+          </Button>
+          <Button
+            variant="outline" danger
             disabled={del.isPending}
             onClick={async () => (await ask({ title: `Delete ${run.name}?`, body: "Its ratings go too, for everyone.", confirm: "Delete run", danger: true })) && del.mutate()}
           >
             Delete
-          </button>
+          </Button>
         </div>
       )}
     </li>

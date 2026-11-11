@@ -9,7 +9,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { useMe, usePower } from "../auth";
-import { Details, ErrorText, Dialog, Loading } from "../components/ui";
+import { Button, Details, Dialog, ErrorText, Loading } from "../components/ui";
 import { deviceId, outbox } from "../plan/outbox";
 import { advisorStatus, ask, changesKey, conversation, conversations, deleteConversation, stagedChanges, type AdvisorStatus, type StagedChange } from "./api";
 import { ChangeCard } from "./Changes";
@@ -64,9 +64,9 @@ export function useAskClaudeOffered(): boolean {
 /** The button alone, for a menu that keeps the sheet's state itself (MoreMenu closes on a pick). */
 export function AskClaudeButton({ className = "", onClick }: { className?: string; onClick: () => void }) {
   return (
-    <button type="button" className={`ask-claude-button ${className}`.trim()} onClick={onClick} aria-haspopup="dialog">
+    <Button className={`ask-claude-button ${className}`.trim()} onClick={onClick} aria-haspopup="dialog">
       <SparkIcon /> Ask Claude
-    </button>
+    </Button>
   );
 }
 
@@ -202,7 +202,7 @@ function AskPanel({ context, about, ideasFor, onClose }: { context: AskContext; 
           <p className="dim small">About {about}</p>
           {onShared && <p className="ask-mode small">{onShared}</p>}
         </div>
-        <button type="button" className="quiet" onClick={onClose}>Close</button>
+        <Button variant="quiet" onClick={onClose}>Close</Button>
       </header>
 
       {status.isPending && <Loading />}
@@ -254,9 +254,9 @@ function AskPanel({ context, about, ideasFor, onClose }: { context: AskContext; 
                 </select>
               </label>
               {current && (
-                <button type="button" className="quiet" disabled={streaming || remove.isPending} onClick={() => remove.mutate(current)}>
+                <Button variant="quiet" disabled={streaming || remove.isPending} onClick={() => remove.mutate(current)}>
                   Delete
-                </button>
+                </Button>
               )}
             </div>
           )}
@@ -267,9 +267,9 @@ function AskPanel({ context, about, ideasFor, onClose }: { context: AskContext; 
               <div className="ask-starters">
                 <p className="dim small">Try one of these, or ask your own.</p>
                 {starters(context.kind).map((t) => (
-                  <button key={t} type="button" className="ask-starter" onClick={() => void submit(t)} disabled={!!paused}>
+                  <Button key={t} className="ask-starter" onClick={() => void submit(t)} disabled={!!paused}>
                     {t}
-                  </button>
+                  </Button>
                 ))}
               </div>
             )}
@@ -333,9 +333,9 @@ function AskPanel({ context, about, ideasFor, onClose }: { context: AskContext; 
                 </select>
               </label>
               {streaming ? (
-                <button type="button" className="outline" onClick={() => abort.current?.abort()}>Stop</button>
+                <Button variant="outline" onClick={() => abort.current?.abort()}>Stop</Button>
               ) : (
-                <button className="primary" disabled={!question.trim() || !!paused}>Ask</button>
+                <Button type="submit" variant="primary" disabled={!question.trim() || !!paused}>Ask</Button>
               )}
             </div>
             <ErrorText error={askError} />
@@ -484,7 +484,7 @@ function SuggestionCard({ s, ideasFor, disabled }: { s: Suggestion; ideasFor: st
         saved ? (
           <p className="small" role="status">Saved. It goes to your planner's inbox.</p>
         ) : (
-          <button type="button" className="outline" onClick={save} disabled={disabled || !userId}>Save as an idea</button>
+          <Button variant="outline" onClick={save} disabled={disabled || !userId}>Save as an idea</Button>
         )
       ) : (
         <p className="small dim">To save this as an idea, ask from the deck's plan.</p>
