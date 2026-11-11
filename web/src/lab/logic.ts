@@ -646,10 +646,20 @@ export const AGREEMENT_SHOWN = 6;
 /**
  * The server's engine-agreement sentence, split for display: its lead (without "The engines
  * agree/disagree", which the page says in bold) with the first few decks, and the decks left for
- * the fold. The server lists one deck per "; ".
+ * the fold. The server writes one entry per deck, "Name: 11% (8 to 15) on phase, 25% (20 to 30)
+ * on Forge", joined with "; ". A deck's name is typed by a person and may hold "; " itself, so
+ * entries are cut where one ends (its Forge figure), never at a bare semicolon. Text in any other
+ * shape stays whole.
  */
 export function agreementParts(text: string): { shown: string; rest: string[] } {
-  const parts = text.replace(/^The engines (agree|disagree)[.:]\s*/, "").replace(/\.$/, "").split("; ");
-  if (parts.length <= AGREEMENT_SHOWN + 1) return { shown: `${parts.join("; ")}.`, rest: [] };
+  const body = text.replace(/^The engines (agree|disagree)[.:]\s*/, "").replace(/\.$/, "");
+  const parts: string[] = [];
+  let from = 0;
+  for (const end of body.matchAll(/\d+% \(\d+ to \d+\) on Forge(?:; |$)/g)) {
+    const stop = end.index + end[0].replace(/; $/, "").length;
+    parts.push(body.slice(from, stop));
+    from = end.index + end[0].length;
+  }
+  if (from < body.length || parts.length <= AGREEMENT_SHOWN + 1) return { shown: `${body}.`, rest: [] };
   return { shown: `${parts.slice(0, AGREEMENT_SHOWN).join("; ")}.`, rest: parts.slice(AGREEMENT_SHOWN) };
 }

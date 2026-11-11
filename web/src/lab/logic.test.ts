@@ -423,11 +423,18 @@ describe("deckName", () => {
 describe("a long engine comparison", () => {
   it("shows the first decks and folds the rest", async () => {
     const { agreementParts, AGREEMENT_SHOWN } = await import("./logic");
-    const decks = Array.from({ length: 174 }, (_, i) => `Deck ${i + 1}: 10% on Phase, 20% on Forge`);
-    const long = agreementParts(`The engines disagree. ${decks.join("; ")}.`);
+    const decks = Array.from({ length: 174 }, (_, i) => `Deck ${i + 1}: 10% (5 to 15) on phase, 20% (15 to 26) on Forge`);
+    const long = agreementParts(`The engines disagree. ${decks.join("; ")}`);
     expect(long.shown).toBe(`${decks.slice(0, AGREEMENT_SHOWN).join("; ")}.`);
     expect(long.rest).toHaveLength(174 - AGREEMENT_SHOWN);
-    expect(long.rest.at(-1)).toBe("Deck 174: 10% on Phase, 20% on Forge");
+    expect(long.rest.at(-1)).toBe("Deck 174: 10% (5 to 15) on phase, 20% (15 to 26) on Forge");
+    // A deck someone named with a semicolon is still one deck.
+    const named = [...decks.slice(0, 5), "Alpha; Beta: 30% (22 to 39) on phase, 9% (5 to 15) on Forge", ...decks.slice(5, 12)];
+    const odd = agreementParts(`The engines disagree. ${named.join("; ")}`);
+    expect(odd.shown.endsWith("Alpha; Beta: 30% (22 to 39) on phase, 9% (5 to 15) on Forge.")).toBe(true);
+    expect(odd.rest).toHaveLength(named.length - AGREEMENT_SHOWN);
+    // Text in another shape isn't cut at its semicolons.
+    expect(agreementParts("The engines disagree: 40% on phase; 20% on Forge; treat with caution")).toEqual({ shown: "40% on phase; 20% on Forge; treat with caution.", rest: [] });
     // A short one stays whole, with the lead the page says in bold removed.
     expect(agreementParts("The engines agree: both prefer the change.")).toEqual({ shown: "both prefer the change.", rest: [] });
   });
