@@ -195,7 +195,7 @@
   padding-left: 1.1rem;
 }
 
-@media (max-width: 600px) {
+@media (max-width: 599px) {
   .swap-sheet .ss-takeouts,
   .swap-sheet .ss-steps {
     font-size: var(--t-sm);

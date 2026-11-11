@@ -8,4 +8,4 @@
 .card-ref-close { position: sticky; top: 0; display: block; margin-left: auto; min-height: 34px; background: var(--surface); color: var(--text); }
 .card-ref-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; font-size: var(--t-label); }
 .card-ref-thumb { display: inline-block; vertical-align: middle; width: 42px; border-radius: 3px; margin-right: 8px; }
-@media (max-width: 600px) { .card-ref-preview.is-pinned { left: 50% !important; top: 50% !important; transform: translate(-50%,-50%); max-height: calc(100dvh - 24px) !important; width: min(320px,calc(100vw - 24px)) !important; } }
+@media (max-width: 599px) { .card-ref-preview.is-pinned { left: 50% !important; top: 50% !important; transform: translate(-50%,-50%); max-height: calc(100dvh - 24px) !important; width: min(320px,calc(100vw - 24px)) !important; } }

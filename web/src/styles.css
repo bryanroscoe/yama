@@ -729,7 +729,7 @@ a.choice-chip {
 .choice-chip-sub {
   font-weight: 400;
 }
-@media (max-width: 700px) {
+@media (max-width: 899px) {
   .choice-chip {
     min-height: var(--target);
   }
@@ -901,7 +901,7 @@ body::before {
   display: none;
 }
 /* Seven labels fit a 360 px phone a little smaller and tighter. */
-@media (max-width: 430px) {
+@media (max-width: 599px) {
   .nav a {
     font-size: var(--t-xs);
     letter-spacing: -0.02em;

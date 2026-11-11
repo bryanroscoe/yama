@@ -481,7 +481,7 @@ table.curve-table {
   }
 }
 
-@media (max-width: 480px) {
+@media (max-width: 599px) {
   .bracket-guide dl > div {
     grid-template-columns: 1fr;
     gap: 0.25rem;

@@ -204,7 +204,7 @@
   gap: 8px;
 }
 /* One full-width tile per number made the phone page seven screens of mostly empty boxes. */
-@media (max-width: 560px) {
+@media (max-width: 599px) {
   .admin-figures {
     grid-template-columns: 1fr 1fr;
   }

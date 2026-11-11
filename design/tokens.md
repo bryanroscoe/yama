@@ -87,6 +87,11 @@ The idea: a near-black, neutral table, so the commander art and the mana colors 
   | Battlefield tiles | 8–12 px |
 
 - **Spacing:** gaps of 8 / 12 / 16 / 24 / 32 px. Page padding is 16 px on phones and clamp(20px, 4vw, 56px) on laptops. Content max-width is 1120 px.
+- **Breakpoints:** layouts change at three widths and nowhere else: under 600 px is a phone
+  (`max-width: 599px`), 600 to 899 px a tablet, from 900 px a laptop (`min-width: 900px`: the
+  rail replaces the tab bar), and from 1200 px there is room for another column
+  (`min-width: 1200px`). A rule that only fits one component to its own content says so in
+  `conventions.test.ts` (there are three).
 - **Layers:** what sits over the page takes a named layer, lowest first: `--z-switch`,
   `--z-page-over`, `--z-bar` (tab bar, sticky tabs), `--z-status`, `--z-popover`, `--z-scrim`,
   `--z-sheet` (a dialog), `--z-overlay`, `--z-layer` (full-screen layers, menus opened from a

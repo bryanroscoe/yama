@@ -13,7 +13,7 @@
 .gh-game:hover { background: var(--raised); }
 .gh-game time, .gh-players, .gh-meta { color: var(--dim); font-size: var(--t-label); }
 .gh-game-head time { white-space: nowrap; }
-@media (max-width: 500px) {
+@media (max-width: 599px) {
   .gh-search label, .gh-search label:last-child { flex-basis: 100%; }
   .gh-filters { gap: 8px; }
   .gh-filters button { padding-inline: 12px; }

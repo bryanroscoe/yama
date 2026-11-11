@@ -279,7 +279,7 @@
 .ichart + .lab-note {
   margin-top: 12px;
 }
-@media (max-width: 560px) {
+@media (max-width: 599px) {
   .ichart {
     grid-template-columns: 1fr;
     gap: 0.1rem;
@@ -635,7 +635,7 @@
   display: grid;
   gap: 1rem 2rem;
 }
-@media (min-width: 760px) {
+@media (min-width: 900px) {
   .lab-two {
     grid-template-columns: 1fr 1fr;
   }
@@ -833,7 +833,7 @@
 }
 /* On phones a wrapped choice row left one option alone on a second line ("Paste a list",
    "Head to head  Tournament"); lay text choices out on an even grid instead. */
-@media (max-width: 560px) {
+@media (max-width: 599px) {
   .lab .lab-chips[role="radiogroup"]:not(:has(.pip)) {
     display: grid;
     grid-template-columns: 1fr 1fr;

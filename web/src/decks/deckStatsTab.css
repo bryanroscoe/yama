@@ -28,7 +28,7 @@
   gap: 16px;
   min-width: 0;
 }
-@media (max-width: 600px) {
+@media (max-width: 599px) {
   .stats-panel {
     padding: 14px;
   }
@@ -123,7 +123,7 @@
   gap: 24px;
   align-items: start;
 }
-@media (max-width: 860px) {
+@media (max-width: 899px) {
   .power-grid {
     grid-template-columns: minmax(0, 1fr);
     gap: 16px;
@@ -296,7 +296,7 @@ button.vector[aria-pressed="true"] {
   padding: 0 16px 0 162px;
   font-size: var(--t-12);
 }
-@media (max-width: 600px) {
+@media (max-width: 599px) {
   button.vector {
     grid-template-columns: 100px minmax(0, 1fr) 40px;
     gap: 10px;
@@ -374,7 +374,7 @@ button.vector[aria-pressed="true"] {
 .point-num {
   text-align: right;
 }
-@media (max-width: 600px) {
+@media (max-width: 599px) {
   .point-row {
     grid-template-columns: 28px minmax(0, 1fr) 60px 28px;
     gap: 8px;
@@ -445,7 +445,7 @@ button.combo-pic:hover {
   flex: 2 1 340px;
   gap: 12px;
 }
-@media (max-width: 600px) {
+@media (max-width: 599px) {
   .stats-curve,
   .stats-colors {
     flex-basis: 100%;
@@ -463,7 +463,7 @@ button.combo-pic:hover {
   height: 200px;
   border-bottom: 1px solid var(--line);
 }
-@media (max-width: 600px) {
+@media (max-width: 599px) {
   .curve-plot {
   display: flex;
   flex-direction: column;
@@ -505,7 +505,7 @@ button.combo-pic:hover {
   font-size: var(--t-sm);
   color: var(--dim);
 }
-@media (max-width: 600px) {
+@media (max-width: 599px) {
   .curve-labels {
     gap: 8px;
   }

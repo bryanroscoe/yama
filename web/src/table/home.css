@@ -708,7 +708,7 @@ a.rg-row:focus-visible {
   padding-top: 2px;
 }
 /* On a phone the art sits above the title, so the title and its facts get the full width. */
-@media (max-width: 520px) {
+@media (max-width: 599px) {
   .gd-head {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -788,7 +788,7 @@ a.rg-row:focus-visible {
   flex: 1 1 18rem;
 }
 /* Phones: the counter's setup starts on the first screen, with the way in beside the note. */
-@media (max-width: 520px) {
+@media (max-width: 599px) {
   .guest-banner:has(> .button) {
     flex-wrap: nowrap;
     margin-bottom: 1rem;

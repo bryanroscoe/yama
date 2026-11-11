@@ -400,4 +400,33 @@ describe("styles come from the scales", () => {
     });
     expect(inCode).toEqual([]);
   });
+
+  it("layouts change at 600, 900 and 1200 px and nowhere else", () => {
+    // Phone under 600, tablet 600 to 899, laptop from 900, wide from 1200 (design/tokens.md,
+    // Shape and spacing). Three rules fit their own content and keep their widths: the table
+    // menu's markers go four across from 420 px, and the sign-in page folds its second column
+    // under at 720 px and narrows it at 1040 px. Don't add to them.
+    const own = new Set(["web/src/table/table.css: 420", "web/src/pages/landing.css: 720", "web/src/pages/landing.css: 1040"]);
+    const found: string[] = [];
+    for (const path of stylesheets(WEB)) {
+      const file = relative(ROOT, path);
+      if (file === "web/src/play/board.css") continue;
+      const css = readFileSync(path, "utf8").replace(/\/\*[^]*?\*\//g, "");
+      for (const query of css.matchAll(/@media[^{]*\{/g)) {
+        // One spelling: min-width and max-width, so a range (width < 700px) can't slip by.
+        if (/\(\s*(?:\d[^)]*[<>]=?\s*)?width\s*[<>]/.test(query[0]) || /[<>]=?\s*width\s*\)/.test(query[0])) found.push(`${file}: ${query[0].trim()}`);
+        for (const m of query[0].matchAll(/\((min|max)-width:\s*([^)]+)\)/g)) {
+          const px = /^(\d+)px$/.exec((m[2] ?? "").trim())?.[1];
+          // A layout starts at 600, 900 or 1200 and so ends at 599, 899 or 1199: no width is in both.
+          if (px && (m[1] === "min" ? ["600", "900", "1200"] : ["599", "899", "1199"]).includes(px)) continue;
+          if (px && own.has(`${file}: ${px}`)) continue;
+          found.push(`${file}: ${m[0]}`);
+        }
+      }
+    }
+    expect(found).toEqual([]);
+    // A width asked for in code (matchMedia) is one of the three too.
+    const inCode = uses(/\((min|max)-width:\s*\d+px\)/, (file, line) => BOARD.test(file) || [...line.matchAll(/\((min|max)-width:\s*(\d+)px\)/g)].every((m) => (m[1] === "min" ? ["600", "900", "1200"] : ["599", "899", "1199"]).includes(m[2] ?? "")));
+    expect(inCode).toEqual([]);
+  });
 });
