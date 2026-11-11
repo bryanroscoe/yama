@@ -167,18 +167,30 @@ pub async fn search(pool: &SqlitePool, owner: &str, query: &str, order: Option<&
     }
     // Each order walks an index (cards_name, cards_cmc, cards_edhrec, migration 0063), so a page
     // of a broad search stops at its sixtieth card instead of sorting every match.
+    let mut order_binds: Vec<search::Bind> = Vec::new();
     let order = match order {
-        Some("mv" | "cmc") => "cards.cmc, cards.name",
-        Some("edhrec") => "cards.edhrec_rank IS NULL, cards.edhrec_rank, cards.name",
-        Some("color") => "length(cards.colors), cards.colors, cards.name",
-        _ => "cards.name COLLATE NOCASE",
+        Some("mv" | "cmc") => "cards.cmc, cards.name".to_string(),
+        Some("edhrec") => "cards.edhrec_rank IS NULL, cards.edhrec_rank, cards.name".to_string(),
+        Some("color") => "length(cards.colors), cards.colors, cards.name".to_string(),
+        // By name. When the query types a name ("sol ring"), the card of exactly that name comes
+        // first, then names that start with it, then the rest (which only contain its words:
+        // Searing Soloist). That ranks every match instead of walking the name index, which is
+        // fine for a name search: its LIKE already reads every card.
+        _ => match search::name_phrase(query) {
+            Some(phrase) => {
+                let (rank, binds) = search::name_rank(&phrase);
+                order_binds.extend(binds);
+                format!("{rank}, cards.name COLLATE NOCASE")
+            }
+            None => "cards.name COLLATE NOCASE".to_string(),
+        },
     };
     let page = page.max(1);
     let offset = ((page - 1) * PAGE_SIZE) as i64;
 
     let sql = format!("SELECT {CARD_COLUMNS} FROM cards WHERE {filter} ORDER BY {order} LIMIT {PAGE_SIZE} OFFSET ?");
     let mut q = sqlx::query_as::<_, Card>(AssertSqlSafe(sql));
-    for b in &compiled.binds {
+    for b in compiled.binds.iter().chain(&order_binds) {
         q = match b {
             search::Bind::Text(s) => q.bind(s),
             search::Bind::Num(n) => q.bind(n),
@@ -832,6 +844,37 @@ mod tests {
             .unwrap();
         let (_, body) = send(&app, Method::GET, "/api/cards/search?q=sol", Some(&token), None).await;
         assert_eq!((body["cards"][0]["owned"].as_i64(), body["cards"][0]["owned_in"].clone()), (Some(4), serde_json::Value::Null));
+    }
+
+    #[tokio::test]
+    async fn a_typed_name_puts_its_exact_and_prefix_matches_first() {
+        let pool = crate::db::test_pool().await;
+        seed(&pool).await;
+        // Every one of these has "sol" and "ring" somewhere in its name.
+        for (id, name) in [("o-a", "Searing Soloist"), ("o-b", "Insolent Ringleader"), ("o-c", "Sol Ringbearer"), ("o-d", "Absolver of Rings")] {
+            sqlx::query("INSERT INTO cards (oracle_id, name, type_line, cmc, updated_at) VALUES (?, ?, 'Artifact', 3, 'now')")
+                .bind(id)
+                .bind(name)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        let names = |r: SearchResult| r.cards.into_iter().map(|c| c.card.name).collect::<Vec<_>>();
+
+        // By name (the default): the card of that name, then names starting with it, then A to Z.
+        let by_name = names(search(&pool, "", "sol ring", None, 1).await.unwrap());
+        assert_eq!(by_name, ["Sol Ring", "Sol Ringbearer", "Absolver of Rings", "Insolent Ringleader", "Searing Soloist"]);
+        // Any case, quoted or not, with other terms beside it.
+        assert_eq!(names(search(&pool, "", "SOL RING t:artifact", Some("name"), 1).await.unwrap()), by_name);
+        assert_eq!(names(search(&pool, "", r#""sol ring""#, None, 1).await.unwrap()), ["Sol Ring", "Sol Ringbearer"]);
+        // A prefix alone: names starting with it lead.
+        assert_eq!(names(search(&pool, "", "sol", None, 1).await.unwrap())[..2], ["Sol Ring", "Sol Ringbearer"]);
+        // No name typed: plain A to Z. Another order is that order.
+        assert_eq!(names(search(&pool, "", "t:artifact", None, 1).await.unwrap())[..2], ["Absolver of Rings", "Insolent Ringleader"]);
+        assert_eq!(names(search(&pool, "", "sol ring", Some("mv"), 1).await.unwrap())[0], "Sol Ring");
+        assert_eq!(names(search(&pool, "", "sol ring", Some("mv"), 1).await.unwrap())[1], "Absolver of Rings");
+        // The count is unchanged by the order.
+        assert_eq!(search(&pool, "", "sol ring", None, 1).await.unwrap().total, 5);
     }
 
     #[tokio::test]

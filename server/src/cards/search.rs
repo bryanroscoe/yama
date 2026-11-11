@@ -44,6 +44,37 @@ pub fn compile(query: &str) -> Result<Compiled, String> {
     Ok(Compiled { sql, binds: p.binds, uses_game_changer: p.uses_game_changer })
 }
 
+/// The name a query types, for ordering: its bare words and quoted phrases joined by spaces,
+/// lowercased ("sol ring t:artifact" gives "sol ring"). Words that are negated or exact (`!`), and
+/// keyed terms, aren't part of it. `None` when the query names nothing, or can't be read.
+/// The default order puts the card with exactly this name first, then names that start with it
+/// (`name_rank`); the offline copy in `packages/core/src/search.ts` (`namePhrase`) does the same.
+pub fn name_phrase(query: &str) -> Option<String> {
+    let toks = lex(query).ok()?;
+    let mut words = Vec::new();
+    let mut negated = false;
+    for t in &toks {
+        if let Tok::Term { key: None, exact: false, value, .. } = t
+            && !negated
+        {
+            words.push(value.trim().to_lowercase());
+        }
+        negated = matches!(t, Tok::Neg);
+    }
+    let phrase = words.join(" ");
+    (!phrase.is_empty()).then_some(phrase)
+}
+
+/// `ORDER BY` rank for a typed name, with its two binds: 0 for the card of exactly that name, 1 for
+/// names that start with it, 2 for the rest. A name search matches its words anywhere in the name,
+/// so "sol ring" also finds Searing Soloist; alphabetically that came first.
+pub fn name_rank(phrase: &str) -> (&'static str, [Bind; 2]) {
+    (
+        "CASE WHEN cards.name = ? COLLATE NOCASE THEN 0 WHEN cards.name LIKE ? ESCAPE '\\' THEN 1 ELSE 2 END",
+        [Bind::Text(phrase.to_string()), Bind::Text(format!("{}%", escape_like(phrase)))],
+    )
+}
+
 /// Whether the query asks for tokens or other non-deck cards explicitly.
 pub fn wants_extras(query: &str) -> bool {
     let q = query.to_lowercase();
@@ -410,6 +441,23 @@ mod tests {
         // The route checks the flags are loaded before running these.
         assert!(compile("t:artifact (is:gc or mv<1)").unwrap().uses_game_changer);
         assert!(!compile("t:artifact").unwrap().uses_game_changer);
+    }
+
+    #[test]
+    fn the_typed_name_is_the_bare_words() {
+        assert_eq!(name_phrase("sol ring").as_deref(), Some("sol ring"));
+        assert_eq!(name_phrase("Sol  Ring t:artifact").as_deref(), Some("sol ring"));
+        assert_eq!(name_phrase(r#""Sol Ring" mv<=1"#).as_deref(), Some("sol ring"));
+        // Negated and exact words, and keyed terms, aren't the name being typed.
+        assert_eq!(name_phrase("ring -sol").as_deref(), Some("ring"));
+        assert_eq!(name_phrase(r#"!"Sol Ring""#), None);
+        assert_eq!(name_phrase("t:artifact id<=w"), None);
+        assert_eq!(name_phrase(""), None);
+        // A query that doesn't parse has no name to order by; the search itself reports the error.
+        assert_eq!(name_phrase("o:\"open"), None);
+        let (sql, binds) = name_rank("100%_sol");
+        assert!(sql.starts_with("CASE WHEN cards.name = ? COLLATE NOCASE THEN 0"));
+        assert_eq!(binds, [Bind::Text("100%_sol".into()), Bind::Text("100\\%\\_sol%".into())]);
     }
 
     #[test]
