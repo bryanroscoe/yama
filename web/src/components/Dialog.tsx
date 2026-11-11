@@ -62,6 +62,29 @@ function syncInert(): void {
   }
 }
 
+// Where focus goes back to for a layer opened from inside an element that will be gone when the
+// layer closes: a menu's items go when one is chosen, so the menu's own button stands in.
+const returnsTo = new WeakMap<Element, HTMLElement>();
+
+/** A layer opened from inside `from` returns focus to `to` when it closes. */
+export function returnFocusTo(from: Element, to: HTMLElement): void {
+  returnsTo.set(from, to);
+}
+
+/**
+ * What a layer opening now gives focus back to: what has it, or its stand-in. The search for a
+ * stand-in stops at the nearest open layer: a control in a dialog that itself sits inside a
+ * menu's items stays put when the layer it opened closes, so focus goes back to that control.
+ */
+function openerOf(active: Element | null): Element | null {
+  for (let el = active; el; el = el.parentElement) {
+    const to = returnsTo.get(el);
+    if (to) return to;
+    if (layers.includes(el as HTMLElement)) break;
+  }
+  return active;
+}
+
 /**
  * Makes `root` a modal layer while it is mounted. `focusFirst` is what takes focus on opening
  * (a heading, so no keyboard comes up on a phone) unless a field inside asked for it with
@@ -73,7 +96,7 @@ export function useModalLayer(root: RefObject<HTMLElement | null>, onClose: () =
   close.current = onClose;
   // Read while rendering: by the time effects run, an autoFocus field inside has taken focus.
   const opener = useRef<Element | null | undefined>(undefined);
-  if (opener.current === undefined) opener.current = typeof document === "undefined" ? null : document.activeElement;
+  if (opener.current === undefined) opener.current = typeof document === "undefined" ? null : openerOf(document.activeElement);
 
   useEffect(() => {
     const layer = root.current;
