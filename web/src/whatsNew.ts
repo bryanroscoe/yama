@@ -15,6 +15,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-11-online-finish-questions",
+    date: "2026-11-11",
+    title: "Say how an online game went",
+    items: [
+      "The online game-over screen asks what the table's finish sheet asks: how the game was won, and how fun it was for you. Both are optional.",
+      "How it was won is filled in already where the rules engine could tell, and you can change it.",
+    ],
+    link: { to: "/play", label: "Open Play online" },
+  },
+  {
     id: "2026-11-11-cancel-and-delete-online",
     date: "2026-11-11",
     title: "Cancel a table, delete an online game",

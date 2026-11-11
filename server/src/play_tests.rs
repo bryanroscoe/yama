@@ -1845,3 +1845,87 @@ fn the_limit_message_names_what_is_open_and_how_to_close_it() {
         "You have 1 table waiting for players and 1 game being played. Cancel a waiting table from its page, or finish a game, before starting another."
     );
 }
+
+#[tokio::test]
+async fn a_seated_player_answers_the_end_of_game_questions() {
+    use crate::testutil::{send as request, user};
+    use axum::http::{Method, StatusCode};
+    let mut st = crate::testutil::state().await;
+    st.play = ready_hub(None);
+    let pool = st.pool.clone();
+    let app = crate::routes::app(st);
+    let (host, host_token) = user(&pool, "result-host@example.com").await;
+    let (friend, friend_token) = user(&pool, "result-friend@example.com").await;
+    let (watcher, watcher_token) = user(&pool, "result-watcher@example.com").await;
+    let (_, stranger_token) = user(&pool, "result-stranger@example.com").await;
+    // The watcher is in the game's playgroup, so may see the game, but didn't play in it.
+    sqlx::query("INSERT INTO playgroups (id,name,owner_id,join_code,created_at) VALUES ('pg-result','Group',?,'RESULT','t')").bind(&host).execute(&pool).await.unwrap();
+    for (member, account) in [("m-result-host", &host), ("m-result-watcher", &watcher)] {
+        sqlx::query("INSERT INTO playgroup_members (id,playgroup_id,user_id,created_at) VALUES (?,'pg-result',?,'t')").bind(member).bind(account).execute(&pool).await.unwrap();
+    }
+    let mut seats = vec![seat(0, "Host"), seat(1, "Friend"), seat(2, "Computer")];
+    seats[0].user_id = Some(host.clone());
+    seats[1].user_id = Some(friend.clone());
+    seats[2].kind = "ai".into();
+    seats[2].user_id = None;
+    for (id, stage, status, winner, how) in [
+        ("won", "over", "finished", Some(1), Some("combat")),
+        ("drawn", "over", "finished", None, None),
+        ("going", "live", "in_progress", None, None),
+        ("ended", "over", "abandoned", None, None),
+    ] {
+        sqlx::query("INSERT INTO games (id,mode,created_by,format,status,starting_life,started_at,playgroup_id,winner_seat,win_condition) VALUES (?,'online',?,'commander',?,40,'2026-11-11T00:00:00Z','pg-result',?,?)")
+            .bind(id).bind(&host).bind(status).bind(winner).bind(how).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO online_games (game_id,code,host_id,stage,seats,created_at,updated_at) VALUES (?,?,?,?,?,'t','t')")
+            .bind(id).bind(id.to_uppercase()).bind(&host).bind(stage).bind(serde_json::to_string(&seats).unwrap()).execute(&pool).await.unwrap();
+        for (n, account, ai) in [(0, Some(&host), None), (1, Some(&friend), None), (2, None, Some("phase-ai Medium"))] {
+            sqlx::query("INSERT INTO game_seats (game_id,seat,user_id,ai_kind) VALUES (?,?,?,?)").bind(id).bind(n).bind(account).bind(ai).execute(&pool).await.unwrap();
+        }
+    }
+    let post = |id: &'static str, token: &str, body: serde_json::Value| {
+        let (app, token) = (app.clone(), token.to_string());
+        async move { request(&app, Method::POST, &format!("/api/play/{id}/result"), Some(&token), Some(body)).await }
+    };
+    let stored = |id: &'static str| {
+        let pool = pool.clone();
+        async move {
+            let how: Option<String> = sqlx::query_scalar("SELECT win_condition FROM games WHERE id = ?").bind(id).fetch_one(&pool).await.unwrap();
+            let fun: Vec<Option<i64>> = sqlx::query_scalar("SELECT fun FROM game_seats WHERE game_id = ? ORDER BY seat").bind(id).fetch_all(&pool).await.unwrap();
+            (how, fun)
+        }
+    };
+    let answer = serde_json::json!({ "win_condition": "combo", "fun": 4 });
+
+    // Someone outside the game learns nothing; someone who can see it but didn't play may not answer.
+    assert_eq!(post("won", &stranger_token, answer.clone()).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(post("won", &watcher_token, answer.clone()).await.0, StatusCode::FORBIDDEN);
+    // Only a game with a result: not one being played, nor one ended without a winner.
+    for id in ["going", "ended"] {
+        assert_eq!(post(id, &friend_token, answer.clone()).await.0, StatusCode::CONFLICT, "{id}");
+    }
+    for bad in [serde_json::json!({ "win_condition": "vibes" }), serde_json::json!({ "fun": 0 }), serde_json::json!({ "fun": 6 })] {
+        assert_eq!(post("won", &friend_token, bad.clone()).await.0, StatusCode::BAD_REQUEST, "{bad}");
+    }
+    assert_eq!(stored("won").await, (Some("combat".into()), vec![None, None, None]), "nothing refused was stored");
+
+    // The game-over screen starts from what the engine read.
+    let (_, game) = request(&app, Method::GET, "/api/play/won", Some(&friend_token), None).await;
+    assert_eq!((&game["win_condition"], &game["fun"]), (&serde_json::json!("combat"), &serde_json::Value::Null));
+
+    // A player says how it was won and rates their own seat; nobody else's rating moves.
+    let (status, saved) = post("won", &friend_token, answer.clone()).await;
+    assert_eq!((status, &saved["win_condition"], &saved["fun"]), (StatusCode::OK, &serde_json::json!("combo"), &serde_json::json!(4)), "{saved}");
+    assert_eq!(stored("won").await, (Some("combo".into()), vec![None, Some(4), None]));
+    // A field left out stays as it is; null clears it.
+    assert_eq!(post("won", &host_token, serde_json::json!({ "fun": 2 })).await.0, StatusCode::OK);
+    assert_eq!(stored("won").await, (Some("combo".into()), vec![Some(2), Some(4), None]));
+    assert_eq!(post("won", &friend_token, serde_json::json!({ "win_condition": null, "fun": null })).await.0, StatusCode::OK);
+    assert_eq!(stored("won").await, (None, vec![Some(2), None, None]));
+    let (_, game) = request(&app, Method::GET, "/api/play/won", Some(&host_token), None).await;
+    assert_eq!((&game["win_condition"], &game["fun"]), (&serde_json::Value::Null, &serde_json::json!(2)));
+
+    // A draw can be rated, but nobody won it any particular way.
+    assert_eq!(post("drawn", &friend_token, serde_json::json!({ "win_condition": "combat" })).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(post("drawn", &friend_token, serde_json::json!({ "fun": 5 })).await.0, StatusCode::OK);
+    assert_eq!(stored("drawn").await, (None, vec![None, Some(5), None]));
+}

@@ -9,7 +9,9 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
+import { WIN_CONDITIONS, type WinCondition } from "@yama/core";
 import { api } from "../api";
+import { FunPicker, WinConditionPicker } from "../components/GameCapture";
 import { INFERRED, lastOut, list, outText, standings, whyText, type Names } from "./feed";
 import type { OnlineGame, Out, SeatInfo, Stats, View } from "./types";
 import { ErrorText } from "../components/ui";
@@ -150,6 +152,9 @@ export function GameOver(props: {
   const [game, setGame] = useState<OnlineGame | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // What this player has answered on this screen. Until they do, the saved answers show: the
+  // engine's reading of how the game was won, and a rating given earlier.
+  const [answers, setAnswers] = useState<{ how?: WinCondition | null; fun?: number | null }>({});
   const host = names.you === 0;
   // The game's record: its group, when it started and ended, and a rematch once the host starts one.
   useEffect(() => {
@@ -227,6 +232,26 @@ export function GameOver(props: {
       setBusy(false);
     }
   };
+  // The table's finish sheet questions, for a seated player once the game has a result (GameCapture).
+  // Each answer saves as it's given; a refusal puts the answer back as it was.
+  const canAnswer = names.you !== null && !view.abandoned && !!game && game.status === "finished";
+  const how = answers.how !== undefined ? answers.how : (WIN_CONDITIONS.find((w) => w.key === game?.win_condition)?.key ?? null);
+  const fun = answers.fun !== undefined ? answers.fun : (game?.fun ?? null);
+  const answer = async (patch: { how?: WinCondition | null; fun?: number | null }) => {
+    const before = answers;
+    setAnswers({ ...answers, ...patch });
+    setError(null);
+    try {
+      await api(`/api/play/${id}/result`, {
+        method: "POST",
+        json: { ...("how" in patch ? { win_condition: patch.how } : {}), ...("fun" in patch ? { fun: patch.fun } : {}) },
+      });
+      for (const key of ["stats", "games"]) void qc.invalidateQueries({ queryKey: [key] });
+    } catch (e) {
+      setAnswers(before);
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
   const ai = seats.some((s) => s.ai);
   // A playgroup's stats compare its people: a game one person played against the computer is
   // kept in the group's history and left out of its figures.
@@ -286,6 +311,18 @@ export function GameOver(props: {
               </span>
             ))}
           </div>
+          {canAnswer && (
+            <section className="capture stack" aria-label="About this game">
+              {winner !== null && (
+                <WinConditionPicker value={how} onChange={(v) => void answer({ how: v })} winner={winner === names.you ? "you" : names.Who(winner)} />
+              )}
+              <FunPicker
+                seats={[{ seat: names.you!, name: "You" }]}
+                value={fun === null ? [] : [{ seat: names.you!, rating: fun }]}
+                onChange={(v) => void answer({ fun: v[0]?.rating ?? null })}
+              />
+            </section>
+          )}
           <div className="go-group">
             <b>{counted ? `Counts toward ${game!.playgroup}'s stats` : "Not counted toward a group's stats"}</b>
             <span className="dim small">

@@ -42,6 +42,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/play/{id}/start", post(start))
         .route("/api/play/{id}/rematch", post(rematch))
         .route("/api/play/{id}/end", post(end_solo))
+        .route("/api/play/{id}/result", post(record_result))
         .route("/api/play/{id}/ws", get(connect))
         .route("/api/play/{id}/board", get(board::connect))
         .route("/api/play/{id}/view", get(final_view))
@@ -850,6 +851,12 @@ struct OnlineGame {
     turns: Option<i64>,
     /// The playgroup whose stats the game counts toward.
     playgroup: Option<String>,
+    /// How a finished game was won (`crate::stats::WIN_CONDITIONS`): read from the knockouts that
+    /// ended it, or what a player said on the game-over screen.
+    win_condition: Option<String>,
+    /// Your own fun rating for a finished game, 1 to 5, if you gave one (game detail only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fun: Option<i64>,
     /// Deck name → cards the engine can't play yet (left out of the game).
     missing_cards: HashMap<String, Vec<String>>,
     /// When play started and, once it's over, when it ended (for the game's length).
@@ -910,12 +917,13 @@ struct Row {
     rematch_id: Option<String>,
     engine_version: Option<String>,
     game_status: Option<String>,
+    win_condition: Option<String>,
 }
 
 /// The columns a [`Row`] reads; `o` is online_games, `g` games, `p` playgroups.
 const ROW_SELECT: &str =
     "SELECT o.game_id, o.code, o.host_id, o.stage, o.seats, o.created_at, o.updated_at, g.winner_seat, g.turns, p.name AS playgroup,
-     g.started_at, g.ended_at, o.rematch_id, g.engine_version, g.status AS game_status
+     g.started_at, g.ended_at, o.rematch_id, g.engine_version, g.status AS game_status, g.win_condition
      FROM online_games o LEFT JOIN games g ON g.id = o.game_id LEFT JOIN playgroups p ON p.id = g.playgroup_id";
 
 impl Row {
@@ -1033,6 +1041,8 @@ fn summarize(
         winner: if r.stage == "over" { r.winner_seat.and_then(|w| u8::try_from(w).ok()) } else { None },
         turns: if r.stage == "over" { r.turns } else { None },
         playgroup: r.playgroup.clone(),
+        win_condition: if r.stage == "over" { r.win_condition.clone() } else { None },
+        fun: None,
         missing_cards,
         started_at: (r.stage != "lobby").then(|| r.started_at.clone()).flatten(),
         ended_at: if r.stage == "over" { r.ended_at.clone() } else { None },
@@ -1074,7 +1084,77 @@ async fn detail(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path
     game.runtime_error = st.play.game_error(&r);
     game.phase_board = st.cfg.board_dist.is_some() && board::supports_runtime(&r.stage, r.engine_version.as_deref());
     game.rematch = rematch_for(&st.pool, &r, &user.id).await?;
+    if r.stage == "over" {
+        game.fun = sqlx::query_scalar("SELECT fun FROM game_seats WHERE game_id = ? AND user_id = ?").bind(&id).bind(&user.id).fetch_optional(&st.pool).await?.flatten();
+    }
     Ok(Json(game))
+}
+
+/// A field that tells "left out" (unchanged) from `null` (clear it).
+fn present<'de, T: Deserialize<'de>, D: serde::Deserializer<'de>>(d: D) -> Result<Option<T>, D::Error> {
+    T::deserialize(d).map(Some)
+}
+
+/// What the game-over screen asks, as the table's finish sheet does. Every answer is optional;
+/// a field left out stays as it is and `null` clears it.
+#[derive(Deserialize)]
+struct ResultRequest {
+    /// How the game was won (`crate::stats::WIN_CONDITIONS`).
+    #[serde(default, deserialize_with = "present")]
+    win_condition: Option<Option<String>>,
+    /// The caller's own fun rating, 1 to 5.
+    #[serde(default, deserialize_with = "present")]
+    fun: Option<Option<i64>>,
+}
+
+/// A seated player answers the end-of-game questions for a finished game: how it was won (for
+/// the game, filled in already where the engine could tell) and how fun it was (for their own
+/// seat only). The engine's result itself (the winner, the knockouts) is never theirs to change.
+async fn record_result(
+    State(st): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    Path(id): Path<String>,
+    Json(body): Json<ResultRequest>,
+) -> AppResult<Json<serde_json::Value>> {
+    let r = load_visible(&st.pool, &id, &user.id).await?;
+    let seat = r
+        .seats()
+        .iter()
+        .find(|s| s.kind == "human" && s.user_id.as_deref() == Some(user.id.as_str()))
+        .map(|s| i64::from(s.seat))
+        .ok_or_else(|| AppError::Forbidden("Only someone who played in this game can answer for it.".into()))?;
+    if r.stage != "over" || r.game_status.as_deref() != Some("finished") {
+        return Err(AppError::Conflict("These questions are for a game that has finished.".into()));
+    }
+    if let Some(Some(how)) = &body.win_condition {
+        if !crate::stats::WIN_CONDITIONS.contains(&how.as_str()) {
+            return Err(AppError::bad(format!("unknown win condition {how:?}")));
+        }
+        if r.winner_seat.is_none() {
+            return Err(AppError::bad("a drawn game has no win condition"));
+        }
+    }
+    if let Some(Some(fun)) = body.fun
+        && !(1..=5).contains(&fun)
+    {
+        return Err(AppError::bad("fun ratings go from 1 to 5"));
+    }
+    let mut tx = st.pool.begin_with("BEGIN IMMEDIATE").await?;
+    if let Some(how) = &body.win_condition {
+        sqlx::query("UPDATE games SET win_condition = ? WHERE id = ? AND mode = 'online' AND status = 'finished'").bind(how.as_deref()).bind(&id).execute(&mut *tx).await?;
+    }
+    if let Some(fun) = body.fun {
+        sqlx::query("UPDATE game_seats SET fun = ? WHERE game_id = ? AND seat = ? AND user_id = ?").bind(fun).bind(&id).bind(seat).bind(&user.id).execute(&mut *tx).await?;
+    }
+    let saved: (Option<String>, Option<i64>) =
+        sqlx::query_as("SELECT g.win_condition, s.fun FROM games g JOIN game_seats s ON s.game_id = g.id WHERE g.id = ? AND s.seat = ?")
+            .bind(&id)
+            .bind(seat)
+            .fetch_optional(&mut *tx)
+            .await?
+            .unwrap_or_default();
+    tx.commit().await?;
+    Ok(Json(serde_json::json!({ "win_condition": saved.0, "fun": saved.1 })))
 }
 
 pub(crate) fn deck_lines(cards: &[DeckCard]) -> Vec<DeckLine<'_>> {
