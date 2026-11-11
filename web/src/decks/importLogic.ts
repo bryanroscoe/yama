@@ -187,7 +187,8 @@ export interface SavedPrint {
 
 /** The deck routes' body: cards (merged by card and board), the Considering list (the source's
  *  maybeboard, merged by card: it is saved with the deck, never as part of its cards) and the
- *  printings to keep. The server's `deck_import::read_list` does the same for `import-decks`. */
+ *  printings to keep. The server's `deck_import::read_list` merges cards and printings the same
+ *  way for `import-decks`, but still files a maybeboard's cards in the sideboard. */
 export function toSave(draft: Draft): { cards: DeckCard[]; prints: SavedPrint[]; maybe: MaybeCard[] } {
   const cards: DeckCard[] = [];
   const maybe: MaybeCard[] = [];

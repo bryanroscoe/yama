@@ -29,7 +29,7 @@ export function Considering({ cards, deckId, onOpen }: { cards: MaybeEntry[]; de
       <ul className="deck-considering-cards">
         {cards.map((c) => (
           <li key={c.oracle_id}>
-            <button type="button" className="deck-considering-card" onClick={() => onOpen(c.oracle_id)} aria-label={`${c.name}, full card`}>
+            <button type="button" className="deck-considering-card" onClick={() => onOpen(c.oracle_id)}>
               <CardImage src={c.card?.image_small} name={c.name} className="deck-considering-thumb" />
               <span className="deck-considering-text">
                 <span>{c.qty > 1 ? `${c.qty} ` : ""}{c.name}</span>

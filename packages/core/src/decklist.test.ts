@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addToList, countInList, listText, parseDeckList, removeFromList } from "./decklist";
+import { addToList, countInList, hasConsidering, listText, parseDeckList, removeFromList } from "./decklist";
 
 const LIST = ["Commander", "1 Atraxa, Praetors' Voice", "", "Deck", "1 Sol Ring (CMM) 410 *F*", "2x Forest", "// ramp", "Arcane Signet", "", "Sideboard", "1 Negate"].join("\n");
 
@@ -34,6 +34,15 @@ describe("the Considering list", () => {
     ]);
     expect(parseDeckList("1 Sol Ring\n// Maybeboard\n1 Opt").map((l) => l.board)).toEqual(["main", "maybe"]);
     expect(parseDeckList("1 Sol Ring\nSideboard\n1 Opt").map((l) => l.board)).toEqual(["main", "side"]);
+  });
+
+  it("knows whether a list has the section at all, even an empty one", () => {
+    expect(hasConsidering(WITH)).toBe(true);
+    expect(hasConsidering("Deck\n1 Sol Ring\n\nConsidering\n")).toBe(true);
+    expect(hasConsidering("1 Sol Ring\r\n# Maybeboard:\r\n")).toBe(true);
+    expect(hasConsidering(LIST)).toBe(false);
+    // A card with the word in its name isn't a heading.
+    expect(hasConsidering("1 Considering Options")).toBe(false);
   });
 
   it("writes it as its own section, after the sideboard", () => {

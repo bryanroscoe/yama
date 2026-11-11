@@ -1,5 +1,5 @@
 // Edit the list (/decks/:id/edit): which lists to start from, and the changes as pairs of cards.
-import { GROUP_ORDER, groupOf, fmtDate, listText, MAYBE, parseDeckList } from "@yama/core";
+import { GROUP_ORDER, groupOf, fmtDate, hasConsidering, listText, MAYBE, parseDeckList } from "@yama/core";
 import type { DeckVersionRow } from "../api";
 import { configurationLabel, pairChanges, type BuildChoice, type BuildFamily, type CardCopy, type SwapPair } from "./buildCatalog";
 
@@ -77,6 +77,29 @@ export function deckListText(deck: { cards: { qty: number; name: string; board: 
 export function withConsidering(text: string, maybe: { qty: number; name: string }[] | undefined): string {
   if (!maybe?.length || parseDeckList(text).some((l) => l.board === MAYBE)) return text;
   return `${text.trimEnd()}\n\n${listText(maybe.map((m) => ({ qty: m.qty, name: m.name, board: MAYBE })))}`;
+}
+
+/**
+ * What a save sends as the Considering list, from the list in the box. The text is the source of
+ * truth, with one guard: a text with no Considering section at all (a file, a pasted list, a
+ * link) says nothing about the deck's own, so that list is kept (`undefined`: the server keeps
+ * it) unless the person chose to drop it. A text that has the section, even empty, is its word.
+ */
+export function consideringToSend<T>(text: string, read: T[], deckHas: boolean, keep: boolean): T[] | undefined {
+  if (hasConsidering(text) || read.length) return read;
+  return deckHas && keep ? undefined : [];
+}
+
+/** Whether a save would change the deck's Considering list. */
+export function consideringChanged(sent: { oracle_id: string; qty: number }[] | undefined, now: { oracle_id: string; qty: number }[] | undefined): boolean {
+  if (sent === undefined) return false;
+  const tally = (list: { oracle_id: string; qty: number }[]) => {
+    const m = new Map<string, number>();
+    for (const c of list) m.set(c.oracle_id, (m.get(c.oracle_id) ?? 0) + c.qty);
+    return m;
+  };
+  const [a, b] = [tally(sent), tally(now ?? [])];
+  return a.size !== b.size || [...a].some(([id, qty]) => b.get(id) !== qty);
 }
 
 /** What a changed card is, to pair it: its board, type line and mana value. */

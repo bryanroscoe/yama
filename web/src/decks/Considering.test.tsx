@@ -3,7 +3,7 @@ import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 import type { MaybeEntry } from "../api";
 import { Considering, consideringOwned } from "./Considering";
-import { deckListText, withConsidering } from "./editList";
+import { consideringChanged, consideringToSend, deckListText, withConsidering } from "./editList";
 import { checks, toSave, type Draft, type ImportCard } from "./importLogic";
 
 const maybe = (name: string, over: Partial<MaybeEntry> = {}): MaybeEntry => ({ oracle_id: name, name, qty: 1, card: null, owned: 0, proxies: 0, ...over });
@@ -44,6 +44,36 @@ describe("the Considering list in the editor's text", () => {
     expect(withConsidering("1 Island\n\nMaybeboard\n1 Negate", deck.maybe)).toBe("1 Island\n\nMaybeboard\n1 Negate");
     expect(withConsidering("1 Island", [])).toBe("1 Island");
     expect(withConsidering("1 Island", undefined)).toBe("1 Island");
+  });
+});
+
+describe("what a save sends as the Considering list", () => {
+  const opt = [{ oracle_id: "o-opt", name: "Opt", qty: 1 }];
+
+  it("sends the section the box has, even an empty one: the text is the deck's word", () => {
+    expect(consideringToSend("Deck\n1 Sol Ring\n\nConsidering\n1 Opt", opt, true, true)).toEqual(opt);
+    expect(consideringToSend("Deck\n1 Sol Ring\n\nConsidering\n", [], true, true)).toEqual([]);
+  });
+
+  it("keeps the deck's own when the list has no such section, unless told to drop it", () => {
+    expect(consideringToSend("Deck\n1 Sol Ring", [], true, true)).toBeUndefined();
+    expect(consideringToSend("Deck\n1 Sol Ring", [], true, false)).toEqual([]);
+    // A deck with nothing to keep sends an empty list either way.
+    expect(consideringToSend("Deck\n1 Sol Ring", [], false, true)).toEqual([]);
+  });
+
+  it("sends a maybeboard the preview read from another site's tags, heading or not", () => {
+    expect(consideringToSend("1x Opt [Maybeboard{noDeck}]", opt, true, true)).toEqual(opt);
+  });
+
+  it("knows whether that changes the deck's list", () => {
+    expect(consideringChanged(undefined, opt)).toBe(false);
+    expect(consideringChanged(opt, opt)).toBe(false);
+    expect(consideringChanged([{ oracle_id: "o-opt", qty: 2 }], opt)).toBe(true);
+    expect(consideringChanged([], opt)).toBe(true);
+    expect(consideringChanged(opt, undefined)).toBe(true);
+    expect(consideringChanged([], [])).toBe(false);
+    expect(consideringChanged([...opt, { oracle_id: "o-bolt", qty: 1 }], opt)).toBe(true);
   });
 });
 

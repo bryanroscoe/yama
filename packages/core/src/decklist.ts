@@ -56,8 +56,9 @@ function readLine(raw: string): ReadLine {
 }
 
 /**
- * Import-name normalization matching server/src/decks.rs::parse_list. No card lookup. Lines under
- * a Considering or Maybeboard heading have the board "maybe": they aren't in the deck.
+ * Import-name normalization as server/src/decks.rs::parse_list does it, with one difference: lines
+ * under a Considering or Maybeboard heading have the board "maybe" here (they aren't in the
+ * deck), where `parse_list` files them in the sideboard. No card lookup.
  */
 export function parseDeckList(text: string): ListLine[] {
   const out: ListLine[] = [];
@@ -68,6 +69,14 @@ export function parseDeckList(text: string): ListLine[] {
     else if (line.kind === "card") out.push({ qty: line.qty, name: line.name, board });
   }
   return out;
+}
+
+/** Whether a list has a Considering (or Maybeboard) section at all, even an empty one. */
+export function hasConsidering(text: string): boolean {
+  return text.split(/\r?\n/).some((raw) => {
+    const line = readLine(raw);
+    return line.kind === "header" && line.board === MAYBE;
+  });
 }
 
 // ── editing a list as text ─────────────────────────────────────────────────
