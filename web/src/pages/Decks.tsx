@@ -37,6 +37,7 @@ import { groupConfigurations } from "../decks/configurations";
 import { arrangeDecks, folderOf, foldersOf, isFiltered, readFilter, writeFilter, type DeckFilter } from "../decks/deckIndex";
 import { CLEARED, DeckIndexTools } from "../decks/DeckIndexTools";
 import { DeckSettings } from "../decks/DeckSettings";
+import { DeckAbout, EditDescription } from "../decks/DeckDescription";
 import { DeckTiles, deckStatus, ListPicker, SavedListBar } from "../decks/DeckHeader";
 import { DeckCardsTab, useCardControls } from "../decks/DeckCardsTab";
 import { WhyBracket } from "../decks/WhyBracket";
@@ -215,6 +216,7 @@ export function DeckPage() {
   const [configuring, setConfiguring] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [asking, setAsking] = useState(false);
+  const [describing, setDescribing] = useState(false);
   const askOffered = useAskClaudeOffered();
   // "?collect=1": the end of a deck import offers to add its cards to the collection.
   const [search, setSearch] = useSearchParams();
@@ -251,6 +253,7 @@ export function DeckPage() {
     setConfiguring(false);
     setDeleting(false);
     setAsking(false);
+    setDescribing(false);
     setOpen(null);
   }, [id]);
 
@@ -297,6 +300,7 @@ export function DeckPage() {
     <MenuSeparator />
     <button onClick={() => setCollecting(true)}>Add to collection</button>
     <button onClick={() => setEditing(true)}>Deck settings</button>
+    <button onClick={() => setDescribing(true)}>{d.description ? "Edit the description" : "Add a description"}</button>
     {askOffered && <AskClaudeButton onClick={() => setAsking(true)} />}
     <MenuSeparator />
     <button className="deck-delete" onClick={() => setDeleting(true)}>{deleteWording(d).action}</button>
@@ -360,7 +364,9 @@ export function DeckPage() {
         <SavedListBar deck={d} />
         {!v.ok && v.errors.length > 1 && <ul className="small deck-errors">{v.errors.map((e) => <li key={e}>{e}</li>)}</ul>}
 
+        <DeckAbout deck={d} onEdit={() => setDescribing(true)} />
         {editing && <DeckSettings key={d.id} deck={d} onClose={() => setEditing(false)} />}
+        {describing && <EditDescription key={d.id} deck={d} onClose={() => setDescribing(false)} />}
         {deleting && <DeleteDeck deck={d} onClose={() => setDeleting(false)} />}
         {asking && askOffered && <AskClaudeSheet context={{ kind: "deck", ref: d.id }} about={d.name} ideasFor={plan?.deck.key ?? null} onClose={() => setAsking(false)} />}
         {goldfish && <SampleHand deck={d} art={commander?.image_art_crop ?? null} artist={commander?.artist ?? null} onClose={() => setGoldfish(false)} />}

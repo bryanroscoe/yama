@@ -72,3 +72,15 @@
   font-weight: 400;
   margin: -8px 0 0;
 }
+/* The description sheet: who reads it sits right under the box, and is never dimmed. */
+.deck-settings .deck-about-text {
+  font-weight: 400;
+  min-height: 9rem;
+}
+.deck-about-who,
+.deck-settings > p {
+  margin: 0;
+}
+.deck-about-over {
+  color: var(--bad);
+}

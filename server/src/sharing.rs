@@ -4,7 +4,9 @@
 //! signed-in comparison against them. Everything starts private; only what its owner shares
 //! is served, and only through the projections here. They never carry prices paid, notes,
 //! containers, proxies, ownership counts, plans, games, playgroups or account details (the Google
-//! display name and email included). A deck's printings are the ones its exports name. A deck
+//! display name and email included). A deck's description is the exception its owner writes for
+//! exactly this: it shows on the deck's page, escaped, and nowhere else. A deck's printings are
+//! the ones its exports name. A deck
 //! page also shows what's worked out from the list (legality, the stored bracket check, stats,
 //! market value) and, when the owner turns it on, its plan's simulated win rates for the lists
 //! it and its listed configurations stand for, nothing else from the plan.
@@ -299,6 +301,9 @@ pub(crate) struct SharedDeck {
     pub(crate) name: String,
     pub(crate) token: String,
     pub(crate) bracket: Option<i64>,
+    /// What the owner wrote about the deck, for anyone who can see it. The one piece of free
+    /// text a shared deck carries besides its name; a version's note never is.
+    pub(crate) description: Option<String>,
     pub(crate) updated_at: String,
     pub(crate) commanders: Vec<String>,
     pub(crate) color_identity: String,
@@ -493,6 +498,7 @@ struct DeckRow {
     owner_id: String,
     name: String,
     bracket: Option<i64>,
+    description: Option<String>,
     updated_at: String,
     current_version_id: Option<String>,
     container_id: Option<String>,
@@ -523,7 +529,7 @@ pub(crate) async fn shared_deck(pool: &SqlitePool, token: &str) -> AppResult<Sha
         return Err(AppError::NotFound("deck"));
     }
     let row: DeckRow = sqlx::query_as(
-        "SELECT d.id, d.owner_id, d.name, d.bracket,
+        "SELECT d.id, d.owner_id, d.name, d.bracket, d.description,
                 COALESCE((SELECT v.created_at FROM deck_versions v WHERE v.id = d.current_version_id), d.created_at) AS updated_at,
                 d.current_version_id, d.container_id, d.parent_id
          FROM decks d JOIN users u ON u.id = d.owner_id
@@ -642,6 +648,7 @@ pub(crate) async fn shared_deck(pool: &SqlitePool, token: &str) -> AppResult<Sha
         name: row.name,
         token: token.to_string(),
         bracket: row.bracket,
+        description: row.description,
         updated_at: row.updated_at,
         commanders,
         color_identity: "WUBRG".chars().filter(|c| identity.contains(*c)).collect(),

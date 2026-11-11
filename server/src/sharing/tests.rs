@@ -370,6 +370,57 @@ async fn shared_pages_carry_no_private_details() {
 }
 
 #[tokio::test]
+async fn a_decks_description_shows_on_its_shared_page_as_text_and_nowhere_else() {
+    let (app, pool) = app().await;
+    let (bryan, bt) = user(&pool, "bryan@example.com").await;
+    sqlx::query("UPDATE users SET handle = 'saget' WHERE id = ?").bind(&bryan).execute(&pool).await.unwrap();
+    card(&pool, "o-sol", "Sol Ring", "Artifact", "p-sol", "cmm", "410").await;
+    let (_, made) = send(&app, Method::POST, "/api/decks", Some(&bt), Some(json!({ "name": "Described", "text": "Commander\n1 Sol Ring" }))).await;
+    let id = made["id"].as_str().unwrap().to_string();
+    let path = format!("/api/decks/{id}");
+    let token = token_of(&pool, &id).await;
+    // A version's note is private. It is never the description, and never copied into it.
+    sqlx::query("UPDATE deck_versions SET note = 'private version note' WHERE deck_id = ?").bind(&id).execute(&pool).await.unwrap();
+    let text = "Lands matter.\nPlay <b>big</b> things & \"win\".\n\n<script>alert(1)</script>";
+    let (status, _) = send(&app, Method::PATCH, &path, Some(&bt), Some(json!({ "description": text }))).await;
+    assert_eq!(status, StatusCode::OK);
+
+    // The owner reads it back on the deck's own page, as typed.
+    let (_, own) = send(&app, Method::GET, &path, Some(&bt), None).await;
+    assert_eq!(own["description"], text);
+
+    // While the deck is private, nobody signed out sees the deck, so nobody sees its description.
+    assert_eq!(page(&app, &format!("/d/{token}")).await.0, StatusCode::NOT_FOUND);
+
+    // Shared by link: a signed-out visitor reads it, and everything in it is text, not markup.
+    send(&app, Method::PATCH, &path, Some(&bt), Some(json!({ "visibility": "link" }))).await;
+    let (status, _, html) = page(&app, &format!("/d/{token}")).await;
+    assert_eq!(status, StatusCode::OK);
+    let shown = "<h2 id=\"about-head\">About this deck</h2><p>Lands matter.<br>Play &lt;b&gt;big&lt;/b&gt; things &amp; &quot;win&quot;.</p><p>&lt;script&gt;alert(1)&lt;/script&gt;</p></section>";
+    assert!(html.contains(shown), "{html}");
+    assert!(!html.contains("<script>alert(1)</script>") && !html.contains("<b>big</b>"), "{html}");
+    assert!(!html.contains("private version note"), "{html}");
+
+    // The deck's own page is the only public place it shows: not the profile's list of decks,
+    // the list a copy is made from, or a download.
+    send(&app, Method::PATCH, &path, Some(&bt), Some(json!({ "visibility": "public" }))).await;
+    let (status, _, profile) = page(&app, "/u/saget").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(profile.contains("Described"), "{profile}");
+    let (_, copy) = send(&app, Method::GET, &format!("/api/public/decks/{token}"), None, None).await;
+    let (_, _, names) = page(&app, &format!("/d/{token}/names.txt")).await;
+    for body in [&profile, &copy.to_string(), &names] {
+        assert!(!body.contains("Lands matter") && !body.contains("private version note"), "{body}");
+    }
+    assert!(page(&app, &format!("/d/{token}")).await.2.contains(shown), "sharing more widely keeps the description");
+
+    // Cleared, the section goes.
+    send(&app, Method::PATCH, &path, Some(&bt), Some(json!({ "description": null }))).await;
+    let (_, _, html) = page(&app, &format!("/d/{token}")).await;
+    assert!(!html.contains("About this deck") && !html.contains("Lands matter"), "{html}");
+}
+
+#[tokio::test]
 async fn exports_match_the_deck_pages_formats() {
     let (app, pool) = app().await;
     let (_, bt) = user(&pool, "bryan@example.com").await;
