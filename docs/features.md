@@ -64,7 +64,7 @@ Subset of Scryfall syntax (`t:` `o:` `c:` `id<=` `mv` `pow` `f:` `kw:` `is:comma
 
 ### Card sheet
 
-Oracle text, Commander legality, Game Changer tag, rulings with dates and sources, printings with market prices and price history.
+Oracle text, Commander legality, Game Changer tag, rulings with dates and sources, printings with market prices and price history. Which of your decks run the card, and the combos it is part of in them (from each deck's kept Commander Spellbook check; nothing new is sent).
 
 ### Release calendar
 
