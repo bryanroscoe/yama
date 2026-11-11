@@ -151,6 +151,36 @@ async fn decks_are_private_until_shared_and_links_can_be_reset() {
     assert_eq!(page(&app, "/d/not-a-token").await.0, StatusCode::NOT_FOUND);
 }
 
+/// Every shared page names a card from card data by its id. A list stored before saves checked
+/// their rows (written straight to the table here) could hold any name beside a real id.
+#[tokio::test]
+async fn shared_pages_name_cards_from_card_data_not_from_the_stored_row() {
+    let (app, pool) = app().await;
+    let (owner, auth) = user(&pool, "sharer@example.com").await;
+    card(&pool, "o-sol", "Sol Ring", "Artifact", "p-sol", "cmm", "410").await;
+    card(&pool, "o-bolt", "Lightning Bolt", "Instant", "p-bolt", "lea", "161").await;
+    let (id, version) = deck(&pool, &owner, "Old list").await;
+    let stored = json!([
+        { "oracle_id": "o-sol", "name": "Black Lotus, free at this link", "qty": 1, "board": "commander" },
+        { "oracle_id": "o-bolt", "name": "Mox Sapphire giveaway", "qty": 4, "board": "main" },
+        { "oracle_id": "o-gone", "name": "A card data no longer has", "qty": 1, "board": "main" },
+    ]);
+    sqlx::query("UPDATE deck_versions SET cards = ? WHERE id = ?").bind(stored.to_string()).bind(&version).execute(&pool).await.unwrap();
+    send(&app, Method::PUT, "/api/me/sharing", Some(&auth), Some(json!({ "handle": "sharer" }))).await;
+    send(&app, Method::PATCH, &format!("/api/decks/{id}"), Some(&auth), Some(json!({ "visibility": "public" }))).await;
+    let token = token_of(&pool, &id).await;
+    let (status, _, deck_page) = page(&app, &format!("/d/{token}")).await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, _, profile) = page(&app, "/u/sharer").await;
+    let (_, _, export) = page(&app, &format!("/d/{token}/moxfield.txt")).await;
+    let (_, api) = send(&app, Method::GET, &format!("/api/public/decks/{token}"), None, None).await;
+    for (what, body) in [("deck page", &deck_page), ("profile", &profile), ("export", &export), ("public API", &api.to_string())] {
+        assert!(body.contains("Sol Ring"), "{what} names the commander from card data");
+        assert!(!body.contains("Black Lotus") && !body.contains("Mox Sapphire"), "{what} shows a stored name");
+    }
+    assert!(deck_page.contains("Lightning Bolt") && deck_page.contains("A card data no longer has"));
+}
+
 #[tokio::test]
 async fn shared_pages_carry_no_private_details() {
     let (app, pool) = app().await;

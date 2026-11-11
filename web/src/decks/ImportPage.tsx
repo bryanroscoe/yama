@@ -22,6 +22,7 @@ import {
 } from "./importLogic";
 import { CommanderPicker, GuideTabs, LinkNote, Skipped, UnknownLines } from "./ImportParts";
 import { UnsavedPrompt, useUnsavedChanges } from "../unsaved";
+import { createOpIds } from "./saveOps";
 import { ACCEPT, useListImport } from "./useListImport";
 import "./import.css";
 
@@ -47,6 +48,10 @@ function ImportEditor() {
   const precon = params.get("precon");
   const shared = params.get("shared");
   const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
+  // One op id per deck as it would be saved, kept while this page is open (the save bar comes
+  // and goes as the text is edited): a request sent again, after a lost reply or when "Add all"
+  // is run again after one deck failed, names the deck already made.
+  const [opIdFor] = useState(createOpIds);
 
   // The precon's stock list, as "Start a deck" on the Cards page and release calendar asks.
   const stock = useQuery({
@@ -158,6 +163,7 @@ function ImportEditor() {
 
       {draft && (
         <SaveBar
+          opIdFor={opIdFor}
           drafts={drafts}
           draft={draft}
           target={target}
@@ -238,7 +244,7 @@ function DraftView({ draft, setDraft, formatLabel, deckNames }: { draft: Draft; 
 
       <label>
         Name
-        <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="Atraxa superfriends" />
+        <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="Atraxa superfriends" maxLength={120} />
       </label>
       {draft.name.trim() && hasDeckNamed(deckNames, draft.name) && (
         <p className="small import-warn" role="note">
@@ -331,6 +337,7 @@ function CardRow({ card, off }: { card: ImportCard; off: boolean }) {
 }
 
 function SaveBar({
+  opIdFor,
   drafts,
   draft,
   target,
@@ -342,6 +349,7 @@ function SaveBar({
   onSaved,
   onSavedMany,
 }: {
+  opIdFor: ReturnType<typeof createOpIds>;
   drafts: Draft[];
   draft: Draft;
   target: string;
@@ -362,24 +370,30 @@ function SaveBar({
   });
   const body = toSave(draft);
   const changes = current.data ? diff(current.data.cards, body.cards) : null;
+  const create = (d: Draft) => {
+    const b = toSave(d);
+    const name = d.name.trim();
+    return api<{ id: string }>("/api/decks", { method: "POST", json: { name, cards: b.cards, prints: b.prints, op_id: opIdFor(drafts.indexOf(d), name, b) } });
+  };
   const save = useMutation({
     mutationFn: async () => {
       if (mode === "update") {
-        await api(`/api/decks/${target}`, { method: "PUT", json: { cards: body.cards, prints: body.prints, note: note.trim() || `Imported${formatLabel ? ` from ${formatLabel}` : ""}` } });
+        // The list the changes above were worked out against: if the deck's list changed
+        // elsewhere since, the save is refused instead of replacing it unseen.
+        const base_version = current.data?.version_id ?? undefined;
+        await api(`/api/decks/${target}`, { method: "PUT", json: { cards: body.cards, prints: body.prints, base_version, note: note.trim() || `Imported${formatLabel ? ` from ${formatLabel}` : ""}` } });
         return target;
       }
-      const r = await api<{ id: string }>("/api/decks", { method: "POST", json: { name: draft.name.trim(), cards: body.cards, prints: body.prints } });
-      return r.id;
+      return (await create(draft)).id;
     },
     onSuccess: onSaved,
+    // A refused save shows the deck as it is now, so the changes listed are the ones a second try makes.
+    onError: () => void (mode === "update" && current.refetch()),
   });
   const ready = drafts.filter((d) => checks(d).ready);
   const saveAll = useMutation({
     mutationFn: async () => {
-      for (const d of ready) {
-        const b = toSave(d);
-        await api("/api/decks", { method: "POST", json: { name: d.name.trim(), cards: b.cards, prints: b.prints } });
-      }
+      for (const d of ready) await create(d);
     },
     onSuccess: onSavedMany,
   });
@@ -434,7 +448,7 @@ function SaveBar({
       <ErrorText error={save.error ?? saveAll.error} />
       <div className="import-save-row">
         {mode === "update" ? (
-          <button type="button" className="primary" disabled={!target || !c.ready || save.isPending} onClick={() => save.mutate()}>
+          <button type="button" className="primary" disabled={!target || !current.data || current.isFetching || !c.ready || save.isPending} onClick={() => save.mutate()}>
             {save.isPending ? "Saving…" : "Save as a new version"}
           </button>
         ) : (

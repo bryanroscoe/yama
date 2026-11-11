@@ -1665,6 +1665,36 @@ is refused. Deck settings ("Name, box and ownership") holds the name, ownership,
 whether the deck is a list of another; the declared bracket is set in place on the bracket panel.
 Art attribution remains accessible at the bottom in a disclosure.
 
+**Deck saves check their card rows (2026-11-11, `decks::checked_cards`).** `POST /api/decks` and
+`PUT /api/decks/{id}` take card rows that the editor and the import page send back, and a request
+can be made by anything. Each row must name a card Yama knows by its oracle id and is stored under
+that card's canonical name, never the name sent (analysis, legality and prices go by the id; a
+shared page prints the name). Unknown ids are a 400 that names them and saves nothing. Rows for one
+card on one board merge. A list holds at most 2,000 different cards and 1,000 copies of one card
+over all its boards, and pasted text is capped the same way, before any line is looked up and
+again once its lines are added up. A deck's name is at most 120 characters without line breaks
+(create, and rename when the name changes: the settings page sends the name with every save, and
+a deck named another way, such as a configuration's built name, can still change its box), its
+folder the same, a version's note 500. The shared projections (`sharing::shared_deck` for a
+deck's page, exports and public API, `sharing::deck_face` for the profile) also name each card
+from card data by its id, which covers lists stored before the check.
+
+**Deck writes are safe to send twice and to send together (2026-11-11).** `POST /api/decks` takes
+an optional client-made `op_id` (`applied_ops`, kind `deck.create`, as new configurations and
+"use a list" already do): the deck, its printings and the op's record commit in one `BEGIN
+IMMEDIATE` transaction, a request sent again gets the first answer (the deck's id and the names
+it couldn't read) while that deck exists, before its cards are read again, and the same id for a
+different name, folder, rows, text or printings is a 409 (the request is fingerprinted as sent,
+so card data changing between two sends doesn't make a retry look like another deck). The import page sends one id per deck as it would be saved
+(`web/src/decks/saveOps.ts`), so a lost reply or "Add all" run again after one deck failed makes
+no duplicates; its "Update one of your decks" sends `base_version`, so a list changed elsewhere
+since the page read it is refused instead of replaced. `PATCH /api/decks/{id}` reads everything
+it leaves alone (name, deck box, folder, bracket, visibility, parent, label) inside its write
+transaction, so changing one field can't put back a name or box changed meanwhile. A new
+configuration, "use a list" and delete also open `BEGIN IMMEDIATE` and read the list they copy
+or compare inside it: a deferred transaction that reads first can't upgrade to a write once
+another commit lands, and failed with a 500.
+
 Private `decks.acquisition_status` (migration 0066) records the owner's statement, owned or
 planned, on the main deck; its configurations read that same status, independently of collection overlap. Unset stays unknown; marking a deck owned adds
 no cards, and marking it planned removes none. It is omitted from all public projections.
