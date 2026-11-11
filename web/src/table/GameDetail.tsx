@@ -12,6 +12,7 @@ import { artCredits } from "../components/ArtPanel";
 import { ErrorText, Loading } from "../components/ui";
 import { useCardArt } from "../components/useCardArt";
 import { history } from "./history";
+import { useLoggedQueue } from "./loggedQueue";
 import { turnsText } from "./recent";
 import { isLoggedGame, splitPair } from "./logEdit";
 import { cardNamed, unionIdentity } from "./pickers";
@@ -102,6 +103,8 @@ export function GameDetailPage() {
   const game = useQuery({ queryKey: ["game", id], queryFn: ({ signal }) => api<GameDetail>(`/api/games/${id}`, { signal }) });
   const g = game.data;
   const outbox = useOutbox();
+  // An edit of this logged game saved while Yama couldn't be reached (loggedQueue.ts).
+  const waitingEdit = useLoggedQueue().find((q) => q.body.id === id);
   const here = local.game?.setup.id === id;
   const busyElsewhere = !!local.game && !here;
   // Finished on this device and still uploading: it isn't going any more, whatever the server says.
@@ -200,6 +203,11 @@ export function GameDetailPage() {
           <h1>{title}</h1>
           <p className="dim">{facts.join(" ")}</p>
           {g.mode === "in_person" && <MythicNote gameId={g.id} />}
+          {waitingEdit && (
+            <p className="small dim" role="status">
+              An edit to this game made on this device hasn't reached Yama yet{waitingEdit.error ? ` (${waitingEdit.error})` : ""}. This page shows what Yama has; the edit uploads on its own.
+            </p>
+          )}
           {g.mode === "in_person" && !going && !isViewing() && (
             <div className="row">
               {g.can_edit && <button disabled={!decks.data && !decks.isError} onClick={() => setSheet("edit")}>Edit this game</button>}

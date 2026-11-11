@@ -623,14 +623,9 @@ export function sync(): Promise<void> {
       }
       if (!canWriteShared()) return;
       // Games logged while Yama couldn't be reached ride the same uploads (loggedQueue.ts). One
-      // that can't go up now mustn't hold back the game on the table: its failure is reported
-      // once everything else has had its turn.
-      let loggedFailure: unknown = null;
-      try {
-        await flushLogged();
-      } catch (e) {
-        loggedFailure = e;
-      }
+      // that can't go up is the logged queue's to report (it never throws): it doesn't hold back
+      // the game on the table or change what the table says about its own saving.
+      await flushLogged();
       await pushDeletes();
       if (current && mayEditCurrent() && !current.guest && mineGame(current)) {
         // Freeze what we're about to send: later taps start new events instead of changing these.
@@ -673,7 +668,6 @@ export function sync(): Promise<void> {
           current = { ...current, syncedThrough: Math.max(current.syncedThrough, through) };
         }
       }
-      if (loggedFailure) throw loggedFailure;
       syncState = { syncing: false, error: null, lastSyncedAt: new Date().toISOString() };
     } catch (e) {
       // Yama didn't answer (fetch's own error): the games are safe here and upload on their own later.

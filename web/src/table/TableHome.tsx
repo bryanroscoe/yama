@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FORMATS, formatLabel, GAME_WORDS, type FunRating, type PlayerSetup, type TableFormat, type TableSetup, type WinCondition, fmtDateTime, fmtWeekday, shortDate, fmtDate } from "@yama/core";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { api, unanswered, type DeckSummary, type GameDetail, type GameRow, type Playgroup } from "../api";
+import { api, type DeckSummary, type GameDetail, type GameRow, type Playgroup } from "../api";
 import { useMe } from "../auth";
 import { ArtMosaic } from "../components/ArtMosaic";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
@@ -10,7 +10,7 @@ import { ErrorText, Pips, Dialog, Loading, Segmented } from "../components/ui";
 import { FirstPlayerPicker, FunPicker, KnockoutPicker, NotePicker, WinConditionPicker, type KnockoutAnswer } from "../components/GameCapture";
 import { useCardArt } from "../components/useCardArt";
 import { localDay } from "./versions";
-import { discardLogged, queueLogged, sendLogged, useLoggedQueue, type LoggedGame } from "./loggedQueue";
+import { discardLogged, queueLogged, sendLogged, signedInUser, useLoggedQueue, worthKeeping, type LoggedGame } from "./loggedQueue";
 import { afterRemoving, applyDraftPatch, applySeatPatch, withDraftIds, emptySeat, fitSeatsToGroup, patchSeat, personPatch, seatDeckLabel, seatHolds, rebuildForGroup, stillHolds, togglePerson, withHandles, withoutGroup, type SeatDraft, type SeatPatch } from "./seats";
 import { discardGame, dropGuestGames, saveGuestGames, startGame, sync, useGuestGames, useWaitingGuestGame, useOutbox, usePendingDeletes, useRejected, useSyncStatus, useTable, DISCARD_GAME } from "./store";
 import { isGuest } from "../guest";
@@ -62,6 +62,7 @@ export function TableHome() {
   const outbox = useOutbox();
   const rejected = useRejected();
   const logged = useLoggedQueue();
+  // Waiting to go up, and the ones with a reason they haven't (refused, or failing so far).
   const loggedWaiting = logged.filter((q) => !q.error);
   const loggedRefused = logged.filter((q) => q.error);
   const syncStatus = useSyncStatus();
@@ -85,8 +86,8 @@ export function TableHome() {
       )}
       {!guest && loggedRefused.map((q) => (
         <p key={q.body.id} className="small error">
-          A game you logged couldn't be saved to Yama ({q.error}). It's kept on this device.{" "}
-          <button className="quiet small" onClick={() => confirm("Throw this logged game away? It was never saved to Yama.") && discardLogged(q.body.id)}>Discard it</button>
+          A game you logged {q.refused ? "couldn't be saved to Yama" : "hasn't uploaded yet"} ({q.error}). It's kept on this device{q.refused ? "" : " and will be tried again"}.{" "}
+          <button className="quiet small" onClick={() => confirm("Throw away this device's copy of the logged game? Yama doesn't have this save of it.") && discardLogged(q.body.id)}>Discard it</button>
         </p>
       ))}
       {!guest && rejected.length > 0 && (
@@ -818,8 +819,11 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
       filled.forEach(({ s }, n) => {
         if (cmdr && s.deckId) decks[n] = s.deckId;
       });
+      // The account logging it, read before the first request: the game is sent, or kept, as theirs.
+      const owner = signedInUser();
       const logged: LoggedGame = {
         day: date,
+        loggedAt: new Date().toISOString(),
         decks,
         body: {
           id: gameId,
@@ -849,13 +853,16 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
         },
       };
       try {
-        await sendLogged(logged);
+        await sendLogged(logged, owner);
+        // Yama has this save: an older one still waiting on this device must not go up after it.
+        discardLogged(gameId);
         return "saved" as const;
       } catch (e) {
-        // Yama can't be reached: the game waits on this device and goes up with the table's
-        // own uploads. Anything Yama actually refused is shown here instead.
-        if (!unanswered(e)) throw e;
-        queueLogged(logged);
+        // Yama can't be reached or is having trouble (no answer, a server error, a rate limit):
+        // the game waits on this device and goes up with the table's own uploads. Anything Yama
+        // actually refused is shown here instead.
+        if (!worthKeeping(e) || !owner) throw e;
+        queueLogged(logged, owner);
         return "queued" as const;
       }
     },

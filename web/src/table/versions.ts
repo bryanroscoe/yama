@@ -5,10 +5,14 @@ import type { DeckVersionRow } from "../api";
  * that day. Logging an old game then credits the list that was actually played, not today's.
  * null if the deck had no saved version yet: the game keeps its commander and label but isn't
  * credited to a list saved after it was played. A version saved for History only (a deck scan
- * not made the deck's list) was never played, so it never counts.
+ * not made the deck's list) was never played, so it never counts. `loggedAt` is when the game
+ * was logged, if that's known: a version saved after that, even on the day played, wasn't the
+ * one played either (a game logged offline uploads later, after the deck may have changed).
  */
-export function versionOn(versions: DeckVersionRow[], day: string): string | null {
-  const end = new Date(`${day}T23:59:59.999`).getTime();
+export function versionOn(versions: DeckVersionRow[], day: string, loggedAt?: string): string | null {
+  const endOfDay = new Date(`${day}T23:59:59.999`).getTime();
+  const logged = loggedAt ? Date.parse(loggedAt) : NaN;
+  const end = Number.isFinite(logged) ? Math.min(endOfDay, logged) : endOfDay;
   const before = versions.filter((v) => !v.history_only && Date.parse(v.created_at) <= end).sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
   return before[before.length - 1]?.id ?? null;
 }
