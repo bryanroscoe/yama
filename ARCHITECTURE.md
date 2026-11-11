@@ -584,6 +584,19 @@ preserves records. Runtime packaging and executable validation are in
 its verified card data, not merely the existence of Git history. Guard-only rejection is not
 compatibility for a known supported historical identity.
 
+**Engine upgrade (11 November 2026):** Phase is synchronized with upstream v0.122
+while retaining the fork's hosted board, AI and parser changes that are not
+superseded upstream. A second frozen historical worker preserves the exact
+v0.119 adapter at Yama `4146a91a` / Phase `19be58d4` and its `cbd552b4` data;
+the existing v0.113 worker and source binding remain unchanged. Each generation
+has an independent process cache, source/executable binding and exact identity
+write fence. The v0.119 worker retains native controls, rewind and abandoned
+results; it does not load the v0.113 control shim. The original board carries
+its versioned JSON; current Phase board actions cannot enter old runtimes.
+Packaging supplies both historical binaries and host preflight verifies all
+three data artifacts. The host exporter must be separately installed before
+this application release. See [runtime packaging](runtime/README.md).
+
 **Game startup (2 November 2026):** loading the selected decks and account defaults
 precedes the write transaction. The lobby claim, runtime identity, seed, seats and
 initial replay commit together, so readers see a lobby until the saved game is

@@ -400,10 +400,15 @@ def preflight_engine_data(source, service, image):
     current = settings.get('YAMA_ENGINE_CARD_DATA', str(Path(data_dir) / manifest['current_file']))
     previous = settings.get('YAMA_HISTORICAL_CARD_DATA',
                             str(Path(current).with_name(manifest['historical_file'])))
+    required = [('current', current, manifest['current_sha256']),
+                ('historical', previous, historical['card_sha256'])]
+    if (source / 'runtime/v0119/historical.json').exists():
+        v0119 = json.loads((source / 'runtime/v0119/historical.json').read_text())
+        configured = settings.get('YAMA_V0119_CARD_DATA',
+                                  str(Path(current).with_name(manifest['historical_v0119_file'])))
+        required.append(('historical v0.119', configured, v0119['card_sha256']))
     verified = []
-    for label, configured, expected in (
-            ('current', current, manifest['current_sha256']),
-            ('historical', previous, historical['card_sha256'])):
+    for label, configured, expected in required:
         if not re.fullmatch(r'[0-9a-f]{64}', expected):
             raise Refused('Invalid ' + label + ' engine data hash in release manifest')
         path = Path(configured)
@@ -449,10 +454,17 @@ def verify_engine_image(service, image, artifacts):
         raise Refused('Historical runtime override needs independently verified packaging')
     if service.get('environment', {}).get('YAMA_HISTORICAL_RUNTIME_DIGEST', binding) != binding:
         raise Refused('Historical runtime digest override needs independently verified packaging')
+    protected = [binary, binding]
+    if len(artifacts) == 3:
+        for key, expected in [('YAMA_V0119_RUNTIME', '/usr/local/bin/historical-runtime-v0119'),
+                              ('YAMA_V0119_RUNTIME_DIGEST', '/usr/local/share/yama/historical-runtime-v0119.sha256')]:
+            if service.get('environment', {}).get(key, expected) != expected:
+                raise Refused('v0.119 runtime override needs independently verified packaging')
+            protected.append(expected)
     overlays = [Path(m['target']) for m in service.get('volumes', [])]
     overlays += [Path(m.split(':', 1)[0]) for m in service.get('tmpfs', [])]
     if any(Path(p) == target or target in Path(p).parents
-           for target in overlays for p in (binary, binding)):
+           for target in overlays for p in protected):
         raise Refused('Server mounts shadow the packaged historical runtime or its digest')
     # Numeric container IDs must refer to the same filesystem IDs checked below.
     # Remapped/rootless configurations need a different, namespace-aware probe.
@@ -473,7 +485,7 @@ def verify_engine_image(service, image, artifacts):
     for container_path, host_path, _ in artifacts:
         if any(c in container_path + host_path for c in (',', '\n', '\r')):
             raise Refused('Engine data paths cannot contain Docker mount delimiters')
-        if container_path in (binary, binding):
+        if container_path in protected:
             raise Refused('Engine data path overlaps the packaged runtime')
         args += ['--mount', 'type=bind,source=' + host_path + ',target=' + container_path + ',readonly']
     # Values are positional shell arguments, never interpolated shell source.
@@ -486,7 +498,16 @@ actual="$(sha256sum -- "$3")"
 test "${actual%% *}" = "$expected"
 exec "$3" --verify-data "$4"
 '''
-    args += [image, '-c', script, 'engine-preflight', artifacts[0][0], artifacts[0][2], binary, artifacts[1][0]]
+    values = [artifacts[0][0], artifacts[0][2], binary, artifacts[1][0]]
+    if len(artifacts) == 3:
+        script = script.replace('exec "$3" --verify-data "$4"', '\n'.join([
+            '"$3" --verify-data "$4"',
+            'read -r expected ignored < /usr/local/share/yama/historical-runtime-v0119.sha256',
+            'actual="$(sha256sum -- /usr/local/bin/historical-runtime-v0119)"',
+            'test "${actual%% *}" = "$expected"',
+            'exec /usr/local/bin/historical-runtime-v0119 --verify-data "$5"']))
+        values.append(artifacts[2][0])
+    args += [image, '-c', script, 'engine-preflight', *values]
     try:
         run(args, timeout=180)
     finally:
@@ -542,7 +563,12 @@ def historical_build_context(source, scratch, repo, phase):
         return []
     run(['python3', source / 'runtime/build-historical.py', scratch / 'historical',
          '--prepare-only', '--yama-repo', repo, '--phase-repo', phase])
-    return ['--build-context', 'historical-source=' + str(scratch / 'historical')]
+    contexts = ['--build-context', 'historical-source=' + str(scratch / 'historical')]
+    if (source / 'runtime/v0119/historical.json').exists():
+        run(['python3', source / 'runtime/build-v0119.py', scratch / 'historical-v0119',
+             '--prepare-only', '--yama-repo', repo, '--phase-repo', phase])
+        contexts += ['--build-context', 'historical-v0119-source=' + str(scratch / 'historical-v0119')]
+    return contexts
 
 
 def verify_board_image(source, service, image):

@@ -57,9 +57,23 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
  && mkdir -p /usr/local/share/yama \
  && sha256sum /usr/local/bin/historical-runtime > /usr/local/share/yama/historical-runtime.sha256
 
+# The v0.119 adapter keeps its native controls and replay format unchanged.
+FROM historical AS historical-v0119
+WORKDIR /src/v0119/yama
+COPY runtime/verify-source.py runtime/v0119/historical-source.json /verification-v0119/
+COPY --from=historical-v0119-source yama /src/v0119/yama
+COPY --from=historical-v0119-source yama-phase /src/v0119/yama-phase
+RUN python3 /verification-v0119/verify-source.py /src/v0119 /verification-v0119/historical-source.json
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=/src/yama/target,target=/src/v0119/yama/target,sharing=locked \
+    YAMA_PHASE_SOURCE_REV="$(cat deploy/phase-rev)" CARGO_BUILD_JOBS=1 \
+    cargo build --locked --release -p yama-play-historical-v0119 --bin historical-runtime-v0119 \
+ && cp target/release/historical-runtime-v0119 /usr/local/bin/historical-runtime-v0119 \
+ && sha256sum /usr/local/bin/historical-runtime-v0119 > /usr/local/share/yama/historical-runtime-v0119.sha256
+
 FROM rust:1-bookworm AS server
 # This dependency also serializes the two engine builds sharing the Cargo cache.
-COPY --from=historical /usr/local/bin/historical-runtime /usr/local/bin/historical-runtime
+COPY --from=historical-v0119 /usr/local/bin/historical-runtime /usr/local/bin/historical-runtime
 WORKDIR /src/yama
 # The rules engine and the protocol registry used by its build scripts.
 COPY --from=phase Cargo.toml /src/yama-phase/Cargo.toml
@@ -71,6 +85,7 @@ COPY play play
 # The server validates a hosted board's build marker against this compiled pin.
 COPY deploy/phase-rev deploy/phase-rev
 COPY runtime/historical.json runtime/historical-source.json runtime/
+COPY runtime/v0119/historical.json runtime/v0119/historical-source.json runtime/v0119/
 # MCP documentation resources are embedded by the server at compile time.
 COPY docs/research-format.md docs/research-format.md
 COPY docs/local-shopping-workflow.md docs/local-shopping-workflow.md
@@ -102,6 +117,8 @@ RUN apt-get update \
 COPY --from=server /usr/local/bin/yama-server /usr/local/bin/yama-server
 COPY --from=server /usr/local/bin/historical-runtime /usr/local/bin/historical-runtime
 COPY --from=historical /usr/local/share/yama/historical-runtime.sha256 /usr/local/share/yama/historical-runtime.sha256
+COPY --from=historical-v0119 /usr/local/bin/historical-runtime-v0119 /usr/local/bin/historical-runtime-v0119
+COPY --from=historical-v0119 /usr/local/share/yama/historical-runtime-v0119.sha256 /usr/local/share/yama/historical-runtime-v0119.sha256
 COPY --from=web /src/web/dist /app/web
 COPY --from=board /board /app/board
 ENV YAMA_BIND=0.0.0.0:8787 \

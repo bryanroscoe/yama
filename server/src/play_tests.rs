@@ -189,7 +189,7 @@ fn only_whitelisted_answers_parse() {
 #[tokio::test(flavor = "multi_thread")]
 async fn act_is_checked_against_the_seats_own_decision() {
     let pool = crate::db::test_pool().await;
-    let hub = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()), historical: None, setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()) });
+    let hub = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()), historical: None, historical_v0119: None, setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()) });
     // Two people. Seat 0's cards (Island, Opt, Preordain) appear nowhere in seat 1's deck.
     let mine = deck(&[("Island", 50), ("Opt", 25), ("Preordain", 24)]);
     let theirs = deck(&[("Mountain", 60), ("Blaze", 39)]);
@@ -297,7 +297,7 @@ async fn turn_controls_are_saved_per_account_and_apply_to_live_games() {
     assert_eq!(load_prefs(&pool, &user).await.unwrap(), Some(PlayPrefs::default()));
 
     // A live game starts with each seat's saved settings, and its board says what they are.
-    let hub = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()), historical: None, setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()) });
+    let hub = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()), historical: None, historical_v0119: None, setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()) });
     let m = engine().new_match_first(5, vec![deck(&[("Mountain", 99)]), deck(&[("Forest", 99)])], &[], Some(0)).unwrap();
     let saved = HashMap::from([(0u8, PlayPrefs { stops: None, full_control: true, tap_mana: PayMode::Auto })]);
     hub.spawn_game("game-turns-1".into(), m, vec![seat(0, "Ana"), seat(1, "Ben")], saved, pool.clone());
@@ -512,7 +512,7 @@ async fn the_host_starts_a_rematch_and_the_other_players_can_join_it() {
     use crate::testutil::{deck as make_deck, send as request, user};
     use axum::http::{Method, StatusCode};
     let mut st = crate::testutil::state().await;
-    st.play = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()), historical: None, setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()), });
+    st.play = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()), historical: None, historical_v0119: None, setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()), });
     let pool = st.pool.clone();
     let app = crate::routes::app(st);
     let (host, host_token) = user(&pool, "ana@example.com").await;
@@ -711,7 +711,7 @@ async fn online_games_start_with_loop_detection_and_save_it() {
     use crate::testutil::{send as request, user};
     use axum::http::{Method, StatusCode};
     let mut st = crate::testutil::state().await;
-    st.play = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()), historical: None, setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()) });
+    st.play = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()), historical: None, historical_v0119: None, setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()) });
     let hub = st.play.clone();
     let pool = st.pool.clone();
     let app = crate::routes::app(st);
@@ -769,6 +769,7 @@ fn ready_hub(historical: Option<history::Config>) -> Arc<PlayHub> {
         engine: Mutex::new(EngineState::Ready(Arc::new(engine()))),
         live: Mutex::new(HashMap::new()),
         historical,
+        historical_v0119: None,
         setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()),
     })
 }
@@ -1473,7 +1474,7 @@ async fn ending_a_solo_game_is_durable_and_does_not_award_a_winner() {
     st.play = Arc::new(PlayHub {
         engine: Mutex::new(EngineState::Ready(e.clone())),
         live: Mutex::new(HashMap::new()),
-        historical: None,
+        historical: None, historical_v0119: None,
         setup_gate: Arc::new(tokio::sync::Semaphore::new(1)),
         unavailable: Mutex::new(HashMap::new()),
     });

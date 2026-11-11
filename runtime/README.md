@@ -115,3 +115,27 @@ The exported Cargo package is `yama-play-historical`, with its Rust library stil
 Using the same package name was reproduced overwriting the current runner stamp with the
 Git-less export's stamp. Candidate acceptance now requires an exact 40-character Yama revision
 and, in a Git checkout, verifies that it matches HEAD before playing any scenario.
+
+## Preserved v0.119 games
+
+The v0.122 upgrade also retains the exact v0.119 adapter at Yama
+`4146a91a1c51c9374e8969954964c4f8c92759d1` and Phase
+`19be58d497a6618b34c0862ca1d27c8c48999480`, with the original `cbd552b4`
+card data. `v0119/historical.json` and `v0119/historical-source.json` bind this
+second generation independently. `build-v0119.py OUTPUT --prepare-only` exports
+it without the v0.113 loader or controls shim. Its package and executable are
+`yama-play-historical-v0119` and `historical-runtime-v0119`.
+
+Both historical generations have separate verified processes and exact identity
+routing. The v0.119 worker uses its native replay controls, revision, rewind audit
+and abandonment behavior; it supports Go back and End game through the original
+board protocol. Solo rewind history remains process-local. New Phase board
+messages never cross into a historical runtime.
+
+Production requires both packaged historical binaries and digest sidecars, and
+all three data files. Stage the new current export beside the existing files;
+retain `card-data-cbd552b41f962f5b.json` and
+`card-data-1e5608e61683de41.json`. Install the separately reviewed host exporter
+before merging the application upgrade. `YAMA_V0119_RUNTIME`,
+`YAMA_V0119_RUNTIME_DIGEST` and `YAMA_V0119_CARD_DATA` are local test overrides;
+production's host gate requires the independently verified packaged binaries.

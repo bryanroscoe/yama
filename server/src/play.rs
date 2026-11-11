@@ -68,6 +68,7 @@ pub struct PlayHub {
     engine: Mutex<EngineState>,
     live: Mutex<HashMap<String, LiveGame>>,
     historical: Option<history::Config>,
+    historical_v0119: Option<history::Config>,
     unavailable: Mutex<HashMap<String, String>>,
     setup_gate: Arc<tokio::sync::Semaphore>,
 }
@@ -181,6 +182,7 @@ impl PlayHub {
             engine: Mutex::new(EngineState::Loading),
             live: Mutex::new(HashMap::new()),
             historical: card_data.as_deref().map(history::Config::discover),
+            historical_v0119: card_data.as_deref().map(history::Config::discover_v0119),
             setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()),
         });
         let Some(path) = card_data else {
@@ -236,7 +238,7 @@ impl PlayHub {
                 .fetch_all(pool).await.unwrap_or_default();
         // Current games recover before any historical subprocess is contacted. A failed
         // historical startup is deadline-bound and cached for the remaining historical rows.
-        rows.sort_by_key(|row| row.5.as_deref() == Some(history::IDENTITY));
+        rows.sort_by_key(|row| row.5.as_deref() != Some(yama_play::ENGINE_VERSION));
         for (game_id, seats, replay, log, answers, identity) in rows {
             // No replay or remembered-action parsing before the saved identity is routed.
             if let Some(error) = self.runtime_error(identity.as_deref()) {
@@ -244,8 +246,7 @@ impl PlayHub {
                 continue;
             }
             let (Ok(seats), Some(replay)) = (serde_json::from_str::<Vec<SeatCfg>>(&seats), replay) else { continue };
-            if identity.as_deref() == Some(history::IDENTITY) {
-                let config = self.historical.as_ref().unwrap();
+            if let Some(config) = self.historical_for(identity.as_deref()) {
                 let resumed = loop {
                     let attempt = (|| -> anyhow::Result<_> {
                         let mut worker = history::Worker::start(config)?;
@@ -300,12 +301,20 @@ impl PlayHub {
         }
     }
 
+    fn historical_for(&self, identity: Option<&str>) -> Option<&history::Config> {
+        match identity {
+            Some(history::IDENTITY) => self.historical.as_ref(),
+            Some(history::V0119_IDENTITY) => self.historical_v0119.as_ref(),
+            _ => None,
+        }
+    }
+
     /// Exact identities only. An unknown/absent identity never means "use current".
     fn runtime_error(&self, identity: Option<&str>) -> Option<String> {
         match identity {
             Some(yama_play::ENGINE_VERSION) => self.engine().err().map(|e|e.to_string()),
-            Some(history::IDENTITY) if self.historical.as_ref().is_some_and(|c|c.available()) => None,
-            Some(history::IDENTITY) => Some("This game requires the preserved v0.113 runtime and card data, which are not installed. Its records are unchanged.".into()),
+            Some(history::IDENTITY | history::V0119_IDENTITY) if self.historical_for(identity).is_some_and(|c| c.available()) => None,
+            Some(history::IDENTITY | history::V0119_IDENTITY) => Some("This game requires its preserved runtime and card data, which are not installed. Its records are unchanged.".into()),
             _ => Some("This game's saved runtime identity is unknown or unavailable. Its records are unchanged; a verified matching runtime is required.".into()),
         }
     }
@@ -1574,7 +1583,7 @@ async fn end_solo(
     if r.stage == "over" {
         return Ok(Json(serde_json::json!({"ended": true})));
     }
-    if r.engine_version.as_deref() != Some(yama_play::ENGINE_VERSION) {
+    if !matches!(r.engine_version.as_deref(), Some(yama_play::ENGINE_VERSION | history::V0119_IDENTITY)) {
         return Err(AppError::Conflict(
             "This saved game's runtime does not support ending a solo table.".into(),
         ));
@@ -2466,8 +2475,7 @@ async fn final_view(
         let (replay, log): (Option<String>, Option<String>) =
             sqlx::query_as("SELECT replay, log FROM online_games WHERE game_id = ?").bind(&id).fetch_one(&st.pool).await?;
         let replay = replay.ok_or(AppError::NotFound("game record"))?;
-        if r.engine_version.as_deref() == Some(history::IDENTITY) {
-            let config = st.play.historical.clone().unwrap();
+        if let Some(config) = st.play.historical_for(r.engine_version.as_deref()).cloned() {
             let child_seats = seats.clone();
             let view = tokio::task::spawn_blocking(move || -> anyhow::Result<serde_json::Value> {
                 let mut worker = history::Worker::start(&config)?;
