@@ -115,7 +115,8 @@ fn wait_text(wait: Duration) -> String {
     match wait.as_secs() {
         0..=59 => "under a minute".into(),
         60..=119 => "a minute".into(),
-        s => format!("{} minutes", s.div_ceil(60)),
+        s @ 120..=7199 => format!("{} minutes", s.div_ceil(60)),
+        s => format!("{} hours", s.div_ceil(3600)),
     }
 }
 

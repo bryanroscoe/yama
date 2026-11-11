@@ -54,10 +54,13 @@ this?" His answers: **both** (Ask Claude inside Yama and outside clients such as
   stays pending, so nothing is applied on top of a list it wasn't made for.
 - **Staging is idempotent when the caller wants it** (2026-11-11). Every staging tool takes an
   optional `op_id` (8 to 64 letters, digits, hyphens or underscores; a UUID). A second call with
-  the same `op_id` answers with the change the first one staged, whatever became of it, and stages
-  nothing; the answer comes before any check, so a retry after the change was applied doesn't
-  fail on the new list. An `op_id` that staged a different kind of change is refused. Ids are per
-  account (`assistant_changes.op_id`, unique with the owner). Without one, a repeat stages again.
+  the same `op_id` and the same arguments answers with the change the first one staged, whatever
+  became of it, and stages nothing; the answer comes before any check, so a retry after the
+  change was applied doesn't fail on the new list. An `op_id` reused for a different request
+  (another tool, or other arguments) is refused: answering with the earlier change would tell
+  the caller a change was staged that wasn't, and a yes to it would apply the wrong one. Ids are
+  per account (`assistant_changes.op_id`, unique with the owner; `op_hash` is the request).
+  Without one, a repeat stages again.
 - **One apply or discard at a time per account** (`changes::owner_lock`, 2026-11-11), so a change
   can't be applied twice at once. Before, one lock covered every account, and a slow apply held
   up everyone else's.
@@ -145,7 +148,7 @@ change to an imported plan goes in as an idea or a review answer and reaches the
   120 a minute for everyone but admins, and at most 200 a day for an account that joined through
   open sign-up. Invited accounts and admins have no daily count. A refused call is a tool result
   that says how long to wait, not an HTTP 429, so the assistant reads the reason instead of its
-  client retrying. The counts are in memory, like the other rate limits: a restart starts them
+  client retrying. Reading a resource runs a tool, so it counts too. The counts are in memory, like the other rate limits: a restart starts them
   again, so they stop a runaway loop and are not a quota. Ask Claude's own daily question count is
   separate.
 - `start_lab_run`, `more_lab_games` and `run_lab_again` use the lab's own allowance and queue caps.

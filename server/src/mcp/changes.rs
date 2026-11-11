@@ -20,7 +20,7 @@ use crate::auth::{CurrentUser, User};
 use crate::decks::{Board, DeckCard};
 use crate::error::{AppError, AppResult};
 use crate::routes::AppState;
-use crate::util::{new_id, now};
+use crate::util::{new_id, now, sha256_hex};
 use axum::extract::{Path, Query, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -167,26 +167,50 @@ pub(super) fn op_id(args: &Value) -> AppResult<Option<&str>> {
     }
 }
 
-/// The change this account already staged with `op`, as a staging tool's answer: a retried call
-/// gets the first call's change back, whatever became of it since. `kind` is what the tool
-/// stages; an op id that staged something else is refused, so a reused id never hides a new change.
-pub(super) async fn staged_before(st: &AppState, user: &User, via: &Via, kind: &str, op: &str) -> AppResult<Option<String>> {
+/// One staging call's op id and what the call asked for: the stored kind and the arguments
+/// without the op id, hashed. A retry hashes the same; anything else doesn't.
+pub(super) struct Op<'a> {
+    id: &'a str,
+    hash: String,
+}
+
+/// The `op_id` of a call that stages `kind`, with its request hash; none when it has no op id.
+pub(super) fn op<'a>(kind: &str, args: &'a Value) -> AppResult<Option<Op<'a>>> {
+    let Some(id) = op_id(args)? else { return Ok(None) };
+    let mut request = args.clone();
+    if let Some(o) = request.as_object_mut() {
+        o.remove("op_id");
+    }
+    // An object's keys serialize in order, so the same request always hashes the same.
+    Ok(Some(Op { id, hash: sha256_hex(&format!("{kind}\n{request}")) }))
+}
+
+/// The change this account already staged with this op id, as a staging tool's answer: a retried
+/// call gets the first call's change back, whatever became of it since. An op id that staged a
+/// different request (another tool, or other arguments) is refused: answering with the earlier
+/// change would tell the caller its new change was staged when it wasn't.
+pub(super) async fn staged_before(st: &AppState, user: &User, via: &Via, op: &Op<'_>) -> AppResult<Option<String>> {
     #[allow(clippy::type_complexity)]
-    let row: Option<(String, String, String, Option<String>, String)> =
-        sqlx::query_as("SELECT id, kind, summary, detail, status FROM assistant_changes WHERE owner_id = ? AND op_id = ?").bind(&user.id).bind(op).fetch_optional(&st.pool).await?;
-    let Some((id, was, summary, detail, status)) = row else { return Ok(None) };
-    if was != kind {
-        return Err(AppError::bad(format!("op_id {op} already staged another change ({summary}). Use a new op_id for a new change. Nothing was staged.")));
+    let row: Option<(String, String, Option<String>, String, Option<String>)> =
+        sqlx::query_as("SELECT id, summary, detail, status, op_hash FROM assistant_changes WHERE owner_id = ? AND op_id = ?").bind(&user.id).bind(op.id).fetch_optional(&st.pool).await?;
+    let Some((id, summary, detail, status, hash)) = row else { return Ok(None) };
+    if hash.as_deref() != Some(op.hash.as_str()) {
+        return Err(AppError::bad(format!(
+            "op_id {} was already used for a different request ({summary}, change id {id}). Use a new op_id for a new change. Nothing was staged.",
+            op.id
+        )));
     }
     let mut out = format!("Already staged with this op_id; nothing new was staged.\nChange: {summary}\n");
     if let Some(d) = detail.as_deref().filter(|d| !d.trim().is_empty()) {
         let _ = writeln!(out, "{}", d.trim());
     }
     let _ = writeln!(out, "Change id: {id}");
-    match status.as_str() {
-        "pending" => out.push_str(&next_step(st, via)),
-        decided => {
-            let _ = write!(out, "It was {decided} since.");
+    match (status.as_str(), via) {
+        // It may have been staged under an earlier answer, or by another client.
+        ("pending", Via::Question(_)) => out.push_str("It is waiting for their review in Yama, with Apply and Discard. Say that it's waiting for their review; never say it's done."),
+        ("pending", _) => out.push_str(&next_step(st, via)),
+        (decided, _) => {
+            let _ = write!(out, "It was {decided} since. To stage the same change again, use a new op_id.");
         }
     }
     Ok(Some(out))
@@ -205,9 +229,9 @@ fn next_step(st: &AppState, via: &Via) -> String {
 /// second call stores nothing and answers with the first one's change.
 async fn stage(st: &AppState, user: &User, via: &Via, args: &Value, s: Staged) -> AppResult<String> {
     let pool = &st.pool;
-    let op = op_id(args)?;
-    if let Some(op) = op {
-        if let Some(again) = staged_before(st, user, via, s.kind, op).await? {
+    let op = op(s.kind, args)?;
+    if let Some(op) = &op {
+        if let Some(again) = staged_before(st, user, via, op).await? {
             return Ok(again);
         }
     }
@@ -224,8 +248,8 @@ async fn stage(st: &AppState, user: &User, via: &Via, args: &Value, s: Staged) -
         _ => (None, None),
     };
     let stored = sqlx::query(
-        "INSERT INTO assistant_changes (id, owner_id, kind, summary, detail, payload, via, conversation_id, message_id, created_at, op_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO assistant_changes (id, owner_id, kind, summary, detail, payload, via, conversation_id, message_id, created_at, op_id, op_hash)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(&user.id)
@@ -237,19 +261,20 @@ async fn stage(st: &AppState, user: &User, via: &Via, args: &Value, s: Staged) -
     .bind(conversation)
     .bind(message)
     .bind(now())
-    .bind(op)
+    .bind(op.as_ref().map(|o| o.id))
+    .bind(op.as_ref().map(|o| o.hash.as_str()))
     .execute(pool)
     .await;
-    match stored {
-        Ok(_) => {}
+    match (stored, &op) {
+        (Ok(_), _) => {}
         // Two calls with one op id at once: the index lets one in, and the other answers with it.
-        Err(e) if op.is_some() && e.as_database_error().is_some_and(|d| d.is_unique_violation()) => {
-            return match staged_before(st, user, via, s.kind, op.unwrap_or_default()).await? {
+        (Err(e), Some(op)) if e.as_database_error().is_some_and(|d| d.is_unique_violation()) => {
+            return match staged_before(st, user, via, op).await? {
                 Some(again) => Ok(again),
                 None => Err(e.into()),
             };
         }
-        Err(e) => return Err(e.into()),
+        (Err(e), _) => return Err(e.into()),
     }
     let mut out = format!("Staged for their review; nothing has changed yet.\nChange: {}\n", s.summary);
     if !s.detail.trim().is_empty() {

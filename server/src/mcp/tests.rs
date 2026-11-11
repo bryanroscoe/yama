@@ -822,9 +822,16 @@ async fn a_staging_call_repeated_with_its_op_id_stages_once() {
     assert!(!err && text.starts_with("Staged for their review"), "{text}");
     assert_eq!(staged().await, 2);
 
-    // The id names one change of one account: another tool can't reuse it, another account can.
+    // The id names one request of one account. Reused for another tool, or for the same tool
+    // with other arguments, it is refused: answering with the first change would tell the caller
+    // its new change was staged, and a yes to it would apply the wrong one.
     let (err, text) = call(&app, &mcp, "add_to_collection", json!({"card": "Sol Ring", "op_id": op})).await;
-    assert!(err && text.contains("already staged another change"), "{text}");
+    assert!(err && text.contains("was already used for a different request") && text.contains(&change_id(&first)), "{text}");
+    let (err, text) = call(&app, &mcp, "edit_deck", json!({"deck": "Elf Ball", "remove": ["Forest"], "op_id": op})).await;
+    assert!(err && text.contains("was already used for a different request"), "{text}");
+    // save_deck stores the same kind of change as edit_deck; it is still another request.
+    let (err, text) = call(&app, &mcp, "save_deck", json!({"deck": "Elf Ball", "list": "Commander\n1 Test Commander\nDeck\n1 Sol Ring\n98 Forest", "op_id": op})).await;
+    assert!(err && text.contains("was already used for a different request"), "{text}");
     let (err, text) = call(&app, &other, "add_to_collection", json!({"card": "Sol Ring", "op_id": op})).await;
     assert!(!err && text.starts_with("Staged for their review"), "{text}");
     let (err, text) = call(&app, &mcp, "edit_deck", json!({"deck": "Elf Ball", "add": ["Arcane Signet"], "op_id": "short"})).await;
@@ -835,9 +842,16 @@ async fn a_staging_call_repeated_with_its_op_id_stages_once() {
     let (err, text) = call(&app, &mcp, "apply_change", json!({"id": change_id(&first)})).await;
     assert!(!err, "{text}");
     let (err, again) = call(&app, &mcp, "edit_deck", edit).await;
-    assert!(!err && again.contains("It was applied since."), "{again}");
+    assert!(!err && again.contains("It was applied since. To stage the same change again, use a new op_id."), "{again}");
     assert_eq!(change_id(&again), change_id(&first));
     assert_eq!(staged().await, 2);
+
+    // Two calls at once with one op id (a client that sends twice): one change, the same answer.
+    let twice = json!({"deck": "Elf Ball", "add": ["Forest"], "op_id": "sent-twice-at-once"});
+    let ((err_a, a_text), (err_b, b_text)) = tokio::join!(call(&app, &mcp, "edit_deck", twice.clone()), call(&app, &mcp, "edit_deck", twice.clone()));
+    assert!(!err_a && !err_b, "{a_text}\n{b_text}");
+    assert_eq!(change_id(&a_text), change_id(&b_text));
+    assert_eq!(staged().await, 3);
 
     // Every staging tool takes op_id, and says so in its schema.
     let (_, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("tools/list", json!({})))).await;
@@ -875,7 +889,7 @@ fn tool_calls_are_counted_per_account() {
         super::count_call(&roomy, &open).unwrap();
     }
     let refused = super::count_call(&roomy, &open).unwrap_err().to_string();
-    assert!(refused.contains("Too many tool calls today"), "{refused}");
+    assert!(refused.contains("Too many tool calls today") && refused.ends_with("Try again in 24 hours."), "{refused}");
     for _ in 0..MCP_CALLS_PER_DAY + 50 {
         super::count_call(&roomy, &invited).expect("an invited account has no daily count");
     }
@@ -903,6 +917,9 @@ async fn a_flood_of_tool_calls_is_refused_as_a_tool_error() {
     // The answer is a tool result the assistant can read, not an HTTP error its client retries.
     let (err, text) = call(&app, &mcp, "changes", json!({})).await;
     assert!(err && text.starts_with("Too many tool calls"), "{text}");
+    // Reading a resource runs a tool, so it is counted too.
+    let (_, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("resources/read", json!({"uri": "yama://research/sources"})))).await;
+    assert!(r["error"]["message"].as_str().is_some_and(|m| m.starts_with("Too many tool calls")), "{r}");
     // Listing tools and other accounts go on.
     let (status, _) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("tools/list", json!({})))).await;
     assert_eq!(status, StatusCode::OK);

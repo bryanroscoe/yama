@@ -941,7 +941,7 @@ fn for_caller(user: &User, via: &Via) -> impl Iterator<Item = &'static Tool> {
 /// The `op_id` argument every staging tool takes (`changes::op_id`).
 pub(super) fn op_id_schema() -> Value {
     json!({"type": "string", "minLength": 8, "maxLength": 64, "pattern": "^[A-Za-z0-9_-]+$",
-           "description": "Optional: your own id for this call, such as a new UUID. Calling again with the same op_id answers with the change already staged instead of staging another, so a retry after a lost reply is safe."})
+           "description": "Optional: your own id for this call, a new UUID each time you stage something. Calling again with the same op_id and the same arguments answers with the change already staged instead of staging another, so a retry after a lost reply is safe. Never reuse one for a different change: that is refused."})
 }
 
 pub fn list(user: &User, via: &Via) -> Vec<Value> {
@@ -992,8 +992,8 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
     // A staging call repeated with its op_id answers with the change it staged the first time,
     // before any check that would now fail because that change was applied.
     if let Some(kind) = staged_kind(name) {
-        if let Some(op) = changes::op_id(args)? {
-            if let Some(again) = changes::staged_before(st, user, via, kind, op).await? {
+        if let Some(op) = changes::op(kind, args)? {
+            if let Some(again) = changes::staged_before(st, user, via, &op).await? {
                 return Ok(again);
             }
         }

@@ -247,9 +247,13 @@ async fn mcp_route(State(st): State<AppState>, extensions: axum::http::Extension
         },
         "resources/list" => rpc_result(&id, json!({"resources": workflows::resources()})),
         "resources/templates/list" => rpc_result(&id, json!({"resourceTemplates": workflows::templates()})),
-        "resources/read" => match workflows::read(&st, &user, &via, &params).await {
-            Ok(result) => rpc_result(&id, result),
+        // Reading a resource runs a tool (`deck_analysis`, `card`), so it counts as a call.
+        "resources/read" => match count_call(&st.limits, &user) {
             Err(e) => rpc_error(&id, -32602, &tool_error(e)),
+            Ok(()) => match workflows::read(&st, &user, &via, &params).await {
+                Ok(result) => rpc_result(&id, result),
+                Err(e) => rpc_error(&id, -32602, &tool_error(e)),
+            },
         },
         "tools/call" => {
             let name = params["name"].as_str().unwrap_or_default().to_string();
@@ -282,9 +286,13 @@ async fn mcp_route(State(st): State<AppState>, extensions: axum::http::Extension
 /// everyone but admins, and so many a day for an account that joined through open sign-up. Both
 /// are checked before either is counted, so a refusal by one doesn't use up the other.
 fn count_call(limits: &crate::limits::Limits, user: &User) -> Result<(), AppError> {
+    /// Held from the checks to the counts, so calls arriving together can't all pass a check
+    /// before any is counted.
+    static COUNTING: Mutex<()> = Mutex::new(());
     if user.is_admin {
         return Ok(());
     }
+    let _one = COUNTING.lock().unwrap_or_else(|e| e.into_inner());
     limits.mcp_calls.allows(&user.id)?;
     if user.limited {
         limits.mcp_calls_daily.allows(&user.id)?;
