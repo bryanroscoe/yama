@@ -108,7 +108,7 @@ describe("Paste, Choose a file and a dropped file", () => {
   });
 
   it("say what will replace the list", () => {
-    expect(replaceQuestion("what's on the clipboard")).toEqual({ title: "Replace the list with what's on the clipboard?", body: "What you typed or changed in the box will be lost.", confirm: "Replace the list" });
+    expect(replaceQuestion("what's on the clipboard")).toEqual({ title: "Replace the list with what's on the clipboard?", body: "What you typed or changed in the box will be lost.", confirm: "Replace the list", danger: true });
     expect(replaceQuestion("atraxa.txt").title).toBe("Replace the list with atraxa.txt?");
   });
 
@@ -126,5 +126,9 @@ describe("Paste, Choose a file and a dropped file", () => {
     let asked = false;
     expect(await ifStillWanted(() => turn, async () => null, async () => (asked = true))).toBeNull();
     expect(asked).toBe(false);
+    // What the answer step does (a notice for an empty clipboard) never runs for a paste that lost its turn.
+    let noticed = false;
+    expect(await ifStillWanted(() => turn, async () => { turn++; return ""; }, async () => { noticed = true; return false; })).toBeNull();
+    expect(noticed).toBe(false);
   });
 });

@@ -85,8 +85,9 @@ export function needsReplaceQuestion(unsaved: boolean, canAsk: boolean): boolean
 }
 
 /** The question before a whole list replaces unsaved work in the box. `what` is "what's on the clipboard", a file's name or "3 files". */
-export function replaceQuestion(what: string): { title: string; body: string; confirm: string } {
-  return { title: `Replace the list with ${what}?`, body: "What you typed or changed in the box will be lost.", confirm: "Replace the list" };
+export function replaceQuestion(what: string): { title: string; body: string; confirm: string; danger: true } {
+  // Destructive: Cancel takes focus first, so Enter keeps the list.
+  return { title: `Replace the list with ${what}?`, body: "What you typed or changed in the box will be lost.", confirm: "Replace the list", danger: true };
 }
 
 /**
@@ -268,13 +269,13 @@ export function useListImport({
       const t = await ifStillWanted(
         turn,
         // Read first: the browser only allows it straight from the tap.
-        async () => {
-          const read = await navigator.clipboard.readText();
-          if (read.trim()) return read;
+        () => navigator.clipboard.readText(),
+        // Reached only if the box is still as it was: a paste that lost its turn says nothing.
+        async (read) => {
+          if (read.trim()) return mayReplace("what's on the clipboard");
           setNotice("The clipboard is empty. Copy the list first, then tap Paste.");
-          return null;
+          return false;
         },
-        () => mayReplace("what's on the clipboard"),
       );
       if (t === null) return;
       setUserText(t);
