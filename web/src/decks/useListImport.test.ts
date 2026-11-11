@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boxEdits, dropPlan, unsavedList, type Source } from "./useListImport";
+import { boxEdits, dropPlan, needsReplaceQuestion, replaceQuestion, unsavedList, type Source } from "./useListImport";
 
 /** The box as the handlers see it: what was set, what was checked, and the timers still to run. */
 function box() {
@@ -97,5 +97,18 @@ describe("work in the list box that leaving would lose", () => {
     expect(unsavedList({ text: stock, given: stock, drafts: 1, draftEdited: true })).toBe(true);
     // Cleared after fixing: nothing is left.
     expect(unsavedList({ text: "", given: stock, drafts: 0, draftEdited: true })).toBe(false);
+  });
+});
+
+describe("Paste, Choose a file and a dropped file", () => {
+  it("ask before replacing a list that holds unsaved work, and only then", () => {
+    expect(needsReplaceQuestion(true, true)).toBe(true);
+    // Nothing typed (an empty box, or the list Yama put there): they fill it at once.
+    expect(needsReplaceQuestion(false, true)).toBe(false);
+  });
+
+  it("say what will replace the list", () => {
+    expect(replaceQuestion("what's on the clipboard")).toEqual({ title: "Replace the list with what's on the clipboard?", body: "What you typed or changed in the box will be lost.", confirm: "Replace the list" });
+    expect(replaceQuestion("atraxa.txt").title).toBe("Replace the list with atraxa.txt?");
   });
 });

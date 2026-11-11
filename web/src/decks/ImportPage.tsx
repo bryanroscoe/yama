@@ -23,7 +23,8 @@ import {
 import { CommanderPicker, GuideTabs, LinkNote, Skipped, UnknownLines } from "./ImportParts";
 import { UnsavedPrompt, useUnsavedChanges } from "../unsaved";
 import { createOpIds } from "./saveOps";
-import { ACCEPT, useListImport } from "./useListImport";
+import { ask } from "../components/confirm";
+import { ACCEPT, replaceQuestion, useListImport } from "./useListImport";
 import "./import.css";
 
 /**
@@ -72,6 +73,7 @@ function ImportEditor() {
   const list = useListImport({
     initialText: () => sharedText(params),
     makeDraft: (d, source) => draftFrom(d, stock.data?.name ?? friend.data?.name ?? (source.fileName ? source.fileName.replace(/\.[^.]+$/, "").replace(/_/g, " ") : "")),
+    confirmReplace: (what) => ask(replaceQuestion(what)),
   });
   const { prefill } = list;
   useEffect(() => {
