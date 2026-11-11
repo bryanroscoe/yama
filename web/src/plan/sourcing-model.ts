@@ -1,7 +1,7 @@
 import { safeUrl, type ResearchDocument } from "../research/api";
 import { parseDeckList } from "@yama/core";
 
-export interface SourceUse { id: string; deck: string; deck_name: string; category: string }
+export interface SourceUse { id: string; deck: string; deck_name: string; category: string; build_match?: boolean }
 export interface SourceOffer { store: string; price: number | null; qty: number | null; condition: string; url: string; variant_id: string; checked_at: string; qualifies: boolean }
 export interface SourceCard { name: string; status: string; uses: SourceUse[]; offers: SourceOffer[] }
 type Obj = Record<string, unknown>;
@@ -47,14 +47,20 @@ export const optionalUse = (u: SourceUse) => /optional|proxy|selected500/.test(u
 /** A copy appears once in a deck's union of alternatives, and once for every distinct recipient. */
 export function portfolioRows(cards: SourceCard[], doc: ResearchDocument, decks: Set<string>, bracket: string, scope: string): SourceCard[] {
   const names = new Map<string, Set<string>>();
-  if (bracket) for (const d of doc.decks) {
+  for (const d of doc.decks) {
     // Older source checks explicitly label cEDH but omit its numeric bracket metadata.
-    const builds = d.builds.filter(b => String(b.bracket ?? (/\bcEDH\b/i.test(b.label) ? 5 : null)) === bracket);
+    const builds = d.builds.filter(b => !bracket || String(b.bracket ?? (/\bcEDH\b/i.test(b.label) ? 5 : null)) === bracket);
     names.set(d.key, new Set(builds.flatMap(b => parseDeckList(b.list).filter(l => l.board !== "side").map(l => l.name.split(" // ")[0]!.trim().toLowerCase()))));
   }
   const groups = new Map<string, SourceCard>();
   for (const c of cards) {
-    const uses = c.uses.filter(u => decks.has(u.deck) && (!bracket || names.get(u.deck)?.has(c.name.split(" // ")[0]!.trim().toLowerCase())) && (scope === "all" || (scope === "optional") === optionalUse(u)));
+    const uses = c.uses.flatMap(u => {
+      const inBuild = names.get(u.deck)?.has(c.name.split(" // ")[0]!.trim().toLowerCase()) ?? false;
+      // Permanent real-card wishes and bonus reservations are explicitly outside some builds.
+      // They remain optional wishes, never unresolved target demand.
+      const standalone = !bracket && ["arrived proxy: optional real-card wishlist", "reserved selected500 bonus: optional real substitute"].includes(u.category);
+      return decks.has(u.deck) && (inBuild || standalone) && (scope === "all" || (scope === "optional") === optionalUse(u)) ? [{ ...u, build_match: inBuild }] : [];
+    });
     if (!uses.length) continue;
     const row = groups.get(c.name) ?? { ...c, uses: [], offers: [] };
     const ids = new Set(row.uses.map(u => u.id));

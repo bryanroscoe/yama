@@ -7,7 +7,10 @@ Open **Decks → Plans → Get the cards → Source cards across all decks**
 a subset and either one bracket or the union of alternatives. The page groups
 names while retaining one wish per physical copy and recipient; the same deck's
 B2/B3/B4 alternatives are not three copies. Filter unresolved sources separately
-from optional real replacements for proxies and reserved prints.
+from optional real replacements for proxies and reserved prints. Orphaned target
+rows are excluded even in the all-brackets view. Explicit permanent real-card
+wishes and packet bonuses remain separately labelled optional wishes outside
+those builds; choosing a specific bracket filters those out.
 
 For MCP clients, `research(id, full=true)` reads the same private `local_sources`
 evidence used by this page. Preserve each use's stable id and recipient; do not

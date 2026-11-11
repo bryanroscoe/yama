@@ -7,6 +7,15 @@ const use = (id:string,deck:string,category="unresolved gameplay source") => ({i
 const raw = [{name:"Sol Ring",status:"qualifying",uses:[use("a-ring","a"),use("a-ring","a"),use("b-ring","b","arrived proxy: optional real-card wishlist")],best_offer_per_store:[null,offer]}];
 const doc:ResearchDocument={schema:"yama-research/1",id:"source",title:"Snapshot",generated_at:"2026-11-10",decks:[{key:"a",name:"A",commander:"Commander",builds:[{id:"b2",label:"B2",bracket:2,list:"1 Commander\n1 Sol Ring"},{id:"b3",label:"B3",bracket:3,list:"1 Commander\n1 Sol Ring"}]},{key:"b",name:"B",commander:"Commander",builds:[{id:"b4",label:"B4",bracket:4,list:"1 Commander\n1 Sol Ring"}]}]};
 describe("portfolio sourcing",()=>{
+  it("rejects orphaned target demand in the all-brackets union while retaining explicit permanent wishes",()=>{
+    const orphan=sourceCards([{...raw[0]!,name:"Removed Card",uses:[use("removed","a"),use("missing-deck","deleted")]}]);
+    expect(portfolioRows(orphan,doc,new Set(["a","deleted"]),"","all")).toEqual([]);
+    const wishes=sourceCards([{...raw[0]!,name:"Removed Card",uses:[use("wish","original-reservation","arrived proxy: optional real-card wishlist")]}]);
+    const rows=portfolioRows(wishes,doc,new Set(["original-reservation"]),"","optional");
+    expect(rows[0]!.uses[0]!.build_match).toBe(false);
+    expect(portfolioRows(wishes,doc,new Set(["original-reservation"]),"","gaps")).toEqual([]);
+    expect(portfolioRows(wishes,doc,new Set(["original-reservation"]),"2","all")).toEqual([]);
+  });
   it("honors configured cart templates with custom checkout hosts, paths and queries",()=>{
     const carts=sourceCarts(sourceCards(raw),{"Sol Ring":[{offer:offer.url,qty:1}]},new Map([["https://mothershipatx.com","https://checkout.example/apps/cart/{items}?pickup=yes"]]));
     expect(carts[0]!.url).toBe("https://checkout.example/apps/cart/123:1?pickup=yes");
