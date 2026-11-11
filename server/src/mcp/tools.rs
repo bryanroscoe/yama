@@ -132,7 +132,9 @@ const TOOLS: &[Tool] = &[
                       yet (a plan waiting for their OK adds nothing); their real-card wishlist only comes along from stores \
                       already on the trip. Gives each store's cards, listed total and cart link (or card search links on a TCGplayer Pro store), the best choice with fewer stores, \
                       what to print instead and why, and the wishlist by price tier. Listings are dated quotes, not \
-                      purchases; a missing price is unknown, never $0.",
+                      purchases; a missing price is unknown, never $0. Read yama://shopping/workflow before using research \
+                      as a shopping list: arbitrary research builds and archived evidence are not automatically trip inputs. \
+                      Compare exact build revisions and stock dates; provide listing/search links for an unapproved build preview without approving it.",
         schema: || {
             json!({
                 "type": "object",
@@ -235,7 +237,9 @@ const TOOLS: &[Tool] = &[
              card, TCGplayer Pro storefronts (Black Castle, Multiverse) as a whole catalog with each product's lowest \
              price, and with yestcg true also YesTCG's Austin search (condition and quantity) for the stores it covers. \
              Each store's answer is a dated snapshot the trip and store_stock read. Default stores: every store they'll \
-             go to that Yama can read; default cards: every card the trip plans for."
+             go to that Yama can read; default cards: every card the trip plans for. For an unapproved research build, \
+             supply its exact cards explicitly (at most 300 per check); saving research does not refresh trip stock. \
+             See yama://shopping/workflow."
         ),
         schema: || {
             json!({

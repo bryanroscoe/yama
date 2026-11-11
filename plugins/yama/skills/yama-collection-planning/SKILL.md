@@ -12,6 +12,15 @@ For copies outside deck containers, query `collection_cards` with
 `outside_decks=true` and follow pagination. Check saved plan allocations before
 calling those copies spare; being outside a deck box does not mean unreserved.
 Read `shopping_settings` before applying a buy rule or store preference.
+Read `yama://shopping/workflow` for the complete local-buying handoff. Match the
+latest exact deck/build and research revision before reusing a shopping report.
+Archived research and active trip stock are separate; disclose differing dates.
+Preview unapproved builds without approving them or treating an empty trip as no
+local availability. Supply explicit cards to `check_stores` for those previews.
+Return clickable listing/search links for every applicable store, dated quotes,
+quantity uncertainty and Shopify cart links where supported; TCGplayer Pro carts
+require adding cards on their listing pages. Keep sell-to-store buylist links
+separate. Never return only an archived note as the buying instructions.
 
 Keep owned real copies, proxies, needed copies, installed cards, proposed
 allocations and outstanding orders separate. Saving a list or research note does

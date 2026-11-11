@@ -107,6 +107,12 @@ async fn the_protocol_basics() {
     assert_eq!(r["result"], json!({}));
     let (_, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("resources/list", json!({})))).await;
     assert!(r["result"]["resources"].as_array().is_some());
+    assert!(r["result"]["resources"].as_array().unwrap().iter().any(|v| v["uri"] == "yama://shopping/workflow"));
+    let (status, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("resources/read", json!({"uri":"yama://shopping/workflow"})))).await;
+    assert_eq!(status, StatusCode::OK);
+    let content = &r["result"]["contents"][0];
+    assert_eq!(content["mimeType"], "text/markdown");
+    assert_eq!(content["text"], include_str!("../../../docs/local-shopping-workflow.md"));
     let (_, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("unknown/method", json!({})))).await;
     assert_eq!(r["error"]["code"], -32601);
     let (_, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("tools/call", json!({"name": "rm_rf"})))).await;

@@ -90,6 +90,19 @@
     </section>
 
     <section id="examples">
+      <h2 id="local-shopping">Buy cards locally from your latest build</h2>
+      <p>Ask your assistant to verify the exact deck configuration and latest bracket-build revision, then check your real copies, proxies, print orders and reserved copies. Real replacements for proxies are optional. A bracket label or power estimate alone does not identify a deck version.</p>
+      <ol>
+        <li>Read <code>overview</code>, <code>plan_deck</code> and the exact <code>research</code> build. Compare the list with your latest saved configuration before reusing an older shopping report.</li>
+        <li>Read <code>shopping_settings</code>, <code>shopping_list</code>, <code>shopping_trip</code> and <code>store_stock</code>. Compare their check dates. Saving research does not itself activate a plan or refresh trip stock; an archived report may contain evidence the trip is not using.</li>
+        <li>For a requested refresh, stage <code>check_stores</code> for the applicable stores and exact card names, at most 300 per check. Review the staged check before applying it. For an unapproved build, pass its cards explicitly; do not approve a plan just to see prices. The trip currently has no arbitrary research-build preview argument.</li>
+        <li>Ask for direct listing links, needed and available quantities, condition, finish, dated prices and remaining unknowns. Include TCGplayer Pro stores as well as Shopify. A blocked search is unknown, not out of stock.</li>
+        <li>Choose quantities and open the store cart or listing. Shopify filled-cart links replace that store's existing cart. TCGplayer Pro requires adding the confirmed variant on the listing page. Select pickup and complete checkout yourself.</li>
+      </ol>
+      <p>Austin store examples: <a href="https://blackcastlegamez.tcgplayerpro.com/">Black Castle Gamez in Cedar Park</a>, <a href="https://mversetcg.tcgplayerpro.com/">Multiverse Hobbies in Hutto</a>, <a href="https://mothershipatx.com/">Mothership</a> and <a href="https://patsgames.com/">Pat's Games</a>. Your account's store preferences and current buy rules determine your trip. Verify pickup for other regional sellers; call-only stores need a phone check.</p>
+      <p>Selling is separate: use Yama's Sell list and dated offers, or the <a href="https://buylist.mothershipatx.com/">Mothership buylist</a> and <a href="https://patsgames.com/pages/buylist">Pat's buylist</a>. Cash, store credit and retail prices mean different things. No research save, cart link or quote records a purchase or installation.</p>
+      <p>Assistants: read the full <code>yama://shopping/workflow</code> MCP resource. Return an actionable buying handoff, not only a link to archived research. If the trip does not represent the requested build, say so and provide separate preview links.</p>
+
       <h2>Try these requests</h2>
       <p>Use the name of a deck in your account, or paste a list. Explain your playgroup goals and anything you want to keep.</p>
       <blockquote>Review my Aragorn deck with a $50 upgrade budget. Prefer cards I own, keep the monarch theme and avoid infinite combos. Show exact additions, cuts, estimated costs and tradeoffs before staging changes.</blockquote>
@@ -198,7 +211,7 @@
         <dt><code>apply_change</code></dt><dd>Apply an approved proposal, with ownership and stale-version checks. External clients only.</dd>
         <dt><code>discard_change</code></dt><dd>Discard a proposal. External clients only.</dd>
       </dl></details>
-      <details><summary>Workflow prompts and resources</summary><p>Prompts: <code>review_deck</code>, <code>build_commander</code>, <code>rules_question</code>. Resources: <code>yama://research/sources</code>, <code>yama://research/format</code>, <code>yama://deck/{deck_id}</code> and <code>yama://card/{oracle_id}</code>. Deck and card resources use the same authentication as the tools.</p></details>
+      <details><summary>Workflow prompts and resources</summary><p>Prompts: <code>review_deck</code>, <code>build_commander</code>, <code>rules_question</code>. Resources: <code>yama://shopping/workflow</code>, <code>yama://research/sources</code>, <code>yama://research/format</code>, <code>yama://deck/{deck_id}</code> and <code>yama://card/{oracle_id}</code>. Resources use the same authentication as the tools.</p></details>
       <p class="dim">This is a Commander-focused toolset. Limited drafting, constructed sideboards and tournament metagame feeds are outside its current scope. Public providers may block automated access or be temporarily unavailable; failures are reported rather than treated as empty results.</p>
     </section>
 
