@@ -85,6 +85,17 @@ plain-text full `list` with Commander and Deck sections. Optional fields support
   (`/decks/plans/get/sourcing`). Each row has `name`, `status`, `uses` (stable per-copy
   `id`, `deck`, `deck_name`, `category`) and `best_offer_per_store` (nullable entries
   with store, price, qty, condition, URL, Shopify variant_id, checked_at and qualifies).
+  Prefer an `offers` array retaining every printing/condition/SKU, not just a store minimum.
+  New producers must set `non_price_eligible` independently of the old price decision:
+  true only after condition, finish, language and other non-price restrictions passed;
+  false for a known non-price failure; omit when unknown. Retain `finish`, `language`,
+  title and printing/market provenance, plus `rule_reason` for human-readable context.
+  `qualifies` remains the historical combined decision, not a permanent price rejection.
+  Raising a preview cap re-evaluates price and market limits for verified non-price offers.
+  Compatibility: accepted legacy offers and explicit legacy price-only rejection reasons
+  remain supported. Unexplained rejected legacy offers can be re-evaluated when their
+  recorded condition, nonfoil finish and English language establish non-price eligibility;
+  incomplete ones stay marked for verification rather than silently becoming cartable.
   Unknown price/quantity is null. A use is a source wish, not proof a card must be
   bought; categories keep unresolved sources and optional proxy/print replacements
   distinct. Count a recipient's union of bracket alternatives once and allocate

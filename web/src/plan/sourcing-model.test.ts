@@ -136,3 +136,12 @@ it("retains non-Shopify condition/printing variants when SKU IDs are missing",()
  expect(carts[0]!.rows.map(r=>r.offer.condition)).toEqual(["Near Mint","Lightly Played"]);
  expect(sourceCarts(rows,{"Sol Ring":[{offer:offer.url,qty:2}]},new Map())).toEqual([]);
 });
+
+it("applies recorded stock filtering to offers and the same add-all cart action",()=>{
+ const unknown={...offer,qty:null};
+ const rows=sourceCards([{...raw[0]!,offers:[unknown,{...offer,url:"https://other.example/card",qty:1}]}]);
+ const all=offerRows(rows,"nm","",false), known=offerRows(rows,"nm","",true);
+ expect(all[0]!.offers).toHaveLength(2);expect(known[0]!.offers).toHaveLength(1);
+ const cart=sourceCarts(known,allChoices(known),new Map());
+ expect(cart[0]!.rows[0]!.qty).toBe(1);expect(cart[0]!.rows[0]!.offer.qty).toBe(1);
+});

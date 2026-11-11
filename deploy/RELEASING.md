@@ -13,7 +13,8 @@ Bryan authorized the saget deployment runner on 2026-10-28. A successful push CI
 current main now automatically deploys that exact revision through the serialized
 server gate. Merging reviewed work into main is therefore a production release decision.
 See [runner setup, operation and recovery](RUNNER.md). Do not race it with an old
-branch's deployment script. Stop the runner to pause releases without stopping CI.
+branch's deployment script. Pause releases without stopping CI with
+`gh workflow disable deploy.yml -R bryanroscoe/yama`.
 
 ## Default PR completion
 

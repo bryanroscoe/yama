@@ -133,7 +133,7 @@ of a finished run uses its frozen inputs and the current runtime without changin
 
 The checked-in workflow is `workflow_dispatch` only: no push, PR or scheduled trigger. After
 publishing is authorized, configure a `lab:worker:github` key as `YAMA_LAB_WORKER_TOKEN` in the
-private repository's Actions secrets, and optionally the `YAMA_URL` variable. Dispatch manually
+repository's Actions secrets, and optionally the `YAMA_URL` variable. Dispatch manually
 (optionally restricting the `execution_id` input to one execution);
 the worker downloads and verifies the running Linux executable and matching export, polls for
 up to 30 idle seconds and executes one leased pod. Timeout is 100 minutes, concurrency one.

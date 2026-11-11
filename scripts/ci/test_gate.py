@@ -215,14 +215,33 @@ class Workflow(unittest.TestCase):
         android = (ROOT / '.github/workflows/android.yml').read_text()
         self.assertIn("if: vars.CI_TESTS == 'on' || github.event_name == 'workflow_dispatch'", android)
 
-    def test_main_push_succeeds_on_saget_with_tests_off(self):
+    def test_every_job_defaults_to_hosted_and_refuses_self_hosted_when_public(self):
+        # The repository is public: a self-hosted runner must never take its jobs (AGENTS.md).
+        for name in ('gate', 'tests-off', 'web', 'rust'):
+            with self.subTest(job=name):
+                text = job(self.workflow, name)
+                self.assertIn("runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '[\"ubuntu-latest\"]') }}", text)
+                first = text.split('    steps:\n', 1)[1].split('\n      - ', 1)[0]
+                self.assertIn('Refuse a self-hosted runner on a public repository', first)
+                self.assertIn("runner.environment == 'self-hosted' && github.event.repository.private == false", first)
+                # The step must actually stop the job.
+                body = '\n'.join(line[10:] for line in first.split('        run: |\n', 1)[1].splitlines())
+                run = subprocess.run(['bash', '-c', body], capture_output=True, text=True, timeout=5)
+                self.assertNotEqual(run.returncode, 0, body)
+                self.assertIn('::error::', run.stdout)
+                # Hosted by default: an unset runner variable gets the hosted time limit, not saget's 360.
+                self.assertIn("contains(vars.CI_LINUX_RUNNER || 'ubuntu-latest', 'self-hosted') && 360 ||", text)
+        self.assertNotIn('self-hosted","Linux"', self.workflow)
+        self.assertNotIn("|| 'self-hosted', 'self-hosted')", self.workflow)
+
+    def test_main_push_succeeds_with_tests_off(self):
         # The deploy and host.py need a successful push run; an all-skipped run is "skipped".
         marker = job(self.workflow, 'tests-off')
         condition = re.search(r'if: >-\n(.*?)\n    runs-on', marker, re.S).group(1)
         self.assertIn("vars.CI_TESTS != 'on' &&", condition)
         self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/main'", condition)
         # Same backend switch and saget capacity budget as the test jobs.
-        self.assertIn("runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '[\"self-hosted\",\"Linux\",\"X64\",\"yama-ci\"]') }}", marker)
+        self.assertIn("runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '[\"ubuntu-latest\"]') }}", marker)
         self.assertIn("&& 360 || 5 }}", marker)
         self.assertIn('permissions: {}', marker)
         self.assertNotIn('needs:', marker)

@@ -1,0 +1,14 @@
+Copyright (c) 2026 Bryan Roscoe. All rights reserved.
+
+This repository is public so its source can be read. Reading it, and viewing and forking
+it on GitHub as GitHub's Terms of Service allow, grants no licence. You may not use, copy,
+modify, run, host or distribute this software, in whole or in part, except with Bryan
+Roscoe's written permission to you by name.
+
+Third-party components keep their own licences. The Phase rules engine
+(https://github.com/bryanroscoe/yama-phase) is Apache-2.0 or MIT. Forge
+(https://github.com/Card-Forge/forge), which Yama runs as a separate program and does not
+include, is GPL-3.0. Other dependencies carry the licences in their own packages.
+
+Yama is unofficial fan software, not affiliated with, endorsed by, or sponsored by
+Wizards of the Coast. Magic: The Gathering is a trademark of Wizards of the Coast LLC.

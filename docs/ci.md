@@ -2,7 +2,8 @@
 
 ## Tests on or off
 
-**Off since 2 Nov 2026 (Bryan).** The plan includes 3,000 hosted Actions minutes a month and
+**On since the repository went public (November 2026):** GitHub-hosted minutes are free for a
+public repository. **Off from 2 Nov 2026 (Bryan) until then:** the plan includes 3,000 hosted Actions minutes a month and
 CI used 2,715 of them in the first two days of November: about 2,600 minutes in 208 runs of
 each CI job. The Rust job alone took 2,233 of those minutes, the gate 193 and the web checks
 182. At that rate a month needs roughly 40,000 minutes, about 13 times the allowance.
@@ -23,14 +24,11 @@ variable, means off:
 - A push to main runs one job, **Tests are off (checked locally before merge)**. It runs no
   checks. It exists because the deploy workflow and saget's release gate (`deploy/host.py`)
   both require a *successful* push CI run, and a run whose jobs are all skipped concludes
-  "skipped". It runs where `CI_LINUX_RUNNER` points: free on saget (where it waits for CI
-  capacity like any job), about one billed minute per main push on a hosted runner. It was
-  meant for saget, but on 2 Nov 2026 saget's CI hook rejected every job ("Invalid CI pool
-  capacity": sagetserver's `ci/hooks/slot.py` still requires the old 12 GiB pool after the
-  pool grew to 20 GiB), so it runs hosted until saget CI is fixed and routed back.
+  "skipped". It runs on the GitHub-hosted runner `CI_LINUX_RUNNER` picks (free for the public
+  repository). While the repository was private it ran on saget or hosted; never on saget now.
 - A manual run (`gh workflow run CI --ref <branch>`, or an Android build from the Actions tab)
-  still tests or builds in full on the runner `CI_LINUX_RUNNER` picks. Start one only when
-  Bryan asks.
+  still tests or builds in full on the runner `CI_LINUX_RUNNER` picks. Dispatch an Android
+  build only when Bryan asks.
 
 With tests off, agents run the checks before merging: `CARGO_BUILD_JOBS=1
 scripts/local-ci.sh --no-amend` on the final head after reconciling with main, then the local
@@ -46,10 +44,9 @@ npm run android:sync -w web
 [Don't test a merge twice](#dont-test-a-merge-twice) about macOS vs Linux apply to every merge
 while tests are off, since nothing re-tests main on Linux.
 
-To get free CI tests back without paying for minutes, set `CI_TESTS` to `on` and route CI to
-saget (`python3 scripts/ci_runners.py switch saget --repo yama --apply` from `sagetserver`;
-see [Choose the CI backend](#choose-the-ci-backend)). Saget jobs cost no Actions minutes but
-share saget's CI pool.
+Hosted tests are free since the repository went public: `CI_TESTS` `on` runs them on
+GitHub-hosted runners. **Never route this repository's CI to saget** or any other
+self-hosted runner (AGENTS.md).
 
 The rest of this page describes CI with tests on.
 
@@ -67,21 +64,16 @@ the same checks locally on its exact tree and contains `main`, or when they carr
 A newer push to a PR cancels its superseded run. Push CI on main is never cancelled: one main run finishes while only the newest push waits behind it, so main CI completes, deploys and saves the Rust cache. Manual diagnostic CI uses
 a separate concurrency group and cannot cancel the push CI required for deployment. Only
 successful push CI on a main commit authorizes release, while that commit stays on main; a
-newer commit passing CI no longer cancels it. Production never goes back to an older commit. Bryan authorized a dedicated CI runner on
-saget on 2026-10-29 after GitHub-hosted jobs were blocked by account billing. Both jobs default to
-`[self-hosted, Linux, X64, yama-ci]` with read-only repository permissions. Two listeners,
-`saget-yama-ci` and `saget-yama-ci-2`, each execute one job at a time; each has no deployment credential, Docker
-socket, production data/env mounts, or production runner state. Only its own runner state and
-dedicated Cargo/npm cache are mounted. This is a persistent runner for this private
-repository's trusted branches, not a sandbox for arbitrary untrusted code.
-Keep the repository private and its repository-level **Run workflows from fork pull
-requests** setting disabled (verified disabled during installation). This server-side
-setting is the fork boundary: workflow job guards alone can be changed by a PR.
-Recheck it with `gh api repos/bryanroscoe/yama/actions/permissions/fork-pr-workflows-private-repos`
-before registering a replacement runner or changing repository access. Before the repository
-could be made public, unregister every persistent self-hosted runner (this CI worker and the
-production deploy runner) and keep CI on GitHub-hosted Linux; deploys then use the Cloudflare
-backend in [deploy/RUNNER.md](../deploy/RUNNER.md#choose-the-deploy-backend).
+newer commit passing CI no longer cancels it. Production never goes back to an older commit. CI runs on GitHub-hosted Linux (`CI_LINUX_RUNNER` unset, or `["ubuntu-latest"]`; the
+workflow default), free since the repository went public in November 2026. **Never register a
+self-hosted runner on this repository**: on a public repository a fork pull request can rewrite
+a workflow and target any runner label, and workflow job guards alone can be changed by a PR.
+Every job that could reach one starts with a step that fails on a self-hosted runner of a public
+repository, as a tripwire for a misconfiguration, not a boundary. From 2026-10-29 to the move,
+CI ran on two saget listeners (`saget-yama-ci`, `saget-yama-ci-2`) for the then-private
+repository, now the private `bryanroscoe/yama-archive`; they are retired with its Actions.
+Deploys use the Cloudflare backend in
+[deploy/RUNNER.md](../deploy/RUNNER.md#choose-the-deploy-backend).
 
 - **Web checks:** preinstalled Node 22 (the production web build's major), `npm ci`,
   `npm test`, `npm run typecheck`, and `npm run build`.
@@ -106,24 +98,19 @@ single workspace profile before retaining more. Stop the runner before any scope
 
 ## Choose the CI backend
 
-Both jobs select the JSON labels in the repository Actions variable
-`CI_LINUX_RUNNER`. An unset variable keeps the current saget default. The
-`sagetserver` control CLI changes routing without a workflow edit:
-
-```sh
-python3 scripts/ci_runners.py switch saget --repo yama --apply
-python3 scripts/ci_runners.py switch github --repo yama --apply
-```
-
-Run these commands from the `sagetserver` repository. Omit `--apply` to preview;
-`--all` selects every configured private project. The values are
-`["self-hosted","Linux","X64","yama-ci"]` and `["ubuntu-24.04"]` respectively.
+Every job selects the JSON labels in the repository Actions variable `CI_LINUX_RUNNER`;
+unset means `["ubuntu-latest"]`. **The public repository stays on GitHub-hosted runners**:
+leave the variable unset or hosted, and never run `sagetserver`'s
+`scripts/ci_runners.py switch saget --repo yama` or `register --repo yama` against it. While
+the repository was private (now `bryanroscoe/yama-archive`), that CLI switched between
+`["self-hosted","Linux","X64","yama-ci"]` and `["ubuntu-24.04"]`; the saget notes below
+describe that time.
 Newly scheduled jobs use the selected backend. Existing jobs finish on their
 assigned runner. GitHub-hosted private CI needs available account minutes/billing;
 changing the variable does not clear a billing block.
 
-Since 1 November 2026 yama routes to GitHub-hosted runners (`["ubuntu-24.04"]`);
-switch back to saget only when hosted jobs can't run (billing), and back again after.
+Yama has routed to GitHub-hosted runners since 1 November 2026, and only to them since it went
+public; never switch the public repository to saget.
 Hosted jobs install Node 22 and Rust 1.98.1, with eight GiB of swap on their
 one-use VM for the engine compiler. They restore npm downloads and the Rust build
 (dependencies and the pinned engine, keyed by `deploy/phase-rev` and the Rust version) from
@@ -153,6 +140,10 @@ shared compute slot; hosted job budgets retain their previous limits.
 
 ## Manage saget workers
 
+**Private repository only (history).** These workers served the private repository, now
+`bryanroscoe/yama-archive`, and are retired with it. Never register one on the public
+`bryanroscoe/yama`.
+
 The shared controller in `bryanroscoe/sagetserver` owns registration, immutable
 profile images, restart reconciliation and resource budgets. Its runbook is
 `ci/README.md`; use `scripts/ci_runners.py register --repo yama --wait` there.
@@ -178,17 +169,18 @@ Rust CI checks out Yama and the public `bryanroscoe/yama-phase` side by side, at
 no local cache path substitutions are used on GitHub. The expected engine repository is
 checked before checkout. An invalid pin fails the job explicitly.
 
-Phase has been public since 31 October 2026, so its checkout no longer needs the legacy
+Yama's own repository is public (AGENTS.md) and must never get a self-hosted runner: CI
+runs on GitHub-hosted runners (`CI_LINUX_RUNNER` set to `["ubuntu-latest"]`). Phase has been public since 31 October 2026, so its checkout no longer needs the legacy
 `YAMA_PHASE_DEPLOY_KEY` secret. Both checkouts disable credential persistence. Both jobs
 refuse fork PRs before scheduling on the persistent runner. Copy reviewed fork work into a
-trusted branch in this private repository before running CI; skipped fork jobs are not passing
+trusted branch in this repository before running CI; skipped fork jobs are not passing
 acceptance evidence.
 
 Before merge, inspect the checks on the actual PR head and require both jobs to pass, or a
 **Local CI gate** summary saying they were skipped for that head commit. Keep
-local validation, GitHub CI, source review, merge and deployment as distinct evidence. This
-private repository's current GitHub plan does not support protected-branch required checks;
-the completion workflow enforces this gate without changing the plan or visibility.
+local validation, GitHub CI, source review, merge and deployment as distinct evidence. The repository
+was private on a plan without protected-branch required checks until it went public in
+November 2026; the completion workflow enforces this gate either way.
 
 Default `cargo test` deliberately skips ignored full-data gameplay tests. CI does not claim
 full-game correctness or cross-machine performance from those passing checks; follow
@@ -199,7 +191,8 @@ On saget, the first workflow step waits for CI capacity before checkout. The pre
 
 ## Skip CI on a PR
 
-GitHub-hosted minutes are paid, so PR CI runs only when it adds something. Push CI on `main`
+PR CI runs only when it adds something (hosted minutes were paid while the repository was
+private; they are free now, but runs still take time). Push CI on `main`
 ignores trailers and labels, and the successful push run is what authorizes deployment. It
 skips its web and Rust jobs only when a PR run already passed both on the identical tree (see
 [Don't test a merge twice](#dont-test-a-merge-twice)); manual runs are never skipped.
@@ -297,5 +290,5 @@ names the tree, machine and Node major) and keep GitHub CI, source review, merge
 deployment distinct. The gate fails safe: if it can't read the PR it runs CI, and its own
 failure never fails the workflow. It checks out only `scripts/ci/gate.py` from `main` (so a PR
 can't change the rule that judges it), needs only `contents: read` and `pull-requests: read`,
-uses no secrets and doesn't check out the engine. It runs on the same backend as the other jobs
-(`CI_LINUX_RUNNER`), waiting for a saget slot like them.
+uses no secrets and doesn't check out the engine. It runs on the same hosted backend as the other jobs
+(`CI_LINUX_RUNNER`).

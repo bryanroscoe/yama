@@ -37,7 +37,7 @@ npm test && npm run typecheck           # web and core
 CARGO_BUILD_JOBS=1 scripts/local-ci.sh --no-amend   # every CI check; needs a clean tree, ../yama-phase at deploy/phase-rev
 ```
 
-CI tests are off on GitHub (AGENTS.md): on the final head, after reconciling with main, you are the CI. Report exactly what ran on which commit as local evidence. Don't run cargo while another agent holds the build budget unless your task is the Rust one.
+CI tests run on GitHub-hosted runners (`CI_TESTS` on, AGENTS.md). Whenever they are off, on the final head, after reconciling with main, you are the CI. Report exactly what ran on which commit as local evidence. Don't run cargo while another agent holds the build budget unless your task is the Rust one.
 
 ## Screenshots
 

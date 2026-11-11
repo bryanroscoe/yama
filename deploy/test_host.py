@@ -897,12 +897,24 @@ with host.release_lock():
         guards = re.findall(r"^    if: >-\n((?:      .*\n)+)", text, re.M)
         self.assertEqual(len(guards), 2)
         runner, cloudflare = (' '.join(line.strip() for line in guard.splitlines()) for guard in guards)
-        self.assertTrue(runner.startswith("vars.DEPLOY_BACKEND != 'cloudflare' && "), runner)
-        self.assertTrue(cloudflare.startswith("vars.DEPLOY_BACKEND == 'cloudflare' && "), cloudflare)
+        # The hosted Cloudflare job is the default; the saget runner needs an explicit `runner`.
+        self.assertTrue(runner.startswith("vars.DEPLOY_BACKEND == 'runner' && "), runner)
+        self.assertTrue(cloudflare.startswith("vars.DEPLOY_BACKEND != 'runner' && "), cloudflare)
         shared = "github.ref == 'refs/heads/main' &&"
         self.assertEqual(runner.split(' && ', 1)[1], cloudflare.split(' && ', 1)[1])
         self.assertIn(shared, runner)
         self.assertIn("github.event.workflow_run.conclusion == 'success'", runner)
+
+    def test_runner_job_refuses_a_public_repository_first(self):
+        text = (Path(__file__).resolve().parents[1] / '.github/workflows/deploy.yml').read_text()
+        runner = text.split('    name: Deploy (saget runner)\n', 1)[1].split('\n  deploy-cloudflare:', 1)[0]
+        first = runner.split('    steps:\n', 1)[1].split('\n      - ', 1)[0]
+        self.assertIn('Refuse a self-hosted runner on a public repository', first)
+        self.assertIn("if: runner.environment == 'self-hosted' && github.event.repository.private == false", first)
+        body = '\n'.join(line[10:] for line in first.split('        run: |\n', 1)[1].splitlines())
+        run = subprocess.run(['bash', '-c', body], capture_output=True, text=True, timeout=5)
+        self.assertNotEqual(run.returncode, 0, body)
+        self.assertIn('::error::', run.stdout)
 
     def test_runner_workflow_refuses_unknown_backend_or_host(self):
         script, _ = self.workflow_deploy_scripts()
