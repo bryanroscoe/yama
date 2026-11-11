@@ -348,7 +348,7 @@ async fn the_whole_sign_in_ends_in_a_tool_call() {
     assert_eq!(status, StatusCode::OK, "{r}");
     let (status, r) = send(&app, Method::POST, "/mcp", Some(access), Some(rpc("tools/list", json!({})))).await;
     assert_eq!(status, StatusCode::OK, "{r}");
-    assert!(r["result"]["tools"].as_array().unwrap().iter().any(|t| t["name"] == "overview"));
+    assert!(r["result"]["tools"].as_array().unwrap().iter().any(|t| t["name"] == "get_overview"));
     let (status, r) = send(&app, Method::POST, "/mcp", Some(access), Some(rpc("tools/call", json!({"name": "overview", "arguments": {}})))).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(r["result"]["isError"], false, "{r}");

@@ -97,6 +97,10 @@ pub struct Tool {
     /// Whose text the answer carries besides the caller's own: an outside source, or other
     /// people. The answer says so, so the assistant reads it as data and never as instructions.
     pub untrusted: Option<&'static str>,
+    /// Arguments that were renamed, as (old name, new name). The schema lists the new name; a
+    /// call may still use the old one. The handler reads the old name, as it always has: the
+    /// registry moves the new one onto it and puts the new name back in a refusal.
+    pub renamed: &'static [(&'static str, &'static str)],
 }
 
 /// The `outputSchema` of a tool that answers with a JSON object and promises no more about it.
@@ -212,6 +216,52 @@ fn check_lengths(tool: &Tool, args: &Value) -> AppResult<()> {
     Ok(())
 }
 
+/// The schema with each renamed argument under its new name.
+fn rename_in_schema(schema: &mut Value, renamed: &[(&str, &str)]) {
+    for (old, new) in renamed {
+        // `get_mut`, never an index: indexing a missing key for writing would add it as null,
+        // and a schema with `"required": null` is one a client refuses whole.
+        let Some(properties) = schema.get_mut("properties").and_then(Value::as_object_mut) else { continue };
+        if let Some(property) = properties.remove(*old) {
+            properties.insert((*new).to_string(), property);
+        }
+        for required in schema.get_mut("required").and_then(Value::as_array_mut).into_iter().flatten() {
+            if required.as_str() == Some(*old) {
+                *required = json!(new);
+            }
+        }
+    }
+}
+
+/// The arguments as the handler reads them: each renamed argument given under its new name is
+/// moved to the old one. Both at once is refused, so neither is quietly ignored.
+fn handler_arguments(tool: &Tool, args: &Value) -> AppResult<Option<Value>> {
+    let Some(given) = args.as_object().filter(|o| tool.renamed.iter().any(|(_, new)| o.contains_key(*new))) else { return Ok(None) };
+    let mut out = given.clone();
+    for (old, new) in tool.renamed {
+        if let Some(value) = out.remove(*new) {
+            if out.contains_key(*old) {
+                return Err(AppError::bad(format!("{old} is the older name of {new}: give only {new}")));
+            }
+            out.insert((*old).to_string(), value);
+        }
+    }
+    Ok(Some(Value::Object(out)))
+}
+
+/// A refusal that names an argument by the name the handler reads says the name the schema lists.
+fn public_names(tool: &Tool, e: AppError) -> AppError {
+    let AppError::BadRequest(message) = &e else { return e };
+    for (old, new) in tool.renamed {
+        for after in [" ", ":"] {
+            if let Some(rest) = message.strip_prefix(&format!("{old}{after}")) {
+                return AppError::bad(format!("{new}{after}{rest}"));
+            }
+        }
+    }
+    e
+}
+
 /// `tools/list` for this caller.
 pub fn list(user: &User, via: &Via) -> Vec<Value> {
     all()
@@ -221,11 +271,13 @@ pub fn list(user: &User, via: &Via) -> Vec<Value> {
             if t.stages.is_some() {
                 schema["properties"]["op_id"] = op_id_schema();
             }
+            // Lengths first, by the names the handlers read: a renamed argument keeps its limit.
+            tidy(&mut schema, "");
+            rename_in_schema(&mut schema, t.renamed);
             if matches!(t.kind, Kind::Read | Kind::Outside) {
                 schema["properties"]["chunk"] = json!({"type": "string", "maxLength": 200,
                     "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments."});
             }
-            tidy(&mut schema, "");
             let mut tool = json!({
                 "name": t.name,
                 "title": t.title,
@@ -299,7 +351,9 @@ async fn answer(st: &AppState, user: &User, via: &Via, name: &str, args: &Value)
     let total = text.chars().count();
     // A chunk continues one answer: this tool, these arguments, this length. One from another
     // call, or from an answer that has changed since, is refused rather than joined to the wrong text.
-    let chunks = page::scope("chunk", &[tool.name, &asked.to_string(), &total.to_string()]);
+    // By the tool's first name, so a chunk given before a rename still continues its answer.
+    let first_name = *tool.aliases.first().unwrap_or(&tool.name);
+    let chunks = page::scope("chunk", &[first_name, &asked.to_string(), &total.to_string()]);
     let from = match chunk {
         None => 0,
         Some(c) => c.as_str().and_then(|c| page::decode(&chunks, c)).filter(|from| *from < total).ok_or_else(|| {
@@ -319,7 +373,7 @@ async fn answer(st: &AppState, user: &User, via: &Via, name: &str, args: &Value)
                 from + 1,
                 tool.name
             ),
-            None if end < total => "[Cut for length. What was staged or saved is whole: `changes` with its id shows a staged change.]".to_string(),
+            None if end < total => "[Cut for length. What was staged or saved is whole: `list_changes` with its id shows a staged change.]".to_string(),
             None => String::new(),
         };
         // A part of a JSON answer isn't JSON. The structured form carries the part as text, for a
@@ -337,7 +391,11 @@ async fn answer(st: &AppState, user: &User, via: &Via, name: &str, args: &Value)
 /// `tools/call`. Whether the caller is offered the tool is the route's check (`tools::offered`).
 pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Value) -> AppResult<String> {
     let tool = find(name).ok_or_else(|| AppError::bad(format!("unknown tool \"{name}\"")))?;
-    check_lengths(tool, args)?;
+    // The arguments as the handler reads them, so an op id's request is the same whichever
+    // name an argument was given under.
+    let moved = handler_arguments(tool, args)?;
+    let args = moved.as_ref().unwrap_or(args);
+    check_lengths(tool, args).map_err(|e| public_names(tool, e))?;
     // A staging call repeated with its op_id answers with the change it staged the first time,
     // before any check that would now fail because that change was applied.
     if let Some(staging) = &tool.stages {
@@ -350,7 +408,7 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
     if tool.search {
         st.limits.search.check_user(user)?;
     }
-    (tool.handler)(Ctx { st, user, via }, args).await
+    (tool.handler)(Ctx { st, user, via }, args).await.map_err(|e| public_names(tool, e))
 }
 
 /// How a stored change of this kind is applied.
@@ -382,5 +440,16 @@ mod tests {
         }
         assert!(applier("no_such_kind").is_none());
         assert!(find("no_such_tool").is_none());
+        // An older name finds the tool it became, and a renamed argument is one the schema has.
+        for t in all() {
+            for alias in t.aliases {
+                assert_eq!(find(alias).map(|f| f.name), Some(t.name));
+            }
+            let properties = (t.schema)()["properties"].clone();
+            for (old, new) in t.renamed {
+                assert!(properties.get(*old).is_some(), "{}: {old} isn't an argument", t.name);
+                assert!(properties.get(*new).is_none(), "{}: {new} is already an argument", t.name);
+            }
+        }
     }
 }

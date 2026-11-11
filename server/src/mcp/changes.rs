@@ -71,7 +71,7 @@ struct Row {
 
 const ROW_COLUMNS: &str = "id, kind, summary, detail, payload, via, conversation_id, message_id, status, error, result, created_at, decided_at";
 
-/// A change as the pages and `changes` show it. `result` is what applying made: a label and the
+/// A change as the pages and `list_changes` show it. `result` is what applying made: a label and the
 /// page that shows it.
 #[derive(Debug, Serialize)]
 pub struct ChangeView {
@@ -140,7 +140,7 @@ pub async fn list(pool: &SqlitePool, owner: &str, pending_only: bool, conversati
     Ok(views)
 }
 
-/// One of the owner's changes, whatever its status (the `changes` tool with an id).
+/// One of the owner's changes, whatever its status (the `list_changes` tool with an id).
 pub(super) async fn one(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<ChangeView> {
     load_view(pool, owner, id).await
 }
@@ -705,7 +705,7 @@ async fn find_swap(pool: &SqlitePool, owner: &str, args: &Value) -> AppResult<Sw
     .await?;
     match rows.as_slice() {
         [] => Err(AppError::bad(format!(
-            "{deck}'s plan has no swap putting in {card_in}{}. Check the card names with plan_deck.",
+            "{deck}'s plan has no swap putting in {card_in}{}. Check the card names with get_plan.",
             card_out.as_deref().map(|o| format!(" for {o}")).unwrap_or_default()
         ))),
         [(key, card_in, card_out)] => Ok(SwapRef { key: key.clone(), deck_key, deck, card_in: card_in.clone(), card_out: card_out.clone() }),
@@ -982,7 +982,7 @@ pub async fn approve_plan(st: &AppState, user: &User, via: &Via, args: &Value) -
     let mut answers: Vec<Value> = Vec::new();
     for a in args.get("answers").and_then(Value::as_array).into_iter().flatten() {
         let (Some(q), Some(ans)) = (a.get("question").and_then(Value::as_str), a.get("answer").and_then(Value::as_str)) else {
-            return Err(AppError::bad("answers is a list of {question, answer}, the question as plan_deck lists it"));
+            return Err(AppError::bad("answers is a list of {question, answer}, the question as get_plan lists it"));
         };
         answers.push(json!({"question": q, "answer": ans}));
     }
@@ -1368,7 +1368,7 @@ pub async fn more_lab_games(st: &AppState, user: &User, via: &Via, args: &Value)
     let id = arg::text(args, "id")?;
     let run = run_info(&st.pool, &user.id, id).await?;
     if matches!(run.mode.as_str(), "versus" | "tournament") {
-        return Err(AppError::bad("A head-to-head run can't take more games; use run_lab_again."));
+        return Err(AppError::bad("A head-to-head run can't take more games; use rerun_lab_run."));
     }
     if run.status != "done" {
         return Err(AppError::bad(format!("Only a finished run can take more games; this one is {}.", run.status)));

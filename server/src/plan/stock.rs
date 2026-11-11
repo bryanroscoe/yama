@@ -1715,7 +1715,7 @@ pub async fn store_quotes(pool: &SqlitePool, owner: &str, wanted: &[String]) -> 
     Ok(out)
 }
 
-/// `store_stock`: one store's newest answers for the given cards, in words.
+/// `get_store_stock`: one store's newest answers for the given cards, in words.
 pub async fn stock_text(pool: &SqlitePool, owner: &str, store: &str, store_name: &str, cards: &[String]) -> AppResult<String> {
     use std::fmt::Write as _;
     let quotes = store_quotes(pool, owner, cards).await?;

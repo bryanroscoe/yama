@@ -45,22 +45,22 @@ that every advertised tool in three evolving projects has an identical implement
 
 | Capability | Yama path |
 |---|---|
-| Card facts, rulings, owned copies, Game Changers | Existing `card`, `find_cards`, `check_list` |
+| Card facts, rulings, owned copies, Game Changers | Existing `get_cards`, `search_cards`, `check_deck_list` |
 | Full online Scryfall grammar and all-format card legality | `search_scryfall`, including page/offset continuation without skipping cards |
-| Printings, regular/foil prices, original image URLs | `card_printings`, from Yama's own printings and latest prices (each with its date and source; no outside request since 2026-11-02); missing prices stay null; images load at runtime |
-| Commander community recommendations, themes, budget tiers | `commander_recommendations`; optional own-list exclusion and owned filtering run locally |
-| Arbitrary combo discovery | `find_combos(query)` |
-| Included / nearly included combos, changes of colors or commanders | `find_combos(deck/list, share_list=true)`; retains separate provider categories and prerequisites |
-| Public deck import | `public_deck(url)` then `save_deck(list, name)`; Moxfield and Archidekt supported; review before save |
-| Exact current rules, subrules, glossary and keyword evidence | `rules_lookup`, with effective edition, source and retrieval time |
+| Printings, regular/foil prices, original image URLs | `list_card_printings`, from Yama's own printings and latest prices (each with its date and source; no outside request since 2026-11-02); missing prices stay null; images load at runtime |
+| Commander community recommendations, themes, budget tiers | `get_commander_recommendations`; optional own-list exclusion and owned filtering run locally |
+| Arbitrary combo discovery | `search_combos(query)` |
+| Included / nearly included combos, changes of colors or commanders | `search_combos(deck/list, share_list=true)`; retains separate provider categories and prerequisites |
+| Public deck import | `get_public_deck(url)` then `save_deck(list, name)`; Moxfield and Archidekt supported; review before save |
+| Exact current rules, subrules, glossary and keyword evidence | `search_rules`, with effective edition, source and retrieval time |
 | Deck construction and upgrade workflow | `build_commander` / `review_deck` prompts compose research, collection, validation, comparison and staged save tools; the assistant makes card choices |
-| Curve, colors, descriptive land access and role hints | `deck_analysis`; unknown mana data remains unknown; role labels are explicitly heuristic |
-| Ownership and budget | `deck_analysis`, `collection_cards`; proxies separate, dates and missing-price counts explicit; owned does not mean unreserved |
-| Cheaper printing selection | `deck_analysis` uses eligible nonfoil paper snapshots within three days of the card's newest snapshot; `card_printings` supplies current alternatives |
+| Curve, colors, descriptive land access and role hints | `get_deck_analysis`; unknown mana data remains unknown; role labels are explicitly heuristic |
+| Ownership and budget | `get_deck_analysis`, `list_collection_cards`; proxies separate, dates and missing-price counts explicit; owned does not mean unreserved |
+| Cheaper printing selection | `get_deck_analysis` uses eligible nonfoil paper snapshots within three days of the card's newest snapshot; `list_card_printings` supplies current alternatives |
 | Reproducible hands, London mulligan draw/bottom count | `sample_hands`; actual bottom/keep decisions stay with the caller |
-| Exact qualifying-source draw probabilities | `mana_probability`; hypergeometric, with caller-defined sources and explicit assumptions |
-| Early land sequencing and colored payment | `mana_test`; bounded seeded trials, tapped lands, distinct source assignments, coverage, trace, policy and sampling intervals |
-| Persistent lists, snapshots, comparisons and restores | Existing immutable deck versions; `deck_history`, `deck_analysis(version)`, `compare_decks`, `save_deck` |
+| Exact qualifying-source draw probabilities | `get_mana_probability`; hypergeometric, with caller-defined sources and explicit assumptions |
+| Early land sequencing and colored payment | `test_mana`; bounded seeded trials, tapped lands, distinct source assignments, coverage, trace, policy and sampling intervals |
+| Persistent lists, snapshots, comparisons and restores | Existing immutable deck versions; `list_deck_versions`, `get_deck_analysis(version)`, `compare_decks`, `save_deck` |
 | Reviewable full-list construction or replacement | `save_deck`, with full validation, stale-version rejection, and deck plus applied marker committed atomically |
 | Real-game results and gameplay simulation | Existing deck/plan tools and Phase / Forge lab tools; research popularity is not substituted for evidence |
 | Discoverable workflows and addressable data | Three prompts; source resource and owner-checked deck/card resource templates |
@@ -98,7 +98,7 @@ model assumptions and user goals in the workflow/version note instead.
 - A live Scryfall price response has an **observation timestamp**, not an asserted snapshot date.
   Local market totals use real stored snapshot dates, eligible nonfoil copies, basics and explicit
   missing-copy counts. No price implies stock, a store quote or the resale value of owned copies.
-- `mana_test` is a lands-only model under a fixed greedy land policy. It cannot model ramp,
+- `test_mana` is a lands-only model under a fixed greedy land policy. It cannot model ramp,
   fetches, filters, alternative costs, mulligans, conditional mana or actual spell availability.
   Unsupported sources stay in the draws but produce no modeled mana, and are listed. Sampling
   intervals cover trial noise only, not model error. Actual gameplay uses the existing engines.

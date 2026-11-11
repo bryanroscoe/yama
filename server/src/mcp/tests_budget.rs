@@ -375,7 +375,7 @@ async fn the_review_queue_and_changes_page_with_a_cursor() {
     assert!(!err && first.starts_with("50 changes are waiting"), "{first}");
     assert_eq!(first.lines().filter(|l| l.starts_with("- ")).count(), 25, "{first}");
     assert!(first.lines().all(|l| l.chars().count() < 600), "a long summary is cut: {first}");
-    assert!(first.contains("`changes` with this id shows it whole"), "{first}");
+    assert!(first.contains("`list_changes` with this id shows it whole"), "{first}");
     let next = first.lines().find_map(|l| l.strip_prefix("next_cursor: ")).unwrap();
     let (_, second) = call(&app, &mcp, "changes", json!({"cursor": next})).await;
     assert_eq!(second.lines().filter(|l| l.starts_with("- ")).count(), 25, "{second}");
@@ -508,10 +508,10 @@ async fn data_answers_are_structured_paged_by_cursor_and_say_whose_text_they_car
     assert!(overview.get("structuredContent").is_none(), "{overview}");
     let (_, listed) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("tools/list", json!({})))).await;
     let tool = |name: &str| listed["result"]["tools"].as_array().unwrap().iter().find(|t| t["name"] == name).unwrap().clone();
-    assert_eq!(tool("collection_summary")["outputSchema"]["type"], "object");
-    assert!(tool("games")["outputSchema"]["properties"]["next_cursor"].is_object());
-    assert!(tool("overview").get("outputSchema").is_none());
-    assert_eq!(tool("overview")["inputSchema"]["properties"]["chunk"]["type"], "string");
+    assert_eq!(tool("get_collection_summary")["outputSchema"]["type"], "object");
+    assert!(tool("list_games")["outputSchema"]["properties"]["next_cursor"].is_object());
+    assert!(tool("get_overview").get("outputSchema").is_none());
+    assert_eq!(tool("get_overview")["inputSchema"]["properties"]["chunk"]["type"], "string");
     assert!(tool("add_wish")["inputSchema"]["properties"].get("chunk").is_none() && tool("apply_change")["inputSchema"]["properties"].get("chunk").is_none(), "only a read is continued");
 
     // Games: next_cursor walks every game once; the older offset argument still works; a

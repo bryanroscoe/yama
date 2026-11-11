@@ -8,7 +8,7 @@ lists. Gameplay profiles explain setup, pressure, finishers, interaction, consis
 MCP `save_research({document})` and session `POST /api/research` store a private
 `yama-research/1` report. Through the MCP, a document that drops a deck or build one of your plans
 tracks is refused, and nothing is saved, unless the call also passes `stop_plans: true`: saving it
-would archive that plan and retire its swaps. `research()` lists reports; `research({id,deck?,build?})` reads a report
+would archive that plan and retire its swaps. `get_research()` lists reports; `get_research({id,deck?,build?})` reads a report
 and its reviews. A focused deck read excludes unrelated global shopping scenarios and narrows
 store evidence. The same file can be imported on the Research page or with
 `yama-server import-research FILE --owner EMAIL [--dry-run]`.

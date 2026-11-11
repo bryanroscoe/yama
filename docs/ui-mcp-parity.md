@@ -32,53 +32,53 @@ part of it). "Gap" rows are the backlog, in rough priority order inside each are
 
 | Capability | UI | MCP | Status |
 |---|---|---|---|
-| Search Yama's card catalog (local grammar) | Cards | `find_cards` | Both |
-| One card: Oracle text, legality, rulings, owned copies | Card view | `card` | Both |
-| Printings and their prices | Card view | `card_printings` | Both |
-| Price history over time | Card view (PriceHistory) | `price_history` | Both |
+| Search Yama's card catalog (local grammar) | Cards | `search_cards` | Both |
+| One card: Oracle text, legality, rulings, owned copies | Card view | `get_cards` | Both |
+| Printings and their prices | Card view | `list_card_printings` | Both |
+| Price history over time | Card view (PriceHistory) | `get_price_history` | Both |
 | Add a copy of a printing from the card | Card view | `add_to_collection` (staged) | Both |
 | Release calendar; watch a set | Cards (Upcoming) | — | **Gap (MCP)**, read the calendar; watching is a small staged write |
 | Full online Scryfall search (complete grammar) | — | `search_scryfall` | MCP only. Gap: see "No good design yet" |
-| Official rules, subrules, glossary lookup | — | `rules_lookup` | MCP only. Gap: no design |
-| Data sources, freshness, limits | What's new / footer notes (partial) | `research_sources` | Partial |
+| Official rules, subrules, glossary lookup | — | `search_rules` | MCP only. Gap: no design |
+| Data sources, freshness, limits | What's new / footer notes (partial) | `get_research_sources` | Partial |
 
 ## Decks
 
 | Capability | UI | MCP | Status |
 |---|---|---|---|
-| List decks | Decks | `overview` | Both |
-| Read a deck: list, bracket, legality, Game Changers, results | Deck page | `deck` | Both |
-| Stats: curve, colors, combos, bracket reasons, value | Deck page, Stats tab; Why this bracket | `deck_analysis` | Both (MCP has role hints, UI has the charts) |
+| List decks | Decks | `get_overview` | Both |
+| Read a deck: list, bracket, legality, Game Changers, results | Deck page | `get_deck` | Both |
+| Stats: curve, colors, combos, bracket reasons, value | Deck page, Stats tab; Why this bracket | `get_deck_analysis` | Both (MCP has role hints, UI has the charts) |
 | Edit the list (add/remove) | Edit list | `edit_deck` (staged) | Both |
 | Create a deck from a pasted list | Import | `save_deck` (staged) | Both |
-| Import a public Moxfield or Archidekt deck | Import | `public_deck` + `save_deck` | Both |
-| Version history and differences | Deck page, History tab | `deck_history`, `compare_decks` | Both |
+| Import a public Moxfield or Archidekt deck | Import | `get_public_deck` + `save_deck` | Both |
+| Version history and differences | Deck page, History tab | `list_deck_versions`, `compare_decks` | Both |
 | Restore an older version | History tab | `save_deck` with the old list | Both |
-| Validate a list without saving | Import preview, Edit list | `check_list` | Both |
+| Validate a list without saving | Import preview, Edit list | `check_deck_list` | Both |
 | Delete a deck or configuration | Deck settings | `delete_deck` (staged) | Both |
 | Rename, move to a box, declare a bracket | Deck settings, Declare bracket | — | **Gap (MCP).** Stage `deck_settings` |
-| Export the list as text | Deck export (copy, .txt) | `deck` returns the list | Both |
-| Bracket check (re-run) | Bracket, Why this bracket | `deck`, `deck_analysis` | Both |
-| Configurations: save a copy as a new list, make a list the one in the box | Deck page | Read via `deck`; delete via `delete_deck` | **Gap (MCP)** for creating and switching |
+| Export the list as text | Deck export (copy, .txt) | `get_deck` returns the list | Both |
+| Bracket check (re-run) | Bracket, Why this bracket | `get_deck`, `get_deck_analysis` | Both |
+| Configurations: save a copy as a new list, make a list the one in the box | Deck page | Read via `get_deck`; delete via `delete_deck` | **Gap (MCP)** for creating and switching |
 | Add a deck's cards to the collection, optionally as proxies (Collect) | Collect sheet | — | **Gap (MCP).** Stage `collect_deck` |
 | Deck check: scan or tick the cards physically in the box | Check, Scan pages | — | UI only (physical; camera) |
 | Share a deck (visibility, new link) | Share deck | — | **Gap (MCP)**, privacy-sensitive: stage it, never apply from Ask Claude |
 | Send a deck to Mythic Tools | Deck page | — | UI only (outside service hand-off) |
 | Online play support (what the engine can't run) | Stats tab | — | **Gap (MCP)**, read |
 | Sample opening hands, mulligan | Deck page, Sample hand | `sample_hands` (seeded, several hands) | Both |
-| Exact draw probabilities | — | `mana_probability` | MCP only. Gap: no design |
-| Land sequencing and colored-mana test | — | `mana_test` | MCP only. Gap: no design |
-| Combos in the deck | Stats tab (combos, Why this bracket) | `find_combos(deck, share_list)` | Both |
-| Search combos by card (not in a deck) | — | `find_combos(query)` | MCP only. Gap: no design |
-| Commander recommendations (EDHREC) | Link out on precon pages | `commander_recommendations` | MCP only. Gap: no design |
-| Game results for a deck | Stats tab, History tab | `deck` | Both |
+| Exact draw probabilities | — | `get_mana_probability` | MCP only. Gap: no design |
+| Land sequencing and colored-mana test | — | `test_mana` | MCP only. Gap: no design |
+| Combos in the deck | Stats tab (combos, Why this bracket) | `search_combos(deck, share_list)` | Both |
+| Search combos by card (not in a deck) | — | `search_combos(query)` | MCP only. Gap: no design |
+| Commander recommendations (EDHREC) | Link out on precon pages | `get_commander_recommendations` | MCP only. Gap: no design |
+| Game results for a deck | Stats tab, History tab | `get_deck` | Both |
 
 ## Collection
 
 | Capability | UI | MCP | Status |
 |---|---|---|---|
-| Browse and filter copies | Collection | `collection_cards` | Both |
-| Totals, market value, paid, per-container values | Collection | `collection_summary` | Both (added 2026-11-09) |
+| Browse and filter copies | Collection | `list_collection_cards` | Both |
+| Totals, market value, paid, per-container values | Collection | `get_collection_summary` | Both (added 2026-11-09) |
 | Add copies | Collection, Scanner | `add_to_collection` (staged) | Both |
 | Move copies between containers | Collection | `move_cards` (staged) | Both |
 | Set condition | Collection item sheet | `set_condition` (staged) | Both |
@@ -94,49 +94,49 @@ part of it). "Gap" rows are the backlog, in rough priority order inside each are
 
 | Capability | UI | MCP | Status |
 |---|---|---|---|
-| Plans overview, one plan | Plans, plan page | `overview`, `plan_deck` | Both |
+| Plans overview, one plan | Plans, plan page | `get_overview`, `get_plan` | Both |
 | Use a note's build as the plan | Build choices, "Use a deck from it" | `track_build` (staged) | Both |
 | Approve a plan version, or keep the earlier one | Plan page | `approve_plan` (staged, `action` keep) | Both |
 | Archive, restore or undo a plan; clear refused decisions | Plan page | — | **Gap (MCP).** Stage plan actions |
 | Link a plan to a Yama deck | Plan page | `track_build` links its own; none for imported plans | **Gap (MCP)** |
-| Review queue, answer a swap | Plan page, Changes | `review_queue`, `answer_review` | Both |
+| Review queue, answer a swap | Plan page, Changes | `get_review_queue`, `answer_review` | Both |
 | Propose a swap | Plan page | `propose_swap` | Both |
 | Mark bought, installed; swap in prints | Plan page, Get cards | `mark_bought`, `mark_installed`, `swap_in_prints` | Both |
-| Shopping list, add a want | Get cards | `shopping_list`, `add_wish` | Both |
+| Shopping list, add a want | Get cards | `get_shopping_list`, `add_wish` | Both |
 | Remove a want; deck gaps as wants | Trip | — | **Gap (MCP).** Stage `remove_wish` |
-| Store trip | Trip | `shopping_trip` | Both |
-| Shopping rules, store preferences | Plan settings, Trip | `shopping_settings`, `set_shopping_rules`, `set_store_preference` | Both |
+| Store trip | Trip | `get_shopping_trip` | Both |
+| Shopping rules, store preferences | Plan settings, Trip | `get_shopping_settings`, `set_shopping_rules`, `set_store_preference` | Both |
 | Store order; remove a dated rule set | Trip, Plan settings | — | Gap (MCP), small |
-| Check stores' stock, read it | Get cards | `check_stores`, `store_stock` | Both |
-| Sealed product quotes: add, remove | Trip (sealed) | `shopping_list` shows them | Partial: **Gap (MCP)** for recording a quote |
-| Print proxies (MPC sheet), swap sheet, swap cards | Get cards (mpc, swap-sheet, swap-cards) | `shopping_trip` names what to print | Partial. The sheets are printable pages: UI only by nature |
+| Check stores' stock, read it | Get cards | `check_stores`, `get_store_stock` | Both |
+| Sealed product quotes: add, remove | Trip (sealed) | `get_shopping_list` shows them | Partial: **Gap (MCP)** for recording a quote |
+| Print proxies (MPC sheet), swap sheet, swap cards | Get cards (mpc, swap-sheet, swap-cards) | `get_shopping_trip` names what to print | Partial. The sheets are printable pages: UI only by nature |
 | Import a plan file | Plans (Import, with a dry run) | — | UI only: a file; the MCP equivalent is `save_research` + `track_build` |
-| Archived plans and earlier versions | Archived | `research` lists notes | Partial: **Gap (MCP)** for archived plan versions |
+| Archived plans and earlier versions | Archived | `get_research` lists notes | Partial: **Gap (MCP)** for archived plan versions |
 | Compare with a friend | Sharing, compare | `compare_with_friend` | Both |
 
 ## Research notes
 
 | Capability | UI | MCP | Status |
 |---|---|---|---|
-| Read notes, builds, scenarios | Research | `research` | Both |
+| Read notes, builds, scenarios | Research | `get_research` | Both |
 | Save or refresh a note | Plans, Import (upload the JSON) | `save_research` | Both. Writing a note's content is assistant-only by design (`plan/howto.tsx`) |
 | Record a preference or note | Research | `review_research` | Both |
 | Share a note (visibility, new link) | Research | — | **Gap (MCP)**, privacy-sensitive |
 | Save a copy of a shared note | Research (`?copy=`) | — | Gap (MCP), low priority |
-| Build choices across notes | Build choices | `overview` | Both |
+| Build choices across notes | Build choices | `get_overview` | Both |
 
 ## Lab, precons and datasets
 
 | Capability | UI | MCP | Status |
 |---|---|---|---|
-| Precon rankings, one precon with evidence | Lab, precon detail | `precon` (one) | Partial: **Gap (MCP)** for the ranked list |
-| Save a precon as a deck | Precon detail | `precon` + `save_deck` | Both |
-| Start a run, more games, run again, cancel | Lab Try / Compare, run page | `start_lab_run`, `more_lab_games`, `run_lab_again`, `cancel_lab_run` (staged, power users) | Both |
-| Runs, one run, games and tables | Runs, run, deck and table pages | `lab_runs`, `lab_run`, `lab_games` | Both |
+| Precon rankings, one precon with evidence | Lab, precon detail | `get_precon` (one) | Partial: **Gap (MCP)** for the ranked list |
+| Save a precon as a deck | Precon detail | `get_precon` + `save_deck` | Both |
+| Start a run, more games, run again, cancel | Lab Try / Compare, run page | `start_lab_run`, `add_lab_games`, `rerun_lab_run`, `cancel_lab_run` (staged, power users) | Both |
+| Runs, one run, games and tables | Runs, run, deck and table pages | `list_lab_runs`, `get_lab_run`, `list_lab_games` | Both |
 | Delete a run | Runs, run page | — | Gap (MCP), staged |
 | Batches of runs | Batch page | — | **Gap (MCP)**, read |
-| Check which engine supports a list | Compare | `deck_analysis` (partly) | Partial |
-| Datasets: list, read | Datasets | `datasets`, `dataset` | Both |
+| Check which engine supports a list | Compare | `get_deck_analysis` (partly) | Partial |
+| Datasets: list, read | Datasets | `list_datasets`, `get_dataset` | Both |
 | Datasets: import (admin), export | Datasets | — | UI only (file upload/download) |
 | Lab pace and engine status | Lab | — | Gap (MCP), low priority |
 
@@ -144,13 +144,13 @@ part of it). "Gap" rows are the backlog, in rough priority order inside each are
 
 | Capability | UI | MCP | Status |
 |---|---|---|---|
-| Game history, search, unfinished and unnamed games | Game history | `games` | Both (added 2026-11-09) |
-| One game, its event log | Game detail | `game` | Both (added 2026-11-09) |
+| Game history, search, unfinished and unnamed games | Game history | `list_games` | Both (added 2026-11-09) |
+| One game, its event log | Game detail | `get_game` | Both (added 2026-11-09) |
 | Life counter, share the table live | Table | — | UI only (live) |
 | Log a past game, edit a logged game | Table setup, game detail | — | **Gap (MCP).** Stage `log_game` |
 | Delete a game | Game detail | — | Gap (MCP), staged |
-| Playgroups: list, stats (commanders, players, rivalries) | Playgroup | `playgroups` | Both (added 2026-11-09). Assistants get names, never account or member ids |
-| A playgroup's games, including ones you weren't in | Playgroup | `games` covers only games you recorded or sat in | Partial: **Gap (MCP)**, a `playgroup` argument on `games` |
+| Playgroups: list, stats (commanders, players, rivalries) | Playgroup | `list_playgroups` | Both (added 2026-11-09). Assistants get names, never account or member ids |
+| A playgroup's games, including ones you weren't in | Playgroup | `list_games` covers only games you recorded or sat in | Partial: **Gap (MCP)**, a `playgroup` argument on `list_games` |
 | Playgroups: start, join, add a guest | Playgroup | — | Gap (MCP), staged; low priority |
 | Export games as CSV or JSON | Playgroup | — | UI only (a file) |
 | Mythic Tools: import games, send a deck | Mythic pages | — | UI only for now (file and outside service) |
@@ -160,7 +160,7 @@ part of it). "Gap" rows are the backlog, in rough priority order inside each are
 
 | Capability | UI | MCP | Status |
 |---|---|---|---|
-| Changes waiting for review: list, apply, discard | Changes, Ask Claude panel | `changes`, `apply_change`, `discard_change` (outside clients) | Both |
+| Changes waiting for review: list, apply, discard | Changes, Ask Claude panel | `list_changes`, `apply_change`, `discard_change` (outside clients) | Both |
 | Sharing settings (profile, collection, want list, decks) | Sharing | — | UI only on purpose for now: changing who sees your data is a privacy decision |
 | Script keys, connected apps, Ask Claude settings and conversations | Plans settings, Your profile > Account settings | — | UI only on purpose (credentials) |
 | Delete account | Settings | — | UI only on purpose |
@@ -174,11 +174,11 @@ this list whenever a gap is found that can't simply reuse an existing pattern.
 
 | Capability | Where it might live | Open design questions |
 |---|---|---|
-| Draw probabilities and land sequencing (`mana_probability`, `mana_test`) | Deck page, Stats tab beside the pip chart, or the Sample hand | How to define "sources" without a form full of numbers; how to show model limits honestly |
-| Rules lookup (`rules_lookup`) | Card view (rules for this card's keywords), a search box in Cards | A rules reader page vs inline results; showing the edition and source date |
+| Draw probabilities and land sequencing (`get_mana_probability`, `test_mana`) | Deck page, Stats tab beside the pip chart, or the Sample hand | How to define "sources" without a form full of numbers; how to show model limits honestly |
+| Rules lookup (`search_rules`) | Card view (rules for this card's keywords), a search box in Cards | A rules reader page vs inline results; showing the edition and source date |
 | Full Scryfall search (`search_scryfall`) | Cards, as a "search everything online" fallback | When to leave the local catalog; rate limits and paging; outside results' prices vs Yama's dated ones |
-| Commander recommendations (`commander_recommendations`) | Deck page (Plan or Stats tab), precon detail | Presenting popularity without implying it's proof of strength; owned-first filter; budget tiers |
-| Combo search by card (`find_combos(query)`) | Card view ("combos with this card") | Prerequisites and steps on a small screen; Commander Spellbook credit |
+| Commander recommendations (`get_commander_recommendations`) | Deck page (Plan or Stats tab), precon detail | Presenting popularity without implying it's proof of strength; owned-first filter; budget tiers |
+| Combo search by card (`search_combos(query)`) | Card view ("combos with this card") | Prerequisites and steps on a small screen; Commander Spellbook credit |
 | Logging a finished game from the MCP | — (the Table already logs games) | Not a UI design question; the staged change needs a review card that shows seats and the winner |
 | Staged-change review cards for every new tool kind | Changes, Ask Claude panel | Each new staged kind needs a before/after card that reads well; a generic JSON card is not acceptable |
 | Sell list in the MCP | — | What an assistant should say about selling: buylist cash vs credit (AGENTS.md, deck valuation) |

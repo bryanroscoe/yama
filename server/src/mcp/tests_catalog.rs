@@ -66,7 +66,7 @@ fn every_tool_is_well_formed() {
         let names = names(&tools);
         let decides = names.contains(&"apply_change") || names.contains(&"discard_change");
         assert_eq!(decides, via.may_apply(), "{label}: only outside clients apply and discard");
-        let simulates = ["start_lab_run", "more_lab_games", "run_lab_again"].iter().any(|n| names.contains(n));
+        let simulates = ["start_lab_run", "add_lab_games", "rerun_lab_run"].iter().any(|n| names.contains(n));
         assert_eq!(simulates, user.power, "{label}: only power users start simulations");
     }
 }
@@ -92,13 +92,13 @@ fn annotations_say_where_a_tool_reaches() {
     let full = tools::list(&who(true), &Via::Key);
     let outside = |name: &str| full.iter().find(|t| t["name"] == name).unwrap()["annotations"]["openWorldHint"] == true;
     // card_printings reads Yama's own printings and prices (since 2026-11-02): no outside request.
-    assert!(!outside("card_printings"));
+    assert!(!outside("list_card_printings"));
     // check_stores only stages, but applying it reads the stores' sites.
     assert!(outside("check_stores"));
-    for reaches in ["search_scryfall", "commander_recommendations", "find_combos", "public_deck", "rules_lookup"] {
+    for reaches in ["search_scryfall", "get_commander_recommendations", "search_combos", "get_public_deck", "search_rules"] {
         assert!(outside(reaches), "{reaches}");
     }
-    for local in ["find_cards", "card", "deck", "deck_analysis", "edit_deck", "apply_change", "save_research", "store_stock"] {
+    for local in ["search_cards", "get_cards", "get_deck", "get_deck_analysis", "edit_deck", "apply_change", "save_research", "get_store_stock"] {
         assert!(!outside(local), "{local}");
     }
     // A read says nothing about destroying or repeating: those hints are for writes.
@@ -197,9 +197,9 @@ async fn every_tool_answers_empty_and_wrong_arguments_cleanly() {
     let (err, text) = clean_call(&app, &plain, "check_list", json!({"list": format!("{}1 Sol Ring", " x".repeat(40_000))})).await;
     assert!(err && text == "list is too long: at most 65536 characters", "{text}");
     let (err, text) = clean_call(&app, &plain, "card", json!({"names": ["Sol Ring", "y".repeat(301)]})).await;
-    assert!(err && text == "names: each one is at most 300 characters", "{text}");
+    assert!(err && text == "cards: each one is at most 300 characters", "a refusal names the argument the schema lists: {text}");
     let (err, text) = clean_call(&app, &plain, "games", json!({"search": "z".repeat(1001)})).await;
-    assert!(err && text == "search is too long: at most 1000 characters", "{text}");
+    assert!(err && text == "query is too long: at most 1000 characters", "{text}");
     // Arguments that aren't an object at all.
     for args in [Value::Null, json!([]), json!("text")] {
         clean_call(&app, &plain, "overview", args.clone()).await;
@@ -214,7 +214,7 @@ async fn every_tool_answers_empty_and_wrong_arguments_cleanly() {
 /// `deck`.) A tool with one of these must be in
 /// `isolation_cases` (or `ISOLATION_ELSEWHERE`), so a new tool that takes an id can't ship
 /// without its two-account check.
-const OWNED: [&str; 13] = ["id", "deck", "plan", "key", "store", "stores", "container", "from", "to", "other", "entrants", "left", "right"];
+const OWNED: [&str; 14] = ["id", "run_id", "deck", "plan", "key", "store", "stores", "container", "from", "to", "other", "entrants", "left", "right"];
 
 /// Tools with an owned argument whose isolation is tested where their fixtures live.
 const ISOLATION_ELSEWHERE: [(&str, &str); 1] = [("dataset", "datasets/tests.rs, mcp_reads_are_owner_scoped_and_never_offer_dataset_import_permissions")];
@@ -369,7 +369,8 @@ async fn no_tool_reads_or_changes_another_accounts_rows() {
     let cases = isolation_cases(&fixture);
 
     // Every tool that takes something owned has a case here, or its test elsewhere.
-    let covered: BTreeSet<&str> = cases.iter().map(|c| c.0).chain(ISOLATION_ELSEWHERE.iter().map(|e| e.0)).collect();
+    // The cases call tools by the names they had before the renames; that is the aliases' test.
+    let covered: BTreeSet<&str> = cases.iter().map(|c| c.0).chain(ISOLATION_ELSEWHERE.iter().map(|e| e.0)).map(|name| super::registry::find(name).expect("a tool or an older name of one").name).collect();
     for t in listed(&app, &a_key).await {
         let name = t["name"].as_str().unwrap().to_string();
         let owned: Vec<&String> = t["inputSchema"]["properties"].as_object().unwrap().keys().filter(|p| OWNED.contains(&p.as_str())).collect();
@@ -434,4 +435,102 @@ fn the_public_guide_lists_the_real_catalog() {
         groups += 1;
     }
     assert!(groups >= 5, "{groups} groups");
+}
+
+// ── the renames (2026-11-11) ────────────────────────────────────────────────
+
+/// Connected clients must not have to reconnect: a client that still has the old list calls the
+/// old names with the old arguments, and gets what it always got.
+#[tokio::test]
+async fn old_tool_names_and_old_argument_names_still_work() {
+    let (app, pool) = app().await;
+    seed_cards(&pool).await;
+    let (owner, session) = power_user(&pool, "owner@example.com").await;
+    let mcp = key(&app, &session, Some("mcp")).await;
+    one_of_everything(&app, &pool, &owner, &mcp).await;
+    let tools = listed(&app, &mcp).await;
+    let listed_names = names(&tools);
+
+    // Every older name answers as the tool it became, and none is listed.
+    let mut older = 0;
+    for t in super::registry::all() {
+        for alias in t.aliases {
+            older += 1;
+            assert!(!listed_names.contains(alias), "{alias} is an older name and shouldn't be listed");
+            assert!(listed_names.contains(&t.name), "{} isn't listed", t.name);
+            let (old_err, old_text) = clean_call(&app, &mcp, alias, json!({})).await;
+            let (new_err, new_text) = clean_call(&app, &mcp, t.name, json!({})).await;
+            assert_eq!(old_err, new_err, "{alias} and {} disagree", t.name);
+            if old_err {
+                assert_eq!(old_text, new_text, "{alias} and {} refuse differently", t.name);
+            }
+        }
+    }
+    assert_eq!(older, 37, "the renamed tools");
+}
+
+#[tokio::test]
+async fn renamed_arguments_work_under_either_name() {
+    let (app, pool) = app().await;
+    seed_cards(&pool).await;
+    let (owner, session) = power_user(&pool, "owner@example.com").await;
+    let mcp = key(&app, &session, Some("mcp")).await;
+    one_of_everything(&app, &pool, &owner, &mcp).await;
+    let tools = listed(&app, &mcp).await;
+    let schema = |name: &str| tools.iter().find(|t| t["name"] == name).unwrap()["inputSchema"].clone();
+
+    // The list shows the new name only, required where the old one was.
+    let run = schema("get_lab_run");
+    assert!(run["properties"]["run_id"].is_object() && run["properties"].get("id").is_none(), "{run}");
+    assert_eq!(run["required"], json!(["run_id"]));
+    assert!(schema("get_plan")["properties"]["plan"].is_object() && schema("get_shopping_trip")["properties"]["as_of"].is_object());
+    assert!(schema("list_games")["properties"]["query"].is_object() && schema("get_cards")["properties"]["cards"].is_object());
+    assert!(schema("propose_swap")["properties"]["reason"].is_object() && schema("propose_swap")["properties"].get("why").is_none());
+    // A renamed argument keeps the length it could always be.
+    assert_eq!(schema("propose_swap")["properties"]["reason"]["maxLength"], 2000);
+    assert_eq!(schema("edit_deck")["properties"]["reason"]["maxLength"], 6000);
+
+    // Old tool with its old argument, new tool with its new one: the same answer.
+    for (old, old_args, new, new_args) in [
+        ("card", json!({"names": ["Sol Ring"]}), "get_cards", json!({"cards": ["Sol Ring"]})),
+        ("games", json!({"search": "SECRET"}), "list_games", json!({"query": "SECRET"})),
+        ("shopping_list", json!({"today": "2026-11-01"}), "get_shopping_list", json!({"as_of": "2026-11-01"})),
+        ("card_printings", json!({"name": "Sol Ring"}), "list_card_printings", json!({"card": "Sol Ring"})),
+    ] {
+        let (old_err, old_text) = clean_call(&app, &mcp, old, old_args.clone()).await;
+        let (new_err, new_text) = clean_call(&app, &mcp, new, new_args.clone()).await;
+        assert!(!old_err && !new_err, "{old} {old_args}: {old_text}\n{new} {new_args}: {new_text}");
+        assert_eq!(old_text, new_text, "{old} and {new}");
+        // The new tool also takes the old argument, and the old tool the new one.
+        let (err, text) = clean_call(&app, &mcp, new, old_args).await;
+        assert!(!err && text == new_text, "{new} with the old argument: {text}");
+        let (err, text) = clean_call(&app, &mcp, old, new_args).await;
+        assert!(!err && text == new_text, "{old} with the new argument: {text}");
+    }
+    let (err, text) = clean_call(&app, &mcp, "list_games", json!({"query": "SECRET"})).await;
+    assert!(!err && text.contains("SECRET Kelly"), "{text}");
+
+    // A refusal names the argument the schema lists, whichever name the handler reads.
+    for (tool, args, says) in [
+        ("get_lab_run", json!({}), "run_id is missing"),
+        ("lab_run", json!({}), "run_id is missing"),
+        ("get_plan", json!({}), "plan is missing"),
+        ("get_shopping_trip", json!({"as_of": "soon"}), "as_of: \"soon\" isn't a YYYY-MM-DD date"),
+        ("get_cards", json!({}), "cards is missing"),
+        ("propose_swap", json!({"plan": "plan-a", "card_in": "Sol Ring", "why": "a", "reason": "b"}), "why is the older name of reason: give only reason"),
+    ] {
+        let (err, text) = clean_call(&app, &mcp, tool, args.clone()).await;
+        assert!(err && text == says, "{tool} {args}: {text}");
+    }
+
+    // One op id is one request, under either name of an argument.
+    let op = "5d2b9a52-1f1e-4d3c-9a56-0f2d8c1b7e11";
+    let (err, first) = clean_call(&app, &mcp, "propose_swap", json!({"plan": "plan-a", "card_in": "Sol Ring", "why": "It ramps.", "op_id": op})).await;
+    assert!(!err && first.starts_with("Staged for their review"), "{first}");
+    let (err, again) = clean_call(&app, &mcp, "propose_swap", json!({"plan": "plan-a", "card_in": "Sol Ring", "reason": "It ramps.", "op_id": op})).await;
+    assert!(!err && again.starts_with("Already staged with this op_id"), "{again}");
+    // What is stored keeps the names it always had: the change kind and its payload.
+    let (kind, payload): (String, String) = sqlx::query_as("SELECT kind, payload FROM assistant_changes WHERE owner_id = ? AND op_id = ?").bind(&owner).bind(op).fetch_one(&pool).await.unwrap();
+    assert_eq!(kind, "propose_swap");
+    assert_eq!(serde_json::from_str::<Value>(&payload).unwrap()["why"], "It ramps.");
 }

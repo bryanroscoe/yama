@@ -14,7 +14,7 @@ Google sign-in. Its hosted MCP endpoint is https://yama.ing/mcp.
    action. Have the person sign in to Yama and approve the connection in the
    provider page. Never request a password or token in chat, read credential
    files, or put credentials in plugin files.
-3. Once connected, call `overview` without arguments. Report whether it succeeded
+3. Once connected, call `get_overview` without arguments. Report whether it succeeded
    and the number of decks/plans found, without dumping their private contents.
    An empty account is a valid connection, not an authentication failure.
 4. If the host cannot load newly installed tools in this conversation, tell the

@@ -952,6 +952,8 @@ Bryan asked for "a full MCP" to work on his decks, for Ask Claude and for outsid
 
 **Results and paging (2026-11-11).** Every list pages with `cursor` and `next_cursor`, with the older `page` and `offset` arguments still accepted. JSON answers declare an `outputSchema` and are also given as `structuredContent`; `find_cards` answers with rows. `detail: "summary"` shortens `games` and `collection_cards`. A missing price is `null` beside a `null` date. An answer over 40,000 characters is cut with a `chunk` for the rest instead of being refused (`registry::respond`). Answers carrying outside or other people's text say so.
 
+**Tool names (2026-11-11).** The tools follow one convention (`list_`, `get_`, `search_` for reads, a verb and a noun for writes; `deck`, `plan`, `run_id`, `card`, `reason`, `as_of`, `query`, `limit`, `cursor` for arguments). 37 tools were renamed; the table is in `docs/mcp-design.md`, "Names". Every older tool name and argument name still works (`registry::Tool::aliases` and `renamed`), so a connected client needs nothing; only `tools/list` changed. Stored change kinds are unchanged. Paragraphs in this file written before that date use the names the tools had then.
+
 #### Persistent deck research and review (2026-10-27)
 
 Shown under **Plans** since 2026-11-04 (see "One plan page" below); before that as **Agent notes**

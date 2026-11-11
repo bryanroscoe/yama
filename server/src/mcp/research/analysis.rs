@@ -276,7 +276,7 @@ pub async fn history(st: &AppState, user: &User, args: &Value) -> AppResult<Valu
     let rows: Vec<(String,Option<String>,String)> = sqlx::query_as("SELECT id,note,created_at FROM deck_versions WHERE deck_id = ? ORDER BY rowid DESC LIMIT 100").bind(&id).fetch_all(&st.pool).await?;
     Ok(
         json!({"deck_id":id,"versions":rows.into_iter().map(|(id,note,at)|json!({"id":id,"note":note,"created_at":at})).collect::<Vec<_>>(),
-        "note":"Use deck_analysis with deck and version to inspect or export a historical list. save_deck stages restoring that list as a new version."}),
+        "note":"Use get_deck_analysis with deck and version to inspect or export a historical list. save_deck stages restoring that list as a new version."}),
     )
 }
 

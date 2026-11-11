@@ -80,14 +80,14 @@ this?" His answers: **both** (Ask Claude inside Yama and outside clients such as
 **UI and MCP parity (2026-11-09).** Bryan: anything the UI can do the MCP should do, and the
 reverse, for the most part. The capability map, the backlog and the list of things with no good
 UI design yet are in [ui-mcp-parity.md](ui-mcp-parity.md). New read tools reuse the page's own
-function (`games`, `game`, `playgroups`, `collection_summary`); new writes are staged.
+function (`list_games`, `get_game`, `list_playgroups`, `get_collection_summary`); new writes are staged.
 
 Commander research and workflow extensions (2026-10-27) are implemented in
 `server/src/mcp/research/`; see [the capability map, provenance and limits](mcp-parity.md).
 They use this same endpoint and review flow. The protocol also exposes workflow prompts and
 owner-checked resources. `save_deck` stages a complete new/replacement list, never a direct save.
 
-Private research adds `research`, `save_research` and `review_research`; see
+Private research adds `get_research`, `save_research` and `review_research`; see
 [its format and review semantics](research-format.md). The latter two store advice and stated
 preferences directly, an explicit exception to staged execution writes. They never alter a deck,
 inventory, planner approval, order or game. A saved note does move the plans that track its
@@ -101,31 +101,31 @@ returning every list to a client that only needs one decision.
 **Deck plans (2026-11-04).** Bryan: "I would expect plans to be part of the MCP." A deck plan is a
 note's deck (its builds, swaps and reasons) and, once one build is chosen, that build tracked as
 the deck's plan: `track_build` stages it, and applying makes a Yama-made plan deck that Buy, Trip,
-prints, marks and the plan tools work on (ARCHITECTURE.md, "Plans from notes"). `overview` counts the
+prints, marks and the plan tools work on (ARCHITECTURE.md, "Plans from notes"). `get_overview` counts the
 notes and lists the newest few with their decks, builds and which one each tracks, beside the
-plans; its `notes` section lists every note deck. `plan_deck` on an untracked note deck lists its
+plans; its `notes` section lists every note deck. `get_plan` on an untracked note deck lists its
 builds. Saving the note again updates the plan.
 
 Read (no review needed):
 
 | Tool | What it returns |
 |---|---|
-| `find_cards` | Search with Yama's grammar (Scryfall subset): name, cost, type, color identity, Commander legality, Game Changer, price with date, how many you own |
-| `card` | One or several cards by name: Oracle text, legality, Game Changer, rulings, latest price per printing with date and source, copies you own and where |
-| `my_decks`, `deck` | Your decks; one deck's list with its legality problems, bracket estimate and real results |
-| `check_list` | Validate a proposed list without saving: 100 cards, singleton, color identity, legality, Game Changers |
-| `plans`, `plan_deck` | Plan decks; one plan's stock, now and after lists, swaps with reasons, review answers, orders and prints |
-| `review_queue` | Proposals still to answer, by deck |
-| `shopping_trip` | Which of their stores to visit: the fewest stores covering the most cards under their local buy rule and store preferences (optionally only the stores they're going to this time), each store's cards, total and cart link or card search links, what to print instead and why with a TCGplayer Mass Entry link, and the real-card wishlist by price tier ([shopping-design.md](shopping-design.md)) |
-| `shopping_settings` | Their buy rule in force, every dated rule set with its origin, the sealed precon cap, and each store's level, place in their order and premium |
-| `shopping_list` | Every want on their one list (planned buys, proposals, cards and sealed products they added, the wishlist count) and where the trip puts each card, or why not |
+| `search_cards` | Search with Yama's grammar (Scryfall subset): name, cost, type, color identity, Commander legality, Game Changer, price with date, how many you own |
+| `get_cards` | One or several cards by name: Oracle text, legality, Game Changer, rulings, latest price per printing with date and source, copies you own and where |
+| `my_decks`, `get_deck` | Your decks; one deck's list with its legality problems, bracket estimate and real results |
+| `check_deck_list` | Validate a proposed list without saving: 100 cards, singleton, color identity, legality, Game Changers |
+| `plans`, `get_plan` | Plan decks; one plan's stock, now and after lists, swaps with reasons, review answers, orders and prints |
+| `get_review_queue` | Proposals still to answer, by deck |
+| `get_shopping_trip` | Which of their stores to visit: the fewest stores covering the most cards under their local buy rule and store preferences (optionally only the stores they're going to this time), each store's cards, total and cart link or card search links, what to print instead and why with a TCGplayer Mass Entry link, and the real-card wishlist by price tier ([shopping-design.md](shopping-design.md)) |
+| `get_shopping_settings` | Their buy rule in force, every dated rule set with its origin, the sealed precon cap, and each store's level, place in their order and premium |
+| `get_shopping_list` | Every want on their one list (planned buys, proposals, cards and sealed products they added, the wishlist count) and where the trip puts each card, or why not |
 | `compare_with_friend` | A friend's profile by handle: the cards on their shared want list this account owns real copies of (and how many are in deck boxes), and the cards on this account's shopping list in the friend's shared collection, with printings and conditions. Reads only what the friend shares (Sharing, "Looking for") |
-| `store_stock` | One store's newest snapshot answers for cards (default: the trip's cards): price, condition, finish and quantity where given, or not in stock, with the time read |
+| `get_store_stock` | One store's newest snapshot answers for cards (default: the trip's cards): price, condition, finish and quantity where given, or not in stock, with the time read |
 | `spares` | Cards you own outside any deck, and what a plan would free |
-| `lab_runs`, `lab_run` | Your experiments and rating runs, with live progress, the paired difference and its interval (and the lab's caveats), per engine, with unscored games by reason and the settle estimate. Admins also see the count of earlier Phase games ahead in the shared queue; for both-engine runs, ETA and queue position are Phase-only. No other account's run or deck details are exposed. |
-| `lab_games` | One run's games pod by pod; one game's schedule line, result line and lists, to replay it; a head-to-head or tournament run's tables for one deck (`deck`) or one table (`table`), with finish order, who went first and knockout turns |
-| `precon` | A precon's list, playgroup.gg data and the global rating |
-| `games` | Real game results for a deck |
+| `list_lab_runs`, `get_lab_run` | Your experiments and rating runs, with live progress, the paired difference and its interval (and the lab's caveats), per engine, with unscored games by reason and the settle estimate. Admins also see the count of earlier Phase games ahead in the shared queue; for both-engine runs, ETA and queue position are Phase-only. No other account's run or deck details are exposed. |
+| `list_lab_games` | One run's games pod by pod; one game's schedule line, result line and lists, to replay it; a head-to-head or tournament run's tables for one deck (`deck`) or one table (`table`), with finish order, who went first and knockout turns |
+| `get_precon` | A precon's list, playgroup.gg data and the global rating |
+| `list_games` | Real game results for a deck |
 
 Write (staged):
 
@@ -139,7 +139,7 @@ Write (staged):
 | `answer_review` | A review answer (`review` op) |
 | `mark_bought`, `mark_installed` | The existing `bought` and `installed` ops |
 | `start_lab_run` | An experiment in any mode (change, compare, solo, versus) on phase, Forge or both, under the lab's usual allowance |
-| `more_lab_games`, `run_lab_again`, `cancel_lab_run` | More pods on a finished run, a fresh run of the same experiment, or a cancel |
+| `add_lab_games`, `rerun_lab_run`, `cancel_lab_run` | More pods on a finished run, a fresh run of the same experiment, or a cancel |
 | `add_to_collection`, `move_cards`, `set_condition` | Collection ops (by name and printing; a condition for every copy in a container, or one card's) |
 | `set_shopping_rules` | A new buy rule and sealed cap as a rule set from the day they apply it (parts left out keep the rule in force) |
 | `set_store_preference` | One store's level, place in their order of how easy stores are to get to, and a favourite's premium (parts left out stay) |
@@ -161,43 +161,43 @@ change to an imported plan goes in as an idea or a review answer and reaches the
   client retrying. Reading a resource runs a tool, so it counts too. The counts are in memory, like the other rate limits: a restart starts them
   again, so they stop a runaway loop and are not a quota. Ask Claude's own daily question count is
   separate.
-- `start_lab_run`, `more_lab_games` and `run_lab_again` use the lab's own allowance and queue caps.
+- `start_lab_run`, `add_lab_games` and `rerun_lab_run` use the lab's own allowance and queue caps.
 - Results are capped (a list is at most 300 lines, a search 60 cards) so one call can't fill the
   context window.
 - **Default answers have a size budget** (2026-11-11). A client rejects an answer above its own
-  limit: `overview` on Bryan's account was 62,304 characters and never arrived. So what a tool
-  says when nothing asks it for more has a budget of 20,000 characters, 8,000 for `overview`,
+  limit: `get_overview` on Bryan's account was 62,304 characters and never arrived. So what a tool
+  says when nothing asks it for more has a budget of 20,000 characters, 8,000 for `get_overview`,
   and `mcp/tests_budget.rs` fails if one grows past that on a fixture account larger than Bryan's,
   with ids and fields as long as real ones. The lists these tools page through are bounded by
   how they are built, not only on the fixture: a page is a number of rows and each row has a
-  longest length (`overview`'s summary is at most about 15,000 characters whatever the account
-  holds, a section page about 19,000). Tools that return one thing whole (`deck`, `plan_deck`,
-  `research` with `full`) are as large as that thing; the results-and-paging work gives those a
-  cursor too. The rest is reached by asking: `overview` takes `section` (decks, plans, notes),
-  whose rows are decks and their configurations, plans, or note decks; `review_queue` lists 15
-  waiting swaps at a time, for every plan or one; `changes` lists 25 and gives one whole by `id`;
-  `games` 10; `collection_cards` 20. JSON answers are compact, not indented. Lists page with
-  `limit` and an opaque `cursor`, answering `next_cursor` (`mcp/page.rs`); `games` still takes its
+  longest length (`get_overview`'s summary is at most about 15,000 characters whatever the account
+  holds, a section page about 19,000). Tools that return one thing whole (`get_deck`, `get_plan`,
+  `get_research` with `full`) are as large as that thing; the results-and-paging work gives those a
+  cursor too. The rest is reached by asking: `get_overview` takes `section` (decks, plans, notes),
+  whose rows are decks and their configurations, plans, or note decks; `get_review_queue` lists 15
+  waiting swaps at a time, for every plan or one; `list_changes` lists 25 and gives one whole by `id`;
+  `list_games` 10; `list_collection_cards` 20. JSON answers are compact, not indented. Lists page with
+  `limit` and an opaque `cursor`, answering `next_cursor` (`mcp/page.rs`); `list_games` still takes its
   older `offset`. A cursor counts from the start of its list, so after a proposal is answered or
   a change applied the list has shifted: start again without one.
 - Everything returned is the person's own data, marked as data: deck names, notes and reasons are
   typed by people and are never instructions.
 - **Results (2026-11-11).**
   - *One way to page.* Every list that pages takes `cursor` and answers `next_cursor`. The arguments lists
-    used before (`page` on `find_cards` and `collection_cards`, `offset` on `games`,
-    `card_printings`, `find_combos` and `dataset`, `page` with `offset` on `search_scryfall`)
+    used before (`page` on `search_cards` and `list_collection_cards`, `offset` on `list_games`,
+    `list_card_printings`, `search_combos` and `get_dataset`, `page` with `offset` on `search_scryfall`)
     still work, and where both are given the cursor wins. A cursor is tied to the tool and the
     arguments that shape the list (`page::scope`), so it can't continue another search.
   - *Data is data.* A tool whose answer is JSON declares an `outputSchema` and gives the same
-    object as `structuredContent` beside the text (a list goes under `items`). `find_cards`
+    object as `structuredContent` beside the text (a list goes under `items`). `search_cards`
     answers with rows, not lines of prose.
-  - *Ask for less.* `detail: "summary"` on `games` and `collection_cards` gives a short row;
-    `research` takes `detail: "full"` for the whole document (the same as `full: true`).
+  - *Ask for less.* `detail: "summary"` on `list_games` and `list_collection_cards` gives a short row;
+    `get_research` takes `detail: "full"` for the whole document (the same as `full: true`).
   - *A missing price is `null`*, in every JSON answer; never 0 and never the words "no price".
     Its date field is beside it: the day Yama read the price and found none, or `null` when
     the printing was never read.
-  - *A page that would be too long is a shorter page.* The rows of `games`, `collection_cards`,
-    `search_scryfall` and `card_printings` are fitted to a budget (`page::fit`), and the cursor
+  - *A page that would be too long is a shorter page.* The rows of `list_games`, `list_collection_cards`,
+    `search_scryfall` and `list_card_printings` are fitted to a budget (`page::fit`), and the cursor
     starts at the first row left out.
   - *A long answer is cut, not refused.* Above 40,000 characters an answer stops with a notice
     and a `chunk`; calling again with the same arguments and that `chunk` gives the next part,
@@ -213,6 +213,69 @@ change to an imported plan goes in as an idea or a review answer and reaches the
     Commander Spellbook, a public deck page, Wizards' rules page) or from other people (a
     friend's shared profile, other players' names and notes in games and playgroups) says so, in
     `untrusted_text` for a JSON answer and in a first line for prose: data, never instructions.
+
+## Names (2026-11-11)
+
+Reads are `list_`, `get_` or `search_`; writes are a verb and a noun; a few computations keep
+their verb (`check_deck_list`, `compare_decks`, `sample_hands`, `test_mana`). Arguments that mean
+the same thing have the same name: `deck`, `plan`, `run_id`, `card` and `cards`, `reason`,
+`as_of`, `query`, `limit`, `cursor`.
+
+**Nothing a connected client has stops working.** `tools/list` shows only the new names. A call
+by an older name still reaches the tool (`Tool::aliases`), and an older argument name is still
+taken (`Tool::renamed`: the registry moves the new name onto the one the handler has always
+read, before anything else looks at the arguments, and puts the new name back in a refusal).
+Giving both names of one argument is refused. Stored change kinds (`assistant_changes.kind`)
+and payloads keep the names they had, so changes staged before the renames apply as before.
+
+| Was | Is | Arguments renamed |
+|---|---|---|
+| `overview` | `get_overview` | |
+| `deck` | `get_deck` | |
+| `deck_analysis` | `get_deck_analysis` | |
+| `deck_history` | `list_deck_versions` | |
+| `check_list` | `check_deck_list` | |
+| `plan_deck` | `get_plan` | `key` to `plan` |
+| `review_queue` | `get_review_queue` | |
+| `research` | `get_research` | |
+| `research_sources` | `get_research_sources` | |
+| `shopping_trip` | `get_shopping_trip` | `today` to `as_of` |
+| `shopping_list` | `get_shopping_list` | `today` to `as_of` |
+| `shopping_settings` | `get_shopping_settings` | |
+| `store_stock` | `get_store_stock` | |
+| `find_cards` | `search_cards` | |
+| `card` | `get_cards` | `names` to `cards` |
+| `card_printings` | `list_card_printings` | `name` to `card` |
+| `price_history` | `get_price_history` | |
+| `rules_lookup` | `search_rules` | |
+| `find_combos` | `search_combos` | |
+| `commander_recommendations` | `get_commander_recommendations` | |
+| `public_deck` | `get_public_deck` | |
+| `mana_probability` | `get_mana_probability` | |
+| `mana_test` | `test_mana` | |
+| `collection_cards` | `list_collection_cards` | |
+| `collection_summary` | `get_collection_summary` | |
+| `games` | `list_games` | `search` to `query` |
+| `game` | `get_game` | |
+| `playgroups` | `list_playgroups` | |
+| `lab_runs` | `list_lab_runs` | |
+| `lab_run` | `get_lab_run` | `id` to `run_id` |
+| `lab_games` | `list_lab_games` | `id` to `run_id` |
+| `more_lab_games` | `add_lab_games` | `id` to `run_id` |
+| `run_lab_again` | `rerun_lab_run` | `id` to `run_id` |
+| `precon` | `get_precon` | |
+| `datasets` | `list_datasets` | |
+| `dataset` | `get_dataset` | `search` to `query` |
+| `changes` | `list_changes` | |
+
+Not renamed, with an argument renamed: `cancel_lab_run` (`id` to `run_id`), `propose_swap` and
+`add_wish` (`why` to `reason`), `edit_deck`, `save_deck` and `set_shopping_rules` (`note` to
+`reason`).
+
+The advisor's activity lines (`web/src/advisor/logic.ts`) know both names of each tool. The
+prompts (`workflows.rs`), Ask Claude's instructions (`advisor/context.rs`), the plugin skills and
+the public guide use the new names. `mcp/tests_catalog.rs` calls every older name and every
+older argument and checks the answers match.
 
 ## The catalog is tested as a contract (2026-11-11)
 
@@ -237,9 +300,9 @@ change to an imported plan goes in as an idea or a review answer and reaches the
   the 300 characters the argument helpers apply; `registry::tidy` fills it in) or an `enum`, and
   the registry refuses a longer value before the tool runs (`check_lengths`), so the stated limit
   is the applied one also where a handler had none; a
-  closed set of values is an `enum` and is checked (`find_cards.order` was quietly "name" for
+  closed set of values is an `enum` and is checked (`search_cards.order` was quietly "name" for
   anything else); a value that is too long says so instead of "is missing"; an empty `required`
-  list is left out. Annotations say where a tool reaches: `card_printings` is local,
+  list is left out. Annotations say where a tool reaches: `list_card_printings` is local,
   `check_stores` reaches the stores' sites when applied.
 
 ## Slices
@@ -311,7 +374,7 @@ the consent page names the account being connected and says to allow only a sign
 client standing in for Claude Code; the first real connection from claude.ai happens after deploy.
 
 
-Tournament mode in `start_lab_run` (2026-10-26): `mode: "tournament"`, a selected field in `entrants`, optional `opponents: "all_precons"` (or another existing benchmark selector), and `games` as appearances per unique deck per engine. All benchmark decks are scored; identical lists collapse. Actual scheduled games are charged. This stages one experiment through the normal owner-scoped approval path, and `lab_run` reports the shared rankings and finish-ahead samples.
+Tournament mode in `start_lab_run` (2026-10-26): `mode: "tournament"`, a selected field in `entrants`, optional `opponents: "all_precons"` (or another existing benchmark selector), and `games` as appearances per unique deck per engine. All benchmark decks are scored; identical lists collapse. Actual scheduled games are charged. This stages one experiment through the normal owner-scoped approval path, and `get_lab_run` reports the shared rankings and finish-ahead samples.
 
 ## Proposal presentation (2026-10-27)
 

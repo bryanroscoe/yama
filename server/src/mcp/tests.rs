@@ -69,14 +69,15 @@ async fn only_power_users_get_the_tools_that_start_simulations() {
     let mcp = key(&app, &session, Some("mcp")).await;
     let (_, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("tools/list", json!({})))).await;
     let names: Vec<&str> = r["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-    for n in ["start_lab_run", "more_lab_games", "run_lab_again"] {
+    // By their names and by the names they had before the renames.
+    for n in ["start_lab_run", "add_lab_games", "rerun_lab_run", "more_lab_games", "run_lab_again"] {
         assert!(!names.contains(&n), "{n} offered to an account that isn't a power user");
         let (status, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("tools/call", json!({"name": n, "arguments": {}})))).await;
         assert_eq!(status, StatusCode::OK, "{r}");
         assert!(r["error"]["message"].as_str().unwrap().contains("unknown tool"), "{r}");
     }
     // Their own data and runs stay readable.
-    for n in ["overview", "lab_runs", "lab_run", "cancel_lab_run", "precon"] {
+    for n in ["get_overview", "list_lab_runs", "get_lab_run", "cancel_lab_run", "get_precon"] {
         assert!(names.contains(&n), "{n} missing from {names:?}");
     }
 }
@@ -90,7 +91,7 @@ async fn the_protocol_basics() {
     let (status, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("tools/list", json!({})))).await;
     assert_eq!(status, StatusCode::OK);
     let names: Vec<&str> = r["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-    for n in ["overview", "deck", "plan_deck", "review_queue", "shopping_trip", "shopping_settings", "find_cards", "card", "check_list", "lab_runs", "lab_run", "lab_games", "precon", "start_lab_run", "more_lab_games", "run_lab_again", "cancel_lab_run", "set_condition"] {
+    for n in ["get_overview", "get_deck", "get_plan", "get_review_queue", "get_shopping_trip", "get_shopping_settings", "search_cards", "get_cards", "check_deck_list", "list_lab_runs", "get_lab_run", "list_lab_games", "get_precon", "start_lab_run", "add_lab_games", "rerun_lab_run", "cancel_lab_run", "set_condition"] {
         assert!(names.contains(&n), "{n} missing from {names:?}");
     }
     let start = r["result"]["tools"].as_array().unwrap().iter().find(|t| t["name"] == "start_lab_run").unwrap();
@@ -319,7 +320,7 @@ async fn ask_claude_stages_but_cannot_apply() {
     let q = QuestionToken::mint(&id, Question { conversation_id: "conv-1".into(), message_id: "msg-1".into() });
     let (_, r) = send(&app, Method::POST, "/mcp", Some(&q.token), Some(rpc("tools/list", json!({})))).await;
     let names: Vec<&str> = r["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-    assert!(names.contains(&"edit_deck") && names.contains(&"changes"), "{names:?}");
+    assert!(names.contains(&"edit_deck") && names.contains(&"list_changes"), "{names:?}");
     assert!(!names.contains(&"apply_change") && !names.contains(&"discard_change"), "{names:?}");
     let edit = r["result"]["tools"].as_array().unwrap().iter().find(|t| t["name"] == "edit_deck").unwrap();
     assert_eq!(edit["annotations"]["readOnlyHint"], false);
@@ -871,7 +872,7 @@ async fn a_staging_call_repeated_with_its_op_id_stages_once() {
     let (_, r) = send(&app, Method::POST, "/mcp", Some(&power), Some(rpc("tools/list", json!({})))).await;
     let staging: Vec<&Value> = r["result"]["tools"].as_array().unwrap().iter().filter(|t| t["annotations"]["readOnlyHint"] == false && t["annotations"]["idempotentHint"] == false).collect();
     assert_eq!(staging.len(), 21);
-    for name in ["start_lab_run", "more_lab_games", "run_lab_again"] {
+    for name in ["start_lab_run", "add_lab_games", "rerun_lab_run"] {
         let tool = staging.iter().find(|t| t["name"] == name).unwrap_or_else(|| panic!("{name} isn't listed for a power user"));
         assert_eq!(tool["inputSchema"]["properties"]["op_id"]["type"], "string", "{name}");
     }

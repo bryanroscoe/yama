@@ -451,7 +451,7 @@ async fn mcp_reads_are_owner_scoped_and_never_offer_dataset_import_permissions()
     assert!(
         tools
             .iter()
-            .any(|t| t["name"] == "dataset" && t["annotations"]["readOnlyHint"] == true)
+            .any(|t| t["name"] == "get_dataset" && t["annotations"]["readOnlyHint"] == true)
     );
     assert!(!tools.iter().any(|t| t["name"] == "import_dataset"));
     for (token, failed) in [
