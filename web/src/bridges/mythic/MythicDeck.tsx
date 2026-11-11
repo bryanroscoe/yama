@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { api, publicOrigin, type DeckView } from "../../api";
-import { Details, ErrorText, Sheet, Loading } from "../../components/ui";
+import { Details, ErrorText, Dialog, Loading } from "../../components/ui";
 import { sendCards, useMythicBridge, type MythicDeckLink } from "./mythic";
 import { mythicSendSnippet } from "./snippet";
 import "./mythic.css";
@@ -54,12 +54,8 @@ export function MythicSend({ deck, onClose }: { deck: DeckView; onClose: () => v
   const linked = link.data?.mythic_id ?? null;
 
   return (
-    <Sheet label="Send to Mythic Tools" onClose={onClose}>
+    <Dialog title="Send to Mythic Tools" onClose={onClose}>
       <div className="stack mythic-send">
-        <div className="sheet-head">
-          <h2>Send to Mythic Tools</h2>
-          <button className="quiet" onClick={onClose}>Close</button>
-        </div>
         {linked ? (
           <p>
             Linked to your Mythic deck {linked}. {link.data?.same ? "Its list matched this one when they last synced." : "This list has changed since they last synced."} Sending replaces the Mythic deck's name, commander and main deck with this one.
@@ -104,7 +100,7 @@ export function MythicSend({ deck, onClose }: { deck: DeckView; onClose: () => v
         )}
         <ErrorText error={link.error ?? send.error ?? unlink.error} />
       </div>
-    </Sheet>
+    </Dialog>
   );
 }
 

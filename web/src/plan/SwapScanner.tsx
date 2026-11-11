@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useModalLayer } from "../components/Dialog";
 import type { SwapSheet } from "@yama/core/plan";
 import { ScannerView, createServerCatalog, type ScanCatalog } from "../scanner";
 import { SwapCardResult } from "./SwapDetails";
@@ -7,11 +8,8 @@ import type { PlanView } from "./view";
 export default function SwapScanner({ sheet, view, deckKey, onClose }: { sheet: SwapSheet; view: PlanView; deckKey?: string; onClose: () => void }) {
   const [catalog, setCatalog] = useState<ScanCatalog | null>(null);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    const close = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    window.addEventListener("keydown", close);
-    return () => window.removeEventListener("keydown", close);
-  }, [onClose]);
+  const root = useRef<HTMLDivElement>(null);
+  const layer = useModalLayer(root, onClose);
   useEffect(() => {
     let cancelled = false;
     // Use the whole saved card catalog so a card outside the plan can be recognized too.
@@ -25,7 +23,7 @@ export default function SwapScanner({ sheet, view, deckKey, onClose }: { sheet: 
     return () => { cancelled = true; };
   }, [view.b.names, view.b.cards, view.b.decks]);
   return (
-    <div className="scan-overlay" role="dialog" aria-modal="true" aria-label="Scan a card for a swap">
+    <div ref={root} className="scan-overlay" role="dialog" aria-modal="true" aria-label="Scan a card for a swap" tabIndex={-1} {...layer}>
       {catalog ? (
         <ScannerView
           catalog={catalog}

@@ -7,7 +7,7 @@ import { lazy, Suspense, useMemo, useRef, useState } from "react";
 import { exportLink } from "../download";
 import { api, API_BASE, ApiError, type CollectionItem, type CollectionSummary, type Container, type DeckSummary } from "../api";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
-import { CardImage, Details, ErrorText, Sheet, Loading, EmptyState, Segmented } from "../components/ui";
+import { CardImage, Details, ErrorText, Dialog, Loading, EmptyState, Segmented } from "../components/ui";
 import "./collection.css";
 import "../decks/collect.css";
 import { changeText, keptText, missingLabel, missingText, previewLines, resultLines, type MythicReport } from "./mythicImport";
@@ -342,12 +342,8 @@ function ImportSheet({ onClose }: { onClose: () => void }) {
   };
   const r = result ?? preview.data;
   return (
-    <Sheet label="Import" onClose={onClose}>
+    <Dialog title="Import from Mythic Tools" onClose={onClose}>
       <div className="stack">
-        <div className="sheet-head">
-          <h2>Import from Mythic Tools</h2>
-          <button className="quiet" onClick={onClose}>{result ? "Done" : "Close"}</button>
-        </div>
         <p className="dim">
           Choose a Mythic Tools CSV to preview the changes. Cards you've moved in Yama stay where you put them.
         </p>
@@ -408,7 +404,7 @@ function ImportSheet({ onClose }: { onClose: () => void }) {
           </>
         )}
       </div>
-    </Sheet>
+    </Dialog>
   );
 }
 
@@ -424,7 +420,7 @@ export function DeleteContainer({ container, onClose, onDeleted }: { container: 
     },
   });
   return (
-    <Sheet label={`Delete ${label}`} onClose={() => { if (!remove.isPending) onClose(); }}>
+    <Dialog label={`Delete ${label}`} onClose={() => { if (!remove.isPending) onClose(); }}>
       <div className="stack">
         <h2>Delete “{container.name}”?</h2>
         <p>Any cards inside will stay in your collection as loose cards. Saved decks and their lists will stay too.</p>
@@ -434,7 +430,7 @@ export function DeleteContainer({ container, onClose, onDeleted }: { container: 
         </div>
         <ErrorText error={remove.error} />
       </div>
-    </Sheet>
+    </Dialog>
   );
 }
 
@@ -705,9 +701,9 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
           acceptLabel="Add and scan next"
         />
         {reviewing && (
-          <Sheet onClose={() => setReviewing(false)} label="Added while scanning">
+          <Dialog onClose={() => setReviewing(false)} label="Added while scanning">
             <AddedList added={added} onFix={fix} onRetry={retry} onClose={() => setReviewing(false)} />
-          </Sheet>
+          </Dialog>
         )}
       </Suspense>
     </div>

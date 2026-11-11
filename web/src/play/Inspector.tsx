@@ -7,7 +7,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { cardDetailQuery } from "../cardDetail";
-import { Sheet, Loading } from "../components/ui";
+import { Dialog, Loading } from "../components/ui";
 import { faceOf, inspectorFacts, inspectorTabs, type InspectorTab, type Names } from "./feed";
 import type { CardMeta, CardView, OptionView, View } from "./types";
 import { fmtDate } from "@yama/core";
@@ -42,7 +42,7 @@ export function CardReader(props: {
     return () => window.removeEventListener("keydown", onKey);
   }, [wide, onClose]);
   const body = <InspectorBody {...props} />;
-  if (!wide) return <Sheet label={card.name} onClose={onClose}>{body}</Sheet>;
+  if (!wide) return <Dialog label={card.name} onClose={onClose}>{body}</Dialog>;
   return (
     <div className="gi-overlay" onClick={onClose}>
       <section className="gi-dialog" role="dialog" aria-modal="true" aria-label={card.name} onClick={(e) => e.stopPropagation()}>

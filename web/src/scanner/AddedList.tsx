@@ -5,7 +5,7 @@ import { useState } from "react";
 import type { Printing } from "../api";
 import { printingOptions } from "./printings";
 import type { Added, Finish, Fix } from "./session";
-import { Loading } from "../components/ui";
+import { Loading, DialogHead } from "../components/ui";
 
 const FINISH_LABEL: Record<Finish, string> = { nonfoil: "regular", foil: "foil", proxy: "proxy" };
 const PRINTINGS_FIRST = 12;
@@ -23,15 +23,10 @@ export function AddedList({ added, onFix, onRetry, onClose }: AddedListProps) {
   const copies = added.reduce((n, a) => n + a.copies, 0);
   return (
     <div className="scan-added">
-      <div className="sheet-head">
-        <div>
-          <h2>Added while scanning</h2>
-          <p className="dim small">
-            {copies === 1 ? "1 card" : `${copies} cards`}, newest first. Fixes change only the copies added here.
-          </p>
-        </div>
-        <button onClick={onClose}>Back to scanning</button>
-      </div>
+      <DialogHead onClose={onClose}>Added while scanning</DialogHead>
+      <p className="dim small">
+        {copies === 1 ? "1 card" : `${copies} cards`}, newest first. Fixes change only the copies added here.
+      </p>
       {added.length === 0 ? <p className="dim">Nothing added yet.</p> : (
         <ul className="scan-added-list">
           {added.map((a) => <AddedRow key={a.key} a={a} onFix={onFix} onRetry={onRetry} />)}

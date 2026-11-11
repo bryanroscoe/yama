@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { SellOffers } from "./SellOffers";
 import { saveFile } from "../download";
-import { Details, ErrorText, Sheet, EmptyState, Segmented } from "../components/ui";
+import { Details, ErrorText, Dialog, EmptyState, Segmented } from "../components/ui";
 import { leftOut, overLimit, SELL_FORMATS, sellable, sellText, special, type SellCard, type SellFormat } from "./sellList";
 import { shortDate, usd, count, plural } from "@yama/core";
 
@@ -80,12 +80,8 @@ export function SellSheet({ items, from, inDeckBox, onClose }: { items: SellItem
   };
 
   return (
-    <Sheet label="Sell list" onClose={onClose}>
+    <Dialog title="Sell list" onClose={onClose}>
       <div className="stack sell-sheet">
-        <div className="sheet-head">
-          <h2>Sell list</h2>
-          <button className="quiet" onClick={onClose}>Close</button>
-        </div>
         <p className="dim">
           From {from}. To choose cards by hand, move them into a list (New, then List) and open it here. Proxies are never included.
         </p>
@@ -208,6 +204,6 @@ export function SellSheet({ items, from, inDeckBox, onClose }: { items: SellItem
         )}
         {cards.length === 0 && <EmptyState>Nothing here to sell{minimum !== null ? ` worth at least ${usd(minimum)}` : ""}.</EmptyState>}
       </div>
-    </Sheet>
+    </Dialog>
   );
 }

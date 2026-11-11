@@ -2,7 +2,7 @@ import { EXPORT_FORMATS, exportDeck, exportFileName, type ExportFormat } from "@
 import { useMemo, useState } from "react";
 import type { DeckView } from "../api";
 import { saveFile } from "../download";
-import { Sheet } from "./ui";
+import { Dialog } from "./ui";
 import "./decks.css";
 
 const LAST_FORMAT = "yama.deck.exportFormat";
@@ -49,12 +49,8 @@ export function DeckExport({ deck, onClose }: { deck: DeckView; onClose: () => v
   const download = () => void saveFile(new Blob([text], { type: "text/plain;charset=utf-8" }), exportFileName(deck.name, format));
 
   return (
-    <Sheet label="Export deck" onClose={onClose}>
+    <Dialog title="Export deck" onClose={onClose}>
       <div className="stack deck-export">
-        <div className="sheet-head">
-          <h2>Export deck</h2>
-          <button className="quiet" onClick={onClose}>Close</button>
-        </div>
         <fieldset className="formats" style={{ border: 0, padding: 0, margin: 0 }}>
           <legend className="small dim" style={{ marginBottom: "0.4rem" }}>Format</legend>
           {EXPORT_FORMATS.map((f) => (
@@ -81,6 +77,6 @@ export function DeckExport({ deck, onClose }: { deck: DeckView; onClose: () => v
           {copied && <span className="small dim" role="status">{copied}</span>}
         </div>
       </div>
-    </Sheet>
+    </Dialog>
   );
 }

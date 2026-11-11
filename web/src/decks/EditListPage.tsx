@@ -11,7 +11,7 @@ import { useMe } from "../auth";
 import { ArtPanel } from "../components/ArtPanel";
 import { LoadFailed, queryFailure, RefreshFailed } from "../components/QueryError";
 import { SearchPicker } from "../components/SearchPicker";
-import { ErrorText, Sheet, Loading, EmptyState, Segmented } from "../components/ui";
+import { ErrorText, Dialog, Loading, EmptyState, Segmented } from "../components/ui";
 import { SwapPair, Thumb } from "../plan/parts";
 import { usePlan } from "../plan/store";
 import { UnsavedPrompt, useUnsavedChanges } from "../unsaved";
@@ -333,28 +333,20 @@ function EditList({ id }: { id: string }) {
       </div>
 
       {another && (
-        <Sheet label="Another list" onClose={() => setAnother(false)}>
+        <Dialog title="Another list" onClose={() => setAnother(false)}>
           <div className="stack">
-            <div className="sheet-head">
-              <h2>Another list</h2>
-              <button type="button" className="quiet" onClick={() => setAnother(false)}>Close</button>
-            </div>
             {versions.isPending ? <Loading /> : <ErrorText error={versions.error} />}
             <SearchPicker label="Lists" options={others} current={current?.id} onPick={(pid) => { const s = others.find((o) => o.id === pid); if (s) pick(s); setAnother(false); }} />
           </div>
-        </Sheet>
+        </Dialog>
       )}
       <UnsavedPrompt guard={guard} what="your changes to this list" />
       {guides && (
-        <Sheet label="From another site" onClose={() => setGuides(false)}>
+        <Dialog title="From another site" onClose={() => setGuides(false)}>
           <div className="stack">
-            <div className="sheet-head">
-              <h2>From another site</h2>
-              <button type="button" className="quiet" onClick={() => setGuides(false)}>Close</button>
-            </div>
             <GuideTabs guideKey={list.guideKey} setGuideKey={list.setGuideKey} />
           </div>
-        </Sheet>
+        </Dialog>
       )}
     </main>
   );

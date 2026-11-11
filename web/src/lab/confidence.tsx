@@ -4,7 +4,7 @@
 // say little; "sim doubtful" (--warn) is a lesser warning. Decks with no known problem get nothing.
 
 import { useState, type ReactNode } from "react";
-import { Details, Sheet } from "../components/ui";
+import { Details, Dialog } from "../components/ui";
 import type { Confidence, ConfidenceLevel } from "./api";
 import { confidenceMark, confidenceSentence, sentence } from "./logic";
 import "./lab.css";
@@ -30,14 +30,8 @@ export function ConfidenceMark({ confidence, name, method }: { confidence: Confi
         {mark}
       </button>
       {open && (
-        <Sheet label={`${sentence(mark)}: ${name}`} onClose={() => setOpen(false)}>
+        <Dialog title={sentence(mark)} onClose={() => setOpen(false)}>
           <div className="stack conf-sheet">
-            <div className="sheet-head">
-              <h2>{sentence(mark)}</h2>
-              <button className="quiet" onClick={() => setOpen(false)}>
-                Close
-              </button>
-            </div>
             <p className="conf-sheet-deck">{name}</p>
             <p>{confidenceSentence(confidence.level)}</p>
             <Reasons reasons={confidence.reasons} />
@@ -51,7 +45,7 @@ export function ConfidenceMark({ confidence, name, method }: { confidence: Confi
               </Details>
             )}
           </div>
-        </Sheet>
+        </Dialog>
       )}
     </>
   );

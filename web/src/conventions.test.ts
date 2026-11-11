@@ -53,6 +53,58 @@ describe("waiting and empty states use the shared components", () => {
   });
 });
 
+describe("dialogs use the shared modal layer", () => {
+  const DIALOG = "web/src/components/Dialog.tsx";
+  // Full-screen layers with their own look: the card zoom, the full-screen picker, the scanner
+  // and the sample hand. Each is a modal layer through useModalLayer. Don't add to this list:
+  // a new dialog is a <Dialog>.
+  const LAYERS = new Set([
+    "web/src/components/ui.tsx",
+    "web/src/components/GamePicker.tsx",
+    "web/src/plan/SwapScanner.tsx",
+    "web/src/decks/DeckCheckPage.tsx",
+    "web/src/decks/DeckScanPage.tsx",
+    "web/src/pages/Decks.tsx",
+  ]);
+  // The Cards tab's card page covers the results but not the rail: a page over a page, not a modal.
+  const PAGE_OVER_PAGE = "web/src/pages/Cards.tsx";
+  // An inline "Delete?" question, replaced by ConfirmDialog next.
+  const INLINE_QUESTION = "web/src/pages/CollectionItemSheet.tsx";
+
+  it("no page builds its own dialog", () => {
+    // Use <Dialog title="…" onClose={…}> from components/ui (or label="…" when it draws its own first line).
+    const found = uses(/role="(dialog|alertdialog)"/, (file) => file === DIALOG || LAYERS.has(file) || file === PAGE_OVER_PAGE || file === INLINE_QUESTION || BOARD.test(file));
+    expect(found).toEqual([]);
+  });
+
+  it("every dialog has a name", () => {
+    // Dialog's own types require a title or a label; the hand-built layers must say theirs.
+    const found = uses(/role="(dialog|alertdialog)"/, (file, line) => /aria-label(ledby)?=/.test(line) || file === DIALOG);
+    expect(found).toEqual([]);
+  });
+
+  it("every hand-built layer is a modal layer", () => {
+    const missing = [...LAYERS].filter((file) => !readFileSync(join(ROOT, file), "utf8").includes("useModalLayer("));
+    expect(missing).toEqual([]);
+  });
+
+  it("no page draws its own scrim or dialog heading", () => {
+    // DialogHead (components/ui) is the heading with Close; Dialog draws it for a `title`.
+    const found = uses(/className="(scrim|sheet-head)\b/, (file) => file === DIALOG || BOARD.test(file));
+    expect(found).toEqual([]);
+  });
+
+  it("no page listens for Escape on the window to close a layer", () => {
+    // A window listener can't tell which layer is on top. Dialog and useModalLayer can.
+    // Floating menus and previews take Escape in the capture phase and mark it handled.
+    const found = uses(
+      /=== "Escape" && (onClose|setOpen|close)\b/,
+      (file) => file === DIALOG || BOARD.test(file) || file === PAGE_OVER_PAGE,
+    );
+    expect(found).toEqual([]);
+  });
+});
+
 describe("choosing one of a few uses the shared control", () => {
   it("no page builds its own segmented control", () => {
     // Use <Segmented> from components/ui: a labelled group of aria-pressed buttons. The Decks

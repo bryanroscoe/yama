@@ -2,7 +2,7 @@ import { CardHover } from "../components/CardRef";
 // Small pieces the plan pages share.
 import type { PlanCard } from "@yama/core/plan";
 import { useState } from "react";
-import { CardImage, Sheet } from "../components/ui";
+import { CardImage, Dialog } from "../components/ui";
 import { CardSheet } from "../pages/Cards";
 
 /** A card thumbnail that opens the card (read-only) when Yama knows it. */
@@ -57,16 +57,12 @@ export function CopyButton({ text, label, className = "" }: { text: string; labe
         {state === "copied" ? "Copied" : label}
       </button>
       {state === "manual" && (
-        <Sheet label={label} onClose={() => setState("idle")}>
+        <Dialog title={label} onClose={() => setState("idle")}>
           <div className="stack">
-            <div className="sheet-head">
-              <h2>{label}</h2>
-              <button className="quiet" onClick={() => setState("idle")}>Close</button>
-            </div>
             <p className="dim small">This browser won't copy for Yama here. Select the text and copy it.</p>
             <textarea readOnly value={text} style={{ minHeight: "18rem" }} onFocus={(e) => e.currentTarget.select()} />
           </div>
-        </Sheet>
+        </Dialog>
       )}
     </>
   );

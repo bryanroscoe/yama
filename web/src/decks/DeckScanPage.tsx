@@ -4,11 +4,12 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { useModalLayer } from "../components/Dialog";
 import { Link, useParams } from "react-router";
 import { BackButton } from "../components/DeckTabs";
 import { api, ApiError, type DeckView } from "../api";
 import { LoadFailed, queryFailure, RefreshFailed } from "../components/QueryError";
-import { Details, ErrorText, Sheet, Loading } from "../components/ui";
+import { Details, ErrorText, Dialog, Loading } from "../components/ui";
 import { NameEntry } from "../scanner/NameEntry";
 import type { ScanCatalog } from "../scanner";
 import {
@@ -197,6 +198,8 @@ function ScannedList({ draft, setDraft }: { draft: ScanDraft; setDraft: SetDraft
 }
 
 function Camera({ deck, draft, setDraft, onClose }: { deck: DeckView; draft: ScanDraft; setDraft: SetDraft; onClose: () => void }) {
+  const root = useRef<HTMLDivElement>(null);
+  const layer = useModalLayer(root, onClose);
   const [catalog, setCatalog] = useState<ScanCatalog | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState(false);
@@ -252,7 +255,7 @@ function Camera({ deck, draft, setDraft, onClose }: { deck: DeckView; draft: Sca
     </div>
   );
   return (
-    <div className="scan-overlay" role="dialog" aria-modal="true" aria-label={`Scan ${deck.name}`}>
+    <div ref={root} className="scan-overlay" role="dialog" aria-modal="true" aria-label={`Scan ${deck.name}`} tabIndex={-1} {...layer}>
       {catalog ? (
         <Suspense fallback={<Loading padded>Starting the scanner…</Loading>}>
           <ScannerView
@@ -270,16 +273,12 @@ function Camera({ deck, draft, setDraft, onClose }: { deck: DeckView; draft: Sca
             acceptLabel="Add and scan next"
           />
           {reviewing && (
-            <Sheet onClose={() => setReviewing(false)} label="Scanned cards">
+            <Dialog title="Scanned cards" onClose={() => setReviewing(false)}>
               <div className="stack">
-                <div className="sheet-head">
-                  <h2>Scanned cards</h2>
-                  <button className="quiet" onClick={() => setReviewing(false)}>Back to scanning</button>
-                </div>
                 <ScanProgress draft={draft} setDraft={setDraft} />
                 <ScannedList draft={draft} setDraft={setDraft} />
               </div>
-            </Sheet>
+            </Dialog>
           )}
         </Suspense>
       ) : (

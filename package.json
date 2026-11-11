@@ -11,6 +11,7 @@
     "local": "scripts/dev-local.sh"
   },
   "devDependencies": {
+    "jsdom": "^31.0.0",
     "typescript": "^7.0.2",
     "vitest": "^5.0.5"
   }

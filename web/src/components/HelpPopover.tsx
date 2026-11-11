@@ -38,16 +38,19 @@ export function HelpPopover({ label, children }: { label: string; children: Reac
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
+      // Handled here: a dialog this sits in stays open.
+      e.preventDefault();
+      e.stopPropagation();
       setOpen(false);
       button.current?.focus();
     };
     const onDown = (e: PointerEvent) => {
       if (!root.current?.contains(e.target as Node)) setOpen(false);
     };
-    window.addEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
     window.addEventListener("pointerdown", onDown);
     return () => {
-      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keydown", onKey, true);
       window.removeEventListener("pointerdown", onDown);
     };
   }, [open]);

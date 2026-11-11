@@ -9,7 +9,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { useMe, usePower } from "../auth";
-import { Details, ErrorText, Sheet, Loading } from "../components/ui";
+import { Details, ErrorText, Dialog, Loading } from "../components/ui";
 import { deviceId, outbox } from "../plan/outbox";
 import { advisorStatus, ask, changesKey, conversation, conversations, deleteConversation, stagedChanges, type AdvisorStatus, type StagedChange } from "./api";
 import { ChangeCard } from "./Changes";
@@ -72,9 +72,9 @@ export function AskClaudeButton({ className = "", onClick }: { className?: strin
 
 export function AskClaudeSheet({ context, about, ideasFor, onClose }: Omit<Props, "className"> & { onClose: () => void }) {
   return (
-    <Sheet label="Ask Claude" onClose={onClose}>
+    <Dialog label="Ask Claude" onClose={onClose}>
       <AskPanel context={context} about={about} ideasFor={ideasFor ?? null} onClose={onClose} />
-    </Sheet>
+    </Dialog>
   );
 }
 

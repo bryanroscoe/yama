@@ -6,7 +6,7 @@ import type { CommanderPick, TableState } from "@yama/core";
 import { api, type DeckSummary, type GameRow, type Playgroup } from "../api";
 import { useMe } from "../auth";
 import { ArtPanel } from "../components/ArtPanel";
-import { Pips, Loading } from "../components/ui";
+import { Pips, Loading, DialogHead } from "../components/ui";
 import { BracketChips } from "../components/Bracket";
 import { commandersPatch, NOT_AN_ACCOUNT, personPatch, renameSeat, seatDeckLabel, stillHolds, type SeatDraft, type SeatPatch } from "./seats";
 import { canPair, cardNamed, CommanderFields, DeckSearch, draftFromCard, PlayerSearch, resolveDraft, unionIdentity, type CommanderDraft, type DeckPick, type Person } from "./pickers";
@@ -360,10 +360,7 @@ export function EditSeat({ state, seat, onDone }: { state: TableState; seat: num
   const seats = state.players.map((x) => ({ name: x.name, memberId: x.memberId, userId: x.userId }));
   return (
     <div className="stack edit-seat">
-      <div className="sheet-head">
-        <h2>Edit {p.name}</h2>
-        <button className="quiet" onClick={onDone}>Cancel</button>
-      </div>
+      <DialogHead onClose={onDone}>Edit {p.name}</DialogHead>
       <SeatEditor
         index={i}
         seat={now}

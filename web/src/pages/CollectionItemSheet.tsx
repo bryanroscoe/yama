@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { api, ApiError, type CollectionItem, type Container, type Printing } from "../api";
 import { CardRef } from "../components/CardRef";
-import { CardImage, ErrorText, Sheet, Loading, Segmented } from "../components/ui";
+import { CardImage, ErrorText, Dialog, Loading, Segmented } from "../components/ui";
 import type { ScanCandidate } from "../scanner";
 import { finishChoices, finishFor, finishWord, printingLabel, reprintOps, type Op, type Scope } from "./collectionEdit";
 // The scan choices and their notes, shown here outside the scanner too.
@@ -128,12 +128,8 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
   }
 
   return (
-    <Sheet label={item.name ?? "Card"} onClose={() => onClose()}>
+    <Dialog title={<>{item.name && <CardRef name={item.name} oracleId={item.oracle_id} image={item.image_small} />}</>} onClose={() => onClose()}>
       <div className="stack">
-        <div className="sheet-head">
-          <h2>{item.name && <CardRef name={item.name} oracleId={item.oracle_id} image={item.image_small} />}</h2>
-          <button className="quiet" onClick={() => onClose()}>Close</button>
-        </div>
         <div style={{ maxWidth: 260 }}>
           <CardImage src={item.image_normal} name={item.name ?? ""} />
         </div>
@@ -258,6 +254,6 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
         )}
         <ErrorText error={send.error} />
       </div>
-    </Sheet>
+    </Dialog>
   );
 }

@@ -3,7 +3,7 @@
 
 import type { PlayerState } from "@yama/core";
 import { useState } from "react";
-import { Segmented } from "../components/ui";
+import { Segmented, DialogHead } from "../components/ui";
 
 const DICE = [4, 6, 8, 10, 12, 20] as const;
 
@@ -38,10 +38,7 @@ export function DiceSheet({ players, onDone }: { players: PlayerState[]; onDone:
   const custom = Number.parseInt(sides, 10);
   return (
     <div className="stack dice-sheet">
-      <div className="sheet-head">
-        <h2>Dice and coin</h2>
-        <button className="quiet" onClick={onDone}>Done</button>
-      </div>
+      <DialogHead onClose={onDone}>Dice and coin</DialogHead>
       <div className="dice-result" role="status" aria-live="polite">
         {result ? (
           <>

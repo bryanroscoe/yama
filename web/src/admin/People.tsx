@@ -3,7 +3,7 @@ import { useState } from "react";
 import { accountLine } from "../accounts";
 import { api, type AccountInfo } from "../api";
 import { useAuthConfig, useMe } from "../auth";
-import { ErrorText, Sheet } from "../components/ui";
+import { ErrorText, Dialog } from "../components/ui";
 import { adminApi, type SharedGrant, type SharedOverview, type ViewLogRow } from "./api";
 import { startViewing } from "../viewing";
 import { confirms, deleteSummary, parseDailyCap, searchAccounts, sharedGrantLine, sharedSummary } from "./logic";
@@ -256,7 +256,7 @@ function DeleteSheet({ account, onClose, onDone }: { account: AccountInfo; onClo
   const del = useMutation({ mutationFn: () => adminApi.deleteAccount(account.id, typed), onSuccess: (r) => onDone(deleteSummary(r)) });
   const ok = confirms(account.email, typed);
   return (
-    <Sheet onClose={onClose} label={`Delete ${account.display_name}'s account`}>
+    <Dialog onClose={onClose} label={`Delete ${account.display_name}'s account`}>
       <div className="admin-sheet">
         <h2>Delete {account.display_name}'s account?</h2>
         <p>
@@ -281,7 +281,7 @@ function DeleteSheet({ account, onClose, onDone }: { account: AccountInfo; onClo
           </button>
         </div>
       </div>
-    </Sheet>
+    </Dialog>
   );
 }
 

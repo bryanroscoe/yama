@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, type Container, type DeckSummary, type DeckView } from "../api";
 import { SearchPicker } from "../components/SearchPicker";
-import { ErrorText, Sheet, Segmented } from "../components/ui";
+import { ErrorText, Dialog, Segmented } from "../components/ui";
 import { UnsavedPrompt, useUnsavedChanges } from "../unsaved";
 import "./deck-settings.css";
 
@@ -69,12 +69,9 @@ export function DeckSettings({ deck, onClose: closeSheet }: { deck: DeckView; on
   if (picking) {
     const box = picking === "box";
     return (
-      <Sheet label={box ? "Deck box" : "A list of"} onClose={onClose}>
+      // Close, Escape and the scrim go back to the settings, not out of them.
+      <Dialog title={box ? "Deck box" : "A list of"} onClose={() => setPicking(null)}>
         <div className="deck-settings">
-          <div className="sheet-head">
-            <h2>{box ? "Deck box" : "A list of"}</h2>
-            <button type="button" className="quiet" onClick={() => setPicking(null)}>Back</button>
-          </div>
           <ErrorText error={box ? containers.error : decks.error} />
           {box ? (
             <SearchPicker
@@ -93,17 +90,13 @@ export function DeckSettings({ deck, onClose: closeSheet }: { deck: DeckView; on
           )}
         </div>
         <UnsavedPrompt guard={guard} what="your changes to this deck" />
-      </Sheet>
+      </Dialog>
     );
   }
 
   return (
-    <Sheet label="Name, box and ownership" onClose={onClose}>
+    <Dialog title="Name, box and ownership" onClose={onClose}>
       <form className="deck-settings" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
-        <div className="sheet-head">
-          <h2>Name, box and ownership</h2>
-          <button type="button" className="quiet" onClick={onClose}>Close</button>
-        </div>
         <label>
           Name
           <input value={name} onChange={(e) => setName(e.target.value)} maxLength={120} required />
@@ -151,6 +144,6 @@ export function DeckSettings({ deck, onClose: closeSheet }: { deck: DeckView; on
         </div>
       </form>
       <UnsavedPrompt guard={guard} what="your changes to this deck" />
-    </Sheet>
+    </Dialog>
   );
 }

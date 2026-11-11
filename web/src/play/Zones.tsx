@@ -5,7 +5,7 @@
 // whoever may look at them: the server names them for that seat alone.
 
 import { useEffect, useMemo, useState } from "react";
-import { Sheet } from "../components/ui";
+import { Dialog } from "../components/ui";
 import { cameText, type Names } from "./feed";
 import type { CardMeta, CardView, View } from "./types";
 
@@ -148,7 +148,7 @@ export function ZoneBrowser(props: {
       </p>
     </div>
   );
-  if (!wide) return <Sheet label={`${whose} cards`} onClose={onClose}>{body}</Sheet>;
+  if (!wide) return <Dialog label={`${whose} cards`} onClose={onClose}>{body}</Dialog>;
   return (
     <div className="gi-overlay" onClick={onClose}>
       <section className="gz-dialog" role="dialog" aria-modal="true" aria-label={`${whose} cards`} onClick={(e) => e.stopPropagation()}>

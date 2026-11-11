@@ -6,7 +6,7 @@ import { api, type DeckSummary, type DeckVersionRow, type GameDetail, type GameR
 import { useMe } from "../auth";
 import { ArtMosaic } from "../components/ArtMosaic";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
-import { ErrorText, Pips, Sheet, Loading, Segmented } from "../components/ui";
+import { ErrorText, Pips, Dialog, Loading, Segmented } from "../components/ui";
 import { FirstPlayerPicker, FunPicker, WinConditionPicker } from "../components/GameCapture";
 import { useCardArt } from "../components/useCardArt";
 import { localDay, versionOn } from "./versions";
@@ -462,12 +462,12 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
             <LayoutPicker n={seats.length} art={seatArt} className="ng-layout" />
           </details>}
           {editing !== null && seats[editing] && (
-            <Sheet label={`Seat ${editing + 1}`} onClose={() => setEditing(null)}>
+            <Dialog label={`Seat ${editing + 1}`} onClose={() => setEditing(null)}>
               <div className="stack">
                 <SeatEditor {...seatProps(editing)} />
                 <button className="primary" onClick={() => setEditing(null)}>Done</button>
               </div>
-            </Sheet>
+            </Dialog>
           )}
         </>
       )}
@@ -832,12 +832,8 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
   });
 
   return (
-    <Sheet label={editing ? "Edit the game" : "Log a game"} onClose={onClose}>
+    <Dialog title={editing ? "Edit the game" : "Log a game"} onClose={onClose}>
       <form className="stack capture" onSubmit={(e) => { e.preventDefault(); save.mutate(false); }}>
-        <div className="sheet-head">
-          <h2>{editing ? "Edit the game" : "Log a game"}</h2>
-          <button type="button" className="quiet" onClick={onClose}>Close</button>
-        </div>
         <div className="row" style={{ alignItems: "end" }}>
           <label style={{ flex: "1 1 12rem" }}>
             Playgroup
@@ -914,6 +910,6 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
           )}
         </div>
       </form>
-    </Sheet>
+    </Dialog>
   );
 }
