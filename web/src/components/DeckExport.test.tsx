@@ -79,6 +79,14 @@ describe("Export deck", () => {
     expect(saved.files.map((f) => `${f.name} ${f.type}`)).toEqual(["riders-of-rohan.dek application/xml;charset=utf-8", "riders-of-rohan.csv text/csv;charset=utf-8"]);
   });
 
+  it("starts from names only when the remembered format is one it no longer has", () => {
+    act(() => root.unmount());
+    localStorage.setItem("yama.deck.exportFormat", "tappedout");
+    root = createRoot(host);
+    act(() => root.render(<DeckExport deck={deck} onClose={() => {}} />));
+    expect(text().startsWith("Commander\n")).toBe(true);
+  });
+
   it("remembers the last format on this device", () => {
     pick("CSV");
     act(() => root.unmount());

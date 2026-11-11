@@ -21,6 +21,8 @@
 //   spreadsheet and reads back through Yama's own CSV import.
 //
 // server/src/sharing.rs writes the same formats for a shared deck's page; keep them in step.
+// One known difference, in every format: within a board the cards are A to Z by the browser's
+// collation here and by code point there, so an accented name can sit in another place.
 
 import type { DeckBoard } from "./deckStats";
 
@@ -101,7 +103,8 @@ function archidekt(cards: ExportCard[]): string {
       out.push(`${c.qty}x ${c.name}${printing}${mark}${ARCHIDEKT_CATEGORY[board]}`);
     }
   }
-  return out.join("\n") + "\n";
+  // An empty deck is an empty file, as the server writes it.
+  return out.length ? out.join("\n") + "\n" : "";
 }
 
 /** Text for an XML attribute or element. */

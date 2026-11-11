@@ -120,6 +120,13 @@ describe("exports", () => {
     expect(exportDeck([{ name: 'Say "Cheese"', qty: 2, board: "main" }], "csv")).toContain('2,"Say ""Cheese""",Main,,,\n');
   });
 
+  it("writes an empty deck as its format's empty file", () => {
+    expect(exportDeck([], "archidekt")).toBe("");
+    expect(exportDeck([], "csv")).toBe("Quantity,Name,Board,Set code,Collector number,Finish\n");
+    expect(exportDeck([], "cockatrice", "Empty")).not.toContain("<zone");
+    expect(exportDeck([], "mtgo")).not.toContain("<Cards");
+  });
+
   it("leaves out cards with no copies, in every format", () => {
     const none: ExportCard[] = [{ name: "Sol Ring", qty: 0, board: "main" }, { name: "Plains", qty: 1, board: "main" }];
     for (const f of EXPORT_FORMATS) expect(exportDeck(none, f.value, "Deck")).not.toContain("Sol Ring");
