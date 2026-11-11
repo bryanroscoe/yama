@@ -85,6 +85,7 @@ Camera OCR in Collection; swap checks from Plans, Prints, Swap sheet or a plan d
 - Add from card search (a real copy or a proxy)
 - Move, condition, proxy
 - Proxies kept out of market value, and a Real / Proxies filter
+- Filters by set, color, type, rarity and finish, with the market value of what they leave; a list or a grid of card pictures
 - Idempotent offline ops
 - Import from a pasted list or a file exported by ManaBox, Moxfield, Archidekt, Deckbox, Dragon Shield or TCGplayer: set, number, finish, condition and language where the file has them; a preview of what matches, with lines that match nothing kept listed; into a box you choose; the same list twice adds nothing, and a newer export can add only the copies you don't have yet
 - Mythic Tools CSV import (with a preview; a newer export adds only what's new, and cards it no longer lists are removed only if you ask) and export
