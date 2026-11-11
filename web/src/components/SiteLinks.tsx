@@ -8,7 +8,8 @@ export function SiteLinks() {
   const origin = publicOrigin();
   return <nav className="site-links" aria-label="Sharing and public pages">
     {me.data && <NavLink to="/profile">Your profile</NavLink>}
-    <NavLink to="/sharing">Sharing</NavLink>
+    {/* Sharing is an account's own page: signed out it only leads to a sign-in wall. */}
+    {me.data && <NavLink to="/sharing">Sharing</NavLink>}
     <a href={`${origin}/precons`}>Precons</a>
     <a href={`${origin}/commanders`}>Commanders</a>
   </nav>;

@@ -1,32 +1,6 @@
 /* Night table: the same type, surfaces, white accent and control shapes as the app. */
-@font-face {
-  font-family:'Big Shoulders Display';
-  font-style:normal;
-  font-weight:700;
-  font-display:swap;
-  src:url('/precon-fonts/big-shoulders-display-latin-700-normal.woff2') format('woff2')
-}
-@font-face {
-  font-family:'Big Shoulders Display';
-  font-style:normal;
-  font-weight:800;
-  font-display:swap;
-  src:url('/precon-fonts/big-shoulders-display-latin-800-normal.woff2') format('woff2')
-}
-@font-face {
-  font-family:'Atkinson Hyperlegible Next';
-  font-style:normal;
-  font-weight:400;
-  font-display:swap;
-  src:url('/precon-fonts/atkinson-hyperlegible-next-latin-400-normal.woff2') format('woff2')
-}
-@font-face {
-  font-family:'Atkinson Hyperlegible Next';
-  font-style:normal;
-  font-weight:700;
-  font-display:swap;
-  src:url('/precon-fonts/atkinson-hyperlegible-next-latin-700-normal.woff2') format('woff2')
-}
+/* The fonts, the header and the footer are in site-frame-v1.css, which the server compiles in
+   ahead of this file (public_precons/html.rs, stylesheet). */
 * {
   box-sizing:border-box
 }
@@ -98,26 +72,10 @@ small {
   line-height:1.5;
   color:var(--dim)
 }
-.public-header,main,.public-footer {
+main {
   max-width:calc(var(--content-w) + 64px);
   margin-inline:auto;
   padding-inline:32px
-}
-.public-header {
-  min-height:88px;
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:24px
-}
-.public-wordmark {
-  display:flex;
-  width:88px;
-  flex:none
-}
-.public-wordmark svg {
-  width:100%;
-  height:38px
 }
 nav {
   display:flex;
@@ -847,39 +805,6 @@ dd {
   font-size:12px;
   overflow-wrap:anywhere
 }
-.public-footer {
-  margin-top:64px;
-  padding-bottom:40px;
-  color:var(--dim);
-  font-size:13px
-}
-.footer-top {
-  display:flex;
-  justify-content:space-between;
-  gap:24px;
-  border-top:1px solid var(--line);
-  padding:24px 0
-}
-.site-notice {
-  font-size:11px;
-  line-height:1.6;
-  max-width:100ch
-}
-.site-notice p+p {
-  margin-top:8px
-}
-.skip {
-  position:absolute;
-  top:-100px;
-  left:16px;
-  padding:12px;
-  background:var(--text);
-  color:var(--ground);
-  z-index:10
-}
-.skip:focus {
-  top:12px
-}
 .sr-only {
   position:absolute;
   width:1px;
@@ -1006,32 +931,8 @@ dd {
   }
 }
 @media(max-width:600px) {
-  .public-header,main,.public-footer {
+  main {
     padding-inline:20px
-  }
-  .public-header {
-    min-height:76px;
-    gap:16px
-  }
-  .public-wordmark {
-    width:68px
-  }
-  .public-wordmark svg {
-    height:30px
-  }
-  .public-header nav {
-    gap:14px;
-    flex-wrap:nowrap
-  }
-  .public-header nav a {
-    font-size:12px
-  }
-  .public-header .button {
-    padding:8px 12px;
-    min-height:40px
-  }
-  .public-header .button span {
-    display:none
   }
   .public-hero {
     display:block;
@@ -1169,20 +1070,6 @@ dd {
   .reading-note h3 {
     font-size:26px
   }
-  .public-footer {
-    margin-top:40px;
-    padding-bottom:28px
-  }
-  .footer-top {
-    display:block
-  }
-  .footer-top nav {
-    margin-top:14px;
-    gap:24px
-  }
-  .footer-top nav a {
-    font-size:12px
-  }
   .back-link {
     margin:12px 0 20px
   }
@@ -1302,8 +1189,6 @@ dd {
 }
 
 /* Keep narrow-screen navigation and disclosure targets comfortable to tap. */
-.public-wordmark { min-height:44px; align-items:center; }
-.public-header nav > a { min-height:44px; display:flex; align-items:center; }
 summary, .more-filters summary { min-height:44px; align-content:center; }
 .featured-caution { margin-top:8px; font-size:11px; }
 .public-card-ref { display:inline-flex; align-items:center; gap:8px; text-underline-offset:3px; }
@@ -1317,11 +1202,7 @@ summary, .more-filters summary { min-height:44px; align-content:center; }
 .public-card-preview-actions button { min-height:36px; border:1px solid var(--line,#2a2e33); border-radius:5px; padding:6px 12px; color:inherit; background:var(--raised,#1e2125); cursor:pointer; }
 @media(max-width:600px) { .public-card-preview.is-pinned { left:50% !important; top:50% !important; transform:translate(-50%,-50%); width:min(320px,calc(100vw - 24px)) !important; max-height:calc(100dvh - 24px) !important; } }
 @media(max-width:350px) {
-  .public-header { padding-inline:16px; gap:12px; }
-  .public-wordmark { width:60px; }
-  .public-header nav { gap:10px; }
-  .public-header nav a { font-size:11px; }
-  .public-header .button { padding-inline:10px; }
+  main { padding-inline:16px; }
 }
 
 /* Shared decks, profiles and collections (server/src/sharing/html.rs). */
@@ -1603,4 +1484,28 @@ a.source-chip:hover,a.source-chip:focus-visible {
  .want-qty { grid-column:2; grid-row:1; }
  .want-price { grid-column:1 / -1; grid-row:3; padding-left:70px; }
  .want-owned { grid-column:1 / -1; grid-row:4; }
+}
+
+/* Touch targets (docs/polish.md): a link that stands on its own is at least 24 px tall with a
+   mouse and 44 px on a phone or touch screen. Links inside running text are exempt. */
+.back-link,
+.source-strip > a,
+.evidence-heading > a,
+.section-heading > a,
+.filter-fields > a { display:inline-flex; align-items:center; min-height:24px; }
+details > p > a:only-child { display:inline-block; min-height:24px; align-content:center; }
+@media (max-width:900px), (pointer:coarse) {
+  .back-link,
+  .source-strip > a,
+  a.source-chip,
+  .evidence-heading > a,
+  .section-heading > a,
+  .filter-fields > a,
+  details > p > a:only-child,
+  a.result-value { min-height:44px; }
+  a.result-value { align-content:center; }
+  /* The taller link carries the space the margins used to. */
+  .back-link { margin:4px 0 8px; }
+  .want-page > .back-link { margin:4px 0 8px; }
+  .section-heading > a { margin-top:4px; }
 }

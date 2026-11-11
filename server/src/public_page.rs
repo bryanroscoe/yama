@@ -49,6 +49,46 @@ fn plural(n: i64, one: &str, many: &str) -> String {
 /// Same geometry as components/Wordmark.tsx and design/logo/yama-wordmark.svg.
 pub(crate) const WORDMARK: &str = r#"<svg viewBox="0 -8 280 110" aria-hidden="true"><g fill="currentColor"><path d="M0 0H20L32 30L44 0H64L42 56V100H22V56Z"/><path d="M60 100L92 -6L124 100H104L92 60L80 100Z"/><path d="M134 100V0H152L170 44L188 0H206V100H186V40L170 79L154 40V100Z"/><path d="M216 100L248 -6L280 100H260L248 60L236 100Z"/></g></svg>"#;
 
+/// The places every public page's header links to. The sign-in page (web/src/pages/Landing.tsx)
+/// lists the same ones; its test reads this table.
+pub(crate) const SITE_NAV: [(&str, &str); 4] = [("/precons", "Precons"), ("/commanders", "Commanders"), ("/docs/mcp/", "MCP guide"), ("/about/", "About")];
+
+/// The footer's links, the same on every public page.
+pub(crate) const SITE_FOOT: [(&str, &str); 5] =
+    [("/about/", "About"), ("/precons/methodology", "How we rank"), ("/about/#contact", "Help and contact"), ("/privacy/", "Privacy"), ("/tos/", "Terms")];
+
+/// Whether the page at `path` belongs to the header place `href`: the place itself or a page
+/// under it (`/precons/veloci-ramp-tor` under `/precons`).
+fn in_place(path: &str, href: &str) -> bool {
+    let place = href.trim_end_matches('/');
+    let path = path.trim_end_matches('/');
+    path == place || path.strip_prefix(place).is_some_and(|rest| rest.starts_with('/'))
+}
+
+/// The header of every public page (styled by web/public/site-frame-v1.css): the wordmark, the
+/// four places, and the way into the app. The static pages under web/public carry this exact
+/// markup; a test below holds them to it.
+pub(crate) fn site_header(path: &str) -> String {
+    let mut s = format!("<a class=\"site-skip\" href=\"#content\">Skip to content</a><header class=\"site-header\"><a class=\"site-wordmark\" href=\"/\" aria-label=\"Yama home\">{WORDMARK}</a><nav aria-label=\"Yama\">");
+    for (href, label) in SITE_NAV {
+        let current = if in_place(path, href) { " aria-current=\"page\"" } else { "" };
+        write!(s, "<a href=\"{href}\"{current}>{label}</a>").unwrap();
+    }
+    s.push_str("</nav><a class=\"site-open\" href=\"/\">Open Yama</a></header>");
+    s
+}
+
+/// The footer of every public page: the same links, then the rights and sources notice.
+pub(crate) fn site_footer(path: &str) -> String {
+    let mut s = String::from("<footer class=\"site-footer\"><nav aria-label=\"About Yama\">");
+    for (href, label) in SITE_FOOT {
+        let current = if path == href { " aria-current=\"page\"" } else { "" };
+        write!(s, "<a href=\"{href}\"{current}>{label}</a>").unwrap();
+    }
+    write!(s, "</nav>{}</footer>", crate::public_precons::NOTICE.trim()).unwrap();
+    s
+}
+
 /// The public pages' Content-Security-Policy and referrer policy: no inline script or style,
 /// images only from Yama and Scryfall, and fetches (public-list-v1.js's live filters) only to Yama.
 pub(crate) fn secure(res: &mut Response) {
@@ -523,6 +563,61 @@ pub(crate) fn stats_panel(st: &DeckStats) -> String {
     }
     s.push_str("</section>");
     s
+}
+
+#[cfg(test)]
+mod frame_tests {
+    use super::*;
+
+    /// Markup compared without whitespace, so a static page may wrap its lines.
+    fn squash(s: &str) -> String {
+        s.chars().filter(|c| !c.is_whitespace()).collect()
+    }
+
+    #[test]
+    fn the_header_marks_the_place_a_page_belongs_to() {
+        let current = |path: &str| -> Vec<&str> { SITE_NAV.iter().filter(|(href, _)| in_place(path, href)).map(|(_, label)| *label).collect() };
+        assert_eq!(current("/precons"), ["Precons"]);
+        assert_eq!(current("/precons/methodology"), ["Precons"]);
+        assert_eq!(current("/precons/veloci-ramp-tor"), ["Precons"]);
+        assert_eq!(current("/commanders"), ["Commanders"]);
+        assert_eq!(current("/docs/mcp/"), ["MCP guide"]);
+        assert_eq!(current("/about/"), ["About"]);
+        assert!(current("/u/pat").is_empty() && current("/d/abc").is_empty() && current("/privacy/").is_empty() && current("/preconsx").is_empty());
+        assert!(site_header("/commanders").contains("<a href=\"/commanders\" aria-current=\"page\">Commanders</a>"));
+        assert!(site_footer("/privacy/").contains("<a href=\"/privacy/\" aria-current=\"page\">Privacy</a>"));
+    }
+
+    /// One header and footer everywhere: each static page under web/public carries exactly what
+    /// the server renders, and links the stylesheet that draws it.
+    #[test]
+    fn static_pages_carry_the_same_header_and_footer() {
+        let pages = [
+            ("/about/", include_str!("../../web/public/about/index.html")),
+            ("/privacy/", include_str!("../../web/public/privacy/index.html")),
+            ("/tos/", include_str!("../../web/public/tos/index.html")),
+            ("/delete-account/", include_str!("../../web/public/delete-account/index.html")),
+            ("/docs/mcp/", include_str!("../../web/public/docs/mcp/index.html")),
+        ];
+        for (path, html) in pages {
+            let page = squash(html);
+            assert!(page.contains(&squash(&site_header(path))), "{path}: the header differs from public_page::site_header");
+            assert!(page.contains(&squash(&site_footer(path))), "{path}: the footer differs from public_page::site_footer");
+            assert!(html.contains("<link rel=\"stylesheet\" href=\"/site-frame-v1.css\""), "{path}: no frame stylesheet");
+            assert!(html.contains("id=\"content\""), "{path}: nothing for Skip to content to land on");
+            assert_eq!(html.matches("<header class=\"site-header\">").count(), 1, "{path}");
+            assert_eq!(html.matches("<footer class=\"site-footer\">").count(), 1, "{path}");
+            assert!(html.contains("not affiliated with, endorsed by, or sponsored by Wizards of the Coast"), "{path}: the unofficial notice is gone");
+        }
+    }
+
+    /// The server's own pages get the frame's styles inside their one stylesheet.
+    #[test]
+    fn the_compiled_stylesheet_includes_the_frame() {
+        let css = &crate::public_precons::html::stylesheet().0;
+        assert!(css.contains(".site-header") && css.contains(".site-footer") && css.contains(".site-open"));
+        assert!(!css.contains(".public-header") && !css.contains(".footer-top"), "the old frame's rules are still in precons.css");
+    }
 }
 
 #[cfg(test)]

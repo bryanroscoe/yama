@@ -3,7 +3,7 @@ use super::*;
 use axum::response::Html;
 use std::fmt::Write;
 
-pub(crate) use crate::public_page::{WORDMARK, e, when};
+pub(crate) use crate::public_page::{e, when};
 use crate::public_page::{card_item, count, identity, pct, secure, usd};
 
 pub(crate) fn page(st: &AppState, path: &str, title: &str, description: &str, body: &str) -> String {
@@ -21,28 +21,14 @@ pub(crate) fn page(st: &AppState, path: &str, title: &str, description: &str, bo
             )
         })
         .unwrap_or_default();
-    let wordmark = WORDMARK;
     format!(
-        r##"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#0b0c0e"><title>{title} | Yama</title><meta name="description" content="{description}"><meta property="og:title" content="{title} | Yama"><meta property="og:description" content="{description}"><meta property="og:type" content="website">{canonical}<link rel="icon" href="/icon.svg"><link rel="preload" href="/precon-fonts/big-shoulders-display-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="{stylesheet_path}"><script defer src="/card-preview-v1.js"></script><script defer src="{list_script}"></script></head><body class="public-precons"><a class="skip" href="#content">Skip to content</a><header class="public-header"><a class="public-wordmark" href="/precons" aria-label="Yama precons">{wordmark}</a><nav aria-label="Public reference"><a href="/precons"{index_current}>Precons</a><a href="/commanders"{commanders_current}>Commanders</a><a href="/precons/methodology"{method_current}>How we rank</a><a class="button" href="/">Open Yama <span aria-hidden="true">↗</span></a></nav></header><main id="content">{body}</main><footer class="public-footer"><div class="footer-top"><span>Free to explore. Built for Commander.</span><nav aria-label="About Yama"><a href="/about/">About</a><a href="/privacy/">Privacy</a><a href="/tos/">Terms</a></nav></div>{NOTICE}</footer></body></html>"##,
+        r##"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#0b0c0e"><title>{title} | Yama</title><meta name="description" content="{description}"><meta property="og:title" content="{title} | Yama"><meta property="og:description" content="{description}"><meta property="og:type" content="website">{canonical}<link rel="icon" href="/icon.svg"><link rel="preload" href="/precon-fonts/big-shoulders-display-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="{stylesheet_path}"><script defer src="/card-preview-v1.js"></script><script defer src="{list_script}"></script></head><body class="public-precons">{header}<main id="content">{body}</main>{footer}</body></html>"##,
         stylesheet_path = stylesheet().1,
         list_script = list_script().1,
         title = e(title),
         description = e(description),
-        index_current = if path == "/precons" {
-            " aria-current=\"page\""
-        } else {
-            ""
-        },
-        commanders_current = if path == "/commanders" {
-            " aria-current=\"page\""
-        } else {
-            ""
-        },
-        method_current = if path.ends_with("/methodology") {
-            " aria-current=\"page\""
-        } else {
-            ""
-        }
+        header = crate::public_page::site_header(path),
+        footer = crate::public_page::site_footer(path),
     )
 }
 pub(crate) fn response(headers: &HeaderMap, body: String) -> Response {
@@ -1140,7 +1126,8 @@ pub(crate) fn stylesheet() -> &'static (String, String) {
             .map(|(tokens, _)| format!(":root {{{tokens}\n}}"))
             .unwrap_or_default();
         let body = format!(
-            "{tokens}\n{}\n{}\n{}",
+            "{tokens}\n{}\n{}\n{}\n{}",
+            include_str!("../../../web/public/site-frame-v1.css"),
             include_str!("../../../web/public/precons.css"),
             include_str!("../../../web/src/controls.css"),
             include_str!("../../../web/src/art-framing.css")
