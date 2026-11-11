@@ -21,6 +21,10 @@ describe("sourcing cap controls",()=>{
    await enter("3");expect(host.querySelectorAll('.source-card')).toHaveLength(1);expect(mock.save).not.toHaveBeenCalled();
    const button=(name:string)=>[...host.querySelectorAll('button')].find(b=>b.textContent===name)!;
    await act(async()=>button("Add all matching cards").click());expect(host.textContent).toContain("1 selected copy");
+   expect([...host.querySelectorAll("button")].filter(b=>b.textContent?.startsWith("Add "))).toHaveLength(1);
+   const stockFilter=[...host.querySelectorAll("label")].find(l=>l.textContent?.includes("Exclude unknown stock counts"))!.querySelector("input")!;
+   await act(async()=>stockFilter.click());expect(host.querySelectorAll(".source-card")).toHaveLength(0);expect(host.textContent).toContain("0 selected copies");
+   await act(async()=>stockFilter.click());expect(host.querySelectorAll(".source-card")).toHaveLength(1);
    let complete!: (value: unknown) => void;mock.save.mockReturnValueOnce(new Promise(resolve => { complete=resolve; }));
    await act(async()=>{button("Save cap as default").click();});
    expect(input.disabled).toBe(true);await act(async()=>complete({}));

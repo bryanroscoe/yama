@@ -25,8 +25,24 @@ describe("local sourcing dollar ceiling",()=>{
   expect(capDraft(settings,"2026-11-11",0.25).local_buy.always_ok_usd).toBe(0.25);expect(settings[0]!.rules.local_buy!.max_usd).toBe(2);
  });
  it("does not overturn non-price or unknown rejections, foil or language restrictions",()=>{
-  for(const change of [{rule_reason:"condition rejected"},{rule_reason:undefined},{finish:"foil"},{condition:"Near Mint Foil"},{language:"Japanese"}]){
+  for(const change of [{rule_reason:"condition rejected"},{rule_reason:undefined},{finish:"foil"},{condition:"Near Mint Foil"},{language:"Japanese"},{title:"Card (Signed)"},{title:"Card (Foil)"}]){
    const offers=rows();Object.assign(offers[0]!.offers[0]!,change);expect(pricedRows(offers,capDraft(settings,"2026-11-11",5).local_buy)[0]!.offers[0]!.qualifies).toBe(false);
   }
  });
+});
+
+it("re-evaluates structured non-price eligibility without depending on legacy prose",()=>{
+ const offers=rows();Object.assign(offers[0]!.offers[0]!,{rule_reason:undefined,non_price_eligible:true});
+ expect(pricedRows(offers,capDraft(settings,"2026-11-11",3).local_buy)[0]!.offers[0]!.qualifies).toBe(true);
+ Object.assign(offers[0]!.offers[0]!,{language:"Japanese",finish:"foil"});
+ expect(pricedRows(offers,capDraft(settings,"2026-11-11",3).local_buy)[0]!.offers[0]!.qualifies).toBe(true);
+ offers[0]!.offers[0]!.non_price_eligible=false;
+ expect(pricedRows(offers,capDraft(settings,"2026-11-11",3).local_buy)[0]!.offers[0]!.qualifies).toBe(false);
+});
+it("reconstructs complete legacy facts and labels incomplete unexplained rejects",()=>{
+ const offers=rows();Object.assign(offers[0]!.offers[0]!,{rule_reason:undefined,finish:"nonfoil",language:"English"});
+ expect(pricedRows(offers,capDraft(settings,"2026-11-11",3).local_buy)[0]!.offers[0]!.qualifies).toBe(true);
+ offers[0]!.offers[0]!.language=undefined;
+ const pending=pricedRows(offers,capDraft(settings,"2026-11-11",3).local_buy);
+ expect(pending[0]!.offers[0]!.qualifies).toBe(false);expect(pending[0]!.offers[0]!.eligibility_unknown).toBe(true);
 });

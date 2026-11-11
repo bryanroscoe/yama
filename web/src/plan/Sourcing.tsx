@@ -6,7 +6,7 @@ import { CardRef } from "../components/CardRef";
 import { ErrorText, Loading } from "../components/ui";
 import { report, reports, safeUrl, type ResearchBundle } from "../research/api";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
-import { allChoices, choicesFor, knownStockChoices, offerRows, offerId, optionalUse, portfolioRows, sourceSnapshot, sourceCarts, type SourceChoice } from "./sourcing-model";
+import { allChoices, choicesFor, offerRows, offerId, optionalUse, portfolioRows, sourceSnapshot, sourceCarts, type SourceChoice } from "./sourcing-model";
 import { localBuyRule, rulesAt, MAX_RULE_USD, shoppingRulesProblems, type RuleSet } from "@yama/core/plan";
 import { fetchBundle, saveShoppingRules } from "./api";
 import { capDraft, pricedRows, readCap } from "./source-pricing";
@@ -70,10 +70,11 @@ export function Portfolio({ bundle }: { bundle: ResearchBundle }) {
   const [store, setStore] = useState("");
   const [condition, setCondition] = useState("nm");
   const [onlyOffers, setOnlyOffers] = useState(true);
+  const [recordedStockOnly, setRecordedStockOnly] = useState(false);
   const [choices, setChoices] = useState<Record<string, SourceChoice[]>>({});
   const [limit, setLimit] = useState(25);
   const portfolio = useMemo(() => portfolioRows(cards, doc, decks, bracket, scope), [cards, doc, decks, bracket, scope]);
-  const rows = offerRows(pricedRows(portfolio,draft.local_buy,problems.length === 0),condition,store).filter(c => c.name.toLowerCase().includes(search.toLowerCase()));
+  const rows = offerRows(pricedRows(portfolio,draft.local_buy,problems.length === 0),condition,store,recordedStockOnly).filter(c => c.name.toLowerCase().includes(search.toLowerCase()));
   const visible = rows.filter(c => !onlyOffers || c.offers.some(o => o.qualifies && o.qty !== 0 && o.price != null));
   const stores = view.b.stores.filter(s => !s.retired && s.kind !== "printer");
   const cartTemplates = new Map<string,string>();
@@ -102,19 +103,20 @@ export function Portfolio({ bundle }: { bundle: ResearchBundle }) {
       <ErrorText error={saveCap.error} />{saveCap.isSuccess && <span role="status">Local cap saved.</span>}
       <details><summary>Market limits and other buying rules</summary><p>Last loaded buying rule: {current.text}</p><Link to="/decks/plans/settings#shopping-rules">Change the full buying rule</Link></details>
     </section>
+    {rows.some(c => c.offers.some(o => o.eligibility_unknown)) && <p className="small dim">Some older listings lack condition, finish or language evidence. They stay out of carts until the saved report is updated; a higher dollar ceiling alone cannot verify those details.</p>}
     <div className="source-filters">
       <label>Bracket<select value={bracket} onChange={e => setBracket(e.target.value)}><option value="">All brackets (one copy per deck)</option>{[2,3,4,5].map(b => <option key={b} value={b}>Bracket {b}</option>)}</select></label>
       <label>Cards for<select value={scope} onChange={e => setScope(e.target.value)}><option value="all">All needs and optional upgrades</option><option value="gaps">Cards to source</option><option value="optional">Real replacements for proxies</option></select></label>
       <label>Condition<select value={condition} onChange={e => setCondition(e.target.value)}><option value="nm">Near Mint only</option><option value="any">Any saved condition (prefer NM)</option></select></label>
       <label>Store<select value={store} onChange={e => setStore(e.target.value)}><option value="">All stores</option>{stores.map(s => <option key={s.key}>{s.name}</option>)}</select></label>
       <label>Find a card<input type="search" value={search} onChange={e => setSearch(e.target.value)} /></label>
-      <label className="source-check"><input type="checkbox" checked={onlyOffers} onChange={e => setOnlyOffers(e.target.checked)} />Within buy rules only</label>
+      <div className="source-filter-options"><label className="source-check"><input type="checkbox" checked={onlyOffers} onChange={e => setOnlyOffers(e.target.checked)} />Within buy rules only</label><label className="source-check"><input type="checkbox" checked={recordedStockOnly} onChange={e => setRecordedStockOnly(e.target.checked)} />Exclude unknown stock counts</label></div>
     </div>
     <details className="source-deck-picker"><summary>Decks: {count(decks.size)} of {count(recipients.size)} selected</summary><div className="source-actions"><button onClick={() => setDecks(new Set(recipients.keys()))}>All decks</button><button onClick={() => setDecks(new Set())}>Clear decks</button></div><div className="source-decks">{[...recipients].sort((a,b) => a[1].localeCompare(b[1])).map(([key,name]) => <label className="source-check" key={key}><input type="checkbox" checked={decks.has(key)} onChange={() => setDecks(prev => { const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next; })} />{name}</label>)}</div></details>
     <section className="source-selection" aria-label="Selected store carts">
-      <div className="source-actions"><button className="button" onClick={() => setChoices(allChoices(visible))}>Add all matching cards</button><button onClick={() => setChoices(knownStockChoices(visible))}>Add known quantities only</button>{selectedCopies > 0 && <button onClick={() => setChoices({})}>Clear selection</button>}</div>
+      <div className="source-actions"><button className="button" onClick={() => setChoices(allChoices(visible))}>Add all matching cards</button>{selectedCopies > 0 && <button onClick={() => setChoices({})}>Clear selection</button>}</div>
       <p><b>{plural(selectedCopies,"selected copy","selected copies")} · {usd(carts.reduce((n,c) => n+c.total,0))} before tax</b>{unconfirmed > 0 && <span> · {plural(unconfirmed,"copy needs","copies need")} stock confirmation</span>}</p>
-      <p className="small dim">Add all prepares the quantities needed for the matching cards, including stores that omit stock counts. Known stock is capped. No purchase is made. Unknown quantities are marked in your cart summary.</p>
+      <p className="small dim">Adds the copies needed for your current filters. Recorded stock counts limit quantities; missing counts are marked “stock unconfirmed.” Turn on “Exclude unknown stock counts” above to leave those listings out. No purchase is made.</p>
       {carts.length > 0 && <details open><summary>Store carts and listings</summary>{carts.map(cart => <div className="source-cart" key={cart.rows[0]!.offer.url}><h3>{cart.store} · {usd(cart.total)}</h3>{cart.url && <a className="button" href={cart.url} target="_blank" rel="noreferrer">Open filled store cart</a>}<ul>{cart.rows.map(r => <li key={`${r.card}:${offerId(r.offer)}`}>{r.qty} × <a href={r.offer.url} target="_blank" rel="noreferrer">{r.card}</a>{r.offer.qty == null && " — stock unconfirmed"}</li>)}</ul>{!cart.url && <p>Add these on their store listing pages; this store has no filled-cart link.</p>}</div>)}<p className="small dim">Filled Shopify links replace the existing store cart. Choose pickup at checkout. This is the selected subtotal, not the cost to complete every deck.</p></details>}
     </section>
     <p className="source-count">{plural(visible.length,"matching card")} · {plural(copies.length-optional,"copy to source","copies to source")} + {plural(optional,"optional real replacement","optional real replacements")} across selected decks. {condition === "nm" && "Only saved Near Mint offers are shown; other conditions and unrecorded NM variants are excluded."}</p>
@@ -129,7 +131,7 @@ export function Portfolio({ bundle }: { bundle: ResearchBundle }) {
           const low=peers.length ? Math.min(...peers.map(p=>p.price!)) : null;
           return <div className="source-offer" key={offerId(o)}>
             <div><a href={o.url} target="_blank" rel="noreferrer">{o.store}</a><span className="small dim">{o.title || "Printing not recorded"} · {o.condition || "Condition unknown"}</span><span className="small dim">{o.qty == null ? "Stock count unknown" : `${o.qty} listed`} · checked {o.checked_at ? fmtDateTime(o.checked_at) : "date unknown"}</span></div>
-            <div className="source-prices"><b>{usd(o.price!)}</b>{!o.qualifies && <span className="small">Outside buy rules</span>}<span className="small">{o.market != null ? <>{exact ? "Printing market" : "Market reference"}: {o.market_source ? <a href={o.market_source} target="_blank" rel="noreferrer">{usd(o.market)}</a> : usd(o.market)}</> : "Printing market unavailable"}</span><span className="small dim">{low != null ? `Lowest saved ${o.condition || "condition unknown"}: ${usd(low)}` : "Condition low unavailable"}</span>{o.market != null && <span className="small dim">Market is not condition-specific{o.market_checked_at ? ` · ${fmtDateTime(o.market_checked_at)}` : ""}</span>}</div>
+            <div className="source-prices"><b>{usd(o.price!)}</b>{!o.qualifies && <span className="small">{o.eligibility_unknown ? "Listing details need verification" : "Outside buy rules"}</span>}<span className="small">{o.market != null ? <>{exact ? "Printing market" : "Market reference"}: {o.market_source ? <a href={o.market_source} target="_blank" rel="noreferrer">{usd(o.market)}</a> : usd(o.market)}</> : "Printing market unavailable"}</span><span className="small dim">{low != null ? `Lowest saved ${o.condition || "condition unknown"}: ${usd(low)}` : "Condition low unavailable"}</span>{o.market != null && <span className="small dim">Market is not condition-specific{o.market_checked_at ? ` · ${fmtDateTime(o.market_checked_at)}` : ""}</span>}</div>
             <label className="source-qty">Copies<input disabled={!o.qualifies} aria-label={`${c.name} copies from ${o.store}`} type="number" min={0} max={Math.min(c.uses.length,o.qty ?? Infinity)} step={1} value={choicesFor(choices,c.name).find(choice => choice.offer === offerId(o))?.qty ?? 0} onChange={e=>change(c.name,offerId(o),+e.target.value)} /></label>
           </div>;
         })}
