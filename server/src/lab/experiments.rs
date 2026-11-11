@@ -1347,7 +1347,7 @@ fn engines_for(req: &NewExperiment, fa: &ForgeAccess) -> AppResult<Engines> {
         return Ok(Engines { mode, forge_ai: None });
     }
     if fa.client.is_none() {
-        return Err(AppError::Unavailable("Forge isn't set up on this server, so runs use phase only".into()));
+        return Err(AppError::Unavailable("Forge isn't set up on this server, so runs use Phase only".into()));
     }
     Ok(Engines { mode, forge_ai: Some(forge::canonical_profile(req.forge_ai.as_deref()).map_err(AppError::bad)?) })
 }
@@ -1411,7 +1411,7 @@ async fn refuse_forge_unknown(client: &dyn forge::ForgeClient, cards: &ForgeCard
         }
     }
     Err(AppError::Invalid {
-        message: format!("Forge can't play these cards ({} doesn't know them): {}. Run on phase only, or swap them out.", cards.engine(), shown(&all)),
+        message: format!("Forge can't play these cards ({} doesn't know them): {}. Run on Phase only, or swap them out.", cards.engine(), shown(&all)),
         details: json!({"unknown": per_list(&per), "engine": "forge"}),
     })
 }
@@ -1813,7 +1813,7 @@ pub async fn again_with(
     }
     let engines = old.engines.clone();
     if engines.mode.forge() && fa.client.is_none() {
-        return Err(AppError::Unavailable("Forge isn't set up on this server any more; start a new run on phase".into()));
+        return Err(AppError::Unavailable("Forge isn't set up on this server any more; start a new run on Phase".into()));
     }
     let cost = engines.mode.cost(games);
     check_allowance(&mut *pool.acquire().await?, user, cost, quota, false).await?;
@@ -1963,7 +1963,7 @@ pub async fn more_with(
     }
     let engines = old.engines.clone();
     if engines.mode.forge() && fa.client.is_none() {
-        return Err(AppError::Unavailable("Forge isn't set up on this server any more; start a new run on phase".into()));
+        return Err(AppError::Unavailable("Forge isn't set up on this server any more; start a new run on Phase".into()));
     }
     let new_pods = if old.mode == Mode::Solo { games as usize } else { (games / 2) as usize };
     let pods = old.pods + new_pods;
@@ -1982,7 +1982,7 @@ pub async fn more_with(
     let earlier = |which: &str, now: &str| played.iter().any(|(e, label)| e == which && label.as_deref().is_some_and(|l| l != now));
     if engines.mode.phase() && earlier("phase", ENGINE) {
         return Err(AppError::Conflict(format!(
-            "This run's games were played on an earlier phase engine than this server's ({ENGINE}), so new games can't join them. Run it again instead."
+            "This run's games were played on an earlier Phase engine than this server's ({ENGINE}), so new games can't join them. Run it again instead."
         )));
     }
     if let Some(now) = fa.engine.as_deref()

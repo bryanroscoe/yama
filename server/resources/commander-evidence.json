@@ -3,7 +3,7 @@
   "attribution": "Aggregate statistics, CC BY 4.0; https://playgroup.gg/legal",
   "checked_at": "2026-10-28T14:19:44.391335+00:00",
   "method": "raw-wins-divided-by-games-v1",
-  "limitations": "Mixed lists, pilots, opponents and pod sizes. Not four-player normalised; not an upgrade-gain estimate. Partners are individual commander observations.",
+  "limitations": "Mixed lists, pilots, opponents and pod sizes. Not four-player normalized; not an upgrade-gain estimate. Partners are individual commander observations.",
   "commanders": {
     "Abaddon the Despoiler": {
       "name": "Abaddon the Despoiler",

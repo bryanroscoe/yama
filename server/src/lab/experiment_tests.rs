@@ -2051,7 +2051,7 @@ async fn more_games_continue_the_schedule_and_pool_with_the_results_so_far() {
         .await
         .unwrap();
     let e = more(&pool, &bryan, &id, 100, 150, sim.as_ref()).await.unwrap_err();
-    assert!(matches!(&e, AppError::Conflict(m) if m.contains("earlier phase engine")), "{e:?}");
+    assert!(matches!(&e, AppError::Conflict(m) if m.contains("earlier Phase engine")), "{e:?}");
 }
 
 #[tokio::test]

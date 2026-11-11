@@ -6,7 +6,7 @@
 import { useState, type ReactNode } from "react";
 import { Details, Dialog } from "../components/ui";
 import type { Confidence, ConfidenceLevel } from "./api";
-import { confidenceMark, confidenceSentence, sentence } from "./logic";
+import { confidenceMark, confidenceSentence, reasonText, sentence } from "./logic";
 import "./lab.css";
 
 /**
@@ -22,7 +22,7 @@ export function ConfidenceMark({ confidence, name, method }: { confidence: Confi
       <button
         type="button"
         className={`conf-mark ${confidence.level}`}
-        title={confidence.reasons.length ? confidence.reasons.map(sentence).join("\n") : undefined}
+        title={confidence.reasons.length ? confidence.reasons.map(reasonText).join("\n") : undefined}
         aria-haspopup="dialog"
         aria-label={`${sentence(mark)}: why, for ${name}`}
         onClick={() => setOpen(true)}
@@ -58,7 +58,7 @@ function Reasons({ reasons }: { reasons: string[] }) {
       <h3 className="conf-why">Why</h3>
       <ul className="conf-reasons">
         {reasons.map((r) => (
-          <li key={r}>{sentence(r)}</li>
+          <li key={r}>{reasonText(r)}</li>
         ))}
       </ul>
     </>
@@ -120,14 +120,14 @@ export function ConfidenceNote({
           <Details label="Why">
             <ul className="conf-reasons">
               {reasons.map((r) => (
-                <li key={r}>{sentence(r)}</li>
+                <li key={r}>{reasonText(r)}</li>
               ))}
             </ul>
           </Details>
         ) : (
           <ul className="conf-reasons">
             {reasons.map((r) => (
-              <li key={r}>{sentence(r)}</li>
+              <li key={r}>{reasonText(r)}</li>
             ))}
           </ul>
         ))}
