@@ -1,5 +1,6 @@
 // What's new in Yama, newest first. Add an entry when something people will notice ships; the
-// app shows a notice until each person opens the page (remembered per device).
+// app shows a notice about entries newer than a device's first visit until the person opens the
+// page (remembered per device).
 
 export interface NewsEntry {
   /** Stable id; the notice compares it with the newest one this device has seen. */
@@ -821,11 +822,13 @@ export function unseen(entries: NewsEntry[], seenId: string | null): NewsEntry[]
   return i < 0 ? entries : entries.slice(0, i);
 }
 
-/** The notice's line, or null when there's nothing to say. A device that has never opened the
- *  page gets an invitation, not a count of updates "since you last looked". */
+/** The notice's line, or null when there's nothing to say. A device that has never looked (a new
+ *  account, a new phone) has nothing "new" to be told about: the changelog isn't a greeting. The
+ *  app takes today's list as that device's starting point (pages/WhatsNew.tsx), so the notice
+ *  waits for something newer. The page stays linked from Account settings. */
 export function noticeLine(entries: NewsEntry[], seenId: string | null): string | null {
+  if (!seenId) return null;
   const fresh = unseen(entries, seenId);
   if (!fresh.length) return null;
-  if (!seenId) return "Yama keeps a list of what's new.";
   return fresh.length === 1 ? `New in Yama: ${fresh[0]!.title}.` : `Yama has ${fresh.length} updates since you last looked.`;
 }
