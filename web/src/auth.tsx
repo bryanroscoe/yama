@@ -12,7 +12,7 @@ import { Landing } from "./pages/Landing";
 import { chooseGuest } from "./guest";
 import { isNative, nativeGoogleCredential } from "./native";
 import { ask } from "./components/confirm";
-import { accountConfirmed, ME_KEY, signingOut } from "./session";
+import { accountConfirmed, ME_KEY, SIGN_IN_MUTATION, signingOut } from "./session";
 
 /** The account this device last saw signed in, if any (kept by useMe). */
 export function savedMe(): User | undefined {
@@ -279,17 +279,20 @@ export function SignInForm({ heading: SignInTitle, title = "Sign in to Yama", co
   };
 
   const google = useMutation({
+    mutationKey: [SIGN_IN_MUTATION],
     mutationFn: (credential: string) => api<{ user: User; token: string }>("/api/auth/google", { method: "POST", json: { credential } }),
     onSuccess: signedIn,
     onError: setError,
   });
   const dev = useMutation({
+    mutationKey: [SIGN_IN_MUTATION],
     mutationFn: () => api<{ user: User; token: string }>("/api/auth/dev", { method: "POST", json: { email, name } }),
     onSuccess: signedIn,
     onError: setError,
   });
 
   const withPassword = useMutation({
+    mutationKey: [SIGN_IN_MUTATION],
     mutationFn: () => api<{ user: User; token: string }>("/api/auth/password", { method: "POST", json: { email, password } }),
     onSuccess: signedIn,
     onError: setError,

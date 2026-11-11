@@ -2,7 +2,7 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { Link, Navigate, NavLink, Outlet, Route, Routes, useLocation, useMatch } from "react-router";
 import { chooseGuest, useGuestChosen } from "./guest";
 import { afterSignIn, Login, useMe } from "./auth";
-import { useLapsedAccount } from "./session";
+import { useCacheSweeps, useLapsedAccount } from "./session";
 import { AlphaTag } from "./components/AlphaTag";
 import { RequireAccount } from "./components/RequireAccount";
 import { RailMe } from "./components/RailMe";
@@ -179,6 +179,8 @@ export function App() {
   // waiting for its account to sign in again keeps that data until it stops waiting: render
   // again then, so nothing still on screen holds on to what was just removed.
   useLapsedAccount();
+  // The same after a save of the last account landed late and the cache was swept again.
+  useCacheSweeps();
   const joining = useMatch("/table/join/:gameId");
   // Another tab started or stopped viewing as someone: this one reloads as whoever it is now.
   useEffect(() => {

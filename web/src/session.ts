@@ -11,7 +11,7 @@
 // - Signing out in another tab signs this one out too, and an account that changes in another tab
 //   is asked about here straight away.
 
-import type { QueryClient } from "@tanstack/react-query";
+import type { Mutation, QueryClient } from "@tanstack/react-query";
 import { useSyncExternalStore } from "react";
 import { ApiError, type User } from "./api";
 
@@ -93,10 +93,41 @@ const emit = () => {
   for (const l of listeners) l();
 };
 
+/** Signing in is the one request that belongs to the account arriving, not the one leaving (auth.tsx). */
+export const SIGN_IN_MUTATION = "sign-in";
+
+/** Goes up each time the cache is swept after a stale save, so the app renders again without it. */
+let sweeps = 0;
+
+const removeAccountQueries = () => client?.removeQueries({ predicate: (q) => !keptAcrossAccounts(q.queryKey) });
+
+/**
+ * The account's data leaves the cache. Saves it left queued (paused offline) are dropped, so they
+ * are never sent as whoever signs in next. A save already on its way can't be called back: when
+ * it lands, its callbacks may write the old account's answer into the cache (some set a query
+ * directly), so the cache is swept once more after each one settles.
+ */
 const clearAccountData = () => {
-  client?.removeQueries({ predicate: (q) => !keptAcrossAccounts(q.queryKey) });
-  // A save the last account queued (paused offline) must not be sent as whoever signs in next.
-  client?.getMutationCache().clear();
+  if (!client) return;
+  const mutations = client.getMutationCache();
+  const onTheirWay = new Set<Mutation<unknown, Error, unknown, unknown>>(
+    mutations.getAll().filter((m) => m.state.status === "pending" && !m.state.isPaused && m.options.mutationKey?.[0] !== SIGN_IN_MUTATION),
+  );
+  removeAccountQueries();
+  mutations.clear();
+  if (onTheirWay.size === 0) return;
+  const stop = mutations.subscribe((event) => {
+    if (event.type !== "updated" || !onTheirWay.has(event.mutation)) return;
+    if (event.action.type !== "success" && event.action.type !== "error") return;
+    onTheirWay.delete(event.mutation);
+    if (onTheirWay.size === 0) stop();
+    // After its callbacks have run (the ones given to mutate() run as this event is delivered).
+    setTimeout(() => {
+      removeAccountQueries();
+      sweeps++;
+      emit();
+    }, 0);
+  });
 };
 
 /** Start following the session for this tab's cache: `owner` is the account the app opened as. */
@@ -178,6 +209,21 @@ export function releaseSession() {
   state = { owner: next.owner, lapsed: next.lapsed };
   clearAccountData();
   emit();
+}
+
+/**
+ * How many times the cache was swept after a save of the last account landed late. The app reads
+ * it (App.tsx) only to render again: what was on screen then asks afresh as the account now here.
+ */
+export function useCacheSweeps(): number {
+  return useSyncExternalStore(
+    (l) => {
+      listeners.add(l);
+      return () => listeners.delete(l);
+    },
+    () => sweeps,
+    () => sweeps,
+  );
 }
 
 /** The account whose open page is waiting for it to sign in again, or null. */

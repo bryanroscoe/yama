@@ -1,7 +1,7 @@
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "./api";
-import { accountConfirmed, accountPageOpen, cacheStep, followMe, followSession, keptAcrossAccounts, lapsedAccount, ME_KEY, releaseSession, releaseStep, SIGNED_OUT_KEY, signInEnded, signingOut, startSession, storageStep } from "./session";
+import { accountConfirmed, accountPageOpen, cacheStep, followMe, followSession, keptAcrossAccounts, lapsedAccount, ME_KEY, releaseSession, releaseStep, SIGN_IN_MUTATION, SIGNED_OUT_KEY, signInEnded, signingOut, startSession, storageStep } from "./session";
 
 const open = { pages: 1, deliberate: false };
 const none = { pages: 0, deliberate: false };
@@ -233,5 +233,51 @@ describe("following the me query itself, as main.tsx does", () => {
     expect(qc.getMutationCache().getAll()).toHaveLength(1);
     followSession("b");
     expect(qc.getMutationCache().getAll()).toHaveLength(0);
+  });
+
+  it("sweeps the cache again when a save of the last account lands after the account changed", async () => {
+    const qc = new QueryClient();
+    startSession(qc, "a");
+    accountConfirmed();
+    let land: (value: string) => void = () => {};
+    // A's save, on its way: when it lands it writes its answer straight into the cache.
+    const save = qc.getMutationCache().build(qc, {
+      mutationFn: () => new Promise<string>((resolve) => (land = resolve)),
+      onSuccess: (answer: string) => void qc.setQueryData(["advisor", "status"], answer),
+    });
+    const sent = save.execute(undefined);
+    await Promise.resolve();
+    followSession("b");
+    qc.setQueryData(["decks"], ["B's deck"]);
+    land("A's settings");
+    await sent;
+    // The stale answer got in...
+    expect(qc.getQueryData(["advisor", "status"])).toBe("A's settings");
+    await new Promise((r) => setTimeout(r, 5));
+    // ...and is swept out, with everything else that may have been touched; who is signed in stays.
+    expect(qc.getQueryData(["advisor", "status"])).toBeUndefined();
+    expect(qc.getQueryData(["decks"])).toBeUndefined();
+  });
+
+  it("doesn't sweep for the sign-in itself, which belongs to the account arriving", async () => {
+    const qc = new QueryClient();
+    startSession(qc, null);
+    let land: (value: string) => void = () => {};
+    const signIn = qc.getMutationCache().build(qc, {
+      mutationKey: [SIGN_IN_MUTATION],
+      mutationFn: () => new Promise<string>((resolve) => (land = resolve)),
+      // As SignInForm does: the answer says who is signed in, while the request is still settling.
+      onSuccess: () => {
+        accountConfirmed();
+        followSession("b");
+        qc.setQueryData(["decks"], ["B's deck"]);
+      },
+    });
+    const sent = signIn.execute(undefined);
+    await Promise.resolve();
+    land("signed in");
+    await sent;
+    await new Promise((r) => setTimeout(r, 5));
+    expect(qc.getQueryData(["decks"])).toEqual(["B's deck"]);
   });
 });
