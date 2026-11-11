@@ -145,6 +145,12 @@ pub(super) async fn deck(State(st): State<AppState>, address: ClientAddress, hea
         .unwrap();
     }
     write!(body, "<a class=\"text-action\" href=\"/decks/import?shared={}\">Save a copy in Yama ↗</a></div>", e(&d.token)).unwrap();
+    // The deck page's other export formats, folded away under the three most used.
+    body.push_str("<details class=\"more-formats\"><summary>More formats</summary><p class=\"public-actions\">");
+    for (format, label, ending, _) in FILE_FORMATS {
+        write!(body, "<a class=\"button\" href=\"/d/{}/{format}.{ending}\" download>{label}</a>", e(&d.token)).unwrap();
+    }
+    body.push_str("</p></details>");
 
     // The status row, as on the deck page: legality, then the declared and suggested brackets.
     body.push_str("<div class=\"share-status\">");
