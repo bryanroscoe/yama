@@ -94,7 +94,7 @@ Camera OCR in Collection; swap checks from Plans, Prints, Swap sheet or a plan d
 ### Decks
 
 - Paste any common list format
-- Edit as text with versions
+- Edit as text with versions, with a card search on the edit page that adds or removes a card in one press and says whether it fits the commander's colors and whether you own it
 - Version history with a diff between any two versions
 - Commander validation
 - Owned/needed with cheapest market price
