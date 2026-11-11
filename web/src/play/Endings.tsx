@@ -6,6 +6,7 @@
 // engine's events counted (play/src/feed.rs); group stats are read-only, chosen when the game was
 // made.
 
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { api } from "../api";
@@ -145,6 +146,7 @@ export function GameOver(props: {
 }) {
   const { id, view, seats, names, art, tone, label, wide } = props;
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const [game, setGame] = useState<OnlineGame | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -205,6 +207,21 @@ export function GameOver(props: {
     try {
       const made = await api<{ id: string }>(`/api/play/join`, { method: "POST", json: { code: game.rematch.code, deck_id: game.rematch.deck_id } });
       navigate(`/play/${made.id}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  };
+  // The host may delete a finished game, as whoever recorded a table game may: a test game, or
+  // one that shouldn't count.
+  const remove = async () => {
+    if (!confirm("Delete this game from Yama? It comes out of the history and stats for everyone who played. This can't be undone.")) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api(`/api/play/${id}`, { method: "DELETE" });
+      for (const key of ["play", "games", "stats", "deck-results"]) void qc.invalidateQueries({ queryKey: [key] });
+      navigate("/play", { replace: true });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setBusy(false);
@@ -282,6 +299,11 @@ export function GameOver(props: {
             ) : null}
           </div>
           {host && <span className="small dim">Rematch makes a new table with the same seats and decks; the others join it from here or with its code.</span>}
+          {host && (
+            <button type="button" className="quiet small" style={{ alignSelf: "flex-start" }} onClick={remove} disabled={busy}>
+              Delete this game
+            </button>
+          )}
         </aside>
       </div>
     </div>

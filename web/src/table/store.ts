@@ -361,12 +361,21 @@ export function usePendingDeletes() {
   });
 }
 
+/** Deletes Yama refused for good (anything but "not found"): its copy of the game is still there. */
+const refusedDeletes = new Map<string, string>();
+
 /**
  * Delete a table game this account recorded: every copy on this device now, and Yama's once the
- * server answers (queued while offline). Resolves true once Yama has removed it.
+ * server answers (queued while offline). Resolves true once Yama has removed it and false while
+ * the delete waits for a connection. It throws when nothing was deleted (another window on this
+ * device runs the table, so this one may not write) and when Yama refused, so the page never
+ * reports a delete that didn't happen.
  */
 export async function deleteGame(gameId: string): Promise<boolean> {
-  if (!canWriteShared()) return false;
+  if (!canWriteShared()) {
+    throw new Error("This game wasn't deleted: another window on this device is running the table. Close that window or reload this page, then try again.");
+  }
+  refusedDeletes.delete(gameId);
   for (const { game } of finishedRecords()) {
     if (game.setup.id === gameId && !game.guest && mineGame(game)) acknowledgeFinished(game, true);
   }
@@ -381,6 +390,11 @@ export async function deleteGame(gameId: string): Promise<boolean> {
   if (!deletes.some((d) => d.id === gameId)) deletes = [...deletes, { id: gameId, owner: signedInUser() }];
   emit();
   await settle();
+  const refused = refusedDeletes.get(gameId);
+  if (refused !== undefined) {
+    refusedDeletes.delete(gameId);
+    throw new Error(`Yama didn't delete this game: ${refused}`);
+  }
   return !deletes.some((d) => d.id === gameId);
 }
 
@@ -398,7 +412,10 @@ async function pushDeletes() {
       await api(`/api/games/${id}`, { method: "DELETE" });
     } catch (e) {
       // Not found: the server never had it (or it's gone already), which is what we wanted.
-      if (!(e instanceof ApiError && e.status === 404) && !isPermanent(e)) throw e;
+      // Any other refusal is final too (asking again gets the same answer), but the game is
+      // still on Yama: whoever asked for the delete is told (deleteGame).
+      if (!isPermanent(e)) throw e;
+      if (!(e instanceof ApiError && e.status === 404)) refusedDeletes.set(id, errorMessage(e));
     }
     deletes = deletes.filter((d) => d.id !== id);
     emit();
@@ -506,7 +523,10 @@ export function discardGame() {
     forgetPrompts(current.setup.id);
     return setCurrent(null);
   }
-  void deleteGame(current.setup.id);
+  void deleteGame(current.setup.id).catch((e) => {
+    syncState = { ...syncState, error: errorMessage(e) };
+    emit();
+  });
 }
 
 /** The seat's label on the server: its commander, and its partner, so another device can rebuild the pair. */

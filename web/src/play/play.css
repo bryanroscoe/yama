@@ -825,6 +825,12 @@
 .lobby-start {
   min-height: 54px;
 }
+/* Start, with Cancel under it on a phone and beside it on a laptop. */
+.lobby-actions {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 8px;
+}
 
 @media (min-width: 900px) {
   .lobby {
@@ -949,6 +955,11 @@
   .lobby-start {
     min-height: 52px;
     padding: 0 28px;
+  }
+  .lobby-actions {
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
   }
 }
 

@@ -38,7 +38,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/play/status", get(status))
         .route("/api/play", get(list).post(create))
         .route("/api/play/join", post(join))
-        .route("/api/play/{id}", get(detail))
+        .route("/api/play/{id}", get(detail).delete(remove))
         .route("/api/play/{id}/start", post(start))
         .route("/api/play/{id}/rematch", post(rematch))
         .route("/api/play/{id}/end", post(end_solo))
@@ -1207,15 +1207,14 @@ async fn check_open_games(pool: &SqlitePool, user: &User) -> AppResult<()> {
     if user.is_admin {
         return Ok(());
     }
-    let mine: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM online_games WHERE host_id = ? AND stage IN ('lobby','live')")
-        .bind(&user.id)
-        .fetch_one(pool)
-        .await?;
+    let (waiting, playing): (i64, i64) =
+        sqlx::query_as("SELECT IFNULL(SUM(stage = 'lobby'), 0), IFNULL(SUM(stage = 'live'), 0) FROM online_games WHERE host_id = ? AND stage IN ('lobby','live')")
+            .bind(&user.id)
+            .fetch_one(pool)
+            .await?;
     let cap = if user.limited { OPEN_MAX_OPEN_GAMES } else { MAX_OPEN_GAMES };
-    if mine >= cap {
-        return Err(AppError::Conflict(format!(
-            "You have {mine} online games that haven't finished. Finish or concede one before starting another."
-        )));
+    if waiting + playing >= cap {
+        return Err(AppError::Conflict(open_games_message(waiting, playing)));
     }
     if user.limited {
         let all: i64 = sqlx::query_scalar(concat!(
@@ -1231,6 +1230,19 @@ async fn check_open_games(pool: &SqlitePool, user: &User) -> AppResult<()> {
     Ok(())
 }
 
+/// Why a new game is refused at the limit, naming what is open and the way out of each kind: a
+/// table that hasn't started is cancelled, a game being played is finished.
+fn open_games_message(waiting: i64, playing: i64) -> String {
+    let tables = |n: i64| if n == 1 { "1 table waiting for players".to_string() } else { format!("{n} tables waiting for players") };
+    let games = |n: i64| if n == 1 { "1 game being played".to_string() } else { format!("{n} games being played") };
+    let one = |n: i64| if n == 1 { "it" } else { "one" };
+    match (waiting, playing) {
+        (w, 0) => format!("You have {}. Cancel {} from its page before opening another.", tables(w), one(w)),
+        (0, p) => format!("You have {}. Finish {} before starting another.", games(p), one(p)),
+        (w, p) => format!("You have {} and {}. Cancel a waiting table from its page, or finish a game, before starting another.", tables(w), games(p)),
+    }
+}
+
 async fn create(
     State(st): State<AppState>,
     CurrentUser(user): CurrentUser,
@@ -1238,6 +1250,36 @@ async fn create(
 ) -> AppResult<Json<serde_json::Value>> {
     let id = create_game(&st, &user, &body, true).await?;
     Ok(Json(serde_json::json!({ "id": id })))
+}
+
+/// The host cancels a table that hasn't started, or deletes a game that's over: it comes out of
+/// everyone's history and stats, as deleting a table game does (`games::remove`). A game being
+/// played isn't deleted from under its players: it ends first (a concession, or End game for a
+/// solo game).
+async fn remove(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<serde_json::Value>> {
+    let r = load_visible(&st.pool, &id, &user.id).await?;
+    if r.host_id != user.id {
+        return Err(AppError::Forbidden(if r.stage == "lobby" { "Only the host can cancel this table." } else { "Only the host can delete this game." }.into()));
+    }
+    let playing = || AppError::Conflict("This game is being played. Finish it before deleting it.".into());
+    if r.stage == "live" {
+        return Err(playing());
+    }
+    // The stage is checked again in the delete: Start may have won the race.
+    let deleted = sqlx::query(
+        "DELETE FROM games WHERE id = ?1 AND created_by = ?2 AND mode = 'online'
+           AND EXISTS (SELECT 1 FROM online_games o WHERE o.game_id = ?1 AND o.host_id = ?2 AND o.stage != 'live')",
+    )
+    .bind(&id)
+    .bind(&user.id)
+    .execute(&st.pool)
+    .await?
+    .rows_affected();
+    if deleted == 0 {
+        return Err(playing());
+    }
+    st.play.unavailable.lock().unwrap().remove(&id);
+    Ok(Json(serde_json::json!({ "deleted": true, "was": if r.stage == "lobby" { "lobby" } else { "game" } })))
 }
 
 /// Stop a host-owned solo table, preserving an abandoned result without a winner.

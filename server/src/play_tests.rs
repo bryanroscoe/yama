@@ -1782,3 +1782,66 @@ async fn a_knockout_the_feed_has_let_go_keeps_what_was_stored_when_it_happened()
     write(vec![]).await;
     assert_eq!(seats().await, vec![(0, None, None), (1, None, None), (2, None, None), (3, None, None)]);
 }
+
+#[tokio::test]
+async fn the_host_cancels_a_waiting_table_and_deletes_a_finished_game() {
+    use crate::testutil::{send as request, user};
+    use axum::http::{Method, StatusCode};
+    let mut st = crate::testutil::state().await;
+    st.play = ready_hub(None);
+    let pool = st.pool.clone();
+    let app = crate::routes::app(st);
+    let (host, host_token) = user(&pool, "cancel-host@example.com").await;
+    let (friend, friend_token) = user(&pool, "cancel-friend@example.com").await;
+    let (_, stranger_token) = user(&pool, "cancel-stranger@example.com").await;
+    let mut seats = vec![seat(0, "Host"), seat(1, "Friend")];
+    seats[0].user_id = Some(host.clone());
+    seats[1].user_id = Some(friend.clone());
+    for (id, stage, status) in [("waiting", "lobby", "in_progress"), ("playing", "live", "in_progress"), ("done", "over", "finished")] {
+        sqlx::query("INSERT INTO games (id,mode,created_by,format,status,starting_life,started_at) VALUES (?,'online',?,'commander',?,40,'2026-11-11T00:00:00Z')")
+            .bind(id).bind(&host).bind(status).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO online_games (game_id,code,host_id,stage,seats,created_at,updated_at) VALUES (?,?,?,?,?,'t','t')")
+            .bind(id).bind(id.to_uppercase()).bind(&host).bind(stage).bind(serde_json::to_string(&seats).unwrap()).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO game_seats (game_id,seat,user_id) VALUES (?,0,?)").bind(id).bind(&host).execute(&pool).await.unwrap();
+    }
+    sqlx::query("UPDATE online_games SET rematch_id = 'waiting' WHERE game_id = 'done'").execute(&pool).await.unwrap();
+    let delete = |id: &'static str, token: &str| {
+        let (app, token) = (app.clone(), token.to_string());
+        async move { request(&app, Method::DELETE, &format!("/api/play/{id}"), Some(&token), None).await }
+    };
+    // Someone outside the game learns nothing, and a seated friend may not.
+    assert_eq!(delete("waiting", &stranger_token).await.0, StatusCode::NOT_FOUND);
+    for id in ["waiting", "done"] {
+        assert_eq!(delete(id, &friend_token).await.0, StatusCode::FORBIDDEN);
+    }
+    // A game being played stays.
+    let (status, body) = delete("playing", &host_token).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    // The host cancels the table: the game row, its lobby and seats go, and the finished game's
+    // pointer to it as a rematch.
+    let (status, body) = delete("waiting", &host_token).await;
+    assert_eq!((status, body["was"].as_str()), (StatusCode::OK, Some("lobby")), "{body}");
+    let left: Vec<String> = sqlx::query_scalar("SELECT id FROM games ORDER BY id").fetch_all(&pool).await.unwrap();
+    assert_eq!(left, ["done", "playing"]);
+    assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM online_games WHERE game_id = 'waiting'").fetch_one(&pool).await.unwrap(), 0);
+    assert_eq!(sqlx::query_scalar::<_, Option<String>>("SELECT rematch_id FROM online_games WHERE game_id = 'done'").fetch_one(&pool).await.unwrap(), None);
+    // ...and deletes the finished game, for everyone who played.
+    let (status, body) = delete("done", &host_token).await;
+    assert_eq!((status, body["was"].as_str()), (StatusCode::OK, Some("game")), "{body}");
+    assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM game_seats WHERE game_id = 'done'").fetch_one(&pool).await.unwrap(), 0);
+    assert_eq!(delete("done", &host_token).await.0, StatusCode::NOT_FOUND);
+    // The game that was being played is untouched.
+    assert_eq!(load_row(&pool, "playing").await.unwrap().stage, "live");
+}
+
+#[test]
+fn the_limit_message_names_what_is_open_and_how_to_close_it() {
+    assert_eq!(open_games_message(1, 0), "You have 1 table waiting for players. Cancel it from its page before opening another.");
+    assert_eq!(open_games_message(2, 0), "You have 2 tables waiting for players. Cancel one from its page before opening another.");
+    assert_eq!(open_games_message(0, 1), "You have 1 game being played. Finish it before starting another.");
+    assert_eq!(open_games_message(0, 3), "You have 3 games being played. Finish one before starting another.");
+    assert_eq!(
+        open_games_message(1, 1),
+        "You have 1 table waiting for players and 1 game being played. Cancel a waiting table from its page, or finish a game, before starting another."
+    );
+}

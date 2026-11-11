@@ -3,7 +3,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 import { api, publicOrigin } from "../api";
 import { useMe } from "../auth";
 import { ArtPanel, artCredit } from "../components/ArtPanel";
@@ -46,9 +46,19 @@ function Lobby({ game, notice }: { game: OnlineGame; notice?: ReactNode }) {
   const qc = useQueryClient();
   const me = useMe();
   const [copied, setCopied] = useState(false);
+  const navigate = useNavigate();
   const start = useMutation({
     mutationFn: () => api(`/api/play/${game.id}/start`, { method: "POST" }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["play", game.id] }),
+  });
+  // A table nobody ended up playing at: the host takes it down, which also frees its place
+  // among the games they may have open.
+  const cancel = useMutation({
+    mutationFn: () => api(`/api/play/${game.id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["play"] });
+      navigate("/play", { replace: true });
+    },
   });
   const isHost = game.host === me.data?.id;
   const open = game.seats.filter((s) => !s.ai && !s.deck_name).length;
@@ -134,13 +144,23 @@ function Lobby({ game, notice }: { game: OnlineGame; notice?: ReactNode }) {
               </span>
             </p>
           ))}
-          <ErrorText error={start.error} />
+          <ErrorText error={start.error ?? cancel.error} />
           {!isHost && <p className="dim">The host starts the game when everyone's here.</p>}
         </div>
         {isHost && (
-          <button type="button" className="primary lobby-start" disabled={open > 0 || start.isPending} onClick={() => start.mutate()}>
-            {open > 0 ? "Start when everyone's in" : "Start the game"}
-          </button>
+          <div className="lobby-actions">
+            <button
+              type="button"
+              className="quiet"
+              disabled={cancel.isPending || start.isPending}
+              onClick={() => confirm("Cancel this table? Its code stops working, and anyone who joined is sent back to Play online.") && cancel.mutate()}
+            >
+              {cancel.isPending ? "Cancelling…" : "Cancel this table"}
+            </button>
+            <button type="button" className="primary lobby-start" disabled={open > 0 || start.isPending || cancel.isPending} onClick={() => start.mutate()}>
+              {open > 0 ? "Start when everyone's in" : "Start the game"}
+            </button>
+          </div>
         )}
       </div>
     </main>

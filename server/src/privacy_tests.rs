@@ -210,7 +210,7 @@ async fn online_games_a_stranger_can_host_are_capped() {
     host("s3".into(), stranger.clone(), "over").await;
     let (status, res) = send(&app, Method::POST, "/api/play", Some(&st), Some(body.clone())).await;
     assert_eq!(status, StatusCode::CONFLICT, "{res}");
-    assert!(res["error"].as_str().unwrap().contains("2 online games that haven't finished"), "{res}");
+    assert_eq!(res["error"], "You have 1 table waiting for players and 1 game being played. Cancel a waiting table from its page, or finish a game, before starting another.", "{res}");
     // A member may host more (here online play is off, which is the next thing it says).
     for i in 0..3 {
         host(format!("m{i}"), member.clone(), "live").await;
