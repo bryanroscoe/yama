@@ -893,6 +893,14 @@ export interface OnlineGame {
   turns?: number | null;
   /** The playgroup whose stats it counts toward. */
   playgroup?: string | null;
+  /** A table that hasn't started: the seat the host chose to go first. Absent: it's rolled for. */
+  first?: number | null;
+  /** How a finished game was won: read from the engine where it could tell, or what a player said. */
+  win_condition?: string | null;
+  /** Your own fun rating for a finished game, 1 to 5 (game detail only). */
+  fun?: number | null;
+  /** What the host wrote about a finished game. */
+  note?: string | null;
   missing_cards: Record<string, string[]>;
   /** When play started and, once over, ended (newer servers). */
   started_at?: string | null;

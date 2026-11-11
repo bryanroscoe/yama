@@ -498,10 +498,17 @@ async fn delete_group(State(st): State<AppState>, CurrentUser(user): CurrentUser
 /// Everything the Group page shows, computed from the playgroup's finished games on request.
 #[derive(Serialize)]
 pub(crate) struct Stats {
+    /// Finished games between people: what every figure here is computed from.
     games: i64,
+    /// Finished games with fewer than two people (against only the computer, or a table of one).
+    /// They stay in the playgroup's history and are left out of every figure here.
+    solo_games: i64,
     players: Vec<crate::stats::PlayerStat>,
     commanders: Vec<crate::stats::CommanderStat>,
+    /// Rounds, from games at the table and logged ones.
     average_turns: Option<crate::stats::Average>,
+    /// Every player's turn counted, from online games.
+    average_online_turns: Option<crate::stats::Average>,
     average_minutes: Option<crate::stats::Average>,
     seats: Vec<crate::stats::PodSeats>,
     seats_unknown: i64,
@@ -523,12 +530,16 @@ pub(crate) async fn stats_for(pool: &SqlitePool, user_id: &str, id: &str) -> App
     if !is_member(pool, id, user_id).await? {
         return Err(AppError::NotFound("playgroup"));
     }
-    let games = s::finished_games(pool, s::Scope::Playgroup(id)).await?;
+    // A playgroup's stats compare the people in it. A game one person played against the
+    // computer has nobody to compare them with, so it is counted and set aside.
+    let (games, solo): (Vec<s::GameFacts>, Vec<s::GameFacts>) = s::finished_games(pool, s::Scope::Playgroup(id)).await?.into_iter().partition(|g| g.between_people());
     Ok(Stats {
         games: games.len() as i64,
+        solo_games: solo.len() as i64,
         players: s::players(&games),
         commanders: s::commanders(&games),
         average_turns: s::average_turns(&games),
+        average_online_turns: s::average_online_turns(&games),
         average_minutes: s::average_minutes(&games),
         seats: s::seats(&games),
         seats_unknown: s::seats_unknown(&games),
@@ -861,5 +872,48 @@ mod tests {
         let (status, games) = send(&app, Method::GET, "/api/games", Some(&bt), None).await;
         assert_eq!(status, StatusCode::OK);
         assert!(games.as_array().unwrap().iter().any(|g| g["id"] == "g1"), "{games}");
+    }
+
+    #[tokio::test]
+    async fn a_playgroups_figures_leave_out_games_against_only_the_computer() {
+        let pool = crate::db::test_pool().await;
+        for id in ["ana", "ben"] {
+            sqlx::query("INSERT INTO users (id, email, display_name, created_at) VALUES (?,?,?,'t')").bind(id).bind(format!("{id}@x.y")).bind(id).execute(&pool).await.unwrap();
+        }
+        sqlx::query("INSERT INTO playgroups (id,name,owner_id,join_code,created_at) VALUES ('pg','Friday','ana','FRIDAY','t')").execute(&pool).await.unwrap();
+        for (member, account) in [("m-ana", "ana"), ("m-ben", "ben")] {
+            sqlx::query("INSERT INTO playgroup_members (id,playgroup_id,user_id,created_at) VALUES (?,'pg',?,'t')").bind(member).bind(account).execute(&pool).await.unwrap();
+        }
+        // (game, mode, turns, win condition, seats as (account, ai)); seat 0 wins each.
+        let games: [(&str, &str, i64, &str, &[(Option<&str>, Option<&str>)]); 3] = [
+            ("table", "in_person", 9, "combat", &[(Some("ana"), None), (Some("ben"), None)]),
+            // Ana alone against two computers: in the history, in no figure.
+            ("solo", "online", 40, "combo", &[(Some("ana"), None), (None, Some("phase-ai Easy")), (None, Some("phase-ai Easy"))]),
+            // Ana and Ben with a computer: a game between people.
+            ("mixed", "online", 30, "poison", &[(Some("ana"), None), (Some("ben"), None), (None, Some("phase-ai Hard"))]),
+        ];
+        for (id, mode, turns, how, seats) in games {
+            sqlx::query("INSERT INTO games (id,mode,playgroup_id,created_by,status,started_at,ended_at,turns,winner_seat,first_seat,win_condition) VALUES (?,?,'pg','ana','finished','2026-11-01T19:00:00Z','2026-11-01T20:00:00Z',?,0,0,?)")
+                .bind(id).bind(mode).bind(turns).bind(how).execute(&pool).await.unwrap();
+            for (n, (account, ai)) in seats.iter().enumerate() {
+                sqlx::query("INSERT INTO game_seats (game_id,seat,user_id,guest_name,ai_kind,commander_name) VALUES (?,?,?,?,?,?)")
+                    .bind(id).bind(n as i64).bind(account).bind(ai.map(|_| "Atraxa, Praetors' Voice")).bind(ai).bind(ai.map(|_| "Atraxa, Praetors' Voice"))
+                    .execute(&pool).await.unwrap();
+            }
+        }
+        let stats = serde_json::to_value(stats_for(&pool, "ana", "pg").await.unwrap()).unwrap();
+        assert_eq!((&stats["games"], &stats["solo_games"]), (&serde_json::json!(2), &serde_json::json!(1)));
+        // Only the two people are players, each with the two games between people.
+        let players: Vec<(&str, i64, i64)> = stats["players"].as_array().unwrap().iter().map(|p| (p["name"].as_str().unwrap(), p["games"].as_i64().unwrap(), p["wins"].as_i64().unwrap())).collect();
+        assert_eq!(players, vec![("ana", 2, 2), ("ben", 2, 0)]);
+        // The solo game's turns, win condition and turn order are in no figure.
+        assert_eq!(stats["average_online_turns"], serde_json::json!({ "value": 30.0, "games": 1 }));
+        assert_eq!(stats["average_turns"], serde_json::json!({ "value": 9.0, "games": 1 }));
+        let how: Vec<&str> = stats["win_conditions"]["recorded"].as_array().unwrap().iter().map(|c| c["condition"].as_str().unwrap()).collect();
+        assert_eq!(how, vec!["combat", "poison"]);
+        assert_eq!(stats["seats"].as_array().unwrap().iter().map(|p| p["games"].as_i64().unwrap()).sum::<i64>(), 2);
+        // Someone outside the group learns nothing.
+        sqlx::query("INSERT INTO users (id, email, display_name, created_at) VALUES ('cat','cat@x.y','cat','t')").execute(&pool).await.unwrap();
+        assert!(matches!(stats_for(&pool, "cat", "pg").await, Err(AppError::NotFound(_))));
     }
 }

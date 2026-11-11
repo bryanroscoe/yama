@@ -1,8 +1,10 @@
 // Play online, to the Night table artboards (design/screens/Play and PlayPhone): a hero to
-// continue your current game on its commanders' art, the new-game seats, joining with a code,
+// continue your current game on its commanders' art, the new-game seats (your decks, friends by
+// code, the computer on one of your decks or a precon, and who goes first), joining with a code,
 // and your games.
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { GAME_WORDS, wonText } from "@yama/core";
 import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { api, type DeckSummary, type Playgroup } from "../api";
@@ -14,17 +16,13 @@ import { OnlineSupport } from "../components/OnlineSupport";
 import { BracketChips } from "../components/Bracket";
 import { useMe, usePower } from "../auth";
 import type { OnlineGame, SeatInfo } from "./types";
-import { SavedDeckPicker } from "../components/DeckPicker";
+import type { PreconList } from "../lab/api";
+import { SavedDeckPicker, PreconPicker } from "../components/DeckPicker";
+import { playRequest, playsPrecon, seatWho, type SeatPlan } from "./setup";
 import "./play.css";
 import { ago } from "@yama/core";
 
 const SKILLS = ["Easy", "Medium", "Hard"] as const;
-
-interface SeatPlan {
-  kind: "me" | "friend" | "ai";
-  deckId: string;
-  difficulty: string;
-}
 
 
 /** "You, Sam and 2 computers" from a game's seats. */
@@ -40,11 +38,11 @@ export function tableWho(seats: SeatInfo[], you: number | null): string {
 /** What a game in the list says first: who won, that it's waiting, or that it's under way. */
 function gameStatus(g: OnlineGame): { text: string; tone: "" | "warn" | "dim" } {
   if (g.status === "lobby") return { text: `Waiting for players, code ${g.code}`, tone: "warn" };
-  if (g.status === "in_progress") return { text: "In progress", tone: "" };
-  if (g.winner === null || g.winner === undefined) return { text: g.status === "abandoned" ? "Abandoned" : "Finished", tone: "dim" };
+  if (g.status === "in_progress") return { text: GAME_WORDS.going, tone: "" };
+  if (g.winner === null || g.winner === undefined) return { text: g.status === "abandoned" ? GAME_WORDS.abandoned : GAME_WORDS.draw, tone: "dim" };
   const w = g.seats.find((s) => s.seat === g.winner);
   const who = !w ? "Someone" : w.seat === g.you ? "You" : w.ai ? "The computer" : w.name;
-  return { text: `${who} won${g.turns ? ` on turn ${g.turns}` : ""}`, tone: "dim" };
+  return { text: `${wonText(who)}${g.turns ? ` on turn ${g.turns}` : ""}`, tone: "dim" };
 }
 
 export function PlayHome() {
@@ -166,22 +164,18 @@ function NewGame({ decks }: { decks: DeckSummary[] }) {
   ]);
   const [editing, setEditing] = useState<number | null>(null);
   const groups = useQuery({ queryKey: ["playgroups"], queryFn: () => api<Playgroup[]>("/api/playgroups") });
+  // Stock precons for the computer's seats, as Watch offers them. Without the catalog the
+  // computer plays your decks.
+  const precons = useQuery({ queryKey: ["precons"], queryFn: () => api<PreconList>("/api/precons") });
+  // Repeats of an earlier list are left out; sorted by name.
+  const preconChoices = (precons.data?.precons ?? []).filter((p) => !p.same_list_as).sort((a, b) => a.name.localeCompare(b.name));
   const [groupId, setGroupId] = useState("");
+  /** The seat that takes the first turn, or null to roll for it as a table would. */
+  const [goesFirst, setGoesFirst] = useState<number | null>(null);
   const deckOf = (s: SeatPlan) => s.deckId || first;
   const update = (i: number, patch: Partial<SeatPlan>) => setSeats((all) => all.map((s, j) => (j === i ? { ...s, ...patch } : s)));
   const create = useMutation({
-    mutationFn: () =>
-      api<{ id: string }>("/api/play", {
-        method: "POST",
-        json: {
-          playgroup_id: groupId || null,
-          seats: seats.map((s) => ({
-            kind: s.kind,
-            deck_id: s.kind === "friend" ? null : deckOf(s),
-            difficulty: s.kind === "ai" ? s.difficulty : null,
-          })),
-        },
-      }),
+    mutationFn: () => api<{ id: string }>("/api/play", { method: "POST", json: playRequest(seats, goesFirst, groupId, first) }),
     onSuccess: (r) => {
       void qc.invalidateQueries({ queryKey: ["play"] });
       navigate(`/play/${r.id}`);
@@ -200,7 +194,13 @@ function NewGame({ decks }: { decks: DeckSummary[] }) {
       </section>
     );
   }
-  const shown = seats.map((s) => (s.kind === "friend" ? undefined : decks.find((d) => d.id === deckOf(s))));
+  // Each seat's own deck (yours, or the one the computer plays), or the computer's precon.
+  const shown = seats.map((s) => (s.kind === "friend" || playsPrecon(s) ? undefined : decks.find((d) => d.id === deckOf(s))));
+  const preconOf = (s: SeatPlan) => (playsPrecon(s) ? preconChoices.find((p) => p.id === s.preconId) : undefined);
+  const art = seats.map((s, i) => {
+    const p = preconOf(s);
+    return p ? { name: p.name, image: p.art?.url ?? null, artist: p.art?.artist ?? null } : shown[i] ? { name: shown[i]!.name, image: shown[i]!.commander_image, artist: shown[i]!.commander_artist } : undefined;
+  });
   return (
     <section className="ph-new" aria-labelledby="ph-new-h">
       <div className="ph-new-head">
@@ -219,21 +219,22 @@ function NewGame({ decks }: { decks: DeckSummary[] }) {
       <ol className="ph-seats">
         {seats.map((s, i) => {
           const deck = shown[i];
+          const seatArt = art[i];
           const who = i === 0 ? me.data?.display_name ?? "You" : s.kind === "friend" ? "A friend" : "Computer";
           return (
             <li key={i} className={`ph-seat${s.kind === "friend" ? " open" : ""}${editing === i ? " editing" : ""}`}>
-              <ArtPanel className="ph-seat-head" art={deck?.commander_image} artist={deck?.commander_artist} wash="bottom" empty={!deck} credit={false}>
+              <ArtPanel className="ph-seat-head" art={seatArt?.image} artist={seatArt?.artist} wash="bottom" empty={!seatArt} credit={false}>
                 <span className="ph-seat-who">{i === 0 ? "You" : who}</span>
                 <span className="ph-seat-n">Seat {i + 1}</span>
               </ArtPanel>
               {/* Phones show a compact row with a Change button; the fields open below it. */}
               <div className="ph-seat-row">
                 <span className="ph-seat-thumb" aria-hidden="true">
-                  {deck?.commander_image ? <img src={deck.commander_image} alt="" /> : i + 1}
+                  {seatArt?.image ? <img src={seatArt.image} alt="" /> : i + 1}
                 </span>
                 <span className="ph-seat-sum">
                   <b>{i === 0 ? "You" : s.kind === "ai" ? `Computer, ${s.difficulty.toLowerCase()}` : who}</b>
-                  <span>{s.kind === "friend" ? "Joins with the code" : deck?.name ?? "No deck"}</span>
+                  <span>{s.kind === "friend" ? "Joins with the code" : seatArt?.name ?? "No deck"}</span>
                 </span>
                 <button type="button" className="ph-change" aria-expanded={editing === i} aria-label={`Change seat ${i + 1}`} onClick={() => setEditing(editing === i ? null : i)}>
                   {editing === i ? "Done" : "Change"}
@@ -243,9 +244,19 @@ function NewGame({ decks }: { decks: DeckSummary[] }) {
                 {i > 0 && (
                   <Segmented className="ph-kind" label={`Who plays seat ${i + 1}`} value={s.kind} onChange={(kind) => update(i, { kind })} options={[["ai", "Computer"], ["friend", "A friend"]]} />
                 )}
-                {s.kind !== "friend" && (
+                {s.kind === "ai" && preconChoices.length > 0 && (
+                  <Segmented
+                    className="ph-kind"
+                    label={`Deck for the computer in seat ${i + 1}`}
+                    value={playsPrecon(s) ? "precon" : "deck"}
+                    onChange={(source) => update(i, source === "precon" ? { source, preconId: s.preconId || preconChoices[(i * 37 + 11) % preconChoices.length]!.id } : { source })}
+                    options={[["deck", "Your decks"], ["precon", "Precons"]]}
+                  />
+                )}
+                {s.kind !== "friend" && !playsPrecon(s) && (
                   <SavedDeckPicker decks={decks} value={deckOf(s)} onChange={(deckId) => update(i, { deckId })} />
                 )}
+                {playsPrecon(s) && <PreconPicker precons={preconChoices} value={s.preconId ?? ""} onChange={(preconId) => update(i, { preconId })} />}
                 {s.kind === "ai" && (
                   <div className="ph-skills" role="group" aria-label={`Difficulty for seat ${i + 1}`}>
                     {SKILLS.map((k) => (
@@ -257,13 +268,22 @@ function NewGame({ decks }: { decks: DeckSummary[] }) {
                 {s.kind !== "friend" && deck && (deck.bracket != null || deck.estimate) && (
                   <div><BracketChips declared={deck.bracket} estimate={deck.estimate} /></div>
                 )}
-                {s.kind !== "friend" && deckOf(s) && <OnlineSupport deckId={deckOf(s)} versionId={deck?.current_version_id} />}
+                {s.kind !== "friend" && !playsPrecon(s) && deckOf(s) && <OnlineSupport deckId={deckOf(s)} versionId={deck?.current_version_id} />}
               </div>
             </li>
           );
         })}
       </ol>
-      {shown.some((d) => d?.commander_image) && <p className="ph-credit">{artCredits(shown.map((d) => (d?.commander_image ? d.commander_artist : null)))}</p>}
+      {art.some((a) => a?.image) && <p className="ph-credit">{artCredits(art.map((a) => (a?.image ? a.artist : null)))}</p>}
+      <div className="wh-options">
+        <label className="wh-first">
+          Goes first
+          <select value={goesFirst ?? ""} onChange={(e) => setGoesFirst(e.target.value === "" ? null : Number(e.target.value))}>
+            <option value="">Roll for it, as at a table</option>
+            {seats.map((s, i) => <option key={i} value={i}>{seatWho(s, i)}</option>)}
+          </select>
+        </label>
+      </div>
       <ErrorText error={create.error} />
       <div className="ph-new-foot">
         <span className="ph-seat-buttons">
@@ -271,7 +291,17 @@ function NewGame({ decks }: { decks: DeckSummary[] }) {
             <button type="button" className="outline ph-add" onClick={() => setSeats((a) => [...a, { kind: "ai", deckId: "", difficulty: "Medium" }])}>Add a seat</button>
           )}
           {seats.length > 2 && (
-            <button type="button" className="quiet ph-remove" onClick={() => setSeats((a) => a.slice(0, -1))}>Remove the last seat</button>
+            <button
+              type="button"
+              className="quiet ph-remove"
+              onClick={() => {
+                setSeats((a) => a.slice(0, -1));
+                // The seat chosen to go first went with it: back to a roll.
+                if (goesFirst !== null && goesFirst >= seats.length - 1) setGoesFirst(null);
+              }}
+            >
+              Remove the last seat
+            </button>
           )}
         </span>
         <button type="button" className="primary ph-open" onClick={() => create.mutate()} disabled={create.isPending}>

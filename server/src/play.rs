@@ -29,6 +29,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::{broadcast, oneshot, watch};
 mod board;
 mod board_data;
+mod results;
 
 use yama_play::{Act, AttackAt, DeckLine, DeckSupport, Difficulty, Engine, Match, PassMode, PayMode, SeatDeck, Setup, Stops, View};
 
@@ -37,10 +38,11 @@ pub fn router() -> Router<AppState> {
         .route("/api/play/status", get(status))
         .route("/api/play", get(list).post(create))
         .route("/api/play/join", post(join))
-        .route("/api/play/{id}", get(detail))
+        .route("/api/play/{id}", get(detail).delete(remove))
         .route("/api/play/{id}/start", post(start))
         .route("/api/play/{id}/rematch", post(rematch))
         .route("/api/play/{id}/end", post(end_solo))
+        .route("/api/play/{id}/result", post(record_result))
         .route("/api/play/{id}/ws", get(connect))
         .route("/api/play/{id}/board", get(board::connect))
         .route("/api/play/{id}/view", get(final_view))
@@ -322,7 +324,8 @@ impl PlayHub {
         let hub = self.clone();
         let rt = tokio::runtime::Handle::current();
         std::thread::Builder::new()
-            .name(format!("game-{}", &game_id[..8]))
+            // An id shorter than eight bytes (only tests make them) names the thread whole.
+            .name(format!("game-{}", game_id.get(..8).unwrap_or(&game_id)))
             .stack_size(STACK)
             .spawn(move || {
                 run_game(&game_id, m, &seats, &prefs, cmd_rx, view_tx, board_tx, &pool, &rt);
@@ -381,9 +384,14 @@ fn run_game(
         let _ = board_updates.send(Arc::new(updates));
         let _ = views.send(Arc::new(snapshot(m, seats)));
     };
+    // Knockouts go to the game record when one happens or a rewind takes one back, and once more
+    // when the game ends; the saves in between leave the seats alone.
+    let recorded_outs = std::cell::Cell::new(None);
     let save = |m: &Match| {
-        if let Err(e) = rt.block_on(persist(pool, game_id, m)) {
-            tracing::error!(game_id, error = %e, "saving online game failed");
+        let outs = m.outs().len();
+        match rt.block_on(persist(pool, game_id, m, recorded_outs.get() != Some(outs))) {
+            Ok(()) => recorded_outs.set(Some(outs)),
+            Err(e) => tracing::error!(game_id, error = %e, "saving online game failed"),
         }
     };
     let humans: Vec<u8> = seats.iter().filter(|s| s.kind == "human").map(|s| s.seat).collect();
@@ -395,7 +403,7 @@ fn run_game(
         }
         let before = m.clone();
         m.abandon();
-        match rt.block_on(persist(pool, game_id, m)) {
+        match rt.block_on(persist(pool, game_id, m, true)) {
             Ok(()) => { publish(m); let _ = reply.send(Ok(())); true }
             Err(e) => { *m = before; let _ = reply.send(Err(format!("Could not save the ended game: {e}"))); false }
         }
@@ -404,8 +412,8 @@ fn run_game(
         let before = m.clone();
         let result = m.go_back_to(seat, revision, checkpoint).map_err(|e| e.to_string());
         let result = match result {
-            Ok(()) => match rt.block_on(persist(pool, game_id, m)) {
-                Ok(()) => Ok(()),
+            Ok(()) => match rt.block_on(persist(pool, game_id, m, true)) {
+                Ok(()) => { recorded_outs.set(Some(m.outs().len())); Ok(()) }
                 Err(e) => { *m = before; Err(format!("Could not save the restored game: {e}")) }
             },
             err => err,
@@ -649,7 +657,36 @@ fn snapshot(m: &Match, seats: &[SeatCfg]) -> Snapshot {
     snap
 }
 
-async fn persist(pool: &SqlitePool, game_id: &str, m: &Match) -> anyhow::Result<()> {
+/// Store the game's knockouts on its seats, in the caller's transaction.
+async fn write_knockouts(tx: &mut sqlx::SqliteConnection, game_id: &str, found: &[results::Knockout]) -> anyhow::Result<()> {
+    // A rewind can take a knockout back: seats still in the game have none.
+    sqlx::query(
+        "UPDATE game_seats SET eliminated_turn = NULL, eliminated_by_seat = NULL
+         WHERE game_id = ? AND eliminated_turn IS NOT NULL AND seat NOT IN (SELECT value FROM json_each(?))",
+    )
+    .bind(game_id)
+    .bind(serde_json::to_string(&found.iter().map(|k| k.seat).collect::<Vec<_>>())?)
+    .execute(&mut *tx)
+    .await?;
+    for k in found {
+        // Read from the moment it happened while the feed holds it; a name stored for this same
+        // knockout stays if the hit behind it has since left the feed. Once the feed has let the
+        // knockout go, what was stored when it happened stands.
+        let sql = if k.seen {
+            "UPDATE game_seats SET eliminated_by_seat = COALESCE(?1, CASE WHEN eliminated_turn = ?2 THEN eliminated_by_seat END), eliminated_turn = ?2
+             WHERE game_id = ?3 AND seat = ?4"
+        } else {
+            "UPDATE game_seats SET eliminated_by_seat = COALESCE(eliminated_by_seat, ?1), eliminated_turn = COALESCE(eliminated_turn, ?2)
+             WHERE game_id = ?3 AND seat = ?4"
+        };
+        sqlx::query(sql).bind(k.by.map(i64::from)).bind(i64::from(k.turn)).bind(game_id).bind(i64::from(k.seat)).execute(&mut *tx).await?;
+    }
+    Ok(())
+}
+
+/// Save the game as it stands. `knockouts` also writes each seat's knockout to the game record
+/// (always done once the game is over): the caller asks for it when the knockouts have changed.
+async fn persist(pool: &SqlitePool, game_id: &str, m: &Match, knockouts: bool) -> anyhow::Result<()> {
     let stage = if m.is_over() { "over" } else { "live" };
     let mut tx = pool.begin().await?;
     history::archive_original(&mut tx, game_id, yama_play::ENGINE_VERSION).await?;
@@ -660,14 +697,21 @@ async fn persist(pool: &SqlitePool, game_id: &str, m: &Match) -> anyhow::Result<
         .bind(m.revision as i64).bind(stage).bind(now()).bind(game_id).bind(game_id).bind(yama_play::ENGINE_VERSION)
         .execute(&mut *tx).await?.rows_affected();
     anyhow::ensure!(changed == 1, "saved game identity changed; refusing current-runtime write");
+    // The spectator's feed says who dealt a knockout's damage; nobody is out in most saves.
+    let events = if (knockouts || m.is_over()) && !m.outs().is_empty() { m.events(None) } else { vec![] };
+    if knockouts || m.is_over() {
+        write_knockouts(&mut tx, game_id, &results::knockouts(m.outs(), &events)).await?;
+    }
     if m.is_over() {
         let view = m.view(None);
-        sqlx::query("UPDATE games SET status = ?, winner_seat = ?, turns = ?, ended_at = ?, first_seat = ? WHERE id = ?")
+        let winner = if m.abandoned() { None } else { m.winner() };
+        sqlx::query("UPDATE games SET status = ?, winner_seat = ?, turns = ?, ended_at = ?, first_seat = ?, win_condition = ? WHERE id = ?")
             .bind(if m.abandoned() { "abandoned" } else { "finished" })
-            .bind(if m.abandoned() { None } else {m.winner().map(i64::from) })
+            .bind(winner.map(i64::from))
             .bind(i64::from(m.turn()))
             .bind(now())
             .bind(i64::from(m.starting_seat()))
+            .bind(results::win_condition(m.outs(), &events, winner))
             .bind(game_id)
             .execute(&mut *tx)
             .await?;
@@ -702,6 +746,58 @@ pub(crate) struct SeatCfg {
     /// The deck's declared bracket when it took the seat. Older lobbies lack it.
     #[serde(default)]
     pub(crate) bracket: Option<i64>,
+}
+
+/// The stock precon a computer's seat plays (`deck_id` "precon:<id>", as Watch seats them),
+/// if it plays one rather than one of the host's decks.
+fn precon_of(s: &SeatCfg) -> Option<&str> {
+    s.deck_id.as_deref().filter(|_| s.kind == "ai")?.strip_prefix("precon:")
+}
+
+/// The seat has a player and a deck: a saved deck version, or a precon for the computer.
+fn seated(s: &SeatCfg) -> bool {
+    s.deck_version_id.is_some() || precon_of(s).is_some()
+}
+
+/// A stock precon in a computer's seat. Its list is read from the precon catalog when the game
+/// starts; no deck version is involved, so the game is on no deck's record.
+async fn precon_seat(pool: &SqlitePool, seat: u8, id: &str, difficulty: Option<&str>) -> AppResult<SeatCfg> {
+    let (name, commanders, identity): (String, String, String) = sqlx::query_as("SELECT name, commanders, color_identity FROM precons WHERE id = ?")
+        .bind(id)
+        .fetch_optional(pool)
+        .await?
+        .ok_or(AppError::NotFound("precon"))?;
+    let commanders: Vec<String> = serde_json::from_str(&commanders).unwrap_or_default();
+    let commander = (!commanders.is_empty()).then(|| commanders.join(" and "));
+    Ok(SeatCfg {
+        seat,
+        kind: "ai".into(),
+        user_id: None,
+        name: commander.clone().unwrap_or_else(|| name.clone()),
+        deck_id: Some(format!("precon:{id}")),
+        deck_version_id: None,
+        deck_name: Some(name),
+        color_identity: identity,
+        commander,
+        difficulty: Some(difficulty.unwrap_or("Medium").into()),
+        bracket: None,
+    })
+}
+
+/// A precon's stock list as deck cards, for the engine.
+async fn precon_cards(pool: &SqlitePool, id: &str) -> AppResult<Vec<DeckCard>> {
+    let cards: String = sqlx::query_scalar("SELECT cards FROM precons WHERE id = ?").bind(id).fetch_optional(pool).await?.ok_or(AppError::NotFound("precon"))?;
+    let cards: Vec<crate::lab::PreconCard> = serde_json::from_str(&cards).map_err(anyhow::Error::from)?;
+    Ok(cards.into_iter().map(|c| DeckCard { oracle_id: c.oracle_id.unwrap_or_default(), name: c.name, qty: i64::from(c.qty), board: c.board }).collect())
+}
+
+/// The cards a seat brings to the game: its saved deck version, or its precon's stock list.
+async fn seat_cards(pool: &SqlitePool, s: &SeatCfg) -> AppResult<Vec<DeckCard>> {
+    match (precon_of(s), &s.deck_version_id) {
+        (Some(precon), _) => precon_cards(pool, precon).await,
+        (None, Some(version)) => load_version_cards(pool, version).await,
+        (None, None) => Err(AppError::Conflict("every seat needs a player and a deck".into())),
+    }
 }
 
 fn ai_seats(seats: &[SeatCfg]) -> Vec<(u8, Difficulty)> {
@@ -749,7 +845,7 @@ pub(crate) fn seat_infos(seats: &[SeatCfg], estimates: &HashMap<String, Estimate
                 commander_art,
                 commander_artist,
                 color_identity: s.color_identity.clone(),
-                ready: s.deck_version_id.is_some(),
+                ready: seated(s),
                 bracket: s.bracket,
                 estimate: s.deck_version_id.as_ref().and_then(|v| estimates.get(v)).cloned(),
             }
@@ -808,6 +904,19 @@ struct OnlineGame {
     turns: Option<i64>,
     /// The playgroup whose stats the game counts toward.
     playgroup: Option<String>,
+    /// A table that hasn't started: the seat the host chose to go first. None means the engine
+    /// rolls for it when the game starts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    first: Option<u8>,
+    /// How a finished game was won (`crate::stats::WIN_CONDITIONS`): read from the knockouts that
+    /// ended it, or what a player said on the game-over screen.
+    win_condition: Option<String>,
+    /// Your own fun rating for a finished game, 1 to 5, if you gave one (game detail only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fun: Option<i64>,
+    /// What the host wrote about a finished game.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    note: Option<String>,
     /// Deck name → cards the engine can't play yet (left out of the game).
     missing_cards: HashMap<String, Vec<String>>,
     /// When play started and, once it's over, when it ended (for the game's length).
@@ -868,12 +977,15 @@ struct Row {
     rematch_id: Option<String>,
     engine_version: Option<String>,
     game_status: Option<String>,
+    win_condition: Option<String>,
+    first_seat: Option<i64>,
+    note: Option<String>,
 }
 
 /// The columns a [`Row`] reads; `o` is online_games, `g` games, `p` playgroups.
 const ROW_SELECT: &str =
     "SELECT o.game_id, o.code, o.host_id, o.stage, o.seats, o.created_at, o.updated_at, g.winner_seat, g.turns, p.name AS playgroup,
-     g.started_at, g.ended_at, o.rematch_id, g.engine_version, g.status AS game_status
+     g.started_at, g.ended_at, o.rematch_id, g.engine_version, g.status AS game_status, g.win_condition, g.first_seat, g.note
      FROM online_games o LEFT JOIN games g ON g.id = o.game_id LEFT JOIN playgroups p ON p.id = g.playgroup_id";
 
 impl Row {
@@ -991,6 +1103,10 @@ fn summarize(
         winner: if r.stage == "over" { r.winner_seat.and_then(|w| u8::try_from(w).ok()) } else { None },
         turns: if r.stage == "over" { r.turns } else { None },
         playgroup: r.playgroup.clone(),
+        first: if r.stage == "lobby" { r.first_seat.and_then(|f| u8::try_from(f).ok()) } else { None },
+        win_condition: if r.stage == "over" { r.win_condition.clone() } else { None },
+        fun: None,
+        note: if r.stage == "over" { r.note.clone() } else { None },
         missing_cards,
         started_at: (r.stage != "lobby").then(|| r.started_at.clone()).flatten(),
         ended_at: if r.stage == "over" { r.ended_at.clone() } else { None },
@@ -1018,8 +1134,12 @@ async fn detail(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path
     let mut missing = HashMap::new();
     if r.stage == "lobby" && let Ok(engine) = st.play.engine() {
         for s in r.seats() {
-            if let (Some(v), Some(name)) = (&s.deck_version_id, &s.deck_name) {
-                let (_, report) = resolve(&engine, &load_version_cards(&st.pool, v).await?);
+            // A precon dropped from the catalog while the table waits has no list to report on;
+            // Start says so. The lobby page still loads.
+            if let (true, Some(name)) = (seated(&s), &s.deck_name)
+                && let Ok(cards) = seat_cards(&st.pool, &s).await
+            {
+                let (_, report) = resolve(&engine, &cards);
                 if !report.missing.is_empty() {
                     missing.insert(name.clone(), report.missing);
                 }
@@ -1032,7 +1152,126 @@ async fn detail(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path
     game.runtime_error = st.play.game_error(&r);
     game.phase_board = st.cfg.board_dist.is_some() && board::supports_runtime(&r.stage, r.engine_version.as_deref());
     game.rematch = rematch_for(&st.pool, &r, &user.id).await?;
+    if r.stage == "over" {
+        game.fun = sqlx::query_scalar("SELECT fun FROM game_seats WHERE game_id = ? AND user_id = ?").bind(&id).bind(&user.id).fetch_optional(&st.pool).await?.flatten();
+    }
     Ok(Json(game))
+}
+
+/// A field that tells "left out" (unchanged) from `null` (clear it).
+fn present<'de, T: Deserialize<'de>, D: serde::Deserializer<'de>>(d: D) -> Result<Option<T>, D::Error> {
+    T::deserialize(d).map(Some)
+}
+
+/// What the game-over screen asks, as the table's finish sheet does. Every answer is optional;
+/// a field left out stays as it is and `null` clears it.
+#[derive(Deserialize)]
+struct ResultRequest {
+    /// How the game was won (`crate::stats::WIN_CONDITIONS`).
+    #[serde(default, deserialize_with = "present")]
+    win_condition: Option<Option<String>>,
+    /// The caller's own fun rating, 1 to 5.
+    #[serde(default, deserialize_with = "present")]
+    fun: Option<Option<i64>>,
+    /// A note about the game, from its host (whoever recorded a table game writes its note).
+    #[serde(default, deserialize_with = "present")]
+    note: Option<Option<String>>,
+}
+
+/// A seated player answers the end-of-game questions for a finished game: how it was won (for
+/// the game, filled in already where the engine could tell) and how fun it was (for their own
+/// seat only). The engine's result itself (the winner, the knockouts) is never theirs to change.
+/// Any player may say how the game was won while nothing is recorded; once something is (the
+/// engine's reading, or a player's answer), only the host changes or clears it, as whoever
+/// recorded a table game is the one who writes its finish.
+async fn record_result(
+    State(st): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    Path(id): Path<String>,
+    Json(body): Json<ResultRequest>,
+) -> AppResult<Json<serde_json::Value>> {
+    let r = load_visible(&st.pool, &id, &user.id).await?;
+    let seat = r
+        .seats()
+        .iter()
+        .find(|s| s.kind == "human" && s.user_id.as_deref() == Some(user.id.as_str()))
+        .map(|s| i64::from(s.seat))
+        .ok_or_else(|| AppError::Forbidden("Only someone who played in this game can answer for it.".into()))?;
+    if r.stage != "over" || r.game_status.as_deref() != Some("finished") {
+        return Err(AppError::Conflict("These questions are for a game that has finished.".into()));
+    }
+    if let Some(Some(how)) = &body.win_condition {
+        if !crate::stats::WIN_CONDITIONS.contains(&how.as_str()) {
+            return Err(AppError::bad(format!("unknown win condition {how:?}")));
+        }
+        if r.winner_seat.is_none() {
+            return Err(AppError::bad("a drawn game has no win condition"));
+        }
+    }
+    if let Some(how) = &body.win_condition
+        && r.win_condition.is_some()
+        && *how != r.win_condition
+        && r.host_id != user.id
+    {
+        return Err(AppError::Forbidden("How this game was won is already recorded. Its host can change it.".into()));
+    }
+    if let Some(Some(fun)) = body.fun
+        && !(1..=5).contains(&fun)
+    {
+        return Err(AppError::bad("fun ratings go from 1 to 5"));
+    }
+    if let Some(note) = &body.note {
+        if r.host_id != user.id {
+            return Err(AppError::Forbidden("Only the host writes the game's note.".into()));
+        }
+        crate::games::check_note(note.as_deref())?;
+    }
+    let mut tx = st.pool.begin_with("BEGIN IMMEDIATE").await?;
+    if let Some(how) = &body.win_condition {
+        // Checked again inside the write: two players answering at once can't both fill it in.
+        let written = sqlx::query(
+            "UPDATE games SET win_condition = ?1 WHERE id = ?2 AND mode = 'online' AND status = 'finished'
+               AND (?3 OR win_condition IS NULL OR win_condition IS ?1)",
+        )
+        .bind(how.as_deref())
+        .bind(&id)
+        .bind(r.host_id == user.id)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if written == 0 {
+            return Err(AppError::Forbidden("How this game was won is already recorded. Its host can change it.".into()));
+        }
+    }
+    if let Some(fun) = body.fun {
+        let written = sqlx::query("UPDATE game_seats SET fun = ? WHERE game_id = ? AND seat = ? AND user_id = ?")
+            .bind(fun)
+            .bind(&id)
+            .bind(seat)
+            .bind(&user.id)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+        if written == 0 {
+            // The game record has no seat for this player (it should): say so, not "saved".
+            return Err(AppError::Conflict("This game has no seat on record for you, so the rating wasn't saved.".into()));
+        }
+    }
+    if let Some(note) = &body.note {
+        // An empty note is no note.
+        let text = note.as_deref().map(str::trim).filter(|n| !n.is_empty());
+        sqlx::query("UPDATE games SET note = ? WHERE id = ? AND mode = 'online' AND status = 'finished'").bind(text).bind(&id).execute(&mut *tx).await?;
+    }
+    let saved: (Option<String>, Option<i64>, Option<String>) =
+        // The game's own fields come back even if the caller's seat row is missing.
+        sqlx::query_as("SELECT g.win_condition, s.fun, g.note FROM games g LEFT JOIN game_seats s ON s.game_id = g.id AND s.seat = ? WHERE g.id = ?")
+            .bind(seat)
+            .bind(&id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .unwrap_or_default();
+    tx.commit().await?;
+    Ok(Json(serde_json::json!({ "win_condition": saved.0, "fun": saved.1, "note": saved.2 })))
 }
 
 pub(crate) fn deck_lines(cards: &[DeckCard]) -> Vec<DeckLine<'_>> {
@@ -1144,6 +1383,10 @@ struct SeatRequest {
     kind: String,
     deck_id: Option<String>,
     difficulty: Option<String>,
+    /// A computer's seat only: a stock precon (`precons.id`) to play, instead of one of the
+    /// host's decks.
+    #[serde(default)]
+    precon_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1151,6 +1394,10 @@ struct CreateRequest {
     seats: Vec<SeatRequest>,
     /// Count the game in this playgroup's stats.
     playgroup_id: Option<String>,
+    /// The seat (from 0, in the order given) that takes the first turn. Left out, the engine rolls
+    /// for it, as a table would.
+    #[serde(default)]
+    first: Option<u8>,
 }
 
 /// Unfinished games (lobbies and live ones) anyone but an admin may host.
@@ -1165,15 +1412,14 @@ async fn check_open_games(pool: &SqlitePool, user: &User) -> AppResult<()> {
     if user.is_admin {
         return Ok(());
     }
-    let mine: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM online_games WHERE host_id = ? AND stage IN ('lobby','live')")
-        .bind(&user.id)
-        .fetch_one(pool)
-        .await?;
+    let (waiting, playing): (i64, i64) =
+        sqlx::query_as("SELECT IFNULL(SUM(stage = 'lobby'), 0), IFNULL(SUM(stage = 'live'), 0) FROM online_games WHERE host_id = ? AND stage IN ('lobby','live')")
+            .bind(&user.id)
+            .fetch_one(pool)
+            .await?;
     let cap = if user.limited { OPEN_MAX_OPEN_GAMES } else { MAX_OPEN_GAMES };
-    if mine >= cap {
-        return Err(AppError::Conflict(format!(
-            "You have {mine} online games that haven't finished. Finish or concede one before starting another."
-        )));
+    if waiting + playing >= cap {
+        return Err(AppError::Conflict(open_games_message(waiting, playing)));
     }
     if user.limited {
         let all: i64 = sqlx::query_scalar(concat!(
@@ -1189,6 +1435,19 @@ async fn check_open_games(pool: &SqlitePool, user: &User) -> AppResult<()> {
     Ok(())
 }
 
+/// Why a new game is refused at the limit, naming what is open and the way out of each kind: a
+/// table that hasn't started is closed, a game being played is finished.
+fn open_games_message(waiting: i64, playing: i64) -> String {
+    let tables = |n: i64| if n == 1 { "1 table waiting for players".to_string() } else { format!("{n} tables waiting for players") };
+    let games = |n: i64| if n == 1 { "1 game being played".to_string() } else { format!("{n} games being played") };
+    let one = |n: i64| if n == 1 { "it" } else { "one" };
+    match (waiting, playing) {
+        (w, 0) => format!("You have {}. Close {} from its page before opening another.", tables(w), one(w)),
+        (0, p) => format!("You have {}. Finish {} before starting another.", games(p), one(p)),
+        (w, p) => format!("You have {} and {}. Close a waiting table from its page, or finish a game, before starting another.", tables(w), games(p)),
+    }
+}
+
 async fn create(
     State(st): State<AppState>,
     CurrentUser(user): CurrentUser,
@@ -1196,6 +1455,36 @@ async fn create(
 ) -> AppResult<Json<serde_json::Value>> {
     let id = create_game(&st, &user, &body, true).await?;
     Ok(Json(serde_json::json!({ "id": id })))
+}
+
+/// The host closes a table that hasn't started, or deletes a game that's over: it comes out of
+/// everyone's history and stats, as deleting a table game does (`games::remove`). A game being
+/// played isn't deleted from under its players: it ends first (a concession, or End game for a
+/// solo game).
+async fn remove(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<serde_json::Value>> {
+    let r = load_visible(&st.pool, &id, &user.id).await?;
+    if r.host_id != user.id {
+        return Err(AppError::Forbidden(if r.stage == "lobby" { "Only the host can close this table." } else { "Only the host can delete this game." }.into()));
+    }
+    let playing = || AppError::Conflict("This game is being played. Finish it before deleting it.".into());
+    if r.stage == "live" {
+        return Err(playing());
+    }
+    // The stage is checked again in the delete: Start may have won the race.
+    let deleted = sqlx::query(
+        "DELETE FROM games WHERE id = ?1 AND created_by = ?2 AND mode = 'online'
+           AND EXISTS (SELECT 1 FROM online_games o WHERE o.game_id = ?1 AND o.host_id = ?2 AND o.stage != 'live')",
+    )
+    .bind(&id)
+    .bind(&user.id)
+    .execute(&st.pool)
+    .await?
+    .rows_affected();
+    if deleted == 0 {
+        return Err(playing());
+    }
+    st.play.unavailable.lock().unwrap().remove(&id);
+    Ok(Json(serde_json::json!({ "deleted": true, "was": if r.stage == "lobby" { "lobby" } else { "game" } })))
 }
 
 /// Stop a host-owned solo table, preserving an abandoned result without a winner.
@@ -1260,25 +1549,34 @@ async fn rematch(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pat
     if let Some(existing) = &r.rematch_id {
         return Ok(Json(serde_json::json!({ "id": existing })));
     }
-    let seats = r
-        .seats()
+    // A game whose host chose who goes first was seated from that player on (`start_game`): the
+    // new table starts from the host again, in the same order round the table.
+    let mut old = r.seats();
+    if let Some(mine) = old.iter().position(|s| s.user_id.as_deref() == Some(user.id.as_str())) {
+        old.rotate_left(mine);
+    }
+    let seats = old
         .into_iter()
-        .map(|s| SeatRequest {
-            kind: if s.kind == "ai" {
-                "ai".into()
-            } else if s.user_id.as_deref() == Some(user.id.as_str()) {
-                "me".into()
-            } else {
-                "friend".into()
-            },
-            deck_id: (s.kind == "ai" || s.user_id.as_deref() == Some(user.id.as_str())).then_some(s.deck_id).flatten(),
-            difficulty: s.difficulty,
+        .map(|s| {
+            let precon = precon_of(&s).map(str::to_string);
+            SeatRequest {
+                kind: if s.kind == "ai" {
+                    "ai".into()
+                } else if s.user_id.as_deref() == Some(user.id.as_str()) {
+                    "me".into()
+                } else {
+                    "friend".into()
+                },
+                deck_id: (precon.is_none() && (s.kind == "ai" || s.user_id.as_deref() == Some(user.id.as_str()))).then_some(s.deck_id).flatten(),
+                difficulty: s.difficulty,
+                precon_id: precon,
+            }
         })
         .collect();
     let playgroup_id: Option<String> =
         sqlx::query_scalar("SELECT playgroup_id FROM games WHERE id = ?").bind(&id).fetch_optional(&st.pool).await?.flatten();
-    let new = create_game(&st, &user, &CreateRequest { seats, playgroup_id, },
-        false,).await?;
+    // Who goes first is rolled again unless the host says otherwise.
+    let new = create_game(&st, &user, &CreateRequest { seats, playgroup_id, first: None }, false).await?;
     // Two quick taps make one rematch: the first one recorded wins.
     let set = sqlx::query("UPDATE online_games SET rematch_id = ? WHERE game_id = ? AND rematch_id IS NULL",)
         .bind(&new)
@@ -1310,6 +1608,9 @@ async fn create_game(st: &AppState, user: &User, body: &CreateRequest,
     {
         return Err(AppError::NotFound("playgroup"));
     }
+    if body.first.is_some_and(|f| usize::from(f) >= body.seats.len()) {
+        return Err(AppError::bad("the first player must be one of the seats"));
+    }
     let mut seats = Vec::new();
     for (i, s) in body.seats.iter().enumerate() {
         let seat = i as u8;
@@ -1327,6 +1628,7 @@ async fn create_game(st: &AppState, user: &User, body: &CreateRequest,
                 difficulty: None,
                 bracket: None,
             },
+            "ai" if s.precon_id.is_some() => precon_seat(&st.pool, seat, s.precon_id.as_deref().unwrap(), s.difficulty.as_deref()).await?,
             "me" | "ai" => {
                 let deck_id = s.deck_id.as_deref().ok_or_else(|| AppError::bad(format!("seat {} needs a deck", i + 1)))?;
                 let d = deck_for_seat(&st.pool, &user.id, deck_id).await?;
@@ -1352,11 +1654,13 @@ async fn create_game(st: &AppState, user: &User, body: &CreateRequest,
     let id = new_id();
     let stamp = now();
     let mut tx = st.pool.begin().await?;
-    sqlx::query("INSERT INTO games (id, mode, playgroup_id, created_by, format, status, starting_life, started_at) VALUES (?, 'online', ?, ?, 'commander', 'in_progress', 40, ?)")
+    // Until the game starts, `first_seat` is the host's choice of who goes first (none: roll).
+    sqlx::query("INSERT INTO games (id, mode, playgroup_id, created_by, format, status, starting_life, started_at, first_seat) VALUES (?, 'online', ?, ?, 'commander', 'in_progress', 40, ?, ?)")
         .bind(&id)
         .bind(&body.playgroup_id)
         .bind(&user.id)
         .bind(&stamp)
+        .bind(body.first.map(i64::from))
         .execute(&mut *tx)
         .await?;
     sqlx::query("INSERT INTO online_games (game_id, code, host_id, stage, seats, created_at, updated_at) VALUES (?,?,?,?,?,?,?)")
@@ -1451,15 +1755,23 @@ async fn start_game(st: &AppState, id: &str, user: &str) -> AppResult<()> {
     if r.stage != "lobby" {
         return Ok(());
     }
-    let seats = r.seats();
-    if seats.iter().any(|s| s.deck_version_id.is_none()) {
+    let mut seats = r.seats();
+    if seats.iter().any(|s| !seated(s)) {
         return Err(AppError::Conflict("every seat needs a player and a deck".into()));
     }
+    // The host's choice of who goes first. phase starts only seat 0 or 1 on request, so (as Watch
+    // does) the table is numbered from that player: the order round the table is the same cycle.
+    let first = r.first_seat.and_then(|f| usize::try_from(f).ok()).filter(|f| *f < seats.len()).map(|f| {
+        seats.rotate_left(f);
+        for (i, s) in seats.iter_mut().enumerate() {
+            s.seat = i as u8;
+        }
+        0u8
+    });
     let engine = st.play.engine()?;
     let mut decks = Vec::new();
     for s in &seats {
-        let cards = load_version_cards(&st.pool, s.deck_version_id.as_deref().unwrap()).await?;
-        decks.push(resolve(&engine, &cards).0);
+        decks.push(resolve(&engine, &seat_cards(&st.pool, s).await?).0);
     }
     let prefs = seat_prefs(&st.pool, &seats).await;
     let seed: u64 = u64::from_le_bytes(uuid::Uuid::new_v4().as_bytes()[..8].try_into().unwrap());
@@ -1467,14 +1779,15 @@ async fn start_game(st: &AppState, id: &str, user: &str) -> AppResult<()> {
     // Setup can fault cold engine pages in from disk. It must neither block an async
     // worker nor hold SQLite's one writer while constructing the match and replay.
     let (m, replay, permit) = prepare_match(move || {
-        let m = engine.new_match_with(seed, decks, &ai, Setup { first: None, loops: yama_play::PLAY_LOOPS })?;
+        let m = engine.new_match_with(seed, decks, &ai, Setup { first, loops: yama_play::PLAY_LOOPS })?;
         let replay = m.replay_json();
         Ok((m, replay, permit))
     }).await?;
     // Claim and save atomically after preparation. A concurrent start or join can
     // invalidate this candidate; only the request still owning these seats publishes it.
     let mut tx = st.pool.begin().await?;
-    let claimed = sqlx::query("UPDATE online_games SET stage = 'live', updated_at = ? WHERE game_id = ? AND stage = 'lobby' AND seats = ?")
+    let claimed = sqlx::query("UPDATE online_games SET stage = 'live', seats = ?, updated_at = ? WHERE game_id = ? AND stage = 'lobby' AND seats = ?")
+        .bind(serde_json::to_string(&seats).map_err(anyhow::Error::from)?)
         .bind(now())
         .bind(id)
         .bind(&r.seats)
@@ -1484,17 +1797,22 @@ async fn start_game(st: &AppState, id: &str, user: &str) -> AppResult<()> {
     if claimed == 0 {
         return Ok(());
     }
-    sqlx::query("UPDATE games SET engine_version = ?, seed = ?, started_at = ? WHERE id = ?")
+    // From here `first_seat` is who took the first turn: the host's choice or the engine's roll.
+    sqlx::query("UPDATE games SET engine_version = ?, seed = ?, started_at = ?, first_seat = ? WHERE id = ?")
         .bind(yama_play::ENGINE_VERSION)
         .bind(seed as i64) // u64 stored bit-for-bit
         .bind(now())
+        .bind(i64::from(m.starting_seat()))
         .bind(id)
         .execute(&mut *tx)
         .await?;
     for s in &seats {
         sqlx::query(
-            "INSERT OR REPLACE INTO game_seats (game_id, seat, user_id, guest_name, ai_kind, deck_version_id, deck_label, commander_name)
-             VALUES (?,?,?,?,?,?,?,?)",
+            // A seated person who belongs to the game's playgroup sits there as that member, as at
+            // the table, so the group's pages count the game as theirs.
+            "INSERT OR REPLACE INTO game_seats (game_id, seat, member_id, user_id, guest_name, ai_kind, deck_version_id, deck_label, commander_name)
+             VALUES (?1, ?2, (SELECT m.id FROM playgroup_members m JOIN games g ON g.playgroup_id = m.playgroup_id WHERE g.id = ?1 AND m.user_id = ?3),
+                     ?3, ?4, ?5, ?6, ?7, ?8)",
         )
         .bind(id)
         .bind(i64::from(s.seat))

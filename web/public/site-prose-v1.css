@@ -1,0 +1,33 @@
+/* The text pages between the public header and footer (site-frame-v1.css): /about/, /privacy/,
+   /tos/ and /delete-account/. Night table: near-black ground, Big Shoulders for headings, Atkinson
+   for reading. Linked by name from static pages, so rename it for a change an older page can't use. */
+:root { color-scheme: dark; }
+html { scroll-padding-top: 24px; }
+body.site-prose { margin: 0; background: #0b0c0e; color: #f2efe8; font: 400 17px/1.55 "Atkinson Hyperlegible Next", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+.site-prose main { box-sizing: border-box; max-width: calc(1120px + 64px); margin-inline: auto; padding: 32px 32px 0; }
+/* A reading measure, starting at the wordmark's edge. */
+.site-prose main > * { max-width: 44rem; }
+.site-prose h1,
+.site-prose h2 { font-family: "Big Shoulders Display", "Arial Narrow", sans-serif; text-wrap: balance; }
+.site-prose h1 { margin: 0 0 12px; font-size: 64px; font-weight: 800; line-height: 0.94; letter-spacing: -0.025em; }
+.site-prose h2 { margin: 40px 0 8px; font-size: 28px; font-weight: 700; line-height: 1.1; }
+.site-prose p { margin: 0 0 12px; }
+.site-prose p,
+.site-prose li { color: #d8d5ce; }
+.site-prose ul,
+.site-prose ol { margin: 0 0 12px; padding-left: 1.2em; }
+.site-prose li + li { margin-top: 6px; }
+.site-prose main a { color: #f2efe8; text-underline-offset: 4px; text-decoration-thickness: 1px; }
+.site-prose main a:focus-visible { outline: 2px solid #f2efe8; outline-offset: 4px; border-radius: 4px; }
+.site-prose .dim { color: #a9adb3; font-size: 15px; }
+.site-prose .lede { margin-bottom: 24px; color: #a9adb3; font-size: 19px; line-height: 1.5; }
+.site-prose code { font: 0.9em/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.site-prose .go { display: inline-flex; align-items: center; min-height: 48px; margin: 12px 0 24px; padding: 0 24px; border-radius: 999px; background: #f2efe8; color: #0b0c0e; font-weight: 700; text-decoration: none; }
+@media (max-width: 600px) {
+  .site-prose main { padding: 16px 20px 0; }
+  .site-prose h1 { font-size: 48px; }
+  .site-prose h2 { font-size: 24px; }
+}
+@media (max-width: 350px) {
+  .site-prose main { padding-inline: 16px; }
+}

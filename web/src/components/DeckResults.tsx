@@ -1,11 +1,12 @@
 // Real games played with each version of a deck: "This version: 3-2, 5 games", then earlier
-// versions with their notes. Under the provisional mark a record is faded and says so.
+// versions with their notes. Under the provisional mark a record is faded and says so. Solo games
+// against the computer are named apart, never mixed into the record.
 
 import { useQuery } from "@tanstack/react-query";
 import { api, type DeckResults as Results } from "../api";
 import { queryFailure } from "./QueryError";
 import { Details, ErrorText } from "./ui";
-import { recordText } from "./statsText";
+import { computerText, recordText } from "./statsText";
 import "./stats.css";
 import { fmtDate } from "@yama/core";
 
@@ -28,12 +29,14 @@ export function DeckResults({ deckId, versionId }: { deckId: string; versionId: 
         This version: <b className="num">{current ? recordText(current) : "no games yet"}</b>
         {current && current.games > 0 && current.games < under && <span className="prov"> provisional</span>}
       </p>
+      {current && computerText(current) && <p className="small dim">{computerText(current)}</p>}
       {earlier.length > 0 && (
         <ul>
           {earlier.map((v) => (
             <li key={v.id} className={faded(v)}>
               Version {v.number}{v.note ? `, "${v.note}"` : ""}: <span className="num">{recordText(v)}</span>
-              {v.games < under && <span className="prov"> provisional</span>}
+              {v.games > 0 && v.games < under && <span className="prov"> provisional</span>}
+              {computerText(v) && <><br /><span className="when">{computerText(v)}</span></>}
               <br />
               <span className="when">Saved {fmtDate(v.created_at)}</span>
             </li>
@@ -41,7 +44,7 @@ export function DeckResults({ deckId, versionId }: { deckId: string; versionId: 
         </ul>
       )}
       <Details label="Which games count">
-        <p>Finished games where you played this deck, at the table or in Log a game. Records show wins and losses; under {under} games is provisional.</p>
+        <p>Finished games where you played this deck against other people: at the table, online or in Log a game. Records show wins and losses; under {under} games is provisional. Online games against only the computer are listed apart and never count toward the record.</p>
       </Details>
     </section>
   );

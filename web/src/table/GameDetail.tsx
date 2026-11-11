@@ -3,7 +3,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { formatLabel, winConditionLabel, WIN_CONDITIONS, type LoggedEvent, type TableEvent, type TableFormat, type TableSetup, fmtDateTime, fmtTime } from "@yama/core";
+import { formatLabel, GAME_WORDS, noteText, wonText, winConditionLabel, WIN_CONDITIONS, type LoggedEvent, type TableEvent, type TableFormat, type TableSetup, fmtDateTime, fmtTime } from "@yama/core";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { api, type DeckSummary, type GameDetail, type GameSeat } from "../api";
 import { MythicNote } from "../bridges/mythic/MythicImport";
@@ -12,7 +12,9 @@ import { artCredits } from "../components/ArtPanel";
 import { ErrorText, Loading } from "../components/ui";
 import { useCardArt } from "../components/useCardArt";
 import { history } from "./history";
-import { splitPair } from "./logEdit";
+import { useLoggedQueue } from "./loggedQueue";
+import { turnsText } from "./recent";
+import { isLoggedGame, splitPair } from "./logEdit";
 import { cardNamed, unionIdentity } from "./pickers";
 import { deleteGame, resumeGame, useOutbox, useTable } from "./store";
 import { LogGame } from "./TableHome";
@@ -101,6 +103,8 @@ export function GameDetailPage() {
   const game = useQuery({ queryKey: ["game", id], queryFn: ({ signal }) => api<GameDetail>(`/api/games/${id}`, { signal }) });
   const g = game.data;
   const outbox = useOutbox();
+  // An edit of this logged game saved while Yama couldn't be reached (loggedQueue.ts).
+  const waitingEdit = useLoggedQueue().find((q) => q.body.id === id);
   const here = local.game?.setup.id === id;
   const busyElsewhere = !!local.game && !here;
   // Finished on this device and still uploading: it isn't going any more, whatever the server says.
@@ -176,14 +180,18 @@ export function GameDetailPage() {
   // A table that never passed the turn has one long "turn": no headings for it.
   const counted = log.some((l) => l.event.type === "pass_turn");
   const how = winConditionLabel(g.win_condition);
-  const title = going ? "Still going" : winner ? `${seatName(winner)} won` : g.status === "finished" ? "A draw" : "Game";
+  // Logged after it was played (Log a game): finished, with nothing from the table. A note
+  // doesn't say so; any game can carry one.
+  const logged = isLoggedGame(g);
+  const title = going ? GAME_WORDS.going : winner ? wonText(seatName(winner)) : g.status === "finished" ? GAME_WORDS.draw : "Game";
   const facts = [
     `${fmtDateTime(g.started_at, { weekday: "long", year: false })}.`,
     `${formatLabel(setup.format)}, ${g.seats.length} players at ${setup.startingLife} life.`,
-    g.turns ? `${g.turns} turns.` : null,
+    g.turns ? `${turnsText(g)}.` : null,
     how ? `Won by ${how.toLowerCase()}.` : null,
     first ? `${seatName(first)} went first.` : null,
-    g.note ? `${g.note}.` : null,
+    // What the table wrote, as written (the old fixed "Logged after the game" isn't a note).
+    noteText(g.note),
   ].filter(Boolean);
 
   return (
@@ -195,6 +203,11 @@ export function GameDetailPage() {
           <h1>{title}</h1>
           <p className="dim">{facts.join(" ")}</p>
           {g.mode === "in_person" && <MythicNote gameId={g.id} />}
+          {waitingEdit && (
+            <p className="small dim" role="status">
+              An edit to this game made on this device hasn't reached Yama yet{waitingEdit.error ? ` (${waitingEdit.error})` : ""}. This page shows what Yama has; the edit uploads on its own.
+            </p>
+          )}
           {g.mode === "in_person" && !going && !isViewing() && (
             <div className="row">
               {g.can_edit && <button disabled={!decks.data && !decks.isError} onClick={() => setSheet("edit")}>Edit this game</button>}
@@ -271,7 +284,7 @@ export function GameDetailPage() {
       <section aria-labelledby="gd-history">
         <h2 id="gd-history">What happened</h2>
         {turns.length === 0 ? (
-          <p className="dim">{g.note ? "Logged after the game, so there's no play-by-play." : "Nothing saved yet."}</p>
+          <p className="dim">{logged ? "Logged after the game, so there's no play-by-play." : "Nothing saved yet."}</p>
         ) : (
           <ol className="gd-turns">
             {turns.map((t, i) => (

@@ -7,13 +7,19 @@ import {
   dangerOf,
   initialState,
   lossOf,
+  FORMATS,
+  formatLabel,
+  GAME_WORDS,
   lossesOf,
+  NOTE_MAX,
+  noteText,
   record,
   replay,
   settledThrough,
   toServerEvents,
   toServerFinish,
   turnPosition,
+  wonText,
   type TableSetup,
 } from "./table";
 
@@ -268,6 +274,18 @@ describe("first player", () => {
   });
 });
 
+describe("the words game pages share", () => {
+  it("names a game type the way the picker does", () => {
+    // The picker's buttons and a game's page read the same list.
+    expect(FORMATS.map((f) => formatLabel(f.key))).toEqual(FORMATS.map((f) => f.label));
+    expect(FORMATS.map((f) => f.label)).toEqual(["Commander", "Constructed", "Other"]);
+  });
+
+  it("has one name each for a game still going, a draw and a result", () => {
+    expect([GAME_WORDS.going, GAME_WORDS.draw, wonText("Sam")]).toEqual(["Still going", "A draw", "Sam won"]);
+  });
+});
+
 describe("finish", () => {
   it("carries first seat, win condition, fun and the killer to the server", () => {
     let log = record([], { type: "set_first", seat: 1 }, t0);
@@ -288,6 +306,20 @@ describe("finish", () => {
     expect(body.turns).toBeNull();
     // Same log, same body: retries are harmless.
     expect(toServerFinish(setup, log)).toEqual(body);
+  });
+
+  it("carries the finish sheet's note, and nothing when none was written", () => {
+    const finish = (note?: string) => record([], { type: "finish", winnerSeat: 0, endedAt: "2026-10-18T21:00:00Z", ...(note === undefined ? {} : { note }) }, t0);
+    expect(toServerFinish(setup, finish("  Sam's new deck  "))!.note).toBe("Sam's new deck");
+    expect(toServerFinish(setup, finish())!.note).toBeNull();
+    expect(toServerFinish(setup, finish("   "))!.note).toBeNull();
+    expect(toServerFinish(setup, finish("x".repeat(NOTE_MAX + 50)))!.note).toHaveLength(NOTE_MAX);
+    // A long note is cut between characters, never through one (an emoji is two UTF-16 units).
+    const cut = toServerFinish(setup, finish("x".repeat(NOTE_MAX - 1) + "🎲🎲"))!.note!;
+    expect(Array.from(cut)).toHaveLength(NOTE_MAX);
+    expect(cut.endsWith("🎲")).toBe(true);
+    // The note every logged game used to get isn't one anybody wrote.
+    expect([noteText("Logged after the game"), noteText("  "), noteText(null), noteText(" Close one ")]).toEqual([null, null, null, "Close one"]);
   });
 
   it("sends turns only from a table that passed the turn", () => {

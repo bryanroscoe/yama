@@ -7,15 +7,15 @@
   <meta name="description" content="Connect Claude or Codex to Yama. Build and upgrade Commander decks, research cards and rules, use your collection, and review changes before applying them." />
   <link rel="canonical" href="https://yama.ing/docs/mcp/" />
   <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/site-frame-v1.css" />
   <link rel="stylesheet" href="guide.css" />
   <title>Yama MCP: features and setup</title>
 </head>
 <body>
-  <a class="skip" href="#content">Skip to content</a>
-  <header class="site-head">
-    <a class="brand" href="/about/">Yama</a>
-    <nav aria-label="Site"><a href="/precons">Precons</a><a href="/docs/mcp/" aria-current="page">MCP guide</a><a href="/">Open Yama</a></nav>
-  </header>
+  <a class="site-frame-skip" href="#content">Skip to content</a>
+  <header class="site-frame-header"><a class="site-frame-wordmark" href="/" aria-label="Yama home"><svg viewBox="0 -8 280 110" aria-hidden="true"><g fill="currentColor"><path d="M0 0H20L32 30L44 0H64L42 56V100H22V56Z"/><path d="M60 100L92 -6L124 100H104L92 60L80 100Z"/><path d="M134 100V0H152L170 44L188 0H206V100H186V40L170 79L154 40V100Z"/><path d="M216 100L248 -6L280 100H260L248 60L236 100Z"/></g></svg></a>
+  <nav aria-label="Yama"><a href="/precons">Precons</a><a href="/commanders">Commanders</a><a href="/docs/mcp/" aria-current="page">MCP guide</a><a href="/about/">About</a></nav>
+  <a class="site-frame-open" href="/">Open Yama</a></header>
   <main id="content">
     <header class="intro">
       <p class="dim">Your decks, in your assistant</p>
@@ -116,7 +116,7 @@
 
     <section id="review">
       <h2>You review changes</h2>
-      <p><code>save_research</code> stores private research notes directly, and <code>review_research</code> records a choice you state. These never install a build, approve a purchase, move inventory or promote a planner swap. Changed research evidence is flagged beside your retained answers.</p>
+      <p><code>save_research</code> stores private research notes directly, and <code>review_research</code> records a choice you state. These never install a build, approve a purchase, move inventory or promote a planner swap. Changed research evidence is flagged beside your retained answers. A plan made from a note follows that note when it is saved again; a save that would stop one of your plans, because the note no longer has its deck or build, is refused unless your assistant says you asked for that.</p>
       <p>Tools that edit a deck, plan, collection or lab run first create a pending proposal. Review it in <a href="/decks/changes">Decks → Suggested changes</a>, then choose <strong>Apply</strong> or <strong>Discard</strong>. Applying a deck edit saves a new version; stale edits are rejected if the target has changed.</p>
       <p>Ask Claude inside Yama cannot apply its own proposals. An external MCP client also has apply and discard tools; it is instructed to apply only after you approve that exact change. Your client's permission settings control its tool calls.</p>
       <h3>Your account and research data</h3>
@@ -138,7 +138,7 @@
         <dt><code>research_sources</code></dt><dd>Inspect attribution, local data freshness and research limits.</dd>
       </dl></details>
       <details><summary>Decks, construction and history (10)</summary><dl>
-        <dt><code>overview</code></dt><dd>List your saved decks and upgrade plans.</dd>
+        <dt><code>overview</code></dt><dd>Your account at a glance: counts of decks, plans and notes with the first few of each, configurations grouped under their deck. Ask for one section to page through the rest.</dd>
         <dt><code>deck</code></dt><dd>Read a saved list, Commander checks, declared bracket and recorded results.</dd>
         <dt><code>check_list</code></dt><dd>Validate a proposed list without saving it.</dd>
         <dt><code>deck_analysis</code></dt><dd>Analyze validation, curve, land access, role hints, ownership and dated budget estimates.</dd>
@@ -172,7 +172,7 @@
       </dl></details>
       <details><summary>Upgrade plans and shopping (18)</summary><dl>
         <dt><code>plan_deck</code></dt><dd>Read stock, current and after-prints lists, swaps, review answers, orders and prints.</dd>
-        <dt><code>review_queue</code></dt><dd>Find swaps still waiting for your answer.</dd>
+        <dt><code>review_queue</code></dt><dd>Find swaps still waiting for your answer, a page at a time, for every plan or one.</dd>
         <dt><code>track_build</code></dt><dd>Stage making one build from a saved note the deck's plan.</dd>
         <dt><code>approve_plan</code></dt><dd>Stage approving a plan version whole, skipping the changes you name, once open questions are answered.</dd>
         <dt><code>shopping_list</code></dt><dd>Read your one shopping list and where the store trip puts each card, or why it isn't on the trip.</dd>
@@ -204,11 +204,11 @@
       </dl></details>
       <details><summary>Private research documents and choices (3)</summary><dl>
         <dt><code>research</code></dt><dd>Read a compact overview, one full deck/build, an exact shopping scenario or the complete document with your review choices.</dd>
-        <dt><code>save_research</code></dt><dd>Store or refresh private research for review; never alters installed decks or orders.</dd>
+        <dt><code>save_research</code></dt><dd>Store or refresh private research for review; never alters installed decks or orders, and won't stop a plan that tracks it without your say.</dd>
         <dt><code>review_research</code></dt><dd>Record your stated preferred build, swap answer or note with retry and stale-answer checks.</dd>
       </dl></details>
       <details><summary>Pending changes (3)</summary><dl>
-        <dt><code>changes</code></dt><dd>List proposals waiting for review.</dd>
+        <dt><code>changes</code></dt><dd>List proposals waiting for review, a page at a time.</dd>
         <dt><code>apply_change</code></dt><dd>Apply an approved proposal, with ownership and stale-version checks. External clients only.</dd>
         <dt><code>discard_change</code></dt><dd>Discard a proposal. External clients only.</dd>
       </dl></details>
@@ -227,10 +227,11 @@
       <p>Need help? <a href="/about/#contact">Contact Yama</a>. Include the client and error message, keeping tokens and private deck details out of public reports.</p>
     </section>
   </main>
-  <footer class="site-foot">
-    <nav aria-label="Footer"><a href="/about/">About Yama</a><a href="/precons">Precons</a><a href="/privacy/">Privacy</a><a href="/tos/">Terms</a><a href="/">Open Yama</a></nav>
-    <p>© 2026 Bryan Roscoe. All rights reserved in Yama's original software, written analysis and presentation. Third-party content belongs to its respective owners. <a href="/tos/#rights">Content rights</a>.</p>
-    <p>Unofficial fan software, not affiliated with, endorsed by, or sponsored by Wizards of the Coast. Card data and images from <a href="https://scryfall.com">Scryfall</a>; images load at runtime.</p>
+  <footer class="site-frame-footer"><nav aria-label="About Yama"><a href="/about/">About</a><a href="/precons/methodology">How we rank</a><a href="/about/#contact">Help and contact</a><a href="/privacy/">Privacy</a><a href="/tos/">Terms</a></nav>
+  <div class="site-notice">
+    <p>© 2026 Bryan Roscoe. All rights reserved in Yama’s original software, written analysis and presentation. <a href="/tos/#rights">Content rights</a>.</p>
+    <p>Third-party content belongs to its respective owners. Card data and images from <a href="https://scryfall.com">Scryfall</a>. Yama is unofficial fan software, not affiliated with, endorsed by, or sponsored by Wizards of the Coast. US market prices are TCGplayer's, via Scryfall. This product uses TCGplayer data but is not endorsed or certified by TCGplayer. Card Kingdom and Mana Pool prices via <a href="https://mtgjson.com">MTGJSON</a>.</p>
+  </div>
   </footer>
 </body>
 </html>

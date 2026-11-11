@@ -6,6 +6,18 @@
 //! `PROVISIONAL_UNDER` games is marked provisional, a player's win rate sits next to the share
 //! they'd win by chance (1/N averaged over their pods), and missing data is counted as missing
 //! instead of being folded into a guess.
+//!
+//! Unlike things stay apart (2026-11-11):
+//! - The computer isn't a player. Its seats take no row, and nobody's rivalry is with it. It can
+//!   still win, so the share a person would win by chance stays 1/N over every seat at the
+//!   table: at a table of two people and two computers that is one in four, and a game the
+//!   computer wins is a loss for everyone. A game with fewer than two people (solo against the
+//!   computer, or a table of one) is in nobody's record, and the playgroup's page leaves it out
+//!   of every figure (`playgroups::stats_for`). A deck's games against only the computer are
+//!   counted separately (`results_against_computer`).
+//! - `games.turns` counts rounds at the table and every player's turn online (the engine's turn
+//!   number), so the two are averaged separately (`average_turns`, `average_online_turns`).
+//! - Commander stats come from Commander games only; a Constructed game has no commander.
 
 use crate::error::AppResult;
 use serde::Serialize;
@@ -53,6 +65,8 @@ pub struct SeatFacts {
     pub name: String,
     pub user_id: Option<String>,
     pub member_id: Option<String>,
+    /// The computer played this seat (an online game's AI seat).
+    pub ai: bool,
     pub deck_version_id: Option<String>,
     /// A person (not the computer) played this seat with a deck their own account owns. Only
     /// these seats count toward a deck version's results: online games put the host's decks in
@@ -70,6 +84,9 @@ pub struct SeatFacts {
 pub struct GameFacts {
     pub id: String,
     pub mode: String,
+    /// `games.format`: "commander", "standard" (Constructed) or "other".
+    pub format: String,
+    pub starting_life: i64,
     pub playgroup_name: Option<String>,
     pub started_at: String,
     pub ended_at: Option<String>,
@@ -85,6 +102,27 @@ pub struct GameFacts {
 impl GameFacts {
     pub fn seat(&self, seat: i64) -> Option<&SeatFacts> {
         self.seats.iter().find(|s| s.seat == seat)
+    }
+
+    /// The seats people played, in seat order: everyone but the computer.
+    pub fn people(&self) -> impl Iterator<Item = &SeatFacts> {
+        self.seats.iter().filter(|s| !s.ai)
+    }
+
+    /// Two or more people played, so the game belongs in their records. A game with one person
+    /// (solo against the computer, or a table of one) has nobody to compare them with.
+    pub fn between_people(&self) -> bool {
+        self.people().count() >= 2
+    }
+
+    /// One person played and the computer had every other seat.
+    pub fn against_computer(&self) -> bool {
+        self.people().count() == 1 && self.seats.iter().any(|s| s.ai)
+    }
+
+    /// `turns` counts every player's turn (the engine's turn number) rather than rounds.
+    pub fn counts_player_turns(&self) -> bool {
+        self.mode == "online"
     }
 
     /// 1 for the first player, counting clockwise; `None` without a recorded first seat.
@@ -164,7 +202,7 @@ impl Scope<'_> {
     }
 }
 
-type GameRow = (String, String, Option<String>, String, Option<String>, Option<i64>, Option<i64>, Option<i64>, Option<String>, Option<String>);
+type GameRow = (String, String, Option<String>, String, Option<String>, Option<i64>, Option<i64>, Option<i64>, Option<String>, Option<String>, String, i64);
 
 #[derive(sqlx::FromRow)]
 struct SeatRow {
@@ -190,7 +228,7 @@ pub async fn finished_games(pool: &SqlitePool, scope: Scope<'_>) -> AppResult<Ve
     let cond = scope.condition();
     let rows: Vec<GameRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT g.id, g.mode, p.name, g.started_at, g.ended_at, g.turns, g.winner_seat, g.first_seat,
-                g.win_condition, g.note
+                g.win_condition, g.note, g.format, g.starting_life
          FROM games g LEFT JOIN playgroups p ON p.id = g.playgroup_id
          WHERE g.status = 'finished' AND {cond}
          ORDER BY COALESCE(g.ended_at, g.started_at), g.started_at, g.id"
@@ -213,11 +251,13 @@ pub async fn finished_games(pool: &SqlitePool, scope: Scope<'_>) -> AppResult<Ve
     .await?;
     let mut by_game: HashMap<String, Vec<SeatFacts>> = HashMap::new();
     for s in seats {
-        let key = match (&s.user_id, &s.member_id, &s.guest_name, &s.ai_kind) {
-            (Some(u), ..) => format!("u:{u}"),
-            (None, Some(m), ..) => format!("m:{m}"),
-            (None, None, Some(g), _) => format!("g:{g}"),
-            (None, None, None, Some(a)) => format!("a:{a}"),
+        // The computer's seat is its own in every game (an online game names it after its
+        // commander, which must not read as a guest of that name).
+        let key = match (&s.ai_kind, &s.user_id, &s.member_id, &s.guest_name) {
+            (Some(_), ..) => format!("ai:{}:{}", s.game_id, s.seat),
+            (None, Some(u), ..) => format!("u:{u}"),
+            (None, None, Some(m), _) => format!("m:{m}"),
+            (None, None, None, Some(g)) => format!("g:{g}"),
             _ => format!("seat:{}:{}", s.game_id, s.seat),
         };
         by_game.entry(s.game_id.clone()).or_default().push(SeatFacts {
@@ -226,6 +266,7 @@ pub async fn finished_games(pool: &SqlitePool, scope: Scope<'_>) -> AppResult<Ve
             name: s.name,
             user_id: s.user_id,
             member_id: s.member_id,
+            ai: s.ai_kind.is_some(),
             deck_version_id: s.deck_version_id,
             own_deck: s.own_deck,
             deck_label: s.deck_label,
@@ -238,10 +279,12 @@ pub async fn finished_games(pool: &SqlitePool, scope: Scope<'_>) -> AppResult<Ve
     }
     Ok(rows
         .into_iter()
-        .map(|(id, mode, playgroup_name, started_at, ended_at, turns, winner_seat, first_seat, win_condition, note)| GameFacts {
+        .map(|(id, mode, playgroup_name, started_at, ended_at, turns, winner_seat, first_seat, win_condition, note, format, starting_life)| GameFacts {
             seats: by_game.remove(&id).unwrap_or_default(),
             id,
             mode,
+            format,
+            starting_life,
             playgroup_name,
             started_at,
             ended_at,
@@ -358,21 +401,27 @@ fn average(values: impl Iterator<Item = f64>) -> Option<Average> {
     (n > 0).then(|| Average { value: sum / n as f64, games: n })
 }
 
+/// Average length in rounds, from games at the table and logged ones.
 pub fn average_turns(games: &[GameFacts]) -> Option<Average> {
-    average(games.iter().filter_map(|g| g.turns).map(|t| t as f64))
+    average(games.iter().filter(|g| !g.counts_player_turns()).filter_map(|g| g.turns).map(|t| t as f64))
+}
+
+/// Average length of online games, counting every player's turn (the engine's turn number).
+pub fn average_online_turns(games: &[GameFacts]) -> Option<Average> {
+    average(games.iter().filter(|g| g.counts_player_turns()).filter_map(|g| g.turns).map(|t| t as f64))
 }
 
 pub fn average_minutes(games: &[GameFacts]) -> Option<Average> {
     average(games.iter().filter_map(GameFacts::minutes))
 }
 
-/// Who knocked out whom, by player key: (knocker, knocked) → times. Self-knockouts and
-/// knockouts with no recorded knocker are left out.
+/// Who knocked out whom, by player key: (knocker, knocked) → times. Self-knockouts, knockouts
+/// with no recorded knocker and knockouts by or of the computer are left out.
 fn knockouts(games: &[GameFacts]) -> BTreeMap<(String, String), i64> {
     let mut out = BTreeMap::new();
     for g in games {
-        for s in &g.seats {
-            let Some(by) = s.eliminated_by_seat.and_then(|b| g.seat(b)) else { continue };
+        for s in g.people() {
+            let Some(by) = s.eliminated_by_seat.and_then(|b| g.seat(b)).filter(|by| !by.ai) else { continue };
             if by.key == s.key {
                 continue;
             }
@@ -386,7 +435,7 @@ fn names(games: &[GameFacts]) -> HashMap<String, String> {
     // The newest name wins (people rename themselves; removed members keep their last name).
     let mut names = HashMap::new();
     for g in games {
-        for s in &g.seats {
+        for s in g.people() {
             names.insert(s.key.clone(), s.name.clone());
         }
     }
@@ -401,12 +450,14 @@ pub fn players(games: &[GameFacts]) -> Vec<PlayerStat> {
     let mut history: HashMap<String, Vec<bool>> = HashMap::new();
     let mut expected_sum: HashMap<String, f64> = HashMap::new();
     let mut fun: HashMap<String, (i64, i64)> = HashMap::new();
-    for g in games {
+    for g in games.iter().filter(|g| g.between_people()) {
+        // The chance of winning if every seat were equally likely to: the computer has no row
+        // here, but it can win the game.
         let n = g.seats.len() as f64;
         let first_out = g.first_out();
         let last_out = g.last_out();
         let knockout_game = g.seats.iter().any(|s| s.eliminated_turn.is_some());
-        for s in &g.seats {
+        for s in g.people() {
             let p = stats.entry(s.key.clone()).or_insert_with(|| {
                 order.push(s.key.clone());
                 PlayerStat {
@@ -508,15 +559,19 @@ pub fn knockout_games(games: &[GameFacts]) -> i64 {
     games.iter().filter(|g| g.seats.iter().any(|s| s.eliminated_turn.is_some())).count() as i64
 }
 
+/// Each commander's record across the people who played it, from Commander games between
+/// people. A game in another format has no commander (not one called "Unknown"), and the
+/// computer piloting a deck isn't the playgroup playing that commander.
 pub fn commanders(games: &[GameFacts]) -> Vec<CommanderStat> {
     let mut map: BTreeMap<String, (i64, i64, f64)> = BTreeMap::new();
-    for g in games {
-        for s in &g.seats {
+    for g in games.iter().filter(|g| g.format == "commander" && g.between_people()) {
+        let n = g.seats.len() as f64;
+        for s in g.people() {
             let name = s.commander_name.clone().or(s.deck_label.clone()).unwrap_or_else(|| "Unknown".into());
             let e = map.entry(name).or_default();
             e.0 += 1;
             e.1 += i64::from(g.winner_seat == Some(s.seat));
-            e.2 += 1.0 / g.seats.len() as f64;
+            e.2 += 1.0 / n;
         }
     }
     let mut out: Vec<CommanderStat> =
@@ -571,10 +626,20 @@ pub struct Record {
     pub draws: i64,
 }
 
-/// Wins, losses and draws for each deck version that played, by version id. Only seats where
-/// a person played their own deck count (`SeatFacts::own_deck`), so the computer piloting your
-/// deck online isn't your deck's record, and a mirror match counts once.
+/// Wins, losses and draws for each deck version that played against other people, by version
+/// id. Only seats where a person played their own deck count (`SeatFacts::own_deck`), so the
+/// computer piloting your deck online isn't your deck's record, and a mirror match counts once.
+/// Games against only the computer are apart, in `results_against_computer`.
 pub fn results_by_version(games: &[GameFacts]) -> HashMap<String, Record> {
+    version_results(games.iter().filter(|g| g.between_people()))
+}
+
+/// The same for games one person played against the computer alone (solo online games).
+pub fn results_against_computer(games: &[GameFacts]) -> HashMap<String, Record> {
+    version_results(games.iter().filter(|g| g.against_computer()))
+}
+
+fn version_results<'a>(games: impl Iterator<Item = &'a GameFacts>) -> HashMap<String, Record> {
     let mut out: HashMap<String, Record> = HashMap::new();
     for g in games {
         for s in &g.seats {
@@ -603,6 +668,8 @@ pub(crate) mod tests {
         GameFacts {
             id: id.into(),
             mode: "in_person".into(),
+            format: "commander".into(),
+            starting_life: 40,
             started_at: format!("2026-10-{:02}T19:00:00Z", 1 + id.len() % 28),
             seats: keys.iter().enumerate().map(|(i, k)| seat(i as i64, k)).collect(),
             winner_seat: winner,
@@ -750,6 +817,89 @@ pub(crate) mod tests {
         let games = vec![a, logged];
         assert_eq!(average_turns(&games), Some(Average { value: 8.0, games: 1 }));
         assert_eq!(average_minutes(&games), Some(Average { value: 90.0, games: 1 }));
+    }
+
+    /// Seats `ai` are the computer's, as an online game stores them: named after their commander.
+    fn online(id: &str, keys: &[&str], ai: &[i64], winner: Option<i64>) -> GameFacts {
+        let mut g = game(id, keys, winner);
+        g.mode = "online".into();
+        for s in g.seats.iter_mut().filter(|s| ai.contains(&s.seat)) {
+            s.ai = true;
+            s.key = format!("ai:{id}:{}", s.seat);
+            s.name = "Atraxa, Praetors' Voice".into();
+            s.commander_name = Some(s.name.clone());
+        }
+        g
+    }
+
+    #[test]
+    fn the_computer_is_not_a_player_but_can_still_win() {
+        // Two people and two computers: four seats could win, so an even share is one in four.
+        let mut mixed = online("1", &["a", "b", "x", "y"], &[2, 3], Some(2));
+        out(&mut mixed, 0, 6, Some(2)); // the computer knocks a out
+        out(&mut mixed, 1, 8, Some(0)); // a (already out, but recorded so) knocks b out
+        // Solo against three computers: nobody to compare with.
+        let solo = online("22", &["a", "x", "y", "z"], &[1, 2, 3], Some(0));
+        let table = game("333", &["a", "b"], Some(0));
+        let games = vec![mixed, solo, table];
+        let ps = players(&games);
+        assert_eq!(ps.iter().map(|p| p.key.as_str()).collect::<Vec<_>>(), vec!["a", "b"]);
+        let a = ps.iter().find(|p| p.key == "a").unwrap();
+        assert_eq!((a.games, a.wins), (2, 1), "the solo win isn't in the record");
+        assert!((a.expected - (0.25 + 0.5) / 2.0).abs() < 1e-9);
+        // The game the computer won is a loss for both people.
+        assert_eq!(ps.iter().map(|p| p.wins).sum::<i64>(), 1);
+        // The computer's knockout of a is nobody's rivalry; a's knockout of b is.
+        assert_eq!(a.archnemesis, None);
+        assert_eq!(a.knockouts, 1);
+        assert_eq!(head_to_head(&games).len(), 1);
+        // A person can still be first out of a game the computer played in.
+        assert_eq!((a.first_out, a.knockout_games), (1, 1));
+        // The computer's commanders aren't the playgroup's.
+        assert!(commanders(&games).iter().all(|c| c.commander != "Atraxa, Praetors' Voice"));
+    }
+
+    #[test]
+    fn commander_stats_come_from_commander_games_only() {
+        let mut edh = game("1", &["a", "b"], Some(0));
+        edh.seats[0].commander_name = Some("Éowyn, Shieldmaiden".into());
+        let mut constructed = game("22", &["a", "b"], Some(1));
+        constructed.format = "standard".into();
+        let cs = commanders(&[edh, constructed.clone()]);
+        // Only the Commander game: one named commander and one seat that didn't say.
+        assert_eq!(cs.iter().map(|c| (c.commander.as_str(), c.games)).collect::<Vec<_>>(), vec![("Éowyn, Shieldmaiden", 1), ("Unknown", 1)]);
+        assert!(commanders(&[constructed.clone()]).is_empty());
+        // The players' records still count every format.
+        assert_eq!(players(&[constructed])[0].games, 1);
+    }
+
+    #[test]
+    fn rounds_and_player_turns_are_averaged_apart() {
+        let mut table = game("1", &["a", "b", "c", "d"], Some(0));
+        table.turns = Some(9); // rounds
+        let mut net = online("22", &["a", "b", "c", "d"], &[], Some(0));
+        net.turns = Some(33); // every player's turn
+        let games = vec![table, net];
+        assert_eq!(average_turns(&games), Some(Average { value: 9.0, games: 1 }));
+        assert_eq!(average_online_turns(&games), Some(Average { value: 33.0, games: 1 }));
+    }
+
+    #[test]
+    fn a_decks_games_against_the_computer_are_counted_apart() {
+        let mut real = game("1", &["a", "b"], Some(1));
+        let mut solo = online("22", &["a", "x", "y"], &[1, 2], Some(0));
+        let mut mixed = online("333", &["a", "b", "x"], &[2], Some(0));
+        // A table of one isn't a result of either kind.
+        let mut alone = game("4444", &["a"], Some(0));
+        for g in [&mut real, &mut solo, &mut mixed, &mut alone] {
+            g.seats[0].deck_version_id = Some("v1".into());
+            g.seats[0].own_deck = true;
+        }
+        // The computer piloting the same list is never the deck's record.
+        solo.seats[1].deck_version_id = Some("v1".into());
+        let games = [real, solo, mixed, alone];
+        assert_eq!(results_by_version(&games)["v1"], Record { games: 2, wins: 1, losses: 1, draws: 0 });
+        assert_eq!(results_against_computer(&games)["v1"], Record { games: 1, wins: 1, losses: 0, draws: 0 });
     }
 
     #[test]

@@ -7,11 +7,9 @@ body { margin: 0; background: var(--ground); color: var(--text); font: 17px/1.6 
 a { color: var(--text); text-underline-offset: 4px; }
 a:hover { text-decoration-thickness: 2px; }
 a:focus-visible, summary:focus-visible { outline: 2px solid var(--text); outline-offset: 5px; border-radius: 4px; }
-.skip { position: absolute; top: -100px; left: 16px; padding: 12px; background: var(--text); color: var(--ground); z-index: 1; }
-.skip:focus { top: 12px; }
-.site-head, main, .site-foot { max-width: 1080px; margin-inline: auto; padding-inline: clamp(20px, 4vw, 48px); }
-.site-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 24px; padding-block: 20px; border-bottom: 1px solid var(--line); }
-.brand { font: 700 36px/1 'Big Shoulders', sans-serif; text-decoration: none; }
+/* The header and footer are the site's own (/site-frame-v1.css, linked before this file); the
+   guide lines up with their edges. */
+main { max-width: calc(1120px + 64px); margin-inline: auto; padding-inline: 32px; }
 nav, .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; }
 nav a, .actions a { display: inline-flex; min-height: 44px; align-items: center; }
 .intro { max-width: 800px; padding-block: 56px 32px; }
@@ -22,8 +20,8 @@ h2 { font-size: clamp(36px, 5vw, 48px); margin: 0 0 24px; }
 h3 { font-size: 28px; margin: 0 0 12px; }
 p { margin: 0 0 20px; }
 .lead { font-size: 22px; line-height: 1.45; }
-.dim, .note, .site-foot { color: var(--dim); }
-.dim, .site-foot { font-size: 15px; }
+.dim, .note { color: var(--dim); }
+.dim { font-size: 15px; }
 .button { padding: 12px 22px; background: var(--text); color: var(--ground); border-radius: 999px; text-decoration: none; font-weight: 700; }
 .contents { border-block: 1px solid var(--line); padding-block: 12px; gap: 0 24px; }
 section { padding-block: 48px; border-bottom: 1px solid var(--line); }
@@ -44,12 +42,15 @@ dl { margin: 0; }
 dt { font-weight: 700; margin-top: 20px; }
 dt:first-child { margin-top: 0; }
 dd { margin: 4px 0 0; color: var(--dim); }
-.site-foot { padding-block: 28px 48px; }
-.site-foot nav { margin-bottom: 20px; }
 @media (max-width: 640px) {
   .features { grid-template-columns: 1fr; }
   .intro { padding-top: 36px; }
   .setup { padding: 20px 16px; }
-  .site-head nav { column-gap: 16px; }
   section { padding-block: 36px; }
+}
+@media (max-width: 600px) {
+  main { padding-inline: 20px; }
+}
+@media (max-width: 350px) {
+  main { padding-inline: 16px; }
 }

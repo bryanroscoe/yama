@@ -695,13 +695,13 @@ async fn remembered_answers_are_saved_with_the_game() {
         .await
         .unwrap();
     sqlx::query("UPDATE games SET engine_version=? WHERE id='g'").bind(yama_play::ENGINE_VERSION).execute(&pool).await.unwrap();
-    persist(&pool, "g", &m).await.unwrap();
+    persist(&pool, "g", &m, false).await.unwrap();
     let (saved,): (Option<String>,) = sqlx::query_as("SELECT answers FROM online_games WHERE game_id = 'g'").fetch_one(&pool).await.unwrap();
     let back: Vec<yama_play::YamaAnswer> = serde_json::from_str(&saved.unwrap()).unwrap();
     assert_eq!(back, answers);
     // None remembered: nothing stored.
     m.set_remembered(vec![]);
-    persist(&pool, "g", &m).await.unwrap();
+    persist(&pool, "g", &m, false).await.unwrap();
     let (saved,): (Option<String>,) = sqlx::query_as("SELECT answers FROM online_games WHERE game_id = 'g'").fetch_one(&pool).await.unwrap();
     assert_eq!(saved, None);
 }
@@ -841,13 +841,13 @@ async fn matching_runtime_recovers_live_and_completed_and_fences_later_writes() 
     assert_eq!(body["view"]["over"], true);
     assert_eq!(saved_bytes(&pool, "matching-over").await, before);
     hub.stop("matching-live");
-    persist(&pool, "matching-live", &m).await.unwrap();
+    persist(&pool, "matching-live", &m, false).await.unwrap();
     let archived: String =
         sqlx::query_scalar("SELECT replay FROM online_game_originals WHERE game_id='matching-live'").fetch_one(&pool).await.unwrap();
     assert_eq!(archived, original);
     sqlx::query("UPDATE games SET engine_version='unknown' WHERE id='matching-live'").execute(&pool).await.unwrap();
     let before = saved_bytes(&pool, "matching-live").await;
-    assert!(persist(&pool, "matching-live", &m).await.is_err());
+    assert!(persist(&pool, "matching-live", &m, false).await.is_err());
     assert_eq!(saved_bytes(&pool, "matching-live").await, before);
     let archived_again: String =
         sqlx::query_scalar("SELECT replay FROM online_game_originals WHERE game_id='matching-live'").fetch_one(&pool).await.unwrap();
@@ -1593,4 +1593,475 @@ async fn solo_rewind_interrupts_ai_progress_and_saves_the_restored_branch() {
     assert!(!resumed.view(Some(0)).players[0].eliminated);
     assert_eq!(resumed.revision, view.revision);
     assert_eq!(resumed.view(Some(0)).decision.unwrap().options.iter().filter(|o| o.kind == OptionKind::Keep).count(), 1);
+}
+
+#[tokio::test]
+async fn a_finished_game_saves_its_knockouts_and_how_it_was_won() {
+    let st = crate::testutil::state().await;
+    let pool = st.pool.clone();
+    let (host, _) = crate::testutil::user(&pool, "results@example.com").await;
+    let e = engine();
+    let mut m = e.new_match_first(5, vec![deck(&[("Mountain", 99)]), deck(&[("Island", 99)]), deck(&[("Forest", 99)])], &[], Some(0)).unwrap();
+    sqlx::query("INSERT INTO games (id,mode,created_by,format,status,starting_life,started_at,engine_version) VALUES ('results','online',?,'commander','in_progress',40,'2026-11-11T00:00:00Z',?)")
+        .bind(&host).bind(yama_play::ENGINE_VERSION).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO online_games (game_id,code,host_id,stage,seats,replay,created_at,updated_at) VALUES ('results','RESULT',?,'live','[]',?,'t','t')")
+        .bind(&host).bind(m.replay_json()).execute(&pool).await.unwrap();
+    for seat in 0..3 {
+        sqlx::query("INSERT INTO game_seats (game_id,seat,guest_name) VALUES ('results',?,'Someone')").bind(seat).execute(&pool).await.unwrap();
+    }
+    let seats = || {
+        let pool = pool.clone();
+        async move {
+            sqlx::query_as::<_, (i64, Option<i64>, Option<i64>)>("SELECT seat, eliminated_turn, eliminated_by_seat FROM game_seats WHERE game_id='results' ORDER BY seat")
+                .fetch_all(&pool).await.unwrap()
+        }
+    };
+
+    // A save that isn't asked for knockouts leaves the seats alone while the game is going.
+    m.concede(1).unwrap();
+    let turn = i64::from(m.outs()[0].turn);
+    assert!(m.events(None).iter().any(|h| matches!(h.what, yama_play::feed::What::Out { seat: 1 }) && i64::from(h.turn) == turn), "the feed has the knockout");
+    persist(&pool, "results", &m, false).await.unwrap();
+    assert_eq!(seats().await, vec![(0, None, None), (1, None, None), (2, None, None)]);
+    persist(&pool, "results", &m, true).await.unwrap();
+    assert_eq!(seats().await, vec![(0, None, None), (1, Some(turn), None), (2, None, None)]);
+
+    // Who did it was stored when it happened; a later save that can't name them keeps it, and
+    // clears a knockout the game no longer has (a rewind took it back).
+    sqlx::query("UPDATE game_seats SET eliminated_by_seat = 0 WHERE game_id='results' AND seat = 1").execute(&pool).await.unwrap();
+    sqlx::query("UPDATE game_seats SET eliminated_turn = 9, eliminated_by_seat = 1 WHERE game_id='results' AND seat = 0").execute(&pool).await.unwrap();
+    persist(&pool, "results", &m, true).await.unwrap();
+    assert_eq!(seats().await, vec![(0, None, None), (1, Some(turn), Some(0)), (2, None, None)]);
+    // A different knockout of the same seat doesn't inherit the old one's name.
+    sqlx::query("UPDATE game_seats SET eliminated_turn = 99 WHERE game_id='results' AND seat = 1").execute(&pool).await.unwrap();
+    persist(&pool, "results", &m, true).await.unwrap();
+    assert_eq!(seats().await[1], (1, Some(turn), None));
+
+    // The last opponent concedes: the game is over, and the record says how it was won.
+    m.concede(2).unwrap();
+    assert!(m.is_over());
+    persist(&pool, "results", &m, false).await.unwrap();
+    let (status, winner, how): (String, Option<i64>, Option<String>) =
+        sqlx::query_as("SELECT status, winner_seat, win_condition FROM games WHERE id='results'").fetch_one(&pool).await.unwrap();
+    assert_eq!((status.as_str(), winner, how.as_deref()), ("finished", Some(0), Some("concession")));
+    assert_eq!(seats().await, vec![(0, None, None), (1, Some(turn), None), (2, Some(i64::from(m.outs()[1].turn)), None)]);
+
+    // Stats read it like a table game: a decided game with its win condition and a first out.
+    let games = crate::stats::finished_games(&pool, crate::stats::Scope::User(&host)).await.unwrap();
+    assert_eq!(crate::stats::win_conditions(&games).not_recorded, 0);
+    assert_eq!(crate::stats::knockout_games(&games), 1);
+}
+
+#[tokio::test]
+async fn an_ended_solo_game_has_no_win_condition() {
+    let st = crate::testutil::state().await;
+    let pool = st.pool.clone();
+    let (host, _) = crate::testutil::user(&pool, "ended@example.com").await;
+    let e = engine();
+    let mut m = e.new_match_first(5, vec![deck(&[("Mountain", 99)]), deck(&[("Island", 99)])], &[(1, Difficulty::Easy)], Some(0)).unwrap();
+    sqlx::query("INSERT INTO games (id,mode,created_by,format,status,starting_life,started_at,engine_version) VALUES ('ended','online',?,'commander','in_progress',40,'2026-11-11T00:00:00Z',?)")
+        .bind(&host).bind(yama_play::ENGINE_VERSION).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO online_games (game_id,code,host_id,stage,seats,replay,created_at,updated_at) VALUES ('ended','ENDED0',?,'live','[]',?,'t','t')")
+        .bind(&host).bind(m.replay_json()).execute(&pool).await.unwrap();
+    m.concede(0).unwrap();
+    m.abandon();
+    persist(&pool, "ended", &m, true).await.unwrap();
+    let (status, winner, how): (String, Option<i64>, Option<String>) =
+        sqlx::query_as("SELECT status, winner_seat, win_condition FROM games WHERE id='ended'").fetch_one(&pool).await.unwrap();
+    assert_eq!((status.as_str(), winner, how), ("abandoned", None, None));
+}
+
+#[tokio::test]
+async fn people_in_the_games_playgroup_are_seated_as_its_members() {
+    use crate::testutil::{deck as make_deck, user};
+    let mut st = crate::testutil::state().await;
+    st.play = ready_hub(None);
+    let pool = st.pool.clone();
+    let (host, _) = user(&pool, "member-host@example.com").await;
+    let (friend, _) = user(&pool, "member-friend@example.com").await;
+    let (host_deck, host_version) = make_deck(&pool, &host, "Host").await;
+    let (friend_deck, friend_version) = make_deck(&pool, &friend, "Friend").await;
+    let cards = vec![
+        crate::decks::DeckCard { oracle_id: "commander".into(), name: "Combat Celebrant".into(), qty: 1, board: crate::decks::Board::Commander },
+        crate::decks::DeckCard { oracle_id: "land".into(), name: "Island".into(), qty: 99, board: crate::decks::Board::Main },
+    ];
+    for version in [&host_version, &friend_version] {
+        sqlx::query("UPDATE deck_versions SET cards=? WHERE id=?").bind(serde_json::to_string(&cards).unwrap()).bind(version).execute(&pool).await.unwrap();
+    }
+    // The host is in the game's playgroup; the friend who joined by code isn't. Another group's
+    // member row for the friend must not be picked up.
+    for (group, member, user) in [("pg-game", "m-host", &host), ("pg-other", "m-friend-elsewhere", &friend)] {
+        sqlx::query("INSERT OR IGNORE INTO playgroups (id,name,owner_id,join_code,created_at) VALUES (?,?,?,?,'t')")
+            .bind(group).bind(group).bind(&host).bind(group.to_uppercase()).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO playgroup_members (id,playgroup_id,user_id,created_at) VALUES (?,?,?,'t')")
+            .bind(member).bind(group).bind(user).execute(&pool).await.unwrap();
+    }
+    let seats: Vec<_> = [(&host, &host_deck, &host_version), (&friend, &friend_deck, &friend_version)]
+        .into_iter().enumerate().map(|(n, (user, deck, version))| {
+            let mut s = seat(n as u8, "Player");
+            s.user_id = Some(user.to_string());
+            s.deck_id = Some(deck.to_string());
+            s.deck_version_id = Some(version.to_string());
+            s
+        }).collect();
+    sqlx::query("INSERT INTO games(id,mode,created_by,status,started_at,playgroup_id) VALUES('members','online',?,'in_progress','2026-11-11T00:00:00Z','pg-game')")
+        .bind(&host).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO online_games(game_id,code,host_id,stage,seats,created_at,updated_at) VALUES('members','MEMBER',?,'lobby',?,'t','t')")
+        .bind(&host).bind(serde_json::to_string(&seats).unwrap()).execute(&pool).await.unwrap();
+    start_game(&st, "members", &host).await.unwrap();
+    let stored: Vec<(i64, Option<String>, Option<String>)> =
+        sqlx::query_as("SELECT seat, member_id, user_id FROM game_seats WHERE game_id='members' ORDER BY seat").fetch_all(&pool).await.unwrap();
+    assert_eq!(stored, vec![(0, Some("m-host".into()), Some(host.clone())), (1, None, Some(friend.clone()))]);
+    st.play.stop("members");
+}
+
+#[tokio::test]
+async fn the_member_backfill_fills_only_online_seats_whose_account_is_in_the_games_group() {
+    let pool = crate::db::test_pool().await;
+    for id in ["ana", "ben"] {
+        sqlx::query("INSERT INTO users (id, email, display_name, created_at) VALUES (?,?,?,'t')").bind(id).bind(format!("{id}@x.y")).bind(id).execute(&pool).await.unwrap();
+    }
+    for group in ["pg", "other"] {
+        sqlx::query("INSERT INTO playgroups (id,name,owner_id,join_code,created_at) VALUES (?,?,'ana',?,'t')").bind(group).bind(group).bind(group.to_uppercase()).execute(&pool).await.unwrap();
+    }
+    for (member, group, user, guest) in [("m-ana", "pg", Some("ana"), None), ("m-ben-other", "other", Some("ben"), None), ("m-guest", "pg", None, Some("Kelly"))] {
+        sqlx::query("INSERT INTO playgroup_members (id,playgroup_id,user_id,guest_name,created_at) VALUES (?,?,?,?,'t')")
+            .bind(member).bind(group).bind(user).bind(guest).execute(&pool).await.unwrap();
+    }
+    for (game, mode, group) in [("online", "online", Some("pg")), ("no-group", "online", None), ("table", "in_person", Some("pg"))] {
+        sqlx::query("INSERT INTO games (id,mode,created_by,status,started_at,playgroup_id) VALUES (?,?,'ana','finished','t',?)").bind(game).bind(mode).bind(group).execute(&pool).await.unwrap();
+        // Ana is in "pg"; Ben only in another group; the computer has no account.
+        for (seat, user, ai) in [(0, Some("ana"), None), (1, Some("ben"), None), (2, None, Some("phase-ai Easy"))] {
+            sqlx::query("INSERT INTO game_seats (game_id,seat,user_id,ai_kind) VALUES (?,?,?,?)").bind(game).bind(seat).bind(user).bind(ai).execute(&pool).await.unwrap();
+        }
+    }
+    sqlx::raw_sql(include_str!("../migrations/0074_online_seat_members.sql")).execute(&pool).await.unwrap();
+    let filled: Vec<(String, i64, String)> =
+        sqlx::query_as("SELECT game_id, seat, member_id FROM game_seats WHERE member_id IS NOT NULL ORDER BY game_id, seat").fetch_all(&pool).await.unwrap();
+    assert_eq!(filled, vec![("online".to_string(), 0, "m-ana".to_string())]);
+}
+
+#[tokio::test]
+async fn a_knockout_the_feed_has_let_go_keeps_what_was_stored_when_it_happened() {
+    use results::Knockout;
+    let pool = crate::db::test_pool().await;
+    sqlx::query("INSERT INTO users (id, email, display_name, created_at) VALUES ('ana','ana@x.y','Ana','t')").execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO games (id,mode,created_by,status,started_at) VALUES ('long','online','ana','in_progress','t')").execute(&pool).await.unwrap();
+    for seat in 0..4 {
+        sqlx::query("INSERT INTO game_seats (game_id,seat,guest_name) VALUES ('long',?,'Someone')").bind(seat).execute(&pool).await.unwrap();
+    }
+    let seats = || {
+        let pool = pool.clone();
+        async move {
+            sqlx::query_as::<_, (i64, Option<i64>, Option<i64>)>("SELECT seat, eliminated_turn, eliminated_by_seat FROM game_seats WHERE game_id='long' ORDER BY seat")
+                .fetch_all(&pool).await.unwrap()
+        }
+    };
+    let write = |found: Vec<Knockout>| {
+        let pool = pool.clone();
+        async move {
+            let mut tx = pool.begin().await.unwrap();
+            write_knockouts(&mut tx, "long", &found).await.unwrap();
+            tx.commit().await.unwrap();
+        }
+    };
+    // Seat 1 goes out on turn 5 to seat 0's attack, while the feed holds it.
+    write(vec![Knockout { seat: 1, turn: 5, by: Some(0), seen: true }]).await;
+    assert_eq!(seats().await[1], (1, Some(5), Some(0)));
+    // Much later seat 2 goes out. The feed has dropped seat 1's knockout: all that's left of it
+    // is the engine's turn after that action (6) and nobody to name. What was stored stands.
+    write(vec![Knockout { seat: 1, turn: 6, by: None, seen: false }, Knockout { seat: 2, turn: 40, by: None, seen: true }]).await;
+    assert_eq!(seats().await, vec![(0, None, None), (1, Some(5), Some(0)), (2, Some(40), None), (3, None, None)]);
+    // The feed still has the knockout but no longer the hit behind it: the name stays.
+    write(vec![Knockout { seat: 1, turn: 5, by: None, seen: true }, Knockout { seat: 2, turn: 40, by: None, seen: true }]).await;
+    assert_eq!(seats().await[1], (1, Some(5), Some(0)));
+    // A knockout never stored (the server restarted before its save) takes what's left to tell.
+    write(vec![Knockout { seat: 1, turn: 5, by: None, seen: false }, Knockout { seat: 2, turn: 40, by: None, seen: false }, Knockout { seat: 3, turn: 44, by: None, seen: false }]).await;
+    assert_eq!(seats().await[3], (3, Some(44), None));
+    // A rewind took every knockout back.
+    write(vec![]).await;
+    assert_eq!(seats().await, vec![(0, None, None), (1, None, None), (2, None, None), (3, None, None)]);
+}
+
+#[tokio::test]
+async fn the_host_cancels_a_waiting_table_and_deletes_a_finished_game() {
+    use crate::testutil::{send as request, user};
+    use axum::http::{Method, StatusCode};
+    let mut st = crate::testutil::state().await;
+    st.play = ready_hub(None);
+    let pool = st.pool.clone();
+    let app = crate::routes::app(st);
+    let (host, host_token) = user(&pool, "cancel-host@example.com").await;
+    let (friend, friend_token) = user(&pool, "cancel-friend@example.com").await;
+    let (_, stranger_token) = user(&pool, "cancel-stranger@example.com").await;
+    let mut seats = vec![seat(0, "Host"), seat(1, "Friend")];
+    seats[0].user_id = Some(host.clone());
+    seats[1].user_id = Some(friend.clone());
+    for (id, stage, status) in [("waiting", "lobby", "in_progress"), ("playing", "live", "in_progress"), ("done", "over", "finished")] {
+        sqlx::query("INSERT INTO games (id,mode,created_by,format,status,starting_life,started_at) VALUES (?,'online',?,'commander',?,40,'2026-11-11T00:00:00Z')")
+            .bind(id).bind(&host).bind(status).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO online_games (game_id,code,host_id,stage,seats,created_at,updated_at) VALUES (?,?,?,?,?,'t','t')")
+            .bind(id).bind(id.to_uppercase()).bind(&host).bind(stage).bind(serde_json::to_string(&seats).unwrap()).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO game_seats (game_id,seat,user_id) VALUES (?,0,?)").bind(id).bind(&host).execute(&pool).await.unwrap();
+    }
+    sqlx::query("UPDATE online_games SET rematch_id = 'waiting' WHERE game_id = 'done'").execute(&pool).await.unwrap();
+    let delete = |id: &'static str, token: &str| {
+        let (app, token) = (app.clone(), token.to_string());
+        async move { request(&app, Method::DELETE, &format!("/api/play/{id}"), Some(&token), None).await }
+    };
+    // Someone outside the game learns nothing, and a seated friend may not.
+    assert_eq!(delete("waiting", &stranger_token).await.0, StatusCode::NOT_FOUND);
+    for id in ["waiting", "done"] {
+        assert_eq!(delete(id, &friend_token).await.0, StatusCode::FORBIDDEN);
+    }
+    // A game being played stays.
+    let (status, body) = delete("playing", &host_token).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    // The host cancels the table: the game row, its lobby and seats go, and the finished game's
+    // pointer to it as a rematch.
+    let (status, body) = delete("waiting", &host_token).await;
+    assert_eq!((status, body["was"].as_str()), (StatusCode::OK, Some("lobby")), "{body}");
+    let left: Vec<String> = sqlx::query_scalar("SELECT id FROM games ORDER BY id").fetch_all(&pool).await.unwrap();
+    assert_eq!(left, ["done", "playing"]);
+    assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM online_games WHERE game_id = 'waiting'").fetch_one(&pool).await.unwrap(), 0);
+    assert_eq!(sqlx::query_scalar::<_, Option<String>>("SELECT rematch_id FROM online_games WHERE game_id = 'done'").fetch_one(&pool).await.unwrap(), None);
+    // ...and deletes the finished game, for everyone who played.
+    let (status, body) = delete("done", &host_token).await;
+    assert_eq!((status, body["was"].as_str()), (StatusCode::OK, Some("game")), "{body}");
+    assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM game_seats WHERE game_id = 'done'").fetch_one(&pool).await.unwrap(), 0);
+    assert_eq!(delete("done", &host_token).await.0, StatusCode::NOT_FOUND);
+    // The game that was being played is untouched.
+    assert_eq!(load_row(&pool, "playing").await.unwrap().stage, "live");
+}
+
+#[test]
+fn the_limit_message_names_what_is_open_and_how_to_close_it() {
+    assert_eq!(open_games_message(1, 0), "You have 1 table waiting for players. Close it from its page before opening another.");
+    assert_eq!(open_games_message(2, 0), "You have 2 tables waiting for players. Close one from its page before opening another.");
+    assert_eq!(open_games_message(0, 1), "You have 1 game being played. Finish it before starting another.");
+    assert_eq!(open_games_message(0, 3), "You have 3 games being played. Finish one before starting another.");
+    assert_eq!(
+        open_games_message(1, 1),
+        "You have 1 table waiting for players and 1 game being played. Close a waiting table from its page, or finish a game, before starting another."
+    );
+}
+
+#[tokio::test]
+async fn a_seated_player_answers_the_end_of_game_questions() {
+    use crate::testutil::{send as request, user};
+    use axum::http::{Method, StatusCode};
+    let mut st = crate::testutil::state().await;
+    st.play = ready_hub(None);
+    let pool = st.pool.clone();
+    let app = crate::routes::app(st);
+    let (host, host_token) = user(&pool, "result-host@example.com").await;
+    let (friend, friend_token) = user(&pool, "result-friend@example.com").await;
+    let (watcher, watcher_token) = user(&pool, "result-watcher@example.com").await;
+    let (_, stranger_token) = user(&pool, "result-stranger@example.com").await;
+    // The watcher is in the game's playgroup, so may see the game, but didn't play in it.
+    sqlx::query("INSERT INTO playgroups (id,name,owner_id,join_code,created_at) VALUES ('pg-result','Group',?,'RESULT','t')").bind(&host).execute(&pool).await.unwrap();
+    for (member, account) in [("m-result-host", &host), ("m-result-watcher", &watcher)] {
+        sqlx::query("INSERT INTO playgroup_members (id,playgroup_id,user_id,created_at) VALUES (?,'pg-result',?,'t')").bind(member).bind(account).execute(&pool).await.unwrap();
+    }
+    let mut seats = vec![seat(0, "Host"), seat(1, "Friend"), seat(2, "Computer")];
+    seats[0].user_id = Some(host.clone());
+    seats[1].user_id = Some(friend.clone());
+    seats[2].kind = "ai".into();
+    seats[2].user_id = None;
+    for (id, stage, status, winner, how) in [
+        ("won", "over", "finished", Some(1), Some("combat")),
+        ("drawn", "over", "finished", None, None),
+        ("going", "live", "in_progress", None, None),
+        ("ended", "over", "abandoned", None, None),
+    ] {
+        sqlx::query("INSERT INTO games (id,mode,created_by,format,status,starting_life,started_at,playgroup_id,winner_seat,win_condition) VALUES (?,'online',?,'commander',?,40,'2026-11-11T00:00:00Z','pg-result',?,?)")
+            .bind(id).bind(&host).bind(status).bind(winner).bind(how).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO online_games (game_id,code,host_id,stage,seats,created_at,updated_at) VALUES (?,?,?,?,?,'t','t')")
+            .bind(id).bind(id.to_uppercase()).bind(&host).bind(stage).bind(serde_json::to_string(&seats).unwrap()).execute(&pool).await.unwrap();
+        for (n, account, ai) in [(0, Some(&host), None), (1, Some(&friend), None), (2, None, Some("phase-ai Medium"))] {
+            sqlx::query("INSERT INTO game_seats (game_id,seat,user_id,ai_kind) VALUES (?,?,?,?)").bind(id).bind(n).bind(account).bind(ai).execute(&pool).await.unwrap();
+        }
+    }
+    let post = |id: &'static str, token: &str, body: serde_json::Value| {
+        let (app, token) = (app.clone(), token.to_string());
+        async move { request(&app, Method::POST, &format!("/api/play/{id}/result"), Some(&token), Some(body)).await }
+    };
+    let stored = |id: &'static str| {
+        let pool = pool.clone();
+        async move {
+            let how: Option<String> = sqlx::query_scalar("SELECT win_condition FROM games WHERE id = ?").bind(id).fetch_one(&pool).await.unwrap();
+            let fun: Vec<Option<i64>> = sqlx::query_scalar("SELECT fun FROM game_seats WHERE game_id = ? ORDER BY seat").bind(id).fetch_all(&pool).await.unwrap();
+            (how, fun)
+        }
+    };
+    let answer = serde_json::json!({ "win_condition": "combo", "fun": 4 });
+
+    // Someone outside the game learns nothing; someone who can see it but didn't play may not answer.
+    assert_eq!(post("won", &stranger_token, answer.clone()).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(post("won", &watcher_token, answer.clone()).await.0, StatusCode::FORBIDDEN);
+    // Only a game with a result: not one being played, nor one ended without a winner.
+    for id in ["going", "ended"] {
+        assert_eq!(post(id, &friend_token, answer.clone()).await.0, StatusCode::CONFLICT, "{id}");
+    }
+    for bad in [serde_json::json!({ "win_condition": "vibes" }), serde_json::json!({ "fun": 0 }), serde_json::json!({ "fun": 6 })] {
+        assert_eq!(post("won", &friend_token, bad.clone()).await.0, StatusCode::BAD_REQUEST, "{bad}");
+    }
+    assert_eq!(stored("won").await, (Some("combat".into()), vec![None, None, None]), "nothing refused was stored");
+
+    // The game-over screen starts from what the engine read.
+    let (_, game) = request(&app, Method::GET, "/api/play/won", Some(&friend_token), None).await;
+    assert_eq!((&game["win_condition"], &game["fun"]), (&serde_json::json!("combat"), &serde_json::Value::Null));
+
+    // The engine recorded "combat". Another player can't change or clear what's recorded (and
+    // nothing else in that request is saved); agreeing with it is fine, with their own rating.
+    for other in [serde_json::json!({ "win_condition": "combo", "fun": 4 }), serde_json::json!({ "win_condition": null })] {
+        assert_eq!(post("won", &friend_token, other.clone()).await.0, StatusCode::FORBIDDEN, "{other}");
+    }
+    assert_eq!(stored("won").await, (Some("combat".into()), vec![None, None, None]));
+    let (status, saved) = post("won", &friend_token, serde_json::json!({ "win_condition": "combat", "fun": 4 })).await;
+    assert_eq!((status, &saved["win_condition"], &saved["fun"]), (StatusCode::OK, &serde_json::json!("combat"), &serde_json::json!(4)), "{saved}");
+    // The host corrects it, as whoever records a table game writes its finish. A field left out
+    // stays as it is; null clears it. Nobody else's rating moves.
+    assert_eq!(post("won", &host_token, serde_json::json!({ "win_condition": "combo", "fun": 2 })).await.0, StatusCode::OK);
+    assert_eq!(stored("won").await, (Some("combo".into()), vec![Some(2), Some(4), None]));
+    assert_eq!(post("won", &friend_token, serde_json::json!({ "fun": null })).await.0, StatusCode::OK);
+    assert_eq!(post("won", &host_token, serde_json::json!({ "win_condition": null })).await.0, StatusCode::OK);
+    assert_eq!(stored("won").await, (None, vec![Some(2), None, None]));
+    // With nothing recorded, any player may say how it was won; then it's recorded again.
+    assert_eq!(post("won", &friend_token, serde_json::json!({ "win_condition": "poison" })).await.0, StatusCode::OK);
+    assert_eq!(post("won", &friend_token, serde_json::json!({ "win_condition": "mill" })).await.0, StatusCode::FORBIDDEN);
+    assert_eq!(post("won", &host_token, serde_json::json!({ "win_condition": null })).await.0, StatusCode::OK);
+    assert_eq!(stored("won").await, (None, vec![Some(2), None, None]));
+    // A rating that has no seat to land on is refused, not reported as saved.
+    sqlx::query("UPDATE game_seats SET user_id = NULL, guest_name = 'Former player' WHERE game_id = 'drawn' AND seat = 0").execute(&pool).await.unwrap();
+    assert_eq!(post("drawn", &host_token, serde_json::json!({ "fun": 3 })).await.0, StatusCode::CONFLICT);
+    let (_, game) = request(&app, Method::GET, "/api/play/won", Some(&host_token), None).await;
+    assert_eq!((&game["win_condition"], &game["fun"]), (&serde_json::Value::Null, &serde_json::json!(2)));
+
+    // The host writes the game's note; another player may not, and an empty note is no note.
+    assert_eq!(post("won", &friend_token, serde_json::json!({ "note": "Mine" })).await.0, StatusCode::FORBIDDEN);
+    assert_eq!(post("won", &host_token, serde_json::json!({ "note": "x".repeat(1001) })).await.0, StatusCode::BAD_REQUEST);
+    let (status, saved) = post("won", &host_token, serde_json::json!({ "note": "  Ben's first online game  " })).await;
+    assert_eq!((status, &saved["note"], &saved["fun"]), (StatusCode::OK, &serde_json::json!("Ben's first online game"), &serde_json::json!(2)), "{saved}");
+    let (_, game) = request(&app, Method::GET, "/api/play/won", Some(&friend_token), None).await;
+    assert_eq!(game["note"], "Ben's first online game");
+    assert_eq!(post("won", &host_token, serde_json::json!({ "note": "   " })).await.0, StatusCode::OK);
+    assert_eq!(sqlx::query_scalar::<_, Option<String>>("SELECT note FROM games WHERE id = 'won'").fetch_one(&pool).await.unwrap(), None);
+
+    // A draw can be rated, but nobody won it any particular way.
+    assert_eq!(post("drawn", &friend_token, serde_json::json!({ "win_condition": "combat" })).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(post("drawn", &friend_token, serde_json::json!({ "fun": 5 })).await.0, StatusCode::OK);
+    assert_eq!(stored("drawn").await, (None, vec![None, Some(5), None]));
+}
+
+#[tokio::test]
+async fn the_host_chooses_who_goes_first_and_seats_a_precon_for_the_computer() {
+    use crate::testutil::{deck as make_deck, send as request, user};
+    use axum::http::{Method, StatusCode};
+    let mut st = crate::testutil::state().await;
+    st.play = ready_hub(None);
+    let hub = st.play.clone();
+    let pool = st.pool.clone();
+    let app = crate::routes::app(st);
+    let (host, token) = user(&pool, "setup-host@example.com").await;
+    let (deck_id, version) = make_deck(&pool, &host, "Host's deck").await;
+    let cards = vec![
+        crate::decks::DeckCard { oracle_id: "commander".into(), name: "Combat Celebrant".into(), qty: 1, board: crate::decks::Board::Commander },
+        crate::decks::DeckCard { oracle_id: "land".into(), name: "Island".into(), qty: 99, board: crate::decks::Board::Main },
+    ];
+    sqlx::query("UPDATE deck_versions SET cards=? WHERE id=?").bind(serde_json::to_string(&cards).unwrap()).bind(&version).execute(&pool).await.unwrap();
+    // A stock precon the engine's small card fixture can play.
+    let stock = vec![
+        crate::lab::PreconCard { name: "Combat Celebrant".into(), oracle_id: None, qty: 1, board: crate::decks::Board::Commander },
+        crate::lab::PreconCard { name: "Mountain".into(), oracle_id: None, qty: 99, board: crate::decks::Board::Main },
+    ];
+    sqlx::query("INSERT INTO precons (id, lab_id, name, set_code, commanders, color_identity, cards, source, content_sha256, imported_at) VALUES ('test-precon','precons/test-precon','Test Precon','TST','[\"Combat Celebrant\"]','R',?,'fixture','hash','2026-11-11')")
+        .bind(serde_json::to_string(&stock).unwrap()).execute(&pool).await.unwrap();
+
+    let seats = serde_json::json!([
+        { "kind": "me", "deck_id": deck_id },
+        { "kind": "ai", "precon_id": "test-precon", "difficulty": "Easy" },
+        { "kind": "ai", "deck_id": deck_id, "difficulty": "Easy" },
+    ]);
+    // The first player must be a seat, and the precon must exist.
+    let (status, _) = request(&app, Method::POST, "/api/play", Some(&token), Some(serde_json::json!({ "seats": seats, "first": 3 }))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let mut unknown = seats.clone();
+    unknown[1]["precon_id"] = serde_json::json!("no-such-precon");
+    let (status, _) = request(&app, Method::POST, "/api/play", Some(&token), Some(serde_json::json!({ "seats": unknown }))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // Seat 2 (the precon) goes first. No friend to wait for, so the game starts at once.
+    let (status, made) = request(&app, Method::POST, "/api/play", Some(&token), Some(serde_json::json!({ "seats": seats, "first": 1 }))).await;
+    assert_eq!(status, StatusCode::OK, "{made}");
+    let id = made["id"].as_str().unwrap().to_string();
+    let r = load_row(&pool, &id).await.unwrap();
+    assert_eq!(r.stage, "live");
+    // The table is numbered from the first player, in the same order round the table.
+    let now = r.seats();
+    assert_eq!(now.iter().map(|s| s.seat).collect::<Vec<_>>(), vec![0, 1, 2]);
+    assert_eq!((now[0].kind.as_str(), now[0].deck_id.as_deref(), now[0].deck_version_id.as_deref(), now[0].deck_name.as_deref()), ("ai", Some("precon:test-precon"), None, Some("Test Precon")));
+    assert_eq!((now[1].kind.as_str(), now[1].deck_id.as_deref()), ("ai", Some(deck_id.as_str())));
+    assert_eq!((now[2].kind.as_str(), now[2].user_id.as_deref()), ("human", Some(host.as_str())));
+    let (first_seat, replay): (Option<i64>, String) =
+        sqlx::query_as("SELECT g.first_seat, o.replay FROM games g JOIN online_games o ON o.game_id = g.id WHERE g.id = ?").bind(&id).fetch_one(&pool).await.unwrap();
+    let replay: serde_json::Value = serde_json::from_str(&replay).unwrap();
+    assert_eq!((first_seat, replay["header"]["first_player"].as_u64()), (Some(0), Some(0)));
+    // The precon's seat is on the game record without a deck version: it's on no deck's record.
+    let stored: Vec<(i64, Option<String>, Option<String>, Option<String>, Option<String>)> =
+        sqlx::query_as("SELECT seat, user_id, ai_kind, deck_version_id, deck_label FROM game_seats WHERE game_id = ? ORDER BY seat").bind(&id).fetch_all(&pool).await.unwrap();
+    assert_eq!(stored[0], (0, None, Some("phase-ai Easy".into()), None, Some("Test Precon".into())));
+    assert_eq!((stored[2].0, stored[2].1.as_deref(), stored[2].3.as_deref()), (2, Some(host.as_str()), Some(version.as_str())));
+    hub.stop(&id);
+
+    // A rematch starts from the host again, with the precon still in the computer's seat, and
+    // rolls for first.
+    sqlx::query("UPDATE online_games SET stage = 'over' WHERE game_id = ?").bind(&id).execute(&pool).await.unwrap();
+    sqlx::query("UPDATE games SET status = 'finished' WHERE id = ?").bind(&id).execute(&pool).await.unwrap();
+    let (status, again) = request(&app, Method::POST, &format!("/api/play/{id}/rematch"), Some(&token), None).await;
+    assert_eq!(status, StatusCode::OK, "{again}");
+    let lobby = load_row(&pool, again["id"].as_str().unwrap()).await.unwrap();
+    let seats = lobby.seats();
+    assert_eq!((lobby.stage.as_str(), lobby.first_seat), ("lobby", None));
+    assert_eq!(seats[0].user_id.as_deref(), Some(host.as_str()));
+    assert_eq!((seats[1].deck_id.as_deref(), seats[1].deck_version_id.as_deref()), (Some("precon:test-precon"), None));
+    assert_eq!(seats[2].deck_id.as_deref(), Some(deck_id.as_str()));
+    // The lobby's page says the seat is ready and that first is rolled for.
+    let (_, page) = request(&app, Method::GET, &format!("/api/play/{}", lobby.game_id), Some(&token), None).await;
+    assert_eq!((&page["seats"][1]["ready"], page.get("first")), (&serde_json::json!(true), None));
+}
+
+#[tokio::test]
+async fn a_table_without_a_chosen_first_player_records_the_engines_roll() {
+    use crate::testutil::{deck as make_deck, user};
+    let mut st = crate::testutil::state().await;
+    st.play = ready_hub(None);
+    let pool = st.pool.clone();
+    let (host, _) = user(&pool, "roll-host@example.com").await;
+    let (friend, _) = user(&pool, "roll-friend@example.com").await;
+    let cards = vec![
+        crate::decks::DeckCard { oracle_id: "commander".into(), name: "Combat Celebrant".into(), qty: 1, board: crate::decks::Board::Commander },
+        crate::decks::DeckCard { oracle_id: "land".into(), name: "Island".into(), qty: 99, board: crate::decks::Board::Main },
+    ];
+    let mut seats = Vec::new();
+    for (n, account) in [&host, &friend].into_iter().enumerate() {
+        let (deck, version) = make_deck(&pool, account, "Deck").await;
+        sqlx::query("UPDATE deck_versions SET cards=? WHERE id=?").bind(serde_json::to_string(&cards).unwrap()).bind(&version).execute(&pool).await.unwrap();
+        let mut s = seat(n as u8, "Player");
+        s.user_id = Some(account.to_string());
+        s.deck_id = Some(deck);
+        s.deck_version_id = Some(version);
+        seats.push(s);
+    }
+    sqlx::query("INSERT INTO games(id,mode,created_by,status,started_at) VALUES('rolled','online',?,'in_progress','2026-11-11T00:00:00Z')").bind(&host).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO online_games(game_id,code,host_id,stage,seats,created_at,updated_at) VALUES('rolled','ROLLED',?,'lobby',?,'t','t')")
+        .bind(&host).bind(serde_json::to_string(&seats).unwrap()).execute(&pool).await.unwrap();
+    start_game(&st, "rolled", &host).await.unwrap();
+    // Nobody chose: the seats keep their places and the record says who the engine picked.
+    let r = load_row(&pool, "rolled").await.unwrap();
+    assert_eq!(r.seats().iter().map(|s| s.user_id.clone().unwrap()).collect::<Vec<_>>(), vec![host.clone(), friend.clone()]);
+    let replay: String = sqlx::query_scalar("SELECT replay FROM online_games WHERE game_id='rolled'").fetch_one(&pool).await.unwrap();
+    assert!(serde_json::from_str::<serde_json::Value>(&replay).unwrap()["header"]["first_player"].is_null());
+    assert!(matches!(r.first_seat, Some(0 | 1)), "the engine's pick is one of the two seats: {:?}", r.first_seat);
+    st.play.stop("rolled");
 }

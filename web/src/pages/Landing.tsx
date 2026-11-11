@@ -1,8 +1,11 @@
 import type { ReactNode } from "react";
 import { ArtPanel } from "../components/ArtPanel";
+import { SITE_FOOT, SITE_NAV } from "../components/siteFrame";
 import { SiteNotice } from "../components/SiteNotice";
 import { Wordmark } from "../components/Wordmark";
 import { openPage } from "../native";
+// The header and footer every public page has (the server's pages and the static ones link it).
+import "../../public/site-frame-v1.css";
 import "./landing.css";
 
 /** Runtime Scryfall art, with the credit beside the crop. */
@@ -12,18 +15,17 @@ const LANDING_ART = "https://cards.scryfall.io/art_crop/front/d/d/dd4a00ff-2206-
 export function Landing({ children, focused = false }: { children: ReactNode; focused?: boolean }) {
   return (
     <div className={`landing${focused ? " landing-focused" : ""}`}>
-      <a className="landing-skip" href="#landing-content">Skip to content</a>
-      <header className="landing-head">
-        <a className="landing-brand" href="/" aria-label="Yama home"><Wordmark /></a>
-        <nav aria-label="Public pages">
-          <a href="/">Life counter</a>
-          <a href="/precons">Precons</a>
-          <a href="/docs/mcp/">MCP guide</a>
-          <a className="landing-signin-link" href="#sign-in">Sign in</a>
+      <a className="site-frame-skip" href="#content">Skip to content</a>
+      <header className="site-frame-header">
+        <a className="site-frame-wordmark" href="/" aria-label="Yama home"><Wordmark /></a>
+        <nav aria-label="Yama">
+          {SITE_NAV.map(([href, label]) => <a key={href} href={href}>{label}</a>)}
         </nav>
+        {/* Everywhere else this slot opens Yama; here the next step is signing in. */}
+        <a className="site-frame-open" href="#sign-in">Sign in</a>
       </header>
 
-      <main id="landing-content" className="landing-layout">
+      <main id="content" className="landing-layout">
         {!focused && (
           <ArtPanel as="section" className="landing-hero" art={LANDING_ART} artist="Craig Elliott" wash="bottom" credit={false}>
             <p className="landing-kicker">Yet Another Magic App</p>
@@ -89,10 +91,12 @@ export function Landing({ children, focused = false }: { children: ReactNode; fo
         )}
       </main>
 
-      <div className="landing-footer">
-        <nav aria-label="About Yama"><a href="/about/">About Yama</a><a href="/privacy/">Privacy policy</a><a href="/tos/">Terms</a></nav>
+      <footer className="site-frame-footer">
+        <nav aria-label="About Yama">
+          {SITE_FOOT.map(([href, label]) => <a key={href} href={href}>{label}</a>)}
+        </nav>
         <SiteNotice />
-      </div>
+      </footer>
     </div>
   );
 }

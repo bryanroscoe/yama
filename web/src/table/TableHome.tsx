@@ -1,26 +1,27 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FORMATS, formatLabel, type FunRating, type PlayerSetup, type TableFormat, type TableSetup, type WinCondition, fmtDateTime, fmtWeekday, shortDate, fmtDate } from "@yama/core";
+import { FORMATS, formatLabel, GAME_WORDS, type FunRating, type PlayerSetup, type TableFormat, type TableSetup, type WinCondition, fmtDateTime, fmtWeekday, shortDate, fmtDate } from "@yama/core";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { api, type DeckSummary, type DeckVersionRow, type GameDetail, type GameRow, type Playgroup } from "../api";
+import { api, type DeckSummary, type GameDetail, type GameRow, type Playgroup } from "../api";
 import { useMe } from "../auth";
 import { ArtMosaic } from "../components/ArtMosaic";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { ErrorText, Pips, Dialog, Loading, Segmented } from "../components/ui";
-import { FirstPlayerPicker, FunPicker, WinConditionPicker } from "../components/GameCapture";
+import { FirstPlayerPicker, FunPicker, KnockoutPicker, NotePicker, WinConditionPicker, type KnockoutAnswer } from "../components/GameCapture";
 import { useCardArt } from "../components/useCardArt";
-import { localDay, versionOn } from "./versions";
+import { localDay } from "./versions";
+import { discardLogged, queueLogged, sendLogged, signedInUser, useLoggedQueue, worthKeeping, type LoggedGame } from "./loggedQueue";
 import { afterRemoving, applyDraftPatch, applySeatPatch, withDraftIds, emptySeat, fitSeatsToGroup, patchSeat, personPatch, seatDeckLabel, seatHolds, rebuildForGroup, stillHolds, togglePerson, withHandles, withoutGroup, type SeatDraft, type SeatPatch } from "./seats";
 import { discardGame, dropGuestGames, saveGuestGames, startGame, sync, useGuestGames, useWaitingGuestGame, useOutbox, usePendingDeletes, useRejected, useSyncStatus, useTable, DISCARD_GAME } from "./store";
 import { isGuest } from "../guest";
 import { LayoutPicker, LayoutSketch } from "./LayoutPicker";
 import { useLayoutChoice } from "./layouts";
 import { panelArt, useShowArt } from "./art";
-import { recentGameText, winningSeat } from "./recent";
+import { recentGameText, turnsText, winningSeat } from "./recent";
 import { resolveDraft, type CommanderDraft, type Person } from "./pickers";
 import { availablePeople, deckCommanders, SeatEditor, usePeople } from "./SeatEditor";
 import { gameSummary } from "./history";
-import { formFromGame, settleRebuilt } from "./logEdit";
+import { formFromGame, seatResults, settleRebuilt } from "./logEdit";
 import { useInstall } from "../install";
 import { useHosting } from "./share";
 import { SharedTables } from "./SharedTables";
@@ -60,6 +61,10 @@ export function TableHome() {
   const hosting = useHosting();
   const outbox = useOutbox();
   const rejected = useRejected();
+  const logged = useLoggedQueue();
+  // Waiting to go up, and the ones with a reason they haven't (refused, or failing so far).
+  const loggedWaiting = logged.filter((q) => !q.error);
+  const loggedRefused = logged.filter((q) => q.error);
   const syncStatus = useSyncStatus();
   const navigate = useNavigate();
   const showArt = useShowArt();
@@ -73,6 +78,18 @@ export function TableHome() {
   const notes = (
     <>
       {outbox.length > 0 && <ErrorText small error={syncStatus.error} />}
+      {/* Games logged while Yama couldn't be reached: waiting to go up, or refused when they did. */}
+      {!guest && loggedWaiting.length > 0 && (
+        <p className="small dim" role="status">
+          {loggedWaiting.length} logged {loggedWaiting.length === 1 ? "game is" : "games are"} kept on this device and will upload when Yama answers.
+        </p>
+      )}
+      {!guest && loggedRefused.map((q) => (
+        <p key={q.body.id} className="small error">
+          A game you logged {q.refused ? "couldn't be saved to Yama" : "hasn't uploaded yet"} ({q.error}). It's kept on this device{q.refused ? "" : " and will be tried again"}.{" "}
+          <button className="quiet small" onClick={async () => (await ask({ title: "Throw away this logged game?", body: "This device has the only copy of this save of it.", confirm: "Discard it", danger: true })) && discardLogged(q.body.id)}>Discard it</button>
+        </p>
+      ))}
       {!guest && rejected.length > 0 && (
         <p className="small error">
           {rejected.length} finished {rejected.length === 1 ? "game" : "games"} couldn't be saved to Yama ({rejected[rejected.length - 1]!.error}). {rejected.length === 1 ? "It's" : "They're"} kept on this device.
@@ -405,7 +422,7 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
       commander: format === "commander",
     };
   };
-  const startLabel = starting ? "Starting…" : "Start game";
+  const startLabel = starting ? "Starting…" : "Start the game";
   const startSub = `${seats.length} ${seats.length === 1 ? "player" : "players"} at ${life} life`;
   const artists = seats.filter((s) => s.art).map((s) => s.artist);
   const people = usePeople(group, groups.data);
@@ -648,7 +665,7 @@ function RecentGames({ waiting, notes }: { waiting: ReactNode; notes: ReactNode 
                   <span className="rg-weekday">{fmtWeekday(g.started_at)}, </span>
                   {shortDate(g.started_at)}
                 </span>
-                {g.turns ? <span className="rg-turns">{g.turns} turns</span> : g.status === "in_progress" ? <span className="rg-turns rg-live">Still going</span> : null}
+                {g.turns ? <span className="rg-turns">{turnsText(g)}</span> : g.status === "in_progress" ? <span className="rg-turns rg-live">{GAME_WORDS.going}</span> : null}
               </span>
               </Link>
             </li>
@@ -666,7 +683,7 @@ function RecentGames({ waiting, notes }: { waiting: ReactNode; notes: ReactNode 
 }
 
 /** A new game's answers: nobody has said who won, who went first, how, or how fun it was. */
-const UNANSWERED = { turns: "", winner: null, first: null, condition: null, fun: [] as FunRating[] } as const;
+const UNANSWERED = { turns: "", winner: null, first: null, condition: null, fun: [] as FunRating[], outs: [] as KnockoutAnswer[], note: "" } as const;
 
 /**
  * Log a game played without Yama, or (`editing`) change one logged before: the same form, filled
@@ -685,8 +702,13 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
     return editing ? f : { ...f, ...UNANSWERED };
   });
   const [groupId, setGroupId] = useState(form?.groupId ?? "");
-  const format = form?.format ?? "commander";
-  const startingLife = form?.startingLife ?? 40;
+  const [format, setFormat] = useState<TableFormat>(form?.format ?? "commander");
+  const [startingLife, setStartingLife] = useState(form?.startingLife ?? 40);
+  // Choosing a game type sets its usual starting life, as New game does.
+  const chooseFormat = (f: TableFormat) => {
+    setFormat(f);
+    setStartingLife(FORMATS.find((x) => x.key === f)!.life);
+  };
   const cmdr = format === "commander";
   // The day here, not in UTC: after 7 pm in Texas, UTC is already tomorrow.
   const [date, setDate] = useState(() => form?.date ?? localDay());
@@ -696,10 +718,14 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
   const [first, setFirst] = useState<number | null>(form?.first ?? null);
   const [condition, setCondition] = useState<WinCondition | null>(form?.condition ?? null);
   const [fun, setFun] = useState<FunRating[]>(form?.fun ?? []);
+  const [outs, setOuts] = useState<KnockoutAnswer[]>(form?.outs ?? []);
+  const [note, setNote] = useState(form?.note ?? "");
   // One id per form, so pressing Save again after a failed or slow upload can't log it twice.
   const [gameId, setGameId] = useState(() => editing?.id ?? crypto.randomUUID());
   // Games saved from this form with "Save and log another".
   const [savedHere, setSavedHere] = useState(0);
+  // Of those, the ones kept on this device because Yama couldn't be reached.
+  const [queuedHere, setQueuedHere] = useState(0);
   const [seats, setSeats] = useState<SeatDraft[]>(() =>
     form?.seats ?? [
       { ...emptySeat(), name: me.data?.display_name ?? "", userId: me.data?.id },
@@ -747,6 +773,11 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
       const seat = afterRemoving(r.seat, i);
       return seat === null ? [] : [{ ...r, seat }];
     }));
+    // The removed player's knockout goes with them; one they dealt keeps its turn and loses its name.
+    setOuts((all) => all.flatMap((k) => {
+      const seat = afterRemoving(k.seat, i);
+      return seat === null ? [] : [{ ...k, seat, by: afterRemoving(k.by, i) }];
+    }));
   };
   const chooseGroup = (id: string) => {
     setGroupId(id);
@@ -780,15 +811,21 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
       if (winnerSeat === -1) throw new Error("The winner's seat needs a name.");
       // An edit that keeps the day keeps the time it was saved with.
       const at = editing && date === form?.date ? editing.started_at : new Date(`${date}T20:00:00`).toISOString();
-      // The deck version that was current on the day played, not whatever it is now.
-      const versions = await Promise.all(
-        // Anyone else's public deck carries its list as it is now; the server keeps it only on its owner's seat.
-        // Only a Commander game names Commander decks, as at the table.
-        filled.map(async ({ s }) => (!cmdr ? null : s.deckId ? versionOn(await api<DeckVersionRow[]>(`/api/decks/${s.deckId}/versions`), date) : (s.deckVersionId ?? null))),
-      );
-      return api("/api/games", {
-        method: "POST",
-        json: {
+      // Your own decks are credited with the version that was current on the day played, not
+      // whatever it is now: looked up when the game is sent (loggedQueue.ts), so a game logged
+      // offline is credited the same way once it goes up.
+      // Only a Commander game names Commander decks, as at the table.
+      const decks: Record<number, string> = {};
+      filled.forEach(({ s }, n) => {
+        if (cmdr && s.deckId) decks[n] = s.deckId;
+      });
+      // The account logging it, read before the first request: the game is sent, or kept, as theirs.
+      const owner = signedInUser();
+      const logged: LoggedGame = {
+        day: date,
+        loggedAt: new Date().toISOString(),
+        decks,
+        body: {
           id: gameId,
           playgroup_id: groupId || null,
           format,
@@ -799,7 +836,8 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
             member_id: s.memberId ?? null,
             user_id: s.userId ?? null,
             guest_name: s.memberId ? null : s.name.trim(),
-            deck_version_id: versions[n],
+            // Anyone else's public deck carries its list as it is now; the server keeps it only on its owner's seat.
+            deck_version_id: !cmdr || s.deckId ? null : (s.deckVersionId ?? null),
             commander_name: (cmdr && s.commanderName) || null,
             deck_label: (cmdr && seatDeckLabel(s)) || null,
           })),
@@ -809,13 +847,27 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
             ended_at: at,
             first_seat: seatOf(first) !== null && seatOf(first)! >= 0 ? seatOf(first) : null,
             win_condition: winnerSeat === null ? null : condition,
-            seats: fun.map((r) => ({ seat: seatOf(r.seat), fun: r.rating })).filter((r) => r.seat !== null && r.seat >= 0),
+            seats: seatResults(filled.map((f) => f.i), winner === "draw" ? null : winner, fun, outs),
           },
-          note: editing?.note ?? "Logged after the game",
+          note: note.trim() || null,
         },
-      });
+      };
+      try {
+        await sendLogged(logged, owner);
+        // Yama has this save: an older one still waiting on this device must not go up after it.
+        discardLogged(gameId);
+        return "saved" as const;
+      } catch (e) {
+        // Yama can't be reached or is having trouble (no answer, a server error, a rate limit):
+        // the game waits on this device and goes up with the table's own uploads. Anything Yama
+        // actually refused is shown here instead.
+        if (!worthKeeping(e) || !owner) throw e;
+        queueLogged(logged, owner);
+        return "queued" as const;
+      }
     },
-    onSuccess: (_, another) => {
+    onSuccess: (result, another) => {
+      if (result === "queued") setQueuedHere((n) => n + 1);
       void qc.invalidateQueries({ queryKey: ["games"] });
       void qc.invalidateQueries({ queryKey: ["stats"] });
       void qc.invalidateQueries({ queryKey: ["deck-results"] });
@@ -828,6 +880,8 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
       setFirst(UNANSWERED.first);
       setCondition(UNANSWERED.condition);
       setFun(UNANSWERED.fun);
+      setOuts(UNANSWERED.outs);
+      setNote(UNANSWERED.note);
       setSavedHere((n) => n + 1);
     },
   });
@@ -849,11 +903,14 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
           </label>
           <label style={{ flex: "0 1 6rem" }}>
             Turns
-            <input inputMode="numeric" value={turns} onChange={(e) => setTurns(e.target.value.replace(/\D/g, ""))} />
+            <input inputMode="numeric" maxLength={4} value={turns} onChange={(e) => setTurns(e.target.value.replace(/\D/g, ""))} />
           </label>
         </div>
+        <div className="row" style={{ alignItems: "end" }}>
+          <Choice label="Game type" options={FORMATS.map((f) => f.key)} value={format} onChange={chooseFormat} name={(f) => formatLabel(f)} />
+          <Choice label="Starting life" options={startingLife && ![40, 30, 25, 20].includes(startingLife) ? [startingLife, 40, 30, 25, 20] : [40, 30, 25, 20]} value={startingLife} onChange={setStartingLife} />
+        </div>
         <p className="small dim" style={{ margin: 0 }}>
-          {!cmdr && `A ${formatLabel(format)} game at ${startingLife} life, like the game it started from. `}
           List the players clockwise, so turn order counts from whoever went first.
         </p>
         {seats.map((s, i) => (
@@ -893,13 +950,22 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
           <>
             {typeof winner === "number" && <WinConditionPicker value={condition} onChange={setCondition} winner={named.find((n) => n.seat === winner)?.name} />}
             <FirstPlayerPicker key={gameId} seats={named} value={first} onChange={setFirst} />
+            <KnockoutPicker
+              seats={named}
+              winner={typeof winner === "number" ? winner : null}
+              value={outs.filter((k) => named.some((n) => n.seat === k.seat))}
+              onChange={setOuts}
+            />
             <FunPicker seats={named} value={fun.filter((r) => named.some((n) => n.seat === r.seat))} onChange={setFun} />
           </>
         )}
+        <NotePicker value={note} onChange={setNote} />
         <ErrorText error={save.error} />
         {savedHere > 0 && !save.isPending && !save.error && (
           <p className="small dim" role="status">
-            {savedHere === 1 ? "Saved." : `${savedHere} games saved.`} The same players are ready for the next game: pick who won and what changed.
+            {savedHere === 1 ? "Saved." : `${savedHere} games saved.`}
+            {queuedHere > 0 && ` Yama didn't answer, so ${queuedHere === savedHere ? (savedHere === 1 ? "it's" : "they're") : `${queuedHere} of them are`} kept on this device and will upload on ${queuedHere === 1 ? "its" : "their"} own.`}{" "}
+            The same players are ready for the next game: pick who won and what changed.
           </p>
         )}
         <div className="row">

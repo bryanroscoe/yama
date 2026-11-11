@@ -55,7 +55,7 @@ export function WatchHome() {
           <AlphaTag />
         </h1>
         <p className="dim">
-          AI games don't count toward your playgroup's stats.
+          Games the computer plays against itself don't count toward your playgroup's stats.
         </p>
       </div>
       {status.data && !status.data.enabled && <p className="dim">The rules engine isn't running on this server: {status.data.reason}</p>}

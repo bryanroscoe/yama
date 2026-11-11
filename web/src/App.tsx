@@ -162,7 +162,7 @@ function Shell({ pending = false }: { pending?: boolean }) {
       <AppUpdate />
       <SiteLinks />
       {pending ? <StandIn /> : <Outlet />}
-      <div className="site-footer"><a href="/precons">Public precon reference</a><SiteNotice /></div>
+      <footer className="site-footer"><a href="/precons">Public precon reference</a><SiteNotice /></footer>
     </div>
   );
 }

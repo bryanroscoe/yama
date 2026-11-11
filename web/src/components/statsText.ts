@@ -9,6 +9,14 @@ export function recordText(v: { games: number; wins: number; losses: number; dra
   return `${v.wins}-${v.losses}${draws}, ${v.games} ${v.games === 1 ? "game" : "games"}`;
 }
 
+/**
+ * "Against the computer: 4-1, 5 games" for a deck version's solo games online, or nothing when it
+ * never played one. They're named apart: a win over the computer isn't a win at the table.
+ */
+export function computerText(v: { vs_computer?: { games: number; wins: number; losses: number; draws: number } }): string {
+  return v.vs_computer?.games ? `Against the computer: ${recordText(v.vs_computer)}` : "";
+}
+
 export function streakText(s: PlayerStat["streak"]): string {
   if (!s) return "";
   if (s.kind === "win") return s.games === 1 ? "Won the last game" : `Won the last ${s.games}`;

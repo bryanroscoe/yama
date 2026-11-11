@@ -52,6 +52,18 @@ this?" His answers: **both** (Ask Claude inside Yama and outside clients such as
 - Applying re-checks everything (the deck still exists and is the version the change was made
   against, the card resolves, the swap key is current). A stale change fails with the reason and
   stays pending, so nothing is applied on top of a list it wasn't made for.
+- **Staging is idempotent when the caller wants it** (2026-11-11). Every staging tool takes an
+  optional `op_id` (8 to 64 letters, digits, hyphens or underscores; a UUID). A second call with
+  the same `op_id` and the same arguments answers with the change the first one staged, whatever
+  became of it, and stages nothing; the answer comes before any check, so a retry after the
+  change was applied doesn't fail on the new list. An `op_id` reused for a different request
+  (another tool, or other arguments) is refused: answering with the earlier change would tell
+  the caller a change was staged that wasn't, and a yes to it would apply the wrong one. Ids are
+  per account (`assistant_changes.op_id`, unique with the owner; `op_hash` is the request).
+  Without one, a repeat stages again.
+- **One apply or discard at a time per account** (`changes::owner_lock`, 2026-11-11), so a change
+  can't be applied twice at once. Before, one lock covered every account, and a slow apply held
+  up everyone else's.
 
 ## Tools
 
@@ -68,15 +80,21 @@ owner-checked resources. `save_deck` stages a complete new/replacement list, nev
 Private research adds `research`, `save_research` and `review_research`; see
 [its format and review semantics](research-format.md). The latter two store advice and stated
 preferences directly, an explicit exception to staged execution writes. They never alter a deck,
-inventory, planner approval, order or game. Compact reads and deck/build/scenario filters avoid
+inventory, planner approval, order or game. A saved note does move the plans that track its
+builds: they follow the refreshed note. So `save_research` is annotated as able to destroy
+(it replaces the note's earlier revision), and a document that drops a deck or build a plan
+tracks, which would archive that plan and retire its swaps, is refused with the plans named and
+nothing saved unless the call says `stop_plans: true` (2026-11-11). Ask Claude can't pass it, as
+it can't apply a change; the page's own upload is unchanged. Compact reads and deck/build/scenario filters avoid
 returning every list to a client that only needs one decision.
 
 **Deck plans (2026-11-04).** Bryan: "I would expect plans to be part of the MCP." A deck plan is a
 note's deck (its builds, swaps and reasons) and, once one build is chosen, that build tracked as
 the deck's plan: `track_build` stages it, and applying makes a Yama-made plan deck that Buy, Trip,
-prints, marks and the plan tools work on (ARCHITECTURE.md, "Plans from notes"). `overview` lists
-every note deck with its builds and which one it tracks, beside imported plans; `plan_deck` on an
-untracked note deck lists its builds. Saving the note again updates the plan.
+prints, marks and the plan tools work on (ARCHITECTURE.md, "Plans from notes"). `overview` counts the
+notes and lists the newest few with their decks, builds and which one each tracks, beside the
+plans; its `notes` section lists every note deck. `plan_deck` on an untracked note deck lists its
+builds. Saving the note again updates the plan.
 
 Read (no review needed):
 
@@ -126,11 +144,32 @@ change to an imported plan goes in as an idea or a review answer and reaches the
 
 ## Limits
 
-- Tool calls count toward the asker's allowance: Ask Claude's daily question count, plus at most
-  200 tool calls a day for open sign-up accounts (none for admins).
+- Tool calls are counted per account (built 2026-11-11, `mcp::count_call`, `limits.rs`): at most
+  120 a minute for everyone but admins, and at most 200 a day for an account that joined through
+  open sign-up. Invited accounts and admins have no daily count. A refused call is a tool result
+  that says how long to wait, not an HTTP 429, so the assistant reads the reason instead of its
+  client retrying. Reading a resource runs a tool, so it counts too. The counts are in memory, like the other rate limits: a restart starts them
+  again, so they stop a runaway loop and are not a quota. Ask Claude's own daily question count is
+  separate.
 - `start_lab_run`, `more_lab_games` and `run_lab_again` use the lab's own allowance and queue caps.
 - Results are capped (a list is at most 300 lines, a search 60 cards) so one call can't fill the
   context window.
+- **Default answers have a size budget** (2026-11-11). A client rejects an answer above its own
+  limit: `overview` on Bryan's account was 62,304 characters and never arrived. So what a tool
+  says when nothing asks it for more has a budget of 20,000 characters, 8,000 for `overview`,
+  and `mcp/tests_budget.rs` fails if one grows past that on a fixture account larger than Bryan's,
+  with ids and fields as long as real ones. The lists these tools page through are bounded by
+  how they are built, not only on the fixture: a page is a number of rows and each row has a
+  longest length (`overview`'s summary is at most about 15,000 characters whatever the account
+  holds, a section page about 19,000). Tools that return one thing whole (`deck`, `plan_deck`,
+  `research` with `full`) are as large as that thing; the results-and-paging work gives those a
+  cursor too. The rest is reached by asking: `overview` takes `section` (decks, plans, notes),
+  whose rows are decks and their configurations, plans, or note decks; `review_queue` lists 15
+  waiting swaps at a time, for every plan or one; `changes` lists 25 and gives one whole by `id`;
+  `games` 10; `collection_cards` 20. JSON answers are compact, not indented. Lists page with
+  `limit` and an opaque `cursor`, answering `next_cursor` (`mcp/page.rs`); `games` still takes its
+  older `offset`. A cursor counts from the start of its list, so after a proposal is answered or
+  a change applied the list has shifted: start again without one.
 - Everything returned is the person's own data, marked as data: deck names, notes and reasons are
   typed by people and are never instructions.
 
@@ -141,7 +180,7 @@ change to an imported plan goes in as an idea or a review answer and reaches the
    connect with a key.
 2. **Staged writes** (built 2026-10-23; ARCHITECTURE.md has what shipped). `assistant_changes`, the
    write tools, Apply and Discard in the panel and on Decks, Suggested changes, `apply_change` and
-   `discard_change` for keys and OAuth sign-ins. Not built: turning `apply_change` off for keys, the
+   `discard_change` for keys and OAuth sign-ins. Not built: turning `apply_change` off for keys. Built 2026-11-11: the
    daily tool-call cap for open sign-up accounts.
 3. **OAuth** for Claude Code and the claude.ai and phone apps' connectors (built 2026-10-22; below,
    and ARCHITECTURE.md has what shipped).

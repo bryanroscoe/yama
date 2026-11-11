@@ -286,6 +286,18 @@ pub async fn stop(pool: &SqlitePool, owner: &str, key: &str) -> AppResult<Value>
     Ok(json!({"plan_deck_key": key, "status": "archived"}))
 }
 
+/// The plans a save of `doc` would stop, as (plan key, name): each tracks a deck or build the
+/// document no longer has, so `rederive` would archive it and retire its swaps.
+pub async fn would_stop(conn: &mut SqliteConnection, owner: &str, note_id: &str, doc: &Value) -> AppResult<Vec<(String, String)>> {
+    let rows: Vec<(String, String, String, String)> =
+        sqlx::query_as("SELECT key, name, note_deck_key, note_build_id FROM plan_decks WHERE owner_id = ? AND note_id = ? AND status != 'archived' ORDER BY key")
+            .bind(owner)
+            .bind(note_id)
+            .fetch_all(&mut *conn)
+            .await?;
+    Ok(rows.into_iter().filter(|(_, _, deck, build)| find_deck(doc, deck).and_then(|d| find_build(d, build)).is_none()).map(|(key, name, _, _)| (key, name)).collect())
+}
+
 /// After a note is saved: derive every plan tracking one of its builds again. A tracked deck or
 /// build the note no longer has stops being tracked (archived, its swaps retired) rather than
 /// keeping a plan the note doesn't describe. Returns how many plans now follow the note and how

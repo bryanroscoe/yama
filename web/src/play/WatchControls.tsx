@@ -50,7 +50,7 @@ export function WatchControls({ id, status, view, seats, art, pov, onPov, send, 
           </ArtPanel>
         )}
         <p className="watch-end">
-          {status.stopped ?? (winner === null ? `A draw on turn ${view.turn}` : `${name(winner)} wins on turn ${view.turn}`)}
+          {status.stopped ?? (winner === null ? `A draw on turn ${view.turn}` : `${name(winner)} won on turn ${view.turn}`)}
         </p>
         <p className="small dim">{count(status.actions)} moves by the computer.</p>
         <ErrorText error={again.error} />

@@ -1,8 +1,7 @@
 //! Shared decks, profiles and collections, rendered without loading the private application.
 //! Same stylesheet, notice and Content-Security-Policy as the public precon reference.
 use super::*;
-use crate::public_precons::NOTICE;
-use crate::public_page::{WORDMARK, bracket_name, card_item, e, identity as pips, secure, stack_card, when};
+use crate::public_page::{bracket_name, card_item, count, e, identity as pips, secure, stack_card, when};
 use crate::public_precons::html::stylesheet;
 use axum::extract::Query;
 use std::fmt::Write;
@@ -12,10 +11,12 @@ pub(super) fn page(st: &AppState, path: &str, title: &str, description: &str, im
     let url = base.map(|b| format!("<meta property=\"og:url\" content=\"{}{}\">", e(b), e(path))).unwrap_or_default();
     let og_image = image.map(|i| format!("<meta property=\"og:image\" content=\"{}\">", e(i))).unwrap_or_default();
     format!(
-        r##"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#0b0c0e"><meta name="robots" content="noindex"><title>{title} | Yama</title><meta name="description" content="{description}"><meta property="og:title" content="{title}"><meta property="og:description" content="{description}"><meta property="og:type" content="website">{url}{og_image}<link rel="icon" href="/icon.svg"><link rel="preload" href="/precon-fonts/big-shoulders-display-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="{css}"><script defer src="/card-preview-v1.js"></script><script defer src="/share-copy-v1.js"></script></head><body class="public-precons public-shared"><a class="skip" href="#content">Skip to content</a><header class="public-header"><a class="public-wordmark" href="/" aria-label="Yama home">{WORDMARK}</a><nav aria-label="Public pages"><a href="/precons">Precons</a><a class="button" href="/">Open Yama <span aria-hidden="true">↗</span></a></nav></header><main id="content">{body}</main><footer class="public-footer"><div class="footer-top"><span>Shared from Yama, a free Commander app.</span><nav aria-label="About Yama"><a href="/about/">About</a><a href="/privacy/">Privacy</a><a href="/tos/">Terms</a></nav></div>{NOTICE}</footer></body></html>"##,
+        r##"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#0b0c0e"><meta name="robots" content="noindex"><title>{title} | Yama</title><meta name="description" content="{description}"><meta property="og:title" content="{title}"><meta property="og:description" content="{description}"><meta property="og:type" content="website">{url}{og_image}<link rel="icon" href="/icon.svg"><link rel="preload" href="/precon-fonts/big-shoulders-display-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="{css}"><script defer src="/card-preview-v1.js"></script><script defer src="/share-copy-v1.js"></script></head><body class="public-precons public-shared">{header}<main id="content">{body}</main>{footer}</body></html>"##,
         title = e(title),
         description = e(description),
         css = stylesheet().1,
+        header = crate::public_page::site_header(path),
+        footer = crate::public_page::site_footer(path),
     )
 }
 
@@ -347,7 +348,7 @@ pub(super) async fn collection(
     let mut body = format!(
         "<a class=\"back-link\" href=\"/u/{0}\">← @{0}</a><section class=\"share-profile-head\"><p class=\"eyebrow\">Collection</p><h1>@{0}'s cards</h1><p class=\"dim\">{1} copies. Real cards only; proxies aren't listed.</p></section><div class=\"public-actions\"><a class=\"button primary\" href=\"/u/{0}/collection.txt\" download>Download as a list</a><a class=\"button\" href=\"/u/{0}/collection.csv\" download>Download CSV</a></div>",
         e(&h),
-        copies
+        count(copies)
     );
     write!(
         body,
@@ -359,7 +360,8 @@ pub(super) async fn collection(
     if hits.is_empty() {
         body.push_str("<p class=\"dim\">No cards match.</p>");
     } else {
-        body.push_str("<table class=\"share-collection\"><thead><tr><th scope=\"col\">Card</th><th scope=\"col\">Printing</th><th scope=\"col\">Finish</th><th scope=\"col\">Condition</th><th scope=\"col\" class=\"num\">Copies</th></tr></thead><tbody>");
+        // Phones drop the Finish and Condition columns; the finish then shows under the printing.
+        body.push_str("<table class=\"share-collection share-owned\"><thead><tr><th scope=\"col\">Card</th><th scope=\"col\">Printing</th><th scope=\"col\">Finish</th><th scope=\"col\">Condition</th><th scope=\"col\" class=\"num\">Copies</th></tr></thead><tbody>");
         for l in hits {
             let finish = match l.finish.as_str() {
                 "foil" => "Foil",
@@ -369,7 +371,7 @@ pub(super) async fn collection(
             let lang = if l.lang == "en" { String::new() } else { format!(", {}", e(&l.lang)) };
             write!(
                 body,
-                "<tr><td><a class=\"public-card-ref\" data-card-name=\"{0}\" data-card-image=\"{1}\" href=\"{2}\">{0}</a></td><td>{3} {4}<small class=\"dim\"> {5}</small></td><td>{finish}{lang}</td><td>{6}</td><td class=\"num\">{7}</td></tr>",
+                "<tr><td><a class=\"public-card-ref\" data-card-name=\"{0}\" data-card-image=\"{1}\" href=\"{2}\">{0}</a></td><td>{3} {4}<small class=\"dim\"> {5}</small><small class=\"share-finish\">{finish}{lang}</small></td><td>{finish}{lang}</td><td>{6}</td><td class=\"num\">{7}</td></tr>",
                 e(&l.name),
                 e(l.image.as_deref().filter(|u| u.starts_with("https://cards.scryfall.io/")).unwrap_or("")),
                 e(&scryfall(&l.name)),

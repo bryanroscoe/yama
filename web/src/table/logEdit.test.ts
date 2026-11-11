@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DeckSummary, GameDetail, GameSeat } from "../api";
-import { formFromGame, settleRebuilt, splitPair } from "./logEdit";
+import { formFromGame, isLoggedGame, seatResults, settleRebuilt, splitPair } from "./logEdit";
 
 const seat = (n: number, p: Partial<GameSeat>): GameSeat => ({
   seat: n, member_id: null, user_id: null, guest_name: null, deck_version_id: null, deck_label: null, commander_name: null,
@@ -13,6 +13,58 @@ const game = (p: Partial<GameDetail>): GameDetail => ({
 });
 
 const myDeck = { id: "d1", name: "Riders of Rohan", color_identity: "RW", commander_image: "https://cards.scryfall.io/art.jpg", commander_artist: "Someone" } as unknown as DeckSummary;
+
+describe("a logged game's knockouts and note", () => {
+  it("come back into the form on the seats they were about", () => {
+    const f = formFromGame(
+      game({
+        note: "Sam's new deck",
+        seats: [
+          seat(2, { guest_name: "Alex", eliminated_turn: 7, eliminated_by_seat: 0 }),
+          seat(0, { guest_name: "Bryan" }),
+          // Out, and nobody remembers the turn.
+          seat(1, { guest_name: "Sam", eliminated_by_seat: 2 }),
+        ],
+      }),
+    );
+    expect(f.outs).toEqual([{ seat: 1, turn: null, by: 2 }, { seat: 2, turn: 7, by: 0 }]);
+    expect(f.note).toBe("Sam's new deck");
+    // The note every logged game used to get isn't one anybody wrote.
+    expect(formFromGame(game({ note: "Logged after the game" })).note).toBe("");
+    expect(formFromGame(game({ note: null })).outs).toEqual([]);
+  });
+
+  it("are saved against the seats that are kept, renumbered", () => {
+    // Four places in the form; place 1 was left blank, so places 0, 2, 3 become seats 0, 1, 2.
+    const kept = [0, 2, 3];
+    const fun = [{ seat: 0, rating: 4 }, { seat: 1, rating: 2 }];
+    const outs = [{ seat: 2, turn: 6, by: 3 }, { seat: 3, turn: null, by: 1 }, { seat: 0, turn: 9, by: 2 }];
+    // Place 0 won: the knockout ticked for them before isn't saved.
+    expect(seatResults(kept, 0, fun, outs)).toEqual([
+      { seat: 0, fun: 4, eliminated_turn: null, eliminated_by_seat: null },
+      { seat: 1, fun: null, eliminated_turn: 6, eliminated_by_seat: 2 },
+      // Knocked out by the player whose place was dropped: the knockout stays, the name goes.
+      { seat: 2, fun: null, eliminated_turn: null, eliminated_by_seat: null },
+    ]);
+    // A draw has no winner to leave out, and a seat with nothing to say isn't sent.
+    expect(seatResults([0, 1], null, [], [{ seat: 1, turn: 3, by: 0 }])).toEqual([{ seat: 1, fun: null, eliminated_turn: 3, eliminated_by_seat: 0 }]);
+  });
+});
+
+describe("isLoggedGame", () => {
+  const event = { seq: 1, actor_seat: 0, kind: "life", payload: { type: "life", seat: 0, delta: -1 }, created_at: null };
+
+  it("goes by what was recorded, not by whether the game has a note", () => {
+    // Log a game's own: finished, nothing from the table, whatever its note says.
+    expect(isLoggedGame(game({ note: "Logged after the game" }))).toBe(true);
+    expect(isLoggedGame(game({ note: null }))).toBe(true);
+    // A table game with a note was still played at the table.
+    expect(isLoggedGame(game({ note: "Sam left early", events: [event] }))).toBe(false);
+    // A table that hasn't recorded anything yet, and an online game.
+    expect(isLoggedGame(game({ status: "in_progress", note: "Second game of the night" }))).toBe(false);
+    expect(isLoggedGame(game({ mode: "online", note: "Rematch" }))).toBe(false);
+  });
+});
 
 describe("formFromGame", () => {
   it("puts every answer back on the seat it was about", () => {

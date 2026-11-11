@@ -170,7 +170,7 @@ async fn play(engine: &Engine, pool: &SqlitePool, decks: &[SeatDeck], seed: u64,
                 for (i, p) in humans.iter().enumerate() {
                     let _ = view_message(pool, &snap.views[&Some(*p)], Some(*p), &infos, &mut caches[i]).await;
                 }
-                persist(pool, &game_id, &m).await.unwrap();
+                persist(pool, &game_id, &m, false).await.unwrap();
                 t.ai_batch_overhead.add(s.elapsed());
             }
             if let Some(e) = batch.fault {
@@ -229,7 +229,7 @@ async fn play(engine: &Engine, pool: &SqlitePool, decks: &[SeatDeck], seed: u64,
             t.message_before.add(s.elapsed());
         }
         let s = Instant::now();
-        persist(pool, &game_id, &m).await.unwrap();
+        persist(pool, &game_id, &m, false).await.unwrap();
         t.persist.add(s.elapsed());
         moves += 1;
     }

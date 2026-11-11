@@ -118,7 +118,7 @@ export function simDetails(cardData: string | null | undefined): string | null {
 
 /**
  * The engines named in a label ("phase-rs v0.113.0", "forge 2.0.15, phase-rs v0.114.0"), as the
- * prose says them: "phase", "Forge", "phase and Forge". Null when unrecorded.
+ * prose says them: "Phase", "Forge", "Phase and Forge". Null when unrecorded.
  */
 export function engineFamily(engine: string | null | undefined): string | null {
   if (!engine) return null;
@@ -126,12 +126,12 @@ export function engineFamily(engine: string | null | undefined): string | null {
     .split(", ")
     .map((e) => e.trim().split(/[\s-]/)[0]?.toLowerCase() ?? "")
     .filter(Boolean)
-    .map((e) => (e === "forge" ? "Forge" : e));
+    .map((e) => (e === "forge" ? "Forge" : e === "phase" ? "Phase" : e));
   const unique = [...new Set(names)];
   return unique.length ? unique.join(" and ") : null;
 }
 
-/** The engine with its noun: "the phase engine", "the phase and Forge engines", or null. */
+/** The engine with its noun: "the Phase engine", "the Phase and Forge engines", or null. */
 export function engineName(engine: string | null | undefined): string | null {
   const f = engineFamily(engine);
   return f ? `the ${f} ${f.includes(" and ") ? "engines" : "engine"}` : null;
@@ -638,4 +638,28 @@ export function allowanceText(a: Allowance): string {
     `Your account runs ${a.games}-game experiments, ${atOnce}, up to ${a.games_per_day} games a day ` +
     `(${left} left today).`
   );
+}
+
+/** How many decks an engine comparison names before the rest fold away. */
+export const AGREEMENT_SHOWN = 6;
+
+/**
+ * The server's engine-agreement sentence, split for display: its lead (without "The engines
+ * agree/disagree", which the page says in bold) with the first few decks, and the decks left for
+ * the fold. The server writes one entry per deck, "Name: 11% (8 to 15) on phase, 25% (20 to 30)
+ * on Forge", joined with "; ". A deck's name is typed by a person and may hold "; " itself, so
+ * entries are cut where one ends (its Forge figure), never at a bare semicolon. Text in any other
+ * shape stays whole.
+ */
+export function agreementParts(text: string): { shown: string; rest: string[] } {
+  const body = text.replace(/^The engines (agree|disagree)[.:]\s*/, "").replace(/\.$/, "");
+  const parts: string[] = [];
+  let from = 0;
+  for (const end of body.matchAll(/\d+% \(\d+ to \d+\) on Forge(?:; |$)/g)) {
+    const stop = end.index + end[0].replace(/; $/, "").length;
+    parts.push(body.slice(from, stop));
+    from = end.index + end[0].length;
+  }
+  if (from < body.length || parts.length <= AGREEMENT_SHOWN + 1) return { shown: `${body}.`, rest: [] };
+  return { shown: `${parts.slice(0, AGREEMENT_SHOWN).join("; ")}.`, rest: parts.slice(AGREEMENT_SHOWN) };
 }

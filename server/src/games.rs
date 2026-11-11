@@ -90,6 +90,10 @@ pub(crate) struct Finish {
     pub(crate) first_seat: Option<i64>,
     /// How the winner won (crate::stats::WIN_CONDITIONS), if anyone said. Ignored for a draw.
     pub(crate) win_condition: Option<String>,
+    /// Anything the table wrote about the game at the end. Left out or empty, the game keeps the
+    /// note it has.
+    #[serde(default)]
+    pub(crate) note: Option<String>,
     #[serde(default)]
     pub(crate) seats: Vec<SeatResult>,
 }
@@ -113,17 +117,40 @@ fn check_time(t: Option<&str>, what: &str) -> AppResult<()> {
     }
 }
 
+/// The most turns a game can record. Far past any real game; it keeps a typo or a broken client
+/// from storing a number that swamps every average.
+pub(crate) const MAX_TURNS: i64 = 10_000;
+/// The largest life total, either way, a game can record or start at. A loop can make billions.
+pub(crate) const MAX_LIFE: i64 = 1_000_000_000_000;
+/// Seat numbers run from 0; a game has at most 10 seats, numbered by whoever recorded it.
+const MAX_SEAT: i64 = 99;
+/// The longest note a game keeps, in characters (packages/core NOTE_MAX).
+pub(crate) const MAX_NOTE: usize = 1000;
+
+/// A note is free text, shown to everyone who can see the game and exported with it.
+pub(crate) fn check_note(note: Option<&str>) -> AppResult<()> {
+    match note {
+        Some(n) if n.chars().count() > MAX_NOTE => Err(AppError::bad(format!("a note can be up to {MAX_NOTE} characters"))),
+        _ => Ok(()),
+    }
+}
+
 /// Check a finish against the game's seats. Everything here comes from the phone's event log,
 /// so the same finish arrives unchanged on every retry; a bad value is a bug worth a 400.
 fn check_finish(f: &Finish, seats: &[i64]) -> AppResult<()> {
     check_time(f.ended_at.as_deref(), "ended_at")?;
     let is_seat = |s: Option<i64>| s.is_none_or(|s| seats.contains(&s));
+    let turn = |t: Option<i64>| t.is_none_or(|t| (0..=MAX_TURNS).contains(&t));
     if !is_seat(f.winner_seat) {
         return Err(AppError::bad("the winner isn't one of the game's seats"));
     }
     if !is_seat(f.first_seat) {
         return Err(AppError::bad("the first player isn't one of the game's seats"));
     }
+    if !turn(f.turns) {
+        return Err(AppError::bad(format!("turns go from 0 to {MAX_TURNS}")));
+    }
+    check_note(f.note.as_deref())?;
     if let Some(w) = &f.win_condition && !crate::stats::WIN_CONDITIONS.contains(&w.as_str()) {
         return Err(AppError::bad(format!("unknown win condition {w:?}")));
     }
@@ -133,6 +160,15 @@ fn check_finish(f: &Finish, seats: &[i64]) -> AppResult<()> {
         }
         if s.fun.is_some_and(|f| !(1..=5).contains(&f)) {
             return Err(AppError::bad("fun ratings go from 1 to 5"));
+        }
+        if s.final_life.is_some_and(|l| !(-MAX_LIFE..=MAX_LIFE).contains(&l)) {
+            return Err(AppError::bad("a final life total is out of range"));
+        }
+        if !turn(s.eliminated_turn) {
+            return Err(AppError::bad(format!("a knockout's turn goes from 0 to {MAX_TURNS}")));
+        }
+        if !is_seat(s.eliminated_by_seat) {
+            return Err(AppError::bad("a knockout names a seat that isn't in the game"));
         }
     }
     Ok(())
@@ -302,6 +338,13 @@ pub(crate) async fn check_game(pool: &SqlitePool, user: &str, g: &NewGame) -> Ap
     if seat_numbers.iter().enumerate().any(|(i, n)| seat_numbers[..i].contains(n)) {
         return Err(AppError::bad("each seat number can appear once"));
     }
+    if seat_numbers.iter().any(|n| !(0..=MAX_SEAT).contains(n)) {
+        return Err(AppError::bad(format!("seat numbers go from 0 to {MAX_SEAT}")));
+    }
+    if !(1..=MAX_LIFE).contains(&g.starting_life) {
+        return Err(AppError::bad("starting life is out of range"));
+    }
+    check_note(g.note.as_deref())?;
     check_time(g.started_at.as_deref(), "started_at")?;
     if let Some(f) = &g.finish {
         check_finish(f, &seat_numbers)?;
@@ -333,6 +376,9 @@ pub(crate) async fn create_game_in(tx: &mut sqlx::SqliteConnection, user: &str, 
         .fetch_optional(&mut *tx)
         .await?;
     let mut status = found.as_ref().map(|row| row.3.clone()).unwrap_or_else(|| "in_progress".into());
+    // Saving a logged game again stores what the form says now, its result included. Any other
+    // finished game keeps the result it has (`finish_in`).
+    let mut resaved_log = false;
     let existing = match found {
         None => {
             sqlx::query(
@@ -359,6 +405,7 @@ pub(crate) async fn create_game_in(tx: &mut sqlx::SqliteConnection, user: &str, 
             // players as they are now; a table game still going keeps its seats, even before its
             // first event has uploaded.
             if g.finish.is_some() && g.events.is_empty() && !has_events && status == "finished" {
+                resaved_log = true;
                 sqlx::query("UPDATE games SET playgroup_id = ?, format = ?, starting_life = ?, started_at = COALESCE(?, started_at), note = ? WHERE id = ?")
                     .bind(&g.playgroup_id)
                     .bind(&g.format)
@@ -477,7 +524,7 @@ pub(crate) async fn create_game_in(tx: &mut sqlx::SqliteConnection, user: &str, 
         Some(_) => return Err(AppError::Conflict("game id already used".into())),
     };
     if let Some(f) = g.finish {
-        finish_in(&mut *tx, &g.id, f).await?;
+        finish_in(&mut *tx, &g.id, f, resaved_log).await?;
         status = "finished".into();
     }
     // Restored local counters need to know when another window already finished this game.
@@ -619,7 +666,7 @@ async fn finish_as(pool: &SqlitePool, id: &str, user: &str, f: Finish) -> AppRes
     let seats: Vec<i64> = sqlx::query_scalar("SELECT seat FROM game_seats WHERE game_id = ?").bind(id).fetch_all(pool).await?;
     check_finish(&f, &seats)?;
     let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
-    finish_in(&mut tx, id, f).await?;
+    finish_in(&mut tx, id, f, false).await?;
     tx.commit().await?;
     Ok(())
 }
@@ -638,18 +685,50 @@ async fn check_history_write(conn: &mut sqlx::SqliteConnection, id: &str) -> App
     Ok(())
 }
 
-/// Store a checked finish. Setting the same values again is harmless, so a retried finish
-/// changes nothing.
-async fn finish_in(conn: &mut sqlx::SqliteConnection, id: &str, f: Finish) -> AppResult<()> {
+/// Store a checked finish. A game that has already finished keeps its result: the same finish
+/// again (a retry from the phone) changes nothing, and a different one is refused, so a second
+/// device with an old copy of the game can't change who won. `replace` is for a logged game
+/// saved again from Log a game, which stores what the form says now.
+async fn finish_in(conn: &mut sqlx::SqliteConnection, id: &str, f: Finish, replace: bool) -> AppResult<()> {
     check_history_write(&mut *conn, id).await?;
+    let win_condition = if f.winner_seat.is_some() { f.win_condition.clone() } else { None };
+    if !replace {
+        let stored: Option<(String, Option<i64>, Option<i64>, Option<i64>, Option<String>)> =
+            sqlx::query_as("SELECT status, winner_seat, turns, first_seat, win_condition FROM games WHERE id = ?").bind(id).fetch_optional(&mut *conn).await?;
+        if let Some((status, winner, turns, first, how)) = stored
+            && status == "finished"
+        {
+            // The note isn't part of the result: a retry carries the same one (it is in the
+            // finish event the phone replays), and a finished game's note isn't rewritten here.
+            let mut same = (winner, turns, first, &how) == (f.winner_seat, f.turns, f.first_seat, &win_condition);
+            for s in &f.seats {
+                let seat: Option<(Option<i64>, Option<i64>, Option<i64>, Option<i64>)> =
+                    sqlx::query_as("SELECT final_life, eliminated_turn, eliminated_by_seat, fun FROM game_seats WHERE game_id = ? AND seat = ?")
+                        .bind(id)
+                        .bind(s.seat)
+                        .fetch_optional(&mut *conn)
+                        .await?;
+                same &= seat == Some((s.final_life, s.eliminated_turn, s.eliminated_by_seat, s.fun));
+            }
+            if same {
+                return Ok(());
+            }
+            return Err(AppError::Conflict(
+                "This game already finished with a different result. Open Game history to see the saved one.".into(),
+            ));
+        }
+    }
     sqlx::query(
-        "UPDATE games SET status = 'finished', winner_seat = ?, turns = ?, ended_at = ?, first_seat = ?, win_condition = ? WHERE id = ?",
+        // The finish sheet's note, when it wrote one; otherwise the game keeps what it has (a
+        // logged game's note arrives with the game itself).
+        "UPDATE games SET status = 'finished', winner_seat = ?, turns = ?, ended_at = ?, first_seat = ?, win_condition = ?, note = COALESCE(?, note) WHERE id = ?",
     )
     .bind(f.winner_seat)
     .bind(f.turns)
     .bind(f.ended_at.unwrap_or_else(now))
     .bind(f.first_seat)
-    .bind(if f.winner_seat.is_some() { f.win_condition } else { None })
+    .bind(win_condition)
+    .bind(f.note.as_deref().map(str::trim).filter(|n| !n.is_empty()))
     .bind(id)
     .execute(&mut *conn)
     .await?;
@@ -687,6 +766,10 @@ pub(crate) struct GameRow {
     #[sqlx(skip)]
     seats: Vec<Seat>,
 }
+
+/// An online table that hasn't started is a `games` row with no seats: not a game yet, so the
+/// game lists leave it out (Play online shows it as a table waiting for players).
+const NOT_A_LOBBY: &str = "NOT EXISTS (SELECT 1 FROM online_games lobby WHERE lobby.game_id = g.id AND lobby.stage = 'lobby')";
 
 const GAME_COLUMNS: &str =
     "g.id, g.mode, g.playgroup_id, g.format, g.status, g.starting_life, g.started_at, g.ended_at, g.turns, g.winner_seat, g.first_seat, g.win_condition, g.note";
@@ -828,7 +911,7 @@ pub(crate) async fn history_page(pool: &SqlitePool, user_id: &str, p: HistoryPar
              LEFT JOIN playgroup_members m ON m.id=s.member_id WHERE s.game_id=g.id
          ) AS names FROM games g
          WHERE (g.created_by = ? OR g.id IN (SELECT game_id FROM game_seats WHERE user_id = ?))
-           AND ({filter})
+           AND {NOT_A_LOBBY} AND ({filter})
          ORDER BY {order} LIMIT ? OFFSET ?"
     )))
     .bind(user_id)
@@ -869,7 +952,7 @@ async fn list(State(st): State<AppState>, CurrentUser(user): CurrentUser, Query(
                 return Err(AppError::NotFound("playgroup"));
             }
             sqlx::query_as(sqlx::AssertSqlSafe(format!(
-                "SELECT {GAME_COLUMNS} FROM games g WHERE g.playgroup_id = ? ORDER BY g.started_at DESC LIMIT 200"
+                "SELECT {GAME_COLUMNS} FROM games g WHERE g.playgroup_id = ? AND {NOT_A_LOBBY} ORDER BY g.started_at DESC LIMIT 200"
             )))
             .bind(pg)
             .fetch_all(&st.pool)
@@ -879,7 +962,7 @@ async fn list(State(st): State<AppState>, CurrentUser(user): CurrentUser, Query(
         // game_seats_user) and no game repeats.
         None => sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "SELECT {GAME_COLUMNS} FROM games g
-             WHERE g.created_by = ? OR g.id IN (SELECT s.game_id FROM game_seats s WHERE s.user_id = ?)
+             WHERE (g.created_by = ? OR g.id IN (SELECT s.game_id FROM game_seats s WHERE s.user_id = ?)) AND {NOT_A_LOBBY}
              ORDER BY g.started_at DESC LIMIT 200"
         )))
         .bind(&user.id)
@@ -1447,7 +1530,10 @@ mod tests {
         // A mirror match (the computer with the same version) counts once.
         sqlx::query("UPDATE game_seats SET deck_version_id = 'v-a' WHERE game_id = 'og' AND seat = 1").execute(&pool).await.unwrap();
         let games = crate::stats::finished_games(&pool, crate::stats::Scope::Deck("d-a")).await.unwrap();
-        assert_eq!(crate::stats::results_by_version(&games)["v-a"], crate::stats::Record { games: 1, wins: 1, losses: 0, draws: 0 });
+        // It was a game against the computer alone: counted once, and apart from the deck's
+        // record against people.
+        assert_eq!(crate::stats::results_against_computer(&games)["v-a"], crate::stats::Record { games: 1, wins: 1, losses: 0, draws: 0 });
+        assert!(crate::stats::results_by_version(&games).is_empty());
     }
 
     #[tokio::test]
@@ -1795,5 +1881,153 @@ mod tests {
             assert_eq!(status, StatusCode::OK, "{body}");
             assert_eq!(stored(&pool, &id).await, vec![None, Some(alices_version), None, Some(bobs_version)]);
         }
+    }
+
+    #[tokio::test]
+    async fn a_second_finish_cannot_change_a_finished_games_result() {
+        let pool = setup().await;
+        let id = "6f1c2c43-6c1e-4d6c-9f55-1d2b8a7f0c01";
+        // A table game: it has events, so it isn't a logged game that the form may save again.
+        let mut table = new_game(id, None);
+        table.events.push(serde_json::from_value(json!({ "seq": 1, "actor_seat": 0, "kind": "life", "payload": { "type": "life", "seat": 0, "delta": -1 } })).unwrap());
+        create_game(&pool, "me", table).await.unwrap();
+        let first = json!({
+            "winner_seat": 1, "turns": 9, "ended_at": "2026-10-18T03:00:00Z", "first_seat": 2, "win_condition": "combat",
+            "seats": [{ "seat": 0, "final_life": 0, "eliminated_turn": 7, "eliminated_by_seat": 1, "fun": 4 }],
+        });
+        finish_as(&pool, id, "me", finish(first.clone())).await.unwrap();
+        // A second device with an old copy finishes the game its own way: refused, whatever differs.
+        for (field, value) in [
+            ("winner_seat", json!(0)),
+            ("winner_seat", json!(null)),
+            ("turns", json!(4)),
+            ("first_seat", json!(0)),
+            ("win_condition", json!("combo")),
+            ("seats", json!([{ "seat": 0, "final_life": 5, "eliminated_turn": 7, "eliminated_by_seat": 1, "fun": 4 }])),
+        ] {
+            let mut other = first.clone();
+            other[field] = value;
+            assert!(matches!(finish_as(&pool, id, "me", finish(other.clone())).await, Err(AppError::Conflict(_))), "{other}");
+        }
+        // ...and when it uploads the whole game again with its own result.
+        let stale = new_game(id, Some(json!({ "winner_seat": 2, "seats": [] })));
+        assert!(matches!(create_game(&pool, "me", stale).await, Err(AppError::Conflict(_))));
+        // The same finish again is a retry: nothing changes, not even when the game ended.
+        let mut retry = first.clone();
+        retry["ended_at"] = json!("2026-10-19T09:00:00Z");
+        finish_as(&pool, id, "me", finish(retry)).await.unwrap();
+        let saved: (Option<i64>, Option<i64>, Option<i64>, Option<String>, Option<String>) =
+            sqlx::query_as("SELECT winner_seat, turns, first_seat, win_condition, ended_at FROM games WHERE id = ?").bind(id).fetch_one(&pool).await.unwrap();
+        assert_eq!(saved, (Some(1), Some(9), Some(2), Some("combat".into()), Some("2026-10-18T03:00:00Z".into())));
+        let seat: (Option<i64>, Option<i64>) =
+            sqlx::query_as("SELECT final_life, fun FROM game_seats WHERE game_id = ? AND seat = 0").bind(id).fetch_one(&pool).await.unwrap();
+        assert_eq!(seat, (Some(0), Some(4)));
+    }
+
+    #[tokio::test]
+    async fn a_logged_game_saved_again_still_takes_the_forms_result() {
+        // Log a game's edit: the same id with a different winner. Only a logged game may.
+        let pool = setup().await;
+        let id = "6f1c2c43-6c1e-4d6c-9f55-1d2b8a7f0c02";
+        create_game(&pool, "me", new_game(id, Some(json!({ "winner_seat": 0, "turns": 8, "seats": [] })))).await.unwrap();
+        create_game(&pool, "me", new_game(id, Some(json!({ "winner_seat": 2, "turns": 6, "seats": [] })))).await.unwrap();
+        let saved: (Option<i64>, Option<i64>) = sqlx::query_as("SELECT winner_seat, turns FROM games WHERE id = ?").bind(id).fetch_one(&pool).await.unwrap();
+        assert_eq!(saved, (Some(2), Some(6)));
+    }
+
+    #[tokio::test]
+    async fn turns_life_and_seats_out_of_range_are_refused() {
+        let pool = setup().await;
+        let id = "6f1c2c43-6c1e-4d6c-9f55-1d2b8a7f0c03";
+        create_game(&pool, "me", new_game(id, None)).await.unwrap();
+        for bad in [
+            json!({ "winner_seat": 0, "turns": -1 }),
+            json!({ "winner_seat": 0, "turns": MAX_TURNS + 1 }),
+            json!({ "winner_seat": 0, "seats": [{ "seat": 0, "final_life": MAX_LIFE + 1 }] }),
+            json!({ "winner_seat": 0, "seats": [{ "seat": 0, "final_life": -MAX_LIFE - 1 }] }),
+            json!({ "winner_seat": 0, "seats": [{ "seat": 0, "eliminated_turn": -3 }] }),
+            json!({ "winner_seat": 0, "seats": [{ "seat": 0, "eliminated_turn": 1, "eliminated_by_seat": 7 }] }),
+        ] {
+            assert!(matches!(finish_as(&pool, id, "me", finish(bad.clone())).await, Err(AppError::BadRequest(_))), "{bad}");
+        }
+        // The edges are fine: a very long game, and a loop's worth of life.
+        let edge = json!({
+            "winner_seat": 0, "turns": MAX_TURNS,
+            "seats": [{ "seat": 0, "final_life": MAX_LIFE }, { "seat": 1, "final_life": -MAX_LIFE, "eliminated_turn": 0, "eliminated_by_seat": 0 }],
+        });
+        finish_as(&pool, id, "me", finish(edge)).await.unwrap();
+
+        let game = |patch: serde_json::Value| -> NewGame {
+            let mut g = json!({ "id": "6f1c2c43-6c1e-4d6c-9f55-1d2b8a7f0c04", "seats": [{ "seat": 0, "user_id": "me" }, { "seat": 1, "guest_name": "Sam" }] });
+            for (k, v) in patch.as_object().unwrap() {
+                g[k] = v.clone();
+            }
+            serde_json::from_value(g).unwrap()
+        };
+        for bad in [
+            json!({ "starting_life": 0 }),
+            json!({ "starting_life": MAX_LIFE + 1 }),
+            json!({ "seats": [{ "seat": -1, "guest_name": "Sam" }] }),
+            json!({ "seats": [{ "seat": 100, "guest_name": "Sam" }] }),
+        ] {
+            assert!(matches!(create_game(&pool, "me", game(bad.clone())).await, Err(AppError::BadRequest(_))), "{bad}");
+        }
+        create_game(&pool, "me", game(json!({ "starting_life": 20 }))).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn an_online_table_that_hasnt_started_is_not_in_the_game_lists() {
+        use crate::testutil::{app, send, user};
+        use axum::http::Method;
+        let (app, pool) = app().await;
+        let (me, token) = user(&pool, "lobby-lists@example.com").await;
+        sqlx::query("INSERT INTO playgroups (id,name,owner_id,join_code,created_at) VALUES ('pg-lobby','Group',?,'LOBBY1','t')").bind(&me).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO playgroup_members (id,playgroup_id,user_id,created_at) VALUES ('m-lobby','pg-lobby',?,'t')").bind(&me).execute(&pool).await.unwrap();
+        for (id, stage) in [("waiting", "lobby"), ("playing", "live")] {
+            sqlx::query("INSERT INTO games (id,mode,created_by,status,started_at,playgroup_id) VALUES (?,'online',?,'in_progress','2026-11-11T00:00:00Z','pg-lobby')")
+                .bind(id).bind(&me).execute(&pool).await.unwrap();
+            sqlx::query("INSERT INTO online_games (game_id,code,host_id,stage,seats,created_at,updated_at) VALUES (?,?,?,?,'[]','t','t')")
+                .bind(id).bind(id).bind(&me).bind(stage).execute(&pool).await.unwrap();
+        }
+        let ids = |v: &serde_json::Value| v.as_array().unwrap().iter().map(|g| g["id"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+        let (_, recent) = send(&app, Method::GET, "/api/games", Some(&token), None).await;
+        assert_eq!(ids(&recent), ["playing"]);
+        let (_, group) = send(&app, Method::GET, "/api/games?playgroup=pg-lobby", Some(&token), None).await;
+        assert_eq!(ids(&group), ["playing"]);
+        let (_, history) = send(&app, Method::GET, "/api/games/history?filter=unfinished", Some(&token), None).await;
+        assert_eq!(ids(&history["games"]), ["playing"]);
+    }
+
+    #[tokio::test]
+    async fn a_finish_carries_the_tables_note_and_keeps_the_one_it_has_otherwise() {
+        let pool = setup().await;
+        let note = |id: &'static str| {
+            let pool = pool.clone();
+            async move { sqlx::query_scalar::<_, Option<String>>("SELECT note FROM games WHERE id = ?").bind(id).fetch_one(&pool).await.unwrap() }
+        };
+        // The finish sheet's note is stored, trimmed.
+        let table = "6f1c2c43-6c1e-4d6c-9f55-1d2b8a7f0d01";
+        create_game(&pool, "me", new_game(table, None)).await.unwrap();
+        finish_as(&pool, table, "me", finish(json!({ "winner_seat": 0, "note": "  Sam's new deck  ", "seats": [] }))).await.unwrap();
+        assert_eq!(note(table).await.as_deref(), Some("Sam's new deck"));
+        // A logged game's note arrives with the game; a finish without one leaves it alone.
+        let logged = "6f1c2c43-6c1e-4d6c-9f55-1d2b8a7f0d02";
+        let mut g = new_game(logged, Some(json!({ "winner_seat": 0, "seats": [] })));
+        g.note = Some("Played at the shop".into());
+        create_game(&pool, "me", g).await.unwrap();
+        assert_eq!(note(logged).await.as_deref(), Some("Played at the shop"));
+        // Saving it again with the note cleared clears it.
+        create_game(&pool, "me", new_game(logged, Some(json!({ "winner_seat": 0, "seats": [] })))).await.unwrap();
+        assert_eq!(note(logged).await, None);
+        // A note longer than the limit is refused, on a finish and on a game.
+        let long = "x".repeat(MAX_NOTE + 1);
+        let other = "6f1c2c43-6c1e-4d6c-9f55-1d2b8a7f0d03";
+        create_game(&pool, "me", new_game(other, None)).await.unwrap();
+        assert!(matches!(finish_as(&pool, other, "me", finish(json!({ "winner_seat": 0, "note": long, "seats": [] }))).await, Err(AppError::BadRequest(_))));
+        let mut g = new_game("6f1c2c43-6c1e-4d6c-9f55-1d2b8a7f0d04", None);
+        g.note = Some(long);
+        assert!(matches!(create_game(&pool, "me", g).await, Err(AppError::BadRequest(_))));
+        // Exactly the limit is fine, counted in characters.
+        finish_as(&pool, other, "me", finish(json!({ "winner_seat": 0, "note": "é".repeat(MAX_NOTE), "seats": [] }))).await.unwrap();
     }
 }

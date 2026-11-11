@@ -665,10 +665,16 @@ export interface PodSeats {
 }
 
 export interface PlaygroupStats {
+  /** Finished games between people: what every figure is computed from. */
   games: number;
+  /** Finished games against only the computer, left out of every figure. Absent from older servers. */
+  solo_games?: number;
   players: PlayerStat[];
   commanders: { commander: string; games: number; wins: number; expected: number }[];
+  /** Rounds, from games at the table and logged ones. */
   average_turns: Average | null;
+  /** Online games, counting every player's turn. Absent from older servers. */
+  average_online_turns?: Average | null;
   average_minutes: Average | null;
   seats: PodSeats[];
   /** Games with a winner but no recorded first player. */
@@ -793,10 +799,13 @@ export interface DeckResults {
     note: string | null;
     created_at: string;
     current: boolean;
+    /** Games against other people. */
     games: number;
     wins: number;
     losses: number;
     draws: number;
+    /** Solo games against the computer alone, apart from the record. Absent from older servers. */
+    vs_computer?: { games: number; wins: number; losses: number; draws: number };
   }[];
   provisional_under: number;
   computed_at: string;

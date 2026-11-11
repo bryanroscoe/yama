@@ -15,6 +15,70 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-11-log-a-game-more",
+    date: "2026-11-11",
+    title: "Log a game with knockouts, a note and its format",
+    items: [
+      "Log a game now asks the game type and starting life, and who was knocked out: the turn and who did it are each optional.",
+      "Every game can carry a note: write one on the table's finish sheet, in Log a game, or (as the host) on the online game-over screen.",
+      "Log a game works without a connection: the game is kept on the device and uploads on its own once Yama can be reached.",
+    ],
+    link: { to: "/", label: "Open Table" },
+  },
+  {
+    id: "2026-11-11-online-setup",
+    date: "2026-11-11",
+    title: "Choose who goes first online, and play against precons",
+    items: [
+      "A new online game can say who goes first, or roll for it as a table would.",
+      "The computer can play a stock precon in its seat instead of one of your decks.",
+    ],
+    link: { to: "/play", label: "Open Play online" },
+  },
+  {
+    id: "2026-11-11-online-finish-questions",
+    date: "2026-11-11",
+    title: "Say how an online game went",
+    items: [
+      "The online game-over screen asks what the table's finish sheet asks: how the game was won, and how fun it was for you. Both are optional.",
+      "How it was won is filled in already where the rules engine could tell, and you can change it.",
+    ],
+    link: { to: "/play", label: "Open Play online" },
+  },
+  {
+    id: "2026-11-11-cancel-and-delete-online",
+    date: "2026-11-11",
+    title: "Close a table, delete an online game",
+    items: [
+      "The host can close an online table that hasn't started, from its page. A table nobody joined no longer shows as a game in progress or holds a place among your open games.",
+      "The host can delete an online game once it's over, from the game-over screen.",
+      "A finished table game keeps its result: a second device with an old copy can no longer change who won. Deleting a game now says so when nothing was deleted.",
+    ],
+    link: { to: "/play", label: "Open Play online" },
+  },
+  {
+    id: "2026-11-11-honest-game-stats",
+    date: "2026-11-11",
+    title: "Stats that keep unlike games apart",
+    items: [
+      "The computer is no longer listed as a playgroup player, and games against only the computer stay out of players' records.",
+      "A deck's page shows its games against the computer on their own line, apart from its record against people.",
+      "Table games count rounds and online games count every player's turn, so the Playgroup page averages them separately. Commander stats now come from Commander games only.",
+      "Game exports say each game's format and starting life, and whether the computer played a seat.",
+    ],
+    link: { to: "/group", label: "Open Playgroup" },
+  },
+  {
+    id: "2026-11-11-online-results",
+    date: "2026-11-11",
+    title: "Online games count fully in playgroup stats",
+    items: [
+      "An online game now saves who went out when, who knocked them out and how the game was won, wherever the rules engine says. How games were won, first and last out and knockouts read them like games at the table.",
+      "Your rivalries on the Playgroup page count online games too.",
+    ],
+    link: { to: "/group", label: "Open Playgroup" },
+  },
+  {
     id: "2026-11-11-change-your-name",
     date: "2026-11-11",
     title: "Change the name you go by",

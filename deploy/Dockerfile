@@ -76,7 +76,7 @@ COPY docs/research-format.md docs/research-format.md
 COPY docs/local-shopping-workflow.md docs/local-shopping-workflow.md
 # The public Rust renderer embeds these shared web inputs at compile time.
 COPY web/src/styles.css web/src/controls.css web/src/art-framing.css web/src/
-COPY web/public/precons.css web/public/site-notice.html web/public/public-list-v1.js web/public/
+COPY web/public/precons.css web/public/site-frame-v1.css web/public/site-notice.html web/public/public-list-v1.js web/public/
 # The commit this image is built from (the build context has no .git); server/build.rs stamps it.
 ARG YAMA_GIT_SHA=
 ARG YAMA_GIT_DIRTY=

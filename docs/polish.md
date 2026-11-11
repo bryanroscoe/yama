@@ -41,7 +41,7 @@ Signed in, it starts from every static route in `web/src/App.tsx` plus the serve
 
 ## Browser states
 
-A fresh headless profile isn't what most people see: Chrome never offers to install, nothing is waiting to upload, the connection never drops. Each run is **a first visit in Chrome**: the page gets a `beforeinstallprompt`, as Chrome sends it on Yama, so the Install Yama card and buttons show, along with first-visit notices such as What's new. (Bryan found the install card flush against Start game on 9 Nov 2026; no run had ever drawn it.)
+A fresh headless profile isn't what most people see: Chrome never offers to install, nothing is waiting to upload, the connection never drops. Each run is **a first visit in Chrome**: the page gets a `beforeinstallprompt`, as Chrome sends it on Yama, so the Install Yama card and buttons show. (What's new no longer greets a first visit: the notice waits for something newer than the device's first look.) (Bryan found the install card flush against Start game on 9 Nov 2026; no run had ever drawn it.)
 
 `--states LIST` (or `all`) adds a pass per state after the main one: every page again, screens only, nothing pressed, at the sizes listed, shot as `<size>-<state>-page-NN`. `--states help` lists them.
 
