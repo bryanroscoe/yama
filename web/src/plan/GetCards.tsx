@@ -64,6 +64,7 @@ export function GetCards() {
     <>
       <PlansHead title="Get the cards" />
       <p className="dim plans-lede">Everything your approved plans still need, in the order you'd do it.</p>
+      <p><Link to="/decks/plans/get/sourcing">Source cards across all decks</Link> — preview saved builds and optional real replacements together, including plans not yet approved.</p>
       {live.length === 0 ? (
         <div className="plans-empty">
           <p>Nothing to get yet. Approve a plan on <Link to="/decks/plans">Plans</Link> and its buys, prints and moves show up here.</p>

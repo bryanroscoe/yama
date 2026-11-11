@@ -49,6 +49,8 @@ export interface Scenario {
   sealed_purchases?: Item[];
 }
 export interface ResearchDocument {
+  /** Optional private portfolio sourcing extension; validate before rendering. */
+  local_sources?: unknown;
   schema: "yama-research/1"; id: string; title: string; generated_at: string; summary?: string;
   method?: string[]; scenarios?: Scenario[]; decks: ResearchDeck[];
   default_scenario_id?: string; planned_purchases?: Item[];

@@ -14,6 +14,10 @@ calling those copies spare; being outside a deck box does not mean unreserved.
 Read `shopping_settings` before applying a buy rule or store preference.
 Read `yama://shopping/workflow` for the complete local-buying handoff. Match the
 latest exact deck/build and research revision before reusing a shopping report.
+For all decks at once, link `/decks/plans/get/sourcing`: it reads the private
+`local_sources` snapshot returned by `research(id, full=true)`. Keep stable per-copy
+use IDs and recipients, count each deck's bracket union once, and never add
+overlapping reports. Known-stock bulk selection leaves unknown quantities out.
 Archived research and live trip snapshots are separate; disclose differing dates.
 Refreshing a tracked build can rederive recognized offers and lists, but does not
 fetch fresh store stock. State which evidence was updated.

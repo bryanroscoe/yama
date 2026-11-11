@@ -1,0 +1,8 @@
+.source-notice,.source-cart,.source-card{border:1px solid var(--line,#444);border-radius:var(--radius,10px);padding:1rem;margin:1rem 0}
+.source-filters,.source-decks,.source-links{display:flex;flex-wrap:wrap;gap:1rem;margin:1rem 0}
+.source-decks label{display:flex;gap:.5rem;align-items:center;flex:1 1 240px}
+.source-filters label,.source-card>label{display:flex;flex-direction:column;gap:.4rem;max-width:100%}
+.source-filters input,.source-filters select,.source-card select{max-width:100%;min-width:0}
+.source-card h3{margin-top:0}.source-card input[type=number]{max-width:8rem}
+.source-card a,.source-cart a{overflow-wrap:anywhere}
+@media(max-width:600px){.source-filters>label{width:100%}.source-card select{width:100%}}

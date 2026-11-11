@@ -659,7 +659,7 @@ async fn store_stock_reads_snapshots_and_check_stores_only_stages() {
 
     let file = json!({
         "format": "yama-store-snapshot/1", "store": "pats", "fetched_at": "2026-11-01T16:24:00Z", "cards": ["Sol Ring", "Mana Vault"],
-        "listings": [{"card": "Sol Ring", "title": "Sol Ring [C21 - 263]", "condition": "Near Mint", "finish": "nonfoil", "price": 1.0, "available": true, "qty": 2}],
+        "listings": [{"card": "Sol Ring", "title": "Sol Ring [C21 - 263]", "condition": "Near Mint", "finish": "nonfoil", "price": 1.0, "available": true, "qty": 2, "url": "https://patsgames.com/products/sol-ring", "variant": "123456"}],
     });
     let (s, v) = send(&app, Method::POST, "/api/plan/stock/import", Some(&a_session), Some(file)).await;
     assert!(s.is_success(), "{v}");
@@ -667,6 +667,8 @@ async fn store_stock_reads_snapshots_and_check_stores_only_stages() {
     assert!(!err, "{text}");
     assert!(text.contains("- Sol Ring: $1.00, Sol Ring [C21 - 263] (Near Mint, non-foil, 2 in stock)"), "{text}");
     assert!(text.contains("- Mana Vault: Not found in stock"), "{text}");
+    assert!(text.contains("Listing: https://patsgames.com/products/sol-ring"), "{text}");
+    assert!(text.contains("Cart variant: 123456"), "{text}");
     // A listing that didn't say whether it's available is said to be unknown, with its price.
     let quiet = json!({
         "format": "yama-store-snapshot/1", "store": "pats", "fetched_at": "2026-11-01T17:00:00Z", "cards": ["Sol Ring"],

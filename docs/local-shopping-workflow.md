@@ -1,5 +1,31 @@
 # Buy cards locally from a deck configuration
 
+## Source every deck together
+
+Open **Decks → Plans → Get the cards → Source cards across all decks**
+(`/decks/plans/get/sourcing`). Choose a saved sourcing report, then all decks or
+a subset and either one bracket or the union of alternatives. The page groups
+names while retaining one wish per physical copy and recipient; the same deck's
+B2/B3/B4 alternatives are not three copies. Filter unresolved sources separately
+from optional real replacements for proxies and reserved prints.
+
+For MCP clients, `research(id, full=true)` reads the same private `local_sources`
+evidence used by this page. Preserve each use's stable id and recipient; do not
+sum overlapping research reports or alternative scenarios. The report's lists,
+copy allocations and quote dates remain a snapshot, not a live ownership claim.
+
+The page can select all known-stock copies into combined store carts, respecting
+listed quantities and each selected recipient's demand. Unknown quantities remain
+unselected until the person confirms them and enters a quantity. It can split one
+card's copies across stores. Shopify cart links combine variant quantities;
+TCGplayer Pro listings are added on the store pages. This preview does not activate
+plans or change inventory, orders, review answers or the active trip.
+
+Refreshing live store snapshots does not regenerate this saved preview. When asked
+to refresh a portfolio source report, verify its current targets and allocations,
+refresh explicit card names through the staged store check, then save the updated
+research evidence and read it back. Keep failed checks unknown and label stale lists.
+
 ## Start with the right list
 
 Read `overview`, then `plan_deck` for the plan key and `research` for the exact

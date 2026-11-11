@@ -184,7 +184,9 @@ Use deck_analysis to ground advice in their current list, ownership and dated pr
 each proposed card with card. Never silently send a deck list to an outside provider: find_combos \
 requires share_list=true and the person's request. Popularity and descriptive mana counts are not \
 proof of performance. Use save_deck to stage a complete newly constructed or imported list. \
-For local buying, read yama://shopping/workflow. Verify the exact current build/research revision, \
+For local buying, read yama://shopping/workflow. The private all-deck sourcing preview at \
+/decks/plans/get/sourcing reads research(id, full=true) local_sources; group stable per-copy use IDs \
+across recipients, never sum bracket alternatives or overlapping reports. Verify the exact current build/research revision, \
 owned copies and print orders, then shopping_settings, shopping_list, shopping_trip and store_stock. \
 Research-only or archived evidence is not automatically active trip stock; report differing dates. \
 Preview unapproved builds without approving them. Give direct listing/search and cart links for every \

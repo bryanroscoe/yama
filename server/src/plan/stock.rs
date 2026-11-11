@@ -1759,6 +1759,14 @@ pub async fn stock_text(pool: &SqlitePool, owner: &str, store: &str, store_name:
             } else {
                 let _ = writeln!(out, "- {c}: {} [{}]", q["result"].as_str().unwrap_or("not in stock"), q["checked"].as_str().unwrap_or_default());
             }
+            // Explicit-card checks also serve unapproved build previews, outside trip demand.
+            // Preserve the exact listing identity so clients need not invent links or variants.
+            if let Some(link) = q["url"].as_str().filter(|u| url::Url::parse(u).is_ok_and(|u| u.scheme() == "https")) {
+                let _ = writeln!(out, "  Listing: {link}");
+            }
+            if let Some(variant) = q["variant"].as_str() {
+                let _ = writeln!(out, "  Cart variant: {variant}");
+            }
         }
     }
     Ok(out)
