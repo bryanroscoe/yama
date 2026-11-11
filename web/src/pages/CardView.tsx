@@ -13,6 +13,7 @@ import { isGuest } from "../guest";
 import { PriceHistory } from "../components/PriceHistory";
 import { Rulings } from "../components/Rulings";
 import { CardImage, ErrorText, ManaCost, Pips, Loading } from "../components/ui";
+import { CardInDecks } from "./CardInDecks";
 import { opIds, ownedFinishes } from "./collectionEdit";
 import "./cards.css";
 import { priceSource, shortDate, usd } from "@yama/core";
@@ -257,6 +258,8 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
             )}
             {added && <p className="small" role="status" style={{ margin: 0 }}>{added}</p>}
             <ErrorText error={add.error} />
+
+            {!guest && <CardInDecks oracleId={oracleId} />}
 
             {detail.data?.rulings !== undefined && <Rulings rulings={detail.data.rulings} />}
 
