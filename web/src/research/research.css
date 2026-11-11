@@ -36,7 +36,6 @@
 .research-sealed { margin:1rem 0; border:1px solid var(--line); padding:1rem; border-radius:.65rem; }
 @media(max-width:700px) { .research-gameplay,.research-full-list { grid-template-columns:1fr; } .research-full-list > div:last-child > ul { columns:1; } }
 @media print { .card-ref { text-decoration:none; } .card-ref-preview { display:none !important; } }
-.research-review-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .research-sources a, .research-item a { overflow-wrap: anywhere; }
 .research-item p { overflow-wrap: anywhere; }
 .research-review.is-compact { margin-top: 8px; }

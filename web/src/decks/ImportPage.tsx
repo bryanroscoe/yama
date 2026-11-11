@@ -6,7 +6,7 @@ import { Navigate, useLocation, useNavigate, useSearchParams } from "react-route
 import { api, type DeckSummary, type DeckView, type PreconList, type PublicDeck } from "../api";
 import { AreaHead } from "../components/DeckTabs";
 import { hasDeckNamed } from "../components/calendar";
-import { Button, CardImage, ErrorText, Loading, Pips, Segmented } from "../components/ui";
+import { ActionBar, Button, CardImage, ErrorText, Loading, Pips, Segmented } from "../components/ui";
 import {
   checks,
   commanderChoices,
@@ -124,7 +124,7 @@ function ImportEditor() {
             />
             <span className="import-drop-hint small dim wide-only">Or drop a file here.</span>
           </label>
-          <div className="import-actions">
+          <ActionBar>
             <Button onClick={() => void list.pasteFromClipboard()}>Paste</Button>
             <Button onClick={() => fileInput.current?.click()}>Choose a file</Button>
             <input
@@ -143,7 +143,7 @@ function ImportEditor() {
                 Clear
               </Button>
             )}
-          </div>
+          </ActionBar>
           {notice && (
             <p className="small import-warn" role="status">
               {notice}

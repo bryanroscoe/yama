@@ -434,6 +434,22 @@ label > span.hint {
   display: grid;
   gap: var(--gap);
 }
+/* ActionBar: a row of actions, 8 px apart, wrapping on a narrow screen. */
+.action-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-1);
+}
+.action-bar.is-end {
+  justify-content: flex-end;
+}
+.action-bar.is-between {
+  justify-content: space-between;
+}
+.action-bar.is-center {
+  justify-content: center;
+}
 .error {
   color: var(--bad);
 }

@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createContext, useContext, useState } from "react";
 import { useMe } from "../auth";
 import { CardRef, CardText } from "../components/CardRef";
-import { Button, ErrorText } from "../components/ui";
+import { ActionBar, Button, ErrorText } from "../components/ui";
 import { changedAnswer, safeUrl, saveReview, type Combo, type Item, type ResearchBundle, type ReviewOp, type Scenario, type Source } from "./api";
 import { planSummariesKey } from "./view";
 import { usd, fmtDate } from "@yama/core";
@@ -167,7 +167,7 @@ export function ReviewEditor({ bundle, target, buildId, compact = false }: { bun
   return (
     <div className={`research-review${compact ? " is-compact" : ""}`}>
       {stale && <p className="small warn">The note changed since your answer. Your previous answer is kept; answer again.</p>}
-      <div className="research-review-actions">
+      <ActionBar className="research-review-actions">
         {buildId ? (
           <Button
             className={answer?.decision === buildId && !stale ? "primary" : "outline"}
@@ -197,7 +197,7 @@ export function ReviewEditor({ bundle, target, buildId, compact = false }: { bun
         <span className="small dim" role="status">
           {status}
         </span>
-      </div>
+      </ActionBar>
       <details className="research-note-fold" open={!compact || !!answer?.note}>
         <summary className="small">{answer?.note ? "Your note for your assistant" : "Add a note for your assistant"}</summary>
         <label className="research-note">

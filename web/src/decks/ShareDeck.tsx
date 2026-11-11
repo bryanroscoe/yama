@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { api, shareUrl, type DeckView, type Sharing, type Visibility } from "../api";
 import { useMe } from "../auth";
-import { Button, ButtonLink, Dialog, ErrorText, Segmented } from "../components/ui";
+import { ActionBar, Button, ButtonLink, Dialog, ErrorText, Segmented } from "../components/ui";
 import { configurationLabel } from "./buildCatalog";
 import "./share.css";
 
@@ -33,10 +33,10 @@ export function ResetConfirm({ pending, onConfirm, onKeep }: { pending: boolean;
   return (
     <div className="share-reset" role="alert">
       <span>The old link will stop working.</span>
-      <span className="share-link-actions">
+      <ActionBar as="span">
         <Button disabled={pending} onClick={onConfirm}>{pending ? "Making it…" : "Make a new link"}</Button>
         <Button variant="quiet" onClick={onKeep}>Keep this one</Button>
-      </span>
+      </ActionBar>
     </div>
   );
 }
@@ -105,12 +105,12 @@ export function ShareDeck({ deck, onClose }: { deck: DeckView; onClose: () => vo
               Link
               <input readOnly value={link} onFocus={(e) => e.currentTarget.select()} />
             </label>
-            <div className="share-link-actions">
+            <ActionBar>
               <Button variant="primary" onClick={() => void copy(link)}>Copy link</Button>
               <ButtonLink href={link} target="_blank" rel="noreferrer">Open it</ButtonLink>
               <Button variant="quiet" aria-expanded={askReset} onClick={() => setAskReset(true)}>Make a new link</Button>
               {copied && <span className="small" role="status">{copied}</span>}
-            </div>
+            </ActionBar>
             {askReset && <ResetConfirm pending={reset.isPending} onConfirm={() => reset.mutate()} onKeep={() => setAskReset(false)} />}
           </div>
         )}

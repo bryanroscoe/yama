@@ -318,11 +318,6 @@
 .deck-swap-head h2 {
   margin: 0;
 }
-.deck-swap-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
 .deck-swap-pairs {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));

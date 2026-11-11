@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, type Container, type DeckSummary, type DeckView } from "../api";
 import { SearchPicker } from "../components/SearchPicker";
-import { Button, Dialog, ErrorText, Segmented } from "../components/ui";
+import { ActionBar, Button, Dialog, ErrorText, Segmented } from "../components/ui";
 import { UnsavedPrompt, useUnsavedChanges } from "../unsaved";
 import { folderMoveProblem, foldersOf, isFollowedFolder } from "./deckIndex";
 import "./deck-settings.css";
@@ -183,10 +183,10 @@ export function DeckSettings({ deck, onClose: closeSheet }: { deck: DeckView; on
           </label>
         )}
         <ErrorText error={save.error} />
-        <div className="deck-settings-actions">
+        <ActionBar>
           <Button type="submit" variant="primary" disabled={save.isPending || !name.trim() || !!folderProblem}>{save.isPending ? "Saving…" : "Save"}</Button>
           <Button variant="quiet" onClick={onClose}>Cancel</Button>
-        </div>
+        </ActionBar>
       </form>
       <UnsavedPrompt guard={guard} what="your changes to this deck" />
     </Dialog>

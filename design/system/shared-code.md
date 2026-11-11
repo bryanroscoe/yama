@@ -248,3 +248,27 @@ The one way to show a state: a small pill of status text on its own tint
 - Don't write `className="tag"` or `className="pill"`; the old raised `.pill` look is gone.
 - Not this: a count on a tab or a card (`deck-tab-badge`, `qty-badge`), a toggle chip in a
   filter row, and the online board's own tags.
+
+### ActionBar (`components/ActionBar.tsx`)
+
+A row of actions (`components/ActionBar/README.md`): the primary, at most three secondaries,
+then `MoreMenu` for the rest. Buttons sit 8 px apart, wrap on a narrow screen and line up on
+their middles.
+
+```tsx
+<ActionBar>
+  <Button variant="primary" onClick={edit}>Edit list</Button>
+  <Button onClick={share}>Share</Button>
+  <MoreMenu>…</MoreMenu>
+</ActionBar>
+<ActionBar align="end">…</ActionBar>      // "end", "between" or "center"
+<ActionBar as="span">…</ActionBar>        // inside a line
+```
+
+- It has no role: the buttons read as they are. Give it `role="group"` and an `aria-label`
+  when the row needs a name of its own.
+- The bar sits at least 16 px below what is above it; the page's own gap does that, not a
+  margin on the bar.
+- Don't add a `something-actions` class for a row that only lines buttons up.
+  `conventions.test.ts` lists the rows that still have one because they do more (a grid on
+  phones, their own gap or button sizes). A dialog's answers stay in `.dialog-actions`.
