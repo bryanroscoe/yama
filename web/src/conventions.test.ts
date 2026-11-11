@@ -115,8 +115,8 @@ describe("dialogs use the shared modal layer", () => {
 describe("errors and copying use the shared components", () => {
   it("no page writes its own error paragraph for something thrown", () => {
     // Use <ErrorText error={…} /> from components/ui (with retry={…} where asking again can work).
-    // A sentence the page writes itself about its own state can stay a paragraph.
-    const found = uses(/<(p|span)\b[^>]*className="(?:[^"]* )?error(?: [^"]*)?"[^>]*>\{[\w.?!]+\}<\/(p|span)>/, (file) => file === "web/src/components/ui.tsx" || BOARD_FILES.test(file));
+    // A sentence the page writes itself about its own state can stay a paragraph (a name ending in Note).
+    const found = uses(/<(p|span)\b[^>]*className="(?:[^"]* )?error(?: [^"]*)?"[^>]*>\{[\w.?!]+\}<\/(p|span)>/, (file, line) => file === "web/src/components/ui.tsx" || BOARD_FILES.test(file) || /Note\}<\//.test(line));
     expect(found).toEqual([]);
   });
 

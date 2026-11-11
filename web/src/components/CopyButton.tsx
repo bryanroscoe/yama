@@ -10,9 +10,18 @@ export function CopyButton({ text, label, className, disabled = false }: { text:
   const [state, setState] = useState<"idle" | "copied" | "manual">("idle");
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
+  // Different text (another export format) hasn't been copied: the button says so again.
+  const latest = useRef(text);
+  latest.current = text;
+  useEffect(() => {
+    clearTimeout(timer.current);
+    setState("idle");
+  }, [text]);
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(text);
+      // The text changed while the browser was copying: what was copied isn't what is shown.
+      if (latest.current !== text) return;
       setState("copied");
       clearTimeout(timer.current);
       timer.current = setTimeout(() => setState("idle"), 2000);

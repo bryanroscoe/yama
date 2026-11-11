@@ -44,6 +44,15 @@ describe("CopyButton", () => {
     expect(host.querySelector('[role="status"]')!.textContent).toBe("");
   });
 
+  it("stops saying Copied when the text changes", async () => {
+    clipboard(() => Promise.resolve());
+    act(() => root.render(<CopyButton text="1 Sol Ring" label="Copy" />));
+    await press();
+    expect(button().textContent).toBe("Copied");
+    act(() => root.render(<CopyButton text="Sol Ring" label="Copy" />));
+    expect(button().textContent).toBe("Copy");
+  });
+
   it("shows the text to copy by hand when the browser refuses", async () => {
     clipboard(() => Promise.reject(new Error("denied")));
     act(() => root.render(<CopyButton text="1 Sol Ring" label="Copy the list" />));

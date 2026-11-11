@@ -111,7 +111,8 @@ export function SellSheet({ items, from, inDeckBox, onClose }: { items: SellItem
             </span>
           )}
         </p>
-        <ErrorText error={limitNote} />
+        {/* A sentence about the list as it stands, which changes as rows are ticked: not an alert. */}
+        {limitNote && <p className="error">{limitNote}</p>}
         <div className="row">
           {info.paste ? (
             <>
