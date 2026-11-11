@@ -12,9 +12,9 @@ function render(value:ResearchBundle){const client=new QueryClient();client.setQ
 describe("all-deck sourcing page",()=>{
   it("shows the saved portfolio, direct offers, all-store searches and honest snapshot limits",()=>{
     const html=render(bundle);
-    expect(html).toContain("1 card names / 1 copy wishes");
+    expect(html).toContain("1 card name / 1 copy wish");
     expect(html).toContain("Deck A");expect(html).toContain("Quantity unknown");
-    expect(html).toContain("2026-11-10");expect(html).toContain("Select all known-stock copies");
+    expect(html).toContain("Nov 10, 2026");expect(html).toContain("Select all known-stock copies");
     expect(html).toContain('href="https://mothershipatx.com/products/ring"');expect(html).toContain('blackcastlegamez.tcgplayerpro.com/search/products?');expect(html).toContain("/decks/plans/get/trip");expect(html).toContain("does not regenerate");expect(html).not.toContain('>Apply</button>');
   });
   it("keeps unsupported or malformed research from crashing or becoming a zero-cost cart",()=>{
