@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { LoadFailed, queryFailure, RefreshFailed } from "./QueryError";
+import { ApiError } from "../api";
+import { gone, LoadFailed, queryFailure, RefreshFailed } from "./QueryError";
 
 const refetch = () => undefined;
 const failed = new Error("Server unavailable");
@@ -15,6 +16,22 @@ describe("a query that failed", () => {
     // An empty answer is still an answer.
     expect(queryFailure({ error: failed, data: null })).toBe("notice");
     expect(queryFailure({ error: failed, data: [] })).toBe("notice");
+  });
+
+  it("is the page's error when the thing is gone or isn't this account's, whatever was loaded", () => {
+    // A deck deleted elsewhere (404) mustn't stay on screen as if it were only out of date.
+    for (const status of [403, 404, 410]) {
+      expect(gone(new ApiError(status, "Not found"))).toBe(true);
+      expect(queryFailure({ error: new ApiError(status, "Not found"), data: { id: "d1" } })).toBe("page");
+    }
+    // No answer, or the server's own trouble: the page stays.
+    for (const error of [new ApiError(500, "Server error"), new ApiError(503, "Server unavailable"), new TypeError("Failed to fetch")]) {
+      expect(gone(error)).toBe(false);
+      expect(queryFailure({ error, data: { id: "d1" } })).toBe("notice");
+    }
+    const html = renderToStaticMarkup(<LoadFailed query={{ error: new ApiError(404, "No such deck"), data: { id: "d1" }, refetch }} />);
+    expect(html).toContain("No such deck");
+    expect(renderToStaticMarkup(<RefreshFailed query={{ error: new ApiError(404, "No such deck"), data: { id: "d1" }, refetch }} />)).toBe("");
   });
 
   it("shows the error with Try again when there is nothing else to show", () => {
@@ -34,6 +51,11 @@ describe("a query that failed", () => {
   });
 
   it("says when it is trying again", () => {
-    expect(renderToStaticMarkup(<RefreshFailed query={{ error: failed, data: {}, isFetching: true, refetch }} />)).toContain("Trying…");
+    const html = renderToStaticMarkup(<RefreshFailed query={{ error: failed, data: {}, isFetching: true, refetch }} />);
+    expect(html).toContain("Trying…");
+    // Still focusable while it works, and read out when it appears.
+    expect(html).toContain('aria-disabled="true"');
+    expect(html).not.toContain("disabled=\"\"");
+    expect(html).toContain('role="alert"');
   });
 });

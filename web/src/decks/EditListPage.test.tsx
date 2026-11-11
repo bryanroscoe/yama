@@ -2,14 +2,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { describe, expect, it } from "vitest";
-import type { DeckView } from "../api";
+import { ApiError, type DeckView } from "../api";
 import { buildNotesKey } from "../research/api";
 import { EditListPage } from "./EditListPage";
 
 const entry = (name: string, board: "commander" | "main") => ({ oracle_id: name, name, qty: 1, board, card: null }) as unknown as DeckView["cards"][number];
 
 /** `failed`: the deck's last request failed, with the deck already loaded ("refresh") or not ("load"). */
-function page(failed?: "refresh" | "load") {
+function page(failed?: "refresh" | "load" | "gone") {
   const deck = {
     id: "d1", name: "Alpha Deck", version_id: "v1", parent_id: null, configuration: null,
     configurations: [{ id: "d1", name: "Alpha Deck", configuration: null }],
@@ -20,7 +20,7 @@ function page(failed?: "refresh" | "load") {
   client.setQueryData(["decks"], []);
   client.setQueryData(buildNotesKey("u1"), []);
   if (failed !== "load") client.setQueryData(["deck", "d1"], deck);
-  if (failed) client.getQueryCache().build(client, { queryKey: ["deck", "d1"] }).setState({ status: "error", fetchStatus: "idle", error: new Error("Server unavailable") });
+  if (failed) client.getQueryCache().build(client, { queryKey: ["deck", "d1"] }).setState({ status: "error", fetchStatus: "idle", error: failed === "gone" ? new ApiError(404, "No such deck") : new Error("Server unavailable") });
   // The editor asks before leaving with edits (unsaved.tsx), which needs a data router.
   const router = createMemoryRouter([{ path: "/decks/:id/edit", element: <EditListPage /> }], { initialEntries: ["/decks/d1/edit"] });
   const html = renderToStaticMarkup(
@@ -53,5 +53,12 @@ describe("Edit the list", () => {
     expect(html).not.toContain("Edit the list");
     expect(html).toContain("Server unavailable");
     expect(html).toContain(">Try again</button>");
+  });
+
+  it("doesn't keep a deck that was deleted elsewhere on screen", () => {
+    const html = page("gone");
+    expect(html).not.toContain("Edit the list");
+    expect(html).not.toContain("<textarea");
+    expect(html).toContain("No such deck");
   });
 });

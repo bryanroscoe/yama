@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { usePower } from "../auth";
 import { api } from "../api";
+import { queryFailure, RefreshFailed } from "../components/QueryError";
 import { ErrorText, Pips } from "../components/ui";
 import { engineLine, enginesOf, halfOf } from "./engines";
 import type { HalfEngine } from "./logic";
@@ -235,7 +236,9 @@ export function RunPage() {
     },
   });
 
-  if (exp.error) {
+  // Only with no run to show (or a run that's gone): one failed check, and a live run asks every
+  // few seconds, leaves the page up.
+  if (queryFailure(exp) === "page") {
     return (
       <>
         <LabHead slim back={{ to: "/lab/runs", label: "Back to my runs" }} />
@@ -252,6 +255,7 @@ export function RunPage() {
   return (
     <>
       <LabHead slim back={{ to: "/lab/runs", label: "Back to my runs" }} />
+      <RefreshFailed query={exp} what="this run" />
       <ArtPanel art={e.base?.art}>
         <span>
           <StatusTag status={e.status} />

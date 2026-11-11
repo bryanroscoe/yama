@@ -7,6 +7,7 @@ import { Link } from "react-router";
 import { api, type CalendarRun, type CalendarSet, type CalendarView, type DeckSummary, type PreconSummary } from "../api";
 import { useMe } from "../auth";
 import { isNetworkError } from "../cardDetail";
+import { queryFailure } from "./QueryError";
 import { Details, ErrorText } from "./ui";
 import {
   daysBetween,
@@ -47,7 +48,7 @@ export function ReleaseCalendar() {
   const groups = calendar.data ? watchedPrecons(calendar.data.upcoming) : [];
   const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }), enabled: groups.length > 0 });
   // A calendar already on screen stays when its refresh fails.
-  if (calendar.error && !calendar.data) return isNetworkError(calendar.error) ? null : <ErrorText error={calendar.error} />;
+  if (queryFailure(calendar) === "page") return isNetworkError(calendar.error) ? null : <ErrorText error={calendar.error} />;
   if (!calendar.data) return null;
   const view = calendar.data;
   // Wait for the reader's decks before placing precons, so a set doesn't jump from the top to

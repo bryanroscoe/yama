@@ -155,7 +155,15 @@ function EditList({ id }: { id: string }) {
   const restart = async () => {
     setStale(false);
     save.reset();
-    const fresh = await qc.fetchQuery({ queryKey: ["deck", id], queryFn: ({ signal }) => api<DeckView>(`/api/decks/${encodeURIComponent(id)}`, { signal }), staleTime: 0 });
+    let fresh: DeckView;
+    try {
+      fresh = await qc.fetchQuery({ queryKey: ["deck", id], queryFn: ({ signal }) => api<DeckView>(`/api/decks/${encodeURIComponent(id)}`, { signal }), staleTime: 0 });
+    } catch {
+      // Couldn't get the newer list: the conflict stands (the deck's own notice says why), and
+      // Save stays off until it's tried again.
+      setStale(true);
+      return;
+    }
     base.current = fresh.version_id;
     load(startButtons(family, fresh)[0]!);
   };
