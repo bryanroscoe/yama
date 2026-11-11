@@ -2,6 +2,7 @@ import { identityKeys, MANA } from "@yama/core";
 import { useRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { errorMessage } from "../api";
+import { Button } from "./Button";
 import { useModalLayer } from "./Dialog";
 
 export function Pips({ identity, label = true }: { identity: string; label?: boolean }) {
@@ -38,9 +39,9 @@ export function ZoomableCard({ src, name, className = "card-img" }: { src: strin
   if (!src) return <CardImage src={src} name={name} className={className} />;
   return (
     <>
-      <button type="button" className="card-zoom-open" onClick={() => setOpen(true)} aria-label={`Show ${name} larger`}>
+      <Button className="card-zoom-open" onClick={() => setOpen(true)} aria-label={`Show ${name} larger`}>
         <CardImage src={src} name={name} className={className} />
-      </button>
+      </Button>
       {open && <CardZoom src={src} name={name} onClose={() => setOpen(false)} />}
     </>
   );
@@ -53,9 +54,9 @@ function CardZoom({ src, name, onClose }: { src: string; name: string; onClose: 
   return createPortal(
     <div ref={root} className="card-zoom" role="dialog" aria-modal="true" aria-label={name} tabIndex={-1} onClick={onClose} {...layer}>
       <img src={largeOf(src)} alt={name} decoding="async" crossOrigin="anonymous" />
-      <button type="button" className="outline" autoFocus onClick={onClose}>
+      <Button variant="outline" autoFocus onClick={onClose}>
         Close
-      </button>
+      </Button>
     </div>,
     document.body,
   );
@@ -63,6 +64,7 @@ function CardZoom({ src, name, onClose }: { src: string; name: string; onClose: 
 
 export { Dialog, DialogHead } from "./Dialog";
 export { CopyButton } from "./CopyButton";
+export { Button, ButtonLink, type ButtonLook, type ButtonVariant } from "./Button";
 
 /**
  * Optional explanation behind a concise, descriptive disclosure. Native details
@@ -88,9 +90,9 @@ export function ErrorText({ error, retry, small = false }: { error: unknown; ret
     <p className={cx("error", small && "small")} role="alert">
       {errorMessage(error)}
       {retry && (
-        <button type="button" className="quiet small" onClick={retry}>
+        <Button variant="quiet" size="small" onClick={retry}>
           Try again
-        </button>
+        </Button>
       )}
     </p>
   );
@@ -159,9 +161,9 @@ export function Segmented<T extends string | number | boolean | null>({
         const s: Segment<T> = "value" in o ? o : { value: o[0], label: o[1] };
         return (
           // The type is part of the key: null and a value spelled "null" are different segments.
-          <button key={`${typeof s.value}:${s.value}`} type="button" {...segmentProps} title={s.title} aria-label={s.title} aria-pressed={s.value === value} disabled={disabled || s.disabled} onClick={() => onChange(s.value)}>
+          <Button key={`${typeof s.value}:${s.value}`} {...segmentProps} title={s.title} aria-label={s.title} aria-pressed={s.value === value} disabled={disabled || s.disabled} onClick={() => onChange(s.value)}>
             {s.label}
-          </button>
+          </Button>
         );
       })}
     </Tag>

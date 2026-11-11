@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { User } from "../api";
 import { bannerText, minutesLeft, stopViewing } from "../viewing";
+import { Button } from "./Button";
 
 /**
  * On every page while an admin views Yama as someone: who, read only, how long is left, and
@@ -24,8 +25,7 @@ export function ViewBanner({ me }: { me: User }) {
   return (
     <div className="view-banner" role="status">
       <span>{bannerText(me, v, now)}</span>
-      <button
-        type="button"
+      <Button
         className="view-stop"
         disabled={stopping}
         onClick={() => {
@@ -34,7 +34,7 @@ export function ViewBanner({ me }: { me: User }) {
         }}
       >
         {stopping ? "Stopping…" : "Stop"}
-      </button>
+      </Button>
     </div>
   );
 }

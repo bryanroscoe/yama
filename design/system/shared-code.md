@@ -62,7 +62,7 @@ Nothing here yet: one sentence, and the way to add the first thing when there is
 
 ```tsx
 <EmptyState>No playgroup yet.</EmptyState>
-<EmptyState action={<Link className="button primary" to="/decks/import">Add a deck</Link>}>No decks yet.</EmptyState>
+<EmptyState action={<ButtonLink variant="primary" to="/decks/import">Add a deck</ButtonLink>}>No decks yet.</EmptyState>
 <EmptyState title="No plan for this deck" action={<Link to="/decks/plans">How plans work</Link>} />
 <EmptyState variant="boxed">No changes yet.</EmptyState>
 ```
@@ -174,7 +174,50 @@ can work.
 
 ### CopyButton
 
-`<CopyButton text={list} label="Copy the list" className="outline" />` copies, reads "Copied" for
+`<CopyButton text={list} label="Copy the list" variant="outline" />` copies, reads "Copied" for
 two seconds (aloud as well), goes back when the text changes, and when the browser refuses to
 copy opens the text in a dialog to copy by hand. Don't call `navigator.clipboard.writeText` in a
 page unless it does more than copy (the share sheet first, copy then open a site).
+
+### Button and ButtonLink (`components/Button.tsx`)
+
+Every button in the app is a `Button`; every link that looks like one is a `ButtonLink`
+(`components/Button/README.md` has the looks and the two densities).
+
+```tsx
+<Button variant="primary" onClick={approve}>Approve plan</Button>   // the one thing the view is for
+<Button onClick={print}>Print swap card</Button>                    // secondary: raised
+<Button variant="outline" onClick={copy}>Copy list</Button>         // the other secondary: a hairline
+<Button variant="quiet" size="small" onClick={skip}>Skip</Button>   // a row action
+<Button variant="outline" danger onClick={remove}>Delete run</Button>   // --bad words: it removes something
+<Button variant="destructive" type="submit">Delete deck</Button>    // the last step of deleting, in its own sheet
+<Button type="submit" variant="primary">Save</Button>               // a form's submit says so
+<ButtonLink variant="primary" to="/decks/import">Add a deck</ButtonLink>   // a page in the app
+<ButtonLink href="/precons" variant="outline">Precon rankings</ButtonLink> // anywhere else
+```
+
+| Prop | Values | Reads |
+|---|---|---|
+| `variant` | `primary`, `secondary` (default), `outline`, `quiet`, `destructive` | the look |
+| `size` | `small` | a row action: 32 px on a laptop, 44 px on a touch screen |
+| `danger` | boolean | `--bad` words on a secondary, an outline or a quiet button |
+| `type` | `button` (default), `submit`, `reset` | a `Button` never submits a form unless it says so |
+
+- A label is a verb in sentence case that says what happens. A button that shows only an icon
+  has an `aria-label`. Everything else a `<button>` takes (`disabled`, `aria-pressed`,
+  `aria-expanded`, `ref`, `autoFocus`) passes through.
+- One `primary` per view. A primary or a destructive button that is `disabled` reads as waiting
+  (raised, dim words), not as a faded pill.
+- `danger` marks any button that removes something ("Delete run", "Remove"), and the Yes of
+  an `ask({ danger: true })` question. `destructive` is the last step of deleting for good, in
+  a sheet of its own, often behind a typed confirmation (Delete deck, Delete account, an
+  admin deleting a person). `danger` does nothing on a primary or a destructive button, and a
+  quiet danger button stays words alone under the pointer. `ButtonLink` has no `destructive`.
+- Something that happens here is a `Button`; going somewhere is a `ButtonLink` (`to` for a page
+  in the app, `href` for a file, another site or a server-rendered page). Don't put an `onClick`
+  that navigates on a `Button`, or `className="button"` on a link.
+- A row, a tile or a card that is itself the control is still a `Button`: it passes its own
+  `className` and keeps its look.
+- `CopyButton`, `MoreMenu` and `ConnectButton` take the same `variant` (and `size`) and pass
+  them to their button.
+- Don't write `<button>` in a page. `conventions.test.ts` lists the areas still moving over.

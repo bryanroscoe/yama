@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Dialog } from "./Dialog";
+import { Button, type ButtonLook } from "./Button";
 
 /**
  * Copies `text` and says so: the button reads "Copied" for two seconds, and a screen reader hears
  * it. Where the clipboard isn't available (a phone on plain http, a browser that refuses), it
  * shows the text in a dialog to select and copy by hand instead of failing quietly.
  */
-export function CopyButton({ text, label, className, disabled = false }: { text: string; label: string; className?: string; disabled?: boolean }) {
+export function CopyButton({ text, label, variant, size, className, disabled = false }: { text: string; label: string; className?: string; disabled?: boolean } & Pick<ButtonLook, "variant" | "size">) {
   const [state, setState] = useState<"idle" | "copied" | "manual">("idle");
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
@@ -31,9 +32,9 @@ export function CopyButton({ text, label, className, disabled = false }: { text:
   };
   return (
     <>
-      <button type="button" className={className} disabled={disabled} onClick={() => void copy()}>
+      <Button variant={variant} size={size} className={className} disabled={disabled} onClick={() => void copy()}>
         {state === "copied" ? "Copied" : label}
-      </button>
+      </Button>
       <span className="visually-hidden" role="status">
         {state === "copied" ? "Copied" : ""}
       </span>

@@ -5,6 +5,7 @@ import { api, type DeckSummary } from "../api";
 import { signInPath, useMe } from "../auth";
 import { useOutbox, useRejected, useSyncStatus } from "../table/store";
 import { artCredit } from "./ArtPanel";
+import { ButtonLink } from "./Button";
 
 const subscribeOnline = (onChange: () => void) => {
   window.addEventListener("online", onChange);
@@ -39,7 +40,7 @@ export function RailMe() {
     // Signed out, the rail's foot is the way in; the sign-in page comes back here afterwards.
     return (
       <div className="rail-foot">
-        <Link to={signInPath(pathname + search)} className="button rail-signin">Sign in</Link>
+        <ButtonLink to={signInPath(pathname + search)} className="rail-signin">Sign in</ButtonLink>
       </div>
     );
   }

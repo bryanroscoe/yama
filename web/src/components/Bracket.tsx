@@ -10,6 +10,7 @@ import { HelpPopover } from "./HelpPopover";
 import { Details, ErrorText } from "./ui";
 import "./decks.css";
 import { fmtDate } from "@yama/core";
+import { Button } from "./Button";
 
 /** The Commander brackets, as Wizards names them. */
 export const BRACKETS: { value: number; name: string }[] = [
@@ -118,7 +119,7 @@ export function BracketPanel({ deckId, versionId, declared, gameChangers, onCard
           <h2 id="bracket-head">Bracket</h2>
         )}
         {c?.enabled && !c.archived && !c.pending && c.version_id && (
-          <button className="quiet small" onClick={() => again.mutate()} disabled={again.isPending}>Check again</button>
+          <Button variant="quiet" size="small" onClick={() => again.mutate()} disabled={again.isPending}>Check again</Button>
         )}
       </div>
 

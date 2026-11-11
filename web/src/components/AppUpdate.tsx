@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Button } from "./Button";
 
 export function shellBuild(html: string): string | null {
   return html.match(/<meta name="yama-precache" content="(\/assets\/precache-[\w-]+\.json)"/)?.[1] ?? null;
@@ -37,5 +38,5 @@ export function AppUpdate() {
       document.removeEventListener("visibilitychange", changed);
     };
   }, []);
-  return available ? <aside className="app-update" role="status"><span>A Yama update is ready. Save open edits before reloading.</span><button onClick={() => window.location.reload()}>Reload</button></aside> : null;
+  return available ? <aside className="app-update" role="status"><span>A Yama update is ready. Save open edits before reloading.</span><Button onClick={() => window.location.reload()}>Reload</Button></aside> : null;
 }

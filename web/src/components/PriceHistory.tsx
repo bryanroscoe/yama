@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { api, errorMessage } from "../api";
 import { usd } from "@yama/core";
+import { Button } from "./Button";
 
 interface Point {
   date: string;
@@ -48,7 +49,7 @@ export function PriceHistory({ scryfallId, finish, setName }: { scryfallId: stri
     return (
       <p className="small" role="alert">
         <span className="error">Couldn't load the price history for {label}: {errorMessage(failure.current)}</span>{" "}
-        <button type="button" className="small" disabled={history.isFetching} onClick={() => void history.refetch()}>{history.isFetching ? "Trying…" : "Try again"}</button>
+        <Button size="small" disabled={history.isFetching} onClick={() => void history.refetch()}>{history.isFetching ? "Trying…" : "Try again"}</Button>
       </p>
     );
   }

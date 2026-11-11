@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { api, ApiError, setToken, type User } from "./api";
-import { ErrorText } from "./components/ui";
+import { Button, ErrorText } from "./components/ui";
 import { outbox } from "./plan/outbox";
 import { discardQuestion, signOut, within } from "./plan/signout";
 import { clearPlanData } from "./plan/store";
@@ -341,20 +341,20 @@ export function SignInForm({ heading: SignInTitle, title = "Sign in to Yama", co
           white backdrop behind an iframe whose scheme differs, so give its box the light scheme. */}
       {clientId && !native && <div ref={googleRef} style={{ colorScheme: "light" }} />}
       {clientId && native && (
-        <button className="primary" disabled={nativeGoogle.isPending || google.isPending} onClick={() => nativeGoogle.mutate()}>
+        <Button variant="primary" disabled={nativeGoogle.isPending || google.isPending} onClick={() => nativeGoogle.mutate()}>
           {nativeGoogle.isPending || google.isPending ? "Signing in…" : "Sign in with Google"}
-        </button>
+        </Button>
       )}
       {/* The life counter works without an account (guest.ts); sharing a table needs one. */}
       {countLife && (
-        <button className="login-secondary" onClick={() => navigate("/", { replace: true })}>
+        <Button className="login-secondary" onClick={() => navigate("/", { replace: true })}>
           Count life without an account
-        </button>
+        </Button>
       )}
       {config.data?.cf_access && (
         <div className="stack">
           <p className="dim">Yama signs you in with the email your host invited.</p>
-          <button className="primary" onClick={() => location.reload()}>Sign in</button>
+          <Button variant="primary" onClick={() => location.reload()}>Sign in</Button>
         </div>
       )}
       {config.data && !clientId && !config.data.dev_login && !config.data.cf_access && !config.data.password_login && (
@@ -382,9 +382,9 @@ export function SignInForm({ heading: SignInTitle, title = "Sign in to Yama", co
               Password
               <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" />
             </label>
-            <button className={clientId || config.data.cf_access ? "login-secondary" : "primary"} disabled={withPassword.isPending}>
+            <Button type="submit" variant={clientId || config.data.cf_access ? "secondary" : "primary"} className={clientId || config.data.cf_access ? "login-secondary" : undefined} disabled={withPassword.isPending}>
               {withPassword.isPending ? "Signing in…" : "Sign in"}
-            </button>
+            </Button>
           </form>
         </>
       )}
@@ -406,9 +406,9 @@ export function SignInForm({ heading: SignInTitle, title = "Sign in to Yama", co
             Name
             <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="nickname" />
           </label>
-          <button className={clientId || config.data.password_login ? "login-secondary" : "primary"} disabled={dev.isPending}>
+          <Button type="submit" variant={clientId || config.data.password_login ? "secondary" : "primary"} className={clientId || config.data.password_login ? "login-secondary" : undefined} disabled={dev.isPending}>
             Sign in (development)
-          </button>
+          </Button>
         </form>
       )}
       <ErrorText error={error ?? config.error} />

@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useId, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type Ref, type RefObject } from "react";
+import { Button } from "./Button";
 
 // One modal layer for the whole app: Dialog, and anything else that covers the page (the full
 // screen picker, the card zoom) through useModalLayer. A layer:
@@ -205,9 +206,9 @@ export function DialogHead({ children, onClose, close = true, id, headingRef }: 
         {children}
       </h2>
       {close && shut && (
-        <button type="button" className="quiet dialog-close" onClick={shut}>
+        <Button variant="quiet" className="dialog-close" onClick={shut}>
           Close
-        </button>
+        </Button>
       )}
     </div>
   );

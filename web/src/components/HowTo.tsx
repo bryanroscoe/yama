@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { ConnectedApps } from "../oauth/ConnectedApps";
 import { Dialog } from "./ui";
+import { Button, type ButtonLook } from "./Button";
 
 /**
  * How a page works, with what to do next (Bryan, 2026-11-04: "telling folks how to use this ...
@@ -22,13 +23,13 @@ export function HowTo({ title, open, steps, actions }: { title: string; open: bo
 }
 
 /** "Connect your assistant": the sign-in steps for Claude and other MCP clients, in a sheet. */
-export function ConnectButton({ className = "" }: { className?: string }) {
+export function ConnectButton({ variant, className }: { className?: string } & Pick<ButtonLook, "variant">) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <button type="button" className={className} onClick={() => setOpen(true)} aria-haspopup="dialog">
+      <Button variant={variant} className={className} onClick={() => setOpen(true)} aria-haspopup="dialog">
         Connect your assistant
-      </button>
+      </Button>
       {open && (
         <Dialog title="Use Yama from your assistant" onClose={() => setOpen(false)}>
           <div className="stack">
