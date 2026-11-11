@@ -13,8 +13,9 @@ describe("what's new", () => {
     expect(unseen(list, "gone").map((e) => e.id)).toEqual(["c", "b", "a"]);
   });
 
-  it("invites a device that has never looked, and counts only after it has", () => {
-    expect(noticeLine(list, null)).toBe("Yama keeps a list of what's new.");
+  it("says nothing to a device that has never looked, and counts only after it has", () => {
+    // A new account's first screen isn't the developer changelog.
+    expect(noticeLine(list, null)).toBeNull();
     expect(noticeLine(list, "a")).toBe("Yama has 2 updates since you last looked.");
     expect(noticeLine(list, "b")).toBe("New in Yama: c.");
     expect(noticeLine(list, "c")).toBeNull();

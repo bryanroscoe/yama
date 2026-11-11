@@ -38,11 +38,15 @@ function useSeen() {
   return useSyncExternalStore(subscribe, readSeen, () => null);
 }
 
-/** A line above every page while there's news this device hasn't opened. */
+/** A line above every page while there's news newer than this device's first visit or last look. */
 export function NewsNotice() {
   const seen = useSeen();
   const { pathname } = useLocation();
   const line = noticeLine(NEWS, seen);
+  // A first visit: what's listed today is this device's starting point, recorded without a notice.
+  useEffect(() => {
+    if (seen === null) markSeen();
+  }, [seen]);
   if (!line || pathname === "/new") return null;
   return (
     <aside className="news-notice" aria-label="What's new">
