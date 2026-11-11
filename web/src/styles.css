@@ -294,26 +294,6 @@ button.small {
 button.quiet:hover {
   background: var(--raised);
 }
-/* A link drawn as a quiet or small button (ButtonLink). */
-.button.quiet {
-  background: transparent;
-  border-color: transparent;
-}
-.button.quiet:hover {
-  background: var(--raised);
-}
-.button.small {
-  min-height: var(--target-compact);
-}
-/* Destructive: --bad words on a secondary, saying what it removes. */
-button.danger,
-.button.danger {
-  color: var(--bad);
-}
-button.danger:hover,
-.button.danger:hover {
-  border-color: var(--bad);
-}
 button:disabled,
 button:disabled:hover {
   opacity: 0.5;
@@ -1157,6 +1137,13 @@ button.list-row:hover {
   gap: var(--s-2);
   margin-top: var(--s-4);
 }
+/* A destructive answer: --bad words on a secondary, saying what it removes. */
+.dialog-actions > button.danger {
+  color: var(--bad);
+}
+.dialog-actions > button.danger:hover {
+  border-color: var(--bad);
+}
 /* The sheet, its heading and the other full-screen layers take focus when they open, so the
    keyboard stays down on a phone; they aren't controls, so no ring. */
 .sheet:focus,
@@ -1364,37 +1351,6 @@ table.plain tr.few td {
 .empty.is-compact {
   margin: 0;
   padding: 0;
-  font-size: var(--t-sm);
-}
-
-/* Field (components/ui.tsx): a label above its control, and what is wrong with it underneath. */
-.field {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-}
-.field > .field-error {
-  margin: 0;
-  color: var(--bad);
-  font-size: var(--t-sm);
-}
-/* ActionBar (components/ui.tsx): a page's actions as one row; the rest go in its More menu. */
-.action-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--s-1);
-}
-/* Pager (components/ui.tsx): earlier, where you are, later. */
-.pager {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: var(--s-2);
-}
-.pager > .pager-where {
-  color: var(--dim);
   font-size: var(--t-sm);
 }
 
