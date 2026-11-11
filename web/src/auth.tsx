@@ -101,7 +101,9 @@ export function useLogout() {
       logoutRequest: () => api("/api/auth/logout", { method: "POST" }),
       authConfig: async () => qc.getQueryData<AuthConfig>(["auth-config"]) ?? (await api<AuthConfig>("/api/auth/config")),
       cloudflareLogout: () => {
-        signingOut();
+        // Access still holds the sign-in until its own logout page has run: other tabs aren't
+        // told to reload yet, or the server would sign them straight back in.
+        signingOut({ tellOtherTabs: false });
         localStorage.removeItem(ME_KEY);
         location.href = "/cdn-cgi/access/logout";
       },

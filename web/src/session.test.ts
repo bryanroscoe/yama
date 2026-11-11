@@ -156,4 +156,18 @@ describe("this tab's cache as accounts come and go", () => {
     expect(stored.has(SIGNED_OUT_KEY)).toBe(true);
     close();
   });
+
+  it("doesn't tell other tabs before Cloudflare Access has finished the sign-out", () => {
+    const stored = new Map<string, string>();
+    vi.stubGlobal("localStorage", { setItem: (k: string, v: string) => void stored.set(k, v) });
+    const { families } = cache("a");
+    followSession("a");
+    const close = accountPageOpen();
+    signingOut({ tellOtherTabs: false });
+    followSession(null);
+    // This tab drops the data and keeps no page waiting; the others would only be signed back in.
+    expect(families()).toEqual(["auth-config", "me"]);
+    expect(stored.has(SIGNED_OUT_KEY)).toBe(false);
+    close();
+  });
 });

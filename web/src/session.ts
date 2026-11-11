@@ -113,9 +113,15 @@ export function followSession(now: string | null) {
   if (changed) emit();
 }
 
-/** Sign out or Delete account in this tab: nothing waits for the account to come back. */
-export function signingOut() {
+/**
+ * Sign out or Delete account in this tab: nothing waits for the account to come back, and the
+ * browser's other tabs are told. `tellOtherTabs` is false for a sign-out that Cloudflare Access
+ * finishes after this page has gone: until then the server would sign a reloading tab straight
+ * back in, so those tabs find out on their next request instead.
+ */
+export function signingOut({ tellOtherTabs = true }: { tellOtherTabs?: boolean } = {}) {
   deliberate = true;
+  if (!tellOtherTabs) return;
   try {
     localStorage.setItem(SIGNED_OUT_KEY, String(Date.now()));
   } catch {
