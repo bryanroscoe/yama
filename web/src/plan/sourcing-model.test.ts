@@ -102,11 +102,11 @@ describe("shopping clarity",()=>{
   expect(offerRows(rows,"nm","")[0]!.offers).toHaveLength(1);
   expect(offerRows(rows,"any","")[0]!.offers).toHaveLength(2);
  });
- it("bulk fills unknown quantities as requested copies, while confirmed-only stays empty",()=>{
+ it("leaves unknown quantities for an explicit request instead of inventing bulk stock",()=>{
   const rows=sourceCards([{...raw[0]!,offers:[{...offer,qty:null}]}]);
   expect(knownStockChoices(rows)["Sol Ring"]).toEqual([]);
-  const selected=allChoices(rows);expect(selected["Sol Ring"]![0]!.qty).toBe(2);
-  expect(sourceCarts(rows,selected,new Map())[0]!.rows[0]!.offer.qty).toBeNull();
+  const selected=allChoices(rows);expect(selected["Sol Ring"]).toEqual([]);
+  expect(sourceCarts(rows,selected,new Map())).toEqual([]);
  });
  it("preserves exact printing market provenance and all saved variants",()=>{
   const rows=sourceCards([{...raw[0]!,offers:[{...offer,title:"Sol Ring [C21]",market:1.25,market_source:"https://scryfall.com/card/c21/263/sol-ring",market_evidence:{scryfall_id:"id",matching:"retailer image ID",checked_at:"2026-11-10"}},{...offer,url:"https://store.test/nm"}]}]);
@@ -144,4 +144,19 @@ it("applies recorded stock filtering to offers and the same add-all cart action"
  expect(all[0]!.offers).toHaveLength(2);expect(known[0]!.offers).toHaveLength(1);
  const cart=sourceCarts(known,allChoices(known),new Map());
  expect(cart[0]!.rows[0]!.qty).toBe(1);expect(cart[0]!.rows[0]!.offer.qty).toBe(1);
+});
+
+it("fills a shortage with another printing and leaves missing counts unresolved",()=>{
+ const rows=sourceCards([{...raw[0]!,uses:[use("one","a"),use("two","b"),use("three","c")],offers:[{...offer,qty:null,price:0.1},{...offer,qty:1,variant_id:"456",price:0.5},{...offer,qty:1,variant_id:"789",price:0.75}]}]);
+ const selected=allChoices(rows);
+ expect(selected["Sol Ring"]!.map(x=>x.qty)).toEqual([1,1]);
+ const carts=sourceCarts(rows,selected,new Map());
+ expect(carts[0]!.rows.map(r=>r.offer.variant_id)).toEqual(["456","789"]);
+ expect(carts[0]!.rows.reduce((n,r)=>n+r.qty,0)).toBe(2);
+});
+
+it("does not exhaust demand on URL aliases for the same stock",()=>{
+ const rows=sourceCards([{...raw[0]!,offers:[offer,{...offer,url:offer.url+"?variant=123"},{...offer,variant_id:"456",price:0.75}]}]);
+ const carts=sourceCarts(rows,allChoices(rows),new Map());
+ expect(carts[0]!.rows.map(r=>r.offer.variant_id)).toEqual(["123","456"]);
 });

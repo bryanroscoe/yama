@@ -608,6 +608,10 @@
             "pattern": "^[A-Za-z0-9_-]+$",
             "type": "string"
           },
+          "refresh_catalog": {
+            "description": "Rebuild complete public Shopify catalogs. Otherwise reuse the dated saved catalog when present, or search cards when none exists. Quantity checks remain variant-specific; no cart is modified.",
+            "type": "boolean"
+          },
           "stores": {
             "description": "Store keys or names, from get_shopping_settings.",
             "items": {

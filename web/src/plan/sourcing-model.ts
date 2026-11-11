@@ -135,11 +135,19 @@ export function offerRows(rows: SourceCard[], condition: string, store: string, 
 /** Fill requested quantities, even when a retailer omits stock count. This prepares a cart, not a stock claim. */
 export function allChoices(rows: SourceCard[]): Record<string, SourceChoice[]> {
   const choices: Record<string, SourceChoice[]> = Object.create(null);
+  const stockUsed = new Map<string,number>();
+  const limits = new Map<string,number>();
+  for (const row of rows) for (const o of row.offers) if(o.qty != null && o.qty >= 0) {
+    const sku = `${new URL(o.url).origin}|${o.variant_id || offerId(o)}`;
+    limits.set(sku,Math.min(limits.get(sku) ?? o.qty,o.qty));
+  }
   for (const row of rows) {
     let remaining = row.uses.length;
     choices[row.name] = [];
-    for (const o of [...row.offers].filter(o => o.qualifies && o.price != null && o.qty !== 0).sort((a,b) => Number(nearMint(b.condition))-Number(nearMint(a.condition)) || a.price!-b.price!)) {
-      const qty = Math.min(remaining,o.qty ?? remaining);
+    for (const o of [...row.offers].filter(o => o.qualifies && o.price != null && o.qty != null && o.qty > 0).sort((a,b) => Number(nearMint(b.condition))-Number(nearMint(a.condition)) || a.price!-b.price!)) {
+      const sku = `${new URL(o.url).origin}|${o.variant_id || offerId(o)}`;
+      const qty = Math.min(remaining,Math.max(0,(limits.get(sku) ?? o.qty!)-(stockUsed.get(sku) ?? 0)));
+      stockUsed.set(sku,(stockUsed.get(sku) ?? 0)+qty);
       if(qty > 0) choices[row.name]!.push({offer:offerId(o),qty});
       remaining -= qty;
       if(!remaining)break;

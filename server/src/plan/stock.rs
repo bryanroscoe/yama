@@ -14,6 +14,8 @@
 //! card it asked about and didn't find is "not in stock" at that store; a card whose request failed
 //! is unknown, not absent. The trip (`trip.ts`, `trip.rs`) reads them beside `quotes`.
 
+pub mod catalog;
+
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
 use crate::routes::AppState;
@@ -327,6 +329,40 @@ pub fn search_page_handles(html: &str, card: &str) -> Vec<String> {
     out
 }
 
+/// Read a count only from the requested variant's main product form and inventory badge.
+/// Search-card badges can combine conditions; never assign those totals to every variant.
+fn shopify_variant_quantity(html: &str, variant: &str) -> Option<i64> {
+    use fancy_regex::Regex;
+    fn attr(tag: &str, key: &str) -> Option<String> {
+        let re = Regex::new(r#"([\w-]+)\s*=\s*["']([^"']*)["']"#).ok()?;
+        re.captures_iter(tag).filter_map(Result::ok).find_map(|c| (c.get(1)?.as_str() == key).then(|| c.get(2).unwrap().as_str().to_owned()))
+    }
+    let forms = Regex::new(r"(?s)<form\b([^>]*)>(.*?)</form>").ok()?;
+    let inputs = Regex::new(r"(?s)<input\b([^>]*)>").ok()?;
+    let inventory = Regex::new(r#"(?s)<div\b([^>]*\bid=["']Inventory-[^"']*["'][^>]*)>(.*?)</div>"#).ok()?;
+    let count = Regex::new(r"(?i)\b(?:Only\s+([0-9][0-9,]*)\s+left|([0-9][0-9,]*)\s+in stock)\b").ok()?;
+    let mut found = Vec::new();
+    for block in inventory.captures_iter(html).filter_map(Result::ok) {
+        let Some(id) = attr(block.get(1)?.as_str(), "id") else { continue };
+        let Some(section) = id.strip_prefix("Inventory-") else { continue };
+        let matching_form = forms.captures_iter(html).filter_map(Result::ok).any(|form| {
+            attr(form.get(1).unwrap().as_str(), "id").as_deref() == Some(&format!("product-form-{section}"))
+                && inputs.captures_iter(form.get(2).unwrap().as_str()).filter_map(Result::ok).any(|input| {
+                    let tag = input.get(1).unwrap().as_str();
+                    attr(tag, "name").as_deref() == Some("id") && attr(tag, "value").as_deref() == Some(variant)
+                })
+        });
+        if !matching_form { continue; }
+        if block.get(2)?.as_str().to_lowercase().contains("out of stock") { found.push(0); continue; }
+        if let Some(c) = count.captures(block.get(2)?.as_str()).ok()? {
+            let n = c.get(1).or_else(|| c.get(2))?.as_str().replace(',', "").parse::<i64>().ok()?;
+            if (1..=100_000).contains(&n) { found.push(n); }
+        }
+    }
+    // Contradictory or duplicate inventory blocks are not trustworthy variant evidence.
+    if found.len() == 1 { found.first().copied() } else { None }
+}
+
 /// Every variant of a Shopify product (`/products/<handle>.js`) as listings for the card.
 pub fn shopify_product(body: &Value, card: &str, base: &str, handle: &str) -> Vec<Listing> {
     let title = body["title"].as_str().unwrap_or_default();
@@ -612,11 +648,12 @@ pub struct Fetcher {
     http: reqwest::Client,
     pause: Duration,
     cookie: Option<String>,
+    refresh: bool,
 }
 
 impl Fetcher {
     pub fn new(http: reqwest::Client, pause: Option<Duration>) -> Self {
-        Fetcher { http, pause: pause.unwrap_or(Duration::ZERO), cookie: None }
+        Fetcher { http, pause: pause.unwrap_or(Duration::ZERO), cookie: None, refresh: false }
     }
 
     /// GET or POST with a browser's headers, retrying 429 (as long as the store asks, up to
@@ -654,7 +691,7 @@ impl Fetcher {
     /// The answer's text, and whether it was fetched now (not another check's).
     async fn fetch(&mut self, kind: Kind, method: &str, url: &str, body: Option<&Value>, raw: &mut Raw, accept: &str) -> Result<(String, bool), String> {
         let host = host_of(url).ok_or("bad url")?;
-        if let Some((text, at)) = shared_get(&shared_key(method, url, body)) {
+        if let Some((text, at)) = (!self.refresh).then(|| shared_get(&shared_key(method, url, body))).flatten() {
             raw.add_shared(method, url, &at, &text);
             return Ok((text.to_string(), false));
         }
@@ -663,7 +700,7 @@ impl Fetcher {
         for attempt in 0..3u32 {
             let guard = turn(&host, url, pause).await?;
             // A check ahead in the queue may have fetched this very answer meanwhile.
-            if let Some((text, at)) = shared_get(&shared_key(method, url, body)) {
+            if let Some((text, at)) = (!self.refresh).then(|| shared_get(&shared_key(method, url, body))).flatten() {
                 drop(guard);
                 raw.add_shared(method, url, &at, &text);
                 return Ok((text.to_string(), false));
@@ -779,6 +816,40 @@ pub struct Found {
     pub failed: Vec<String>,
     pub errors: Vec<String>,
     pub total: Option<i64>,
+    pub cached_at: Option<String>,
+}
+
+async fn fetch_shopify_catalog(pool: &SqlitePool, f: &mut Fetcher, base: &str, cards: &[String], refresh: bool, requested: &str, raw: &mut Raw) -> Found {
+    match catalog::products(pool,f,base,refresh,requested,raw).await {
+        Ok(None) => fetch_shopify(f,base,cards,raw).await,
+        Err(e) => Found { failed: cards.to_vec(), errors: vec![format!("Catalog unavailable: {e}. Previous cache preserved.")], ..Default::default() },
+        Ok(Some((at,products))) => {
+            let mut found = Found { cached_at: Some(at), ..Default::default() };
+            let wanted: HashMap<String,&String> = cards.iter().map(|c|(card_key(c),c)).collect();
+            for product in products {
+                let Some(title) = product["title"].as_str() else { continue };
+                let Some(card) = wanted.get(&card_key(title_name(title))) else { continue };
+                let Some(handle) = product["handle"].as_str() else { continue };
+                let mut listings: Vec<_> = shopify_product(&product,card,base,handle).into_iter().filter(|l|l.available==Some(true)).collect();
+                enrich_shopify_quantities(f,base,handle,&mut listings,raw).await;
+                found.listings.extend(listings.into_iter().filter(|l| l.available==Some(true)));
+            }
+            found
+        }
+    }
+}
+
+async fn enrich_shopify_quantities(f: &mut Fetcher, base: &str, handle: &str, listings: &mut [Listing], raw: &mut Raw) {
+    if base != "https://mothershipatx.com" { return; }
+    for listing in listings {
+        if let Some(variant) = listing.variant.as_deref().filter(|v| !v.is_empty() && v.bytes().all(|c| c.is_ascii_digit())) {
+            let url = format!("{base}/products/{handle}?variant={variant}");
+            if let Ok(html) = f.page(Kind::Shopify,&url,raw).await {
+                listing.qty = shopify_variant_quantity(&html,variant);
+                if listing.qty == Some(0) { listing.available = Some(false); }
+            }
+        }
+    }
 }
 
 /// Every printing a Shopify store lists for each card: `suggest.json`, and when that's full (it
@@ -856,7 +927,11 @@ async fn fetch_shopify(f: &mut Fetcher, base: &str, cards: &[String], raw: &mut 
                         if text_ok(&body["title"])
                             && body["variants"].as_array().is_some_and(|v| v.iter().all(|x| x["available"].is_boolean() && (text_ok(&x["title"]) || text_ok(&x["public_title"])) && x["price"].is_number() && price_ok(&x["price"]))) =>
                     {
-                        found.extend(shopify_product(&body, card, base, handle).into_iter().filter(|l| l.available == Some(true)))
+                        let mut listings: Vec<_> = shopify_product(&body, card, base, handle).into_iter().filter(|l| l.available == Some(true)).collect();
+                        // The JSON feed says available, but Mothership exposes low-stock counts
+                        // in variant-selected HTML instead. GET only; never probe a user's cart.
+                        enrich_shopify_quantities(f,base,handle,&mut listings,raw).await;
+                        found.extend(listings.into_iter().filter(|l| l.available==Some(true)));
                     }
                     Ok(_) => {
                         f.forget("GET", &format!("{base}/products/{handle}.js"), None);
@@ -1007,7 +1082,7 @@ async fn finish(pool: &SqlitePool, owner: &str, id: &str, found: &Found, asked: 
     sqlx::query("UPDATE store_snapshots SET status = ?, error = ?, fetched_at = ?, failed = ?, raw_gz = ?, item_count = ? WHERE id = ? AND owner_id = ?")
         .bind(status)
         .bind(error)
-        .bind(now())
+        .bind(found.cached_at.clone().unwrap_or_else(now))
         .bind((!found.failed.is_empty()).then(|| json!(found.failed).to_string()))
         .bind(raw)
         .bind(found.listings.len() as i64)
@@ -1103,6 +1178,7 @@ pub struct Target {
 /// A started check: the cards and every store's snapshot.
 #[derive(Clone, Debug)]
 pub struct Job {
+    pub refresh_catalog: bool,
     pub owner: String,
     pub cards: Vec<String>,
     pub targets: Vec<Target>,
@@ -1113,14 +1189,17 @@ pub async fn run(pool: SqlitePool, http: reqwest::Client, job: Job, pause: Optio
     let timing = crate::perf::Job::start("store check", Duration::from_secs(180));
     let note = format!("{} stores, {} cards", job.targets.len(), job.cards.len());
     let mut tasks = tokio::task::JoinSet::new();
+    let refresh_catalog = job.refresh_catalog;
+    let requested = now();
     let yes: Vec<Target> = job.targets.iter().filter(|t| t.kind == Kind::YesTcg).cloned().collect();
     for t in job.targets.iter().filter(|t| t.kind != Kind::YesTcg).cloned() {
         let (pool, http, owner, cards) = (pool.clone(), http.clone(), job.owner.clone(), job.cards.clone());
+        let requested = requested.clone();
         tasks.spawn(async move {
             let mut f = Fetcher::new(http, pause);
             let mut raw = Raw::default();
             let (found, asked) = match t.kind {
-                Kind::Shopify => (fetch_shopify(&mut f, &t.base, &cards, &mut raw).await, Some(cards.len())),
+                Kind::Shopify => (fetch_shopify_catalog(&pool, &mut f, &t.base, &cards, refresh_catalog, &requested, &mut raw).await, Some(cards.len())),
                 _ => (fetch_pro(&mut f, &t.base, &mut raw).await, None),
             };
             if let Err(e) = finish(&pool, &owner, &t.snapshot, &found, asked, raw.gz()).await {
@@ -1179,6 +1258,9 @@ pub struct CheckBody {
     /// Also ask YesTCG (Austin) about the stores it covers.
     #[serde(default)]
     pub yestcg: bool,
+    /// Rebuild complete public Shopify catalogs rather than reuse a saved catalog.
+    #[serde(default)]
+    pub refresh_catalog: bool,
 }
 
 /// The stores a check can read, with the connector each would use and why not when none.
@@ -1282,7 +1364,7 @@ pub async fn start(st: &AppState, owner: &str, body: &CheckBody, via: &str, chan
         let mut any = false;
         if let Some((kind, base)) = direct {
             // A whole catalog doesn't need a card list; a card search does.
-            if *kind == Kind::Pro || !uniq.is_empty() {
+            if *kind == Kind::Pro || (*kind == Kind::Shopify && body.refresh_catalog) || !uniq.is_empty() {
                 targets.push((key.clone(), *kind, base.clone(), None));
                 any = true;
             }
@@ -1319,13 +1401,14 @@ pub async fn start(st: &AppState, owner: &str, body: &CheckBody, via: &str, chan
     }
     let at = now();
     let check = crate::util::new_id();
-    let mut job = Job { owner: owner.to_string(), cards: uniq.clone(), targets: Vec::new() };
+    let mut job = Job { refresh_catalog: body.refresh_catalog, owner: owner.to_string(), cards: uniq.clone(), targets: Vec::new() };
     let mut tx = pool.begin().await?;
     for (key, kind, base, host) in targets {
         let id = crate::util::new_id();
         active().lock().expect("active").insert(id.clone());
         let query = match kind {
-            Kind::Shopify => format!("GET {base}/search/suggest.json?q=\"<card>\"&resources[type]=product&resources[limit]=10, then /products/<handle>.js"),
+            Kind::Shopify if body.refresh_catalog => format!("Refresh full public catalog: GET {base}/products.json?limit=250&page=<page>; atomically cache after all pages"),
+            Kind::Shopify => format!("Use dated catalog cache when available; otherwise GET {base}/search/suggest.json?q=\"<card>\"&resources[type]=product&resources[limit]=10, then /products/<handle>.js"),
             Kind::Pro => format!("POST {base}/api/catalog/search {{\"query\":\"\",\"context\":{{\"productLineName\":\"Magic: The Gathering\"}},\"size\":5000}}"),
             Kind::YesTcg => format!("GET {base}/api/decksearch?q=<card>&market=austin&game=mtg (this store's part, {})", host.as_deref().unwrap_or("?")),
         };

@@ -2086,3 +2086,7 @@ Local sourcing shopping rows default to Near Mint and expose deck/bracket recipi
 Sourcing exposes a per-card dollar ceiling initialized from the current account rule. Changing it recalculates row/manual/bulk-cart eligibility against retained quotes and the remaining market limits, without rewriting research. Explicit Save persists a dated account rule through the existing settings API, preserving market tiers and sealed limits (an always-okay threshold above a lowered ceiling is narrowed to that ceiling). Generic or non-price rejections remain excluded.
 
 Sourcing has one bulk-add action. Exclude unknown stock counts is a filter on offers and all cart calculations, rather than a second Add button with different hidden eligibility. Missing count is distinct from no stock; quantities and quote dates remain visible.
+
+### Public store catalog cache
+
+Explicit Shopify catalog refreshes walk the public product feed with per-host pacing and existing account stock-check limits. A complete, bounded crawl replaces one compressed public cache per allowlisted storefront in SQLite; partial crawls preserve the old cache. Future card checks reuse it with its original date, then read variant-specific quantity evidence. Private reports, carts, account choices and market references are not part of this shared cache. The sourcing page displays all filtered rows and only bulk-allocates recorded quantities across eligible printings; unknown quantities require an explicit request.

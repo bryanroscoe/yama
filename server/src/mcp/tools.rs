@@ -343,6 +343,7 @@ pub(super) const TOOLS: &[Tool] = &[
                     "stores": {"type": "array", "items": {"type": "string"}, "description": "Store keys or names, from get_shopping_settings."},
                     "cards": {"type": "array", "items": {"type": "string"}, "description": "Card names, at most 300."},
                     "yestcg": {"type": "boolean", "description": "Also ask YesTCG, a stock search for some local stores, about the stores it covers."},
+                    "refresh_catalog": {"type":"boolean","description":"Rebuild complete public Shopify catalogs. Otherwise reuse the dated saved catalog when present, or search cards when none exists. Quantity checks remain variant-specific; no cart is modified."},
                 },
                 "additionalProperties": false,
             })

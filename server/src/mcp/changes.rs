@@ -1983,6 +1983,7 @@ pub async fn check_stores(st: &AppState, user: &User, via: &Via, args: &Value) -
             }
         }
     }
+    let refresh_catalog = args.get("refresh_catalog").and_then(Value::as_bool).unwrap_or(false);
     let yestcg = args.get("yestcg").and_then(Value::as_bool).unwrap_or(false);
     // Say now which stores Yama can't read, so Claude doesn't stage a check that reads nothing.
     let checkable = stock::checkable(&st.pool, &user.id).await?;
@@ -2005,7 +2006,7 @@ pub async fn check_stores(st: &AppState, user: &User, via: &Via, args: &Value) -
     // (the trip's when none are named).
     let cards_now = if cards.is_empty() { stock::trip_cards(&crate::plan::bundle::load_bundle(&st.pool, &user.id).await?) } else { cards.clone() };
     let target = |c: &(String, String, Option<(stock::Kind, String)>, Option<String>, String)| {
-        matches!(c.2, Some((stock::Kind::Pro, _))) || (!cards_now.is_empty() && (c.2.is_some() || (yestcg && c.3.is_some())))
+        matches!(c.2, Some((stock::Kind::Pro, _))) || (refresh_catalog && matches!(c.2, Some((stock::Kind::Shopify, _)))) || (!cards_now.is_empty() && (c.2.is_some() || (yestcg && c.3.is_some())))
     };
     let any = checkable.iter().any(|c| if named.is_empty() { c.4 != "never" && target(c) } else { named.iter().any(|(k, _)| *k == c.0) && target(c) });
     if !any {
@@ -2019,7 +2020,8 @@ pub async fn check_stores(st: &AppState, user: &User, via: &Via, args: &Value) -
         if yestcg { ", also through YesTCG's search" } else { "" },
         stock::DAILY_SNAPSHOTS
     );
-    let payload = json!({"stores": (!stores.is_empty()).then(|| stores.iter().map(|(k, _)| k.clone()).collect::<Vec<_>>()), "cards": (!cards.is_empty()).then_some(&cards), "yestcg": yestcg});
+    let detail = if refresh_catalog { format!("{detail} Rebuilds complete public Shopify catalogs; other stores use their normal stock checks. No cart or purchase changes.") } else { detail };
+    let payload = json!({"stores": (!stores.is_empty()).then(|| stores.iter().map(|(k, _)| k.clone()).collect::<Vec<_>>()), "cards": (!cards.is_empty()).then_some(&cards), "yestcg": yestcg, "refresh_catalog":refresh_catalog});
     stage(st, user, via, args, Staged { kind: "check_stores", summary, detail, payload }).await
 }
 
@@ -2028,6 +2030,7 @@ async fn apply_check_stores(st: &AppState, user: &User, change: &str, p: &Value)
         stores: p["stores"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()),
         cards: p["cards"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()),
         yestcg: p["yestcg"] == true,
+        refresh_catalog: p["refresh_catalog"] == true,
     };
     // The snapshots carry the change's id, so applying it again (after a crash between the two
     // writes) reads nothing.

@@ -85,7 +85,7 @@ export const setStorePreference = (store: string, body: StorePrefBody) =>
   api<{ store: string; preference: StorePreference | null }>(`/api/plan/stores/${encodeURIComponent(store)}/preference`, { method: "PUT", json: body });
 
 /** Read your stores' stock now, in the background: one snapshot per store (docs/shopping-design.md). */
-export const checkStores = (body: { stores: string[] | null; cards?: string[] | null; yestcg: boolean }) =>
+export const checkStores = (body: { stores: string[] | null; cards?: string[] | null; yestcg: boolean; refresh_catalog?: boolean }) =>
   api<{ snapshots: { id: string; store: string; source: string }[]; skipped: { store: string; name: string; why: string }[]; cards: number }>("/api/plan/stock/check", {
     method: "POST",
     json: body,
@@ -125,3 +125,5 @@ export const saveShoppingRules = (body: { effective_from: string; local_buy: Loc
 
 /** Remove a rule set made in Yama (imported sets belong to their export). */
 export const removeShoppingRules = (date: string) => api<{ removed: string }>(`/api/plan/settings/${encodeURIComponent(date)}`, { method: "DELETE" });
+
+export const storeCatalogs = () => api<{catalogs:{store:string;name:string;fetched_at:string|null;completed_at:string|null;products:number|null}[]}>("/api/plan/store-catalogs");

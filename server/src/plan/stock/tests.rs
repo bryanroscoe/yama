@@ -261,7 +261,7 @@ async fn a_check_reads_each_store_and_the_bundle_quotes_the_newest_answer() {
     snapshot(&pool, &owner, "s-mv", "multiverse-hobbies", "yestcg", Some(&refs)).await;
     snapshot(&pool, &owner, "s-mv2", "multiverse-too", "yestcg", Some(&refs)).await;
     let t = |id: &str, store: &str, kind: Kind, host: Option<&str>| Target { snapshot: id.into(), store: store.into(), kind, base: base.clone(), host: host.map(String::from) };
-    let job = Job {
+    let job = Job { refresh_catalog: false,
         owner: owner.clone(),
         cards: cards.clone(),
         targets: vec![t("s-pats", "pats", Kind::Shopify, None), t("s-bc", "black-castle", Kind::Pro, None), t("s-mv", "multiverse-hobbies", Kind::YesTcg, Some("mversetcg.tcgplayerpro.com")), t("s-mv2", "multiverse-too", Kind::YesTcg, Some("mversetcg.tcgplayerpro.com"))],
@@ -317,7 +317,7 @@ async fn a_check_reads_each_store_and_the_bundle_quotes_the_newest_answer() {
 
     // A newer snapshot of the same store supersedes the older one for the cards it covers only.
     snapshot(&pool, &owner, "s-pats2", "pats", "shopify", Some(&["Sol Ring"])).await;
-    let job = Job { owner: owner.clone(), cards: vec!["Sol Ring".into()], targets: vec![Target { snapshot: "s-pats2".into(), store: "pats".into(), kind: Kind::Shopify, base: format!("{base}/nothing-here"), host: None }] };
+    let job = Job { refresh_catalog: false, owner: owner.clone(), cards: vec!["Sol Ring".into()], targets: vec![Target { snapshot: "s-pats2".into(), store: "pats".into(), kind: Kind::Shopify, base: format!("{base}/nothing-here"), host: None }] };
     run(pool.clone(), crate::routes::http_client(), job, None).await;
     assert_eq!(snapshots(&pool, &owner, 10).await.unwrap()[0]["status"], "error", "every request failed");
     // An error snapshot answers nothing, so the older one still counts.
@@ -472,7 +472,7 @@ async fn a_staged_check_applied_again_reads_nothing() {
     store_row(&st.pool, &owner, "pats", "Pat's Games", "https://patsgames.com", 1).await;
     snapshot(&st.pool, &owner, "s-done", "pats", "shopify", Some(&["Sol Ring"])).await;
     sqlx::query("UPDATE store_snapshots SET status = 'ok', fetched_at = requested_at, change_id = 'chg-1' WHERE id = 's-done'").execute(&st.pool).await.unwrap();
-    let body = CheckBody { stores: Some(vec!["pats".into()]), cards: Some(vec!["Sol Ring".into()]), yestcg: false };
+    let body = CheckBody { stores: Some(vec!["pats".into()]), cards: Some(vec!["Sol Ring".into()]), yestcg: false, refresh_catalog: false };
     let again = start(&st, &owner, &body, "assistant", Some("chg-1")).await.unwrap();
     assert_eq!(again["already"], true);
     assert_eq!(again["snapshots"][0]["id"], "s-done");
@@ -506,7 +506,7 @@ async fn pruning_keeps_the_days_reads_so_the_cap_holds() {
     tx.commit().await.unwrap();
     let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM store_snapshots WHERE owner_id = ?").bind(&owner).fetch_one(&st.pool).await.unwrap();
     assert_eq!(n, DAILY_SNAPSHOTS + 4, "the day's reads and the pending change's read stay; the other old one goes");
-    let body = CheckBody { stores: Some(vec!["pats".into()]), cards: Some(vec!["Sol Ring".into()]), yestcg: false };
+    let body = CheckBody { stores: Some(vec!["pats".into()]), cards: Some(vec!["Sol Ring".into()]), yestcg: false, refresh_catalog: false };
     assert!(matches!(start(&st, &owner, &body, "page", None).await, Err(AppError::TooManyRequests { .. })));
 }
 
@@ -703,4 +703,18 @@ async fn checks_queued_for_the_same_answer_share_one_request() {
         assert_eq!(answer, json!({"products": []}));
     }
     assert_eq!(hits.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn variant_selected_low_stock_counts() {
+    let page = r#"<form id="product-form-main"><input name="id" value="123"></form><div id="Inventory-main"><svg></svg>Low stock! Only 1 left</div>"#;
+    assert_eq!(shopify_variant_quantity(page, "123"), Some(1));
+    assert_eq!(shopify_variant_quantity(&format!("<div><div>{page}</div></div>"), "123"), Some(1));
+    assert_eq!(shopify_variant_quantity(page, "456"), None);
+    assert_eq!(shopify_variant_quantity(&page.replace("Only 1 left", "In stock"), "123"), None);
+    assert_eq!(shopify_variant_quantity(&page.replace("Only 1 left", "Only 2 left"), "123"), Some(2));
+    assert_eq!(shopify_variant_quantity(&page.replace("Only 1 left", "4 in stock"), "123"), Some(4));
+    assert_eq!(shopify_variant_quantity(&page.replace("Inventory-main", "Inventory-other"), "123"), None);
+    assert_eq!(shopify_variant_quantity(r#"<div class="product-card">Only 1 left</div>"#, "123"), None);
+    assert_eq!(shopify_variant_quantity(&format!("{page}{page}"), "123"), None);
 }
