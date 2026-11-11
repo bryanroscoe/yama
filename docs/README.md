@@ -4,13 +4,15 @@ Where everything is written down. New here? Read the [README](../README.md), the
 [features.md](features.md) for what Yama does and [ARCHITECTURE.md](../ARCHITECTURE.md) for how
 it is built.
 
-Three kinds of page live in this folder, and it helps to know which you are reading:
+Four kinds of page live in this folder, and it helps to know which you are reading:
 
 - **Guides and formats** describe how something works now. They are kept current.
 - **Designs** record what was decided and why, before or while it was built. The code may have
   moved on in details; [ARCHITECTURE.md](../ARCHITECTURE.md) holds the latest decision.
 - **Dated reports** (a date in the filename) are a measurement or review from that day. They
   are evidence, and are never updated.
+- **Future plans** ([plans/](plans/README.md)) describe work not yet built or approved: how it
+  would look, how to build it, and the decisions still open.
 
 ## Start here
 
@@ -111,6 +113,13 @@ Three kinds of page live in this folder, and it helps to know which you are read
 | [redesign/](redesign/) | The site plan, the plans redesign and the deck page spec. |
 | [research/](research/) | Surveys of other Magic apps and of Arena's interface, from 18 October 2026. |
 
+## Future plans
+
+| Page | What it covers |
+|---|---|
+| [plans/README.md](plans/README.md) | What goes in the plans folder, and every plan with its status. |
+| [plans/forge-in-multiplayer.md](plans/forge-in-multiplayer.md) | Choosing Forge or Phase when hosting a game, then moving a game between them. Proposed. |
+
 ## Dated reports
 
 | Page | What it covers |
@@ -129,4 +138,6 @@ Three kinds of page live in this folder, and it helps to know which you are read
 - A shipped or changed feature goes in [features.md](features.md).
 - A decision goes in [ARCHITECTURE.md](../ARCHITECTURE.md), dated, under the decision record.
   If it changes how the system fits together, update the overview and its diagrams too.
+- A plan for work not yet built goes in [plans/](plans/README.md) with a status line, and moves
+  into ARCHITECTURE.md once Bryan approves it.
 - A new page in this folder gets a row here.

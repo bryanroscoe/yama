@@ -1268,6 +1268,8 @@ reconstruction does not satisfy direct restoration. The implementation contract,
 privacy/consent rules and acceptance cases are in
 [game engines and saved points](docs/game-engines-and-checkpoints.md). These are
 new requirements; the Phase board integration does not implement them.
+A build plan, in order with open decisions, is in
+[Forge in multiplayer, and switching engines](docs/plans/forge-in-multiplayer.md) (proposed 2026-11-11).
 
 ### Database backups (2026-11-02)
 
