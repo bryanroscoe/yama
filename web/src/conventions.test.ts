@@ -326,7 +326,7 @@ describe("formatting goes through @yama/core's format module", () => {
   });
 });
 
-describe("type sizes come from the scale", () => {
+describe("styles come from the scales", () => {
   function stylesheets(dir: string): string[] {
     return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
       const path = join(dir, e.name);
@@ -374,5 +374,30 @@ describe("type sizes come from the scale", () => {
     expect(found).toEqual([]);
     // In code too: a style's fontSize is a token, not a number.
     expect(uses(/fontSize:\s*["'`]?\d/, (file) => BOARD.test(file))).toEqual([]);
+  });
+
+  it("nothing sits over the page on a z-index of its own", () => {
+    // Use a --z-* layer (web/src/styles.css). A small number, -2 to 6, orders the parts of one
+    // component among themselves and is fine.
+    const found: string[] = [];
+    for (const path of stylesheets(WEB)) {
+      const file = relative(ROOT, path);
+      if (file === "web/src/play/board.css") continue;
+      const css = readFileSync(path, "utf8").replace(/\/\*[^]*?\*\//g, "");
+      for (const m of css.matchAll(/z-index:\s*([^;}]+)/g)) {
+        const value = (m[1] ?? "").trim();
+        const local = /^-?\d+$/.test(value) && Number(value) >= -2 && Number(value) <= 6;
+        if (!local && !/^var\(--z-[a-z-]+\)$/.test(value)) found.push(`${file}: z-index: ${value}`);
+      }
+    }
+    expect(found).toEqual([]);
+    // In code too: a style's zIndex is a small local number or a layer's name, and a layer
+    // isn't kept as a number in a constant.
+    const inCode = uses(/zIndex:\s*-?\d+|\b[A-Z_]*LAYER\s*=\s*\d/, (file, line) => {
+      if (BOARD.test(file)) return true;
+      const n = /zIndex:\s*(-?\d+)/.exec(line)?.[1];
+      return n !== undefined && Number(n) >= -2 && Number(n) <= 6 && !/LAYER\s*=\s*\d/.test(line);
+    });
+    expect(inCode).toEqual([]);
   });
 });

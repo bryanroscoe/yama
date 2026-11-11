@@ -87,6 +87,12 @@ The idea: a near-black, neutral table, so the commander art and the mana colors 
   | Battlefield tiles | 8–12 px |
 
 - **Spacing:** gaps of 8 / 12 / 16 / 24 / 32 px. Page padding is 16 px on phones and clamp(20px, 4vw, 56px) on laptops. Content max-width is 1120 px.
+- **Layers:** what sits over the page takes a named layer, lowest first: `--z-switch`,
+  `--z-page-over`, `--z-bar` (tab bar, sticky tabs), `--z-status`, `--z-popover`, `--z-scrim`,
+  `--z-sheet` (a dialog), `--z-overlay`, `--z-layer` (full-screen layers, menus opened from a
+  dialog), `--z-banner`, `--z-frame`, `--z-picker`, `--z-question` (confirm and unsaved
+  prompts) and `--z-preview` (the card preview that follows the pointer). Inside one component,
+  a small number (-2 to 6) orders its own parts.
 - **Touch targets:** at least 44 px on phones and touch screens; primary buttons 48–56 px there. On a laptop controls are 36 px, the primary 40 px (see Density, actions and page structure).
 - **Chevrons:** single-select controls reserve 44 px at the end, with a 16 px arrow inset
   14 px from the edge. Disclosures leave 12 px between their chevron and label. Keep their

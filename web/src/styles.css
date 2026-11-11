@@ -87,6 +87,23 @@
   --r-tile: 10px;
   --card-radius: 4.75% / 3.4%; /* a real card's corner, proportionally */
 
+  /* Layers of the page, lowest first. Inside a component, small numbers (-2 to 6) order its own
+     parts; anything that sits over the page takes one of these (conventions.test.ts). */
+  --z-switch: 10; /* the table's view switch */
+  --z-page-over: 15; /* a page over a page: the card page beside its results */
+  --z-bar: 20; /* the tab bar, sticky section tabs, the scanner */
+  --z-status: 25; /* a status line pinned over the bars */
+  --z-popover: 30; /* help popovers, picker lists, the card page on a phone */
+  --z-scrim: 40; /* the dimmed page under a dialog */
+  --z-sheet: 41; /* a dialog */
+  --z-overlay: 50; /* the scanner's overlay */
+  --z-layer: 60; /* a full-screen layer or a menu opened from a dialog: card zoom, More, sample hand */
+  --z-banner: 70; /* the viewing-as banner */
+  --z-frame: 75; /* the page frame's own edge */
+  --z-picker: 80; /* the full-screen picker */
+  --z-question: 90; /* "are you sure?" and "leave without saving?": over everything you can work in */
+  --z-preview: 2200; /* the card preview that follows the pointer, over all of it */
+
   /* Spacing: gaps of 8 / 12 / 16 / 24 / 32. */
   --s-1: 8px;
   --s-2: 12px;
@@ -819,7 +836,7 @@ body::before {
   position: fixed;
   inset: 0 0 auto;
   height: env(safe-area-inset-top);
-  z-index: 75;
+  z-index: var(--z-frame);
   background: var(--ground);
   pointer-events: none;
 }
@@ -850,7 +867,7 @@ body::before {
   grid-template-columns: repeat(7, 1fr);
   background: var(--ground);
   border-top: 1px solid var(--line);
-  z-index: 20;
+  z-index: var(--z-bar);
 }
 .nav a {
   display: grid;
@@ -1188,7 +1205,7 @@ button.list-row:hover {
   position: fixed;
   inset: 0;
   background: rgb(0 0 0 / 0.6);
-  z-index: 40;
+  z-index: var(--z-scrim);
   animation: scrim-in 180ms ease-out;
 }
 @keyframes scrim-in {
@@ -1198,7 +1215,7 @@ button.list-row:hover {
 }
 .sheet {
   position: fixed;
-  z-index: 41;
+  z-index: var(--z-sheet);
   inset: auto 0 0 0;
   max-height: 88dvh;
   overflow: auto;
@@ -1857,7 +1874,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
 .scan-overlay {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  z-index: var(--z-overlay);
   background: var(--ground);
   display: grid;
   grid-template-rows: 1fr auto;
@@ -2543,7 +2560,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
 .card-zoom {
   position: fixed;
   inset: 0;
-  z-index: 60;
+  z-index: var(--z-layer);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2566,7 +2583,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   position: sticky;
   top: env(safe-area-inset-top);
   margin-top: env(safe-area-inset-top);
-  z-index: 70;
+  z-index: var(--z-banner);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2613,7 +2630,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
 }
 .more-menu-pop {
   position: fixed;
-  z-index: 60;
+  z-index: var(--z-layer);
   min-width: 240px;
   padding: 6px;
   background: var(--surface);
@@ -2685,7 +2702,7 @@ body:has(.view-banner) {
 .section-tabs {
   position: sticky;
   top: var(--sticky-top);
-  z-index: 20;
+  z-index: var(--z-bar);
   display: flex;
   gap: 24px;
   margin: 0 0 var(--s-4);

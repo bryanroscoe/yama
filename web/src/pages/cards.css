@@ -265,7 +265,7 @@
 .card-page {
   position: fixed;
   inset: 0;
-  z-index: 30;
+  z-index: var(--z-popover);
   overflow-y: auto;
   overscroll-behavior: contain;
   background: var(--ground);
@@ -273,7 +273,7 @@
 @media (min-width: 900px) {
   .card-page {
     left: var(--rail-w);
-    z-index: 15;
+    z-index: var(--z-page-over);
   }
 }
 /* In a sheet: bleed to the sheet's edges, and fade the art into the sheet's color. */

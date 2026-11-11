@@ -4,7 +4,7 @@
 .scan {
   position: fixed;
   inset: 0;
-  z-index: 20;
+  z-index: var(--z-bar);
   display: flex;
   flex-direction: column;
   background: #000;
