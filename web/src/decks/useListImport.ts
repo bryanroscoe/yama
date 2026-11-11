@@ -242,6 +242,14 @@ export function useListImport({
    */
   /** Moves on whenever the box changes hands: typing, a paste, a file, a loaded list. */
   const turn = () => sourceRequest.current;
+  // Leaving the page takes the box's turn too: a clipboard or file still being read then asks
+  // nothing (the question would open over the next page) and puts nothing anywhere.
+  useEffect(
+    () => () => {
+      sourceRequest.current++;
+    },
+    [],
+  );
   /** Whether the box holds unsaved work as of the latest render (a Paste asks about the list as it is when its answer comes, not as it was when tapped). */
   const unsavedNow = useRef(false);
   const mayReplace = async (what: string): Promise<boolean> => !needsReplaceQuestion(unsavedNow.current, !!confirmReplace) || (await confirmReplace!(what));
