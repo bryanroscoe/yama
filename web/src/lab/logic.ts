@@ -37,6 +37,17 @@ export function moreOften(d: number): string {
 /** "now against stock" → "Now against stock". */
 export const sentence = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
+/**
+ * A reason from a stored analysis, as a sentence. The analysis writes the engine's name in
+ * lower case ("partly unimplemented in phase") and three dots where a list is cut; the page
+ * says Phase and "…". A game's phases ("main phase") are left alone.
+ */
+export const reasonText = (s: string) =>
+  sentence(s)
+    .replace(/\b(in|on) phase\b(?![-\w])/g, "$1 Phase")
+    .replace(/\bphase (gap|engine|AI)\b/g, "Phase $1")
+    .replace(/\.\.\./g, "…");
+
 /** An interval in whole points: "+1 to +7". */
 export function pointsRange(ci: [number, number]): string {
   return `${points(ci[0])} to ${points(ci[1])}`;
@@ -646,7 +657,7 @@ export const AGREEMENT_SHOWN = 6;
 /**
  * The server's engine-agreement sentence, split for display: its lead (without "The engines
  * agree/disagree", which the page says in bold) with the first few decks, and the decks left for
- * the fold. The server writes one entry per deck, "Name: 11% (8 to 15) on phase, 25% (20 to 30)
+ * the fold. The server writes one entry per deck, "Name: 11% (8 to 15) on Phase, 25% (20 to 30)
  * on Forge", joined with "; ". A deck's name is typed by a person and may hold "; " itself, so
  * entries are cut where one ends (its Forge figure), never at a bare semicolon. Text in any other
  * shape stays whole.

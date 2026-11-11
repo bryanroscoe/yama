@@ -78,7 +78,7 @@ def main():
                   attribution='Aggregate statistics, CC BY 4.0; https://playgroup.gg/legal',
                   checked_at=dt.datetime.now(dt.timezone.utc).isoformat(),
                   method='raw-wins-divided-by-games-v1',
-                  limitations='Mixed lists, pilots, opponents and pod sizes. Not four-player normalised; not an upgrade-gain estimate. Partners are individual commander observations.',
+                  limitations='Mixed lists, pilots, opponents and pod sizes. Not four-player normalized; not an upgrade-gain estimate. Partners are individual commander observations.',
                   commanders=out, refresh_errors=errors)
     temp = args.output.with_suffix('.tmp')
     temp.write_text(json.dumps(result, indent=2, ensure_ascii=False)+'\n')
