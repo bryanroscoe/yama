@@ -21,7 +21,8 @@ import { recentGameText, turnsText, winningSeat } from "./recent";
 import { resolveDraft, type CommanderDraft, type Person } from "./pickers";
 import { availablePeople, deckCommanders, SeatEditor, usePeople } from "./SeatEditor";
 import { gameSummary } from "./history";
-import { formFromGame, seatResults, settleRebuilt } from "./logEdit";
+import { clickEditsForm, formFromGame, seatResults, settleRebuilt } from "./logEdit";
+import { UnsavedPrompt, useUnsavedChanges } from "../unsaved";
 import { useHosting } from "./share";
 import { SharedTables } from "./SharedTables";
 import { forgetTable, followedTable } from "./following";
@@ -558,7 +559,17 @@ const RECENT_PHONE = 3;
 
 function RecentGames({ waiting, notes }: { waiting: ReactNode; notes: ReactNode }) {
   const games = useQuery({ queryKey: ["games"], queryFn: ({ signal }) => api<(GameRow & { note?: string | null })[]>("/api/games", { signal }) });
-  const [logging, setLogging] = useState(false);
+  // Game history's empty state sends people here to log a game: the form opens once, and a
+  // reload of this page doesn't open it again.
+  const location = useLocation();
+  const navigate = useNavigate();
+  const asked = !!(location.state as { log?: boolean } | null)?.log;
+  const [logging, setLogging] = useState(asked);
+  useEffect(() => {
+    if (asked) void navigate(location.pathname, { replace: true, state: null });
+    // Once, when the page opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const wide = useWide();
   // A game deleted while offline stays out of the list until Yama catches up.
   const deleting = usePendingDeletes();
@@ -668,6 +679,12 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
   const [fun, setFun] = useState<FunRating[]>(form?.fun ?? []);
   const [outs, setOuts] = useState<KnockoutAnswer[]>(form?.outs ?? []);
   const [note, setNote] = useState(form?.note ?? "");
+  // Something has been typed, picked or ticked since the form opened (or since the last game
+  // saved from it). Closing then (Close, Escape, a tap outside) or leaving the page asks first:
+  // the form is long, and it used to close on Escape and drop everything.
+  const [touched, setTouched] = useState(false);
+  const guard = useUnsavedChanges(touched, { onLeave: onClose });
+  const close = () => guard.close(onClose);
   // One id per form, so pressing Save again after a failed or slow upload can't log it twice.
   const [gameId, setGameId] = useState(() => editing?.id ?? crypto.randomUUID());
   // Games saved from this form with "Save and log another".
@@ -831,12 +848,19 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
       setOuts(UNANSWERED.outs);
       setNote(UNANSWERED.note);
       setSavedHere((n) => n + 1);
+      // That game is saved; the players and decks carried over aren't work to lose.
+      setTouched(false);
     },
   });
 
   return (
-    <Dialog title={editing ? "Edit the game" : "Log a game"} onClose={onClose}>
-      <form className="stack capture" onSubmit={(e) => { e.preventDefault(); save.mutate(false); }}>
+    <Dialog title={editing ? "Edit the game" : "Log a game"} onClose={close}>
+      <form
+        className="stack capture"
+        onSubmit={(e) => { e.preventDefault(); save.mutate(false); }}
+        onChangeCapture={() => setTouched(true)}
+        onClickCapture={(e) => { if (clickEditsForm(e.target as Element)) setTouched(true); }}
+      >
         <div className="row" style={{ alignItems: "end" }}>
           <label style={{ flex: "1 1 12rem" }}>
             Playgroup
@@ -925,6 +949,7 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
           )}
         </div>
       </form>
+      <UnsavedPrompt guard={guard} what={editing ? "your changes to this game" : "what you've entered for this game"} />
     </Dialog>
   );
 }
