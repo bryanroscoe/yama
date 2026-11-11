@@ -107,6 +107,16 @@ function SourceCard({ source }: { source: Source }) {
     {source.transformation && <p>{source.transformation}</p>}
   </article>;
 }
+/** What a commander record reports, from the figures it has. A catalog row has none of them and
+ *  says nothing, where it used to read "Unknown source-reported games, Unknown pilots. Source ELO: Unknown." */
+export function commanderLine(d: Record<string, unknown>): string {
+  const parts: string[] = [];
+  if (d.game_played_count != null) parts.push(`${count(d.game_played_count)} source-reported games`);
+  if (d.pilot_count != null) parts.push(`${count(d.pilot_count)} pilots`);
+  const figures = parts.length ? `${parts.join(", ")}.` : "";
+  const elo = d.global_elo != null ? `Source ELO: ${count(d.global_elo)}.` : "";
+  return [figures, elo].filter(Boolean).join(" ");
+}
 export function RecordCard({ record, explore }: { record: EvidenceRecord; explore: (r: EvidenceRecord) => void }) {
   const d = record.data;
   const stats = object(d.stats);
@@ -120,7 +130,7 @@ export function RecordCard({ record, explore }: { record: EvidenceRecord; explor
       {Array.isArray(d.quality_flags) && d.quality_flags.length > 0 && <p>Quality flags: {d.quality_flags.map(text).join(", ")}</p>}
     </>}
     {record.kind === "weekly_activity" && <p>{count(d.value)} reported activity for the week of {text(d.week)}.</p>}
-    {record.kind === "commander" && <p>{count(d.game_played_count)} source-reported games, {count(d.pilot_count)} pilots. Source ELO: {count(d.global_elo)}.</p>}
+    {record.kind === "commander" && commanderLine(d) && <p>{commanderLine(d)}</p>}
     {record.kind === "commander_history" && <>
       <p>{count(d.weekly_points)} weekly activity points{d.first_week ? ` from ${text(d.first_week)} to ${text(d.last_week)}` : ""}. {count(d.elo_points)} ELO sequence points.</p>
       <p className="dim small">{text(d.note)}</p>

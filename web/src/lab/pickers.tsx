@@ -466,7 +466,7 @@ export function RunBlockers({ items }: { items: { text: string; href?: string; l
 export { engineFields, engineState, engineText, forgeSeconds, type EngineState } from "./engines";
 
 const ENGINE_OPTIONS: { id: EngineMode; label: string }[] = [
-  { id: "phase", label: "phase" },
+  { id: "phase", label: "Phase" },
   { id: "forge", label: "Forge" },
   { id: "both", label: "Both" },
 ];
@@ -478,7 +478,7 @@ export function EnginePicker({ value, onChange, pace, games, id }: { value: Engi
   const fs = forgeSeconds(pace, games);
   const note =
     value.mode === "phase"
-      ? "phase: Yama's own rules engine. Fast."
+      ? "Phase: Yama's own rules engine. Fast."
       : value.mode === "forge"
         ? `Forge: a separate rules engine with its own AI. Its games take longer${fs != null ? ` (this run: ${durationText(fs)})` : ""}, and each counts as ${weight} against your daily games.`
         : `Every pod on each engine, side by side, with a flag when the two disagree. Each Forge game counts as ${weight} against your daily games.`;
@@ -493,12 +493,12 @@ export function EnginePicker({ value, onChange, pace, games, id }: { value: Engi
         onChange={(mode) => onChange({ ...value, mode })}
         options={ENGINE_OPTIONS.map((o) => ({ value: o.id, label: o.label, disabled: o.id !== "phase" && !forgeOk }))}
       />
-      <span className="lab-note">{forgeOk ? note : "phase: Yama's own rules engine. Forge isn't set up on this server, so phase is the only engine here."}</span>
+      <span className="lab-note">{forgeOk ? note : "Phase: Yama's own rules engine. Forge isn't set up on this server, so Phase is the only engine here."}</span>
       {forgeOk && value.mode !== "phase" && !forge?.online && <span className="lab-note lab-warn">The Forge worker isn't answering right now. You can still start the run; its Forge games wait until the worker is back.</span>}
       <div className="lab-engine-ai">
         {value.mode !== "forge" && (
           <label>
-            {value.mode === "both" ? "phase AI level" : "AI level"}
+            {value.mode === "both" ? "Phase AI level" : "AI level"}
             <select value={value.difficulty} onChange={(e) => onChange({ ...value, difficulty: e.target.value })}>
               <option>Easy</option>
               <option>Medium</option>
@@ -546,10 +546,10 @@ export function EngineSupportNote({ lists, names, mode }: { lists: BaseChoice[];
         <p key={l.label}>
           <b>{l.label}</b>
           {l.forge?.length ? `: Forge can't play ${l.forge.join(", ")}.` : ""}
-          {l.phase.length ? ` phase can't play ${l.phase.join(", ")}.` : ""}
+          {l.phase.length ? ` Phase can't play ${l.phase.join(", ")}.` : ""}
         </p>
       ))}
-      {rows.some((l) => l.forge?.length) && <p>A run with these cards on Forge is refused; swap them out, or run on phase only.</p>}
+      {rows.some((l) => l.forge?.length) && <p>A run with these cards on Forge is refused; swap them out, or run on Phase only.</p>}
     </div>
   );
 }

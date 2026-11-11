@@ -1,7 +1,7 @@
 //! Shared decks, profiles and collections, rendered without loading the private application.
 //! Same stylesheet, notice and Content-Security-Policy as the public precon reference.
 use super::*;
-use crate::public_page::{bracket_name, card_item, e, identity as pips, secure, stack_card, when};
+use crate::public_page::{bracket_name, card_item, count, e, identity as pips, secure, stack_card, when};
 use crate::public_precons::html::stylesheet;
 use axum::extract::Query;
 use std::fmt::Write;
@@ -348,7 +348,7 @@ pub(super) async fn collection(
     let mut body = format!(
         "<a class=\"back-link\" href=\"/u/{0}\">← @{0}</a><section class=\"share-profile-head\"><p class=\"eyebrow\">Collection</p><h1>@{0}'s cards</h1><p class=\"dim\">{1} copies. Real cards only; proxies aren't listed.</p></section><div class=\"public-actions\"><a class=\"button primary\" href=\"/u/{0}/collection.txt\" download>Download as a list</a><a class=\"button\" href=\"/u/{0}/collection.csv\" download>Download CSV</a></div>",
         e(&h),
-        copies
+        count(copies)
     );
     write!(
         body,
@@ -360,7 +360,8 @@ pub(super) async fn collection(
     if hits.is_empty() {
         body.push_str("<p class=\"dim\">No cards match.</p>");
     } else {
-        body.push_str("<table class=\"share-collection\"><thead><tr><th scope=\"col\">Card</th><th scope=\"col\">Printing</th><th scope=\"col\">Finish</th><th scope=\"col\">Condition</th><th scope=\"col\" class=\"num\">Copies</th></tr></thead><tbody>");
+        // Phones drop the Finish and Condition columns; the finish then shows under the printing.
+        body.push_str("<table class=\"share-collection share-owned\"><thead><tr><th scope=\"col\">Card</th><th scope=\"col\">Printing</th><th scope=\"col\">Finish</th><th scope=\"col\">Condition</th><th scope=\"col\" class=\"num\">Copies</th></tr></thead><tbody>");
         for l in hits {
             let finish = match l.finish.as_str() {
                 "foil" => "Foil",
@@ -370,7 +371,7 @@ pub(super) async fn collection(
             let lang = if l.lang == "en" { String::new() } else { format!(", {}", e(&l.lang)) };
             write!(
                 body,
-                "<tr><td><a class=\"public-card-ref\" data-card-name=\"{0}\" data-card-image=\"{1}\" href=\"{2}\">{0}</a></td><td>{3} {4}<small class=\"dim\"> {5}</small></td><td>{finish}{lang}</td><td>{6}</td><td class=\"num\">{7}</td></tr>",
+                "<tr><td><a class=\"public-card-ref\" data-card-name=\"{0}\" data-card-image=\"{1}\" href=\"{2}\">{0}</a></td><td>{3} {4}<small class=\"dim\"> {5}</small><small class=\"share-finish\">{finish}{lang}</small></td><td>{finish}{lang}</td><td>{6}</td><td class=\"num\">{7}</td></tr>",
                 e(&l.name),
                 e(l.image.as_deref().filter(|u| u.starts_with("https://cards.scryfall.io/")).unwrap_or("")),
                 e(&scryfall(&l.name)),

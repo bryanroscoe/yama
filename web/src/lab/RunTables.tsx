@@ -144,7 +144,7 @@ export function RunDeckPage() {
       <ArtPanel art={me?.art ?? display?.art}>
         <span className="dim small">
           <Link to={`/lab/runs/${e.id}`}>{e.name}</Link>
-          {enginesOf(e).mode === "both" ? (engine === "forge" ? ", on Forge" : ", on phase") : ""}
+          {enginesOf(e).mode === "both" ? (engine === "forge" ? ", on Forge" : ", on Phase") : ""}
         </span>
         <h1 style={{ fontSize: "var(--t-xl)" }}>{me?.label ?? deck}</h1>
         {(me?.commanders.length ?? 0) > 0 && (
@@ -327,7 +327,7 @@ export function RunTablePage() {
       <header className="rt-head">
         <span className="dim small">
           <Link to={`/lab/runs/${e.id}`}>{e.name}</Link>
-          {enginesOf(e).mode === "both" ? (engine === "forge" ? ", on Forge" : ", on phase") : ""}
+          {enginesOf(e).mode === "both" ? (engine === "forge" ? ", on Forge" : ", on Phase") : ""}
         </span>
         <h1>Table {table}</h1>
       </header>

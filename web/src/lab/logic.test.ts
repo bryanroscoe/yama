@@ -120,12 +120,12 @@ describe("wording", () => {
   });
 
   it("names the run's engine in the caveat", () => {
-    expect(caveat("phase-rs v0.113.0")).toBe("AI vs AI games on the phase engine: evidence about the simulation, not your table.");
+    expect(caveat("phase-rs v0.113.0")).toBe("AI vs AI games on the Phase engine: evidence about the simulation, not your table.");
     expect(caveat("forge 2.0.15")).toBe("AI vs AI games on the Forge engine: evidence about the simulation, not your table.");
     expect(caveat(null)).toBe("AI vs AI games: evidence about the simulation, not your table.");
-    expect(engineFamily("phase-rs v0.113.0, phase-rs v0.114.0")).toBe("phase");
-    expect(engineFamily("phase-rs v0.113.0, forge 2.0.15")).toBe("phase and Forge");
-    expect(caveat("phase-rs v0.113.0, forge 2.0.15")).toContain("on the phase and Forge engines:");
+    expect(engineFamily("phase-rs v0.113.0, phase-rs v0.114.0")).toBe("Phase");
+    expect(engineFamily("phase-rs v0.113.0, forge 2.0.15")).toBe("Phase and Forge");
+    expect(caveat("phase-rs v0.113.0, forge 2.0.15")).toContain("on the Phase and Forge engines:");
   });
 
   it("has no results before a scored game, and a cancelled run doesn't ask for more games", () => {
@@ -417,5 +417,18 @@ describe("deckName", () => {
   it("leaves other names as typed", () => {
     expect(deckName("unknown-precon / Esix, Fractal Bloom", precons)).toBe("unknown-precon / Esix, Fractal Bloom");
     expect(deckName("Riders of Rohan (after prints)", precons)).toBe("Riders of Rohan (after prints)");
+  });
+});
+
+describe("a long engine comparison", () => {
+  it("shows the first decks and folds the rest", async () => {
+    const { agreementParts, AGREEMENT_SHOWN } = await import("./logic");
+    const decks = Array.from({ length: 174 }, (_, i) => `Deck ${i + 1}: 10% on Phase, 20% on Forge`);
+    const long = agreementParts(`The engines disagree. ${decks.join("; ")}.`);
+    expect(long.shown).toBe(`${decks.slice(0, AGREEMENT_SHOWN).join("; ")}.`);
+    expect(long.rest).toHaveLength(174 - AGREEMENT_SHOWN);
+    expect(long.rest.at(-1)).toBe("Deck 174: 10% on Phase, 20% on Forge");
+    // A short one stays whole, with the lead the page says in bold removed.
+    expect(agreementParts("The engines agree: both prefer the change.")).toEqual({ shown: "both prefer the change.", rest: [] });
   });
 });

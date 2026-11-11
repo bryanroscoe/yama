@@ -118,7 +118,7 @@ export function simDetails(cardData: string | null | undefined): string | null {
 
 /**
  * The engines named in a label ("phase-rs v0.113.0", "forge 2.0.15, phase-rs v0.114.0"), as the
- * prose says them: "phase", "Forge", "phase and Forge". Null when unrecorded.
+ * prose says them: "Phase", "Forge", "Phase and Forge". Null when unrecorded.
  */
 export function engineFamily(engine: string | null | undefined): string | null {
   if (!engine) return null;
@@ -126,12 +126,12 @@ export function engineFamily(engine: string | null | undefined): string | null {
     .split(", ")
     .map((e) => e.trim().split(/[\s-]/)[0]?.toLowerCase() ?? "")
     .filter(Boolean)
-    .map((e) => (e === "forge" ? "Forge" : e));
+    .map((e) => (e === "forge" ? "Forge" : e === "phase" ? "Phase" : e));
   const unique = [...new Set(names)];
   return unique.length ? unique.join(" and ") : null;
 }
 
-/** The engine with its noun: "the phase engine", "the phase and Forge engines", or null. */
+/** The engine with its noun: "the Phase engine", "the Phase and Forge engines", or null. */
 export function engineName(engine: string | null | undefined): string | null {
   const f = engineFamily(engine);
   return f ? `the ${f} ${f.includes(" and ") ? "engines" : "engine"}` : null;
@@ -638,4 +638,18 @@ export function allowanceText(a: Allowance): string {
     `Your account runs ${a.games}-game experiments, ${atOnce}, up to ${a.games_per_day} games a day ` +
     `(${left} left today).`
   );
+}
+
+/** How many decks an engine comparison names before the rest fold away. */
+export const AGREEMENT_SHOWN = 6;
+
+/**
+ * The server's engine-agreement sentence, split for display: its lead (without "The engines
+ * agree/disagree", which the page says in bold) with the first few decks, and the decks left for
+ * the fold. The server lists one deck per "; ".
+ */
+export function agreementParts(text: string): { shown: string; rest: string[] } {
+  const parts = text.replace(/^The engines (agree|disagree)[.:]\s*/, "").replace(/\.$/, "").split("; ");
+  if (parts.length <= AGREEMENT_SHOWN + 1) return { shown: `${parts.join("; ")}.`, rest: [] };
+  return { shown: `${parts.slice(0, AGREEMENT_SHOWN).join("; ")}.`, rest: parts.slice(AGREEMENT_SHOWN) };
 }

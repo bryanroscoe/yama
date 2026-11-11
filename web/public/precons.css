@@ -1239,12 +1239,21 @@ summary, .more-filters summary { min-height:44px; align-content:center; }
 @media(max-width:600px) {
   .share-profile-head h1 { font-size:44px; }
   .share-collection th:nth-child(4), .share-collection td:nth-child(4) { display:none; }
+  /* A shared collection: four columns ran 25 px past a phone's edge. Finish moves under the printing. */
+  .share-owned th:nth-child(3), .share-owned td:nth-child(3) { display:none; }
+  .share-owned .share-finish { display:block; color:var(--text); }
+  .share-owned th, .share-owned td { padding-inline:6px; }
+  .share-owned th:first-child, .share-owned td:first-child { padding-left:0; }
+  .share-owned th:last-child, .share-owned td:last-child { padding-right:0; }
 }
+.share-finish { display:none; }
 /* Scryfall's art crop is 626 px wide: on wide screens it stays a window on the right, near its
    own size, and the wash takes it into the panel on the left, where the text sits. */
 @media(min-width:901px) {
   .public-art { --art-w:min(100%,820px); }
   .public-art>img { left:auto; width:var(--art-w); }
+  /* A long title stays left of the art's clear part: it ran across it with no wash under the words. */
+  .public-art .art-heading { max-width:calc(100% - 446px); }
   .public-art>.art-wash { background:linear-gradient(90deg,var(--surface) calc(100% - var(--art-w)),rgba(11,12,14,.55) calc(100% - var(--art-w) + 220px),transparent calc(100% - var(--art-w) + 420px)),linear-gradient(0deg,rgba(11,12,14,.98),rgba(11,12,14,.5) 60%,rgba(11,12,14,.15)); }
 }
 

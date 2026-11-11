@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { DatasetsPage, MonthlySummaries, RecordCard } from "./Datasets";
+import { DatasetsPage, MonthlySummaries, RecordCard, commanderLine } from "./Datasets";
 import { count, datasetPath, percent, sourceUrl, type Dataset, type DatasetRead, type EvidenceRecord } from "./api";
 
 const auth = vi.hoisted(() => ({ id: "bryan", is_admin: false, viewing: undefined as object | undefined }));
@@ -83,5 +83,16 @@ describe("private evidence browser", () => {
     expect(Object.fromEntries(url.searchParams)).toEqual({ limit: "25", entity: "playgroup:commander:1", revision: "3", half_life_days: "90", section: "records", offset: "25" });
     expect(sourceUrl("https://user:secret@example.com")).toBeUndefined(); expect(sourceUrl("data:text/html,hi")).toBeUndefined();
     expect(count(null)).toBe("Unknown"); expect(percent(0)).toBe("0.00%");
+  });
+});
+
+describe("a commander record's figures", () => {
+  it("says only what the source reported", () => {
+    // A catalog row has no figures: it used to read "Unknown source-reported games, Unknown pilots. Source ELO: Unknown."
+    expect(commanderLine({})).toBe("");
+    expect(commanderLine({ game_played_count: 1200, pilot_count: 80, global_elo: 1512 })).toBe("1,200 source-reported games, 80 pilots. Source ELO: 1,512.");
+    expect(commanderLine({ game_played_count: 12 })).toBe("12 source-reported games.");
+    const html = renderToStaticMarkup(<RecordCard record={{ id: "r1", entity: "Krenko", kind: "commander", sources: [], data: { name: "Krenko, Mob Boss" } }} explore={() => undefined} />);
+    expect(html).not.toContain("Unknown");
   });
 });

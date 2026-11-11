@@ -40,6 +40,11 @@
   grid-area: tabs;
   margin: 0;
 }
+/* The Plans count's hidden label is absolutely placed; without this it escaped the scrolling
+   control and made the page 9 px wider than a phone (the tab bar's last label was clipped). */
+.deck-sections > a {
+  position: relative;
+}
 .area-phone {
   display: none;
 }
@@ -51,10 +56,12 @@
     display: flex;
     width: 100%;
   }
+  /* Four sections fit a 390 px phone: tighter sides, and none shrinks below its label. */
   .area-top > .deck-sections > a {
-    flex: 1;
+    flex: 1 0 auto;
     justify-content: center;
     min-height: var(--target);
+    padding-inline: 0.6rem;
   }
   .is-index .area-wide {
     display: none;
