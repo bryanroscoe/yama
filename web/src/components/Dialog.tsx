@@ -71,11 +71,16 @@ export function returnFocusTo(from: Element, to: HTMLElement): void {
   returnsTo.set(from, to);
 }
 
-/** What a layer opening now gives focus back to: what has it, or its stand-in. */
+/**
+ * What a layer opening now gives focus back to: what has it, or its stand-in. The search for a
+ * stand-in stops at the nearest open layer: a control in a dialog that itself sits inside a
+ * menu's items stays put when the layer it opened closes, so focus goes back to that control.
+ */
 function openerOf(active: Element | null): Element | null {
   for (let el = active; el; el = el.parentElement) {
     const to = returnsTo.get(el);
     if (to) return to;
+    if (layers.includes(el as HTMLElement)) break;
   }
   return active;
 }
