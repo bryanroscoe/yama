@@ -794,7 +794,7 @@ async fn precon_cards(pool: &SqlitePool, id: &str) -> AppResult<Vec<DeckCard>> {
 async fn seat_cards(pool: &SqlitePool, s: &SeatCfg) -> AppResult<Vec<DeckCard>> {
     match (precon_of(s), &s.deck_version_id) {
         (Some(precon), _) => precon_cards(pool, precon).await,
-        (None, Some(version)) => Ok(load_version_cards(pool, version).await?),
+        (None, Some(version)) => load_version_cards(pool, version).await,
         (None, None) => Err(AppError::Conflict("every seat needs a player and a deck".into())),
     }
 }
@@ -1133,8 +1133,12 @@ async fn detail(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path
     let mut missing = HashMap::new();
     if r.stage == "lobby" && let Ok(engine) = st.play.engine() {
         for s in r.seats() {
-            if let (true, Some(name)) = (seated(&s), &s.deck_name) {
-                let (_, report) = resolve(&engine, &seat_cards(&st.pool, &s).await?);
+            // A precon dropped from the catalog while the table waits has no list to report on;
+            // Start says so. The lobby page still loads.
+            if let (true, Some(name)) = (seated(&s), &s.deck_name)
+                && let Ok(cards) = seat_cards(&st.pool, &s).await
+            {
+                let (_, report) = resolve(&engine, &cards);
                 if !report.missing.is_empty() {
                     missing.insert(name.clone(), report.missing);
                 }
@@ -1176,6 +1180,9 @@ struct ResultRequest {
 /// A seated player answers the end-of-game questions for a finished game: how it was won (for
 /// the game, filled in already where the engine could tell) and how fun it was (for their own
 /// seat only). The engine's result itself (the winner, the knockouts) is never theirs to change.
+/// Any player may say how the game was won while nothing is recorded; once something is (the
+/// engine's reading, or a player's answer), only the host changes or clears it, as whoever
+/// recorded a table game is the one who writes its finish.
 async fn record_result(
     State(st): State<AppState>,
     CurrentUser(user): CurrentUser,
@@ -1200,6 +1207,13 @@ async fn record_result(
             return Err(AppError::bad("a drawn game has no win condition"));
         }
     }
+    if let Some(how) = &body.win_condition
+        && r.win_condition.is_some()
+        && *how != r.win_condition
+        && r.host_id != user.id
+    {
+        return Err(AppError::Forbidden("How this game was won is already recorded. Its host can change it.".into()));
+    }
     if let Some(Some(fun)) = body.fun
         && !(1..=5).contains(&fun)
     {
@@ -1213,10 +1227,34 @@ async fn record_result(
     }
     let mut tx = st.pool.begin_with("BEGIN IMMEDIATE").await?;
     if let Some(how) = &body.win_condition {
-        sqlx::query("UPDATE games SET win_condition = ? WHERE id = ? AND mode = 'online' AND status = 'finished'").bind(how.as_deref()).bind(&id).execute(&mut *tx).await?;
+        // Checked again inside the write: two players answering at once can't both fill it in.
+        let written = sqlx::query(
+            "UPDATE games SET win_condition = ?1 WHERE id = ?2 AND mode = 'online' AND status = 'finished'
+               AND (?3 OR win_condition IS NULL OR win_condition IS ?1)",
+        )
+        .bind(how.as_deref())
+        .bind(&id)
+        .bind(r.host_id == user.id)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if written == 0 {
+            return Err(AppError::Forbidden("How this game was won is already recorded. Its host can change it.".into()));
+        }
     }
     if let Some(fun) = body.fun {
-        sqlx::query("UPDATE game_seats SET fun = ? WHERE game_id = ? AND seat = ? AND user_id = ?").bind(fun).bind(&id).bind(seat).bind(&user.id).execute(&mut *tx).await?;
+        let written = sqlx::query("UPDATE game_seats SET fun = ? WHERE game_id = ? AND seat = ? AND user_id = ?")
+            .bind(fun)
+            .bind(&id)
+            .bind(seat)
+            .bind(&user.id)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+        if written == 0 {
+            // The game record has no seat for this player (it should): say so, not "saved".
+            return Err(AppError::Conflict("This game has no seat on record for you, so the rating wasn't saved.".into()));
+        }
     }
     if let Some(note) = &body.note {
         // An empty note is no note.
@@ -1224,9 +1262,10 @@ async fn record_result(
         sqlx::query("UPDATE games SET note = ? WHERE id = ? AND mode = 'online' AND status = 'finished'").bind(text).bind(&id).execute(&mut *tx).await?;
     }
     let saved: (Option<String>, Option<i64>, Option<String>) =
-        sqlx::query_as("SELECT g.win_condition, s.fun, g.note FROM games g JOIN game_seats s ON s.game_id = g.id WHERE g.id = ? AND s.seat = ?")
-            .bind(&id)
+        // The game's own fields come back even if the caller's seat row is missing.
+        sqlx::query_as("SELECT g.win_condition, s.fun, g.note FROM games g LEFT JOIN game_seats s ON s.game_id = g.id AND s.seat = ? WHERE g.id = ?")
             .bind(seat)
+            .bind(&id)
             .fetch_optional(&mut *tx)
             .await?
             .unwrap_or_default();

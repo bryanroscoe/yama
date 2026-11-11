@@ -1912,15 +1912,29 @@ async fn a_seated_player_answers_the_end_of_game_questions() {
     let (_, game) = request(&app, Method::GET, "/api/play/won", Some(&friend_token), None).await;
     assert_eq!((&game["win_condition"], &game["fun"]), (&serde_json::json!("combat"), &serde_json::Value::Null));
 
-    // A player says how it was won and rates their own seat; nobody else's rating moves.
-    let (status, saved) = post("won", &friend_token, answer.clone()).await;
-    assert_eq!((status, &saved["win_condition"], &saved["fun"]), (StatusCode::OK, &serde_json::json!("combo"), &serde_json::json!(4)), "{saved}");
-    assert_eq!(stored("won").await, (Some("combo".into()), vec![None, Some(4), None]));
-    // A field left out stays as it is; null clears it.
-    assert_eq!(post("won", &host_token, serde_json::json!({ "fun": 2 })).await.0, StatusCode::OK);
+    // The engine recorded "combat". Another player can't change or clear what's recorded (and
+    // nothing else in that request is saved); agreeing with it is fine, with their own rating.
+    for other in [serde_json::json!({ "win_condition": "combo", "fun": 4 }), serde_json::json!({ "win_condition": null })] {
+        assert_eq!(post("won", &friend_token, other.clone()).await.0, StatusCode::FORBIDDEN, "{other}");
+    }
+    assert_eq!(stored("won").await, (Some("combat".into()), vec![None, None, None]));
+    let (status, saved) = post("won", &friend_token, serde_json::json!({ "win_condition": "combat", "fun": 4 })).await;
+    assert_eq!((status, &saved["win_condition"], &saved["fun"]), (StatusCode::OK, &serde_json::json!("combat"), &serde_json::json!(4)), "{saved}");
+    // The host corrects it, as whoever records a table game writes its finish. A field left out
+    // stays as it is; null clears it. Nobody else's rating moves.
+    assert_eq!(post("won", &host_token, serde_json::json!({ "win_condition": "combo", "fun": 2 })).await.0, StatusCode::OK);
     assert_eq!(stored("won").await, (Some("combo".into()), vec![Some(2), Some(4), None]));
-    assert_eq!(post("won", &friend_token, serde_json::json!({ "win_condition": null, "fun": null })).await.0, StatusCode::OK);
+    assert_eq!(post("won", &friend_token, serde_json::json!({ "fun": null })).await.0, StatusCode::OK);
+    assert_eq!(post("won", &host_token, serde_json::json!({ "win_condition": null })).await.0, StatusCode::OK);
     assert_eq!(stored("won").await, (None, vec![Some(2), None, None]));
+    // With nothing recorded, any player may say how it was won; then it's recorded again.
+    assert_eq!(post("won", &friend_token, serde_json::json!({ "win_condition": "poison" })).await.0, StatusCode::OK);
+    assert_eq!(post("won", &friend_token, serde_json::json!({ "win_condition": "mill" })).await.0, StatusCode::FORBIDDEN);
+    assert_eq!(post("won", &host_token, serde_json::json!({ "win_condition": null })).await.0, StatusCode::OK);
+    assert_eq!(stored("won").await, (None, vec![Some(2), None, None]));
+    // A rating that has no seat to land on is refused, not reported as saved.
+    sqlx::query("UPDATE game_seats SET user_id = NULL, guest_name = 'Former player' WHERE game_id = 'drawn' AND seat = 0").execute(&pool).await.unwrap();
+    assert_eq!(post("drawn", &host_token, serde_json::json!({ "fun": 3 })).await.0, StatusCode::CONFLICT);
     let (_, game) = request(&app, Method::GET, "/api/play/won", Some(&host_token), None).await;
     assert_eq!((&game["win_condition"], &game["fun"]), (&serde_json::Value::Null, &serde_json::json!(2)));
 

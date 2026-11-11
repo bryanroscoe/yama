@@ -7,17 +7,20 @@
 // made.
 
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { GAME_WORDS, NOTE_MAX, WIN_CONDITIONS, wonText, type WinCondition } from "@yama/core";
+import { GAME_WORDS, NOTE_MAX, WIN_CONDITIONS, winConditionLabel, wonText, type WinCondition } from "@yama/core";
 import { api } from "../api";
 import { useMe } from "../auth";
 import { FunPicker, WinConditionPicker } from "../components/GameCapture";
+import { serialQueue } from "./saveQueue";
 import { INFERRED, lastOut, list, outText, standings, whyText, type Names } from "./feed";
 import type { OnlineGame, Out, SeatInfo, Stats, View } from "./types";
 import { ErrorText } from "../components/ui";
 
 type Art = (seat: number) => { art: string | null; artist: string | null };
+/** What a player has answered on the game-over screen; a key left out hasn't been answered here. */
+type Answers = { how?: WinCondition | null; fun?: number | null };
 type Tone = (seat: number) => string | undefined;
 
 const seatStyle = (tone: string | undefined) => (tone ? ({ ["--seat" as string]: `var(--${tone})` } as React.CSSProperties) : undefined);
@@ -155,10 +158,14 @@ export function GameOver(props: {
   const [error, setError] = useState<string | null>(null);
   // What this player has answered on this screen. Until they do, the saved answers show: the
   // engine's reading of how the game was won, and a rating given earlier.
-  const [answers, setAnswers] = useState<{ how?: WinCondition | null; fun?: number | null }>({});
+  const [answers, setAnswers] = useState<Answers>({});
+  /** The answers Yama has confirmed from this screen (undefined: whatever the game came with). */
+  const confirmed = useRef<Answers>({});
+  const enqueue = useRef(serialQueue()).current;
   // The host's note: what's typed here, until it's saved (undefined: showing the saved one).
   const [noteDraft, setNoteDraft] = useState<string | undefined>(undefined);
   const [savedNote, setSavedNote] = useState<string | null | undefined>(undefined);
+  const [noteSaving, setNoteSaving] = useState(false);
   // The host by account, not by seat: a table whose host chose who goes first is numbered from
   // that player, so the host isn't always seat 1.
   const me = useMe();
@@ -244,34 +251,41 @@ export function GameOver(props: {
   const canAnswer = names.you !== null && !view.abandoned && !!game && game.status === "finished";
   const how = answers.how !== undefined ? answers.how : (WIN_CONDITIONS.find((w) => w.key === game?.win_condition)?.key ?? null);
   const fun = answers.fun !== undefined ? answers.fun : (game?.fun ?? null);
-  const answer = async (patch: { how?: WinCondition | null; fun?: number | null }) => {
-    const before = answers;
-    setAnswers({ ...answers, ...patch });
+  // Saves go one at a time in the order given, so the last answer tapped is the one Yama keeps.
+  // A refusal puts back only that question's last saved answer, and only if nothing newer has
+  // been given since.
+  const answer = <K extends "how" | "fun">(field: K, value: Answers[K]) => {
+    setAnswers((a) => ({ ...a, [field]: value }));
     setError(null);
-    try {
-      await api(`/api/play/${id}/result`, {
-        method: "POST",
-        json: { ...("how" in patch ? { win_condition: patch.how } : {}), ...("fun" in patch ? { fun: patch.fun } : {}) },
-      });
-      for (const key of ["stats", "games"]) void qc.invalidateQueries({ queryKey: [key] });
-    } catch (e) {
-      setAnswers(before);
-      setError(e instanceof Error ? e.message : String(e));
-    }
+    enqueue(() => api(`/api/play/${id}/result`, { method: "POST", json: field === "how" ? { win_condition: value } : { fun: value } })).then(
+      () => {
+        confirmed.current = { ...confirmed.current, [field]: value };
+        for (const key of ["stats", "games"]) void qc.invalidateQueries({ queryKey: [key] });
+      },
+      (e: unknown) => {
+        setAnswers((a) => (a[field] === value ? { ...a, [field]: confirmed.current[field] } : a));
+        setError(e instanceof Error ? e.message : String(e));
+      },
+    );
   };
   // The game's note, as the table's finish sheet keeps one. The host writes it; everyone reads it.
   const note = savedNote !== undefined ? savedNote : (game?.note ?? null);
-  const saveNote = async () => {
-    if (noteDraft === undefined) return;
+  const saveNote = () => {
+    if (noteDraft === undefined || noteSaving) return;
+    const submitted = noteDraft;
+    setNoteSaving(true);
     setError(null);
-    try {
-      const saved = await api<{ note: string | null }>(`/api/play/${id}/result`, { method: "POST", json: { note: noteDraft } });
-      setSavedNote(saved.note);
-      setNoteDraft(undefined);
-      void qc.invalidateQueries({ queryKey: ["games"] });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
+    enqueue(() => api<{ note: string | null }>(`/api/play/${id}/result`, { method: "POST", json: { note: submitted } }))
+      .then(
+        (saved) => {
+          setSavedNote(saved.note);
+          // Anything typed while it was saving stays in the box, still to be saved.
+          setNoteDraft((d) => (d === submitted ? undefined : d));
+          void qc.invalidateQueries({ queryKey: ["games"] });
+        },
+        (e: unknown) => setError(e instanceof Error ? e.message : String(e)),
+      )
+      .finally(() => setNoteSaving(false));
   };
   const ai = seats.some((s) => s.ai);
   // A playgroup's stats compare its people: a game one person played against the computer is
@@ -334,13 +348,18 @@ export function GameOver(props: {
           </div>
           {canAnswer && (
             <section className="capture stack" aria-label="About this game">
-              {winner !== null && (
-                <WinConditionPicker value={how} onChange={(v) => void answer({ how: v })} winner={winner === names.you ? "you" : names.Who(winner)} />
+              {/* Anyone who played can say how it was won while nothing is recorded. Once the
+                  engine or a player has said, the host is the one who can change it. */}
+              {winner !== null && (host || !game?.win_condition) && (
+                <WinConditionPicker value={how} onChange={(v) => answer("how", v)} winner={winner === names.you ? "you" : names.Who(winner)} />
+              )}
+              {winner !== null && !host && game?.win_condition && winConditionLabel(game.win_condition) && (
+                <p className="small dim">Won by {winConditionLabel(game.win_condition)!.toLowerCase()}. The host can change that.</p>
               )}
               <FunPicker
                 seats={[{ seat: names.you!, name: "You" }]}
                 value={fun === null ? [] : [{ seat: names.you!, rating: fun }]}
-                onChange={(v) => void answer({ fun: v[0]?.rating ?? null })}
+                onChange={(v) => answer("fun", v[0]?.rating ?? null)}
               />
               {host ? (
                 <div className="question">
@@ -352,9 +371,11 @@ export function GameOver(props: {
                     aria-label="Notes about this game"
                     value={noteDraft ?? note ?? ""}
                     onChange={(e) => setNoteDraft(e.target.value)}
+                    // Leaving the box saves it, so Rematch or going back never drops what was typed.
+                    onBlur={() => noteDraft !== undefined && noteDraft.trim() !== (note ?? "") && saveNote()}
                   />
                   {noteDraft !== undefined && noteDraft.trim() !== (note ?? "") && (
-                    <button type="button" className="small" style={{ justifySelf: "start" }} onClick={() => void saveNote()}>Save the note</button>
+                    <button type="button" className="small" style={{ justifySelf: "start" }} onClick={saveNote} disabled={noteSaving}>{noteSaving ? "Saving…" : "Save the note"}</button>
                   )}
                 </div>
               ) : (

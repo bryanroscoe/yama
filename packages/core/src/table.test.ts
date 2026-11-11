@@ -314,6 +314,10 @@ describe("finish", () => {
     expect(toServerFinish(setup, finish())!.note).toBeNull();
     expect(toServerFinish(setup, finish("   "))!.note).toBeNull();
     expect(toServerFinish(setup, finish("x".repeat(NOTE_MAX + 50)))!.note).toHaveLength(NOTE_MAX);
+    // A long note is cut between characters, never through one (an emoji is two UTF-16 units).
+    const cut = toServerFinish(setup, finish("x".repeat(NOTE_MAX - 1) + "🎲🎲"))!.note!;
+    expect(Array.from(cut)).toHaveLength(NOTE_MAX);
+    expect(cut.endsWith("🎲")).toBe(true);
     // The note every logged game used to get isn't one anybody wrote.
     expect([noteText("Logged after the game"), noteText("  "), noteText(null), noteText(" Close one ")]).toEqual([null, null, null, "Close one"]);
   });

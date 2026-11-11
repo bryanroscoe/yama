@@ -563,7 +563,8 @@ export function toServerFinish(setup: TableSetup, log: LoggedEvent[]) {
     first_seat: state.firstSeat,
     // A draw has no way it was won.
     win_condition: f.winnerSeat === null ? null : (f.winCondition ?? null),
-    note: f.note?.trim() ? f.note.trim().slice(0, NOTE_MAX) : null,
+    // Cut by character, never through the middle of one: half an emoji isn't valid JSON text.
+    note: f.note?.trim() ? Array.from(f.note.trim()).slice(0, NOTE_MAX).join("") : null,
     seats: state.players.map((p) => ({
       seat: p.seat,
       final_life: p.life,

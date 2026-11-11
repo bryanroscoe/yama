@@ -698,6 +698,8 @@ async fn finish_in(conn: &mut sqlx::SqliteConnection, id: &str, f: Finish, repla
         if let Some((status, winner, turns, first, how)) = stored
             && status == "finished"
         {
+            // The note isn't part of the result: a retry carries the same one (it is in the
+            // finish event the phone replays), and a finished game's note isn't rewritten here.
             let mut same = (winner, turns, first, &how) == (f.winner_seat, f.turns, f.first_seat, &win_condition);
             for s in &f.seats {
                 let seat: Option<(Option<i64>, Option<i64>, Option<i64>, Option<i64>)> =

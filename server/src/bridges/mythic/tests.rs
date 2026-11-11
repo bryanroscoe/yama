@@ -363,7 +363,7 @@ async fn a_yama_edit_during_apply_is_not_overwritten() {
             deck_label: None, commander_name: None, final_life: None, eliminated_turn: None, eliminated_by_seat: None, fun: None, display_name: None,
         }],
         events: vec![],
-        finish: Some(Finish { winner_seat: None, turns: None, ended_at: None, first_seat: None, win_condition: None, seats: vec![] }),
+        finish: Some(Finish { winner_seat: None, turns: None, ended_at: None, first_seat: None, win_condition: None, note: None, seats: vec![] }),
         note: Some(NOTE.into()),
     };
     let sync = Sync { mythic: "80", yama: &id, fingerprint: "a b", keep_yama: None, note: None, tags: &[] };
