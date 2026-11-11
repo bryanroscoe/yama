@@ -4,6 +4,7 @@ import type { SwapSheet } from "@yama/core/plan";
 import { ScannerView, createServerCatalog, type ScanCatalog } from "../scanner";
 import { SwapCardResult } from "./SwapDetails";
 import type { PlanView } from "./view";
+import { Button } from "../components/ui";
 
 export default function SwapScanner({ sheet, view, deckKey, onClose }: { sheet: SwapSheet; view: PlanView; deckKey?: string; onClose: () => void }) {
   const [catalog, setCatalog] = useState<ScanCatalog | null>(null);
@@ -35,7 +36,7 @@ export default function SwapScanner({ sheet, view, deckKey, onClose }: { sheet: 
       ) : (
         <div className="sheet stack">
           <p>{error ?? "Starting the scanner…"}</p>
-          <button onClick={onClose}>Close</button>
+          <Button onClick={onClose}>Close</Button>
         </div>
       )}
     </div>

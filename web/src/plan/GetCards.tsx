@@ -20,7 +20,7 @@ import { planHref } from "./Plans";
 import type { PlanView } from "./view";
 import "./plans.css";
 import { fmtDate, usd, plural } from "@yama/core";
-import { EmptyState, Segmented } from "../components/ui";
+import { ButtonLink, EmptyState, Segmented } from "../components/ui";
 
 const cardsWord = (n: number) => plural(n, "card");
 
@@ -123,9 +123,9 @@ export function GetCards() {
                     </span>
                   </span>
                   {st.cartUrl && (
-                    <a className="button outline" href={st.cartUrl} target="_blank" rel="noreferrer">
+                    <ButtonLink variant="outline" href={st.cartUrl} target="_blank" rel="noreferrer">
                       Fill the cart
-                    </a>
+                    </ButtonLink>
                   )}
                 </div>
                 <ul className="plans-rows">
@@ -211,12 +211,12 @@ export function GetCards() {
               </span>
               {prints.next.count > 0 && (
                 <div className="row plans-links">
-                  <Link className="button primary" to="/decks/plans/get/mpc">
+                  <ButtonLink variant="primary" to="/decks/plans/get/mpc">
                     Print with MakePlayingCards
-                  </Link>
-                  <Link className="button outline" to="/decks/plans/get/swap-sheet">
+                  </ButtonLink>
+                  <ButtonLink variant="outline" to="/decks/plans/get/swap-sheet">
                     Swap sheet
-                  </Link>
+                  </ButtonLink>
                 </div>
               )}
             </div>
@@ -292,13 +292,13 @@ export function GetCards() {
                       <span className="small dim">{rows.map((r) => r.swap.in).join(", ")}</span>
                     </span>
                     <div className="row plans-links">
-                      <Link className="button outline" to={`/decks/plans/get/swap-sheet?sheet=takeout&deck=${encodeURIComponent(d.key)}`}>
+                      <ButtonLink variant="outline" to={`/decks/plans/get/swap-sheet?sheet=takeout&deck=${encodeURIComponent(d.key)}`}>
                         Takeout sheet
-                      </Link>
+                      </ButtonLink>
                       {d.yama_deck && (
-                        <Link className="button outline" to={`/decks/${d.yama_deck.id}/scan`}>
+                        <ButtonLink variant="outline" to={`/decks/${d.yama_deck.id}/scan`}>
                           Scan when done
-                        </Link>
+                        </ButtonLink>
                       )}
                     </div>
                   </div>

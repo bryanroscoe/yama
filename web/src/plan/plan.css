@@ -368,23 +368,6 @@
   scrollbar-width: none;
   margin: 12px 0 20px;
 }
-.plan .plan-tabs button {
-  flex: none;
-  min-height: var(--target);
-  padding: 0 16px;
-  border: none;
-  border-radius: var(--r-pill);
-  background: var(--surface);
-  color: var(--dim);
-  white-space: nowrap;
-}
-.plan .plan-tabs button:hover {
-  color: var(--text);
-}
-.plan .plan-tabs button.active {
-  background: var(--text);
-  color: var(--ground);
-}
 @media (min-width: 900px) {
   .plan-tabs {
     flex-wrap: wrap;
@@ -436,9 +419,6 @@
   min-height: var(--target);
   padding: 0;
 }
-.plan-panel .button {
-  min-height: var(--target);
-}
 .plan-version {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -480,11 +460,6 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
-}
-.plan .plan-copy button {
-  min-height: var(--target);
-  padding: 0 10px;
-  font-size: var(--t-label);
 }
 .plan-copy .small {
   grid-column: 1 / -1;
@@ -831,21 +806,6 @@
   padding-bottom: 2px;
   margin: 0 0 6px;
 }
-.plan .review-decks button {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: var(--target);
-  padding: 0 14px 0 4px;
-  border: none;
-  background: var(--surface);
-  font-size: var(--t-label);
-}
-.plan .review-decks button[aria-selected="true"] {
-  background: var(--text);
-  color: var(--ground);
-}
 .review-deck-art {
   display: block;
   width: 36px;
@@ -948,22 +908,6 @@
   overflow-x: auto;
   scrollbar-width: none;
   margin: 0 0 10px;
-}
-.plan .review-filters button {
-  flex: none;
-  min-height: var(--target);
-  padding: 0 11px;
-  border: 1px solid var(--line);
-  background: transparent;
-  color: var(--dim);
-  font-size: var(--t-sm);
-  font-weight: 400;
-}
-.plan .review-filters button[aria-pressed="true"] {
-  border-color: var(--raised);
-  background: var(--raised);
-  color: var(--text);
-  font-weight: 700;
 }
 .plan .review-search {
   margin: 0 0 14px;
@@ -1121,27 +1065,6 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
-}
-.plan .review-decide button {
-  min-height: var(--target);
-  padding: 0 8px;
-  border: 1px solid var(--line);
-  background: transparent;
-}
-.plan .review-decide button[aria-pressed="true"].decide-want {
-  background: var(--good);
-  border-color: var(--good);
-  color: var(--ground);
-}
-.plan .review-decide button[aria-pressed="true"].decide-unsure {
-  background: var(--warn);
-  border-color: var(--warn);
-  color: var(--ground);
-}
-.plan .review-decide button[aria-pressed="true"].decide-no {
-  background: var(--bad);
-  border-color: var(--bad);
-  color: var(--ground);
 }
 .review-key {
   margin-left: 4px;
@@ -1351,10 +1274,6 @@
   padding: 12px 0 16px;
   background: var(--ground);
 }
-.plan .review-card.is-wide .review-decide button {
-  min-height: 54px;
-  font-size: 1.0625rem;
-}
 .review-card.is-wide .review-fields {
   grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
 }
@@ -1544,12 +1463,6 @@
   gap: 2px;
   font-size: var(--t-sm);
   color: var(--dim);
-}
-/* The quiet button's padding hangs past the edge so its words line up with the price above. */
-.plan .buy-mini-side button {
-  min-height: var(--target);
-  padding: 0 8px;
-  margin-right: -8px;
 }
 
 .plan-fold {

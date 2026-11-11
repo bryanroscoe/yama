@@ -17,7 +17,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
 import { ConnectButton } from "../components/HowTo";
-import { Pips, EmptyState } from "../components/ui";
+import { Button, ButtonLink, EmptyState, Pips } from "../components/ui";
 import { ImportSheet } from "./ImportSheet";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
 import type { PlanView } from "./view";
@@ -106,8 +106,8 @@ export function Plans() {
           variant="panel"
           action={
             <>
-              <ConnectButton className="primary" />
-              <button className="outline" onClick={() => setImporting(true)}>Import a plan file</button>
+              <ConnectButton variant="primary" />
+              <Button variant="outline" onClick={() => setImporting(true)}>Import a plan file</Button>
             </>
           }
         >
@@ -235,9 +235,9 @@ export function Plans() {
       <div className="small dim plans-footer-links">
         <Link to="/decks/plans/settings">Shopping rules and stores</Link>
         <ConnectButton className="link-button" />
-        <button type="button" className="link-button" onClick={() => setImporting(true)}>
+        <Button className="link-button" onClick={() => setImporting(true)}>
           Import a plan file
-        </button>
+        </Button>
       </div>
     </>
   );
@@ -265,9 +265,9 @@ function StartCard({ row, view }: { row: Row; view: PlanView }) {
         <h2 id="plans-start" className="plans-card-title">Start with {row.deck.name}</h2>
         <span>Its plan is waiting for your OK: {bits.join(", ")}.</span>
       </div>
-      <Link className="button primary plans-big-button" to={planHref(row.deck.key)}>
+      <ButtonLink variant="primary" className="plans-big-button" to={planHref(row.deck.key)}>
         Review the plan
-      </Link>
+      </ButtonLink>
     </div>
   );
 }

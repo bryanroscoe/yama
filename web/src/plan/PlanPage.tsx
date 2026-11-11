@@ -26,7 +26,7 @@ import { AskClaude } from "../advisor/AskClaude";
 import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
 import { BackButton } from "../components/DeckTabs";
 import { useScrollToHash } from "../components/useScrollToHash";
-import { Pips, EmptyState, Segmented, CopyButton } from "../components/ui";
+import { Button, ButtonLink, CopyButton, EmptyState, Pips, Segmented } from "../components/ui";
 import { Ideas, LinkDeck } from "./deckParts";
 import { InstalledTick } from "./marks";
 import { deviceId, outbox, useOutbox } from "./outbox";
@@ -116,9 +116,9 @@ function Rejected({ deck, userId }: { deck: PlanDeck; userId: string }) {
       {mine.map((r) => (
         <p key={r.op.op_id}>
           Yama couldn't save that: {r.error}{" "}
-          <button className="quiet small" onClick={() => outbox.dismiss(userId, r.op.op_id)}>
+          <Button variant="quiet" size="small" onClick={() => outbox.dismiss(userId, r.op.op_id)}>
             Dismiss
-          </button>
+          </Button>
         </p>
       ))}
     </div>
@@ -253,7 +253,7 @@ function Approve({ deck, plan, view, userId, first = false }: { deck: PlanDeck; 
             </details>
           )}
           <div className="row plans-links">
-            {stock.length > 0 && <CopyButton className="outline" text={exportText(b4)} label="Copy the Bracket 4 list" />}
+            {stock.length > 0 && <CopyButton variant="outline" text={exportText(b4)} label="Copy the Bracket 4 list" />}
             <AskClaude context={{ kind: "plan_deck", ref: deck.key }} about={`the ${deck.name} plan`} ideasFor={deck.key} />
           </div>
           {artists.some(Boolean) && <p className="small dim art-credits">Card images from Scryfall. {artCredits(artists)}</p>}
@@ -302,11 +302,11 @@ function Approve({ deck, plan, view, userId, first = false }: { deck: PlanDeck; 
           {priceNote && <p className="small dim">{priceNote}</p>}
           <p className="small">Approving puts the buys on your shopping list and the prints on your next print order. Nothing is bought until you mark it.</p>
           {open.length === 0 && live.length > 0 && problems.count === 0 ? (
-            <button className="primary plans-big-button" onClick={approve}>
+            <Button variant="primary" className="plans-big-button" onClick={approve}>
               {first ? "Approve plan" : `Approve version ${next.n}`}
-            </button>
+            </Button>
           ) : (
-            <button className="primary plans-big-button" disabled>
+            <Button variant="primary" className="plans-big-button" disabled>
               {live.length === 0
                 ? "Every change is skipped"
                 : problems.count
@@ -314,16 +314,16 @@ function Approve({ deck, plan, view, userId, first = false }: { deck: PlanDeck; 
                   : open.length === 1
                     ? "Answer the question first"
                     : `Answer ${open.length} questions first`}
-            </button>
+            </Button>
           )}
           {first ? (
-            <button className="outline plans-wide-button" onClick={() => decide(userId, deck, "archive", null)}>
+            <Button variant="outline" className="plans-wide-button" onClick={() => decide(userId, deck, "archive", null)}>
               Not now: archive this plan
-            </button>
+            </Button>
           ) : (
-            <button className="outline plans-wide-button" onClick={() => decide(userId, deck, "keep", next.n, next.keys, [], [], next.hash)}>
+            <Button variant="outline" className="plans-wide-button" onClick={() => decide(userId, deck, "keep", next.n, next.keys, [], [], next.hash)}>
               Keep version {plan.version}
-            </button>
+            </Button>
           )}
         </aside>
       </div>
@@ -359,9 +359,9 @@ function ChangeRow({ change, view, skipped, problem, cut, onToggle }: { change: 
         {skipped && cut?.gone_for && <span className="small dim">Skipped to start with: {out} already goes out for {cut.gone_for}.</span>}
       </span>
       <span className="small dim plans-row-meta">{meta}</span>
-      <button type="button" className="outline small plans-skip" onClick={onToggle} aria-label={`${skipped ? "Undo skipping" : "Skip"} ${s.in}`}>
+      <Button variant="outline" size="small" className="plans-skip" onClick={onToggle} aria-label={`${skipped ? "Undo skipping" : "Skip"} ${s.in}`}>
         {skipped ? "Undo" : "Skip"}
-      </button>
+      </Button>
     </li>
   );
 }
@@ -434,23 +434,23 @@ function InProgress({ deck, plan, view, userId }: { deck: PlanDeck; plan: DeckPl
           </span>
           <div className="row plans-links">
             {yd && (
-              <Link className="button outline" to={`/decks/${yd.id}/scan`}>
+              <ButtonLink variant="outline" to={`/decks/${yd.id}/scan`}>
                 Scan the deck
-              </Link>
+              </ButtonLink>
             )}
-            <Link className="button outline" to={`${swapSheet}&sheet=takeout`}>
+            <ButtonLink variant="outline" to={`${swapSheet}&sheet=takeout`}>
               Takeout sheet
-            </Link>
-            <Link className="button outline" to={`/decks/plans/get/swap-cards?deck=${encodeURIComponent(deck.key)}`}>
+            </ButtonLink>
+            <ButtonLink variant="outline" to={`/decks/plans/get/swap-cards?deck=${encodeURIComponent(deck.key)}`}>
               Print swap card
-            </Link>
+            </ButtonLink>
           </div>
           {newest && !plan.next && (
             <p className="small dim">
               {newest.status === "approved" ? `You approved version ${newest.n}` : `You kept version ${newest.n - 1}`} on {fmtDate(newest.decided_at)}.{" "}
-              <button className="link-button" onClick={() => decide(userId, deck, "undo", newest.n)}>
+              <Button className="link-button" onClick={() => decide(userId, deck, "undo", newest.n)}>
                 Undo
-              </button>
+              </Button>
             </p>
           )}
         </section>
@@ -513,9 +513,9 @@ function InProgress({ deck, plan, view, userId }: { deck: PlanDeck; plan: DeckPl
                 ))}
               </ul>
               {inDeck.length > shownIn.length && (
-                <button className="quiet small plans-show-all" onClick={() => setAllIn(true)}>
+                <Button variant="quiet" size="small" className="plans-show-all" onClick={() => setAllIn(true)}>
                   Show all {inDeck.length}
-                </button>
+                </Button>
               )}
             </section>
           )}
@@ -549,20 +549,20 @@ function InProgress({ deck, plan, view, userId }: { deck: PlanDeck; plan: DeckPl
           <h2>Copy a list</h2>
           {lists.map((l) => {
             const cards = deck.states[l.state]?.cards;
-            return cards?.length ? <CopyButton key={l.state} className="outline plans-wide-button" text={exportText(cards)} label={`${l.label}, ${l.about}`} /> : null;
+            return cards?.length ? <CopyButton key={l.state} variant="outline" className="plans-wide-button" text={exportText(cards)} label={`${l.label}, ${l.about}`} /> : null;
           })}
           <h2>Test it</h2>
           <p className="small dim">Play the precon against the finished deck in the Lab.</p>
-          <Link className="button outline plans-wide-button" to={deck.deck_id ? `/lab/try?deck=${encodeURIComponent(deck.deck_id)}` : "/lab/try"}>
+          <ButtonLink variant="outline" className="plans-wide-button" to={deck.deck_id ? `/lab/try?deck=${encodeURIComponent(deck.deck_id)}` : "/lab/try"}>
             Open in the Lab
-          </Link>
+          </ButtonLink>
           {plan.state !== "archived" && (
             <>
               <p className="small dim">To change this plan, ask your assistant. Its new version waits for your OK on Plans.</p>
               <AskClaude context={{ kind: "plan_deck", ref: deck.key }} about={`the ${deck.name} plan`} ideasFor={deck.key} />
-              <button className="outline plans-wide-button" onClick={() => decide(userId, deck, "archive", null)}>
+              <Button variant="outline" className="plans-wide-button" onClick={() => decide(userId, deck, "archive", null)}>
                 Archive this plan
-              </button>
+              </Button>
             </>
           )}
         </aside>
@@ -584,18 +584,18 @@ function ArchivedBanner({ deck, plan, view, userId }: { deck: PlanDeck; plan: De
       </p>
       <div className="row">
         {current ? (
-          <Link className="button" to={planHref(current.key)}>
+          <ButtonLink to={planHref(current.key)}>
             Go to its current plan
-          </Link>
+          </ButtonLink>
         ) : (
-          <Link className="button" to="/decks/plans">
+          <ButtonLink to="/decks/plans">
             Go to Plans
-          </Link>
+          </ButtonLink>
         )}
         {!byFile && !current && (
-          <button className="outline" onClick={() => decide(userId, deck, "restore", null)}>
+          <Button variant="outline" onClick={() => decide(userId, deck, "restore", null)}>
             Bring it back
-          </button>
+          </Button>
         )}
       </div>
       {earlier.length > 0 && (
