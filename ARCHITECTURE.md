@@ -690,6 +690,21 @@ Yama only) once signed in. Full-screen pages that need an account (an app asking
 online game, a table on the server's relay) still put the focused sign-in view in front. The
 server's checks are unchanged: this only stops the app hiding everything behind sign-in.
 
+**One header and footer on every public page (2026-11-11).** The precon and commander reference,
+shared decks, profiles and plans, the static pages (`/about/`, `/privacy/`, `/tos/`,
+`/delete-account/`, `/docs/mcp/`) and the sign-in page had six different frames. There is one now:
+the wordmark (home), Precons, Commanders, MCP guide, About, and Open Yama (Sign in on the sign-in
+page); the footer has About, How we rank, Help and contact, Privacy and Terms above the rights
+notice. `server/src/public_page.rs` (`site_header`, `site_footer`, `SITE_NAV`, `SITE_FOOT`) renders
+it for the server's pages. The static pages under `web/public` are plain files, so each carries a
+copy of that markup and a Rust test compares every copy with what the server renders; the sign-in
+page builds it from `web/src/components/siteFrame.ts`, which a web test compares with the Rust
+tables. The styles are one file, `web/public/site-frame-v1.css`: static pages and the app link or
+import it, and the server compiles it into its content-addressed stylesheet. It is linked by name,
+so a change an already-cached page could not use gets a new name (`-v2`). On phones the header is
+two rows (wordmark and button, then the four places) so no link wraps. The text pages share
+`web/public/site-prose-v1.css`.
+
 Bryan wants some information available without signing in, starting with stock Commander precons and their simulation rankings. An experimental meta ranking combines the existing real-game evidence with explicitly published simulation sources; commander rankings are deferred. This changes the original private-app-only product scope, while the repository and every user's personal data stay private. Public pages remain free and keep the unofficial notice and runtime Scryfall images with art credits.
 
 `server/src/public_precons.rs` and `public_precons/html.rs` implement `/precons`, `/precons/:slug`, `/precons/methodology`, stock-list downloads, `/api/public/precons` and its detail route, and a public-only sitemap. The pages are server-rendered HTML with GET form filters; they do not load the private React app or depend on `/api/me`. Their design uses the Night table typography, wordmark, pill controls, credited runtime commander art, interval graphics and compact mobile comparisons. Stable self-hosted font assets are copied from the same Fontsource dependencies during web dev/build; no card art is bundled. Public HTML references a content-hashed stylesheet URL computed from both shared tokens and public CSS. Only the matching immutable asset is served; the legacy stylesheet URL remains compatible. This prevents long browser/CDN CSS caching from pairing new markup with older layout rules. The HTML catalog is paginated at 24 decks; public JSON remains complete. Public reads use dedicated typed projections and explicit published snapshots (migration 0031), with ETags, bounded caching and per-address limits. `owner_id IS NULL` still means shared inside the app; it is not automatic publication consent. Personal decks, collections, plans, experiments, mixed private/public tournaments, advisor conversations and account data remain authenticated and owner-scoped. Creating a deck or starting a simulation still requires Google sign-in and the existing limits.
@@ -1380,7 +1395,7 @@ Bryan (2026-11-02): "React lazy, showing placards right there before they do, an
 | `/`, `/index.html` and every app route (the shell) | `no-cache` | With `ETag` or `Last-Modified`, so a check is a `304` |
 | `/sw.js` | `no-cache` | Registered as `/sw.js?v=<hash of its source>` |
 | `/manifest.webmanifest`, `/icon*.svg`, `/icon-*.png`, `/apple-touch-icon.png` | `no-cache` | Fixed names; the shell asks for them with `?v=2` |
-| `/select-chevron-v1.svg`, `/card-preview-v1.js`, `/share-copy-v1.js`, `/public-list-v1.js`, `/precons.css`, `/site-notice.html`, `/precon-fonts/*` | `no-cache` | Fixed names used by the server-rendered pages. Later: content-address them as `/precons/assets/` already does for the stylesheet and list script |
+| `/select-chevron-v1.svg`, `/card-preview-v1.js`, `/share-copy-v1.js`, `/public-list-v1.js`, `/precons.css`, `/site-frame-v1.css`, `/site-prose-v1.css`, `/site-notice.html`, `/precon-fonts/*` | `no-cache` | Fixed names used by the server-rendered pages. Later: content-address them as `/precons/assets/` already does for the stylesheet and list script |
 | `/about/`, `/privacy/`, `/tos/`, `/delete-account/`, `/docs/mcp/*` | `no-cache` | Static pages |
 
 - Only addresses that aren't files fall back to `index.html`; a missing file anywhere (a last segment ending in an extension the build ships, such as `.js`, `.css`, `.woff2`, `.png` or `.json`, and everything under `/assets/` and `/ocr/`) is a `404` with `no-store`. Other dots are routes: a plan's deck key may be `deck.v1` (`web_files::FILE_EXTENSIONS`). On 2026-11-02 Cloudflare kept a fallback `index.html` served for a `.js` address for 4 hours.

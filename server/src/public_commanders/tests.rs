@@ -213,6 +213,10 @@ async fn the_public_page_lists_commanders_without_signing_in() {
     }
     assert!(html.contains("Combined win rate") && html.contains("Method and sources"));
     assert!(html.contains("<details class=\"commander-sources\"><summary>2 sources</summary>"));
+    // The precon a commander leads is a line under its name; one that leads none says nothing,
+    // instead of a "Precon" column reading "None" on nearly every row.
+    assert!(html.contains("<small class=\"commander-precon\">Precon: <a href=\"/precons/pair-precon\">Pair Precon</a>"), "{html}");
+    assert!(!html.contains("data-label=\"Precon\"") && !html.contains(">None</span>") && !html.contains("Its precon rank"));
     assert!(!html.contains("<th scope=\"col\">Mythic Tools"), "source names stay in collapsed details");
     assert!(!html.contains("0–100, 50 is average"));
     assert!(!html.contains("operator@example.com"), "no account details");

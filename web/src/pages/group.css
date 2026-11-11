@@ -382,6 +382,11 @@
   font-size: var(--t-sm);
   color: var(--dim);
 }
+/* A link drawn as a button keeps its label on one line too ("Open Sharing" broke in two on a phone). */
+.grp-you .button {
+  flex: none;
+  white-space: nowrap;
+}
 .grp-you button {
   flex: none;
   min-height: var(--target);

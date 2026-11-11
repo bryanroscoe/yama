@@ -1644,6 +1644,15 @@ button.conf-mark:focus-visible {
   background: var(--surface);
   margin: 0 0 1rem;
 }
+.lab-agreement > p {
+  margin: 0;
+}
+.lab-agreement > details {
+  margin-top: 8px;
+}
+.lab-agreement > details > p {
+  margin-top: 8px;
+}
 .lab-agreement.agree {
   border-color: var(--good);
   background: var(--good-tint);

@@ -956,7 +956,7 @@ async fn shared_notes_price_the_cards_to_get() {
         "1 to print: about $0.30",
         "Worth $4.75",
         "About $0.80 to get",
-        "as of 30 Oct 2026",
+        "as of Oct 30, 2026",
         "1 card without a market price in Yama is out of the worth.",
         "<td class=\"get\">Buy locally</td><td class=\"num\">$0.50</td>",
         "<td class=\"get\">Print</td><td class=\"num\">$4.25</td><td class=\"num\">$0.30</td>",

@@ -7,7 +7,7 @@ import { api } from "../api";
 import { queryFailure, RefreshFailed } from "../components/QueryError";
 import { ErrorText, Pips, Loading, Segmented } from "../components/ui";
 import { engineLine, enginesOf, halfOf } from "./engines";
-import type { HalfEngine } from "./logic";
+import { agreementParts, type HalfEngine } from "./logic";
 import type { ComparePrefill, ExperimentDetail, ExperimentItem, ExperimentMode, ExperimentStatus, FieldChoice, PodView, Summary, TryPrefill } from "./api";
 import { ConfidenceLine } from "./confidence";
 import {
@@ -366,7 +366,7 @@ export function Progress({ e }: { e: ExperimentDetail }) {
       </p>
       {e.forge_games && enginesOf(e).mode === "both" && (
         <p className="lab-note" style={{ margin: "0.2rem 0 0" }}>
-          phase {e.progress.done - e.forge_games.done} of {e.progress.total - e.forge_games.total}, Forge {e.forge_games.done} of {e.forge_games.total}.
+          Phase {e.progress.done - e.forge_games.done} of {e.progress.total - e.forge_games.total}, Forge {e.forge_games.done} of {e.forge_games.total}.
         </p>
       )}
       {phase_retries > 0 && (
@@ -415,15 +415,25 @@ function BothResults({ e, live }: { e: ExperimentDetail; live: boolean }) {
   return (
     <>
       {a && a.kind !== "waiting" && (
-        <p className={`lab-agreement ${a.kind}`} role="status">
-          {/* The server's text can open with the same words as the bold lead; say them once. */}
-          <b>{a.kind === "agree" ? "The engines agree." : a.kind === "disagree" ? "The engines disagree." : "No clear answer yet."}</b>{" "}
-          {a.text.replace(/^The engines (agree|disagree)[.:]\s*/, "")}.
-        </p>
+        <div className={`lab-agreement ${a.kind}`} role="status">
+          {/* The server's text can open with the same words as the bold lead; say them once. A
+              tournament's text names every deck: the first few show, the rest fold away, so the
+              result isn't two screens down. */}
+          <p>
+            <b>{a.kind === "agree" ? "The engines agree." : a.kind === "disagree" ? "The engines disagree." : "No clear answer yet."}</b>{" "}
+            {agreementParts(a.text).shown}
+          </p>
+          {agreementParts(a.text).rest.length > 0 && (
+            <details>
+              <summary>{agreementParts(a.text).rest.length} more decks</summary>
+              <p>{agreementParts(a.text).rest.join("; ")}.</p>
+            </details>
+          )}
+        </div>
       )}
       {halves.map(({ h, d }) => (
         <section key={h} className="lab-engine-half" aria-label={h === "phase" ? "Results on phase" : "Results on Forge"}>
-          <h2 className="lab-engine-head">{h === "phase" ? "On phase" : "On Forge"}</h2>
+          <h2 className="lab-engine-head">{h === "phase" ? "On Phase" : "On Forge"}</h2>
           {d.summary && hasResults(d.summary) ? (
             <ModeResults e={d} s={d.summary} engine={h} />
           ) : (
@@ -902,7 +912,7 @@ function Pods({ id, done, status, mode, engine, pod = 4 }: { id: string; done: n
   return (
     <section>
       <details onToggle={(ev) => setOpen((ev.target as HTMLDetailsElement).open)}>
-        <summary>Every game{engine ? (engine === "forge" ? " on Forge" : " on phase") : ""} ({done} played)</summary>
+        <summary>Every game{engine ? (engine === "forge" ? " on Forge" : " on Phase") : ""} ({done} played)</summary>
         <ErrorText error={pods.error} />
         {pods.isPending && open && <Loading small />}
         {played.length > 0 && ["versus", "tournament"].includes(mode) && (

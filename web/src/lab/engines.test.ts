@@ -24,7 +24,7 @@ describe("engine choice", () => {
     expect(engineFields(both)).toEqual({ difficulty: "Medium", engine: "both", forge_ai: "Reckless" });
     expect(engineText(phase)).toBe("Easy AI");
     expect(engineText({ ...both, mode: "forge" })).toBe("Forge's Reckless AI");
-    expect(engineText(both)).toBe("Medium AI on phase and Forge's Reckless AI");
+    expect(engineText(both)).toBe("Medium AI on Phase and Forge's Reckless AI");
   });
 
   it("estimates Forge time from its game length and slots, rounded up to 5 minutes", () => {
@@ -64,7 +64,7 @@ describe("a run on both engines", () => {
   });
 
   it("says which engines played", () => {
-    expect(engineLine(run)).toBe("On phase (Easy AI) and Forge (Default AI), side by side");
-    expect(engineLine({ ...run, engines: undefined })).toBe("On phase, Easy AI");
+    expect(engineLine(run)).toBe("On Phase (Easy AI) and Forge (Default AI), side by side");
+    expect(engineLine({ ...run, engines: undefined })).toBe("On Phase, Easy AI");
   });
 });

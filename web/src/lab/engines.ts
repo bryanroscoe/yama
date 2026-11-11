@@ -25,11 +25,11 @@ export function engineFields(e: EngineState): { difficulty: string; engine?: Eng
   return e.mode === "phase" ? { difficulty: e.difficulty } : { difficulty: e.difficulty, engine: e.mode, forge_ai: e.forgeAi };
 }
 
-/** "Easy AI", "Forge's Default AI", or "Easy AI on phase and Forge's Default AI". */
+/** "Easy AI", "Forge's Default AI", or "Easy AI on Phase and Forge's Default AI". */
 export function engineText(e: EngineState): string {
   if (e.mode === "phase") return `${e.difficulty} AI`;
   if (e.mode === "forge") return `Forge's ${e.forgeAi} AI`;
-  return `${e.difficulty} AI on phase and Forge's ${e.forgeAi} AI`;
+  return `${e.difficulty} AI on Phase and Forge's ${e.forgeAi} AI`;
 }
 
 /** Rough time for the Forge games of a run: their length spread over the worker's slots. */
@@ -49,8 +49,8 @@ export function enginesOf(e: ExperimentItem): Engines {
 export function engineLine(e: ExperimentItem): string {
   const en = enginesOf(e);
   if (en.mode === "forge") return `On Forge, ${en.forge_ai ?? "Default"} AI`;
-  if (en.mode === "both") return `On phase (${e.label.difficulty} AI) and Forge (${en.forge_ai ?? "Default"} AI), side by side`;
-  return `On phase, ${e.label.difficulty} AI`;
+  if (en.mode === "both") return `On Phase (${e.label.difficulty} AI) and Forge (${en.forge_ai ?? "Default"} AI), side by side`;
+  return `On Phase, ${e.label.difficulty} AI`;
 }
 
 /** One engine's half of a "both" run, shaped like a run of its own so the result views show it. */

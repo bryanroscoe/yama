@@ -1,32 +1,6 @@
 /* Night table: the same type, surfaces, white accent and control shapes as the app. */
-@font-face {
-  font-family:'Big Shoulders Display';
-  font-style:normal;
-  font-weight:700;
-  font-display:swap;
-  src:url('/precon-fonts/big-shoulders-display-latin-700-normal.woff2') format('woff2')
-}
-@font-face {
-  font-family:'Big Shoulders Display';
-  font-style:normal;
-  font-weight:800;
-  font-display:swap;
-  src:url('/precon-fonts/big-shoulders-display-latin-800-normal.woff2') format('woff2')
-}
-@font-face {
-  font-family:'Atkinson Hyperlegible Next';
-  font-style:normal;
-  font-weight:400;
-  font-display:swap;
-  src:url('/precon-fonts/atkinson-hyperlegible-next-latin-400-normal.woff2') format('woff2')
-}
-@font-face {
-  font-family:'Atkinson Hyperlegible Next';
-  font-style:normal;
-  font-weight:700;
-  font-display:swap;
-  src:url('/precon-fonts/atkinson-hyperlegible-next-latin-700-normal.woff2') format('woff2')
-}
+/* The fonts, the header and the footer are in site-frame-v1.css, which the server compiles in
+   ahead of this file (public_precons/html.rs, stylesheet). */
 * {
   box-sizing:border-box
 }
@@ -98,26 +72,10 @@ small {
   line-height:1.5;
   color:var(--dim)
 }
-.public-header,main,.public-footer {
+main {
   max-width:calc(var(--content-w) + 64px);
   margin-inline:auto;
   padding-inline:32px
-}
-.public-header {
-  min-height:88px;
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:24px
-}
-.public-wordmark {
-  display:flex;
-  width:88px;
-  flex:none
-}
-.public-wordmark svg {
-  width:100%;
-  height:38px
 }
 nav {
   display:flex;
@@ -847,39 +805,6 @@ dd {
   font-size:12px;
   overflow-wrap:anywhere
 }
-.public-footer {
-  margin-top:64px;
-  padding-bottom:40px;
-  color:var(--dim);
-  font-size:13px
-}
-.footer-top {
-  display:flex;
-  justify-content:space-between;
-  gap:24px;
-  border-top:1px solid var(--line);
-  padding:24px 0
-}
-.site-notice {
-  font-size:11px;
-  line-height:1.6;
-  max-width:100ch
-}
-.site-notice p+p {
-  margin-top:8px
-}
-.skip {
-  position:absolute;
-  top:-100px;
-  left:16px;
-  padding:12px;
-  background:var(--text);
-  color:var(--ground);
-  z-index:10
-}
-.skip:focus {
-  top:12px
-}
 .sr-only {
   position:absolute;
   width:1px;
@@ -1006,32 +931,8 @@ dd {
   }
 }
 @media(max-width:600px) {
-  .public-header,main,.public-footer {
+  main {
     padding-inline:20px
-  }
-  .public-header {
-    min-height:76px;
-    gap:16px
-  }
-  .public-wordmark {
-    width:68px
-  }
-  .public-wordmark svg {
-    height:30px
-  }
-  .public-header nav {
-    gap:14px;
-    flex-wrap:nowrap
-  }
-  .public-header nav a {
-    font-size:12px
-  }
-  .public-header .button {
-    padding:8px 12px;
-    min-height:40px
-  }
-  .public-header .button span {
-    display:none
   }
   .public-hero {
     display:block;
@@ -1169,20 +1070,6 @@ dd {
   .reading-note h3 {
     font-size:26px
   }
-  .public-footer {
-    margin-top:40px;
-    padding-bottom:28px
-  }
-  .footer-top {
-    display:block
-  }
-  .footer-top nav {
-    margin-top:14px;
-    gap:24px
-  }
-  .footer-top nav a {
-    font-size:12px
-  }
   .back-link {
     margin:12px 0 20px
   }
@@ -1302,8 +1189,6 @@ dd {
 }
 
 /* Keep narrow-screen navigation and disclosure targets comfortable to tap. */
-.public-wordmark { min-height:44px; align-items:center; }
-.public-header nav > a { min-height:44px; display:flex; align-items:center; }
 summary, .more-filters summary { min-height:44px; align-content:center; }
 .featured-caution { margin-top:8px; font-size:11px; }
 .public-card-ref { display:inline-flex; align-items:center; gap:8px; text-underline-offset:3px; }
@@ -1317,11 +1202,7 @@ summary, .more-filters summary { min-height:44px; align-content:center; }
 .public-card-preview-actions button { min-height:36px; border:1px solid var(--line,#2a2e33); border-radius:5px; padding:6px 12px; color:inherit; background:var(--raised,#1e2125); cursor:pointer; }
 @media(max-width:600px) { .public-card-preview.is-pinned { left:50% !important; top:50% !important; transform:translate(-50%,-50%); width:min(320px,calc(100vw - 24px)) !important; max-height:calc(100dvh - 24px) !important; } }
 @media(max-width:350px) {
-  .public-header { padding-inline:16px; gap:12px; }
-  .public-wordmark { width:60px; }
-  .public-header nav { gap:10px; }
-  .public-header nav a { font-size:11px; }
-  .public-header .button { padding-inline:10px; }
+  main { padding-inline:16px; }
 }
 
 /* Shared decks, profiles and collections (server/src/sharing/html.rs). */
@@ -1358,12 +1239,21 @@ summary, .more-filters summary { min-height:44px; align-content:center; }
 @media(max-width:600px) {
   .share-profile-head h1 { font-size:44px; }
   .share-collection th:nth-child(4), .share-collection td:nth-child(4) { display:none; }
+  /* A shared collection: four columns ran 25 px past a phone's edge. Finish moves under the printing. */
+  .share-owned th:nth-child(3), .share-owned td:nth-child(3) { display:none; }
+  .share-owned .share-finish { display:block; color:var(--text); }
+  .share-owned th, .share-owned td { padding-inline:6px; }
+  .share-owned th:first-child, .share-owned td:first-child { padding-left:0; }
+  .share-owned th:last-child, .share-owned td:last-child { padding-right:0; }
 }
+.share-finish { display:none; }
 /* Scryfall's art crop is 626 px wide: on wide screens it stays a window on the right, near its
    own size, and the wash takes it into the panel on the left, where the text sits. */
 @media(min-width:901px) {
   .public-art { --art-w:min(100%,820px); }
   .public-art>img { left:auto; width:var(--art-w); }
+  /* A long title stays left of the art's clear part: it ran across it with no wash under the words. */
+  .public-art .art-heading { max-width:calc(100% - 446px); }
   .public-art>.art-wash { background:linear-gradient(90deg,var(--surface) calc(100% - var(--art-w)),rgba(11,12,14,.55) calc(100% - var(--art-w) + 220px),transparent calc(100% - var(--art-w) + 420px)),linear-gradient(0deg,rgba(11,12,14,.98),rgba(11,12,14,.5) 60%,rgba(11,12,14,.15)); }
 }
 
@@ -1444,7 +1334,8 @@ summary, .more-filters summary { min-height:44px; align-content:center; }
 
 /* Comparable figures share one row; expanding one panel needn't stretch its neighbours. */
 /* 220px, not 280px: at tablet width the three panels fit one row instead of leaving one alone. */
-.public-evidence { grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr)); align-items:start; }
+/* Cards in a row share its height: with align-items:start the four ended at four different depths. */
+.public-evidence { grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr)); }
 /* The interval's viewBox is 160 wide; at 100% width it was drawn centred, out of line with the text. */
 .public-panel .interval { width:160px; }
 /* The upgrade rubric (the only class-less table): its header and grades were centred,
@@ -1533,9 +1424,18 @@ a.source-chip:hover,a.source-chip:focus-visible {
 .commander-sources>div { margin-top:12px; }
 .commander-sources strong { display:block; font-size:.85rem; }
 
+/* Rows as dense as /precons: the sources fold sits tight under the count, and the precon a
+   commander leads is a line under its name instead of a column that mostly read "None". */
+.commander-table .commander-sources { margin-top:4px; padding:0; border:0; }
+.commander-table .commander-sources[open] { padding-bottom:8px; }
+/* One line each when a commander leads more than one precon. */
+.commander-precon { display:block; margin-top:4px; }
+.commander-precon a { color:var(--text); }
+@media(min-width:901px) and (pointer:fine) {
+  .commander-table .commander-sources summary { min-height:24px; }
+}
 @media(max-width:600px) {
   .commander-table tr { grid-template-columns:repeat(2,minmax(0,1fr)); }
-  .commander-table td:last-child { grid-column:1/-1; }
 }
 
 /* Sortable headings and the per-commander line under a stock list's real games. */
@@ -1603,4 +1503,28 @@ a.source-chip:hover,a.source-chip:focus-visible {
  .want-qty { grid-column:2; grid-row:1; }
  .want-price { grid-column:1 / -1; grid-row:3; padding-left:70px; }
  .want-owned { grid-column:1 / -1; grid-row:4; }
+}
+
+/* Touch targets (docs/polish.md): a link that stands on its own is at least 24 px tall with a
+   mouse and 44 px on a phone or touch screen. Links inside running text are exempt. */
+.back-link,
+.source-strip > a,
+.evidence-heading > a,
+.section-heading > a,
+.filter-fields > a { display:inline-flex; align-items:center; min-height:24px; }
+.standalone-link { display:inline-block; min-height:24px; align-content:center; }
+@media (max-width:900px), (pointer:coarse) {
+  .back-link,
+  .source-strip > a,
+  a.source-chip,
+  .evidence-heading > a,
+  .section-heading > a,
+  .filter-fields > a,
+  .standalone-link,
+  a.result-value { min-height:44px; }
+  a.result-value { align-content:center; }
+  /* The taller link carries the space the margins used to. */
+  .back-link { margin:4px 0 8px; }
+  .want-page > .back-link { margin:4px 0 8px; }
+  .section-heading > a { margin-top:4px; }
 }

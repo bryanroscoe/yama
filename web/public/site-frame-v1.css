@@ -1,0 +1,116 @@
+/* The one header and footer of every public page: the precon and commander reference, shared
+   decks and profiles (the server compiles this file into their stylesheet), the static pages
+   (/about/, /privacy/, /tos/, /delete-account/, /docs/mcp/) and the sign-in page. The markup is
+   server/src/public_page.rs, site_header and site_footer; a test keeps every page's copy the same.
+   Night table tokens, each with its value as a fallback so a page without the app's tokens draws
+   the same. Rename the file when it changes in a way an older page can't use (it is linked by name). */
+/* Latin files, declared for the Latin range only (Fontsource's): a character outside it, such as an
+   arrow, falls through to the next font instead of fetching a file that doesn't hold it. */
+@font-face { font-family: "Big Shoulders Display"; font-style: normal; font-weight: 700; font-display: swap; src: url("/precon-fonts/big-shoulders-display-latin-700-normal.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Big Shoulders Display"; font-style: normal; font-weight: 800; font-display: swap; src: url("/precon-fonts/big-shoulders-display-latin-800-normal.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Atkinson Hyperlegible Next"; font-style: normal; font-weight: 400; font-display: swap; src: url("/precon-fonts/atkinson-hyperlegible-next-latin-400-normal.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Atkinson Hyperlegible Next"; font-style: normal; font-weight: 700; font-display: swap; src: url("/precon-fonts/atkinson-hyperlegible-next-latin-700-normal.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+
+.site-frame-skip { position: absolute; top: -100px; left: 16px; z-index: 10; padding: 12px; background: var(--text, #f2efe8); color: var(--ground, #0b0c0e); }
+.site-frame-skip:focus { top: 12px; }
+
+.site-frame-header,
+.site-frame-footer {
+  box-sizing: border-box;
+  max-width: calc(var(--content-w, 1120px) + 64px);
+  margin-inline: auto;
+  padding-inline: 32px;
+  font-family: var(--body, "Atkinson Hyperlegible Next", system-ui, sans-serif);
+}
+.site-frame-header *,
+.site-frame-footer * { box-sizing: border-box; }
+
+/* Wordmark, the four places, then the way into the app. */
+.site-frame-header {
+  min-height: 88px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: "brand nav open";
+  align-items: center;
+  gap: 0 24px;
+}
+.site-frame-wordmark { grid-area: brand; display: flex; align-items: center; width: 88px; min-height: 44px; color: var(--text, #f2efe8); }
+.site-frame-wordmark svg { display: block; width: 100%; height: 38px; }
+.site-frame-header nav { grid-area: nav; display: flex; flex-wrap: nowrap; align-items: center; justify-content: flex-end; gap: 0 24px; margin: 0; padding: 0; border: 0; }
+.site-frame-header nav a,
+.site-frame-footer nav a {
+  display: inline-flex;
+  align-items: center;
+  min-width: 44px;
+  min-height: 44px;
+  font: 400 14px/1.3 var(--body, "Atkinson Hyperlegible Next", system-ui, sans-serif);
+  color: var(--dim, #a9adb3);
+  text-decoration: none;
+  white-space: nowrap;
+}
+/* aria-current is "page" on the page itself and "true" on the place a page sits under. */
+.site-frame-header nav a:hover,
+.site-frame-header nav a[aria-current],
+.site-frame-footer nav a:hover,
+.site-frame-footer nav a[aria-current] { color: var(--text, #f2efe8); }
+.site-frame-header nav a:hover,
+.site-frame-footer nav a:hover { text-decoration: underline; text-underline-offset: 4px; text-decoration-thickness: 1px; }
+/* A short word still gets a 44 px target; in the header it sits in the middle of it. */
+.site-frame-header nav a { justify-content: center; }
+.site-frame-open {
+  grid-area: open;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 10px 20px;
+  border: 1px solid var(--line, #2a2e33);
+  border-radius: 999px;
+  background: var(--surface, #15171a);
+  color: var(--text, #f2efe8);
+  font: 700 14px/1.3 var(--body, "Atkinson Hyperlegible Next", system-ui, sans-serif);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.site-frame-open:hover { background: var(--raised, #1e2125); border-color: var(--dim, #a9adb3); }
+.site-frame-header a:focus-visible,
+.site-frame-footer a:focus-visible { outline: 2px solid var(--text, #f2efe8); outline-offset: 4px; border-radius: 4px; }
+
+.site-frame-footer { margin-top: 64px; padding-bottom: 40px; color: var(--dim, #a9adb3); font-size: 13px; line-height: 1.5; }
+.site-frame-footer nav { display: flex; flex-wrap: wrap; align-items: center; gap: 0 24px; margin: 0; padding: 12px 0; border: 0; border-top: 1px solid var(--line, #2a2e33); }
+.site-frame-footer .site-notice { max-width: 100ch; padding: 0; font-size: 11px; line-height: 1.6; }
+.site-frame-footer .site-notice p { margin: 0; color: inherit; font-size: inherit; }
+.site-frame-footer .site-notice p + p { margin-top: 8px; }
+.site-frame-footer .site-notice a { color: inherit; text-underline-offset: 3px; }
+
+/* Phones: the wordmark and the button on one row, the four places on a row of their own. Nothing
+   wraps inside a link and every link is a 44 px target. */
+@media (max-width: 720px) {
+  .site-frame-header {
+    min-height: 0;
+    padding-block: 12px 4px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "brand open" "nav nav";
+    gap: 4px 16px;
+  }
+  .site-frame-wordmark { width: 68px; }
+  .site-frame-wordmark svg { height: 30px; }
+  .site-frame-header nav { justify-content: flex-start; gap: 0 20px; overflow-x: auto; scrollbar-width: none; }
+  /* The row scrolls if it ever has to, which would clip a ring drawn outside a link: draw it inside. */
+  .site-frame-header nav a:focus-visible { outline-offset: -2px; }
+  .site-frame-header nav a,
+  .site-frame-footer nav a { font-size: 15px; }
+  .site-frame-open { padding: 8px 16px; }
+  .site-frame-footer { margin-top: 40px; padding-bottom: 28px; }
+}
+@media (max-width: 600px) {
+  .site-frame-header,
+  .site-frame-footer { padding-inline: 20px; }
+}
+@media (max-width: 350px) {
+  .site-frame-header,
+  .site-frame-footer { padding-inline: 16px; }
+  .site-frame-header nav { gap: 0 14px; }
+  .site-frame-header nav a,
+  .site-frame-footer nav a { font-size: 14px; }
+}
