@@ -27,6 +27,8 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, "../../..");
 const STATE_DIR = join(homedir(), ".config", "yama-polish");
 const SESSION_COOKIE = "yama_session";
+/** The only host that gets the bot-check header and the session as a header (sessionHeader). */
+const PRODUCTION_HOST = "yama.ing";
 
 export const VIEWPORTS = {
   laptop: { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, minTarget: 24, edgePad: 0 },
@@ -214,13 +216,19 @@ function saveState(state) {
  * ever sent to the host itself.
  */
 function sessionHeader() {
-  if (isLocal(base)) return {};
+  // Production over HTTPS only: never another host, which could be anyone's.
+  if (base.protocol !== "https:" || base.hostname !== PRODUCTION_HOST) return {};
   const check = join(homedir(), ".config", "yama", "edge-check-header");
   const edge = existsSync(check) ? { "x-yama-check": readFileSync(check, "utf8").trim() } : {};
   if (!existsSync(statePath)) return edge;
   try {
     const state = JSON.parse(readFileSync(statePath, "utf8"));
-    const cookie = (state.cookies ?? []).find((c) => c.name === SESSION_COOKIE && (base.hostname === c.domain.replace(/^\./, "") || base.hostname.endsWith(c.domain)));
+    // The cookie must be the host's own: its domain, or a parent domain at a dot boundary.
+    const ownCookie = (c) => {
+      const domain = c.domain.replace(/^\./, "");
+      return base.hostname === domain || base.hostname.endsWith(`.${domain}`);
+    };
+    const cookie = (state.cookies ?? []).find((c) => c.name === SESSION_COOKIE && ownCookie(c));
     return cookie ? { ...edge, authorization: `Bearer ${cookie.value}` } : edge;
   } catch {
     return edge;

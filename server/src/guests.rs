@@ -47,6 +47,8 @@ pub const GUEST_MAX_OPEN_GAMES_ALL: i64 = 6;
 /// The Turnstile action the web app names, checked against Cloudflare's answer.
 pub const TURNSTILE_ACTION: &str = "guest-play";
 const SITEVERIFY: &str = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
+/// Turnstile checks in flight at once (each waits on Cloudflare for up to 10 s).
+static TURNSTILE_CHECKS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(8);
 pub const SIGN_IN_TO_JOIN: &str = "Sign in to join a friend's game. Guests play the computer.";
 
 pub fn router() -> Router<AppState> {
@@ -166,6 +168,12 @@ async fn start(
     let key = address_key(addr);
     st.limits.new_guests_address.allows(&key)?;
     st.limits.new_guests.allows("all")?;
+    // Every try asks Cloudflare, so tries are counted whether or not they pass, and only a few
+    // checks run at once: a flood of bad tokens can't keep the server busy asking.
+    st.limits.guest_checks_address.check(&key)?;
+    let Ok(_checking) = TURNSTILE_CHECKS.try_acquire() else {
+        return Err(AppError::Unavailable("Lots of people are starting games right now. Try again in a moment.".into()));
+    };
     if !verify_turnstile(&st, body.turnstile.trim(), addr).await? {
         return Err(AppError::Forbidden("The check that you're a person didn't go through. Try it again.".into()));
     }
@@ -455,6 +463,19 @@ pub(crate) mod tests {
         }
         let (status, _, _) = as_guest(&app, Method::POST, "/api/guest/session", None, None, Some(json!({ "turnstile": "pass" }))).await;
         assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[tokio::test]
+    async fn failed_checks_count_against_the_address_too() {
+        let (app, pool) = guest_server(None).await;
+        for _ in 0..20 {
+            let (status, _, _) = as_guest(&app, Method::POST, "/api/guest/session", None, None, Some(json!({ "turnstile": "fail" }))).await;
+            assert_eq!(status, StatusCode::FORBIDDEN);
+        }
+        // Even a good token waits now: every try asked Cloudflare.
+        let (status, _, _) = as_guest(&app, Method::POST, "/api/guest/session", None, None, Some(json!({ "turnstile": "pass" }))).await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users").fetch_one(&pool).await.unwrap(), 0);
     }
 
     #[tokio::test]

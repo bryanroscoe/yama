@@ -200,6 +200,8 @@ pub struct Limits {
     pub new_guests_address: RateLimiter,
     /// Guest players made on the whole server in an hour.
     pub new_guests: RateLimiter,
+    /// Guest checks (Turnstile tokens sent to Cloudflare) from one address, passed or not.
+    pub guest_checks_address: RateLimiter,
 }
 
 impl Default for Limits {
@@ -238,6 +240,7 @@ impl Default for Limits {
             mcp_calls_daily: RateLimiter::new("tool calls today", MCP_CALLS_PER_DAY, DAY),
             new_guests_address: RateLimiter::new("guest games from this address today", 6, DAY),
             new_guests: RateLimiter::new("guest players on Yama just now", 60, 60 * MINUTE),
+            guest_checks_address: RateLimiter::new("tries to start as a guest from this address", 20, 60 * MINUTE),
         }
     }
 }
