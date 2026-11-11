@@ -1488,6 +1488,17 @@ The existing multiplayer summary now supports a varying field: each deck's denom
 ### Store trips (2026-11-01)
 
 Bryan asked for the shopping work in commander-decks to move into Yama. Design and slices:
+The private portfolio sourcing preview (`/decks/plans/get/sourcing`, November 11)
+combines a selected research report's `local_sources` across recipients without
+activating unapproved builds. It groups stable copy wishes once across bracket
+alternatives, separates optional real replacements, and builds combined store
+carts from confirmed or known quantities. Conflicting copy identities are excluded.
+This is a dated research preview, separate from the approved-plan trip and its live
+stock snapshots. The existing owner-scoped research API supplies the same evidence
+to the page and MCP `research(id, full=true)`; `yama://shopping/workflow` documents
+the handoff. `store_stock` preserves exact listing URLs and cart variant IDs for
+explicit-card checks, including unapproved build previews. No new write path or
+approval is introduced.
 [docs/shopping-design.md](docs/shopping-design.md). Slice 1: each person's store preferences
 (`plan_store_prefs`, migration 0050: usual store, fine, maybe, won't go; set on the Trip page,
 never by an import), the real-card wishlist (research scenarios with `purpose:
