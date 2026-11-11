@@ -30,8 +30,9 @@ export function passChoices(o: { yourTurn: boolean; yourPriority: boolean; stack
     o.yourTurn
       ? { id: "end", label: "End turn", key: "Shift Enter", hint: "Passes the rest of your turn. Someone else's spell still stops you." }
       : { id: "turn", label: "Pass the rest of this turn", key: "Shift Enter", hint: "Stops only for blockers and your stops." },
-    { id: "mine", label: "Pass to my turn", key: "P", hint: "Through everyone else's turns. Spells still stop you." },
+    { id: "mine", label: "Pass to my turn", key: "P", hint: "Pass all priority until your next turn. Blockers and required choices still ask you." },
   ];
+  if (o.yourTurn) out.push({ id: "turn", label: "Pass all priority this turn", key: null, hint: "Pass even for spells and triggers. Blockers and required choices still ask you." });
   if (o.yourPriority && o.stack > 0) {
     out.push({ id: "resolve_all", label: "Resolve all", key: null, hint: "Ask everyone to let the whole stack resolve. Each can agree or keep priority." });
   }
@@ -143,10 +144,11 @@ export function moved(order: number[], from: number, to: number): number[] {
 }
 
 /** GSettings' sections, in order. */
-export type SettingsSection = "yields" | "answers" | "hand" | "pay" | "concede";
+export type SettingsSection = "yields" | "answers" | "hand" | "pay" | "speed" | "concede";
 
 /** The rail (or the sheet's buttons) while the settings are open: Close, Done, or Concede with Cancel. */
-export function settingsButtons(section: SettingsSection): { title: string; body: string; primary: string; secondary: string | null } {
+export function settingsButtons(section: SettingsSection, solo = false): { title: string; body: string; primary: string; secondary: string | null } {
+  if (section === "concede" && solo) return { title: "End game?", body: "Stop the computers and save this game without a winner.", primary: "End game", secondary: "Cancel" };
   if (section === "concede") return { title: "Concede?", body: "You leave the game. This can't be undone.", primary: "Concede", secondary: "Cancel" };
   if (section === "hand") return { title: "Hand order", body: "Only you see the order.", primary: "Done", secondary: null };
   return { title: "Game settings", body: "Changes apply at once.", primary: "Close", secondary: null };

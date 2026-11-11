@@ -107,6 +107,7 @@ function InspectorBody({ card, meta, view, names, cardById, options, onChoose, o
             ))}
           </div>
         )}
+        {!!card.imprinted?.length && <p className="gi-imprint">Imprinted: {card.imprinted.join(", ")}{card.mana_colors?.length ? `. Mana colors: ${card.mana_colors.join(" / ")}` : ""}</p>}
         <div role="tablist" aria-label="About this card" className="gi-tabs">
           {tabs.map((t) => (
             <button key={t.id} type="button" role="tab" aria-selected={shown === t.id} className={shown === t.id ? "on" : undefined} onClick={() => setTab(t.id)}>

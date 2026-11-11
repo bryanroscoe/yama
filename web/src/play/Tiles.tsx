@@ -136,12 +136,14 @@ export function FieldTile({ pile, meta, look, h, label: extraLabel }: { pile: Pi
   const press = usePress(c, h);
   const count = pile.ids.length;
   const counters = Object.entries(c.counters);
+  const counterBadge = counters.length > 0 ? <span className="ft-counters">{counters.map(([k, v]) => `${v} ${counterName(k)} ${v === 1 ? "counter" : "counters"}`).join(", ")}</span> : null;
   const attacking = look.attacking || !!c.attacking;
   const blocking = look.blocking || !!c.blocking;
   // A face-down card (CR 708.2a): a plain 2/2 with no name; its controller sees what it is.
   const down = !!c.face_down;
   const label = [
     down ? `Face down${c.under ? `, ${c.under}` : ", no name"}` : count > 1 ? `${count} ${c.name}` : c.name,
+    ...counters.map(([k, v]) => `${v} ${counterName(k)} ${v === 1 ? "counter" : "counters"}`),
     c.commander && "commander",
     c.tapped && "tapped",
     attacking && "attacking",
@@ -172,6 +174,7 @@ export function FieldTile({ pile, meta, look, h, label: extraLabel }: { pile: Pi
     (look.picked || look.chosen) && "picked",
     attacking && "attacking",
     blocking && "blocking",
+    ...counters.map(([k, v]) => `${v} ${counterName(k)} ${v === 1 ? "counter" : "counters"}`),
     c.commander && "commander",
     !meta?.art && "no-art",
     down && "fd",
@@ -211,6 +214,7 @@ export function FieldTile({ pile, meta, look, h, label: extraLabel }: { pile: Pi
         <span className="ft-fd" aria-hidden="true">
           <span className="ft-fd-head">Face down</span>
           <b className="ft-fd-name">{c.under ? shortName(c.under) : "No name"}</b>
+          {counterBadge}
           {c.tapped && <TapMark />}
         </span>
       ) : (
@@ -221,15 +225,14 @@ export function FieldTile({ pile, meta, look, h, label: extraLabel }: { pile: Pi
           <span className="ft-bar">
             <span className="ft-name">{c.name}</span>
             {c.tapped && <TapMark />}
+            {counterBadge}
           </span>
         </>
       )}
-      {counters.length > 0 && (
-        <span className="ft-counters">{counters.map(([k, v]) => `${counterName(k)} ×${v}`).join(", ")}</span>
-      )}
+      {c.mana_colors && <span className="ft-mana" title={c.imprinted?.length ? `Imprinted: ${c.imprinted.join(", ")}` : undefined}>{c.mana_colors.length ? `Mana: ${c.mana_colors.join(" / ")}` : "No mana colors"}</span>}
       <Stat card={c} />
       {badge && <span className={`ft-badge${attacking ? " bad" : blocking ? " block" : badge === "Sick" ? " sick" : ""}`}>{badge}</span>}
-      {count > 1 && <span className="ft-count num">×{count}</span>}
+      {count > 1 && <span className="ft-count num">{count} {c.types.includes("Creature") ? "creatures" : "copies"}</span>}
       {look.playable && !look.target && <span className="dot" aria-hidden="true" />}
       {look.picked && <span className="pick-badge num" aria-hidden="true">{look.picked}</span>}
       {look.defender && !look.picked && (

@@ -1926,3 +1926,32 @@ async request worker. Failed or cancelled preparation leaves the lobby retryable
 serializes candidates through publication; its permit stays with a cancelled
 request's worker until that worker exits. Waiting for the slot has a 10-second
 deadline and reports a temporary-unavailability response.
+
+### Playing mode recovery and presentation (2026-11-10)
+
+Smart stops count nonmana land activations, including fetch lands, as real actions.
+Starting a pass mode checks the current transport revision and keeps its originating
+turn; End turn requests a mode rather than a single priority pass. Pass to my turn
+passes spell-response priority too, while blockers and required choices still wait.
+Voluntarily starting a new play cancels passing; required answers do not.
+
+The original board offers one conservative Go back checkpoint for an own-main-phase,
+empty-stack pass. Only priority passes and phase changes can preserve it; effects,
+triggers, hidden information, another human's decision or other actions invalidate it.
+It restores the whole adapter/engine state, cancels passing, advances the transport
+revision and refreshes Phase interaction authority before durable save and publication.
+Discard selection stays local until confirmed and can be reset. Checkpoints last only
+in the live process (including browser reconnect); a server restart drops availability.
+The saved replay retains discarded actions as private `yama_rewinds` audit metadata,
+plus a monotonic `yama_revision`; they are not applied as current game actions.
+
+A host who is the only human may explicitly End game. It stops the driver immediately,
+saves `yama_abandoned` in the replay and records abandoned/no winner in history; it
+never mass-concedes AI seats or terminates a table containing other humans. Rematches
+preserve setup but remain in the lobby until Start.
+
+Presentation speed is a device preference, separate from engine thinking and shared
+match progression. Bounded cues consume action-time viewer-filtered events to show
+casts and arrivals that occur inside one server batch. Hidden/reconnected clients do
+not replay old cues. The response panel shows the full card, controller, ability text
+and targets beside the action; only visible stack/card elements anchor target lines.

@@ -512,7 +512,7 @@ async fn the_host_starts_a_rematch_and_the_other_players_can_join_it() {
     use crate::testutil::{deck as make_deck, send as request, user};
     use axum::http::{Method, StatusCode};
     let mut st = crate::testutil::state().await;
-    st.play = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()), historical: None, setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()) });
+    st.play = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()), historical: None, setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()), });
     let pool = st.pool.clone();
     let app = crate::routes::app(st);
     let (host, host_token) = user(&pool, "ana@example.com").await;
@@ -536,7 +536,7 @@ async fn the_host_starts_a_rematch_and_the_other_players_can_join_it() {
         difficulty: (kind == "ai").then(|| "Hard".into()),
         bracket: None,
     };
-    let seats = vec![seat(0, "human", Some(&host), &host_deck, &host_version), seat(1, "human", Some(&friend), &friend_deck, &friend_version), seat(2, "ai", None, &ai_deck, &ai_version)];
+    let seats = vec![seat(0, "human", Some(&host), &host_deck, &host_version), seat(1, "human", Some(&friend), &friend_deck, &friend_version), seat(2, "ai", None, &ai_deck, &ai_version),];
     sqlx::query("INSERT INTO games (id, mode, created_by, format, status, starting_life, started_at, ended_at) VALUES ('old', 'online', ?, 'commander', 'finished', 40, '2026-10-24T10:00:00Z', '2026-10-24T11:12:00Z')")
         .bind(&host)
         .execute(&pool)
@@ -549,9 +549,23 @@ async fn the_host_starts_a_rematch_and_the_other_players_can_join_it() {
         .await
         .unwrap();
 
+    // A host cannot end a whole table with other humans in it.
+    assert_eq!(
+        request(
+            &app,
+            Method::POST,
+            "/api/play/old/end",
+            Some(&host_token),
+            None
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+
     // Only the host starts it.
     assert_eq!(request(&app, Method::POST, "/api/play/old/rematch", Some(&friend_token), None).await.0, StatusCode::FORBIDDEN);
-    let (status, made) = request(&app, Method::POST, "/api/play/old/rematch", Some(&host_token), None).await;
+    let (status, made) = request(&app, Method::POST, "/api/play/old/rematch", Some(&host_token), None,).await;
     assert_eq!(status, StatusCode::OK, "{made}");
     let new_id = made["id"].as_str().unwrap().to_string();
     // Same seats: Ana's deck, the computer's deck and level, Ben's seat open for him.
@@ -565,16 +579,42 @@ async fn the_host_starts_a_rematch_and_the_other_players_can_join_it() {
     assert_eq!(request(&app, Method::POST, "/api/play/old/rematch", Some(&host_token), None).await.1["id"], new_id.as_str());
 
     // Ben's game-over screen learns of it, with the code and his deck from that game.
-    let (_, old) = request(&app, Method::GET, "/api/play/old", Some(&friend_token), None).await;
+    let (_, old) = request(&app, Method::GET, "/api/play/old", Some(&friend_token), None,).await;
     assert_eq!(old["rematch"]["id"], new_id.as_str());
     assert_eq!(old["rematch"]["code"], r.code.as_str());
     assert_eq!(old["rematch"]["deck_id"], friend_deck.as_str());
     assert_eq!((old["started_at"].as_str(), old["ended_at"].as_str()), (Some("2026-10-24T10:00:00Z"), Some("2026-10-24T11:12:00Z")));
     // Nobody outside the game sees it.
     assert_eq!(request(&app, Method::GET, "/api/play/old", Some(&stranger_token), None).await.0, StatusCode::NOT_FOUND);
-    let (status, _) = request(&app, Method::POST, "/api/play/join", Some(&friend_token), Some(serde_json::json!({ "code": r.code, "deck_id": friend_deck }))).await;
+    let (status, _) = request(&app, Method::POST, "/api/play/join", Some(&friend_token), Some(serde_json::json!({ "code": r.code, "deck_id": friend_deck })),).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(load_row(&pool, &new_id).await.unwrap().seats()[1].user_id.as_deref(), Some(friend.as_str()));
+    assert_eq!(load_row(&pool, &new_id).await.unwrap().seats()[1].user_id.as_deref(), Some(friend.as_str())
+    );
+    // A solo rematch also waits in a lobby instead of creating an unexpected live game.
+    let solo: Vec<_> = seats
+        .into_iter()
+        .filter(|s| s.kind == "ai" || s.user_id.as_deref() == Some(host.as_str()))
+        .collect();
+    sqlx::query("UPDATE online_games SET seats=?, rematch_id=NULL WHERE game_id='old'")
+        .bind(serde_json::to_string(&solo).unwrap())
+        .execute(&pool)
+        .await
+        .unwrap();
+    let (status, made) = request(
+        &app,
+        Method::POST,
+        "/api/play/old/rematch",
+        Some(&host_token),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{made}");
+    assert_eq!(
+        load_row(&pool, made["id"].as_str().unwrap())
+            .await
+            .unwrap()
+            .stage,
+        "lobby");
 }
 
 #[test]
@@ -1421,4 +1461,89 @@ async fn historical_deferred_settings_preserve_pending_ai_work() {
     let settings = log.lines().position(|line| line.contains("\"type\":\"hold\"")).unwrap();
     let batch = log.lines().position(|line| line.contains("\"op\":\"batch\"")).unwrap();
     assert!(settings < batch, "the settings command must be admitted before AI resumes");
+}
+
+#[tokio::test]
+async fn ending_a_solo_game_is_durable_and_does_not_award_a_winner() {
+    use crate::testutil::{send as request, user};
+    use axum::http::{Method, StatusCode};
+    for eliminated in [false, true] {
+    let mut st = crate::testutil::state().await;
+    let e = Arc::new(engine());
+    st.play = Arc::new(PlayHub {
+        engine: Mutex::new(EngineState::Ready(e.clone())),
+        live: Mutex::new(HashMap::new()),
+        historical: None,
+        setup_gate: Arc::new(tokio::sync::Semaphore::new(1)),
+        unavailable: Mutex::new(HashMap::new()),
+    });
+    let pool = st.pool.clone();
+    let (host, token) = user(&pool, "solo@example.com").await;
+    let (_, outsider) = user(&pool, "outside@example.com").await;
+    let mut human = seat(0, "Ana");
+    human.user_id = Some(host.clone());
+    let mut computer = seat(1, "Computer");
+    computer.kind = "ai".into();
+    computer.user_id = None;
+    computer.difficulty = Some("Easy".into());
+    let mut other_computer = computer.clone(); other_computer.seat = 2;
+    let seats = vec![human, computer, other_computer];
+    let mut m = e
+        .new_match_first(
+            5,
+            vec![deck(&[("Mountain", 99)]), deck(&[("Island", 99)]), deck(&[("Forest", 99)])],
+            &[(1, Difficulty::Easy), (2, Difficulty::Easy)],
+            Some(0),
+        )
+        .unwrap();
+    if eliminated { m.concede(0).unwrap(); }
+    sqlx::query("INSERT INTO games (id,mode,created_by,format,status,starting_life,started_at,engine_version) VALUES ('solo-feedback','online',?,'commander','in_progress',40,'2026-11-10T00:00:00Z',?)").bind(&host).bind(yama_play::ENGINE_VERSION).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO online_games (game_id,code,host_id,stage,seats,replay,created_at,updated_at) VALUES ('solo-feedback','SOLOFB',?,'live',?,?,'2026-11-10T00:00:00Z','2026-11-10T00:00:00Z')").bind(&host).bind(serde_json::to_string(&seats).unwrap()).bind(m.replay_json()).execute(&pool).await.unwrap();
+    st.play.spawn_game(
+        "solo-feedback".into(),
+        m,
+        seats,
+        HashMap::new(),
+        pool.clone(),
+    );
+    let app = crate::routes::app(st);
+    assert_eq!(
+        request(
+            &app,
+            Method::POST,
+            "/api/play/solo-feedback/end",
+            Some(&outsider),
+            None
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    let (status, response) = request(
+        &app,
+        Method::POST,
+        "/api/play/solo-feedback/end",
+        Some(&token),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{response}");
+    let (status, winner): (String, Option<i64>) =
+        sqlx::query_as("SELECT status,winner_seat FROM games WHERE id='solo-feedback'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(status, "abandoned");
+    assert_eq!(winner, None);
+    let (stage, replay): (String, String) =
+        sqlx::query_as("SELECT stage,replay FROM online_games WHERE game_id='solo-feedback'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(stage, "over");
+    assert_eq!(load_row(&pool, "solo-feedback").await.unwrap().status(), "abandoned");
+    let restored = e.resume(&replay, &[(1, Difficulty::Easy), (2, Difficulty::Easy)]).unwrap();
+    assert!(restored.abandoned() && restored.is_over());
+    assert!(restored.winner().is_none());
+    }
 }

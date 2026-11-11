@@ -341,13 +341,14 @@ impl Engine {
             m.state = player.seek(0).map_err(|e| anyhow::anyhow!("replay diverged: {e:?}"))?.clone();
             for recorded in &log.actions {
                 let applied = match recorded.kind {
-                    RecordedActionKind::Submitted => engine::game::engine::apply(&mut m.state, recorded.actor, recorded.action.clone()),
+                    RecordedActionKind::Submitted => engine::game::engine::apply(&mut m.state, recorded.actor, recorded.action.clone(),),
                     RecordedActionKind::VerifiedAiPriorityPass { semantic_owner } => {
                         let contract = AiDecisionContract::issue(&m.state, semantic_owner);
-                        apply_verified_ai_priority_pass(&mut m.state, recorded.actor, &contract, recorded.action.clone())
+                        apply_verified_ai_priority_pass(&mut m.state, recorded.actor, &contract, recorded.action.clone(),)
                     }
                 };
-                let result = applied.map_err(|e| anyhow::anyhow!("replay diverged at action {}: {e}", recorded.seq))?;
+                let result = applied.map_err(|e| { anyhow::anyhow!("replay diverged at action {}: {e}", recorded.seq)
+                })?;
                 if let GameAction::Concede { player_id } = &recorded.action {
                     m.conceded.insert(player_id.0);
                 }
@@ -372,6 +373,10 @@ impl Engine {
                 _ => None,
             })
             .collect();
+        m.abandoned = metadata.yama_abandoned;
+        m.revision = m.revision.max(metadata.yama_revision);
+        anyhow::ensure!(metadata.yama_rewinds.is_empty() || metadata.yama_rewind_version == 1, "unsupported rewind audit version");
+        m.rewinds = metadata.yama_rewinds;
         m.log = log;
         m.restore_turn_controls(metadata.yama_turn_controls);
         m.remark(None);
@@ -385,9 +390,14 @@ impl Engine {
         state.debug_mode = false;
         state.all_card_names = self.db.card_names().into();
         let players = header.player_count;
-        let ai_configs = ai.iter().map(|(seat, d)| (PlayerId(*seat), ai_config(*d, players, header.seed, AI_CLOCK))).collect();
+        let ai_configs = ai.iter().map(|(seat, d)| { (PlayerId(*seat), ai_config(*d, players, header.seed, AI_CLOCK),)
+            }).collect();
         let session = AiSession::arc_from_game(&state);
         let mut m = Match {
+            abandoned: false,
+            rewind: None,
+            rewind_seat: None,
+            rewinds: Vec::new(),
             rng: StdRng::seed_from_u64(header.seed ^ 0x9e37_79b9_7f4a_7c15),
             log: ReplayLog::new(header),
             state,
@@ -434,6 +444,14 @@ struct SavedTurnControls {
 struct ReplayMetadata {
     #[serde(default)]
     yama_turn_controls: Option<SavedTurnControls>,
+    #[serde(default)]
+    yama_abandoned: bool,
+    #[serde(default)]
+    yama_revision: u64,
+    #[serde(default)]
+    yama_rewinds: Vec<serde_json::Value>,
+    #[serde(default)]
+    yama_rewind_version: u8,
 }
 
 #[derive(Serialize)]
@@ -442,6 +460,10 @@ struct SavedReplay<'a> {
     log: &'a ReplayLog,
     #[serde(skip_serializing_if = "Option::is_none")]
     yama_turn_controls: Option<SavedTurnControls>,
+    yama_abandoned: bool,
+    yama_revision: u64,
+    yama_rewinds: &'a [serde_json::Value],
+    yama_rewind_version: u8,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -452,7 +474,12 @@ struct RestoredPrefs {
 }
 
 /// A live game.
+#[derive(Clone)]
 pub struct Match {
+    abandoned: bool,
+    rewind: Option<Box<Match>>,
+    rewind_seat: Option<u8>,
+    rewinds: Vec<serde_json::Value>,
     state: GameState,
     log: ReplayLog,
     session: Arc<AiSession>,
@@ -866,6 +893,9 @@ impl Match {
     }
 
     pub fn is_over(&self) -> bool {
+        if self.abandoned {
+            return true;
+        }
         matches!(self.state.waiting_for, WaitingFor::GameOver { .. })
     }
 
@@ -1129,14 +1159,37 @@ impl Match {
             return Err(ChoiceError::NotYourTurn);
         }
         let contract = AiDecisionContract::issue(&self.state, owner);
+        let checkpoint = contract
+            .candidates
+            .get(index)
+            .is_some_and(|c| matches!(c.action, GameAction::PassPriority))
+            && self.state.active_player.0 == seat
+            && self.state.stack.is_empty()
+            && matches!(
+                format!("{:?}", self.state.phase).as_str(),
+                "PreCombatMain" | "PostCombatMain"
+            );
+        if checkpoint {
+            self.rewind = None;
+            self.rewind_seat = None;
+            let saved = self.clone();
+            self.rewind = Some(Box::new(saved));
+            self.rewind_seat = Some(seat);
+        }
         self.choose_issued(seat, contract, index)
     }
 
     /// [`Match::choose`], with `seat`'s decision already issued for the game as it stands.
-    fn choose_issued(&mut self, seat: u8, contract: AiDecisionContract, index: usize) -> Result<(), ChoiceError> {
+    fn choose_issued(&mut self, seat: u8, contract: AiDecisionContract, index: usize,) -> Result<(), ChoiceError> {
         let owner = PlayerId(seat);
         let action = contract.candidates.get(index).ok_or(ChoiceError::BadIndex)?.action.clone();
         let actor = contract.authorized_actor;
+        let voluntary = !matches!(action, GameAction::PassPriority)
+            && matches!(self.state.waiting_for, WaitingFor::Priority { .. });
+        if !matches!(action, GameAction::PassPriority) {
+            self.rewind = None;
+            self.rewind_seat = None;
+        }
         // Passing over your own spell (or an empty stack) ends holding priority; passing over
         // someone else's response doesn't, so you're still asked before your own resolves.
         let passed = matches!(action, GameAction::PassPriority)
@@ -1165,7 +1218,11 @@ impl Match {
                 self.accepted(&result, Some(seat));
             }
             AiProposalApplication::Stale => return Err(ChoiceError::Stale),
-            AiProposalApplication::Rejected { rejection } => return Err(ChoiceError::Rejected(format!("{rejection:?}"))),
+            AiProposalApplication::Rejected { rejection } => { return Err(ChoiceError::Rejected(format!("{rejection:?}")));
+            }
+        }
+        if voluntary {
+            self.controls.entry(seat).or_default().passing = None;
         }
         // Holding priority lasts until you pass over your own spell.
         if passed && self.controls.get(&seat).is_some_and(|c| c.hold) {
@@ -1225,6 +1282,7 @@ impl Match {
     /// revision check, and it leaves everyone's decision as it was.
     pub fn act(&mut self, seat: u8, revision: u64, answer: &Act) -> Result<(), ChoiceError> {
         let preference = answer.is_preference();
+        let voluntary = matches!(self.state.waiting_for, WaitingFor::Priority { .. });
         if !preference && !self.current(seat, revision) {
             return Err(ChoiceError::Stale);
         }
@@ -1244,6 +1302,13 @@ impl Match {
         };
         match answered {
             Ok(done) => {
+                if !preference {
+                    self.rewind = None;
+                    self.rewind_seat = None;
+                    if voluntary {
+                        self.controls.entry(seat).or_default().passing = None;
+                    }
+                }
                 for action in done.actions {
                     self.log.push_action(done.actor, action);
                 }
@@ -1260,7 +1325,7 @@ impl Match {
             }
             Err(act::Refusal::NotYours) => Err(ChoiceError::NotYourTurn),
             Err(act::Refusal::DoesntFit(why)) => Err(ChoiceError::DoesntFit(why)),
-            Err(act::Refusal::Engine(why)) => Err(ChoiceError::Rejected(self.plain_reason(PlayerId(seat), &why))),
+            Err(act::Refusal::Engine(why)) => Err(ChoiceError::Rejected(self.plain_reason(PlayerId(seat), &why),)),
         }
     }
 
@@ -1498,9 +1563,28 @@ impl Match {
                 passed += 1;
                 continue;
             }
+            // End turn also declines optional attacks. Never submit an empty declaration
+            // unless the engine offered it (must-attack requirements still stop here).
+            if let WaitingFor::DeclareAttackers { player, .. } = &self.state.waiting_for {
+                let seat = player.0;
+                if humans.contains(&seat)
+                    && self
+                        .controls
+                        .get(&seat)
+                        .and_then(|c| c.passing)
+                        .is_some_and(|p| {
+                            matches!(p.mode, PassMode::End | PassMode::Turn | PassMode::Mine)
+                        })
+                {
+                    let contract = AiDecisionContract::issue(&self.state, PlayerId(seat));
+                    if let Some(index) = contract.candidates.iter().position(|c| matches!(&c.action, GameAction::DeclareAttackers { attacks, .. } if attacks.is_empty())) {
+                        if self.choose_issued(seat, contract, index).is_ok() { passed += 1; self.tidy_controls(humans); continue; }
+                    }
+                }
+            }
             let mut next = None;
             for seat in self.waiting_on().into_iter().filter(|s| humans.contains(s)) {
-                let Some((w, contract)) = self.window_issued(seat) else { continue };
+                let Some((w, contract)) = self.window_issued(seat) else { continue; };
                 let c = self.controls.get(&seat).cloned().unwrap_or_default();
                 match turns::verdict(&w, &c) {
                     turns::Verdict::Pass => {
@@ -1518,10 +1602,21 @@ impl Match {
             }
             // The decision the window was read from is the one passed: nothing has changed since,
             // so it isn't issued again (issuing one is most of a pass's cost on a big board).
-            let Some((seat, contract)) = next else { return passed };
+            let Some((seat, contract)) = next else { return passed; };
             let Some(index) = contract.candidates.iter().position(|c| matches!(c.action, GameAction::PassPriority)) else {
                 return passed;
             };
+            if self.rewind.is_none()
+                && self.state.active_player.0 == seat
+                && self.state.stack.is_empty()
+                && format!("{:?}", self.state.phase) == "PostCombatMain"
+                && self.controls.get(&seat).and_then(|c| c.passing).is_some()
+            {
+                self.rewind_seat = None;
+                let saved = self.clone();
+                self.rewind = Some(Box::new(saved));
+                self.rewind_seat = Some(seat);
+            }
             if self.choose_issued(seat, contract, index).is_err() {
                 return passed;
             }
@@ -1559,20 +1654,13 @@ impl Match {
 
     /// [`Match::window`], with the decision it was read from.
     fn window_issued(&self, seat: u8) -> Option<(turns::Window, AiDecisionContract)> {
-        let WaitingFor::Priority { player } = &self.state.waiting_for else { return None };
+        let WaitingFor::Priority { player } = &self.state.waiting_for else { return None; };
         if player.0 != seat {
             return None;
         }
         let contract = AiDecisionContract::issue(&self.state, PlayerId(seat));
-        let is_land_ability = |a: &GameAction| match a {
-            GameAction::ActivateAbility { source_id, .. } => self
-                .state
-                .objects
-                .get(source_id)
-                .is_some_and(|o| o.card_types.core_types.iter().any(|t| format!("{t:?}") == "Land")),
-            _ => false,
+        let others = || { contract.candidates.iter().filter(|c| !matches!(c.action, GameAction::PassPriority))
         };
-        let others = || contract.candidates.iter().filter(|c| !matches!(c.action, GameAction::PassPriority));
         let window = turns::Window {
             phase: format!("{:?}", self.state.phase),
             your_turn: self.state.active_player.0 == seat,
@@ -1581,7 +1669,7 @@ impl Match {
                 yielded: self.state.is_priority_yielded(PlayerId(seat), top),
             }),
             only_pass: others().next().is_none(),
-            can_act: others().any(|c| !is_land_ability(&c.action)),
+            can_act: others().any(|c| !c.action.is_mana_ability()),
             can_cast: others().any(|c| matches!(c.action, GameAction::CastSpell { .. })),
             ninjutsu: others().any(|c| matches!(c.action, GameAction::ActivateNinjutsu { .. })),
         };
@@ -1630,7 +1718,7 @@ impl Match {
     /// Start a pass mode for `seat` (GPriority), or stop one (`None`). If it's their priority
     /// now and `revision` is the board they chose from, this window is passed first: choosing
     /// a way to pass passes.
-    pub fn set_passing(&mut self, seat: u8, mode: Option<PassMode>, revision: u64) -> Result<(), ChoiceError> {
+    pub fn set_passing(&mut self, seat: u8, mode: Option<PassMode>, revision: u64,) -> Result<(), ChoiceError> {
         let Some(mode) = mode else {
             self.controls.entry(seat).or_default().passing = None;
             return Ok(());
@@ -1638,14 +1726,77 @@ impl Match {
         if self.state.players.iter().any(|p| p.id.0 == seat && p.is_eliminated) || self.is_over() {
             return Err(ChoiceError::DoesntFit("You're out of the game.".into()));
         }
+        if revision != self.revision {
+            return Err(ChoiceError::Stale);
+        }
+        let turn = self.state.turn_number;
         let pass = self.window(seat).and_then(|_| {
             AiDecisionContract::issue(&self.state, PlayerId(seat)).candidates.iter().position(|c| matches!(c.action, GameAction::PassPriority))
         });
         if let Some(index) = pass.filter(|_| self.current(seat, revision)) {
             self.choose(seat, revision, index)?;
         }
-        self.controls.entry(seat).or_default().passing = Some(turns::Passing { mode, turn: self.state.turn_number });
+        self.controls.entry(seat).or_default().passing = Some(turns::Passing { mode, turn }); self.tidy_controls(&[seat]);
         Ok(())
+    }
+
+    /// A single safe phase/pass reversal. Restores every adapter field; revisions never rewind.
+    pub fn go_back(&mut self, seat: u8, revision: u64) -> Result<(), ChoiceError> {
+        if revision != self.revision {
+            return Err(ChoiceError::Stale);
+        }
+        if self.is_over() || self.rewind_seat != Some(seat) {
+            return Err(ChoiceError::DoesntFit(
+                "Cannot go back after an effect, revealed information or another decision.".into(),
+            ));
+        }
+        if self.rewinds.len() >= 128 { return Err(ChoiceError::DoesntFit("This game has reached its undo history limit.".into())); }
+        let Some(mut saved) = self.rewind.take() else {
+            return Err(ChoiceError::DoesntFit(
+                "There is no safe phase change to go back to.".into(),
+            ));
+        };
+        let audit = serde_json::json!({"seat": seat, "revision": self.revision, "actions": &self.log.actions[saved.log.actions.len()..]});
+        saved.rewinds = self.rewinds.clone();
+        saved.rewinds.push(audit);
+        saved.revision = self.revision + 1;
+        saved.controls = self.controls.clone();
+        let own = saved.controls.entry(seat).or_default();
+        own.passing = None;
+        own.hold = false;
+        saved.feed.keep_sequence_after(&self.feed);
+        saved.marks.clear();
+        saved.board_ready = false;
+        saved.board_tail = board::Tail::default();
+        saved.prepare_board().map_err(|_| {
+            ChoiceError::DoesntFit("Could not refresh the restored game controls.".into())
+        })?;
+        saved.session = AiSession::arc_from_game(&saved.state);
+        saved.remark(None);
+        saved.lines.push(LogLine::public(
+            saved.turn(),
+            format!(
+                "{} went back to the previous decision.",
+                saved.seat_name(PlayerId(seat))
+            ),
+        ));
+        *self = *saved;
+        Ok(())
+    }
+
+    /// Stop a solo table without inventing a winner or playing out the AI-only remainder.
+    pub fn abandon(&mut self) {
+        self.abandoned = true;
+        self.rewind = None;
+        self.rewind_seat = None;
+        self.revision += 1;
+        self.lines.push(LogLine::public(
+            self.turn(),
+            "The solo game was ended without a winner.".into(),
+        ));
+    }
+    pub fn abandoned(&self) -> bool {
+        self.abandoned
     }
 
     /// "Hold priority": stop `seat` whenever they get priority while the stack isn't empty, even
@@ -1741,6 +1892,25 @@ impl Match {
     /// lines, plus a private line for each answer the engine gave for someone from memory), and
     /// which people's decisions changed. `acted` is the person who answered, if one did.
     fn accepted(&mut self, result: &ActionResult, acted: Option<u8>) {
+        let phase_only = matches!(self.state.waiting_for, WaitingFor::Priority { .. } | WaitingFor::DeclareAttackers { .. } | WaitingFor::DiscardToHandSize { .. });
+        if !phase_only || !self.state.stack.is_empty() || self
+            .log
+            .actions
+            .last()
+            .is_some_and(|a| !matches!(a.action, GameAction::PassPriority))
+            || acted.is_some_and(|seat| {
+                self.rewind_seat != Some(seat) && !self.ai.contains_key(&PlayerId(seat))
+            })
+            || result.events.iter().any(|e| {
+                !matches!(
+                    e,
+                    GameEvent::PhaseChanged { .. } | GameEvent::PriorityPassed { .. }
+                )
+            })
+        {
+            self.rewind = None;
+            self.rewind_seat = None;
+        }
         self.revision += 1;
         let busy = Busy::start();
         self.remark(acted);
@@ -2129,6 +2299,10 @@ impl Match {
     pub fn replay_json(&self) -> String {
         let saved = SavedReplay {
             log: &self.log,
+            yama_abandoned: self.abandoned,
+            yama_revision: self.revision,
+            yama_rewinds: &self.rewinds,
+            yama_rewind_version: 1,
             yama_turn_controls: (!self.controls.is_empty()).then(|| SavedTurnControls {
                 version: 1,
                 seats: self.controls.iter().map(|(seat, controls)| (*seat, controls.clone())).collect(),
@@ -2193,7 +2367,8 @@ impl Match {
         for (blocker, attacker) in &derived.blocker_assignment_pairs {
             blocks.entry(*blocker).or_default().push(attacker.0);
         }
-        let attacker = |id: &ObjectId| state.combat.as_ref().and_then(|c| c.attackers.iter().find(|a| a.object_id == *id));
+        let attacker = |id: &ObjectId| { state.combat.as_ref().and_then(|c| c.attackers.iter().find(|a| a.object_id == *id))
+        };
         let obj = |id: &ObjectId| -> Option<CardView> {
             let o = state.objects.get(id)?;
             let on_field = o.zone == Zone::Battlefield;
@@ -2207,7 +2382,44 @@ impl Match {
                 name: if o.face_down && !may_look { "Face-down card".into() } else { o.name.clone() },
                 face_down: o.face_down,
                 under: face_down_identity(o, all_hands),
-                came: if matches!(o.zone, Zone::Graveyard | Zone::Exile | Zone::Command) { self.feed.came(viewer, id.0) } else { None },
+                came: if matches!(o.zone, Zone::Graveyard | Zone::Exile | Zone::Command) { self.feed.came(viewer, id.0) } else { None
+                },
+                mana_colors: if on_field && !o.face_down && o.name == "Chrome Mox" {
+                    // Only public exile links and the viewer-filtered state are used. Untap a
+                    // projection so its remembered color identity remains visible while tapped.
+                    let mut projected = state.clone();
+                    if let Some(mox) = projected.objects.get_mut(id) {
+                        mox.tapped = false;
+                    }
+                    let colors: std::collections::BTreeSet<_> =
+                        engine::game::mana_sources::activatable_mana_options(
+                            &projected,
+                            *id,
+                            o.controller,
+                        )
+                        .iter()
+                        .map(|m| pay::mana_code(m.mana_type).to_string())
+                        .collect();
+                    Some(colors.into_iter().collect())
+                } else {
+                    None
+                },
+                imprinted: if on_field && !o.face_down {
+                    state
+                        .exile_links
+                        .iter()
+                        .filter(|l| l.source_id == *id)
+                        .filter_map(|l| state.objects.get(&l.exiled_id))
+                        .filter(|c| {
+                            c.zone == Zone::Exile
+                                && !c.face_down
+                                && !c.name.is_empty()
+                                && c.name != "Hidden Card"
+                        })
+                        .map(|c| c.name.clone())
+                        .collect()
+                } else {
+                    vec![] },
                 attachments: if on_field { o.attachments.iter().map(|a| a.0).collect() } else { vec![] },
                 transformed: o.transformed && !o.face_down,
                 base_power: base.0.filter(|_| reshaped),
@@ -2284,7 +2496,8 @@ impl Match {
                     let ability = !matches!(s.kind, StackEntryKind::Spell { .. });
                     let face_down = state.objects.get(&s.source_id).is_some_and(|o| o.face_down);
                     let text = match &s.kind {
-                        StackEntryKind::KeywordAction { .. } | StackEntryKind::CombatDamage { .. } => detail.map(|d| d.kind_label.clone()),
+                        StackEntryKind::KeywordAction { .. } | StackEntryKind::CombatDamage { .. } => { detail.map(|d| d.kind_label.clone())
+                        }
                         _ => detail
                             .and_then(|d| d.ability_description.as_deref())
                             .filter(|t| ability && !face_down && !t.trim().is_empty())
@@ -2297,7 +2510,8 @@ impl Match {
                         trigger,
                         ability,
                         text,
-                        modes: detail.map(|d| d.selected_mode_labels.iter().map(|m| ability_text(m, &name)).collect()).unwrap_or_default(),
+                        modes: detail.map(|d| { d.selected_mode_labels.iter().map(|m| ability_text(m, &name)).collect()
+                            }).unwrap_or_default(),
                         casting: detail.is_some_and(|d| d.is_pending),
                         targets: self.stack_targets(state, s, viewer, all_hands),
                         // The viewer passes for it while it's on top (a trigger yield).
@@ -2329,10 +2543,14 @@ impl Match {
                 lines
             },
             over: self.is_over(),
+            abandoned: self.abandoned,
+            can_go_back: viewer
+                .is_some_and(|seat| self.rewind_seat == Some(seat) && self.rewind.is_some() && self.rewinds.len() < 128)
+                && !self.is_over(),
             winner: self.winner(),
             turns: viewer.filter(|seat| !self.is_ai(*seat)).map(|seat| self.turns_view(state, seat)),
             resolve_all: self.resolve_all_view(),
-            together: together::view(state, &self.state, self.facing.as_ref().map(|(_, who)| who.as_slice()), &self.names),
+            together: together::view(state, &self.state, self.facing.as_ref().map(|(_, who)| who.as_slice()), &self.names,),
             events: self.feed.recent(viewer, feed::SHOWN),
             outs: self.feed.outs().to_vec(),
             stats: self.is_over().then(|| self.feed.stats(&self.state)),
@@ -2566,6 +2784,8 @@ pub struct View {
     pub decision: Option<Decision>,
     pub log: Vec<LogLine>,
     pub over: bool,
+    pub abandoned: bool,
+    pub can_go_back: bool,
     pub winner: Option<u8>,
     /// The viewer's own turn controls, yields and remembered answers (people only).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2629,6 +2849,10 @@ pub struct CardView {
     pub counters: BTreeMap<String, u32>,
     pub types: Vec<String>,
     pub attached_to: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mana_colors: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub imprinted: Vec<String>,
     /// Declared as an attacker in the current combat.
     pub attacking: bool,
     /// The player it attacks (the planeswalker's or battle's controller, for those).
@@ -2709,8 +2933,8 @@ pub struct StackView {
     /// The modes chosen for a modal spell or ability, in the card's words.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub modes: Vec<String>,
-    /// What it targets, as the viewer may see it.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    /// What it targets, as the viewer may see it. An explicit empty list means
+    /// there are no targets to change (distinct from an older server's unknown field).
     pub targets: Vec<StackTarget>,
     /// Still being cast or activated: its targets and costs aren't settled yet.
     #[serde(skip_serializing_if = "std::ops::Not::not")]

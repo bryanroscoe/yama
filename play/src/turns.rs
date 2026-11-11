@@ -48,14 +48,14 @@ pub enum PassMode {
     /// Shift+Enter on your own turn, "End turn": pass the rest of your turn, past your own
     /// stops. Someone else's spell still stops you.
     End,
-    /// P: pass to your next turn. Someone else's spell still stops you.
+    /// P: pass all priority to your next turn. Required non-priority choices still ask.
     Mine,
 }
 
 impl PassMode {
     /// Someone else's spell or ability you could answer interrupts it.
     fn stops_for_spells(self) -> bool {
-        !matches!(self, PassMode::Turn)
+        matches!(self, PassMode::Until | PassMode::End)
     }
     /// Your stops interrupt it.
     fn stops_at_steps(self) -> bool {
@@ -120,8 +120,7 @@ pub struct Window {
     pub top: Option<Top>,
     /// Passing is all you could do.
     pub only_pass: bool,
-    /// Something besides passing and land abilities (fetchlands and the like don't make a stop
-    /// worthwhile on their own; you still get them whenever you do stop).
+    /// Something besides passing and pure mana actions, including fetch-land activations.
     pub can_act: bool,
     /// A spell you could cast now.
     pub can_cast: bool,
@@ -521,7 +520,7 @@ mod tests {
         // Pass to my turn: spells stop you, steps don't.
         let mine = passing(PassMode::Mine);
         assert_eq!(verdict(&window("End", false, None), &mine), Verdict::Pass);
-        assert_eq!(verdict(&window("PreCombatMain", false, THEIRS), &mine), Verdict::Interrupt);
+        assert_eq!(verdict(&window("PreCombatMain", false, THEIRS), &mine), Verdict::Pass);
         // A pass mode outranks full control: passing is what was asked for.
         assert_eq!(verdict(&window("Upkeep", false, None), &Controls { full_control: true, ..mine }), Verdict::Pass);
     }

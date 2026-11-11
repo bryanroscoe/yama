@@ -13,6 +13,8 @@ export interface CardView {
   counters: Record<string, number>;
   types: string[];
   attached_to: unknown;
+  mana_colors?: string[];
+  imprinted?: string[];
   /** Declared as an attacker in the current combat (older servers leave it out). */
   attacking?: boolean;
   /** The seat it attacks (a planeswalker's or battle's controller, for those). */
@@ -790,6 +792,8 @@ export interface View {
   decision: Decision | null;
   log: LogLine[];
   over: boolean;
+  abandoned?: boolean;
+  can_go_back?: boolean;
   winner: number | null;
   /** Your own turn controls (newer servers, people only). */
   turns?: TurnsView;

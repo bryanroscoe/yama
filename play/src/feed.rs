@@ -236,7 +236,7 @@ pub struct Stats {
     pub seats: Vec<SeatStats>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct Feed {
     seq: u64,
     batch: u64,
@@ -251,6 +251,11 @@ pub(crate) struct Feed {
 }
 
 impl Feed {
+    pub(crate) fn keep_sequence_after(&mut self, previous: &Self) {
+        self.seq = self.seq.max(previous.seq);
+        self.batch = self.batch.max(previous.batch);
+    }
+
     /// Take one action's events: tally them, and add what each viewer may know to their feed.
     /// `state` is the game right after the action; `conceded` holds the seats that conceded.
     pub(crate) fn record(&mut self, events: &[GameEvent], state: &GameState, conceded: &BTreeSet<u8>) {

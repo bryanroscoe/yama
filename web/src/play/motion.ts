@@ -40,6 +40,18 @@ export function motionScale(p: { reduced: boolean; hidden: boolean; speed?: Spee
   }
 }
 
+export type PlaySpeed = "slow" | "normal" | "fast" | "instant";
+export const PLAY_SPEEDS: { value: PlaySpeed; label: string; scale: number }[] = [
+  { value: "slow", label: "Slow", scale: 2 },
+  { value: "normal", label: "Normal", scale: 1 },
+  { value: "fast", label: "Fast", scale: 0.6 },
+  { value: "instant", label: "Instant", scale: 0 },
+];
+export function readPlaySpeed(): PlaySpeed {
+  try { const saved = localStorage.getItem("yama.play.speed"); return PLAY_SPEEDS.find((s) => s.value === saved)?.value ?? "slow"; }
+  catch { return "slow"; }
+}
+
 export const dur = (base: number, scale: number) => Math.round(base * scale);
 
 export type Zone = "battlefield" | "hand" | "graveyard" | "exile" | "command";
@@ -73,6 +85,7 @@ export function lifeChanges(prev: Map<number, number> | null, view: View): { sea
 }
 
 export interface StackItem {
+  id?: number;
   name: string;
   controller: number;
 }
@@ -84,7 +97,7 @@ export interface StackItem {
  */
 export function stackChange(prev: StackItem[], next: StackItem[]): { left: number; added: StackItem[] } {
   let common = 0;
-  while (common < prev.length && common < next.length && prev[common]!.name === next[common]!.name && prev[common]!.controller === next[common]!.controller) common++;
+  while (common < prev.length && common < next.length && prev[common]!.name === next[common]!.name && prev[common]!.controller === next[common]!.controller && prev[common]!.id === next[common]!.id) common++;
   return { left: prev.length - common, added: next.slice(common) };
 }
 

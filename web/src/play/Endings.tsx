@@ -171,10 +171,10 @@ export function GameOver(props: {
     };
   }, [id, host]);
   const outs = view.outs ?? [];
-  const rows = standings(view.players, outs, view.winner, true, names);
+  const rows = standings(view.players, outs, view.winner, !view.abandoned, names).map((r) => view.abandoned ? { ...r, place: "", how: r.out ? r.how : "Game ended" } : r);
   const winner = view.winner;
   const hero = winner === null ? art(rows[0]?.seat ?? 0) : art(winner);
-  const title = winner === null ? "Drawn game" : winner === names.you ? "You won" : `${names.Who(winner)} won`;
+  const title = view.abandoned ? "Game ended" : winner === null ? "Drawn game" : winner === names.you ? "You won" : `${names.Who(winner)} won`;
   const deck = (seat: number) => seats.find((s) => s.seat === seat)?.commander ?? seats.find((s) => s.seat === seat)?.deck_name ?? null;
   const last = lastOut(outs.filter((o) => o.seat !== winner), names);
   const length = lengthText(game?.started_at, game?.ended_at);
@@ -266,7 +266,7 @@ export function GameOver(props: {
             ))}
           </div>
           <div className="go-group">
-            <b>{game?.playgroup ? `Counts toward ${game.playgroup}'s stats` : "Not counted toward a group's stats"}</b>
+            <b>{!view.abandoned && game?.playgroup ? `Counts toward ${game.playgroup}'s stats` : "Not counted toward a group's stats"}</b>
             <span className="dim small">Chosen when the game was made{ai ? "; a computer played in it" : ""}.</span>
           </div>
           {error && <p className="error small" role="alert">{error}</p>}
@@ -275,7 +275,7 @@ export function GameOver(props: {
             <button type="button" className="outline" onClick={props.onBoard}>See the final board</button>
             <Link to="/play" className="button outline">Back to Play online</Link>
             {host ? (
-              <button type="button" className="primary" onClick={rematch} disabled={busy}>Rematch</button>
+              <button type="button" className="primary" onClick={rematch} disabled={busy}>Set up rematch</button>
             ) : game?.rematch ? (
               <button type="button" className="primary" onClick={join} disabled={busy}>Join the rematch</button>
             ) : null}

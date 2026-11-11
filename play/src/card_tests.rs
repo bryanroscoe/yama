@@ -19,6 +19,7 @@
 //! (the cards phase only partly implements, and those it parses with warnings).
 
 mod commanders;
+mod feedback;
 mod key_cards;
 mod partial;
 pub(crate) mod plain;

@@ -40,6 +40,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/play/{id}", get(detail))
         .route("/api/play/{id}/start", post(start))
         .route("/api/play/{id}/rematch", post(rematch))
+        .route("/api/play/{id}/end", post(end_solo))
         .route("/api/play/{id}/ws", get(connect))
         .route("/api/play/{id}/board", get(board::connect))
         .route("/api/play/{id}/view", get(final_view))
@@ -81,6 +82,15 @@ struct Snapshot {
 }
 
 enum Cmd {
+    GoBack {
+        seat: u8,
+        revision: u64,
+        reply: oneshot::Sender<Result<(), String>>,
+    },
+    EndSolo {
+        seat: u8,
+        reply: oneshot::Sender<Result<(), String>>,
+    },
     Choose {
         seat: u8,
         revision: u64,
@@ -145,19 +155,19 @@ enum Cmd {
         on: bool,
     },
     /// The sources paying automatically would tap to cast `object` (GCast's "Will tap").
-    Preview { seat: u8, object: u64, reply: oneshot::Sender<Result<Vec<u64>, String>> },
+    Preview { seat: u8, object: u64, reply: oneshot::Sender<Result<Vec<u64>, String>>, },
     /// A move from phase's board (board.rs): an engine action or interaction answer.
-    Board { seat: u8, mv: board::Move, reply: oneshot::Sender<Result<(), yama_play::board::Rejection>> },
+    Board { seat: u8, mv: board::Move, reply: oneshot::Sender<Result<(), yama_play::board::Rejection>>, },
     /// The game thread captures the initial frame and subscribes to later updates atomically.
-    BoardOpen { viewer: Option<u8>, reply: oneshot::Sender<Result<board::Opened, yama_play::board::Rejection>> },
+    BoardOpen { viewer: Option<u8>, reply: oneshot::Sender<Result<board::Opened, yama_play::board::Rejection>>, },
     /// One of a viewer's boards closed.
-    BoardClosed { viewer: Option<u8> },
+    BoardClosed { viewer: Option<u8>, },
     /// End the game thread now without saving (an account in it is being deleted).
     Stop,
 }
 
 pub(crate) const STACK: usize = 32 << 20;
-const AI_BATCH: usize = 40;
+const AI_BATCH: usize = 8;
 
 impl PlayHub {
     /// Load the engine's card data in the background. Without it, online play is off.
@@ -376,21 +386,37 @@ fn run_game(
         }
     };
     let humans: Vec<u8> = seats.iter().filter(|s| s.kind == "human").map(|s| s.seat).collect();
-    // Let the computer act, and pass for people where their turn controls say to (yama_play's
-    // turns.rs), until a person has a real decision. Publish as it goes so the table can follow.
-    let ai_turns = |m: &mut Match| loop {
-        let batch = ai_batch(m, &humans);
-        if batch.moved > 0 {
-            publish(m);
-            save(m);
+    let queued = std::cell::RefCell::new(std::collections::VecDeque::new());
+    let finish_solo = |m: &mut Match, seat: u8, reply: oneshot::Sender<Result<(), String>>| {
+        if humans.as_slice() != [seat] {
+            let _ = reply.send(Err("Only the sole human can end a solo game.".into()));
+            return false;
         }
+        let before = m.clone();
+        m.abandon();
+        match rt.block_on(persist(pool, game_id, m)) {
+            Ok(()) => { publish(m); let _ = reply.send(Ok(())); true }
+            Err(e) => { *m = before; let _ = reply.send(Err(format!("Could not save the ended game: {e}"))); false }
+        }
+    };
+    // Admit solo termination between bounded batches, including after the human is out.
+    // Other commands retain their FIFO order until the next human decision.
+    let ai_turns = |m: &mut Match| loop {
+        for _ in 0..32 {
+            let Ok(cmd) = cmds.try_recv() else { break };
+            match cmd {
+                Cmd::EndSolo { seat, reply } => if finish_solo(m, seat, reply) { return },
+                other => queued.borrow_mut().push_back(other),
+            }
+        }
+        if m.is_over() { return; }
+        let batch = ai_batch(m, &humans);
+        if batch.moved > 0 { publish(m); save(m); }
         if let Some(e) = batch.fault {
             tracing::error!(game_id, error = %format!("{e:#}"), "AI driver fault; game paused");
             break;
         }
-        if batch.settled {
-            break;
-        }
+        if batch.settled { break; }
     };
 
     m.set_names(seats.iter().map(|s| s.name.clone()).collect());
@@ -405,7 +431,7 @@ fn run_game(
     ai_turns(&mut m);
     publish(&mut m);
     while !m.is_over() {
-        let Ok(cmd) = cmds.recv() else { return };
+        let cmd = if let Some(cmd) = queued.borrow_mut().pop_front() { cmd } else { let Ok(cmd) = cmds.recv() else { return }; cmd };
         // A person's move: any refusal goes back to them and leaves the game as it was.
         let moved = |m: &mut Match, result: Result<(), yama_play::ChoiceError>, reply: oneshot::Sender<Result<(), String>>| {
             let ok = result.is_ok();
@@ -420,19 +446,46 @@ fn run_game(
             }
         };
         match cmd {
-            Cmd::Choose { seat, revision, index, reply } => {
+            Cmd::GoBack {
+                seat,
+                revision,
+                reply,
+            } => {
+                let before = m.clone();
+                let result = m.go_back(seat, revision).map_err(|e| e.to_string());
+                let result = match result {
+                    Ok(()) => match rt.block_on(persist(pool, game_id, &m)) {
+                        Ok(()) => Ok(()),
+                        Err(e) => {
+                            m = before;
+                            Err(format!("Could not save the restored game: {e}"))
+                        }
+                    },
+                    err => err,
+                };
+                if result.is_ok() {
+                    publish(&mut m);
+                }
+                let _ = reply.send(result);
+                // The restored decision stays put, without automatic passing or AI work.
+                continue;
+            }
+            Cmd::EndSolo { seat, reply } => {
+                if finish_solo(&mut m, seat, reply) { return; }
+            }
+            Cmd::Choose { seat, revision, index, reply, } => {
                 let result = m.choose(seat, revision, index);
                 moved(&mut m, result, reply);
             }
-            Cmd::Attack { seat, revision, attacks, reply } => {
+            Cmd::Attack { seat, revision, attacks, reply, } => {
                 let result = m.declare_attackers(seat, revision, &attacks);
                 moved(&mut m, result, reply);
             }
-            Cmd::Block { seat, revision, blocks, reply } => {
+            Cmd::Block { seat, revision, blocks, reply, } => {
                 let result = m.declare_blockers(seat, revision, &blocks);
                 moved(&mut m, result, reply);
             }
-            Cmd::Act { seat, revision, action, reply } => {
+            Cmd::Act { seat, revision, action, reply, } => {
                 let result = m.act(seat, revision, &action);
                 moved(&mut m, result, reply);
             }
@@ -470,7 +523,7 @@ fn run_game(
                 save(&m);
             }
             Cmd::Stops { seat, stops } => m.set_stops(seat, stops),
-            Cmd::Passing { seat, revision, mode, reply } => {
+            Cmd::Passing { seat, revision, mode, reply, } => {
                 let result = m.set_passing(seat, mode, revision);
                 let ok = result.is_ok();
                 let _ = reply.send(result.map_err(|e| e.to_string()));
@@ -486,7 +539,7 @@ fn run_game(
                 save(&m);
             }
             // Only reads the game: nothing to publish or save.
-            Cmd::Preview { seat, object, reply } => {
+            Cmd::Preview { seat, object, reply, } => {
                 let _ = reply.send(Ok(m.auto_tap_preview(seat, object)));
                 continue;
             }
@@ -518,7 +571,7 @@ fn run_game(
                     }
                 };
                 *boards.borrow_mut().entry(viewer).or_default() += 1;
-                let opened = board::Opened { first, updates: board_updates.subscribe() };
+                let opened = board::Opened { first, updates: board_updates.subscribe(), };
                 if reply.send(Ok(opened)).is_err() {
                     let mut b = boards.borrow_mut();
                     if let Some(n) = b.get_mut(&viewer) {
@@ -606,8 +659,9 @@ async fn persist(pool: &SqlitePool, game_id: &str, m: &Match) -> anyhow::Result<
     anyhow::ensure!(changed == 1, "saved game identity changed; refusing current-runtime write");
     if m.is_over() {
         let view = m.view(None);
-        sqlx::query("UPDATE games SET status = 'finished', winner_seat = ?, turns = ?, ended_at = ?, first_seat = ? WHERE id = ?")
-            .bind(m.winner().map(i64::from))
+        sqlx::query("UPDATE games SET status = ?, winner_seat = ?, turns = ?, ended_at = ?, first_seat = ? WHERE id = ?")
+            .bind(if m.abandoned() { "abandoned" } else { "finished" })
+            .bind(if m.abandoned() { None } else {m.winner().map(i64::from) })
             .bind(i64::from(m.turn()))
             .bind(now())
             .bind(i64::from(m.starting_seat()))
@@ -810,12 +864,13 @@ struct Row {
     ended_at: Option<String>,
     rematch_id: Option<String>,
     engine_version: Option<String>,
+    game_status: Option<String>,
 }
 
 /// The columns a [`Row`] reads; `o` is online_games, `g` games, `p` playgroups.
 const ROW_SELECT: &str =
     "SELECT o.game_id, o.code, o.host_id, o.stage, o.seats, o.created_at, o.updated_at, g.winner_seat, g.turns, p.name AS playgroup,
-     g.started_at, g.ended_at, o.rematch_id, g.engine_version
+     g.started_at, g.ended_at, o.rematch_id, g.engine_version, g.status AS game_status
      FROM online_games o LEFT JOIN games g ON g.id = o.game_id LEFT JOIN playgroups p ON p.id = g.playgroup_id";
 
 impl Row {
@@ -823,6 +878,7 @@ impl Row {
         serde_json::from_str(&self.seats).unwrap_or_default()
     }
     fn status(&self) -> &'static str {
+        if self.game_status.as_deref() == Some("abandoned") { return "abandoned"; }
         match self.stage.as_str() {
             "lobby" => "lobby",
             "live" => "in_progress",
@@ -867,17 +923,18 @@ struct Status {
     unavailable_games: Vec<serde_json::Value>,
 }
 
-async fn status(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Status>> {
+async fn status(State(st): State<AppState>, CurrentUser(user): CurrentUser,) -> AppResult<Json<Status>> {
     let rows: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!("{ROW_SELECT} WHERE o.host_id=? OR o.seats LIKE ?")))
         .bind(&user.id)
         .bind(format!("%\"user_id\":\"{}\"%", user.id))
         .fetch_all(&st.pool)
         .await?;
     let unavailable_games =
-        rows.iter().filter_map(|r| st.play.game_error(r).map(|reason| serde_json::json!({"id":r.game_id,"reason":reason}))).collect();
+        rows.iter().filter_map(|r| { st.play.game_error(r).map(|reason| serde_json::json!({"id":r.game_id,"reason":reason}))
+        }).collect();
     let reason = st.play.engine().err().map(|e| e.to_string());
     let board = reason.is_none() && st.cfg.board_dist.is_some();
-    Ok(Json(Status { enabled: reason.is_none(), reason, board, unavailable_games }))
+    Ok(Json(Status { enabled: reason.is_none(), reason, board, unavailable_games, }))
 }
 
 async fn list(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Vec<OnlineGame>>> {
@@ -1134,15 +1191,62 @@ async fn create(
     CurrentUser(user): CurrentUser,
     Json(body): Json<CreateRequest>,
 ) -> AppResult<Json<serde_json::Value>> {
-    let id = create_game(&st, &user, &body).await?;
+    let id = create_game(&st, &user, &body, true).await?;
     Ok(Json(serde_json::json!({ "id": id })))
+}
+
+/// Stop a host-owned solo table, preserving an abandoned result without a winner.
+async fn end_solo(
+    State(st): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    Path(id): Path<String>,
+) -> AppResult<Json<serde_json::Value>> {
+    let r = load_visible(&st.pool, &id, &user.id).await?;
+    if r.host_id != user.id {
+        return Err(AppError::Forbidden(
+            "Only the host can end a solo game.".into(),
+        ));
+    }
+    let seats = r.seats();
+    let humans: Vec<_> = seats.iter().filter(|s| s.kind == "human").collect();
+    if humans.len() != 1 || humans[0].user_id.as_deref() != Some(user.id.as_str()) {
+        return Err(AppError::Forbidden(
+            "Other human players are at this table. You may concede your own seat.".into(),
+        ));
+    }
+    if r.stage == "over" {
+        return Ok(Json(serde_json::json!({"ended": true})));
+    }
+    if r.engine_version.as_deref() != Some(yama_play::ENGINE_VERSION) {
+        return Err(AppError::Conflict(
+            "This saved game's runtime does not support ending a solo table.".into(),
+        ));
+    }
+    let live = st
+        .play
+        .live(&id)
+        .ok_or_else(|| AppError::Conflict("The game is not running.".into()))?;
+    let (tx, rx) = oneshot::channel();
+    live.cmds
+        .send(Cmd::EndSolo {
+            seat: humans[0].seat,
+            reply: tx,
+        })
+        .map_err(|_| AppError::Conflict("The game stopped.".into()))?;
+    match tokio::time::timeout(std::time::Duration::from_secs(30), rx).await {
+        Ok(Ok(Ok(()))) => Ok(Json(serde_json::json!({"ended": true}))),
+        Ok(Ok(Err(e))) => Err(AppError::Conflict(e)),
+        _ => Err(AppError::Conflict(
+            "Ending the game is still being processed; reload to check its status.".into(),
+        )),
+    }
 }
 
 /// Start a rematch of a finished game (GGameOver): a new lobby with the same seats, the host's
 /// deck and the computer's decks and levels, and the same playgroup. Other people's seats are open
 /// for them to join, from their own game-over screen or with the code. Only the host may; asking
 /// again returns the rematch already made.
-async fn rematch(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<serde_json::Value>> {
+async fn rematch(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>,) -> AppResult<Json<serde_json::Value>> {
     let r = load_visible(&st.pool, &id, &user.id).await?;
     if r.host_id != user.id {
         return Err(AppError::Forbidden("only the host starts a rematch".into()));
@@ -1170,9 +1274,10 @@ async fn rematch(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pat
         .collect();
     let playgroup_id: Option<String> =
         sqlx::query_scalar("SELECT playgroup_id FROM games WHERE id = ?").bind(&id).fetch_optional(&st.pool).await?.flatten();
-    let new = create_game(&st, &user, &CreateRequest { seats, playgroup_id }).await?;
+    let new = create_game(&st, &user, &CreateRequest { seats, playgroup_id, },
+        false,).await?;
     // Two quick taps make one rematch: the first one recorded wins.
-    let set = sqlx::query("UPDATE online_games SET rematch_id = ? WHERE game_id = ? AND rematch_id IS NULL")
+    let set = sqlx::query("UPDATE online_games SET rematch_id = ? WHERE game_id = ? AND rematch_id IS NULL",)
         .bind(&new)
         .bind(&id)
         .execute(&st.pool)
@@ -1186,7 +1291,8 @@ async fn rematch(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pat
 }
 
 /// Make a game from the lobby's seats; it starts at once when there's no friend to wait for.
-async fn create_game(st: &AppState, user: &User, body: &CreateRequest) -> AppResult<String> {
+async fn create_game(st: &AppState, user: &User, body: &CreateRequest,
+    auto_start: bool,) -> AppResult<String> {
     st.limits.play_creates.check_user(user)?;
     check_open_games(&st.pool, user).await?;
     st.play.engine()?;
@@ -1262,7 +1368,8 @@ async fn create_game(st: &AppState, user: &User, body: &CreateRequest) -> AppRes
         .await?;
     tx.commit().await?;
     // With no friends to wait for, start right away.
-    if !seats.iter().any(|s| s.kind == "human" && s.user_id.is_none()) {
+    if auto_start
+        && !seats.iter().any(|s| s.kind == "human" && s.user_id.is_none()) {
         start_game(st, &id, &user.id).await?;
     }
     Ok(id)
@@ -1435,6 +1542,9 @@ async fn prepare_match<T: Send + 'static>(build: impl FnOnce() -> anyhow::Result
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ClientMessage {
+    GoBack {
+        revision: u64,
+    },
     Choose {
         revision: u64,
         index: usize,
@@ -1655,7 +1765,7 @@ async fn view_message(
     serde_json::to_string(&ViewMessage { kind: "view", you, seats: infos, cards: &cards, view }).expect("a view serializes")
 }
 
-async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Option<u8>, seats: Vec<SeatCfg>, user: String) {
+async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Option<u8>, seats: Vec<SeatCfg>, user: String,) {
     let (mut sink, mut stream) = socket.split();
     // Account settings fill defaults on connection, preserving controls recovered
     // from this game's replay. Explicit preference messages remain authoritative.
@@ -1685,11 +1795,27 @@ async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Op
         let mut last_preview: Option<std::time::Instant> = None;
         while let Some(Ok(msg)) = stream.next().await {
             let Message::Text(text) = msg else { continue };
-            let (Some(seat), Ok(m)) = (you, serde_json::from_str::<ClientMessage>(&text)) else { continue };
+            let (Some(seat), Ok(m)) = (you, serde_json::from_str::<ClientMessage>(&text)) else { continue; };
             match m {
+                ClientMessage::GoBack { revision } => {
+                    let (tx, rx) = oneshot::channel();
+                    if cmds
+                        .send(Cmd::GoBack {
+                            seat,
+                            revision,
+                            reply: tx,
+                        })
+                        .is_ok()
+                    {
+                        if let Ok(Err(error)) = rx.await {
+                            let _ = note_tx
+                                .send(serde_json::json!({"type": "error", "message": error}));
+                        }
+                    }
+                }
                 ClientMessage::Choose { revision, index } => {
                     let (tx, rx) = oneshot::channel();
-                    if cmds.send(Cmd::Choose { seat, revision, index, reply: tx }).is_err() {
+                    if cmds.send(Cmd::Choose { seat, revision, index, reply: tx, }).is_err() {
                         break;
                     }
                     if let Ok(Err(e)) = rx.await {
@@ -1698,7 +1824,7 @@ async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Op
                 }
                 ClientMessage::Attack { revision, attacks } => {
                     let (tx, rx) = oneshot::channel();
-                    if cmds.send(Cmd::Attack { seat, revision, attacks, reply: tx }).is_err() {
+                    if cmds.send(Cmd::Attack { seat, revision, attacks, reply: tx, }).is_err() {
                         break;
                     }
                     if let Ok(Err(e)) = rx.await {
@@ -1707,7 +1833,7 @@ async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Op
                 }
                 ClientMessage::Block { revision, blocks } => {
                     let (tx, rx) = oneshot::channel();
-                    if cmds.send(Cmd::Block { seat, revision, blocks, reply: tx }).is_err() {
+                    if cmds.send(Cmd::Block { seat, revision, blocks, reply: tx, }).is_err() {
                         break;
                     }
                     if let Ok(Err(e)) = rx.await {
@@ -1716,7 +1842,7 @@ async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Op
                 }
                 ClientMessage::Act { revision, action } => {
                     let (tx, rx) = oneshot::channel();
-                    if cmds.send(Cmd::Act { seat, revision, action, reply: tx }).is_err() {
+                    if cmds.send(Cmd::Act { seat, revision, action, reply: tx, }).is_err() {
                         break;
                     }
                     if let Ok(Err(e)) = rx.await {
@@ -1726,22 +1852,22 @@ async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Op
                 ClientMessage::Concede => {
                     let _ = cmds.send(Cmd::Concede { seat });
                 }
-                ClientMessage::Prefs { stops, full_control, tap_mana } => {
+                ClientMessage::Prefs { stops, full_control, tap_mana, } => {
                     // An older board doesn't send "Tap mana for me": keep the saved one.
                     let tap_mana = match tap_mana {
                         Some(t) => t,
                         None => load_prefs(&reader_pool, &user).await.ok().flatten().map(|p| p.tap_mana).unwrap_or_default(),
                     };
-                    let prefs = PlayPrefs { stops: stops.map(clean_stops), full_control, tap_mana };
+                    let prefs = PlayPrefs { stops: stops.map(clean_stops), full_control, tap_mana, };
                     if let Err(e) = save_prefs(&reader_pool, &user, &prefs).await {
                         tracing::error!(error = %e, "saving play settings failed");
-                        let _ = err_tx.send("Your settings couldn't be saved; they apply to this game only.".into());
+                        let _ = err_tx.send("Your settings couldn't be saved; they apply to this game only.".into(),);
                     }
                     let _ = cmds.send(Cmd::Prefs { seat, prefs });
                 }
                 ClientMessage::Pass { revision, mode } => {
                     let (tx, rx) = oneshot::channel();
-                    if cmds.send(Cmd::Passing { seat, revision, mode, reply: tx }).is_err() {
+                    if cmds.send(Cmd::Passing { seat, revision, mode, reply: tx, }).is_err() {
                         break;
                     }
                     if let Ok(Err(e)) = rx.await {
@@ -1754,12 +1880,13 @@ async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Op
                 ClientMessage::Preview { revision, object } => {
                     // A preview is a convenience: one every 100 ms at most, the rest dropped.
                     let now = std::time::Instant::now();
-                    if last_preview.is_some_and(|t| now.duration_since(t) < std::time::Duration::from_millis(100)) {
+                    if last_preview.is_some_and(|t| { now.duration_since(t) < std::time::Duration::from_millis(100)
+                    }) {
                         continue;
                     }
                     last_preview = Some(now);
                     let (tx, rx) = oneshot::channel();
-                    if cmds.send(Cmd::Preview { seat, object, reply: tx }).is_err() {
+                    if cmds.send(Cmd::Preview { seat, object, reply: tx, }).is_err() {
                         break;
                     }
                     match rx.await {
@@ -1772,7 +1899,7 @@ async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Op
                     let _ = cmds.send(Cmd::FullControl { seat, on });
                 }
                 ClientMessage::Stops { stops } => {
-                    let _ = cmds.send(Cmd::Stops { seat, stops: stops.map(clean_stops) });
+                    let _ = cmds.send(Cmd::Stops { seat, stops: stops.map(clean_stops), });
                 }
             }
         }

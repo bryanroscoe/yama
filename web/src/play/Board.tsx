@@ -17,8 +17,12 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router";
 import { api, API_BASE } from "../api";
 import { artCredits } from "../components/ArtPanel";
+import { PLAY_SPEEDS, readPlaySpeed, type PlaySpeed } from "./motion";
 import { Sheet } from "../components/ui";
 import { useCardArt } from "../components/useCardArt";
+import { targetChangeWarning } from "./response";
+import { CostText } from "./CostText";
+import { ActionCues } from "./ActionCues";
 import { AlphaTag } from "../components/AlphaTag";
 import {
   addCosts,
@@ -252,6 +256,12 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
   const [watchOn, setWatchOn] = useState(false);
   const [boardShown, setBoardShown] = useState(false);
   const navigate = useNavigate();
+  const [endingSolo, setEndingSolo] = useState(false);
+  const [playSpeed, setPlaySpeed] = useState(readPlaySpeed);
+  const changeSpeed = (speed: PlaySpeed) => { setPlaySpeed(speed); try { localStorage.setItem("yama.play.speed", speed); } catch { /* Session preference still works. */ } };
+
+  const endSolo = async () => { setEndingSolo(true); try { await api(`/api/play/${id}/end`, { method: "POST" }); navigate("/play"); } catch (e) { setError(e instanceof Error ? e.message : String(e)); setEndingSolo(false); } };
+
   // Older servers: full control and stops kept on this device. Newer ones keep them per account
   // (the view's `turns`); these then only carry settings over to the account once.
   const [fullControl, setFullControl] = useState(() => localStorage.getItem("yama.play.fullControl") === "1");
@@ -391,8 +401,25 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
   const view = msg?.view;
   const you = msg?.you ?? null;
   const seats = msg?.seats ?? [];
+  const solo = seats.filter((s) => !s.ai).length === 1 && seats.some((s) => s.seat === you && !s.ai);
   const decision = realDecision(view?.decision ?? null);
 
+  useEffect(() => {
+    if (!decision?.block || !wide) return;
+    const root = boardRoot.current;
+    const pane = root?.querySelector<HTMLElement>(".pb-mine");
+    const row = pane?.querySelector<HTMLElement>(":scope > .pb-row.creatures");
+    if (!pane || !row) return;
+    const revealBlockers = () => {
+      const p = pane.getBoundingClientRect(), r = row.getBoundingClientRect();
+      if (r.bottom > p.bottom - 8) pane.scrollTop += r.bottom - p.bottom + 8;
+      else if (r.top < p.top + 8) pane.scrollTop -= p.top + 8 - r.top;
+    };
+    revealBlockers();
+    const observer = new ResizeObserver(revealBlockers);
+    observer.observe(pane); observer.observe(row);
+    return () => observer.disconnect();
+  }, [!!decision?.block, wide]);
   // A new decision clears the selection and any plan from the last one. A new board that leaves
   // your decision as it was (someone else kept their hand while you sort yours) keeps what you're
   // putting together (PP-06): the server keeps the decision's revision while it doesn't change.
@@ -620,7 +647,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
   // The engine's log says "Player 3"; say who that is.
   const named = (text: string) => text.replace(/\bPlayer (\d+)\b/g, (_, n: string) => seatInfo(Number(n) - 1)?.name ?? `Player ${n}`);
   // Motion: normal speed while playing; shorter when watching fast, none "to the end".
-  const scale = motionScale({ reduced: false, hidden: typeof document !== "undefined" && document.hidden, speed: watch ? watchStatus?.speed ?? "1x" : null });
+  const scale = motionScale({ reduced: false, hidden: typeof document !== "undefined" && document.hidden, speed: watch ? watchStatus?.speed ?? "1x" : null }) * (watch ? 1 : PLAY_SPEEDS.find((s) => s.value === playSpeed)!.scale);
   motionOpts.current = {
     you,
     bottom: watch ? pov : you ?? 0,
@@ -1341,9 +1368,9 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
       .flatMap((s) =>
         (s.targets ?? []).flatMap((t): PlanArrow[] =>
           t.target?.kind === "object"
-            ? [{ from: { stack: s.id! }, to: { id: t.target.id }, tone: toneOf(s.controller) }]
+            ? [{ from: { stack: s.id!, source: s.source }, to: { id: t.target.id }, tone: toneOf(s.controller) }]
             : t.target?.kind === "player"
-              ? [{ from: { stack: s.id! }, to: { seat: t.target.seat }, tone: toneOf(s.controller) }]
+              ? [{ from: { stack: s.id!, source: s.source }, to: { seat: t.target.seat }, tone: toneOf(s.controller) }]
               : [],
         ),
       ),
@@ -1391,7 +1418,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
   /** Start a way to pass, or stop one (`null`). From your own priority it passes now too. */
   const sendPass = (mode: PassMode | null) => {
     setPassMenu(false);
-    const data = { type: "pass", revision: decision?.revision ?? view.revision, mode };
+    const data = { type: "pass", revision: view.revision, mode };
     if (mode && yourPriority) {
       if (!pending) send(data);
     } else sendRaw(data);
@@ -1436,7 +1463,8 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
   const agree = decision?.options.find((o) => o.kind === "agree");
   const refuse = decision?.options.find((o) => o.kind === "refuse");
   const playing = !watch && you !== null && !view.over && !meOut;
-  const settingsOpen = settings !== null && playing;
+  const canEndSolo = solo && !watch && you !== null && !view.over;
+  const settingsOpen = settings !== null && (playing || canEndSolo);
   passKeysRef.current = !playing || settingsOpen
     ? null
     : (e) => {
@@ -1469,8 +1497,8 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
   // The big button and its partner.
   const controls = ((): { primary: Control | null; secondary: Control | null } => {
     // You're out and the game goes on (GRareRules): keep watching, or leave.
-    if (youreOut) return { primary: { label: "Keep watching", run: () => setWatchOn(true) }, secondary: { label: "Leave", run: () => navigate("/play") } };
-    if (view.over || you === null || meOut) return { primary: null, secondary: null };
+    if (youreOut && !settingsOpen) return { primary: { label: "Keep watching", run: () => setWatchOn(true) }, secondary: solo ? { label: "End game", run: () => { setWatchOn(true); setSettings("concede"); } } : { label: "Leave", run: () => navigate("/play") } };
+    if (view.over || you === null || (meOut && !settingsOpen)) return { primary: null, secondary: null };
     // Your own reveal stays up until you've read it, so everyone can (GLibrary's reveal-until: the
     // engine asks nothing when the rest go to the bottom at random).
     if (revealNow && revealNow[0]!.seat === you && !pend && !settingsOpen) {
@@ -1478,9 +1506,9 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
     }
     // Game settings: Close or Done; conceding is confirmed here, with Cancel beside it (GSettings).
     if (settingsOpen) {
-      const b = settingsButtons(settings!);
+      const b = settingsButtons(settings!, solo);
       return {
-        primary: { label: b.primary, run: settings === "concede" ? concede : () => setSettings(null) },
+        primary: { label: settings === "concede" && solo ? "End game" : b.primary, run: settings === "concede" ? (solo ? endSolo : concede) : () => setSettings(null), disabled: endingSolo },
         secondary: b.secondary ? { label: b.secondary, run: () => setSettings("yields") } : null,
       };
     }
@@ -1600,7 +1628,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
       };
     }
     const pass = decision.options.find(isPass);
-    if (pass) return { primary: { label: passLabel(view, you, decision), run: () => choose(pass), disabled: pending }, secondary: partnerControl(priorityPartner(view, you)) };
+    if (pass) return { primary: { label: passLabel(view, you, decision), run: () => passLabel(view, you, decision) === "End turn" ? sendPass("end") : choose(pass), disabled: pending }, secondary: partnerControl(priorityPartner(view, you)) };
     const general = dedupe(decision.options.filter((o) => o.object === null));
     if (general.length === 1 && decision.options.length === 1) {
       return { primary: { label: general[0]!.label, run: () => choose(general[0]!), disabled: pending }, secondary: null };
@@ -1696,7 +1724,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
     return "Commander away";
   })();
   const myArt = art(bottom);
-  const myStatus = watch
+  const myStatus = block ? "You, choose blockers" : attack ? "You, choose attackers" : pend ? "You, choosing" : watch
     ? `${seatLabel(seatInfo(bottom), bottom)} computer${view.active === bottom ? ", their turn" : ""}`
     : you === null
     ? `${label(bottom)}, watching`
@@ -1719,10 +1747,24 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
     : view.log.slice(-3).map((l) => ({ turn: l.turn, text: named(l.text) }));
   const stopsLine = fullOn ? "Full control: stops at every step" : stopsSummary(stopsNow) ?? "Stops only where you can act";
 
+  const responseTop = view.stack[view.stack.length - 1];
+  const responding = !!responseTop && responseTop.controller !== you && !responseTop.casting && !!decision && !attack && !block && !pend && !settingsOpen;
+  const responseBody = responding ? (
+    <section className="response-card" data-stack-id={responseTop.id} aria-label={`Respond to ${responseTop.name}`}>
+      {meta[responseTop.name]?.image && <img className="response-image" src={meta[responseTop.name]!.image!} alt={responseTop.name} />}
+      <div className="response-text"><b>{Who(responseTop.controller)}'s {responseTop.name}</b>
+        <button type="button" className="outline" onClick={() => setSheet("hand")}>Choose a response</button>
+        <span>{responseTop.trigger ? "Triggered ability" : responseTop.ability ? "Activated ability" : "Spell"}</span>
+        <p>{responseTop.text || meta[responseTop.name]?.oracle_text}</p>
+        {!!responseTop.targets?.length && <p>Targets: {responseTop.targets.map((t) => t.target?.kind === "player" ? Who(t.target.seat) : t.name).join(", ")}</p>}
+      </div>
+    </section>
+  ) : null;
+
   const title = watch && watchStatus?.finished && !view.over
     ? "The game stopped"
     : view.over
-    ? view.winner === null ? "The game is a draw" : view.winner === you ? "You won" : `${Who(view.winner)} won`
+    ? view.abandoned ? "Game ended" : view.winner === null ? "The game is a draw" : view.winner === you ? "You won" : `${Who(view.winner)} won`
     : watch
       ? watchStatus && !watchStatus.playing
         ? `Paused, ${who(view.active)}'s turn ${view.turn}`
@@ -1769,7 +1811,8 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
           } satisfies WidgetContext,
         }
       : null;
-  const chooserBody = widget && stage && wide ? <DecisionRail {...widget} stage={stage} onReset={() => setDraft(initialDraft(widget.p))} /> : null;
+  const noTargetsWarning = pend?.purpose === "target" && draft?.kind === "pick" ? targetChangeWarning(pend.oracle, draft.ids, view.stack) : null;
+  const chooserBody = widget && stage && wide ? <><DecisionRail {...widget} stage={stage} onReset={() => setDraft(initialDraft(widget.p))} />{noTargetsWarning && <p className="cost-warning" role="status">{noTargetsWarning}</p>}</> : null;
   const stageOverlay = () =>
     widget && wide ? (
       stage === "strip" ? (
@@ -1978,13 +2021,13 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
           disabled={controls.secondary.disabled}
           aria-pressed={controls.secondary.pressed}
         >
-          {controls.secondary.label}
+          <CostText text={controls.secondary.label} />
         </button>
       )}
       {controls.primary && (
         <button type="button" className="primary pb-primary" onClick={controls.primary.run} disabled={controls.primary.disabled} aria-keyshortcuts="Space">
           {controls.primary.art && <img className="pb-primary-art" src={controls.primary.art} alt="" />}
-          <span>{controls.primary.label}</span>
+          <span><CostText text={controls.primary.label} /></span>
         </button>
       )}
       {view.over && !watch && (
@@ -2001,7 +2044,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
   const ladder = <Ladder phase={view.phase} fullControl={fullOn} stops={stopsNow} onToggle={you !== null && !view.over ? toggleStop : undefined} />;
   // A way to pass in force: what it's doing, and Stop (GPriority).
   const modeNow = playing ? savedTurns?.passing : undefined;
-  const modeChipEl = modeNow ? <ModeChip label={modeChip(modeNow)} onStop={() => sendPass(null)} /> : null;
+  const modeChipEl = modeNow ? <ModeChip label={`${decision && !yourPriority ? "Passing paused — " : ""}${modeChip(modeNow)}`} onStop={() => sendPass(null)} /> : null;
   const consentBody = (compact: boolean) =>
     view.resolve_all ? <ConsentBody ask={view.resolve_all} stack={view.stack} meta={meta} Who={Who} tone={(n) => tones.get(n)} you={you} compact={compact} /> : null;
   // Someone else's vote, piles, villainous choice or clash (GTogether): its public part, for
@@ -2011,6 +2054,9 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
   const settingsBody = (compact: boolean, foot?: React.ReactNode) =>
     settingsOpen && savedTurns ? (
       <GameSettings
+        speed={playSpeed}
+        onSpeed={changeSpeed}
+        solo={solo}
         section={settings!}
         onSection={setSettings}
         turns={savedTurns}
@@ -2138,7 +2184,8 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
   };
   const sheets = (
     <>
-      <CombatCues key={connectionGeneration} events={view.events} names={names} root={boardRoot} speed={watchStatus?.speed} />
+      <ActionCues key={`action-${connectionGeneration}`} events={view.events} names={names} meta={meta} scale={scale} />
+      <CombatCues key={connectionGeneration} events={view.events} names={names} root={boardRoot} speed={watchStatus?.speed} scale={watch ? 1 : scale} />
       {/* One preview layer stays above both the board and its dialogs. */}
       {hover?.image && (
         <div className="pb-preview" style={{ left: hover.left, top: hover.top }} aria-hidden="true">
@@ -2271,7 +2318,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
         <RevealPanel group={revealNow} more={reveals.length - 1} names={names} meta={meta} tone={(n) => tones.get(n)} onRead={(name) => readCard(name)} onClose={dismissReveal} wide={wide} />
       )}
       {koNow && !youreOut && <KnockoutNote out={koNow} view={view} names={names} art={art} onClose={dismissKo} />}
-      {youreOut && <YouAreOut out={outs.find((o) => o.seat === you)} view={view} names={names} art={art} tone={(n) => tones.get(n)} label={label} wide={wide} />}
+      {youreOut && !settingsOpen && <YouAreOut out={outs.find((o) => o.seat === you)} view={view} names={names} art={art} tone={(n) => tones.get(n)} label={label} wide={wide} />}
       {view.over && !watch && !boardShown && (
         <GameOver id={id} view={view} seats={seats} names={names} art={art} tone={(n) => tones.get(n)} label={label} wide={wide} onLog={() => setSheet("log")} onBoard={() => setBoardShown(true)} />
       )}
@@ -2289,6 +2336,8 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
             <AlphaTag />
             <span className="pb-engine">Phase engine{seats.some((s) => s.ai) ? `, AI ${[...new Set(seats.flatMap((s) => s.ai ? [s.ai.toLowerCase()] : []))].join(" / ")}` : ""}</span>
             {settingsButton}
+            {playing && <button type="button" className="rail-log" disabled={!view.can_go_back || pending || !connected} title={view.can_go_back ? "Restore the previous decision" : "Go back is available after a phase change, before effects or other decisions"} onClick={() => sendRaw({ type: "go_back", revision: view.revision })}>Go back</button>}
+            {(playing || canEndSolo) && <button type="button" className="rail-log" onClick={() => setSettings("concede")}>{solo ? "End game" : "Concede"}</button>}
             {phaseButton}
             <button type="button" className="rail-log" onClick={() => setSheet("log")}>Game log</button>
             <button type="button" className="rail-log" aria-expanded={railOpen} onClick={() => setRailOpen((v) => !v)}>{railOpen ? "Hide details" : `Details${view.stack.length ? ` (${view.stack.length} on stack)` : ""}`}</button>
@@ -2425,10 +2474,11 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
             <summary>Stack ({view.stack.length})</summary>
             {stackList}
           </details>
-          <section className={`rail-decision${watch || selected || attack || block || paying || pend || (decision && !yourPriority) ? " has-choice" : ""}${settingsOpen || (widget && (stage === "strip" || stage === "dialog")) ? " prompt-local" : ""}`} aria-live="polite" aria-labelledby="pb-dec-h">
-            <h2 id="pb-dec-h">{settingsOpen ? settingsButtons(settings!).title : title}</h2>
+          <section className={`rail-decision${responding ? " responding" : ""}${watch || responding || selected || attack || block || paying || pend || (decision && !yourPriority) ? " has-choice" : ""}${settingsOpen || (widget && (stage === "strip" || stage === "dialog")) ? " prompt-local" : ""}`} aria-live="polite" aria-labelledby="pb-dec-h">
+            <h2 id="pb-dec-h">{settingsOpen ? settingsButtons(settings!, solo).title : title}</h2>
             {/* The choices scroll; the big button below them never leaves the screen. */}
             <div className="rail-body">
+              {responseBody}
               {watch
                 ? (
                   <>
@@ -2437,7 +2487,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
                   </>
                 )
                 : settingsOpen
-                  ? <p className="rail-empty">{settingsButtons(settings!).body}</p>
+                  ? <p className="rail-empty">{settingsButtons(settings!, solo).body}</p>
                   : consentBody(false) ??
                     (chooserBody ? (
                       <>
@@ -2449,7 +2499,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
                     ) : (
                       <>
                         {togetherBody(false)}
-                        {decisionBody}
+                        {(!responding || selected) && decisionBody}
                       </>
                     ))}
             </div>
@@ -2558,27 +2608,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
   ) : null;
   // Someone else's spell or ability on top (GRespondPhone): whose it is and what it targets, in
   // their colour, over the dock's answers. The whole stack is a tap away on its chip.
-  const top = view.stack[view.stack.length - 1];
-  const phoneRespond =
-    top && top.controller !== you && !top.casting && decision && !attack && !block && !pend ? (
-      <div className="dock-respond" style={seatStyle(tones.get(top.controller))}>
-        {meta[top.name]?.image ? <img src={meta[top.name]!.image!} alt="" /> : <span className="stack-img blank" />}
-        <span>
-          <b>
-            {Who(top.controller)}'s {top.name}
-          </b>
-          {!!top.targets?.length && (
-            <span className="dim">
-              {" "}
-              targets{" "}
-              {top.targets
-                .map((t) => (t.target?.kind === "player" ? (t.target.seat === you ? "you" : t.name) : `${t.controller === you ? "your " : ""}${t.name}`))
-                .join(" and ")}
-            </span>
-          )}
-        </span>
-      </div>
-    ) : null;
+  const phoneRespond = responseBody;
   const phoneHint = pend || paying
     ? null
     : attack
@@ -2753,6 +2783,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
         )}
         {phoneCombat}
         {phoneRespond}
+        {noTargetsWarning && <p className="cost-warning" role="status">{noTargetsWarning}</p>}
         {meOut && !view.over && (
           <div className="dock-decision">
             <p className="dock-prompt"><b>{title}</b></p>
@@ -2803,6 +2834,8 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
           <Link to={leaveTo}>Leave</Link>
           <AlphaTag />
           {playing && savedTurns && <button type="button" className="quiet" onClick={() => setSettings("yields")}>Settings</button>}
+          {playing && <button type="button" className="quiet" disabled={!view.can_go_back || pending || !connected} onClick={() => sendRaw({ type: "go_back", revision: view.revision })}>Go back</button>}
+          {(playing || canEndSolo) && <button type="button" className="quiet" onClick={() => setSettings("concede")}>{solo ? "End game" : "Concede"}</button>}
           {phaseButton}
           <button type="button" className="quiet" onClick={() => setSheet("log")}>Game log</button>
         </div>

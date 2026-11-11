@@ -151,14 +151,32 @@ function ArrowHeads({ prefix }: { prefix: string }) {
  * (an opponent's header, or your portrait) or a card.
  */
 export interface PlanArrow {
-  from: number | { stack: number } | { point: Point };
+  from: number | { stack: number; source?: number } | { point: Point };
   to: { seat: number } | { id: number };
   tone: "attack" | "block" | SeatTone;
 }
 
+/** Hidden stack/details rows must never produce a (0,0) arrow or animation. */
+export function visibleAnchor(el: HTMLElement): boolean {
+  const r = el.getBoundingClientRect();
+  if (!r.width || !r.height) return false;
+  let left = Math.max(0, r.left), top = Math.max(0, r.top);
+  let right = Math.min(window.innerWidth, r.right), bottom = Math.min(window.innerHeight, r.bottom);
+  for (let parent: HTMLElement | null = el; parent; parent = parent.parentElement) {
+    const style = getComputedStyle(parent);
+    if (style.visibility === "hidden" || style.display === "none") return false;
+    if (parent === el) continue;
+    const clip = parent.getBoundingClientRect();
+    if (/(auto|scroll|hidden|clip)/.test(style.overflowX)) { left = Math.max(left, clip.left); right = Math.min(right, clip.right); }
+    if (/(auto|scroll|hidden|clip)/.test(style.overflowY)) { top = Math.max(top, clip.top); bottom = Math.min(bottom, clip.bottom); }
+  }
+  // A mostly clipped source is not a useful arrow origin: prefer its visible stack card.
+  return right - left >= r.width * 0.8 && bottom - top >= r.height * 0.8;
+}
+
 /** A row of the stack list (`data-stack-id`), where a spell's arrows start. */
 export function stackRowOf(root: ParentNode, id: number): HTMLElement | null {
-  return root.querySelector<HTMLElement>(`[data-stack-id="${id}"]`);
+  return [...root.querySelectorAll<HTMLElement>(`[data-stack-id="${id}"]`)].find(visibleAnchor) ?? null;
 }
 
 const fromKey = (f: PlanArrow["from"]) => (typeof f === "number" ? `${f}` : "stack" in f ? `s${f.stack}` : `${Math.round(f.point.x)},${Math.round(f.point.y)}`);
@@ -186,15 +204,16 @@ export function PlanArrows({ arrows, root }: { arrows: PlanArrow[]; root: React.
     // A stack of identical attackers is one tile: one arrow from it to each place it attacks.
     const drawn = new Set<string>();
     for (const a of arrows) {
-      const from = typeof a.from === "number" ? tileOf(r, a.from) : "stack" in a.from ? stackRowOf(r, a.from.stack) : null;
+      const permanent = typeof a.from === "object" && "stack" in a.from && a.from.source !== undefined ? tileOf(r, a.from.source) : null;
+      const from = typeof a.from === "number" ? tileOf(r, a.from) : "stack" in a.from ? (permanent && visibleAnchor(permanent) ? permanent : stackRowOf(r, a.from.stack)) : null;
       const to = "seat" in a.to ? seatHeadOf(r, a.to.seat) : tileOf(r, a.to.id);
-      if ((!from && !(typeof a.from === "object" && "point" in a.from)) || !to) continue;
+      if ((!from && !(typeof a.from === "object" && "point" in a.from)) || !to || !visibleAnchor(to) || (from && !visibleAnchor(from))) continue;
       const pair = `${from?.dataset.ids ?? fromKey(a.from)}>${"seat" in a.to ? `s${a.to.seat}` : a.to.id}>${a.tone}`;
       if (drawn.has(pair)) continue;
       drawn.add(pair);
       const tr = to.getBoundingClientRect();
       // From a stack row: its left edge, toward the board. From a point: the point itself.
-      const start = !from ? (a.from as { point: Point }).point : typeof a.from === "object" ? { x: from.getBoundingClientRect().left + 6, y: centre(from.getBoundingClientRect()).y } : centre(from.getBoundingClientRect());
+      const start = !from ? (a.from as { point: Point }).point : from.hasAttribute("data-stack-id") ? { x: from.getBoundingClientRect().left + 6, y: centre(from.getBoundingClientRect()).y } : centre(from.getBoundingClientRect());
       // Arrows to a player end at the near edge of their header or portrait; to a card, at its centre.
       const end = "seat" in a.to ? { x: tr.left + tr.width / 2, y: start.y < tr.top ? tr.top + 6 : tr.bottom - 6 } : centre(tr);
       const theirs = a.tone.startsWith("seat-") ? " theirs" : "";
@@ -208,10 +227,12 @@ export function PlanArrows({ arrows, root }: { arrows: PlanArrow[]; root: React.
     if (!arrows.length) return;
     const on = () => remeasure();
     window.addEventListener("resize", on);
+    window.addEventListener("scroll", on, true);
     const ro = typeof ResizeObserver !== "undefined" && root.current ? new ResizeObserver(on) : null;
     if (ro && root.current) ro.observe(root.current);
     return () => {
       window.removeEventListener("resize", on);
+      window.removeEventListener("scroll", on, true);
       ro?.disconnect();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -6,6 +6,7 @@
 // animations play over it, shortened at watch speeds and off for reduced motion.
 
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { stackRowOf, visibleAnchor } from "./DragLayer";
 import { deltaText, dur, lifeChanges, lifeOf, MS, stackChange, tickValue, turnBegan, zonesOf, type StackItem } from "./motion";
 import type { CardMeta, View } from "./types";
 
@@ -142,7 +143,7 @@ export function useBoardMotion(root: RefObject<HTMLElement | null>, layer: RefOb
     const prev = prevCards.current;
     const stackMoved = fresh ? stackChange(prevStack.current, view.stack) : { left: 0, added: [] };
     /** The stack's top item now (a spell just cast lands there). */
-    const stackTop = r.querySelector<HTMLElement>(".rail-stack .stack-list > li.top")?.getBoundingClientRect() ?? null;
+    const stackTop = (view.stack.at(-1)?.id !== undefined ? stackRowOf(r, view.stack.at(-1)!.id!)?.getBoundingClientRect() : null) ?? null;
     /** The item that just resolved, where it was (a permanent spell comes from there). */
     const resolvedFrom = stackMoved.left > 0 ? prevStackEls.current[0]?.rect ?? null : null;
 
@@ -379,12 +380,12 @@ export function useBoardMotion(root: RefObject<HTMLElement | null>, layer: RefOb
     prevCards.current = now.seen;
     if (fresh || lastRevision.current === null) {
       prevLife.current = lifeOf(view);
-      prevStack.current = stack.map((s) => ({ name: s.name, controller: s.controller }));
+      prevStack.current = stack.map((s) => ({ id: s.id, name: s.name, controller: s.controller }));
       prevTurn.current = { turn: view.turn, active: view.active };
       prevOver.current = view.over;
       lastRevision.current = view.revision;
     }
-    prevStackEls.current = [...r.querySelectorAll<HTMLElement>(".rail-stack .stack-list > li, .sheet .stack-list > li")].map((li) => ({
+    prevStackEls.current = [...r.querySelectorAll<HTMLElement>(".rail-stack .stack-list > li, .sheet .stack-list > li, .response-card")].filter(visibleAnchor).map((li) => ({
       rect: li.getBoundingClientRect(),
       node: li.cloneNode(true) as HTMLElement,
     }));

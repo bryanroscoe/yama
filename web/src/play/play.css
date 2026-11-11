@@ -1028,3 +1028,11 @@
 .ph-seat:focus-within { position: relative; z-index: 3; }
 .ph-seat-fields .combo input, .ph-join-deck .combo input { min-width: 0; }
 .ph-seat-fields .combo input, .ph-seat-fields .combo-field, .ph-join-deck .combo input, .ph-join-deck .combo-field { background-color: var(--ground); }
+
+/* Keep selected deck fields aligned when descriptions or names wrap. */
+.play-seat, .ph-seat { align-items: start; }
+.play-seat .combo-wrap, .ph-seat .combo-wrap { min-width: 0; width: 100%; }
+@media (min-width: 1000px) {
+  .ph-seat-fields > .saved-deck-picker { grid-row: 2; grid-column: 1; min-width: 0; }
+  .ph-seat-fields > .ph-friend { grid-row: 2; }
+}

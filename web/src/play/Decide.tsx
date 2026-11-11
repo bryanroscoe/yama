@@ -10,6 +10,7 @@
 import { useEffect, useLayoutEffect, useReducer, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { MANA } from "@yama/core";
 import { api } from "../api";
+import { CostText } from "./CostText";
 import { ManaCost } from "../components/ui";
 import { useCardArt } from "../components/useCardArt";
 import {
@@ -1288,8 +1289,8 @@ export function CostRows({ p, draft, onDraft, ctx, compact, disabled }: Props) {
               disabled={disabled || !o.eligible}
               onClick={() => onDraft(togglePick(p, draft, o.id))}
             >
-              <b>{o.name}</b>
-              {o.cost && <b className="dw-cost-mana">{o.cost}</b>}
+              <b>{/^(\{[^}]+\})+$/.test(o.name) ? "Pay " : ""}<CostText text={o.name} /></b>
+              {o.cost && <b className="dw-cost-mana"><ManaCost cost={o.cost} /></b>}
               {!o.eligible && <span className="dw-note">Can't be paid now.</span>}
             </button>
           );

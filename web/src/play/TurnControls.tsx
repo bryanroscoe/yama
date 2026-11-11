@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { artCredits } from "../components/ArtPanel";
 import { useReorder } from "./Decide";
 import type { SeatTone } from "./model";
+import { PLAY_SPEEDS, type PlaySpeed } from "./motion";
 import { TAP_MANA } from "./pay";
 import { answerBy, moved, shift, type PassChoice, type SettingsSection } from "./turns";
 import type { Act, CardMeta, CardView, ResolveAllView, StackItem, TapMana, TurnsView } from "./types";
@@ -57,7 +58,7 @@ export function ModeChip({ label, onStop, disabled }: { label: string; onStop: (
   return (
     <div className="mode-chip" role="status">
       <span>{label}</span>
-      <button type="button" onClick={onStop} disabled={disabled}>Stop</button>
+      <button type="button" onClick={onStop} disabled={disabled}>Cancel passing</button>
     </div>
   );
 }
@@ -119,6 +120,7 @@ const SECTIONS: { id: SettingsSection; label: string; short: string }[] = [
   { id: "yields", label: "Trigger yields", short: "Yields" },
   { id: "answers", label: "Automatic answers", short: "Answers" },
   { id: "hand", label: "Hand order", short: "Hand" },
+  { id: "speed", label: "Playback speed", short: "Speed" },
   { id: "pay", label: "Paying mana", short: "Mana" },
   { id: "concede", label: "Concede", short: "Concede" },
 ];
@@ -128,7 +130,10 @@ const SECTIONS: { id: SettingsSection; label: string; short: string }[] = [
  * for you, your hand's order and conceding. Changes go to the game at once; conceding is confirmed
  * only with the main button (the rail's on a laptop, `buttons` at the foot of the sheet on a phone).
  */
-export function GameSettings({ section, onSection, turns, hand, meta, whose, tone, onAct, onTapMana, disabled, compact, buttons }: {
+export function GameSettings({ section, onSection, turns, hand, meta, whose, tone, onAct, onTapMana, disabled, compact, buttons, speed, onSpeed, solo }: {
+  speed?: PlaySpeed;
+  onSpeed?: (speed: PlaySpeed) => void;
+  solo?: boolean;
   section: SettingsSection;
   onSection: (s: SettingsSection) => void;
   turns: TurnsView;
@@ -148,7 +153,7 @@ export function GameSettings({ section, onSection, turns, hand, meta, whose, ton
     <div role="tablist" aria-label="Sections" className="gs-tabs">
       {SECTIONS.map((s) => (
         <button key={s.id} type="button" role="tab" aria-selected={section === s.id} className={`${section === s.id ? "on" : ""}${s.id === "concede" ? " bad" : ""}`} onClick={() => onSection(s.id)}>
-          {s.short}
+          {s.id === "concede" && solo ? "End game" : s.short}
         </button>
       ))}
     </div>
@@ -157,7 +162,7 @@ export function GameSettings({ section, onSection, turns, hand, meta, whose, ton
       <h2>This game</h2>
       {SECTIONS.map((s) => (
         <button key={s.id} type="button" aria-current={section === s.id} className={`${section === s.id ? "on" : ""}${s.id === "concede" ? " bad" : ""}`} onClick={() => onSection(s.id)}>
-          {s.label}
+          {s.id === "concede" && solo ? "End game" : s.label}
           {counts[s.id] !== undefined && <span>{counts[s.id]}</span>}
         </button>
       ))}
@@ -173,7 +178,8 @@ export function GameSettings({ section, onSection, turns, hand, meta, whose, ton
         {section === "answers" && <Answers turns={turns} meta={meta} whose={whose} onAct={onAct} disabled={disabled} />}
         {section === "hand" && <HandOrder hand={hand} meta={meta} onAct={onAct} disabled={disabled} compact={compact} />}
         {section === "pay" && <Paying value={turns.tap_mana} onChange={onTapMana} disabled={disabled} />}
-        {section === "concede" && <Concede compact={compact} />}
+        {section === "speed" && <div className="gs-speed"><h3>Playback speed</h3><p>Card movement, effects and combat cues. Saved on this device.</p><div className="segmented" role="group" aria-label="Playback speed">{PLAY_SPEEDS.map((s) => <button key={s.value} type="button" aria-pressed={speed === s.value} onClick={() => onSpeed?.(s.value)}>{s.label}</button>)}</div></div>}
+        {section === "concede" && (solo ? <p>End this game against the computers now. It is saved as abandoned, with no winner.</p> : <Concede compact={compact} />)}
       </div>
       {buttons}
     </div>

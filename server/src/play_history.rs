@@ -543,6 +543,10 @@ fn request(cmd: Cmd) -> Option<(Value, Option<oneshot::Sender<Result<(), String>
         Cmd::Hold { seat, on } => (json!({"type":"hold","seat":seat,"on":on}), None),
         // Historical runtimes retain their original wire schema. The current
         // Phase board is rejected by the authenticated route before this point.
+        Cmd::GoBack { reply, .. } | Cmd::EndSolo { reply, .. } => {
+            let _ = reply.send(Err("This historical runtime does not support this control.".into()));
+            return None;
+        }
         Cmd::Preview { .. } | Cmd::Board { .. } | Cmd::BoardOpen { .. } | Cmd::BoardClosed { .. } | Cmd::Stop => return None,
     };
     let mut v = v;

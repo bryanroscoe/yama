@@ -6,7 +6,7 @@ import { lineText, type Names } from "./feed";
 import type { Happening, Hit, Seen, Speed } from "./types";
 
 /** A presentation queue only: legal actions and the live board always stay current. */
-export function CombatCues({ events, names, root, speed }: { events?: Happening[]; names: Names; root: RefObject<HTMLElement | null>; speed?: Speed }) {
+export function CombatCues({ events, names, root, speed, scale = 1 }: { events?: Happening[]; names: Names; root: RefObject<HTMLElement | null>; speed?: Speed; scale?: number }) {
   const seen = useRef<number | null>(null);
   const [queue, setQueue] = useState<CombatCue[]>([]);
   const cue = queue[0];
@@ -17,16 +17,16 @@ export function CombatCues({ events, names, root, speed }: { events?: Happening[
     const latest = Math.max(-1, ...events.map((e) => e.seq));
     if (seen.current !== null) {
       const fresh = combatCues(events, seen.current);
-      if (fresh.length && !document.hidden && speed !== "end") setQueue((q) => enqueueCombatCues(q, fresh));
+      if (fresh.length && !document.hidden && speed !== "end" && scale > 0) setQueue((q) => enqueueCombatCues(q, fresh));
     }
     seen.current = Math.max(seen.current ?? -1, latest);
-  }, [events, speed]);
+  }, [events, speed, scale]);
   useEffect(() => {
-    if (speed === "end") { setQueue([]); return; }
+    if (speed === "end" || scale === 0) { setQueue([]); return; }
     if (!cue) return;
-    const timer = window.setTimeout(() => setQueue((q) => q.slice(1)), speed === "4x" ? 350 : speed === "2x" ? 700 : 1400);
+    const timer = window.setTimeout(() => setQueue((q) => q.slice(1)), (speed === "4x" ? 350 : speed === "2x" ? 700 : 1400) * scale);
     return () => window.clearTimeout(timer);
-  }, [cue, speed]);
+  }, [cue, speed, scale]);
   useEffect(() => {
     const hide = () => { if (document.hidden) setQueue([]); };
     document.addEventListener("visibilitychange", hide);

@@ -237,7 +237,7 @@ fn phase_board_resume_keeps_a_temporary_hold_temporary() {
     let d = resumed.decision(0).unwrap();
     resumed.choose(0, d.revision, option(&d, OptionKind::Pass).unwrap()).unwrap();
     assert!(!resumed.controls(0).hold && !resumed.controls(0).full_control);
-    resumed.set_passing(0, Some(PassMode::Mine), 0).unwrap();
+    resumed.set_passing(0, Some(PassMode::Mine), resumed.revision).unwrap();
     let again = e.resume(&resumed.replay_json(), &[(1, Difficulty::Easy)]).unwrap();
     assert_eq!(again.controls(0).passing, resumed.controls(0).passing);
 }

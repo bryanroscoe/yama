@@ -630,6 +630,9 @@ fn choice_type_name(value: &Value) -> Option<String> {
 /// plain words ("discard a card", "pay 3 life", "sacrifice a permanent"), anything else in
 /// phase's own description of it.
 pub(crate) fn unless_cost_text(vs: &GameState, cost: &AbilityCost) -> String {
+    if matches!(cost, AbilityCost::Mana { cost: ManaCost::NoCost }) {
+        return "without paying its mana cost".into();
+    }
     let printed = cost_text(cost);
     if !printed.is_empty() {
         return printed;
@@ -1111,7 +1114,7 @@ impl Pending {
                     let text = options.first().and_then(|o| o.text.clone()).unwrap_or_default();
                     let source = items.first().map(|c| c.source_id);
                     // A clone entering as a copy (CR 707.9) says so on its buttons.
-                    let (yes, no) = if text.contains("enter as a copy of") { ("Copy", "Don't copy") } else { ("Yes", "No") };
+                    let (yes, no) = if text.contains("enter as a copy of") { ("Copy", "Don't copy") } else if text.starts_with("Pay ") { (text.as_str(), "Don't pay") } else { ("Yes", "No") };
                     let mut p = Pending::new(Kind::Yesno, Answer::ChooseReplacement, "replacement", question(&text), options).yes_no(yes, no).from(vs, source);
                     p.min = 1;
                     p.max = 1;
