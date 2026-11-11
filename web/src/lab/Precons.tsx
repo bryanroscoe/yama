@@ -7,7 +7,7 @@ import { Link, useSearchParams } from "react-router";
 import { api } from "../api";
 import { useMe } from "../auth";
 import { WinBar, winCeiling } from "../components/Crop";
-import { Details, ErrorText, Pips, Loading, EmptyState } from "../components/ui";
+import { Button, Details, EmptyState, ErrorText, Loading, Pips } from "../components/ui";
 import { usePlan } from "../plan/store";
 import type { PreconItem, PreconList, Rating, RunLabel, RunListItem } from "./api";
 import { LabHead } from "./LabLayout";
@@ -224,9 +224,9 @@ export function PreconsPage() {
         <input type="search" className="lab-search" value={q} onChange={(e) => set({ q: e.target.value })} placeholder={`Search ${all.length} precons`} aria-label="Search precons by deck, commander or set" />
         <div className="lab-colors" role="group" aria-label="Colors">
           {COLORS.map((k) => (
-            <button key={k} type="button" aria-pressed={colors.includes(k)} onClick={() => toggleColor(k)} aria-label={MANA[k].name} title={MANA[k].name}>
+            <Button key={k} aria-pressed={colors.includes(k)} onClick={() => toggleColor(k)} aria-label={MANA[k].name} title={MANA[k].name}>
               <span className="pip" style={{ background: MANA[k].fill }} />
-            </button>
+            </Button>
           ))}
         </div>
         {colors && (
@@ -251,9 +251,9 @@ export function PreconsPage() {
             </option>
           ))}
         </select>
-        <button type="button" className="lab-reverse" aria-pressed={desc !== DEFAULT_DESC[sort]} onClick={() => set({ d: desc ? "0" : "1" })}>
+        <Button className="lab-reverse" aria-pressed={desc !== DEFAULT_DESC[sort]} onClick={() => set({ d: desc ? "0" : "1" })}>
           Reverse
-        </button>
+        </Button>
         <label className="lab-ten">
           <input type="checkbox" checked={tenPlus} onChange={(e) => set({ g: e.target.checked ? "10" : null })} />
           Only {FEW}+ games
@@ -265,9 +265,9 @@ export function PreconsPage() {
           </label>
         )}
         {!filtering && (
-          <button type="button" className="phone-only lab-more" aria-expanded={moreOpen} onClick={() => setMoreOpen(!moreOpen)}>
+          <Button className="phone-only lab-more" aria-expanded={moreOpen} onClick={() => setMoreOpen(!moreOpen)}>
             {moreOpen ? "Fewer filters" : "Filters"}
-          </button>
+          </Button>
         )}
       </div>
       <p className="lab-count">
@@ -298,9 +298,9 @@ export function PreconsPage() {
                       Your lists <span>Rated in your own paired runs: each run has its own field and model fit, so its rank is out of that run's decks.</span>
                     </span>
                     {!needle && (
-                      <button type="button" className="quiet small" aria-expanded={mineOpen} onClick={() => set({ mine: mineOpen ? null : "1" })}>
+                      <Button variant="quiet" size="small" aria-expanded={mineOpen} onClick={() => set({ mine: mineOpen ? null : "1" })}>
                         {mineOpen ? "Hide your lists" : `Show your ${mineShown.length} lists`}
-                      </button>
+                      </Button>
                     )}
                   </div>
                 </th>
@@ -337,9 +337,9 @@ export function PreconsPage() {
       <ol className="lab-cards" aria-label="Precons">
         {mineShown.length > 0 && !needle && (
           <li className="lab-card-mine-toggle">
-            <button type="button" className="quiet small" aria-expanded={mineOpen} onClick={() => set({ mine: mineOpen ? null : "1" })}>
+            <Button variant="quiet" size="small" aria-expanded={mineOpen} onClick={() => set({ mine: mineOpen ? null : "1" })}>
               {mineOpen ? "Hide your lists" : `Show your ${mineShown.length} lists, from your own runs`}
-            </button>
+            </Button>
           </li>
         )}
         {(mineOpen || needle ? mineShown : []).map((m) => (
@@ -506,10 +506,10 @@ function Th({ k, label, sort, desc, onSort, num, className }: { k: SortKey; labe
   const active = sort === k;
   return (
     <th className={[num ? "num" : "", className ?? ""].join(" ").trim() || undefined} aria-sort={active ? (desc ? "descending" : "ascending") : undefined} scope="col">
-      <button type="button" onClick={() => onSort(k)}>
+      <Button onClick={() => onSort(k)}>
         {label}
         {active && <span aria-hidden="true">{desc ? "↓" : "↑"}</span>}
-      </button>
+      </Button>
     </th>
   );
 }

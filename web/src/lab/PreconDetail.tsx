@@ -8,7 +8,7 @@ import { Link, useParams } from "react-router";
 import { usePower } from "../auth";
 import { api } from "../api";
 import { queryFailure, RefreshFailed } from "../components/QueryError";
-import { CardImage, Details, ErrorText, ManaCost, Pips, Loading } from "../components/ui";
+import { Button, ButtonLink, CardImage, Details, ErrorText, Loading, ManaCost, Pips } from "../components/ui";
 import { CardSheet } from "../pages/Cards";
 import type { Matchup, PreconDetail, PreconItem, RatingV2, RunLabel } from "./api";
 import { ConfidenceNote } from "./confidence";
@@ -103,9 +103,9 @@ function PreconDetailBody({ id }: { id: string | undefined }) {
 
       <section>
         <h2>EDHREC reviews and upgrades</h2>
-        <a className="button" href={`https://edhrec.com/precons/${encodeURIComponent(p.id)}`} target="_blank" rel="noreferrer">
+        <ButtonLink href={`https://edhrec.com/precons/${encodeURIComponent(p.id)}`} target="_blank" rel="noreferrer">
           Open {p.name} on EDHREC
-        </a>
+        </ButtonLink>
       </section>
 
       {d.matchups && d.matchups.rows.length > 0 && d.run && <Matchups rows={d.matchups.rows} run={d.run} unjudged={cantJudge(p.rating?.confidence)} />}
@@ -126,7 +126,7 @@ function PreconDetailBody({ id }: { id: string | undefined }) {
                 {group} <span className="dim num">{cards.reduce((n, c) => n + c.qty, 0)}</span>
               </h3>
               {cards.map((c) => (
-                <button key={`${c.name}-${c.board}`} className="lab-line" onClick={() => c.oracle_id && setOpen(c.oracle_id)} disabled={!c.oracle_id} style={{ opacity: 1 }}>
+                <Button key={`${c.name}-${c.board}`} className="lab-line" onClick={() => c.oracle_id && setOpen(c.oracle_id)} disabled={!c.oracle_id} style={{ opacity: 1 }}>
                   <CardImage src={c.image_small} name={c.name} className="thumb" />
                   <span className="name">
                     {c.qty > 1 ? `${c.qty} ` : ""}
@@ -135,7 +135,7 @@ function PreconDetailBody({ id }: { id: string | undefined }) {
                     <span className="dim small" style={{ display: "block" }} title={priceSource(c.price_date)}>{usd(c.unit_price_usd)}{c.qty > 1 && c.unit_price_usd != null ? ` each, ${usd(c.unit_price_usd * c.qty)} total` : ""}{c.price_date ? ` (${c.price_date})` : ""}</span>
                   </span>
                   <ManaCost cost={c.mana_cost} />
-                </button>
+                </Button>
               ))}
             </section>
           ))}
@@ -171,13 +171,13 @@ function Actions({ precon }: { precon: PreconItem }) {
     <div className="stack" style={{ gap: "0.5rem", marginBottom: "1.5rem" }}>
       <div className="row">
         {make.data ? (
-          <Link className="button primary" to={`/decks/${make.data.id}`}>Open {make.data.name}</Link>
+          <ButtonLink variant="primary" to={`/decks/${make.data.id}`}>Open {make.data.name}</ButtonLink>
         ) : (
-          <button className="primary" onClick={() => make.mutate()} disabled={make.isPending}>
+          <Button variant="primary" onClick={() => make.mutate()} disabled={make.isPending}>
             {make.isPending ? "Making the deck…" : "Make this a Yama deck"}
-          </button>
+          </Button>
         )}
-        {power && <Link className="button" to={`/lab/try?precon=${encodeURIComponent(precon.id)}`}>Try a change</Link>}
+        {power && <ButtonLink to={`/lab/try?precon=${encodeURIComponent(precon.id)}`}>Try a change</ButtonLink>}
         <AskClaude context={{ kind: "precon", ref: precon.id }} about={precon.name} />
       </div>
       {make.data && (

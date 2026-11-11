@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { api, type DeckSummary } from "../api";
 import { useMe } from "../auth";
-import { Details } from "../components/ui";
+import { Button, Details } from "../components/ui";
 import type { ComparePrefill, ExperimentDetail, NewExperiment } from "./api";
 import { LabHead } from "./LabLayout";
 import { caveat, durationText, expectedSeconds, gameChoices } from "./logic";
@@ -114,15 +114,15 @@ function CompareForm() {
     <>
       <LabHead title="Compare decks" />
       <div className="lab-chips lab-modes" role="radiogroup" aria-label="How to compare">
-        <button type="button" role="radio" aria-checked={mode === "compare"} onClick={() => switchMode("compare")}>
+        <Button role="radio" aria-checked={mode === "compare"} onClick={() => switchMode("compare")}>
           Against the same opponents
-        </button>
-        <button type="button" role="radio" aria-checked={versus} onClick={() => switchMode("versus")}>
+        </Button>
+        <Button role="radio" aria-checked={versus} onClick={() => switchMode("versus")}>
           Head to head
-        </button>
-        <button type="button" role="radio" aria-checked={tournament} onClick={() => switchMode("tournament")}>
+        </Button>
+        <Button role="radio" aria-checked={tournament} onClick={() => switchMode("tournament")}>
           Tournament
-        </button>
+        </Button>
       </div>
       <Details label="How this comparison works" className="lab-try-intro">
         <p>
@@ -143,9 +143,9 @@ function CompareForm() {
               <span className="n">1.</span> {tournament || versus ? "Decks" : "The two decks"}
             </h2>
             {tournament ? <>
-              <button type="button" className="outline" onClick={() => setPicked((decks.data ?? []).map(fromDeckSummary))}>Select all my saved decks</button>
+              <Button variant="outline" onClick={() => setPicked((decks.data ?? []).map(fromDeckSummary))}>Select all my saved decks</Button>
               <p className="small dim">Identical lists count once.</p>
-              <ul>{chosen.map((c) => <li key={c.key}>{c.label} <button type="button" className="quiet" aria-label={`Remove ${c.label}`} onClick={() => setPicked((p) => p.filter((x) => x?.key !== c.key))}>Remove</button></li>)}</ul>
+              <ul>{chosen.map((c) => <li key={c.key}>{c.label} <Button variant="quiet" aria-label={`Remove ${c.label}`} onClick={() => setPicked((p) => p.filter((x) => x?.key !== c.key))}>Remove</Button></li>)}</ul>
               {chosen.length < 256 && <DeckChooser value={null} onChange={(c) => c && setPicked((p) => [...p.filter(Boolean), c])} exclude={chosen.map((c) => c.key)} />}
               <label><input type="checkbox" checked={includePrecons} onChange={(e) => setIncludePrecons(e.target.checked)} /> Include all supported stock precons as tournament entrants</label>
             </> : <>{picked.map((c, i) => (
@@ -153,28 +153,27 @@ function CompareForm() {
                 <div className="lab-swaps-head">
                   <h3>{versus ? `Deck ${i + 1}` : i === 0 ? "First deck" : "Second deck"}</h3>
                   {versus && picked.length > 2 && (
-                    <button type="button" className="quiet" onClick={() => setPicked((p) => p.filter((_, j) => j !== i))}>
+                    <Button variant="quiet" onClick={() => setPicked((p) => p.filter((_, j) => j !== i))}>
                       Remove
-                    </button>
+                    </Button>
                   )}
                 </div>
                 <DeckChooser value={c} onChange={(x) => setAt(i, x)} exclude={chosen.filter((x) => x !== c).map((x) => x.key)} />
               </div>
             ))}</>}
             {versus && picked.length < 4 && pod === 4 && (
-              <button type="button" className="outline" onClick={() => setPicked((p) => [...p, null])}>
+              <Button variant="outline" onClick={() => setPicked((p) => [...p, null])}>
                 Add another deck
-              </button>
+              </Button>
             )}
             {versus && (
               <fieldset className="seat">
                 <legend className="small dim">Table</legend>
                 <div className="lab-chips" role="radiogroup" aria-label="Table size">
-                  <button type="button" role="radio" aria-checked={pod === 4} onClick={() => setPod(4)}>
+                  <Button role="radio" aria-checked={pod === 4} onClick={() => setPod(4)}>
                     Four players
-                  </button>
-                  <button
-                    type="button"
+                  </Button>
+                  <Button
                     role="radio"
                     aria-checked={pod === 2}
                     disabled={picked.length > 2}
@@ -184,7 +183,7 @@ function CompareForm() {
                     }}
                   >
                     1v1
-                  </button>
+                  </Button>
                 </div>
                 <p className="small dim" style={{ margin: "0.4rem 0 0" }}>
                   {pod === 2
@@ -245,9 +244,9 @@ function CompareForm() {
             </label>
             <CreateError error={create.error} names={labels} />
             <RunBlockers items={blockers} />
-            <button className="primary" onClick={() => create.mutate()} disabled={blockers.length > 0 || create.isPending || !me.data}>
+            <Button variant="primary" onClick={() => create.mutate()} disabled={blockers.length > 0 || create.isPending || !me.data}>
               {create.isPending ? "Starting…" : tournament ? "Start tournament" : versus ? "Play them head to head" : "Compare them"}
-            </button>
+            </Button>
             <p className="lab-note" style={{ margin: 0 }}>
               AI simulations. To test swaps, use <Link to="/lab/try">Try a change</Link>. <Link to="/lab/runs">My runs</Link>
             </p>

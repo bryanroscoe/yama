@@ -4,7 +4,7 @@ import { usePower } from "../auth";
 import { PowerNote } from "../components/PowerOnly";
 import { api } from "../api";
 import { queryFailure, RefreshFailed } from "../components/QueryError";
-import { Details, ErrorText, Loading, EmptyState } from "../components/ui";
+import { Button, ButtonLink, Details, EmptyState, ErrorText, Loading } from "../components/ui";
 import type { BatchComparison, ExperimentItem, PreconItem, RunDetail, RunListItem, ExperimentMode } from "./api";
 import { ConfidenceLine, ConfidenceMark, ConfidenceNote } from "./confidence";
 import {
@@ -117,12 +117,12 @@ export function RunsPage() {
         action={
           power ? (
             <span className="row" style={{ gap: 8 }}>
-              <Link className="button" to="/lab/compare">
+              <ButtonLink to="/lab/compare">
                 Compare decks
-              </Link>
-              <Link className="button primary" to="/lab/try">
+              </ButtonLink>
+              <ButtonLink variant="primary" to="/lab/try">
                 Try a change
-              </Link>
+              </ButtonLink>
             </span>
           ) : undefined
         }
@@ -190,17 +190,17 @@ export function RunsPage() {
                   </Details>
                 )}
                 <span className="lab-runcard-actions">
-                  <Link className="button" to={`/lab/runs/${e.id}`}>
+                  <ButtonLink to={`/lab/runs/${e.id}`}>
                     Open
-                  </Link>
+                  </ButtonLink>
                   {live ? (
-                    <button className="quiet" disabled={stop.isPending} onClick={async () => (await ask({ title: "Stop this run?", body: "Games already played are kept.", confirm: "Stop run" })) && stop.mutate(e.id)}>
+                    <Button variant="quiet" disabled={stop.isPending} onClick={async () => (await ask({ title: "Stop this run?", body: "Games already played are kept.", confirm: "Stop run" })) && stop.mutate(e.id)}>
                       Stop
-                    </button>
+                    </Button>
                   ) : (
-                    <button className="quiet" disabled={remove.isPending} onClick={async () => (await ask({ title: `Delete ${e.name}?`, body: "Its games and results go too.", confirm: "Delete run", danger: true })) && remove.mutate(e.id)}>
+                    <Button variant="quiet" disabled={remove.isPending} onClick={async () => (await ask({ title: `Delete ${e.name}?`, body: "Its games and results go too.", confirm: "Delete run", danger: true })) && remove.mutate(e.id)}>
                       Delete
-                    </button>
+                    </Button>
                   )}
                 </span>
               </article>
@@ -209,9 +209,9 @@ export function RunsPage() {
         </section>
       )}
       {pages.hasNextPage && (
-        <button className="quiet" disabled={pages.isFetchingNextPage} onClick={() => void pages.fetchNextPage()}>
+        <Button variant="quiet" disabled={pages.isFetchingNextPage} onClick={() => void pages.fetchNextPage()}>
           {pages.isFetchingNextPage ? "Loading older runs" : "Show older runs"}
-        </button>
+        </Button>
       )}
 
       {batch.length > 0 && (
@@ -248,9 +248,9 @@ export function RunsPage() {
                     {simLabel({ engine: r.engine, difficulty: r.difficulty, games: r.games, pod: r.pod, date: r.analysed_at ?? r.created_at, run: r.name })}.
                   </span>
                   <span className="lab-runcard-actions">
-                    <Link className="button" to={`/lab/runs/batch/${r.id}`}>
+                    <ButtonLink to={`/lab/runs/batch/${r.id}`}>
                       Open
-                    </Link>
+                    </ButtonLink>
                   </span>
                 </article>
               );
