@@ -58,7 +58,7 @@ this?" His answers: **both** (Ask Claude inside Yama and outside clients such as
   list (Decks, Plans), each with Apply and Discard. Ask Claude has no tool to apply its own change.
 - **Outside clients** also get `apply_change` and `discard_change`. Their description says to call
   them only after the person has said yes to that change in the conversation, and Claude Code's own
-  permission prompt shows each call. Bryan can turn `apply_change` off for keys in Settings.
+  permission prompt shows each call. Turning `apply_change` off for keys was planned and isn't built; an OAuth sign-in can be limited to reading or staging on the consent page (below).
 - Applying re-checks everything (the deck still exists and is the version the change was made
   against, the card resolves, the swap key is current). A stale change fails with the reason and
   stays pending, so nothing is applied on top of a list it wasn't made for.
@@ -112,16 +112,16 @@ Read (no review needed):
 |---|---|
 | `search_cards` | Search with Yama's grammar (Scryfall subset): name, cost, type, color identity, Commander legality, Game Changer, price with date, how many you own |
 | `get_cards` | One or several cards by name: Oracle text, legality, Game Changer, rulings, latest price per printing with date and source, copies you own and where |
-| `my_decks`, `get_deck` | Your decks; one deck's list with its legality problems, bracket estimate and real results |
+| `get_overview`, `get_deck` | Your decks; one deck's list with its legality problems, bracket estimate and real results |
 | `check_deck_list` | Validate a proposed list without saving: 100 cards, singleton, color identity, legality, Game Changers |
-| `plans`, `get_plan` | Plan decks; one plan's stock, now and after lists, swaps with reasons, review answers, orders and prints |
+| `get_overview`, `get_plan` | Deck plans; one plan's stock, now and after lists, swaps with reasons, review answers, orders and prints |
 | `get_review_queue` | Proposals still to answer, by deck |
 | `get_shopping_trip` | Which of their stores to visit: the fewest stores covering the most cards under their local buy rule and store preferences (optionally only the stores they're going to this time), each store's cards, total and cart link or card search links, what to print instead and why with a TCGplayer Mass Entry link, and the real-card wishlist by price tier ([shopping-design.md](shopping-design.md)) |
 | `get_shopping_settings` | Their buy rule in force, every dated rule set with its origin, the sealed precon cap, and each store's level, place in their order and premium |
 | `get_shopping_list` | Every want on their one list (planned buys, proposals, cards and sealed products they added, the wishlist count) and where the trip puts each card, or why not |
 | `compare_with_friend` | A friend's profile by handle: the cards on their shared want list this account owns real copies of (and how many are in deck boxes), and the cards on this account's shopping list in the friend's shared collection, with printings and conditions. Reads only what the friend shares (Sharing, "Looking for") |
 | `get_store_stock` | One store's newest snapshot answers for cards (default: the trip's cards): price, condition, finish and quantity where given, or not in stock, with the time read |
-| `spares` | Cards you own outside any deck, and what a plan would free |
+| `list_collection_cards` | Cards you own, with `outside_decks` for the ones in no deck box (`spares` was planned and never built) |
 | `list_lab_runs`, `get_lab_run` | Your experiments and rating runs, with live progress, the paired difference and its interval (and the lab's caveats), per engine, with unscored games by reason and the settle estimate. Admins also see the count of earlier Phase games ahead in the shared queue; for both-engine runs, ETA and queue position are Phase-only. No other account's run or deck details are exposed. |
 | `list_lab_games` | One run's games pod by pod; one game's schedule line, result line and lists, to replay it; a head-to-head or tournament run's tables for one deck (`deck`) or one table (`table`), with finish order, who went first and knockout turns |
 | `get_precon` | A precon's list, playgroup.gg data and the global rating |
@@ -276,6 +276,33 @@ The advisor's activity lines (`web/src/advisor/logic.ts`) know both names of eac
 prompts (`workflows.rs`), Ask Claude's instructions (`advisor/context.rs`), the plugin skills and
 the public guide use the new names. `mcp/tests_catalog.rs` calls every older name and every
 older argument and checks the answers match.
+
+## For anyone's account (2026-11-11)
+
+The tools were written around one person's setup. What changed so they read right for anyone:
+
+- **Listed for what the account has** (`registry::Needs`, `Has`). The store tools (trip,
+  settings, rules, preferences, stock, checks) are listed once the account has a store; the
+  dataset tools once it has a dataset; the lab's read tools once it has a run of its own or may
+  start one (starting stays with power users). The shopping list and wishes need no store.
+  Listing is all this decides: a call by name still answers.
+- **The instructions** (`SERVER_INSTRUCTIONS`) describe the tools for any account, in about 2,100
+  characters: what to read first, that writes are staged, the two exceptions, what a plan is,
+  what is data, how prices and simulations are to be read, paging. They no longer describe one
+  deck-building scheme, name stores or lead with plan files.
+- **Descriptions say what a tool is for**, in at most 650 characters each (about 23,000 in all,
+  from about 28,000). The longer notes on reading precon evidence, lab runs, the buy rule, prints
+  and prices moved to `docs/mcp-tool-notes.md`, served as the resource
+  `yama://guide/tool-notes`. The sentence every staging tool ends with is one short line; the
+  rule (stage when asked, apply after a yes) is in the instructions.
+- **`get_game` reads an online game.** An online game has no life-counter events; what happened
+  is the rules engine's log in `online_games`. With `events: true` the tool returns the last 300
+  lines as the caller saw them: the lines everyone saw and the ones marked for the caller's own
+  seat, never another player's.
+
+`mcp/tests_catalog.rs` checks each of these: a new account's list and how it grows, the
+description and instruction lengths and that none names one person's stores or scheme, and that
+every document the server embeds is copied into the image build.
 
 ## The catalog is tested as a contract (2026-11-11)
 

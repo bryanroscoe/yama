@@ -6,7 +6,7 @@
 //! plan or a lab run reads the same to Ask Claude and to an outside client.
 
 use super::args as arg;
-use super::registry::{self, Ctx, Kind, Offer, Tool, run};
+use super::registry::{self, Ctx, Kind, Needs, Offer, Tool, run};
 use super::{Via, changes};
 use crate::advisor::context;
 use crate::auth::User;
@@ -34,11 +34,7 @@ macro_rules! stage {
 /// Said by every write tool: what staging means.
 macro_rules! staged {
     ($what:literal) => {
-        concat!(
-            $what,
-            " This only stages the change for their review: it shows in Yama with Apply and Discard, and nothing changes until they apply it. \
-              Stage a change when they ask for it or agree to it, not as a guess."
-        )
+        concat!($what, " Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.")
     };
 }
 
@@ -57,6 +53,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: Some(registry::object),
         untrusted: None,
         renamed: &[],
+        needs: Needs::Datasets,
     },
     Tool {
         name: "get_dataset",
@@ -81,6 +78,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: Some(registry::paged),
         untrusted: None,
         renamed: &[("search", "query")],
+        needs: Needs::Datasets,
     },
     Tool {
         name: "get_research",
@@ -96,12 +94,13 @@ pub(super) const TOOLS: &[Tool] = &[
         output: Some(registry::object),
         untrusted: None,
         renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "save_research",
         aliases: &[],
         title: "Save private research for review in Yama",
-        description: "Store or refresh a yama-research/1 document: a deck plan's content (builds, swaps with reasons, acquisition evidence), private to the caller. This saves directly and idempotently, replacing the note's earlier revision; review choices survive refreshes and changed targets are flagged. A plan already tracking one of the note's builds follows the refreshed note (its swaps, store offers and lists are derived again). A document that drops a deck or build a plan tracks would stop that plan, so it is refused and nothing is saved unless stop_plans is true. It never installs or saves a playable deck, changes inventory, approves a purchase, orders prints or starts games. To make a build the deck's plan, stage track_build afterwards. Use when asked to store research or a plan in Yama. Owner comes from sign-in, never the document.",
+        description: "Store or refresh a yama-research/1 document (a note): a deck's builds, swaps with reasons and acquisition evidence, private to the caller. It saves directly, replacing the note's earlier revision; their review choices are kept and changed targets flagged. A plan tracking one of the note's builds follows the refreshed note. A document that drops a deck or build a plan tracks is refused unless stop_plans is true. It never changes a deck, the collection, an order or a game. To make a build the deck's plan, stage track_build.",
         schema: || json!({"type":"object","properties":{
             "document":{"type":"object","description":"A yama-research/1 report (up to 4 MiB), with id, title, generated_at, decks and exact proposed builds."},
             "stop_plans":{"type":"boolean","description":"Only when they asked to drop the plan: also archive each plan tracking a deck or build this document no longer has, and retire its swaps (default false: such a save is refused and names those plans)."}
@@ -114,6 +113,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: Some(registry::object),
         untrusted: None,
         renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "review_research",
@@ -129,6 +129,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: Some(registry::object),
         untrusted: None,
         renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "get_overview",
@@ -158,6 +159,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "get_deck",
@@ -175,6 +177,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "get_plan",
@@ -194,20 +197,13 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[("key", "plan")],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "get_shopping_trip",
         aliases: &["shopping_trip"],
         title: "Which stores to visit",
-        description: "Plan a trip to their stores for the cards they want to buy: the fewest stores that cover the most \
-                      cards under their local buy rule (the rule set in force that day), honoring their store preferences \
-                      (a favourite to support is on every trip it has a card for; fine; maybe; won't go) and their order of how easy stores are to get to. Needed cards are the buys in their approved plans with no order \
-                      yet (a plan waiting for their OK adds nothing); their real-card wishlist only comes along from stores \
-                      already on the trip. Gives each store's cards, listed total and cart link (or card search links on a TCGplayer Pro store), the best choice with fewer stores, \
-                      what to print instead and why, and the wishlist by price tier. Listings are dated quotes, not \
-                      purchases; a missing price is unknown, never $0. Read yama://shopping/workflow before using research \
-                      as a shopping list: arbitrary research builds and archived evidence are not automatically trip inputs. \
-                      Compare exact build revisions and stock dates; provide listing/search links for an unapproved build preview without approving it.",
+        description: "Plan a trip to their stores for the cards they want to buy: the fewest stores covering the most cards under their buy rule and store preferences. Needed cards are the buys in their approved plans with no order yet; their wishlist only comes along from stores already on the trip. Gives each store's cards, total and cart or search links, what to print instead and why, and the wishlist by price tier. Listings are dated quotes, not purchases; a missing price is unknown, never $0. For a build that isn't approved, read yama://shopping/workflow first.",
         schema: || {
             json!({
                 "type": "object",
@@ -226,6 +222,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[("today", "as_of")],
+        needs: Needs::Stores,
     },
     Tool {
         name: "get_shopping_settings",
@@ -244,18 +241,13 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[],
+        needs: Needs::Stores,
     },
     Tool {
         name: "set_shopping_rules",
         aliases: &[],
         title: "Change the buy rule",
-        description: staged!(
-            "Change their local buy rule and sealed precon limit. It becomes a new rule set from the day they apply it, \
-             so older checks keep the rules of their own day. Parts left out keep the rule in force. A listing qualifies at \
-             or under always_ok_usd whatever the market; otherwise at most max_usd and at most max_multiple times market for \
-             the first tier whose market_under is above the market (null: any market); with tiers, an unknown market \
-             qualifies only at or under always_ok_usd."
-        ),
+        description: staged!("Change their buy rule and sealed precon limit, as a new rule set from the day they apply it; parts left out keep the rule in force. A listing qualifies at or under always_ok_usd whatever the market; otherwise it may cost at most max_usd and at most max_multiple times market, by the first tier whose market_under is above the market."),
         schema: || {
             json!({
                 "type": "object",
@@ -279,17 +271,13 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[("note", "reason")],
+        needs: Needs::Stores,
     },
     Tool {
         name: "set_store_preference",
         aliases: &[],
         title: "Set how they feel about a store",
-        description: staged!(
-            "Set one of their stores' level: favorite (a store they want to support: on every trip it has a card for, and it \
-             gets a card when it's at most premium_usd above the cheapest), ok, maybe (only for cards no other store has) or \
-             never; its place in their order of how easy stores are to get to (hassle, 1 is the easiest); and a note. Parts \
-             left out stay as they are."
-        ),
+        description: staged!("Set how they feel about one of their stores: favorite (on every trip it has a card for, and it gets a card when it costs at most premium_usd more than the cheapest), ok, maybe (only for cards no other store has) or never; its place in their order of how easy stores are to get to (hassle, 1 is easiest); and a note. Parts left out stay as they are."),
         schema: || {
             json!({
                 "type": "object",
@@ -312,6 +300,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[],
+        needs: Needs::Stores,
     },
     Tool {
         name: "get_store_stock",
@@ -340,27 +329,20 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[],
+        needs: Needs::Stores,
     },
     Tool {
         name: "check_stores",
         aliases: &[],
         title: "Read stores' stock",
-        description: staged!(
-            "Read their stores' stock now, when they apply it: Shopify stores Yama knows (Pat's Games, Mothership) card by \
-             card, TCGplayer Pro storefronts (Black Castle, Multiverse) as a whole catalog with each product's lowest \
-             price, and with yestcg true also YesTCG's Austin search (condition and quantity) for the stores it covers. \
-             Each store's answer is a dated snapshot the trip and get_store_stock read. Default stores: every store they'll \
-             go to that Yama can read; default cards: every card the trip plans for. For an unapproved research build, \
-             supply its exact cards explicitly (at most 300 per check); saving research does not fetch live stock. \
-             See yama://shopping/workflow."
-        ),
+        description: staged!("Read their stores' stock when they apply it, as a dated snapshot for each store that the trip and get_store_stock then read. A store Yama can't read is refused by name. yestcg true also asks YesTCG, a stock search covering some local stores. Default stores: every store they'll go to that Yama can read. Default cards: every card the trip plans for; for a build that isn't approved, give its cards (at most 300). See yama://shopping/workflow."),
         schema: || {
             json!({
                 "type": "object",
                 "properties": {
                     "stores": {"type": "array", "items": {"type": "string"}, "description": "Store keys or names, from get_shopping_settings."},
                     "cards": {"type": "array", "items": {"type": "string"}, "description": "Card names, at most 300."},
-                    "yestcg": {"type": "boolean", "description": "Also ask YesTCG (Austin) about the stores it covers."},
+                    "yestcg": {"type": "boolean", "description": "Also ask YesTCG, a stock search for some local stores, about the stores it covers."},
                 },
                 "additionalProperties": false,
             })
@@ -373,17 +355,13 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[],
+        needs: Needs::Stores,
     },
     Tool {
         name: "get_shopping_list",
         aliases: &["shopping_list"],
         title: "Their shopping list",
-        description: "Everything on their one shopping list and where the store trip puts each card: planned buys with no \
-                      order yet, proposals they want or haven't decided on, cards and sealed products they added (add_wish), \
-                      and a count of their real-card wishlist. Each card says the store and price the trip picks, or why it \
-                      isn't on the trip (print it, ask the store, no check). Sealed products show each store's newest price \
-                      against their sealed cap, the sealed market and the singles inside at market. Listings are dated quotes, \
-                      not purchases.",
+        description: "Everything on their shopping list and where the store trip puts each card: planned buys with no order yet, proposals they want or haven't decided on, cards and sealed products they added (add_wish), and a count of their wishlist. Each card says the store and price the trip picks, or why it isn't on the trip. Sealed products show each store's newest price against their sealed limit. Listings are dated quotes, not purchases.",
         schema: || obj(&[("today", "string", "Optional YYYY-MM-DD; picks the rule set. Default: today (UTC).")], &[]),
         kind: Kind::Read,
         offer: Offer::Everyone,
@@ -393,6 +371,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[("today", "as_of")],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "compare_with_friend",
@@ -412,16 +391,13 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: Some("another person's shared profile"),
         renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "add_wish",
         aliases: &[],
         title: "Add to their shopping list",
-        description: staged!(
-            "Add a card (or a sealed product) to their shopping list. priority need (default): a reason to go to a \
-             store; along: only from a store already on the trip. deck: one of their Yama decks by name, or a label for \
-             a deck not in Yama yet. Each copy is its own want, also when a plan already buys the card for another deck."
-        ),
+        description: staged!("Add a card or a sealed product to their shopping list. priority need (default) is a reason to go to a store; along means only from a store already on the trip. deck is one of their decks by name, or a label for a deck not in Yama yet. Each copy is its own want."),
         schema: || {
             json!({
                 "type": "object",
@@ -445,6 +421,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[("why", "reason")],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "get_review_queue",
@@ -474,6 +451,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "search_cards",
@@ -505,6 +483,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: Some(registry::paged),
         untrusted: None,
         renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "get_cards",
@@ -532,17 +511,13 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[("names", "cards")],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "get_price_history",
         aliases: &["price_history"],
         title: "Price history",
-        description: "One printing's price over time from one source, on the days Yama read it: the first and last price, \
-                      the low and high, and each change, each with its date. Give a card name (its default printing, or with \
-                      cheapest the cheapest playable printing), or a printing by Scryfall id, or set and collector number. \
-                      Sources: TCGplayer market via Scryfall (default), Card Kingdom retail or buylist, Mana Pool's lowest \
-                      listing (via MTGJSON), in USD; none is a store quote, and a buylist price is what Card Kingdom was paying \
-                      for near-mint copies, not what you'll get. A missing price is null, and days Yama didn't read are gaps.",
+        description: "One printing's price over time from one source, on the days Yama read it: first and last price, low and high, and each change with its date. Give a card name (its default printing, or with cheapest the cheapest playable one), a Scryfall printing id, or set and collector number. Sources: TCGplayer market (default), Card Kingdom retail or buylist, Mana Pool's lowest listing, in USD. None is a store quote. A missing price is null; days Yama didn't read are gaps.",
         schema: || {
             json!({
                 "type": "object",
@@ -567,6 +542,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: Some(registry::object),
         untrusted: None,
         renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "check_deck_list",
@@ -595,15 +571,13 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "list_games",
         aliases: &["games"],
         title: "Your game history",
-        description: "Games they played in person with Yama's life counter or online, newest first, as the Game history page lists \
-                      them: 10 at a time (limit, up to 50), each with its seats (player, commander, final life, knockout turn), winner seat, \
-                      turns, status and note; next_cursor continues the list. detail summary gives one short row a game. search matches a player's or commander's name; filter unfinished or unnamed finds games \
-                      to tidy up. These are real games, unlike lab results. Use `get_game` for one game's events.",
+        description: "Games they played in person with Yama's life counter or online, newest first, 10 at a time (next_cursor continues): each with its seats (player, commander, final life, knockout turn), winner, turns, status and note. query matches a player's or commander's name; filter unfinished or unnamed finds games to tidy up; detail summary gives one short row a game. These are real games, unlike lab results. `get_game` has one game's events or, for an online game, its log.",
         schema: || {
             json!({
                 "type": "object",
@@ -627,14 +601,14 @@ pub(super) const TOOLS: &[Tool] = &[
         output: Some(registry::paged),
         untrusted: Some("other players as well as the account owner (names, deck labels and notes)"),
         renamed: &[("search", "query")],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "get_game",
         aliases: &["game"],
         title: "One game",
-        description: "One game from their history by id (from `list_games`): its seats, winner, turns and note, and with events=true its \
-                      event log (life changes, knockouts and the like, up to 500 events). Someone else's game is not found.",
-        schema: || obj(&[("id", "string", "The game's id."), ("events", "boolean", "Include the event log (default false).")], &["id"]),
+        description: "One game from their history by id (from `list_games`): its seats, winner, turns and note. With events true, what happened: a life-counter game's events (life changes, knockouts), or an online game's log as the players saw it, the last 300 lines. Someone else's game is not found.",
+        schema: || obj(&[("id", "string", "The game's id."), ("events", "boolean", "Include what happened: the events, or an online game's log (default false).")], &["id"]),
         kind: Kind::Read,
         offer: Offer::Everyone,
         search: false,
@@ -643,6 +617,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: Some(registry::object),
         untrusted: Some("other players as well as the account owner (names, deck labels and notes)"),
         renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "get_collection_summary",
@@ -661,6 +636,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: Some(registry::object),
         untrusted: None,
         renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "list_playgroups",
@@ -679,6 +655,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: Some(registry::object),
         untrusted: Some("other players as well as the account owner (names)"),
         renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "list_lab_runs",
@@ -694,16 +671,13 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[],
+        needs: Needs::LabRuns,
     },
     Tool {
         name: "get_lab_run",
         aliases: &["lab_run"],
         title: "One lab experiment",
-        description: "One simulation experiment: its lists, opponents, engines and limits, live progress, and each engine's result: the \
-                      paired difference with its interval and verdict, the games that weren't scored and why, and how many \
-                      pods would likely settle an unclear answer. Admins also see the number of earlier Phase games ahead \
-                      in the shared queue. For runs using both engines, the ETA and queue position are Phase-only; Forge \
-                      is queued separately. Other accounts' run and deck details stay private.",
+        description: "One simulation experiment: its lists, opponents, engines and limits, live progress, and each engine's result: the paired difference with its interval and verdict, the games that weren't scored and why, and how many more pods would likely settle an unclear answer. For a run on both engines, the ETA and queue position are for Phase; Forge has its own queue.",
         schema: || obj(&[("id", "string", "The experiment id from `list_lab_runs`.")], &["id"]),
         kind: Kind::Read,
         offer: Offer::Everyone,
@@ -713,17 +687,13 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[("id", "run_id")],
+        needs: Needs::LabRuns,
     },
     Tool {
         name: "list_lab_games",
         aliases: &["lab_games"],
         title: "A lab experiment's games",
-        description: "An experiment's games pod by pod on one engine: each game's end, turns, CPU seconds, place and \
-                      error. With `game`, that one game's schedule line, result line and every seat's list, enough to \
-                      replay it with the lab runner (games replay move for move from their schedule line on the same \
-                      engine build). Head-to-head and tournament runs: with `deck` (a deck's name or entrant id) or \
-                      `table`, those tables game by game, as the run's deck and table pages show them: who went first, \
-                      the finish order, each seat's knockout turn or final life.",
+        description: "An experiment's games pod by pod on one engine: each game's end, turns, CPU seconds, place and error. With `game`, that game's schedule line, result line and every seat's list, enough to replay it. For head-to-head and tournament runs, `deck` (a deck's name or entrant id) or `table` gives those tables game by game: who went first, the finish order, each seat's knockout turn or final life.",
         schema: || {
             json!({
                 "type": "object",
@@ -747,13 +717,13 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[("id", "run_id")],
+        needs: Needs::LabRuns,
     },
     Tool {
         name: "get_precon",
         aliases: &["precon"],
         title: "A precon",
-        description: "A Commander precon from Yama's catalog: list, real results from playgroup.gg with their dated history (all-time rate, approximate recent rate between snapshots and trend, or the commander's own figure when the list isn't rated; evidence.all_lists adds Mythic Tools' wins over every list under the exact commanders, which count toward rating v2 only for a precon without stock games that passed the leave-one-out test), the simulated rating and matchups, and source-backed upgradeability assessments with the 1–5 rubric, concrete card examples, named reviews and separately scoped raw commander wins/game counts. Commander configurations have separate grades and comparison-list URLs. On-theme swaps are eligible; replacing the strategy is a separate build. Use each prepared list separately when comparing commanders. Unsupported grades are null. Commander rates mix stock and modified lists; do not infer upgrade gains from them. \
-                      Give its name (or part of it) or id.",
+        description: "A Commander precon from Yama's catalog, by name (or part of it) or id: its list, real results from playgroup.gg with their dated history, the simulated rating and matchups, and source-backed upgradeability grades (1 to 5) with card examples and named reviews. Each commander configuration has its own grade and list: compare them as separate lists. An unsupported grade is null. Commander win rates mix stock and modified lists, so never read an upgrade gain from them.",
         schema: || obj(&[("precon", "string", "The precon's name, part of it, or its id.")], &["precon"]),
         kind: Kind::Read,
         offer: Offer::Everyone,
@@ -763,6 +733,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "list_changes",
@@ -791,6 +762,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "edit_deck",
@@ -822,17 +794,13 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[("note", "reason")],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "delete_deck",
         aliases: &[],
         title: "Delete a deck or configuration",
-        description: staged!(
-            "Delete one of their Yama decks, or one configuration of a deck (name the configuration's own deck). \
-             It leaves their decks and its share link stops working; games already played with it keep their record. \
-             A main deck's configurations become decks of their own unless configurations is true, which deletes them too. \
-             It can't be undone from Yama, so only stage it when they asked to delete that deck."
-        ),
+        description: staged!("Delete one of their decks, or one configuration of a deck (name the configuration's own deck). Its share link stops working; games played with it keep their record. A deck's configurations become decks of their own unless configurations is true, which deletes them too. It can't be undone in Yama: only when they asked to delete that deck."),
         schema: || {
             json!({
                 "type": "object",
@@ -852,18 +820,13 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "track_build",
         aliases: &[],
         title: "Make a note's build the deck's plan",
-        description: staged!(
-            "Use one build of a deck in one of their saved notes as that deck's plan: its swaps become a plan version \
-             waiting for their OK (\"Use a deck from it\" on the plan pages). Once they approve it (in Yama, or \
-             `approve_plan`), Buy, prints, installed and bought marks and the plan tools (get_plan, mark_bought, \
-             mark_installed, swap_in_prints) work on it, and it replaces any other plan for the same deck. Another build \
-             of the same deck switches to it; build null stops it. Give the note id and deck key from `get_overview` or `get_research`."
-        ),
+        description: staged!("Use one build of a deck in one of their saved notes as that deck's plan: its swaps become a plan version waiting for their OK. Once approved (in Yama, or approve_plan), the shopping list, prints, marks and the plan tools work on it, and it replaces any other plan for the same deck. Another build of the same deck switches to it; build null stops it. Give the note id and deck key from `get_overview` or `get_research`."),
         schema: || {
             json!({"type":"object","properties":{
                 "note":{"type":"string","description":"The note's id."},
@@ -880,18 +843,13 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "approve_plan",
         aliases: &[],
         title: "Approve a deck's plan",
-        description: staged!(
-            "Approve a deck's plan version whole, as the plan page's Approve plan does: every change waiting in it goes into \
-             the plan except the ones in skip, and the open questions get_plan lists need their answers first. Only stage \
-             it when they have said to. action keep instead keeps the version before it (for a new version of a plan in \
-             progress). Nothing is bought or printed by approving: buys go on their shopping list and prints on the next \
-             print order."
-        ),
+        description: staged!("Approve a deck's waiting plan version whole: every change in it goes into the plan except those in skip, and the open questions get_plan lists need their answers first. action keep keeps the version before it instead. Nothing is bought or printed by approving: buys go on their shopping list and prints on the next print order. Only when they have said to."),
         schema: || {
             json!({"type":"object","properties":{
                 "plan":{"type":"string","description":"The plan key or deck name from `get_overview`."},
@@ -909,6 +867,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "propose_swap",
@@ -937,6 +896,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[("why", "reason")],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "answer_review",
@@ -969,6 +929,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "mark_bought",
@@ -1003,18 +964,13 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "swap_in_prints",
         aliases: &[],
         title: "Swap a plan deck's prints in",
-        description: staged!(
-            "When their printed proxies have arrived and they have sleeved them into a deck: take that plan deck from its now list to its \
-             after-prints list in Yama. The linked Yama deck gets the after list as a new version; the prints go into the deck's box as \
-             proxies; cards moving in from another deck come out of that deck's box; each card leaving goes to the deck that takes it next, \
-             the deck's swap bag box (cards that go back in at a lower bracket) or a box called Spares; and the swaps are ticked installed. \
-             The reply previews exactly what applying does."
-        ),
+        description: staged!("When their printed proxies have arrived and are sleeved into a deck: move that plan deck from its now list to its after-prints list. The linked deck gets the new list as a version, the prints go into the deck's box as proxies, each card coming out goes to the deck or box that takes it next, and the swaps are ticked installed. The reply previews exactly what applying does."),
         schema: || {
             json!({
                 "type": "object",
@@ -1031,6 +987,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "mark_installed",
@@ -1058,17 +1015,13 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "start_lab_run",
         aliases: &[],
         title: "Start a lab run",
-        description: staged!(
-            "Simulate in the lab, under their lab allowance; results come in over the next while (see get_lab_run). Modes: \
-             change (the default: a list against the same list with cards added and cut, in paired games), compare (two \
-             lists in the same pods), solo (one list's win rate as it is), versus (2 to 4 lists head to head), and tournament (one large field in balanced randomized four-player pods). Lists \
-             are their decks or precons by name, or a pasted list. Applying runs every check the lab's pages run."
-        ),
+        description: staged!("Simulate in the lab, under their lab allowance; results arrive over time (get_lab_run). Modes: change (default: a list against itself with cards added and cut, in paired games), compare (two lists in the same pods), solo (one list's win rate), versus (2 to 4 lists head to head) and tournament (one large field in balanced four-player pods). Lists are their decks or precons by name, or pasted."),
         schema: || {
             json!({
                 "type": "object",
@@ -1107,17 +1060,13 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "add_lab_games",
         aliases: &["more_lab_games"],
         title: "Add games to a lab run",
-        description: staged!(
-            "Add games to one of their finished runs (not versus) so its answer gets clearer: the new pods continue the \
-             run's schedule and pool with the results so far, on each of its engines. Without `games`, enough to reach \
-             the run's estimate of the pods that would settle it, where it has one. A run whose engine has changed since \
-             can't take more games; use rerun_lab_run."
-        ),
+        description: staged!("Add games to one of their finished runs (not versus) so its answer gets clearer: the new pods continue the run's schedule and pool with the results so far. Without `games`, enough to reach the run's own estimate of what would settle it. A run whose engine has changed since can't take more games: use rerun_lab_run."),
         schema: || {
             json!({
                 "type": "object",
@@ -1137,6 +1086,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[("id", "run_id")],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "rerun_lab_run",
@@ -1165,6 +1115,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[("id", "run_id")],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "cancel_lab_run",
@@ -1180,6 +1131,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[("id", "run_id")],
+        needs: Needs::LabRuns,
     },
     Tool {
         name: "add_to_collection",
@@ -1213,6 +1165,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "move_cards",
@@ -1240,6 +1193,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "set_condition",
@@ -1269,6 +1223,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "apply_change",
@@ -1285,6 +1240,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "discard_change",
@@ -1300,6 +1256,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[],
+        needs: Needs::Nothing,
     },
 ];
 
@@ -2309,6 +2266,8 @@ async fn games(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String
 /// One game as its page shows it (`games::game_detail`); the event log only when asked.
 async fn game(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String> {
     const MAX_EVENTS: usize = 500;
+    /// An online game's log can run to thousands of lines; the end is what a question is about.
+    const MAX_LOG: usize = 300;
     let id = arg::text(args, "id")?;
     let detail = crate::games::game_detail(pool, &user.id, id).await?;
     let mut out = serde_json::to_value(&detail).map_err(anyhow::Error::from)?;
@@ -2321,6 +2280,29 @@ async fn game(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String>
                 o.insert("events_note".into(), json!(format!("Only the first {MAX_EVENTS} of {} events.", events.len())));
             }
             o.insert("events".into(), Value::Array(events.into_iter().take(MAX_EVENTS).collect()));
+        }
+        // An online game has no life-counter events: what happened is the rules engine's log.
+        // `game_detail` above has already refused a game the caller can't see.
+        let online: Option<(Option<String>, String)> = sqlx::query_as("SELECT log, seats FROM online_games WHERE game_id = ?").bind(id).fetch_optional(pool).await?;
+        if let Some((log, seats)) = online {
+            let seats: Vec<Value> = serde_json::from_str(&seats).unwrap_or_default();
+            let mine = seats.iter().find(|s| s["user_id"].as_str() == Some(user.id.as_str())).and_then(|s| s["seat"].as_u64());
+            let lines: Vec<Value> = log.and_then(|l| serde_json::from_str(&l).ok()).unwrap_or_default();
+            // A line marked for one seat was shown to that player alone: theirs if they sat
+            // there, nobody else's.
+            let lines: Vec<Value> = lines
+                .into_iter()
+                .filter(|l| l.get("seat").is_none_or(|seat| seat.is_null() || (mine.is_some() && seat.as_u64() == mine)))
+                .map(|l| json!({"turn": l["turn"], "text": l["text"]}))
+                .collect();
+            o.insert("log_lines".into(), json!(lines.len()));
+            if args.get("events").and_then(Value::as_bool).unwrap_or(false) {
+                if lines.len() > MAX_LOG {
+                    o.insert("log_note".into(), json!(format!("The last {MAX_LOG} of {} lines.", lines.len())));
+                }
+                let from = lines.len().saturating_sub(MAX_LOG);
+                o.insert("log".into(), Value::Array(lines.into_iter().skip(from).collect()));
+            }
         }
     }
     Ok(serde_json::to_string(&out).map_err(anyhow::Error::from)?)

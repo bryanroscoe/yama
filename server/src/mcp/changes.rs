@@ -1966,13 +1966,13 @@ pub async fn check_stores(st: &AppState, user: &User, via: &Via, args: &Value) -
     // With no stores named, at least one store they'll go to must be readable.
     if named.is_empty() && !checkable.iter().any(|c| c.4 != "never" && readable(&c.0)) {
         return Err(AppError::bad(format!(
-            "Yama can't read any of their stores' stock{}. It reads Shopify stores on its list (Pat's Games, Mothership) and TCGplayer Pro storefronts. Nothing was staged.",
+            "Yama can't read any of their stores' stock{}. It reads the store websites on its own short list and TCGplayer Pro storefronts. Nothing was staged.",
             if yestcg { "" } else { " (try yestcg: true)" }
         )));
     }
     if let Some((_, name)) = named.iter().find(|(k, _)| !readable(k)) {
         return Err(AppError::bad(format!(
-            "Yama can't read {name}'s stock{}. It reads Shopify stores on its list (Pat's Games, Mothership) and TCGplayer Pro storefronts; YesTCG covers some others. Nothing was staged.",
+            "Yama can't read {name}'s stock{}. It reads the store websites on its own short list and TCGplayer Pro storefronts; YesTCG covers some others. Nothing was staged.",
             if yestcg { "" } else { " (try yestcg: true)" }
         )));
     }
@@ -1991,7 +1991,7 @@ pub async fn check_stores(st: &AppState, user: &User, via: &Via, args: &Value) -
     let summary = format!("Check stock: {which}");
     let detail = format!(
         "Reads {which} for {what}{} when applied, in the background, as dated snapshots. The trip then uses the newest answer for each card. At most {} store reads a day.",
-        if yestcg { ", also through YesTCG's Austin search" } else { "" },
+        if yestcg { ", also through YesTCG's search" } else { "" },
         stock::DAILY_SNAPSHOTS
     );
     let payload = json!({"stores": (!stores.is_empty()).then(|| stores.iter().map(|(k, _)| k.clone()).collect::<Vec<_>>()), "cards": (!cards.is_empty()).then_some(&cards), "yestcg": yestcg});

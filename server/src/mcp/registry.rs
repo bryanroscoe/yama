@@ -68,6 +68,57 @@ pub enum Offer {
     Appliers,
 }
 
+/// What an account must have for a tool to be any use to it. A tool it can't use isn't listed,
+/// so a new account's assistant isn't handed tools for stores it never added, datasets nobody
+/// gave it or a lab it can't run. Listing is all this decides: a client that still has the tool
+/// from an older list may call it, and is told there is nothing there.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Needs {
+    Nothing,
+    /// At least one store (stores come with an imported plan file).
+    Stores,
+    /// At least one evidence dataset (an admin gives an account one).
+    Datasets,
+    /// A lab run of their own, or the access to start one.
+    LabRuns,
+}
+
+/// What an account has, for `Needs`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Has {
+    pub stores: bool,
+    pub datasets: bool,
+    pub lab_runs: bool,
+}
+
+impl Has {
+    /// An account with everything: what the full catalog is listed for.
+    pub const EVERYTHING: Has = Has { stores: true, datasets: true, lab_runs: true };
+    pub const NOTHING: Has = Has { stores: false, datasets: false, lab_runs: false };
+
+    /// What this account has, from its own rows.
+    pub async fn load(pool: &sqlx::SqlitePool, user: &User) -> AppResult<Has> {
+        let (stores, datasets, runs): (bool, bool, bool) = sqlx::query_as(
+            "SELECT EXISTS (SELECT 1 FROM plan_stores WHERE owner_id = ?1 AND retired_at IS NULL AND kind != 'printer'),
+                    EXISTS (SELECT 1 FROM evidence_datasets WHERE owner_id = ?1),
+                    EXISTS (SELECT 1 FROM lab_experiments WHERE owner_id = ?1)",
+        )
+        .bind(&user.id)
+        .fetch_one(pool)
+        .await?;
+        Ok(Has { stores, datasets, lab_runs: runs || user.power })
+    }
+
+    fn meets(&self, needs: Needs) -> bool {
+        match needs {
+            Needs::Nothing => true,
+            Needs::Stores => self.stores,
+            Needs::Datasets => self.datasets,
+            Needs::LabRuns => self.lab_runs,
+        }
+    }
+}
+
 /// What a staging tool stores, and how that is applied when the person says yes.
 #[derive(Clone, Copy)]
 pub struct Staging {
@@ -101,6 +152,8 @@ pub struct Tool {
     /// call may still use the old one. The handler reads the old name, as it always has: the
     /// registry moves the new one onto it and puts the new name back in a refusal.
     pub renamed: &'static [(&'static str, &'static str)],
+    /// What the account must have for the tool to be offered.
+    pub needs: Needs,
 }
 
 /// The `outputSchema` of a tool that answers with a JSON object and promises no more about it.
@@ -264,10 +317,15 @@ fn public_names(tool: &Tool, e: AppError) -> AppError {
     e
 }
 
-/// `tools/list` for this caller.
+/// `tools/list` for this caller, were their account to have everything.
 pub fn list(user: &User, via: &Via) -> Vec<Value> {
+    list_for(user, via, Has::EVERYTHING)
+}
+
+/// `tools/list` for this caller and what their account has.
+pub fn list_for(user: &User, via: &Via, has: Has) -> Vec<Value> {
     all()
-        .filter(|t| offered_to(t, user, via))
+        .filter(|t| offered_to(t, user, via) && has.meets(t.needs))
         .map(|t| {
             let mut schema = (t.schema)();
             if t.stages.is_some() {

@@ -88,6 +88,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: Some(super::registry::paged),
         untrusted: Some("Scryfall, a service outside Yama"),
         renamed: &[],
+        needs: super::registry::Needs::Nothing,
     },
     Tool {
         name: "list_card_printings",
@@ -108,6 +109,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: Some(super::registry::paged),
         untrusted: None,
         renamed: &[("name", "card")],
+        needs: super::registry::Needs::Nothing,
     },
     Tool {
         name: "get_commander_recommendations",
@@ -128,6 +130,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: Some(super::registry::object),
         untrusted: Some("EDHREC, a service outside Yama"),
         renamed: &[],
+        needs: super::registry::Needs::Nothing,
     },
     Tool {
         name: "search_combos",
@@ -145,6 +148,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: Some(super::registry::paged),
         untrusted: Some("Commander Spellbook, a service outside Yama"),
         renamed: &[],
+        needs: super::registry::Needs::Nothing,
     },
     Tool {
         name: "get_public_deck",
@@ -165,6 +169,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: Some(super::registry::object),
         untrusted: Some("a public deck page outside Yama"),
         renamed: &[],
+        needs: super::registry::Needs::Nothing,
     },
     Tool {
         name: "search_rules",
@@ -185,12 +190,13 @@ pub(super) const TOOLS: &[Tool] = &[
         output: Some(super::registry::object),
         untrusted: Some("Wizards' rules page, outside Yama"),
         renamed: &[],
+        needs: super::registry::Needs::Nothing,
     },
     Tool {
         name: "get_deck_analysis",
         aliases: &["deck_analysis"],
         title: "Deck health, ownership and budget",
-        description: "Analyze your saved deck or a proposed list without saving: Commander validation, curve, land access, role hints, Game Changers, Reserve List cards, the deck page's deck analysis (an unofficial 1-10 power level with its margin, five 0-100 vectors with every card's points, themes, and Spellbook combos from a saved version's stored check), quantities owned and needed, and cheapest eligible dated nonfoil market references. Missing names/prices stay unknown. No deck or inventory leaves Yama. Role and mana-access counts are descriptive, not a power or castability score.",
+        description: "Analyze their saved deck or a pasted list without saving: Commander checks, curve, land access, role hints, Game Changers, Reserve List cards, an unofficial power level with its margin, themes, combos from the saved version's stored check, what they own and still need, and the cheapest dated market references. Missing names and prices stay unknown. Nothing leaves Yama. Role and mana counts describe the list; they are not a power or castability score.",
         kind: Kind::Read,
         offer: Offer::Everyone,
         search: true,
@@ -202,6 +208,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: Some(super::registry::object),
         untrusted: None,
         renamed: &[],
+        needs: super::registry::Needs::Nothing,
     },
     Tool {
         name: "compare_decks",
@@ -222,6 +229,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: Some(super::registry::object),
         untrusted: None,
         renamed: &[],
+        needs: super::registry::Needs::Nothing,
     },
     Tool {
         name: "sample_hands",
@@ -239,6 +247,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: Some(super::registry::object),
         untrusted: None,
         renamed: &[],
+        needs: super::registry::Needs::Nothing,
     },
     Tool {
         name: "get_mana_probability",
@@ -259,6 +268,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: Some(super::registry::object),
         untrusted: None,
         renamed: &[],
+        needs: super::registry::Needs::Nothing,
     },
     Tool {
         name: "test_mana",
@@ -286,6 +296,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: Some(super::registry::object),
         untrusted: None,
         renamed: &[],
+        needs: super::registry::Needs::Nothing,
     },
     Tool {
         name: "list_deck_versions",
@@ -303,6 +314,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: Some(super::registry::object),
         untrusted: None,
         renamed: &[],
+        needs: super::registry::Needs::Nothing,
     },
     Tool {
         name: "list_collection_cards",
@@ -323,6 +335,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: Some(super::registry::paged),
         untrusted: None,
         renamed: &[],
+        needs: super::registry::Needs::Nothing,
     },
     Tool {
         name: "save_deck",
@@ -340,6 +353,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: None,
         untrusted: None,
         renamed: &[("note", "reason")],
+        needs: super::registry::Needs::Nothing,
     },
     Tool {
         name: "get_research_sources",
@@ -357,6 +371,7 @@ pub(super) const TOOLS: &[Tool] = &[
         output: Some(super::registry::object),
         untrusted: None,
         renamed: &[],
+        needs: super::registry::Needs::Nothing,
     },
 ];
 

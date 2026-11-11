@@ -956,6 +956,8 @@ Bryan asked for "a full MCP" to work on his decks, for Ask Claude and for outsid
 
 **Read, stage and apply scopes (2026-11-11).** The OAuth consent page offers what an app asked for or less: read only (`mcp:read`), read and suggest changes (`mcp:stage`), or everything (`mcp`, as every earlier connection has and keeps). The token says the scope given, `tools/list` shows only what it allows, and Connected apps says each app's level. No migration: the scope was already stored per grant.
 
+**Tools for anyone's account (2026-11-11).** `tools/list` shows the store, dataset and lab tools only to an account that has stores, a dataset, or lab runs or the access to start them (`registry::Needs`). The server instructions and the longest descriptions were rewritten to describe the tools for any account and shortened; the longer notes are the resource `yama://guide/tool-notes` (`docs/mcp-tool-notes.md`, copied into the image build like the other embedded documents). `get_game` returns an online game's log as the caller saw it.
+
 #### Persistent deck research and review (2026-10-27)
 
 Shown under **Plans** since 2026-11-04 (see "One plan page" below); before that as **Agent notes**

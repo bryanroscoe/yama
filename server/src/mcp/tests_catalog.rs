@@ -1,6 +1,10 @@
 //! The tool catalog as a contract: what each kind of caller is offered, that every tool answers
 //! cleanly whatever it is sent, that no tool reads another account's rows, and that the public
 //! guide lists the same tools.
+//!
+//! The golden files are in `snapshots/`. A meant change is recorded by running the tests with
+//! `YAMA_UPDATE_SNAPSHOTS=1` and committing the files; the diff is then the review of what
+//! connected clients will see change.
 
 use super::tests::{call, key, rpc, seed_cards};
 use super::{Question, QuestionToken, Via, tools};
@@ -34,8 +38,69 @@ fn repo_file(path: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(path)
 }
 
+/// Compare with a golden file, or write it when `YAMA_UPDATE_SNAPSHOTS` is set.
+fn assert_snapshot(name: &str, actual: &str) {
+    let path = repo_file("src/mcp/snapshots").join(name);
+    if std::env::var_os("YAMA_UPDATE_SNAPSHOTS").is_some() {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, actual).unwrap();
+        return;
+    }
+    let expected = std::fs::read_to_string(&path).unwrap_or_default();
+    if expected == actual {
+        return;
+    }
+    let (old, new): (Vec<&str>, Vec<&str>) = (expected.lines().collect(), actual.lines().collect());
+    let at = old.iter().zip(&new).position(|(a, b)| a != b).unwrap_or(old.len().min(new.len()));
+    panic!(
+        "The tool catalog changed ({name}, first at line {}).\n  was: {}\n  now: {}\n\
+         If the change is meant, run the tests with YAMA_UPDATE_SNAPSHOTS=1 and commit server/src/mcp/snapshots/{name}. \
+         Connected clients see this change: keep every old tool and parameter name working, and update the public guide \
+         (web/public/docs/mcp/index.html), the advisor's tool names (web/src/advisor/logic.ts), the prompts \
+         (server/src/mcp/workflows.rs) and the plugin skills (plugins/) with it.",
+        at + 1,
+        old.get(at).unwrap_or(&"(nothing)"),
+        new.get(at).unwrap_or(&"(nothing)"),
+    );
+}
+
 fn names(tools: &[Value]) -> Vec<&str> {
     tools.iter().map(|t| t["name"].as_str().unwrap()).collect()
+}
+
+#[test]
+fn tools_list_matches_its_snapshot_for_every_kind_of_caller() {
+    // The fullest list, whole: names, titles, descriptions, schemas and annotations.
+    let full = tools::list(&who(true), &Via::Key);
+    let mut text = serde_json::to_string_pretty(&json!({"tools": full})).unwrap();
+    text.push('\n');
+    assert_snapshot("tools_list.json", &text);
+
+    // Every other caller gets tools from that list, unchanged; the snapshot says which.
+    let mut by_caller = String::new();
+    for (label, user, via) in callers() {
+        let tools = tools::list(&user, &via);
+        by_caller.push_str(&format!("## {label}: {} tools\n", tools.len()));
+        for t in &tools {
+            let same = full.iter().find(|f| f["name"] == t["name"]);
+            assert_eq!(same, Some(t), "{label} gets a different {} than the full list has", t["name"]);
+            let does = match (t["annotations"]["readOnlyHint"].as_bool(), t["annotations"]["destructiveHint"].as_bool()) {
+                (Some(true), _) => "read",
+                (_, Some(true)) => "destructive",
+                _ => "write",
+            };
+            let outside = if t["annotations"]["openWorldHint"] == true { ", reaches outside Yama" } else { "" };
+            by_caller.push_str(&format!("{}\t{does}{outside}\n", t["name"].as_str().unwrap()));
+        }
+        by_caller.push('\n');
+    }
+    // An account that has no stores, datasets or lab runs is listed fewer tools.
+    let new = super::registry::list_for(&who(false), &Via::Key, super::registry::Has::NOTHING);
+    by_caller.push_str(&format!("## script key, an account with no stores, datasets or lab runs: {} tools\n", new.len()));
+    for t in &new {
+        by_caller.push_str(&format!("{}\n", t["name"].as_str().unwrap()));
+    }
+    assert_snapshot("tools_by_caller.txt", &by_caller);
 }
 
 #[test]
@@ -154,7 +219,10 @@ async fn every_tool_answers_empty_and_wrong_arguments_cleanly() {
     let (app, pool) = app().await;
     seed_cards(&pool).await;
     // Each pass is its own account, so no pass meets the per-account call limit.
-    let (_, empty) = power_user(&pool, "empty@example.com").await;
+    let (has_all, empty) = power_user(&pool, "empty@example.com").await;
+    // Listed everything: an account with a store and a dataset, that may run the lab.
+    sqlx::query("INSERT INTO plan_stores (id, owner_id, key, name, kind, origin, created_at, updated_at) VALUES ('store-all', ?, 'a-store', 'A Store', 'local', 'yama', 't', 't')").bind(&has_all).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO evidence_datasets (id, owner_id, external_id) VALUES ('dataset-all', ?, 'a-dataset')").bind(&has_all).execute(&pool).await.unwrap();
     let empty = key(&app, &empty, Some("mcp")).await;
     let (_, typed) = power_user(&pool, "typed@example.com").await;
     let typed = key(&app, &typed, Some("mcp")).await;
@@ -454,6 +522,8 @@ async fn old_tool_names_and_old_argument_names_still_work() {
     let (owner, session) = power_user(&pool, "owner@example.com").await;
     let mcp = key(&app, &session, Some("mcp")).await;
     one_of_everything(&app, &pool, &owner, &mcp).await;
+    // With a dataset as well, the account is listed every tool.
+    sqlx::query("INSERT INTO evidence_datasets (id, owner_id, external_id) VALUES ('dataset-a', ?, 'a-dataset')").bind(&owner).execute(&pool).await.unwrap();
     let tools = listed(&app, &mcp).await;
     let listed_names = names(&tools);
 
@@ -539,4 +609,97 @@ async fn renamed_arguments_work_under_either_name() {
     let (kind, payload): (String, String) = sqlx::query_as("SELECT kind, payload FROM assistant_changes WHERE owner_id = ? AND op_id = ?").bind(&owner).bind(op).fetch_one(&pool).await.unwrap();
     assert_eq!(kind, "propose_swap");
     assert_eq!(serde_json::from_str::<Value>(&payload).unwrap()["why"], "It ramps.");
+}
+
+// ── for anyone's account (2026-11-11) ───────────────────────────────────────
+
+#[tokio::test]
+async fn an_account_is_listed_the_tools_it_can_use() {
+    let (app, pool) = app().await;
+    let (id, session) = user(&pool, "new@example.com").await;
+    let (_, other_session) = user(&pool, "other@example.com").await;
+    let mcp = key(&app, &session, Some("mcp")).await;
+    let other = key(&app, &other_session, Some("mcp")).await;
+    let stores = ["get_shopping_trip", "get_shopping_settings", "set_shopping_rules", "set_store_preference", "get_store_stock", "check_stores"];
+    let datasets = ["list_datasets", "get_dataset"];
+    let lab_reads = ["list_lab_runs", "get_lab_run", "list_lab_games", "cancel_lab_run"];
+    let lab_starts = ["start_lab_run", "add_lab_games", "rerun_lab_run"];
+    async fn has(app: &axum::Router, token: &str, names: &[&str]) -> Vec<bool> {
+        let tools = listed(app, token).await;
+        names.iter().map(|n| tools.iter().any(|t| t["name"] == *n)).collect()
+    }
+    let none = |v: Vec<bool>| v.iter().all(|x| !x);
+    let all = |v: Vec<bool>| v.iter().all(|x| *x);
+
+    // A new account: its decks, cards, collection, games and notes, and nothing it can't use.
+    assert!(all(has(&app, &mcp, &["get_overview", "get_deck", "search_cards", "edit_deck", "save_deck", "add_wish", "get_shopping_list", "list_games", "save_research"]).await));
+    assert!(none(has(&app, &mcp, &stores).await) && none(has(&app, &mcp, &datasets).await) && none(has(&app, &mcp, &lab_reads).await) && none(has(&app, &mcp, &lab_starts).await));
+    // A client with an older list may still call one: it is told what there is, which is nothing.
+    let (_, text) = clean_call(&app, &mcp, "get_shopping_settings", json!({})).await;
+    assert!(!text.is_empty());
+
+    // Each appears with the thing it works on, for that account only.
+    sqlx::query("INSERT INTO plan_stores (id, owner_id, key, name, kind, origin, created_at, updated_at) VALUES ('s1', ?, 'a-store', 'A Store', 'local', 'yama', 't', 't')").bind(&id).execute(&pool).await.unwrap();
+    assert!(all(has(&app, &mcp, &stores).await) && none(has(&app, &mcp, &datasets).await));
+    sqlx::query("UPDATE plan_stores SET retired_at = 't' WHERE id = 's1'").execute(&pool).await.unwrap();
+    assert!(none(has(&app, &mcp, &stores).await), "a retired store isn't one of their stores");
+    sqlx::query("UPDATE plan_stores SET retired_at = NULL WHERE id = 's1'").execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO evidence_datasets (id, owner_id, external_id) VALUES ('d1', ?, 'a-dataset')").bind(&id).execute(&pool).await.unwrap();
+    assert!(all(has(&app, &mcp, &datasets).await));
+    sqlx::query(
+        "INSERT INTO lab_experiments (id, owner_id, name, status, spec, games_total, games_done, engine, card_data, runner, difficulty, created_at, updated_at)
+         VALUES ('run-1', ?, 'An old run', 'done', '{}', 100, 100, 'phase', 'x', 'x', 'Easy', '2026-11-01T00:00:00Z', 't')",
+    )
+    .bind(&id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(all(has(&app, &mcp, &lab_reads).await) && none(has(&app, &mcp, &lab_starts).await), "their own runs to read, none to start");
+    sqlx::query("UPDATE users SET power_user = 1 WHERE id = ?").bind(&id).execute(&pool).await.unwrap();
+    assert!(all(has(&app, &mcp, &lab_starts).await));
+    assert!(none(has(&app, &other, &stores).await) && none(has(&app, &other, &datasets).await) && none(has(&app, &other, &lab_reads).await), "another account's rows don't count");
+}
+
+#[test]
+fn descriptions_are_short_and_written_for_anyone() {
+    let full = tools::list(&who(true), &Via::Key);
+    let mut total = 0;
+    // Words that describe one person's setup: his stores, his plan files, his deck-building scheme.
+    let his = ["Pat's", "Mothership", "Black Castle", "Multiverse", "Austin", "swap bag", "plan file", "Bracket 4 build", "commander-decks", "Admins also"];
+    for t in &full {
+        let (name, description) = (t["name"].as_str().unwrap(), t["description"].as_str().unwrap());
+        let length = description.chars().count();
+        total += length;
+        assert!(length <= 650, "{name}'s description is {length} characters; say what it is for, and put the rest in docs/mcp-tool-notes.md");
+        for word in his {
+            assert!(!description.contains(word), "{name}'s description says {word:?}");
+        }
+        let schema = t["inputSchema"].to_string();
+        for word in his {
+            assert!(!schema.contains(word), "{name}'s arguments say {word:?}");
+        }
+    }
+    assert!(total <= 25_000, "the descriptions are {total} characters in all");
+    let instructions = super::SERVER_INSTRUCTIONS;
+    assert!(instructions.chars().count() <= 2_600, "the instructions are {} characters", instructions.chars().count());
+    for word in his {
+        assert!(!instructions.contains(word), "the instructions say {word:?}");
+    }
+    // Every tool the instructions name is a tool.
+    for named in instructions.split('`').skip(1).step_by(2) {
+        assert!(full.iter().any(|t| t["name"] == named), "the instructions name `{named}`, which isn't a tool");
+    }
+}
+
+/// A document the server embeds must be copied into the image build, or the release won't compile.
+#[test]
+fn embedded_documents_are_in_the_image_build() {
+    let source = include_str!("workflows.rs");
+    let dockerfile = std::fs::read_to_string(repo_file("../deploy/Dockerfile")).unwrap();
+    let mut embedded = 0;
+    for path in source.split("include_str!(\"../../../").skip(1).map(|rest| rest.split('"').next().unwrap()) {
+        embedded += 1;
+        assert!(dockerfile.contains(&format!("COPY {path} {path}")), "deploy/Dockerfile doesn't copy {path}, which the server embeds");
+    }
+    assert!(embedded >= 3, "{embedded} embedded documents");
 }
