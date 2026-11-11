@@ -22,7 +22,6 @@ import { resolveDraft, type CommanderDraft, type Person } from "./pickers";
 import { availablePeople, deckCommanders, SeatEditor, usePeople } from "./SeatEditor";
 import { gameSummary } from "./history";
 import { formFromGame, seatResults, settleRebuilt } from "./logEdit";
-import { useInstall } from "../install";
 import { useHosting } from "./share";
 import { SharedTables } from "./SharedTables";
 import { forgetTable, followedTable } from "./following";
@@ -46,9 +45,9 @@ function useWide(): boolean {
   return wide;
 }
 
-/** Where a seat sits, going clockwise from the person holding the phone (the life counter's layout). */
+/** Where a seat sits, going clockwise from the person nearest this device (the life counter's layout). */
 export function seatWhere(i: number, n: number): string {
-  if (i === 0) return "holding the phone";
+  if (i === 0) return "nearest this device";
   if (n === 2) return "across";
   if (i === n - 1) return "right";
   if (i === 1 && n >= 4) return "left";
@@ -108,7 +107,7 @@ export function TableHome() {
             <p className="small dim">Started {fmtDateTime(game.setup.startedAt)}. Resume it only if this is the game you’re playing.</p>
             <p className="dim" style={{ margin: 0 }}>{gameSummary(state)}</p>
           </div>
-          <ol className="ip-rows" aria-label="Tap anyone to go back to the table">
+          <ol className="ip-rows" aria-label="Choose a player to go back to the table">
             {state.players.map((p) => {
               const art = showArt ? panelArt(p) : null;
               return (
@@ -143,7 +142,6 @@ export function TableHome() {
         <NewGame onStart={(share) => navigate("/table/play", { state: { share, fresh: true } })} />
       )}
 
-      <InstallCard />
       {guest ? notes : <RecentGames
         notes={notes}
         waiting={
@@ -202,36 +200,6 @@ function SaveGuestGames() {
         <button className="quiet" onClick={async () => (await ask({ title: "Throw away the games counted without an account?", body: "They were never saved to Yama.", confirm: "Throw them away", danger: true })) && dropGuestGames()}>
           Throw away
         </button>
-      </div>
-    </aside>
-  );
-}
-
-const INSTALL_DISMISSED = "yama.install.dismissed";
-
-/** Install Yama as an app: it opens full screen at the table. Until it's installed or waved off. */
-function InstallCard() {
-  const install = useInstall();
-  const [dismissed, setDismissed] = useState(() => localStorage.getItem(INSTALL_DISMISSED) === "1");
-  if (dismissed || !(install.canPrompt || install.fromShareMenu)) return null;
-  const dismiss = () => {
-    localStorage.setItem(INSTALL_DISMISSED, "1");
-    setDismissed(true);
-  };
-  return (
-    <aside className="install-card" aria-label="Install Yama">
-      <p>
-        <b>Install Yama</b>
-        <span className="dim">
-          {install.canPrompt
-            ? " It opens full screen, without the browser's bars, and works offline at the table."
-            : " In Safari, tap Share, then Add to Home Screen. It opens full screen, without the browser's bars."}
-        </span>
-      </p>
-      <div className="row">
-        {install.canPrompt && <button className="primary" onClick={() => void install.install()}>Install</button>}
-        {/* Safari has no Install button: Not now is the only control, so it keeps its outline. */}
-        <button className={install.canPrompt ? "quiet" : "outline"} onClick={dismiss}>Not now</button>
       </div>
     </aside>
   );
@@ -421,7 +389,7 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
           <Choice label="Game type" options={FORMATS.map((f) => f.key)} value={format} onChange={chooseFormat} name={(f) => formatLabel(f)} />
           <Choice label="Players" options={Array.from({ length: MAX_SEATS }, (_, i) => i + 1)} value={seats.length} onChange={setCount} />
           <Choice label="Starting life" options={[40, 30, 25, 20]} value={life} onChange={setLife} />
-          {!guest && !groupId && <Choice label="Devices" options={["one", "everyone"] as ("one" | "everyone")[]} value={phones} onChange={setPhones} name={(v) => (v === "one" ? "One phone" : "Separate phones")} />}
+          {!guest && !groupId && <Choice label="Devices" options={["one", "everyone"] as ("one" | "everyone")[]} value={phones} onChange={setPhones} name={(v) => (v === "one" ? "One device" : "Separate devices")} />}
         </div>
         {!guest && groupId ? (
           <p className="small dim">Members of {group?.name ?? "your playgroup"} can join from Table when this game starts. You can stop sharing from the table menu.</p>
@@ -512,7 +480,7 @@ function WhoPlaying({ groups, groupId, groupReady, onGroup, people, seats, onTog
       {groups.length > 0 && (
         <Choice label="Playgroup" options={["", ...groups.map((g) => g.id)]} value={groupId} onChange={onGroup} name={(id) => (id ? groups.find((g) => g.id === id)!.name : "No playgroup")} />
       )}
-      <p className="small dim who-help">Tap a player to add or remove them.</p>
+      <p className="small dim who-help">Select a player to add or remove them.</p>
       {!groupReady ? (
         <Loading small className="who-help">Loading players…</Loading>
       ) : people.length > 0 ? (
@@ -557,7 +525,7 @@ function Choice<T extends string | number>({ label, options, value, onChange, na
 function SeatRow({ index, seat, deckName, onOpen, commander = true }: { index: number; seat: SeatDraft; deckName?: string; onOpen: () => void; commander?: boolean }) {
   const who = seat.name.trim() || `Player ${index + 1}`;
   const cmdr = seat.partnerName ? `${seat.commanderName} and ${seat.partnerName}` : seat.commanderName;
-  const what = !commander ? (deckName ?? "Tap to change") : seat.commanderName ? (deckName ? `${deckName}, ${cmdr}` : cmdr) : "Pick a commander";
+  const what = !commander ? (deckName ?? "Change player") : seat.commanderName ? (deckName ? `${deckName}, ${cmdr}` : cmdr) : "Pick a commander";
   return (
     <button className="seat-row" onClick={onOpen} aria-label={`Seat ${index + 1}: ${who}, ${what}. Change`}>
       <ArtPanel as="span" className="seat-row-art" art={seat.art} artist={seat.artist} wash="left" empty={!seat.commanderName} credit={false}>

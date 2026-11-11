@@ -196,7 +196,7 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
         <button
           className={`hub${counting ? "" : " hub-menu"}`}
           onClick={() => setMenu(true)}
-          aria-label={`${counting ? `Turn ${state.turn}. ` : ""}${sharing ? "Shared with other phones. " : ""}Open table menu`}
+          aria-label={`${counting ? `Turn ${state.turn}. ` : ""}${sharing ? "Shared with other devices. " : ""}Open table menu`}
         >
           {counting ? <span>{state.turn}</span> : <MenuIcon />}
           {/* Shared: a small dot on the hub. The join code is at the top of the menu. */}
@@ -297,7 +297,7 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
         </Dialog>
       )}
       {joining && (
-        <Dialog label="Join on your phone" onClose={() => setJoining(false)}>
+        <Dialog label="Join on another device" onClose={() => setJoining(false)}>
           <JoinSheet gameId={state.setup.id} onDone={() => setJoining(false)} />
         </Dialog>
       )}
@@ -657,7 +657,7 @@ export function Panel(props: {
           taking === p.seat ? (
             <div className="attack-layer is-attacker">
               <span className="attack-title">{p.name} is taking commander damage</span>
-              <span className="attack-hint">Tap + on the commander that hit you. Life comes off too.</span>
+              <span className="attack-hint">Use + on the commander that hit you. Life comes off too.</span>
               <span className="attack-actions">
                 <button className="primary" onClick={onTake}>Done</button>
               </span>
@@ -696,7 +696,7 @@ export function Panel(props: {
           attack.seat === p.seat ? (
             <div className="attack-layer is-attacker">
               <span className="attack-title">{attackName} is dealing damage</span>
-              <span className="attack-hint">Tap + on each player it hit. Life comes off too.</span>
+              <span className="attack-hint">Use + on each player it hit. Life comes off too.</span>
               <span className="attack-actions">
                 {p.partnerName && (
                   <button onClick={() => onAttack?.(!attack.partner)}>Switch to {attack.partner ? (p.commanderName ?? "commander") : p.partnerName}</button>
@@ -991,7 +991,7 @@ export function PlayerSheet({ state, seat, onClose, artFor, onAttack, onTake, on
         </button>
         <button className="outline" aria-pressed={(p.counters.blessing ?? 0) > 0} onClick={() => dispatch({ type: "counter", seat, counter: "blessing", delta: (p.counters.blessing ?? 0) > 0 ? -1 : 1 })}>
           {/* The blessing is for good (CR 702.131c); taking it back is only for a mistaken tap. */}
-          {(p.counters.blessing ?? 0) > 0 ? "Take back city's blessing (tapped by mistake)" : "Got the city's blessing"}
+          {(p.counters.blessing ?? 0) > 0 ? "Take back city's blessing (selected by mistake)" : "Got the city's blessing"}
         </button>
       </div>
       {p.eliminated ? (
@@ -1328,7 +1328,7 @@ function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDic
           </div>
         </section>
       ) : isGuest() ? (
-        <p className="small dim tm-guest-share">To share this table with everyone's phones, sign in with Google from the Table page. This game stays on this device.</p>
+        <p className="small dim tm-guest-share">To share this table with other devices, sign in with Google from the Table page. This game stays on this device.</p>
       ) : (
         <ShareCard gameId={state.setup.id} onBigger={onJoin} />
       )}
@@ -1345,7 +1345,7 @@ function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDic
             onClick={() => dispatch({ type: "day_night", value: state.dayNight === "day" ? "night" : "day" })}
           >
             <span className="tm-marker-name">{state.dayNight === null ? "Day and night" : state.dayNight === "day" ? "Day" : "Night"}</span>
-            <span className="tm-marker-who">{state.dayNight === null ? "Tap to start day" : state.dayNight === "day" ? "Tap for night" : "Tap for day"}</span>
+            <span className="tm-marker-who">{state.dayNight === null ? "Start day" : state.dayNight === "day" ? "Change to night" : "Change to day"}</span>
           </button>
         </div>
         {picking ? (
@@ -1366,7 +1366,7 @@ function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDic
           </div>
         ) : (
           <p className="small dim">
-            Tap a marker, then tap whoever takes it.
+            Select a marker, then the player taking it.
             {picking === null && first ? ` ${first.name} ${state.passes === 0 ? "goes" : "went"} first.` : ""}
           </p>
         )}
@@ -1380,7 +1380,7 @@ function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDic
       <GameLog state={state} log={log} />
 
       <section className="tm-section tm-settings" aria-labelledby="tm-settings">
-        <h3 id="tm-settings">This phone</h3>
+        <h3 id="tm-settings">This device</h3>
         {!following && <label className="check-row">
           <input type="checkbox" checked={countTurns} onChange={(e) => setCountTurns(e.target.checked)} />
           <span>

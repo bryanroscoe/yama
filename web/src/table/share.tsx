@@ -442,13 +442,13 @@ export function ShareCard({ gameId, onBigger }: { gameId: string; onBigger?: () 
         </button>
       )}
       <div className="tm-share-text">
-        <h3 id="tm-share-title">Everyone's phone</h3>
-        <p>Friends scan this, pick their seat and keep their own total.{sharing ? " This phone keeps the game, so it works even if the signal drops." : ""}</p>
+        <h3 id="tm-share-title">Share the table</h3>
+        <p>Friends scan this, pick their seat and keep their own total.{sharing ? " This device keeps the game, so it works even if the signal drops." : ""}</p>
         {sharing ? (
           <>
             <p role="status" className="tm-status">
               <span className={`status-dot ${hosting.connected ? "good" : "warn"}`} aria-hidden="true" />
-              {hosting.connected ? "Live: phones that join follow along" : "Connecting to Yama…"}
+              {hosting.connected ? "Live: joined devices follow along" : "Connecting to Yama…"}
             </p>
             <div className="tm-share-actions">
               {"share" in navigator && (
@@ -483,14 +483,14 @@ export function JoinSheet({ gameId, onDone }: { gameId: string; onDone: () => vo
   }, [gameId]);
   return (
     <div className="stack join-sheet">
-      <DialogHead onClose={onDone}>Everyone on their own phone</DialogHead>
+      <DialogHead onClose={onDone}>Everyone on their own device</DialogHead>
       <p className="dim" style={{ margin: 0 }}>
         Scan this with a phone camera, pick your seat and keep your own totals.{hostRelay(gameId) === "edge" ? " No account needed." : " Everyone signs in to Yama with Google the first time."}
       </p>
       {sharing && svg ? <div className="join-qr" dangerouslySetInnerHTML={{ __html: svg }} aria-label="Join code" role="img" /> : <div className="join-qr join-qr-wait" aria-hidden="true" />}
       <p role="status" className="tm-status">
         <span className={`status-dot ${hosting.connected ? "good" : "warn"}`} aria-hidden="true" />
-        {!sharing ? "Not sharing" : hosting.connected ? "Live: phones that join follow along" : "Connecting to Yama…"}
+        {!sharing ? "Not sharing" : hosting.connected ? "Live: joined devices follow along" : "Connecting to Yama…"}
       </p>
       <div className="row">
         {"share" in navigator && <button onClick={() => void navigator.share({ title: "Join our game on Yama", url })}>Send the link</button>}
@@ -500,7 +500,7 @@ export function JoinSheet({ gameId, onDone }: { gameId: string; onDone: () => vo
           <button onClick={() => startHosting(gameId)}>Share again</button>
         )}
       </div>
-      <p className="small dim" style={{ margin: 0 }}>This phone keeps the game, so it carries on if the signal drops. The code stays in the table menu.</p>
+      <p className="small dim" style={{ margin: 0 }}>This device keeps the game, so it carries on if the signal drops. The code stays in the table menu.</p>
     </div>
   );
 }

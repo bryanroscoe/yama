@@ -1,6 +1,6 @@
 // Shared table, guest side: follow the host's game on your own phone. Two views: your seat big
 // with everyone else along the top, or the whole table. Tap anyone to see or change their
-// totals; the host's phone keeps the game and only it can end it.
+// totals; the host's device keeps the game and only it can end it.
 
 import { RELAY_TOKEN, replay, type LoggedEvent, type TableEvent, type TableSetup } from "@yama/core";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -157,13 +157,13 @@ function GuestGame({ gameId }: { gameId: string }) {
             : noLink
             ? key
               ? relay === "edge"
-                ? "Can't reach the table yet. If the host just started the game, or several phones on this Wi-Fi just joined, it connects in a few seconds; if not, ask them to show the code again."
+                ? "Can't reach the table yet. If the host just started the game, or several devices on this Wi-Fi just joined, it connects in a few seconds; if not, ask them to show the code again."
                 : "This table isn't being shared yet. If the host just started the game it connects in a moment; if not, ask them to show the code again."
-              : "This link is missing its code. Scan the QR code on the host's phone again."
+              : "This link is missing its code. Scan the QR code on the host's device again."
             : !connected
               ? "Connecting to Yama…"
               : hostOnline === false
-                ? "Waiting for the host's phone to come back online."
+                ? "Waiting for the host's device to come back online."
                 : "Waiting for the game…"}
         </p>
         <p><Link to="/">Back to Yama</Link></p>
@@ -200,7 +200,7 @@ function GuestGame({ gameId }: { gameId: string }) {
   }
 
   const live = connected && hostOnline === true;
-  const status = live ? "Following the host’s phone. Changes go to the shared table." : connected ? "The host’s phone is offline. Wait for it to reconnect before changing totals." : (turnedAway ?? "Reconnecting. Wait before changing totals.");
+  const status = live ? "Following the host’s device. Changes go to the shared table." : connected ? "The host’s device is offline. Wait for it to reconnect before changing totals." : (turnedAway ?? "Reconnecting. Wait before changing totals.");
   return (
     <DispatchContext.Provider value={send}>
       <TableScreen game={snapshot!} state={state} following={{

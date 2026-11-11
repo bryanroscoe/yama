@@ -742,24 +742,6 @@ a.rg-row:focus-visible {
   margin: 0;
 }
 
-/* Install Yama: a raised card between the game and Recent games, until installed or waved off. */
-.install-card {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  /* Clear of the Start game row above; Recent games keeps its own 32px below. */
-  margin: 24px 0 0;
-  padding: 16px;
-  border-radius: 18px;
-  background: var(--raised);
-}
-.install-card p {
-  margin: 0;
-  flex: 1 1 18rem;
-}
-
 /* Who's playing: a row of people to tap; the ones seated are filled in white. */
 .who-playing {
   display: flex;

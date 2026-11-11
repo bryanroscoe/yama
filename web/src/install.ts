@@ -4,6 +4,7 @@
 // Yama opens without the browser's bars (manifest display: standalone).
 
 import { useSyncExternalStore } from "react";
+import { isNative } from "./native";
 
 interface InstallPrompt extends Event {
   prompt(): Promise<void>;
@@ -11,6 +12,7 @@ interface InstallPrompt extends Event {
 }
 
 let deferred: InstallPrompt | null = null;
+let appInstalled = false;
 let fullscreen = typeof document !== "undefined" && !!document.fullscreenElement;
 const listeners = new Set<() => void>();
 const emit = () => {
@@ -28,6 +30,7 @@ if (typeof window !== "undefined") {
     emit();
   });
   window.addEventListener("appinstalled", () => {
+    appInstalled = true;
     deferred = null;
     emit();
   });
@@ -51,9 +54,12 @@ function apple(): boolean {
 
 export function useInstall() {
   const prompt = useSyncExternalStore(subscribe, () => deferred);
-  const installed = standalone();
+  const justInstalled = useSyncExternalStore(subscribe, () => appInstalled);
+  const installed = justInstalled || isNative() || standalone();
   return {
     installed,
+    /** Device identity, rather than window width: a narrow desktop is still a desktop. */
+    mobile: apple() || (typeof navigator !== "undefined" && /Android/.test(navigator.userAgent)),
     /** The browser will show its install prompt. */
     canPrompt: !installed && !!prompt,
     /** Safari on an iPhone or iPad: install from the Share menu. */
