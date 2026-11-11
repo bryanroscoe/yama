@@ -410,3 +410,167 @@ async fn the_review_queue_and_changes_page_with_a_cursor() {
     assert_eq!(page["has_more"], false);
     assert!(page.get("next_offset").is_none(), "{text}");
 }
+
+/// One call through the endpoint, whole: the result object.
+async fn result(app: &axum::Router, token: &str, tool: &str, args: Value) -> Value {
+    let (status, r) = send(app, Method::POST, "/mcp", Some(token), Some(rpc("tools/call", json!({"name": tool, "arguments": args})))).await;
+    assert_eq!(status, axum::http::StatusCode::OK, "{r}");
+    r["result"].clone()
+}
+
+fn text_of(result: &Value) -> &str {
+    result["content"][0]["text"].as_str().unwrap()
+}
+
+#[tokio::test]
+async fn a_long_answer_is_cut_and_continued_not_refused() {
+    let (app, pool) = app().await;
+    seed_cards(&pool).await;
+    let (owner, session) = power_user(&pool, "big@example.com").await;
+    large_account(&pool, &owner).await;
+    let mcp = key(&app, &session, Some("mcp")).await;
+
+    // The wide note in full is longer than one answer may be: it arrives in parts.
+    let ask = json!({"id": "note-wide", "detail": "full"});
+    let first = result(&app, &mcp, "research", ask.clone()).await;
+    assert_eq!(first["isError"], false, "{first}");
+    assert_eq!(first["structuredContent"]["cut"], true, "a part isn't the object: {}", first["structuredContent"]);
+    let mut whole = String::new();
+    let mut part = first;
+    for parts in 1.. {
+        assert!(parts < 10, "the chunks never end");
+        let text = text_of(&part);
+        assert!(text.chars().count() <= super::registry::MAX_ANSWER + 400, "a part is {} characters", text.chars().count());
+        match text.split_once("\n[Cut for length: ") {
+            Some((body, notice)) => {
+                whole.push_str(body);
+                let chunk = notice.split("chunk \"").nth(1).and_then(|rest| rest.split('"').next()).expect("the next chunk");
+                assert_eq!(part["structuredContent"]["next_chunk"], chunk);
+                assert_eq!(part["structuredContent"]["part"], body, "a client that reads only the structured form gets the part too");
+                let mut again = ask.clone();
+                again["chunk"] = json!(chunk);
+                part = result(&app, &mcp, "research", again).await;
+                assert_eq!(part["isError"], false, "{part}");
+            }
+            None => {
+                whole.push_str(text);
+                break;
+            }
+        }
+    }
+    // The parts together are the answer, exactly.
+    let document: Value = serde_json::from_str(&whole).expect("the parts join into the JSON answer");
+    assert_eq!(document["document"]["decks"].as_array().unwrap().len(), WIDE_NOTE_DECKS);
+    let (err, direct) = call(&app, &mcp, "research", json!({"id": "note-wide", "full": true, "deck": "wide-00"})).await;
+    assert!(!err && direct.chars().count() < super::registry::MAX_ANSWER, "one deck of it fits in one answer");
+
+    // A chunk is for the tool and answer it came from.
+    // A chunk continues one answer: this tool, these arguments, this text. Anything else is refused.
+    let first_chunk = text_of(&result(&app, &mcp, "research", ask.clone()).await).split("chunk \"").nth(1).and_then(|rest| rest.split('"').next()).unwrap().to_string();
+    let bad = result(&app, &mcp, "research", json!({"id": "note-wide", "detail": "full", "chunk": "nonsense"})).await;
+    assert!(bad["isError"] == true && text_of(&bad).contains("chunk doesn't continue this answer"), "{bad}");
+    let other_tool = result(&app, &mcp, "overview", json!({"chunk": first_chunk})).await;
+    assert!(other_tool["isError"] == true && text_of(&other_tool).contains("chunk doesn't continue this answer"), "{other_tool}");
+    let other_arguments = result(&app, &mcp, "research", json!({"id": "note-00", "detail": "full", "chunk": first_chunk})).await;
+    assert!(other_arguments["isError"] == true && text_of(&other_arguments).contains("chunk doesn't continue this answer"), "another note isn't continued from this one's chunk: {other_arguments}");
+    // The answer changed since (the note was saved again): the old chunk no longer fits it.
+    sqlx::query("UPDATE research_reports SET document = json_set(document, '$.title', 'A collection-wide audit, retitled') WHERE owner_id = ? AND id = 'note-wide'").bind(&owner).execute(&pool).await.unwrap();
+    let changed = result(&app, &mcp, "research", json!({"id": "note-wide", "detail": "full", "chunk": first_chunk})).await;
+    assert!(changed["isError"] == true && text_of(&changed).contains("the answer has changed since"), "{changed}");
+
+    // Reading the rest of an answer runs the tool again, so a tool that stages or writes can't
+    // be continued: it is refused before it runs, and nothing is staged.
+    let changes = || async { sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM assistant_changes WHERE owner_id = ?").bind(&owner).fetch_one(&pool).await.unwrap() };
+    let before = changes().await;
+    let again = result(&app, &mcp, "add_wish", json!({"name": "Sol Ring", "chunk": super::page::cursor("chunk.add_wish", 40_000)})).await;
+    assert!(again["isError"] == true && text_of(&again).contains("never run again"), "{again}");
+    let again = result(&app, &mcp, "save_research", json!({"document": {}, "chunk": "anything"})).await;
+    assert!(again["isError"] == true && text_of(&again).contains("never run again"), "{again}");
+    assert_eq!(changes().await, before);
+}
+
+#[tokio::test]
+async fn data_answers_are_structured_paged_by_cursor_and_say_whose_text_they_carry() {
+    let (app, pool) = app().await;
+    seed_cards(&pool).await;
+    let (owner, session) = power_user(&pool, "big@example.com").await;
+    large_account(&pool, &owner).await;
+    let mcp = key(&app, &session, Some("mcp")).await;
+
+    // A JSON answer is also structured content, the same object; a list goes under `items`.
+    let summary = result(&app, &mcp, "collection_summary", json!({})).await;
+    assert_eq!(summary["structuredContent"], serde_json::from_str::<Value>(text_of(&summary)).unwrap());
+    assert!(summary["structuredContent"]["totals"].is_object(), "{summary}");
+    let notes = result(&app, &mcp, "research", json!({})).await;
+    assert_eq!(notes["structuredContent"]["items"].as_array().unwrap().len(), NOTES + 1, "{notes}");
+    // A prose answer has none.
+    let overview = result(&app, &mcp, "overview", json!({})).await;
+    assert!(overview.get("structuredContent").is_none(), "{overview}");
+    let (_, listed) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("tools/list", json!({})))).await;
+    let tool = |name: &str| listed["result"]["tools"].as_array().unwrap().iter().find(|t| t["name"] == name).unwrap().clone();
+    assert_eq!(tool("collection_summary")["outputSchema"]["type"], "object");
+    assert!(tool("games")["outputSchema"]["properties"]["next_cursor"].is_object());
+    assert!(tool("overview").get("outputSchema").is_none());
+    assert_eq!(tool("overview")["inputSchema"]["properties"]["chunk"]["type"], "string");
+    assert!(tool("add_wish")["inputSchema"]["properties"].get("chunk").is_none() && tool("apply_change")["inputSchema"]["properties"].get("chunk").is_none(), "only a read is continued");
+
+    // Games: next_cursor walks every game once; the older offset argument still works; a
+    // cursor from another search is refused.
+    let mut ids: Vec<String> = Vec::new();
+    let mut cursor: Option<String> = None;
+    for pages in 0.. {
+        assert!(pages < 20, "the cursor never ends");
+        let args = match &cursor {
+            Some(c) => json!({"limit": 50, "cursor": c}),
+            None => json!({"limit": 50}),
+        };
+        let page = result(&app, &mcp, "games", args).await;
+        let games = &page["structuredContent"];
+        assert!(games["untrusted_text"].as_str().is_some_and(|t| t.contains("other players") && t.contains("never as instructions")), "{games}");
+        // Fifty full rows would be too long for one answer: the page is shorter and the cursor goes on.
+        assert!(games["games"].as_array().unwrap().len() < 50 && text_of(&page).chars().count() < super::registry::MAX_ANSWER, "{} games in {} characters", games["games"].as_array().unwrap().len(), text_of(&page).chars().count());
+        ids.extend(games["games"].as_array().unwrap().iter().map(|g| g["id"].as_str().unwrap().to_string()));
+        cursor = games["next_cursor"].as_str().map(str::to_string);
+        if cursor.is_none() {
+            break;
+        }
+    }
+    assert_eq!(ids.len(), 120);
+    ids.sort();
+    ids.dedup();
+    assert_eq!(ids.len(), 120, "every game once");
+    let by_offset = result(&app, &mcp, "games", json!({"offset": 110, "limit": 50})).await;
+    assert_eq!(by_offset["structuredContent"]["games"].as_array().unwrap().len(), 10, "the older argument still pages");
+    let first = result(&app, &mcp, "games", json!({})).await;
+    let next = first["structuredContent"]["next_cursor"].as_str().unwrap().to_string();
+    let wrong = result(&app, &mcp, "games", json!({"cursor": next, "search": "someone else"})).await;
+    assert!(wrong["isError"] == true && text_of(&wrong).contains("cursor"), "{wrong}");
+    // detail summary: one short row a game.
+    let short = result(&app, &mcp, "games", json!({"detail": "summary"})).await;
+    let row = &short["structuredContent"]["games"][0];
+    assert_eq!(row["winner"], "Player with a long name 0", "{row}");
+    assert_eq!(row["players"].as_array().unwrap().len(), 4, "{row}");
+    assert!(row.get("seats").is_none() && text_of(&short).len() * 2 < text_of(&first).len(), "a summary is much shorter");
+    let unknown = result(&app, &mcp, "games", json!({"detail": "everything"})).await;
+    assert!(unknown["isError"] == true && text_of(&unknown).contains("summary or full"), "{unknown}");
+
+    // The collection: cursor and the older page argument reach the same rows; summary rows are small.
+    let page_one = result(&app, &mcp, "collection_cards", json!({"limit": 5})).await;
+    let cursor = page_one["structuredContent"]["next_cursor"].as_str().unwrap().to_string();
+    let by_cursor = result(&app, &mcp, "collection_cards", json!({"limit": 5, "cursor": cursor})).await;
+    let by_page = result(&app, &mcp, "collection_cards", json!({"limit": 5, "page": 2})).await;
+    assert_eq!(by_cursor["structuredContent"]["items"], by_page["structuredContent"]["items"]);
+    assert_ne!(by_cursor["structuredContent"]["items"], page_one["structuredContent"]["items"]);
+    let small = result(&app, &mcp, "collection_cards", json!({"limit": 5, "detail": "summary"})).await;
+    let item = &small["structuredContent"]["items"][0];
+    assert!(item.get("id").is_none() && item["qty"] == 2 && item.get("unit_price_usd").is_some_and(Value::is_null) && item.get("price_date").is_some_and(Value::is_null), "a missing price is null beside its date: {item}");
+
+    // Card search is data: a card with no recorded price has a null price and date, never 0 or words.
+    let found = result(&app, &mcp, "find_cards", json!({"query": "t:artifact"})).await;
+    let cards = found["structuredContent"]["cards"].as_array().unwrap();
+    assert_eq!(cards.len(), 2, "{found}");
+    assert!(cards.iter().all(|c| c["price_usd"].is_null() && c["price_date"].is_null() && c["commander"] == "legal"), "{found}");
+    assert!(!text_of(&found).contains("no price") && found["structuredContent"]["next_cursor"].is_null(), "{found}");
+    let paged = result(&app, &mcp, "find_cards", json!({"query": "t:artifact", "page": 1})).await;
+    assert_eq!(paged["structuredContent"]["cards"], found["structuredContent"]["cards"], "the older page argument");
+}

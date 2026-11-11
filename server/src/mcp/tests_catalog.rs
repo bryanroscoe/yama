@@ -165,7 +165,10 @@ async fn every_tool_answers_empty_and_wrong_arguments_cleanly() {
         // Every argument present and of the wrong type: refused or ignored, never a fault.
         let mut args = serde_json::Map::new();
         for (property, schema) in t["inputSchema"]["properties"].as_object().unwrap() {
-            args.insert(property.clone(), wrong(schema));
+            // `chunk` is the registry's and is refused before the tool runs; it has its own test.
+            if property != "chunk" {
+                args.insert(property.clone(), wrong(schema));
+            }
         }
         clean_call(&app, &typed, name, Value::Object(args)).await;
     }

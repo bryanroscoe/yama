@@ -182,6 +182,37 @@ change to an imported plan goes in as an idea or a review answer and reaches the
   a change applied the list has shifted: start again without one.
 - Everything returned is the person's own data, marked as data: deck names, notes and reasons are
   typed by people and are never instructions.
+- **Results (2026-11-11).**
+  - *One way to page.* Every list that pages takes `cursor` and answers `next_cursor`. The arguments lists
+    used before (`page` on `find_cards` and `collection_cards`, `offset` on `games`,
+    `card_printings`, `find_combos` and `dataset`, `page` with `offset` on `search_scryfall`)
+    still work, and where both are given the cursor wins. A cursor is tied to the tool and the
+    arguments that shape the list (`page::scope`), so it can't continue another search.
+  - *Data is data.* A tool whose answer is JSON declares an `outputSchema` and gives the same
+    object as `structuredContent` beside the text (a list goes under `items`). `find_cards`
+    answers with rows, not lines of prose.
+  - *Ask for less.* `detail: "summary"` on `games` and `collection_cards` gives a short row;
+    `research` takes `detail: "full"` for the whole document (the same as `full: true`).
+  - *A missing price is `null`*, in every JSON answer; never 0 and never the words "no price".
+    Its date field is beside it: the day Yama read the price and found none, or `null` when
+    the printing was never read.
+  - *A page that would be too long is a shorter page.* The rows of `games`, `collection_cards`,
+    `search_scryfall` and `card_printings` are fitted to a budget (`page::fit`), and the cursor
+    starts at the first row left out.
+  - *A long answer is cut, not refused.* Above 40,000 characters an answer stops with a notice
+    and a `chunk`; calling again with the same arguments and that `chunk` gives the next part,
+    and the parts together are the answer (`registry::respond`). The research tools used to
+    refuse above 100,000 characters. `chunk` is the registry's argument on every tool that only
+    reads; it continues one answer (the tool, the arguments and the text's length are in it),
+    so a chunk from another call, or from an answer that has changed since, is refused. A JSON
+    answer is cut into parts half the size, and the structured form carries the part too, for a
+    client that gives its model only the structured content. Reading the rest runs the tool again, so a tool that stages or writes takes no
+    `chunk` and is never run twice for one answer; its answer, if it were ever that long, is cut
+    with a pointer to the staged change instead.
+  - *Whose text.* An answer that carries text from an outside source (Scryfall, EDHREC,
+    Commander Spellbook, a public deck page, Wizards' rules page) or from other people (a
+    friend's shared profile, other players' names and notes in games and playgroups) says so, in
+    `untrusted_text` for a JSON answer and in a first line for prose: data, never instructions.
 
 ## The catalog is tested as a contract (2026-11-11)
 

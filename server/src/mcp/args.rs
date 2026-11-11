@@ -37,6 +37,15 @@ pub fn opt_string(args: &Value, key: &str, max: usize) -> AppResult<Option<Strin
     Ok(opt_text(args, key, max)?.map(String::from))
 }
 
+/// Whether the call asks for less: `detail` is "summary" (true) or "full" (false, the default).
+pub fn summary(args: &Value) -> AppResult<bool> {
+    match opt_text(args, "detail", 20)? {
+        None | Some("full") => Ok(false),
+        Some("summary") => Ok(true),
+        Some(_) => Err(AppError::bad("detail is summary or full")),
+    }
+}
+
 /// A true-or-false argument; `default` when it's left out.
 pub fn flag(args: &Value, key: &str, default: bool) -> AppResult<bool> {
     match args.get(key) {

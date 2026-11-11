@@ -39,7 +39,8 @@ fn combos_schema() -> Value {
     combos["query"] = string("Spellbook syntax for public combo search, instead of deck/list.");
     combos["share_list"] = json!({"type":"boolean","description":"Must be true to send the selected list's card names and quantities to Commander Spellbook. No collection, notes or deck name are sent."});
     combos["limit"] = number("Results per category", 10, 1, 20);
-    combos["offset"] = number("Public search offset", 0, 0, 10000);
+    combos["offset"] = number("The older way to continue a public search: results to skip. cursor is preferred.", 0, 0, 10000);
+    combos["cursor"] = json!({"cursor": {"type": "string", "maxLength": 200, "description": "next_cursor from the answer before, with the same other arguments."}})["cursor"].clone();
     combos
 }
 fn hands_schema() -> Value {
@@ -78,12 +79,14 @@ pub(super) const TOOLS: &[Tool] = &[
         search: true,
         schema: || {
             schema(
-                json!({"query":string("Full Scryfall query"),"page":number("Provider page",1,1,1000),"offset":number("Offset within that provider page",0,0,1000),"limit":number("Cards to return",20,1,60),"order":{"type":"string","enum":["name","cmc","edhrec","usd","released"],"default":"name"}}),
+                json!({"query":string("Full Scryfall query"),"page":number("The older way to continue: provider page, with offset. cursor is preferred.",1,1,1000),"offset":number("Offset within that provider page",0,0,1000),"cursor": {"type": "string", "maxLength": 200, "description": "next_cursor from the answer before, with the same other arguments."},"limit":number("Cards to return",20,1,60),"order":{"type":"string","enum":["name","cmc","edhrec","usd","released"],"default":"name"}}),
                 &["query"],
             )
         },
         handler: run!(run_search_scryfall),
         stages: None,
+        output: Some(super::registry::paged),
+        untrusted: Some("Scryfall, a service outside Yama"),
     },
     Tool {
         name: "card_printings",
@@ -95,12 +98,14 @@ pub(super) const TOOLS: &[Tool] = &[
         search: true,
         schema: || {
             schema(
-                json!({"name":string("Exact card name"),"order":{"type":"string","enum":["usd","released"],"description":"Cheapest US price first (default) or newest first"},"offset":number("Printings to skip",0,0,1000),"limit":number("Printings to show",20,1,60)}),
+                json!({"name":string("Exact card name"),"order":{"type":"string","enum":["usd","released"],"description":"Cheapest US price first (default) or newest first"},"offset":number("The older way to continue: printings to skip. cursor is preferred.",0,0,1000),"limit":number("Printings to show",20,1,60),"cursor": {"type": "string", "maxLength": 200, "description": "next_cursor from the answer before, with the same other arguments."}}),
                 &["name"],
             )
         },
         handler: run!(run_card_printings),
         stages: None,
+        output: Some(super::registry::paged),
+        untrusted: None,
     },
     Tool {
         name: "commander_recommendations",
@@ -118,6 +123,8 @@ pub(super) const TOOLS: &[Tool] = &[
         },
         handler: run!(run_commander_recommendations),
         stages: None,
+        output: Some(super::registry::object),
+        untrusted: Some("EDHREC, a service outside Yama"),
     },
     Tool {
         name: "find_combos",
@@ -132,6 +139,8 @@ pub(super) const TOOLS: &[Tool] = &[
         },
         handler: run!(run_find_combos),
         stages: None,
+        output: Some(super::registry::paged),
+        untrusted: Some("Commander Spellbook, a service outside Yama"),
     },
     Tool {
         name: "public_deck",
@@ -149,6 +158,8 @@ pub(super) const TOOLS: &[Tool] = &[
         },
         handler: run!(run_public_deck),
         stages: None,
+        output: Some(super::registry::object),
+        untrusted: Some("a public deck page outside Yama"),
     },
     Tool {
         name: "rules_lookup",
@@ -166,6 +177,8 @@ pub(super) const TOOLS: &[Tool] = &[
         },
         handler: run!(run_rules_lookup),
         stages: None,
+        output: Some(super::registry::object),
+        untrusted: Some("Wizards' rules page, outside Yama"),
     },
     Tool {
         name: "deck_analysis",
@@ -180,6 +193,8 @@ pub(super) const TOOLS: &[Tool] = &[
         },
         handler: run!(run_deck_analysis),
         stages: None,
+        output: Some(super::registry::object),
+        untrusted: None,
     },
     Tool {
         name: "compare_decks",
@@ -197,6 +212,8 @@ pub(super) const TOOLS: &[Tool] = &[
         },
         handler: run!(run_compare_decks),
         stages: None,
+        output: Some(super::registry::object),
+        untrusted: None,
     },
     Tool {
         name: "sample_hands",
@@ -211,6 +228,8 @@ pub(super) const TOOLS: &[Tool] = &[
         },
         handler: run!(run_sample_hands),
         stages: None,
+        output: Some(super::registry::object),
+        untrusted: None,
     },
     Tool {
         name: "mana_probability",
@@ -228,6 +247,8 @@ pub(super) const TOOLS: &[Tool] = &[
         },
         handler: run!(run_mana_probability),
         stages: None,
+        output: Some(super::registry::object),
+        untrusted: None,
     },
     Tool {
         name: "mana_test",
@@ -252,6 +273,8 @@ pub(super) const TOOLS: &[Tool] = &[
         },
         handler: run!(run_mana_test),
         stages: None,
+        output: Some(super::registry::object),
+        untrusted: None,
     },
     Tool {
         name: "deck_history",
@@ -266,6 +289,8 @@ pub(super) const TOOLS: &[Tool] = &[
         },
         handler: run!(run_deck_history),
         stages: None,
+        output: Some(super::registry::object),
+        untrusted: None,
     },
     Tool {
         name: "collection_cards",
@@ -277,12 +302,14 @@ pub(super) const TOOLS: &[Tool] = &[
         search: true,
         schema: || {
             schema(
-                json!({"query":string("Optional card-name substring"),"outside_decks":{"type":"boolean","default":false},"page":number("Page",1,1,10000),"limit":number("Rows",20,1,100)}),
+                json!({"query":string("Optional card-name substring"),"outside_decks":{"type":"boolean","default":false},"page":number("The older way to continue: page number. cursor is preferred.",1,1,10000),"limit":number("Rows",20,1,100),"cursor": {"type": "string", "maxLength": 200, "description": "next_cursor from the answer before, with the same other arguments."},"detail": {"type": "string", "enum": ["summary", "full"], "description": "summary: fewer fields a row, for a shorter answer. full (default): every field."}}),
                 &[],
             )
         },
         handler: run!(run_collection_cards),
         stages: None,
+        output: Some(super::registry::paged),
+        untrusted: None,
     },
     Tool {
         name: "save_deck",
@@ -297,6 +324,8 @@ pub(super) const TOOLS: &[Tool] = &[
         },
         handler: run!(run_save_deck),
         stages: Some(super::changes::staging::EDIT_DECK),
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "research_sources",
@@ -311,6 +340,8 @@ pub(super) const TOOLS: &[Tool] = &[
         },
         handler: run!(run_research_sources),
         stages: None,
+        output: Some(super::registry::object),
+        untrusted: None,
     },
 ];
 
@@ -319,13 +350,10 @@ fn object(args: &Value) -> AppResult<&Value> {
     if args.is_object() { Ok(args) } else { Err(AppError::bad("arguments must be an object")) }
 }
 
-/// A research tool's answer: compact JSON, refused above Yama's size limit.
+/// A research tool's answer: compact JSON. A long one is cut by the registry and continued with
+/// `chunk` (it used to be refused above 100,000 characters).
 fn answer(value: Value) -> AppResult<String> {
-    let result = serde_json::to_string(&value).map_err(anyhow::Error::from)?;
-    if result.len() > 100_000 {
-        return Err(AppError::bad("The result exceeded Yama's tool limit. Request fewer results or a narrower query."));
-    }
-    Ok(result)
+    Ok(value.to_string())
 }
 
 #[allow(unused_variables)]
@@ -497,6 +525,15 @@ async fn search(st: &AppState, user: &User, args: &Value) -> AppResult<Value> {
     if !["name", "cmc", "edhrec", "usd", "released"].contains(&order) {
         return Err(AppError::bad("unsupported search order"));
     }
+    // A cursor is a provider page and a place in it, as one number; the older page and offset
+    // arguments still work.
+    const PLACES: usize = 1001;
+    let scope = super::page::scope("search_scryfall", &[&query, order]);
+    let at = super::page::start(args, &scope, (page as usize - 1) * PLACES + offset)?;
+    let (page, offset) = ((at / PLACES) as i64 + 1, at % PLACES);
+    if page > 1000 {
+        return Err(AppError::bad("cursor is out of range"));
+    }
     let doc = st
         .research
         .get(
@@ -535,6 +572,9 @@ async fn search(st: &AppState, user: &User, args: &Value) -> AppResult<Value> {
             c
         })
         .collect();
+    // A page that would be too long is a shorter page: `next` starts where this one stops.
+    let mut cards: Vec<Value> = cards;
+    super::page::fit(&mut cards, super::page::PAGE_BUDGET);
     let end = offset + cards.len();
     let next = if end < rows.len() {
         json!({"page":page,"offset":end})
@@ -543,8 +583,12 @@ async fn search(st: &AppState, user: &User, args: &Value) -> AppResult<Value> {
     } else {
         Value::Null
     };
+    let next_cursor = match (next["page"].as_u64(), next["offset"].as_u64()) {
+        (Some(p), Some(o)) => Some(super::page::cursor(&scope, (p as usize - 1) * PLACES + o as usize)),
+        _ => None,
+    };
     Ok(
-        json!({"provenance":doc.provenance(),"total_cards":data["total_cards"],"page":page,"offset":offset,"next":next,"provider_has_more":data["has_more"],
+        json!({"provenance":doc.provenance(),"total_cards":data["total_cards"],"page":page,"offset":offset,"next":next,"next_cursor":next_cursor,"provider_has_more":data["has_more"],
         "cards":cards,
         "price_source":"Scryfall / TCGplayer and Cardmarket market references","price_observed_at":doc.fetched_at,"provider_price_date":null,
         "note":"This is a dated observation of provider market data, not a store quote or proof of stock. Missing price fields remain null. Follow next using the same query/order/limit. Card images load from their original URLs; retain artist and copyright credits."}),
@@ -557,6 +601,9 @@ async fn printings(st: &AppState, user: &User, args: &Value) -> AppResult<Value>
     let name = arg::text_max(args, "name", 200)?;
     let limit = arg::int(args, "limit", 20, 1, 60)? as usize;
     let offset = arg::int(args, "offset", 0, 0, 1000)? as usize;
+    // A cursor continues one listing; the older offset argument still works.
+    let scope = super::page::scope("card_printings", &[name, arg::opt_text(args, "order", 20)?.unwrap_or("usd")]);
+    let offset = super::page::start(args, &scope, offset)?;
     let order = match arg::opt_text(args, "order", 20)?.unwrap_or("usd") {
         "usd" => "ps.usd IS NULL, ps.usd, p.released_at DESC, p.scryfall_id",
         "released" => "p.released_at DESC, p.scryfall_id",
@@ -593,7 +640,9 @@ async fn printings(st: &AppState, user: &User, args: &Value) -> AppResult<Value>
     .fetch_all(&st.pool)
     .await?;
     let total = rows.len();
-    let shown: Vec<Value> = rows.iter().skip(offset).take(limit).filter_map(|r| serde_json::from_str(r).ok()).collect();
+    let mut shown: Vec<Value> = rows.iter().skip(offset).take(limit).filter_map(|r| serde_json::from_str(r).ok()).collect();
+    // A page that would be too long is a shorter page: `next` starts where this one stops.
+    super::page::fit(&mut shown, super::page::PAGE_BUDGET);
     let end = offset + shown.len();
     // Which market each price is, from the series the history keeps.
     let labels: Vec<(i64, String)> = sqlx::query_as("SELECT id, label FROM price_series WHERE feed = ? ORDER BY id")
@@ -611,6 +660,7 @@ async fn printings(st: &AppState, user: &User, args: &Value) -> AppResult<Value>
         "provenance": {"provider": "Yama", "source": "Yama's copy of Scryfall's default cards (English, or a card's only language)", "retrieved_at": cards_at, "cached": true},
         "card": card, "owned_real": real, "owned_proxies": proxies,
         "total_printings": total, "offset": offset, "next": if end < total { json!({"offset": end}) } else { Value::Null },
+        "next_cursor": (end < total).then(|| super::page::cursor(&scope, end)),
         "printings": shown, "price_sources": sources, "prices_as_of": prices_at,
         "note": "Paper printings only. Each printing's prices are market references dated by its price_date (the newest Scryfall file Yama read that listed it, or found it missing), not store quotes or proof of stock; a missing price is unknown, never zero. Card images load from their original URLs; retain artist and copyright credits."
     }))
@@ -778,7 +828,9 @@ async fn combos(st: &AppState, user: &User, args: &Value) -> AppResult<Value> {
         if args.get("deck").is_some() || args.get("list").is_some() {
             return Err(AppError::bad("Use query or deck/list, not both."));
         }
-        let offset = arg::int(args, "offset", 0, 0, 10000)?;
+        // A cursor continues one search; the older offset argument still works.
+        let scope = super::page::scope("find_combos", &[query]);
+        let offset = super::page::start(args, &scope, arg::int(args, "offset", 0, 0, 10000)? as usize)?;
         let doc = st
             .research
             .get(
@@ -798,7 +850,7 @@ async fn combos(st: &AppState, user: &User, args: &Value) -> AppResult<Value> {
         })?;
         return Ok(
             json!({"provenance":doc.provenance(),"attribution":"Commander Spellbook","count":data["count"],"offset":offset,
-            "has_more":!data["next"].is_null(),"combos":results.iter().take(limit).map(combo_summary).collect::<Vec<_>>(),"note":"Preserve every quantity, zone, face and prerequisite; card inclusion alone does not prove execution."}),
+            "has_more":!data["next"].is_null(),"next_cursor":(!data["next"].is_null()).then(|| super::page::cursor(&scope, offset + limit)),"combos":results.iter().take(limit).map(combo_summary).collect::<Vec<_>>(),"note":"Preserve every quantity, zone, face and prerequisite; card inclusion alone does not prove execution."}),
         );
     }
     let list = analysis::load(st, user, args).await?; // Owner checks happen before any source request.
@@ -1064,15 +1116,28 @@ async fn collection(st: &AppState, user: &User, args: &Value) -> AppResult<Value
     });
     rows.sort_by(|a, b| a.name.cmp(&b.name).then(a.id.cmp(&b.id)));
     let total = rows.len();
-    let mut items = json!(rows.into_iter().skip((page - 1) * limit).take(limit).collect::<Vec<_>>());
+    // A cursor continues one listing; the older page argument still works.
+    let scope = super::page::scope("collection_cards", &[&query, if outside { "outside decks" } else { "all" }]);
+    let offset = super::page::start(args, &scope, (page - 1) * limit)?;
+    let summary = arg::summary(args)?;
+    let mut items = json!(rows.into_iter().skip(offset).take(limit).collect::<Vec<_>>());
     // Image links are two long URLs a row; card_printings has them for the printing that needs one.
     for item in items.as_array_mut().into_iter().flatten() {
         if let Some(o) = item.as_object_mut() {
             o.remove("image_small");
             o.remove("image_normal");
+            if summary {
+                // A missing price stays null, beside the date it was read and found missing.
+                o.retain(|k, _| ["name", "set_code", "collector_number", "qty", "finish", "condition", "proxy", "container_name", "container_kind", "unit_price_usd", "price_date"].contains(&k.as_str()));
+            }
         }
     }
-    Ok(json!({"total_rows":total,"page":page,"has_more":page*limit<total,"items":items,
+    // A page that would be too long is a shorter page; the cursor says where it stopped.
+    let mut rows = items.take().as_array().cloned().unwrap_or_default();
+    super::page::fit(&mut rows, super::page::PAGE_BUDGET);
+    let end = offset + rows.len();
+    let items = Value::Array(rows);
+    Ok(json!({"total_rows":total,"page":offset/limit+1,"has_more":end<total,"next_cursor":(end<total).then(|| super::page::cursor(&scope, end)),"items":items,
         "note":"Only your copies. A copy elsewhere in your collection may be committed to another deck or plan."}))
 }
 

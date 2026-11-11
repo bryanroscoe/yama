@@ -950,6 +950,8 @@ Bryan asked for "a full MCP" to work on his decks, for Ask Claude and for outsid
 
 **One tool registry (2026-11-11).** Every tool is one `registry::Tool` (`server/src/mcp/registry.rs`): name, aliases, title, description, kind, who is offered it, schema, handler and, for a staging tool, the stored kind with its apply function. The list, the call and the apply of a staged change read the same entry, replacing two tool tables and three hand-written matches. Arguments go through one set of helpers (`mcp/args.rs`); a value that is too long now says so instead of "is missing". `store_stock` used its own copy of the store lookup, which matched retired stores; every store tool now uses `changes::their_store`. Research read tools' annotations no longer carry the two hints that only apply to writes.
 
+**Results and paging (2026-11-11).** Every list pages with `cursor` and `next_cursor`, with the older `page` and `offset` arguments still accepted. JSON answers declare an `outputSchema` and are also given as `structuredContent`; `find_cards` answers with rows. `detail: "summary"` shortens `games` and `collection_cards`. A missing price is `null` beside a `null` date. An answer over 40,000 characters is cut with a `chunk` for the rest instead of being refused (`registry::respond`). Answers carrying outside or other people's text say so.
+
 #### Persistent deck research and review (2026-10-27)
 
 Shown under **Plans** since 2026-11-04 (see "One plan page" below); before that as **Agent notes**

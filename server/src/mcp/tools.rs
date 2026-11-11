@@ -54,6 +54,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: run!(run_datasets),
         stages: None,
+        output: Some(registry::object),
+        untrusted: None,
     },
     Tool {
         name: "dataset",
@@ -68,24 +70,29 @@ pub(super) const TOOLS: &[Tool] = &[
             "search":{"type":"string","description":"Case-insensitive name search."},
             "offset":{"type":"integer","minimum":0,"maximum":200000},"limit":{"type":"integer","minimum":1,"maximum":50},
             "as_of":{"type":"string","description":"Optional YYYY-MM-DD evaluation date."},
-            "half_life_days":{"type":"integer","minimum":1,"maximum":3650}},"required":["id"],"additionalProperties":false}),
+            "half_life_days":{"type":"integer","minimum":1,"maximum":3650},
+            "cursor": {"type": "string", "maxLength": 200, "description": "next_cursor from the answer before, with the same other arguments."}},"required":["id"],"additionalProperties":false}),
         kind: Kind::Read,
         offer: Offer::Everyone,
         search: false,
         handler: run!(run_dataset),
         stages: None,
+        output: Some(registry::paged),
+        untrusted: None,
     },
     Tool {
         name: "research",
         aliases: &[],
         title: "Your saved deck research and review choices",
         description: "Read private research and review choices. No id lists reports; id alone gives a compact overview with build power and scenario totals. deck retrieves one full deck audit, optionally narrowed by build; scenario retrieves one exact global shopping/print allocation. full=true returns the complete potentially large document. Research is advice, not installed decks or approved purchases.",
-        schema: || obj(&[("id", "string", "Report id; omit to list reports."), ("deck", "string", "Optional deck key within the report."), ("build", "string", "Optional build id, with deck."), ("scenario", "string", "One global acquisition scenario, instead of deck."), ("full", "boolean", "Return the complete document instead of a compact overview; can be large.")], &[]),
+        schema: || obj(&[("id", "string", "Report id; omit to list reports."), ("deck", "string", "Optional deck key within the report."), ("build", "string", "Optional build id, with deck."), ("scenario", "string", "One global acquisition scenario, instead of deck."), ("full", "boolean", "Return the complete document instead of a compact overview; can be large."), ("detail", "string", "summary (default) or full: full is the same as full=true.")], &[]),
         kind: Kind::Read,
         offer: Offer::Everyone,
         search: false,
         handler: run!(run_research),
         stages: None,
+        output: Some(registry::object),
+        untrusted: None,
     },
     Tool {
         name: "save_research",
@@ -101,6 +108,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: run!(run_save_research),
         stages: None,
+        output: Some(registry::object),
+        untrusted: None,
     },
     Tool {
         name: "review_research",
@@ -113,6 +122,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: run!(run_review_research),
         stages: None,
+        output: Some(registry::object),
+        untrusted: None,
     },
     Tool {
         name: "overview",
@@ -139,6 +150,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: run!(run_overview),
         stages: None,
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "deck",
@@ -153,6 +166,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: run!(run_deck),
         stages: None,
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "plan_deck",
@@ -169,6 +184,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: run!(run_plan_deck),
         stages: None,
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "shopping_trip",
@@ -198,6 +215,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: run!(run_shopping_trip),
         stages: None,
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "shopping_settings",
@@ -213,6 +232,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: run!(run_shopping_settings),
         stages: None,
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "set_shopping_rules",
@@ -245,6 +266,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: stage!(changes::set_shopping_rules),
         stages: Some(changes::staging::SET_SHOPPING_RULES),
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "set_store_preference",
@@ -275,6 +298,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: stage!(changes::set_store_preference),
         stages: Some(changes::staging::SET_STORE_PREFERENCE),
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "store_stock",
@@ -300,6 +325,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: run!(run_store_stock),
         stages: None,
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "check_stores",
@@ -330,6 +357,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: stage!(changes::check_stores),
         stages: Some(changes::staging::CHECK_STORES),
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "shopping_list",
@@ -347,6 +376,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: run!(run_shopping_list),
         stages: None,
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "compare_with_friend",
@@ -363,6 +394,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: run!(run_compare_with_friend),
         stages: None,
+        output: None,
+        untrusted: Some("another person's shared profile"),
     },
     Tool {
         name: "add_wish",
@@ -393,6 +426,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: stage!(changes::add_wish),
         stages: Some(changes::staging::ADD_WISH),
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "review_queue",
@@ -419,6 +454,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: run!(run_review_queue),
         stages: None,
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "find_cards",
@@ -426,15 +463,17 @@ pub(super) const TOOLS: &[Tool] = &[
         title: "Search cards",
         description: "Search Magic cards with Yama's Scryfall-style syntax: o:\"draw a card\", t:artifact, id<=rw \
                       (fits a Boros commander), mv<=3, f:commander (legal), is:gamechanger, -t:creature, or, \
-                      parentheses, !\"Exact Name\". 60 results a page, each with cost, type, color identity, Commander \
-                      legality, Game Changer, a dated market price and how many copies they own.",
+                      parentheses, !\"Exact Name\". 60 cards at a time (next_cursor continues), each with cost, type, color \
+                      identity, Commander legality, Game Changer, a dated market price (null when none is recorded) and how \
+                      many copies they own.",
         schema: || {
             json!({
                 "type": "object",
                 "properties": {
                     "query": {"type": "string", "maxLength": 1000, "description": "The search, for example: id<=rw t:artifact o:treasure f:commander"},
                     "order": {"type": "string", "enum": ["name", "mv", "edhrec", "color"], "description": "name (default), mv (mana value), edhrec (most played first) or color."},
-                    "page": {"type": "integer", "minimum": 1, "maximum": 1000, "description": "Page number, from 1."},
+                    "page": {"type": "integer", "minimum": 1, "maximum": 1000, "description": "The older way to continue: page number, from 1. cursor is preferred."},
+                    "cursor": {"type": "string", "maxLength": 200, "description": "next_cursor from the answer before, with the same other arguments."},
                 },
                 "required": ["query"],
                 "additionalProperties": false,
@@ -445,6 +484,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: true,
         handler: run!(run_find_cards),
         stages: None,
+        output: Some(registry::paged),
+        untrusted: None,
     },
     Tool {
         name: "card",
@@ -469,6 +510,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: true,
         handler: run!(run_card),
         stages: None,
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "price_history",
@@ -501,6 +544,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: true,
         handler: run!(run_price_history),
         stages: None,
+        output: Some(registry::object),
+        untrusted: None,
     },
     Tool {
         name: "check_list",
@@ -526,6 +571,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: run!(run_check_list),
         stages: None,
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "games",
@@ -533,7 +580,7 @@ pub(super) const TOOLS: &[Tool] = &[
         title: "Your game history",
         description: "Games they played in person with Yama's life counter or online, newest first, as the Game history page lists \
                       them: 10 at a time (limit, up to 50), each with its seats (player, commander, final life, knockout turn), winner seat, \
-                      turns, status and note; next_offset continues the list. search matches a player's or commander's name; filter unfinished or unnamed finds games \
+                      turns, status and note; next_cursor continues the list. detail summary gives one short row a game. search matches a player's or commander's name; filter unfinished or unnamed finds games \
                       to tidy up. These are real games, unlike lab results. Use `game` for one game's events.",
         schema: || {
             json!({
@@ -543,7 +590,9 @@ pub(super) const TOOLS: &[Tool] = &[
                     "filter": {"type": "string", "enum": ["all", "unfinished", "unnamed"], "description": "unfinished: not finished; unnamed: a seat still called Player 2 or similar (default all)."},
                     "order": {"type": "string", "enum": ["newest", "oldest"]},
                     "limit": {"type": "integer", "minimum": 1, "maximum": 50, "description": "Games to list (default 10)."},
-                    "offset": {"type": "integer", "minimum": 0, "description": "Games to skip: next_offset from the answer before."}
+                    "offset": {"type": "integer", "minimum": 0, "description": "The older way to continue: games to skip. cursor is preferred."},
+                    "cursor": {"type": "string", "maxLength": 200, "description": "next_cursor from the answer before, with the same other arguments."},
+                    "detail": {"type": "string", "enum": ["summary", "full"], "description": "summary: fewer fields a row, for a shorter answer. full (default): every field."}
                 },
                 "additionalProperties": false
             })
@@ -553,6 +602,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: run!(run_games),
         stages: None,
+        output: Some(registry::paged),
+        untrusted: Some("other players as well as the account owner (names, deck labels and notes)"),
     },
     Tool {
         name: "game",
@@ -566,6 +617,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: run!(run_game),
         stages: None,
+        output: Some(registry::object),
+        untrusted: Some("other players as well as the account owner (names, deck labels and notes)"),
     },
     Tool {
         name: "collection_summary",
@@ -581,6 +634,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: run!(run_collection_summary),
         stages: None,
+        output: Some(registry::object),
+        untrusted: None,
     },
     Tool {
         name: "playgroups",
@@ -596,6 +651,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: run!(run_playgroups),
         stages: None,
+        output: Some(registry::object),
+        untrusted: Some("other players as well as the account owner (names)"),
     },
     Tool {
         name: "lab_runs",
@@ -608,6 +665,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: run!(run_lab_runs),
         stages: None,
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "lab_run",
@@ -624,6 +683,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: run!(run_lab_run),
         stages: None,
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "lab_games",
@@ -655,6 +716,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: run!(run_lab_games),
         stages: None,
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "precon",
@@ -668,6 +731,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: run!(run_precon),
         stages: None,
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "changes",
@@ -693,6 +758,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: run!(run_changes),
         stages: None,
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "edit_deck",
@@ -721,6 +788,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: stage!(changes::edit_deck),
         stages: Some(changes::staging::EDIT_DECK),
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "delete_deck",
@@ -748,6 +817,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: stage!(changes::delete_deck),
         stages: Some(changes::staging::DELETE_DECK),
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "track_build",
@@ -773,6 +844,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: stage!(changes::track_build),
         stages: Some(changes::staging::TRACK_BUILD),
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "approve_plan",
@@ -799,6 +872,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: stage!(changes::approve_plan),
         stages: Some(changes::staging::APPROVE_PLAN),
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "propose_swap",
@@ -824,6 +899,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: stage!(changes::propose_swap),
         stages: Some(changes::staging::PROPOSE_SWAP),
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "answer_review",
@@ -853,6 +930,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: stage!(changes::answer_review),
         stages: Some(changes::staging::ANSWER_REVIEW),
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "mark_bought",
@@ -884,6 +963,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: stage!(changes::mark_bought),
         stages: Some(changes::staging::MARK_BOUGHT),
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "swap_in_prints",
@@ -909,6 +990,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: stage!(changes::swap_in_prints),
         stages: Some(changes::staging::SWAP_IN_PRINTS),
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "mark_installed",
@@ -933,6 +1016,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: stage!(changes::mark_installed),
         stages: Some(changes::staging::MARK_INSTALLED),
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "start_lab_run",
@@ -979,6 +1064,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: stage!(changes::start_lab_run),
         stages: Some(changes::staging::START_LAB_RUN),
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "more_lab_games",
@@ -1006,6 +1093,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: stage!(changes::more_lab_games),
         stages: Some(changes::staging::MORE_LAB_GAMES),
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "run_lab_again",
@@ -1031,6 +1120,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: stage!(changes::run_lab_again),
         stages: Some(changes::staging::RUN_LAB_AGAIN),
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "cancel_lab_run",
@@ -1043,6 +1134,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: stage!(changes::cancel_lab_run),
         stages: Some(changes::staging::CANCEL_LAB_RUN),
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "add_to_collection",
@@ -1073,6 +1166,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: stage!(changes::add_to_collection),
         stages: Some(changes::staging::ADD_TO_COLLECTION),
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "move_cards",
@@ -1097,6 +1192,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: stage!(changes::move_cards),
         stages: Some(changes::staging::MOVE_CARDS),
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "set_condition",
@@ -1123,6 +1220,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: stage!(changes::set_condition),
         stages: Some(changes::staging::SET_CONDITION),
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "apply_change",
@@ -1136,6 +1235,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: run!(run_apply_change),
         stages: None,
+        output: None,
+        untrusted: None,
     },
     Tool {
         name: "discard_change",
@@ -1148,6 +1249,8 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: run!(run_discard_change),
         stages: None,
+        output: None,
+        untrusted: None,
     },
 ];
 
@@ -1196,8 +1299,19 @@ async fn run_dataset(c: Ctx<'_>, args: &Value) -> AppResult<String> {
     {
             let mut query=args.as_object().cloned().ok_or_else(||AppError::bad("arguments must be an object"))?;
             let id=query.remove("id").and_then(|v|v.as_str().map(str::to_owned)).filter(|s|!s.is_empty()).ok_or_else(||AppError::bad("id is required"))?;
+            // A cursor continues one read; the older offset argument still works.
+            let part = |k: &str| query.get(k).map(|v| v.to_string()).unwrap_or_default();
+            let scope = super::page::scope("dataset", &[&id, &part("revision"), &part("section"), &part("kind"), &part("entity"), &part("search")]);
+            let older = query.get("offset").and_then(Value::as_u64).and_then(|n| usize::try_from(n).ok()).unwrap_or(0);
+            let offset = super::page::start(args, &scope, older)?;
+            query.remove("cursor");
+            query.insert("offset".into(), json!(offset));
             let q:crate::datasets::ReadQuery=serde_json::from_value(Value::Object(query)).map_err(|e|AppError::bad(format!("invalid dataset query: {e}")))?;
-            Ok(serde_json::to_string(&crate::datasets::read(pool,&user.id,&id,q).await?).map_err(anyhow::Error::from)?)
+            let mut out = crate::datasets::read(pool,&user.id,&id,q).await?;
+            if let Some(next) = out["next_offset"].as_u64().and_then(|n| usize::try_from(n).ok()) {
+                out["next_cursor"] = json!(super::page::cursor(&scope, next));
+            }
+            Ok(out.to_string())
         }
 }
 
@@ -1270,7 +1384,7 @@ async fn run_research(c: Ctx<'_>, args: &Value) -> AppResult<String> {
                 report["document"]["decks"]=json!([]);
                 report["document"]["local_checks"]=json!({});
                 report["target_hashes"]=json!({});report["reviews"]=json!([]);
-            } else if args.get("full").and_then(Value::as_bool)!=Some(true) {
+            } else if args.get("full").and_then(Value::as_bool)!=Some(true) && !matches!(arg::opt_text(args, "detail", 20)?, Some("full")) {
                 for deck in report["document"]["decks"].as_array_mut().unwrap() {
                     if let Some(o)=deck.as_object_mut(){o.retain(|k,_|["key","name","commander","ownership","installed_state","recommended_build","summary","builds"].contains(&k.as_str()));}
                     for build in deck["builds"].as_array_mut().unwrap(){if let Some(o)=build.as_object_mut(){o.retain(|k,_|["id","label","bracket","gameplay_profile","accounting","why","game_changers","prospective"].contains(&k.as_str()));}}
@@ -1656,7 +1770,7 @@ fn price(usd: Option<f64>, date: Option<&str>) -> String {
     match (usd, date) {
         (Some(p), Some(d)) => format!("${p:.2} market ({d})"),
         (Some(p), None) => format!("${p:.2} market"),
-        _ => "no price".into(),
+        _ => "price unknown".into(),
     }
 }
 
@@ -1774,47 +1888,48 @@ async fn check_list(pool: &SqlitePool, args: &Value) -> AppResult<String> {
 
 // ── cards ───────────────────────────────────────────────────────────────────
 
-fn search_line(c: &SearchCard) -> String {
+/// One card of a search as data. A price that isn't recorded is null, never 0, beside the date
+/// Yama read it and found none (null too when the printing was never read).
+fn search_row(c: &SearchCard) -> Value {
     let card = &c.card;
-    let owned = match (c.owned, &c.owned_in) {
-        (0, _) => String::new(),
-        (n, Some(place)) => format!(", they own {n} (in {place})"),
-        (n, None) => format!(", they own {n}"),
-    };
-    format!(
-        "- {} {} | {} | {} | {}{} | {}{}",
-        card.name,
-        card.mana_cost.as_deref().unwrap_or(""),
-        card.type_line,
-        identity(&card.color_identity),
-        legality(card),
-        game_changer(card),
-        price(c.usd, c.price_date.as_deref()),
-        owned
-    )
+    json!({
+        "name": card.name,
+        "mana_cost": card.mana_cost,
+        "type_line": card.type_line,
+        "color_identity": card.color_identity,
+        "commander": card.legalities.get("commander"),
+        "game_changer": card.game_changer,
+        "price_usd": c.usd,
+        "price_date": c.price_date,
+        "owned": c.owned,
+        "owned_in": c.owned_in,
+    })
 }
 
 async fn find_cards(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String> {
-    let query = args.get("query").and_then(Value::as_str).map(str::trim).filter(|q| !q.is_empty()).ok_or_else(|| AppError::bad("query is missing"))?;
+    let query = arg::text_max(args, "query", 1000)?;
     let order = arg::opt_text(args, "order", 20)?;
     // "cmc" is Scryfall's word for mv and has always been taken.
     if let Some(o) = order.filter(|o| !["name", "mv", "cmc", "edhrec", "color"].contains(o)) {
         return Err(AppError::bad(format!("order: \"{o}\" isn't name, mv, edhrec or color")));
     }
-    // Out of range is the nearest page, as it always was: a page 0 is an easy slip.
-    let page = args.get("page").and_then(Value::as_u64).unwrap_or(1).clamp(1, 1000) as u32;
+    // The search pages by sixty. A cursor continues one search; the older page argument still
+    // works, and out of range it is the nearest page, as it always was (a page 0 is an easy slip).
+    const PAGE: usize = 60;
+    let scope = super::page::scope("find_cards", &[query, order.unwrap_or("name")]);
+    let older = (args.get("page").and_then(Value::as_u64).unwrap_or(1).clamp(1, 1000) as usize - 1) * PAGE;
+    let page = u32::try_from(super::page::start(args, &scope, older)? / PAGE + 1).ok().filter(|p| *p <= 1000).ok_or_else(|| AppError::bad("cursor is out of range"))?;
     let r = crate::cards::search(pool, &user.id, query, order, page).await?;
-    let mut out = format!("{} cards match `{query}`", r.total);
-    let first = (r.page - 1) * r.page_size;
-    if r.total > r.page_size as i64 {
-        let _ = write!(out, "; this is page {} ({} to {})", r.page, first + 1, first + r.cards.len() as u32);
-    }
-    out.push_str(":\n");
-    for c in &r.cards {
-        out.push_str(&search_line(c));
-        out.push('\n');
-    }
-    Ok(out)
+    let shown = (r.page as usize - 1) * r.page_size as usize + r.cards.len();
+    let more = usize::try_from(r.total).is_ok_and(|total| shown < total) && !r.cards.is_empty();
+    let out = json!({
+        "query": query,
+        "total": r.total,
+        "cards": r.cards.iter().map(search_row).collect::<Vec<_>>(),
+        "next_cursor": more.then(|| super::page::cursor(&scope, shown)),
+        "note": "price_usd is a market reference dated by price_date, not a store quote. A null price is unknown, never zero; a date beside it is the day Yama read the price and found none. commander is Scryfall's Commander legality as of Yama's last card import. owned counts their copies.",
+    });
+    Ok(out.to_string())
 }
 
 /// Close names for one Yama doesn't know, for "did you mean": the whole name inside a longer one,
@@ -1906,7 +2021,7 @@ async fn card(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String>
                     }
                 }
             }
-            None => out.push_str("Price: none known\n"),
+            None => out.push_str("Price: unknown (none recorded)\n"),
         }
         if let Some((usd, date, set, num)) = cheapest {
             let _ = writeln!(out, "Cheapest printing: {set} #{num}, {}", price(Some(usd), Some(&date)));
@@ -2088,6 +2203,10 @@ async fn games(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String
         Some(v) => v.as_u64().filter(|n| (1..=50).contains(n)).ok_or_else(|| AppError::bad("limit is a whole number from 1 to 50"))? as usize,
     };
     let q = word("search").unwrap_or("").to_string();
+    // A cursor continues one search; the older offset argument still works.
+    let scope = super::page::scope("games", &[word("filter").unwrap_or("all"), word("order").unwrap_or("newest"), &q]);
+    let offset = u32::try_from(super::page::start(args, &scope, offset as usize)?).map_err(|_| AppError::bad("cursor is out of range"))?;
+    let summary = arg::summary(args)?;
     let page = crate::games::history_page(pool, &user.id, HistoryParams { filter, order, q, offset }).await?;
     // The page holds up to 50 games; a smaller limit hands out part of it and says where to go on.
     let more = page.has_more || page.games.len() > limit;
@@ -2108,9 +2227,29 @@ async fn games(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String
             }
         }
     }
+    if summary {
+        // One short row a game: when, how it ended, who won and who played what.
+        for game in out["games"].as_array_mut().into_iter().flatten() {
+            let seats = game["seats"].as_array().cloned().unwrap_or_default();
+            let name = |seat: &Value| seat["display_name"].as_str().unwrap_or("?").to_string();
+            let winner = game["winner_seat"].as_i64().and_then(|w| seats.iter().find(|s| s["seat"].as_i64() == Some(w))).map(name);
+            let players: Vec<String> = seats.iter().map(|s| match s["commander_name"].as_str() {
+                Some(commander) => format!("{} ({commander})", name(s)),
+                None => name(s),
+            }).collect();
+            *game = json!({"id": game["id"], "started_at": game["started_at"], "status": game["status"], "turns": game["turns"], "winner": winner, "players": players});
+        }
+        without_nulls(&mut out);
+    }
+    // A page of full rows that would be too long is a shorter page; the cursor says where it stopped.
+    let mut rows = out["games"].take().as_array().cloned().unwrap_or_default();
+    let more = super::page::fit(&mut rows, super::page::PAGE_BUDGET) || more;
+    let listed = rows.len();
+    out["games"] = Value::Array(rows);
     out["has_more"] = json!(more);
     if more {
-        out["next_offset"] = json!(u64::from(offset) + limit as u64);
+        out["next_offset"] = json!(u64::from(offset) + listed as u64);
+        out["next_cursor"] = json!(super::page::cursor(&scope, offset as usize + listed));
     }
     if page.games.is_empty() {
         out["note"] = json!("No games match. Games logged on a phone that hasn't synced yet aren't here.");

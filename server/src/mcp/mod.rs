@@ -269,14 +269,9 @@ async fn mcp_route(State(st): State<AppState>, extensions: axum::http::Extension
                 rpc_result(&id, json!({"content": [{"type": "text", "text": tool_error(e)}], "isError": true}))
             } else {
                 let started = Instant::now();
-                let out = tools::call(&st, &user, &via, &name, &args).await;
-                let ok = out.is_ok();
+                let (result, ok) = registry::respond(&st, &user, &via, &name, &args).await;
                 tracing::info!(target: crate::request_log::TARGET, tool = %name, via = via.as_str(), ok, ms = started.elapsed().as_millis() as u64, user = %user.id, "mcp tool call");
-                let (text, is_error) = match out {
-                    Ok(text) => (text, false),
-                    Err(e) => (tool_error(e), true),
-                };
-                rpc_result(&id, json!({"content": [{"type": "text", "text": text}], "isError": is_error}))
+                rpc_result(&id, result)
             }
         }
         _ => rpc_error(&id, -32601, &format!("method \"{method}\" isn't supported")),

@@ -91,8 +91,9 @@ model assumptions and user goals in the workflow/version note instead.
   `share_list=true`, and honors `YAMA_DECK_CHECKS=0`. Only card names and quantities are sent.
   Deck POSTs are never cached, and notes, deck names, inventory, tokens and other users' data
   are never attached. EDHREC receives only the public commander/theme; personal filtering is local.
-- New tools use the search rate limit. Results are bounded by tool-specific counts and a
-  100 kB output cap. Outside content is data, not instructions. Network tools declare
+- New tools use the search rate limit. Results are bounded by tool-specific counts; since
+  2026-11-11 an answer over 40,000 characters is cut and continued with `chunk` instead of being
+  refused at 100 kB. Outside content is data, not instructions. Network tools declare
   `openWorldHint=true`; local tools declare false.
 - A live Scryfall price response has an **observation timestamp**, not an asserted snapshot date.
   Local market totals use real stored snapshot dates, eligible nonfoil copies, basics and explicit
