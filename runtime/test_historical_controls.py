@@ -13,11 +13,15 @@ HERE = Path(__file__).resolve().parent
 @unittest.skipUnless(os.environ.get('YAMA_HISTORICAL_RUNTIME') and os.environ.get('YAMA_HISTORICAL_CARD_DATA'),
                      'requires the built, bound historical runtime and real pinned data')
 class HistoricalControls(unittest.TestCase):
+    recipe = HERE
+    binary_env = 'YAMA_HISTORICAL_RUNTIME'
+    data_env = 'YAMA_HISTORICAL_CARD_DATA'
+
     @classmethod
     def setUpClass(cls):
-        cls.binary = os.environ['YAMA_HISTORICAL_RUNTIME']
-        cls.data = os.environ['YAMA_HISTORICAL_CARD_DATA']
-        cls.manifest = json.loads((HERE/'historical.json').read_text())
+        cls.binary = os.environ[cls.binary_env]
+        cls.data = os.environ[cls.data_env]
+        cls.manifest = json.loads((cls.recipe/'historical.json').read_text())
         result = subprocess.run([cls.binary, '--fixture', cls.data], env={},
                                 capture_output=True, text=True, timeout=90, check=True)
         cls.fixture = json.loads(result.stdout)
@@ -45,7 +49,7 @@ class HistoricalControls(unittest.TestCase):
         try:
             greeting = read()
             self.assertEqual(greeting['hello'], self.manifest)
-            self.assertEqual(greeting['source'], json.loads((HERE/'historical-source.json').read_text()))
+            self.assertEqual(greeting['source'], json.loads((self.recipe/'historical-source.json').read_text()))
             yield call
         finally:
             process.stdin.close()

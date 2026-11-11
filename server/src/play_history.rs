@@ -67,12 +67,17 @@ impl Config {
             std::env::current_exe().unwrap_or_default().with_file_name("historical-runtime-v0119"));
         let data = std::env::var_os("YAMA_V0119_CARD_DATA").map(PathBuf::from).unwrap_or_else(||
             current_data.with_file_name("card-data-cbd552b41f962f5b.json"));
-        let mut config = Self::new(binary, data);
-        config.runtime = V0119;
+        let mut config = Self::for_v0119(binary, data);
         config.digest = std::env::var_os("YAMA_V0119_RUNTIME_DIGEST").map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("/usr/local/share/yama/historical-runtime-v0119.sha256"));
         config
     }
+    pub fn for_v0119(binary: PathBuf, data: PathBuf) -> Self {
+        let mut config = Self::new(binary, data);
+        config.runtime = V0119;
+        config
+    }
+    pub fn identity(&self) -> &'static str { self.runtime.identity }
     pub fn new(binary: PathBuf, data: PathBuf) -> Self {
         let digest = binary.with_extension("sha256");
         Self {
@@ -700,7 +705,8 @@ fn run(
             advance = !v["settled"].as_bool().unwrap_or(true);
             // Admit pending human controls between bounded AI batches, including
             // a sole human who is already out. Rewind must stop the next batch.
-            break;
+            // The v0.113 driver keeps its original batching contract.
+            if worker.runtime.controls { break; }
         }
         let _ = views.send(Arc::new(saved.snapshot()));
         if saved.over { continue; }

@@ -765,11 +765,15 @@ async fn saved_bytes(pool: &SqlitePool, id: &str) -> String {
         .bind(id).fetch_one(pool).await.unwrap()
 }
 fn ready_hub(historical: Option<history::Config>) -> Arc<PlayHub> {
+    let (historical, historical_v0119) = match historical {
+        Some(config) if config.identity() == history::V0119_IDENTITY => (None, Some(config)),
+        other => (other, None),
+    };
     Arc::new(PlayHub {
         engine: Mutex::new(EngineState::Ready(Arc::new(engine()))),
         live: Mutex::new(HashMap::new()),
         historical,
-        historical_v0119: None,
+        historical_v0119,
         setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()),
     })
 }
@@ -877,12 +881,27 @@ fn loaded_content_must_match_even_when_the_filename_claims_the_right_hash() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "requires separately built pinned historical runtime and verified full historical data"]
 async fn historical_runtime_continues_live_games_and_rebuilds_final_boards_privately() {
-    use crate::testutil::{send as request, user};
-    use axum::http::{Method, StatusCode};
     let config = history::Config::new(
         std::env::var_os("YAMA_HISTORICAL_RUNTIME").expect("set historical binary").into(),
         std::env::var_os("YAMA_HISTORICAL_CARD_DATA").expect("set verified historical data").into(),
     );
+    exercise_historical_runtime(config).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires the frozen v0.119 runtime and verified full v0.119 data"]
+async fn v0119_runtime_continues_live_games_and_rebuilds_final_boards_privately() {
+    let config = history::Config::for_v0119(
+        std::env::var_os("YAMA_V0119_RUNTIME").expect("set v0.119 binary").into(),
+        std::env::var_os("YAMA_V0119_CARD_DATA").expect("set verified v0.119 data").into(),
+    );
+    exercise_historical_runtime(config).await;
+}
+
+async fn exercise_historical_runtime(config: history::Config) {
+    use crate::testutil::{send as request, user};
+    use axum::http::{Method, StatusCode};
+    let identity = config.identity();
     let output = std::process::Command::new(&config.binary).arg("--fixture").arg(&config.data).output().unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     let fixture: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
@@ -909,7 +928,7 @@ async fn historical_runtime_continues_live_games_and_rebuilds_final_boards_priva
             &pool,
             &format!("historical-{stage}"),
             &host,
-            Some(history::IDENTITY),
+            Some(identity),
             stage,
             fixture[stage]["replay"].as_str().unwrap(),
         )
@@ -1001,7 +1020,7 @@ async fn historical_runtime_continues_live_games_and_rebuilds_final_boards_priva
     }
     let (stage,version,original):(String,String,String)=sqlx::query_as("SELECT o.stage,g.engine_version,a.replay FROM online_games o JOIN games g ON g.id=o.game_id JOIN online_game_originals a ON a.game_id=g.id WHERE g.id='historical-live'").fetch_one(&pool).await.unwrap();
     assert_eq!(stage, "over");
-    assert_eq!(version, history::IDENTITY);
+    assert_eq!(version, identity);
     assert_eq!(original, live_original);
     let (code, body) = request(&app, Method::GET, "/api/play/historical-live/view", Some(&token), None).await;
     assert_eq!(code, StatusCode::OK, "{body}");
@@ -1010,9 +1029,9 @@ async fn historical_runtime_continues_live_games_and_rebuilds_final_boards_priva
     let dir = tempfile::tempdir().unwrap();
     let bad = dir.path().join("card-data-1e5608e61683de41.json");
     std::fs::write(&bad, "not JSON").unwrap();
-    let bad_config = history::Config::new(config.binary, bad);
+    let bad_config = if identity == history::V0119_IDENTITY { history::Config::for_v0119(config.binary, bad) } else { history::Config::new(config.binary, bad) };
     let bad_hub = ready_hub(Some(bad_config));
-    saved_game(&pool, "wrong-content", &host, Some(history::IDENTITY), "live", "invalid replay must not be parsed").await;
+    saved_game(&pool, "wrong-content", &host, Some(identity), "live", "invalid replay must not be parsed").await;
     let before = saved_bytes(&pool, "wrong-content").await;
     bad_hub.resume_live(&pool).await;
     assert!(bad_hub.live("wrong-content").is_none());

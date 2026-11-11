@@ -12,17 +12,14 @@
 # Read-only friendly: the worker writes only to /work (tmpfs: deck files and one Forge user dir per JVM) and
 # /tmp (tmpfs, for the JVMs). Forge's card index is built here, at image build, into /opt/forge-index.
 ARG JAVA_IMAGE=eclipse-temurin:17-jre
-# Forge is Yama's own build (yama3, 2026-10-30: yama2's Forge, master 3ead7e68 with AI speed fixes, plus
-# yama-serve.jar for long-lived JVMs; notes in
-# forge-worker/README.md), not a release download. The build is Forge code (GPL-3.0), so it stays out of Yama:
-# forge-referee's dist/build-dist.sh makes the tarball (a release's layout: the desktop jar and res/), and
-# deploy/forge-dist.sh installs it on saget as the local image yama-forge-dist:<FORGE_DIST>. The build refuses a
-# tarball whose SHA-256 isn't this pin. Without the image the release build fails for all three services and
-# production keeps running: install it before merging a new pin. The jar is renamed to end in the first 8 digits
-# of that SHA-256, so results carry "forge <version>.<sha8>" (forge 2.0.16-745401a4+yama3.54567890: the Forge
-# branch commit, the build's name and the tarball): another tarball never shares a label.
-ARG FORGE_DIST=yama3
-ARG FORGE_DIST_SHA256=54567890aa6641b61c02ea5d3b613fb33fa0ccf24a46858e67f4278dec9caac3
+# Forge 2.0.16 release 583714b8 with the five retained Yama AI/determinism
+# changes and a shared-team poison-defense integration fix (source 559a7be0).
+# forge-referee dist/build-dist.sh compiles the unchanged long-lived JVM harness
+# against this jar. GPL code stays outside Yama and is installed on saget as
+# yama-forge-dist:<FORGE_DIST> before this pin merges. The tarball hash binds
+# resources and harness; results include its first eight hex digits.
+ARG FORGE_DIST=yama4
+ARG FORGE_DIST_SHA256=c77b32ebedaf37d890560c0f13fd9a54887ab2954d8e3681cd3cb46a2beccfab
 ARG FORGE_DIST_IMAGE=yama-forge-dist:${FORGE_DIST}
 
 FROM ${FORGE_DIST_IMAGE} AS forgedist
