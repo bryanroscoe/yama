@@ -286,12 +286,13 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
               if (again && sharing) announceNext(id);
               finishGame(finishing.winner, details, first);
               if (!again) return navigate("/");
-              // The same seats and commanders, from the start. Commanders swapped mid-game come along.
+              // The same seats and commanders, from the start. Commanders swapped mid-game come along,
+              // and so do places swapped: seats are numbered again in the order people now sit.
               startGame({
                 ...setup,
                 id,
                 startedAt: new Date().toISOString(),
-                players: state.players.map(({ seat, name, memberId, userId, deckVersionId, deckLabel, commanderName, partnerName, colorIdentity, art, artist, partnerArt, partnerArtist }) =>
+                players: seatOrder(state).flatMap((s, i) => state.players.filter((p) => p.seat === s).map((p) => ({ ...p, seat: i }))).map(({ seat, name, memberId, userId, deckVersionId, deckLabel, commanderName, partnerName, colorIdentity, art, artist, partnerArt, partnerArtist }) =>
                   ({ seat, name, memberId, userId, deckVersionId, deckLabel, commanderName, partnerName, colorIdentity, art, artist, partnerArt, partnerArtist })),
               });
               setFinishing(null);
@@ -1159,7 +1160,6 @@ function FinishSheet({ state, winner, onBack, onSave }: {
   );
 }
 
-/** Who gets the turn next: the next seat clockwise still in the game, as pass_turn does it. */
 /**
  * People sat down somewhere other than setup put them: select two and they trade places. Their
  * panels move, and turns go around in the new order; everything else stays with each player.
@@ -1200,6 +1200,7 @@ function SwapPlaces({ state, artFor }: { state: TableState; artFor: ArtFor }) {
   );
 }
 
+/** Who gets the turn next: the next seat clockwise still in the game, as pass_turn does it. */
 function nextPlayer(state: TableState): PlayerState | undefined {
   const seat = nextSeat(state);
   return state.players.find((p) => p.seat === seat);
