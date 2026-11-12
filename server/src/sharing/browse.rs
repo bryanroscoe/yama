@@ -439,7 +439,10 @@ pub(crate) async fn precon_section(pool: &SqlitePool, precon: &str) -> AppResult
 /// How many listed decks each commander leads, by the commander's name in lower case. One
 /// query for a whole page of commanders.
 pub(crate) async fn commander_counts(pool: &SqlitePool) -> AppResult<HashMap<String, i64>> {
-    refresh_faces(pool).await?;
+    // As in `listed`: a face that can't be made must not take the ranking page down.
+    if let Err(err) = refresh_faces(pool).await {
+        tracing::warn!(error = ?err, "commander ranking: making deck faces failed; counting the ones already kept");
+    }
     // `LISTED` is a constant; nothing is bound.
     let rows: Vec<(String, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT c.value, COUNT(*) FROM decks d JOIN users u ON u.id = d.owner_id

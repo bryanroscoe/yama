@@ -259,6 +259,7 @@ async fn the_first_listing_after_many_decks_are_listed_is_complete() {
     let (_, body) = send(&app, Method::GET, "/api/public/browse", None, None).await;
     assert_eq!((&body["total"], &body["pages"]), (&json!(205), &json!(9)));
     assert_eq!(names(&app, "?q=Deck%20000").await, ["Deck 000"]);
+}
 
 #[tokio::test]
 async fn a_precons_page_lists_the_public_decks_started_from_it() {
