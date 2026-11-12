@@ -19,10 +19,10 @@ import "./homePage.css";
 
 /**
  * What works without an account, in the order Home lists it. `page`: a page the server draws (a
- * document link). A new public page is one line here: Check a deck (`/check`) goes first and
- * Browse decks (`/decks/browse`) before the precons, once those routes exist.
+ * document link). A new public page is one line here.
  */
 export const HOME_LINKS: { to: string; title: string; text: string; action: string; page?: boolean }[] = [
+  { to: "/check", title: "Check a deck", text: "Paste a list to see if it's legal, what bracket it plays like, its power level and its market value. The list stays in your browser.", action: "Check a deck" },
   { to: "/play/table", title: "Start a game", text: "A life counter for up to six players. Games stay on this device.", action: "Count life" },
   { to: "/play", title: "Play the computer", text: "A game of Commander online, with precons to choose from. In alpha: expect bugs and slow turns.", action: "Play online" },
   { to: "/decks/browse", title: "See what people are building", text: "Commander decks players have made public, by commander, colors and bracket.", action: "Browse decks" },
@@ -78,7 +78,7 @@ function SignedOutHome() {
     <main className="page home-page">
       <header className="home-intro">
         <h1>Commander, at your table.</h1>
-        <p className="home-lede">Yama is a free Magic: The Gathering app for Commander players. Count life, look up cards and compare precons without an account. Sign in to keep your decks, your collection and your playgroup's games.</p>
+        <p className="home-lede">Yama is a free Magic: The Gathering app for Commander players. Count life, check a deck, look up cards and compare precons without an account. Sign in to keep your decks, your collection and your playgroup's games.</p>
         <p>
           {/* One primary: going back to a game counted here without an account, else the way in. */}
           <ButtonLink variant={going ? "outline" : "primary"} to="/signin">Sign in</ButtonLink>
