@@ -30,7 +30,7 @@ describe("the public pages' frame", () => {
   });
 
   it("lists the Decks pages someone signed out sees in the app, by the same names", () => {
-    const table = rust.match(/DECKS_PAGES: \[[^\]]*\] = \[([^\n]*)\];/)?.[1] ?? "";
+    const table = rust.match(/DECKS_PAGES: \[[^\]]*\] =\s*\[([^\n]*)\];/)?.[1] ?? "";
     const pages = [...table.matchAll(/\("(\/[^"]*)", "([^"]+)"\)/g)].map((m) => [m[1], m[2]]);
     expect(pages.length).toBeGreaterThan(0);
     const app = sectionsFor(tab("decks"), guest).map((s) => [s.to, s.label]);
