@@ -16,7 +16,7 @@ import { ConfidenceLine, ConfidenceNote } from "./confidence";
 import { LabHead } from "./LabLayout";
 import { experimentLabel, useBaseConfidence } from "./Run";
 import { baseConfidence, baseConfidenceSentence, cantJudge, caveat, durationText, expectedSeconds, gameChoices, grouped, hasResults, identityQuery, playedCount, pointsRange, pointsWord, type BaseLine } from "./logic";
-import { DeckChooser, defaultField, EnginePicker, EngineSupportNote, engineFields, engineState, engineText, FieldPicker, forgeSeconds, fromDeckSummary, GamesPicker, PLAN_STATES, RunBlockers, useField, usePace, usePlanLists, type Chosen, type EngineState, type FieldState } from "./pickers";
+import { DeckChooser, defaultField, EnginePicker, EngineSupportNote, engineFields, engineState, engineText, offeredEngines, FieldPicker, forgeSeconds, fromDeckSummary, GamesPicker, PLAN_STATES, RunBlockers, useField, usePace, usePlanLists, type Chosen, type EngineState, type FieldState } from "./pickers";
 import { usePrecons } from "./Precons";
 
 /** A chosen list with its lines loaded. */
@@ -64,7 +64,7 @@ function TryForm() {
     return { kind: f.kind, anchor: f.kind === "precons_near" ? (f.ids[0] ?? "") : "", myDecks: f.kind === "my_decks" ? f.ids : [] };
   });
   const [gamesPicked, setGames] = useState<number | null>(prefill?.games ?? null);
-  const [engines, setEngines] = useState<EngineState>(() => engineState(prefill));
+  const [enginesPicked, setEngines] = useState<EngineState>(() => engineState(prefill));
   const [name, setName] = useState("");
   const [swapping, setSwapping] = useState<string | null>(null);
   const opId = useRef(crypto.randomUUID());
@@ -73,6 +73,7 @@ function TryForm() {
   const precons = usePrecons();
   const { lists: planLists, view: plan } = usePlanLists();
   const pace = usePace();
+  const engines = offeredEngines(enginesPicked, pace.data);
   const choices = gameChoices(pace.data);
 
   // Where the page starts: "Try again", ?deck=, ?precon= or ?plan=<deck>&state=<state>.

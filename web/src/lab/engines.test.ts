@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ExperimentDetail, Pace, Summary } from "./api";
-import { engineFields, engineLine, engineState, engineText, forgeSeconds, halfOf } from "./engines";
+import { engineFields, engineLine, engineState, engineText, forgeSeconds, halfOf, offeredEngines } from "./engines";
 
 const summary = (engine: string, wins: number): Summary =>
   ({
@@ -25,6 +25,19 @@ describe("engine choice", () => {
     expect(engineText(phase)).toBe("Easy AI");
     expect(engineText({ ...both, mode: "forge" })).toBe("Forge's Reckless AI");
     expect(engineText(both)).toBe("Medium AI on Phase and Forge's Reckless AI");
+  });
+
+  it("falls back to Phase when a carried-over Forge choice isn't offered to this account", () => {
+    const forge = engineState({ engines: { mode: "forge", forge_ai: "Reckless" } });
+    const pace = (configured: boolean) => ({ forge: { configured } }) as Pace;
+    // The one short run a day plays on Phase: the server reports no Forge for the account.
+    expect(offeredEngines(forge, pace(false))).toEqual({ ...forge, mode: "phase" });
+    expect(engineFields(offeredEngines({ ...forge, mode: "both" }, pace(false)))).toEqual({ difficulty: "Easy" });
+    expect(offeredEngines(forge, {} as Pace).mode).toBe("phase");
+    // Offered, or not known yet: the choice stands.
+    expect(offeredEngines(forge, pace(true))).toBe(forge);
+    expect(offeredEngines(forge, undefined)).toBe(forge);
+    expect(offeredEngines(engineState(), pace(false)).mode).toBe("phase");
   });
 
   it("estimates Forge time from its game length and slots, rounded up to 5 minutes", () => {

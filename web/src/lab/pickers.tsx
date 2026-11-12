@@ -463,7 +463,7 @@ export function RunBlockers({ items }: { items: { text: string; href?: string; l
 
 // ── engines ──────────────────────────────────────────────────────────────────
 
-export { engineFields, engineState, engineText, forgeSeconds, type EngineState } from "./engines";
+export { engineFields, engineState, engineText, forgeSeconds, offeredEngines, type EngineState } from "./engines";
 
 const ENGINE_OPTIONS: { id: EngineMode; label: string }[] = [
   { id: "phase", label: "Phase" },

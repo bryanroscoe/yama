@@ -1374,6 +1374,8 @@ pub async fn more_lab_games(st: &AppState, user: &User, via: &Via, args: &Value)
     crate::lab::experiments::require_allowance(user, &st.cfg.lab_quota)?;
     let id = arg::text(args, "id")?;
     let run = run_info(&st.pool, &user.id, id).await?;
+    // A run on Forge can't be added to or repeated on the short allowance: say so now, not at Apply.
+    crate::lab::experiments::require_engine(user, run.engine != "phase")?;
     if matches!(run.mode.as_str(), "versus" | "tournament") {
         return Err(AppError::bad("A head-to-head run can't take more games; use rerun_lab_run."));
     }
@@ -1418,6 +1420,8 @@ pub async fn run_lab_again(st: &AppState, user: &User, via: &Via, args: &Value) 
     crate::lab::experiments::require_allowance(user, &st.cfg.lab_quota)?;
     let id = arg::text(args, "id")?;
     let run = run_info(&st.pool, &user.id, id).await?;
+    // A run on Forge can't be added to or repeated on the short allowance: say so now, not at Apply.
+    crate::lab::experiments::require_engine(user, run.engine != "phase")?;
     let had = if run.mode == "tournament" {
         let target: Option<i64> = sqlx::query_scalar("SELECT json_extract(spec, '$.games_per_deck') FROM lab_experiments WHERE id=? AND owner_id=?")
             .bind(id).bind(&user.id).fetch_one(&st.pool).await?;

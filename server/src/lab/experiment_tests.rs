@@ -139,6 +139,13 @@ fn list_of(commander: &str, extra: &[&str]) -> Vec<(String, u32, bool)> {
 /// can't play) and a global rating run that rates p1 to p5.
 async fn fixture() -> SqlitePool {
     let pool = crate::db::test_pool().await;
+    seed(&pool).await;
+    pool
+}
+
+/// The fixture's users, cards, precons and ratings, in any database.
+async fn seed(pool: &SqlitePool) {
+    let pool = pool.clone();
     add_user(&pool, "bryan", false).await;
     add_user(&pool, "other", false).await;
     add_user(&pool, "admin", true).await;
@@ -188,7 +195,6 @@ async fn fixture() -> SqlitePool {
             .await
             .unwrap();
     }
-    pool
 }
 
 fn req(v: Value) -> NewExperiment {
@@ -324,7 +330,7 @@ async fn an_account_that_isnt_a_power_user_runs_one_short_simulation_a_day() {
     assert_eq!((done.item.status.as_str(), done.item.summary.as_ref().map(|s| s.paired.pods)), ("done", Some(10)));
 
     // That was today's: a new run, the same run again and more games on it are all refused, and
-    // the refusal says the limit and what was used. Deleting the run doesn't hand the day back.
+    // the refusal says the limit and what was used.
     let used_up = |e: AppError| matches!(&e, AppError::Conflict(m) if m.contains("20 games a day") && m.contains("asked for 20") && m.contains("About page") && !m.contains("invite"));
     assert!(used_up(create_with(&pool, &pat, with_op("op-2"), sim.as_ref(), &quota, &fa).await.unwrap_err()));
     assert!(used_up(again_with(&pool, &pat, &first.item.id, 20, None, sim.as_ref(), &quota, &fa).await.unwrap_err()));
@@ -346,6 +352,9 @@ async fn an_account_that_isnt_a_power_user_runs_one_short_simulation_a_day() {
     assert_eq!(more.item.progress.total, 40);
     worker.drain().await;
     assert!(used_up(again_with(&pool, &pat, &first.item.id, 20, None, sim.as_ref(), &quota, &fa).await.unwrap_err()));
+    // Deleting the run doesn't hand the day back.
+    delete(&pool, "bryan", &first.item.id).await.unwrap();
+    assert!(used_up(create_with(&pool, &pat, with_op("op-3"), sim.as_ref(), &quota, &fa).await.unwrap_err()));
 
     // A power user's run from before the account lost the grant is still theirs to read, and the
     // short allowance is what they may start now.
@@ -366,16 +375,16 @@ async fn an_account_that_isnt_a_power_user_runs_one_short_simulation_a_day() {
 
 /// The short run costs lab time, so its daily count has to hold when requests arrive together:
 /// the allowance is checked again in the transaction that stores the run, after the write lock.
-#[tokio::test]
-async fn the_daily_short_run_holds_when_requests_arrive_together() {
-    let pool = fixture().await;
+/// Twelve requests at once, three times: one run, none once the day is used, one on a new day.
+async fn daily_short_run_holds(pool: &SqlitePool) {
     let sim = FakeSim::new();
     let quota = crate::config::LabQuota::default();
     let fa = ForgeAccess::default();
     let pat = User { power: false, ..user("bryan", false) };
-    let started = futures_util::future::join_all((0..12).map(|_| create_with(&pool, &pat, swap_req(20), sim.as_ref(), &quota, &fa))).await;
+    let started = futures_util::future::join_all((0..12).map(|_| create_with(pool, &pat, swap_req(20), sim.as_ref(), &quota, &fa))).await;
     let ok = started.iter().filter(|r| r.is_ok()).count();
     assert_eq!(ok, 1, "one run, however many are asked for at once");
+    // Every other request hears a limit; none fails on the database being busy.
     for refused in started.into_iter().filter_map(Result::err) {
         assert!(matches!(&refused, AppError::Conflict(m) if m.contains("one experiment at a time") || m.contains("20 games a day")), "{refused:?}");
     }
@@ -383,7 +392,7 @@ async fn the_daily_short_run_holds_when_requests_arrive_together() {
         "SELECT (SELECT COUNT(*) FROM lab_experiments WHERE owner_id = 'bryan'), (SELECT COUNT(*) FROM lab_experiment_games),
                 (SELECT COALESCE(SUM(games), 0) FROM lab_usage WHERE owner_id = 'bryan')",
     )
-    .fetch_one(&pool)
+    .fetch_one(pool)
     .await
     .unwrap();
     assert_eq!((runs, games, charged), (1, 20, 20), "the refused requests stored and charged nothing");
@@ -392,14 +401,33 @@ async fn the_daily_short_run_holds_when_requests_arrive_together() {
     // count can refuse: again, together.
     let worker = LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone()));
     worker.drain().await;
-    let again = futures_util::future::join_all((0..12).map(|_| create_with(&pool, &pat, swap_req(20), sim.as_ref(), &quota, &fa))).await;
+    let again = futures_util::future::join_all((0..12).map(|_| create_with(pool, &pat, swap_req(20), sim.as_ref(), &quota, &fa))).await;
     assert!(again.iter().all(|r| matches!(r, Err(AppError::Conflict(m)) if m.contains("20 games a day"))), "the day is used");
     // A new day, together: one run again.
-    sqlx::query("UPDATE lab_usage SET created_at = '2026-01-01T00:00:00Z'").execute(&pool).await.unwrap();
-    let next = futures_util::future::join_all((0..12).map(|_| create_with(&pool, &pat, swap_req(20), sim.as_ref(), &quota, &fa))).await;
+    sqlx::query("UPDATE lab_usage SET created_at = '2026-01-01T00:00:00Z'").execute(pool).await.unwrap();
+    let next = futures_util::future::join_all((0..12).map(|_| create_with(pool, &pat, swap_req(20), sim.as_ref(), &quota, &fa))).await;
     assert_eq!(next.iter().filter(|r| r.is_ok()).count(), 1);
-    let charged: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(games), 0) FROM lab_usage WHERE owner_id = 'bryan'").fetch_one(&pool).await.unwrap();
+    let charged: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(games), 0) FROM lab_usage WHERE owner_id = 'bryan'").fetch_one(pool).await.unwrap();
     assert_eq!(charged, 40);
+}
+
+/// On the tests' one connection: the requests take turns at it, so this is the order of the
+/// checks and the charge.
+#[tokio::test]
+async fn the_daily_short_run_holds_when_requests_arrive_together() {
+    daily_short_run_holds(&fixture().await).await;
+}
+
+/// As production runs it (`db::connect`): a database file in WAL mode and eight connections, on
+/// several threads, so the requests really race for SQLite's write lock.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_daily_short_run_holds_across_database_connections() {
+    let dir = tempfile::tempdir().unwrap();
+    let url = format!("sqlite://{}", dir.path().join("lab.db").display());
+    let pool = crate::db::connect(&url, std::time::Duration::from_secs(60)).await.unwrap();
+    seed(&pool).await;
+    daily_short_run_holds(&pool).await;
+    pool.close().await;
 }
 
 #[tokio::test]
