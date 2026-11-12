@@ -111,7 +111,7 @@ Camera OCR in Collection; swap checks from Plans, Prints, Swap sheet or a plan d
 
 ### Brackets
 
-A declared bracket per deck (chips on the deck list, table setup and online lobby), shown beside a starting suggestion from Commander Spellbook's card-list signals: Game Changers, mass land denial, extra turns and combos. Unflagged lists start provisionally at Core (2); Exhibition (1) and cEDH (5) are chosen by the owner. The deck page explains why beside the cards: the 1 to 10 power level (its dial is on the Stats tab), the Game Changers and the cards in each two-card combo with what the combo does (roll over a chip to see the card). On the Stats tab, the five scores compare with the deck's own stock list or any earlier version, showing how far power moved, as well as with a typical precon, Bracket 4 or cEDH. Checked in the background after a save; turn off with `YAMA_DECK_CHECKS=0`.
+A declared bracket per deck (chips on the deck list, table setup and online lobby), shown beside a starting suggestion from Commander Spellbook's card-list signals: Game Changers, mass land denial, extra turns and combos. Unflagged lists start provisionally at Core (2); Exhibition (1) and cEDH (5) are chosen by the owner. The deck page explains why beside the cards: the 1 to 10 power level (its dial is on the Stats tab), the Game Changers and the cards in each two-card combo with what the combo does (roll over a chip to see the card). On the Stats tab, the five scores compare with the deck's own stock list, any earlier version or another of your decks, showing how far power moved, as well as with a typical precon, Bracket 4 or cEDH. Checked in the background after a save; turn off with `YAMA_DECK_CHECKS=0`.
 
 ### Deck stats and export
 

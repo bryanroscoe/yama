@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { bandOf, isStockConfiguration, landFaceCopies, colorShares, curveColumns, curveSpread, DIAL, dialAngle, dialArc, dialPoint, groupTotal, marginSpan, playsLike, inputsNote, pctWidth, points, POWER_BANDS, referenceOf, comparisonOf, earlierVersions, powerChange, stockListOf } from "./statsTab";
-import { analysisView } from "./analysisFixture";
+import { bandOf, isStockConfiguration, landFaceCopies, colorShares, curveColumns, curveSpread, DIAL, dialAngle, dialArc, dialPoint, groupTotal, marginSpan, playsLike, inputsNote, pctWidth, points, POWER_BANDS, referenceOf, comparisonOf, earlierVersions, powerChange, stockListOf, comparisonOfDeck, otherDecks } from "./statsTab";
+import { analysis, analysisView } from "./analysisFixture";
+import type { DeckSummary } from "../api";
 
 const near = (a: number, b: number) => expect(Math.abs(a - b)).toBeLessThan(1e-9);
 
@@ -138,7 +139,23 @@ describe("comparing the five scores", () => {
   it("says how far power moved", () => {
     expect(powerChange(6.2, 3.4)).toBe("+2.8");
     expect(powerChange(3.4, 6.2)).toBe("−2.8");
-    expect(powerChange(5, 5.04)).toBe("no change");
+    expect(powerChange(5, 5.04)).toBe("the same");
     expect(powerChange(6.26, 3.44)).toBe("+2.9");
+  });
+});
+
+describe("comparing with another deck", () => {
+  it("uses that deck's own scores and power", () => {
+    const other = analysis(7.1);
+    const c = comparisonOfDeck("Atraxa", other);
+    expect(c?.name).toBe("Atraxa");
+    expect(c?.power).toBe(7.1);
+    expect(c?.value("speed")).toBe(other.vectors.find((v) => v.key === "speed")!.score);
+    expect(comparisonOfDeck("Atraxa", null)).toBeNull();
+  });
+  it("offers your other decks with a saved list, by name", () => {
+    const d = (id: string, name: string, v: string | null) => ({ id, name, current_version_id: v }) as DeckSummary;
+    expect(otherDecks([d("me", "Lorehold", "v"), d("b", "Zur", "v"), d("c", "Atraxa", "v"), d("e", "Empty", null)], "me").map((x) => x.id)).toEqual(["c", "b"]);
+    expect(otherDecks(undefined, "me")).toEqual([]);
   });
 });

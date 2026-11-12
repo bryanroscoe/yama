@@ -2,7 +2,7 @@
 // bracket bands, the reference marks on the five scores, and the curve and color summaries.
 
 import type { ColorStat, CurveBucket, StatCard } from "@yama/core";
-import type { DeckAnalysisView, VectorKey } from "../api";
+import type { DeckAnalysis, DeckAnalysisView, DeckSummary, VectorKey } from "../api";
 
 /** The dial: a half circle from 1 (left) to 10 (right) around (CX, CY). */
 export const DIAL = { cx: 160, cy: 160, r: 130, needle: 108 } as const;
@@ -77,8 +77,8 @@ export const referenceOf = (r: Reference) => REFERENCES.find((x) => x.key === r)
 export interface Comparison {
   /** Shown after "Amber marks:". */
   name: string;
-  /** Its mark on each score, out of 100. */
-  value: (key: VectorKey) => number;
+  /** Its mark on each score, out of 100; null when it has no such score. */
+  value: (key: VectorKey) => number | null;
   /** Its power level, when it's one of this deck's own lists. */
   power: number | null;
 }
@@ -105,11 +105,24 @@ export function comparisonOf(r: Reference | "own-stock" | `version:${string}`, v
   return t ? { name: t.name, value: () => t.value, power: null } : null;
 }
 
-/** "+0.4", "-1.2", "no change": how far the power level moved from what it's compared with. */
+/** Another of your decks, from its own analysis: its mark on each score and its power level. */
+export function comparisonOfDeck(name: string, other: DeckAnalysis | null | undefined): Comparison | null {
+  if (!other) return null;
+  const score = new Map(other.vectors.map((v) => [v.key, v.score]));
+  // A score the other deck lacks gets no mark (never a mark at 0).
+  return { name, value: (k) => score.get(k) ?? null, power: other.power };
+}
+
+/** The decks you can compare with: your others that have a saved list, by name. */
+export function otherDecks(decks: DeckSummary[] | undefined, thisId: string): DeckSummary[] {
+  return (decks ?? []).filter((d) => d.id !== thisId && d.current_version_id != null).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** "+0.4", "-1.2", "the same": how far the power level moved from what it's compared with. */
 export function powerChange(now: number, then: number): string {
   // Round each first, so the change matches the two numbers as shown.
   const d = Math.round(now * 10) / 10 - Math.round(then * 10) / 10;
-  return Math.abs(d) < 0.05 ? "no change" : `${d > 0 ? "+" : "−"}${Math.abs(d).toFixed(1)}`;
+  return Math.abs(d) < 0.05 ? "the same" : `${d > 0 ? "+" : "−"}${Math.abs(d).toFixed(1)}`;
 }
 
 /** A bar's width: 0 to 100 percent. */

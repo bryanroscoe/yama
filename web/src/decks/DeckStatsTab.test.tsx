@@ -80,7 +80,7 @@ describe("DeckStatsTab", () => {
     for (const left of ["40%", "75%", "95%"]) expect(html).toContain(`class="mark" style="left:${left}"`);
     expect(html).toContain("40 a typical precon");
     expect(html).toContain('aria-label="Compare with"');
-    for (const r of ["Nothing", "Its stock list", "Earlier version", "Typical precon", "Bracket 4", "cEDH"]) expect(html).toContain(`>${r}</button>`);
+    for (const r of ["Nothing", "Its stock list", "Earlier version", "Another deck", "Typical precon", "Bracket 4", "cEDH"]) expect(html).toContain(`>${r}</button>`);
   });
 
   it("opens on the first score with the cards behind it and their points", () => {
