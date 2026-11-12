@@ -1087,7 +1087,7 @@ fn status_of(found: &Found, asked: Option<usize>) -> &'static str {
         Some(n) => n.saturating_sub(found.failed.len()),
         None => usize::from(found.errors.is_empty() || !found.listings.is_empty()),
     };
-    if answered == 0 && (asked.is_none_or(|n| n > 0)) {
+    if (answered == 0 && asked.is_none_or(|n| n > 0)) || (found.listings.is_empty() && !found.errors.is_empty() && asked == Some(0)) {
         "error"
     } else if !found.failed.is_empty() || !found.errors.is_empty() {
         "partial"

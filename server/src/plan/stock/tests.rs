@@ -754,3 +754,12 @@ fn a_cached_sold_out_variant_can_restock_without_a_catalog_refresh() {
     assert!(!refresh_variant_availability(&mut listings,&json!({"variants":[{"id":123,"available":true}]})),"a truncated answer is not proof another variant is sold out");
     assert!(!refresh_variant_availability(&mut listings,&json!({"variants":[{"id":123,"available":true},{"id":123,"available":false}]})));
 }
+
+#[test]
+fn failed_catalog_only_refresh_is_an_error_even_without_requested_cards() {
+    let failed=Found {errors:vec!["catalog fetch failed; previous cache preserved".into()],..Default::default()};
+    assert_eq!(status_of(&failed,Some(0)),"error");
+    assert_eq!(status_of(&Found::default(),Some(0)),"ok","an empty successful catalog refresh is valid");
+    let partial=Found {errors:vec!["one card failed".into()],failed:vec!["Card A".into()],..Default::default()};
+    assert_eq!(status_of(&partial,Some(2)),"partial","a mixed card check still reports partial coverage");
+}
