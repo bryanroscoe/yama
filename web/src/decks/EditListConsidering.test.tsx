@@ -12,7 +12,7 @@ import { buildNotesKey } from "../research/api";
 import type { ImportPreview } from "./importLogic";
 import { EditListPage } from "./EditListPage";
 
-const server = vi.hoisted(() => ({ saves: [] as Record<string, unknown>[] }));
+const server = vi.hoisted(() => ({ saves: [] as Record<string, unknown>[], answered: null as string | null }));
 const info = (name: string) => ({ oracle_id: name, name, type_line: "Artifact", mana_cost: null, cmc: 1, color_identity: "", image_small: null, image_normal: null, artist: null, can_be_commander: name === "Test Commander", any_number: false, partner: false });
 /** The preview of a plain Yama list: a line under Considering is a maybeboard card. */
 const preview = (text: string): ImportPreview => ({
@@ -22,7 +22,10 @@ const preview = (text: string): ImportPreview => ({
 vi.mock("../api", async (original) => ({
   ...(await original<typeof import("../api")>()),
   api: (path: string, init?: { method?: string; json?: Record<string, unknown> }) => {
-    if (path === "/api/decks/import/preview") return Promise.resolve(preview(init!.json!.text as string));
+    if (path === "/api/decks/import/preview") {
+      server.answered = init!.json!.text as string;
+      return Promise.resolve(preview(server.answered));
+    }
     if (path === "/api/decks/d1" && init?.method === "PUT") {
       server.saves.push(init.json!);
       return Promise.resolve({ version_id: "v2" });
@@ -45,14 +48,19 @@ const setBox = (value: string) =>
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(box(), value);
     box().dispatchEvent(new Event("input", { bubbles: true }));
   });
-/** Long enough for the box to be read again (700 ms after typing stops). */
-const read = () => act(async () => void (await new Promise((r) => setTimeout(r, 800))));
+const tick = (ms: number) => act(async () => void (await new Promise((r) => setTimeout(r, ms))));
+/** Until the box as it stands has been read (700 ms after typing stops, then the preview's answer), however busy the machine. */
+const read = async () => {
+  for (let i = 0; i < 80 && server.answered !== box().value; i++) await tick(100);
+  await tick(50);
+};
 const saveButton = () => [...host.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Save the list in the box")!;
 const save = () => act(async () => saveButton().click());
 const keep = () => host.querySelector<HTMLInputElement>('.edit-list-panel input[type="checkbox"]');
 
 beforeEach(async () => {
   server.saves.length = 0;
+  server.answered = null;
   const deck = {
     id: "d1", name: "Alpha Deck", version_id: "v1", parent_id: null, configuration: null,
     configurations: [{ id: "d1", name: "Alpha Deck", configuration: null }],
