@@ -48,6 +48,11 @@ const setValue = (el: HTMLInputElement | HTMLTextAreaElement, value: string) =>
     el.dispatchEvent(new Event("input", { bubbles: true }));
   });
 const wait = (ms: number) => act(async () => void (await new Promise((r) => setTimeout(r, ms))));
+/** Until the box as it stands has been read (700 ms after typing stops, then the preview's answer), however busy the machine. */
+const read = async () => {
+  for (let i = 0; i < 80 && server.previews.at(-1) !== box().value; i++) await wait(100);
+  await wait(50);
+};
 const hit = (name: string) => [...host.querySelectorAll("li[data-card]")].find((li) => li.querySelector("b")?.textContent === name)!;
 const button = (name: string, label: string) => [...hit(name).querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === label)!;
 
@@ -94,7 +99,7 @@ describe("Edit the list, with the card search", () => {
     expect(hit("Lightning Bolt").textContent).toContain("In the list");
     // The search's own edit stays editable while the box is read again.
     expect(button("Lightning Bolt", "Remove").disabled).toBe(false);
-    await wait(800);
+    await read();
     expect(server.previews.at(-1)).toBe(`${START}\n1 Lightning Bolt`);
     expect(host.textContent).toContain("1 change");
     expect(button("Lightning Bolt", "Remove").disabled).toBe(false);
@@ -117,7 +122,7 @@ describe("Edit the list, with the card search", () => {
     setValue(box(), `${START}\n1 Forest`);
     expect(button("Lightning Bolt", "Add").disabled).toBe(true);
     expect(host.textContent).toContain("Reading the list…");
-    await wait(800);
+    await read();
     expect(button("Lightning Bolt", "Add").disabled).toBe(false);
     expect(host.textContent).not.toContain("Reading the list…");
   });
@@ -127,7 +132,7 @@ describe("Edit the list, with the card search", () => {
     const mtgo = "1 Sol Ring\n98 Forest\n\n1 Test Commander";
     server.read = (text) => (text === mtgo ? { ...plain(text), decks: [{ ...plain(text).decks[0]!, cards: plain(text).decks[0]!.cards.map((c) => (c.name === "Test Commander" ? { ...c, board: "commander" } : c)) }] } : plain(text));
     setValue(box(), mtgo);
-    await wait(800);
+    await read();
     expect(button("Lightning Bolt", "Add").disabled).toBe(true);
     expect(host.textContent).toContain("This list is written in another site's format");
     const rewrite = [...host.querySelectorAll("button")].find((b) => b.textContent === "Rewrite it in Yama's format")!;

@@ -128,3 +128,4 @@ export function formFromGame(g: GameDetail, decks: DeckSummary[] = []): LogForm 
 export function settleRebuilt(found: Partial<SeatDraft>, readPartner: boolean, savedLabel: string | null | undefined): Partial<SeatDraft> {
   return readPartner && !found.partnerName && savedLabel ? { ...found, deckLabel: savedLabel } : found;
 }
+

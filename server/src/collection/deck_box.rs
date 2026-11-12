@@ -374,6 +374,8 @@ async fn add_deck_with_proxies(
                     purchase_price: None,
                     note: None,
                     proxy: None,
+                    altered: None,
+                    signed: None,
                     scryfall_id: None,
                     split: None,
                 });

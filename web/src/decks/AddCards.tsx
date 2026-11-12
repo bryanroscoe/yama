@@ -2,13 +2,16 @@
 // one press. The list stays text: a press changes a line of it (addToList, removeFromList), so
 // typing, pasting and searching all edit the same thing and the unsaved-changes guard sees them.
 import { useQuery } from "@tanstack/react-query";
-import { addToList, countInList, identityName, removeFromList } from "@yama/core";
+import { addToList, countInList, identityName, MAYBE, removeFromList } from "@yama/core";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { api, type SearchResult } from "../api";
 import { CardImage, EmptyState, ErrorText, Loading, ManaCost } from "../components/ui";
 import { identityQuery } from "../lab/logic";
 import { offlineSearch } from "../offline/cards";
 import { anyNumber, fitFor, inListText, moreText, ownedText, type Hit } from "./cardFit";
+
+/** Where a copy is taken from, in words. */
+const PLACES: Record<string, string> = { main: "the list", side: "the sideboard", [MAYBE]: "Considering" };
 
 /** How many results show: the most played that match. */
 const SHOWN = 12;
@@ -57,7 +60,7 @@ export function AddCards({ text, onChange, identity, disabled = false, note }: {
   const [said, setSaid] = useState("");
   // A press can take its own button away (Add, on a card a deck holds once). Focus then goes to
   // the button that stands for the card now, instead of being dropped.
-  const focusNext = useRef<{ card: string; act: "add" | "remove" } | null>(null);
+  const focusNext = useRef<{ card: string; act: "add" | "remove" | "consider" } | null>(null);
   useEffect(() => {
     const want = focusNext.current;
     if (!want) return;
@@ -66,18 +69,24 @@ export function AddCards({ text, onChange, identity, disabled = false, note }: {
     if (row && !row.contains(document.activeElement)) row.querySelector<HTMLElement>(`[data-act="${want.act}"]`)?.focus();
   }, [text]);
   const add = (c: Hit) => {
-    const next = addToList(text, c.name);
+    // A card being considered moves into the deck: it leaves the Considering list.
+    const next = addToList(countInList(text, c.name, MAYBE) > 0 ? removeFromList(text, c.name, MAYBE) : text, c.name);
     onChange(next);
     focusNext.current = { card: c.oracle_id, act: "remove" };
     setSaid(`Added ${c.name}: ${inListText(countInList(next, c.name, "main")).toLowerCase()}.`);
   };
-  /** Takes a copy from the main deck, else from the sideboard. Never the commander. */
-  const remove = (c: Hit, board: "main" | "side") => {
+  /** Takes a copy from the main deck, else the sideboard, else the Considering list. Never the commander. */
+  const remove = (c: Hit, board: string) => {
     const next = removeFromList(text, c.name, board);
     onChange(next);
     const left = countInList(next, c.name, board);
     focusNext.current = { card: c.oracle_id, act: left ? "remove" : "add" };
-    setSaid(left ? `Removed one ${c.name}: ${left} left.` : `Removed ${c.name} from the ${board === "main" ? "list" : "sideboard"}.`);
+    setSaid(left ? `Removed one ${c.name}: ${left} left.` : `Removed ${c.name} from ${PLACES[board] ?? "the list"}.`);
+  };
+  const consider = (c: Hit) => {
+    onChange(addToList(text, c.name, MAYBE));
+    focusNext.current = { card: c.oracle_id, act: "remove" };
+    setSaid(`Put ${c.name} under Considering.`);
   };
 
   return (
@@ -118,11 +127,15 @@ export function AddCards({ text, onChange, identity, disabled = false, note }: {
               const main = countInList(text, c.name, "main");
               const side = countInList(text, c.name, "side");
               const leads = countInList(text, c.name, "commander") > 0;
+              // Considering is kept with the deck but isn't in it.
+              const considering = countInList(text, c.name, MAYBE);
               const fit = fitFor(c, identity);
               const owned = ownedText(c);
-              const where = leads ? "Your commander" : main ? inListText(main) : side ? "In the sideboard" : "";
+              const where = leads ? "Your commander" : main ? inListText(main) : side ? "In the sideboard" : considering ? "Considering" : "";
+              const from = main > 0 ? "main" : side > 0 ? "side" : MAYBE;
               // The commander is changed in the list itself or with the commander picker, not from here.
-              const canRemove = !leads && (main > 0 || side > 0);
+              const canRemove = !leads && (main > 0 || side > 0 || considering > 0);
+              const canConsider = !leads && main === 0 && side === 0 && considering === 0;
               const canAdd = !leads && (main === 0 || anyNumber(c));
               return (
                 <li key={c.oracle_id} data-card={c.oracle_id}>
@@ -137,13 +150,20 @@ export function AddCards({ text, onChange, identity, disabled = false, note }: {
                       {owned && <span className={c.owned ? "edit-list-hit-own" : "dim"}>{owned}.</span>}
                     </span>
                   </span>
-                  {/* Remove and Add keep their own places, so a second press never lands on the other. */}
+                  {/* Remove, Consider and Add keep their own places, so a second press never lands on another. */}
                   <span className="edit-list-hit-actions">
                     <span className="small edit-list-hit-in">{where}</span>
                     <span className="edit-list-hit-slot">
                       {canRemove && (
-                        <button type="button" data-act="remove" disabled={disabled} onClick={() => remove(c, main > 0 ? "main" : "side")} aria-label={`Remove ${c.name} from the ${main > 0 ? "list" : "sideboard"}`}>
+                        <button type="button" data-act="remove" disabled={disabled} onClick={() => remove(c, from)} aria-label={`Remove ${c.name} from ${PLACES[from]}`}>
                           Remove
+                        </button>
+                      )}
+                    </span>
+                    <span className="edit-list-hit-slot">
+                      {canConsider && (
+                        <button type="button" data-act="consider" disabled={disabled} onClick={() => consider(c)} aria-label={`Consider ${c.name}: keep it with the deck, not in it`}>
+                          Consider
                         </button>
                       )}
                     </span>

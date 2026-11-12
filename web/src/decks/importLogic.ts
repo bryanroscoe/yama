@@ -2,7 +2,7 @@
 // person makes (pick a suggestion, leave a card out, choose the commander), the checks shown
 // before saving, and what gets saved.
 
-import type { Board, DeckCard } from "../api";
+import type { Board, DeckCard, MaybeCard } from "../api";
 
 export interface ImportCardInfo {
   oracle_id: string;
@@ -140,6 +140,8 @@ export interface Checks {
   /** Commander and main deck together. */
   total: number;
   sideboard: number;
+  /** Cards on the Considering list (a maybeboard): kept with the deck, not in it. */
+  considering: number;
   identity: string;
   offIdentity: ImportCard[];
   duplicates: ImportCard[];
@@ -152,7 +154,8 @@ export interface Checks {
 export function checks(draft: Draft): Checks {
   const inDeck = draft.cards.filter((c) => c.board !== "side");
   const total = inDeck.reduce((n, c) => n + c.qty, 0);
-  const sideboard = draft.cards.filter((c) => c.board === "side").reduce((n, c) => n + c.qty, 0);
+  const sideboard = draft.cards.filter((c) => c.board === "side" && !c.maybe).reduce((n, c) => n + c.qty, 0);
+  const considering = draft.cards.filter((c) => c.maybe).reduce((n, c) => n + c.qty, 0);
   const cmdrs = commanders(draft);
   const identity = identityOf(cmdrs);
   const offIdentity = cmdrs.length ? inDeck.filter((c) => [...c.color_identity].some((x) => !identity.includes(x))) : [];
@@ -169,7 +172,7 @@ export function checks(draft: Draft): Checks {
   if (duplicates.length) problems.push(`More than one copy of ${duplicates.slice(0, 4).map((c) => c.name).join(", ")}${duplicates.length > 4 ? "…" : ""}.`);
   // Count, colours and copies are worth a warning, not a block: people import decks in progress.
   const ready = !!draft.name.trim() && draft.unknown.length === 0 && inDeck.length > 0;
-  return { total, sideboard, identity, offIdentity, duplicates, problems, ready };
+  return { total, sideboard, considering, identity, offIdentity, duplicates, problems, ready };
 }
 
 /** A printing kept with a deck (server: deck_import::DeckPrint). A proxy with no printing named
@@ -182,17 +185,28 @@ export interface SavedPrint {
   proxy: boolean;
 }
 
-/** The deck routes' body: cards (merged by card and board) and the printings to keep. The server's
- *  `deck_import::read_list` does the same for `import-decks`. */
-export function toSave(draft: Draft): { cards: DeckCard[]; prints: SavedPrint[] } {
+/** The deck routes' body: cards (merged by card and board), the Considering list (the source's
+ *  maybeboard, merged by card: it is saved with the deck, never as part of its cards) and the
+ *  printings to keep. The server's `deck_import::read_list` merges cards and printings the same
+ *  way for `import-decks`, but still files a maybeboard's cards in the sideboard. */
+export function toSave(draft: Draft): { cards: DeckCard[]; prints: SavedPrint[]; maybe: MaybeCard[] } {
   const cards: DeckCard[] = [];
+  const maybe: MaybeCard[] = [];
   for (const c of draft.cards) {
+    if (c.maybe) {
+      const hit = maybe.find((x) => x.oracle_id === c.oracle_id);
+      if (hit) hit.qty += c.qty;
+      else maybe.push({ oracle_id: c.oracle_id, name: c.name, qty: c.qty });
+      continue;
+    }
     const hit = cards.find((x) => x.oracle_id === c.oracle_id && x.board === c.board);
     if (hit) hit.qty += c.qty;
     else cards.push({ oracle_id: c.oracle_id, name: c.name, qty: c.qty, board: c.board });
   }
   const prints = new Map<string, SavedPrint>();
   for (const c of draft.cards) {
+    // A printing is kept for a card in the deck, not for a line that is only being considered.
+    if (c.maybe) continue;
     if (prints.has(c.oracle_id)) continue;
     const named = !!c.set_code && c.print_found !== false;
     if (!named && !c.proxy) continue;
@@ -204,7 +218,7 @@ export function toSave(draft: Draft): { cards: DeckCard[]; prints: SavedPrint[] 
       proxy: !!c.proxy,
     });
   }
-  return { cards, prints: [...prints.values()] };
+  return { cards, prints: [...prints.values()], maybe };
 }
 
 export interface DiffLine {

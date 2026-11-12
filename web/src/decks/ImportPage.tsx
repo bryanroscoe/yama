@@ -225,11 +225,11 @@ function DraftView({ draft, setDraft, formatLabel, deckNames }: { draft: Draft; 
   const groups = useMemo(() => {
     const by = new Map<string, ImportCard[]>();
     for (const card of draft.cards) {
-      const g = card.board === "side" ? (card.maybe ? "Maybe" : "Sideboard") : groupOf(card.board, card.type_line);
+      const g = card.board === "side" ? (card.maybe ? "Considering" : "Sideboard") : groupOf(card.board, card.type_line);
       if (g === "Commander") continue;
       by.set(g, [...(by.get(g) ?? []), card]);
     }
-    const order = [...GROUP_ORDER.filter((g) => g !== "Commander" && g !== "Sideboard"), "Sideboard", "Maybe"];
+    const order = [...GROUP_ORDER.filter((g) => g !== "Commander" && g !== "Sideboard"), "Sideboard", "Considering"];
     return order.filter((g) => by.has(g)).map((g) => ({ group: g, cards: by.get(g)!.sort((a, b) => a.name.localeCompare(b.name)) }));
   }, [draft.cards]);
 
@@ -301,7 +301,7 @@ function DraftView({ draft, setDraft, formatLabel, deckNames }: { draft: Draft; 
         {groups.map(({ group, cards }) => (
           <section key={group} className="import-group">
             <h3>
-              {group === "Maybe" ? "Maybe" : group} <span className="dim num">{cards.reduce((n, x) => n + x.qty, 0)}</span>
+              {group} <span className="dim num">{cards.reduce((n, x) => n + x.qty, 0)}</span>
             </h3>
             <ul>
               {cards.map((card) => (
@@ -375,7 +375,7 @@ function SaveBar({
   const create = (d: Draft) => {
     const b = toSave(d);
     const name = d.name.trim();
-    return api<{ id: string }>("/api/decks", { method: "POST", json: { name, cards: b.cards, prints: b.prints, op_id: opIdFor(drafts.indexOf(d), name, b) } });
+    return api<{ id: string }>("/api/decks", { method: "POST", json: { name, cards: b.cards, prints: b.prints, maybe: b.maybe, op_id: opIdFor(drafts.indexOf(d), name, b) } });
   };
   const save = useMutation({
     mutationFn: async () => {
@@ -383,7 +383,8 @@ function SaveBar({
         // The list the changes above were worked out against: if the deck's list changed
         // elsewhere since, the save is refused instead of replacing it unseen.
         const base_version = current.data?.version_id ?? undefined;
-        await api(`/api/decks/${target}`, { method: "PUT", json: { cards: body.cards, prints: body.prints, base_version, note: note.trim() || `Imported${formatLabel ? ` from ${formatLabel}` : ""}` } });
+        // A list that brings a maybeboard replaces the deck's Considering list; one without leaves it.
+        await api(`/api/decks/${target}`, { method: "PUT", json: { cards: body.cards, prints: body.prints, ...(body.maybe.length ? { maybe: body.maybe } : {}), base_version, note: note.trim() || `Imported${formatLabel ? ` from ${formatLabel}` : ""}` } });
         return target;
       }
       return (await create(draft)).id;

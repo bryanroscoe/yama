@@ -16,6 +16,17 @@ describe("op ids for creating decks", () => {
     expect(opIdFor(0, "Rohan", JSON.parse(JSON.stringify(body)))).toBe(first);
   });
 
+  it("counts the Considering list: a deck whose maybeboard changed is another request", () => {
+    const opIdFor = createOpIds(counter());
+    const plain = opIdFor(0, "Rohan", body);
+    // No list, or an empty one, is the request it always was.
+    expect(opIdFor(0, "Rohan", { ...body, maybe: [] })).toBe(plain);
+    const one = opIdFor(0, "Rohan", { ...body, maybe: [{ oracle_id: "o-opt", name: "Opt", qty: 1 }] });
+    expect(one).not.toBe(plain);
+    expect(opIdFor(0, "Rohan", { ...body, maybe: [{ oracle_id: "o-opt", name: "Opt", qty: 1 }] })).toBe(one);
+    expect(opIdFor(0, "Rohan", { ...body, maybe: [{ oracle_id: "o-opt", name: "Opt", qty: 2 }] })).not.toBe(one);
+  });
+
   it("gives another deck, or the same deck changed, its own id", () => {
     const opIdFor = createOpIds(counter());
     const first = opIdFor(0, "Rohan", body);

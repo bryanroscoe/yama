@@ -4,7 +4,7 @@ import { api, ApiError, type CollectionItem, type Container, type Printing } fro
 import { CardRef } from "../components/CardRef";
 import { CardImage, ErrorText, Dialog, Loading, Segmented } from "../components/ui";
 import type { ScanCandidate } from "../scanner";
-import { finishChoices, finishFor, finishWord, opIds, printingLabel, reprintOps, type Op, type Scope } from "./collectionEdit";
+import { finishChoices, finishFor, finishWord, languageChoices, markDone, markOps, markWords, opIds, printingLabel, reprintOps, type Mark, type Op, type Scope } from "./collectionEdit";
 // The scan choices and their notes, shown here outside the scanner too.
 import "../scanner/scanner.css";
 import { shortDate, usd } from "@yama/core";
@@ -34,6 +34,9 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
   const [rescanning, setRescanning] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [scope, setScope] = useState<Scope>("all");
+  // Signed, altered and language are usually true of one copy in a row, so they ask which and
+  // start at one: a tick that marked the whole row could merge it into another for good.
+  const [markScope, setMarkScope] = useState<Scope>(item.qty > 1 ? "one" : "all");
   const [scanNote, setScanNote] = useState<string | null>(null);
   const [scanError, setScanError] = useState<unknown>(null);
   const copies = item.qty === 1 ? "this copy" : scope === "all" ? `all ${item.qty} copies` : "one copy";
@@ -63,6 +66,10 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
     staleTime: 60 * 60 * 1000,
   });
   const finishes = finishChoices(item.finish, printings.data?.find((p) => p.scryfall_id === item.scryfall_id)?.finishes);
+  const mark = (m: Mark) => {
+    const ops = markOps(item, m, markScope, () => ids.idFor(`mark:${JSON.stringify(m)}:${markScope}`));
+    if (ops.length > 0) save(ops, markDone(item, m, markScope));
+  };
   const reprint = (p: Printing) => {
     const ops = reprintOps(item, p, scope, reprintId(p));
     if (ops.length === 0) onClose();
@@ -141,7 +148,7 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
           <CardImage src={item.image_normal} name={item.name ?? ""} />
         </div>
         <p className="dim">
-          {item.set_name} #{item.collector_number}, {finishWord(item.finish)}, {item.condition}, {item.lang}
+          {[`${item.set_name} #${item.collector_number}`, finishWord(item.finish), item.condition, ...markWords(item)].join(", ")}
           {item.purchase_price != null ? `. Paid ${usd(item.purchase_price)}` : ""}
         </p>
         <div className="row">
@@ -237,6 +244,27 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
           This is a proxy
         </label>
         <p className="small faint">Moving all copies in this row. To move just one, remove one here and add it from the Cards tab into the new place.</p>
+
+        <section className="coll-marks stack" aria-labelledby={`marks-${item.id}`}>
+          <h3 id={`marks-${item.id}`}>About this copy</h3>
+          {item.qty > 1 && (
+            <Segmented label="Which copies to mark" value={markScope} onChange={setMarkScope} options={[["one", "Just one"], ["all", `All ${item.qty} copies`]]} />
+          )}
+          <label>
+            Language
+            <select value={item.lang} disabled={busy} onChange={(e) => mark({ lang: e.target.value })}>
+              {languageChoices(item.lang).map(([code, name]) => <option key={code} value={code}>{name}</option>)}
+            </select>
+          </label>
+          <label style={{ display: "flex", gap: "0.5rem", alignItems: "center", fontWeight: 400 }}>
+            <input type="checkbox" checked={!!item.signed} disabled={busy} style={{ width: "auto", minHeight: 0 }} onChange={(e) => mark({ signed: e.target.checked })} />
+            Signed
+          </label>
+          <label style={{ display: "flex", gap: "0.5rem", alignItems: "center", fontWeight: 400 }}>
+            <input type="checkbox" checked={!!item.altered} disabled={busy} style={{ width: "auto", minHeight: 0 }} onChange={(e) => mark({ altered: e.target.checked })} />
+            Altered art
+          </label>
+        </section>
 
         {deleting ? (
           <div className="coll-delete stack" role="alert">

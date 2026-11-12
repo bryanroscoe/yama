@@ -506,6 +506,19 @@ export interface CheapestPrinting {
   date?: string;
 }
 
+/** A card on a deck's Considering list. */
+export interface MaybeCard {
+  oracle_id: string;
+  name: string;
+  qty: number;
+}
+export interface MaybeEntry extends MaybeCard {
+  card: Card | null;
+  /** Real copies you own anywhere, and proxies. */
+  owned: number;
+  proxies: number;
+}
+
 export interface DeckEntry extends DeckCard {
   card: Card | null;
   owned: number;
@@ -554,6 +567,8 @@ export interface DeckView {
   /** The main deck and every configuration of it, this one included, main deck first. */
   configurations: ConfigurationRef[];
   cards: DeckEntry[];
+  /** The Considering list (a maybeboard): not in the deck, so in none of its counts, checks or prices. */
+  maybe?: MaybeEntry[];
   validation: { ok: boolean; total: number; color_identity: string; errors: string[]; warnings: string[]; prerelease?: string[] };
   ownership: {
     cards: number;

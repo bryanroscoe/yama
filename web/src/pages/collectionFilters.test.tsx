@@ -70,7 +70,10 @@ describe("collection filters", () => {
 
 describe("the collection as pictures", () => {
   it("shows each row's own printing whole, with copies, finish and price under it", () => {
-    const html = renderToStaticMarkup(<CollectionGrid items={[ring, atraxa, bolt, dryad]} onOpen={() => undefined} />);
+    const marked = item({ name: "Mount Doom", lang: "ja", signed: true, altered: true });
+    const html = renderToStaticMarkup(<CollectionGrid items={[ring, atraxa, bolt, dryad, marked]} onOpen={() => undefined} />);
+    // What makes a copy its own beside another of the same printing is said under it.
+    for (const tag of ["Japanese", "Signed", "Altered"]) expect(html).toContain(`>${tag}<`);
     // The normal-size image from Scryfall, untouched: no style or filter on it, nothing inside the button but the image.
     expect(html).toContain('src="https://cards.scryfall.io/normal/1.jpg"');
     expect(html).not.toMatch(/<img[^>]*style=/);

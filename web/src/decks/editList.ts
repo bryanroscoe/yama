@@ -1,5 +1,5 @@
 // Edit the list (/decks/:id/edit): which lists to start from, and the changes as pairs of cards.
-import { GROUP_ORDER, groupOf, fmtDate } from "@yama/core";
+import { GROUP_ORDER, groupOf, fmtDate, hasConsidering, listText, MAYBE, parseDeckList } from "@yama/core";
 import type { DeckVersionRow } from "../api";
 import { configurationLabel, pairChanges, type BuildChoice, type BuildFamily, type CardCopy, type SwapPair } from "./buildCatalog";
 
@@ -62,6 +62,44 @@ export function otherLists(family: BuildFamily | undefined, buttons: StartList[]
     .sort((a, b) => b.created_at.localeCompare(a.created_at))
     .map((v) => ({ id: `version:${v.id}`, label: v.note?.trim() ? v.note.trim() : `Version of ${fmtDate(v.created_at)}`, detail: `Saved ${fmtDate(v.created_at)}`, version: v.id }));
   return [...builds, ...saved];
+}
+
+/** A deck's list as the editor's text: its cards, then its Considering list under its own heading. */
+export function deckListText(deck: { cards: { qty: number; name: string; board: string }[]; maybe?: { qty: number; name: string }[] }): string {
+  return listText([...deck.cards, ...(deck.maybe ?? []).map((m) => ({ qty: m.qty, name: m.name, board: MAYBE }))]);
+}
+
+/**
+ * Another list's text (a plan's build, an older version) with this deck's Considering list under
+ * it, so starting from that list and saving doesn't quietly empty what the deck is considering.
+ * A text that brings its own Considering section keeps its own.
+ */
+export function withConsidering(text: string, maybe: { qty: number; name: string }[] | undefined): string {
+  if (!maybe?.length || parseDeckList(text).some((l) => l.board === MAYBE)) return text;
+  return `${text.trimEnd()}\n\n${listText(maybe.map((m) => ({ qty: m.qty, name: m.name, board: MAYBE })))}`;
+}
+
+/**
+ * What a save sends as the Considering list, from the list in the box. The text is the source of
+ * truth, with one guard: a text with no Considering section at all (a file, a pasted list, a
+ * link) says nothing about the deck's own, so that list is kept (`undefined`: the server keeps
+ * it) unless the person chose to drop it. A text that has the section, even empty, is its word.
+ */
+export function consideringToSend<T>(text: string, read: T[], deckHas: boolean, keep: boolean): T[] | undefined {
+  if (hasConsidering(text) || read.length) return read;
+  return deckHas && keep ? undefined : [];
+}
+
+/** Whether a save would change the deck's Considering list. */
+export function consideringChanged(sent: { oracle_id: string; qty: number }[] | undefined, now: { oracle_id: string; qty: number }[] | undefined): boolean {
+  if (sent === undefined) return false;
+  const tally = (list: { oracle_id: string; qty: number }[]) => {
+    const m = new Map<string, number>();
+    for (const c of list) m.set(c.oracle_id, (m.get(c.oracle_id) ?? 0) + c.qty);
+    return m;
+  };
+  const [a, b] = [tally(sent), tally(now ?? [])];
+  return a.size !== b.size || [...a].some(([id, qty]) => b.get(id) !== qty);
 }
 
 /** What a changed card is, to pair it: its board, type line and mana value. */
