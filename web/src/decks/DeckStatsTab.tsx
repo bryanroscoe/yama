@@ -72,9 +72,15 @@ function Pic({ name, images, inDeck, onCard, className = "stats-pic" }: { name: 
 
 /* ── Power level ──────────────────────────────────────────────────────── */
 
-function PowerSection({ deckId, versionId, cards, images, inDeck, onCard }: { deckId: string; versionId: string | null; cards: DeckEntry[]; images: Images; inDeck: Set<string>; onCard: OnCard }) {
-  const q = useDeckAnalysis(deckId, versionId);
-  const a = q.data?.current ?? null;
+/**
+ * The power level with its five scores. `given` is the analysis of a list nobody has saved (the
+ * Check a deck page): it is shown as it is, with nothing asked of an account, so no versions and
+ * no other decks to compare with.
+ */
+export function PowerSection({ deckId, versionId, cards, images, inDeck, onCard, given }: { deckId: string; versionId: string | null; cards: DeckEntry[]; images: Images; inDeck: Set<string>; onCard: OnCard; given?: DeckAnalysis | null }) {
+  const unsaved = given !== undefined;
+  const q = useDeckAnalysis(deckId, unsaved ? null : versionId);
+  const a = unsaved ? given : (q.data?.current ?? null);
   const [ref, setRef] = useState<Reference | "own-stock" | "version" | "deck">("none");
   const [sel, setSel] = useState<string | null>(null);
   const earlier = earlierVersions(q.data);
@@ -82,7 +88,7 @@ function PowerSection({ deckId, versionId, cards, images, inDeck, onCard }: { de
   const pickedVersion = versionPick && earlier.some((v) => v.id === versionPick) ? versionPick : (earlier[0]?.id ?? null);
   const ownStock = stockListOf(q.data);
   // Another of your decks: the list loads when you pick "Another deck", then that deck's analysis.
-  const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }), enabled: ref === "deck" });
+  const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }), enabled: ref === "deck" && !unsaved });
   const others = otherDecks(decks.data, deckId);
   const [deckPick, setDeckPick] = useState<string | null>(null);
   const otherDeck = others.find((d) => d.id === deckPick) ?? others[0] ?? null;
@@ -95,7 +101,7 @@ function PowerSection({ deckId, versionId, cards, images, inDeck, onCard }: { de
     ["none", "Nothing"],
     ...(ownStock ? [["own-stock", "Its stock list"] as ["own-stock", string]] : []),
     ...(earlier.length ? [["version", "Earlier version"] as ["version", string]] : []),
-    ["deck", "Another deck"],
+    ...(unsaved ? [] : [["deck", "Another deck"] as ["deck", string]]),
     ...REFERENCES.map((x) => [x.key, x.label] as [Reference, string]),
   ];
   // A list or version can go away on a refetch; fall back to Nothing rather than a blank control.
@@ -106,7 +112,7 @@ function PowerSection({ deckId, versionId, cards, images, inDeck, onCard }: { de
       <div className="stats-head">
         <span className="stats-title">
           <h2 id="stats-power-h" className="stats-h big">Power level</h2>
-          {a && <HelpPopover label="how power is measured"><PowerHelp analysis={a} /></HelpPopover>}
+          {a && <HelpPopover label="how power is measured"><PowerHelp analysis={a} unsaved={unsaved} /></HelpPopover>}
         </span>
         {a && (
           <span className="stats-compare">
@@ -141,7 +147,7 @@ function PowerSection({ deckId, versionId, cards, images, inDeck, onCard }: { de
       {shownRef === "deck" && <ErrorText error={decks.error ?? otherAnalysis.error} retry={() => (decks.error ? decks.refetch() : otherAnalysis.refetch())} small />}
       {shownRef === "deck" && otherDeck && otherAnalysis.isPending && <Loading small>Working out {otherDeck.name}…</Loading>}
       {shownRef === "deck" && otherDeck && otherAnalysis.isSuccess && !otherAnalysis.data.current && <p className="dim">{otherDeck.name} has no power level yet.</p>}
-      {versionId == null && <p className="dim">Add cards to see the deck's power level.</p>}
+      {(unsaved ? !a : versionId == null) && <p className="dim">Add cards to see the deck's power level.</p>}
       {q.isPending && versionId != null && <Loading>Working it out…</Loading>}
       {a && selected && (
         <>
@@ -262,23 +268,24 @@ function VectorCards({ analysis: a, vector, images, inDeck, onCard }: { analysis
   );
 }
 
-/** Why the margin is what it is, from the analysis. */
-export function confidenceText(a: DeckAnalysis): string {
+/** Why the margin is what it is, from the analysis. An unsaved list is never sent to Commander
+ *  Spellbook, so its combos stay unchecked until it is saved to an account. */
+export function confidenceText(a: DeckAnalysis, unsaved = false): string {
   const why: string[] = [];
-  if (!a.combos.checked) why.push("Commander Spellbook hasn't checked this list for combos yet");
+  if (!a.combos.checked) why.push(unsaved ? "combos aren't checked until the deck is saved to an account" : "Commander Spellbook hasn't checked this list for combos yet");
   else if (a.combos.unrecognized) why.push(`Commander Spellbook didn't know ${a.combos.unrecognized} ${a.combos.unrecognized === 1 ? "card" : "cards"}, so combos with ${a.combos.unrecognized === 1 ? "it" : "them"} may be missing`);
   if (a.unknown_cards.length) why.push(`${a.unknown_cards.length} ${a.unknown_cards.length === 1 ? "card isn't" : "cards aren't"} in Yama's card data`);
   if (a.nonland > 0 && a.unscored / a.nonland > 0.35) why.push("many cards do things the text rules don't score");
   return `${inputsNote(a.confidence)}${why.length ? `: ${why.join("; ")}` : ""}. The margin is never narrower than lists built for the same bracket were measured to spread. An unofficial Yama estimate from card text, not from how the deck plays.`;
 }
 
-function PowerHelp({ analysis: a }: { analysis: DeckAnalysis }) {
+function PowerHelp({ analysis: a, unsaved = false }: { analysis: DeckAnalysis; unsaved?: boolean }) {
   return (
     <>
       <p>Each card scores 0 to 10 in the jobs it does, cheaper cards more, and your commander half again because it's always there. Five scores of 0 to 100 add up to a power of 1 to 10, Speed and Consistency weighing most. A stock precon scores about 40, a Bracket 4 build about 75, cEDH about 95.</p>
       <p>A land's points are its quality for this deck's colors. Points are per copy; every copy counts. Combos Commander Spellbook found add to Threats.</p>
       <p>{a.description}</p>
-      <p>{confidenceText(a)}</p>
+      <p>{confidenceText(a, unsaved)}</p>
       <p>"Plays like" is the bracket whose usual power range holds the score, give or take the margin. Wizards' card rules are a separate question: Game Changers, mass land denial and early combos can put a list in a higher bracket than it plays like, and the deck's Bracket panel lists them.</p>
       <p>Your declared bracket is still yours to choose: intent and the table matter more than a score. Other sites use their own formulas.</p>
       {a.unknown_cards.length > 0 && <p>Not counted: {a.unknown_cards.join(", ")}.</p>}
@@ -288,7 +295,7 @@ function PowerHelp({ analysis: a }: { analysis: DeckAnalysis }) {
 
 /* ── Curve and colors ─────────────────────────────────────────────────── */
 
-function CurveSection({ deck: d }: { deck: DeckView }) {
+export function CurveSection({ deck: d }: { deck: Pick<DeckView, "id" | "cards" | "configurations"> }) {
   const s = useMemo(() => deckStats(statCards(d.cards)), [d.cards]);
   const stockRef = d.configurations.find((c) => isStockConfiguration(c.configuration) && c.id !== d.id) ?? null;
   const [cmp, setCmp] = useState<"none" | "stock">("none");
@@ -344,7 +351,7 @@ function CurveSection({ deck: d }: { deck: DeckView }) {
   );
 }
 
-function ColorSection({ cards }: { cards: DeckEntry[] }) {
+export function ColorSection({ cards }: { cards: DeckEntry[] }) {
   const stat = useMemo(() => statCards(cards), [cards]);
   const s = useMemo(() => deckStats(stat), [stat]);
   const lands = useMemo(() => landFaceCopies(stat), [stat]);
@@ -387,7 +394,7 @@ function ColorSection({ cards }: { cards: DeckEntry[] }) {
 
 /* ── Themes and combos ────────────────────────────────────────────────── */
 
-function ThemesSection({ analysis: a, images, inDeck, onCard }: { analysis: DeckAnalysis; images: Images; inDeck: Set<string>; onCard: OnCard }) {
+export function ThemesSection({ analysis: a, images, inDeck, onCard }: { analysis: DeckAnalysis; images: Images; inDeck: Set<string>; onCard: OnCard }) {
   const [all, setAll] = useState<Set<string>>(new Set());
   return (
     <section className="stats-themes" aria-labelledby="stats-themes-h">
@@ -480,7 +487,7 @@ function CombosSection({ deckId, versionId, images, inDeck, onCard }: { deckId: 
 
 /* ── Game Changers, Reserve List, online play, history ───────────────── */
 
-function FlagsSection({ deck: d, onCard }: { deck: DeckView; onCard: OnCard }) {
+export function FlagsSection({ deck: d, onCard }: { deck: Pick<DeckView, "game_changers" | "game_changers_as_of" | "reserved_list" | "reserved_list_as_of">; onCard: OnCard }) {
   return (
     <section className="stats-panel stats-flags" aria-labelledby="stats-flags-h">
       <span className="stats-title">

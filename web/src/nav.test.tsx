@@ -91,8 +91,10 @@ describe("the tabs", () => {
     expect(labels("workshop", { ...account, evidence: true })).toContain("Datasets");
     expect(labels("workshop", owner)).toEqual(["Plans", "Get the cards", "Swap cards", "Try a change", "Compare decks", "Lab runs", "Datasets"]);
     // Precons is the account's own table signed in and the public reference signed out.
-    expect(sectionsFor(tab("decks"), account).map((s) => s.to)).toEqual(["/decks", "/lab", "/commanders"]);
-    expect(sectionsFor(tab("decks"), guest).map((s) => s.to)).toEqual(["/decks", "/precons", "/commanders"]);
+    expect(sectionsFor(tab("decks"), account).map((s) => s.to)).toEqual(["/decks", "/lab", "/commanders", "/check"]);
+    expect(sectionsFor(tab("decks"), guest).map((s) => s.to)).toEqual(["/decks", "/precons", "/commanders", "/check"]);
+    // Check a deck is for everyone, and its page lights the Decks tab.
+    expect(tabOf("/check")?.id).toBe("decks");
   });
 
   it("know which of a tab's pages a page is, and that a deck or a plan's own page is none of them", () => {
@@ -173,8 +175,8 @@ describe("the strip of a tab's pages", () => {
 
   it("gives someone signed out the public precon and commander pages as document links", () => {
     const html = strip("/decks", null);
-    expect(links(html)).toEqual(["/decks", "https://yama.ing/precons", "https://yama.ing/commanders"]);
-    expect(links(strip("/decks"))).toEqual(["/decks", "/lab", "https://yama.ing/commanders"]);
+    expect(links(html)).toEqual(["/decks", "https://yama.ing/precons", "https://yama.ing/commanders", "/check"]);
+    expect(links(strip("/decks"))).toEqual(["/decks", "/lab", "https://yama.ing/commanders", "/check"]);
     expect(links(strip("/play/table", null))).toEqual(["/play/table", "/play"]);
   });
 

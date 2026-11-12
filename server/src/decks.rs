@@ -160,7 +160,7 @@ pub(crate) async fn checked_cards(pool: &SqlitePool, cards: Vec<DeckCard>) -> Ap
 
 /// The caps on a list as it will be stored, whichever way its rows were read: how many
 /// different cards, and how many copies of one card over all its boards.
-fn within_caps(cards: &[DeckCard]) -> AppResult<()> {
+pub(crate) fn within_caps(cards: &[DeckCard]) -> AppResult<()> {
     if cards.len() > MAX_DECK_ROWS {
         return Err(AppError::bad(format!("a list can have at most {MAX_DECK_ROWS} different cards")));
     }
@@ -178,7 +178,7 @@ fn within_caps(cards: &[DeckCard]) -> AppResult<()> {
 /// Parsed lines within the same caps, before any is looked up (`resolve` asks the database about
 /// each line, and adds up the copies of a card named twice, so its result goes through
 /// `within_caps` as well).
-fn capped_lines(lines: Vec<ParsedLine>) -> AppResult<Vec<ParsedLine>> {
+pub(crate) fn capped_lines(lines: Vec<ParsedLine>) -> AppResult<Vec<ParsedLine>> {
     if lines.len() > MAX_DECK_ROWS {
         return Err(AppError::bad(format!("a list can have at most {MAX_DECK_ROWS} lines")));
     }
@@ -2083,6 +2083,14 @@ pub(crate) fn is_basic(name: &str) -> bool {
     BASICS.contains(&name)
 }
 
+/// Whether a card can be a commander: a legendary creature, vehicle or spacecraft, a Background,
+/// or a card whose text says so.
+pub(crate) fn can_lead(card: &Card) -> bool {
+    (card.type_line.contains("Legendary") && (card.type_line.contains("Creature") || card.type_line.contains("Vehicle") || card.type_line.contains("Spacecraft")))
+        || card.oracle_text.to_lowercase().contains("can be your commander")
+        || card.type_line.contains("Background")
+}
+
 /// Commander deck checks: size, singleton, color identity, legality, and commander eligibility.
 /// Uses Scryfall's legality data, which is only as fresh as the last import.
 pub fn validate(cards: &[DeckCard], info: &HashMap<String, Card>) -> Validation {
@@ -2099,12 +2107,7 @@ pub fn validate(cards: &[DeckCard], info: &HashMap<String, Card>) -> Validation 
     for c in &commanders {
         let Some(card) = info.get(&c.oracle_id) else { continue };
         identity.push_str(&card.color_identity);
-        let text = card.oracle_text.to_lowercase();
-        let eligible = (card.type_line.contains("Legendary")
-            && (card.type_line.contains("Creature") || card.type_line.contains("Vehicle") || card.type_line.contains("Spacecraft")))
-            || text.contains("can be your commander")
-            || card.type_line.contains("Background");
-        if !eligible {
+        if !can_lead(card) {
             v.errors.push(format!("{} can't be a commander", c.name));
         }
     }

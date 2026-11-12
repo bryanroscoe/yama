@@ -237,11 +237,12 @@ function CardPage({ oracleId, onClose, backLabel, hit }: { oracleId: string; onC
 }
 
 /** One card's details and printings, as a sheet over another screen. `readOnly` (plan pages) hides the buttons that add copies to your collection. */
-export function CardSheet({ oracleId, onClose, readOnly = false }: { oracleId: string; onClose: () => void; readOnly?: boolean }) {
+/** `hit`: the card as already loaded, shown to someone without an account (CardView). */
+export function CardSheet({ oracleId, onClose, readOnly = false, hit }: { oracleId: string; onClose: () => void; readOnly?: boolean; hit?: Card }) {
   return (
     <Dialog label="Card" onClose={onClose}>
       <div className="card-sheet2">
-        <CardView oracleId={oracleId} onBack={onClose} backLabel="Close" readOnly={readOnly} close />
+        <CardView oracleId={oracleId} onBack={onClose} backLabel="Close" readOnly={readOnly} close hit={hit} />
       </div>
     </Dialog>
   );
