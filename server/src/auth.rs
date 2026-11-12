@@ -116,9 +116,10 @@ pub struct User {
     /// joined through open sign-up, or whose invite was withdrawn. Gets the smaller lab and play
     /// allowance, and can't use Yama while open sign-up is off.
     pub limited: bool,
-    /// An admin, or an account an admin made a power user: may start simulations and watched AI
-    /// games and use Ask Claude (2026-10-31). Everyone else keeps their own data and reads
-    /// simulation results, but can't start that work.
+    /// An admin, or an account an admin made a power user: may start simulations and use Ask
+    /// Claude (2026-10-31), and has no daily count on watched games. Everyone else keeps their own
+    /// data and reads simulation results, but can't start that work; they may watch the computer
+    /// play a number of games a day (12 Nov 2026, `watch.rs`).
     pub power: bool,
     /// A guest player with no account (`guests.rs`): signed in only to the play routes, by its
     /// own cookie. No other way in accepts one.
@@ -127,7 +128,7 @@ pub struct User {
 }
 
 impl User {
-    /// Refuse a power-user feature (simulations, watched AI games, Ask Claude) to anyone else.
+    /// Refuse a power-user feature (simulations, Ask Claude) to anyone else.
     pub fn require_power(&self) -> AppResult<()> {
         if self.power { Ok(()) } else { Err(AppError::Forbidden(POWER_ONLY.into())) }
     }
@@ -212,8 +213,8 @@ async fn signed_in(parts: &mut Parts, state: &AppState) -> Result<User, AppError
     access_user(parts, state).await?.ok_or(AppError::Unauthorized)
 }
 
-/// Extractor: the signed-in user, when they may use the power-user features (simulations, watched
-/// AI games, Ask Claude). Anyone else signed in gets a 403 that says why; signed out is 401.
+/// Extractor: the signed-in user, when they may use the power-user features (simulations, Ask
+/// Claude). Anyone else signed in gets a 403 that says why; signed out is 401.
 pub struct PowerUser(pub User);
 
 impl FromRequestParts<AppState> for PowerUser {

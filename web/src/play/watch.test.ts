@@ -48,7 +48,7 @@ describe("watch words", () => {
     expect(watchAllowanceText({ at_a_time: 1, per_day: 10, used_today: 9 })).toBe("You can start 10 watched games a day, one at a time. 1 left today.");
     expect(watchAllowanceText({ at_a_time: 3, per_day: 10, used_today: 4 })).toBe("You can start 10 watched games a day, 3 at a time. 6 left today.");
     // Used up: the limit, not how the account joined.
-    expect(watchAllowanceText({ at_a_time: 1, per_day: 10, used_today: 10 })).toBe("You've started 10 watched games in the last 24 hours, which is the daily limit. Try again tomorrow.");
+    expect(watchAllowanceText({ at_a_time: 1, per_day: 10, used_today: 10 })).toBe("You've started 10 watched games in the last 24 hours, which is the daily limit. You can start another once the earliest of them is 24 hours old.");
     expect(watchAllowanceText({ at_a_time: 1, per_day: 10, used_today: 12 })).toMatch(/daily limit/);
     // Power users and admins have no daily count, so there is nothing to say.
     expect(watchAllowanceText({ at_a_time: 3, per_day: null, used_today: null })).toBeNull();

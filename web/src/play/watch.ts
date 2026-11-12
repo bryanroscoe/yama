@@ -39,7 +39,7 @@ export interface WatchAllowance {
 export function watchAllowanceText(a: WatchAllowance): string | null {
   if (a.per_day == null) return null;
   const left = Math.max(0, a.per_day - (a.used_today ?? 0));
-  if (left === 0) return `You've started ${plural(a.per_day, "watched game")} in the last 24 hours, which is the daily limit. Try again tomorrow.`;
+  if (left === 0) return `You've started ${plural(a.per_day, "watched game")} in the last 24 hours, which is the daily limit. You can start another once the earliest of them is 24 hours old.`;
   const each = a.at_a_time === 1 ? ", one at a time" : a.at_a_time ? `, ${a.at_a_time} at a time` : "";
   return `You can start ${plural(a.per_day, "watched game")} a day${each}. ${left} left today.`;
 }
