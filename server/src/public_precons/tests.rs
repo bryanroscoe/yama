@@ -859,3 +859,17 @@ async fn stock_power_is_public_and_uses_the_same_analysis_as_decks() {
     assert!(!chart.contains(PRIVATE));
     assert!(power::cell(p).contains("Plays like Bracket "));
 }
+
+#[tokio::test]
+async fn a_precon_page_shows_the_full_power_breakdown() {
+    // The page showed only the headline number; the breakdown is the shared-deck page's panel.
+    let (st, _dir, _) = fixture().await;
+    let p = catalog(&st.pool).await.unwrap().precons.remove(0);
+    let level = p.power.as_ref().unwrap().level;
+    let app = crate::routes::app(st);
+    let (_, _, html) = request(&app, &format!("/precons/{}", p.id), &[]).await;
+    assert!(html.contains("class=\"analysis-vectors\""), "the five scores");
+    assert!(html.contains("<summary>How it adds up</summary>"), "every card's points");
+    assert!(html.contains(&format!("<span class=\"result-value\">{level:.1}</span>")), "the same number as the headline");
+    assert!(!html.contains(PRIVATE));
+}

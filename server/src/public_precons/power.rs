@@ -57,6 +57,22 @@ pub(super) async fn assign(pool: &SqlitePool, rows: &mut [Precon]) -> AppResult<
     Ok(())
 }
 
+/// The full card-text analysis of one stock list, themes included, for its page's breakdown
+/// (public_page::analysis_panel). Same inputs as [`assign`]: the list and its own combo check.
+pub(super) async fn full(pool: &SqlitePool, p: &Precon) -> AppResult<Option<analysis::DeckAnalysis>> {
+    let cards = p.stock_list()?;
+    let info = crate::decks::card_info(pool, &cards).await?;
+    let produced = crate::decks::produced_mana(pool, &cards.iter().map(|c| c.oracle_id.as_str()).collect::<Vec<_>>()).await?;
+    let facts = analysis::facts_for(&cards, &info, &produced);
+    let checks = crate::deck_checks::precons::results(pool).await?;
+    let check = checks.get(&crate::deck_checks::list_hash(&cards)).cloned();
+    Ok(tokio::task::spawn_blocking(move || {
+        let entries: Vec<_> = cards.iter().map(|c| Entry { card: c, facts: facts.get(&c.oracle_id) }).collect();
+        if !entries.iter().any(|e| e.card.board != crate::decks::Board::Side && e.facts.is_some()) { return None; }
+        Some(analysis::analyze(&entries, check.as_ref(), &mut Cache::default()))
+    }).await.map_err(anyhow::Error::from)?)
+}
+
 pub(super) fn cell(p: &Precon) -> String {
     match &p.power {
         Some(a) => format!("<strong>{:.1}/10</strong><small>±{:.1} / Plays like {}</small>{}{}", a.level, a.margin, a.plays(), rules_line(a),

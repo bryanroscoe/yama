@@ -995,6 +995,9 @@ pub(super) async fn detail(
         body.push_str(&simulation_panel(source, r, &p.rating_status));
     }
     body.push_str("</div>");
+    if let Some(a) = &data.analysis {
+        body.push_str(&crate::public_page::analysis_panel(a));
+    }
     body.push_str("<section class=\"public-panel\"><h3>Upgradeability</h3>");
     body.push_str(&upgradeability(p, true));
     body.push_str("</section>");

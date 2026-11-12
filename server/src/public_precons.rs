@@ -269,6 +269,8 @@ pub struct Detail {
     pub real_sources: Vec<v2::Source>,
     pub precon: Precon,
     pub cards: Vec<Card>,
+    /// The stock list's full card-text analysis, for the power breakdown.
+    pub analysis: Option<crate::analysis::DeckAnalysis>,
 }
 
 #[derive(Deserialize, Default)]
@@ -712,6 +714,7 @@ async fn detail_data(pool: &SqlitePool, slug: &str) -> AppResult<Detail> {
         .into_iter()
         .find(|p| p.id == slug)
         .ok_or(AppError::NotFound("precon"))?;
+    let analysis = power::full(pool, &precon).await?;
     let mut cards: Vec<Card> = sqlx::query_as(
         "SELECT json_extract(j.value, '$.name') AS name, json_extract(j.value, '$.qty') AS qty,
             json_extract(j.value, '$.board') AS board, c.type_line, c.image_normal AS image, '' AS scryfall_url
@@ -736,6 +739,7 @@ async fn detail_data(pool: &SqlitePool, slug: &str) -> AppResult<Detail> {
         real_sources: c.real_sources,
         precon,
         cards,
+        analysis,
     })
 }
 
