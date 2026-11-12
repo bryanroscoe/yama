@@ -6,7 +6,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { deckStats, MANA, fmtDate } from "@yama/core";
 import { useMemo, useState } from "react";
-import { api, type AnalysisSummary, type Combo, type DeckAnalysis, type DeckAnalysisView, type DeckEntry, type DeckView } from "../api";
+import { api, type AnalysisSummary, type DeckSummary, type Combo, type DeckAnalysis, type DeckAnalysisView, type DeckEntry, type DeckView } from "../api";
 import { BracketPanel, SPELLBOOK, useDeckCheck } from "../components/Bracket";
 import { DeckPrices } from "../components/DeckPrices";
 import { DeckResults } from "../components/DeckResults";
@@ -16,7 +16,7 @@ import { NameList, useOnlineSupport } from "../components/OnlineSupport";
 import { Button, CardImage, ErrorText, Loading, Segmented } from "../components/ui";
 import { BuyDeck } from "./BuyDeck";
 import { PowerLine, ScoreTable, ScryCheckButton, useDeckAnalysis } from "./DeckAnalysis";
-import { colorShares, curveColumns, isStockConfiguration, landFaceCopies, curveSpread, DIAL, dialArc, dialPoint, groupTotal, inputsNote, marginSpan, pctWidth, playsLike, points, POWER_BANDS, REFERENCES, comparisonOf, earlierVersions, powerChange, stockListOf, type Reference } from "./statsTab";
+import { colorShares, curveColumns, isStockConfiguration, landFaceCopies, curveSpread, DIAL, dialArc, dialPoint, groupTotal, inputsNote, marginSpan, pctWidth, playsLike, points, POWER_BANDS, REFERENCES, comparisonOf, earlierVersions, powerChange, stockListOf, comparisonOfDeck, otherDecks, type Reference } from "./statsTab";
 import "./deckStatsTab.css";
 
 type OnCard = (name: string) => void;
@@ -75,17 +75,27 @@ function Pic({ name, images, inDeck, onCard, className = "stats-pic" }: { name: 
 function PowerSection({ deckId, versionId, cards, images, inDeck, onCard }: { deckId: string; versionId: string | null; cards: DeckEntry[]; images: Images; inDeck: Set<string>; onCard: OnCard }) {
   const q = useDeckAnalysis(deckId, versionId);
   const a = q.data?.current ?? null;
-  const [ref, setRef] = useState<Reference | "own-stock" | "version">("none");
+  const [ref, setRef] = useState<Reference | "own-stock" | "version" | "deck">("none");
   const [sel, setSel] = useState<string | null>(null);
   const earlier = earlierVersions(q.data);
   const [versionPick, setVersionPick] = useState<string | null>(null);
   const pickedVersion = versionPick && earlier.some((v) => v.id === versionPick) ? versionPick : (earlier[0]?.id ?? null);
   const ownStock = stockListOf(q.data);
-  const r = comparisonOf(ref === "version" ? (pickedVersion ? `version:${pickedVersion}` : "none") : ref, q.data);
-  const compareOptions: [Reference | "own-stock" | "version", string][] = [
+  // Another of your decks: the list loads when you pick "Another deck", then that deck's analysis.
+  const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }), enabled: ref === "deck" });
+  const others = otherDecks(decks.data, deckId);
+  const [deckPick, setDeckPick] = useState<string | null>(null);
+  const otherDeck = others.find((d) => d.id === deckPick) ?? others[0] ?? null;
+  const otherAnalysis = useDeckAnalysis(otherDeck?.id ?? "", ref === "deck" ? (otherDeck?.current_version_id ?? null) : null);
+  const r =
+    ref === "deck"
+      ? comparisonOfDeck(otherDeck?.name ?? "", otherAnalysis.data?.current)
+      : comparisonOf(ref === "version" ? (pickedVersion ? `version:${pickedVersion}` : "none") : ref, q.data);
+  const compareOptions: [Reference | "own-stock" | "version" | "deck", string][] = [
     ["none", "Nothing"],
     ...(ownStock ? [["own-stock", "Its stock list"] as ["own-stock", string]] : []),
     ...(earlier.length ? [["version", "Earlier version"] as ["version", string]] : []),
+    ["deck", "Another deck"],
     ...REFERENCES.map((x) => [x.key, x.label] as [Reference, string]),
   ];
   // A list or version can go away on a refetch; fall back to Nothing rather than a blank control.
@@ -111,10 +121,25 @@ function PowerSection({ deckId, versionId, cards, images, inDeck, onCard }: { de
                 ))}
               </select>
             )}
+            {shownRef === "deck" && (decks.isPending ? (
+              <Loading small>Loading your decks…</Loading>
+            ) : others.length === 0 ? (
+              <span className="dim">No other decks with a saved list</span>
+            ) : (
+              <select className="stats-version-pick" aria-label="Which deck" value={otherDeck?.id ?? ""} onChange={(e) => setDeckPick(e.target.value)}>
+                {others.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
+            ))}
           </span>
         )}
       </div>
       <ErrorText error={q.error} />
+      {shownRef === "deck" && <ErrorText error={decks.error ?? otherAnalysis.error} small />}
+      {shownRef === "deck" && otherDeck && otherAnalysis.isPending && <Loading small>Working out {otherDeck.name}…</Loading>}
       {versionId == null && <p className="dim">Add cards to see the deck's power level.</p>}
       {q.isPending && versionId != null && <Loading>Working it out…</Loading>}
       {a && selected && (
@@ -134,7 +159,7 @@ function PowerSection({ deckId, versionId, cards, images, inDeck, onCard }: { de
               {r && (
                 <span className="power-ref">
                   Amber marks: {r.name} on each score
-                  {r.power != null && <>. It was {r.power.toFixed(1)}, so {powerChange(a.power, r.power)}</>}
+                  {r.power != null && <>. Its power is {r.power.toFixed(1)}, so this list is {powerChange(a.power, r.power)}</>}
                 </span>
               )}
               {a.caps.length > 0 && (
