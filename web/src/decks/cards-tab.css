@@ -319,6 +319,10 @@
   font-size: var(--t-xs);
   font-weight: 400;
 }
+.why-bracket-note {
+  margin: 0 0 8px;
+  font-size: var(--t-xs);
+}
 .why-bracket-combos {
   display: flex;
   flex-direction: column;

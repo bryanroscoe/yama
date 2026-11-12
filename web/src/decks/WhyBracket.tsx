@@ -1,9 +1,11 @@
 // Why this bracket (deck page SPEC 1b, board Deck): beside the Cards tab's list, the markers that
 // set a bracket (Game Changers, two-card combos, mass land denial, extra turns, the Reserve List)
-// and the bracket you tell the table. Previewing a lower bracket strikes the Game Changers its
+// with the power level from the Stats tab on top, and the bracket you tell the table. Previewing a lower bracket strikes the Game Changers its
 // swap bag takes out. Explanations sit behind one "?".
 import { useEffect, useRef } from "react";
-import { useLocation } from "react-router";
+import { Link, useLocation } from "react-router";
+import { useDeckAnalysis } from "./DeckAnalysis";
+import { playsLike } from "./statsTab";
 import type { DeckView } from "../api";
 import { SPELLBOOK, useDeckCheck } from "../components/Bracket";
 import { DeclareBracket } from "../components/DeclareBracket";
@@ -28,6 +30,7 @@ const n = (count: number, none = "None") => (count ? String(count) : none);
 
 export function WhyBracket({ deck, at, outAt, onCard }: { deck: DeckView; at: number | null; outAt: ReadonlySet<string>; onCard: (name: string) => void }) {
   const check = useDeckCheck(deck.id, deck.version_id);
+  const power = useDeckAnalysis(deck.id, deck.version_id).data?.current ?? null;
   const r = check.data?.result ?? null;
   const gcs = gameChangersAt(deck.game_changers, outAt);
   const kept = gcs.filter((g) => !g.out).length;
@@ -59,6 +62,19 @@ export function WhyBracket({ deck, at, outAt, onCard }: { deck: DeckView; at: nu
         </HelpPopover>
       </span>
       <dl className="why-bracket-rows">
+        {power && (
+          <>
+            <div>
+              <dt>Power level, 1 to 10</dt>
+              <dd>
+                {power.power.toFixed(1)} <span className="dim">±{power.margin.toFixed(1)}</span>
+              </dd>
+            </div>
+            <p className="why-bracket-note dim">
+              {playsLike(power)}. <Link to={`/decks/${deck.id}/stats`}>The dial and what moves it</Link>
+            </p>
+          </>
+        )}
         <div>
           <dt>Game Changers</dt>
           <dd>{deck.game_changers ? n(kept) : "Not checked yet"}</dd>
