@@ -1,7 +1,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { Link, Navigate, Outlet, Route, Routes, useLocation, useMatch, useNavigate } from "react-router";
 import { chooseGuest, useGuestChosen } from "./guest";
-import { afterSignIn, Login, useMe } from "./auth";
+import { advancedOf, afterSignIn, Login, useMe } from "./auth";
 import { useGuestSession } from "./guestPlay";
 import { useCacheSweeps, useLapsedAccount } from "./session";
 import { RequireAccount } from "./components/RequireAccount";
@@ -74,6 +74,8 @@ const PlanPage = plan.page("PlanPage");
 const Archived = plan.page("Archived");
 const GetCards = plan.page("GetCards");
 const Trip = plan.page("Trip");
+const WishListLayout = plan.page("WishListLayout");
+const WishListPage = plan.page("WishListPage");
 const Sourcing = plan.page("Sourcing");
 const SwapSheetPage = plan.page("SwapSheetPage");
 const MpcPrint = plan.page("MpcPrint");
@@ -125,8 +127,9 @@ function Shell({ pending = false }: { pending?: boolean }) {
   const me = useMe();
   const { pathname } = useLocation();
   const here = tabOf(pathname);
-  // Workshop is a tab in the laptop rail and a row on the You page on a phone (five tabs there).
-  const tabs = [...MAIN_TABS.map(tab), ...(!pending && me.data ? [tab("workshop")] : [])];
+  // Workshop shows with Advanced on (Settings): a tab in the laptop rail, and a row on the You
+  // page on a phone (five tabs there).
+  const tabs = [...MAIN_TABS.map(tab), ...(!pending && advancedOf(me.data) ? [tab("workshop")] : [])];
   return (
     <div className="shell">
       <header className="topbar">
@@ -333,6 +336,10 @@ export function App() {
           <Route path="sharing" element={<Paged page={SharingPage} title="Sharing settings" />} />
           <Route path="sharing/compare/:handle" element={<Paged page={ComparePage} kind="detail" />} />
           <Route path="collection/trade" element={<Paged page={TradePage} title="Trade with a friend" />} />
+          {/* The wish list is kept with the plans (one bundle), so it loads under their layout. */}
+          <Route path="collection/wishlist" element={<Paged page={WishListLayout} title="Wish list" />}>
+            <Route index element={<WishListPage />} />
+          </Route>
           <Route path="group" element={<Paged page={GroupPage} title="Playgroup" />} />
           <Route path="group/mythic" element={<Paged page={MythicImportPage} />} />
           <Route path="mythic/sent" element={<Paged page={MythicSentPage} />} />

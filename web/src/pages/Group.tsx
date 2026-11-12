@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { api, API_BASE, type GameRow, type PlaygroupStats, type Playgroup } from "../api";
-import { useMe } from "../auth";
+import { useAdvanced, useMe } from "../auth";
 import { Button, ButtonLink, CardThumb, ErrorText } from "../components/ui";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { GroupStats } from "../components/GroupStats";
@@ -20,6 +20,7 @@ export function GroupPage() {
   const groups = useQuery({ queryKey: ["playgroups"], queryFn: ({ signal }) => api<Playgroup[]>("/api/playgroups", { signal }) });
   const [selected, setSelected] = useState<string | null>(null);
   const group = groups.data?.find((g) => g.id === selected) ?? groups.data?.[0];
+  const advanced = useAdvanced();
 
   return (
     <main className="page group-page">
@@ -49,7 +50,8 @@ export function GroupPage() {
         <section className="grp-section" id="sharing"><h2>You</h2><ButtonLink variant="outline" to="/profile">Your profile and account</ButtonLink></section>
       </div>
       <ExportGames group={group} />
-      <MythicImportEntry />
+      {/* Mythic Tools is a Workshop page: offered here only with Advanced on. */}
+      {advanced && <MythicImportEntry />}
       {/* With no playgroup, starting or joining one sits at the top instead. While the list is
           still loading the form is in neither place, so it can't move under someone typing; a
           list that never loaded gets it here. A failed refresh keeps the list it had. */}

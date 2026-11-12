@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, type User } from "../api";
-import { useAuthConfig, useLogout, useMe } from "../auth";
+import { advancedOf, useAuthConfig, useLogout, useMe } from "../auth";
 import { Button, ErrorText } from "../components/ui";
 import { downloadOfflineCards, useOfflineCards } from "../offline/cards";
 import { keepStorage } from "../storage";
@@ -21,6 +21,7 @@ export function AccountSettings() {
       <div className="grp-you">
         {me.data && <YourName me={me.data} />}
         <OfflineCardsSetting />
+        {me.data && !me.data.viewing && <AdvancedSetting me={me.data} />}
         {/* Ask Claude stays private while an admin views as you (server/src/view_as.rs). */}
         {!me.data?.viewing && me.data?.power && <AdvisorSettings />}
         <div className="grp-you-row grp-you-actions">
@@ -78,6 +79,39 @@ export function YourName({ me }: { me: User }) {
       </form>
       <span className="small dim">The name your playgroup and the people you play with see. Your shared pages go by your handle.</span>
       <ErrorText error={save.error} />
+    </div>
+  );
+}
+
+/**
+ * Advanced: whether the app shows the Workshop. Off for a new account, which has nothing there;
+ * on by itself for admins, power users and anyone who already has a plan, a lab run, a Mythic
+ * link or a wish, until they choose here. It hides navigation only: the pages stay open by link.
+ */
+export function AdvancedSetting({ me }: { me: User }) {
+  const qc = useQueryClient();
+  const on = advancedOf(me);
+  const set = useMutation({
+    mutationFn: (advanced: boolean) => api<User>("/api/me", { method: "PATCH", json: { advanced } }),
+    // Asked again rather than written here, so the copy kept on this device follows too.
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["me"] }),
+  });
+  return (
+    <div className="grp-you-row grp-you-stack">
+      <div className="grp-you-line">
+        <span className="grp-you-text">
+          <b>Advanced: {on ? "on" : "off"}</b>
+          <span>
+            {on
+              ? "The Workshop is showing: plans, getting the cards, swap sheets, simulations and datasets."
+              : "Turn it on to show the Workshop: plans, getting the cards, swap sheets, simulations and datasets."}
+          </span>
+        </span>
+        <Button variant="outline" disabled={set.isPending} onClick={() => set.mutate(!on)}>
+          {on ? "Turn off Advanced" : "Turn on Advanced"}
+        </Button>
+      </div>
+      <ErrorText small error={set.error} />
     </div>
   );
 }

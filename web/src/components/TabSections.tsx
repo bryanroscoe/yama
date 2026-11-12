@@ -4,7 +4,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ComponentType } from "react";
 import { Link, useLocation } from "react-router";
-import { publicOrigin } from "../api";
+import { api, publicOrigin } from "../api";
 import { useMe } from "../auth";
 import { datasets } from "../datasets/api";
 import { holdsPath, sectionOf, sectionsFor, tabOf, type Who } from "../nav";
@@ -38,7 +38,16 @@ export function useWho(evidence = false): Who {
   // An admin may upload a dataset, so always has the page; not while viewing as someone.
   const admin = !!me?.is_admin && !me.viewing;
   const list = useQuery({ queryKey: ["datasets", me?.id], queryFn: datasets, enabled: evidence && !!me && !admin, staleTime: 5 * 60_000 });
-  return { signedIn: !!me, power: me?.power === true, evidence: admin || !!list.data?.length };
+  // Whether this server can read Mythic Tools: the same question, under the same key, as the
+  // Mythic pages ask (bridges/mythic/mythic.ts, useMythicBridge), asked here without their code.
+  const mythic = useQuery({
+    queryKey: ["mythic-bridge"],
+    queryFn: ({ signal }) => api("/api/bridges/mythic", { signal }).then(() => true, () => false),
+    enabled: evidence && !!me,
+    staleTime: Infinity,
+    retry: false,
+  });
+  return { signedIn: !!me, power: me?.power === true, evidence: admin || !!list.data?.length, mythic: mythic.data === true };
 }
 
 /** On a phone the strip can run past the screen's edge: bring the current page's entry into view

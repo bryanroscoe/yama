@@ -25,8 +25,9 @@ export function usePlanOutlet(): PlanOutlet {
 /** After a sync, wait this long for more taps before fetching the bundle again. */
 const REFRESH_AFTER_SYNC_MS = 8000;
 
-/** The Workshop's plan pages: every one of them from one bundle. */
-export function PlanLayout() {
+/** The Workshop's plan pages, and the Collection's wish list (`title`): every one of them from
+ *  one bundle. */
+export function PlanLayout({ title = "Plans" }: { title?: string }) {
   const me = useMe();
   const userId = me.data?.id;
   const qc = useQueryClient();
@@ -72,8 +73,8 @@ export function PlanLayout() {
       {!deckPage && banner}
       {!view && (
         <>
-          <PlansHead title="Plans" index />
-          {plan.pending && <Loading>Loading your plans…</Loading>}
+          <PlansHead title={title} index />
+          {plan.pending && <Loading>{title === "Plans" ? "Loading your plans…" : "Loading…"}</Loading>}
           <ErrorText error={plan.error} />
         </>
       )}

@@ -88,7 +88,8 @@ const SEARCH_ICON: &str = icon!(r#"<circle cx="11" cy="11" r="6"/><path d="m20 2
 
 /// The Decks tab's pages, as the app lists them for someone not signed in (nav.tsx): the strip
 /// under the header of every public page that belongs to Decks.
-pub(crate) const DECKS_PAGES: [(&str, &str); 3] = [("/decks", "My decks"), ("/precons", "Precons"), ("/commanders", "Commanders")];
+pub(crate) const DECKS_PAGES: [(&str, &str); 5] =
+    [("/decks", "My decks"), ("/decks/browse", "Browse"), ("/precons", "Precons"), ("/commanders", "Commanders"), ("/check", "Check a deck")];
 
 /// The public pages that belong to the Decks tab: the precon and commander reference and a
 /// shared deck. A profile, a shared plan and the text pages belong to no tab.
@@ -726,7 +727,7 @@ mod frame_tests {
         for gone in ["Open Yama", "MCP guide", ">About<"] {
             assert!(!html.contains(gone), "{gone} is still in the header");
         }
-        assert_eq!(DECKS_PAGES, [("/decks", "My decks"), ("/precons", "Precons"), ("/commanders", "Commanders")]);
+        assert_eq!(DECKS_PAGES, [("/decks", "My decks"), ("/decks/browse", "Browse"), ("/precons", "Precons"), ("/commanders", "Commanders"), ("/check", "Check a deck")]);
     }
 
     /// One header and footer everywhere: each static page under web/public carries exactly what

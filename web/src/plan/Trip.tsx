@@ -443,11 +443,11 @@ function StockCheck({ stores, going, view, userId }: { stores: Store[]; going: s
 }
 
 /**
- * Cards and sealed products you added to your list by hand: needed ones decide the stores like
- * planned buys; "along the way" ones only come from a store already on the trip. A deck that isn't
+ * Your wish list (Collection, Wish list shows it too): cards and sealed products you added to
+ * your list by hand. Needed ones decide the stores like planned buys; "along the way" ones only come from a store already on the trip. A deck that isn't
  * in a plan says which of its cards your collection lacks, so you can add the ones to buy here.
  */
-function MyList({ view, userId }: { view: PlanView; userId: string }) {
+export function MyList({ view, userId }: { view: PlanView; userId: string }) {
   const qc = useQueryClient();
   const wants = view.b.shopping_wants ?? [];
   const [name, setName] = useState("");
