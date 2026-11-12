@@ -168,6 +168,7 @@ Every finished game you played or recorded, or a whole playgroup's, as JSON (sha
 
 Commander on the [Phase](https://github.com/bryanroscoe/yama-phase) rules engine (`play/`), in alpha. It needs the engine card data ([engine integration](engine-integration.md)).
 
+- An account can have 3 games open at a time (10 with an invite, 1 for a guest); the refusal at the limit says so and how to free a place.
 - Lobby, friends join by code (the host can close a table that hasn't started, and delete a game that's over), choose who goes first or roll for it, AI seats (Easy/Medium/Hard) on your decks or stock precons, legal options only, auto-pass, per-seat hidden information, replay log saved after every move, games resume after a restart, final boards rebuilt from replays.
 - A live game saved on an engine build this server can never run (anything but the current engine or the preserved v0.113 runtime) is stranded: it takes no place among the games you may have open, and its host may delete it from its page (optional: deleting removes it from everyone's history). Games only waiting for their engine to load or be installed aren't stranded. Every engine upgrade strands the games still in progress on the old one.
 - Readable board on the Night table design: opponents across the top on their commander art, hover a card for a full-size preview (desktop), right-click, long-press or tap for the card with its rules text and your options for it.

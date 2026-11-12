@@ -210,9 +210,19 @@ async fn online_games_a_stranger_can_host_are_capped() {
     host("s1".into(), stranger.clone(), "live").await;
     host("s2".into(), stranger.clone(), "lobby").await;
     host("s3".into(), stranger.clone(), "over").await;
+    // Two open games (the finished one doesn't count) leave room for a third: the cap is 3 since
+    // 12 Nov 2026. Online play is off here, which is the next thing a request under the cap hears.
+    let (status, res) = send(&app, Method::POST, "/api/play", Some(&st), Some(body.clone())).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
+    assert!(res["error"].as_str().unwrap().starts_with("online play is off"), "{res}");
+    host("s4".into(), stranger.clone(), "live").await;
     let (status, res) = send(&app, Method::POST, "/api/play", Some(&st), Some(body.clone())).await;
     assert_eq!(status, StatusCode::CONFLICT, "{res}");
-    assert_eq!(res["error"], "You have 1 table waiting for players and 1 game being played. Close a waiting table from its page, or finish a game, before starting another.", "{res}");
+    assert_eq!(
+        res["error"],
+        "You have 1 table waiting for players and 2 games being played, and the limit is 3 open games at a time. Close a waiting table from its page, or finish a game, before starting another.",
+        "{res}"
+    );
     // A member may host more (here online play is off, which is the next thing it says).
     for i in 0..3 {
         host(format!("m{i}"), member.clone(), "live").await;

@@ -94,7 +94,7 @@ Off unless `yama.env` says otherwise. To turn it on:
 What changes:
 
 - Anyone whose Google account has a verified email can sign in, and gets an account. There is still no username and password sign-up.
-- Invites still mean something: an invited account (and every admin) keeps the full allowance. An account without an invite gets a smaller one: lab runs of 100 games, one at a time, at most `YAMA_LAB_OPEN_DAILY_GAMES` games a day (default 300); at most 2 unfinished online games; Mythic Tools CSVs up to 1 MB and plan files up to 2 MB. Inviting someone later lifts it straight away.
+- Invites still mean something: an invited account (and every admin) keeps the full allowance. An account without an invite gets a smaller one: lab runs of 100 games, one at a time, at most `YAMA_LAB_OPEN_DAILY_GAMES` games a day (default 300); at most 3 unfinished online games (10 with an invite); Mythic Tools CSVs up to 1 MB and plan files up to 2 MB. Inviting someone later lifts it straight away.
 - Everyone but admins together may have at most `YAMA_LAB_QUEUE_GAMES` lab games waiting or playing (default 2,000), and accounts without an invite together at most `YAMA_LAB_OPEN_QUEUE_GAMES` (default 400), so new accounts can't fill the lab's queue.
 - An account is tied to its Google account the first time it signs in; a different Google account with the same email is refused. Open sign-up never hands an existing password or Cloudflare Access account to a Google sign-in: invite that email first.
 - Turning `YAMA_OPEN_SIGNUP` off again shuts out every account that isn't invited (their sessions and script keys stop working at once). Their data stays; inviting them lets them back in.
