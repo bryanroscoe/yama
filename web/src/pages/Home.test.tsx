@@ -10,6 +10,8 @@ vi.mock("../table/store", () => ({ useTable: () => ({ game: table.game, state: t
 vi.mock("../table/resume", () => ({ isOpening: () => table.opening, opened: () => {}, resumesOnOpen: () => table.recent }));
 vi.mock("../components/useCardArt", () => ({ useCardArt: () => new Map() }));
 vi.mock("../table/SharedTables", () => ({ SharedTables: () => <p>Shared tables</p> }));
+// The list has its own tests (StartHere.test.tsx); here, only that Home puts it in its place.
+vi.mock("./StartHere", () => ({ StartHere: ({ userId }: { userId: string }) => <p>Start here list for {userId}</p> }));
 // A redirect draws nothing in a static render: show where it goes.
 vi.mock("react-router", async (original) => ({ ...(await original<typeof import("react-router")>()), Navigate: ({ to }: { to: string }) => <p>Goes to {to}</p> }));
 
@@ -125,6 +127,15 @@ describe("Home, signed in", () => {
     // A finished game still in the slot isn't in progress.
     table.state = { ...going.state, finished: true };
     expect(home()).not.toContain("Game in progress");
+  });
+});
+
+describe("Start here on Home", () => {
+  it("sits on top for someone signed in, above starting a game, and never shows signed out", () => {
+    const page = home();
+    expect(page).toContain("Start here list for u1");
+    expect(page.indexOf("Start here list")).toBeLessThan(page.indexOf("home-start-title"));
+    expect(home({ me: null })).not.toContain("Start here list");
   });
 });
 
