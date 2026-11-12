@@ -141,6 +141,12 @@ export type TableEvent =
   | { type: "initiative"; seat: Seat | null }
   | { type: "day_night"; value: "day" | "night" | null }
   | { type: "pass_turn" }
+  /**
+   * Two players trade places at the table (they sat down somewhere other than the setup said).
+   * Each keeps their seat number, totals and history; only where their panel sits and when their
+   * turn comes move. No `seat` field: it's nobody's action (toServerEvents' actor_seat).
+   */
+  | { type: "swap_places"; a: Seat; b: Seat }
   /** Who takes (or took) the first turn: chosen, or picked by "Roll for first". */
   | { type: "set_first"; seat: Seat; rolled?: boolean }
   | { type: "eliminate"; seat: Seat; bySeat?: Seat }
@@ -201,6 +207,11 @@ export interface TableState {
   initiative: Seat | null;
   dayNight: "day" | "night" | null;
   finished?: { winnerSeat: Seat | null; endedAt: string } & FinishDetails;
+  /**
+   * The seats in the order they sit, clockwise from the device's own (the panels' layout and turn
+   * order). Missing until someone swaps places: then it's setup order.
+   */
+  order?: Seat[];
   /** Commanders a seat stopped playing that had dealt damage, by retired key, with their names. */
   retired?: Partial<Record<CommanderKey, { seat: Seat; partner: boolean; name: string }>>;
 }
@@ -263,23 +274,23 @@ export function apply(state: TableState, e: TableEvent): TableState {
     case "day_night":
       return { ...state, dayNight: e.value };
     case "pass_turn": {
-      const alive = state.players.filter((p) => !p.eliminated);
-      if (alive.length === 0) return state;
-      const order = state.players.map((p) => p.seat);
-      let i = order.indexOf(state.activeSeat);
-      let next = state.activeSeat;
-      for (let step = 0; step < order.length; step++) {
-        i = (i + 1) % order.length;
-        const candidate = state.players[i];
-        if (candidate && !candidate.eliminated) {
-          next = candidate.seat;
-          break;
-        }
-      }
+      const next = nextSeat(state);
+      if (next === null) return state;
+      const order = seatOrder(state);
       const roundStart = state.firstSeat ?? state.roundStart ?? state.activeSeat;
       // A new round starts when play wraps back past the seat rounds start from.
       const wrapped = turnPosition(order, roundStart, next)! <= turnPosition(order, roundStart, state.activeSeat)!;
       return { ...state, activeSeat: next, roundStart, passes: state.passes + 1, turn: wrapped ? state.turn + 1 : state.turn };
+    }
+    case "swap_places": {
+      const order = seatOrder(state);
+      const i = order.indexOf(e.a);
+      const j = order.indexOf(e.b);
+      if (i < 0 || j < 0 || i === j) return state;
+      const swapped = [...order];
+      swapped[i] = e.b;
+      swapped[j] = e.a;
+      return { ...state, order: swapped };
     }
     case "set_first":
       if (!state.players.some((p) => p.seat === e.seat)) return state;
@@ -342,7 +353,26 @@ export function apply(state: TableState, e: TableEvent): TableState {
       const { type: _, ...finished } = e;
       return { ...state, finished };
     }
+    default:
+      // An event from a newer version of the app: skip it rather than lose the game.
+      return state;
   }
+}
+
+/** The seats in the order they sit at the table (and take turns): setup order until someone swaps places. */
+export function seatOrder(state: Pick<TableState, "players" | "order">): Seat[] {
+  return state.order ?? state.players.map((p) => p.seat);
+}
+
+/** Whose turn comes after the current one, skipping anyone out. null when everyone is out. */
+export function nextSeat(state: Pick<TableState, "players" | "order" | "activeSeat">): Seat | null {
+  const order = seatOrder(state);
+  const i = order.indexOf(state.activeSeat);
+  for (let step = 1; step <= order.length; step++) {
+    const seat = order[(i + step) % order.length]!;
+    if (state.players.some((p) => p.seat === seat && !p.eliminated)) return seat;
+  }
+  return null;
 }
 
 export function replay(setup: TableSetup, log: LoggedEvent[]): TableState {

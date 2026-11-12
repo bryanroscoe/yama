@@ -9,6 +9,8 @@ import {
   lossOf,
   lossesOf,
   MANA,
+  nextSeat,
+  seatOrder,
   POISON_LETHAL,
   panelFills,
   remaining,
@@ -36,7 +38,7 @@ import { ActionBar, Button, CardThumb, Dialog, DialogHead, Pips, Segmented } fro
 import { useCardArt, type CardArt } from "../components/useCardArt";
 import { FirstPlayerPicker, FunPicker, NotePicker, WinConditionPicker } from "../components/GameCapture";
 import { panelArt, setShowArt, useShowArt } from "./art";
-import { tableLayout, useLandscape, useLayoutChoice } from "./layouts";
+import { seatCells, tableLayout, useLandscape, useLayoutChoice } from "./layouts";
 import { CommanderFields, resolveDraft, type CommanderDraft } from "./pickers";
 import { announceNext, JoinSheet, ShareCard, startHosting, useHosting, joinUrl } from "./share";
 import { canUndo, discardGame, dispatch, finishGame, redo, startGame, undo, useSyncStatus, useTable, type LocalGame, DISCARD_GAME } from "./store";
@@ -142,7 +144,10 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
   const artFor = useTableArt(state.players, showArt);
   const lethal = useLethalPrompt(state, following ? me?.seat ?? null : undefined);
 
-  const { cols, rows, cells } = tableLayout(state.players.length, following?.layout ?? layoutKey, landscape);
+  const layout = tableLayout(state.players.length, following?.layout ?? layoutKey, landscape);
+  const { cols, rows } = layout;
+  // Layouts are drawn in setup order; after a swap of places, each seat goes where it now sits.
+  const cells = seatCells(layout.cells, seatOrder(state));
   const alive = remaining(state);
   const fills = panelFills(state.players.map((p) => p.colorIdentity));
   // Whose turn it is shows only on a device counting turns; most tables don't.
@@ -1155,14 +1160,49 @@ function FinishSheet({ state, winner, onBack, onSave }: {
 }
 
 /** Who gets the turn next: the next seat clockwise still in the game, as pass_turn does it. */
+/**
+ * People sat down somewhere other than setup put them: select two and they trade places. Their
+ * panels move, and turns go around in the new order; everything else stays with each player.
+ */
+function SwapPlaces({ state, artFor }: { state: TableState; artFor: ArtFor }) {
+  const dispatch = useContext(DispatchContext);
+  const [first, setFirst] = useState<number | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  const name = (seat: number | null) => state.players.find((p) => p.seat === seat)?.name ?? "Someone";
+  const pick = (seat: number) => {
+    setDone(null);
+    if (first === null) return setFirst(seat);
+    if (first !== seat) {
+      dispatch({ type: "swap_places", a: first, b: seat });
+      setDone(`${name(first)} and ${name(seat)} swapped places.`);
+    }
+    setFirst(null);
+  };
+  return (
+    <section className="tm-section" aria-labelledby="tm-places">
+      <h3 id="tm-places">Swap places</h3>
+      <p className="small dim" role="status">
+        {first !== null ? `Who is ${name(first)} swapping with?` : done ?? "Sitting somewhere else? Select two players to swap their places. Turns go around in the new order."}
+      </p>
+      <div className="tm-pick-row">
+        {seatOrder(state).map((seat) => {
+          const p = state.players.find((x) => x.seat === seat);
+          if (!p) return null;
+          return (
+            <Button key={seat} aria-pressed={first === seat} onClick={() => pick(seat)}>
+              <SeatDot art={artFor(seat)} colorIdentity={p.colorIdentity} className="tm-marker-dot" />
+              {p.name}
+            </Button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function nextPlayer(state: TableState): PlayerState | undefined {
-  const order = state.players;
-  const i = order.findIndex((p) => p.seat === state.activeSeat);
-  for (let step = 1; step <= order.length; step++) {
-    const c = order[(i + step) % order.length];
-    if (c && !c.eliminated) return c;
-  }
-  return undefined;
+  const seat = nextSeat(state);
+  return state.players.find((p) => p.seat === seat);
 }
 
 /** A player's commander art in a circle, or a raised circle with their first identity color. */
@@ -1376,6 +1416,7 @@ function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDic
         <Button onClick={onDice}>Dice and coin</Button>
       </div>
       {!following && <LayoutPicker n={state.players.length} className="tm-layout" />}
+      {!following && state.players.length > 1 && <SwapPlaces state={state} artFor={artFor} />}
       <GameLog state={state} log={log} />
 
       <section className="tm-section tm-settings" aria-labelledby="tm-settings">

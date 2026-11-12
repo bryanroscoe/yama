@@ -65,6 +65,8 @@ export function describe(before: TableState, after: TableState, e: TableEvent): 
       return e.value === null ? "Day and night ended." : `It became ${e.value}.`;
     case "pass_turn":
       return `${name(after.activeSeat)}'s turn${after.turn !== before.turn ? `, turn ${after.turn} begins` : ""}.`;
+    case "swap_places":
+      return e.a === e.b ? null : `${name(e.a)} and ${name(e.b)} swapped places.`;
     case "set_first":
       return `${name(e.seat)} ${before.passes === 0 ? "goes" : "went"} first${e.rolled ? " (rolled)" : ""}.`;
     case "eliminate":
