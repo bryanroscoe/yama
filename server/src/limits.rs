@@ -82,6 +82,14 @@ impl RateLimiter {
         self.check_at(key, Instant::now(), false)
     }
 
+    /// Hits counted for `key` in the window that ends now, without counting one: for showing
+    /// what is left of an allowance.
+    pub fn used(&self, key: &str) -> usize {
+        let now = Instant::now();
+        let hits = self.hits.lock().unwrap_or_else(|e| e.into_inner());
+        hits.get(key).map_or(0, |q| q.iter().filter(|t| now.saturating_duration_since(**t) < self.window).count())
+    }
+
     /// Per-account limits leave admins out.
     pub fn check_user(&self, user: &User) -> AppResult<()> {
         if user.is_admin { Ok(()) } else { self.check(&user.id) }
@@ -111,7 +119,7 @@ impl RateLimiter {
     }
 }
 
-fn wait_text(wait: Duration) -> String {
+pub(crate) fn wait_text(wait: Duration) -> String {
     match wait.as_secs() {
         0..=59 => "under a minute".into(),
         60..=119 => "a minute".into(),
@@ -472,5 +480,20 @@ mod tests {
         }
         l.check_at("a", t0, true).unwrap();
         assert!(l.check_at("a", t0, false).is_err());
+    }
+
+    #[test]
+    fn used_counts_the_hits_still_in_the_window() {
+        let l = RateLimiter::new("tries", 3, Duration::from_secs(60));
+        assert_eq!(l.used("a"), 0);
+        l.check("a").unwrap();
+        l.check("a").unwrap();
+        l.check("b").unwrap();
+        assert_eq!((l.used("a"), l.used("b"), l.used("c")), (2, 1, 0));
+        // Asking counts nothing, and a hit from before the window isn't counted.
+        assert_eq!(l.used("a"), 2);
+        let old = RateLimiter::new("tries", 3, Duration::ZERO);
+        old.record("a");
+        assert_eq!(old.used("a"), 0);
     }
 }

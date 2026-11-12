@@ -11,11 +11,18 @@
 //! second. Nothing here is written to the replay log's database row, so contests a headless host
 //! settles itself are fine (`Match::settle_ai_contest`).
 //!
-//! Limits, because every game holds a thread that can keep a core busy:
-//! - unfinished games per account ([`MAX_WATCH_GAMES`]; [`OPEN_MAX_WATCH_GAMES`] for accounts
-//!   without an invite) and for everyone together ([`MAX_WATCH_GAMES_ALL`],
-//!   [`OPEN_MAX_WATCH_GAMES_ALL`] for accounts without an invite); admins are left out, as for
-//!   online games;
+//! Who: every signed-in account (12 Nov 2026; it was admins and power users only from
+//! 2026-10-31). Limits, because every game holds a thread that can keep a core busy:
+//! - unfinished games per account: [`MAX_WATCH_GAMES`] for an invited power user, and
+//!   [`OPEN_MAX_WATCH_GAMES`] for everyone else ([`small_allowance`]);
+//! - new games in 24 hours for an account that isn't a power user ([`WATCH_GAMES_PER_DAY`]),
+//!   counted in memory, so a restart starts the day again (the caps on unfinished games are what
+//!   protect the server; this one keeps any one account from holding a place all day);
+//! - unfinished games for everyone together ([`MAX_WATCH_GAMES_ALL`]), and within that for the
+//!   accounts with the small allowance together ([`OPEN_MAX_WATCH_GAMES_ALL`]); admins are left
+//!   out, as for online games;
+//! - the caps and the daily count are checked again, and the game kept, under one lock
+//!   ([`WatchHub::spawn`]), so requests arriving together can't all pass;
 //! - new games are rate-limited per account (`limits.rs`);
 //! - the lab's per-turn loop guard ([`MAX_TURN_ACTIONS`]) and turn, action and CPU-time caps end a
 //!   game that would otherwise run for ever;
@@ -32,6 +39,7 @@
 use crate::auth::{CurrentUser, User};
 use crate::decks::Board;
 use crate::error::{AppError, AppResult};
+use crate::limits::RateLimiter;
 use crate::play::{SeatCfg, card_meta, commander_arts, deck_for_seat, seat_infos, view_names};
 use crate::routes::AppState;
 use crate::util::{new_id, now};
@@ -57,20 +65,46 @@ use yama_play::{CardView, DeckLine, Decision, Difficulty, Match, PlayerView, Sta
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/watch", get(list).post(create))
+        .route("/api/watch/allowance", get(allowance))
         .route("/api/watch/{id}", get(detail).delete(remove))
         .route("/api/watch/{id}/stop", post(stop))
         .route("/api/watch/{id}/again", post(again))
         .route("/api/watch/{id}/ws", get(connect))
 }
 
-/// Unfinished watched games (playing or paused) one account may have.
+/// Unfinished watched games (playing or paused) an invited power user may have.
 pub const MAX_WATCH_GAMES: usize = 3;
-/// The same for an account that joined without an invite.
+/// The same for every other account ([`small_allowance`]): one at a time.
 pub const OPEN_MAX_WATCH_GAMES: usize = 1;
 /// Unfinished watched games everyone but admins may have together.
 pub const MAX_WATCH_GAMES_ALL: usize = 8;
-/// Unfinished watched games all accounts without an invite may have together.
+/// Unfinished watched games all accounts with the small allowance may have together.
 pub const OPEN_MAX_WATCH_GAMES_ALL: usize = 3;
+/// New watched games (Watch again included) an account that isn't a power user may start in 24
+/// hours. Power users and admins have no daily count.
+pub const WATCH_GAMES_PER_DAY: usize = 10;
+
+/// The small Watch allowance: one game at a time, from the smaller shared pool. Every account
+/// has it except an admin and an invited power user.
+pub fn small_allowance(user: &User) -> bool {
+    !user.is_admin && (user.limited || !user.power)
+}
+
+/// Unfinished watched games `user` may have at once; `None` for an admin (no cap).
+pub fn at_a_time(user: &User) -> Option<usize> {
+    if user.is_admin {
+        None
+    } else if small_allowance(user) {
+        Some(OPEN_MAX_WATCH_GAMES)
+    } else {
+        Some(MAX_WATCH_GAMES)
+    }
+}
+
+/// New watched games `user` may start in 24 hours; `None` for power users and admins (no count).
+pub fn per_day(user: &User) -> Option<usize> {
+    (!user.is_admin && !user.power).then_some(WATCH_GAMES_PER_DAY)
+}
 /// Seats in a watched game.
 pub const WATCH_SEATS: std::ops::RangeInclusive<usize> = 2..=4;
 /// AI levels a seat may have (phase's labels).
@@ -477,6 +511,8 @@ pub fn run(d: &mut dyn Driver, cmds: &Receiver<WatchCmd>, out: &watch::Sender<Ar
 pub struct WatchHub {
     games: Mutex<HashMap<String, Arc<WatchGame>>>,
     timing: Timing,
+    /// Games started in the last 24 hours, per account ([`per_day`]). In memory, like the games.
+    daily: RateLimiter,
 }
 
 impl Default for WatchHub {
@@ -511,7 +547,7 @@ pub struct AdminWatchSeat {
 pub struct WatchGame {
     pub id: String,
     owner: String,
-    /// The owner had the smaller allowance when the game started.
+    /// The owner had the small allowance ([`small_allowance`]) when the game started.
     limited: bool,
     /// The owner was an admin (their games don't count toward the caps).
     admin: bool,
@@ -537,7 +573,7 @@ impl WatchGame {
 
 impl WatchHub {
     pub fn with_timing(timing: Timing) -> Self {
-        Self { games: Mutex::new(HashMap::new()), timing }
+        Self { games: Mutex::new(HashMap::new()), timing, daily: RateLimiter::new("watched games today", WATCH_GAMES_PER_DAY, Duration::from_secs(24 * 60 * 60)) }
     }
 
     /// The game if `user` owns it; "not found" otherwise, so ids leak nothing.
@@ -556,27 +592,44 @@ impl WatchHub {
         out
     }
 
-    /// Refuse a new game that would take `user`, or everyone, past the caps on unfinished games.
+    /// Refuse a new game that would take `user`, or everyone, past the caps on unfinished games,
+    /// or `user` past the day's count. Nothing is counted: [`WatchHub::spawn`] checks again and
+    /// counts, so this is the early refusal before any deck is loaded.
     fn check_caps(&self, user: &User) -> AppResult<()> {
         if user.is_admin {
             return Ok(());
         }
         self.sweep();
-        let games = self.games.lock().unwrap();
+        Self::caps(&self.games.lock().unwrap(), user)?;
+        if per_day(user).is_some() {
+            self.daily.allows(&user.id).map_err(daily_refusal)?;
+        }
+        Ok(())
+    }
+
+    /// The caps on unfinished games, read from `games` (the caller holds the lock).
+    fn caps(games: &HashMap<String, Arc<WatchGame>>, user: &User) -> AppResult<()> {
         let live = || games.values().filter(|g| g.unfinished() && !g.admin);
         let mine = live().filter(|g| g.owner == user.id).count();
-        let cap = if user.limited { OPEN_MAX_WATCH_GAMES } else { MAX_WATCH_GAMES };
+        let small = small_allowance(user);
+        let cap = if small { OPEN_MAX_WATCH_GAMES } else { MAX_WATCH_GAMES };
         if mine >= cap {
             return Err(AppError::Conflict(if cap == 1 {
-                "You already have a game playing. Stop it or let it finish before starting another.".into()
+                "You already have a game playing, and the limit is one at a time. Stop it or let it finish before starting another.".into()
             } else {
-                format!("You have {mine} games playing. Stop one or let it finish before starting another.")
+                format!("You have {mine} games playing, and the limit is {cap} at a time. Stop one or let it finish before starting another.")
             }));
         }
-        if live().count() >= MAX_WATCH_GAMES_ALL || (user.limited && live().filter(|g| g.limited).count() >= OPEN_MAX_WATCH_GAMES_ALL) {
+        if live().count() >= MAX_WATCH_GAMES_ALL || (small && live().filter(|g| g.limited).count() >= OPEN_MAX_WATCH_GAMES_ALL) {
             return Err(AppError::Conflict("The server is busy with other games right now. Try again later.".into()));
         }
         Ok(())
+    }
+
+    /// What `user` may start, and what they have started today, for the Watch page.
+    pub fn allowance(&self, user: &User) -> Allowance {
+        let per_day = per_day(user);
+        Allowance { at_a_time: at_a_time(user), per_day, used_today: per_day.map(|_| self.daily.used(&user.id)) }
     }
 
     /// Forget finished games nobody has looked at for a while.
@@ -646,7 +699,9 @@ impl WatchHub {
         }
     }
 
-    /// Start a game on its own thread and keep it.
+    /// Start a game on its own thread and keep it, unless it would take `user` past a cap. The
+    /// caps and the day's count are checked, the game counted and kept, all under the one lock on
+    /// the games: of several requests arriving together, only as many as fit get a thread.
     #[allow(clippy::too_many_arguments)]
     fn spawn(
         &self,
@@ -655,7 +710,7 @@ impl WatchHub {
         missing_cards: HashMap<String, Vec<String>>,
         request: CreateRequest,
         mut driver: Box<dyn Driver>,
-    ) -> Arc<WatchGame> {
+    ) -> AppResult<Arc<WatchGame>> {
         let id = new_id();
         let status = Status {
             playing: true,
@@ -673,7 +728,7 @@ impl WatchHub {
         let game = Arc::new(WatchGame {
             id: id.clone(),
             owner: user.id.clone(),
-            limited: user.limited,
+            limited: small_allowance(user),
             admin: user.is_admin,
             created_at: now(),
             seats,
@@ -683,7 +738,18 @@ impl WatchHub {
             frames: frame_rx,
             presence: presence.clone(),
         });
-        self.games.lock().unwrap().insert(id.clone(), game.clone());
+        self.sweep();
+        {
+            let mut games = self.games.lock().unwrap();
+            if !user.is_admin {
+                Self::caps(&games, user)?;
+                // Counted last, and only for a game that is kept: a refusal above uses nothing up.
+                if per_day(user).is_some() {
+                    self.daily.check(&user.id).map_err(daily_refusal)?;
+                }
+            }
+            games.insert(id.clone(), game.clone());
+        }
         let timing = self.timing.clone();
         std::thread::Builder::new()
             .name(format!("watch-{}", &id[..8.min(id.len())]))
@@ -713,7 +779,32 @@ impl WatchHub {
                 }
             })
             .expect("watch thread");
-        game
+        Ok(game)
+    }
+}
+
+/// What an account may do with watched games, as the Watch page shows it.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Allowance {
+    /// Unfinished games at once; null for an admin (no cap).
+    pub at_a_time: Option<usize>,
+    /// New games in 24 hours; null for power users and admins (no count).
+    pub per_day: Option<usize>,
+    /// Games started in the last 24 hours, when there is a daily count.
+    pub used_today: Option<usize>,
+}
+
+/// The day's count is used up: say the limit, and when a place frees.
+fn daily_refusal(e: AppError) -> AppError {
+    match e {
+        AppError::TooManyRequests { retry_after, .. } => AppError::TooManyRequests {
+            message: format!(
+                "You can start {WATCH_GAMES_PER_DAY} watched games a day, and you've started {WATCH_GAMES_PER_DAY} in the last 24 hours. Try again in {}.",
+                crate::limits::wait_text(Duration::from_secs(retry_after))
+            ),
+            retry_after,
+        },
+        other => other,
     }
 }
 
@@ -818,9 +909,9 @@ async fn own_seat(pool: &SqlitePool, user: &str, seat: u8, id: &str, level: &str
     })
 }
 
-/// Check a request, load its decks and start the game.
+/// Check a request, load its decks and start the game. Any signed-in account may (12 Nov 2026),
+/// within its allowance ([`at_a_time`], [`per_day`]).
 async fn start(st: &AppState, user: &User, body: CreateRequest) -> AppResult<Arc<WatchGame>> {
-    user.require_power()?;
     st.limits.watch_creates.check_user(user)?;
     st.watch.check_caps(user)?;
     if !WATCH_SEATS.contains(&body.seats.len()) {
@@ -875,7 +966,7 @@ async fn start(st: &AppState, user: &User, body: CreateRequest) -> AppResult<Arc
     // instead of stopping the game.
     m.set_ai_fallback(true);
     let cfgs = seats.into_iter().map(|s| s.cfg).collect();
-    Ok(st.watch.spawn(user, cfgs, missing, body, Box::new(EngineDriver { m, pilots: HashMap::new() })))
+    st.watch.spawn(user, cfgs, missing, body, Box::new(EngineDriver { m, pilots: HashMap::new() }))
 }
 
 // ── routes ─────────────────────────────────────────────────────────────────
@@ -922,6 +1013,10 @@ async fn list(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> App
         out.push(summary(&st.pool, &g).await?);
     }
     Ok(Json(out))
+}
+
+async fn allowance(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> Json<Allowance> {
+    Json(st.watch.allowance(&user))
 }
 
 async fn create(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(body): Json<CreateRequest>) -> AppResult<Json<serde_json::Value>> {

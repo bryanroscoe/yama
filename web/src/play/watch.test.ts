@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { seatLabel, seatName, statusLine, tableNames, watchRequest } from "./watch";
+import { seatLabel, seatName, statusLine, tableNames, watchAllowanceText, watchRequest } from "./watch";
 import type { SeatInfo, WatchStatus } from "./types";
 
 const seat = (n: number, commander: string | null, ai = "Easy"): SeatInfo => ({
@@ -41,6 +41,18 @@ describe("watch words", () => {
     expect(statusLine({ ...g, winner: 1, status: status({ finished: true, playing: false }) })).toBe("Omo won on turn 9");
     expect(statusLine({ ...g, status: status({ finished: true }) })).toBe("A draw on turn 9");
     expect(statusLine({ ...g, status: status({ finished: true, stopped: "Stopped by you" }) })).toBe("Stopped by you");
+  });
+
+  it("says the daily limit and what is left of it", () => {
+    expect(watchAllowanceText({ at_a_time: 1, per_day: 10, used_today: 0 })).toBe("You can start 10 watched games a day, one at a time. 10 left today.");
+    expect(watchAllowanceText({ at_a_time: 1, per_day: 10, used_today: 9 })).toBe("You can start 10 watched games a day, one at a time. 1 left today.");
+    expect(watchAllowanceText({ at_a_time: 3, per_day: 10, used_today: 4 })).toBe("You can start 10 watched games a day, 3 at a time. 6 left today.");
+    // Used up: the limit, not how the account joined.
+    expect(watchAllowanceText({ at_a_time: 1, per_day: 10, used_today: 10 })).toBe("You've started 10 watched games in the last 24 hours, which is the daily limit. Try again tomorrow.");
+    expect(watchAllowanceText({ at_a_time: 1, per_day: 10, used_today: 12 })).toMatch(/daily limit/);
+    // Power users and admins have no daily count, so there is nothing to say.
+    expect(watchAllowanceText({ at_a_time: 3, per_day: null, used_today: null })).toBeNull();
+    expect(watchAllowanceText({ at_a_time: null, per_day: null, used_today: null })).toBeNull();
   });
 
   it("builds the request the server reads", () => {

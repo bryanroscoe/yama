@@ -259,7 +259,7 @@ async fn usage(State(st): State<AppState>, AdminUser(_): AdminUser) -> AppResult
                 lab_games_per_day: a.limited.then_some(quota.open_daily_games),
                 lab_runs_at_a_time: Some(if a.limited { crate::lab::experiments::OPEN_MAX_UNFINISHED } else { crate::lab::experiments::MAX_UNFINISHED }),
                 advisor_per_day: shared_per_day.or(Some(if a.limited { crate::advisor::DAILY_LIMITED } else { crate::advisor::DAILY_INVITED })),
-                watch_at_a_time: Some((if a.limited { crate::watch::OPEN_MAX_WATCH_GAMES } else { crate::watch::MAX_WATCH_GAMES }) as i64),
+                watch_at_a_time: crate::watch::at_a_time(&user).map(|n| n as i64),
             }
         };
         t.accounts += 1;

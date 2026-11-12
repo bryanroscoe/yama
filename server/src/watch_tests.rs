@@ -262,9 +262,14 @@ fn request() -> CreateRequest {
 
 /// A game that won't finish on its own (paused at once, nobody needs to watch).
 fn park(hub: &WatchHub, u: &User) -> Arc<WatchGame> {
-    let g = hub.spawn(u, vec![], HashMap::new(), request(), Box::new(Script::new(10_000_000, 10, 50)));
+    let g = hub.spawn(u, vec![], HashMap::new(), request(), Box::new(Script::new(10_000_000, 10, 50))).unwrap();
     g.send(WatchCmd::Pause);
     g
+}
+
+/// An account that isn't a power user: every signed-in account may watch (12 Nov 2026).
+fn plain(id: &str) -> User {
+    User { power: false, ..user(id, true, false) }
 }
 
 fn wait_finished(g: &WatchGame) {
@@ -289,11 +294,11 @@ fn caps_on_unfinished_games_per_account_and_for_everyone() {
         games.push(park(&hub, &invited));
     }
     assert!(matches!(hub.check_caps(&invited), Err(AppError::Conflict(_))));
-    // An account without an invite gets one.
+    // A power user with the standard allowance gets one.
     hub.check_caps(&stranger).unwrap();
     games.push(park(&hub, &stranger));
     let Err(AppError::Conflict(msg)) = hub.check_caps(&stranger) else { panic!("second game allowed") };
-    assert!(msg.contains("already have a game"), "{msg}");
+    assert!(msg.contains("already have a game") && msg.contains("one at a time"), "{msg}");
     // Admins aren't capped, and their games don't count against anyone.
     for _ in 0..MAX_WATCH_GAMES_ALL {
         hub.check_caps(&admin).unwrap();
@@ -317,7 +322,7 @@ fn caps_on_unfinished_games_per_account_and_for_everyone() {
 }
 
 #[test]
-fn accounts_without_an_invite_share_a_smaller_pool() {
+fn accounts_with_the_small_allowance_share_a_smaller_pool() {
     let hub = WatchHub::with_timing(quick());
     let mut games = vec![];
     for i in 0..OPEN_MAX_WATCH_GAMES_ALL {
@@ -328,6 +333,79 @@ fn accounts_without_an_invite_share_a_smaller_pool() {
     assert!(hub.check_caps(&user("s-late", true, false)).is_err());
     hub.check_caps(&user("invited", false, false)).unwrap();
     for g in games {
+        g.send(WatchCmd::Stop);
+    }
+}
+
+#[test]
+fn every_account_may_watch_one_game_at_a_time_and_a_number_a_day() {
+    let hub = WatchHub::with_timing(quick());
+    let pat = plain("pat");
+    // Invited or not, an account that isn't a power user has the small allowance.
+    for u in [&pat, &User { limited: false, ..plain("friend") }] {
+        assert_eq!((small_allowance(u), at_a_time(u), per_day(u)), (true, Some(1), Some(WATCH_GAMES_PER_DAY)));
+    }
+    assert_eq!(hub.allowance(&pat), Allowance { at_a_time: Some(1), per_day: Some(WATCH_GAMES_PER_DAY), used_today: Some(0) });
+    // Power users keep theirs, with no daily count; admins have no cap at all.
+    assert_eq!(hub.allowance(&user("ann", false, false)), Allowance { at_a_time: Some(MAX_WATCH_GAMES), per_day: None, used_today: None });
+    assert_eq!(hub.allowance(&user("sam", true, false)), Allowance { at_a_time: Some(1), per_day: None, used_today: None });
+    assert_eq!(hub.allowance(&user("bryan", false, true)), Allowance { at_a_time: None, per_day: None, used_today: None });
+
+    // One at a time: a second game is refused, and the refusal uses up none of the day.
+    let first = park(&hub, &pat);
+    let Err(AppError::Conflict(msg)) = hub.spawn(&pat, vec![], HashMap::new(), request(), Box::new(Script::new(10, 1, 5))) else { panic!("a second game at once") };
+    assert!(msg.contains("one at a time"), "{msg}");
+    assert_eq!(hub.allowance(&pat).used_today, Some(1));
+    first.send(WatchCmd::Stop);
+    wait_finished(&first);
+    // The rest of the day's games, one after another.
+    for _ in 1..WATCH_GAMES_PER_DAY {
+        hub.check_caps(&pat).unwrap();
+        let g = park(&hub, &pat);
+        g.send(WatchCmd::Stop);
+        wait_finished(&g);
+    }
+    assert_eq!(hub.allowance(&pat).used_today, Some(WATCH_GAMES_PER_DAY));
+    // The next one is refused before anything is loaded (check_caps) and where it counts (spawn),
+    // and the refusal says the limit.
+    for refused in [hub.check_caps(&pat), hub.spawn(&pat, vec![], HashMap::new(), request(), Box::new(Script::new(10, 1, 5))).map(|_| ())] {
+        let Err(AppError::TooManyRequests { message, retry_after }) = refused else { panic!("past the day's count") };
+        assert_eq!(message, format!("You can start {WATCH_GAMES_PER_DAY} watched games a day, and you've started {WATCH_GAMES_PER_DAY} in the last 24 hours. Try again in 24 hours."));
+        assert!(retry_after > 23 * 3600, "{retry_after}");
+    }
+    assert_eq!(hub.mine("pat").iter().filter(|g| g.unfinished()).count(), 0, "a refused game leaves no thread");
+    // Another account's day is its own, and power users and admins aren't counted.
+    park(&hub, &plain("kim")).send(WatchCmd::Stop);
+    let ann = user("ann", false, false);
+    for _ in 0..WATCH_GAMES_PER_DAY + 2 {
+        let g = park(&hub, &ann);
+        g.send(WatchCmd::Stop);
+        wait_finished(&g);
+    }
+}
+
+/// Requests arriving together: the caps and the day's count are checked where the game is kept,
+/// under one lock, so only as many as fit get a thread.
+#[test]
+fn games_started_together_cant_pass_the_caps() {
+    let hub = WatchHub::with_timing(quick());
+    let pat = plain("pat");
+    let start = std::sync::Barrier::new(16);
+    let started: Vec<Arc<WatchGame>> = std::thread::scope(|s| {
+        let threads: Vec<_> = (0..16)
+            .map(|_| {
+                s.spawn(|| {
+                    start.wait();
+                    hub.spawn(&pat, vec![], HashMap::new(), request(), Box::new(Script::new(10_000_000, 10, 50))).ok()
+                })
+            })
+            .collect();
+        threads.into_iter().filter_map(|t| t.join().unwrap()).collect()
+    });
+    assert_eq!(started.len(), 1, "one game at a time, however many ask at once");
+    assert_eq!(hub.allowance(&pat).used_today, Some(1), "only the game that started counts");
+    assert_eq!(hub.mine("pat").len(), 1);
+    for g in started {
         g.send(WatchCmd::Stop);
     }
 }
@@ -367,7 +445,7 @@ fn a_panicking_game_ends_with_a_message() {
         }
     }
     let hub = WatchHub::with_timing(quick());
-    let g = hub.spawn(&user("ann", false, false), vec![], HashMap::new(), request(), Box::new(Panics));
+    let g = hub.spawn(&user("ann", false, false), vec![], HashMap::new(), request(), Box::new(Panics)).unwrap();
     wait_finished(&g);
     std::thread::sleep(Duration::from_millis(20));
     let f = g.frames.borrow().clone();
@@ -383,17 +461,25 @@ async fn routes_check_seats_decks_and_owners() {
     let app = crate::routes::app(st.clone());
     let (ann, ann_token) = testutil::power_user(&st.pool, "ann@example.com").await;
     let (_sam, sam_token) = testutil::power_user(&st.pool, "sam@example.com").await;
-    let (_kim, kim_token) = testutil::user(&st.pool, "kim@example.com").await;
+    let (kim, kim_token) = testutil::user(&st.pool, "kim@example.com").await;
     let (deck, _) = testutil::deck(&st.pool, &ann, "Ann's deck").await;
     let seat = |deck: &str| json!({"deck": {"kind": "deck", "id": deck}, "pilot": {"kind": "ai", "difficulty": "Hard"}});
 
     // Not signed in.
     let (code, _) = testutil::send(&app, Method::GET, "/api/watch", None, None).await;
     assert_eq!(code, StatusCode::UNAUTHORIZED);
-    // Watched AI games are for admins and power users only (2026-10-31).
-    let (code, body) = testutil::send(&app, Method::POST, "/api/watch", Some(&kim_token), Some(json!({"seats": [seat(&deck), seat(&deck)]}))).await;
-    assert_eq!(code, StatusCode::FORBIDDEN, "{body}");
-    assert_eq!(body["error"], crate::auth::POWER_ONLY, "{body}");
+    // Every signed-in account may watch (12 Nov 2026): an account that isn't a power user gets as
+    // far as a power user does here (no engine on this server), and hears its allowance.
+    let (kims, _) = testutil::deck(&st.pool, &kim, "Kim's deck").await;
+    let (code, body) = testutil::send(&app, Method::POST, "/api/watch", Some(&kim_token), Some(json!({"seats": [seat(&kims), seat(&kims)]}))).await;
+    assert_eq!(code, StatusCode::BAD_REQUEST, "{body}");
+    assert!(body.to_string().contains("online play is off"), "{body}");
+    let (code, body) = testutil::send(&app, Method::GET, "/api/watch/allowance", Some(&kim_token), None).await;
+    assert_eq!((code, &body), (StatusCode::OK, &json!({"at_a_time": 1, "per_day": WATCH_GAMES_PER_DAY, "used_today": 0})));
+    let (_, body) = testutil::send(&app, Method::GET, "/api/watch/allowance", Some(&ann_token), None).await;
+    assert_eq!(body, json!({"at_a_time": MAX_WATCH_GAMES, "per_day": null, "used_today": null}));
+    let (code, _) = testutil::send(&app, Method::GET, "/api/watch/allowance", None, None).await;
+    assert_eq!(code, StatusCode::UNAUTHORIZED);
     // Seat counts, levels and LLM seats.
     let (code, body) = testutil::send(&app, Method::POST, "/api/watch", Some(&ann_token), Some(json!({"seats": [seat(&deck)]}))).await;
     assert_eq!(code, StatusCode::BAD_REQUEST, "{body}");

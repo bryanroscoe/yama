@@ -5,8 +5,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { usePower } from "../auth";
-import { PowerNote } from "../components/PowerOnly";
 import { AlphaTag } from "../components/AlphaTag";
 import { api, type DeckSummary } from "../api";
 import { ArtMosaic } from "../components/ArtMosaic";
@@ -14,14 +12,13 @@ import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { BackLink, Button, CheckRow, ErrorText, Field, Segmented } from "../components/ui";
 import type { PreconItem, PreconList } from "../lab/api";
 import { shortName } from "./text";
-import { LEVELS, SPEEDS, statusLine, tableNames, watchRequest, type Level, type WatchSeatPlan, type WatchSummary } from "./watch";
+import { LEVELS, SPEEDS, statusLine, tableNames, watchAllowanceText, watchRequest, type Level, type WatchAllowance, type WatchSeatPlan, type WatchSummary } from "./watch";
 import type { Speed } from "./types";
 import { SavedDeckPicker, PreconPicker } from "../components/DeckPicker";
 import "./play.css";
 import { ago } from "@yama/core";
 
 export function WatchHome() {
-  const power = usePower();
   const games = useQuery({
     queryKey: ["watch"],
     queryFn: ({ signal }) => api<WatchSummary[]>("/api/watch", { signal }),
@@ -39,6 +36,9 @@ export function WatchHome() {
   const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
   const precons = useQuery({ queryKey: ["precons"], queryFn: () => api<PreconList>("/api/precons") });
   const status = useQuery({ queryKey: ["play-status"], queryFn: () => api<{ enabled: boolean; reason: string | null }>("/api/play/status") });
+  // Every account may watch; most have a daily number of games, which the page says up front.
+  const allowance = useQuery({ queryKey: ["watch-allowance"], queryFn: () => api<WatchAllowance>("/api/watch/allowance"), refetchOnMount: "always" });
+  const allowed = allowance.data ? watchAllowanceText(allowance.data) : null;
   const listArt = (games.data ?? []).flatMap((g) => g.seats.filter((s) => s.commander_art));
   return (
     <main className="page play-home watch-home">
@@ -50,15 +50,12 @@ export function WatchHome() {
         </h1>
         <p className="dim">
           Games the computer plays against itself don't count toward your playgroup's stats.
+          {allowed && <> {allowed}</>}
         </p>
       </div>
       {status.data && !status.data.enabled && <p className="dim">The rules engine isn't running on this server: {status.data.reason}</p>}
       <div className="ph-cols">
-        {power ? (
-          status.data?.enabled && decks.data && precons.data && <WatchSetup decks={decks.data} precons={precons.data.precons} />
-        ) : (
-          <p className="empty power-only" role="note"><PowerNote /></p>
-        )}
+        {status.data?.enabled && decks.data && precons.data && <WatchSetup decks={decks.data} precons={precons.data.precons} />}
         <div className="ph-side">
           <section className="ph-games" aria-labelledby="wh-games-h">
             <h2 id="wh-games-h">Your watched games</h2>
@@ -118,6 +115,7 @@ function WatchSetup({ decks, precons }: { decks: DeckSummary[]; precons: PreconI
     mutationFn: () => api<{ id: string }>("/api/watch", { method: "POST", json: watchRequest(seats, first, reveal, speed) }),
     onSuccess: (r) => {
       void qc.invalidateQueries({ queryKey: ["watch"] });
+      void qc.invalidateQueries({ queryKey: ["watch-allowance"] });
       navigate(`/play/watch/${r.id}`);
     },
   });
