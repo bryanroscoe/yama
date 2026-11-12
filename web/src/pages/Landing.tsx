@@ -41,8 +41,8 @@ export function Landing({ children, focused = false }: { children: ReactNode; fo
               <h2 id="explore-title">No account needed</h2>
             </div>
             <div className="landing-public-links">
-              {/* The life counter is Yama's home page, signed in or not (guest.ts). */}
-              <a className="landing-destination landing-counter" href="/">
+              {/* The life counter needs no account (guest.ts). */}
+              <a className="landing-destination landing-counter" href="/play/table">
                 <h3>Count life at the table</h3>
                 <p>Up to six players. Games stay on this device.</p>
                 <span className="landing-destination-action">Start a game <span aria-hidden="true">→</span></span>

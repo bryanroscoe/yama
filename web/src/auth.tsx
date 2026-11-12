@@ -348,7 +348,7 @@ export function SignInForm({ heading: SignInTitle, title = "Sign in to Yama", co
       )}
       {/* The life counter works without an account (guest.ts); sharing a table needs one. */}
       {countLife && (
-        <Button className="login-secondary" onClick={() => navigate("/", { replace: true })}>
+        <Button className="login-secondary" onClick={() => navigate("/play/table", { replace: true })}>
           Count life without an account
         </Button>
       )}

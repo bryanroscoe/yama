@@ -36,8 +36,8 @@ describe("game history", () => {
   it("gives an account with no games a next step, and no filters' worth of dead ends", () => {
     const html = page("", []);
     expect(html).toContain("No games yet");
-    expect(html).toMatch(/<a [^>]*href="\/"[^>]*>Start a game<\/a>/);
-    expect(html).toMatch(/<a [^>]*href="\/"[^>]*>Log one you played<\/a>/);
+    expect(html).toMatch(/<a [^>]*href="\/play\/table"[^>]*>Start a game<\/a>/);
+    expect(html).toMatch(/<a [^>]*href="\/play\/table"[^>]*>Log one you played<\/a>/);
     expect(html).not.toContain("No matching games");
     expect(html).not.toContain("Previous");
     expect(emptyHistory({ filter: "all", search: "  ", offset: 0 })).toBe("none");

@@ -34,7 +34,7 @@ describe("the tabs", () => {
 
   it("hold every address the app has had, old ones included", () => {
     const where: Record<string, string[]> = {
-      play: ["/", "/table", "/table/games", "/table/games/abc", "/play", "/play/watch", "/play/abc"],
+      play: ["/play/table", "/table", "/table/games", "/table/games/abc", "/play", "/play/watch", "/play/abc"],
       decks: ["/decks", "/decks/", "/decks/import", "/decks/changes", "/decks/abc", "/decks/abc/stats", "/decks/abc/edit", "/lab", "/lab/p/riders"],
       cards: ["/cards"],
       collection: ["/collection", "/collection/trade", "/sharing/compare/pat"],
@@ -62,6 +62,8 @@ describe("the tabs", () => {
       you: ["/profile", "/sharing", "/new", "/admin", "/admin/usage"],
     };
     for (const [id, paths] of Object.entries(where)) for (const path of paths) expect(tabOf(path)?.id, path).toBe(id);
+    // Home belongs to no tab: the wordmark goes there.
+    expect(tabOf("/")).toBeNull();
     expect(tabOf("/nowhere")).toBeNull();
     // A page whose name only starts like a tab's isn't under it.
     expect(tabOf("/decksx")).toBeNull();
@@ -69,9 +71,10 @@ describe("the tabs", () => {
   });
 
   it("hold every route the app has: a new page says which tab it belongs to", () => {
-    // Pages with no tab: the sign-in and consent pages and the full-screen life counter and
-    // online board, which draw no frame. Add a route to a tab in nav.tsx, not to this list.
-    const frameless = ["/signin", "/oauth/authorize", "/table/play", "/table/join/:gameId", "/play/:id", "/play/watch/:id"];
+    // Pages with no tab: Home (the wordmark goes there), and the sign-in and consent pages and
+    // the full-screen life counter and online board, which draw no frame. Add a route to a tab
+    // in nav.tsx, not to this list.
+    const frameless = ["/", "/signin", "/oauth/authorize", "/table/play", "/table/join/:gameId", "/play/:id", "/play/watch/:id"];
     const routes = (routesFromApp(readFileSync(new URL("./App.tsx", import.meta.url), "utf8")) as string[]).filter((r) => !frameless.includes(r));
     expect(routes.length).toBeGreaterThan(40);
     const tabless = routes.filter((r) => !tabOf(r.replace(/:\w+/g, "x")));
@@ -94,7 +97,7 @@ describe("the tabs", () => {
 
   it("know which of a tab's pages a page is, and that a deck or a plan's own page is none of them", () => {
     const at = (path: string, who = owner) => sectionOf(tabOf(path)!, path, who)?.label ?? null;
-    expect(at("/")).toBe("Life counter");
+    expect(at("/play/table")).toBe("Life counter");
     expect(at("/play")).toBe("Play online");
     expect(at("/play/watch")).toBe("Watch");
     expect(at("/table/games/abc")).toBe("Game history");
@@ -132,7 +135,7 @@ const links = (html: string) => [...html.matchAll(/href="([^"]+)"/g)].map((m) =>
 
 describe("the strip of a tab's pages", () => {
   it("marks exactly one page current on every page that shows it", () => {
-    expect(current(strip("/"))).toEqual(["/"]);
+    expect(current(strip("/play/table"))).toEqual(["/play/table"]);
     expect(current(strip("/play"))).toEqual(["/play"]);
     expect(current(strip("/table/games"))).toEqual(["/table/games"]);
     expect(current(strip("/decks"))).toEqual(["/decks"]);
@@ -153,7 +156,7 @@ describe("the strip of a tab's pages", () => {
   });
 
   it("stays off a page that has its own way back, and off tabs with one page", () => {
-    for (const path of ["/decks/abc", "/decks/abc/stats", "/decks/plans/blight-curse", "/cards", "/group", "/profile", "/sharing", "/admin", "/nowhere"]) expect(strip(path), path).toBe("");
+    for (const path of ["/", "/decks/abc", "/decks/abc/stats", "/decks/plans/blight-curse", "/cards", "/group", "/profile", "/sharing", "/admin", "/nowhere"]) expect(strip(path), path).toBe("");
   });
 
   it("lists the Workshop's simulation pages for every account, and Datasets for accounts that have one", () => {
@@ -172,11 +175,11 @@ describe("the strip of a tab's pages", () => {
     const html = strip("/decks", null);
     expect(links(html)).toEqual(["/decks", "https://yama.ing/precons", "https://yama.ing/commanders"]);
     expect(links(strip("/decks"))).toEqual(["/decks", "/lab", "https://yama.ing/commanders"]);
-    expect(links(strip("/", null))).toEqual(["/", "/play"]);
+    expect(links(strip("/play/table", null))).toEqual(["/play/table", "/play"]);
   });
 
   it("says online play is in alpha where it is reached", () => {
-    const html = strip("/");
+    const html = strip("/play/table");
     expect(html).toMatch(/href="\/play"[^>]*>Play online<span[^>]*alpha-tag/);
     expect(html.match(/alpha-tag/g)).toHaveLength(1);
   });
