@@ -155,3 +155,40 @@ file is included in the reviewed export digest. Historical saves use the same
 seat-update rules as current games, including clearing a knockout after rewind.
 The v0.113 protocol has no such extension and its existing stored facts remain
 untouched. New Phase types never interpret the old replay or actions.
+
+## Preserved v0.119 gameplay acceptance
+
+The current checkout's `candidate_v0119_*` tests delegate to the original frozen
+integration harness. They never load v0.119 data into the current v0.122 engine.
+The five frozen input files and `candidate-v0119.json` remain unchanged; known
+historical gameplay failures still fail. They are distinct from current v0.122
+acceptance and from the seven native saved-game control tests.
+
+Use an existing verified v0.119 export, or prepare one with
+`runtime/build-v0119.py OUTPUT --prepare-only` as described above. Under the normal
+shared-target lock and compiler guard, with sufficient disk space and jobs=1,
+build its integration executable:
+
+```sh
+CARGO_BUILD_JOBS=1 YAMA_PHASE_SOURCE_REV=19be58d497a6618b34c0862ca1d27c8c48999480 \
+  YAMA_LAB_GIT_SHA=4146a91a1c51c9374e8969954964c4f8c92759d1 YAMA_LAB_GIT_DIRTY=1 \
+  cargo test --locked --manifest-path OUTPUT/yama/Cargo.toml \
+  -p yama-play-historical-v0119 --test integration --no-run
+```
+
+The runner stamp names the pinned adapter source plus the export's overlay hash;
+it does not impersonate the current checkout. Set the binary variable below to
+the integration **test executable** emitted by that build, not the historical
+worker. The current wrapper verifies its original engine, data and source runner
+identities and propagates every gameplay failure.
+
+```sh
+YAMA_V0119_ACCEPTANCE_TEST_BINARY=/absolute/path/to/frozen/integration-test-executable \
+  YAMA_V0119_CARD_DATA=/absolute/path/to/card-data-cbd552b41f962f5b.json \
+  CARGO_BUILD_JOBS=1 cargo test --locked -p yama-play --test integration \
+  candidate_v0119 -- --ignored --nocapture --test-threads=1
+```
+
+`candidate_v0122_*` independently uses the current compiled pin/data and its
+versioned expectation. Do not change either suite's metadata to make it match
+the other engine.

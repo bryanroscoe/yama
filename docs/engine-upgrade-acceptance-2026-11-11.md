@@ -83,6 +83,13 @@ recovery, identity/original-replay fences and corrupt-data rejection. It explici
 checks that live rewind checkpoints are process-local while all other continued
 view fields survive reopening. The existing v0.113 worker and source binding are unchanged.
 
+The five unchanged v0.119 gameplay scenarios also passed on the frozen integration
+harness exported from adapter `4146a91a` and Phase `19be58d4` with the original
+`cbd552b4` data. Its successful control remains winner 3 / turn 44 / 1,754 actions.
+The current test wrapper checks those original identities independently and
+propagates failures; it never runs those cases against the v0.122 engine. The
+older October report describes its earlier adapter and is retained as dated evidence.
+
 ## Other evidence
 
 Phase client: 689 test files and 11,380 tests passed, with two files and one test

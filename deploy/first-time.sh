@@ -10,6 +10,8 @@ CARD_DATA=card-data-19b30ee31fc29d11.json
 SHA=19b30ee31fc29d11df4edfb02ecc9543c4facb17c635b17dfd5347c81462a630
 HISTORICAL_CARD_DATA=card-data-1e5608e61683de41.json
 HISTORICAL_SHA=1e5608e61683de41c84f08f70115bef38db13df85bc5e01fd0eb249cf023244d
+V0119_CARD_DATA=card-data-cbd552b41f962f5b.json
+V0119_SHA=cbd552b41f962f5b80839d35196cfc9621df2406ef3886ca23db8e2f743be505
 cd "$DEPLOY_DIR"
 
 ssh "$HOST" "mkdir -p $DIR/data/engine && chown -R 99:100 $DIR/data"
@@ -24,7 +26,7 @@ fi
 # The rules engine's card data, pinned by hash. Since 2026-10-25 it's built by Yama's own pinned
 # parser (deploy/phase-rev), so it isn't on data.phase-rs.dev: copy it from this checkout's
 # data/engine/ (docs/engine-integration.md has the recipe and the inputs bundle that rebuild it).
-# Both are required by the release preflight, including on a new server. The
+# All three are required by the release preflight, including on a new server. The
 # historical export must retain its original bytes; do not regenerate it with
 # the current parser. Correct remote files are reused without a local copy.
 staged_path=
@@ -60,4 +62,5 @@ stage_card_data() {
 }
 stage_card_data "$CARD_DATA" "$SHA"
 stage_card_data "$HISTORICAL_CARD_DATA" "$HISTORICAL_SHA"
+stage_card_data "$V0119_CARD_DATA" "$V0119_SHA"
 echo "Server prepared. Configure yama.env, then follow deploy/RUNNER.md to enable current-main CI deployments."

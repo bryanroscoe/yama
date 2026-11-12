@@ -52,7 +52,11 @@ legal paths; passing those does not supersede these full-game failures.
 The prior seed-10 debug soak failure at `announcement_triggers.rs:336` (upstream #10359) also
 remains unresolved and unwaived. Historical release soak success is not a substitute.
 
-Run the current candidate suite locally (the command exits nonzero while these defects remain):
+This dated command applies to the v0.119 checkout. After the v0.122 upgrade, use
+the [frozen v0.119 acceptance harness](../runtime/README.md#preserved-v0119-gameplay-acceptance)
+to run these unchanged cases; their historical gameplay failures remain failures.
+
+Run on that original checkout (the command exits nonzero while these defects remain):
 
 ```sh
 CARGO_BUILD_JOBS=1 YAMA_ENGINE_CARD_DATA="$PWD/data/engine/card-data-cbd552b41f962f5b.json" \
