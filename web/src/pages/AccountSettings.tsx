@@ -1,10 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Link } from "react-router";
 import { api, type User } from "../api";
 import { useAuthConfig, useLogout, useMe } from "../auth";
-import { contactHref } from "../components/PowerOnly";
-import { Button, ButtonLink, ErrorText } from "../components/ui";
+import { Button, ErrorText } from "../components/ui";
 import { downloadOfflineCards, useOfflineCards } from "../offline/cards";
 import { keepStorage } from "../storage";
 import { AdvisorSettings } from "../advisor/AdvisorSettings";
@@ -19,26 +17,14 @@ export function AccountSettings() {
   const [signOutError, setSignOutError] = useState<unknown>(null);
   return (
     <section className="grp-section" aria-labelledby="grp-you">
-      <h2 id="grp-you">Account settings</h2>
+      <h2 id="grp-you">Settings</h2>
       <div className="grp-you">
         {me.data && <YourName me={me.data} />}
         <OfflineCardsSetting />
-        {!me.data?.viewing && <div className="grp-you-row" id="sharing"><span className="grp-you-text"><b>Sharing</b><span>Your public profile, shared decks, builds and privacy settings.</span></span><ButtonLink variant="outline" to="/sharing">Open Sharing</ButtonLink></div>}
         {/* Ask Claude stays private while an admin views as you (server/src/view_as.rs). */}
         {!me.data?.viewing && me.data?.power && <AdvisorSettings />}
-        {me.data?.is_admin && (
-          <div className="grp-you-row">
-            <span className="grp-you-text">
-              <b>Admin</b>
-              <span>Who can sign in, accounts, usage and the server.</span>
-            </span>
-            <ButtonLink to="/admin">Open</ButtonLink>
-          </div>
-        )}
         <div className="grp-you-row grp-you-actions">
           <Button variant="outline" onClick={() => logout().catch(setSignOutError)}>Sign out</Button>
-          <Link className="grp-new" to="/new">What's new in Yama</Link>
-          <a className="grp-new" href={contactHref()}>Help and contact</a>
         </div>
         <ErrorText error={signOutError} />
         {/* Not while an admin views as you (read only), nor for an admin or behind Cloudflare Access, which would make the account again. */}

@@ -149,7 +149,7 @@ function GuestGame({ gameId }: { gameId: string }) {
     <main className="page">
       <h1>This table has ended</h1>
       <p className="dim">The host finished or discarded this game. Open Table to find the next one.</p>
-      <ButtonLink variant="primary" to="/">Back to Table</ButtonLink>
+      <ButtonLink variant="primary" to="/">Back to the life counter</ButtonLink>
     </main>
   );
 

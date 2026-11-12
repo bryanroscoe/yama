@@ -1,114 +1,10 @@
-import { useEffect, useMemo, useRef, type ReactNode } from "react";
-import { Link, NavLink, useLocation } from "react-router";
-import { useMe } from "../auth";
-import { outbox, useOutbox } from "../plan/outbox";
-import { usePlan } from "../plan/store";
-import { planView } from "../plan/view";
+import type { ReactNode } from "react";
+import { Link, NavLink } from "react-router";
 import "./deck-area.css";
 import { BackLink } from "./BackLink";
 
-/** The Decks tab's sections, in order. Adding a section is one line here. The Lab has its own
- *  tab since 2026-10-28. Plans holds every plan since 2026-11-04 (Bryan: plans should be
- *  "consistent and reusable for all users"): an agent's notes and copies of shared plans
- *  (`/decks/research/...`) as well as tracked decks, so it is current on those pages too. Swap
- *  cards (`/decks/builds`) prints the changes between two lists of a deck for its box.
- *  `also`: path prefixes of pages that belong to a section without sitting under its path, so the
- *  section stays lit there: adding a deck and suggested changes under Decks, a plan's note pages
- *  under Plans. Datasets moved to the Lab on 2026-11-04 (LabLayout). */
-export const DECK_SECTIONS: { to: string; label: string; end?: boolean; also?: string[] }[] = [
-  { to: "/decks", label: "Decks", end: true, also: ["/decks/import", "/decks/changes"] },
-  { to: "/sharing", label: "Sharing" },
-  { to: "/decks/builds", label: "Swap cards" },
-  { to: "/decks/plans", label: "Plans", also: ["/decks/research", "/decks/plan"] },
-];
-
-/** Plans and new plan versions waiting for your OK (the Plans badge). */
-function useToReview(): number {
-  const userId = useMe().data?.id;
-  const plan = usePlan(userId);
-  const box = useOutbox(userId);
-  return useMemo(() => {
-    if (!plan.bundle || !userId) return 0;
-    const view = planView(plan.bundle, outbox.localOps(userId));
-    return view.b.decks.filter((d) => {
-      const p = view.planOf(d);
-      return p.next != null && p.state !== "archived";
-    }).length;
-    // `box` changes when a tap lands in the outbox, so the count follows decisions made here.
-  }, [plan.bundle, box, userId]);
-}
-
-/** The segmented control at the top of the Decks tab: the Decks list, the plan pages and the
- *  agent notes all show it. Drawn as the shared .segmented pill (styles.css). Plans carries a count of
- *  proposals still waiting for an answer. */
-/** On a phone the sections run past the screen's edge: bring the chosen one into view and mark
- *  which ends have more (`data-more`), so the track fades there instead of cutting a word off. */
-function useScrollHint<T extends HTMLElement>(content: unknown) {
-  const ref = useRef<T>(null);
-  const { pathname } = useLocation();
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const active = el.querySelector<HTMLElement>('[aria-current="page"]');
-    if (active && el.scrollWidth > el.clientWidth) {
-      const a = active.getBoundingClientRect();
-      const e = el.getBoundingClientRect();
-      el.scrollLeft += a.left - e.left - (e.width - a.width) / 2;
-    }
-    const update = () => {
-      const more = [el.scrollLeft > 1 && "start", el.scrollLeft + el.clientWidth < el.scrollWidth - 1 && "end"].filter(Boolean).join(" ");
-      if (more) el.dataset.more = more;
-      else delete el.dataset.more;
-    };
-    update();
-    el.addEventListener("scroll", update, { passive: true });
-    const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
-    resize?.observe(el);
-    return () => {
-      el.removeEventListener("scroll", update);
-      resize?.disconnect();
-    };
-  }, [pathname, content]);
-  return ref;
-}
-
-export function DeckTabs() {
-  const toReview = useToReview();
-  const { pathname } = useLocation();
-  // The Plans count arrives after load and widens the track: measure again when it does.
-  const track = useScrollHint<HTMLElement>(toReview);
-  return (
-    <nav ref={track} className="segmented deck-sections" aria-label="Decks sections">
-      {DECK_SECTIONS.map((s) => {
-        const label = (
-          <>
-            {s.label}
-            {s.to === "/decks/plans" && toReview > 0 && (
-              <span className="deck-tab-badge num">
-                <span className="visually-hidden">, </span>
-                {toReview}
-                <span className="visually-hidden"> waiting for your OK</span>
-              </span>
-            )}
-          </>
-        );
-        // A section's other pages (adding a deck under Decks, a plan's note pages under Plans)
-        // mark it current too, for screen readers as well, which NavLink only does for its own path.
-        return s.also?.some((p) => pathname === p || pathname.startsWith(`${p}/`)) ? (
-          <Link key={s.to} to={s.to} className="active" aria-current="page">
-            {label}
-          </Link>
-        ) : (
-          <NavLink key={s.to} to={s.to} end={s.end}>
-            {label}
-          </NavLink>
-        );
-      })}
-    </nav>
-  );
-}
-
-/** An underlined row of section pages (Overview, Review... or the Lab's Precons, Try a change...). */
+/** An underlined row of an area's pages (the admin area's). A tab's own pages are listed by the
+ *  frame instead (TabSections, from nav.tsx). */
 export function SubNav({ label, pages, also }: { label: string; pages: { to: string; label: string; end?: boolean; also?: string }[]; also?: string }) {
   return (
     <nav className="area-subnav" aria-label={label}>
@@ -130,14 +26,14 @@ export function SubNav({ label, pages, also }: { label: string; pages: { to: str
 }
 
 /**
- * The head of a Decks-tab page (design: DeckList, Lab, PlanOverview, Buy...).
+ * The head of a page in the Decks, Workshop or You tabs. The tab's pages are listed by the frame
+ * above it (TabSections), so the head is the title and the page's own action.
  *
- * - Laptop: the page title on the left; the Decks sections and the page's action on the right;
- *   the section's sub-nav underneath.
- * - Phone, a section's front page (`index`): "Decks" and the action, the control full width, the
- *   sub-nav. Phone, any other page: a back button and the page title (and `status`), nothing else.
- * - `slim`: no title of its own (the page has an art hero or its own heading); laptops keep the
- *   control and sub-nav, phones keep the back button.
+ * - Laptop: the page title on the left, the page's action on the right.
+ * - Phone, a section's front page (`index`): its name and the action. Phone, any other page: a
+ *   back button and the page title (and `status`), nothing else.
+ * - `slim`: no title of its own (the page has an art hero or its own heading); phones keep the
+ *   back button.
  */
 export function AreaHead({
   title,
@@ -145,44 +41,23 @@ export function AreaHead({
   slim = false,
   back,
   action,
-  nav,
   status,
-  area = "Decks",
-  sections = <DeckTabs />,
 }: {
   title?: ReactNode;
   index?: boolean;
   slim?: boolean;
   back?: { to: string; label: string };
   action?: ReactNode;
-  nav?: ReactNode;
   status?: ReactNode;
-  /** The tab this page belongs to, the phone title of its front page. */
-  area?: string;
-  /** The tab's own sections control (Decks | Sharing | Swap cards | Plans | Datasets); null for a tab without one. */
-  sections?: ReactNode;
 }) {
   return (
     <header className={`area-head ${index ? "is-index" : "is-sub"}${slim ? " is-slim" : ""}`}>
       <div className="area-top">
         {back && !index && <BackLink to={back.to} label={back.label} />}
-        {!slim && (
-          <h1 className="area-title">
-            {index ? (
-              <>
-                <span className="area-wide">{title}</span>
-                <span className="area-phone">{area}</span>
-              </>
-            ) : (
-              title
-            )}
-          </h1>
-        )}
+        {!slim && <h1 className="area-title">{title}</h1>}
         {status && <div className="area-status">{status}</div>}
-        {sections}
         {action && <div className="area-action">{action}</div>}
       </div>
-      {nav}
     </header>
   );
 }

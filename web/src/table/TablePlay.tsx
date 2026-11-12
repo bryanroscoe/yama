@@ -1375,7 +1375,7 @@ function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDic
           </div>
         </section>
       ) : isGuest() ? (
-        <p className="small dim tm-guest-share">To share this table with other devices, sign in with Google from the Table page. This game stays on this device.</p>
+        <p className="small dim tm-guest-share">To share this table with other devices, sign in with Google from the life counter's setup page. This game stays on this device.</p>
       ) : (
         <ShareCard gameId={state.setup.id} onBigger={onJoin} />
       )}
@@ -1479,7 +1479,7 @@ function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDic
           Discard game
         </Button>}
       </div>
-      <p className="small dim tm-leave-note">{following ? "The host keeps the game. Open Table to follow it again." : "Leaving keeps the game going on this device: it’s on the Table page to come back to."}</p>
+      <p className="small dim tm-leave-note">{following ? "The host keeps the game. Open the life counter to follow it again." : "Leaving keeps the game going on this device: it’s on the Table page to come back to."}</p>
       <div className="tm-foot">
         <span>
           {following ? following.status : isGuest() ? "Kept on this device. Sign in to save it to Yama." : sync.syncing ? "Saving to Yama…" : sync.error ? `Not saved to Yama yet (${sync.error}). It's safe on this device.` : sync.lastSyncedAt ? "Saved to Yama" : "Saved on this device"}

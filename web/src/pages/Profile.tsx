@@ -3,12 +3,18 @@ import { useEffect } from "react";
 import { Link, useLocation } from "react-router";
 import { api, publicOrigin, type Sharing } from "../api";
 import { useMe } from "../auth";
+import { contactHref } from "../components/PowerOnly";
 import { Button, ButtonLink, ErrorText, Loading } from "../components/ui";
+import { tab } from "../nav";
 import { useCopy } from "../decks/ShareDeck";
 import { AccountSettings } from "./AccountSettings";
 import "./profile.css";
 
-/** Your private starting point; public pages always use their own document links. */
+/**
+ * You: the page the avatar opens, and its menu. Your public profile, sharing settings, settings,
+ * connecting an assistant, What's new, help, the admin area and (on a phone, which has no rail
+ * entry for it) the Workshop. Public pages always use their own document links.
+ */
 export function ProfilePage() {
   const me = useMe().data;
   const enabled = !!me && !me.viewing;
@@ -27,7 +33,7 @@ export function ProfilePage() {
   const profile = s?.handle ? `${publicOrigin()}/u/${encodeURIComponent(s.handle)}` : null;
   return <main className="page profile-page">
     <header className="profile-heading">
-      <h1>Your profile</h1>
+      <h1>You</h1>
       <p className="profile-name">{me.display_name || me.email}</p>
       {s?.handle && <p className="dim">@{s.handle}</p>}
     </header>
@@ -40,7 +46,6 @@ export function ProfilePage() {
         <div className="row">
           <ButtonLink variant="primary" href={profile} target="_blank" rel="noreferrer">View public profile</ButtonLink>
           <Button variant="outline" onClick={() => void copy(profile)}>Copy profile link</Button>
-          <Link to="/sharing#sharing">Edit sharing</Link>
         </div>
         {copied && <p className="small" role="status">{copied}</p>}
         {copied?.startsWith("Couldn't") && <input aria-label="Public profile link" readOnly value={profile} onFocus={(e) => e.currentTarget.select()} />}
@@ -54,13 +59,15 @@ export function ProfilePage() {
       </>}
     </section>}
 
-    <nav className="profile-library" aria-label="Your cards and activity">
-      <Link to="/collection"><b>My collection</b><span>The cards and proxies you own.</span></Link>
-      <Link to="/decks/plans/get"><b>My wish list</b><span>Cards to buy, print or find for your plans.</span></Link>
-      <Link to="/decks"><b>My decks</b><span>Your decks and saved lists.</span></Link>
-      <Link to="/decks/plans"><b>My plans</b><span>Upgrades to review and put into your decks.</span></Link>
-      {!me.viewing && <Link to="/sharing"><b>Sharing and trades</b><span>Shared links and collection comparisons.</span></Link>}
-      <Link to="/group"><b>My playgroup</b><span>Friends, games and results.</span></Link>
+    <nav className="profile-library" aria-label="You">
+      {!me.viewing && <Link to="/sharing"><b>Sharing settings</b><span>Your handle, what your profile shows and everything you've shared.</span></Link>}
+      <a href="#grp-you"><b>Settings</b><span>Your name, cards saved on this device and your account.</span></a>
+      <a href={`${publicOrigin()}/docs/mcp/`}><b>Connect an assistant</b><span>Use Yama from Claude or Codex.</span></a>
+      <Link to="/new"><b>What's new</b><span>What has changed in Yama lately.</span></Link>
+      <a href={contactHref()}><b>Help</b><span>How to reach the person who runs Yama.</span></a>
+      {me.is_admin && <Link to="/admin"><b>Admin</b><span>Who can sign in, accounts, usage and the server.</span></Link>}
+      {/* Phones only: the laptop rail has the Workshop tab (profile.css). */}
+      <Link to={tab("workshop").to} className="you-workshop"><b>Workshop</b><span>Plans, getting the cards, swap sheets and the lab.</span></Link>
     </nav>
     <AccountSettings />
   </main>;

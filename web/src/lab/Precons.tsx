@@ -191,7 +191,7 @@ export function PreconsPage() {
   if (!precons.data) {
     return (
       <>
-        <LabHead title="Lab" index />
+        <LabHead title="Precons" index />
         {!precons.error && <Loading />}
         <ErrorText error={precons.error} />
       </>
@@ -206,7 +206,7 @@ export function PreconsPage() {
 
   return (
     <>
-      <LabHead title="Lab" index />
+      <LabHead title="Precons" index />
       <ErrorText error={precons.error} />
       {run ? (
         <>

@@ -248,7 +248,7 @@ function CompareForm() {
               {create.isPending ? "Starting…" : tournament ? "Start tournament" : versus ? "Play them head to head" : "Compare them"}
             </Button>
             <p className="lab-note" style={{ margin: 0 }}>
-              AI simulations. To test swaps, use <Link to="/lab/try">Try a change</Link>. <Link to="/lab/runs">My runs</Link>
+              AI simulations. To test swaps, use <Link to="/lab/try">Try a change</Link>. <Link to="/lab/runs">Lab runs</Link>
             </p>
           </section>
         </aside>

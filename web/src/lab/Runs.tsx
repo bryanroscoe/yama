@@ -113,7 +113,7 @@ export function RunsPage() {
   return (
     <>
       <LabHead
-        title="My runs"
+        title="Lab runs"
         action={
           power ? (
             <span className="row" style={{ gap: 8 }}>
@@ -316,7 +316,7 @@ export function BatchPage() {
   if (queryFailure(run) === "page") {
     return (
       <>
-        <LabHead slim back={{ to: "/lab/runs", label: "Back to my runs" }} />
+        <LabHead slim back={{ to: "/lab/runs", label: "Back to lab runs" }} />
         <ErrorText error={run.error} />
       </>
     );
@@ -333,7 +333,7 @@ export function BatchPage() {
   const confOf = (id: string) => p?.variants.find((v) => v.id === id)?.confidence ?? null;
   return (
     <>
-      <LabHead slim back={{ to: "/lab/runs", label: "Back to my runs" }} />
+      <LabHead slim back={{ to: "/lab/runs", label: "Back to lab runs" }} />
       <RefreshFailed query={run} what="this run" />
       <PageHeader title={r.name} sub={<SimLine details={simDetails(r.card_data)}>{simLabel({ engine: r.engine, difficulty: r.difficulty, games: r.games, pod: r.pod, date: r.analysed_at ?? r.created_at })}.</SimLine>} />
       <p className="lab-caveat">{caveat(r.engine)}</p>

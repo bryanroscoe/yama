@@ -150,9 +150,9 @@ describe("errors and copying use the shared components", () => {
 
 describe("choosing one of a few uses the shared control", () => {
   it("no page builds its own segmented control", () => {
-    // Use <Segmented> from components/ui: a labelled group of aria-pressed buttons. The Decks
-    // sections strip (DeckTabs) is the navigation form of the same track, with links.
-    const found = uses(/className="(seg|segmented)\b/, (file) => file === "web/src/components/DeckTabs.tsx");
+    // Use <Segmented> from components/ui: a labelled group of aria-pressed buttons. Moving
+    // between a tab's pages is the frame's strip (components/TabSections.tsx), not this control.
+    const found = uses(/className="(seg|segmented)\b/);
     expect(found).toEqual([]);
   });
 });
@@ -192,7 +192,7 @@ describe("card pictures use the shared components", () => {
 
 describe("tabs are one of the shared pieces", () => {
   it("no page builds a tablist", () => {
-    // SubNav or DeckTabs for pages, SectionTabs for sections of a page, Segmented for a view,
+    // The frame's strip (nav.tsx) or SubNav for pages, SectionTabs for sections of a page, Segmented for a view,
     // aria-expanded buttons for things that open and close (design/system/shared-code.md, Tabs).
     const found = uses(/role="(tablist|tab|tabpanel)"/, (file) => BOARD.test(file));
     expect(found).toEqual([]);
@@ -359,7 +359,7 @@ describe("styles come from the scales", () => {
       "web/src/plan/swapsheet.css": "9.5px 17px",
       "web/src/play/play.css": "10px 26px 30px 38px 46px 54px 72px",
       "web/src/scanner/scanner.css": "1.0625rem",
-      "web/src/styles.css": "0.5625rem 16px 1.0625rem 1.625rem 1.875rem 2.125rem 6rem",
+      "web/src/styles.css": "16px 1.0625rem 1.625rem 1.875rem 2.125rem 6rem",
       "web/src/table/home.css": "26px 30px 34px",
       "web/src/table/layouts.css": "26px",
       "web/src/table/table.css": "10px 1.875rem 2.125rem 2.375rem 3rem 64px 72px",

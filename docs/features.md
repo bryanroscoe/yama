@@ -6,6 +6,7 @@ feature ships or changes, update its entry here.
 
 Online play is in alpha: expect bugs and slow turns.
 
+- [Navigation](#navigation)
 - [Accounts, sign-in and sharing](#accounts-sign-in-and-sharing)
 - [Cards and prices](#cards-and-prices)
 - [Collection](#collection)
@@ -14,6 +15,18 @@ Online play is in alpha: expect bugs and slow turns.
 - [Online play](#online-play)
 - [Lab and evidence](#lab-and-evidence)
 - [Assistants (MCP)](#assistants-mcp)
+
+## Navigation
+
+Five tabs: Play (the life counter, online play, watching, game history), Decks (your decks,
+precons, commanders), Cards, Collection (your cards, trading with a friend) and Playgroup. A
+laptop has them in a left rail under the wordmark, which goes home, with you at the foot; a phone
+has a top bar (wordmark, search, you) and the five tabs along the bottom. A tab with more than
+one page lists them in a strip above the page. You (your avatar) opens your public profile,
+Sharing settings, Settings, connecting an assistant, What's new, help and the admin area.
+Workshop holds plans, getting the cards, swap sheets, simulations and datasets: a rail tab on a
+laptop, a row on the You page on a phone. Every older address still opens its page
+(`web/src/nav.tsx`).
 
 ## Accounts, sign-in and sharing
 
@@ -31,13 +44,11 @@ accessible. OAuth and private links use a focused sign-in view.
 
 ### Profile and sharing
 
-Click your name or Your profile to find your collection, wish list, decks, plans and account
-settings, and open or copy your public profile.
+You (your avatar) opens your public profile, Sharing settings and account settings.
 
-Sharing is reachable from the main app navigation and from Decks. It brings together your public
-profile, shared decks and alternate configurations, shared plans (groups of builds), copyable
-links and sharing settings. Precons and Commanders stay in the same navigation; assistant setup
-stays with connected apps. A shared deck or collection never shows account details, prices paid,
+Sharing settings (under You) brings together your public profile, shared decks and alternate
+configurations, shared plans (groups of builds), copyable links and the account-wide switches;
+each deck and plan has its own Share control. Trading with a friend is under Collection. A shared deck or collection never shows account details, prices paid,
 notes, containers, proxies, planner plans or games.
 
 Yama moved to [yama.ing](https://yama.ing) on 28 October 2026. Anyone still on the old address

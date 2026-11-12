@@ -31,8 +31,19 @@ function useSyncLine(): { text: string; waiting: boolean } {
   return { text: "Up to date", waiting: false };
 }
 
-/** The foot of the laptop rail: your commander's art (or your initials) and the sync status. */
-export function RailMe() {
+/** "PR" for Pat Rivers: what the avatar shows without commander art. */
+function initialsOf(name: string): string {
+  return name
+    .split(/[\s@._-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]!.toUpperCase())
+    .join("");
+}
+
+/** The foot of the laptop rail: you. Your commander's art (or your initials) and the sync status,
+ *  opening the You page; signed out, the way in. `current` on the You pages. */
+export function RailMe({ current = false }: { current?: boolean }) {
   const me = useMe();
   const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }), enabled: !!me.data });
   const sync = useSyncLine();
@@ -46,17 +57,11 @@ export function RailMe() {
     );
   }
   const name = me.data.display_name || me.data.email;
-  const initials = name
-    .split(/[\s@._-]+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((w) => w[0]!.toUpperCase())
-    .join("");
   const deck = decks.data?.find((d) => d.commander_image);
   return (
     <div className="rail-foot">
-      <Link to="/profile" className="rail-me" title="Your profile and account">
-        <span className="avatar"><CardThumb src={deck?.commander_image} eager fallback={initials} /></span>
+      <Link to="/profile" className={`rail-me${current ? " active" : ""}`} aria-current={current ? (pathname === "/profile" ? "page" : "true") : undefined} title="You: your profile, sharing and settings">
+        <span className="avatar"><CardThumb src={deck?.commander_image} eager fallback={initialsOf(name)} /></span>
         <span className="rail-me-text">
           <span className="rail-me-name">{name}</span>
           <span className={`sync${sync.waiting ? " waiting" : ""}`}>{sync.text}</span>
@@ -64,5 +69,18 @@ export function RailMe() {
       </Link>
       {deck && <p className="rail-credit">{artCredit(deck.commander_artist)}</p>}
     </div>
+  );
+}
+
+/** You in the phone's top bar: your initials, opening the You page; signed out, the way in. (No
+ *  art here: there is no room beside it for the artist's credit.) */
+export function TopBarMe({ current = false }: { current?: boolean }) {
+  const me = useMe();
+  const { pathname, search } = useLocation();
+  if (!me.data) return <ButtonLink size="small" to={signInPath(pathname + search)} className="topbar-signin">Sign in</ButtonLink>;
+  return (
+    <Link to="/profile" className={`topbar-you${current ? " active" : ""}`} aria-label="You" aria-current={current ? (pathname === "/profile" ? "page" : "true") : undefined}>
+      <span className="avatar">{initialsOf(me.data.display_name || me.data.email)}</span>
+    </Link>
   );
 }

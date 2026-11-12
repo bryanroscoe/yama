@@ -1,23 +1,24 @@
 import { useEffect, useRef, type ReactNode } from "react";
-import { Link, Navigate, NavLink, Outlet, Route, Routes, useLocation, useMatch } from "react-router";
+import { Link, Navigate, Outlet, Route, Routes, useLocation, useMatch } from "react-router";
 import { chooseGuest, useGuestChosen } from "./guest";
 import { afterSignIn, Login, useMe } from "./auth";
 import { useGuestSession } from "./guestPlay";
 import { useCacheSweeps, useLapsedAccount } from "./session";
 import { AlphaTag } from "./components/AlphaTag";
 import { RequireAccount } from "./components/RequireAccount";
-import { RailMe } from "./components/RailMe";
-import { SiteLinks } from "./components/SiteLinks";
+import { RailMe, TopBarMe } from "./components/RailMe";
+import { TabSections } from "./components/TabSections";
 import { InstallBanner } from "./components/InstallBanner";
 import { AppUpdate } from "./components/AppUpdate";
 import { SiteNotice } from "./components/SiteNotice";
 import { StandIn } from "./components/StandIn";
-import { AdminIcon, CardsIcon, CollectionIcon, DecksIcon, GroupIcon, LabIcon, PlayIcon, TableIcon } from "./components/icons";
+import { SearchIcon } from "./components/icons";
 import { Button, ButtonLink, ErrorText } from "./components/ui";
 import { Wordmark } from "./components/Wordmark";
 import { ViewBanner } from "./components/ViewBanner";
 import { VIEWING_KEY } from "./viewingFlag";
 import { area, Framed, Paged } from "./lazyPages";
+import { MAIN_TABS, tab, tabOf } from "./nav";
 import { CardsPage } from "./pages/Cards";
 import { OldLabRedirect } from "./lab/OldLabRedirect";
 import { OldPlanRedirect } from "./plan/OldPlanRedirect";
@@ -27,7 +28,7 @@ import { joinLink, useRestoreHosting } from "./table/share";
 import { tablePlay } from "./table/playLoader";
 import { TableHome } from "./table/TableHome";
 
-// The Table home and card search are part of the app itself: they're where Yama opens and what
+// The life counter's setup and card search are part of the app itself: they're where Yama opens and what
 // works offline before anything else has loaded. Every other area loads when first opened
 // (lazyPages.tsx), with a stand-in shaped like it meanwhile.
 const play = area(() => import("./play/pages"));
@@ -92,6 +93,7 @@ const GroupPage = group.page("GroupPage");
 const ProfilePage = profile.page("ProfilePage");
 const SharingPage = sharing.page("SharingPage");
 const ComparePage = sharing.page("ComparePage");
+const TradePage = sharing.page("TradePage");
 const ChangesPage = changes.page("ChangesPage");
 const ResearchPage = research.page("ResearchPage");
 const DatasetsPage = lab.page("DatasetsPage");
@@ -104,69 +106,55 @@ const GameHistoryPage = gameHistory.page("GameHistoryPage");
 const TablePlay = tablePlay.page("TablePlay");
 
 /**
- * The app's frame: the nav and the page. `pending` while a device that has no saved account
- * waits for Yama's server to say who's signed in: the nav and a stand-in, so the screen isn't
- * blank, with nothing yet that depends on an account.
+ * The app's frame (nav.tsx has the tabs): on a laptop a left rail with the wordmark, the tabs and
+ * you at its foot; on a phone a top bar with the wordmark, search and you, and five tabs along
+ * the bottom. Under it, the strip of the current tab's pages, then the page.
+ *
+ * `pending` while a device that has no saved account waits for Yama's server to say who's signed
+ * in: the frame and a stand-in, so the screen isn't blank, with nothing yet that depends on an
+ * account.
  */
 function Shell({ pending = false }: { pending?: boolean }) {
   const me = useMe();
   const { pathname } = useLocation();
-  // `also`: pages outside a tab's own path that still belong to it, so the tab stays lit there
-  // (saved games under Table, Sharing, a section of Decks, Mythic's return page under Group).
-  const tabs: { to: string; label: string; icon: ReactNode; end?: boolean; alpha?: boolean; also?: string[] }[] = [
-    { to: "/", label: "Table", icon: <TableIcon />, end: true, also: ["/table/"] },
-    { to: "/play", label: "Play", icon: <PlayIcon />, alpha: true },
-    { to: "/cards", label: "Cards", icon: <CardsIcon /> },
-    { to: "/collection", label: "Collection", icon: <CollectionIcon /> },
-    { to: "/decks", label: "Decks", icon: <DecksIcon />, also: ["/sharing"] },
-    { to: "/lab", label: "Lab", icon: <LabIcon /> },
-    { to: "/group", label: "Group", icon: <GroupIcon />, also: ["/mythic/"] },
-  ];
-  const belongs = (also?: string[]) => !!also?.some((p) => pathname === p || pathname.startsWith(p.endsWith("/") ? p : `${p}/`));
+  const here = tabOf(pathname);
+  // Workshop is a tab in the laptop rail and a row on the You page on a phone (five tabs there).
+  const tabs = [...MAIN_TABS.map(tab), ...(!pending && me.data ? [tab("workshop")] : [])];
   return (
     <div className="shell">
+      <header className="topbar">
+        <Link to="/" className="topbar-home" aria-label="Yama home">
+          <Wordmark />
+        </Link>
+        <Link to="/cards" className="topbar-search" aria-label="Search cards">
+          <SearchIcon />
+        </Link>
+        {!pending && <TopBarMe current={here?.id === "you"} />}
+      </header>
       <nav className="nav" aria-label="Main">
         {/* Laptops: the nav is a full-height column (its border runs the whole page) and this
             block sticks to the window, so the account chip always sits at the window's foot. */}
         <div className="nav-inner">
-          <Wordmark className="wordmark" />
-          {tabs.map((t) => {
-            const inner = (
-              <>
-                {t.icon}
-                <span>{t.label}</span>
-                {t.alpha && <AlphaTag />}
-              </>
-            );
-            // NavLink marks only its own path current, for screen readers too, so a page that
-            // belongs to the tab from elsewhere gets a plain link marked by hand.
-            return belongs(t.also) ? (
-              <Link key={t.to} to={t.to} className="active" aria-current="page">
-                {inner}
-              </Link>
-            ) : (
-              <NavLink key={t.to} to={t.to} end={t.end}>
-                {inner}
-              </NavLink>
-            );
-          })}
-          {/* Admins only, and only in the laptop rail; phones reach it from Your profile, Account settings. */}
-          {!pending && me.data?.is_admin && (
-            <NavLink to="/admin" className="nav-admin">
-              <AdminIcon />
-              <span>Admin</span>
-            </NavLink>
-          )}
-          {!pending && <RailMe />}
+          <Link to="/" className="nav-home" aria-label="Yama home">
+            <Wordmark className="wordmark" />
+          </Link>
+          {tabs.map((t) => (
+            // Lit on every page that belongs to the tab; only the tab's own address is "the page".
+            <Link key={t.id} to={t.to} className={[t.id === here?.id && "active", `nav-${t.id}`].filter(Boolean).join(" ")} aria-current={t.id === here?.id ? (pathname === t.to ? "page" : "true") : undefined}>
+              {t.icon}
+              <span>{t.label}</span>
+            </Link>
+          ))}
+          {!pending && <RailMe current={here?.id === "you"} />}
         </div>
       </nav>
       {/* What's new is for people using Yama, not someone looking around. */}
       {me.data && <NewsNotice />}
       <AppUpdate />
       {!pending && <InstallBanner />}
-      <SiteLinks />
+      {!pending && <TabSections />}
       {pending ? <StandIn /> : <Outlet />}
-      <footer className="site-footer"><a href="/precons">Public precon reference</a><SiteNotice /></footer>
+      <footer className="site-footer"><SiteNotice /></footer>
     </div>
   );
 }
@@ -318,6 +306,7 @@ export function App() {
           <Route path="profile" element={<Paged page={ProfilePage} title="Your profile" />} />
           <Route path="sharing" element={<Paged page={SharingPage} title="Sharing" />} />
           <Route path="sharing/compare/:handle" element={<Paged page={ComparePage} kind="detail" />} />
+          <Route path="collection/trade" element={<Paged page={TradePage} title="Trade with a friend" />} />
           <Route path="group" element={<Paged page={GroupPage} title="Playgroup" />} />
           <Route path="group/mythic" element={<Paged page={MythicImportPage} />} />
           <Route path="mythic/sent" element={<Paged page={MythicSentPage} />} />
@@ -328,7 +317,7 @@ export function App() {
             <Route path="lab" element={<LabRunsPage />} />
           </Route>
         </Route>
-        {/* The Table tab lives at /; /table is the address people guess for it. */}
+        {/* The life counter's setup lives at /; /table is the address people guess for it. */}
         <Route path="table" element={<Navigate to="/" replace />} />
         <Route path="*" element={<NotFound />} />
       </Route>
@@ -345,7 +334,7 @@ function NotFound() {
       <p className="dim">There's no page here. It may have moved, or the link has a typo.</p>
       <p>
         <ButtonLink to="/">
-          Go to the Table
+          Go home
         </ButtonLink>
       </p>
     </main>

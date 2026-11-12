@@ -9,19 +9,26 @@ import { PageHeader } from "./PageHeader";
 
 /** What each section keeps for an account, said where it asks someone to sign in. */
 const SECTIONS: Record<string, { title: string; lede: string; extra?: ReactNode }> = {
-  profile: { title: "Your profile", lede: "Sign in to see your cards, wish list and public profile." },
-  sharing: { title: "Sharing", lede: "Sign in to manage your public profile, shared decks and build notes." },
+  profile: { title: "You", lede: "Sign in to see your cards, wish list and public profile." },
+  sharing: { title: "Sharing settings", lede: "Sign in to manage your public profile, shared decks and build notes." },
   "sharing/compare": { title: "Compare collections", lede: "Sign in to see which of a friend's wanted cards you have, and which of yours they have." },
+  "collection/trade": { title: "Trade with a friend", lede: "Sign in to see which of a friend's wanted cards you have, and which of yours they have." },
+  "decks/plans": { title: "Workshop", lede: "Sign in to see your plans." },
+  "decks/builds": { title: "Workshop", lede: "Sign in to print the changes between two lists of a deck." },
   decks: { title: "Decks", lede: "Sign in to save your decks." },
   collection: { title: "Collection", lede: "Sign in to track your cards." },
   play: { title: "Play online", lede: `Sign in to play Commander online. ${ALPHA_NOTE}` },
-  "play/watch": { title: "Watch AIs play", lede: "Sign in to watch the computer play your decks or precons." },
-  group: { title: "Playgroup", lede: "Sign in to see your group's games and stats." },
+  "play/watch": { title: "Watch the computer play", lede: "Sign in to watch the computer play your decks or precons." },
+  group: { title: "Playgroup", lede: "Sign in to see your playgroup's games and stats." },
   mythic: { title: "Playgroup", lede: "Bring your playgroup's games over from Mythic Tools." },
   table: { title: "Saved games", lede: "Sign in for saved games. The life counter works without an account." },
+  "lab/try": { title: "Workshop", lede: "Sign in to see your simulations." },
+  "lab/compare": { title: "Workshop", lede: "Sign in to see your simulations." },
+  "lab/runs": { title: "Workshop", lede: "Sign in to see your simulations." },
+  "lab/datasets": { title: "Workshop", lede: "Sign in to see your datasets." },
   lab: {
-    title: "Lab",
-    lede: "Sign in to see your simulations.",
+    title: "Precons",
+    lede: "Sign in to see every precon with your own simulated results.",
     extra: (
       <p className="account-gate-public">
         Browse <a href="/precons">precons</a> and <a href="/commanders">commanders</a> without an account.

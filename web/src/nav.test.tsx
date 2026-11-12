@@ -1,0 +1,152 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { renderToStaticMarkup } from "react-dom/server";
+import { MemoryRouter } from "react-router";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { TabSections } from "./components/TabSections";
+import { MAIN_TABS, TABS, sectionOf, sectionsFor, tab, tabOf, type Who } from "./nav";
+
+// The Plans count reads the plan store and the offline outbox; neither matters to these pages.
+vi.mock("./plan/store", () => ({ usePlan: () => ({ bundle: null }) }));
+vi.mock("./plan/outbox", () => ({ outbox: { localOps: () => [] }, useOutbox: () => ({}) }));
+
+afterEach(() => vi.unstubAllGlobals());
+
+const guest: Who = { signedIn: false, power: false, admin: false, evidence: false };
+const account: Who = { ...guest, signedIn: true };
+const owner: Who = { signedIn: true, power: true, admin: true, evidence: true };
+
+describe("the tabs", () => {
+  it("are Play, Decks, Cards, Collection and Playgroup, with Workshop and You beside them", () => {
+    expect(MAIN_TABS.map((id) => tab(id).label)).toEqual(["Play", "Decks", "Cards", "Collection", "Playgroup"]);
+    expect(TABS.map((t) => t.label)).toEqual(["Play", "Decks", "Cards", "Collection", "Playgroup", "Workshop", "You"]);
+    // The names Bryan chose (12 Nov 2026): Playgroup, not Group; Life counter, not Table.
+    const words = TABS.flatMap((t) => [t.label, ...t.sections.map((s) => s.label)]);
+    for (const old of ["Table", "Group", "Lab", "Sharing"]) expect(words).not.toContain(old);
+    expect(words).toContain("Life counter");
+  });
+
+  it("each open on one of their own pages", () => {
+    for (const t of TABS) expect(tabOf(t.to)?.id, t.label).toBe(t.id);
+  });
+
+  it("hold every address the app has had, old ones included", () => {
+    const where: Record<string, string[]> = {
+      play: ["/", "/table", "/table/games", "/table/games/abc", "/play", "/play/watch", "/play/abc"],
+      decks: ["/decks", "/decks/", "/decks/import", "/decks/changes", "/decks/abc", "/decks/abc/stats", "/decks/abc/edit", "/lab", "/lab/p/riders"],
+      cards: ["/cards"],
+      collection: ["/collection", "/collection/trade", "/sharing/compare/pat"],
+      playgroup: ["/group", "/group/mythic", "/mythic/sent"],
+      workshop: [
+        "/decks/plans",
+        "/decks/plans/get",
+        "/decks/plans/get/trip",
+        "/decks/plans/blight-curse",
+        "/decks/plans/archived/abc",
+        "/decks/plan/trip",
+        "/decks/research",
+        "/decks/research/abc",
+        "/decks/builds",
+        "/lab/try",
+        "/lab/compare",
+        "/lab/runs",
+        "/lab/runs/abc/decks/1",
+        "/lab/datasets/playgroup-history",
+      ],
+      you: ["/profile", "/sharing", "/new", "/admin", "/admin/usage"],
+    };
+    for (const [id, paths] of Object.entries(where)) for (const path of paths) expect(tabOf(path)?.id, path).toBe(id);
+    expect(tabOf("/nowhere")).toBeNull();
+    // A page whose name only starts like a tab's isn't under it.
+    expect(tabOf("/decksx")).toBeNull();
+    expect(tabOf("/labs")).toBeNull();
+  });
+
+  it("list a section only for the people it is for", () => {
+    const labels = (id: Parameters<typeof tab>[0], who: Who) => sectionsFor(tab(id), who).map((s) => s.label);
+    expect(labels("play", guest)).toEqual(["Life counter", "Play online"]);
+    expect(labels("play", account)).toEqual(["Life counter", "Play online", "Game history"]);
+    expect(labels("play", owner)).toEqual(["Life counter", "Play online", "Watch", "Game history"]);
+    expect(labels("workshop", account)).toEqual(["Plans", "Get the cards", "Swap cards", "Lab runs"]);
+    expect(labels("workshop", { ...account, evidence: true })).toContain("Datasets");
+    expect(labels("workshop", owner)).toEqual(["Plans", "Get the cards", "Swap cards", "Try a change", "Compare decks", "Lab runs", "Datasets"]);
+    // Precons is the account's own table signed in and the public reference signed out.
+    expect(sectionsFor(tab("decks"), account).map((s) => s.to)).toEqual(["/decks", "/lab", "/commanders"]);
+    expect(sectionsFor(tab("decks"), guest).map((s) => s.to)).toEqual(["/decks", "/precons", "/commanders"]);
+  });
+
+  it("know which of a tab's pages a page is, and that a deck or a plan's own page is none of them", () => {
+    const at = (path: string, who = owner) => sectionOf(tabOf(path)!, path, who)?.label ?? null;
+    expect(at("/")).toBe("Life counter");
+    expect(at("/play")).toBe("Play online");
+    expect(at("/play/watch")).toBe("Watch");
+    expect(at("/table/games/abc")).toBe("Game history");
+    expect(at("/decks")).toBe("My decks");
+    expect(at("/decks/import")).toBe("My decks");
+    expect(at("/decks/abc")).toBeNull();
+    expect(at("/lab/p/riders")).toBe("Precons");
+    expect(at("/decks/plans")).toBe("Plans");
+    expect(at("/decks/plans/archived/abc")).toBe("Plans");
+    expect(at("/decks/research/abc")).toBe("Plans");
+    expect(at("/decks/plans/blight-curse")).toBeNull();
+    expect(at("/decks/plans/get/trip")).toBe("Get the cards");
+    expect(at("/lab/runs/abc")).toBe("Lab runs");
+    expect(at("/sharing/compare/pat")).toBe("Trade with a friend");
+    // Not for this account: the page still belongs to the tab, with no entry to mark.
+    expect(at("/lab/try", account)).toBeNull();
+  });
+});
+
+/** The strip at `path` for `me`, with `owned` as the account's datasets. */
+function strip(path: string, me: { id: string; power?: boolean; is_admin?: boolean } | null = { id: "u1" }, owned: unknown[] = []) {
+  vi.stubGlobal("location", { origin: "https://yama.ing" });
+  const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
+  client.setQueryData(["me"], me);
+  if (me) client.setQueryData(["datasets", me.id], owned);
+  const html = renderToStaticMarkup(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><TabSections /></MemoryRouter></QueryClientProvider>);
+  client.clear();
+  return html;
+}
+const current = (html: string) => [...html.matchAll(/<a [^>]*aria-current="page"[^>]*href="([^"]+)"/g)].map((m) => m[1] ?? "");
+const links = (html: string) => [...html.matchAll(/href="([^"]+)"/g)].map((m) => m[1] ?? "");
+
+describe("the strip of a tab's pages", () => {
+  it("marks exactly one page current on every page that shows it", () => {
+    expect(current(strip("/"))).toEqual(["/"]);
+    expect(current(strip("/play"))).toEqual(["/play"]);
+    expect(current(strip("/table/games"))).toEqual(["/table/games"]);
+    expect(current(strip("/decks"))).toEqual(["/decks"]);
+    expect(current(strip("/decks/import"))).toEqual(["/decks"]);
+    expect(current(strip("/decks/changes"))).toEqual(["/decks"]);
+    expect(current(strip("/lab/p/riders"))).toEqual(["/lab"]);
+    expect(current(strip("/decks/builds"))).toEqual(["/decks/builds"]);
+    expect(current(strip("/decks/plan/trip"))).toEqual(["/decks/plans"]);
+    expect(current(strip("/decks/plans/archived/abc"))).toEqual(["/decks/plans"]);
+    expect(current(strip("/decks/plans/get/sourcing"))).toEqual(["/decks/plans/get"]);
+    expect(current(strip("/collection/trade"))).toEqual(["/collection/trade"]);
+  });
+
+  it("stays off a page that has its own way back, and off tabs with one page", () => {
+    for (const path of ["/decks/abc", "/decks/abc/stats", "/decks/plans/blight-curse", "/cards", "/group", "/profile", "/sharing", "/admin", "/nowhere"]) expect(strip(path), path).toBe("");
+  });
+
+  it("lists the Workshop's simulation pages only for admins and power users, and Datasets for accounts that have one", () => {
+    const plain = links(strip("/lab/runs"));
+    expect(plain).toEqual(["/decks/plans", "/decks/plans/get", "/decks/builds", "/lab/runs"]);
+    expect(links(strip("/lab/runs", { id: "u1", power: true }))).toEqual(["/decks/plans", "/decks/plans/get", "/decks/builds", "/lab/try", "/lab/compare", "/lab/runs"]);
+    expect(links(strip("/lab/runs", { id: "u1" }, [{ id: "playgroup-history" }]))).toContain("/lab/datasets");
+    expect(links(strip("/lab/runs", { id: "u1", power: true, is_admin: true }))).toContain("/lab/datasets");
+  });
+
+  it("gives someone signed out the public precon and commander pages as document links", () => {
+    const html = strip("/decks", null);
+    expect(links(html)).toEqual(["/decks", "https://yama.ing/precons", "https://yama.ing/commanders"]);
+    expect(links(strip("/decks"))).toEqual(["/decks", "/lab", "https://yama.ing/commanders"]);
+    expect(links(strip("/", null))).toEqual(["/", "/play"]);
+  });
+
+  it("says online play is in alpha where it is reached", () => {
+    const html = strip("/");
+    expect(html).toMatch(/href="\/play"[^>]*>Play online<span[^>]*alpha-tag/);
+    expect(html.match(/alpha-tag/g)).toHaveLength(1);
+  });
+});

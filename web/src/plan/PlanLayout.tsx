@@ -1,10 +1,10 @@
 import { type PlanHead } from "@yama/core/plan";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, type ReactNode } from "react";
-import { Outlet, useLocation, useMatch, useOutletContext } from "react-router";
+import { Outlet, useMatch, useOutletContext } from "react-router";
 import { useMe } from "../auth";
 import { ErrorText, Loading } from "../components/ui";
-import { AreaHead, SubNav } from "../components/DeckTabs";
+import { AreaHead } from "../components/DeckTabs";
 import { outbox, useOutbox } from "./outbox";
 import { usePlan } from "./store";
 import { planView, type PlanView } from "./view";
@@ -22,20 +22,10 @@ export function usePlanOutlet(): PlanOutlet {
   return useOutletContext<PlanOutlet>();
 }
 
-/**
- * The Plans section's two pages (Bryan, 2026-11-06: the plans redesign collapses Overview, Review,
- * Buy, Trip, Prints, Spares and Settings to these). Settings, the archive and a deck's plan are
- * links from them. `also`: pages that count as part of one (the print tools under Get the cards).
- */
-const PLAN_PAGES: { to: string; label: string; end?: boolean; also?: string }[] = [
-  { to: "/decks/plans", label: "Plans", end: true, also: "/decks/plans/archived" },
-  { to: "/decks/plans/get", label: "Get the cards" },
-];
-
 /** After a sync, wait this long for more taps before fetching the bundle again. */
 const REFRESH_AFTER_SYNC_MS = 8000;
 
-/** The Plans section of the Decks tab: the segmented control, then the page, from one bundle. */
+/** The Workshop's plan pages: every one of them from one bundle. */
 export function PlanLayout() {
   const me = useMe();
   const userId = me.data?.id;
@@ -93,22 +83,12 @@ export function PlanLayout() {
 }
 
 /**
- * The head of a Plans page: its title, Decks | Plans | Lab, and the Plans pages under it (once
- * there are plans). Pages other than the overview get a back button to it on phones.
+ * The head of a Plans page: its title, action and status. The frame lists Plans and Get the
+ * cards among the Workshop's pages (nav.tsx). Pages other than the overview get a back button to
+ * it on phones.
  */
 export function PlansHead({ title, index = false, action, status }: { title: ReactNode; index?: boolean; action?: ReactNode; status?: ReactNode }) {
-  const { view } = useOutletContext<PlanOutlet | undefined>() ?? {};
-  const { pathname } = useLocation();
-  return (
-    <AreaHead
-      title={title}
-      index={index}
-      back={{ to: "/decks/plans", label: "Back to plans" }}
-      action={action}
-      status={status}
-      nav={view ? <SubNav label="Plans pages" pages={PLAN_PAGES} also={pathname} /> : undefined}
-    />
-  );
+  return <AreaHead title={title} index={index} back={{ to: "/decks/plans", label: "Back to plans" }} action={action} status={status} />;
 }
 
 /** "a1b2c3d4e5f6": the first 12 digits of a content hash, as pages show it. */

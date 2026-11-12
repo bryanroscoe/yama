@@ -100,8 +100,8 @@ A pill track for choosing one of two to five views or values of the same thing
 - `compact` is the smaller track for a toolbar (13 px labels). `as="span"` puts it inside a line.
 - Six or more choices, or choices that are different tasks, aren't a segmented control
   (design/tokens.md, rule 8).
-- Navigation between pages uses the same track with links and `aria-current="page"`
-  (`components/DeckTabs.tsx`).
+- Navigation between a tab's pages is the frame's strip, not this control
+  (`components/TabSections.tsx`, from the table in `nav.tsx`).
 
 ### Dialog
 
@@ -362,7 +362,7 @@ There is no `Tabs` component, on purpose. Each thing that looks like tabs is one
 
 | It does this | Use |
 |---|---|
-| Goes to another page of the same area | `SubNav`, or `DeckTabs` for the Decks sections (links, `aria-current="page"`) |
+| Goes to another page of the same tab | A line in the tab's `sections` in `nav.tsx`; the frame draws the strip (`TabSections`). `SubNav` for an area inside a page (the admin area) |
 | Jumps to a section of a long page | `SectionTabs` (links; the section in view is current) |
 | Switches a view or a value in place | `Segmented` (buttons, `aria-pressed`) |
 | Opens one of several things and closes it again | buttons with `aria-expanded` in a named `role="group"` (the import page's "Where your deck is") |
