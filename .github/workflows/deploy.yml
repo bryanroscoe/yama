@@ -143,16 +143,33 @@ jobs:
           # the environment, so it never appears in any command's arguments.
           export TUNNEL_SERVICE_TOKEN_ID="$CF_ACCESS_CLIENT_ID"
           export TUNNEL_SERVICE_TOKEN_SECRET="$CF_ACCESS_CLIENT_SECRET"
-          # Keepalives hold the tunnel open while the host builds silently.
-          printf '%s\n' "$GH_TOKEN" | ssh -T \
-            -i "$ssh_dir/id_ed25519" \
-            -o BatchMode=yes -o IdentitiesOnly=yes \
-            -o StrictHostKeyChecking=yes \
-            -o UserKnownHostsFile="$ssh_dir/known_hosts" \
-            -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
-            -o 'ProxyCommand=cloudflared access ssh --hostname %h' \
-            "root@$DEPLOY_SSH_HOST" \
-            "/mnt/user/appdata/yama-release/host.py deploy $RELEASE_SHA" | tee "$release_log"
+          # Keepalives hold the tunnel open while the host builds silently, but Cloudflare
+          # still drops a long-lived connection now and then (2026-11-12: after 2 and 11
+          # minutes). The host ignores the hangup and finishes the release, so on a lost
+          # connection (ssh's own exit 255, before any outcome) ask again: the new request
+          # waits for the release lock, then reports what production holds (already healthy,
+          # superseded, or a rebuild if the first attempt really failed).
+          attempt=1
+          while :; do
+            status=0
+            printf '%s\n' "$GH_TOKEN" | ssh -T \
+              -i "$ssh_dir/id_ed25519" \
+              -o BatchMode=yes -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile="$ssh_dir/known_hosts" \
+              -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
+              -o 'ProxyCommand=cloudflared access ssh --hostname %h' \
+              "root@$DEPLOY_SSH_HOST" \
+              "/mnt/user/appdata/yama-release/host.py deploy $RELEASE_SHA" | tee "$release_log" || status=$?
+            [ "$status" -eq 0 ] && break
+            if [ "$status" -eq 255 ] && [ "$attempt" -lt 4 ] && ! grep -q '^YAMA_RELEASE_RESULT=' "$release_log"; then
+              echo "::warning title=Connection lost::SSH to the release gate dropped (attempt $attempt of 4); asking the host again."
+              attempt=$((attempt + 1))
+              sleep "${DEPLOY_RETRY_DELAY:-15}"
+              continue
+            fi
+            exit "$status"
+          done
           result="$(sed -n 's/^YAMA_RELEASE_RESULT=//p' "$release_log" | tail -n 1)"
           case "$result" in
             success) message='Deployed and health-verified' ;;

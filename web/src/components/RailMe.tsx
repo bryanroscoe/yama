@@ -6,6 +6,7 @@ import { signInPath, useMe } from "../auth";
 import { useOutbox, useRejected, useSyncStatus } from "../table/store";
 import { artCredit } from "./ArtPanel";
 import { ButtonLink } from "./Button";
+import { CardThumb } from "./CardThumb";
 
 const subscribeOnline = (onChange: () => void) => {
   window.addEventListener("online", onChange);
@@ -55,7 +56,7 @@ export function RailMe() {
   return (
     <div className="rail-foot">
       <Link to="/profile" className="rail-me" title="Your profile and account">
-        <span className="avatar">{deck ? <img src={deck.commander_image!} alt="" /> : initials}</span>
+        <span className="avatar"><CardThumb src={deck?.commander_image} eager fallback={initials} /></span>
         <span className="rail-me-text">
           <span className="rail-me-name">{name}</span>
           <span className={`sync${sync.waiting ? " waiting" : ""}`}>{sync.text}</span>

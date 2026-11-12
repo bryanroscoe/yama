@@ -27,7 +27,7 @@ interface Pending {
 }
 
 /** With the unsaved-work question (web/src/unsaved.tsx), the top of the page's layers. */
-const QUESTION_LAYER = 90;
+const QUESTION_LAYER = "var(--z-question)";
 
 // The questions waiting for an answer live here, not in the host's state, so they outlast a host
 // that re-mounts (StrictMode runs its effect twice) and are settled if it goes away for good.

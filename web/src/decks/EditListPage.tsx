@@ -11,7 +11,7 @@ import { useMe } from "../auth";
 import { ArtPanel } from "../components/ArtPanel";
 import { LoadFailed, queryFailure, RefreshFailed } from "../components/QueryError";
 import { SearchPicker } from "../components/SearchPicker";
-import { Button, Dialog, EmptyState, ErrorText, Field, Loading, Segmented } from "../components/ui";
+import { Button, Dialog, EmptyState, ErrorText, Field, Loading, Segmented, ShowMore } from "../components/ui";
 import { SwapPair, Thumb } from "../plan/parts";
 import { usePlan } from "../plan/store";
 import { UnsavedPrompt, useUnsavedChanges } from "../unsaved";
@@ -346,7 +346,7 @@ function EditList({ id }: { id: string }) {
               </ul>
             )}
             {pairs.length > shown.length && (
-              <Button variant="quiet" className="edit-list-all" onClick={() => setAll(true)}>Show all {pairs.length}</Button>
+              <ShowMore className="edit-list-all" total={pairs.length} onToggle={() => setAll(true)} />
             )}
             {c && (
               c.problems.length ? (

@@ -12,7 +12,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { exportLink } from "../download";
 import { api, API_BASE, ApiError, type CollectionItem, type CollectionSummary, type Container, type DeckSummary } from "../api";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
-import { Button, ButtonLink, CardImage, Details, Dialog, EmptyState, ErrorText, Field, Loading, Segmented, Tag } from "../components/ui";
+import { Button, ButtonLink, CardImage, CardThumb, Details, Dialog, EmptyState, ErrorText, Field, Loading, Segmented, Tag } from "../components/ui";
 import "./collection.css";
 import "../decks/collect.css";
 import { changeText, keptText, missingLabel, missingText, previewLines, resultLines, type MythicReport } from "./mythicImport";
@@ -319,7 +319,7 @@ export function CollectionPage() {
             return (
               <li key={i.id}>
                 <Button className="coll-row" onClick={() => setOpen(i)}>
-                  {i.image_art_crop ? <img className="coll-art" src={i.image_art_crop} alt="" loading="lazy" crossOrigin="anonymous" /> : <CardImage src={i.image_small} name={i.name ?? "?"} className="coll-art coll-thumb" />}
+                  <CardThumb className="coll-art" src={i.image_art_crop} fallback={<CardImage src={i.image_small} name={i.name ?? "?"} className="coll-art coll-thumb" />} />
                   <span className="coll-row-text">
                     <span className="coll-row-name">
                       <CardHover name={i.name??i.scryfall_id} oracleId={i.oracle_id} image={i.image_small}/>

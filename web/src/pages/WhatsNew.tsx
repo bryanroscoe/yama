@@ -3,7 +3,7 @@ import { Link, useLocation } from "react-router";
 import { NEWS, SEEN_KEY, noticeLine, unseen } from "../whatsNew";
 import "../components/calendar.css";
 import { fmtDate } from "@yama/core";
-import { Button, ButtonLink } from "../components/ui";
+import { Button, ButtonLink, PageHeader } from "../components/ui";
 
 const SEEN_EVENT = "yama-news-seen";
 
@@ -70,9 +70,7 @@ export function WhatsNewPage() {
   }, []);
   return (
     <main className="page">
-      <div className="page-head">
-        <h1>What's new</h1>
-      </div>
+      <PageHeader title="What's new" />
       <div className="whats-new">
         {NEWS.map((e) => (
           <article key={e.id} aria-labelledby={`news-${e.id}`}>

@@ -21,7 +21,7 @@ function Dev() {
     <>
       <ScannerView onAccept={(c) => setAdded((a) => [c, ...a])} />
       {added.length > 0 && (
-        <p className="small" style={{ position: "fixed", top: 8, left: 8, zIndex: 30, margin: 0 }}>
+        <p className="small" style={{ position: "fixed", top: 8, left: 8, zIndex: "var(--z-popover)", margin: 0 }}>
           Added {added.length}: {added.map((c) => c.name).join(", ")}
         </p>
       )}

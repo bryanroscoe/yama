@@ -7,7 +7,7 @@ import { Component, createContext, lazy, Suspense, useContext, type ComponentTyp
 import { useLocation, useRouteError } from "react-router";
 import { errorMessage } from "./api";
 import { StandIn, type StandInKind } from "./components/StandIn";
-import { Button } from "./components/ui";
+import { Button, PageHeader } from "./components/ui";
 
 /**
  * An area's pages, loaded together. `page(name)` is a component for one export of the area's
@@ -113,9 +113,7 @@ class Boundary extends Component<BoundaryProps, BoundaryState> {
     const offline = typeof navigator !== "undefined" && !navigator.onLine;
     return (
       <main className="page">
-        <div className="page-head">
-          <h1>This page didn't open</h1>
-        </div>
+        <PageHeader title="This page didn't open" />
         <p>
           {offline
             ? "You're offline, and this page isn't saved on this device yet. The life counter and card search still work."
@@ -155,9 +153,7 @@ export function AppFailed() {
   const error = useRouteError();
   return (
     <main className="page">
-      <div className="page-head">
-        <h1>Yama hit a problem</h1>
-      </div>
+      <PageHeader title="Yama hit a problem" />
       <p>Something went wrong showing this screen. Reloading usually fixes it; nothing saved is lost.</p>
       <p className="small dim">{errorMessage(error)}</p>
       <Button variant="primary" onClick={() => location.reload()}>Reload</Button>

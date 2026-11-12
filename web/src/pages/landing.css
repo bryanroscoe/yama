@@ -15,7 +15,7 @@
 .landing-kicker { margin: 0 0 14px; color: var(--on-art-dim); font-size: var(--t-sm); }
 .landing-hero h1 { margin: 0; font-size: clamp(42px, 4.5vw, 64px); line-height: .95; letter-spacing: -.015em; text-wrap: balance; text-shadow: var(--art-shadow); }
 .landing-intro { max-width: 44ch; margin: 20px 0 0; color: var(--on-art-dim); font-size: 1.0625rem; line-height: 1.5; }
-.landing-art-credit { margin: 24px 0 0; color: var(--on-art-dim); font-size: .6875rem; }
+.landing-art-credit { margin: 24px 0 0; color: var(--on-art-dim); font-size: var(--t-xs); }
 .landing-explore { grid-area: explore; min-width: 0; }
 .landing-section-head { margin-bottom: 20px; }
 .landing-section-head h2 { font-size: clamp(28px, 3vw, 36px); line-height: 1.1; margin: 0 0 8px; }
@@ -25,18 +25,18 @@
 .landing-destination:hover { border-color: var(--text); }
 .landing-counter { grid-column: 1 / -1; border-color: var(--text); }
 .landing-destination-kind { color: var(--dim); font-size: var(--t-sm); }
-.landing-destination h3 { font-size: 28px; line-height: 1.05; margin: 0; }
-.landing-destination p { margin: 0; color: var(--dim); font-size: .9375rem; line-height: 1.5; }
+.landing-destination h3 { font-size: var(--t-28); line-height: 1.05; margin: 0; }
+.landing-destination p { margin: 0; color: var(--dim); font-size: var(--t-15); line-height: 1.5; }
 .landing-destination-action { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-top: 12px; margin-top: auto; font-weight: 700; }
 .landing-method { margin: 16px 0 0; color: var(--dim); font-size: var(--t-sm); line-height: 1.6; }
 .landing-signin.login-side { grid-area: signin; min-width: 0; align-self: start; padding: 28px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-panel); scroll-margin-top: 24px; }
 .landing-signin.login-side .login-inner { width: 100%; gap: 24px; }
-.landing-signin.login-side .login-title { font-size: 36px; }
+.landing-signin.login-side .login-title { font-size: var(--t-36); }
 .landing-signin .login-inner > p { line-height: 1.5; }
 .landing-account { grid-area: account; padding-top: 32px; border-top: 1px solid var(--line); }
 .landing-account-features { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 24px; margin: 0; }
 .landing-account-features dt { font-weight: 700; margin-bottom: 8px; }
-.landing-account-features dd { color: var(--dim); margin: 0; font-size: .9375rem; line-height: 1.5; }
+.landing-account-features dd { color: var(--dim); margin: 0; font-size: var(--t-15); line-height: 1.5; }
 .landing-focused .landing-layout { grid-template-columns: minmax(0, 440px); grid-template-areas: "signin"; justify-content: center; padding-block: 48px; }
 @media (max-width: 1040px) {
   .landing-layout { grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; }

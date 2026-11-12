@@ -14,6 +14,8 @@
 //! card it asked about and didn't find is "not in stock" at that store; a card whose request failed
 //! is unknown, not absent. The trip (`trip.ts`, `trip.rs`) reads them beside `quotes`.
 
+pub mod catalog;
+
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
 use crate::routes::AppState;
@@ -144,6 +146,7 @@ pub struct Listing {
     pub price: Option<f64>,
     pub available: Option<bool>,
     pub qty: Option<i64>,
+    pub quantity_checked_at: Option<String>,
     pub from_price: bool,
     pub variant: Option<String>,
     pub url: Option<String>,
@@ -327,6 +330,40 @@ pub fn search_page_handles(html: &str, card: &str) -> Vec<String> {
     out
 }
 
+/// Read a count only from the requested variant's main product form and inventory badge.
+/// Search-card badges can combine conditions; never assign those totals to every variant.
+fn shopify_variant_quantity(html: &str, variant: &str) -> Option<i64> {
+    use fancy_regex::Regex;
+    fn attr(tag: &str, key: &str) -> Option<String> {
+        let re = Regex::new(r#"([\w-]+)\s*=\s*["']([^"']*)["']"#).ok()?;
+        re.captures_iter(tag).filter_map(Result::ok).find_map(|c| (c.get(1)?.as_str() == key).then(|| c.get(2).unwrap().as_str().to_owned()))
+    }
+    let forms = Regex::new(r"(?s)<form\b([^>]*)>(.*?)</form>").ok()?;
+    let inputs = Regex::new(r"(?s)<input\b([^>]*)>").ok()?;
+    let inventory = Regex::new(r#"(?s)<div\b([^>]*\bid=["']Inventory-[^"']*["'][^>]*)>(.*?)</div>"#).ok()?;
+    let count = Regex::new(r"(?i)\b(?:Only\s+([0-9][0-9,]*)\s+left|([0-9][0-9,]*)\s+in stock)\b").ok()?;
+    let mut found = Vec::new();
+    for block in inventory.captures_iter(html).filter_map(Result::ok) {
+        let Some(id) = attr(block.get(1)?.as_str(), "id") else { continue };
+        let Some(section) = id.strip_prefix("Inventory-") else { continue };
+        let matching_form = forms.captures_iter(html).filter_map(Result::ok).any(|form| {
+            attr(form.get(1).unwrap().as_str(), "id").as_deref() == Some(&format!("product-form-{section}"))
+                && inputs.captures_iter(form.get(2).unwrap().as_str()).filter_map(Result::ok).any(|input| {
+                    let tag = input.get(1).unwrap().as_str();
+                    attr(tag, "name").as_deref() == Some("id") && attr(tag, "value").as_deref() == Some(variant)
+                })
+        });
+        if !matching_form { continue; }
+        if block.get(2)?.as_str().to_lowercase().contains("out of stock") { found.push(0); continue; }
+        if let Some(c) = count.captures(block.get(2)?.as_str()).ok()? {
+            let n = c.get(1).or_else(|| c.get(2))?.as_str().replace(',', "").parse::<i64>().ok()?;
+            if (1..=100_000).contains(&n) { found.push(n); }
+        }
+    }
+    // Contradictory or duplicate inventory blocks are not trustworthy variant evidence.
+    if found.len() == 1 { found.first().copied() } else { None }
+}
+
 /// Every variant of a Shopify product (`/products/<handle>.js`) as listings for the card.
 pub fn shopify_product(body: &Value, card: &str, base: &str, handle: &str) -> Vec<Listing> {
     let title = body["title"].as_str().unwrap_or_default();
@@ -360,9 +397,10 @@ pub fn shopify_product(body: &Value, card: &str, base: &str, handle: &str) -> Ve
                 price: v["price"].as_f64().map(|c| (c / 100.0 * 100.0).round() / 100.0),
                 available: v["available"].as_bool(),
                 qty: None,
+                quantity_checked_at: None,
                 from_price: false,
                 variant: v["id"].as_i64().map(|i| i.to_string()).or_else(|| v["id"].as_str().map(String::from)),
-                url: Some(format!("{base}/products/{handle}")),
+                url: Some(match v["id"].as_i64().map(|i|i.to_string()).or_else(||v["id"].as_str().map(String::from)) { Some(id) if !id.is_empty() && id.bytes().all(|c|c.is_ascii_digit()) => format!("{base}/products/{handle}?variant={id}"), _ => format!("{base}/products/{handle}") }),
             }
         })
         .collect()
@@ -612,11 +650,12 @@ pub struct Fetcher {
     http: reqwest::Client,
     pause: Duration,
     cookie: Option<String>,
+    refresh: bool,
 }
 
 impl Fetcher {
     pub fn new(http: reqwest::Client, pause: Option<Duration>) -> Self {
-        Fetcher { http, pause: pause.unwrap_or(Duration::ZERO), cookie: None }
+        Fetcher { http, pause: pause.unwrap_or(Duration::ZERO), cookie: None, refresh: false }
     }
 
     /// GET or POST with a browser's headers, retrying 429 (as long as the store asks, up to
@@ -654,7 +693,7 @@ impl Fetcher {
     /// The answer's text, and whether it was fetched now (not another check's).
     async fn fetch(&mut self, kind: Kind, method: &str, url: &str, body: Option<&Value>, raw: &mut Raw, accept: &str) -> Result<(String, bool), String> {
         let host = host_of(url).ok_or("bad url")?;
-        if let Some((text, at)) = shared_get(&shared_key(method, url, body)) {
+        if let Some((text, at)) = (!self.refresh).then(|| shared_get(&shared_key(method, url, body))).flatten() {
             raw.add_shared(method, url, &at, &text);
             return Ok((text.to_string(), false));
         }
@@ -663,7 +702,7 @@ impl Fetcher {
         for attempt in 0..3u32 {
             let guard = turn(&host, url, pause).await?;
             // A check ahead in the queue may have fetched this very answer meanwhile.
-            if let Some((text, at)) = shared_get(&shared_key(method, url, body)) {
+            if let Some((text, at)) = (!self.refresh).then(|| shared_get(&shared_key(method, url, body))).flatten() {
                 drop(guard);
                 raw.add_shared(method, url, &at, &text);
                 return Ok((text.to_string(), false));
@@ -779,6 +818,70 @@ pub struct Found {
     pub failed: Vec<String>,
     pub errors: Vec<String>,
     pub total: Option<i64>,
+    pub cached_at: Option<String>,
+}
+
+async fn fetch_shopify_catalog(pool: &SqlitePool, f: &mut Fetcher, base: &str, cards: &[String], refresh: bool, requested: &str, raw: &mut Raw) -> Found {
+    match catalog::products(pool,f,base,refresh,requested,raw).await {
+        Ok(None) => fetch_shopify(f,base,cards,raw).await,
+        Err(e) => Found { failed: cards.to_vec(), errors: vec![format!("Catalog unavailable: {e}. Previous cache preserved.")], ..Default::default() },
+        Ok(Some((at,products))) => {
+            let mut found = Found { cached_at: Some(at), ..Default::default() };
+            let wanted: HashMap<String,&String> = cards.iter().map(|c|(card_key(c),c)).collect();
+            for product in products {
+                let Some(title) = product["title"].as_str() else { continue };
+                let Some(card) = wanted.get(&card_key(title_name(title))) else { continue };
+                let Some(handle) = product["handle"].as_str() else { continue };
+                // A catalog is an index, not a permanent sold-out verdict. Recheck all
+                // variant availability in one product read before selecting quantity pages.
+                let mut listings = shopify_product(&product,card,base,handle);
+                let url = format!("{base}/products/{handle}.js");
+                let was_refresh = f.refresh;
+                f.refresh = true;
+                let live = f.send(Kind::Shopify,"GET",&url,None,raw).await;
+                f.refresh = was_refresh;
+                if !live.as_ref().is_ok_and(|body| refresh_variant_availability(&mut listings,body)) {
+                    found.failed.push((*card).clone());
+                    found.errors.push(format!("{url}: current variant availability could not be verified"));
+                    continue;
+                }
+                listings.retain(|l|l.available==Some(true));
+                enrich_shopify_quantities(f,base,handle,&mut listings,raw).await;
+                found.listings.extend(listings.into_iter().filter(|l| l.available==Some(true)));
+            }
+            found
+        }
+    }
+}
+
+/// Apply only a complete current availability answer. Price provenance stays in the catalog.
+fn refresh_variant_availability(listings: &mut [Listing], body: &Value) -> bool {
+    let Some(variants) = body["variants"].as_array() else { return false };
+    let mut states = HashMap::new();
+    for v in variants {
+        let Some(id) = v["id"].as_u64().map(|id|id.to_string()).or_else(||v["id"].as_str().map(String::from)) else { return false };
+        let Some(available) = v["available"].as_bool() else { return false };
+        if states.insert(id,available).is_some() { return false; }
+    }
+    if listings.iter().any(|l|l.variant.as_ref().is_none_or(|id|!states.contains_key(id))) { return false; }
+    for listing in listings {
+        listing.available = listing.variant.as_ref().and_then(|id|states.get(id)).copied();
+    }
+    true
+}
+
+async fn enrich_shopify_quantities(f: &mut Fetcher, base: &str, handle: &str, listings: &mut [Listing], raw: &mut Raw) {
+    if base != "https://mothershipatx.com" { return; }
+    for listing in listings {
+        if let Some(variant) = listing.variant.as_deref().filter(|v| !v.is_empty() && v.bytes().all(|c| c.is_ascii_digit())) {
+            let url = format!("{base}/products/{handle}?variant={variant}");
+            if let Ok(html) = f.page(Kind::Shopify,&url,raw).await {
+                listing.qty = shopify_variant_quantity(&html,variant);
+                if listing.qty.is_some() { listing.quantity_checked_at = Some(now()); }
+                if listing.qty == Some(0) { listing.available = Some(false); }
+            }
+        }
+    }
 }
 
 /// Every printing a Shopify store lists for each card: `suggest.json`, and when that's full (it
@@ -856,7 +959,11 @@ async fn fetch_shopify(f: &mut Fetcher, base: &str, cards: &[String], raw: &mut 
                         if text_ok(&body["title"])
                             && body["variants"].as_array().is_some_and(|v| v.iter().all(|x| x["available"].is_boolean() && (text_ok(&x["title"]) || text_ok(&x["public_title"])) && x["price"].is_number() && price_ok(&x["price"]))) =>
                     {
-                        found.extend(shopify_product(&body, card, base, handle).into_iter().filter(|l| l.available == Some(true)))
+                        let mut listings: Vec<_> = shopify_product(&body, card, base, handle).into_iter().filter(|l| l.available == Some(true)).collect();
+                        // The JSON feed says available, but Mothership exposes low-stock counts
+                        // in variant-selected HTML instead. GET only; never probe a user's cart.
+                        enrich_shopify_quantities(f,base,handle,&mut listings,raw).await;
+                        found.extend(listings.into_iter().filter(|l| l.available==Some(true)));
                     }
                     Ok(_) => {
                         f.forget("GET", &format!("{base}/products/{handle}.js"), None);
@@ -975,12 +1082,17 @@ async fn fetch_yestcg(f: &mut Fetcher, base: &str, cards: &[String], hosts: &[St
 
 // ── saving ──────────────────────────────────────────────────────────────────
 
+fn distinct_failed(found: &Found) -> Vec<&String> {
+    let mut seen = HashSet::new();
+    found.failed.iter().filter(|card|seen.insert(card_key(card))).collect()
+}
+
 fn status_of(found: &Found, asked: Option<usize>) -> &'static str {
     let answered = match asked {
-        Some(n) => n.saturating_sub(found.failed.len()),
+        Some(n) => n.saturating_sub(distinct_failed(found).len()),
         None => usize::from(found.errors.is_empty() || !found.listings.is_empty()),
     };
-    if answered == 0 && (asked.is_none_or(|n| n > 0)) {
+    if (answered == 0 && asked.is_none_or(|n| n > 0)) || (found.listings.is_empty() && !found.errors.is_empty() && asked == Some(0)) {
         "error"
     } else if !found.failed.is_empty() || !found.errors.is_empty() {
         "partial"
@@ -1004,11 +1116,12 @@ async fn finish(pool: &SqlitePool, owner: &str, id: &str, found: &Found, asked: 
         save_listing(&mut tx, owner, id, l).await?;
     }
     let store: Option<String> = sqlx::query_scalar("SELECT store_key FROM store_snapshots WHERE id = ? AND owner_id = ?").bind(id).bind(owner).fetch_optional(&mut *tx).await?;
-    sqlx::query("UPDATE store_snapshots SET status = ?, error = ?, fetched_at = ?, failed = ?, raw_gz = ?, item_count = ? WHERE id = ? AND owner_id = ?")
+    sqlx::query("UPDATE store_snapshots SET status = ?, error = ?, fetched_at = ?, catalog_fetched_at = ?, failed = ?, raw_gz = ?, item_count = ? WHERE id = ? AND owner_id = ?")
         .bind(status)
         .bind(error)
         .bind(now())
-        .bind((!found.failed.is_empty()).then(|| json!(found.failed).to_string()))
+        .bind(&found.cached_at)
+        .bind((!found.failed.is_empty()).then(|| json!(distinct_failed(found)).to_string()))
         .bind(raw)
         .bind(found.listings.len() as i64)
         .bind(id)
@@ -1025,8 +1138,8 @@ async fn finish(pool: &SqlitePool, owner: &str, id: &str, found: &Found, asked: 
 async fn save_listing(tx: &mut sqlx::SqliteConnection, owner: &str, id: &str, l: &Listing) -> AppResult<()> {
     sqlx::query(
         "INSERT INTO store_listings (snapshot_id, owner_id, card_name, card_key, title, set_code, set_name, number, finish, condition, language,
-                                     price, available, qty, price_kind, variant, url)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                     price, available, qty, quantity_checked_at, price_kind, variant, url)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(id)
     .bind(owner)
@@ -1042,6 +1155,7 @@ async fn save_listing(tx: &mut sqlx::SqliteConnection, owner: &str, id: &str, l:
     .bind(l.price)
     .bind(l.available)
     .bind(l.qty)
+    .bind(&l.quantity_checked_at)
     .bind(if l.from_price { "from" } else { "each" })
     .bind(&l.variant)
     .bind(&l.url)
@@ -1103,6 +1217,7 @@ pub struct Target {
 /// A started check: the cards and every store's snapshot.
 #[derive(Clone, Debug)]
 pub struct Job {
+    pub refresh_catalog: bool,
     pub owner: String,
     pub cards: Vec<String>,
     pub targets: Vec<Target>,
@@ -1113,14 +1228,17 @@ pub async fn run(pool: SqlitePool, http: reqwest::Client, job: Job, pause: Optio
     let timing = crate::perf::Job::start("store check", Duration::from_secs(180));
     let note = format!("{} stores, {} cards", job.targets.len(), job.cards.len());
     let mut tasks = tokio::task::JoinSet::new();
+    let refresh_catalog = job.refresh_catalog;
+    let requested = now();
     let yes: Vec<Target> = job.targets.iter().filter(|t| t.kind == Kind::YesTcg).cloned().collect();
     for t in job.targets.iter().filter(|t| t.kind != Kind::YesTcg).cloned() {
         let (pool, http, owner, cards) = (pool.clone(), http.clone(), job.owner.clone(), job.cards.clone());
+        let requested = requested.clone();
         tasks.spawn(async move {
             let mut f = Fetcher::new(http, pause);
             let mut raw = Raw::default();
             let (found, asked) = match t.kind {
-                Kind::Shopify => (fetch_shopify(&mut f, &t.base, &cards, &mut raw).await, Some(cards.len())),
+                Kind::Shopify => (fetch_shopify_catalog(&pool, &mut f, &t.base, &cards, refresh_catalog, &requested, &mut raw).await, Some(cards.len())),
                 _ => (fetch_pro(&mut f, &t.base, &mut raw).await, None),
             };
             if let Err(e) = finish(&pool, &owner, &t.snapshot, &found, asked, raw.gz()).await {
@@ -1179,6 +1297,9 @@ pub struct CheckBody {
     /// Also ask YesTCG (Austin) about the stores it covers.
     #[serde(default)]
     pub yestcg: bool,
+    /// Rebuild complete public Shopify catalogs rather than reuse a saved catalog.
+    #[serde(default)]
+    pub refresh_catalog: bool,
 }
 
 /// The stores a check can read, with the connector each would use and why not when none.
@@ -1243,6 +1364,7 @@ pub async fn start(st: &AppState, owner: &str, body: &CheckBody, via: &str, chan
     }
     let cards: Vec<String> = match &body.cards {
         Some(c) => c.iter().map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect(),
+        None if body.refresh_catalog => Vec::new(),
         None => {
             let bundle = super::bundle::load_bundle(pool, owner).await?;
             trip_cards(&bundle)
@@ -1282,7 +1404,7 @@ pub async fn start(st: &AppState, owner: &str, body: &CheckBody, via: &str, chan
         let mut any = false;
         if let Some((kind, base)) = direct {
             // A whole catalog doesn't need a card list; a card search does.
-            if *kind == Kind::Pro || !uniq.is_empty() {
+            if *kind == Kind::Pro || (*kind == Kind::Shopify && body.refresh_catalog) || !uniq.is_empty() {
                 targets.push((key.clone(), *kind, base.clone(), None));
                 any = true;
             }
@@ -1319,13 +1441,14 @@ pub async fn start(st: &AppState, owner: &str, body: &CheckBody, via: &str, chan
     }
     let at = now();
     let check = crate::util::new_id();
-    let mut job = Job { owner: owner.to_string(), cards: uniq.clone(), targets: Vec::new() };
+    let mut job = Job { refresh_catalog: body.refresh_catalog, owner: owner.to_string(), cards: uniq.clone(), targets: Vec::new() };
     let mut tx = pool.begin().await?;
     for (key, kind, base, host) in targets {
         let id = crate::util::new_id();
         active().lock().expect("active").insert(id.clone());
         let query = match kind {
-            Kind::Shopify => format!("GET {base}/search/suggest.json?q=\"<card>\"&resources[type]=product&resources[limit]=10, then /products/<handle>.js"),
+            Kind::Shopify if body.refresh_catalog => format!("Refresh full public catalog: GET {base}/products.json?limit=250&page=<page>; atomically cache after all pages"),
+            Kind::Shopify => format!("Use dated catalog cache when available; otherwise GET {base}/search/suggest.json?q=\"<card>\"&resources[type]=product&resources[limit]=10, then /products/<handle>.js"),
             Kind::Pro => format!("POST {base}/api/catalog/search {{\"query\":\"\",\"context\":{{\"productLineName\":\"Magic: The Gathering\"}},\"size\":5000}}"),
             Kind::YesTcg => format!("GET {base}/api/decksearch?q=<card>&market=austin&game=mtg (this store's part, {})", host.as_deref().unwrap_or("?")),
         };
@@ -1492,6 +1615,7 @@ pub async fn import(pool: &SqlitePool, owner: &str, f: ImportFile) -> AppResult<
             price: l.price,
             available: l.available,
             qty: l.qty,
+            quantity_checked_at: None,
             from_price: l.price_is_lowest,
             variant: l.variant.as_ref().and_then(|v| v.as_str().map(String::from).or_else(|| v.as_i64().map(|i| i.to_string()))).filter(|v| v.len() <= 40),
             url,
@@ -1542,6 +1666,7 @@ struct SnapRow {
     cards: Option<String>,
     failed: Option<String>,
     fetched_at: String,
+    catalog_fetched_at: Option<String>,
     status: String,
     requested_at: String,
     check_id: Option<String>,
@@ -1561,6 +1686,7 @@ struct ListRow {
     price: Option<f64>,
     available: Option<bool>,
     qty: Option<i64>,
+    quantity_checked_at: Option<String>,
     price_kind: String,
     variant: Option<String>,
     url: Option<String>,
@@ -1585,7 +1711,7 @@ pub async fn store_quotes(pool: &SqlitePool, owner: &str, wanted: &[String]) -> 
         return Ok(vec![]);
     }
     let mut snaps: Vec<SnapRow> = sqlx::query_as(
-        "SELECT id, store_key, source, cards, failed, fetched_at, status, requested_at, check_id FROM store_snapshots
+        "SELECT id, store_key, source, cards, failed, fetched_at, catalog_fetched_at, status, requested_at, check_id FROM store_snapshots
          WHERE owner_id = ? AND status IN ('ok', 'partial') AND fetched_at IS NOT NULL",
     )
     .bind(owner)
@@ -1636,7 +1762,7 @@ pub async fn store_quotes(pool: &SqlitePool, owner: &str, wanted: &[String]) -> 
     };
     let keys: Vec<&String> = names.keys().collect();
     let rows: Vec<ListRow> = sqlx::query_as(
-        "SELECT snapshot_id, card_key, title, set_code, set_name, number, finish, condition, language, price, available, qty, price_kind, variant, url
+        "SELECT snapshot_id, card_key, title, set_code, set_name, number, finish, condition, language, price, available, qty, quantity_checked_at, price_kind, variant, url
          FROM store_listings WHERE owner_id = ? AND snapshot_id IN (SELECT value FROM json_each(?)) AND card_key IN (SELECT value FROM json_each(?))
          ORDER BY snapshot_id, card_key, price IS NULL, price, title",
     )
@@ -1659,10 +1785,10 @@ pub async fn store_quotes(pool: &SqlitePool, owner: &str, wanted: &[String]) -> 
             "{} ({}), read {}",
             SOURCE_TEXT.iter().find(|x| x.0 == s.source).map_or(s.source.as_str(), |x| x.1),
             if s.source == "import" { "imported" } else { "fetched by Yama" },
-            s.fetched_at
+            s.catalog_fetched_at.as_deref().unwrap_or(&s.fetched_at)
         );
         let base = json!({
-            "swap": null, "card": card, "kind": "stock_check", "store": store, "store_label": null, "checked": s.fetched_at,
+            "swap": null, "card": card, "kind": "stock_check", "store": store, "store_label": null, "checked": s.catalog_fetched_at.as_deref().unwrap_or(&s.fetched_at),
             "price_from_text": false, "currency": "USD", "printing_from_text": false, "scryfall_id": null,
             "source": source, "origin": format!("snapshot:{}", s.id),
         });
@@ -1691,6 +1817,7 @@ pub async fn store_quotes(pool: &SqlitePool, owner: &str, wanted: &[String]) -> 
             }
             if let Some(n) = r.qty {
                 words.push(format!("{n} in stock"));
+                if let Some(at) = &r.quantity_checked_at { words.push(format!("quantity checked {at}")); }
             }
             if r.price_kind == "from" {
                 words.push("lowest listed price; condition and finish not given".into());
@@ -1709,6 +1836,7 @@ pub async fn store_quotes(pool: &SqlitePool, owner: &str, wanted: &[String]) -> 
             q["variant"] = json!(r.variant);
             q["url"] = json!(r.url);
             q["qty"] = json!(r.qty);
+            if let Some(at) = &r.quantity_checked_at { q["quantity_checked_at"] = json!(at); }
             out.push(q);
         }
     }

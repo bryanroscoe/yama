@@ -3,7 +3,7 @@ import { allChoices, sourceCarts, sourceCards } from "./sourcing-model";
 import { capDraft, pricedRows, readCap } from "./source-pricing";
 import type { RuleSet } from "@yama/core/plan";
 const settings = [{effective_from:"2026-11-02",rules:{local_buy:{max_usd:2,always_ok_usd:0.5,tiers:[{market_under:null,max_multiple:1.5}]},sealed_max_usd:51},origin:"yama"}] as RuleSet[];
-const rows=()=>sourceCards([{name:"Card",uses:[{id:"copy",deck:"deck",deck_name:"Deck",category:"unresolved"}],offers:[{store:"Store",price:3,market:3,qty:null,condition:"Near Mint",url:"https://shop.example/products/card",variant_id:"123",qualifies:false,rule_reason:"over $2 ceiling"}]}]);
+const rows=()=>sourceCards([{name:"Card",uses:[{id:"copy",deck:"deck",deck_name:"Deck",category:"unresolved"}],offers:[{store:"Store",price:3,market:3,qty:1,condition:"Near Mint",url:"https://shop.example/products/card",variant_id:"123",qualifies:false,rule_reason:"over $2 ceiling"}]}]);
 describe("local sourcing dollar ceiling",()=>{
  it("accepts zero and no ceiling but rejects malformed or out-of-range prices",()=>{
   expect(readCap("0")).toEqual({value:0,valid:true});expect(readCap("")).toEqual({value:null,valid:true});

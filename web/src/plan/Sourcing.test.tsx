@@ -17,6 +17,12 @@ describe("all-deck sourcing page",()=>{
     expect(html).toContain("Printing market");expect(html).toContain("$0.75");expect(html).toContain("Near Mint only");expect(html).toContain("Maximum per card ($)");expect(html).toContain("Save cap as default");expect(html).not.toContain("check source before buying");expect(html).toContain("Nov 10, 2026");expect(html).toContain("Add all matching cards");expect(html).toContain("Exclude unknown stock counts");expect(html).not.toContain("Add known quantities only");
     expect(html).toContain('href="https://mothershipatx.com/products/ring"');expect(html).toContain('blackcastlegamez.tcgplayerpro.com/search/products?');expect(html).toContain("/decks/plans/get/trip");expect(html).toContain("does not regenerate");expect(html).not.toContain('>Apply</button>');
   });
+  it("renders every filtered card without a show-more step",()=>{
+    const rows=Array.from({length:31},(_,i)=>({...(bundle.document.local_sources as object[])[0],name:`Card ${i}`,uses:[{id:`copy-${i}`,deck:"a",deck_name:"Deck A",category:"arrived proxy: optional real-card wishlist"}]}));
+    const html=render({...bundle,document:{...bundle.document,local_sources:rows}});
+    expect(html.match(/class="source-card"/g)).toHaveLength(31);
+    expect(html).not.toContain("Show next 25");
+  });
   it("keeps unsupported or malformed research from crashing or becoming a zero-cost cart",()=>{
     const html=render({...bundle,document:{...bundle.document,local_sources:{malformed:true}}});expect(html).toContain("no portfolio source rows");expect(html).not.toContain("$0.00");
   });

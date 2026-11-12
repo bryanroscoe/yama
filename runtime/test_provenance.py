@@ -11,6 +11,21 @@ spec = importlib.util.spec_from_file_location('verify_source', HERE/'verify-sour
 verify = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(verify)
 
+class MissingHistoricalSource(unittest.TestCase):
+    def test_fresh_public_clone_fails_clearly_and_creates_nothing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            empty = root/'fresh-clone'
+            subprocess.run(['git', 'init', '-q', str(empty)], check=True)
+            out = root/'export'
+            run = subprocess.run(['python3', str(HERE/'build-historical.py'), str(out), '--prepare-only',
+                                  '--yama-repo', str(empty), '--phase-repo', str(empty)],
+                                 capture_output=True, text=True)
+            self.assertNotEqual(run.returncode, 0)
+            self.assertIn('has no commit ' + json.loads((HERE/'historical.json').read_text())['yama'], run.stderr)
+            self.assertIn('bryanroscoe/yama-archive', run.stderr)
+            self.assertFalse(out.exists())
+
 class SourceProvenance(unittest.TestCase):
     def test_changed_source_with_identical_embedded_identity_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:

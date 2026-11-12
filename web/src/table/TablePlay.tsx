@@ -32,7 +32,7 @@ import {
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router";
 import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
-import { ActionBar, Button, Dialog, DialogHead, Pips, Segmented } from "../components/ui";
+import { ActionBar, Button, CardThumb, Dialog, DialogHead, Pips, Segmented } from "../components/ui";
 import { useCardArt, type CardArt } from "../components/useCardArt";
 import { FirstPlayerPicker, FunPicker, NotePicker, WinConditionPicker } from "../components/GameCapture";
 import { panelArt, setShowArt, useShowArt } from "./art";
@@ -617,7 +617,7 @@ export function Panel(props: {
             <div className="cmdr-pills">
               {damage.map((d) => (
                 <span key={`${d.key}:${d.amount}`} className="badge cmdr-pill" aria-label={`${d.amount} commander damage from ${d.name}`} title={`From ${d.name}`}>
-                  {d.art ? <img src={d.art} alt="" /> : <span className="cmdr-dot" style={{ background: d.fill }} />}
+                  <CardThumb src={d.art} eager fallback={<span className="cmdr-dot" style={{ background: d.fill }} />} />
                   <span aria-hidden="true">{d.amount}</span>
                 </span>
               ))}
@@ -672,7 +672,7 @@ export function Panel(props: {
                   return (
                     <span key={c.key} className="take-source">
                       <span className="attack-from">
-                        {a?.art ? <img src={a.art} alt="" /> : <span className="cmdr-dot" style={{ background: MANA[identityKeys(p.colorIdentity)[0]!].fill }} />}
+                        <CardThumb src={a?.art} eager fallback={<span className="cmdr-dot" style={{ background: MANA[identityKeys(p.colorIdentity)[0]!].fill }} />} />
                         {c.name} to {victim.name}
                       </span>
                       <span className="attack-steps">
@@ -707,7 +707,7 @@ export function Panel(props: {
           ) : (
             <div className="attack-layer">
               <span className="attack-from">
-                {attackArt?.art ? <img src={attackArt.art} alt="" /> : <span className="cmdr-dot" style={{ background: MANA[identityKeys(attacker.colorIdentity)[0]!].fill }} />}
+                <CardThumb src={attackArt?.art} eager fallback={<span className="cmdr-dot" style={{ background: MANA[identityKeys(attacker.colorIdentity)[0]!].fill }} />} />
                 From {attackName}
               </span>
               <span className="attack-steps">
@@ -858,7 +858,7 @@ export function PlayerSheet({ state, seat, onClose, artFor, onAttack, onTake, on
     const a = partner ? partnerArt : art;
     return (
       <section className="ps-tax" aria-label={`Commander tax for ${name}`}>
-        {a?.art ? <img src={a.art} alt="" /> : <span className="ps-tax-none" />}
+        <CardThumb src={a?.art} eager fallback={<span className="ps-tax-none" />} />
         <span className="ps-tax-text">
           <span className="ps-tax-title">Commander tax +{commanderTax(p, partner)}</span>
           <span className="small dim">
@@ -1167,8 +1167,7 @@ function nextPlayer(state: TableState): PlayerState | undefined {
 
 /** A player's commander art in a circle, or a raised circle with their first identity color. */
 function SeatDot({ art, colorIdentity, className }: { art: CardArt | null; colorIdentity: string; className: string }) {
-  if (art?.art) return <img className={className} src={art.art} alt="" />;
-  return <span className={`${className} seat-dot-none`} style={{ "--dot": MANA[identityKeys(colorIdentity)[0]!].fill } as CSSProperties} />;
+  return <CardThumb className={className} src={art?.art} eager fallback={<span className={`${className} seat-dot-none`} style={{ "--dot": MANA[identityKeys(colorIdentity)[0]!].fill } as CSSProperties} />} />;
 }
 
 const TrophyIcon = () => (

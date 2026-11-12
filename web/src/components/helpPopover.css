@@ -39,7 +39,7 @@
 }
 .help-pop-body {
   position: absolute;
-  z-index: 30;
+  z-index: var(--z-popover);
   top: calc(100% + 8px);
   left: -8px;
   width: min(380px, calc(100vw - 32px));

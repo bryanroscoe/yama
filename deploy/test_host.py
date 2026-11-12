@@ -821,6 +821,8 @@ with host.release_lock():
         binary.mkdir(exist_ok=True)
         ssh = binary / 'ssh'
         ssh.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$FAKE_SSH_ARGS"\n'
+                       'n=$(cat "$FAKE_SSH_ARGS.calls" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$FAKE_SSH_ARGS.calls"\n'
+                       'if [ "$n" -le "${FAKE_SSH_DROPS:-0}" ]; then cat >/dev/null; exit 255; fi\n'
                        'printf "%s\\n" "${TUNNEL_SERVICE_TOKEN_ID:-}" "${TUNNEL_SERVICE_TOKEN_SECRET:-}" > "$FAKE_SSH_ARGS.token"\n'
                        'for a in "$@"; do case "$a" in */id_ed25519) cp "$a" "$FAKE_SSH_ARGS.key" ;; esac; done\n'
                        'cat >/dev/null\nprintf "%s\\n" "$FAKE_HOST_RESULT"\nexit "$FAKE_SSH_EXIT"\n')
@@ -829,12 +831,14 @@ with host.release_lock():
         summary.write_text('')
         arguments = self.root / 'ssh-args'
         arguments.unlink(missing_ok=True)
+        Path(str(arguments) + '.calls').unlink(missing_ok=True)
         env = dict(os.environ, FAKE_SSH=str(ssh), FAKE_SSH_ARGS=str(arguments),
                    GH_TOKEN='private-fixture-token', RELEASE_SHA=SHA, DEPLOY_BACKEND='',
                    DEPLOY_SSH_HOST='192.0.2.40', DEPLOY_SSH_KEY='private-fixture-key',
                    DEPLOY_KNOWN_HOSTS='192.0.2.40 ssh-ed25519 AAAAfixture',
                    CF_ACCESS_CLIENT_ID='fixture-access-id', CF_ACCESS_CLIENT_SECRET='private-fixture-access-secret',
-                   GITHUB_STEP_SUMMARY=str(summary), FAKE_HOST_RESULT='', FAKE_SSH_EXIT='0')
+                   GITHUB_STEP_SUMMARY=str(summary), FAKE_HOST_RESULT='', FAKE_SSH_EXIT='0',
+                   DEPLOY_RETRY_DELAY='0')
         env.update(values)
         # The fixture must never contact a real host, including inside a CI image.
         env.pop('BASH_ENV', None)
@@ -891,6 +895,30 @@ with host.release_lock():
                 self.assertNotEqual(run.returncode, 0)
                 self.assertIn(missing, run.stdout)
                 self.assertIsNone(args, 'ssh ran without its configuration')
+
+    def test_cloudflare_workflow_asks_again_after_a_dropped_connection(self):
+        _, script = self.workflow_deploy_scripts()
+        calls = self.root / 'ssh-args.calls'
+        # Two drops, then the host reports the release it finished meanwhile.
+        run, summary, args = self.run_workflow_script(
+            script, FAKE_SSH_DROPS='2', FAKE_HOST_RESULT='YAMA_RELEASE_RESULT=already_healthy')
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual(calls.read_text().strip(), '3')
+        self.assertEqual(run.stdout.count('::warning title=Connection lost::'), 2)
+        self.assertIn('nothing restarted', summary)
+        self.assertEqual(args[-1], '/mnt/user/appdata/yama-release/host.py deploy ' + SHA)
+        # A connection that never holds fails after four attempts.
+        run, summary, _ = self.run_workflow_script(
+            script, FAKE_SSH_DROPS='9', FAKE_HOST_RESULT='YAMA_RELEASE_RESULT=success')
+        self.assertEqual(run.returncode, 255)
+        self.assertEqual(calls.read_text().strip(), '4')
+        self.assertEqual(summary, '')
+        # Any other failure (the host refusing, say) is never retried.
+        run, summary, _ = self.run_workflow_script(
+            script, FAKE_HOST_RESULT='Release refused: nope', FAKE_SSH_EXIT='1')
+        self.assertNotEqual(run.returncode, 0)
+        self.assertEqual(calls.read_text().strip(), '1')
+        self.assertNotIn('Connection lost', run.stdout)
 
     def test_workflow_backends_share_guards_and_exclude_each_other(self):
         text = (Path(__file__).resolve().parents[1] / '.github/workflows/deploy.yml').read_text()

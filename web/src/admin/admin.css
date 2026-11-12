@@ -22,7 +22,7 @@
 .admin-section h2 {
   margin: 0;
   font-weight: 800;
-  font-size: 1.75rem;
+  font-size: var(--t-28);
 }
 .admin-section-head {
   display: flex;
@@ -204,7 +204,7 @@
   gap: 8px;
 }
 /* One full-width tile per number made the phone page seven screens of mostly empty boxes. */
-@media (max-width: 560px) {
+@media (max-width: 599px) {
   .admin-figures {
     grid-template-columns: 1fr 1fr;
   }
@@ -220,7 +220,7 @@
 .admin-figure b {
   font-family: var(--display);
   font-weight: 800;
-  font-size: 2.25rem;
+  font-size: var(--t-36);
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
@@ -302,7 +302,7 @@
 }
 .admin-sheet h2 {
   margin: 0;
-  font-size: 1.75rem;
+  font-size: var(--t-28);
 }
 .admin-sheet p {
   margin: 0;
@@ -324,6 +324,6 @@
     gap: 36px;
   }
   .admin-section h2 {
-    font-size: 2rem;
+    font-size: var(--t-xl);
   }
 }

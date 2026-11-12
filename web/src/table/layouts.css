@@ -82,7 +82,7 @@
   border-radius: 4px;
 }
 .layout-option .sketch-n {
-  font-size: 13px;
+  font-size: var(--t-sm);
 }
 .layout-label {
   font-size: var(--t-sm);

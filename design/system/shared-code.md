@@ -297,8 +297,9 @@ screen reader reads them as its name.
 - A control whose name is already on the page takes `aria-labelledby`; a search box or a bare
   number in a row takes `aria-label`. `conventions.test.ts` fails on an `<input>`, `<select>`
   or `<textarea>` with no name at all, and a `<label>` with no words in it doesn't count.
-- A label that lays itself out (a class of its own, markup in its words, two controls) can
-  stay a `<label>`: 73 plain ones moved to these components, the rest are still written out.
+- A label with its own class keeps it: `<Field className="scan-copies" label="Copies">`,
+  `<CheckRow className="plan-check" …>`. A label with markup in its words or two controls,
+  and a label dressed as a button around a hidden file input, stay a `<label>`.
 
 ### BackLink (`components/BackLink.tsx`)
 
@@ -316,3 +317,77 @@ The way back to the page above this one: one chevron, one wording.
   screen shows (keep the words on screen in it). `inline` needs `text`. No "←" anywhere.
 - `AreaHead` and `LabHead` draw their own from `back={{ to, label }}`.
 - It is a link. The card page's Back is a `Button`: it goes back in history, wherever that was.
+
+### Pager and ShowMore (`components/Pager.tsx`)
+
+```tsx
+<Pager label="Game history pages" page={page} pages={pages}
+  onPrevious={page > 1 ? () => go(page - 1) : undefined}
+  onNext={page < pages ? () => go(page + 1) : undefined} busy={query.isFetching} />
+<ShowMore total={pairs.length} onToggle={() => setAll(true)} />                       // "Show all 42", then gone
+<ShowMore total={rows.length} expanded={open} onToggle={() => setOpen(!open)} />      // "Show all 42" / "Show fewer"
+<ShowMore total={printings.length} noun="printings" onToggle={showAll} />
+```
+
+- `Pager` is a `<nav>` with a name that says which list (`label="Game history pages"`),
+  centered under its list, reading "Page 2 of 14" (no total when it isn't known); the page
+  number is announced when it changes. Leave out `onPrevious` or `onNext` when there is no
+  page that way: the button is off and flat, not faded. `busy` turns both off while a page
+  loads. A button that is off stays focusable (`aria-disabled`), so the keyboard keeps its
+  place when Next turns itself off on the last page.
+- `ShowMore` is a quiet row action. With `expanded` it is a toggle and carries
+  `aria-expanded`. Without it the button is gone once pressed and focus goes with it, so
+  prefer the toggle for a list people tab through. A list that says what it is showing ("Show the slowest 12") keeps its own
+  words.
+- A list that adds a screen at a time ("Show more cards") is a plain quiet `Button`.
+
+### PageHeader (`components/PageHeader.tsx`)
+
+A page's title row: the `h1`, an optional line under it, and the page's actions at the end.
+
+```tsx
+<PageHeader title="What's new" />
+<PageHeader title={run.name} sub={<SimLine …/>} actions={<ButtonLink variant="primary" to="/lab/try">Try a change</ButtonLink>} />
+```
+
+- One per page, first in `<main>`; it holds the page's only `h1`.
+- The actions wrap under the title on a narrow screen. More than a primary and three
+  secondaries go in a `MoreMenu` (see ActionBar).
+- The Decks, Plans and Lab areas draw theirs with `AreaHead`, `PlansHead` and `LabHead`, which
+  add the area's sections and its `BackLink`.
+
+### Tabs: which piece to use
+
+There is no `Tabs` component, on purpose. Each thing that looks like tabs is one of these:
+
+| It does this | Use |
+|---|---|
+| Goes to another page of the same area | `SubNav`, or `DeckTabs` for the Decks sections (links, `aria-current="page"`) |
+| Jumps to a section of a long page | `SectionTabs` (links; the section in view is current) |
+| Switches a view or a value in place | `Segmented` (buttons, `aria-pressed`) |
+| Opens one of several things and closes it again | buttons with `aria-expanded` in a named `role="group"` (the import page's "Where your deck is") |
+
+Don't write `role="tablist"` in a page: a tab can't be closed and one is always chosen, and a
+tablist owes its users arrow keys and a `tabpanel` for each tab. The online board's own
+tablists are the exception until it joins these rules.
+
+### CardThumb (`components/CardThumb.tsx`), with CardImage, Crop and ArtPanel
+
+Every picture of a card comes from Scryfall at run time and goes through one of four pieces:
+
+| Want | Use |
+|---|---|
+| A small picture beside a card's or a player's name (a row's thumbnail, a seat's art dot) | `<CardThumb src={…} />` |
+| The full card | `<CardImage src={…} name={…} />`, or `ZoomableCard` to open it larger |
+| An art crop as a tile | `<Crop src={…} size="sm" />` |
+| Art behind a header, a tile or a seat | `<ArtPanel art={…} artist={…}>` |
+
+- `CardThumb` is decoration by default (`alt=""`): the name is beside it. Give `name` when the
+  picture is the only thing that says which card it is. It loads lazily (`eager` for one that
+  is on screen from the start), asks with CORS so the offline image cache can keep it, and
+  draws `fallback` when there is no picture or it fails to load. Pass the placeholder as
+  `fallback` (`<CardThumb src={a?.art} fallback={<span className="cmdr-dot" />} />`), not in a
+  `src ? … : …` around it, which would miss a picture that fails.
+- Never filter, blur or fade a card image, and credit the artist wherever an art crop shows.
+- Don't write `<img>` for a card in a page; `conventions.test.ts` fails on one outside these
+  components and the online board.

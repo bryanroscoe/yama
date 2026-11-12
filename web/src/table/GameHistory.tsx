@@ -3,7 +3,7 @@ import { GAME_WORDS } from "@yama/core";
 import { Link, useSearchParams } from "react-router";
 import { api, type GameRow } from "../api";
 import { useMe } from "../auth";
-import { Button, ButtonLink, EmptyState, ErrorText, Field, Loading } from "../components/ui";
+import { Button, ButtonLink, EmptyState, ErrorText, Field, Loading, Pager } from "../components/ui";
 import { usePendingDeletes } from "./store";
 import { isPlaceholderName } from "./playerNames";
 import { recentGameText, turnsText } from "./recent";
@@ -108,11 +108,13 @@ export function GameHistoryPage() {
       </ol>
       {/* One page of games, or none, has nothing to page through. */}
       {(offset > 0 || games.data?.has_more) && (
-        <nav className="gh-pages" aria-label="Game history pages">
-          <Button disabled={offset === 0 || games.isPending} onClick={() => change("offset", String(Math.max(0, offset - PAGE_SIZE)))}>Previous</Button>
-          <span>Page {Math.floor(offset / PAGE_SIZE) + 1}</span>
-          <Button disabled={!games.data?.has_more || games.isPending} onClick={() => change("offset", String(offset + PAGE_SIZE))}>Next</Button>
-        </nav>
+        <Pager
+          label="Game history pages"
+          page={Math.floor(offset / PAGE_SIZE) + 1}
+          busy={games.isPending}
+          onPrevious={offset > 0 ? () => change("offset", String(Math.max(0, offset - PAGE_SIZE))) : undefined}
+          onNext={games.data?.has_more ? () => change("offset", String(offset + PAGE_SIZE)) : undefined}
+        />
       )}
     </main>
   );

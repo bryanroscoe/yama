@@ -17,7 +17,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
 import { ConnectButton } from "../components/HowTo";
-import { Button, ButtonLink, EmptyState, Pips, StatusPill } from "../components/ui";
+import { Button, ButtonLink, CardThumb, EmptyState, Pips, StatusPill } from "../components/ui";
 import { ImportSheet } from "./ImportSheet";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
 import type { PlanView } from "./view";
@@ -257,7 +257,7 @@ function StartCard({ row, view }: { row: Row; view: PlanView }) {
     <div className="plans-start-card">
       {crop && (
         <figure className="plans-start-art">
-          <img src={crop} alt="" />
+          <CardThumb src={crop} eager />
           <figcaption className="small dim">{artCredit(commander?.artist)}</figcaption>
         </figure>
       )}
@@ -337,7 +337,7 @@ function ProgressTile({ row, view }: { row: Row; view: PlanView }) {
 function Thumb({ deck, view, round = false }: { deck: PlanDeck; view: PlanView; round?: boolean }) {
   const art = view.art(deck);
   const artist = view.card(deck.commander[0])?.artist;
-  return art ? <img className={`plans-thumb${round ? " round" : ""}`} src={art} alt="" title={artCredit(artist)} /> : <span className={`plans-thumb${round ? " round" : ""}`} aria-hidden="true" />;
+  return <CardThumb className={`plans-thumb${round ? " round" : ""}`} src={art} title={artCredit(artist)} eager fallback={<span className={`plans-thumb${round ? " round" : ""}`} aria-hidden="true" />} />;
 }
 
 function Chevron() {

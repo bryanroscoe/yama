@@ -59,6 +59,15 @@ The idea: a near-black, neutral table, so the commander art and the mana colors 
   | Life total, guest phone | 220 px | |
 
 - Body text is 16 px. Captions and meta are 13–14 px, credits 10–12 px.
+- Every size is a step on one scale, as a token in `web/src/styles.css`:
+
+  | px | 11 | 12 | 13 | 14 | 15 | 16 | 18 | 20 | 22 | 24 | 28 | 32 | 36 | 40 | 44 |
+  |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+  | `--t-…` | `xs` | `12` | `sm` | `label` | `15` | `base` | `18` | `md` | `22` | `lg` | `28` | `xl` | `36` | `2xl` | `big` |
+
+  `--t-title` and `--t-hero` are the page and deck titles, which grow on a laptop; `--t-button`
+  is a button's label (15 px on a laptop, 16 px on touch). A stylesheet doesn't write a px or
+  rem font size of its own (`conventions.test.ts` holds the few display numbers still to move).
 - Keep sentence case everywhere: no all-caps labels and no middle-dot meta strings.
 
 ## Shape and spacing
@@ -78,6 +87,17 @@ The idea: a near-black, neutral table, so the commander art and the mana colors 
   | Battlefield tiles | 8–12 px |
 
 - **Spacing:** gaps of 8 / 12 / 16 / 24 / 32 px. Page padding is 16 px on phones and clamp(20px, 4vw, 56px) on laptops. Content max-width is 1120 px.
+- **Breakpoints:** layouts change at three widths and nowhere else: under 600 px is a phone
+  (`max-width: 599px`), 600 to 899 px a tablet, from 900 px a laptop (`min-width: 900px`: the
+  rail replaces the tab bar), and from 1200 px there is room for another column
+  (`min-width: 1200px`). A rule that only fits one component to its own content says so in
+  `conventions.test.ts` (there are three).
+- **Layers:** what sits over the page takes a named layer, lowest first: `--z-switch`,
+  `--z-page-over`, `--z-bar` (tab bar, sticky tabs), `--z-status`, `--z-popover`, `--z-scrim`,
+  `--z-sheet` (a dialog), `--z-overlay`, `--z-layer` (full-screen layers, menus opened from a
+  dialog), `--z-banner`, `--z-frame`, `--z-picker`, `--z-question` (confirm and unsaved
+  prompts) and `--z-preview` (the card preview that follows the pointer). Inside one component,
+  a small number (-2 to 6) orders its own parts.
 - **Touch targets:** at least 44 px on phones and touch screens; primary buttons 48–56 px there. On a laptop controls are 36 px, the primary 40 px (see Density, actions and page structure).
 - **Chevrons:** single-select controls reserve 44 px at the end, with a 16 px arrow inset
   14 px from the edge. Disclosures leave 12 px between their chevron and label. Keep their
@@ -128,7 +148,10 @@ page of the redesign canvas (`design/screens/redesign-2026-11/Language.dc.html`)
 4. **Section tabs, not folds.** A page with more than three sections gets a sticky strip of 3–5
    tabs under its header (a deck: Cards, Stats, Plan, History; a plan: Changes, Questions, How it
    plays). Content under a tab is open. A disclosure is only for a method or a long list nobody needs
-   by default, at most one per section, never nested.
+   by default, at most one per section, never nested. The strip is the page's top-level navigation
+   and must outrank the filters and segmented controls under it: tab labels in the display face at
+   24 px (20 px on phones), the current one under a 3 px underline (Bryan, 11 Nov 2026: at 15 px
+   body text it was "hard to find").
 5. **No micro copy.** No hint lines under options, fields, headings or buttons, and no explanatory
    paragraphs. Headings, labels and buttons do the work; anything more goes behind one small "?"
    button per section that opens a popover. A destructive action still says its consequence, in one

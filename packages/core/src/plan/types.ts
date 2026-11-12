@@ -325,6 +325,7 @@ export interface Quote {
   origin: string;
   /** Copies the listing says it has (store snapshots); missing or null when it doesn't say. */
   qty?: number | null;
+  quantity_checked_at?: string;
 }
 
 export interface Store {

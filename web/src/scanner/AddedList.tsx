@@ -5,7 +5,7 @@ import { useState } from "react";
 import type { Printing } from "../api";
 import { printingOptions } from "./printings";
 import type { Added, Finish, Fix } from "./session";
-import { Button, DialogHead, ErrorText, Field, Loading } from "../components/ui";
+import { Button, CardThumb, DialogHead, ErrorText, Field, Loading } from "../components/ui";
 
 const FINISH_LABEL: Record<Finish, string> = { nonfoil: "regular", foil: "foil", proxy: "proxy" };
 const PRINTINGS_FIRST = 12;
@@ -71,7 +71,7 @@ function AddedRow({ a, onFix, onRetry }: { a: Added; onFix: AddedListProps["onFi
   return (
     <li className="scan-added-row">
       <div className="scan-added-card">
-        {a.image ? <img className="scan-added-thumb" src={a.image} alt="" loading="lazy" /> : <span className="scan-added-thumb card-fallback">{a.name}</span>}
+        <CardThumb className="scan-added-thumb" src={a.image} fallback={<span className="scan-added-thumb card-fallback">{a.name}</span>} />
         <div className="scan-added-info">
           <strong>{a.name}</strong>
           <span className="dim small">
@@ -128,7 +128,7 @@ function AddedRow({ a, onFix, onRetry }: { a: Added; onFix: AddedListProps["onFi
               disabled={busy}
               onClick={() => void run({ ...base, scryfall_id: p.scryfall_id, set: p.set_code, number: p.collector_number, name: p.name, image: p.image_small })}
             >
-              {p.image_small ? <img src={p.image_small} alt="" loading="lazy" /> : <span className="card-fallback">{p.name}</span>}
+              <CardThumb src={p.image_small} fallback={<span className="card-fallback">{p.name}</span>} />
               <span className="scan-printing-set">{p.set_name}</span>
               <span className="dim">
                 #{p.collector_number}

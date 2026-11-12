@@ -177,6 +177,64 @@ describe("buttons use the shared components", () => {
   });
 });
 
+describe("card pictures use the shared components", () => {
+  it("no page writes a raw <img> for a card or its art", () => {
+    // Use <CardThumb src={…} /> from components/ui for a small picture beside a name,
+    // <CardImage> for a full card, <Crop> or <ArtPanel> for an art tile. These files are those
+    // components, or show pictures that aren't Scryfall's (MPC Autofill's, the print sheet's).
+    const own = new Set(["ui.tsx", "Crop.tsx", "ArtPanel.tsx", "ArtMosaic.tsx", "CardRef.tsx", "CardThumb.tsx"].map((f) => `web/src/components/${f}`).concat(["web/src/plan/MpcPrint.tsx", "web/src/plan/SwapSheet.tsx"]));
+    const found = uses(/<img\b/, (file) => own.has(file) || BOARD.test(file));
+    expect(found).toEqual([]);
+    // The placeholder goes in `fallback`, so a picture that fails to load gets it too.
+    expect(uses(/\? <CardThumb\b/, (file) => BOARD.test(file))).toEqual([]);
+  });
+});
+
+describe("tabs are one of the shared pieces", () => {
+  it("no page builds a tablist", () => {
+    // SubNav or DeckTabs for pages, SectionTabs for sections of a page, Segmented for a view,
+    // aria-expanded buttons for things that open and close (design/system/shared-code.md, Tabs).
+    const found = uses(/role="(tablist|tab|tabpanel)"/, (file) => BOARD.test(file));
+    expect(found).toEqual([]);
+  });
+});
+
+describe("a page's title row uses the shared header", () => {
+  it("no page writes its own page-head", () => {
+    // Use <PageHeader title="…" sub={…} actions={…} /> from components/ui. The stand-in drawn
+    // while a page's code loads has no title yet, so it keeps the bare row.
+    const found = uses(/className="page-head\b/, (file) => file === "web/src/components/PageHeader.tsx" || file === "web/src/components/StandIn.tsx");
+    expect(found).toEqual([]);
+  });
+});
+
+describe("paging and showing the rest use the shared controls", () => {
+  it("no page writes its own Previous and Next", () => {
+    // Use <Pager label="…" page={n} pages={total} onPrevious={…} onNext={…} /> from components/ui.
+    // Read whole files: the words are often on a line of their own inside the button.
+    const found = sources(WEB)
+      .map((path) => relative(ROOT, path))
+      .filter((file) => file !== "web/src/components/Pager.tsx" && !BOARD.test(file))
+      .filter((file) => />\s*(Previous|Next)\s*<\/(Button|ButtonLink|button|a|Link)>/.test(readFileSync(join(ROOT, file), "utf8")));
+    expect(found).toEqual([]);
+  });
+
+  it("no list writes its own Show all and Show fewer toggle", () => {
+    // Use <ShowMore total={n} onToggle={…} /> (with expanded={…} when it folds back) from
+    // components/ui. A list that names what it shows ("Show the slowest 12") keeps its own words.
+    const found = uses(/"Show fewer"|>\s*Show fewer\s*</, (file) => file === "web/src/components/Pager.tsx" || BOARD_FILES.test(file));
+    expect(found).toEqual([]);
+    // "Show all 42" written out: these four keep theirs (a link-styled line on the import page,
+    // the scanner's printing tiles, the admin tables that name what they show). Don't add to them.
+    const own = new Set(["web/src/decks/ImportPage.tsx", "web/src/scanner/AddedList.tsx", "web/src/scanner/ScannerView.tsx", "web/src/admin/Server.tsx"]);
+    const written = sources(WEB)
+      .map((path) => relative(ROOT, path))
+      .filter((file) => file !== "web/src/components/Pager.tsx" && !own.has(file) && !BOARD_FILES.test(file))
+      .filter((file) => /(>|`)\s*Show all (\$?\{)/.test(readFileSync(join(ROOT, file), "utf8")));
+    expect(written).toEqual([]);
+  });
+});
+
 describe("the way back uses the shared link", () => {
   it("no page draws its own back link", () => {
     // Use <BackLink to="…" label="Back to …" text="…"> from components/ui (onArt on an art
@@ -265,5 +323,113 @@ describe("formatting goes through @yama/core's format module", () => {
   it("no page writes dollars by hand", () => {
     // `$${n.toFixed(2)}` drops the thousands comma and can print "$NaN". Use usd().
     expect(uses(/\$\$\{[^}]*\.toFixed\(/, (file) => file === FORMAT)).toEqual([]);
+  });
+});
+
+describe("styles come from the scales", () => {
+  function stylesheets(dir: string): string[] {
+    return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+      const path = join(dir, e.name);
+      if (e.isDirectory()) return stylesheets(path);
+      return e.name.endsWith(".css") ? [path] : [];
+    });
+  }
+
+  it("no stylesheet adds a font size of its own", () => {
+    // Use a --t-* token (web/src/styles.css; design/tokens.md, Type). What is left, file by
+    // file: display numbers with no step (life totals, big prices), the 16 px root and a few
+    // chips under 11 px. A file's list only shrinks, and a file not listed has none. An em
+    // size, a clamp() and a print pt size are fine: they follow their parent, the container or
+    // the paper.
+    const left: Record<string, string> = {
+      "web/src/datasets/datasets.css": "1.7rem 1.8rem",
+      "web/src/decks/deckAnalysis.css": "10px",
+      "web/src/decks/deckCheck.css": "1.2rem 1.6rem 1.8rem 2.6rem",
+      "web/src/decks/deckStatsTab.css": "8px 9px 1.875rem 4rem",
+      // A card's name inside a 48 px thumbnail, in the deck editor's search results.
+      "web/src/decks/edit-list.css": "0.6rem",
+      "web/src/lab/lab.css": "1.625rem 1.875rem",
+      "web/src/pages/cards.css": "1.0625rem 1.625rem 4.25rem",
+      "web/src/pages/collection.css": "3.5rem",
+      // 0.6rem: a card's name inside a 40 px thumbnail, in a deck's Considering list.
+      "web/src/pages/decks.css": "0.6rem 3.5rem",
+      "web/src/pages/group.css": "1.625rem 1.875rem",
+      "web/src/pages/landing.css": ".625rem 1.0625rem",
+      "web/src/plan/plan.css": "0.55rem 0.625rem 1.0625rem 1.625rem 3rem 3.125rem 4.75rem",
+      "web/src/plan/swapsheet.css": "9.5px 17px",
+      "web/src/play/play.css": "10px 26px 30px 38px 46px 54px 72px",
+      "web/src/scanner/scanner.css": "1.0625rem",
+      "web/src/styles.css": "0.5625rem 16px 1.0625rem 1.625rem 1.875rem 2.125rem 6rem",
+      "web/src/table/home.css": "26px 30px 34px",
+      "web/src/table/layouts.css": "26px",
+      "web/src/table/table.css": "10px 1.875rem 2.125rem 2.375rem 3rem 64px 72px",
+    };
+    const found: string[] = [];
+    for (const path of stylesheets(WEB)) {
+      const file = relative(ROOT, path);
+      if (file === "web/src/play/board.css") continue;
+      const allowed = new Set((left[file] ?? "").split(" "));
+      const css = readFileSync(path, "utf8").replace(/\/\*[^]*?\*\//g, "");
+      for (const m of css.matchAll(/font-size:\s*((?:\d*\.)?\d+(?:px|rem))\s*(?:!important\s*)?[;}]/g)) {
+        if (!allowed.has(m[1] ?? "")) found.push(`${file}: font-size: ${m[1]}`);
+      }
+    }
+    expect(found).toEqual([]);
+    // In code too: a style's fontSize is a token, not a number.
+    expect(uses(/fontSize:\s*["'`]?\d/, (file) => BOARD.test(file))).toEqual([]);
+  });
+
+  it("nothing sits over the page on a z-index of its own", () => {
+    // Use a --z-* layer (web/src/styles.css). A small number, -2 to 6, orders the parts of one
+    // component among themselves and is fine.
+    const found: string[] = [];
+    for (const path of stylesheets(WEB)) {
+      const file = relative(ROOT, path);
+      if (file === "web/src/play/board.css") continue;
+      const css = readFileSync(path, "utf8").replace(/\/\*[^]*?\*\//g, "");
+      for (const m of css.matchAll(/z-index:\s*([^;}]+)/g)) {
+        const value = (m[1] ?? "").trim();
+        const local = /^-?\d+$/.test(value) && Number(value) >= -2 && Number(value) <= 6;
+        if (!local && !/^var\(--z-[a-z-]+\)$/.test(value)) found.push(`${file}: z-index: ${value}`);
+      }
+    }
+    expect(found).toEqual([]);
+    // In code too: a style's zIndex is a small local number or a layer's name, and a layer
+    // isn't kept as a number in a constant.
+    const inCode = uses(/zIndex:\s*-?\d+|\b[A-Z_]*LAYER\s*=\s*\d/, (file, line) => {
+      if (BOARD.test(file)) return true;
+      const n = /zIndex:\s*(-?\d+)/.exec(line)?.[1];
+      return n !== undefined && Number(n) >= -2 && Number(n) <= 6 && !/LAYER\s*=\s*\d/.test(line);
+    });
+    expect(inCode).toEqual([]);
+  });
+
+  it("layouts change at 600, 900 and 1200 px and nowhere else", () => {
+    // Phone under 600, tablet 600 to 899, laptop from 900, wide from 1200 (design/tokens.md,
+    // Shape and spacing). Three rules fit their own content and keep their widths: the table
+    // menu's markers go four across from 420 px, and the sign-in page folds its second column
+    // under at 720 px and narrows it at 1040 px. Don't add to them.
+    const own = new Set(["web/src/table/table.css: 420", "web/src/pages/landing.css: 720", "web/src/pages/landing.css: 1040"]);
+    const found: string[] = [];
+    for (const path of stylesheets(WEB)) {
+      const file = relative(ROOT, path);
+      if (file === "web/src/play/board.css") continue;
+      const css = readFileSync(path, "utf8").replace(/\/\*[^]*?\*\//g, "");
+      for (const query of css.matchAll(/@media[^{]*\{/g)) {
+        // One spelling: min-width and max-width, so a range (width < 700px) can't slip by.
+        if (/\(\s*(?:\d[^)]*[<>]=?\s*)?width\s*[<>]/.test(query[0]) || /[<>]=?\s*width\s*\)/.test(query[0])) found.push(`${file}: ${query[0].trim()}`);
+        for (const m of query[0].matchAll(/\((min|max)-width:\s*([^)]+)\)/g)) {
+          const px = /^(\d+)px$/.exec((m[2] ?? "").trim())?.[1];
+          // A layout starts at 600, 900 or 1200 and so ends at 599, 899 or 1199: no width is in both.
+          if (px && (m[1] === "min" ? ["600", "900", "1200"] : ["599", "899", "1199"]).includes(px)) continue;
+          if (px && own.has(`${file}: ${px}`)) continue;
+          found.push(`${file}: ${m[0]}`);
+        }
+      }
+    }
+    expect(found).toEqual([]);
+    // A width asked for in code (matchMedia) is one of the three too.
+    const inCode = uses(/\((min|max)-width:\s*\d+px\)/, (file, line) => BOARD.test(file) || [...line.matchAll(/\((min|max)-width:\s*(\d+)px\)/g)].every((m) => (m[1] === "min" ? ["600", "900", "1200"] : ["599", "899", "1199"]).includes(m[2] ?? "")));
+    expect(inCode).toEqual([]);
   });
 });

@@ -55,14 +55,22 @@
   --body: "Atkinson Hyperlegible Next", system-ui, sans-serif;
   --mono: "Atkinson Hyperlegible Mono", ui-monospace, monospace;
 
-  /* Type. Body is 16 px; captions and meta 13 px; labels 14 px; credits 11 px. */
+  /* Type. Body is 16 px; captions and meta 13 px; labels 14 px; credits 11 px. Every font size
+     in the app is one of these steps (conventions.test.ts): the named ones, and the in-between
+     steps named for their size in px at the 16 px root (--t-12 is 0.75rem). */
   --t-xs: 0.6875rem;
+  --t-12: 0.75rem;
   --t-sm: 0.8125rem;
   --t-label: 0.875rem;
+  --t-15: 0.9375rem;
   --t-base: 1rem;
+  --t-18: 1.125rem;
   --t-md: 1.25rem;
+  --t-22: 1.375rem;
   --t-lg: 1.5rem;
+  --t-28: 1.75rem;
   --t-xl: 2rem;
+  --t-36: 2.25rem;
   --t-2xl: 2.5rem;
   --t-big: 2.75rem; /* big numbers: prices, counts, win rates (28-56 px) */
   --t-title: 3rem; /* page titles: 48 px on phones, 64 px on laptops */
@@ -78,6 +86,23 @@
   --r-pill: 999px;
   --r-tile: 10px;
   --card-radius: 4.75% / 3.4%; /* a real card's corner, proportionally */
+
+  /* Layers of the page, lowest first. Inside a component, small numbers (-2 to 6) order its own
+     parts; anything that sits over the page takes one of these (conventions.test.ts). */
+  --z-switch: 10; /* the table's view switch and turn clock */
+  --z-page-over: 15; /* a page over a page: the card page beside its results */
+  --z-bar: 20; /* the tab bar, sticky section tabs, the scanner */
+  --z-status: 25; /* a status line pinned over the bars */
+  --z-popover: 30; /* help popovers, picker lists, the card page on a phone */
+  --z-scrim: 40; /* the dimmed page under a dialog */
+  --z-sheet: 41; /* a dialog */
+  --z-overlay: 50; /* the scanner's overlay */
+  --z-layer: 60; /* a full-screen layer or a menu opened from a dialog: card zoom, More, sample hand */
+  --z-banner: 70; /* the viewing-as banner */
+  --z-frame: 75; /* the page frame's own edge */
+  --z-picker: 80; /* the full-screen picker */
+  --z-question: 90; /* "are you sure?" and "leave without saving?": over everything you can work in */
+  --z-preview: 2200; /* the card preview that follows the pointer, over all of it */
 
   /* Spacing: gaps of 8 / 12 / 16 / 24 / 32. */
   --s-1: 8px;
@@ -164,7 +189,7 @@ h1 {
   line-height: 0.9;
 }
 h2 {
-  font-size: 1.75rem;
+  font-size: var(--t-28);
 }
 h3 {
   font-size: var(--t-lg);
@@ -457,6 +482,24 @@ label > span.field-error {
   justify-content: center;
 }
 
+/* Pager: Previous and Next around the page number, centered under its list. */
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  margin-top: var(--s-3);
+}
+/* The end of the list isn't a fault: the button that can't go further is flat, not faded. It
+   stays focusable, so the keyboard keeps its place when a page turns it off. */
+.pager > button[aria-disabled="true"],
+.pager > button[aria-disabled="true"]:hover {
+  background: var(--surface);
+  color: var(--dim);
+  cursor: default;
+}
+
 /* ── BackLink: the way back to the page above ─────────────────────────── */
 
 /* BackLink inline: a line of dim words with the chevron, for a page with no top row. */
@@ -686,7 +729,7 @@ a.choice-chip {
 .choice-chip-sub {
   font-weight: 400;
 }
-@media (max-width: 700px) {
+@media (max-width: 899px) {
   .choice-chip {
     min-height: var(--target);
   }
@@ -770,7 +813,7 @@ a.choice-chip {
 .site-links { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; max-width: calc(var(--content-w) + 2 * var(--page-pad)); margin: 0 auto; padding: 8px var(--page-pad); border-bottom: 1px solid var(--line); }
 .site-links a { display: inline-flex; align-items: center; min-height: var(--target); font-size: var(--t-sm); color: var(--dim); text-decoration: none; }
 .site-links a:hover, .site-links a.active { color: var(--text); text-decoration: underline; text-underline-offset: 4px; }
-.site-notice { color: var(--dim); font-size: 0.8rem; line-height: 1.5; }
+.site-notice { color: var(--dim); font-size: var(--t-sm); line-height: 1.5; }
 .site-notice p { margin: 12px 0 0; }
 
 /* ── app shell ──────────────────────────────────────────────────────────── */
@@ -793,7 +836,7 @@ body::before {
   position: fixed;
   inset: 0 0 auto;
   height: env(safe-area-inset-top);
-  z-index: 75;
+  z-index: var(--z-frame);
   background: var(--ground);
   pointer-events: none;
 }
@@ -824,7 +867,7 @@ body::before {
   grid-template-columns: repeat(7, 1fr);
   background: var(--ground);
   border-top: 1px solid var(--line);
-  z-index: 20;
+  z-index: var(--z-bar);
 }
 .nav a {
   display: grid;
@@ -834,7 +877,7 @@ body::before {
   min-width: 0;
   text-decoration: none;
   color: var(--dim);
-  font-size: 0.75rem;
+  font-size: var(--t-12);
   font-weight: 700;
   letter-spacing: -0.01em;
 }
@@ -858,9 +901,9 @@ body::before {
   display: none;
 }
 /* Seven labels fit a 360 px phone a little smaller and tighter. */
-@media (max-width: 430px) {
+@media (max-width: 599px) {
   .nav a {
-    font-size: 0.6875rem;
+    font-size: var(--t-xs);
     letter-spacing: -0.02em;
   }
   .nav a svg {
@@ -1008,7 +1051,7 @@ body::before {
   color: var(--text);
   font-family: var(--display);
   font-weight: 700;
-  font-size: 1.25rem;
+  font-size: var(--t-md);
 }
 .avatar img {
   width: 100%;
@@ -1162,7 +1205,7 @@ button.list-row:hover {
   position: fixed;
   inset: 0;
   background: rgb(0 0 0 / 0.6);
-  z-index: 40;
+  z-index: var(--z-scrim);
   animation: scrim-in 180ms ease-out;
 }
 @keyframes scrim-in {
@@ -1172,7 +1215,7 @@ button.list-row:hover {
 }
 .sheet {
   position: fixed;
-  z-index: 41;
+  z-index: var(--z-sheet);
   inset: auto 0 0 0;
   max-height: 88dvh;
   overflow: auto;
@@ -1508,7 +1551,7 @@ table.plain tr.few td {
 .login-expansion {
   margin: 10px 0 0;
   color: var(--dim);
-  font-size: 1rem;
+  font-size: var(--t-base);
   letter-spacing: 0.04em;
 }
 .login .pips .pip {
@@ -1551,7 +1594,7 @@ table.plain tr.few td {
 }
 .login-credit {
   margin: 14px 0 0;
-  font-size: 0.75rem;
+  font-size: var(--t-12);
   color: var(--on-art-dim);
 }
 .login-hero.art-none .login-credit {
@@ -1569,7 +1612,7 @@ table.plain tr.few td {
   margin: 0 auto;
 }
 .login-title {
-  font-size: 2.75rem;
+  font-size: var(--t-big);
   font-weight: 800;
   margin: 0 0 8px;
 }
@@ -1681,7 +1724,7 @@ fieldset.seat.seat-card:has(> .seat-head.art-empty) {
 .seat-name {
   font-family: var(--display);
   font-weight: 800;
-  font-size: 2rem;
+  font-size: var(--t-xl);
   line-height: 1;
   text-shadow: var(--art-shadow);
 }
@@ -1831,7 +1874,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
 .scan-overlay {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  z-index: var(--z-overlay);
   background: var(--ground);
   display: grid;
   grid-template-rows: 1fr auto;
@@ -1907,13 +1950,13 @@ fieldset.seat > legend:not(.visually-hidden) + * {
 .ct-kind,
 /* Pretty wrapping: "1 with no price" and "swap bag" left one word alone on the last line. */
 .ct-meta {
-  font-size: 0.75rem;
+  font-size: var(--t-12);
   color: var(--on-art-dim);
   text-wrap: pretty;
 }
 .ct-name {
   font-weight: 700;
-  font-size: 0.9375rem;
+  font-size: var(--t-15);
   text-wrap: pretty;
 }
 .container-tile .art-none .ct-kind,
@@ -1982,7 +2025,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
 .deck-tile-name {
   font-family: var(--display);
   font-weight: 800;
-  font-size: 1.5rem;
+  font-size: var(--t-lg);
   line-height: 0.95;
   text-shadow: var(--art-shadow);
   text-wrap: balance;
@@ -2003,7 +2046,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   justify-content: space-between;
   gap: 8px;
   flex-wrap: wrap;
-  font-size: 0.75rem;
+  font-size: var(--t-12);
   color: var(--on-art-dim);
 }
 .deck-record {
@@ -2044,7 +2087,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
     padding: 16px;
   }
   .deck-tile-name {
-    font-size: 2rem;
+    font-size: var(--t-xl);
   }
   .deck-tile-cmdr {
     display: flex;
@@ -2145,7 +2188,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   .hero-credit {
     top: 34px;
     right: var(--page-pad);
-    font-size: 0.75rem;
+    font-size: var(--t-12);
   }
   .hero-credit-card {
     display: inline;
@@ -2410,7 +2453,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   justify-content: space-between;
   align-items: baseline;
   gap: 8px;
-  font-size: 1.375rem;
+  font-size: var(--t-22);
 }
 .deck-stack-meta {
   font-family: var(--body);
@@ -2464,7 +2507,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   left: 6px;
   padding: 1px 8px;
   border-radius: var(--r-pill);
-  font-size: 0.75rem;
+  font-size: var(--t-12);
   font-weight: 700;
   line-height: 1.4;
   background: var(--art-chip);
@@ -2472,10 +2515,6 @@ fieldset.seat > legend:not(.visually-hidden) + * {
 }
 .need-dot + .qty-badge {
   left: 14px;
-}
-.stack-more {
-  min-height: var(--target);
-  background: var(--surface);
 }
 .deck-preview {
   display: none;
@@ -2521,7 +2560,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
 .card-zoom {
   position: fixed;
   inset: 0;
-  z-index: 60;
+  z-index: var(--z-layer);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2544,7 +2583,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   position: sticky;
   top: env(safe-area-inset-top);
   margin-top: env(safe-area-inset-top);
-  z-index: 70;
+  z-index: var(--z-banner);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2591,7 +2630,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
 }
 .more-menu-pop {
   position: fixed;
-  z-index: 60;
+  z-index: var(--z-layer);
   min-width: 240px;
   padding: 6px;
   background: var(--surface);
@@ -2660,13 +2699,16 @@ fieldset.seat > legend:not(.visually-hidden) + * {
 body:has(.view-banner) {
   --sticky-top: calc(env(safe-area-inset-top, 0px) + var(--target) + 16px);
 }
+/* Section tabs (design/system/components/SectionTabs; Bryan, 11 Nov 2026: the strip was "hard to
+   find" under the pill filters): page-level navigation, so the labels are in the display face at
+   section-heading size, the current one under a 3 px underline. */
 .section-tabs {
   position: sticky;
   top: var(--sticky-top);
-  z-index: 20;
+  z-index: var(--z-bar);
   display: flex;
-  gap: 24px;
-  margin: 0 0 var(--s-4);
+  gap: var(--s-5);
+  margin: var(--s-3) 0 var(--s-4);
   padding: 0 2px;
   background: var(--ground);
   border-bottom: 1px solid var(--line);
@@ -2678,18 +2720,24 @@ body:has(.view-banner) {
 }
 .section-tabs > a {
   display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: var(--target);
+  align-items: baseline;
+  gap: 8px;
+  padding: 10px 0 8px;
+  min-height: var(--target-primary);
+  box-sizing: border-box;
   color: var(--dim);
+  font-family: var(--display);
   font-weight: 700;
-  font-size: var(--t-button);
+  font-size: var(--t-lg);
+  line-height: 1.25;
   text-decoration: none;
   white-space: nowrap;
-  border-bottom: 2px solid transparent;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -1px;
 }
 .section-tabs > a:hover {
   color: var(--text);
+  border-bottom-color: var(--line);
 }
 .section-tabs > a[aria-current] {
   color: var(--text);
@@ -2699,9 +2747,18 @@ body:has(.view-banner) {
   display: none;
 }
 .section-tabs > a > span {
+  font-family: var(--body);
   font-weight: 400;
   font-size: var(--t-sm);
   color: var(--dim);
+}
+@media (max-width: 899px) {
+  .section-tabs {
+    gap: var(--s-4);
+  }
+  .section-tabs > a {
+    font-size: var(--t-md);
+  }
 }
 /* Phones: three secondaries share one row, so their menu chevrons go (the canvas draws none). */
 @media (max-width: 899px) {
@@ -2709,7 +2766,7 @@ body:has(.view-banner) {
     display: none;
   }
   .deck-head-tile b {
-    font-size: 1.5rem;
+    font-size: var(--t-lg);
     overflow-wrap: anywhere;
   }
 }

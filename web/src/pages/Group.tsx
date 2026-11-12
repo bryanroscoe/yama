@@ -3,7 +3,7 @@ import { useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { api, API_BASE, type GameRow, type PlaygroupStats, type Playgroup } from "../api";
 import { useMe } from "../auth";
-import { Button, ButtonLink, ErrorText } from "../components/ui";
+import { Button, ButtonLink, CardThumb, ErrorText } from "../components/ui";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { GroupStats } from "../components/GroupStats";
 import { Members } from "./GroupMembers";
@@ -174,7 +174,7 @@ function GroupDetail({ group, switcher }: { group: Playgroup; switcher: ReactNod
                       <span className="grp-player-rate num">{few ? "Too few" : percent(rate)}</span>
                     </ArtPanel>
                     {/* Phones: the art as a circle beside the name. */}
-                    <span className="grp-player-dot">{a?.art && <img src={a.art} alt="" />}</span>
+                    <span className="grp-player-dot">{a?.art && <CardThumb src={a.art} eager />}</span>
                     <div className="grp-player-body">
                       <span className="grp-player-top">
                         <b>{p.name}{guest ? <span className="grp-narrow">, guest</span> : null}</b>
@@ -217,7 +217,7 @@ function GroupDetail({ group, switcher }: { group: Playgroup; switcher: ReactNod
                       <tr key={c.commander} className={few ? "few" : undefined}>
                         <td>
                           <span className="grp-cmdr">
-                            <span className="grp-cmdr-art">{a?.art && <img src={a.art} alt="" loading="lazy" />}</span>
+                            <span className="grp-cmdr-art">{a?.art && <CardThumb src={a.art} />}</span>
                             <span className="grp-cmdr-text">
                               <b>{c.commander}</b>
                               <span>
@@ -245,7 +245,7 @@ function GroupDetail({ group, switcher }: { group: Playgroup; switcher: ReactNod
                 <div className="grp-rival-list">
                   {read.beatsMe && (
                     <div className="grp-rival">
-                      <span className="grp-rival-art">{artOf(rivalArt(read.beatsMe))?.art && <img src={artOf(rivalArt(read.beatsMe))!.art!} alt="" />}</span>
+                      <span className="grp-rival-art">{artOf(rivalArt(read.beatsMe))?.art && <CardThumb src={artOf(rivalArt(read.beatsMe))!.art!} eager />}</span>
                       <span className="grp-rival-text">
                         <b>{read.beatsMe.name} beats you most</b>
                         <span>
@@ -256,7 +256,7 @@ function GroupDetail({ group, switcher }: { group: Playgroup; switcher: ReactNod
                   )}
                   {read.iBeat && (
                     <div className="grp-rival">
-                      <span className="grp-rival-art">{artOf(rivalArt(read.iBeat))?.art && <img src={artOf(rivalArt(read.iBeat))!.art!} alt="" />}</span>
+                      <span className="grp-rival-art">{artOf(rivalArt(read.iBeat))?.art && <CardThumb src={artOf(rivalArt(read.iBeat))!.art!} eager />}</span>
                       <span className="grp-rival-text">
                         <b>You beat {read.iBeat.name} most</b>
                         <span>

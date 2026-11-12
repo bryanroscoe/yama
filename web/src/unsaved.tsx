@@ -142,7 +142,7 @@ export function useUnsavedChanges(dirty: boolean, { onLeave }: { onLeave?: () =>
 }
 
 /** Above every sheet and overlay it can be asked over (sheets are 41, the scanner 60 to 80). */
-const PROMPT_LAYER = 90;
+const PROMPT_LAYER = "var(--z-question)";
 
 /**
  * The question itself, over whatever is open. `what` names the work in the page's own words
