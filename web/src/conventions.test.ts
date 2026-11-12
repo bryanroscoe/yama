@@ -351,7 +351,8 @@ describe("styles come from the scales", () => {
       "web/src/lab/lab.css": "1.625rem 1.875rem",
       "web/src/pages/cards.css": "1.0625rem 1.625rem 4.25rem",
       "web/src/pages/collection.css": "3.5rem",
-      "web/src/pages/decks.css": "3.5rem",
+      // 0.6rem: a card's name inside a 40 px thumbnail, in a deck's Considering list.
+      "web/src/pages/decks.css": "0.6rem 3.5rem",
       "web/src/pages/group.css": "1.625rem 1.875rem",
       "web/src/pages/landing.css": ".625rem 1.0625rem",
       "web/src/plan/plan.css": "0.55rem 0.625rem 1.0625rem 1.625rem 3rem 3.125rem 4.75rem",
