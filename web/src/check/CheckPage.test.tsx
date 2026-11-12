@@ -60,6 +60,9 @@ function answer(commanders: string[]): ListCheck {
 vi.mock("../api", async (original) => ({
   ...(await original<typeof import("../api")>()),
   api: (path: string, init?: { method?: string; json?: unknown }) => {
+    // The account's setting for new decks, which the page reads to say what a saved deck starts
+    // as (and holds Save until it has). Not one of the calls these tests count.
+    if (path === "/api/me/sharing") return Promise.resolve({ handle: null, new_deck_visibility: "private", public_listed_at: null, collection_public: false, wants_public: false, wants_include_pending: false, share_lab_results: false, decks: { private: 0, link: 0, public: 0 } });
     server.calls.push({ path, method: init?.method, json: init?.json });
     if (server.refuse) return Promise.reject(new Error(server.refuse));
     if (path === "/api/public/deck-check") return Promise.resolve(answer((init?.json as { commanders: string[] }).commanders));
@@ -347,6 +350,20 @@ describe("Check a deck", () => {
     expect(saves()).toHaveLength(1);
     expect(router.state.location.pathname).toBe("/decks/d-new");
     expect(readGuestDeck()).toBeNull();
+  });
+
+  it("says what a saved deck starts as before it is saved: a new account's for a visitor, the account's own when signed in", async () => {
+    writeGuestDeck(newGuestDeck(LIST));
+    await show();
+    expect(text()).toContain("A deck you save starts as Public on a new account");
+    expect(text()).toContain("The deck's Share button changes it.");
+    act(() => root.unmount());
+    root = createRoot(host);
+    server.me = { id: "u1" };
+    await show();
+    expect(text()).toContain("It is saved as Private, your setting for new decks. Only you can see it.");
+    expect(text()).not.toContain("on a new account");
+    expect(button("Save to your decks")!.disabled).toBe(false);
   });
 
   it("keeps the list when the server refuses, and offers to edit it", async () => {

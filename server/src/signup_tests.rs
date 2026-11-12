@@ -534,3 +534,56 @@ async fn open_signup_makes_a_few_accounts_per_address_and_invites_skip_the_count
     let invited = json!({ "credential": google("g-invited", "invited@gmail.com") });
     assert_eq!(post_from(&app, "/api/auth/google", invited, from, None).await.0, StatusCode::OK);
 }
+
+/// Public by default: an account made from now on starts its new decks public, however it is
+/// made. An account that was here before keeps its own setting (private unless it chose
+/// otherwise) however it signs in next; only its owner's answer to the prompt changes it.
+#[tokio::test]
+async fn new_accounts_start_their_decks_public_and_older_ones_keep_their_setting() {
+    let (app, pool) = server(|c| {
+        c.open_signup = true;
+        c.dev_login = true;
+    })
+    .await;
+    let starts_as = |email: &'static str| {
+        let pool = pool.clone();
+        async move { sqlx::query_scalar::<_, String>("SELECT new_deck_visibility FROM users WHERE email = ?").bind(email).fetch_one(&pool).await.unwrap() }
+    };
+    // Accounts from before the change, one of which had chosen link only.
+    for (id, email) in [("old-g", "old-google@gmail.com"), ("old-p", "old-password@example.com"), ("old-d", "old-dev@example.com")] {
+        sqlx::query("INSERT INTO users (id, email, display_name, created_at) VALUES (?, ?, 'Old', '2026-10-01T00:00:00Z')").bind(id).bind(email).execute(&pool).await.unwrap();
+    }
+    sqlx::query("UPDATE users SET new_deck_visibility = 'link' WHERE id = 'old-p'").execute(&pool).await.unwrap();
+    crate::auth::add_invite(&pool, "old-google@gmail.com", None).await.unwrap();
+    signed_in(&app, "g-old", "old-google@gmail.com").await;
+    crate::auth::add_local_user(&pool, "old-password@example.com", None, false, Some("a long enough password".into())).await.unwrap();
+    let (status, _, _) = post_from(&app, "/api/auth/dev", json!({ "email": "old-dev@example.com", "name": "Old" }), &fresh_address(), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(starts_as("old-google@gmail.com").await, "private");
+    assert_eq!(starts_as("old-password@example.com").await, "link");
+    assert_eq!(starts_as("old-dev@example.com").await, "private");
+
+    // Each way of making an account starts its decks public.
+    signed_in(&app, "g-new", "new-google@gmail.com").await;
+    crate::auth::add_local_user(&pool, "new-password@example.com", None, false, Some("a long enough password".into())).await.unwrap();
+    let (status, _, _) = post_from(&app, "/api/auth/dev", json!({ "email": "new-dev@example.com", "name": "New" }), &fresh_address(), None).await;
+    assert_eq!(status, StatusCode::OK);
+    for email in ["new-google@gmail.com", "new-password@example.com", "new-dev@example.com"] {
+        assert_eq!(starts_as(email).await, "public", "{email}");
+        // Only decks: a new account's collection, want list and simulated results are not shared.
+        let shared: (bool, bool, bool, bool) = sqlx::query_as("SELECT collection_public, wants_public, wants_include_pending, share_lab_results FROM users WHERE email = ?").bind(email).fetch_one(&pool).await.unwrap();
+        assert_eq!(shared, (false, false, false, false), "{email}");
+    }
+
+    // So a new account's first deck is public unless the save step says otherwise, and an old
+    // account's is what it was.
+    let new_id: String = sqlx::query_scalar("SELECT id FROM users WHERE email = 'new-google@gmail.com'").fetch_one(&pool).await.unwrap();
+    let deck = crate::decks::create_deck_with_cards(&pool, &new_id, "First deck", None, vec![]).await.unwrap();
+    let old = crate::decks::create_deck_with_cards(&pool, "old-g", "Old account's deck", None, vec![]).await.unwrap();
+    let vis = |id: String| {
+        let pool = pool.clone();
+        async move { sqlx::query_scalar::<_, String>("SELECT visibility FROM decks WHERE id = ?").bind(id).fetch_one(&pool).await.unwrap() }
+    };
+    assert_eq!(vis(deck).await, "public");
+    assert_eq!(vis(old).await, "private");
+}

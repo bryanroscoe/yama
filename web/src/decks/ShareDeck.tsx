@@ -10,9 +10,14 @@ import "./share.css";
 
 export const VISIBILITY_CHOICES: { value: Visibility; label: string; hint: string }[] = [
   { value: "private", label: "Private", hint: "Only you." },
-  { value: "link", label: "Anyone with the link", hint: "Friends you send the link to can see the list and download it. It isn't listed anywhere." },
-  { value: "public", label: "Public on your profile", hint: "Anyone with the link, and listed on your profile for anyone who has its address." },
+  { value: "link", label: "Link only", hint: "Anyone who has the link can see the list and download it. It isn't listed anywhere." },
+  { value: "public", label: "Public", hint: "Anyone can see it. It is on your profile once you have a handle, and can be listed in Browse and found by search engines once your public decks are listed." },
 ];
+
+/** The deck page's Share button: it says who can see the deck now, so a deck that started public is never a surprise. */
+export function shareLabel(v: Visibility): string {
+  return v === "public" ? "Share: public" : v === "link" ? "Share: link only" : "Share: private";
+}
 
 /** Copy `text`, saying whether it worked. */
 export function useCopy(): [string | null, (text: string) => Promise<void>] {
@@ -117,7 +122,8 @@ export function ShareDeck({ deck, onClose }: { deck: DeckView; onClose: () => vo
         {visibility === "public" && !handle && sharing.data && <ChooseHandle />}
         {visibility === "public" && handle && (
           <p className="small share-line">
-            Listed on <a href={`/u/${handle}`}>your profile, @{handle}</a>.
+            Listed on <a href={`/u/${handle}`}>your profile, @{handle}</a>
+            {sharing.data?.public_listed_at ? ". It can also be listed in Browse and found by search engines." : ". It isn't listed in Browse or open to search engines until you answer the question about public decks on your Decks page."}
           </p>
         )}
 
@@ -140,7 +146,7 @@ export function ShareDeck({ deck, onClose }: { deck: DeckView; onClose: () => vo
                     value={c.visibility}
                     disabled={set.isPending}
                     onChange={(visibility) => set.mutate({ id: c.id, visibility })}
-                    options={VISIBILITY_CHOICES.map((v) => [v.value, v.value === "link" ? "With the link" : v.value === "public" ? "Public" : v.label] as const)}
+                    options={VISIBILITY_CHOICES.map((v) => [v.value, v.label] as const)}
                   />
                 )}
               </div>
@@ -180,7 +186,8 @@ export function NewConfiguration({ deck, onClose }: { deck: DeckView; onClose: (
     <Dialog title="New configuration" onClose={onClose}>
       <form className="stack" onSubmit={(e) => { e.preventDefault(); make.mutate(); }}>
         <p className="small dim" style={{ margin: 0 }}>
-          Another build of {main}, starting from this list. It shows under {main} in your decks, with its own versions, games and sharing.
+          Another build of {main}, starting from this list. It shows under {main} in your decks, with its own versions, games and sharing. It starts{" "}
+          {deck.visibility === "public" ? "public" : deck.visibility === "link" ? "link only" : "private"}, like this list.
         </p>
         <Field label="Name">
           <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="stock, high power, budget" maxLength={60} required autoFocus />

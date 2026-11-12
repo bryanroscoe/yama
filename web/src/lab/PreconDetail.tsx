@@ -17,6 +17,7 @@ import { RunLine, usePrecons } from "./Precons";
 import { AskClaude } from "../advisor/AskClaude";
 import { EvidenceSection, RatingV2Section } from "./Evidence";
 import { LabHead } from "./LabLayout";
+import { SavedAsNote, useNewDeckSetting } from "../decks/VisibilityChoice";
 
 interface EngineSupport {
   fully_supported_share?: number;
@@ -157,6 +158,7 @@ function Actions({ precon }: { precon: PreconItem }) {
   const qc = useQueryClient();
   // One op id per visit: a retried tap makes one deck.
   const opId = useRef(crypto.randomUUID());
+  const startsAs = useNewDeckSetting();
   const make = useMutation({
     mutationFn: () =>
       api<{ id: string; name: string; unknown: string[]; validation: { ok: boolean; errors: string[] } }>(`/api/precons/${precon.id}/deck`, {
@@ -171,16 +173,18 @@ function Actions({ precon }: { precon: PreconItem }) {
         {make.data ? (
           <ButtonLink variant="primary" to={`/decks/${make.data.id}`}>Open {make.data.name}</ButtonLink>
         ) : (
-          <Button variant="primary" onClick={() => make.mutate()} disabled={make.isPending}>
+          <Button variant="primary" onClick={() => make.mutate()} disabled={make.isPending || !startsAs.ready}>
             {make.isPending ? "Making the deck…" : "Make this a Yama deck"}
           </Button>
         )}
         <ButtonLink to={`/lab/try?precon=${encodeURIComponent(precon.id)}`}>Try a change</ButtonLink>
         <AskClaude context={{ kind: "precon", ref: precon.id }} about={precon.name} />
       </div>
+      {/* The copy is made with no choice of who can see it, so the page says what it starts as. */}
+      {!make.data && <SavedAsNote state={startsAs} />}
       {make.data && (
         <p className="small dim" role="status" style={{ margin: 0 }}>
-          Added to your decks, in the Precons folder.
+          Added to your decks, in the Precons folder. Its Share button says who can see it.
           {make.data.unknown.length > 0 ? ` Yama didn't know ${make.data.unknown.join(", ")}, so they're left out.` : ""}
           {!make.data.validation.ok ? ` Deck check: ${make.data.validation.errors.join("; ")}.` : ""}
         </p>

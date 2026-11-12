@@ -124,6 +124,42 @@ pub(crate) async fn list_publicly(pool: &SqlitePool, user: &str) -> AppResult<()
     Ok(())
 }
 
+/// What an account's new decks start as, whether its public decks are listed publicly
+/// ([`LISTED`]'s `public_listed_at`), and whether it has a handle (and so a profile).
+pub(crate) async fn new_deck_visibility(pool: &SqlitePool, user: &str) -> AppResult<(String, bool, bool)> {
+    Ok(sqlx::query_as("SELECT new_deck_visibility, public_listed_at IS NOT NULL, handle IS NOT NULL FROM users WHERE id = ?").bind(user).fetch_one(pool).await?)
+}
+
+/// The less visible of two visibilities (private, then link, then public).
+pub(crate) fn less_visible<'a>(a: &'a str, b: &'a str) -> &'a str {
+    let rank = |v: &str| VISIBILITIES.iter().position(|x| *x == v).unwrap_or(0);
+    if rank(b) < rank(a) { b } else { a }
+}
+
+/// A visibility in words, mid-sentence: "public", "link only", "private".
+pub(crate) fn visibility_words(v: &str) -> &'static str {
+    match v {
+        "public" => "public",
+        "link" => "link only",
+        _ => "private",
+    }
+}
+
+/// One sentence on who can see a deck of this visibility, for text that stages or reports a new
+/// deck (an assistant's `save_deck`). For a public deck it says the most it can be seen: the
+/// profile only for an account with a handle, and Browse and search engines, as what can happen,
+/// only for an account whose public decks are listed.
+pub(crate) fn who_can_see(visibility: &str, listed: bool, handle: bool) -> &'static str {
+    match (visibility, listed, handle) {
+        ("public", true, true) => "Public. Anyone can see it: it is on your profile, and can be listed in Browse and found by search engines.",
+        ("public", true, false) => "Public. Anyone with its link can see it; once you pick a handle it is on your profile, and can be listed in Browse and found by search engines.",
+        ("public", false, true) => "Public. Anyone with its link can see it, and it is listed on your profile.",
+        ("public", false, false) => "Public. Anyone with its link can see it; once you pick a handle it is listed on your profile.",
+        ("link", ..) => "Link only. Anyone who has its link can see it, and it isn't listed anywhere.",
+        _ => "Private. Only you can see it.",
+    }
+}
+
 /// Handles that would read as Yama itself, or as a page.
 const RESERVED: [&str; 20] = [
     "admin", "administrator", "api", "about", "help", "support", "yama", "official", "staff", "moderator", "mod", "me", "new",

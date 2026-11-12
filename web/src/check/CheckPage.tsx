@@ -8,6 +8,7 @@
 // bracket, history, plans, and Commander Spellbook's combos (a list is sent there only once it is
 // saved to an account; the page and the privacy page say so).
 
+import { SavedAsNote, useNewDeckSetting } from "../decks/VisibilityChoice";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { shortDate, usd } from "@yama/core";
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
@@ -217,6 +218,9 @@ function CheckedDeck({ deck, kept, setDeck, onEdit }: { deck: GuestDeck; kept: b
   // While a save is on its way the list can't be edited, cleared or given another commander:
   // what was sent is what is being saved.
   const saving = save.isPending;
+  // Saving here has no choice of who can see the deck: the page says what it starts as first
+  // (the account's setting), and the button waits until it can.
+  const startsAs = useNewDeckSetting();
   // Back from "Sign in to save this deck": save it without asking again.
   const autoSaved = useRef(false);
   const signedIn = !!me.data;
@@ -290,7 +294,7 @@ function CheckedDeck({ deck, kept, setDeck, onEdit }: { deck: GuestDeck; kept: b
         <div className="deck-actionbar">
           <div className="deck-actions" role="toolbar" aria-label="Deck actions">
             {signedIn ? (
-              <Button variant="primary" disabled={saving || check.isPlaceholderData} onClick={() => save.mutate()}>{saving ? "Saving…" : "Save to your decks"}</Button>
+              <Button variant="primary" disabled={saving || check.isPlaceholderData || !startsAs.ready} onClick={() => save.mutate()}>{saving ? "Saving…" : "Save to your decks"}</Button>
             ) : (
               <ButtonLink variant="primary" to={signInPath("/check")} onClick={() => setDeck({ ...deck, saveAsked: Date.now() })}>Sign in to save this deck</ButtonLink>
             )}
@@ -299,6 +303,8 @@ function CheckedDeck({ deck, kept, setDeck, onEdit }: { deck: GuestDeck; kept: b
             <Button variant="quiet" disabled={saving} onClick={() => void startOver()}>Clear</Button>
           </div>
         </div>
+        {/* Saving here has no choice of who can see the deck, so the page says what it starts as. */}
+        <SavedAsNote state={startsAs} />
         <ErrorText error={save.error} />
         <ErrorText error={check.error} retry={() => void check.refetch()} />
         {!v.ok && v.errors.length > 1 && <ul className="small deck-errors">{v.errors.map((e) => <li key={e}>{e}</li>)}</ul>}

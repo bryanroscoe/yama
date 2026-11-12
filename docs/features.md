@@ -67,9 +67,14 @@ configurations, shared plans (groups of builds), copyable links and the account-
 each deck and plan has its own Share control. Trading with a friend is under Collection. A shared deck or collection never shows account details, prices paid,
 notes, containers, proxies, planner plans or games.
 
-Adding a deck asks who can see it (Public, Link only or Private) on the save step. The choice
-starts as the account's default and is remembered as that default for the next deck; each deck's
-Share button changes it afterwards. A first public deck asks for a handle (on the save step and
+Decks are public by default: an account made on or after November 12, 2026 starts its new decks
+Public (on the profile once it has a handle; a public deck can be listed in Browse and found by
+search engines). Adding a deck asks who can
+see it (Public, Link only or Private) on the save step. The choice starts as the account's
+setting and is remembered for the next deck; each deck's Share button says who can see it and
+changes it afterwards. A deck made without that step (saved from Check a deck, copied from a precon, a Mythic Tools deck
+import, an assistant's staged deck) says what it starts as first; one Yama makes from a collection
+box or a plan's list always starts Private. A first public deck asks for a handle (on the save step and
 in the deck's Share sheet). Without one the deck is public by link; it joins the profile once a
 handle is chosen.
 

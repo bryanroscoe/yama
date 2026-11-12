@@ -43,7 +43,7 @@ describe("Mythic Tools import", () => {
       "1 of those is somewhere else in Yama than the file says (moved there, say) and stays put.",
       "New: Trade (binder).",
       "Changed type, as in the file: bulk (list to box).",
-      "This deck becomes a Yama deck too: Omo.",
+      "This deck becomes a Yama deck too, private until you share it: Omo.",
     ]);
   });
 
@@ -70,5 +70,9 @@ describe("Mythic Tools import", () => {
     expect(resultLines(report({ dry_run: false, added: 0, already_imported: "2026-10-18" }))[0]).toBe("Nothing changed: you'd imported this file already.");
     expect(resultLines(report({ dry_run: false, decks_kept: ["Tricky Terrain"] }))[1]).toBe("Decks you made in Yama keep their own lists: Tricky Terrain.");
     for (const s of resultLines(report({ dry_run: false, decks_created: ["Omo"] }))) expect(s).not.toContain("·");
+    // A deck made from a collection box is private whatever the account's setting, and both lines say so.
+    expect(previewLines(report({ deck_containers: ["Omo"] })).at(-1)).toBe("This deck becomes a Yama deck too, private until you share it: Omo.");
+    expect(previewLines(report({ deck_containers: ["Omo", "Rohan"] })).at(-1)).toBe("These decks become Yama decks too, private until you share them: Omo, Rohan.");
+    expect(resultLines(report({ dry_run: false, decks_created: ["Omo"] }))).toContain("New decks, private until you share them: Omo. Check each one's commander on the Decks tab.");
   });
 });
