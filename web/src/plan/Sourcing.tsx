@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router";
 import { CardRef } from "../components/CardRef";
+import { CopyButton } from "../components/CopyButton";
 import { Button, ButtonLink, CheckRow, ErrorText, Field, Loading } from "../components/ui";
 import { report, reports, safeUrl, type ResearchBundle } from "../research/api";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
@@ -78,11 +79,6 @@ export function Portfolio({ bundle }: { bundle: ResearchBundle }) {
   const [onlyOffers, setOnlyOffers] = useState(true);
   const [recordedStockOnly, setRecordedStockOnly] = useState(false);
   const [preferFoil, setPreferFoil] = useState(false);
-  const [said, setSaid] = useState<string | null>(null);
-  const copy = async (text: string) => {
-    try { await navigator.clipboard.writeText(text); setSaid("Copied."); }
-    catch { setSaid("Couldn't copy here; select the list below and copy it."); }
-  };
   const hasFoil = useMemo(() => cards.some(c => c.offers.some(o => o.foil_alternative)), [cards]);
   const [choices, setChoices] = useState<Record<string, SourceChoice[]>>({});
   const portfolio = useMemo(() => portfolioRows(cards, doc, decks, bracket, scope), [cards, doc, decks, bracket, scope]);
@@ -142,7 +138,7 @@ export function Portfolio({ bundle }: { bundle: ResearchBundle }) {
       <p className="small dim">Adds matching copies up to the saved stock counts, using other eligible printings for any remainder. A listing without a count (some stores show only in stock or sold out) adds one copy, since in stock means at least one; request more on that row and the store may reduce the quantity. Stock was read when the quote was checked and may have changed.{hasFoil && " Prefer foil picks a foil copy first when it meets your rules and costs at most $0.25 or 10% more (whichever is larger) than the cheapest plain copy."} No purchase is made.</p>
       {carts.length > 0 && <details open><summary>Store carts and listings</summary>{carts.map(cart => <div className="source-cart" key={cart.rows[0]!.offer.url}><h3>{cart.store}: {usd(cart.total)}</h3>{cart.url && <ButtonLink href={cart.url} target="_blank" rel="noreferrer">Open filled store cart</ButtonLink>}<ul>{cart.rows.map(r => <li key={`${r.card}:${offerId(r.offer)}`}>{r.qty} × <a href={r.offer.url} target="_blank" rel="noreferrer">{r.card}</a>{r.offer.qty == null && ((extras.skus.get(uncountedSku(r.offer)) ?? 0) > 1 ? " — only 1 copy confirmed in stock" : " — in stock, count not listed")}</li>)}</ul>{!cart.url && <p>Add these on their store listing pages; this store has no filled-cart link.</p>}</div>)}<p className="small dim">Filled Shopify links replace the existing store cart. Choose pickup at checkout. This is the selected subtotal, not the cost to complete every deck.</p></details>}
     </section>
-    <details className="source-list-export"><summary>Card list for other sites</summary><p className="small dim">Every wanted card for the selected decks, brackets and cards-for filter, as “quantity name” lines for deck-list searches such as instock.cards. Store, condition and buy-rule filters don’t apply.</p><div className="source-actions"><Button onClick={() => void copy(wantedList)} disabled={!wantedList}>Copy card list</Button>{said && <span role="status">{said}</span>}</div><textarea readOnly rows={8} value={wantedList} aria-label="Card list" onFocus={e => e.currentTarget.select()} /></details>
+    <details className="source-list-export"><summary>Card list for other sites</summary><p className="small dim">Every wanted card for the selected decks, brackets and cards-for filter, as “quantity name” lines for deck-list searches such as instock.cards. Store, condition and buy-rule filters don’t apply.</p><div className="source-actions"><CopyButton text={wantedList} label="Copy card list" disabled={!wantedList} /></div><textarea readOnly rows={8} value={wantedList} aria-label="Card list" onFocus={e => e.currentTarget.select()} /></details>
     <p className="small dim">{plural(Math.max(0,copies.length-selectedCopies),"matching copy not selected","matching copies not selected")}. Missing stock counts and shortages stay unresolved; a cart is not proof that every copy is available.</p>
     <p className="source-count">{plural(visible.length,"matching card")}. {plural(copies.length-optional,"copy to source","copies to source")} and {plural(optional,"optional real replacement","optional real replacements")} across selected decks. {condition === "nm" && "Only saved Near Mint offers are shown; other conditions and unrecorded NM variants are excluded."}</p>
     <div className="source-rows">{visible.map(c => {
