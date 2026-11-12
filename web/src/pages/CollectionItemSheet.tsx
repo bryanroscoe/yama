@@ -247,12 +247,11 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
           {item.qty > 1 && (
             <Segmented label="Which copies to mark" value={markScope} onChange={setMarkScope} options={[["one", "Just one"], ["all", `All ${item.qty} copies`]]} />
           )}
-          <label>
-            Language
+          <Field label="Language">
             <select value={item.lang} disabled={busy} onChange={(e) => mark({ lang: e.target.value })}>
               {languageChoices(item.lang).map(([code, name]) => <option key={code} value={code}>{name}</option>)}
             </select>
-          </label>
+          </Field>
           <label style={{ display: "flex", gap: "0.5rem", alignItems: "center", fontWeight: 400 }}>
             <input type="checkbox" checked={!!item.signed} disabled={busy} style={{ width: "auto", minHeight: 0 }} onChange={(e) => mark({ signed: e.target.checked })} />
             Signed
