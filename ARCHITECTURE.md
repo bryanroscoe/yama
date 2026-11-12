@@ -1262,7 +1262,7 @@ Bryan (2026-10-31), planning a semi-public release on Google Play: the simulatio
 Bryan (11 November 2026): "We want logged-in users to be able to do more by default." He approved the proposal's section 4 on 12 November 2026. The tiers stay as they are (`User::limited`: anyone who signed up with Google, the standard allowance; an invited account, the larger one; `User::power`; admins), and what the standard tier gets grows. Player-facing text says what a limit is, never how the account joined.
 
 - **Online play:** an account with the standard allowance hosts up to 3 unfinished games (`play::OPEN_MAX_OPEN_GAMES`, 2 before); an invited account 10, a guest 1, an admin any number. The refusal names what is open and the limit ("the limit is 3 open games at a time"). The shared cap of 20 unfinished games across all standard accounts is unchanged.
-- **Precon seats:** your own seat or a computer's can play a stock precon (`SeatRequest::precon_id`, built with guest play on 11 November 2026), and an account with no decks gets precons on every seat, so a new account can play before importing a deck. Nothing new was needed.
+- **Precon seats:** your own seat or a computer's can play a stock precon (`SeatRequest::precon_id`, built with guest play on 11 November 2026), and an account with no decks gets precons on its own seat and every computer seat (a friend who joins brings their own deck), so a new account can play the computer before importing a deck. Nothing new was needed.
 
 ### phase's own board (2026-10-29)
 
