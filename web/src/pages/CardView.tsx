@@ -12,7 +12,7 @@ import { cardDetailQuery } from "../cardDetail";
 import { isGuest } from "../guest";
 import { PriceHistory } from "../components/PriceHistory";
 import { Rulings } from "../components/Rulings";
-import { CardImage, ErrorText, ManaCost, Pips, Loading } from "../components/ui";
+import { Button, CardImage, ErrorText, Loading, ManaCost, Pips } from "../components/ui";
 import { CardInDecks } from "./CardInDecks";
 import { opIds, ownedFinishes } from "./collectionEdit";
 import "./cards.css";
@@ -128,10 +128,10 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
     return (
       <div className="cp">
         <div className="cp-inner">
-          <button className="cp-back" onClick={onBack} aria-label={backLabel}>
+          <Button className="cp-back" onClick={onBack} aria-label={backLabel}>
             {close ? <CloseIcon /> : <BackIcon />}
             <span className="cp-back-text">{backLabel}</span>
-          </button>
+          </Button>
           <ErrorText error={detail.error} />
           {guest ? (
             <p className="dim">
@@ -174,10 +174,10 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
         </div>
       )}
       <div className="cp-inner">
-        <button className="cp-back" onClick={onBack} aria-label={backLabel} autoFocus>
+        <Button className="cp-back" onClick={onBack} aria-label={backLabel} autoFocus>
           {close ? <CloseIcon /> : <BackIcon />}
           <span className="cp-back-text">{backLabel}</span>
-        </button>
+        </Button>
         <div className="cp-body">
           {/* The full card shows here, so it carries the art's credit. */}
           <figure className="cp-figure">
@@ -186,7 +186,7 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
               {card.artist ? `Art by ${card.artist}. ` : ""}™ &amp; © Wizards of the Coast. Image from Scryfall.
             </figcaption>
             {card.back_image_normal && (
-              <button className="quiet small" onClick={() => setFlipped((f) => !f)}>Show the other face</button>
+              <Button variant="quiet" size="small" onClick={() => setFlipped((f) => !f)}>Show the other face</Button>
             )}
           </figure>
 
@@ -248,12 +248,12 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
 
             {!readOnly && !guest && defaultPrinting && addDefault && (
               <div className="cp-actions">
-                <button className="primary" onClick={() => add.mutate({ p: defaultPrinting, finish: addDefault })} disabled={add.isPending}>
+                <Button variant="primary" onClick={() => add.mutate({ p: defaultPrinting, finish: addDefault })} disabled={add.isPending}>
                   Add to collection
-                </button>
-                <button className="outline" onClick={() => add.mutate({ p: defaultPrinting, finish: "nonfoil", proxy: true })} disabled={add.isPending}>
+                </Button>
+                <Button variant="outline" onClick={() => add.mutate({ p: defaultPrinting, finish: "nonfoil", proxy: true })} disabled={add.isPending}>
                   Add a proxy
-                </button>
+                </Button>
               </div>
             )}
             {added && <p className="small" role="status" style={{ margin: 0 }}>{added}</p>}
@@ -286,9 +286,9 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
                       return (
                         <tr key={p.scryfall_id}>
                           <td>
-                            <button className="cp-set" onClick={() => setChart({ id: p.scryfall_id, finish, set: p.set_name })} aria-label={`${p.set_name} #${p.collector_number}: show its price history`}>
+                            <Button className="cp-set" onClick={() => setChart({ id: p.scryfall_id, finish, set: p.set_name })} aria-label={`${p.set_name} #${p.collector_number}: show its price history`}>
                               <span className="cp-set-name">{p.set_name}</span> <span className="cp-set-num">#{p.collector_number}</span>
-                            </button>
+                            </Button>
                             {yours != null && <span className="tag good cp-yours">Yours, {yours}</span>}
                             {/* Phones: one line under the set for the number, your copies' finish, then the foil market price. */}
                             <span className="cp-set-sub">
@@ -305,9 +305,9 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
                             <td className="r cp-add">
                               <span className="cp-add-row">
                                 {p.finishes.map((f) => (
-                                  <button key={f} disabled={add.isPending} onClick={() => add.mutate({ p, finish: f })} aria-label={`Add a ${f === "nonfoil" ? "regular" : f} ${p.set_name} copy to your collection`}>
+                                  <Button key={f} disabled={add.isPending} onClick={() => add.mutate({ p, finish: f })} aria-label={`Add a ${f === "nonfoil" ? "regular" : f} ${p.set_name} copy to your collection`}>
                                     {f === "nonfoil" ? "+1" : f === "foil" ? "+F" : "+E"}
-                                  </button>
+                                  </Button>
                                 ))}
                               </span>
                             </td>
@@ -318,7 +318,7 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
                   </tbody>
                 </table>
                 {printings.length > 12 && !allPrintings && (
-                  <button className="quiet small" onClick={() => setAllPrintings(true)}>Show all {printings.length} printings</button>
+                  <Button variant="quiet" size="small" onClick={() => setAllPrintings(true)}>Show all {printings.length} printings</Button>
                 )}
                 <p className="cp-note">
                   Tap a set to see its price history.{readOnly ? "" : " +1 adds a regular copy, +F a foil, +E an etched foil."} Prices are {priceSource(priceDate)}. Market prices aren't a quote from any store. A missing price says so.

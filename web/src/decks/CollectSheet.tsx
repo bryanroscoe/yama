@@ -5,7 +5,7 @@ import { CardRef } from "../components/CardRef";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api";
-import { Details, ErrorText, Dialog, Loading } from "../components/ui";
+import { Button, Details, Dialog, ErrorText, Loading } from "../components/ui";
 import { isViewing } from "../viewingFlag";
 import { boxText, buttonText, groups, outcomeText, printingText, resultText, SAME_CHOICES, summary, type CollectPreview, type SamePrinting } from "./collect";
 import "./collect.css";
@@ -109,12 +109,12 @@ export function CollectSheet({ deckId, offer = false, onClose }: { deckId: strin
             <ErrorText error={add.error} />
             {!result && (
               <div className="row">
-                <button type="button" className="primary" disabled={viewing || add.isPending || preview.isFetching || !!preview.error || p.added + p.moved === 0} onClick={() => add.mutate()}>
+                <Button variant="primary" disabled={viewing || add.isPending || preview.isFetching || !!preview.error || p.added + p.moved === 0} onClick={() => add.mutate()}>
                   {add.isPending ? "Adding…" : preview.isFetching ? "Checking…" : buttonText(p)}
-                </button>
-                <button type="button" className="quiet" onClick={onClose}>
+                </Button>
+                <Button variant="quiet" onClick={onClose}>
                   {offer ? "Not now" : "Cancel"}
-                </button>
+                </Button>
                 {viewing && <span className="small dim">Read only while viewing as someone.</span>}
               </div>
             )}

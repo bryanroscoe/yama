@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, type Container, type DeckSummary, type DeckView } from "../api";
 import { SearchPicker } from "../components/SearchPicker";
-import { ErrorText, Dialog, Segmented } from "../components/ui";
+import { Button, Dialog, ErrorText, Segmented } from "../components/ui";
 import { UnsavedPrompt, useUnsavedChanges } from "../unsaved";
 import { folderMoveProblem, foldersOf, isFollowedFolder } from "./deckIndex";
 import "./deck-settings.css";
@@ -154,10 +154,10 @@ export function DeckSettings({ deck, onClose: closeSheet }: { deck: DeckView; on
         )}
         <div className="deck-settings-field">
           <span className="deck-settings-label" id="box-label">Deck box</span>
-          <button type="button" className="deck-settings-pick" aria-labelledby="box-label box-value" onClick={() => setPicking("box")}>
+          <Button className="deck-settings-pick" aria-labelledby="box-label box-value" onClick={() => setPicking("box")}>
             <span id="box-value">{containers.isPending && container ? "…" : boxName}</span>
             <span className="dim">Change</span>
-          </button>
+          </Button>
         </div>
         <fieldset className="deck-settings-field deck-settings-kind" disabled={hasLists}>
           <legend className="deck-settings-label">Show it</legend>
@@ -170,10 +170,10 @@ export function DeckSettings({ deck, onClose: closeSheet }: { deck: DeckView; on
             As a list of another deck
           </label>
           {parent && (
-            <button type="button" className="deck-settings-pick" onClick={() => setPicking("parent")}>
+            <Button className="deck-settings-pick" onClick={() => setPicking("parent")}>
               <span>{parentName}</span>
               <span className="dim">Change</span>
-            </button>
+            </Button>
           )}
         </fieldset>
         {parent && (
@@ -184,8 +184,8 @@ export function DeckSettings({ deck, onClose: closeSheet }: { deck: DeckView; on
         )}
         <ErrorText error={save.error} />
         <div className="deck-settings-actions">
-          <button className="primary" disabled={save.isPending || !name.trim() || !!folderProblem}>{save.isPending ? "Saving…" : "Save"}</button>
-          <button type="button" className="quiet" onClick={onClose}>Cancel</button>
+          <Button type="submit" variant="primary" disabled={save.isPending || !name.trim() || !!folderProblem}>{save.isPending ? "Saving…" : "Save"}</Button>
+          <Button variant="quiet" onClick={onClose}>Cancel</Button>
         </div>
       </form>
       <UnsavedPrompt guard={guard} what="your changes to this deck" />

@@ -2,7 +2,7 @@
 // (deckIndex.ts has the rules). Plain fields; the choices live in the address.
 import { MANA, plural } from "@yama/core";
 import { BRACKETS } from "../components/Bracket";
-import { Pips, Segmented } from "../components/ui";
+import { Button, Pips, Segmented } from "../components/ui";
 import { NO_FOLDER, SORTS, isFiltered, shownText, type DeckFilter, type DeckSort } from "./deckIndex";
 
 const COLORS = ["W", "U", "B", "R", "G"] as const;
@@ -58,9 +58,9 @@ export function DeckIndexTools({ filter, onChange, folders, hasUnfiled, shown, t
           <span className="deck-index-label" aria-hidden="true">Colors</span>
           <span className="deck-index-pips">
             {COLORS.map((k) => (
-              <button key={k} type="button" aria-pressed={filter.colors.includes(k)} aria-label={MANA[k].name} title={MANA[k].name} onClick={() => toggle(k)}>
+              <Button key={k} aria-pressed={filter.colors.includes(k)} aria-label={MANA[k].name} title={MANA[k].name} onClick={() => toggle(k)}>
                 <Pips identity={k} label={false} />
-              </button>
+              </Button>
             ))}
           </span>
         </div>
@@ -80,7 +80,7 @@ export function DeckIndexTools({ filter, onChange, folders, hasUnfiled, shown, t
       {/* Always here, so a screen reader hears the count when a filter first narrows the list. */}
       <p className="small deck-index-count">
         <span role="status">{isFiltered(filter) ? shownText(shown, total) : ""}</span>
-        {isFiltered(filter) && <button type="button" className="quiet" onClick={() => onChange(CLEARED)}>Clear filters</button>}
+        {isFiltered(filter) && <Button variant="quiet" onClick={() => onChange(CLEARED)}>Clear filters</Button>}
       </p>
     </div>
   );

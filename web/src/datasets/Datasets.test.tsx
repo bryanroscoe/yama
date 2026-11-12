@@ -69,7 +69,7 @@ describe("private evidence browser", () => {
     expect(html).toContain("Download original dataset</button>");
     expect(html).not.toContain("/export?");
     expect(html).toContain("No compatible monthly observations");
-    expect(html).toContain('<button disabled="">Previous</button>'); expect(html).toContain("<button>Next</button>");
+    expect(html).toContain('<button type="button" disabled="">Previous</button>'); expect(html).toContain('<button type="button">Next</button>');
   });
   it("pages through actual provenance and treats submitted strings as text", () => {
     const html = page("/lab/datasets/playgroup-history?revision=3&section=sources", { dataset: head, sources: [{ sha256: "retained-hash", url: "javascript:alert(1)", retrieved_at: "2026-10-28T00:00:00Z", flags: ["partial_archive_capture"], transformation: "<script>unsafe()</script>" }], next_offset: null });

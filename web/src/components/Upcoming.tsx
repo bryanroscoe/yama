@@ -25,6 +25,7 @@ import {
 } from "./calendar";
 import "./calendar.css";
 import { fmtDate } from "@yama/core";
+import { Button, ButtonLink } from "./Button";
 
 export function useCalendar() {
   const today = localToday();
@@ -129,7 +130,7 @@ function PreconRows({ precons, names }: { precons: PreconSummary[]; names: strin
             {made ? (
               <Link to="/decks" className="precon-made">In your decks</Link>
             ) : (
-              <Link to={startLink(p.file_name)} className="button" aria-label={`Start a deck from ${p.name}`}>Start a deck</Link>
+              <ButtonLink to={startLink(p.file_name)} aria-label={`Start a deck from ${p.name}`}>Start a deck</ButtonLink>
             )}
           </li>
         );
@@ -216,7 +217,7 @@ function UpcomingSets({ view }: { view: CalendarView }) {
                 {s.parent_watched && !s.watched ? (
                   <span className="upcoming-via">Watched with {s.parent_name ?? s.parent_set_code}</span>
                 ) : (
-                  <button
+                  <Button
                     className={s.watched ? "watch is-on" : "watch"}
                     aria-pressed={s.watched}
                     aria-label={`Watch ${s.name}`}
@@ -224,7 +225,7 @@ function UpcomingSets({ view }: { view: CalendarView }) {
                     onClick={() => toggle.mutate(s)}
                   >
                     {s.watched ? "Watching" : "Watch"}
-                  </button>
+                  </Button>
                 )}
               </li>
             );
@@ -233,9 +234,9 @@ function UpcomingSets({ view }: { view: CalendarView }) {
       )}
       <ErrorText error={toggle.error} />
       {extras.length > 0 && (
-        <button className="quiet small" onClick={() => setAll((a) => !a)}>
+        <Button variant="quiet" size="small" onClick={() => setAll((a) => !a)}>
           {all ? "Hide tokens, promos and other extras" : `Show ${extras.length} more: tokens, promos and other extras`}
-        </button>
+        </Button>
       )}
       <p className="cal-note">
         {preconsChecked

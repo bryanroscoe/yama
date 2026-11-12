@@ -6,6 +6,7 @@
 //   ...
 //   <RefreshFailed query={deck} />   // inside the page, which stays as it is
 import { ApiError, errorMessage } from "../api";
+import { Button } from "./Button";
 
 /** What a query's error means for its page: nothing loaded yet, or a refresh of data still shown. */
 interface Failing {
@@ -38,7 +39,7 @@ export function LoadFailed({ query }: { query: Failing }) {
     <div className="stack" role="alert">
       <p className="error">{errorMessage(query.error)}</p>
       <div className="row">
-        <button type="button" aria-disabled={query.isFetching || undefined} onClick={() => !query.isFetching && void query.refetch()}>{query.isFetching ? "Trying…" : "Try again"}</button>
+        <Button aria-disabled={query.isFetching || undefined} onClick={() => !query.isFetching && void query.refetch()}>{query.isFetching ? "Trying…" : "Try again"}</Button>
       </div>
     </div>
   );
@@ -64,7 +65,7 @@ export function RefreshFailed({ query, what = "this page" }: { query: Failing; w
     <p className="small" role="alert">
       <span className="error">Couldn't refresh {what}: {errorMessage(query.error)}</span>{" "}
       It may be out of date.{" "}
-      <button type="button" className="small" aria-disabled={query.isFetching || undefined} onClick={(e) => void retry(e.currentTarget)}>{query.isFetching ? "Trying…" : "Retry"}</button>
+      <Button size="small" aria-disabled={query.isFetching || undefined} onClick={(e) => void retry(e.currentTarget)}>{query.isFetching ? "Trying…" : "Retry"}</Button>
     </p>
   );
 }

@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { api, ApiError } from "../api";
 import { useMe } from "../auth";
-import { ErrorText, Loading } from "../components/ui";
+import { Button, ButtonLink, ErrorText, Loading } from "../components/ui";
 import { outbox, useOutbox } from "../plan/outbox";
 import { usePlan } from "../plan/store";
 import { planView } from "../plan/view";
@@ -109,14 +109,14 @@ export function TrackPanel({ bundle, deck, build }: { bundle: ResearchBundle; de
       {thisBuild ? (
         <div className="row">
           <span>This build is {tracked.name}'s plan now.</span>
-          <Link className="button primary" to={planHref(tracked.key)}>Open the plan</Link>
+          <ButtonLink variant="primary" to={planHref(tracked.key)}>Open the plan</ButtonLink>
         </div>
       ) : (
         <div className="row">
-          <Link className="button" to="/decks/plans">Go to Plans</Link>
-          <button type="button" className="primary" disabled={use.isPending} onClick={() => use.mutate()}>
+          <ButtonLink to="/decks/plans">Go to Plans</ButtonLink>
+          <Button variant="primary" disabled={use.isPending} onClick={() => use.mutate()}>
             {use.isPending ? "Adding…" : "Use a deck from it"}
-          </button>
+          </Button>
           <span className="small dim">Makes this build a new version of {deck.name}'s plan, waiting for your OK. Until you approve it, the plan you have keeps going.</span>
         </div>
       )}

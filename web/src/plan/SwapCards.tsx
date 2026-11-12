@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
 import "./swapcards.css";
-import { EmptyState } from "../components/ui";
+import { Button, EmptyState } from "../components/ui";
 
 /** The page box for the cards: three 2.5 inch columns and three 3.5 inch rows fit only inside 0.25 inch margins. */
 const PAGE_RULE = "@page { size: letter; margin: 0.25in; }";
@@ -75,7 +75,7 @@ export function SwapCardsPage() {
           nine to a US-letter page. Print at actual size (100%, no fit to page) with headers and footers off, then cut on the dashed lines.
         </p>
         <div className="row">
-          <button className="primary" disabled={!cards.length} onClick={() => window.print()}>Print</button>
+          <Button variant="primary" disabled={!cards.length} onClick={() => window.print()}>Print</Button>
           {deckKey && deck && <Link to={planHref(deck.key)}>Back to {deck.name}</Link>}
           {deckKey && all.length > 1 && <Link to="/decks/plans/get/swap-cards">All decks' swap cards</Link>}
         </div>

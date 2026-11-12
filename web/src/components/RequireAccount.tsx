@@ -4,6 +4,7 @@ import { KeptAccount, SignInForm, useMe } from "../auth";
 import { accountPageOpen, releaseSession, useKeptAccount } from "../session";
 import { ALPHA_NOTE } from "./AlphaTag";
 import { Dialog } from "./Dialog";
+import { Button } from "./Button";
 
 /** What each section keeps for an account, said where it asks someone to sign in. */
 const SECTIONS: Record<string, { title: string; lede: string; extra?: ReactNode }> = {
@@ -92,7 +93,7 @@ function SignInAgain() {
         <div className="login-inner">
           <SignInForm heading="h2" title="Sign in again" />
           <p className="small dim">Your sign-in ended. This page is kept as it is: sign in to carry on where you were.</p>
-          <button type="button" className="quiet" onClick={releaseSession}>Continue signed out</button>
+          <Button variant="quiet" onClick={releaseSession}>Continue signed out</Button>
         </div>
       </div>
     </Dialog>

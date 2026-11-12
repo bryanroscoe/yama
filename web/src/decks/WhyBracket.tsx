@@ -10,6 +10,7 @@ import { DeclareBracket } from "../components/DeclareBracket";
 import { gameChangerFloor, SENDS_LIST } from "../components/deckCheck";
 import { HelpPopover } from "../components/HelpPopover";
 import { fmtDate } from "@yama/core";
+import { Button } from "../components/ui";
 
 /** The Game Changers at the bracket shown: the list's own, minus any the swap bag takes out. */
 export function gameChangersAt(listed: string[] | null, out: ReadonlySet<string>): { name: string; out: boolean }[] {
@@ -59,9 +60,9 @@ export function WhyBracket({ deck, at, outAt, onCard }: { deck: DeckView; at: nu
           <ul className="why-bracket-chips" aria-label="Game Changers">
             {gcs.map((g) => (
               <li key={g.name}>
-                <button type="button" className={g.out ? "out" : ""} onClick={() => onCard(g.name)} aria-label={g.out ? `${g.name}, out at Bracket ${at}` : g.name}>
+                <Button className={g.out ? "out" : ""} onClick={() => onCard(g.name)} aria-label={g.out ? `${g.name}, out at Bracket ${at}` : g.name}>
                   {g.name}
-                </button>
+                </Button>
               </li>
             ))}
           </ul>

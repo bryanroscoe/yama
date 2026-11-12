@@ -7,7 +7,7 @@ import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
 import { HowTo } from "../components/HowTo";
 import { useCardArt } from "../components/useCardArt";
 import { AreaHead, BackButton } from "../components/DeckTabs";
-import { ErrorText, Pips, Loading } from "../components/ui";
+import { Button, ButtonLink, ErrorText, Loading, Pips } from "../components/ui";
 import { useMe } from "../auth";
 import { usePlan } from "../plan/store";
 import { buildNotes, buildNotesKey } from "../research/api";
@@ -54,7 +54,7 @@ export function BuildChoicesPage() {
         <><b>Pick the build to switch to</b> and the list to change from. Each card that changes shows with the reason its plan gives.</>,
         <><b>Print</b> double-sided on US Letter and cut out the cards. Keep them in the deck box: one side takes the deck to the build, the other brings it back.</>,
       ]}
-      actions={<><Link className="button primary" to="/decks/plans">Get a plan with bracket builds</Link><Link className="button outline" to="/decks">Open your decks</Link></>}
+      actions={<><ButtonLink variant="primary" to="/decks/plans">Get a plan with bracket builds</ButtonLink><ButtonLink variant="outline" to="/decks">Open your decks</ButtonLink></>}
     />
     {errors}
     {loading && <Loading>Loading your decks and plans…</Loading>}
@@ -118,7 +118,7 @@ function BuildChips({ choices, value, onChange }: { choices: BuildChoice[]; valu
   const sorted = [...choices].sort((a, b) => groups.indexOf(a.kind) - groups.indexOf(b.kind) || (a.bracket ?? 0) - (b.bracket ?? 0));
   for (const c of sorted.filter((c) => c.kind !== "legacy")) add(c.savedDeck ? "Your lists" : c.note ? `From ${c.note}` : "From your tracked plan", c);
   const older = sorted.filter((c) => c.kind === "legacy");
-  const chips = (cs: BuildChoice[]) => cs.map((c) => <button key={c.id} type="button" className="choice-chip" aria-pressed={c.id === value} onClick={() => onChange(c.id)}>{c.label}</button>);
+  const chips = (cs: BuildChoice[]) => cs.map((c) => <Button key={c.id} className="choice-chip" aria-pressed={c.id === value} onClick={() => onChange(c.id)}>{c.label}</Button>);
   return <div className="bc-builds">
     {[...rows].map(([title, cs]) => <div key={title} className="choice-chips" role="group" aria-label={title}><span className="dim small">{title}</span>{chips(cs)}</div>)}
     {older.length > 0 && <details className="bc-older" open={older.some((c) => c.id === value)}><summary className="small dim">Older snapshots ({older.length})</summary><div className="choice-chips" role="group" aria-label="Older snapshots">{chips(older)}</div></details>}
@@ -198,7 +198,7 @@ function FamilyPage({ family, status, art }: { family: BuildFamily; status: Reac
       {status}
       {!to || !from ? <div className="stack">
         <p>This deck has one list so far, so there's nothing to swap between yet. Give it another: save its stock list or a new configuration from the deck's page, or get a plan with bracket builds for it.</p>
-        <div className="row">{deck && <Link className="button primary" to={`/decks/${deck.id}`}>Open the deck</Link>}<Link className="button outline" to="/decks/plans">Get a plan</Link></div>
+        <div className="row">{deck && <ButtonLink variant="primary" to={`/decks/${deck.id}`}>Open the deck</ButtonLink>}<ButtonLink variant="outline" to="/decks/plans">Get a plan</ButtonLink></div>
       </div> : <>
         <BuildChips choices={all} value={to.id} onChange={(id) => pick("to", id)} />
         <div className="note-pills">
@@ -220,7 +220,7 @@ function FamilyPage({ family, status, art }: { family: BuildFamily; status: Reac
         {swaps && swaps.length > 0 && <section className="note-section" aria-labelledby="bc-print">
           <SectionHead id="bc-print" eyebrow={`${parts} two-sided card${parts === 1 ? "" : "s"}`}>Print swap cards</SectionHead>
           <p className="small">Print on US Letter, double-sided, <b>flip on long edge</b>, actual size (100%), headers and footers off. Cut on the lines. Each card is 2.5 × 3.5 inches; the back undoes the same swaps. Test one sheet for your printer's alignment first.</p>
-          <div className="row bc-print"><label>Swaps per card <select value={rows} onChange={(e) => setRows(Number(e.target.value))}>{[3, 4, 5, 6].map((n) => <option key={n} value={n}>{n}</option>)}</select></label><button className="primary" disabled={overflow || !fontsReady} onClick={() => window.print()}>Print double-sided swap cards</button></div>
+          <div className="row bc-print"><label>Swaps per card <select value={rows} onChange={(e) => setRows(Number(e.target.value))}>{[3, 4, 5, 6].map((n) => <option key={n} value={n}>{n}</option>)}</select></label><Button variant="primary" disabled={overflow || !fontsReady} onClick={() => window.print()}>Print double-sided swap cards</Button></div>
           {overflow && <p className="error" role="alert">Some text does not fit. Choose fewer swaps per card before printing.</p>}
         </section>}
 

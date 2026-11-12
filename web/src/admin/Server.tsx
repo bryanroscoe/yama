@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
-import { ErrorText } from "../components/ui";
+import { Button, ErrorText } from "../components/ui";
 import { adminApi, type PerfSummary, type ServerInfo, type WatchItem } from "./api";
 import { bytes, duration, usd } from "./logic";
 import { ago, count, fmtDateTime, plural, fmtDate } from "@yama/core";
@@ -180,9 +180,9 @@ function RouteTable({ routes }: { routes: PerfSummary["routes"] }) {
         </table>
       </div>
       {routes.length > FIRST && (
-        <button className="outline admin-more" onClick={() => setAll(!all)}>
+        <Button variant="outline" className="admin-more" onClick={() => setAll(!all)}>
           {all ? `Show the slowest ${FIRST}` : `Show all ${routes.length} routes`}
-        </button>
+        </Button>
       )}
     </>
   );
@@ -220,9 +220,9 @@ function JobTable({ jobs }: { jobs: PerfSummary["jobs"] }) {
         </table>
       </div>
       {jobs.length > FIRST && (
-        <button className="outline admin-more" onClick={() => setAll(!all)}>
+        <Button variant="outline" className="admin-more" onClick={() => setAll(!all)}>
           {all ? `Show the newest ${FIRST}` : `Show all ${jobs.length} jobs`}
-        </button>
+        </Button>
       )}
     </>
   );
@@ -372,9 +372,9 @@ function WatchSection({ games }: { games: WatchItem[] }) {
               </div>
               {!g.finished && (
                 <div className="admin-actions">
-                  <button className="outline danger" onClick={() => stop.mutate(g.id)} disabled={stop.isPending}>
+                  <Button variant="outline" danger onClick={() => stop.mutate(g.id)} disabled={stop.isPending}>
                     Stop
-                  </button>
+                  </Button>
                 </div>
               )}
             </li>

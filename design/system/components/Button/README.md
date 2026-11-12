@@ -11,6 +11,8 @@ One primary per view, raised or outlined secondaries, and quiet text buttons for
 - **Quiet** (transparent): Skip, Undo, Show all. It raises on hover.
 - **Waiting**: a primary that can't be used yet turns `raised` with `dim` text and says why ("Answer the question first"). Never a faded pill.
 - Labels are verbs in sentence case, saying what happens. No icons-only buttons without an `aria-label`.
-- Destructive actions use `bad` text on a secondary pill and say what they remove.
+- A button that removes something uses `bad` text on a secondary, an outline or a quiet button (`danger`) and says what it removes; so does the Yes in an "are you sure?" question. The last step of deleting for good, in a sheet of its own (Delete deck, Delete account), is a `bad` fill (`destructive`).
 
 The consumer provides the label and the handler; use a real `<button>` or a styled `<a>` for navigation.
+
+In the app this is `Button` and `ButtonLink` (`web/src/components/Button.tsx`; props in [shared-code.md](../../shared-code.md)): `variant` is `primary`, `secondary`, `outline`, `quiet` or `destructive`, `size="small"` is a row action, and `danger` puts `bad` words on a secondary, an outline or a quiet button.

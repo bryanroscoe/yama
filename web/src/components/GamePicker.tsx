@@ -5,6 +5,7 @@ import { Pips } from "./ui";
 import { pickerPlacement } from "./pickerPlacement";
 import "./gamePicker.css";
 import { useModalLayer } from "./Dialog";
+import { Button } from "./Button";
 
 /** One selectable item, with optional commander art, colors and supporting text. */
 export interface Option<T> {
@@ -164,8 +165,7 @@ export function Combobox<T>({
         />
         {trailing}
         {toggle && (
-          <button
-            type="button"
+          <Button
             className="combo-toggle"
             aria-label={toggle}
             aria-expanded={showList}
@@ -181,7 +181,7 @@ export function Combobox<T>({
             <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
               <path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-          </button>
+          </Button>
         )}
         {showList && (
           <ul className="combo-list" style={listStyle} role="listbox" id={`${id}-list`} aria-label={label}>
@@ -242,9 +242,9 @@ export function PickerField({ label, text, placeholder, trailing, onOpen }: {
     <div className="picker-field">
       <span id={id} className="field-label">{label}</span>
       <span className="combo-wrap has-toggle">
-        <button type="button" className={text ? "combo-field" : "combo-field is-empty"} aria-haspopup="dialog" aria-labelledby={id} aria-describedby={`${id}-v`} onClick={onOpen}>
+        <Button className={text ? "combo-field" : "combo-field is-empty"} aria-haspopup="dialog" aria-labelledby={id} aria-describedby={`${id}-v`} onClick={onOpen}>
           <span id={`${id}-v`} className="combo-field-text">{text || placeholder}</span>
-        </button>
+        </Button>
         {trailing}
         <span className="combo-toggle" aria-hidden="true">
           <svg viewBox="0 0 12 12" width="12" height="12">
@@ -293,7 +293,7 @@ export function PickerSheet<T>({ label, query, onQuery, options, onPick, onClose
     <div ref={root} className="picker" role="dialog" aria-modal="true" aria-labelledby={`${id}-title`} tabIndex={-1} {...layer}>
       <div className="picker-head">
         <h2 id={`${id}-title`} ref={heading} tabIndex={-1}>{label}</h2>
-        <button type="button" className="quiet" onClick={onClose}>Close</button>
+        <Button variant="quiet" onClick={onClose}>Close</Button>
       </div>
       <input
         type="search"
@@ -317,14 +317,14 @@ export function PickerSheet<T>({ label, query, onQuery, options, onPick, onClose
       <ul ref={list} className="picker-list" id={`${id}-list`} aria-label={label}>
         {options.map((o) => (
           <li key={o.key}>
-            <button type="button" className="combo-option picker-option" onClick={() => onPick(o.value)}>
+            <Button className="combo-option picker-option" onClick={() => onPick(o.value)}>
               {o.art !== undefined && (o.art ? <img className="combo-art" src={o.art} alt="" loading="lazy" /> : <span className="combo-art combo-art-none" />)}
               <span className="combo-text">
                 <span className="combo-label">{o.label}</span>
                 {o.sub && <span className="combo-sub">{o.sub}</span>}
               </span>
               {o.identity !== undefined && <Pips identity={o.identity} label={false} />}
-            </button>
+            </Button>
           </li>
         ))}
         {options.length === 0 && <li className="combo-empty">{loading ? "Searching…" : empty}</li>}

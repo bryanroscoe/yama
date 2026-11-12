@@ -7,6 +7,7 @@ import { Component, createContext, lazy, Suspense, useContext, type ComponentTyp
 import { useLocation, useRouteError } from "react-router";
 import { errorMessage } from "./api";
 import { StandIn, type StandInKind } from "./components/StandIn";
+import { Button } from "./components/ui";
 
 /**
  * An area's pages, loaded together. `page(name)` is a component for one export of the area's
@@ -121,8 +122,8 @@ class Boundary extends Component<BoundaryProps, BoundaryState> {
             : "Something went wrong while opening it. Trying again or reloading usually fixes it."}
         </p>
         <div className="row">
-          <button className="primary" onClick={this.retry}>Try again</button>
-          <button onClick={() => location.reload()}>Reload</button>
+          <Button variant="primary" onClick={this.retry}>Try again</Button>
+          <Button onClick={() => location.reload()}>Reload</Button>
         </div>
       </main>
     );
@@ -159,7 +160,7 @@ export function AppFailed() {
       </div>
       <p>Something went wrong showing this screen. Reloading usually fixes it; nothing saved is lost.</p>
       <p className="small dim">{errorMessage(error)}</p>
-      <button className="primary" onClick={() => location.reload()}>Reload</button>
+      <Button variant="primary" onClick={() => location.reload()}>Reload</Button>
     </main>
   );
 }

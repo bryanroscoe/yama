@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { api, ApiError, type CollectionItem, type Container, type Printing } from "../api";
 import { CardRef } from "../components/CardRef";
-import { CardImage, ErrorText, Dialog, Loading, Segmented } from "../components/ui";
+import { Button, CardImage, Dialog, ErrorText, Loading, Segmented } from "../components/ui";
 import type { ScanCandidate } from "../scanner";
 import { finishChoices, finishFor, finishWord, languageChoices, markDone, markOps, markWords, opIds, printingLabel, reprintOps, type Mark, type Op, type Scope } from "./collectionEdit";
 // The scan choices and their notes, shown here outside the scanner too.
@@ -152,8 +152,8 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
           {item.purchase_price != null ? `. Paid ${usd(item.purchase_price)}` : ""}
         </p>
         <div className="row">
-          <button disabled={busy} onClick={() => adjust(-1)}>Remove one</button>
-          <button disabled={busy} onClick={() => adjust(1)}>Add one more</button>
+          <Button disabled={busy} onClick={() => adjust(-1)}>Remove one</Button>
+          <Button disabled={busy} onClick={() => adjust(1)}>Add one more</Button>
         </div>
 
         <section className="coll-printing stack" aria-label="Printing">
@@ -162,8 +162,8 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
             <Segmented label="Which copies" value={scope} onChange={setScope} options={[["all", `All ${item.qty} copies`], ["one", "Just one"]]} />
           )}
           <div className="row">
-            <button aria-expanded={picking} onClick={() => setPicking(!picking)}>Change printing</button>
-            <button
+            <Button aria-expanded={picking} onClick={() => setPicking(!picking)}>Change printing</Button>
+            <Button
               disabled={busy}
               onClick={() => {
                 setScanError(null);
@@ -172,7 +172,7 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
               }}
             >
               Rescan this card
-            </button>
+            </Button>
           </div>
           {scanNote && <p className="small" role="status">{scanNote}</p>}
           {picking && (
@@ -191,7 +191,7 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
                   const day = shortDate(p.price_date);
                   return (
                     <li key={p.scryfall_id}>
-                      <button className="coll-printing-choice" aria-current={current} disabled={busy} onClick={() => reprint(p)}>
+                      <Button className="coll-printing-choice" aria-current={current} disabled={busy} onClick={() => reprint(p)}>
                         <CardImage src={p.image_small} name={p.name} className="coll-printing-img" />
                         <span className="coll-printing-text">
                           <span>{printingLabel(p)}</span>
@@ -210,7 +210,7 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
                           <span className="num">{usd(priceOf(p, finish))}</span>
                           {day && priceOf(p, finish) != null && <span className="dim">{day}</span>}
                         </span>
-                      </button>
+                      </Button>
                     </li>
                   );
                 })}
@@ -272,20 +272,20 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
               Delete {item.qty === 1 ? "this copy" : `all ${item.qty} copies`} of {item.name ?? "this card"} from {item.container_name ?? "your collection"}?
             </p>
             <div className="row">
-              <button
-                className="coll-danger"
+              <Button
+                variant="destructive"
                 disabled={busy}
                 onClick={() => save([{ op_id: ids.idFor("remove"), kind: "remove", item_id: item.id }], `Deleted ${item.qty === 1 ? name : `${item.qty} copies of ${name}`} from ${item.container_name ?? "your collection"}.`)}
               >
                 Delete
-              </button>
-              <button className="quiet" onClick={() => setDeleting(false)}>Keep</button>
+              </Button>
+              <Button variant="quiet" onClick={() => setDeleting(false)}>Keep</Button>
             </div>
           </div>
         ) : (
-          <button className="quiet coll-danger-quiet" onClick={() => setDeleting(true)}>
+          <Button variant="quiet" danger className="coll-danger-quiet" onClick={() => setDeleting(true)}>
             Delete from collection
-          </button>
+          </Button>
         )}
         <ErrorText error={send.error} />
       </div>

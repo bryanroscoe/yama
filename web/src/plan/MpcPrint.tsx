@@ -17,7 +17,7 @@ import { Link } from "react-router";
 import { api, errorMessage } from "../api";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
 import { fmtDateTime } from "@yama/core";
-import { EmptyState } from "../components/ui";
+import { Button, EmptyState } from "../components/ui";
 
 /** Yama's answer from MPC Autofill (server/src/mpc.rs): images for each name, best first. */
 export interface MpcImages {
@@ -111,17 +111,16 @@ function Choice({ label, card, images, chosen, onPick }: { label: string; card: 
           </span>
         )}
         {images.length > 1 && (
-          <button type="button" className="quiet small" aria-expanded={open} onClick={() => setOpen(!open)}>
+          <Button variant="quiet" size="small" aria-expanded={open} onClick={() => setOpen(!open)}>
             {open ? "Done" : `Other images (${images.length - 1})`}
-          </button>
+          </Button>
         )}
       </span>
       {open && (
         <div className="mpc-options" role="listbox" aria-label={`Images for ${card}`}>
           {images.map((img) => (
-            <button
+            <Button
               key={img.id}
-              type="button"
               role="option"
               aria-selected={img.id === chosen?.id}
               className="mpc-option"
@@ -130,7 +129,7 @@ function Choice({ label, card, images, chosen, onPick }: { label: string; card: 
             >
               <img src={mpcThumb(img.id)} alt={img.name} loading="lazy" />
               <span className="small dim">{img.source}</span>
-            </button>
+            </Button>
           ))}
         </div>
       )}
@@ -210,9 +209,9 @@ export function MpcPrint() {
           {images.isError && (
             <p className="small">
               <span className="pill warn">Check</span> {images.error instanceof Error ? errorMessage(images.error) : "Couldn't reach MPC Autofill."}{" "}
-              <button type="button" className="quiet small" onClick={() => void images.refetch()}>
+              <Button variant="quiet" size="small" onClick={() => void images.refetch()}>
                 Try again
-              </button>
+              </Button>
             </p>
           )}
 
@@ -226,13 +225,13 @@ export function MpcPrint() {
                 )}
                 <div className="row">
                   {helper.version ? (
-                    <button type="button" disabled={!build.order} onClick={() => build.order && helper.send(build.order)}>
+                    <Button disabled={!build.order} onClick={() => build.order && helper.send(build.order)}>
                       Fill in on MakePlayingCards
-                    </button>
+                    </Button>
                   ) : null}
-                  <button type="button" className="outline" disabled={!build.order} onClick={() => build.order && download("order.xml", mpcXml(build.order))}>
+                  <Button variant="outline" disabled={!build.order} onClick={() => build.order && download("order.xml", mpcXml(build.order))}>
                     Download order.xml
-                  </button>
+                  </Button>
                 </div>
                 {helper.reply?.type === "started" && <p className="small">Opened MakePlayingCards in a new tab. Press Fill in on the Yama panel there.</p>}
                 {helper.reply?.type === "refused" && (
@@ -279,10 +278,10 @@ export function MpcPrint() {
                 {backs.length ? (
                   <div className="mpc-options" role="listbox" aria-label="Card backs">
                     {backs.map((b) => (
-                      <button key={b.id} type="button" role="option" aria-selected={b.id === cardback?.id} className="mpc-option" onClick={() => update({ cardback: b.id })} title={`${b.name}. ${imageFacts(b)}`}>
+                      <Button key={b.id} role="option" aria-selected={b.id === cardback?.id} className="mpc-option" onClick={() => update({ cardback: b.id })} title={`${b.name}. ${imageFacts(b)}`}>
                         <img src={mpcThumb(b.id)} alt={b.name} loading="lazy" />
                         <span className="small dim">{b.source}</span>
-                      </button>
+                      </Button>
                     ))}
                   </div>
                 ) : (

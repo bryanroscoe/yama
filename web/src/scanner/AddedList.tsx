@@ -5,7 +5,7 @@ import { useState } from "react";
 import type { Printing } from "../api";
 import { printingOptions } from "./printings";
 import type { Added, Finish, Fix } from "./session";
-import { Loading, DialogHead, ErrorText } from "../components/ui";
+import { Button, DialogHead, ErrorText, Loading } from "../components/ui";
 
 const FINISH_LABEL: Record<Finish, string> = { nonfoil: "regular", foil: "foil", proxy: "proxy" };
 const PRINTINGS_FIRST = 12;
@@ -97,12 +97,12 @@ function AddedRow({ a, onFix, onRetry }: { a: Added; onFix: AddedListProps["onFi
                 <option value="proxy">Proxy</option>
               </select>
             </label>
-            <button className="scan-alt" disabled={busy} onClick={() => void openPrintings()}>
+            <Button className="scan-alt" disabled={busy} onClick={() => void openPrintings()}>
               {printings ? "Keep this printing" : "Change printing"}
-            </button>
-            <button className="scan-alt" disabled={busy} onClick={() => void run({ ...base, copies: 0 })}>
+            </Button>
+            <Button className="scan-alt" disabled={busy} onClick={() => void run({ ...base, copies: 0 })}>
               Remove
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -113,16 +113,16 @@ function AddedRow({ a, onFix, onRetry }: { a: Added; onFix: AddedListProps["onFi
             <strong>{a.pending.fix ? "This change may not have saved." : "This card may not have saved."}</strong> {a.pending.error.replace(/\.$/, "")}. Try again sends the same{" "}
             {a.pending.fix ? "change" : "card"}, so nothing is added twice.
           </p>
-          <button className="primary" disabled={working} onClick={() => void attempt(() => onRetry(a))}>
+          <Button variant="primary" disabled={working} onClick={() => void attempt(() => onRetry(a))}>
             Try again
-          </button>
+          </Button>
         </div>
       )}
       {!a.pending?.error && <ErrorText error={error} />}
       {printings && (
         <div className="scan-printings" role="listbox" aria-label={`Printings of ${a.name}`}>
           {(showAll ? printings : printings.slice(0, PRINTINGS_FIRST)).map((p) => (
-            <button
+            <Button
               key={p.scryfall_id}
               role="option"
               aria-selected={p.scryfall_id === a.scryfall_id}
@@ -137,12 +137,12 @@ function AddedRow({ a, onFix, onRetry }: { a: Added; onFix: AddedListProps["onFi
                 {p.released_at ? `, ${p.released_at.slice(0, 4)}` : ""}
                 {p.lang !== "en" ? `, ${p.lang}` : ""}
               </span>
-            </button>
+            </Button>
           ))}
           {!showAll && printings.length > PRINTINGS_FIRST && (
-            <button className="scan-alt" onClick={() => setShowAll(true)}>
+            <Button className="scan-alt" onClick={() => setShowAll(true)}>
               Show all {printings.length}
-            </button>
+            </Button>
           )}
         </div>
       )}

@@ -95,9 +95,6 @@
   flex-wrap: wrap;
   gap: 8px;
 }
-.import-actions button {
-  min-height: var(--target);
-}
 
 .import-good {
   color: var(--good);
@@ -223,9 +220,6 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-}
-.import-suggest button {
-  min-height: var(--target);
 }
 .import-problems {
   display: grid;

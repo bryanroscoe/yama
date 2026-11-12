@@ -75,7 +75,7 @@ describe("bracket swap cards page", () => {
     expect(page("?deck=gone", [lorehold])).toContain("There&#x27;s no plan deck called &quot;gone&quot;");
     const none = page("", [deck("plain", null)]);
     expect(none).toContain("None of your plan decks has bracket swaps yet.");
-    expect(none).toMatch(/<button class="primary" disabled="">Print<\/button>/);
+    expect(none).toMatch(/<button type="button" class="primary" disabled="">Print<\/button>/);
   });
 });
 

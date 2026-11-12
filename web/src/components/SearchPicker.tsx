@@ -3,6 +3,7 @@
 // the form it belongs to.
 import { useState } from "react";
 import "./search-picker.css";
+import { Button } from "./Button";
 
 export interface PickerOption {
   id: string;
@@ -36,10 +37,10 @@ export function SearchPicker({ label, options, current, onPick }: { label: strin
         <ul className="search-picker-list" aria-label={label}>
           {shown.map((o) => (
             <li key={o.id}>
-              <button type="button" className="search-picker-item" aria-current={o.id === current ? "true" : undefined} onClick={() => onPick(o.id)}>
+              <Button className="search-picker-item" aria-current={o.id === current ? "true" : undefined} onClick={() => onPick(o.id)}>
                 <b>{o.label}</b>
                 {o.detail && <span className="small dim">{o.detail}</span>}
-              </button>
+              </Button>
             </li>
           ))}
         </ul>

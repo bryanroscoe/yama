@@ -99,6 +99,7 @@ warnings, missing data, source dates, price sources and art credits visible besi
 
 - **Primary:** a `--text` pill with `--ground` text. One per view.
 - **Secondary:** a `--raised` button with 10 px corners on a laptop (a pill on phones), or transparent with a 1px `--line` border. At most three beside the primary; the rest go in a More menu.
+- **Removing something:** `--bad` words on a secondary, an outline or a quiet button, saying what it removes. The last step of deleting for good, in a sheet of its own, is a `--bad` fill with `--ground` words.
 - **Segmented control:** a `--surface` track with 3 px padding. The selected segment is a `--text` pill with dark text; the others are `--dim` text.
 - **Inputs:** `--surface` on ground, or `--ground` on surface, with a 1px `--line` border. Labels are 13–14 px bold, above the field.
 - **Navigation:**

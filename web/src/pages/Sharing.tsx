@@ -4,7 +4,7 @@ import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { api, publicOrigin, shareUrl, type DeckSummary, type Sharing, type TradeCompare, type TradeMatch, type Visibility } from "../api";
 import { useMe } from "../auth";
 import { AreaHead } from "../components/DeckTabs";
-import { CardImage, ErrorText, Loading } from "../components/ui";
+import { Button, ButtonLink, CardImage, ErrorText, Loading } from "../components/ui";
 import { SharingSettings } from "../decks/SharingSettings";
 import { useCopy } from "../decks/ShareDeck";
 import { noteShareUrl, reports } from "../research/api";
@@ -17,8 +17,8 @@ function SharedLink({ name, manage, url, visibility }: { name: string; manage: s
   return <li className="sharing-item">
     <div><Link to={manage}>{name}</Link><p className="small dim">{visibility === "public" ? "Public" : "Anyone with the link"}</p></div>
     <div className="row">
-      {url && <><a className="button outline" href={url} target="_blank" rel="noreferrer">Open shared page<span className="visually-hidden">: {name}</span></a><button className="outline" onClick={() => void copy(url)}>Copy link<span className="visually-hidden">: {name}</span></button></>}
-      <Link className="button quiet" to={manage}>Manage<span className="visually-hidden">: {name}</span></Link>
+      {url && <><ButtonLink variant="outline" href={url} target="_blank" rel="noreferrer">Open shared page<span className="visually-hidden">: {name}</span></ButtonLink><Button variant="outline" onClick={() => void copy(url)}>Copy link<span className="visually-hidden">: {name}</span></Button></>}
+      <ButtonLink variant="quiet" to={manage}>Manage<span className="visually-hidden">: {name}</span></ButtonLink>
       {copied && <span className="small" role="status">{copied}</span>}
       {url && copied?.startsWith("Couldn't") && <input aria-label={`Shared link: ${name}`} readOnly value={url} onFocus={(e) => e.currentTarget.select()} />}
     </div>
@@ -41,7 +41,7 @@ function TradeSection({ sharing }: { sharing: Sharing | undefined }) {
   return <section className="grp-section" aria-labelledby="sharing-trade">
     <h2 id="sharing-trade">Trade with friends</h2>
     {wants
-      ? <><p>Your want list shows the cards on your shopping list, so friends can see what you're looking for.</p><div className="row"><a className="button outline" href={wants} target="_blank" rel="noreferrer">Open my want list</a><button className="outline" onClick={() => void copy(wants)}>Copy want list link</button>{copied && <span className="small" role="status">{copied}</span>}{copied?.startsWith("Couldn't") && <input className="share-fallback" aria-label="Want list link" readOnly value={wants} onFocus={(e) => e.currentTarget.select()} />}</div></>
+      ? <><p>Your want list shows the cards on your shopping list, so friends can see what you're looking for.</p><div className="row"><ButtonLink variant="outline" href={wants} target="_blank" rel="noreferrer">Open my want list</ButtonLink><Button variant="outline" onClick={() => void copy(wants)}>Copy want list link</Button>{copied && <span className="small" role="status">{copied}</span>}{copied?.startsWith("Couldn't") && <input className="share-fallback" aria-label="Want list link" readOnly value={wants} onFocus={(e) => e.currentTarget.select()} />}</div></>
       : sharing && <p className="dim">To send friends what you're looking for, {sharing.handle ? "" : "choose a handle and "}turn on "Show what I'm looking for on my profile" in <a href="#sharing">Sharing settings</a>.</p>}
     <form className="sharing-compare" onSubmit={(e) => { e.preventDefault(); if (handle) void navigate(`/sharing/compare/${encodeURIComponent(handle)}`); }}>
       <label>
@@ -49,7 +49,7 @@ function TradeSection({ sharing }: { sharing: Sharing | undefined }) {
         <span className="hint">Their handle: the cards on their want list you have, and the cards on your list in their collection.</span>
         <span className="row">
           <input value={friend} onChange={(e) => setFriend(e.target.value)} placeholder="@handle" maxLength={31} autoCapitalize="none" spellCheck={false} />
-          <button disabled={!handle}>Compare</button>
+          <Button type="submit" disabled={!handle}>Compare</Button>
         </span>
       </label>
     </form>
@@ -159,7 +159,7 @@ export function SharingPage() {
       <h2 id="sharing-profile">Your public profile</h2>
       {sharing.isPending && <Loading>Loading profile…</Loading>}
       <ErrorText error={sharing.error} />
-      {profile ? <><p>{profileHolds(sharing.data!)} appear here.</p><div className="row"><a className="button outline" href={profile} target="_blank" rel="noreferrer">Open my public profile</a><button className="outline" onClick={() => void copy(profile)}>Copy profile link</button>{copied && <span className="small" role="status">{copied}</span>}{copied?.startsWith("Couldn't") && <input className="share-fallback" aria-label="Public profile link" readOnly value={profile} onFocus={(e) => e.currentTarget.select()} />}</div></> : sharing.data && <p>Choose a handle in <a href="#sharing">Sharing settings</a> to give your public pages a profile.</p>}
+      {profile ? <><p>{profileHolds(sharing.data!)} appear here.</p><div className="row"><ButtonLink variant="outline" href={profile} target="_blank" rel="noreferrer">Open my public profile</ButtonLink><Button variant="outline" onClick={() => void copy(profile)}>Copy profile link</Button>{copied && <span className="small" role="status">{copied}</span>}{copied?.startsWith("Couldn't") && <input className="share-fallback" aria-label="Public profile link" readOnly value={profile} onFocus={(e) => e.currentTarget.select()} />}</div></> : sharing.data && <p>Choose a handle in <a href="#sharing">Sharing settings</a> to give your public pages a profile.</p>}
     </section>
     <TradeSection sharing={sharing.data} />
     <section className="grp-section" aria-labelledby="sharing-decks">

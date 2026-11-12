@@ -3,9 +3,9 @@
 // card going in, then the card it replaces), Print swap cards, and marks the cards going out in
 // the list. Nothing is saved: the box keeps its list.
 import type { Bag, Bracket } from "@yama/core/plan";
-import { Link } from "react-router";
 import { SwapPair } from "../plan/parts";
 import "../plan/plans.css";
+import { ButtonLink } from "../components/ui";
 
 /** The brackets the plan has a bag for, highest first, each with its swaps from the box (bags are cumulative). */
 export function bracketSwaps(bracket: Bracket | null | undefined): { bracket: number; swaps: Bag[] }[] {
@@ -49,8 +49,8 @@ export function SwapPanel({
           For Bracket {at}, swap {swaps.length} {swaps.length === 1 ? "card" : "cards"}
         </h2>
         <span className="deck-swap-actions">
-          <Link className="button" to={printHref}>Print swap cards</Link>
-          <Link className="button quiet" to={backHref}>Back to the box</Link>
+          <ButtonLink to={printHref}>Print swap cards</ButtonLink>
+          <ButtonLink variant="quiet" to={backHref}>Back to the box</ButtonLink>
         </span>
       </div>
       <ul className="deck-swap-pairs">

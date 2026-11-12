@@ -8,7 +8,7 @@ import { dispatch, getGame, isPosted, subscribeTable, subscribeTableEnd, sync, u
 import { chosenLayout, subscribeLayout } from "./layouts";
 import { getShowArt, subscribeShowArt } from "./art";
 import { getCountTurns, subscribeCountTurns } from "./turns";
-import { DialogHead } from "../components/ui";
+import { Button, DialogHead } from "../components/ui";
 
 /**
  * Where shared tables meet. Set (production): Yama's relay on Cloudflare (relay/), which works
@@ -427,19 +427,19 @@ export function ShareCard({ gameId, onBigger }: { gameId: string; onBigger?: () 
     <section className="tm-share" aria-labelledby="tm-share-title">
       {sharing && svg ? (
         onBigger ? (
-          <button className="tm-qr tm-qr-btn" onClick={onBigger} aria-label="Show the join code full size" dangerouslySetInnerHTML={{ __html: svg }} />
+          <Button className="tm-qr tm-qr-btn" onClick={onBigger} aria-label="Show the join code full size" dangerouslySetInnerHTML={{ __html: svg }} />
         ) : (
           <div className="tm-qr" dangerouslySetInnerHTML={{ __html: svg }} aria-label="Join code" role="img" />
         )
       ) : (
-        <button className="tm-qr tm-qr-off" onClick={() => startHosting(gameId)} aria-label="Show the join code">
+        <Button className="tm-qr tm-qr-off" onClick={() => startHosting(gameId)} aria-label="Show the join code">
           <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <rect x="3" y="3" width="7" height="7" rx="1" />
             <rect x="14" y="3" width="7" height="7" rx="1" />
             <rect x="3" y="14" width="7" height="7" rx="1" />
             <path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 20h4v-3" />
           </svg>
-        </button>
+        </Button>
       )}
       <div className="tm-share-text">
         <h3 id="tm-share-title">Share the table</h3>
@@ -452,14 +452,14 @@ export function ShareCard({ gameId, onBigger }: { gameId: string; onBigger?: () 
             </p>
             <div className="tm-share-actions">
               {"share" in navigator && (
-                <button className="small" onClick={() => void navigator.share({ title: "Join our game on Yama", url })}>Send the link</button>
+                <Button size="small" onClick={() => void navigator.share({ title: "Join our game on Yama", url })}>Send the link</Button>
               )}
-              <button className="quiet small" onClick={stopHosting}>Stop sharing</button>
+              <Button variant="quiet" size="small" onClick={stopHosting}>Stop sharing</Button>
             </div>
           </>
         ) : (
           <div className="tm-share-actions">
-            <button className="small" onClick={() => startHosting(gameId)}>Show the code</button>
+            <Button size="small" onClick={() => startHosting(gameId)}>Show the code</Button>
           </div>
         )}
       </div>
@@ -493,11 +493,11 @@ export function JoinSheet({ gameId, onDone }: { gameId: string; onDone: () => vo
         {!sharing ? "Not sharing" : hosting.connected ? "Live: joined devices follow along" : "Connecting to Yama…"}
       </p>
       <div className="row">
-        {"share" in navigator && <button onClick={() => void navigator.share({ title: "Join our game on Yama", url })}>Send the link</button>}
+        {"share" in navigator && <Button onClick={() => void navigator.share({ title: "Join our game on Yama", url })}>Send the link</Button>}
         {sharing ? (
-          <button className="quiet" onClick={stopHosting}>Stop sharing</button>
+          <Button variant="quiet" onClick={stopHosting}>Stop sharing</Button>
         ) : (
-          <button onClick={() => startHosting(gameId)}>Share again</button>
+          <Button onClick={() => startHosting(gameId)}>Share again</Button>
         )}
       </div>
       <p className="small dim" style={{ margin: 0 }}>This device keeps the game, so it carries on if the signal drops. The code stays in the table menu.</p>

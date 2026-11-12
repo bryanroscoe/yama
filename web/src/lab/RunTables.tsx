@@ -5,7 +5,7 @@ import { Link, useParams, useSearchParams } from "react-router";
 import { api } from "../api";
 import { ArtPanel as SharedArtPanel, artCredits } from "../components/ArtPanel";
 import { queryFailure, RefreshFailed } from "../components/QueryError";
-import { Details, ErrorText, Pips, Loading } from "../components/ui";
+import { Button, Details, ErrorText, Loading, Pips } from "../components/ui";
 import type { ExperimentDetail, TableDeck, TableGame, TableView, Tables } from "./api";
 import { enginesOf } from "./engines";
 import { LabHead } from "./LabLayout";
@@ -219,7 +219,7 @@ export function RunDeckPage() {
             <ul className="rt-rivals">
               {rivalRows.slice(0, 60).map((r) => (
                 <li key={r.id}>
-                  <button type="button" className={`rt-rival${vs === r.id ? " on" : ""}`} aria-pressed={vs === r.id} onClick={() => setVs(vs === r.id ? null : r.id)}>
+                  <Button className={`rt-rival${vs === r.id ? " on" : ""}`} aria-pressed={vs === r.id} onClick={() => setVs(vs === r.id ? null : r.id)}>
                     <SharedArtPanel as="span" className="rt-thumb" art={decks.get(r.id)?.art?.url} wash="bottom" credit={false} />
                     <span className="rt-rival-text">
                       <b>{label(r.id)}</b>
@@ -231,7 +231,7 @@ export function RunDeckPage() {
                     <span className="rt-score num" aria-hidden="true">
                       {r.ahead}–{r.behind}
                     </span>
-                  </button>
+                  </Button>
                 </li>
               ))}
             </ul>
@@ -248,14 +248,14 @@ export function RunDeckPage() {
                   ["lost", "Won none"],
                 ] as const
               ).map(([k, t]) => (
-                <button key={k} type="button" aria-pressed={filter === k} onClick={() => setFilter(k)}>
+                <Button key={k} aria-pressed={filter === k} onClick={() => setFilter(k)}>
                   {t}
-                </button>
+                </Button>
               ))}
               {vs && (
-                <button type="button" aria-pressed onClick={() => setVs(null)}>
+                <Button aria-pressed onClick={() => setVs(null)}>
                   With {label(vs)}, clear
-                </button>
+                </Button>
               )}
             </div>
             <p className="small dim">

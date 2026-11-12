@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, type Member, type Playgroup } from "../api";
 import { useMe } from "../auth";
-import { ErrorText } from "../components/ui";
+import { Button, ErrorText } from "../components/ui";
 import { ask } from "../components/confirm";
 
 /** The server's caps (server/src/playgroups.rs), so the fields stop where a save would. */
@@ -80,8 +80,8 @@ export function Members({ group }: { group: Playgroup }) {
               </span>
               {owner && !mine && (
                 <span className="grp-member-actions">
-                  {m.user_id && <button className="outline" disabled={busy} onClick={() => askHandOn(m)} aria-label={`Make ${m.display_name} the owner`}>Make owner</button>}
-                  <button className="outline" disabled={busy} onClick={() => askRemove(m)} aria-label={`Remove ${m.display_name}`}>Remove</button>
+                  {m.user_id && <Button variant="outline" disabled={busy} onClick={() => askHandOn(m)} aria-label={`Make ${m.display_name} the owner`}>Make owner</Button>}
+                  <Button variant="outline" disabled={busy} onClick={() => askRemove(m)} aria-label={`Remove ${m.display_name}`}>Remove</Button>
                 </span>
               )}
             </li>
@@ -94,14 +94,14 @@ export function Members({ group }: { group: Playgroup }) {
           <span className="visually-hidden">Guest name</span>
           <input value={guest} onChange={(e) => setGuest(e.target.value)} placeholder="Guest name" maxLength={GUEST_NAME_MAX} required />
         </label>
-        <button disabled={addGuest.isPending}>Add guest</button>
+        <Button type="submit" disabled={addGuest.isPending}>Add guest</Button>
       </form>
       <ErrorText error={error} />
       {owner && <OwnerTools group={group} alone={others.length === 0} onChange={refresh} onGone={gone} />}
       {/* The only account in a group can't leave it to nobody: they delete it (owner tools). */}
       {me && (!owner || others.length > 0) && (
         <div className="grp-you-row grp-you-actions">
-          <button className="outline" disabled={busy} onClick={askLeave}>Leave this playgroup</button>
+          <Button variant="outline" disabled={busy} onClick={askLeave}>Leave this playgroup</Button>
         </div>
       )}
     </section>
@@ -136,26 +136,26 @@ function OwnerTools({ group, alone, onChange, onGone }: { group: Playgroup; alon
             <input value={name} onChange={(e) => setName(e.target.value)} maxLength={NAME_MAX} required autoFocus />
           </label>
           <span className="grp-member-actions">
-            <button disabled={rename.isPending || name.trim() === ""}>Save name</button>
-            <button type="button" className="outline" disabled={rename.isPending} onClick={() => setRenaming(false)}>Cancel</button>
+            <Button type="submit" disabled={rename.isPending || name.trim() === ""}>Save name</Button>
+            <Button variant="outline" disabled={rename.isPending} onClick={() => setRenaming(false)}>Cancel</Button>
           </span>
         </form>
       ) : (
         <div className="grp-you-row">
           <span className="grp-you-text"><b>Name</b><span>{group.name}</span></span>
-          <button className="outline" onClick={() => { setName(group.name); setRenaming(true); }}>Rename</button>
+          <Button variant="outline" onClick={() => { setName(group.name); setRenaming(true); }}>Rename</Button>
         </div>
       )}
       <div className="grp-you-row">
         <span className="grp-you-text"><b>Join code {group.join_code}</b><span>A new code stops the old one working. Removing someone with an account changes it too.</span></span>
-        <button className="outline" disabled={newCode.isPending} onClick={askNewCode}>New code</button>
+        <Button variant="outline" disabled={newCode.isPending} onClick={askNewCode}>New code</Button>
       </div>
       <div className="grp-you-row">
         <span className="grp-you-text">
           <b>Delete this playgroup</b>
           <span>{alone ? "Its games stay in your history, without the playgroup." : "Other people are in it. Leave to hand it on, or remove them first."}</span>
         </span>
-        <button className="outline" disabled={!alone || remove.isPending} onClick={askDelete}>Delete</button>
+        <Button variant="outline" disabled={!alone || remove.isPending} onClick={askDelete}>Delete</Button>
       </div>
       <ErrorText error={rename.error ?? newCode.error ?? remove.error} />
     </div>

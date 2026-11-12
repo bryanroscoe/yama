@@ -4,6 +4,7 @@
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import "./helpPopover.css";
+import { Button } from "./Button";
 
 /** The popover's edge sits this far left of its button, and keeps this margin from the screen's edge. */
 const LEAD = 8;
@@ -56,9 +57,9 @@ export function HelpPopover({ label, children }: { label: string; children: Reac
   }, [open]);
   return (
     <span className="help-pop" ref={root}>
-      <button ref={button} type="button" className="help-pop-button" aria-label={`Help: ${label}`} aria-expanded={open} aria-controls={id} onClick={toggle}>
+      <Button ref={button} className="help-pop-button" aria-label={`Help: ${label}`} aria-expanded={open} aria-controls={id} onClick={toggle}>
         ?
-      </button>
+      </Button>
       {open && (
         <div id={id} role="note" className="help-pop-body" style={place}>
           {children}

@@ -1421,9 +1421,6 @@
   flex: 1;
   color: var(--text);
 }
-.tm-facing .segmented button {
-  font-size: var(--t-sm);
-}
 .ps-jump {
   min-width: 52px;
   font-family: var(--display);
@@ -1445,9 +1442,6 @@
   justify-content: space-between;
   gap: 8px;
   padding: 8px 8px 0;
-}
-.guest-bar .segmented button {
-  font-size: var(--t-sm);
 }
 .guest-bar-title {
   font-weight: 700;

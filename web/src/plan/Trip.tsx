@@ -23,7 +23,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { artCredits } from "../components/ArtPanel";
 import { Crop } from "../components/Crop";
-import { ErrorText, Loading, EmptyState, CopyButton } from "../components/ui";
+import { Button, ButtonLink, CopyButton, EmptyState, ErrorText, Loading } from "../components/ui";
 import {
   addSealedQuote,
   addWant,
@@ -178,7 +178,7 @@ export function Trip() {
 
       {trip.stops.length > 1 && (
         <p className="trip-copy">
-          <CopyButton text={trip.stops.map((st) => `${st.store.name}\n${st.paste}`).join("\n\n")} label="Copy every store's list" className="button outline" />
+          <CopyButton text={trip.stops.map((st) => `${st.store.name}\n${st.paste}`).join("\n\n")} label="Copy every store's list" variant="outline" />
         </p>
       )}
 
@@ -198,9 +198,9 @@ export function Trip() {
                 </span>
               </span>
               {st.cartUrl && (
-                <a className="button primary buy-cart" href={st.cartUrl} target="_blank" rel="noreferrer">
+                <ButtonLink variant="primary" className="buy-cart" href={st.cartUrl} target="_blank" rel="noreferrer">
                   Replace cart
-                </a>
+                </ButtonLink>
               )}
             </header>
             {st.noCartLine > 0 && !st.search.length && (
@@ -221,7 +221,7 @@ export function Trip() {
               </p>
             )}
             <p className="trip-copy">
-              <CopyButton text={st.paste} label="Copy the list" className="button outline" />
+              <CopyButton text={st.paste} label="Copy the list" variant="outline" />
             </p>
             {st.rows.map((r) => (
               <TripItem key={r.want.id} r={r} view={view} />
@@ -259,11 +259,11 @@ export function Trip() {
             Print, or check by hand <span className="num dim">{trip.print.length}</span>
           </h2>
           <p className="trip-copy">
-            <CopyButton text={trip.printPaste} label="Copy the list" className="button outline" />
+            <CopyButton text={trip.printPaste} label="Copy the list" variant="outline" />
             {trip.printMassEntry && (
-              <a className="button outline" href={trip.printMassEntry} target="_blank" rel="noreferrer" title="TCGplayer Mass Entry, prices online">
+              <ButtonLink variant="outline" href={trip.printMassEntry} target="_blank" rel="noreferrer" title="TCGplayer Mass Entry, prices online">
                 Compare on TCGplayer
-              </a>
+              </ButtonLink>
             )}
           </p>
           {trip.print.map((p) => (
@@ -418,9 +418,9 @@ function StockCheck({ stores, going, view, userId }: { stores: Store[]; going: s
         Checks online stock when you ask. Stores without an online list need a check by hand.
       </p>
       <p className="trip-copy">
-        <button type="button" className="button outline" disabled={start.isPending || running} onClick={() => start.mutate()}>
+        <Button variant="outline" disabled={start.isPending || running} onClick={() => start.mutate()}>
           {running ? "Checking stores…" : going ? "Check the stores I'm going to" : "Check stores"}
-        </button>
+        </Button>
         <label className="check small">
           <input type="checkbox" checked={yestcg} onChange={(e) => setYestcg(e.target.checked)} /> Also ask YesTCG (Austin), which gives condition and quantity
         </label>
@@ -484,9 +484,9 @@ function MyList({ view, userId }: { view: PlanView; userId: string }) {
                 {w.why ? `. ${w.why}` : ""}
                 {w.source === "assistant" ? " (added by a change from Claude)" : ""}
               </span>{" "}
-              <button type="button" className="button outline small" disabled={remove.isPending} onClick={() => remove.mutate(w.id)}>
+              <Button variant="outline" size="small" disabled={remove.isPending} onClick={() => remove.mutate(w.id)}>
                 Remove
-              </button>
+              </Button>
             </li>
           ))}
         </ul>
@@ -530,9 +530,9 @@ function MyList({ view, userId }: { view: PlanView; userId: string }) {
         <label>
           Why <input value={why} onChange={(e) => setWhy(e.target.value)} maxLength={500} />
         </label>
-        <button type="submit" className="button primary" disabled={add.isPending}>
+        <Button type="submit" variant="primary" disabled={add.isPending}>
           Add to the list
-        </button>
+        </Button>
       </form>
       <ErrorText error={add.error ?? remove.error} />
       {deckId && (
@@ -551,9 +551,9 @@ function MyList({ view, userId }: { view: PlanView; userId: string }) {
                   {c.real ? `${c.real} of ${c.need} real` : c.need > 1 ? `${c.need} needed` : "none real"}
                   {c.proxy ? `, ${c.proxy} ${c.proxy === 1 ? "proxy" : "proxies"}` : ""}
                 </span>{" "}
-                <button type="button" className="button outline small" disabled={add.isPending} onClick={() => submit(c.name, Math.max(1, c.need - c.real), "card")}>
+                <Button variant="outline" size="small" disabled={add.isPending} onClick={() => submit(c.name, Math.max(1, c.need - c.real), "card")}>
                   Add
-                </button>
+                </Button>
               </li>
             ))}
           </ul>
@@ -661,9 +661,9 @@ function SealedRow({ it, stores, userId, today, capped, trip }: { it: SealedItem
             {it.best === x.id ? (capped ? ". Best choice" : ". Cheapest in stock") : ""}
             {it.best === x.id && !trip.includes(x.store) ? ", an extra stop" : ""}
             {x.note ? <span className="dim">. {x.note}</span> : null}{" "}
-            <button type="button" className="button outline small" disabled={remove.isPending} onClick={() => remove.mutate(x.id)}>
+            <Button variant="outline" size="small" disabled={remove.isPending} onClick={() => remove.mutate(x.id)}>
               Remove
-            </button>
+            </Button>
           </li>
         ))}
       </ul>
@@ -696,9 +696,9 @@ function SealedRow({ it, stores, userId, today, capped, trip }: { it: SealedItem
         <label>
           Note <input value={note} disabled={add.isPending} onChange={(e) => setNote(e.target.value)} maxLength={500} placeholder="what the store said" />
         </label>
-        <button type="submit" className="button outline" disabled={add.isPending}>
+        <Button type="submit" variant="outline" disabled={add.isPending}>
           Record the price
-        </button>
+        </Button>
       </form>
       <ErrorText error={add.error ?? remove.error} />
     </div>
@@ -776,18 +776,17 @@ function StorePrefs({ stores, view, userId, skipped }: { stores: Store[]; view: 
                   onSave={(v) => set.mutate([{ key: s.key, body: prefBody(prefs[s.key], { premium_usd: v }) }])}
                 />
               )}
-              <button type="button" className="trip-move" aria-label={`${s.name} is easier to get to`} disabled={busy || i === 0} onClick={() => move(i, -1)}>
+              <Button className="trip-move" aria-label={`${s.name} is easier to get to`} disabled={busy || i === 0} onClick={() => move(i, -1)}>
                 ↑
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
                 className="trip-move"
                 aria-label={`${s.name} is harder to get to`}
                 disabled={busy || i === sorted.length - 1}
                 onClick={() => move(i, 1)}
               >
                 ↓
-              </button>
+              </Button>
             </span>
           </div>
         );

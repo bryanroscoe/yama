@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 import type { DeckView } from "../api";
+import { Button } from "../components/ui";
 import { ResetConfirm, ShareDeck } from "./ShareDeck";
 
 /** The buttons in an element tree, by their text. */
@@ -14,7 +15,7 @@ function buttons(node: ReactNode, out: { text: string; onClick?: () => void }[] 
     return out;
   }
   const el = node as ReactElement<{ children?: ReactNode; onClick?: () => void }>;
-  if (el.type === "button") out.push({ text: String(el.props.children), onClick: el.props.onClick });
+  if (el.type === Button) out.push({ text: String(el.props.children), onClick: el.props.onClick });
   buttons(el.props?.children, out);
   return out;
 }

@@ -8,7 +8,7 @@ import { destination, SwapCardResult, SwapReasons } from "./SwapDetails";
 import { prepareSheetForPrint } from "./print";
 import type { PlanView } from "./view";
 import "./swapsheet.css";
-import { Loading, EmptyState, ErrorText } from "../components/ui";
+import { Button, EmptyState, ErrorText, Loading } from "../components/ui";
 
 const SwapScanner = lazy(() => import("./SwapScanner"));
 const SHEETS = [
@@ -101,8 +101,8 @@ export function SwapSheetPage() {
       <div className="no-print">
         <PlansHead title="Swap sheet" />
         <div className="row ss-actions">
-          <button className="primary" disabled={printing} onClick={() => setScanning(true)}>Scan a card</button>
-          <button disabled={printing || !hasContent || !shown.length} aria-busy={printing} onClick={() => void print()}>{printing ? (pictures ? "Loading pictures…" : "Preparing print…") : "Print"}</button>
+          <Button variant="primary" disabled={printing} onClick={() => setScanning(true)}>Scan a card</Button>
+          <Button disabled={printing || !hasContent || !shown.length} aria-busy={printing} onClick={() => void print()}>{printing ? (pictures ? "Loading pictures…" : "Preparing print…") : "Print"}</Button>
         </div>
         <ErrorText error={printError} />
         <div className="ss-controls">
@@ -112,8 +112,8 @@ export function SwapSheetPage() {
         <fieldset className="ss-print-options ss-deck-options" disabled={printing}>
           <legend>Decks to print ({availableDecks.filter((d) => selectedKeys.has(d.key)).length} of {availableDecks.length})</legend>
           <div className="row ss-deck-select-actions">
-            <button type="button" className="quiet small" onClick={() => selectDecks(null)}>Select all</button>
-            <button type="button" className="quiet small" onClick={() => selectDecks([])}>Clear</button>
+            <Button variant="quiet" size="small" onClick={() => selectDecks(null)}>Select all</Button>
+            <Button variant="quiet" size="small" onClick={() => selectDecks([])}>Clear</Button>
           </div>
           {availableDecks.map((d) => <label key={d.key}>
             <input type="checkbox" checked={selectedKeys.has(d.key)} onChange={() => toggleDeck(d.key)} /> {d.name}
@@ -133,7 +133,7 @@ export function SwapSheetPage() {
         <form className="ss-lookup" onSubmit={(e) => { e.preventDefault(); setChecked(name.trim()); }}>
           <label>Check either card by name<input list="ss-card-names" value={name} onChange={(e) => setName(e.target.value)} placeholder="Card coming in or going out" /></label>
           <datalist id="ss-card-names">{choices.map((n) => <option key={n} value={n} />)}</datalist>
-          <button type="submit" disabled={!name.trim()}>Check card</button>
+          <Button type="submit" disabled={!name.trim()}>Check card</Button>
         </form>
         {checked && <SwapCardResult name={checked} sheet={visibleSheet} view={view} deckKey={deckKey} />}
       </div>
@@ -214,7 +214,7 @@ export function SwapSheetPage() {
         </>
       )}
       {swapping && <SwapInSheet deckKey={swapping.deck.key} deckName={swapping.deck.name} onClose={() => setSwapping(null)} />}
-      {scanning && <Suspense fallback={<div className="scan-overlay"><div className="sheet stack"><Loading>Starting the scanner…</Loading><button onClick={() => setScanning(false)}>Close</button></div></div>}>
+      {scanning && <Suspense fallback={<div className="scan-overlay"><div className="sheet stack"><Loading>Starting the scanner…</Loading><Button onClick={() => setScanning(false)}>Close</Button></div></div>}>
         <SwapScanner sheet={visibleSheet} view={view} deckKey={deckKey} onClose={() => setScanning(false)} />
       </Suspense>}
     </div>
@@ -229,9 +229,9 @@ function DeckSection({ d, view, onSwap, pictures, reasons }: { d: SheetDeck; vie
         <h2 id={`ss-${d.deck.key}`}>
           {d.deck.name} <span className="dim">{d.deck.commander.join(" and ")}</span>
         </h2>
-        <button className={all ? "outline no-print" : "primary no-print"} onClick={onSwap}>
+        <Button variant={all ? "outline" : "primary"} className="no-print" onClick={onSwap}>
           {all ? "Check it in Yama" : "Swap in the prints"}
-        </button>
+        </Button>
       </div>
       <p className="ss-lead">
         {d.prints} {d.prints === 1 ? "print" : "prints"}

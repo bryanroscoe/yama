@@ -2,11 +2,11 @@
 // one step, speed, hands face up, which seat sits at the bottom, and the end-of-game card.
 
 import { useMutation } from "@tanstack/react-query";
-import { Link, useNavigate } from "react-router";
+import { useNavigate } from "react-router";
 import { usePower } from "../auth";
 import { api } from "../api";
 import { ArtPanel } from "../components/ArtPanel";
-import { ErrorText, Segmented } from "../components/ui";
+import { Button, ButtonLink, ErrorText, Segmented } from "../components/ui";
 import { SPEEDS, seatName } from "./watch";
 import type { SeatInfo, Speed, View, WatchStatus } from "./types";
 import { count } from "@yama/core";
@@ -56,8 +56,8 @@ export function WatchControls({ id, status, view, seats, art, pov, onPov, send, 
         <ErrorText error={again.error} />
         {power && (
           <div className="watch-end-buttons">
-            <button type="button" className="primary" onClick={() => again.mutate()} disabled={again.isPending}>Watch again</button>
-            <Link to="/play/watch" className="button outline">Set up another</Link>
+            <Button variant="primary" onClick={() => again.mutate()} disabled={again.isPending}>Watch again</Button>
+            <ButtonLink to="/play/watch" variant="outline">Set up another</ButtonLink>
           </div>
         )}
       </div>
@@ -69,18 +69,17 @@ export function WatchControls({ id, status, view, seats, art, pov, onPov, send, 
     <div className={`watch-panel${compact ? " compact" : ""}`}>
       {status.idle && <p className="watch-note" role="status">Paused while nobody was watching. It carries on now you're back.</p>}
       <div className="watch-main">
-        <button
-          type="button"
-          className="primary watch-play"
+        <Button
+          variant="primary" className="watch-play"
           aria-keyshortcuts="Space"
           onClick={() => send(paused ? { type: "play" } : { type: "pause" })}
         >
           {paused ? <PlayIcon /> : <PauseIcon />}
           <span>{paused ? "Play" : "Pause"}</span>
-        </button>
-        <button type="button" className="outline watch-step" onClick={() => send({ type: "step" })} disabled={!paused} aria-keyshortcuts="ArrowRight" title="Play until something changes, then pause">
+        </Button>
+        <Button variant="outline" className="watch-step" onClick={() => send({ type: "step" })} disabled={!paused} aria-keyshortcuts="ArrowRight" title="Play until something changes, then pause">
           Next move
-        </button>
+        </Button>
       </div>
       <Segmented
         className="watch-speed"
@@ -99,18 +98,18 @@ export function WatchControls({ id, status, view, seats, art, pov, onPov, send, 
           {view.players.map((p) => {
             const a = art(p.seat);
             return (
-              <button key={p.seat} type="button" className="watch-seat" aria-pressed={pov === p.seat} onClick={() => onPov(p.seat)} title={name(p.seat)}>
+              <Button key={p.seat} className="watch-seat" aria-pressed={pov === p.seat} onClick={() => onPov(p.seat)} title={name(p.seat)}>
                 {a.art ? <img src={a.art} alt="" /> : <span className="watch-seat-n">{p.seat + 1}</span>}
                 <span className="watch-seat-name">{name(p.seat)}</span>
-              </button>
+              </Button>
             );
           })}
         </span>
       </div>
       {!compact && (
-        <button type="button" className="quiet watch-stop" onClick={async () => (await ask({ title: "Stop this game?", body: "You can still look at the board.", confirm: "Stop the game" })) && send({ type: "stop" })}>
+        <Button variant="quiet" className="watch-stop" onClick={async () => (await ask({ title: "Stop this game?", body: "You can still look at the board.", confirm: "Stop the game" })) && send({ type: "stop" })}>
           Stop the game
-        </button>
+        </Button>
       )}
     </div>
   );

@@ -6,7 +6,7 @@ import { useSearchParams } from "react-router";
 import { api, type Card, type SearchResult } from "../api";
 import { isNetworkError } from "../cardDetail";
 import { isGuest } from "../guest";
-import { CardImage, ErrorText, Dialog } from "../components/ui";
+import { Button, CardImage, Dialog, ErrorText } from "../components/ui";
 import { offlineSearch } from "../offline/cards";
 import { ReleaseCalendar } from "../components/Upcoming";
 import { cardNamed, exactNameQuery, nameQuery, queryChips, withoutTerm } from "./cardQuery";
@@ -150,14 +150,14 @@ export function CardsPage() {
           <select className="cards-order" value={order} onChange={(e) => set({ order: e.target.value, page: "1" })} aria-label="Sort by">
             {ORDERS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
-          <button className="visually-hidden">Search</button>
+          <Button type="submit" className="visually-hidden">Search</Button>
         </form>
 
         {!q && (
           <div className="cards-help">
             <div className="cards-chips">
               {EXAMPLES.map((e) => (
-                <button key={e.q} className="cards-chip" onClick={() => set({ q: e.q, page: "1" })}>{e.label}</button>
+                <Button key={e.q} className="cards-chip" onClick={() => set({ q: e.q, page: "1" })}>{e.label}</Button>
               ))}
             </div>
             {/* The release calendar keeps watched sets for an account. */}
@@ -179,7 +179,7 @@ export function CardsPage() {
                 {chips.map((c) => (
                   <span key={c.raw} className="cards-chip term">
                     {c.label}
-                    <button aria-label={`Remove ${c.label}`} onClick={() => set({ q: withoutTerm(q, c.raw), page: "1" })}>×</button>
+                    <Button aria-label={`Remove ${c.label}`} onClick={() => set({ q: withoutTerm(q, c.raw), page: "1" })}>×</Button>
                   </span>
                 ))}
                 {/* Phones: the sort order is the last chip. */}
@@ -194,9 +194,9 @@ export function CardsPage() {
                 const owned = c.owned ?? 0;
                 return (
                   <li key={c.oracle_id}>
-                    <button className="cards-card" data-id={c.oracle_id} onClick={() => openCard(c.oracle_id)} aria-label={c.name}>
+                    <Button className="cards-card" data-id={c.oracle_id} onClick={() => openCard(c.oracle_id)} aria-label={c.name}>
                       <CardHover name={c.name} oracleId={c.oracle_id} image={c.image_normal}><CardImage src={c.image_normal} name={c.name}/></CardHover>
-                    </button>
+                    </Button>
                     {!results.data!.offline && (
                       <span className="cards-meta">
                         {!guest && (
@@ -213,9 +213,9 @@ export function CardsPage() {
             </ul>
             {pages > 1 && (
               <nav className="cards-pages" aria-label="Pages">
-                <button disabled={page <= 1} onClick={() => set({ page: String(page - 1) })}>Previous</button>
+                <Button disabled={page <= 1} onClick={() => set({ page: String(page - 1) })}>Previous</Button>
                 <span className="dim num">Page {page} of {pages}</span>
-                <button disabled={page >= pages} onClick={() => set({ page: String(page + 1) })}>Next</button>
+                <Button disabled={page >= pages} onClick={() => set({ page: String(page + 1) })}>Next</Button>
               </nav>
             )}
           </>

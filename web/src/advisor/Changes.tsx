@@ -6,7 +6,7 @@ import { Link } from "react-router";
 import { usePower } from "../auth";
 import { AreaHead } from "../components/DeckTabs";
 import { ChangesHowTo } from "../plan/howto";
-import { Details, ErrorText, Loading } from "../components/ui";
+import { Button, Details, ErrorText, Loading } from "../components/ui";
 import { applyChange, changesKey, discardChange, stagedChanges, type StagedChange } from "./api";
 import { Proposal, ProposalText } from "./Proposal";
 import "./advisor.css";
@@ -64,13 +64,13 @@ export function ChangeCard({ change, onNavigate, onDecided }: { change: StagedCh
           )}
           <div className="ask-change-actions">
             {canApply && (
-              <button type="button" className="primary" disabled={busy} onClick={() => decide.mutate("apply")}>
+              <Button variant="primary" disabled={busy} onClick={() => decide.mutate("apply")}>
                 {busy && decide.variables === "apply" ? "Applying…" : shown.kind === "delete_deck" ? "Delete" : shown.kind === "remove_from_collection" ? "Remove" : "Apply"}
-              </button>
+              </Button>
             )}
-            <button type="button" className="outline" disabled={busy} onClick={() => decide.mutate("discard")}>
+            <Button variant="outline" disabled={busy} onClick={() => decide.mutate("discard")}>
               Discard
-            </button>
+            </Button>
           </div>
           {!shown.error && <p className="small dim">Waiting for your review. Nothing has changed yet.</p>}
         </>

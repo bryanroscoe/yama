@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { api, type AnalysisSummary, type DeckAnalysisView, type DeckEntry, type VectorKey } from "../api";
 import "./deckAnalysis.css";
+import { Button } from "../components/ui";
 
 export const VECTORS: { key: VectorKey; label: string; short: string }[] = [
   { key: "speed", label: "Speed", short: "Speed" },
@@ -46,9 +47,9 @@ export function ScryCheckButton({ cards }: { cards: DeckEntry[] }) {
   const open = <a href={SCRYCHECK} target="_blank" rel="noopener noreferrer">Open ScryCheck<span className="visually-hidden"> (opens in a new tab)</span></a>;
   return (
     <div className="scrycheck-open">
-      <button type="button" className="quiet small" onClick={() => void go()}>
+      <Button variant="quiet" size="small" onClick={() => void go()}>
         Check it on ScryCheck <span aria-hidden="true">↗</span><span className="visually-hidden"> (copies the list and opens a new tab)</span>
-      </button>
+      </Button>
       <p className="small dim" role="status">
         {state === "opened" && <>List copied. In the ScryCheck tab, choose Paste list and paste it. Its formula is its own, so its numbers won't match these exactly.</>}
         {state === "blocked" && <>List copied. {open}, choose Paste list and paste it.</>}

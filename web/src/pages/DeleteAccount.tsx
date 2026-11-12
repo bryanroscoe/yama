@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useDeleteAccount } from "../auth";
-import { ErrorText, Dialog } from "../components/ui";
+import { Button, Dialog, ErrorText } from "../components/ui";
 
 /** Whether what was typed confirms the account's email: case and spaces at the ends don't matter. */
 export function confirmsEmail(email: string, typed: string): boolean {
@@ -19,9 +19,9 @@ export function DeleteAccount({ email }: { email: string }) {
         <b>Delete account</b>
         <span>Your account and everything in it, for good.</span>
       </span>
-      <button className="outline grp-danger" onClick={() => setOpen(true)}>
+      <Button variant="outline" danger onClick={() => setOpen(true)}>
         Delete
-      </button>
+      </Button>
       {open && <DeleteSheet email={email} onClose={() => setOpen(false)} />}
     </div>
   );
@@ -55,12 +55,12 @@ function DeleteSheet({ email, onClose }: { email: string; onClose: () => void })
         </label>
         <ErrorText error={del.error} />
         <div className="grp-delete-actions">
-          <button type="button" className="outline" onClick={onClose}>
+          <Button variant="outline" onClick={onClose}>
             Cancel
-          </button>
-          <button type="submit" className="grp-danger-fill" disabled={!ok || del.isPending}>
+          </Button>
+          <Button type="submit" variant="destructive" disabled={!ok || del.isPending}>
             {del.isPending ? "Deleting…" : "Delete my account"}
-          </button>
+          </Button>
         </div>
       </form>
     </Dialog>

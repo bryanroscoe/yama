@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { api, type Sharing, type Visibility } from "../api";
 import { useMe } from "../auth";
-import { ErrorText } from "../components/ui";
+import { Button, ButtonLink, ErrorText } from "../components/ui";
 import { VISIBILITY_CHOICES, useCopy } from "../decks/ShareDeck";
 import { noteShareUrl, resetNoteLink, setNoteSharing, type NoteSharing, type ResearchBundle } from "./api";
 import { planSummariesKey } from "./view";
@@ -44,9 +44,9 @@ export function ShareNote({ bundle }: { bundle: ResearchBundle }) {
     {visibility !== "private" && link && <div className="stack share-link">
       <label>Link<input readOnly value={link} onFocus={(e) => e.currentTarget.select()} /></label>
       <div className="row">
-        <button type="button" className="primary" onClick={() => void copy(link)}>Copy link</button>
-        <a className="button" href={link} target="_blank" rel="noreferrer">Open</a>
-        <button type="button" className="quiet" disabled={reset.isPending} onClick={async () => (await ask({ title: "Make a new link?", body: "The old one stops working.", confirm: "Make a new link", danger: true })) && reset.mutate()}>Reset link</button>
+        <Button variant="primary" onClick={() => void copy(link)}>Copy link</Button>
+        <ButtonLink href={link} target="_blank" rel="noreferrer">Open</ButtonLink>
+        <Button variant="quiet" disabled={reset.isPending} onClick={async () => (await ask({ title: "Make a new link?", body: "The old one stops working.", confirm: "Make a new link", danger: true })) && reset.mutate()}>Reset link</Button>
       </div>
       {copied && <p className="small" role="status">{copied}</p>}
     </div>}

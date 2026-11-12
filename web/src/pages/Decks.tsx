@@ -8,7 +8,7 @@ import { api, type DeckEntry, type DeckSummary, type DeckView } from "../api";
 import { useMe } from "../auth";
 import { AreaHead } from "../components/DeckTabs";
 import { LoadFailed, queryFailure, RefreshFailed } from "../components/QueryError";
-import { CardImage, ErrorText, Pips, EmptyState } from "../components/ui";
+import { Button, ButtonLink, CardImage, EmptyState, ErrorText, Pips } from "../components/ui";
 import { pct } from "../lab/logic";
 import { pairedFor, simShort, useRuns } from "../lab/paired";
 import { outbox, useOutbox } from "../plan/outbox";
@@ -112,10 +112,10 @@ export function DecksPage() {
         index
         title="Decks"
         action={
-          <Link className="button primary" aria-label="Add a deck" to="/decks/import">
+          <ButtonLink variant="primary" aria-label="Add a deck" to="/decks/import">
             <span className="wide-only">Add a deck</span>
             <span className="phone-only">Add</span>
-          </Link>
+          </ButtonLink>
         }
       />
       <ChangesBanner />
@@ -124,8 +124,8 @@ export function DecksPage() {
         <EmptyState
           action={
             <>
-              <Link className="button primary" to="/decks/import">Import a list</Link>
-              <Link className="button outline" to="/lab">Start from a precon</Link>
+              <ButtonLink variant="primary" to="/decks/import">Import a list</ButtonLink>
+              <ButtonLink variant="outline" to="/lab">Start from a precon</ButtonLink>
             </>
           }
         >
@@ -136,7 +136,7 @@ export function DecksPage() {
         <DeckIndexTools filter={filter} onChange={change} folders={folders} hasUnfiled={mains.some((d) => folderOf(d) === null)} shown={shown.length} total={groups.length} />
       )}
       {groups.length > 0 && shown.length === 0 && (
-        <EmptyState variant="boxed" action={<button type="button" onClick={() => change(CLEARED)}>Clear filters</button>}>
+        <EmptyState variant="boxed" action={<Button onClick={() => change(CLEARED)}>Clear filters</Button>}>
           No decks match.
         </EmptyState>
       )}
@@ -290,21 +290,21 @@ export function DeckPage() {
   const checkActions = <>
     <Link to={`/decks/${d.id}/check`}><span>Check the box against the list</span><span className="more-menu-note">Saves nothing</span></Link>
     <Link to={`/decks/${d.id}/scan`}><span>Scan the box as the list</span><span className="more-menu-note">Saves a version</span></Link>
-    <button onClick={() => { cards.setShow("need"); if (tab !== "cards") navigate(tabHref("cards")); }}><span>Compare with my collection</span><span className="more-menu-note">Still need</span></button>
+    <Button onClick={() => { cards.setShow("need"); if (tab !== "cards") navigate(tabHref("cards")); }}><span>Compare with my collection</span><span className="more-menu-note">Still need</span></Button>
   </>;
   const moreActions = <>
-    <button onClick={() => navigate("/", { state: { deckId: d.id } })}>Play</button>
-    <button onClick={() => setGoldfish(true)}>Sample hand</button>
+    <Button onClick={() => navigate("/", { state: { deckId: d.id } })}>Play</Button>
+    <Button onClick={() => setGoldfish(true)}>Sample hand</Button>
     <MenuSeparator />
-    <button onClick={() => setExporting(true)}>Copy or export</button>
+    <Button onClick={() => setExporting(true)}>Copy or export</Button>
     <MythicSendButton className="" onClick={() => setMythic(true)} />
     <MenuSeparator />
-    <button onClick={() => setCollecting(true)}>Add to collection</button>
-    <button onClick={() => setEditing(true)}>Deck settings</button>
-    <button onClick={() => setDescribing(true)}>{d.description ? "Edit the description" : "Add a description"}</button>
+    <Button onClick={() => setCollecting(true)}>Add to collection</Button>
+    <Button onClick={() => setEditing(true)}>Deck settings</Button>
+    <Button onClick={() => setDescribing(true)}>{d.description ? "Edit the description" : "Add a description"}</Button>
     {askOffered && <AskClaudeButton onClick={() => setAsking(true)} />}
     <MenuSeparator />
-    <button className="deck-delete" onClick={() => setDeleting(true)}>{deleteWording(d).action}</button>
+    <Button danger onClick={() => setDeleting(true)}>{deleteWording(d).action}</Button>
   </>;
 
   return (
@@ -341,9 +341,9 @@ export function DeckPage() {
         <div className="phone-only"><DeckTiles deck={d} summary={summary} measures={measures} hrefFor={tabHref} /></div>
         <div className="deck-actionbar">
           <div className="deck-actions" role="toolbar" aria-label="Deck actions">
-            <Link className="button primary" to={`/decks/${d.id}/edit`}>Edit list</Link>
+            <ButtonLink variant="primary" to={`/decks/${d.id}/edit`}>Edit list</ButtonLink>
             <MoreMenu label="Check cards" align="start">{checkActions}</MoreMenu>
-            <button onClick={() => setSharing(true)}>Share</button>
+            <Button onClick={() => setSharing(true)}>Share</Button>
             <MoreMenu title={d.name}>{moreActions}</MoreMenu>
           </div>
           {d.configurations.length > 1 || variants.length > 0 || brackets.length > 0 ? (
@@ -359,7 +359,7 @@ export function DeckPage() {
               atHref={planInForce ? atHref : undefined}
             />
           ) : (
-            <button className="quiet deck-new-list" onClick={() => setConfiguring(true)}>Save a copy as a new list</button>
+            <Button variant="quiet" className="deck-new-list" onClick={() => setConfiguring(true)}>Save a copy as a new list</Button>
           )}
         </div>
         <SavedListBar deck={d} />
@@ -507,7 +507,7 @@ function SampleHand({ deck, art, artist, onClose }: { deck: DeckView; art: strin
           <span className="hand-deck">{deck.name}</span>
           <span className="hand-name">Sample hand</span>
         </span>
-        <button ref={done} className="primary hand-done" onClick={onClose}>Done</button>
+        <Button ref={done} variant="primary" className="hand-done" onClick={onClose}>Done</Button>
       </ArtPanel>
       <div className="hand-body">
         <p className="hand-summary" aria-live="polite">
@@ -519,18 +519,18 @@ function SampleHand({ deck, art, artist, onClose }: { deck: DeckView; art: strin
         <ul className="hand-cards" aria-label="Your hand">
           {g.hand.map((c, i) => (
             <li key={c.id}>
-              <button onClick={() => setG(bottom(g, i))} disabled={g.toBottom === 0} aria-label={g.toBottom ? `Put ${c.name} on the bottom` : c.name}>
+              <Button onClick={() => setG(bottom(g, i))} disabled={g.toBottom === 0} aria-label={g.toBottom ? `Put ${c.name} on the bottom` : c.name}>
                 <CardImage src={images.get(c.name)} name={c.name} />
-              </button>
+              </Button>
             </li>
           ))}
         </ul>
         <p className="small dim hand-note">First mulligan free. Card images from Scryfall, © Wizards of the Coast.</p>
       </div>
       <div className="hand-bar">
-        <button className="primary" onClick={() => setG(draw(g))} disabled={g.toBottom > 0 || g.library.length === 0}>Draw</button>
-        <button onClick={() => setG(deal(g.mulligans + 1))}>Mulligan</button>
-        <button onClick={() => setG(deal(0))}>New hand</button>
+        <Button variant="primary" onClick={() => setG(draw(g))} disabled={g.toBottom > 0 || g.library.length === 0}>Draw</Button>
+        <Button onClick={() => setG(deal(g.mulligans + 1))}>Mulligan</Button>
+        <Button onClick={() => setG(deal(0))}>New hand</Button>
       </div>
     </div>
   );

@@ -4,6 +4,7 @@
 // expands inline and never pushes the page down.
 import { useEffect, useId, useRef, useState, type CSSProperties, type FocusEvent, type MouseEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { Button, type ButtonLook } from "./Button";
 import { returnFocusTo } from "./Dialog";
 import { Dialog } from "./ui";
 
@@ -34,13 +35,18 @@ export function MenuSeparator() {
 export function MoreMenu({
   children,
   label = "More",
-  className = "",
+  variant,
+  size,
+  className,
   title,
   align = "end",
 }: {
   children: ReactNode;
   /** The button's content. */
   label?: ReactNode;
+  /** The More button's look, as on `Button`. */
+  variant?: ButtonLook["variant"];
+  size?: ButtonLook["size"];
   className?: string;
   /** The sheet's heading on a phone (defaults to the label when it's text). */
   title?: string;
@@ -134,12 +140,12 @@ export function MoreMenu({
   );
   return (
     <div className="more-menu" ref={wrap}>
-      <button ref={button} type="button" className={className} aria-expanded={open} aria-controls={open ? id : undefined} onClick={toggle}>
+      <Button ref={button} variant={variant} size={size} className={className} aria-expanded={open} aria-controls={open ? id : undefined} onClick={toggle}>
         {label}
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="m6 9 6 6 6-6" />
         </svg>
-      </button>
+      </Button>
       {open &&
         popover &&
         createPortal(

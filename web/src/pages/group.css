@@ -639,12 +639,6 @@
 }
 
 /* Delete account (DeleteAccount.tsx) */
-.grp-you button.grp-danger {
-  color: var(--bad);
-}
-.grp-you button.grp-danger:hover {
-  border-color: var(--bad);
-}
 .grp-delete {
   display: flex;
   flex-direction: column;
@@ -677,15 +671,4 @@
   min-height: var(--target);
   padding: 0 16px;
   font-size: var(--t-label);
-}
-.grp-delete-actions button.grp-danger-fill {
-  background: var(--bad);
-  border-color: var(--bad);
-  color: var(--ground);
-}
-.grp-delete-actions button.grp-danger-fill:disabled {
-  background: var(--raised);
-  border-color: var(--raised);
-  color: var(--dim);
-  opacity: 1;
 }

@@ -282,26 +282,47 @@ button.outline:hover,
 .button.outline:hover {
   border-color: var(--dim);
 }
-button.quiet {
+button.quiet,
+.button.quiet {
   background: transparent;
   border-color: transparent;
 }
 /* Row actions (Skip, Undo, Show all; buttons marked small): 32 px on a laptop, a full 44 px target
    on touch screens. Other quiet buttons (Close, Cancel) keep the normal control height. */
-button.small {
+button.small,
+.button.small {
   min-height: var(--target-compact);
 }
-button.quiet:hover {
+button.quiet:hover,
+.button.quiet:hover {
   background: var(--raised);
+}
+/* It removes something: --bad words on a secondary, an outline or a quiet button. */
+button.danger,
+.button.danger {
+  color: var(--bad);
+}
+/* A quiet one stays words alone: no hairline appears under the pointer. */
+button.danger:not(.quiet):hover,
+.button.danger:not(.quiet):hover {
+  border-color: var(--bad);
+}
+/* The answer that deletes for good, in the sheet that asks: a --bad fill. */
+button.destructive,
+button.destructive:hover {
+  background: var(--bad);
+  border-color: var(--bad);
+  color: var(--ground);
 }
 button:disabled,
 button:disabled:hover {
   opacity: 0.5;
   cursor: default;
 }
-/* A primary that can't be used yet reads as waiting: raised, with dim text, not a faded pill. */
-button.primary:disabled,
-button.primary:disabled:hover {
+/* A primary that can't be used yet reads as waiting: raised, with dim text, not a faded pill.
+   The same for the answer that deletes. */
+button:is(.primary, .destructive):disabled,
+button:is(.primary, .destructive):disabled:hover {
   opacity: 1;
   background: var(--raised);
   border-color: var(--raised);
@@ -993,14 +1014,6 @@ button.list-row:hover {
     gap: 16px;
   }
 }
-.card-grid button {
-  padding: 0;
-  border: none;
-  background: none;
-  min-height: 0;
-  display: block;
-  border-radius: var(--card-radius);
-}
 .card-img {
   width: 100%;
   aspect-ratio: 488 / 680;
@@ -1136,13 +1149,6 @@ button.list-row:hover {
   justify-content: flex-end;
   gap: var(--s-2);
   margin-top: var(--s-4);
-}
-/* A destructive answer: --bad words on a secondary, saying what it removes. */
-.dialog-actions > button.danger {
-  color: var(--bad);
-}
-.dialog-actions > button.danger:hover {
-  border-color: var(--bad);
 }
 /* The sheet, its heading and the other full-screen layers take focus when they open, so the
    keyboard stays down on a phone; they aren't controls, so no ring. */
@@ -1459,11 +1465,6 @@ table.plain tr.few td {
   border-top: 1px solid var(--line);
 }
 
-/* New game: on phones the start button follows the seats; on laptops it sits beside the title. */
-.setup-start button {
-  flex: 1 1 auto;
-  min-height: 56px;
-}
 @media (min-width: 900px) {
   .new-game {
     grid-template-columns: minmax(0, 1fr) auto;
@@ -1480,9 +1481,6 @@ table.plain tr.few td {
   .new-game > .setup-start {
     grid-area: start;
     align-self: end;
-  }
-  .setup-start button {
-    min-height: var(--target-primary);
   }
   .new-game > .setup-controls {
     grid-area: controls;
@@ -2541,7 +2539,8 @@ fieldset.seat > legend:not(.visually-hidden) + * {
 .more-menu-items > :is(button, a):hover {
   background: var(--raised);
 }
-.more-menu-items > .deck-delete {
+/* The action that removes something goes last, in --bad. */
+.more-menu-items > .danger {
   color: var(--bad);
 }
 .more-menu-sep {

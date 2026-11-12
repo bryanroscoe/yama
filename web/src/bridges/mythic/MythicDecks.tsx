@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router";
 import { api } from "../../api";
-import { ErrorText, Loading } from "../../components/ui";
+import { Button, ErrorText, Loading } from "../../components/ui";
 import { deckApplyLabel, deckResultText, deckStatusText, type MythicApplied, type MythicDeckPreview, type MythicDeckRow, type MythicExport } from "./mythic";
 
 /** The import page's decks: each Mythic deck linked to a Yama deck, imported, or skipped. */
@@ -36,7 +36,7 @@ export function MythicDecks({ file }: { file: { name: string; data: MythicExport
       <ErrorText error={preview.error} />
       {preview.error && Object.keys(choices).length > 0 && (
         <div className="row">
-          <button className="outline" onClick={() => setChoices({})}>Start the choices over</button>
+          <Button variant="outline" onClick={() => setChoices({})}>Start the choices over</Button>
         </div>
       )}
       {preview.isLoading && <Loading>Reading the decks…</Loading>}
@@ -46,9 +46,9 @@ export function MythicDecks({ file }: { file: { name: string; data: MythicExport
             {p.decks.map((d) => <DeckLine key={d.mythic_id} d={d} choice={choices[d.mythic_id]} onChoose={(c) => setChoices((m) => ({ ...m, [d.mythic_id]: c }))} />)}
           </ul>
           <div className="row">
-            <button disabled={apply.isPending || preview.isFetching || p.decks.every((d) => d.action === "skip")} onClick={() => apply.mutate()}>
+            <Button disabled={apply.isPending || preview.isFetching || p.decks.every((d) => d.action === "skip")} onClick={() => apply.mutate()}>
               {deckApplyLabel(p.decks)}
-            </button>
+            </Button>
           </div>
         </>
       )}

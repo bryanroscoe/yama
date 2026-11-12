@@ -12,7 +12,7 @@ import { BackButton } from "../components/DeckTabs";
 import { api, type DeckSummary, type DeckVersion, type DeckVersionRow, type DeckView } from "../api";
 import { useMe } from "../auth";
 import { LoadFailed, queryFailure, RefreshFailed } from "../components/QueryError";
-import { Details, ErrorText, Dialog, Loading } from "../components/ui";
+import { Button, Details, Dialog, ErrorText, Loading } from "../components/ui";
 import { usePlan } from "../plan/store";
 import { buildNotes, buildNotesKey } from "../research/api";
 import { NameEntry } from "../scanner/NameEntry";
@@ -164,7 +164,7 @@ export function DeckCheckPage() {
           <Tally sum={sum} />
           {verdicts.length > 0 && <VerdictCard v={newest(verdicts)!} />}
           <div className="row deck-scan-start">
-            <button className="primary" onClick={() => { unlockSound(); setCamera(true); }}>{sum.checked ? "Check more cards" : "Check with the camera"}</button>
+            <Button variant="primary" onClick={() => { unlockSound(); setCamera(true); }}>{sum.checked ? "Check more cards" : "Check with the camera"}</Button>
             <NameEntry placeholder="Or type a card's name" onPick={(name) => setDraft((x) => addCard(x, name, { typed: true }))} />
           </div>
           <label className="scan-keep deck-check-mute">
@@ -176,10 +176,10 @@ export function DeckCheckPage() {
           <CheckedList verdicts={verdicts} setDraft={setDraft} />
           {sum.checked > 0 && (
             <div className="row">
-              <button onClick={saveAsScan}>Save as a deck scan</button>
-              <button className="quiet" onClick={async () => (await ask({ title: "Start the check over?", body: "The cards checked so far are cleared.", confirm: "Start over", danger: true })) && setDraft((x) => ({ ...x, cards: [] }))}>
+              <Button onClick={saveAsScan}>Save as a deck scan</Button>
+              <Button variant="quiet" onClick={async () => (await ask({ title: "Start the check over?", body: "The cards checked so far are cleared.", confirm: "Start over", danger: true })) && setDraft((x) => ({ ...x, cards: [] }))}>
                 Start over
-              </button>
+              </Button>
             </div>
           )}
           {sum.checked > 0 && <p className="small dim">Review the changes before saving a deck version.</p>}
@@ -358,12 +358,12 @@ function CheckedList({ verdicts, setDraft }: { verdicts: Verdict[]; setDraft: Se
                 <span className={`deck-scan-tag deck-check-tag ${TONE[v.kind]}`}>{verdictText(v).title}</span>
               </span>
               <span className="deck-scan-actions">
-                <button className="quiet small" onClick={() => setFixing(fixing === v.key ? null : v.key)} aria-expanded={fixing === v.key} aria-label={`Change ${v.name}`}>
+                <Button variant="quiet" size="small" onClick={() => setFixing(fixing === v.key ? null : v.key)} aria-expanded={fixing === v.key} aria-label={`Change ${v.name}`}>
                   Change
-                </button>
-                <button className="quiet small" onClick={() => setDraft((x) => removeCard(x, v.key))} aria-label={`Remove ${v.name}`}>
+                </Button>
+                <Button variant="quiet" size="small" onClick={() => setDraft((x) => removeCard(x, v.key))} aria-label={`Remove ${v.name}`}>
                   Remove
-                </button>
+                </Button>
               </span>
             </div>
             {fixing === v.key && (
@@ -469,7 +469,7 @@ function Camera({ deck, target, draft, verdicts, setDraft, muted, onMute, onClos
       ) : (
         <div className="sheet stack">
           <p>{error ?? "Starting the scanner…"}</p>
-          <button onClick={onClose}>Close</button>
+          <Button onClick={onClose}>Close</Button>
         </div>
       )}
     </div>

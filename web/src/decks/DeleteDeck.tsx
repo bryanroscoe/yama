@@ -6,7 +6,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { api, type DeckView } from "../api";
-import { ErrorText, Dialog } from "../components/ui";
+import { Button, Dialog, ErrorText } from "../components/ui";
 import { configurationLabel } from "./buildCatalog";
 
 export interface DeleteWording {
@@ -78,8 +78,8 @@ export function DeleteDeck({ deck, onClose }: { deck: DeckView; onClose: () => v
         )}
         <ErrorText error={remove.error} />
         <div className="row">
-          <button className="deck-danger" disabled={remove.isPending}>{remove.isPending ? "Deleting…" : label}</button>
-          <button type="button" className="outline" onClick={onClose}>Cancel</button>
+          <Button type="submit" variant="destructive" disabled={remove.isPending}>{remove.isPending ? "Deleting…" : label}</Button>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
         </div>
       </form>
     </Dialog>
