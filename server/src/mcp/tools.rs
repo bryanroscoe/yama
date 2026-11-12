@@ -393,6 +393,39 @@ pub(super) const TOOLS: &[Tool] = &[
         needs: Needs::Nothing,
     },
     Tool {
+        name: "browse_public_decks",
+        aliases: &[],
+        title: "Browse public decks",
+        description: "Commander decks other players have made public on Yama, the most recently saved first, 24 at a time \
+                      (next_cursor continues): each with its name, its builder's handle, commanders, colors, declared bracket, \
+                      card count, the precon it started from (worked out from the list) and its page's address. search matches \
+                      a deck's or a commander's name; commander, colors, bracket and precon narrow the list. This is the Browse \
+                      page's list: it reads nothing of anyone's account, theirs included. A deck's cards are on its page.",
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "search": {"type": "string", "description": "Part of a deck's or a commander's name."},
+                    "commander": {"type": "string", "description": "Part of a commander's name."},
+                    "colors": {"type": "string", "maxLength": 20, "description": "Colors the deck includes, as letters of WUBRG, such as UB. C alone: colorless decks."},
+                    "bracket": {"type": "integer", "minimum": 1, "maximum": 5, "description": "The bracket its builder declares."},
+                    "precon": {"type": "string", "description": "any: decks that started from a precon. Or one precon's id (get_precon)."},
+                    "cursor": {"type": "string", "maxLength": 200, "description": "next_cursor from the answer before, with the same other arguments."}
+                },
+                "additionalProperties": false
+            })
+        },
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_browse_public_decks),
+        stages: None,
+        output: Some(registry::paged),
+        untrusted: Some("other players' public decks (deck names and handles)"),
+        renamed: &[],
+        needs: Needs::Nothing,
+    },
+    Tool {
         name: "add_wish",
         aliases: &[],
         title: "Add to their shopping list",
@@ -1772,6 +1805,46 @@ async fn run_playgroups(c: Ctx<'_>, args: &Value) -> AppResult<String> {
     let pool = &st.pool;
     let _ = via;
     playgroups(pool, user, args).await
+}
+
+/// `browse_public_decks`: the Browse page's listing (`sharing::browse::listed`), so the tool and
+/// the page can't disagree about what is listed. No account is read, the caller's included.
+async fn run_browse_public_decks(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    use crate::sharing::browse::{Filter, PER_PAGE, listed};
+    let st = c.st;
+    let text = |key: &str, max: usize| arg::opt_text(args, key, max).map(|t| t.map(str::to_string));
+    let bracket = match args.get("bracket").filter(|v| !v.is_null()) {
+        None => None,
+        Some(v) => Some(v.as_i64().filter(|b| (1..=5).contains(b)).ok_or_else(|| AppError::bad("bracket must be a whole number from 1 to 5"))?.to_string()),
+    };
+    let mut filter = Filter { q: text("search", 1000)?, commander: text("commander", arg::TEXT)?, colors: text("colors", 20)?, bracket, precon: text("precon", arg::TEXT)?, page: None };
+    // A cursor continues the list these arguments make, and no other.
+    let parts = [&filter.q, &filter.commander, &filter.colors, &filter.bracket, &filter.precon].map(|v| v.as_deref().unwrap_or(""));
+    let scope = super::page::scope("browse_public_decks", &parts);
+    let start = super::page::start(args, &scope, 0)?;
+    filter.page = Some((start / PER_PAGE).to_string());
+    let found = listed(&st.pool, &filter, PER_PAGE).await?;
+    let base = st.cfg.public_url.as_deref().map(|b| b.trim_end_matches('/')).unwrap_or("");
+    let decks: Vec<Value> = found
+        .decks
+        .iter()
+        .map(|d| {
+            json!({
+                "name": d.name,
+                "by": format!("@{}", d.handle),
+                "commanders": d.commanders,
+                "colors": if d.color_identity.is_empty() { "colorless" } else { d.color_identity.as_str() },
+                "bracket": d.bracket,
+                "cards": d.card_count,
+                "saved": d.updated_at.get(..10).unwrap_or(&d.updated_at),
+                "started_from": d.precon.as_ref().map(|p| p.name.as_str()),
+                "page": format!("{base}/d/{}", d.token),
+            })
+        })
+        .collect();
+    let at = super::page::Page { offset: found.page * PER_PAGE, limit: PER_PAGE };
+    let total = usize::try_from(found.total).unwrap_or(0);
+    Ok(json!({ "total": found.total, "decks": decks, "next_cursor": at.next(&scope, total) }).to_string())
 }
 
 #[allow(unused_variables)]

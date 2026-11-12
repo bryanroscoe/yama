@@ -1,4 +1,4 @@
-## script key, power user: 69 tools
+## script key, power user: 70 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -15,6 +15,7 @@ get_store_stock	read
 check_stores	write, reaches outside Yama
 get_shopping_list	read
 compare_with_friend	read
+browse_public_decks	read
 add_wish	write
 get_review_queue	read
 search_cards	read
@@ -69,7 +70,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## OAuth sign-in, power user: 69 tools
+## OAuth sign-in, power user: 70 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -86,6 +87,7 @@ get_store_stock	read
 check_stores	write, reaches outside Yama
 get_shopping_list	read
 compare_with_friend	read
+browse_public_decks	read
 add_wish	write
 get_review_queue	read
 search_cards	read
@@ -140,7 +142,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## script key: 69 tools
+## script key: 70 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -157,6 +159,7 @@ get_store_stock	read
 check_stores	write, reaches outside Yama
 get_shopping_list	read
 compare_with_friend	read
+browse_public_decks	read
 add_wish	write
 get_review_queue	read
 search_cards	read
@@ -211,7 +214,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## OAuth sign-in: 69 tools
+## OAuth sign-in: 70 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -228,6 +231,7 @@ get_store_stock	read
 check_stores	write, reaches outside Yama
 get_shopping_list	read
 compare_with_friend	read
+browse_public_decks	read
 add_wish	write
 get_review_queue	read
 search_cards	read
@@ -282,7 +286,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## Ask Claude, power user: 67 tools
+## Ask Claude, power user: 68 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -299,6 +303,7 @@ get_store_stock	read
 check_stores	write, reaches outside Yama
 get_shopping_list	read
 compare_with_friend	read
+browse_public_decks	read
 add_wish	write
 get_review_queue	read
 search_cards	read
@@ -351,7 +356,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## OAuth sign-in limited to reading and staging, power user: 67 tools
+## OAuth sign-in limited to reading and staging, power user: 68 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -368,6 +373,7 @@ get_store_stock	read
 check_stores	write, reaches outside Yama
 get_shopping_list	read
 compare_with_friend	read
+browse_public_decks	read
 add_wish	write
 get_review_queue	read
 search_cards	read
@@ -420,7 +426,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## OAuth sign-in limited to reading, power user: 39 tools
+## OAuth sign-in limited to reading, power user: 40 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -432,6 +438,7 @@ get_shopping_settings	read
 get_store_stock	read
 get_shopping_list	read
 compare_with_friend	read
+browse_public_decks	read
 get_review_queue	read
 search_cards	read
 get_cards	read
@@ -461,7 +468,7 @@ list_deck_versions	read
 list_collection_cards	read
 get_research_sources	read
 
-## script key, an account with no stores, datasets or lab runs: 54 tools
+## script key, an account with no stores, datasets or lab runs: 55 tools
 get_research
 save_research
 review_research
@@ -470,6 +477,7 @@ get_deck
 get_plan
 get_shopping_list
 compare_with_friend
+browse_public_decks
 add_wish
 get_review_queue
 search_cards

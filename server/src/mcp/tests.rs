@@ -165,6 +165,50 @@ async fn tools_read_only_the_callers_own_data() {
     assert!(text.contains("deck is missing"), "{text}");
 }
 
+/// `browse_public_decks` is the Browse page's list: only decks that are listed publicly, and
+/// nothing of anyone's account but a handle.
+#[tokio::test]
+async fn browse_public_decks_lists_what_the_browse_page_lists() {
+    let (app, pool) = app().await;
+    let (owner, owner_session) = user(&pool, "builder@example.com").await;
+    let (_, reader_session) = user(&pool, "reader@example.com").await;
+    send(&app, Method::PUT, "/api/me/sharing", Some(&owner_session), Some(json!({ "handle": "builder" }))).await;
+    crate::sharing::list_publicly(&pool, &owner).await.unwrap();
+    let (listed, _) = deck(&pool, &owner, "Listed deck").await;
+    let (by_link, _) = deck(&pool, &owner, "Deck by link").await;
+    deck(&pool, &owner, "Private deck").await;
+    for (id, visibility) in [(&listed, "public"), (&by_link, "link")] {
+        let (status, _) = send(&app, Method::PATCH, &format!("/api/decks/{id}"), Some(&owner_session), Some(json!({ "visibility": visibility }))).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+    let token: String = sqlx::query_scalar("SELECT share_token FROM decks WHERE id = ?").bind(&listed).fetch_one(&pool).await.unwrap();
+    let reader = key(&app, &reader_session, Some("mcp")).await;
+
+    let (err, text) = call(&app, &reader, "browse_public_decks", json!({})).await;
+    assert!(!err, "{text}");
+    assert!(text.contains("\"total\":1") && text.contains("Listed deck") && text.contains("\"by\":\"@builder\"") && text.contains(&format!("/d/{token}")), "{text}");
+    assert!(text.contains("Test Commander") && text.contains("\"colors\":\"colorless\"") && text.contains("\"cards\":1"), "{text}");
+    for private in ["Deck by link", "Private deck", owner.as_str(), listed.as_str(), "builder@example.com"] {
+        assert!(!text.contains(private), "the list must not carry {private}: {text}");
+    }
+    // The filters are the page's.
+    let (err, text) = call(&app, &reader, "browse_public_decks", json!({"search": "listed", "commander": "test"})).await;
+    assert!(!err && text.contains("\"total\":1"), "{text}");
+    let (err, text) = call(&app, &reader, "browse_public_decks", json!({"search": "nothing like it"})).await;
+    assert!(!err && text.contains("\"total\":0") && text.contains("\"decks\":[]"), "{text}");
+    let (err, text) = call(&app, &reader, "browse_public_decks", json!({"precon": "any"})).await;
+    assert!(!err && text.contains("\"total\":0"), "{text}");
+    // What makes no sense is refused in words.
+    for (args, says) in [(json!({"bracket": 9}), "bracket"), (json!({"colors": "XYZ"}), "WUBRG"), (json!({"cursor": "not-a-cursor"}), "cursor")] {
+        let (err, text) = call(&app, &reader, "browse_public_decks", args.clone()).await;
+        assert!(err && text.contains(says), "{args}: {text}");
+    }
+    // Made private, it is gone on the next call.
+    send(&app, Method::PATCH, &format!("/api/decks/{listed}"), Some(&owner_session), Some(json!({ "visibility": "private" }))).await;
+    let (_, text) = call(&app, &reader, "browse_public_decks", json!({})).await;
+    assert!(text.contains("\"total\":0") && !text.contains("Listed deck"), "{text}");
+}
+
 #[tokio::test]
 async fn game_history_reads_only_the_callers_games() {
     let (app, pool) = app().await;

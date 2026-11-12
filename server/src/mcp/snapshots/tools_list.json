@@ -685,6 +685,69 @@
     },
     {
       "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Commander decks other players have made public on Yama, the most recently saved first, 24 at a time (next_cursor continues): each with its name, its builder's handle, commanders, colors, declared bracket, card count, the precon it started from (worked out from the list) and its page's address. search matches a deck's or a commander's name; commander, colors, bracket and precon narrow the list. This is the Browse page's list: it reads nothing of anyone's account, theirs included. A deck's cards are on its page.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "bracket": {
+            "description": "The bracket its builder declares.",
+            "maximum": 5,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "colors": {
+            "description": "Colors the deck includes, as letters of WUBRG, such as UB. C alone: colorless decks.",
+            "maxLength": 20,
+            "type": "string"
+          },
+          "commander": {
+            "description": "Part of a commander's name.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "cursor": {
+            "description": "next_cursor from the answer before, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "precon": {
+            "description": "any: decks that started from a precon. Or one precon's id (get_precon).",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "search": {
+            "description": "Part of a deck's or a commander's name.",
+            "maxLength": 1000,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "browse_public_decks",
+      "outputSchema": {
+        "properties": {
+          "next_cursor": {
+            "description": "Pass as cursor, with the same other arguments, for the next page. Absent or null on the last page.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "title": "Browse public decks"
+    },
+    {
+      "annotations": {
         "destructiveHint": false,
         "idempotentHint": false,
         "openWorldHint": false,
