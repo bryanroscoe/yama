@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import { BuildChoicesPage, SwapFace } from "./BuildChoices";
 import { duplexPages, type BuildChoice } from "./buildCatalog";
+import { pictureBatches } from "../components/useCardPictures";
 import { buildNotesKey } from "../research/api";
 
 // Navigation uses browser-only outbox subscriptions; keep real auth/plan hooks for cache tests.
@@ -89,9 +90,9 @@ describe("a deck's swap cards read like its plan page", () => {
     qc.setQueryData(["me"], { id: "owner" });
     qc.setQueryData(["decks"], []);
     qc.setQueryData(["plan", "owner"], { decks: [] });
-    const pic = (n: string) => ({ art: `https://cards.scryfall.io/art_crop/front/${n}.jpg`, artist: null, image: `https://cards.scryfall.io/normal/front/${n}.jpg` });
-    qc.setQueryData(["card-art", "Sol Ring"], pic("sol"));
-    qc.setQueryData(["card-art", "Island"], pic("island"));
+    // One search covers both names; Island has no art crop but still has its picture.
+    const card = (name: string, file: string, crop: boolean) => ({ name, image_normal: `https://cards.scryfall.io/normal/front/${file}.jpg`, image_art_crop: crop ? "crop.jpg" : null });
+    qc.setQueryData(["card-pictures", ["Island", "Sol Ring"]], [card("Sol Ring", "sol", true), card("Island", "island", false)]);
     const list = (extra: string) => `Commander\n1 Leader\nDeck\n98 Plains\n${extra}`;
     qc.setQueryData(buildNotesKey("owner"), [{ document: { id: "audit", title: "Upgrades", decks: [{ key: "party", name: "Party Time", builds: [
       { id: "b2", label: "Bracket 2 · Core", bracket: 2, list: list("1 Island"), swaps: [] },
@@ -102,5 +103,18 @@ describe("a deck's swap cards read like its plan page", () => {
     qc.clear();
     expect(html).toMatch(/<img class="thumb note-thumb" src="[^"]*sol\.jpg"/);
     expect(html).toMatch(/<img class="thumb note-thumb" src="[^"]*island\.jpg"/);
+  });
+});
+
+describe("swap card pictures are looked up in batches", () => {
+  it("keeps every search inside one page and the query limit", () => {
+    const names = Array.from({ length: 130 }, (_, i) => `Card number ${i} with a fairly long name`);
+    const batches = pictureBatches(names);
+    expect(batches.flat()).toEqual(names);
+    for (const b of batches) {
+      expect(b.length).toBeLessThanOrEqual(50);
+      expect(b.map((n) => `!"${n}"`).join(" or ").length).toBeLessThanOrEqual(1000);
+    }
+    expect(batches.length).toBeLessThan(10);
   });
 });

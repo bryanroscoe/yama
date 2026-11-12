@@ -2,12 +2,10 @@ import { useQueries } from "@tanstack/react-query";
 import { api, type SearchResult } from "../api";
 import { cardSearchPath } from "../guest";
 
-/** A card's art crop (loaded from Scryfall at runtime, never stored), who painted it, and the
- *  whole card's picture for a thumbnail. */
+/** A card's art crop (loaded from Scryfall at runtime, never stored) and who painted it. */
 export interface CardArt {
   art: string | null;
   artist: string | null;
-  image?: string | null;
 }
 
 async function lookup(name: string): Promise<CardArt | null> {
@@ -16,7 +14,7 @@ async function lookup(name: string): Promise<CardArt | null> {
   // Partner pairs arrive as "A and B". Some single cards have "and" in their names, so the whole
   // name goes first; only if that finds nothing is it read as a pair.
   if (!card && name.includes(" and ")) card = await find(name.split(" and ")[0]!);
-  return card?.image_art_crop ? { art: card.image_art_crop, artist: card.artist, image: card.image_normal } : null;
+  return card?.image_art_crop ? { art: card.image_art_crop, artist: card.artist } : null;
 }
 
 /**
