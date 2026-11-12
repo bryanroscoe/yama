@@ -3,18 +3,16 @@
 // still here on the next visit, and Yama's server keeps nothing of it. Each visit sends the list
 // to `POST /api/public/deck-check` (server/src/list_check.rs), which answers from card data and
 // market prices alone and keeps nothing of the list; the answer isn't kept either, so prices and legality
-// are current. "Sign in to save this deck" makes it an ordinary deck of the account
-// (`POST /api/decks`) and removes it from here.
+// are current. Saving it, signed in and with who can see it chosen on the page, makes it an
+// ordinary deck of the account (`POST /api/decks`) and removes it from here.
 
-import type { Card, CheapestPrinting, DeckAnalysis, DeckCard, DeckEntry, DeckView, SinglesValue } from "../api";
+import type { Card, CheapestPrinting, DeckAnalysis, DeckCard, DeckEntry, DeckView, SinglesValue, Visibility } from "../api";
 
 /** The server's limits (list_check.rs), checked here first so the page can say what's wrong. */
 export const MAX_LINES = 300;
 export const MAX_TEXT_BYTES = 60_000;
 /** A deck's name, in characters (decks.rs DECK_NAME_MAX). */
 export const NAME_MAX = 120;
-/** How long after pressing "Sign in to save this deck" a sign-in still saves it by itself. */
-export const SAVE_WINDOW_MS = 15 * 60 * 1000;
 
 const KEY = "yama.check.deck";
 
@@ -30,8 +28,6 @@ export interface GuestDeck {
    *  one list under one name with one commander: a change to any of them gets a new id
    *  (`changed`), because the server refuses an id sent again for something else. */
   opId: string;
-  /** When "Sign in to save this deck" was pressed (ms), until the save happens or it lapses. */
-  saveAsked?: number;
 }
 
 /** One card of the answer: the deck page's entry without anything of an account's. */
@@ -109,7 +105,6 @@ export function readGuestDeck(storage?: Store | null): GuestDeck | null {
       text: v.text,
       commanders: Array.isArray(v.commanders) ? v.commanders.filter((c): c is string => typeof c === "string").slice(0, 2) : [],
       opId: v.opId,
-      saveAsked: typeof v.saveAsked === "number" ? v.saveAsked : undefined,
     };
   } catch {
     return null;
@@ -145,12 +140,6 @@ export function listProblem(text: string): string | null {
   if (text.replace(/\r?\n$/, "").split("\n").length > MAX_LINES) return `That's more than ${MAX_LINES} lines. Check one deck at a time, and leave out long notes.`;
   if (new TextEncoder().encode(text).length > MAX_TEXT_BYTES) return "That's too much text for one deck.";
   return null;
-}
-
-/** Whether a sign-in that just happened should save the list by itself: only soon after the
- *  person pressed "Sign in to save this deck" in this browser. */
-export function saveWanted(deck: Pick<GuestDeck, "saveAsked">, now: number): boolean {
-  return deck.saveAsked != null && now >= deck.saveAsked && now - deck.saveAsked <= SAVE_WINDOW_MS;
 }
 
 const commandersOf = (check: Pick<ListCheck, "cards">) => check.cards.filter((c) => c.board === "commander");
@@ -196,12 +185,14 @@ export function asDeckView(name: string, check: ListCheck): DeckView {
 }
 
 /** `POST /api/decks` for the checked list: the cards as Yama read them (the server names each by
- *  its id again), under the list's own op id. */
-export function saveRequest(deck: GuestDeck, check: ListCheck): { name: string; cards: DeckCard[]; op_id: string } {
+ *  its id again), under the list's own op id, with who can see the deck as the person chose on
+ *  the page. The choice is always sent: the page never leaves it to a default nobody saw. */
+export function saveRequest(deck: GuestDeck, check: ListCheck, visibility: Visibility): { name: string; cards: DeckCard[]; op_id: string; visibility: Visibility } {
   return {
     name: deckName(deck, check),
     cards: check.cards.map(({ oracle_id, name, qty, board }) => ({ oracle_id, name, qty, board })),
     op_id: deck.opId,
+    visibility,
   };
 }
 

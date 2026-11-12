@@ -57,7 +57,7 @@ from anyone and shows what the deck page shows about a list: Commander legality,
 plays like and the least the card rules allow, Game Changers, the power level, stats, sample
 hands and dated market value. The list is kept in the browser only and is still there on the
 next visit; the server keeps neither the list nor the result and sends it to no other service, so combos (Commander
-Spellbook) come once it is saved. "Sign in to save this deck" makes it an ordinary deck. The sign-in page (`/signin`) highlights the public precon
+Spellbook) come once it is saved. Saving makes it an ordinary deck: signed in, the page asks who can see it and saves when Save is pressed; signing in saves nothing by itself. The sign-in page (`/signin`) highlights the public precon
 reference and MCP guide, explains what an account adds, and keeps Google sign-in directly
 accessible. OAuth and private links use a focused sign-in view.
 
@@ -75,7 +75,7 @@ Public (on the profile once it has a handle; a public deck can be listed in Brow
 search engines). Adding a deck asks who can
 see it (Public, Link only or Private) on the save step. The choice starts as the account's
 setting and is remembered for the next deck; each deck's Share button says who can see it and
-changes it afterwards. A deck made without that step (saved from Check a deck, copied from a precon, a Mythic Tools deck
+changes it afterwards. Check a deck's save has the same choice. A deck made without that step (copied from a precon, a Mythic Tools deck
 import, an assistant's staged deck) says what it starts as first; one Yama makes from a collection
 box or a plan's list always starts Private. A first public deck asks for a handle (on the save step and
 in the deck's Share sheet). Without one the deck is public by link; it joins the profile once a

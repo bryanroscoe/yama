@@ -21,6 +21,11 @@
   max-width: 760px;
   margin: var(--s-4) 0 0;
 }
+.check-save {
+  display: grid;
+  gap: var(--s-2);
+  margin: var(--s-2) 0 0;
+}
 .check-note {
   margin: var(--s-2) 0 0;
 }

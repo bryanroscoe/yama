@@ -17,6 +17,14 @@ const server = vi.hoisted(() => ({
   marked: false,
   /** Held back until released: a save whose answer hasn't come yet. */
   hold: null as null | (() => void),
+  /** The next save's answer is lost on its way back. */
+  loseAnswer: false,
+  /** Whoever watches the signed-in account (the mocked `useMe`), told when it changes. */
+  watchers: new Set<() => void>(),
+  /** Reading those settings fails. */
+  sharingFails: false,
+  /** The signed-in account's sharing settings (`GET /api/me/sharing`). */
+  sharing: { handle: null as string | null, new_deck_visibility: "private", public_listed_at: null as string | null, collection_public: false, wants_public: false, wants_include_pending: false, share_lab_results: false, decks: { private: 0, link: 0, public: 0 } },
 }));
 
 const cardData = (name: string, type_line: string): Card =>
@@ -62,21 +70,37 @@ vi.mock("../api", async (original) => ({
   api: (path: string, init?: { method?: string; json?: unknown }) => {
     // The account's setting for new decks, which the page reads to say what a saved deck starts
     // as (and holds Save until it has). Not one of the calls these tests count.
-    if (path === "/api/me/sharing") return Promise.resolve({ handle: null, new_deck_visibility: "private", public_listed_at: null, collection_public: false, wants_public: false, wants_include_pending: false, share_lab_results: false, decks: { private: 0, link: 0, public: 0 } });
+    if (path === "/api/me/sharing" && init?.method !== "PUT") return server.sharingFails ? Promise.reject(new Error("Yama didn't answer.")) : Promise.resolve({ ...server.sharing });
     server.calls.push({ path, method: init?.method, json: init?.json });
+    // Choosing a handle with a first public deck.
+    if (path === "/api/me/sharing") return Promise.resolve({ ...server.sharing, ...(init?.json as object) });
     if (server.refuse) return Promise.reject(new Error(server.refuse));
     if (path === "/api/public/deck-check") return Promise.resolve(answer((init?.json as { commanders: string[] }).commanders));
     if (path === "/api/decks") {
       const made = { id: "d-new", unknown: [] };
+      // The deck is made, and the answer never arrives.
+      if (server.loseAnswer) {
+        server.loseAnswer = false;
+        return Promise.reject(new TypeError("Failed to fetch"));
+      }
       return server.hold === null ? Promise.resolve(made) : new Promise((done) => (server.hold = () => done(made)));
     }
+    if (path === "/api/decks/d-new" && init?.method === "PATCH") return Promise.resolve({});
     return Promise.reject(new Error(`unexpected request to ${path}`));
   },
 }));
-vi.mock("../auth", async (original) => ({
-  ...(await original<typeof import("../auth")>()),
-  useMe: () => ({ data: server.me ?? undefined, isPending: false }),
-}));
+vi.mock("../auth", async (original) => {
+  const { useSyncExternalStore } = await import("react");
+  const watch = (tell: () => void) => {
+    server.watchers.add(tell);
+    return () => void server.watchers.delete(tell);
+  };
+  return {
+    ...(await original<typeof import("../auth")>()),
+    // Follows `server.me`, as the real hook follows /api/me (see `signIn` below).
+    useMe: () => ({ data: useSyncExternalStore(watch, () => server.me) ?? undefined, isPending: false }),
+  };
+});
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -122,6 +146,9 @@ describe("Check a deck", () => {
     server.me = null;
     server.refuse = null;
     server.marked = false;
+    server.sharingFails = false;
+    server.loseAnswer = false;
+    server.sharing = { ...server.sharing, handle: null, new_deck_visibility: "private", public_listed_at: null };
     server.hold = null;
     localStorage.clear();
     host = document.createElement("div");
@@ -296,39 +323,74 @@ describe("Check a deck", () => {
     expect(text()).not.toContain("this list is in your browser");
     await press(link("Sign in to save this deck"));
     expect(text()).toBe("Sign-in page");
-    // Signed in on the same page load, and back: the list is still there and is saved.
+    // Signed in on the same page load, and back: the list is still there, and saved when asked.
     server.me = { id: "u1" };
     await act(async () => void router.navigate("/check"));
     await settle();
+    expect(saves()).toEqual([]);
+    await press(button("Save to your decks"));
     expect(saves()).toHaveLength(1);
     expect((saves()[0]!.json as { name: string }).name).toBe("Omo, Queen of Vesuva");
     expect(router.state.location.pathname).toBe("/decks/d-new");
     expect(readGuestDeck()).toBeNull();
   });
 
-  it("signed out, offers to sign in to save, and remembers that it was asked", async () => {
+  it("signed out, offers to sign in to save and says that signing in saves nothing by itself", async () => {
     writeGuestDeck(newGuestDeck(LIST));
     await show();
     const signIn = link("Sign in to save this deck")!;
     expect(signIn.getAttribute("href")).toBe("/signin?next=%2Fcheck");
     expect(button("Save to your decks")).toBeUndefined();
-    const before = Date.now();
+    // No choice to make yet, and no setting of anyone's shown.
+    expect(document.querySelector(".visibility-choice")).toBeNull();
+    expect(text()).toContain("Signing in doesn't save the deck. Back here you choose who can see it (Public, Link only or Private), and it is saved when you press Save.");
     await press(signIn);
     expect(text()).toBe("Sign-in page");
-    expect(readGuestDeck()!.saveAsked).toBeGreaterThanOrEqual(before);
     expect(saves()).toEqual([]);
+    expect(readGuestDeck()!.text).toBe(LIST);
   });
 
-  it("back from signing in, saves the deck to the account by itself and takes it out of the browser", async () => {
-    const deck = { ...newGuestDeck(LIST), saveAsked: Date.now() - 60_000 };
-    writeGuestDeck(deck);
+  /** Another account signs in while the page stays open. */
+  const signIn = async (me: { id: string } | null) => {
+    await act(async () => {
+      server.me = me;
+      for (const tell of server.watchers) tell();
+    });
+    await settle();
+  };
+  const typeHandle = (value: string) =>
+    act(() => {
+      const field = document.querySelector<HTMLInputElement>(".import-handle input")!;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(field, value);
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  /** The requests a save made: the handle, the deck, and the deck's visibility set again. */
+  const saveCalls = () => server.calls.filter((c) => c.path !== "/api/public/deck-check").map((c) => [c.method, c.path, (c.json as { visibility?: string; handle?: string }).visibility ?? (c.json as { handle?: string }).handle]);
+  const choice = (label: string) => [...document.querySelectorAll<HTMLButtonElement>(".visibility-choice button")].find((b) => b.textContent === label)!;
+  const sentSave = () => saves()[0]!.json as { name: string; cards: { name: string; qty: number; board: string }[]; op_id: string; visibility: string };
+
+  it("back from signing in, saves nothing until Save is pressed, then with who can see it as picked", async () => {
+    // A new account: its decks start Public unless the person says otherwise.
+    server.sharing = { ...server.sharing, new_deck_visibility: "public", public_listed_at: "2026-11-12T17:00:00Z" };
+    const deck = newGuestDeck(LIST);
+    // A record from before this change, when a sign-in soon after asking saved by itself.
+    localStorage.setItem("yama.check.deck", JSON.stringify({ ...deck, saveAsked: Date.now() - 60_000 }));
     server.me = { id: "u1" };
     await show();
+    expect(saves()).toEqual([]);
+    expect(router.state.location.pathname).toBe("/check");
+    // The save step's own choice, starting at the account's setting, with what it means.
+    expect(text()).toContain("Who can see it");
+    expect(choice("Public").getAttribute("aria-pressed")).toBe("true");
+    expect(text()).toContain("Once you pick a handle it is on your profile, and can be listed in Browse and found by search engines.");
+    await act(async () => choice("Private").click());
+    expect(choice("Private").getAttribute("aria-pressed")).toBe("true");
+    expect(text()).toContain("Only you can see it.");
+    expect(saves()).toEqual([]);
+    await press(button("Save to your decks"));
     expect(saves()).toHaveLength(1);
-    const sent = saves()[0]!.json as { name: string; cards: { name: string; qty: number; board: string }[]; op_id: string };
-    expect(sent.name).toBe("Omo, Queen of Vesuva");
-    expect(sent.op_id).toBe(deck.opId);
-    expect(sent.cards.map((c) => [c.name, c.qty, c.board])).toEqual([
+    expect(sentSave()).toMatchObject({ name: "Omo, Queen of Vesuva", op_id: deck.opId, visibility: "private" });
+    expect(sentSave().cards.map((c) => [c.name, c.qty, c.board])).toEqual([
       ["Omo, Queen of Vesuva", 1, "commander"],
       ["Tana, the Bloodsower", 1, "main"],
       ["Sol Ring", 1, "main"],
@@ -339,31 +401,97 @@ describe("Check a deck", () => {
     expect(readGuestDeck()).toBeNull();
   });
 
-  it("signed in without having asked, waits for Save to your decks", async () => {
-    // Asked long ago (another day, perhaps another person): never saved by itself.
-    writeGuestDeck({ ...newGuestDeck(LIST), saveAsked: Date.now() - 24 * 60 * 60 * 1000 });
+  it("saves with the account's setting when the person leaves the choice as it is", async () => {
+    server.sharing = { ...server.sharing, new_deck_visibility: "link" };
+    writeGuestDeck(newGuestDeck(LIST));
     server.me = { id: "u1" };
     await show();
-    expect(saves()).toEqual([]);
-    expect(readGuestDeck()!.saveAsked).toBeUndefined();
+    expect(choice("Link only").getAttribute("aria-pressed")).toBe("true");
+    expect(text()).toContain("Anyone with the link can see the list. It isn't listed anywhere.");
     await press(button("Save to your decks"));
-    expect(saves()).toHaveLength(1);
-    expect(router.state.location.pathname).toBe("/decks/d-new");
-    expect(readGuestDeck()).toBeNull();
+    expect(sentSave().visibility).toBe("link");
   });
 
-  it("says what a saved deck starts as before it is saved: a new account's for a visitor, the account's own when signed in", async () => {
+  it("a first public deck asks for a handle, saved before the deck, and can be left blank", async () => {
+    server.sharing = { ...server.sharing, new_deck_visibility: "public", public_listed_at: "2026-11-12T17:00:00Z" };
     writeGuestDeck(newGuestDeck(LIST));
-    await show();
-    expect(text()).toContain("A deck you save starts as Public on a new account");
-    expect(text()).toContain("The deck's Share button changes it.");
-    act(() => root.unmount());
-    root = createRoot(host);
     server.me = { id: "u1" };
     await show();
-    expect(text()).toContain("It is saved as Private, your setting for new decks. Only you can see it.");
-    expect(text()).not.toContain("on a new account");
+    const field = () => document.querySelector<HTMLInputElement>(".import-handle input");
+    expect(field()).not.toBeNull();
+    // A handle that can't be one holds the save.
+    typeHandle("no");
+    expect(button("Save to your decks")!.disabled).toBe(true);
+    typeHandle("Kelly");
     expect(button("Save to your decks")!.disabled).toBe(false);
+    await press(button("Save to your decks"));
+    expect(saveCalls()).toEqual([["PUT", "/api/me/sharing", "kelly"], ["POST", "/api/decks", "public"], ["PATCH", "/api/decks/d-new", "public"]]);
+    // Left blank: no handle is saved, and the deck is public by link until one is picked.
+    act(() => root.unmount());
+    root = createRoot(host);
+    server.calls.length = 0;
+    writeGuestDeck(newGuestDeck(LIST));
+    await show();
+    expect(field()!.value).toBe("");
+    await press(button("Save to your decks"));
+    expect(saveCalls()).toEqual([["POST", "/api/decks", "public"], ["PATCH", "/api/decks/d-new", "public"]]);
+    // Not asked for a deck that isn't public.
+    act(() => root.unmount());
+    root = createRoot(host);
+    writeGuestDeck(newGuestDeck(LIST));
+    await show();
+    await act(async () => choice("Link only").click());
+    expect(field()).toBeNull();
+  });
+
+  it("a save tried again after its answer was lost leaves the deck as chosen now, not as first sent", async () => {
+    server.sharing = { ...server.sharing, new_deck_visibility: "public", handle: "kelly", public_listed_at: "2026-11-12T17:00:00Z" };
+    const deck = newGuestDeck(LIST);
+    writeGuestDeck(deck);
+    server.me = { id: "u1" };
+    await show();
+    // Saved as Public; the deck is made, but the page never hears.
+    server.loseAnswer = true;
+    await press(button("Save to your decks"));
+    expect(text()).toContain("Yama didn't answer.");
+    expect(router.state.location.pathname).toBe("/check");
+    expect(readGuestDeck()!.opId).toBe(deck.opId);
+    // Changed their mind, and tried again: the same save id names the deck already made, and the
+    // deck itself is then set to what is chosen now.
+    await act(async () => choice("Private").click());
+    await press(button("Save to your decks"));
+    expect(saveCalls()).toEqual([["POST", "/api/decks", "public"], ["POST", "/api/decks", "private"], ["PATCH", "/api/decks/d-new", "private"]]);
+    expect(saves().map((c) => (c.json as { op_id: string }).op_id)).toEqual([deck.opId, deck.opId]);
+    expect(router.state.location.pathname).toBe("/decks/d-new");
+  });
+
+  it("another account signing in on the open page starts the choice and the handle afresh", async () => {
+    server.sharing = { ...server.sharing, new_deck_visibility: "link" };
+    writeGuestDeck(newGuestDeck(LIST));
+    server.me = { id: "u1" };
+    await show();
+    await act(async () => choice("Public").click());
+    typeHandle("Kelly");
+    expect(document.querySelector<HTMLInputElement>(".import-handle input")!.value).toBe("Kelly");
+    // The second account's own setting, not the first one's pick or typed handle.
+    server.sharing = { ...server.sharing, new_deck_visibility: "private" };
+    await signIn({ id: "u2" });
+    expect(choice("Private").getAttribute("aria-pressed")).toBe("true");
+    expect(document.querySelector(".import-handle input")).toBeNull();
+    await act(async () => choice("Public").click());
+    expect(document.querySelector<HTMLInputElement>(".import-handle input")!.value).toBe("");
+    expect(saves()).toEqual([]);
+  });
+
+  it("holds Save while the account's setting can't be read, so no deck is made before the choice is on screen", async () => {
+    writeGuestDeck(newGuestDeck(LIST));
+    server.me = { id: "u1" };
+    server.sharingFails = true;
+    await show();
+    expect(document.querySelector(".visibility-choice")).toBeNull();
+    expect(button("Save to your decks")!.disabled).toBe(true);
+    expect(text()).toContain("Yama didn't answer.");
+    expect(saves()).toEqual([]);
   });
 
   it("keeps the list when the server refuses, and offers to edit it", async () => {

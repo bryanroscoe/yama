@@ -2,18 +2,19 @@
 // just type in decks… you can sign in to save stuff"). Paste a list or drop a file and see what
 // the deck page shows about a list: Commander legality, what bracket it plays like and why, Game
 // Changers, the power level, stats, sample hands and market value. The list stays in this browser
-// (guestDeck.ts); "Sign in to save this deck" makes it an ordinary deck of the account.
+// (guestDeck.ts). Saving it makes it an ordinary deck of the account: signed in, the page asks
+// who can see it (Public, Link only or Private, the save step's own choice) and saves only when
+// Save is pressed; signing in never saves by itself.
 //
 // What isn't here is what needs an account or an outside service: the cards you own, a declared
 // bracket, history, plans, and Commander Spellbook's combos (a list is sent there only once it is
 // saved to an account; the page and the privacy page say so).
 
-import { SavedAsNote, useNewDeckSetting } from "../decks/VisibilityChoice";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { shortDate, usd } from "@yama/core";
-import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { useMemo, useRef, useState, type DragEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
-import { api, type DeckAnalysis, type DeckView } from "../api";
+import { api, type DeckAnalysis, type DeckView, type Visibility } from "../api";
 import { signInPath, useMe } from "../auth";
 import { ActionBar } from "../components/ActionBar";
 import { ArtPanel, artCredit } from "../components/ArtPanel";
@@ -23,9 +24,11 @@ import { Field } from "../components/Field";
 import { PageTabs } from "../components/SectionTabs";
 import { useScrollToHash } from "../components/useScrollToHash";
 import { Button, ButtonLink, ErrorText, Loading, PageHeader, Pips, StatusPill } from "../components/ui";
+import { handleProblem, HANDLE_HINT, typedHandle, useSaveHandle } from "../decks/ChooseHandle";
 import { DeckCardsTab, useCardControls } from "../decks/DeckCardsTab";
 import { ColorSection, CurveSection, FlagsSection, PowerSection, ThemesSection } from "../decks/DeckStatsTab";
 import { SampleHand } from "../decks/SampleHand";
+import { reachOf, useNewDeckSetting, VisibilityChoice } from "../decks/VisibilityChoice";
 import { WhyBracketPanel } from "../decks/WhyBracket";
 import { CardSheet } from "../pages/Cards";
 import {
@@ -41,7 +44,6 @@ import {
   readGuestDeck,
   rulesNote,
   saveRequest,
-  saveWanted,
   writeGuestDeck,
   type GuestDeck,
   type ListCheck,
@@ -56,6 +58,7 @@ const ACCEPT = ".txt,.dec,.mwdeck,text/plain";
 const MAX_FILE = 200_000;
 
 export function CheckPage() {
+  const accountId = useMe().data?.id;
   const [deck, setDeckState] = useState<GuestDeck | null>(() => readGuestDeck());
   const [editing, setEditing] = useState(false);
   // Whether this browser kept the list: when it wouldn't (storage blocked), the page still works
@@ -79,7 +82,9 @@ export function CheckPage() {
       />
     );
   }
-  return <CheckedDeck deck={deck} kept={kept} setDeck={setDeck} onEdit={() => setEditing(true)} />;
+  // Keyed by who is signed in: the choice of who can see the deck, a typed handle and a save's
+  // error belong to one account, and start afresh when another signs in on this page.
+  return <CheckedDeck key={accountId ?? "guest"} deck={deck} kept={kept} setDeck={setDeck} onEdit={() => setEditing(true)} />;
 }
 
 /** The box: paste a list, choose a file or drop one, and check it. */
@@ -205,8 +210,29 @@ function CheckedDeck({ deck, kept, setDeck, onEdit }: { deck: GuestDeck; kept: b
   // The Value tile links to the value panel on the Stats tab.
   useScrollToHash(!!r);
 
+  // Who can see the saved deck: the account's setting for new decks until the person picks here.
+  // What they pick goes with the save and is remembered, as on the import page's save step.
+  const startsAs = useNewDeckSetting();
+  const [picked, setPicked] = useState<Visibility | null>(null);
+  const visibility = startsAs.setting ? (picked ?? startsAs.setting.new_deck_visibility) : null;
+  // A first public deck asks for a handle, the name on the profile that lists it. Left blank,
+  // the deck is public by link and joins the profile once a handle is chosen.
+  const [handle, setHandle] = useState("");
+  const saveHandle = useSaveHandle();
+  const needsHandle = visibility === "public" && !!startsAs.setting && !startsAs.setting.handle;
+  const badHandle = needsHandle ? handleProblem(handle) : null;
   const save = useMutation({
-    mutationFn: () => api<{ id: string }>("/api/decks", { method: "POST", json: saveRequest(deck, r!) }),
+    mutationFn: async () => {
+      // The typed handle first, so a taken one stops the save before any deck is made.
+      if (needsHandle && typedHandle(handle)) await saveHandle.mutateAsync(handle);
+      const made = await api<{ id: string }>("/api/decks", { method: "POST", json: saveRequest(deck, r!, visibility!) });
+      // A save sent again after its answer was lost names the deck the first one made, as it was
+      // saved then (the op id). If the choice changed in between, the deck must still end up as
+      // chosen now, so it is set on the deck itself: a deck is never left more public than the
+      // choice on screen when Save was pressed.
+      await api(`/api/decks/${encodeURIComponent(made.id)}`, { method: "PATCH", json: { visibility } });
+      return made;
+    },
     onSuccess: (made) => {
       // It's an ordinary deck of the account now: this browser's copy goes. Only that copy: a
       // list kept since (another tab) is a different one and stays.
@@ -218,22 +244,10 @@ function CheckedDeck({ deck, kept, setDeck, onEdit }: { deck: GuestDeck; kept: b
   // While a save is on its way the list can't be edited, cleared or given another commander:
   // what was sent is what is being saved.
   const saving = save.isPending;
-  // Saving here has no choice of who can see the deck: the page says what it starts as first
-  // (the account's setting), and the button waits until it can.
-  const startsAs = useNewDeckSetting();
-  // Back from "Sign in to save this deck": save it without asking again.
-  const autoSaved = useRef(false);
+  // Nothing is saved until Save is pressed with the choice on screen: coming back from
+  // "Sign in to save this deck" lands here, on the choice, and saves nothing by itself.
   const signedIn = !!me.data;
-  const fresh = !!r && !check.isPlaceholderData;
-  useEffect(() => {
-    if (!signedIn || !fresh || autoSaved.current || deck.saveAsked == null) return;
-    autoSaved.current = true;
-    const wanted = saveWanted(deck, Date.now());
-    setDeck({ ...deck, saveAsked: undefined });
-    if (wanted) save.mutate();
-    // Runs once when the account and the answer are both here.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signedIn, fresh]);
+  const canSave = !saving && !check.isPlaceholderData && !!visibility && !badHandle;
 
   if (!r || !view) {
     return (
@@ -294,17 +308,29 @@ function CheckedDeck({ deck, kept, setDeck, onEdit }: { deck: GuestDeck; kept: b
         <div className="deck-actionbar">
           <div className="deck-actions" role="toolbar" aria-label="Deck actions">
             {signedIn ? (
-              <Button variant="primary" disabled={saving || check.isPlaceholderData || !startsAs.ready} onClick={() => save.mutate()}>{saving ? "Saving…" : "Save to your decks"}</Button>
+              <Button variant="primary" disabled={!canSave} onClick={() => save.mutate()}>{saving ? "Saving…" : "Save to your decks"}</Button>
             ) : (
-              <ButtonLink variant="primary" to={signInPath("/check")} onClick={() => setDeck({ ...deck, saveAsked: Date.now() })}>Sign in to save this deck</ButtonLink>
+              <ButtonLink variant="primary" to={signInPath("/check")}>Sign in to save this deck</ButtonLink>
             )}
             <Button disabled={saving} onClick={onEdit}>Edit the list</Button>
             <Button onClick={() => setGoldfish(true)}>Sample hand</Button>
             <Button variant="quiet" disabled={saving} onClick={() => void startOver()}>Clear</Button>
           </div>
         </div>
-        {/* Saving here has no choice of who can see the deck, so the page says what it starts as. */}
-        <SavedAsNote state={startsAs} />
+        {/* The save step's choice, for the deck Save is about to make. Signed out there is nothing
+            to choose yet: the page says the choice comes after signing in, and that signing in saves nothing. */}
+        {signedIn && visibility && startsAs.setting && (
+          <div className="check-save">
+            <VisibilityChoice value={visibility} onChange={setPicked} disabled={saving} reach={reachOf(startsAs.setting)} />
+            {needsHandle && (
+              <Field className="import-handle" label="Your handle" error={badHandle} hint={`Public decks are listed on your profile. ${HANDLE_HINT} Leave it blank and the deck is public by link until you pick one.`}>
+                <input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="yourname" maxLength={31} autoCapitalize="none" autoCorrect="off" spellCheck={false} disabled={saving} />
+              </Field>
+            )}
+          </div>
+        )}
+        {signedIn && <ErrorText error={startsAs.error} retry={startsAs.retry} />}
+        {!signedIn && <p className="small dim">Signing in doesn't save the deck. Back here you choose who can see it (Public, Link only or Private), and it is saved when you press Save.</p>}
         <ErrorText error={save.error} />
         <ErrorText error={check.error} retry={() => void check.refetch()} />
         {!v.ok && v.errors.length > 1 && <ul className="small deck-errors">{v.errors.map((e) => <li key={e}>{e}</li>)}</ul>}

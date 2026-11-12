@@ -12,8 +12,6 @@ import {
   readGuestDeck,
   rulesNote,
   saveRequest,
-  SAVE_WINDOW_MS,
-  saveWanted,
   writeGuestDeck,
   type CheckedCard,
   type ListCheck,
@@ -86,8 +84,10 @@ describe("the list kept in the browser", () => {
   });
 
   it("keeps what it can of an older or edited record", () => {
-    const storage = memory({ "yama.check.deck": JSON.stringify({ text: "1 Sol Ring", opId: "op", name: 7, commanders: ["a", 3, "b", "c"], saveAsked: "soon" }) });
-    expect(readGuestDeck(storage)).toEqual({ name: "", text: "1 Sol Ring", commanders: ["a", "b"], opId: "op", saveAsked: undefined });
+    const storage = memory({ "yama.check.deck": JSON.stringify({ text: "1 Sol Ring", opId: "op", name: 7, commanders: ["a", 3, "b", "c"], saveAsked: 5 }) });
+    // A record from before 12 Nov's change may carry `saveAsked` (a sign-in that would have saved
+    // by itself): it is dropped, so nothing ever saves without the choice on screen.
+    expect(readGuestDeck(storage)).toEqual({ name: "", text: "1 Sol Ring", commanders: ["a", "b"], opId: "op" });
   });
 
   it("works without storage: nothing is read and the page is told nothing was kept", () => {
@@ -102,12 +102,12 @@ describe("the list kept in the browser", () => {
   });
 
   it("gives a renamed list or another commander a new save id, since the server refuses an id sent for something else", () => {
-    const deck = { ...newGuestDeck("1 Omo\n1 Tana", "Lands"), commanders: ["o-omo"], saveAsked: 5 };
+    const deck = { ...newGuestDeck("1 Omo\n1 Tana", "Lands"), commanders: ["o-omo"] };
     // Nothing changed: the same list object, so a retry is the same save.
     expect(changed(deck, { name: "Lands" })).toBe(deck);
     expect(changed(deck, { commanders: ["o-omo"] })).toBe(deck);
     const renamed = changed(deck, { name: "Lands matter" });
-    expect(renamed).toMatchObject({ name: "Lands matter", text: deck.text, commanders: ["o-omo"], saveAsked: 5 });
+    expect(renamed).toMatchObject({ name: "Lands matter", text: deck.text, commanders: ["o-omo"] });
     expect(renamed.opId).not.toBe(deck.opId);
     const led = changed(deck, { commanders: ["o-tana"] });
     expect(led).toMatchObject({ name: "Lands", commanders: ["o-tana"] });
@@ -130,21 +130,11 @@ describe("what stops a list from being checked", () => {
   });
 });
 
-describe("saving after signing in", () => {
-  it("happens by itself only soon after Sign in to save this deck was pressed", () => {
-    const asked = 1_000_000;
-    expect(saveWanted({ saveAsked: asked }, asked + 60_000)).toBe(true);
-    expect(saveWanted({ saveAsked: asked }, asked + SAVE_WINDOW_MS)).toBe(true);
-    expect(saveWanted({ saveAsked: asked }, asked + SAVE_WINDOW_MS + 1)).toBe(false);
-    // Never pressed, or a clock that went backwards.
-    expect(saveWanted({}, asked)).toBe(false);
-    expect(saveWanted({ saveAsked: asked }, asked - 1)).toBe(false);
-  });
-
-  it("sends the cards as read, under the list's own id and name", () => {
+describe("saving to an account", () => {
+  it("sends the cards as read, under the list's own id and name, with who can see it as chosen", () => {
     const deck = { ...newGuestDeck("…"), opId: "op-1" };
     const r = check([card("Omo, Queen of Vesuva", "commander", true), card("Forest", "main", false, 30), card("Lightning Bolt", "side")]);
-    expect(saveRequest(deck, r)).toEqual({
+    expect(saveRequest(deck, r, "link")).toEqual({
       name: "Omo, Queen of Vesuva",
       cards: [
         { oracle_id: "o-Omo, Queen of Vesuva", name: "Omo, Queen of Vesuva", qty: 1, board: "commander" },
@@ -152,8 +142,9 @@ describe("saving after signing in", () => {
         { oracle_id: "o-Lightning Bolt", name: "Lightning Bolt", qty: 1, board: "side" },
       ],
       op_id: "op-1",
+      visibility: "link",
     });
-    expect(saveRequest({ ...deck, name: "Lands matter" }, r).name).toBe("Lands matter");
+    expect(saveRequest({ ...deck, name: "Lands matter" }, r, "private")).toMatchObject({ name: "Lands matter", visibility: "private" });
   });
 });
 

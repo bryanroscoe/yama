@@ -64,8 +64,8 @@ export function savedAsLine(sharing: Setting | null): string {
 }
 
 /**
- * The account's setting for new decks, for a page that saves a deck without the save step's
- * choice. `ready` is false while a signed-in account's setting hasn't loaded: such a page holds
+ * The account's setting for new decks: where a save step's choice starts (Check a deck), and
+ * what a page that saves a deck without that choice says first. `ready` is false while a signed-in account's setting hasn't loaded: such a page holds
  * its save until then, so a deck is never made before the page has said who can see it.
  */
 export function useNewDeckSetting() {
@@ -75,7 +75,7 @@ export function useNewDeckSetting() {
   return { signedIn: !!userId, setting: userId ? (sharing.data ?? null) : null, ready: userId ? !!sharing.data : !me.isPending, error: sharing.error, retry: () => void sharing.refetch() };
 }
 
-/** That line under a save button that has no choice of its own (Check a deck), or why it can't be said yet. */
+/** That line under a save button that has no choice of its own (a copy of a precon), or why it can't be said yet. */
 export function SavedAsNote({ state }: { state: ReturnType<typeof useNewDeckSetting> }) {
   if (state.error) return <ErrorText error={state.error} retry={state.retry} />;
   if (!state.ready) return null;
