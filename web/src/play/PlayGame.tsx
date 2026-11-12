@@ -51,7 +51,7 @@ export function PlayGame() {
 }
 
 /** A game whose saved engine this server can't run: nobody can play or finish it, so the host
- * may delete it, which also frees its place among the games they may have open. */
+ * may delete it. It already takes no place among the games they may have open. */
 function Stranded({ game, reason }: { game: OnlineGame; reason: string }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -68,7 +68,7 @@ function Stranded({ game, reason }: { game: OnlineGame; reason: string }) {
       <p role="alert">{reason}</p>
       {game.stranded && (
         <>
-          <p>This game can’t be continued on this version of Yama. Delete it to free its place for a new game.</p>
+          <p>This game can’t be continued on this version of Yama. It doesn’t count toward the games you may have open, so you can start new ones. You may also delete it.</p>
           <ErrorText error={remove.error} />
           <Button
             variant="destructive"
