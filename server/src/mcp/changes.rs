@@ -573,8 +573,18 @@ pub async fn save_deck(st: &AppState, user: &User, via: &Via, args: &Value) -> A
             "Create"
         }
     );
+    // A new deck starts as the account's setting for new decks. What is staged says so, and
+    // keeps it: applying makes the deck as the person reviewed it, whatever the setting is by then.
+    let starts_as = match target {
+        Some(_) => None,
+        None => Some(crate::sharing::new_deck_visibility(&st.pool, &user.id).await?),
+    };
     let detail = format!(
-        "Why: {note}\n{}\n{}\n{}",
+        "Why: {note}\n{}{}\n{}\n{}",
+        starts_as
+            .as_ref()
+            .map(|(v, listed)| format!("Who can see it: {} That is your setting for new decks; the deck's Share button changes it.\n", crate::sharing::who_can_see(v, *listed)))
+            .unwrap_or_default(),
         source
             .as_deref()
             .map(|s| format!("Source: {s}"))
@@ -582,7 +592,8 @@ pub async fn save_deck(st: &AppState, user: &User, via: &Via, args: &Value) -> A
         checks(&list.cards, &info),
         analysis::exported(&list.cards)
     );
-    stage(st, user, via, args, Staged {kind:"edit_deck",summary,detail,payload:json!({"complete_list":true,"deck_id":target,"base_version":base,"name":name,"cards":list.cards,"note":note,"source_url":source})}).await
+    let visibility = starts_as.map(|(v, _)| v);
+    stage(st, user, via, args, Staged {kind:"edit_deck",summary,detail,payload:json!({"complete_list":true,"deck_id":target,"base_version":base,"name":name,"cards":list.cards,"note":note,"source_url":source,"visibility":visibility})}).await
 }
 
 async fn apply_complete_deck(
@@ -628,7 +639,7 @@ async fn apply_complete_deck(
         crate::decks::insert_version_in(&mut tx, id, &cards, Some(&note)).await?;
         id.to_string()
     } else {
-        crate::decks::create_deck_in(
+        let id = crate::decks::create_deck_in(
             &mut tx,
             &user.id,
             p["name"].as_str().unwrap_or(""),
@@ -636,7 +647,18 @@ async fn apply_complete_deck(
             &cards,
             &note,
         )
-        .await?
+        .await?;
+        // As staged and reviewed (`save_deck`), not as the setting happens to be now. A change
+        // staged before this was recorded has none, and starts as the setting.
+        if let Some(v) = p["visibility"].as_str().and_then(|v| crate::sharing::visibility(v).ok()) {
+            sqlx::query("UPDATE decks SET visibility = ? WHERE id = ? AND owner_id = ?")
+                .bind(v)
+                .bind(&id)
+                .bind(&user.id)
+                .execute(&mut *tx)
+                .await?;
+        }
+        id
     };
     let result = json!({"label":format!("{} saved",p["name"].as_str().unwrap_or("Deck")),"link":format!("/decks/{id}"),"deck_id":id});
     // The deck and the applied marker commit together: a lost reply cannot create it twice.

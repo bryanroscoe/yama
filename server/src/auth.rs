@@ -485,7 +485,9 @@ async fn google_account(st: &AppState, sub: &str, email: &str, name: Option<&str
                 let made = sqlx::query(
                     // A new account's public decks are listed publicly from the start
                     // (`sharing::LISTED`): `public_listed_at` is when it took that meaning on.
-                    "INSERT INTO users (id, google_sub, email, display_name, is_admin, created_at, public_listed_at) VALUES (?, ?, ?, ?, 0, ?, ?) ON CONFLICT DO NOTHING",
+                    // Its new decks start public (public by default, 12 Nov 2026); the save step
+                    // offers Link only and Private, and Sharing settings change the default.
+                    "INSERT INTO users (id, google_sub, email, display_name, is_admin, created_at, public_listed_at, new_deck_visibility) VALUES (?, ?, ?, ?, 0, ?, ?, 'public') ON CONFLICT DO NOTHING",
                 )
                 .bind(new_id())
                 .bind(sub)
@@ -603,7 +605,8 @@ pub async fn add_local_user(
     sqlx::query(
         // Only a new row gets `public_listed_at` (`sharing::LISTED`): an account that was here
         // before keeps whatever it had, NULL included.
-        "INSERT INTO users (id, email, display_name, is_admin, admin_granted, password_hash, created_at, public_listed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        // The same for what its new decks start as: public for a new row only.
+        "INSERT INTO users (id, email, display_name, is_admin, admin_granted, password_hash, created_at, public_listed_at, new_deck_visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'public')
          ON CONFLICT(email) DO UPDATE SET password_hash = excluded.password_hash,
                                           admin_granted = users.admin_granted OR excluded.admin_granted,
                                           is_admin = users.is_admin OR excluded.admin_granted",
@@ -845,9 +848,9 @@ async fn delete_me(
 async fn upsert_user(st: &AppState, email: &str, name: &str) -> AppResult<User> {
     let is_admin = is_admin_email(&st.cfg, email);
     sqlx::query(
-        // As in `add_local_user`: a new row is listed publicly from the start, an existing one keeps
-        // what it had.
-        "INSERT INTO users (id, email, display_name, is_admin, created_at, public_listed_at) VALUES (?, ?, ?, ?, ?, ?)
+        // As in `add_local_user`: a new row is listed publicly from the start and its new decks
+        // start public; an existing one keeps what it had.
+        "INSERT INTO users (id, email, display_name, is_admin, created_at, public_listed_at, new_deck_visibility) VALUES (?, ?, ?, ?, ?, ?, 'public')
          ON CONFLICT(email) DO UPDATE SET is_admin = excluded.is_admin OR users.admin_granted",
     )
     .bind(new_id())

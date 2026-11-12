@@ -124,6 +124,24 @@ pub(crate) async fn list_publicly(pool: &SqlitePool, user: &str) -> AppResult<()
     Ok(())
 }
 
+/// What an account's new decks start as, and whether its public decks are listed publicly
+/// ([`LISTED`]'s account half, bar the handle).
+pub(crate) async fn new_deck_visibility(pool: &SqlitePool, user: &str) -> AppResult<(String, bool)> {
+    Ok(sqlx::query_as("SELECT new_deck_visibility, public_listed_at IS NOT NULL FROM users WHERE id = ?").bind(user).fetch_one(pool).await?)
+}
+
+/// One sentence on who can see a deck of this visibility, for text that stages or reports a new
+/// deck (an assistant's `save_deck`, an import). `listed` is whether the owner's public decks are
+/// listed publicly; without it a public deck is on the profile only.
+pub(crate) fn who_can_see(visibility: &str, listed: bool) -> &'static str {
+    match (visibility, listed) {
+        ("public", true) => "Public. It is on your profile, listed in Browse and open to search engines.",
+        ("public", false) => "Public. It is on your profile for anyone who has its address.",
+        ("link", _) => "Link only. Anyone who has its link can see it, and it isn't listed anywhere.",
+        _ => "Private. Only you can see it.",
+    }
+}
+
 /// Handles that would read as Yama itself, or as a page.
 const RESERVED: [&str; 20] = [
     "admin", "administrator", "api", "about", "help", "support", "yama", "official", "staff", "moderator", "mod", "me", "new",

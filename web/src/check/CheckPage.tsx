@@ -8,6 +8,7 @@
 // bracket, history, plans, and Commander Spellbook's combos (a list is sent there only once it is
 // saved to an account; the page and the privacy page say so).
 
+import { SavedAsNote } from "../decks/VisibilityChoice";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { shortDate, usd } from "@yama/core";
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
@@ -299,6 +300,8 @@ function CheckedDeck({ deck, kept, setDeck, onEdit }: { deck: GuestDeck; kept: b
             <Button variant="quiet" disabled={saving} onClick={() => void startOver()}>Clear</Button>
           </div>
         </div>
+        {/* Saving here has no choice of who can see the deck, so the page says what it starts as. */}
+        <SavedAsNote />
         <ErrorText error={save.error} />
         <ErrorText error={check.error} retry={() => void check.refetch()} />
         {!v.ok && v.errors.length > 1 && <ul className="small deck-errors">{v.errors.map((e) => <li key={e}>{e}</li>)}</ul>}

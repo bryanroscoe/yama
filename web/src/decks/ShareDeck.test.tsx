@@ -5,7 +5,7 @@ import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 import type { DeckView } from "../api";
 import { Button } from "../components/ui";
-import { ResetConfirm, ShareDeck } from "./ShareDeck";
+import { ResetConfirm, ShareDeck, shareLabel, VISIBILITY_CHOICES } from "./ShareDeck";
 
 /** The buttons in an element tree, by their text. */
 function buttons(node: ReactNode, out: { text: string; onClick?: () => void }[] = []) {
@@ -30,6 +30,16 @@ describe("making a new share link", () => {
     expect(onKeep).not.toHaveBeenCalled();
     found.find((b) => b.text === "Keep this one")!.onClick!();
     expect(onKeep).toHaveBeenCalledOnce();
+  });
+});
+
+describe("who can see a deck, by name", () => {
+  it("uses the save step's names: Private, Link only, Public", () => {
+    expect(VISIBILITY_CHOICES.map((c) => c.label)).toEqual(["Private", "Link only", "Public"]);
+  });
+
+  it("is on the deck page's Share button", () => {
+    expect([shareLabel("private"), shareLabel("link"), shareLabel("public")]).toEqual(["Share: private", "Share: link only", "Share: public"]);
   });
 });
 
@@ -71,10 +81,10 @@ describe("the share sheet", () => {
 
   it("asks for a handle on a public deck of an account without one, and only then", () => {
     vi.stubGlobal("location", new URL("https://yama.ing/decks/m"));
-    const sheet = (visibility: string, handle: string | null) => {
+    const sheet = (visibility: string, handle: string | null, public_listed_at: string | null = null) => {
       const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } });
       client.setQueryData(["me"], { id: "u1" });
-      client.setQueryData(["sharing", "u1"], { handle, new_deck_visibility: "private", collection_public: false, share_lab_results: true, decks: { private: 1, link: 1, public: 0 } });
+      client.setQueryData(["sharing", "u1"], { handle, new_deck_visibility: "private", collection_public: false, share_lab_results: true, public_listed_at, decks: { private: 1, link: 1, public: 0 } });
       const html = renderToStaticMarkup(
         <QueryClientProvider client={client}>
           <MemoryRouter>
@@ -92,6 +102,9 @@ describe("the share sheet", () => {
     expect(asked).toContain("Copy link");
     expect(sheet("public", "saget")).not.toContain("Save handle");
     expect(sheet("public", "saget")).toContain("your profile, @saget");
+    // An account from before public-by-default that hasn't answered: the profile only.
+    expect(sheet("public", "saget")).toContain("It isn&#x27;t in Browse or open to search engines until you answer");
+    expect(sheet("public", "saget", "2026-11-12T00:00:00Z")).toContain("and in Browse. Search engines can find it.");
     expect(sheet("link", null)).not.toContain("Save handle");
     expect(sheet("private", null)).not.toContain("Save handle");
     vi.unstubAllGlobals();

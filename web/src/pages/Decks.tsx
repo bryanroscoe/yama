@@ -30,7 +30,7 @@ import { ChangesBanner } from "../advisor/Changes";
 import { CardSheet } from "./Cards";
 import { CollectSheet } from "../decks/CollectSheet";
 import { DeleteDeck, deleteWording } from "../decks/DeleteDeck";
-import { NewConfiguration, ShareDeck } from "../decks/ShareDeck";
+import { NewConfiguration, ShareDeck, shareLabel } from "../decks/ShareDeck";
 import { PublicDefaultBanner } from "../decks/PublicDefaultPrompt";
 import { MythicSend, MythicSendButton } from "../bridges/mythic/MythicDeck";
 import { placesText } from "../decks/checkTargets";
@@ -159,7 +159,7 @@ export function DecksPage() {
   );
 }
 
-const SHARED_LABEL: Record<string, string> = { link: "Shared by link", public: "Public" };
+const SHARED_LABEL: Record<string, string> = { link: "Link only", public: "Public" };
 
 function DeckTile({ d, folder = null }: { d: DeckSummary; folder?: string | null }) {
   const own = d.acquisition_status === "planned" ? null : ownership(d.owned, d.card_count, d.proxies ?? 0);
@@ -342,7 +342,7 @@ export function DeckPage() {
           <div className="deck-actions" role="toolbar" aria-label="Deck actions">
             <ButtonLink variant="primary" to={`/decks/${d.id}/edit`}>Edit list</ButtonLink>
             <MoreMenu label="Check cards" align="start">{checkActions}</MoreMenu>
-            <Button onClick={() => setSharing(true)}>Share</Button>
+            <Button onClick={() => setSharing(true)}>{shareLabel(d.visibility)}</Button>
             <MoreMenu title={d.name}>{moreActions}</MoreMenu>
           </div>
           {d.configurations.length > 1 || variants.length > 0 || brackets.length > 0 ? (

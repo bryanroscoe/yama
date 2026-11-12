@@ -56,8 +56,10 @@ export function SharingSettings() {
       <div className="grp-you-text">
         <b>Sharing</b>
         <span>
-          Everything is private until you share it. Shared decks show their cards and printings, never prices you paid, notes, plans or
-          games, and never your name or email.
+          New decks start as the setting below, and each deck's Share button changes it. A public deck is on your profile
+          {s.public_listed_at ? ", listed in Browse and open to search engines" : ""}; a link-only deck is seen only by people who have its link.
+          Shared decks show their cards and printings, never prices you paid, notes, plans or games, and never your name or email. Your
+          collection, wish list, plans, games and playgroups stay private unless you share them.
         </span>
       </div>
 
@@ -112,7 +114,14 @@ export function SharingSettings() {
         <Button
           variant="outline"
           disabled={all.isPending || total === 0 || s.decks.public === total}
-          onClick={() => shareAll("public", `Make all ${total} decks public on your profile?`, s.handle ? undefined : "Pick a handle too, so your profile can list them.", "Make them public")}
+          onClick={() =>
+            shareAll(
+              "public",
+              `Make all ${total} decks public?`,
+              [s.public_listed_at ? "They are listed in Browse and open to search engines, as well as on your profile." : "They are listed on your profile.", s.handle ? "" : "Pick a handle too, so your profile can list them."].filter(Boolean).join(" "),
+              "Make them public",
+            )
+          }
         >
           Make all my decks public
         </Button>

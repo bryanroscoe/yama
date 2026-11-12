@@ -485,7 +485,7 @@ export function SaveBar({
           </label>
         </div>
       )}
-      {mode === "new" && visibility && <VisibilityChoice value={visibility} onChange={setPicked} disabled={busy} />}
+      {mode === "new" && visibility && <VisibilityChoice value={visibility} onChange={setPicked} disabled={busy} listed={!!sharing.data?.public_listed_at} />}
       {needsHandle && (
         <Field
           className="import-handle"
