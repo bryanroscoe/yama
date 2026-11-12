@@ -6,8 +6,12 @@ import { cardSearchPath } from "../guest";
  *  (server/src/cards/mod.rs), so names are looked up in batches that fit both. */
 const PER_BATCH = 50;
 const MAX_QUERY = 950;
+const MAX_PAGES = 10;
 
-const term = (name: string) => `!"${name.replace(/"/g, "")}"`;
+/** A name's search term. Search has no escape for a double quote, so a name with one in it
+ *  (Henzie "Toolbox" Torre) is found by its parts, and the exact name is picked from what comes back. */
+export const term = (name: string) =>
+  name.includes('"') ? `(${name.split('"').map((part) => part.trim()).filter(Boolean).map((part) => `"${part}"`).join(" ")})` : `!"${name}"`;
 
 /** Names split into searches of `!"A" or !"B" ...` that each fit one page and one query. */
 export function pictureBatches(names: string[]): string[][] {
@@ -28,6 +32,18 @@ export function pictureBatches(names: string[]): string[][] {
   return batches;
 }
 
+/** Every page of a search. A batch can match more cards than one page holds (a name shared by
+ *  several cards, or a quoted name found by its parts), so later pages are read too. */
+export async function everyPage(query: string): Promise<SearchResult["cards"]> {
+  const cards: SearchResult["cards"] = [];
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const result = await api<SearchResult>(`${cardSearchPath(query)}&page=${page}`);
+    cards.push(...result.cards);
+    if (result.cards.length < result.page_size || cards.length >= result.total) break;
+  }
+  return cards;
+}
+
 /** The card a name means: its whole name, or one face of a multi-face card. */
 function matches(card: SearchResult["cards"][number], name: string) {
   const want = name.toLowerCase();
@@ -46,7 +62,7 @@ export function useCardPictures(names: (string | null | undefined)[]): Map<strin
   const results = useQueries({
     queries: batches.map((batch) => ({
       queryKey: ["card-pictures", batch],
-      queryFn: async () => (await api<SearchResult>(cardSearchPath(batch.map(term).join(" or ")))).cards,
+      queryFn: () => everyPage(batch.map(term).join(" or ")),
       staleTime: Infinity,
       gcTime: Infinity,
       retry: false,
