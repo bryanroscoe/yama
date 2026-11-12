@@ -105,12 +105,12 @@ function Again({ e }: { e: ExperimentDetail }) {
   return (
     <div className="lab-again">
       <span className="lab-games-label">Run again</span>
-      <Segmented label="Games" value={pick} onChange={setGames} options={choices.map((g) => [g, g] as const)} />
+      <Segmented label="Games" value={pick} onChange={setGames} options={choices.map((g) => [g, count(g)] as const)} />
       <Button variant="primary" onClick={() => again.mutate()} disabled={again.isPending}>
         {again.isPending ? "Starting…" : pick > perEngine ? `Run again with ${count(pick)} games` : `Run again (${count(pick)} games)`}
       </Button>
       <span className="lab-note">
-        Same setup, new shuffles. {modeOf(e) === "tournament" ? "The count is appearances per deck, per engine." : ""}{enginesOf(e).mode === "both" ? ` ${pick} ${modeOf(e) === "tournament" ? "appearances per deck" : "games"} on each engine.` : ""}
+        Same setup, new shuffles. {modeOf(e) === "tournament" ? "The count is appearances per deck, per engine." : ""}{enginesOf(e).mode === "both" ? ` ${count(pick)} ${modeOf(e) === "tournament" ? "appearances per deck" : "games"} on each engine.` : ""}
       </span>
       <ErrorText error={again.error} />
     </div>
@@ -151,7 +151,7 @@ function MoreGames({ e }: { e: ExperimentDetail }) {
       </p>
       <div className="lab-again">
         <span className="lab-games-label">Add</span>
-        <Segmented label="Games to add" value={pick} onChange={setGames} options={choices.map((g) => [g, g] as const)} />
+        <Segmented label="Games to add" value={pick} onChange={setGames} options={choices.map((g) => [g, count(g)] as const)} />
         <Button variant="primary" onClick={() => more.mutate()} disabled={more.isPending}>
           {more.isPending ? "Adding…" : `Add ${count(pick)} games${each}`}
         </Button>
@@ -372,14 +372,14 @@ export function Progress({ e }: { e: ExperimentDetail }) {
       )}
       {phase_retries > 0 && (
         <p className="lab-note">
-          Phase has {phase_pending} games left, including {phase_retries} retries of games that hit a time or hang limit.
+          Phase has {count(phase_pending)} games left, including {count(phase_retries)} retries of games that hit a time or hang limit.
           {retryOnly && " The earlier completion pace cannot predict these retries, so no ETA is shown. Each retry can take several minutes and may remain unscored."}
         </p>
       )}
       <ForgeWait e={e} />
       <p className="lab-note" style={{ margin: "0.2rem 0 0" }}>
         {e.status === "queued" ? "Waiting for earlier runs to finish" : "Playing"}
-        {games_ahead ? ` (${games_ahead} games ahead in the queue)` : ""}. You can leave and come back.
+        {games_ahead ? ` (${count(games_ahead)} games ahead in the queue)` : ""}. You can leave and come back.
       </p>
     </section>
   );
@@ -484,7 +484,7 @@ function Results({ e, s, engine }: { e: ExperimentDetail; s: Summary; engine: Ha
       aria: `${head}: won ${pct(st.win_rate)} of ${st.games} scored games${st.wilson ? `, ${level} interval ${pctRange(st.wilson[0], st.wilson[1])}` : ""}`,
       text: (
         <>
-          <b>{pct(st.win_rate)}</b> won, {st.wins} of {st.games}
+          <b>{pct(st.win_rate)}</b> won, {count(st.wins)} of {count(st.games)}
           {st.wilson ? ` (${level} interval ${pctRange(st.wilson[0], st.wilson[1])})` : ""}
           {st.avg_place != null ? `, average place ${st.avg_place.toFixed(2)}` : ""}
         </>
@@ -626,7 +626,7 @@ function SoloResults({ e, s, engine }: { e: ExperimentDetail; s: Summary; engine
             aria: `Won ${pct(st.win_rate)} of ${st.games} scored games${st.wilson ? `, ${level} interval ${pctRange(st.wilson[0], st.wilson[1])}` : ""}`,
             text: (
               <>
-                <b>{pct(st.win_rate)}</b> won, {st.wins} of {st.games}
+                <b>{pct(st.win_rate)}</b> won, {count(st.wins)} of {count(st.games)}
                 {st.wilson ? ` (${level} interval ${pctRange(st.wilson[0], st.wilson[1])})` : ""}
                 {st.avg_place != null ? `, average place ${st.avg_place.toFixed(2)}` : ""}
               </>
@@ -700,7 +700,7 @@ function VersusResults({ e, s, engine }: { e: ExperimentDetail; s: Summary; engi
           aria: `${x.label}: won ${pct(x.win_rate)} of ${x.games} scored games${x.wilson ? `, ${level} interval ${pctRange(x.wilson[0], x.wilson[1])}` : ""}`,
           text: (
             <>
-              <b>{pct(x.win_rate)}</b> won, {x.wins} of {x.games}
+              <b>{pct(x.win_rate)}</b> won, {count(x.wins)} of {count(x.games)}
               {x.wilson ? ` (${level} interval ${pctRange(x.wilson[0], x.wilson[1])})` : ""}
               {x.avg_place != null ? `, average place ${x.avg_place.toFixed(2)}` : ""}
               {x.strength ? `, strength ${x.strength.strength.toFixed(2)} (${level} interval ${x.strength.lo.toFixed(2)} to ${x.strength.hi.toFixed(2)})` : ""}
@@ -747,7 +747,7 @@ function VersusResults({ e, s, engine }: { e: ExperimentDetail; s: Summary; engi
                       <td>
                         <Link to={deckPath(e.id, ids[m.a] ?? "", engine)}>{names[m.a]}</Link> and <Link to={deckPath(e.id, ids[m.b] ?? "", engine)}>{names[m.b]}</Link>
                       </td>
-                      <td className="r num">{m.games}</td>
+                      <td className="r num">{count(m.games)}</td>
                       <td>
                         {untied === 0
                           ? `Level in every game`
@@ -912,7 +912,7 @@ function Pods({ id, done, status, mode, engine, pod = 4 }: { id: string; done: n
   return (
     <section>
       <details onToggle={(ev) => setOpen((ev.target as HTMLDetailsElement).open)}>
-        <summary>Every game{engine ? (engine === "forge" ? " on Forge" : " on Phase") : ""} ({done} played)</summary>
+        <summary>Every game{engine ? (engine === "forge" ? " on Forge" : " on Phase") : ""} ({count(done)} played)</summary>
         <ErrorText error={pods.error} />
         {pods.isPending && open && <Loading small />}
         {played.length > 0 && ["versus", "tournament"].includes(mode) && (
