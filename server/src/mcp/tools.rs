@@ -396,11 +396,10 @@ pub(super) const TOOLS: &[Tool] = &[
         name: "browse_public_decks",
         aliases: &[],
         title: "Browse public decks",
-        description: "Commander decks other players have made public on Yama, the most recently saved first, 24 at a time \
-                      (next_cursor continues): each with its name, its builder's handle, commanders, colors, declared bracket, \
-                      card count, the precon it started from (worked out from the list) and its page's address. search matches \
-                      a deck's or a commander's name; commander, colors, bracket and precon narrow the list. This is the Browse \
-                      page's list: it reads nothing of anyone's account, theirs included. A deck's cards are on its page.",
+        description: "Commander decks other players made public on Yama, the most recently saved first, 24 at a time \
+                      (next_cursor continues): each with its name, builder's handle, commanders, colors, declared bracket, \
+                      card count, the precon it started from and its page's address. The Browse page's list; it reads no \
+                      account.",
         schema: || {
             json!({
                 "type": "object",
