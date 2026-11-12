@@ -64,8 +64,7 @@ pub(super) async fn full(pool: &SqlitePool, p: &Precon) -> AppResult<Option<anal
     let info = crate::decks::card_info(pool, &cards).await?;
     let produced = crate::decks::produced_mana(pool, &cards.iter().map(|c| c.oracle_id.as_str()).collect::<Vec<_>>()).await?;
     let facts = analysis::facts_for(&cards, &info, &produced);
-    let checks = crate::deck_checks::precons::results(pool).await?;
-    let check = checks.get(&crate::deck_checks::list_hash(&cards)).cloned();
+    let check = crate::deck_checks::precons::result(pool, &crate::deck_checks::list_hash(&cards)).await?;
     Ok(tokio::task::spawn_blocking(move || {
         let entries: Vec<_> = cards.iter().map(|c| Entry { card: c, facts: facts.get(&c.oracle_id) }).collect();
         if !entries.iter().any(|e| e.card.board != crate::decks::Board::Side && e.facts.is_some()) { return None; }
