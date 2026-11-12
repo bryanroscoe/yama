@@ -53,7 +53,9 @@ notes, containers, proxies, planner plans or games.
 
 Adding a deck asks who can see it (Public, Link only or Private) on the save step. The choice
 starts as the account's default and is remembered as that default for the next deck; each deck's
-Share button changes it afterwards.
+Share button changes it afterwards. A first public deck asks for a handle (on the save step and
+in the deck's Share sheet). Without one the deck is public by link; it joins the profile once a
+handle is chosen.
 
 Yama moved to [yama.ing](https://yama.ing) on 28 October 2026. Anyone still on the old address
 should sync pending changes there before signing in at the new one; installed apps and MCP

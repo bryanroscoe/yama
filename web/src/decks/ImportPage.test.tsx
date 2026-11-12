@@ -4,11 +4,21 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// These tests wait out the page's real 700 ms pause before it reads a list, twice in some: give
+// a busy machine room rather than fail on the default five seconds.
+vi.setConfig({ testTimeout: 30_000 });
 import { ImportPage } from "./ImportPage";
 
 const server = vi.hoisted(() => ({
   sent: [] as { path: string; method: string; json: unknown }[],
   startsAs: "public" as string,
+  handle: "saget" as string | null,
+  taken: false,
+  /** Two decks in one list, for "Add all". */
+  two: false,
+  /** While set, a handle save waits for it. */
+  hold: null as Promise<void> | null,
 }));
 
 const card = (oracle_id: string, name: string, board: string, extra: object = {}) => ({
@@ -22,11 +32,19 @@ vi.mock("../api", async (original) => ({
   api: (path: string, init?: { method?: string; json?: unknown }) => {
     const method = init?.method ?? "GET";
     server.sent.push({ path, method, json: init?.json });
-    if (path === "/api/me/sharing") return Promise.resolve({ handle: "saget", new_deck_visibility: server.startsAs, collection_public: false, wants_public: false, wants_include_pending: false, share_lab_results: false, decks: { private: 0, link: 0, public: 0 } });
+    if (path === "/api/me/sharing" && method === "PUT") {
+      if (server.taken) return Promise.reject(new Error("That handle is taken. Pick another."));
+      const handle = (init?.json as { handle: string }).handle;
+      return (server.hold ?? Promise.resolve()).then(() => {
+        server.handle = handle;
+        return { handle, new_deck_visibility: server.startsAs, collection_public: false, wants_public: false, wants_include_pending: false, share_lab_results: false, decks: { private: 0, link: 0, public: 0 } };
+      });
+    }
+    if (path === "/api/me/sharing") return Promise.resolve({ handle: server.handle, new_deck_visibility: server.startsAs, collection_public: false, wants_public: false, wants_include_pending: false, share_lab_results: false, decks: { private: 0, link: 0, public: 0 } });
     if (path === "/api/decks/import/preview")
       return Promise.resolve({
         format: null, format_label: null, link: null, skipped: [],
-        decks: [{ name: "Riders of Rohan", unknown: [], commander_marked: true, commander_guessed: false, cards: [card("o-cmd", "Test Commander", "commander", { can_be_commander: true, type_line: "Legendary Creature" }), card("o-sol", "Sol Ring", "main")] }],
+        decks: (server.two ? ["Riders of Rohan", "Second deck"] : ["Riders of Rohan"]).map((name) => ({ name, unknown: [], commander_marked: true, commander_guessed: false, cards: [card("o-cmd", "Test Commander", "commander", { can_be_commander: true, type_line: "Legendary Creature" }), card("o-sol", "Sol Ring", "main")] })),
       });
     if (path === "/api/decks" && method === "POST") return Promise.resolve({ id: "d1" });
     if (path === "/api/decks") return Promise.resolve([]);
@@ -43,6 +61,10 @@ let client: QueryClient;
 beforeEach(() => {
   server.sent.length = 0;
   server.startsAs = "public";
+  server.handle = "saget";
+  server.taken = false;
+  server.two = false;
+  server.hold = null;
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -58,7 +80,7 @@ afterEach(() => {
 
 /** Let the page settle (the list is read 700 ms after typing stops) until `ready` holds. */
 async function until(ready: () => boolean, what: string) {
-  for (let i = 0; i < 80 && !ready(); i++) await act(() => new Promise((r) => setTimeout(r, 50)));
+  for (let i = 0; i < 300 && !ready(); i++) await act(() => new Promise((r) => setTimeout(r, 50)));
   if (!ready()) throw new Error(`timed out waiting for ${what}`);
 }
 
@@ -69,6 +91,16 @@ function type(text: string) {
   const box = host.querySelector("textarea")!;
   act(() => {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(box, text);
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+const handleBox = () => host.querySelector<HTMLInputElement>(".import-handle input");
+
+function typeHandle(text: string) {
+  const box = handleBox()!;
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(box, text);
     box.dispatchEvent(new Event("input", { bubbles: true }));
   });
 }
@@ -125,5 +157,90 @@ describe("who can see a deck being added", () => {
     await act(async () => button("Add the deck")!.click());
     await until(() => router.state.location.pathname === "/decks/d1", "the save");
     expect(server.sent.find((c) => c.path === "/api/decks" && c.method === "POST")!.json).toMatchObject({ visibility: "link" });
+  });
+});
+
+describe("a first public deck's handle", () => {
+  const list = "Commander\n1 Test Commander\n\nDeck\n1 Sol Ring";
+  const calls = (path: string, method: string) => server.sent.filter((c) => c.path === path && c.method === method);
+
+  it("is saved before the deck, and survives the list being read again", async () => {
+    server.handle = null;
+    const router = await open();
+    type(list);
+    await until(() => !!button("Add the deck") && !!handleBox(), "the handle field");
+    typeHandle("@Rohirrim");
+    type(`${list}\n`);
+    await until(() => !!button("Add the deck") && !!handleBox(), "the edited list to be read");
+    expect(handleBox()!.value).toBe("@Rohirrim");
+
+    await act(async () => button("Add the deck")!.click());
+    await until(() => router.state.location.pathname === "/decks/d1", "the save");
+    expect(calls("/api/me/sharing", "PUT").map((c) => c.json)).toEqual([{ handle: "rohirrim" }]);
+    const order = server.sent.filter((c) => c.method !== "GET" && c.path !== "/api/decks/import/preview").map((c) => `${c.method} ${c.path}`);
+    expect(order).toEqual(["PUT /api/me/sharing", "POST /api/decks"]);
+    expect(calls("/api/decks", "POST")[0]!.json).toMatchObject({ visibility: "public" });
+  });
+
+  it("stops the save when the handle is taken, before any deck is made", async () => {
+    server.handle = null;
+    server.taken = true;
+    await open();
+    type(list);
+    await until(() => !!button("Add the deck") && !!handleBox(), "the handle field");
+    typeHandle("saget");
+    await act(async () => button("Add the deck")!.click());
+    await until(() => host.textContent!.includes("That handle is taken"), "the refusal");
+    expect(calls("/api/decks", "POST")).toHaveLength(0);
+  });
+
+  it("holds both save buttons and the handle while a save is on its way, so two saves can't send two handles", async () => {
+    server.handle = null;
+    server.two = true;
+    let release = () => {};
+    server.hold = new Promise<void>((r) => (release = r));
+    const router = await open();
+    type(list);
+    await until(() => !!button("Add all 2 ready") && !!handleBox(), "both decks to be read");
+    typeHandle("alpha");
+    await act(async () => button("Add all 2 ready")!.click());
+    // The handle save hasn't answered yet.
+    await until(() => !!button("Adding…"), "the save to start");
+    const all = [...host.querySelectorAll("button")];
+    expect(all.find((b) => b.textContent === "Add the deck")!.disabled).toBe(true);
+    expect(all.find((b) => b.textContent === "Adding…")!.disabled).toBe(true);
+    expect(handleBox()!.disabled).toBe(true);
+    act(() => all.find((b) => b.textContent === "Add the deck")!.click());
+    await act(async () => release());
+    await until(() => router.state.location.pathname === "/decks", "the save");
+    expect(calls("/api/me/sharing", "PUT").map((c) => c.json)).toEqual([{ handle: "alpha" }]);
+    expect(calls("/api/decks", "POST")).toHaveLength(2);
+  });
+
+  it("is optional: left blank, the deck is saved public and no handle is sent", async () => {
+    server.handle = null;
+    const router = await open();
+    type(list);
+    await until(() => !!button("Add the deck") && !!handleBox(), "the handle field");
+    await act(async () => button("Add the deck")!.click());
+    await until(() => router.state.location.pathname === "/decks/d1", "the save");
+    expect(calls("/api/me/sharing", "PUT")).toHaveLength(0);
+    expect(calls("/api/decks", "POST")[0]!.json).toMatchObject({ visibility: "public" });
+  });
+
+  it("isn't asked of an account that has one, or for a deck that isn't public", async () => {
+    await open();
+    type(list);
+    await until(() => !!button("Add the deck") && pressed().length === 1, "the list to be read");
+    expect(handleBox()).toBeNull();
+  });
+
+  it("goes away when the deck is no longer public", async () => {
+    server.handle = null;
+    await open();
+    type(list);
+    await until(() => !!button("Add the deck") && !!handleBox(), "the handle field");
+    act(() => button("Link only")!.click());
+    expect(handleBox()).toBeNull();
   });
 });

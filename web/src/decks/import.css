@@ -323,6 +323,11 @@
 .visibility-choice-label {
   font-weight: 700;
 }
+.import-handle {
+  display: grid;
+  gap: 4px;
+  max-width: 420px;
+}
 .import-save-row {
   display: flex;
   flex-wrap: wrap;

@@ -153,6 +153,42 @@ async fn decks_are_private_until_shared_and_links_can_be_reset() {
     assert_eq!(page(&app, "/d/not-a-token").await.0, StatusCode::NOT_FOUND);
 }
 
+/// A public deck saved before its owner has a handle is public by link: its page works and names
+/// nobody. It joins the profile once a handle is chosen, with nothing else to do.
+#[tokio::test]
+async fn a_public_deck_without_a_handle_is_public_by_link_and_joins_the_profile_later() {
+    let (app, pool) = app().await;
+    let (bryan, bt) = user(&pool, "bryan@example.com").await;
+    let (id, _) = deck(&pool, &bryan, "Riders of Rohan").await;
+    let token = token_of(&pool, &id).await;
+    // A Google name nothing else on a page could spell.
+    sqlx::query("UPDATE users SET display_name = 'Zebediah Quillfeather' WHERE id = ?").bind(&bryan).execute(&pool).await.unwrap();
+    let nameless = |text: &str| !text.contains("Zebediah") && !text.contains("Quillfeather") && !text.contains("bryan@example.com");
+    let (s, _) = send(&app, Method::PATCH, &format!("/api/decks/{id}"), Some(&bt), Some(json!({ "visibility": "public" }))).await;
+    assert_eq!(s, StatusCode::OK);
+
+    // No handle yet: the link works, signed out, and carries no handle, name or email.
+    let (status, _, body) = page(&app, &format!("/d/{token}")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("Riders of Rohan"));
+    assert!(body.contains("Shared on Yama") && !body.contains("Shared by") && nameless(&body), "{body}");
+    let (s, shared) = send(&app, Method::GET, &format!("/api/public/decks/{token}"), None, None).await;
+    assert_eq!((s, &shared["handle"]), (StatusCode::OK, &json!(null)));
+    assert!(nameless(&shared.to_string()), "{shared}");
+
+    // Choosing a handle lists it on the profile; the deck itself was not touched.
+    let before: (String, String) = sqlx::query_as("SELECT visibility, updated_at FROM decks WHERE id = ?").bind(&id).fetch_one(&pool).await.unwrap();
+    let (s, v) = send(&app, Method::PUT, "/api/me/sharing", Some(&bt), Some(json!({ "handle": "saget" }))).await;
+    assert_eq!((s, &v["handle"]), (StatusCode::OK, &json!("saget")));
+    let after: (String, String) = sqlx::query_as("SELECT visibility, updated_at FROM decks WHERE id = ?").bind(&id).fetch_one(&pool).await.unwrap();
+    assert_eq!(before, after);
+    let (status, _, profile) = page(&app, "/u/saget").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(profile.contains(&format!("/d/{token}")) && profile.contains("Riders of Rohan") && nameless(&profile), "{profile}");
+    let (_, _, body) = page(&app, &format!("/d/{token}")).await;
+    assert!(body.contains("Shared by <a href=\"/u/saget\">@saget</a>") && nameless(&body), "{body}");
+}
+
 /// Every shared page names a card from card data by its id. A list stored before saves checked
 /// their rows (written straight to the table here) could hold any name beside a real id.
 #[tokio::test]
