@@ -103,8 +103,8 @@ describe("the share sheet", () => {
     expect(sheet("public", "saget")).not.toContain("Save handle");
     expect(sheet("public", "saget")).toContain("your profile, @saget");
     // An account from before public-by-default that hasn't answered: the profile only.
-    expect(sheet("public", "saget")).toContain("It isn&#x27;t in Browse or open to search engines until you answer");
-    expect(sheet("public", "saget", "2026-11-12T00:00:00Z")).toContain("and in Browse. Search engines can find it.");
+    expect(sheet("public", "saget")).toContain("It isn&#x27;t listed in Browse or open to search engines until you answer");
+    expect(sheet("public", "saget", "2026-11-12T00:00:00Z")).toContain("It can also be listed in Browse and found by search engines.");
     expect(sheet("link", null)).not.toContain("Save handle");
     expect(sheet("private", null)).not.toContain("Save handle");
     vi.unstubAllGlobals();

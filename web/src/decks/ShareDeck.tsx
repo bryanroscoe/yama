@@ -11,7 +11,7 @@ import "./share.css";
 export const VISIBILITY_CHOICES: { value: Visibility; label: string; hint: string }[] = [
   { value: "private", label: "Private", hint: "Only you." },
   { value: "link", label: "Link only", hint: "Anyone who has the link can see the list and download it. It isn't listed anywhere." },
-  { value: "public", label: "Public", hint: "Anyone can see it: on your profile and, once your public decks are listed, in Browse and search engines." },
+  { value: "public", label: "Public", hint: "Anyone can see it. It is on your profile once you have a handle, and can be listed in Browse and found by search engines once your public decks are listed." },
 ];
 
 /** The deck page's Share button: it says who can see the deck now, so a deck that started public is never a surprise. */
@@ -123,7 +123,7 @@ export function ShareDeck({ deck, onClose }: { deck: DeckView; onClose: () => vo
         {visibility === "public" && handle && (
           <p className="small share-line">
             Listed on <a href={`/u/${handle}`}>your profile, @{handle}</a>
-            {sharing.data?.public_listed_at ? ", and in Browse. Search engines can find it." : ". It isn't in Browse or open to search engines until you answer the question about public decks on your Decks page."}
+            {sharing.data?.public_listed_at ? ". It can also be listed in Browse and found by search engines." : ". It isn't listed in Browse or open to search engines until you answer the question about public decks on your Decks page."}
           </p>
         )}
 

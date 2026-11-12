@@ -31,6 +31,8 @@ export function MythicDecks({ file }: { file: { name: string; data: MythicExport
   // Imported decks are made without the save step's choice, so the page says what they start as.
   const userId = useMe().data?.id;
   const sharing = useQuery({ queryKey: ["sharing", userId], queryFn: ({ signal }) => api<Sharing>("/api/me/sharing", { signal }), enabled: !!userId });
+  // New decks aren't made until the page has said who can see them.
+  const makesDecks = !!p?.decks.some((d) => d.action === "import");
   if (!file.data.decks) {
     return <p className="dim">This file has no decks: it was saved before the snippet saved them. Copy the snippet again to bring your decks too.</p>;
   }
@@ -38,7 +40,8 @@ export function MythicDecks({ file }: { file: { name: string; data: MythicExport
     <section className="stack" aria-labelledby="mythic-decks">
       <h2 id="mythic-decks">Decks</h2>
       <p>A Mythic deck with the same commander as one of your Yama decks is linked to it; the others come in as new decks in the Mythic Tools folder. Linked decks update each other: importing again brings Mythic's changes, and a deck's page sends Yama's to Mythic.</p>
-      {sharing.data && p?.decks.some((d) => d.action === "import") && <p className="small dim">{newDecksStartAs(sharing.data)}</p>}
+      {makesDecks && sharing.data && <p className="small dim">{newDecksStartAs(sharing.data)}</p>}
+      {makesDecks && <ErrorText error={sharing.error} retry={() => void sharing.refetch()} />}
       <ErrorText error={preview.error} />
       {preview.error && Object.keys(choices).length > 0 && (
         <div className="row">
@@ -52,7 +55,7 @@ export function MythicDecks({ file }: { file: { name: string; data: MythicExport
             {p.decks.map((d) => <DeckLine key={d.mythic_id} d={d} choice={choices[d.mythic_id]} onChoose={(c) => setChoices((m) => ({ ...m, [d.mythic_id]: c }))} />)}
           </ul>
           <div className="row">
-            <Button disabled={apply.isPending || preview.isFetching || p.decks.every((d) => d.action === "skip")} onClick={() => apply.mutate()}>
+            <Button disabled={apply.isPending || preview.isFetching || p.decks.every((d) => d.action === "skip") || (makesDecks && !sharing.data)} onClick={() => apply.mutate()}>
               {deckApplyLabel(p.decks)}
             </Button>
           </div>

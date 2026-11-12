@@ -844,12 +844,19 @@ async fn save_deck_says_who_can_see_a_new_deck_and_keeps_it() {
     let quiet = change_id(&text);
     assert!(detail_of(quiet.clone()).await.contains("Who can see it: Private. Only you can see it. That is your setting for new decks"), "{}", detail_of(quiet.clone()).await);
 
-    // Public, for an account whose public decks are listed: it says where the deck will show.
+    // Public, for an account whose public decks are listed but which has no handle yet: by its
+    // link until there is a profile, and it says so.
     sqlx::query("UPDATE users SET new_deck_visibility = 'public', public_listed_at = '2026-11-12T00:00:00Z' WHERE id = ?").bind(&a).execute(&pool).await.unwrap();
+    let (err, text) = call(&app, &mcp, "save_deck", json!({"name": "Linked Elves", "list": list})).await;
+    assert!(!err, "{text}");
+    let linked = detail_of(change_id(&text)).await;
+    assert!(linked.contains("Who can see it: Public. Anyone with its link can see it; once you pick a handle it is on your profile, and can be listed in Browse and found by search engines."), "{linked}");
+    // With a handle: it says where the deck will show.
+    sqlx::query("UPDATE users SET handle = 'elves' WHERE id = ?").bind(&a).execute(&pool).await.unwrap();
     let (err, text) = call(&app, &mcp, "save_deck", json!({"name": "Loud Elves", "list": list})).await;
     assert!(!err, "{text}");
     let loud = change_id(&text);
-    assert!(detail_of(loud.clone()).await.contains("Who can see it: Public. It is on your profile, listed in Browse and open to search engines."), "{}", detail_of(loud.clone()).await);
+    assert!(detail_of(loud.clone()).await.contains("Who can see it: Public. Anyone can see it: it is on your profile, and can be listed in Browse and found by search engines."), "{}", detail_of(loud.clone()).await);
 
     // The setting changes before either is applied: each deck is made as it was reviewed.
     sqlx::query("UPDATE users SET new_deck_visibility = 'link' WHERE id = ?").bind(&a).execute(&pool).await.unwrap();

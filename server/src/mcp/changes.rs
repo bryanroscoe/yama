@@ -583,7 +583,7 @@ pub async fn save_deck(st: &AppState, user: &User, via: &Via, args: &Value) -> A
         "Why: {note}\n{}{}\n{}\n{}",
         starts_as
             .as_ref()
-            .map(|(v, listed)| format!("Who can see it: {} That is your setting for new decks; the deck's Share button changes it.\n", crate::sharing::who_can_see(v, *listed)))
+            .map(|(v, listed, handle)| format!("Who can see it: {} That is your setting for new decks; the deck's Share button changes it.\n", crate::sharing::who_can_see(v, *listed, *handle)))
             .unwrap_or_default(),
         source
             .as_deref()
@@ -592,7 +592,7 @@ pub async fn save_deck(st: &AppState, user: &User, via: &Via, args: &Value) -> A
         checks(&list.cards, &info),
         analysis::exported(&list.cards)
     );
-    let visibility = starts_as.map(|(v, _)| v);
+    let visibility = starts_as.map(|(v, _, _)| v);
     stage(st, user, via, args, Staged {kind:"edit_deck",summary,detail,payload:json!({"complete_list":true,"deck_id":target,"base_version":base,"name":name,"cards":list.cards,"note":note,"source_url":source,"visibility":visibility})}).await
 }
 

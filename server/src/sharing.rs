@@ -124,20 +124,23 @@ pub(crate) async fn list_publicly(pool: &SqlitePool, user: &str) -> AppResult<()
     Ok(())
 }
 
-/// What an account's new decks start as, and whether its public decks are listed publicly
-/// ([`LISTED`]'s account half, bar the handle).
-pub(crate) async fn new_deck_visibility(pool: &SqlitePool, user: &str) -> AppResult<(String, bool)> {
-    Ok(sqlx::query_as("SELECT new_deck_visibility, public_listed_at IS NOT NULL FROM users WHERE id = ?").bind(user).fetch_one(pool).await?)
+/// What an account's new decks start as, whether its public decks are listed publicly
+/// ([`LISTED`]'s `public_listed_at`), and whether it has a handle (and so a profile).
+pub(crate) async fn new_deck_visibility(pool: &SqlitePool, user: &str) -> AppResult<(String, bool, bool)> {
+    Ok(sqlx::query_as("SELECT new_deck_visibility, public_listed_at IS NOT NULL, handle IS NOT NULL FROM users WHERE id = ?").bind(user).fetch_one(pool).await?)
 }
 
 /// One sentence on who can see a deck of this visibility, for text that stages or reports a new
-/// deck (an assistant's `save_deck`, an import). `listed` is whether the owner's public decks are
-/// listed publicly; without it a public deck is on the profile only.
-pub(crate) fn who_can_see(visibility: &str, listed: bool) -> &'static str {
-    match (visibility, listed) {
-        ("public", true) => "Public. It is on your profile, listed in Browse and open to search engines.",
-        ("public", false) => "Public. It is on your profile for anyone who has its address.",
-        ("link", _) => "Link only. Anyone who has its link can see it, and it isn't listed anywhere.",
+/// deck (an assistant's `save_deck`). For a public deck it says the most it can be seen: the
+/// profile only for an account with a handle, and Browse and search engines, as what can happen,
+/// only for an account whose public decks are listed.
+pub(crate) fn who_can_see(visibility: &str, listed: bool, handle: bool) -> &'static str {
+    match (visibility, listed, handle) {
+        ("public", true, true) => "Public. Anyone can see it: it is on your profile, and can be listed in Browse and found by search engines.",
+        ("public", true, false) => "Public. Anyone with its link can see it; once you pick a handle it is on your profile, and can be listed in Browse and found by search engines.",
+        ("public", false, true) => "Public. Anyone with its link can see it, and it is listed on your profile.",
+        ("public", false, false) => "Public. Anyone with its link can see it; once you pick a handle it is listed on your profile.",
+        ("link", ..) => "Link only. Anyone who has its link can see it, and it isn't listed anywhere.",
         _ => "Private. Only you can see it.",
     }
 }
