@@ -13,6 +13,10 @@ const server = vi.hoisted(() => ({
   calls: [] as { path: string; method?: string; json: unknown }[],
   me: null as { id: string } | null,
   refuse: null as string | null,
+  /** The list names its commander under a Commander heading. */
+  marked: false,
+  /** Held back until released: a save whose answer hasn't come yet. */
+  hold: null as null | (() => void),
 }));
 
 const cardData = (name: string, type_line: string): Card =>
@@ -42,7 +46,7 @@ function answer(commanders: string[]): ListCheck {
   return {
     cards,
     unknown: ["Mystery Card"],
-    commander_guessed: commanders.length === 0,
+    commander_guessed: commanders.length === 0 && !server.marked,
     validation: { ok: false, total: 100, color_identity: "G", errors: ["Sol Ring × 2: Commander is singleton", "Another problem"], warnings: [] },
     game_changers: ["Sol Ring"],
     game_changers_as_of: "2026-11-01",
@@ -59,7 +63,10 @@ vi.mock("../api", async (original) => ({
     server.calls.push({ path, method: init?.method, json: init?.json });
     if (server.refuse) return Promise.reject(new Error(server.refuse));
     if (path === "/api/public/deck-check") return Promise.resolve(answer((init?.json as { commanders: string[] }).commanders));
-    if (path === "/api/decks") return Promise.resolve({ id: "d-new", unknown: [] });
+    if (path === "/api/decks") {
+      const made = { id: "d-new", unknown: [] };
+      return server.hold === null ? Promise.resolve(made) : new Promise((done) => (server.hold = () => done(made)));
+    }
     return Promise.reject(new Error(`unexpected request to ${path}`));
   },
 }));
@@ -111,6 +118,8 @@ describe("Check a deck", () => {
     server.calls.length = 0;
     server.me = null;
     server.refuse = null;
+    server.marked = false;
+    server.hold = null;
     localStorage.clear();
     host = document.createElement("div");
     document.body.append(host);
@@ -119,6 +128,9 @@ describe("Check a deck", () => {
   afterEach(() => {
     act(() => root.unmount());
     host.remove();
+    vi.restoreAllMocks();
+    // A list held because storage was blocked goes with the test.
+    writeGuestDeck(null);
   });
 
   it("opens on the box, with where the list goes said beside it, and asks nothing of the server", async () => {
@@ -126,7 +138,7 @@ describe("Check a deck", () => {
     expect(document.querySelector("h1")!.textContent).toBe("Check a deck");
     expect(text()).toContain("No account needed.");
     expect(text()).toContain("Your list is kept in this browser only");
-    expect(text()).toContain("Yama's server checks it and stores nothing, and the list isn't sent to any other service.");
+    expect(text()).toContain("Yama's server checks it and keeps neither the list nor the result, and the list isn't sent to any other service.");
     expect(link("Privacy")!.getAttribute("href")).toBe("/privacy/");
     expect(server.calls).toEqual([]);
   });
@@ -215,6 +227,80 @@ describe("Check a deck", () => {
     expect(readGuestDeck()!.commanders).toEqual(["o-Tana, the Bloodsower"]);
     expect(document.querySelector("h1")!.textContent).toBe("Tana, the Bloodsower");
     expect(text()).toContain("You picked the commander.");
+  });
+
+  it("offers the pickers for a list with a Commander heading too, so a partner can be added", async () => {
+    server.marked = true;
+    writeGuestDeck(newGuestDeck(`Commander\n${LIST}`));
+    await show();
+    expect(text()).toContain("The list's Commander heading names Omo, Queen of Vesuva. Pick here to change it or add a partner.");
+    const [, partner] = [...document.querySelectorAll<HTMLSelectElement>(".check-commander select")];
+    expect([...partner!.options].map((o) => o.textContent)).toEqual(["None", "Tana, the Bloodsower"]);
+    await act(async () => {
+      partner!.value = "o-Tana, the Bloodsower";
+      partner!.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await settle();
+    expect(checks().at(-1)!.json).toEqual({ text: `Commander\n${LIST}`, commanders: ["o-Omo, Queen of Vesuva", "o-Tana, the Bloodsower"] });
+  });
+
+  it("a pick of commander is a new save: the id sent with the old one isn't reused", async () => {
+    const first = newGuestDeck(LIST);
+    writeGuestDeck(first);
+    server.me = { id: "u1" };
+    await show();
+    const pick = document.querySelector<HTMLSelectElement>(".check-commander select")!;
+    await act(async () => {
+      pick.value = "o-Tana, the Bloodsower";
+      pick.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await settle();
+    const picked = readGuestDeck()!.opId;
+    expect(picked).not.toBe(first.opId);
+    await press(button("Save to your decks"));
+    expect((saves()[0]!.json as { op_id: string }).op_id).toBe(picked);
+    expect((saves()[0]!.json as { op_id: string }).op_id).not.toBe(first.opId);
+  });
+
+  it("while a save is on its way the list can't be edited or cleared, and the save removes only the list it saved", async () => {
+    writeGuestDeck(newGuestDeck(LIST));
+    server.me = { id: "u1" };
+    server.hold = () => {};
+    await show();
+    await press(button("Save to your decks"));
+    expect(button("Saving…")!.disabled).toBe(true);
+    expect(button("Edit the list")!.disabled).toBe(true);
+    expect(button("Clear")!.disabled).toBe(true);
+    expect([...document.querySelectorAll<HTMLSelectElement>(".check-commander select")].every((s) => s.disabled)).toBe(true);
+    // Another tab kept a different list meanwhile.
+    const other = newGuestDeck("1 Sol Ring");
+    writeGuestDeck(other);
+    await act(async () => server.hold!());
+    await settle();
+    expect(router.state.location.pathname).toBe("/decks/d-new");
+    expect(readGuestDeck()).toEqual(other);
+  });
+
+  it("where the browser won't keep the list, says so and still carries it to sign-in and back", async () => {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    await show();
+    type(LIST);
+    await press(button("Check this deck"));
+    expect(localStorage.getItem("yama.check.deck")).toBeNull();
+    expect(text()).toContain("This browser isn't keeping the list, so it's gone once this page is closed or reloaded.");
+    expect(text()).not.toContain("this list is in your browser");
+    await press(link("Sign in to save this deck"));
+    expect(text()).toBe("Sign-in page");
+    // Signed in on the same page load, and back: the list is still there and is saved.
+    server.me = { id: "u1" };
+    await act(async () => void router.navigate("/check"));
+    await settle();
+    expect(saves()).toHaveLength(1);
+    expect((saves()[0]!.json as { name: string }).name).toBe("Omo, Queen of Vesuva");
+    expect(router.state.location.pathname).toBe("/decks/d-new");
+    expect(readGuestDeck()).toBeNull();
   });
 
   it("signed out, offers to sign in to save, and remembers that it was asked", async () => {

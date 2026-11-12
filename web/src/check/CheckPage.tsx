@@ -29,8 +29,10 @@ import { WhyBracketPanel } from "../decks/WhyBracket";
 import { CardSheet } from "../pages/Cards";
 import {
   asDeckView,
+  changed,
   commanderChoices,
   deckName,
+  keptInBrowser,
   listProblem,
   NAME_MAX,
   newGuestDeck,
@@ -57,7 +59,7 @@ export function CheckPage() {
   const [editing, setEditing] = useState(false);
   // Whether this browser kept the list: when it wouldn't (storage blocked), the page still works
   // and says the list won't be here next time.
-  const [kept, setKept] = useState(true);
+  const [kept, setKept] = useState(keptInBrowser);
   const setDeck = (next: GuestDeck | null) => {
     setKept(writeGuestDeck(next) || next === null);
     setDeckState(next);
@@ -67,8 +69,9 @@ export function CheckPage() {
       <CheckForm
         deck={deck}
         onCheck={(text, name) => {
-          // The same list again keeps its commander pick and its save id; a new one starts fresh.
-          setDeck(deck && deck.text === text ? { ...deck, name } : newGuestDeck(text, name));
+          // The same list again keeps its commander pick (and its save id, if the name is the
+          // same too); a new one starts fresh.
+          setDeck(deck && deck.text === text ? changed(deck, { name }) : newGuestDeck(text, name));
           setEditing(false);
         }}
         onCancel={deck ? () => setEditing(false) : undefined}
@@ -172,7 +175,7 @@ function CheckForm({ deck, onCheck, onCancel }: { deck: GuestDeck | null; onChec
 function KeptHere({ kept = true }: { kept?: boolean }) {
   return (
     <p className="small dim check-kept">
-      {kept ? "Your list is kept in this browser only, so it's still here next time." : "This browser isn't keeping the list, so it won't be here next time."} Yama's server checks it and stores nothing, and the list isn't sent to any other service. Sign in to save it as a deck. <a href="/privacy/">Privacy</a>
+      {kept ? "Your list is kept in this browser only, so it's still here next time." : "This browser isn't keeping the list, so it's gone once this page is closed or reloaded."} Yama's server checks it and keeps neither the list nor the result, and the list isn't sent to any other service. Sign in to save it as a deck. <a href="/privacy/">Privacy</a>
     </p>
   );
 }
@@ -204,12 +207,16 @@ function CheckedDeck({ deck, kept, setDeck, onEdit }: { deck: GuestDeck; kept: b
   const save = useMutation({
     mutationFn: () => api<{ id: string }>("/api/decks", { method: "POST", json: saveRequest(deck, r!) }),
     onSuccess: (made) => {
-      // It's an ordinary deck of the account now: this browser's copy goes.
-      writeGuestDeck(null);
+      // It's an ordinary deck of the account now: this browser's copy goes. Only that copy: a
+      // list kept since (another tab) is a different one and stays.
+      if (readGuestDeck()?.opId === deck.opId) writeGuestDeck(null);
       void qc.invalidateQueries({ queryKey: ["decks"] });
       navigate(`/decks/${made.id}`);
     },
   });
+  // While a save is on its way the list can't be edited, cleared or given another commander:
+  // what was sent is what is being saved.
+  const saving = save.isPending;
   // Back from "Sign in to save this deck": save it without asking again.
   const autoSaved = useRef(false);
   const signedIn = !!me.data;
@@ -250,7 +257,7 @@ function CheckedDeck({ deck, kept, setDeck, onEdit }: { deck: GuestDeck; kept: b
     if (hit) setOpen(hit.oracle_id);
   };
   const startOver = async () => {
-    if (await ask({ title: "Clear this list?", body: "It's removed from this browser. Nothing of it is on Yama's server.", confirm: "Clear the list", danger: true })) setDeck(null);
+    if ((await ask({ title: "Clear this list?", body: "It's removed from this browser. Nothing of it is on Yama's server.", confirm: "Clear the list", danger: true })) && !save.isPending) setDeck(null);
   };
 
   return (
@@ -271,7 +278,7 @@ function CheckedDeck({ deck, kept, setDeck, onEdit }: { deck: GuestDeck; kept: b
             <h1 className="hero-title">{name}</h1>
             <span className="hero-status">
               <StatusPill tone={v.ok ? "good" : "bad"}>{v.ok ? "Commander-legal" : "Not legal yet"}</StatusPill>
-              <span>{v.ok ? "Not saved: this list is in your browser" : v.errors[0] ?? "Not legal yet"}</span>
+              <span>{!v.ok ? v.errors[0] ?? "Not legal yet" : kept ? "Not saved: this list is in your browser" : "Not saved: this list is only on this page"}</span>
             </span>
           </div>
           <div className="wide-only"><CheckTiles view={view} analysis={a} hrefFor={tabHref} /></div>
@@ -283,13 +290,13 @@ function CheckedDeck({ deck, kept, setDeck, onEdit }: { deck: GuestDeck; kept: b
         <div className="deck-actionbar">
           <div className="deck-actions" role="toolbar" aria-label="Deck actions">
             {signedIn ? (
-              <Button variant="primary" disabled={save.isPending || check.isPlaceholderData} onClick={() => save.mutate()}>{save.isPending ? "Saving…" : "Save to your decks"}</Button>
+              <Button variant="primary" disabled={saving || check.isPlaceholderData} onClick={() => save.mutate()}>{saving ? "Saving…" : "Save to your decks"}</Button>
             ) : (
               <ButtonLink variant="primary" to={signInPath("/check")} onClick={() => setDeck({ ...deck, saveAsked: Date.now() })}>Sign in to save this deck</ButtonLink>
             )}
-            <Button onClick={onEdit}>Edit the list</Button>
+            <Button disabled={saving} onClick={onEdit}>Edit the list</Button>
             <Button onClick={() => setGoldfish(true)}>Sample hand</Button>
-            <Button variant="quiet" onClick={() => void startOver()}>Clear</Button>
+            <Button variant="quiet" disabled={saving} onClick={() => void startOver()}>Clear</Button>
           </div>
         </div>
         <ErrorText error={save.error} />
@@ -297,10 +304,10 @@ function CheckedDeck({ deck, kept, setDeck, onEdit }: { deck: GuestDeck; kept: b
         {!v.ok && v.errors.length > 1 && <ul className="small deck-errors">{v.errors.map((e) => <li key={e}>{e}</li>)}</ul>}
         {r.unknown.length > 0 && (
           <p className="check-note">
-            {r.unknown.length === 1 ? "One line matched no card and isn't counted" : `${r.unknown.length} lines matched no card and aren't counted`}: {r.unknown.join(", ")}. <Button variant="quiet" size="small" onClick={onEdit}>Fix the list</Button>
+            {r.unknown.length === 1 ? "One line matched no card and isn't counted" : `${r.unknown.length} lines matched no card and aren't counted`}: {r.unknown.join(", ")}. <Button variant="quiet" size="small" disabled={saving} onClick={onEdit}>Fix the list</Button>
           </p>
         )}
-        <CommanderPick check={r} deck={deck} onPick={(ids) => setDeck({ ...deck, commanders: ids })} />
+        <CommanderPick check={r} deck={deck} disabled={saving} onPick={(ids) => setDeck(changed(deck, { commanders: ids }))} />
 
         {goldfish && <SampleHand deck={view} art={commander?.image_art_crop ?? null} artist={commander?.artist ?? null} onClose={() => setGoldfish(false)} />}
 
@@ -383,31 +390,39 @@ function CheckTiles({ view, analysis: a, hrefFor }: { view: DeckView; analysis: 
 }
 
 /**
- * Who leads the deck. A list with a Commander heading says; otherwise Yama took the first card
- * that can lead (or the only one), and this is where to change it. Shown when Yama guessed, when
- * there is no commander, or once a pick has been made.
+ * Who leads the deck, and where to change it. A list with a Commander heading says; otherwise
+ * Yama took the first card that can lead (or the only one). A pick here wins over both. Shown
+ * whenever there is something to pick: not for a list whose only cards that can lead are the
+ * commanders its heading names.
  */
-function CommanderPick({ check, deck, onPick }: { check: ListCheck; deck: GuestDeck; onPick: (oracleIds: string[]) => void }) {
+function CommanderPick({ check, deck, disabled, onPick }: { check: ListCheck; deck: GuestDeck; disabled: boolean; onPick: (oracleIds: string[]) => void }) {
   const choices = commanderChoices(check);
   const leaders = check.cards.filter((c) => c.board === "commander");
-  if (!choices.length || !(check.commander_guessed || deck.commanders.length > 0 || leaders.length === 0)) return null;
+  const others = choices.some((c) => c.board !== "commander");
+  if (!choices.length || !(check.commander_guessed || deck.commanders.length > 0 || leaders.length === 0 || others)) return null;
   const first = leaders[0]?.oracle_id ?? "";
   const second = leaders[1]?.oracle_id ?? "";
   const pick = (a: string, b: string) => onPick([a, b].filter((id, i, all) => id && all.indexOf(id) === i));
   return (
     <section className="check-commander" aria-label="Commander">
       <p className="small dim">
-        {leaders.length === 0 ? "Yama couldn't tell which card is the commander." : deck.commanders.length > 0 ? "You picked the commander." : `The list has no Commander heading, so Yama took ${leaders.map((c) => c.name).join(" and ")}.`}
+        {leaders.length === 0
+          ? "Yama couldn't tell which card is the commander."
+          : deck.commanders.length > 0
+            ? "You picked the commander."
+            : check.commander_guessed
+              ? `The list has no Commander heading, so Yama took ${leaders.map((c) => c.name).join(" and ")}.`
+              : `The list's Commander heading names ${leaders.map((c) => c.name).join(" and ")}. Pick here to change it or add a partner.`}
       </p>
       <Field label="Commander">
-        <select value={first} onChange={(e) => pick(e.target.value, second)}>
+        <select value={first} disabled={disabled} onChange={(e) => pick(e.target.value, second)}>
           {!first && <option value="">Choose one</option>}
           {choices.map((c) => <option key={c.oracle_id} value={c.oracle_id}>{c.name}</option>)}
         </select>
       </Field>
       {first && choices.length > 1 && (
         <Field label="Partner or background">
-          <select value={second} onChange={(e) => pick(first, e.target.value)}>
+          <select value={second} disabled={disabled} onChange={(e) => pick(first, e.target.value)}>
             <option value="">None</option>
             {choices.filter((c) => c.oracle_id !== first).map((c) => <option key={c.oracle_id} value={c.oracle_id}>{c.name}</option>)}
           </select>

@@ -146,6 +146,9 @@ pub struct Limits {
     /// client address. Someone editing a list checks it again with each change; a script checks
     /// hundreds.
     pub public_deck_checks: RateLimiter,
+    /// The same checks from everywhere together, so a flood from many addresses (or past the bot
+    /// check, which lets a request with an `Authorization` header through) still stops.
+    pub public_deck_checks_all: RateLimiter,
     /// New accounts through open sign-up, per client address: a person makes one, a script many.
     pub new_accounts_address: RateLimiter,
     /// New accounts through open sign-up from everywhere together, so a flood from many addresses
@@ -237,6 +240,7 @@ impl Default for Limits {
             search: RateLimiter::new("card searches", 120, MINUTE),
             guest_search: RateLimiter::new("card searches from this address", 60, MINUTE),
             public_deck_checks: RateLimiter::new("deck checks from this address", 40, 10 * MINUTE),
+            public_deck_checks_all: RateLimiter::new("deck checks on Yama just now", 1200, 10 * MINUTE),
             new_accounts_address: RateLimiter::new("new accounts from this address", NEW_ACCOUNTS_PER_ADDRESS, DAY),
             new_accounts: RateLimiter::new("new accounts on Yama just now", NEW_ACCOUNTS_PER_HOUR, 60 * MINUTE),
             new_account_gate: tokio::sync::Mutex::new(()),

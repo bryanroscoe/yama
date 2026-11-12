@@ -50,7 +50,7 @@ to sign in where the page would be. Check a deck (`/check`) takes a pasted list 
 from anyone and shows what the deck page shows about a list: Commander legality, what bracket it
 plays like and the least the card rules allow, Game Changers, the power level, stats, sample
 hands and dated market value. The list is kept in the browser only and is still there on the
-next visit; the server stores nothing and sends it to no other service, so combos (Commander
+next visit; the server keeps neither the list nor the result and sends it to no other service, so combos (Commander
 Spellbook) come once it is saved. "Sign in to save this deck" makes it an ordinary deck. The sign-in page (`/signin`) highlights the public precon
 reference and MCP guide, explains what an account adds, and keeps Google sign-in directly
 accessible. OAuth and private links use a focused sign-in view.

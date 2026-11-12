@@ -2,7 +2,7 @@
 // in this browser only, the way games counted without an account are (table/store.ts): it is
 // still here on the next visit, and Yama's server keeps nothing of it. Each visit sends the list
 // to `POST /api/public/deck-check` (server/src/list_check.rs), which answers from card data and
-// market prices alone and stores nothing; the answer isn't kept either, so prices and legality
+// market prices alone and keeps nothing of the list; the answer isn't kept either, so prices and legality
 // are current. "Sign in to save this deck" makes it an ordinary deck of the account
 // (`POST /api/decks`) and removes it from here.
 
@@ -26,7 +26,9 @@ export interface GuestDeck {
   text: string;
   /** The commander (or two) picked on the page, by oracle id; empty means Yama's reading. */
   commanders: string[];
-  /** Sent with the save, so a save sent twice (a lost reply) makes one deck. */
+  /** Sent with the save, so the same save sent twice (a lost reply) makes one deck. It names
+   *  one list under one name with one commander: a change to any of them gets a new id
+   *  (`changed`), because the server refuses an id sent again for something else. */
   opId: string;
   /** When "Sign in to save this deck" was pressed (ms), until the save happens or it lapses. */
   saveAsked?: number;
@@ -60,6 +62,10 @@ export interface ListCheck {
 
 type Store = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
+/** The list while the browser won't keep it (storage blocked or full): held for this page load,
+ *  so it survives going to the sign-in page and back, and is gone on a reload. */
+let unkept: GuestDeck | null = null;
+
 const store = (): Store | null => {
   try {
     return typeof localStorage === "undefined" ? null : localStorage;
@@ -75,8 +81,20 @@ export function newGuestDeck(text: string, name = ""): GuestDeck {
   return { name: name.trim().slice(0, NAME_MAX), text, commanders: [], opId: newOpId() };
 }
 
+/** The list with something about it changed (its name, its commander): what would be saved is
+ *  now different, so it is a new save with its own id. Nothing changed keeps the id. */
+export function changed(deck: GuestDeck, change: Partial<Pick<GuestDeck, "name" | "commanders">>): GuestDeck {
+  const next = { ...deck, ...change };
+  const same = next.name === deck.name && next.commanders.join("\n") === deck.commanders.join("\n");
+  return same ? deck : { ...next, opId: newOpId() };
+}
+
 /** The kept list, or null: none, storage blocked, or something that isn't one (it is removed). */
-export function readGuestDeck(storage: Store | null = store()): GuestDeck | null {
+export function readGuestDeck(storage?: Store | null): GuestDeck | null {
+  if (storage === undefined) {
+    if (unkept) return unkept;
+    storage = store();
+  }
   if (!storage) return null;
   try {
     const raw = storage.getItem(KEY);
@@ -99,7 +117,14 @@ export function readGuestDeck(storage: Store | null = store()): GuestDeck | null
 }
 
 /** Keep the list (or forget it with null). False when the browser wouldn't keep it. */
-export function writeGuestDeck(deck: GuestDeck | null, storage: Store | null = store()): boolean {
+export function writeGuestDeck(deck: GuestDeck | null, storage?: Store | null): boolean {
+  if (storage !== undefined) return put(deck, storage);
+  const kept = put(deck, store());
+  unkept = kept ? null : deck;
+  return kept;
+}
+
+function put(deck: GuestDeck | null, storage: Store | null): boolean {
   if (!storage) return false;
   try {
     if (deck) storage.setItem(KEY, JSON.stringify(deck));
@@ -110,10 +135,14 @@ export function writeGuestDeck(deck: GuestDeck | null, storage: Store | null = s
   }
 }
 
+/** Whether this browser is keeping the list, as far as the last write could tell. */
+export const keptInBrowser = () => unkept === null;
+
 /** What stops a list from being checked, in words, or null. */
 export function listProblem(text: string): string | null {
   if (!text.trim()) return "Paste a deck list first.";
-  if (text.split("\n").length > MAX_LINES) return `That's more than ${MAX_LINES} lines. Check one deck at a time, and leave out long notes.`;
+  // Counted as the server counts them: a last line's own line break isn't another line.
+  if (text.replace(/\r?\n$/, "").split("\n").length > MAX_LINES) return `That's more than ${MAX_LINES} lines. Check one deck at a time, and leave out long notes.`;
   if (new TextEncoder().encode(text).length > MAX_TEXT_BYTES) return "That's too much text for one deck.";
   return null;
 }

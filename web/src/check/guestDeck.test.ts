@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { analysis } from "../decks/analysisFixture";
 import {
   asDeckView,
+  changed,
   commanderChoices,
   deckName,
   listProblem,
@@ -99,6 +100,20 @@ describe("the list kept in the browser", () => {
   it("gives every new list its own save id", () => {
     expect(newGuestDeck("1 Sol Ring").opId).not.toBe(newGuestDeck("1 Sol Ring").opId);
   });
+
+  it("gives a renamed list or another commander a new save id, since the server refuses an id sent for something else", () => {
+    const deck = { ...newGuestDeck("1 Omo\n1 Tana", "Lands"), commanders: ["o-omo"], saveAsked: 5 };
+    // Nothing changed: the same list object, so a retry is the same save.
+    expect(changed(deck, { name: "Lands" })).toBe(deck);
+    expect(changed(deck, { commanders: ["o-omo"] })).toBe(deck);
+    const renamed = changed(deck, { name: "Lands matter" });
+    expect(renamed).toMatchObject({ name: "Lands matter", text: deck.text, commanders: ["o-omo"], saveAsked: 5 });
+    expect(renamed.opId).not.toBe(deck.opId);
+    const led = changed(deck, { commanders: ["o-tana"] });
+    expect(led).toMatchObject({ name: "Lands", commanders: ["o-tana"] });
+    expect(led.opId).not.toBe(deck.opId);
+    expect(changed(deck, { commanders: ["o-omo", "o-tana"] }).opId).not.toBe(deck.opId);
+  });
 });
 
 describe("what stops a list from being checked", () => {
@@ -107,6 +122,10 @@ describe("what stops a list from being checked", () => {
     expect(listProblem("1 Sol Ring\n1 Forest")).toBeNull();
     expect(listProblem(Array.from({ length: MAX_LINES }, () => "1 Forest").join("\n"))).toBeNull();
     expect(listProblem(Array.from({ length: MAX_LINES + 1 }, () => "1 Forest").join("\n"))).toContain("more than 300 lines");
+    // Counted as the server counts lines: the last line's own line break isn't another line.
+    expect(listProblem(`${Array.from({ length: MAX_LINES }, () => "1 Forest").join("\n")}\n`)).toBeNull();
+    expect(listProblem(`${Array.from({ length: MAX_LINES }, () => "1 Forest").join("\r\n")}\r\n`)).toBeNull();
+    expect(listProblem(`${Array.from({ length: MAX_LINES }, () => "1 Forest").join("\n")}\n\n`)).toContain("more than 300 lines");
     expect(listProblem("é".repeat(40_000))).toBe("That's too much text for one deck.");
   });
 });

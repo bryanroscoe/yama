@@ -18,9 +18,11 @@
 //!   background (`deck_checks.rs`); an anonymous list isn't, and no account's stored answer is
 //!   read for it, so the analysis has no combos (`combos.checked` is false) and says so. The
 //!   privacy page (`web/public/privacy/index.html`) states this.
-//! - **is bounded.** [`MAX_BYTES`] of body, [`MAX_LINES`] lines, the caps a stored list has, one
-//!   indexed lookup per line, and a per-address limit (`Limits::public_deck_checks`). It is off
-//!   with `YAMA_GUEST_MODE=0`, like card search without an account.
+//! - **is bounded.** [`MAX_BYTES`] of body, [`MAX_LINES`] lines, the caps a stored list has, two
+//!   indexed lookups per line (the name, then the card's own name), a per-address limit
+//!   (`Limits::public_deck_checks`) and one for every address together
+//!   (`Limits::public_deck_checks_all`). It is off with `YAMA_GUEST_MODE=0`, like card search
+//!   without an account.
 
 use crate::cards::Card;
 use crate::decks::{Board, DeckCard};
@@ -164,9 +166,12 @@ fn set_commanders(cards: Vec<DeckCard>, picked: &[String]) -> Vec<DeckCard> {
 
 async fn check(State(st): State<AppState>, ClientAddress(address): ClientAddress, Json(req): Json<CheckRequest>) -> AppResult<Json<ListCheck>> {
     if !st.cfg.guest_mode {
-        return Err(AppError::Forbidden("Checking a deck without an account is off right now. Sign in to import it.".into()));
+        // Said to everyone alike: the route doesn't know whether the caller is signed in.
+        return Err(AppError::Forbidden("Checking a deck without saving it is off right now. Import it into your decks instead.".into()));
     }
+    // The address's own count first: one address at its limit doesn't use up everyone's.
     st.limits.public_deck_checks.check(&address_key(address))?;
+    st.limits.public_deck_checks_all.check("all")?;
     if req.text.trim().is_empty() {
         return Err(AppError::bad("paste a deck list"));
     }
@@ -430,11 +435,26 @@ mod tests {
         assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{v}");
         assert!(v["error"].as_str().unwrap().starts_with("Too many deck checks from this address."), "{v}");
 
+        // Every address together has a ceiling too, and an address at its own limit doesn't
+        // count toward it.
+        let mut st = state_with(config(), pool.clone()).await;
+        st.limits = std::sync::Arc::new(crate::limits::Limits { public_deck_checks_all: crate::limits::RateLimiter::new("deck checks on Yama just now", 1, std::time::Duration::from_secs(600)), ..Default::default() });
+        let app = crate::routes::app(st);
+        assert_eq!(check(&app, body.clone()).await.0, StatusCode::OK);
+        let (status, v) = check(&app, body.clone()).await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{v}");
+        assert!(v["error"].as_str().unwrap().starts_with("Too many deck checks on Yama just now."), "{v}");
+
+        // Off for everyone, signed in or not: the route never looks at a session.
         let mut cfg = config();
         cfg.guest_mode = false;
         let off = crate::routes::app(state_with(cfg, pool.clone()).await);
-        let (status, v) = check(&off, body).await;
-        assert_eq!(status, StatusCode::FORBIDDEN, "{v}");
+        let (_, token) = user(&pool, "someone@example.com").await;
+        for who in [None, Some(token.as_str())] {
+            let (status, v) = send(&off, Method::POST, PATH, who, Some(body.clone())).await;
+            assert_eq!(status, StatusCode::FORBIDDEN, "{v}");
+            assert_eq!(v["error"], "Checking a deck without saving it is off right now. Import it into your decks instead.");
+        }
     }
 
     /// The MCP tool reads a list through the same function, so the two agree on what a list holds.
