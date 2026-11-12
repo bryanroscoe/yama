@@ -46,6 +46,9 @@ pub const MCP_CALLS_PER_MINUTE: usize = 120;
 pub const MCP_CALLS_PER_DAY: usize = 200;
 
 /// Keys kept before stale ones are swept out.
+/// Adds and removes on one account's wish list in ten minutes: room to add a whole deck's
+/// missing cards one press at a time, twice over.
+pub const WISH_WRITES: usize = 240;
 const SWEEP_AT: usize = 10_000;
 
 /// A sliding-window counter: at most `max` hits per key in any `window`. A refused hit isn't
@@ -229,6 +232,10 @@ pub struct Limits {
     pub reports_address: RateLimiter,
     /// Reports stored on the whole server in an hour.
     pub reports: RateLimiter,
+    /// Cards and sealed products added to or taken off one account's wish list from the page
+    /// (`plan/wants.rs`). Every account reaches the list from the Collection tab (12 Nov 2026);
+    /// the caps on its size don't stop someone adding and removing without end.
+    pub wish_writes: RateLimiter,
 }
 
 impl Default for Limits {
@@ -274,6 +281,7 @@ impl Default for Limits {
             guest_checks_address: RateLimiter::new("tries to start as a guest from this address", 20, 60 * MINUTE),
             reports_address: RateLimiter::new("reports from this address", 5, 60 * MINUTE),
             reports: RateLimiter::new("reports on Yama just now", 120, 60 * MINUTE),
+            wish_writes: RateLimiter::new("wish list changes", WISH_WRITES, 10 * MINUTE),
         }
     }
 }

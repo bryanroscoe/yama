@@ -167,12 +167,14 @@ async fn rows(pool: &SqlitePool, owner: &str, id: Option<&str>) -> AppResult<Vec
 
 /// `POST /api/plan/wants`: add a card or sealed product to your list.
 pub async fn add_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(w): Json<NewWant>) -> AppResult<Json<Value>> {
+    st.limits.wish_writes.check_user(&user)?;
     Ok(Json(add(&st.pool, &user.id, &w, "page", None).await?))
 }
 
 /// `DELETE /api/plan/wants/{id}`: take it off your list. One added on the page is deleted; one a
 /// change from Claude added is kept, retired, since applying that change again must add nothing.
 pub async fn remove_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<Value>> {
+    st.limits.wish_writes.check_user(&user)?;
     remove(&st.pool, &user.id, &id).await?;
     Ok(Json(json!({"removed": id})))
 }
@@ -344,5 +346,25 @@ mod tests {
         assert_eq!(v["cards"], json!([{"name": "Fellwar Stone", "need": 1, "real": 0, "proxy": 1}]));
         let (_, other) = user(&pool, "other@example.com").await;
         assert_eq!(send(&app, Method::GET, &format!("/api/plan/wants/deck-gaps/{deck_id}"), Some(&other), None).await.0.as_u16(), 404);
+    }
+
+    /// Every account reaches the wish list from the Collection tab, so adding and removing are
+    /// counted: the caps on the list's size alone would let someone add and remove without end.
+    #[tokio::test]
+    async fn adding_and_removing_wishes_is_rate_limited_per_account() {
+        let (app, pool) = app().await;
+        let (_, token) = user(&pool, "pat@example.com").await;
+        let (_, other) = user(&pool, "sam@example.com").await;
+        let want = json!({"kind": "sealed", "name": "Federation Fleet"});
+        for i in 0..crate::limits::WISH_WRITES / 2 {
+            let (s, v) = send(&app, Method::POST, "/api/plan/wants", Some(&token), Some(want.clone())).await;
+            assert!(s.is_success(), "add {i}: {v}");
+            let id = v["id"].as_str().unwrap().to_string();
+            assert!(send(&app, Method::DELETE, &format!("/api/plan/wants/{id}"), Some(&token), None).await.0.is_success(), "remove {i}");
+        }
+        assert_eq!(send(&app, Method::POST, "/api/plan/wants", Some(&token), Some(want.clone())).await.0.as_u16(), 429);
+        assert_eq!(send(&app, Method::DELETE, "/api/plan/wants/none", Some(&token), None).await.0.as_u16(), 429);
+        // Another account's count is its own.
+        assert!(send(&app, Method::POST, "/api/plan/wants", Some(&other), Some(want)).await.0.is_success());
     }
 }
