@@ -332,3 +332,77 @@ async fn the_commander_ranking_counts_public_decks_per_commander() {
     // The link's filter finds the same decks.
     assert_eq!(names(&app, "?commander=Krenko%2C+Mob+Boss").await, ["Goblins two", "Goblins one"]);
 }
+
+/// A signed-out GET of a page: (status, headers, body text).
+async fn get(app: &Router, path: &str) -> (StatusCode, axum::http::HeaderMap, String) {
+    use tower::ServiceExt;
+    let res = app.clone().oneshot(axum::http::Request::builder().uri(path).body(axum::body::Body::empty()).unwrap()).await.unwrap();
+    let (status, headers) = (res.status(), res.headers().clone());
+    let bytes = axum::body::to_bytes(res.into_body(), usize::MAX).await.unwrap();
+    (status, headers, String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// Search engines may index a deck's page only when the deck is listed publicly, and the
+/// sitemap names only those. A deck shared by link, a public deck of an account that hasn't
+/// taken on the new meaning of "public", a profile and a download all still say noindex.
+#[tokio::test]
+async fn only_listed_decks_may_be_indexed_and_are_in_the_sitemap() {
+    let pool = crate::db::test_pool().await;
+    let mut cfg = crate::testutil::config();
+    cfg.public_url = Some("https://yama.test/".into());
+    let app = crate::routes::app(crate::testutil::state_with(cfg, pool.clone()).await);
+    seed_cards(&pool).await;
+    let ann = lister(&app, &pool, "ann").await;
+    let old = user(&pool, "old@example.com").await;
+    send(&app, Method::PUT, "/api/me/sharing", Some(&old.1), Some(json!({ "handle": "oldtimer" }))).await;
+    let token = |id: String| {
+        let pool = pool.clone();
+        async move { sqlx::query_scalar::<_, String>("SELECT share_token FROM decks WHERE id = ?").bind(id).fetch_one(&pool).await.unwrap() }
+    };
+    let listed_id = deck(&app, &pool, &ann, "Listed goblins", krenko_list(0), "public", "2026-11-01T08:00:00Z").await;
+    let listed = token(listed_id.clone()).await;
+    let by_link = token(deck(&app, &pool, &ann, "Goblins by link", krenko_list(1), "link", "2026-11-02T00:00:00Z").await).await;
+    let unlisted = token(deck(&app, &pool, &old, "Old public goblins", krenko_list(2), "public", "2026-11-03T00:00:00Z").await).await;
+
+    let (status, headers, html) = get(&app, &format!("/d/{listed}")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(headers.get("x-robots-tag").is_none(), "a listed deck's page may be indexed");
+    assert!(!html.contains("noindex"));
+    assert!(html.contains(&format!("<link rel=\"canonical\" href=\"https://yama.test/d/{listed}\">")), "it names its own address");
+    for (what, t) in [("by link", &by_link), ("an account that hasn't answered", &unlisted)] {
+        let (status, headers, html) = get(&app, &format!("/d/{t}")).await;
+        assert_eq!(status, StatusCode::OK, "{what}");
+        assert_eq!(headers.get("x-robots-tag").map(|v| v.to_str().unwrap()), Some("noindex"), "{what}");
+        assert!(html.contains("<meta name=\"robots\" content=\"noindex\">") && !html.contains("rel=\"canonical\""), "{what}");
+    }
+    // Everything around a listed deck that isn't its page stays out of search engines.
+    for path in [format!("/d/{listed}/names.txt"), format!("/d/{listed}/report"), "/u/ann".to_string(), "/api/public/browse".to_string()] {
+        assert_eq!(get(&app, &path).await.1.get("x-robots-tag").map(|v| v.to_str().unwrap().to_string()), Some("noindex".to_string()), "{path}");
+    }
+
+    let sitemap = || async { get(&app, "/sitemap.xml").await.2 };
+    let xml = sitemap().await;
+    assert!(xml.contains(&format!("<url><loc>https://yama.test/d/{listed}</loc><lastmod>2026-11-01</lastmod></url>")), "{xml}");
+    assert!(!xml.contains(&by_link) && !xml.contains(&unlisted) && !xml.contains("/u/"), "{xml}");
+
+    // robots.txt is the server's own answer, typed and cacheable, and points at the sitemap.
+    let (status, headers, robots) = get(&app, "/robots.txt").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers.get("content-type").unwrap(), "text/plain; charset=utf-8");
+    assert!(headers.get("cache-control").is_some_and(|v| v.to_str().unwrap().contains("max-age")));
+    assert_eq!(robots, "User-agent: *\nAllow: /\n\nSitemap: https://yama.test/sitemap.xml\n");
+    let (_, headers, _) = get(&app, "/sitemap.xml").await;
+    assert!(headers.get("content-type").is_some_and(|v| v.to_str().unwrap().contains("xml")) && headers.get("cache-control").is_some());
+
+    // The older account says yes: its public deck may be indexed and joins the sitemap.
+    super::list_publicly(&pool, &old.0).await.unwrap();
+    assert!(get(&app, &format!("/d/{unlisted}")).await.1.get("x-robots-tag").is_none());
+    assert!(sitemap().await.contains(&format!("/d/{unlisted}</loc>")));
+    // Made private, the listed deck leaves the sitemap, and its page is a "not found" that
+    // says noindex too.
+    send(&app, Method::PATCH, &format!("/api/decks/{listed_id}"), Some(&ann.1), Some(json!({ "visibility": "private" }))).await;
+    assert!(!sitemap().await.contains(&listed));
+    let (status, headers, html) = get(&app, &format!("/d/{listed}")).await;
+    assert_eq!((status, headers.get("x-robots-tag").map(|v| v.to_str().unwrap())), (StatusCode::NOT_FOUND, Some("noindex")));
+    assert!(html.contains("<meta name=\"robots\" content=\"noindex\">"));
+}

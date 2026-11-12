@@ -107,7 +107,6 @@ pub(crate) const LISTED: &str = "d.visibility = 'public' AND d.archived = 0 AND 
      AND u.disabled_at IS NULL AND u.guest = 0 AND u.handle IS NOT NULL AND u.public_listed_at IS NOT NULL";
 
 /// Whether this deck is listed publicly ([`LISTED`]). An unknown deck is not.
-#[allow(dead_code)] // Asked by the shared page once listed decks may be indexed (the change after Browse).
 pub(crate) async fn deck_listed(pool: &SqlitePool, deck_id: &str) -> AppResult<bool> {
     Ok(sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT EXISTS(SELECT 1 FROM decks d JOIN users u ON u.id = d.owner_id WHERE d.id = ? AND {LISTED})")))
         .bind(deck_id)
@@ -469,6 +468,10 @@ pub(crate) struct SharedLink {
 
 #[derive(Clone)]
 pub(crate) struct SharedDeck {
+    /// Listed publicly ([`LISTED`]): its page may be indexed by search engines and is in the
+    /// sitemap. A deck shared by link, and a public deck of an account that hasn't taken on the
+    /// new meaning of "public", is not.
+    pub(crate) listed: bool,
     pub(crate) sharer: Sharer,
     pub(crate) name: String,
     pub(crate) token: String,
@@ -822,6 +825,7 @@ pub(crate) async fn shared_deck(pool: &SqlitePool, token: &str) -> AppResult<Sha
         })
         .collect();
     Ok(SharedDeck {
+        listed: deck_listed(pool, &row.id).await?,
         sharer,
         name: public_text(&row.name, public),
         token: token.to_string(),

@@ -94,6 +94,13 @@ when they try to share it. Public pages mask a
 short list of slurs in deck names and descriptions, refuse them in handles, and show links in a
 public deck's name and description as "[link removed]".
 
+A deck that is listed publicly (public, with a handle, on an account that has taken on
+public-by-default) may be indexed by search engines: its page drops `noindex`, names its own
+address as canonical, and is in `/sitemap.xml`. Decks shared by link, public decks of accounts
+that have not answered the question, profiles, collections, want lists, shared plans and every
+download still ask not to be indexed. `/robots.txt` points crawlers at the sitemap and disallows
+nothing, so a crawler can read each page's own `noindex`.
+
 Yama moved to [yama.ing](https://yama.ing) on 28 October 2026. Anyone still on the old address
 should sync pending changes there before signing in at the new one; installed apps and MCP
 connectors need the new URL.

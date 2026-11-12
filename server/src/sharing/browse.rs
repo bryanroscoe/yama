@@ -474,3 +474,23 @@ pub(crate) fn commander_link(name: &str, counts: &HashMap<String, i64>) -> Strin
         _ => String::new(),
     }
 }
+
+/// The most deck pages the sitemap names (a sitemap file may hold 50,000 addresses).
+const IN_SITEMAP: i64 = 20_000;
+
+/// The listed decks' pages for the sitemap, the most recently saved first: each deck's share
+/// token and the day its current list was saved. Configurations are left to their main deck's
+/// page, which links to them, as in the listing.
+pub(crate) async fn sitemap_decks(pool: &SqlitePool) -> AppResult<Vec<(String, String)>> {
+    // `LISTED` and the limit are constants.
+    Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT d.share_token, substr(v.created_at, 1, 10) FROM decks d JOIN users u ON u.id = d.owner_id
+           JOIN deck_versions v ON v.id = d.current_version_id
+          WHERE {LISTED}
+            AND (d.parent_id IS NULL OR NOT EXISTS (
+                  SELECT 1 FROM decks m WHERE m.id = d.parent_id AND m.visibility = 'public' AND m.archived = 0 AND m.taken_down_at IS NULL))
+          ORDER BY v.created_at DESC, d.id LIMIT {IN_SITEMAP}"
+    )))
+    .fetch_all(pool)
+    .await?)
+}
