@@ -570,6 +570,9 @@ async fn new_accounts_start_their_decks_public_and_older_ones_keep_their_setting
     assert_eq!(status, StatusCode::OK);
     for email in ["new-google@gmail.com", "new-password@example.com", "new-dev@example.com"] {
         assert_eq!(starts_as(email).await, "public", "{email}");
+        // Only decks: a new account's collection, want list and simulated results are not shared.
+        let shared: (bool, bool, bool, bool) = sqlx::query_as("SELECT collection_public, wants_public, wants_include_pending, share_lab_results FROM users WHERE email = ?").bind(email).fetch_one(&pool).await.unwrap();
+        assert_eq!(shared, (false, false, false, false), "{email}");
     }
 
     // So a new account's first deck is public unless the save step says otherwise, and an old

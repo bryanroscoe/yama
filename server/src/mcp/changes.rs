@@ -573,8 +573,9 @@ pub async fn save_deck(st: &AppState, user: &User, via: &Via, args: &Value) -> A
             "Create"
         }
     );
-    // A new deck starts as the account's setting for new decks. What is staged says so, and
-    // keeps it: applying makes the deck as the person reviewed it, whatever the setting is by then.
+    // A new deck starts as the account's setting for new decks. What is staged says so, in
+    // its summary and its detail, and keeps it: applying never makes the deck more visible than
+    // the person reviewed, and never more visible than their setting is by then.
     let starts_as = match target {
         Some(_) => None,
         None => Some(crate::sharing::new_deck_visibility(&st.pool, &user.id).await?),
@@ -583,7 +584,7 @@ pub async fn save_deck(st: &AppState, user: &User, via: &Via, args: &Value) -> A
         "Why: {note}\n{}{}\n{}\n{}",
         starts_as
             .as_ref()
-            .map(|(v, listed, handle)| format!("Who can see it: {} That is your setting for new decks; the deck's Share button changes it.\n", crate::sharing::who_can_see(v, *listed, *handle)))
+            .map(|(v, listed, handle)| format!("Who can see it: {} That is your setting for new decks now; if you make the setting less visible before applying, the deck follows it. The deck's Share button changes it afterwards.\n", crate::sharing::who_can_see(v, *listed, *handle)))
             .unwrap_or_default(),
         source
             .as_deref()
@@ -593,6 +594,10 @@ pub async fn save_deck(st: &AppState, user: &User, via: &Via, args: &Value) -> A
         analysis::exported(&list.cards)
     );
     let visibility = starts_as.map(|(v, _, _)| v);
+    let summary = match &visibility {
+        Some(v) => format!("{summary}; it starts {}", crate::sharing::visibility_words(v)),
+        None => summary,
+    };
     stage(st, user, via, args, Staged {kind:"edit_deck",summary,detail,payload:json!({"complete_list":true,"deck_id":target,"base_version":base,"name":name,"cards":list.cards,"note":note,"source_url":source,"visibility":visibility})}).await
 }
 
@@ -622,6 +627,7 @@ async fn apply_complete_deck(
             .unwrap_or_default()
     );
     let mut tx = st.pool.begin().await?;
+    let mut made = false;
     let id = if let Some(id) = p["deck_id"].as_str() {
         let row: Option<(Option<String>, bool)> = sqlx::query_as(
             "SELECT current_version_id,archived FROM decks WHERE id = ? AND owner_id = ?",
@@ -648,19 +654,28 @@ async fn apply_complete_deck(
             &note,
         )
         .await?;
-        // As staged and reviewed (`save_deck`), not as the setting happens to be now. A change
-        // staged before this was recorded has none, and starts as the setting.
-        if let Some(v) = p["visibility"].as_str().and_then(|v| crate::sharing::visibility(v).ok()) {
-            sqlx::query("UPDATE decks SET visibility = ? WHERE id = ? AND owner_id = ?")
-                .bind(v)
-                .bind(&id)
-                .bind(&user.id)
-                .execute(&mut *tx)
-                .await?;
+        // The deck was made as the setting is now. What was staged and reviewed (`save_deck`)
+        // can only make it less visible than that, never more: a person who tightened their
+        // setting since isn't overruled by an old proposal. A change staged before the
+        // visibility was recorded has none, and starts as the setting.
+        if let Some(staged) = p["visibility"].as_str().and_then(|v| crate::sharing::visibility(v).ok()) {
+            let as_set: String = sqlx::query_scalar("SELECT visibility FROM decks WHERE id = ? AND owner_id = ?").bind(&id).bind(&user.id).fetch_one(&mut *tx).await?;
+            let seen = crate::sharing::less_visible(staged, &as_set);
+            if seen != as_set {
+                sqlx::query("UPDATE decks SET visibility = ? WHERE id = ? AND owner_id = ?").bind(seen).bind(&id).bind(&user.id).execute(&mut *tx).await?;
+            }
         }
+        made = true;
         id
     };
-    let result = json!({"label":format!("{} saved",p["name"].as_str().unwrap_or("Deck")),"link":format!("/decks/{id}"),"deck_id":id});
+    // A new deck's label says who can see it, as it was made.
+    let label = if made {
+        let seen: String = sqlx::query_scalar("SELECT visibility FROM decks WHERE id = ? AND owner_id = ?").bind(&id).bind(&user.id).fetch_one(&mut *tx).await?;
+        format!("{} saved as {}", p["name"].as_str().unwrap_or("Deck"), crate::sharing::visibility_words(&seen))
+    } else {
+        format!("{} saved", p["name"].as_str().unwrap_or("Deck"))
+    };
+    let result = json!({"label":label,"link":format!("/decks/{id}"),"deck_id":id});
     // The deck and the applied marker commit together: a lost reply cannot create it twice.
     let updated=sqlx::query("UPDATE assistant_changes SET status='applied',result=?,error=NULL,decided_at=? WHERE id=? AND owner_id=? AND status='pending'")
         .bind(result.to_string()).bind(now()).bind(change).bind(&user.id).execute(&mut *tx).await?;

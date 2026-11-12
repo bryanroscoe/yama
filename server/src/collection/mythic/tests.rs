@@ -278,8 +278,13 @@ async fn deck_containers_become_decks_and_keep_their_commander() {
         ("Tatyova, Benthic Druid", "p-tatyova", 1, "nonfoil", "NM", "deck", "Tricky Terrain"),
         ("Sol Ring", "p-sol", 1, "nonfoil", "NM", "deck", "Tricky Terrain"),
     ]);
+    // An account whose new decks start public: a deck made from a collection box is private
+    // all the same, because its list is the box's contents and the collection is opt-in.
+    sqlx::query("UPDATE users SET new_deck_visibility = 'public' WHERE id = 'u1'").execute(&pool).await.unwrap();
     let r = import_mythic_csv(&pool, "u1", &first, IMPORT).await.unwrap();
     assert_eq!(r.decks_created, vec!["Tricky Terrain".to_string()]);
+    let seen: String = sqlx::query_scalar("SELECT visibility FROM decks WHERE owner_id = 'u1'").fetch_one(&pool).await.unwrap();
+    assert_eq!(seen, "private");
     let current = || async {
         let v: String = sqlx::query_scalar("SELECT v.cards FROM decks d JOIN deck_versions v ON v.id = d.current_version_id").fetch_one(&pool).await.unwrap();
         serde_json::from_str::<Vec<crate::decks::DeckCard>>(&v).unwrap()

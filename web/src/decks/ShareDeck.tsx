@@ -186,7 +186,8 @@ export function NewConfiguration({ deck, onClose }: { deck: DeckView; onClose: (
     <Dialog title="New configuration" onClose={onClose}>
       <form className="stack" onSubmit={(e) => { e.preventDefault(); make.mutate(); }}>
         <p className="small dim" style={{ margin: 0 }}>
-          Another build of {main}, starting from this list. It shows under {main} in your decks, with its own versions, games and sharing.
+          Another build of {main}, starting from this list. It shows under {main} in your decks, with its own versions, games and sharing. It starts{" "}
+          {deck.visibility === "public" ? "public" : deck.visibility === "link" ? "link only" : "private"}, like this list.
         </p>
         <Field label="Name">
           <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="stock, high power, budget" maxLength={60} required autoFocus />

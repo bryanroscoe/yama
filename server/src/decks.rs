@@ -602,6 +602,17 @@ pub async fn create_deck_with_note(
     Ok(id)
 }
 
+/// A deck that starts private whatever its owner's setting for new decks: one Yama makes from
+/// data that is private unless shared, with no step where the person chooses who sees it (the
+/// contents of a collection box, a plan's list). Its Share button shares it like any other.
+pub async fn create_private_deck(pool: &SqlitePool, owner: &str, name: &str, folder: Option<&str>, cards: Vec<DeckCard>, note: &str) -> AppResult<String> {
+    let mut tx = pool.begin().await?;
+    let id = create_deck_as(&mut tx, owner, name, folder, &cards, note, Some("private")).await?;
+    tx.commit().await?;
+    crate::deck_checks::wake();
+    Ok(id)
+}
+
 /// As `create_deck_with_note`, inside the caller's transaction, so the deck commits (or rolls
 /// back) together with the caller's own writes (the lab's op record for a precon deck). The
 /// version's outside check is queued in the same transaction; call `deck_checks::wake()` after
@@ -614,15 +625,29 @@ pub async fn create_deck_in(
     cards: &[DeckCard],
     note: &str,
 ) -> AppResult<String> {
+    create_deck_as(conn, owner, name, folder, cards, note, None).await
+}
+
+/// As `create_deck_in`, with who can see the deck when that isn't its owner's setting for new
+/// decks (`create_private_deck`).
+async fn create_deck_as(
+    conn: &mut SqliteConnection,
+    owner: &str,
+    name: &str,
+    folder: Option<&str>,
+    cards: &[DeckCard],
+    note: &str,
+    visibility: Option<&str>,
+) -> AppResult<String> {
     if name.trim().is_empty() {
         return Err(AppError::bad("deck needs a name"));
     }
     let id = new_id();
     let stamp = now();
-    // A new deck starts as its owner's chosen default (Sharing).
+    // A new deck starts as its owner's chosen default (Sharing), unless the caller says.
     sqlx::query(
         "INSERT INTO decks (id, owner_id, name, folder, created_at, updated_at, visibility, share_token)
-         SELECT ?,?,?,?,?,?, new_deck_visibility, ? FROM users WHERE id = ?",
+         SELECT ?,?,?,?,?,?, COALESCE(?, new_deck_visibility), ? FROM users WHERE id = ?",
     )
     .bind(&id)
     .bind(owner)
@@ -630,6 +655,7 @@ pub async fn create_deck_in(
     .bind(folder)
     .bind(&stamp)
     .bind(&stamp)
+    .bind(visibility)
     .bind(crate::sharing::new_token())
     .bind(owner)
     .execute(&mut *conn)
@@ -2956,7 +2982,9 @@ pub async fn sync_deck_from_container(pool: &SqlitePool, owner: &str, container_
         .collect();
     match existing {
         None => {
-            let id = create_deck_with_cards(pool, owner, name, Some(MYTHIC_FOLDER), cards).await?;
+            // Private whatever the account's setting: the list is the contents of a collection
+            // box, and the collection is shared only when its owner turns that on.
+            let id = create_private_deck(pool, owner, name, Some(MYTHIC_FOLDER), cards, "created").await?;
             sqlx::query("UPDATE decks SET container_id = ? WHERE id = ?").bind(container_id).bind(&id).execute(pool).await?;
             Ok(ContainerSync::Created)
         }

@@ -130,6 +130,21 @@ pub(crate) async fn new_deck_visibility(pool: &SqlitePool, user: &str) -> AppRes
     Ok(sqlx::query_as("SELECT new_deck_visibility, public_listed_at IS NOT NULL, handle IS NOT NULL FROM users WHERE id = ?").bind(user).fetch_one(pool).await?)
 }
 
+/// The less visible of two visibilities (private, then link, then public).
+pub(crate) fn less_visible<'a>(a: &'a str, b: &'a str) -> &'a str {
+    let rank = |v: &str| VISIBILITIES.iter().position(|x| *x == v).unwrap_or(0);
+    if rank(b) < rank(a) { b } else { a }
+}
+
+/// A visibility in words, mid-sentence: "public", "link only", "private".
+pub(crate) fn visibility_words(v: &str) -> &'static str {
+    match v {
+        "public" => "public",
+        "link" => "link only",
+        _ => "private",
+    }
+}
+
 /// One sentence on who can see a deck of this visibility, for text that stages or reports a new
 /// deck (an assistant's `save_deck`). For a public deck it says the most it can be seen: the
 /// profile only for an account with a handle, and Browse and search engines, as what can happen,

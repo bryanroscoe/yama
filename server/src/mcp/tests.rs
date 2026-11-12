@@ -819,63 +819,108 @@ async fn deleting_a_deck_or_a_configuration_waits_for_review() {
 // ── safety (2026-11-11) ─────────────────────────────────────────────────────
 
 /// A new deck an assistant stages starts as the account's setting for new decks. What is staged
-/// says who can see it, and applying makes the deck as it was reviewed, whatever the setting is by
-/// then. Replacing a deck's list never touches who can see it.
+/// says who can see it. Applying never makes the deck more visible than the person reviewed, nor
+/// more visible than their setting is by then. Replacing a deck's list never touches who can see it.
 #[tokio::test]
-async fn save_deck_says_who_can_see_a_new_deck_and_keeps_it() {
+async fn save_deck_says_who_can_see_a_new_deck_and_never_makes_it_more_visible() {
     let (app, pool) = app().await;
     seed_cards(&pool).await;
     let (a, a_session) = user(&pool, "bryan@example.com").await;
     let existing = my_deck(&pool, &a).await;
     let mcp = key(&app, &a_session, Some("mcp")).await;
     let list = "Commander\n1 Test Commander\nDeck\n1 Sol Ring\n98 Forest";
-    let detail_of = |id: String| {
+    let staged = |id: String| {
         let (pool, a) = (pool.clone(), a.clone());
-        async move { super::changes::list(&pool, &a, true, None).await.unwrap().into_iter().find(|c| c.id == id).unwrap().detail.unwrap() }
+        async move {
+            let c = super::changes::list(&pool, &a, true, None).await.unwrap().into_iter().find(|c| c.id == id).unwrap();
+            (c.summary, c.detail.unwrap())
+        }
     };
     let made = |name: &'static str| {
         let (pool, a) = (pool.clone(), a.clone());
         async move { sqlx::query_scalar::<_, String>("SELECT visibility FROM decks WHERE owner_id = ? AND name = ? AND archived = 0").bind(a).bind(name).fetch_one(&pool).await.unwrap() }
     };
+    let set = |sql: &'static str| {
+        let (pool, a) = (pool.clone(), a.clone());
+        async move {
+            sqlx::query(sql).bind(a).execute(&pool).await.unwrap();
+        }
+    };
+    let stage = |name: &'static str| {
+        let (app, mcp) = (app.clone(), mcp.clone());
+        async move {
+            let (err, text) = call(&app, &mcp, "save_deck", json!({"name": name, "list": list})).await;
+            assert!(!err, "{text}");
+            change_id(&text)
+        }
+    };
+    let apply = |id: String| {
+        let (app, mcp) = (app.clone(), mcp.clone());
+        async move {
+            let (err, text) = call(&app, &mcp, "apply_change", json!({"id": id})).await;
+            assert!(!err, "{text}");
+            text
+        }
+    };
 
-    // The account's setting is private: the staged deck says so and is made private.
-    let (err, text) = call(&app, &mcp, "save_deck", json!({"name": "Quiet Elves", "list": list})).await;
-    assert!(!err, "{text}");
-    let quiet = change_id(&text);
-    assert!(detail_of(quiet.clone()).await.contains("Who can see it: Private. Only you can see it. That is your setting for new decks"), "{}", detail_of(quiet.clone()).await);
+    // The account's setting is private: the staged deck says so, in its summary too.
+    let quiet = stage("Quiet Elves").await;
+    let (summary, detail) = staged(quiet.clone()).await;
+    assert!(summary.ends_with("; it starts private"), "{summary}");
+    assert!(detail.contains("Who can see it: Private. Only you can see it. That is your setting for new decks now"), "{detail}");
 
     // Public, for an account whose public decks are listed but which has no handle yet: by its
     // link until there is a profile, and it says so.
-    sqlx::query("UPDATE users SET new_deck_visibility = 'public', public_listed_at = '2026-11-12T00:00:00Z' WHERE id = ?").bind(&a).execute(&pool).await.unwrap();
-    let (err, text) = call(&app, &mcp, "save_deck", json!({"name": "Linked Elves", "list": list})).await;
-    assert!(!err, "{text}");
-    let linked = detail_of(change_id(&text)).await;
-    assert!(linked.contains("Who can see it: Public. Anyone with its link can see it; once you pick a handle it is on your profile, and can be listed in Browse and found by search engines."), "{linked}");
+    set("UPDATE users SET new_deck_visibility = 'public', public_listed_at = '2026-11-12T00:00:00Z' WHERE id = ?").await;
+    let linked = stage("Linked Elves").await;
+    let (summary, detail) = staged(linked.clone()).await;
+    assert!(summary.ends_with("; it starts public"), "{summary}");
+    assert!(detail.contains("Who can see it: Public. Anyone with its link can see it; once you pick a handle it is on your profile, and can be listed in Browse and found by search engines."), "{detail}");
     // With a handle: it says where the deck will show.
-    sqlx::query("UPDATE users SET handle = 'elves' WHERE id = ?").bind(&a).execute(&pool).await.unwrap();
-    let (err, text) = call(&app, &mcp, "save_deck", json!({"name": "Loud Elves", "list": list})).await;
-    assert!(!err, "{text}");
-    let loud = change_id(&text);
-    assert!(detail_of(loud.clone()).await.contains("Who can see it: Public. Anyone can see it: it is on your profile, and can be listed in Browse and found by search engines."), "{}", detail_of(loud.clone()).await);
+    set("UPDATE users SET handle = 'elves' WHERE id = ?").await;
+    let loud = stage("Loud Elves").await;
+    assert!(staged(loud.clone()).await.1.contains("Who can see it: Public. Anyone can see it: it is on your profile, and can be listed in Browse and found by search engines."));
+    // An account from before public by default that hasn't answered: the profile only.
+    set("UPDATE users SET public_listed_at = NULL WHERE id = ?").await;
+    let old = stage("Old Elves").await;
+    assert!(staged(old.clone()).await.1.contains("Who can see it: Public. Anyone with its link can see it, and it is listed on your profile."));
 
-    // The setting changes before either is applied: each deck is made as it was reviewed.
-    sqlx::query("UPDATE users SET new_deck_visibility = 'link' WHERE id = ?").bind(&a).execute(&pool).await.unwrap();
-    for id in [&quiet, &loud] {
-        let (err, text) = call(&app, &mcp, "apply_change", json!({"id": id})).await;
-        assert!(!err, "{text}");
-    }
+    // The person tightens their setting to link only before applying. A deck staged public
+    // follows the setting, not the old proposal; a deck staged private stays private.
+    set("UPDATE users SET new_deck_visibility = 'link' WHERE id = ?").await;
+    assert!(apply(loud).await.contains("Loud Elves saved as link only"));
+    assert_eq!(made("Loud Elves").await, "link");
+    assert!(apply(quiet).await.contains("Quiet Elves saved as private"));
     assert_eq!(made("Quiet Elves").await, "private");
-    assert_eq!(made("Loud Elves").await, "public");
+    // Loosening the setting doesn't loosen what was reviewed either: staged link only, applied
+    // after the setting became public, is link only.
+    let between = stage("Between Elves").await;
+    set("UPDATE users SET new_deck_visibility = 'public' WHERE id = ?").await;
+    apply(between).await;
+    assert_eq!(made("Between Elves").await, "link");
+    // Unchanged setting: made as staged.
+    apply(linked).await;
+    assert_eq!(made("Linked Elves").await, "public");
+
+    // A change staged before the visibility was recorded has none: it starts as the setting.
+    let legacy = stage("Legacy Elves").await;
+    sqlx::query("UPDATE assistant_changes SET payload = json_remove(payload, '$.visibility') WHERE id = ?").bind(&legacy).execute(&pool).await.unwrap();
+    set("UPDATE users SET new_deck_visibility = 'private' WHERE id = ?").await;
+    apply(legacy).await;
+    assert_eq!(made("Legacy Elves").await, "private");
+    apply(old).await;
+    assert_eq!(made("Old Elves").await, "private");
 
     // A complete list for a deck that exists says nothing about visibility and leaves it alone.
-    sqlx::query("UPDATE decks SET visibility = 'private' WHERE id = ?").bind(&existing).execute(&pool).await.unwrap();
+    sqlx::query("UPDATE decks SET visibility = 'link' WHERE id = ?").bind(&existing).execute(&pool).await.unwrap();
     let (err, text) = call(&app, &mcp, "save_deck", json!({"deck": "Elf Ball", "list": list})).await;
     assert!(!err, "{text}");
     let replace = change_id(&text);
-    assert!(!detail_of(replace.clone()).await.contains("Who can see it"));
-    let (err, text) = call(&app, &mcp, "apply_change", json!({"id": replace})).await;
-    assert!(!err, "{text}");
-    assert_eq!(made("Elf Ball").await, "private");
+    let (summary, detail) = staged(replace.clone()).await;
+    assert!(!detail.contains("Who can see it") && !summary.contains("it starts"), "{summary}\n{detail}");
+    let said = apply(replace).await;
+    assert!(!said.contains("saved as"), "{said}");
+    assert_eq!(made("Elf Ball").await, "link");
 }
 
 #[tokio::test]

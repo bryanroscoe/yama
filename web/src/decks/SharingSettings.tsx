@@ -106,7 +106,7 @@ export function SharingSettings() {
           <span>
             {total === 0
               ? "No decks yet."
-              : `${s.decks.public} public, ${s.decks.link} shared by link, ${s.decks.private} private.`}
+              : `${s.decks.public} public, ${s.decks.link} link only, ${s.decks.private} private.`}
           </span>
         </span>
       </div>

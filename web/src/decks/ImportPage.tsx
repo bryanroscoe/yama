@@ -496,6 +496,8 @@ export function SaveBar({
           <input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="yourname" maxLength={31} autoCapitalize="none" autoCorrect="off" spellCheck={false} disabled={busy} />
         </Field>
       )}
+      {/* A new deck isn't added until the choice of who can see it is on screen. */}
+      {mode === "new" && <ErrorText error={sharing.error} retry={() => void sharing.refetch()} />}
       <ErrorText error={save.error ?? saveAll.error} />
       <div className="import-save-row">
         {mode === "update" ? (
@@ -503,12 +505,12 @@ export function SaveBar({
             {save.isPending ? "Saving…" : "Save as a new version"}
           </Button>
         ) : (
-          <Button variant="primary" disabled={!c.ready || busy || !!badHandle} onClick={() => save.mutate()}>
+          <Button variant="primary" disabled={!c.ready || busy || !!badHandle || !visibility} onClick={() => save.mutate()}>
             {save.isPending ? "Adding…" : "Add the deck"}
           </Button>
         )}
         {mode === "new" && drafts.length > 1 && (
-          <Button disabled={!ready.length || busy || !!badHandle} onClick={() => saveAll.mutate()}>
+          <Button disabled={!ready.length || busy || !!badHandle || !visibility} onClick={() => saveAll.mutate()}>
             {saveAll.isPending ? "Adding…" : `Add all ${ready.length} ready`}
           </Button>
         )}
