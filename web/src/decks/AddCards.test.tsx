@@ -80,7 +80,7 @@ describe("Add cards", () => {
 
   it("offers Add for a card not in the list, Remove for one that is, and both for a basic", () => {
     show({});
-    expect(buttons("Lightning Bolt")).toEqual(["Add"]);
+    expect(buttons("Lightning Bolt")).toEqual(["Consider", "Add"]);
     expect(buttons("Sol Ring")).toEqual(["Remove"]);
     expect(row("Sol Ring").textContent).toContain("In the list");
     expect(buttons("Forest")).toEqual(["Remove", "Add another"]);
@@ -98,7 +98,7 @@ describe("Add cards", () => {
   it("names each button for what it does to which card", () => {
     show({});
     const names = (card: string) => [...row(card).querySelectorAll("button")].map((b) => b.getAttribute("aria-label"));
-    expect(names("Lightning Bolt")).toEqual(["Add Lightning Bolt to the list"]);
+    expect(names("Lightning Bolt")).toEqual(["Consider Lightning Bolt: keep it with the deck, not in it", "Add Lightning Bolt to the list"]);
     expect(names("Sol Ring")).toEqual(["Remove Sol Ring from the list"]);
     expect(names("Forest")).toEqual(["Remove Forest from the list", "Add another Forest"]);
   });
@@ -106,16 +106,16 @@ describe("Add cards", () => {
   it("keeps Remove and Add in places of their own, so a second press never lands on the other", () => {
     show({});
     const slots = (card: string) => [...row(card).querySelectorAll(".edit-list-hit-slot")].map((s) => s.textContent);
-    expect(slots("Lightning Bolt")).toEqual(["", "Add"]);
-    expect(slots("Sol Ring")).toEqual(["Remove", ""]);
-    expect(slots("Forest")).toEqual(["Remove", "Add another"]);
+    expect(slots("Lightning Bolt")).toEqual(["", "Consider", "Add"]);
+    expect(slots("Sol Ring")).toEqual(["Remove", "", ""]);
+    expect(slots("Forest")).toEqual(["Remove", "", "Add another"]);
   });
 
   it("follows the list as it changes: the pressed card's button gives way to the other, which takes focus", () => {
     let text = LIST;
     const render = () => show({ text, onChange: (next) => (text = next) });
     render();
-    const addButton = row("Lightning Bolt").querySelector("button")!;
+    const addButton = row("Lightning Bolt").querySelector<HTMLButtonElement>('[data-act="add"]')!;
     addButton.focus();
     act(() => addButton.click());
     render();
@@ -123,7 +123,7 @@ describe("Add cards", () => {
     expect(document.activeElement).toBe(row("Lightning Bolt").querySelector("button"));
     press("Lightning Bolt", "Remove");
     render();
-    expect(buttons("Lightning Bolt")).toEqual(["Add"]);
+    expect(buttons("Lightning Bolt")).toEqual(["Consider", "Add"]);
     expect(text).toBe(LIST);
   });
 
@@ -165,6 +165,27 @@ describe("Add cards", () => {
     expect(onChange).toHaveBeenLastCalledWith("Commander\n1 Omo, Queen of Vesuva\n\nDeck\n2 Forest");
     press("Forest", "Add another");
     expect(onChange).toHaveBeenLastCalledWith("Commander\n1 Omo, Queen of Vesuva\n\nDeck\n1 Sol Ring\n3 Forest");
+  });
+
+  it("puts a card under Considering, and moves it into the deck from there", () => {
+    const onChange = vi.fn();
+    show({ onChange });
+    press("Lightning Bolt", "Consider");
+    expect(onChange).toHaveBeenLastCalledWith(`${LIST}\n\nConsidering\n1 Lightning Bolt`);
+    expect(host.querySelector('[role="status"]')!.textContent).toBe("Put Lightning Bolt under Considering.");
+  });
+
+  it("shows a considered card as Considering, not in the list: Add moves it in, Remove drops it", () => {
+    const onChange = vi.fn();
+    const text = `${LIST}\n\nConsidering\n1 Lightning Bolt`;
+    show({ onChange, text });
+    expect(row("Lightning Bolt").textContent).toContain("Considering");
+    expect(row("Lightning Bolt").textContent).not.toContain("In the list");
+    expect(buttons("Lightning Bolt")).toEqual(["Remove", "Add"]);
+    press("Lightning Bolt", "Add");
+    expect(onChange).toHaveBeenLastCalledWith(`${LIST}\n1 Lightning Bolt\n\nConsidering`);
+    press("Lightning Bolt", "Remove");
+    expect(onChange).toHaveBeenLastCalledWith(`${LIST}\n\nConsidering`);
   });
 
   it("has no color filter and judges only the format when the deck has no commander", () => {

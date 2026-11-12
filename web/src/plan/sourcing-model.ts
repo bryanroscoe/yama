@@ -50,9 +50,9 @@ export function portfolioRows(cards: SourceCard[], doc: ResearchDocument, decks:
   for (const d of doc.decks) {
     // Older source checks explicitly label cEDH but omit its numeric bracket metadata.
     const builds = d.builds.filter(b => !bracket || String(b.bracket ?? (/\bcEDH\b/i.test(b.label) ? 5 : null)) === bracket);
-    names.set(d.key, new Set(builds.flatMap(b => parseDeckList(b.list).filter(l => l.board !== "side").map(l => l.name.split(" // ")[0]!.trim().toLowerCase()))));
+    names.set(d.key, new Set(builds.flatMap(b => parseDeckList(b.list).filter(l => l.board !== "side" && l.board !== "maybe").map(l => l.name.split(" // ")[0]!.trim().toLowerCase()))));
   }
-  const bracketsFor = (deck: string, card: string) => doc.decks.find(d => d.key === deck)?.builds.filter(b => parseDeckList(b.list).some(l => l.board !== "side" && l.name.split(" // ")[0]!.trim().toLowerCase() === card.split(" // ")[0]!.trim().toLowerCase())).map(b => b.bracket ?? (/\bcEDH\b/i.test(b.label) ? 5 : 0)).filter(b => b > 0) ?? [];
+  const bracketsFor = (deck: string, card: string) => doc.decks.find(d => d.key === deck)?.builds.filter(b => parseDeckList(b.list).some(l => l.board !== "side" && l.board !== "maybe" && l.name.split(" // ")[0]!.trim().toLowerCase() === card.split(" // ")[0]!.trim().toLowerCase())).map(b => b.bracket ?? (/\bcEDH\b/i.test(b.label) ? 5 : 0)).filter(b => b > 0) ?? [];
   const groups = new Map<string, SourceCard>();
   for (const c of cards) {
     const uses = c.uses.flatMap(u => {

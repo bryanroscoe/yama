@@ -520,3 +520,62 @@
   margin: 0;
   overflow-wrap: anywhere;
 }
+
+/* ── Considering: the maybeboard, under the deck's cards ────────────────── */
+
+.deck-considering {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 24px 0 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.deck-considering h2 {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: var(--t-lg);
+  line-height: 1.1;
+}
+.deck-considering > p {
+  margin: 0;
+  max-width: 70ch;
+}
+.deck-considering-cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
+  gap: 0 16px;
+}
+.deck-considering .deck-considering-card {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  padding: 8px 0;
+  text-align: left;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+}
+.deck-considering-thumb {
+  width: 40px;
+  border-radius: 3px;
+  display: block;
+}
+.deck-considering .card-fallback {
+  font-size: 0.6rem;
+  padding: 2px;
+  overflow: hidden;
+}
+.deck-considering-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}

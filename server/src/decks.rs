@@ -44,6 +44,63 @@ pub struct DeckCard {
     pub board: Board,
 }
 
+/// A card on a deck's Considering list (its maybeboard): thought about, not in the deck. The list
+/// is kept with each saved version in `deck_versions.maybe`, apart from the version's cards, so
+/// whatever reads a deck's cards (legality, stats, prices, exports, games, the lab) never sees it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MaybeCard {
+    pub oracle_id: String,
+    pub name: String,
+    pub qty: i64,
+}
+
+/// A Considering list a client sent, made safe to store the way a deck's cards are
+/// ([`checked_cards`]: known cards only, under their canonical names, merged, within the caps).
+async fn checked_maybe(pool: &SqlitePool, maybe: Vec<MaybeCard>) -> AppResult<Vec<MaybeCard>> {
+    let cards = maybe.into_iter().map(|m| DeckCard { oracle_id: m.oracle_id, name: m.name, qty: m.qty, board: Board::Side }).collect();
+    Ok(checked_cards(pool, cards).await?.into_iter().map(|c| MaybeCard { oracle_id: c.oracle_id, name: c.name, qty: c.qty }).collect())
+}
+
+/// A pasted list's Considering (or Maybeboard) section apart from the rest of it, each as text
+/// [`parse_list`] reads. `parse_list` itself files those lines in the sideboard, which is what
+/// the callers that have nowhere else to keep them want; a new deck has the Considering list.
+fn split_considering(text: &str) -> (String, String) {
+    let (mut list, mut apart) = (String::new(), String::new());
+    let mut considering = false;
+    for raw in text.lines() {
+        // A heading, read as `parse_list` reads one.
+        let header = raw.trim().trim_start_matches("//").trim_start_matches('#').trim().trim_end_matches(':').to_lowercase();
+        match header.split(['(', ' ']).next().unwrap_or("") {
+            "maybeboard" | "considering" => {
+                considering = true;
+                continue;
+            }
+            "commander" | "commanders" | "deck" | "main" | "mainboard" | "maindeck" | "creatures" | "lands" | "spells" | "sideboard" | "side" => considering = false,
+            _ => {}
+        }
+        let out = if considering { &mut apart } else { &mut list };
+        out.push_str(raw);
+        out.push('\n');
+    }
+    (list, apart)
+}
+
+/// Replace a saved version's Considering list; an empty one clears it.
+async fn set_maybe<'e, E: sqlx::SqliteExecutor<'e>>(db: E, version_id: &str, maybe: &[MaybeCard]) -> AppResult<()> {
+    let json = if maybe.is_empty() { None } else { Some(serde_json::to_string(maybe).map_err(anyhow::Error::from)?) };
+    sqlx::query("UPDATE deck_versions SET maybe = ? WHERE id = ?").bind(json).bind(version_id).execute(db).await?;
+    Ok(())
+}
+
+/// A saved version's Considering list.
+async fn load_maybe(pool: &SqlitePool, version_id: &str) -> AppResult<Vec<MaybeCard>> {
+    let json: Option<String> = sqlx::query_scalar("SELECT maybe FROM deck_versions WHERE id = ?").bind(version_id).fetch_one(pool).await?;
+    Ok(match json {
+        Some(json) => serde_json::from_str(&json).map_err(anyhow::Error::from)?,
+        None => vec![],
+    })
+}
+
 /// The most different cards one saved list may hold (the importer's limit, `deck_import`).
 pub const MAX_DECK_ROWS: usize = 2_000;
 /// The most copies of one card in a list.
@@ -388,6 +445,9 @@ struct NewDeck {
     /// Printings the import named, kept with the deck (deck_import::save_prints).
     #[serde(default)]
     prints: Vec<crate::deck_import::DeckPrint>,
+    /// The Considering list that came with the deck (an import's maybeboard).
+    #[serde(default)]
+    maybe: Vec<MaybeCard>,
     /// Client-generated, so a request sent again (a lost reply, or "Add all" run again after one
     /// deck failed) makes one deck (`applied_ops`). Without it every request makes a deck.
     #[serde(default)]
@@ -411,17 +471,19 @@ async fn create_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser,
     // What this request asks for, as it was sent: the same request has the same fingerprint
     // whatever card data has changed since, and an op id sent again for another deck (other
     // rows, other text, other printings) is refused rather than answered with the first one.
-    let asked = sha256_hex(
-        &serde_json::json!({
-            "name": name,
-            "folder": folder,
-            "cards": body.cards.as_ref().map(|cards| cards.iter().map(|c| (c.oracle_id.as_str(), c.qty, &c.board)).collect::<Vec<_>>()),
-            "text": body.text,
-            "first_is_commander": body.first_is_commander,
-            "prints": body.prints,
-        })
-        .to_string(),
-    );
+    let mut asked = serde_json::json!({
+        "name": name,
+        "folder": folder,
+        "cards": body.cards.as_ref().map(|cards| cards.iter().map(|c| (c.oracle_id.as_str(), c.qty, &c.board)).collect::<Vec<_>>()),
+        "text": body.text,
+        "first_is_commander": body.first_is_commander,
+        "prints": body.prints,
+    });
+    // Only when there is one, so a request without it has the fingerprint it always had.
+    if !body.maybe.is_empty() {
+        asked["maybe"] = serde_json::json!(body.maybe.iter().map(|m| (m.oracle_id.as_str(), m.qty)).collect::<Vec<_>>());
+    }
+    let asked = sha256_hex(&asked.to_string());
     // A retry gets the first answer before its cards are read again. (The connection goes back
     // before the list is read; the check is repeated inside the write below.)
     if let Some(op) = op_id {
@@ -430,15 +492,23 @@ async fn create_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser,
             return Ok(Json(done));
         }
     }
+    // What a pasted list keeps under a Considering heading, beside what the request sent.
+    let mut considering = body.maybe;
     let (cards, unknown) = match (body.cards, body.text) {
         (Some(cards), _) => (checked_cards(&st.pool, cards).await?, vec![]),
         (None, Some(text)) => {
-            let r = resolve(&st.pool, capped_lines(parse_list(&text, body.first_is_commander))?).await?;
+            let (list, apart) = split_considering(&text);
+            let r = resolve(&st.pool, capped_lines(parse_list(&list, body.first_is_commander))?).await?;
             within_caps(&r.cards)?;
-            (r.cards, r.unknown)
+            let m = resolve(&st.pool, capped_lines(parse_list(&apart, false))?).await?;
+            considering.extend(m.cards.into_iter().map(|c| MaybeCard { oracle_id: c.oracle_id, name: c.name, qty: c.qty }));
+            let mut unknown = r.unknown;
+            unknown.extend(m.unknown);
+            (r.cards, unknown)
         }
         (None, None) => (vec![], vec![]),
     };
+    let maybe = checked_maybe(&st.pool, considering).await?;
     // Immediate, so two sends of one op can't both find it unused. The deck, its printings and
     // the op's record commit together.
     let mut tx = st.pool.begin_with("BEGIN IMMEDIATE").await?;
@@ -448,6 +518,10 @@ async fn create_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser,
         return Ok(Json(done));
     }
     let id = create_deck_in(&mut tx, &user.id, &name, folder.as_deref(), &cards, "created").await?;
+    if !maybe.is_empty() {
+        let version: String = sqlx::query_scalar("SELECT current_version_id FROM decks WHERE id = ?").bind(&id).fetch_one(&mut *tx).await?;
+        set_maybe(&mut *tx, &version, &maybe).await?;
+    }
     crate::deck_import::save_prints_in(&mut tx, &id, &body.prints).await?;
     if let Some(op) = op_id {
         sqlx::query(
@@ -589,15 +663,22 @@ pub(crate) async fn insert_saved_version_in(
 ) -> AppResult<(String, String)> {
     let vid = new_id();
     let stamp = now();
-    sqlx::query("INSERT INTO deck_versions (id, deck_id, cards, note, created_at, history_only) VALUES (?,?,?,?,?,?)")
-        .bind(&vid)
-        .bind(deck_id)
-        .bind(serde_json::to_string(cards).map_err(anyhow::Error::from)?)
-        .bind(note)
-        .bind(&stamp)
-        .bind(history_only)
-        .execute(&mut *conn)
-        .await?;
+    // The Considering list isn't part of a list's cards, so every way of saving a version (the
+    // editor, a scan, an agent's change, a plan's swaps) keeps the one the deck has now. The
+    // editor, which can change it, replaces it afterwards (`set_maybe`).
+    sqlx::query(
+        "INSERT INTO deck_versions (id, deck_id, cards, note, created_at, history_only, maybe)
+         VALUES (?,?,?,?,?,?, (SELECT v.maybe FROM decks d JOIN deck_versions v ON v.id = d.current_version_id WHERE d.id = ?))",
+    )
+    .bind(&vid)
+    .bind(deck_id)
+    .bind(serde_json::to_string(cards).map_err(anyhow::Error::from)?)
+    .bind(note)
+    .bind(&stamp)
+    .bind(history_only)
+    .bind(deck_id)
+    .execute(&mut *conn)
+    .await?;
     Ok((vid, stamp))
 }
 
@@ -648,6 +729,9 @@ struct DeckView {
     /// has none), main deck first.
     configurations: Vec<ConfigurationRef>,
     cards: Vec<DeckEntry>,
+    /// The Considering list: not in the deck, so not in `cards`, `validation`, `ownership` or
+    /// any price or count here.
+    maybe: Vec<MaybeEntry>,
     validation: Validation,
     ownership: OwnershipTotals,
     /// Names of the cards on the Commander Game Changers list (commander and main deck).
@@ -789,6 +873,17 @@ pub(crate) async fn configuration_group(pool: &SqlitePool, owner: &str, deck: &s
     .bind(owner)
     .fetch_all(pool)
     .await?)
+}
+
+/// A card on the Considering list, with what the page shows beside it.
+#[derive(Serialize)]
+struct MaybeEntry {
+    #[serde(flatten)]
+    entry: MaybeCard,
+    card: Option<Card>,
+    /// Real (non-proxy) copies you own anywhere, and proxies.
+    owned: i64,
+    proxies: i64,
 }
 
 #[derive(Serialize)]
@@ -1016,6 +1111,10 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
         None => vec![],
     };
     let card_info = self::card_info(&st.pool, &cards).await?;
+    let maybe = match &version_id {
+        Some(v) => load_maybe(&st.pool, v).await?,
+        None => vec![],
+    };
     // One price per card for the whole page: the deck value, what you own, proxies and what's left.
     let cheapest = crate::deck_prices::cheapest_for(&st.pool, &cards.iter().map(|c| c.oracle_id.as_str()).collect::<Vec<_>>()).await?;
     let market_prices = crate::deck_prices::as_prices(&cheapest);
@@ -1138,6 +1237,23 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
         let produced_mana = mana.get(&c.oracle_id).cloned().flatten();
         entries.push(DeckEntry { entry: c, card, owned, in_deck_container, proxies, locations, needed, cheapest_usd, cheapest_printing, printing, produced_mana });
     }
+    // The Considering list: each card's facts and whether you own it, and nothing more.
+    let maybe = if maybe.is_empty() {
+        vec![]
+    } else {
+        let as_cards: Vec<DeckCard> = maybe.iter().map(|m| DeckCard { oracle_id: m.oracle_id.clone(), name: m.name.clone(), qty: m.qty, board: Board::Side }).collect();
+        let mut info = self::card_info(&st.pool, &as_cards).await?;
+        // The caller's own copies of just these cards.
+        let copies = crate::collection::items_for_cards(&st.pool, &user.id, &maybe.iter().map(|m| m.oracle_id.as_str()).collect::<Vec<_>>()).await?;
+        maybe
+            .into_iter()
+            .map(|m| {
+                let mine = copies.iter().filter(|i| i.oracle_id.as_deref() == Some(m.oracle_id.as_str()));
+                let (owned, proxies) = mine.fold((0, 0), |(owned, proxies), i| if i.proxy { (owned, proxies + i.qty) } else { (owned + i.qty, proxies) });
+                MaybeEntry { card: info.remove(&m.oracle_id), entry: m, owned, proxies }
+            })
+            .collect()
+    };
     totals.needed_cost_usd = (totals.needed_cost_usd * 100.0).round() / 100.0;
     for v in [&mut totals.owned_value_usd, &mut totals.proxy_value_usd].into_iter().flatten() {
         *v = (*v * 100.0).round() / 100.0;
@@ -1157,6 +1273,7 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
         description,
         configurations,
         cards: entries,
+        maybe,
         validation,
         ownership: totals,
         game_changers,
@@ -1174,6 +1291,10 @@ struct SaveVersion {
     /// Printings the import named (deck_import::save_prints).
     #[serde(default)]
     prints: Vec<crate::deck_import::DeckPrint>,
+    /// The Considering list as edited. Absent (an older page, a caller that doesn't edit it)
+    /// keeps the deck's own; present replaces it, and an empty one clears it.
+    #[serde(default)]
+    maybe: Option<Vec<MaybeCard>>,
     /// The version the edit started from (Edit the list). When set, the save is refused with 409
     /// if the deck's list changed since, checked in the same transaction as the insert, so two
     /// editors can't silently replace each other's list.
@@ -1193,21 +1314,25 @@ async fn save_version(
         return Err(AppError::bad(format!("a version's note can have at most {NOTE_MAX} characters")));
     }
     let cards = checked_cards(&st.pool, body.cards).await?;
-    let vid = match &body.base_version {
-        None => insert_version(&st.pool, &id, &cards, body.note.as_deref()).await?,
-        Some(base) => {
-            // Immediate, so another save can't land between the check and the insert.
-            let mut tx = st.pool.begin_with("BEGIN IMMEDIATE").await?;
-            let current: Option<String> = sqlx::query_scalar("SELECT current_version_id FROM decks WHERE id = ?").bind(&id).fetch_one(&mut *tx).await?;
-            if current.as_deref() != Some(base.as_str()) {
-                return Err(AppError::Conflict("this list changed since you opened it".into()));
-            }
-            let vid = insert_version_in(&mut tx, &id, &cards, body.note.as_deref()).await?;
-            tx.commit().await?;
-            crate::deck_checks::wake();
-            vid
-        }
+    let maybe = match body.maybe {
+        Some(maybe) => Some(checked_maybe(&st.pool, maybe).await?),
+        None => None,
     };
+    // One immediate transaction for the list and its Considering list, so another save can't
+    // land between the check and the insert, or between the version and its Considering list.
+    let mut tx = st.pool.begin_with("BEGIN IMMEDIATE").await?;
+    if let Some(base) = &body.base_version {
+        let current: Option<String> = sqlx::query_scalar("SELECT current_version_id FROM decks WHERE id = ?").bind(&id).fetch_one(&mut *tx).await?;
+        if current.as_deref() != Some(base.as_str()) {
+            return Err(AppError::Conflict("this list changed since you opened it".into()));
+        }
+    }
+    let vid = insert_version_in(&mut tx, &id, &cards, body.note.as_deref()).await?;
+    if let Some(maybe) = &maybe {
+        set_maybe(&mut *tx, &vid, maybe).await?;
+    }
+    tx.commit().await?;
+    crate::deck_checks::wake();
     crate::deck_import::save_prints(&st.pool, &id, &body.prints).await?;
     Ok(Json(serde_json::json!({ "version_id": vid })))
 }
@@ -1424,6 +1549,14 @@ async fn new_configuration(
         None => vec![],
     };
     let new = create_deck_in(&mut tx, &user.id, &format!("{root_name} ({label})"), folder.as_deref(), &cards, "new configuration").await?;
+    // The copy starts with the list it was made from, its Considering list included.
+    if let Some(v) = &version_id {
+        sqlx::query("UPDATE deck_versions SET maybe = (SELECT maybe FROM deck_versions WHERE id = ?) WHERE id = (SELECT current_version_id FROM decks WHERE id = ?)")
+            .bind(v)
+            .bind(&new)
+            .execute(&mut *tx)
+            .await?;
+    }
     // It shares no more than the list it copies: the source deck's visibility, not the default
     // for new decks.
     sqlx::query("UPDATE decks SET parent_id = ?, configuration = ?, visibility = (SELECT visibility FROM decks WHERE id = ?) WHERE id = ?")
@@ -2216,6 +2349,124 @@ mod tests {
                 sqlx::query_as("SELECT name, container_id, bracket FROM decks WHERE id = ?").bind(&id).fetch_one(&pool).await.unwrap();
             assert_eq!((name.as_str(), boxed.as_deref(), bracket), ("New name", Some(container.as_str()), Some(3)), "rename first: {rename_first}");
         }
+    }
+
+    /// The Considering list is kept with a deck's versions, but is never part of its cards.
+    #[tokio::test]
+    async fn the_considering_list_is_saved_apart_from_the_decks_cards_and_kept_by_other_saves() {
+        use crate::testutil::{app, send, user};
+        use axum::http::{Method, StatusCode};
+        use serde_json::json;
+        let (app, pool) = app().await;
+        let (_, token) = user(&pool, "builder@example.com").await;
+        for (oracle, name) in [("o-cmd", "Test Commander"), ("o-sol", "Sol Ring"), ("o-bolt", "Lightning Bolt"), ("o-opt", "Opt")] {
+            known_card(&pool, oracle, name).await;
+        }
+        let row = |oracle: &str, board: &str| json!({ "oracle_id": oracle, "name": oracle, "qty": 1, "board": board });
+        let maybe = |oracle: &str, name: &str| json!({ "oracle_id": oracle, "name": name, "qty": 1 });
+        let cards = json!([row("o-cmd", "commander"), row("o-sol", "main")]);
+        let names = |view: &serde_json::Value| view["maybe"].as_array().unwrap().iter().map(|m| m["name"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+
+        // An import brings its maybeboard along; the same op sent again makes one deck.
+        let body = json!({ "name": "Brewing", "cards": cards, "maybe": [maybe("o-bolt", "whatever was typed")], "op_id": "op-1" });
+        let (status, made) = send(&app, Method::POST, "/api/decks", Some(&token), Some(body.clone())).await;
+        assert_eq!(status, StatusCode::OK, "{made}");
+        let (_, again) = send(&app, Method::POST, "/api/decks", Some(&token), Some(body)).await;
+        assert_eq!(again["id"], made["id"]);
+        let id = made["id"].as_str().unwrap().to_string();
+        let path = format!("/api/decks/{id}");
+
+        // The page shows it under the card's own name, apart from the deck: not in its cards,
+        // its count or its ownership totals.
+        let (_, view) = send(&app, Method::GET, &path, Some(&token), None).await;
+        assert_eq!(names(&view), ["Lightning Bolt"], "{view}");
+        assert_eq!(view["maybe"][0]["card"]["oracle_id"], "o-bolt");
+        assert_eq!(view["maybe"][0]["owned"], 0);
+        let in_deck: Vec<&str> = view["cards"].as_array().unwrap().iter().map(|c| c["name"].as_str().unwrap()).collect();
+        assert_eq!(in_deck, ["Test Commander", "Sol Ring"]);
+        assert_eq!(view["ownership"]["cards"], 2);
+
+        // The editor replaces it with what it sends...
+        let sent = json!({ "cards": cards, "maybe": [maybe("o-opt", "Opt"), maybe("o-bolt", "Lightning Bolt")] });
+        let (status, _) = send(&app, Method::PUT, &path, Some(&token), Some(sent)).await;
+        assert_eq!(status, StatusCode::OK);
+        let (_, view) = send(&app, Method::GET, &path, Some(&token), None).await;
+        assert_eq!(names(&view), ["Opt", "Lightning Bolt"]);
+
+        // ...a save that doesn't mention it (an older page, a scan, an agent's change) keeps it...
+        let (status, _) = send(&app, Method::PUT, &path, Some(&token), Some(json!({ "cards": cards }))).await;
+        assert_eq!(status, StatusCode::OK);
+        let current: String = sqlx::query_scalar("SELECT current_version_id FROM decks WHERE id = ?").bind(&id).fetch_one(&pool).await.unwrap();
+        let listed = load_version_cards(&pool, &current).await.unwrap();
+        insert_version(&pool, &id, &listed, Some("an agent's change")).await.unwrap();
+        let (_, view) = send(&app, Method::GET, &path, Some(&token), None).await;
+        assert_eq!(names(&view), ["Opt", "Lightning Bolt"]);
+
+        // ...a save checked against the version it started from replaces it in that transaction...
+        let base: String = sqlx::query_scalar("SELECT current_version_id FROM decks WHERE id = ?").bind(&id).fetch_one(&pool).await.unwrap();
+        let sent = json!({ "cards": cards, "maybe": [maybe("o-opt", "Opt")], "base_version": base });
+        let (status, _) = send(&app, Method::PUT, &path, Some(&token), Some(sent)).await;
+        assert_eq!(status, StatusCode::OK);
+        let (_, view) = send(&app, Method::GET, &path, Some(&token), None).await;
+        assert_eq!(names(&view), ["Opt"]);
+
+        // ...a card Yama doesn't know is refused, as in a list, and an empty list clears it.
+        let (status, _) = send(&app, Method::PUT, &path, Some(&token), Some(json!({ "cards": cards, "maybe": [maybe("o-nope", "Made Up")] }))).await;
+        assert_ne!(status, StatusCode::OK);
+        let (status, _) = send(&app, Method::PUT, &path, Some(&token), Some(json!({ "cards": cards, "maybe": [] }))).await;
+        assert_eq!(status, StatusCode::OK);
+        let (_, view) = send(&app, Method::GET, &path, Some(&token), None).await;
+        assert!(names(&view).is_empty(), "{view}");
+        // The deck's own cards never changed.
+        let in_deck: Vec<&str> = view["cards"].as_array().unwrap().iter().map(|c| c["name"].as_str().unwrap()).collect();
+        assert_eq!(in_deck, ["Test Commander", "Sol Ring"]);
+
+        // A new list made from the deck starts with the deck's Considering list, as it does with its cards.
+        send(&app, Method::PUT, &path, Some(&token), Some(json!({ "cards": cards, "maybe": [maybe("o-opt", "Opt")] }))).await;
+        let (status, copy) = send(&app, Method::POST, &format!("{path}/configurations"), Some(&token), Some(json!({ "configuration": "Budget", "op_id": "cfg-1" }))).await;
+        assert_eq!(status, StatusCode::OK, "{copy}");
+        let (_, copied) = send(&app, Method::GET, &format!("/api/decks/{}", copy["id"].as_str().unwrap()), Some(&token), None).await;
+        assert_eq!(names(&copied), ["Opt"]);
+
+        // It is the owner's alone: another person can't read the deck, and sharing the deck
+        // shows its cards without it.
+        let (_, other) = user(&pool, "other@example.com").await;
+        assert_eq!(send(&app, Method::GET, &path, Some(&other), None).await.0, StatusCode::NOT_FOUND);
+        send(&app, Method::PATCH, &path, Some(&token), Some(json!({ "visibility": "link" }))).await;
+        let share: String = sqlx::query_scalar("SELECT share_token FROM decks WHERE id = ?").bind(&id).fetch_one(&pool).await.unwrap();
+        let (status, public) = send(&app, Method::GET, &format!("/api/public/decks/{share}"), None, None).await;
+        assert_eq!(status, StatusCode::OK, "{public}");
+        assert!(public.to_string().contains("Sol Ring") && !public.to_string().contains("Opt"), "{public}");
+    }
+
+    /// A list pasted as text keeps its Considering section as the Considering list, not as
+    /// sideboard cards, which a shared page would show.
+    #[tokio::test]
+    async fn a_pasted_lists_considering_section_becomes_the_considering_list() {
+        use crate::testutil::{app, send, user};
+        use axum::http::{Method, StatusCode};
+        use serde_json::json;
+        let (app, pool) = app().await;
+        let (_, token) = user(&pool, "builder@example.com").await;
+        for (oracle, name) in [("o-cmd", "Test Commander"), ("o-sol", "Sol Ring"), ("o-bolt", "Lightning Bolt"), ("o-opt", "Opt")] {
+            known_card(&pool, oracle, name).await;
+            sqlx::query("INSERT INTO card_names (name, oracle_id) VALUES (?, ?)").bind(name).bind(oracle).execute(&pool).await.unwrap();
+        }
+        let text = "Commander\n1 Test Commander\nDeck\n1 Sol Ring\n// Considering\n2 Opt\n1 Not A Card\nSideboard\n1 Lightning Bolt";
+        let (status, made) = send(&app, Method::POST, "/api/decks", Some(&token), Some(json!({ "name": "Typed", "text": text }))).await;
+        assert_eq!(status, StatusCode::OK, "{made}");
+        assert_eq!(made["unknown"], json!(["Not A Card"]));
+        let (_, view) = send(&app, Method::GET, &format!("/api/decks/{}", made["id"].as_str().unwrap()), Some(&token), None).await;
+        let boards: Vec<(&str, &str)> = view["cards"].as_array().unwrap().iter().map(|c| (c["name"].as_str().unwrap(), c["board"].as_str().unwrap())).collect();
+        assert_eq!(boards, [("Test Commander", "commander"), ("Sol Ring", "main"), ("Lightning Bolt", "side")]);
+        assert_eq!(view["maybe"].as_array().unwrap().len(), 1, "{view}");
+        assert_eq!((view["maybe"][0]["name"].as_str(), view["maybe"][0]["qty"].as_i64()), (Some("Opt"), Some(2)));
+
+        // A list with no such section is read as before.
+        let (list, apart) = split_considering("1 Sol Ring\nSideboard\n1 Opt\n");
+        assert_eq!((list.as_str(), apart.as_str()), ("1 Sol Ring\nSideboard\n1 Opt\n", ""));
+        let (list, apart) = split_considering("1 Sol Ring\nMaybeboard (2):\n1 Opt\n\nDeck\n1 Forest");
+        assert_eq!((list.as_str(), apart.as_str()), ("1 Sol Ring\nDeck\n1 Forest\n", "1 Opt\n\n"));
     }
 
     #[tokio::test]

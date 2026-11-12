@@ -38,6 +38,7 @@ import { arrangeDecks, folderOf, foldersOf, isFiltered, readFilter, writeFilter,
 import { CLEARED, DeckIndexTools } from "../decks/DeckIndexTools";
 import { DeckSettings } from "../decks/DeckSettings";
 import { DeckAbout, EditDescription } from "../decks/DeckDescription";
+import { Considering } from "../decks/Considering";
 import { DeckTiles, deckStatus, ListPicker, SavedListBar } from "../decks/DeckHeader";
 import { DeckCardsTab, useCardControls } from "../decks/DeckCardsTab";
 import { WhyBracket } from "../decks/WhyBracket";
@@ -404,6 +405,7 @@ export function DeckPage() {
             <WhyBracket deck={d} at={atSwaps?.bracket ?? null} outAt={outAt} onCard={openByName} />
           </div>
         )}
+        {tab === "cards" && <Considering cards={d.maybe ?? []} deckId={d.id} onOpen={setOpen} />}
 
         {/* Stats: everything about the deck that isn't the list (design: the deck's Stats tab). */}
         {tab === "stats" && <DeckStatsTab deck={d} onCard={openByName} />}

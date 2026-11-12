@@ -285,7 +285,7 @@
    doesn't slide under the pointer. */
 .edit-list-hit-actions {
   display: grid;
-  grid-template-columns: auto 5.5rem 7.5rem;
+  grid-template-columns: auto 5.5rem 5.5rem 7.5rem;
   justify-content: end;
   align-items: center;
   gap: 8px;
@@ -327,6 +327,12 @@
   }
   .edit-list-hit-actions {
     grid-column: 1 / -1;
-    grid-template-columns: minmax(0, 1fr) 5.5rem 7.5rem;
+    grid-template-columns: 5.5rem 5.5rem minmax(0, 1fr);
   }
+  .edit-list-hit-in {
+    grid-column: 1 / -1;
+  }
+}
+.edit-list-considering {
+  margin: 0;
 }
