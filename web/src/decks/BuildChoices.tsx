@@ -8,6 +8,7 @@ import { HowTo } from "../components/HowTo";
 import { useCardArt } from "../components/useCardArt";
 import { AreaHead } from "../components/DeckTabs";
 import { BackLink, Button, ButtonLink, ErrorText, Field, Loading, Pips, StatusPill } from "../components/ui";
+import { useCardPictures } from "../components/useCardPictures";
 import { useMe } from "../auth";
 import { usePlan } from "../plan/store";
 import { buildNotes, buildNotesKey } from "../research/api";
@@ -182,7 +183,9 @@ function FamilyPage({ family, status, art }: { family: BuildFamily; status: Reac
   const deck = family.deck;
   const swaps = comparison.swaps;
   const parts = Math.max(1, Math.ceil((swaps?.length ?? 0) / rows));
-  const rowsOf = (swaps ?? []).map((s): ChangeRow => ({ add: s.in.name, cut: s.out.name, n: 1, why: s.why ?? "", notes: [s.where, s.out.board === "commander" || s.in.board === "commander" ? "Changes the commander." : null].filter((x): x is string => !!x), add_image: null, cut_image: null }));
+  // The lists are plain card names, so each swap's pictures are looked up by name.
+  const pictures = useCardPictures((swaps ?? []).flatMap((s) => [s.in.name, s.out.name]));
+  const rowsOf = (swaps ?? []).map((s): ChangeRow => ({ add: s.in.name, cut: s.out.name, n: 1, why: s.why ?? "", notes: [s.where, s.out.board === "commander" || s.in.board === "commander" ? "Changes the commander." : null].filter((x): x is string => !!x), add_image: pictures.get(s.in.name) ?? null, cut_image: pictures.get(s.out.name) ?? null }));
   return <main className="plan plan-deck-page note-page build-choices">
     <ArtPanel as="header" className="plan-hero" art={art.art} artist={art.artist} wash="bottom" toGround credit={false}>
       <BackLink to="/decks/builds" label="Back to swap cards" onArt />
