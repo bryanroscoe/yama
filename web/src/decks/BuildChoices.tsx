@@ -182,7 +182,9 @@ function FamilyPage({ family, status, art }: { family: BuildFamily; status: Reac
   const deck = family.deck;
   const swaps = comparison.swaps;
   const parts = Math.max(1, Math.ceil((swaps?.length ?? 0) / rows));
-  const rowsOf = (swaps ?? []).map((s): ChangeRow => ({ add: s.in.name, cut: s.out.name, n: 1, why: s.why ?? "", notes: [s.where, s.out.board === "commander" || s.in.board === "commander" ? "Changes the commander." : null].filter((x): x is string => !!x), add_image: null, cut_image: null }));
+  // The lists are plain card names, so each swap's pictures are looked up by name.
+  const pictures = useCardArt((swaps ?? []).flatMap((s) => [s.in.name, s.out.name]));
+  const rowsOf = (swaps ?? []).map((s): ChangeRow => ({ add: s.in.name, cut: s.out.name, n: 1, why: s.why ?? "", notes: [s.where, s.out.board === "commander" || s.in.board === "commander" ? "Changes the commander." : null].filter((x): x is string => !!x), add_image: pictures.get(s.in.name)?.image ?? null, cut_image: pictures.get(s.out.name)?.image ?? null }));
   return <main className="plan plan-deck-page note-page build-choices">
     <ArtPanel as="header" className="plan-hero" art={art.art} artist={art.artist} wash="bottom" toGround credit={false}>
       <BackLink to="/decks/builds" label="Back to swap cards" onArt />
