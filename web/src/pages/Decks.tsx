@@ -31,6 +31,7 @@ import { CardSheet } from "./Cards";
 import { CollectSheet } from "../decks/CollectSheet";
 import { DeleteDeck, deleteWording } from "../decks/DeleteDeck";
 import { NewConfiguration, ShareDeck } from "../decks/ShareDeck";
+import { PublicDefaultBanner } from "../decks/PublicDefaultPrompt";
 import { MythicSend, MythicSendButton } from "../bridges/mythic/MythicDeck";
 import { placesText } from "../decks/checkTargets";
 import { groupConfigurations } from "../decks/configurations";
@@ -119,6 +120,7 @@ export function DecksPage() {
         }
       />
       <ChangesBanner />
+      <PublicDefaultBanner />
       <ErrorText error={decks.error} />
       {decks.data?.length === 0 && (
         <EmptyState

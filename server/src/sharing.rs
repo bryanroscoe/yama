@@ -37,6 +37,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/me/sharing", get(get_sharing).put(put_sharing))
         .route("/api/me/sharing/decks", post(share_all))
+        .route("/api/me/sharing/public-default", post(answer_public_default))
         .route("/api/public/decks/{token}", get(api_deck))
         .route("/u", get(lookup))
         .route("/u/{handle}", get(html::profile))
@@ -263,26 +264,105 @@ struct ShareAll {
 /// Every live deck at once, e.g. "Make all my decks public".
 async fn share_all(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(body): Json<ShareAll>) -> AppResult<Json<Sharing>> {
     let v = visibility(&body.visibility)?;
+    let mut tx = st.pool.begin().await?;
+    set_live_decks(&mut tx, &user.id, v).await?;
+    tx.commit().await?;
+    Ok(Json(sharing(&st.pool, &user.id).await?))
+}
+
+/// Every live deck of `owner` to one visibility, each with a share token of its own.
+async fn set_live_decks(conn: &mut sqlx::SqliteConnection, owner: &str, v: &str) -> AppResult<()> {
     // A deck an admin took down stays private (`moderation.rs`).
     sqlx::query("UPDATE decks SET visibility = ?, share_token = COALESCE(share_token, ?), updated_at = ? WHERE owner_id = ? AND archived = 0 AND taken_down_at IS NULL
            AND NOT EXISTS (SELECT 1 FROM decks m WHERE m.id = decks.parent_id AND m.taken_down_at IS NOT NULL)")
         .bind(v)
         .bind(new_token())
         .bind(now())
-        .bind(&user.id)
-        .execute(&st.pool)
+        .bind(owner)
+        .execute(&mut *conn)
         .await?;
     // COALESCE used one token for every deck that had none (only decks made before tokens):
     // give each its own.
     let dupes: Vec<String> = sqlx::query_scalar(
         "SELECT id FROM decks WHERE owner_id = ? AND share_token IN (SELECT share_token FROM decks GROUP BY share_token HAVING COUNT(*) > 1)",
     )
-    .bind(&user.id)
-    .fetch_all(&st.pool)
+    .bind(owner)
+    .fetch_all(&mut *conn)
     .await?;
     for id in dupes {
-        sqlx::query("UPDATE decks SET share_token = ? WHERE id = ?").bind(new_token()).bind(&id).execute(&st.pool).await?;
+        sqlx::query("UPDATE decks SET share_token = ? WHERE id = ?").bind(new_token()).bind(&id).execute(&mut *conn).await?;
     }
+    Ok(())
+}
+
+#[derive(Deserialize)]
+struct PublicDefaultAnswer {
+    /// What the account's new decks start as from now on: private, link or public.
+    new_decks: String,
+    /// What happens to the decks it already has: "keep" changes none of them, "public" makes
+    /// every live deck public (only with `new_decks` public: the tick under "yes"), "link" turns
+    /// its public decks into link-only ones so none of them is listed. Required: keeping lists
+    /// the account's public decks, so it has to be said, never assumed.
+    existing: String,
+    /// How many live public decks the person was shown when they answered. If the account has
+    /// another number by now (a deck shared on another device meanwhile), the answer is refused
+    /// rather than applied to decks they weren't told about.
+    public_decks: i64,
+}
+
+/// The answer to the one-time question "Yama decks are now public by default. Make yours
+/// public?", asked of accounts from before public-by-default (`public_listed_at` NULL).
+///
+/// Whatever the answer, the account takes on the new meaning of "public" from now ([`LISTED`]):
+/// the question explained it and offered link only. The answer sets what new decks start as.
+/// Existing decks change only when the answer says so in `existing`; without it none does.
+/// Asked once: when the account has already answered (or was made after the change) this
+/// changes nothing and says so (409), so a request sent again, or a second device answering
+/// later, can't undo what the owner has chosen since, and isn't told its answer was taken.
+async fn answer_public_default(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(body): Json<PublicDefaultAnswer>) -> AppResult<Json<Sharing>> {
+    let new_decks = visibility(&body.new_decks)?;
+    let existing = match body.existing.as_str() {
+        "keep" => "keep",
+        "link" => "link",
+        "public" if new_decks == "public" => "public",
+        "public" => return Err(AppError::bad("existing decks become public only when new decks are public")),
+        _ => return Err(AppError::bad("existing is keep, public or link")),
+    };
+    // Immediate, so two answers at once can't both find the question open.
+    let mut tx = st.pool.begin_with("BEGIN IMMEDIATE").await?;
+    let asked = sqlx::query("UPDATE users SET new_deck_visibility = ?, public_listed_at = ? WHERE id = ? AND public_listed_at IS NULL")
+        .bind(new_decks)
+        .bind(now())
+        .bind(&user.id)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected()
+        == 1;
+    if !asked {
+        return Err(AppError::Conflict("You've already answered this, perhaps on another device. Sharing settings show what your decks start as now.".into()));
+    }
+    let public_now: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM decks WHERE owner_id = ? AND archived = 0 AND visibility = 'public'")
+        .bind(&user.id)
+        .fetch_one(&mut *tx)
+        .await?;
+    if public_now != body.public_decks {
+        // Dropping the transaction leaves the question open.
+        return Err(AppError::Conflict("Your decks changed since this question opened. Open it again to see them as they are now.".into()));
+    }
+    match existing {
+        "public" => set_live_decks(&mut tx, &user.id, "public").await?,
+        // The live decks the question counted. A deleted deck is never shared or listed and
+        // nothing brings one back, so it is left as it was.
+        "link" => {
+            sqlx::query("UPDATE decks SET visibility = 'link', updated_at = ? WHERE owner_id = ? AND archived = 0 AND visibility = 'public'")
+                .bind(now())
+                .bind(&user.id)
+                .execute(&mut *tx)
+                .await?;
+        }
+        _ => {}
+    }
+    tx.commit().await?;
     Ok(Json(sharing(&st.pool, &user.id).await?))
 }
 

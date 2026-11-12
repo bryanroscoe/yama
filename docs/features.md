@@ -65,6 +65,11 @@ Share button changes it afterwards. A first public deck asks for a handle (on th
 in the deck's Share sheet). Without one the deck is public by link; it joins the profile once a
 handle is chosen.
 
+An account from before public by default is asked once, on its Decks page: "Yama decks are now
+public by default. Make yours public?" It chooses what new decks start as (Public, Link only or
+Private) and whether its existing decks change; none changes unless it says so, and until it
+answers its public decks stay on its profile only.
+
 Every shared deck and profile page has a Report link: anyone can tell Yama's moderator what is
 wrong with it, without an account, and nothing about the sender is kept. In Admin, Moderation, an
 admin dismisses a report or takes the deck down with a reason; a deck taken down is private, with
