@@ -64,9 +64,17 @@ describe("prefer foil at about the same price",()=>{
   expect(carts[0]!.rows.map(r=>[r.offer.variant_id,r.qty])).toEqual([["2",1],["1",1]]);
   expect(pricedRows(card([foil(0.76)]),rule,true,true)[0]!.offers[1]!.qualifies).toBe(false);
  });
+ it("keeps the real reason a foil was turned down",()=>{
+  const failsRule=pricedRows(card([{...foil(0.7),market:0.3}]),rule,true,true)[0]!.offers[1]!;
+  expect([failsRule.qualifies,failsRule.foil_block]).toEqual([false,undefined]);
+  expect(pricedRows(card([foil(0.9)]),rule,true,true)[0]!.offers[1]!.foil_block).toBe("price");
+  const unknown=pricedRows(card([{...foil(0.5),non_price_eligible:undefined,rule_reason:""}]),rule,true,true)[0]!.offers[1]!;
+  expect([unknown.qualifies,unknown.eligibility_unknown]).toEqual([false,true]);
+ });
  it("still applies the buy rule and needs a qualifying plain copy to compare with",()=>{
   expect(pricedRows(card([{...foil(0.75),market:0.3}]),rule,true,true)[0]!.offers[1]!.qualifies).toBe(false);
   const noPlain=sourceCards([{name:"Card",uses:[],best_offer_per_store:[{...plain,qty:0}],foil_offer_per_store:[foil(0.5)]}]);
-  expect(pricedRows(noPlain,rule,true,true)[0]!.offers[1]!.qualifies).toBe(false);
+  const lone=pricedRows(noPlain,rule,true,true)[0]!.offers[1]!;
+  expect([lone.qualifies,lone.foil_block]).toEqual([false,"no_plain"]);
  });
 });

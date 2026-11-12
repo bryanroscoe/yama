@@ -47,8 +47,13 @@ export const foilNearPlain = (foil: number, plain: number) => foil <= Math.max(p
  */
 export function pricedRows(rows: SourceCard[], rule: LocalBuyRule, valid = true, preferFoil = false): SourceCard[] {
   return rows.map(c => {
-    const offers = c.offers.map(o => ({ ...o, qualifies: valid && o.price != null && mayReprice(o,c.name) && judge(rule, o.price, o.market ?? null) === "ok", eligibility_unknown: !o.qualifies && o.non_price_eligible == null && !o.rule_reason && !mayReprice(o,c.name) && !o.foil_alternative }));
+    const offers = c.offers.map(o => ({ ...o, qualifies: valid && o.price != null && mayReprice(o,c.name) && judge(rule, o.price, o.market ?? null) === "ok", eligibility_unknown: !o.qualifies && o.non_price_eligible == null && !o.rule_reason && !mayReprice(o,c.name) }));
     const plain = Math.min(...offers.filter(o => o.qualifies && !o.foil_alternative && o.qty !== 0).map(o => o.price!));
-    return { ...c, offers: offers.map(o => !o.foil_alternative ? o : { ...o, eligibility_unknown: false, qualifies: o.qualifies && preferFoil && Number.isFinite(plain) && foilNearPlain(o.price!, plain) }) };
+    return { ...c, offers: offers.map(o => {
+      if (!o.foil_alternative || !o.qualifies) return o.foil_alternative ? { ...o, qualifies: false } : o;
+      // It passes the rule; the only remaining question is the price against a plain copy.
+      const foil_block = !Number.isFinite(plain) ? "no_plain" as const : !foilNearPlain(o.price!, plain) ? "price" as const : undefined;
+      return { ...o, qualifies: preferFoil && !foil_block, ...(foil_block ? { foil_block } : {}) };
+    }) };
   });
 }
