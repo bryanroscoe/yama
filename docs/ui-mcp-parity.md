@@ -84,6 +84,7 @@ part of it). "Gap" rows are the backlog, in rough priority order inside each are
 | Move copies between containers | Collection | `move_cards` (staged) | Both |
 | Set condition | Collection item sheet | `set_condition` (staged) | Both |
 | Edit one copy: finish, printing, price paid, proxy, remove | Collection item sheet | `edit_copies`, `remove_from_collection` (staged), by card and container | Both (2026-11-11) for copies in a binder, box or list; **Gap (MCP)** for changing the printing and for copies not in a container |
+| Mark a copy signed or altered, or set its language | Collection item sheet | — | **Gap (MCP)**: `edit_copies` doesn't set them |
 | Create or delete a binder, deck box or list | Collection | `create_container` (staged) | Partial (2026-11-11): **Gap (MCP)** for deleting one |
 | Rename a binder, deck box or list | — (the server has `PATCH /api/containers/:id`) | — | **Gap (UI and MCP)** |
 | Export CSV | Collection | — | UI only (a file download; the MCP reads the same rows) |

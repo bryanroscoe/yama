@@ -84,6 +84,7 @@ Camera OCR in Collection; swap checks from Plans, Prints, Swap sheet or a plan d
 - Binders, boxes, decks and lists
 - Add from card search (a real copy or a proxy)
 - Move, condition, proxy
+- A copy's language and whether it is signed or altered, for the whole row or one copy split off, shown as tags on the copy
 - Proxies kept out of market value, and a Real / Proxies filter
 - Filters by set, color, type, rarity and finish, with the market value of what they leave; a list or a grid of card pictures
 - Idempotent offline ops

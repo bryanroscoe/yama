@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CollectionItem } from "../api";
-import { finishChoices, finishFor, finishWord, opIds, ownedFinishes, printingLabel, reprintOps } from "./collectionEdit";
+import { finishChoices, finishFor, finishWord, languageChoices, languageName, markDone, markOps, markWords, opIds, ownedFinishes, printingLabel, reprintOps } from "./collectionEdit";
 
 const row: CollectionItem = {
   id: "row",
@@ -120,5 +120,52 @@ describe("op ids for a screen's taps", () => {
     // A sheet's save confirms everything it sent.
     ids.saved();
     expect(ids.idFor("adjust:1")).not.toBe(add);
+  });
+});
+
+describe("a copy's language, signed and altered", () => {
+  const ids = () => {
+    let k = 0;
+    return () => `op-${++k}`;
+  };
+
+  it("marks the whole row, or one copy split off it", () => {
+    expect(markOps(row, { signed: true }, "all", ids())).toEqual([{ op_id: "op-1", kind: "update", item_id: "row", signed: true }]);
+    expect(markOps(row, { altered: true }, "one", ids())).toEqual([{ op_id: "op-1", kind: "update", item_id: "row", altered: true, split: 1 }]);
+    // A row of one copy has nothing to split.
+    expect(markOps({ ...row, qty: 1 }, { signed: true }, "one", ids())).toEqual([{ op_id: "op-1", kind: "update", item_id: "row", signed: true }]);
+    // Taking a mark off again.
+    expect(markOps({ ...row, signed: true }, { signed: false }, "all", ids())).toEqual([{ op_id: "op-1", kind: "update", item_id: "row", signed: false }]);
+    // A language is the copy's own; the printing isn't changed.
+    expect(markOps(row, { lang: "ja" }, "one", ids())).toEqual([{ op_id: "op-1", kind: "update", item_id: "row", lang: "ja", split: 1 }]);
+    expect(markOps(row, { lang: "de" }, "all", ids())).toEqual([{ op_id: "op-1", kind: "update", item_id: "row", lang: "de" }]);
+  });
+
+  it("sends nothing when nothing changes, and mints no op id for it", () => {
+    let minted = 0;
+    const count = () => `op-${++minted}`;
+    expect(markOps(row, { lang: "en" }, "all", count)).toEqual([]);
+    expect(markOps(row, { signed: false, altered: false }, "one", count)).toEqual([]);
+    expect(markOps({ ...row, altered: true }, { altered: true }, "all", count)).toEqual([]);
+    expect(minted).toBe(0);
+  });
+
+  it("names languages, and keeps a code it has no name for", () => {
+    expect(languageName("ja")).toBe("Japanese");
+    expect(languageName("zhs")).toBe("Simplified Chinese");
+    expect(languageName("xx")).toBe("xx");
+    expect(languageChoices("en")[0]).toEqual(["en", "English"]);
+    expect(languageChoices("en")).toHaveLength(18);
+    expect(languageChoices("xx")[0]).toEqual(["xx", "xx"]);
+    expect(languageChoices("xx")).toHaveLength(19);
+  });
+
+  it("says what changed, and describes the copy", () => {
+    expect(markDone(row, { signed: true }, "one")).toBe("One Mount Doom is now signed.");
+    expect(markDone(row, { altered: false }, "all")).toBe("Every Mount Doom in this row is no longer altered.");
+    expect(markDone({ ...row, qty: 1 }, { lang: "ja" }, "one")).toBe("Mount Doom is now in Japanese.");
+    expect(markDone({ ...row, qty: 1 }, { signed: true, altered: false }, "all")).toBe("Mount Doom is now signed and is no longer altered.");
+    expect(markWords(row)).toEqual([]);
+    expect(markWords({ lang: "ja", signed: true, altered: true })).toEqual(["Japanese", "signed", "altered"]);
   });
 });

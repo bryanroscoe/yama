@@ -113,6 +113,11 @@ pub enum OpKind {
         #[serde(default, deserialize_with = "crate::util::double_option")]
         note: Option<Option<String>>,
         proxy: Option<bool>,
+        /// The artist altered the card, or signed it.
+        #[serde(default)]
+        altered: Option<bool>,
+        #[serde(default)]
+        signed: Option<bool>,
         /// Another printing of the same card (the row was filed under the wrong one).
         #[serde(default)]
         scryfall_id: Option<String>,
@@ -327,7 +332,7 @@ pub async fn apply_op(tx: &mut Transaction<'_, Sqlite>, owner: &str, op: &Op) ->
                     .await?;
             }
         }
-        OpKind::Update { item_id, condition, finish, lang, container_id, purchase_price, note, proxy, scryfall_id, split } => {
+        OpKind::Update { item_id, condition, finish, lang, container_id, purchase_price, note, proxy, altered, signed, scryfall_id, split } => {
             if finish.as_deref().is_some_and(|f| !matches!(f, "nonfoil" | "foil" | "etched")) {
                 return Err(AppError::bad("finish must be nonfoil, foil or etched"));
             }
@@ -347,8 +352,8 @@ pub async fn apply_op(tx: &mut Transaction<'_, Sqlite>, owner: &str, op: &Op) ->
                 condition: condition.clone().unwrap_or(item.condition.clone()),
                 finish: finish.clone().unwrap_or(item.finish.clone()),
                 lang: lang.clone().unwrap_or(item.lang.clone()),
-                altered: item.altered,
-                signed: item.signed,
+                altered: altered.unwrap_or(item.altered),
+                signed: signed.unwrap_or(item.signed),
                 misprint: item.misprint,
                 proxy: proxy.unwrap_or(item.proxy),
             };
@@ -430,7 +435,7 @@ pub async fn apply_op(tx: &mut Transaction<'_, Sqlite>, owner: &str, op: &Op) ->
                 }
                 None => {
                     sqlx::query(
-                        "UPDATE collection_items SET scryfall_id=?, condition=?, finish=?, lang=?, proxy=?, container_id=?, purchase_price=?, note=?, updated_at=?
+                        "UPDATE collection_items SET scryfall_id=?, condition=?, finish=?, lang=?, proxy=?, altered=?, signed=?, container_id=?, purchase_price=?, note=?, updated_at=?
                          WHERE id = ?",
                     )
                     .bind(&printing)
@@ -438,6 +443,8 @@ pub async fn apply_op(tx: &mut Transaction<'_, Sqlite>, owner: &str, op: &Op) ->
                     .bind(&copy.finish)
                     .bind(&copy.lang)
                     .bind(copy.proxy)
+                    .bind(copy.altered)
+                    .bind(copy.signed)
                     .bind(&container)
                     .bind(price)
                     .bind(&note)
@@ -1109,6 +1116,8 @@ async fn delete_container_for_owner(pool: &SqlitePool, owner: &str, id: &str) ->
                 purchase_price: None,
                 note: None,
                 proxy: None,
+                altered: None,
+                signed: None,
                 scryfall_id: None,
                 split: None,
             },
@@ -1218,6 +1227,8 @@ mod tests {
                 purchase_price: None,
                 note: None,
                 proxy: None,
+                altered: None,
+                signed: None,
                 scryfall_id: None,
                 split: None,
             },
@@ -1547,7 +1558,7 @@ mod tests {
         let update = Op {
             op_id: "c".into(),
             device_id: None,
-            op: OpKind::Update { item_id: nonfoil.clone(), condition: None, finish: Some("foil".into()), lang: None, container_id: None, purchase_price: None, note: None, proxy: None, scryfall_id: None, split: None },
+            op: OpKind::Update { item_id: nonfoil.clone(), condition: None, finish: Some("foil".into()), lang: None, container_id: None, purchase_price: None, note: None, proxy: None, altered: None, signed: None, scryfall_id: None, split: None },
         };
         apply_op(&mut tx, &owner, &update).await.unwrap();
         // Device B, offline before that, adds two to the old row id.
@@ -1580,7 +1591,7 @@ mod tests {
         let set = |op_id: &str, finish: &str| Op {
             op_id: op_id.into(),
             device_id: None,
-            op: OpKind::Update { item_id: id.clone(), condition: None, finish: Some(finish.into()), lang: None, container_id: None, purchase_price: None, note: None, proxy: None, scryfall_id: None, split: None },
+            op: OpKind::Update { item_id: id.clone(), condition: None, finish: Some(finish.into()), lang: None, container_id: None, purchase_price: None, note: None, proxy: None, altered: None, signed: None, scryfall_id: None, split: None },
         };
         let mut tx = pool.begin().await.unwrap();
         assert!(apply_op(&mut tx, &owner, &set("b", "shiny")).await.is_err());
@@ -1629,6 +1640,8 @@ mod tests {
                 purchase_price: None,
                 note: None,
                 proxy: None,
+                altered: None,
+                signed: None,
                 scryfall_id: Some(to.into()),
                 split: None,
             },
@@ -1704,6 +1717,8 @@ mod tests {
                 purchase_price: None,
                 note: None,
                 proxy: None,
+                altered: None,
+                signed: None,
                 scryfall_id: Some("ltr-x".into()),
                 split: Some(n),
             },
@@ -1748,5 +1763,56 @@ mod tests {
         apply_op(&mut tx, &owner, &split("d", 1)).await.unwrap();
         tx.commit().await.unwrap();
         assert!(rows(&pool).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_copy_can_be_marked_signed_or_altered_and_given_a_language() {
+        let pool = crate::db::test_pool().await;
+        user(&pool).await;
+        // Ops as a client sends them, through the same check.
+        async fn send(pool: &SqlitePool, op: serde_json::Value) {
+            let op: Op = serde_json::from_value(op).unwrap();
+            assert!(check_client_op(&op).unwrap().is_none());
+            let mut tx = pool.begin().await.unwrap();
+            apply_op(&mut tx, "u1", &op).await.unwrap();
+            tx.commit().await.unwrap();
+        }
+        // (copies, language, signed, altered)
+        async fn rows(pool: &SqlitePool) -> Vec<(i64, String, bool, bool)> {
+            sqlx::query_as("SELECT qty, lang, signed, altered FROM collection_items ORDER BY signed, altered, lang").fetch_all(pool).await.unwrap()
+        }
+        send(&pool, serde_json::json!({"op_id": "a", "kind": "add", "scryfall_id": "p1", "qty": 3})).await;
+        let id: String = sqlx::query_scalar("SELECT id FROM collection_items").fetch_one(&pool).await.unwrap();
+
+        // One of the three is signed: it splits off into a row of its own.
+        send(&pool, serde_json::json!({"op_id": "b", "kind": "update", "item_id": id, "signed": true, "split": 1})).await;
+        assert_eq!(rows(&pool).await, vec![(2, "en".to_string(), false, false), (1, "en".to_string(), true, false)]);
+        // A second signed copy joins the first, rather than making a third row.
+        send(&pool, serde_json::json!({"op_id": "c", "kind": "update", "item_id": id, "signed": true, "split": 1})).await;
+        assert_eq!(rows(&pool).await, vec![(1, "en".to_string(), false, false), (2, "en".to_string(), true, false)]);
+
+        // The last plain copy is altered and Japanese: the row changes in place, keeping its id.
+        send(&pool, serde_json::json!({"op_id": "d", "kind": "update", "item_id": id, "altered": true, "lang": "ja"})).await;
+        assert_eq!(rows(&pool).await, vec![(1, "ja".to_string(), false, true), (2, "en".to_string(), true, false)]);
+        let altered: String = sqlx::query_scalar("SELECT id FROM collection_items WHERE altered = 1").fetch_one(&pool).await.unwrap();
+        assert_eq!(altered, id);
+        // A mark can be taken off again.
+        send(&pool, serde_json::json!({"op_id": "e", "kind": "update", "item_id": id, "altered": false})).await;
+        assert_eq!(rows(&pool).await, vec![(1, "ja".to_string(), false, false), (2, "en".to_string(), true, false)]);
+
+        // An op that says nothing about the marks (a regrade, a move) leaves them as they are.
+        let signed: String = sqlx::query_scalar("SELECT id FROM collection_items WHERE signed = 1").fetch_one(&pool).await.unwrap();
+        send(&pool, serde_json::json!({"op_id": "f", "kind": "update", "item_id": signed, "condition": "LP"})).await;
+        let kept: (bool, bool, String) = sqlx::query_as("SELECT signed, altered, condition FROM collection_items WHERE id = ?").bind(&signed).fetch_one(&pool).await.unwrap();
+        assert_eq!(kept, (true, false, "LP".to_string()));
+
+        // Marking the other row the same makes the two rows one. The row that went leaves an
+        // alias, so a change another device still has queued for it lands on the row that stayed.
+        send(&pool, serde_json::json!({"op_id": "g", "kind": "update", "item_id": id, "signed": true, "lang": "en", "condition": "LP"})).await;
+        assert_eq!(rows(&pool).await, vec![(3, "en".to_string(), true, false)]);
+        let stayed: String = sqlx::query_scalar("SELECT new_id FROM item_aliases WHERE old_id = ? AND owner_id = 'u1'").bind(&id).fetch_one(&pool).await.unwrap();
+        assert_eq!(stayed, signed);
+        send(&pool, serde_json::json!({"op_id": "h", "kind": "adjust", "item_id": id, "delta": -1})).await;
+        assert_eq!(rows(&pool).await, vec![(2, "en".to_string(), true, false)]);
     }
 }

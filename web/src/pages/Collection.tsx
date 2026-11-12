@@ -3,6 +3,7 @@ import { CardHover } from "../components/CardRef";
 import { CollectionItemSheet } from "./CollectionItemSheet";
 import { ImportCollectionSheet } from "./ImportCollectionSheet";
 import { CollectionGrid } from "./CollectionGrid";
+import { markWords } from "./collectionEdit";
 import { UnsavedPrompt, useUnsavedChanges } from "../unsaved";
 import { closeQuestion, unsavedScans } from "./scanClose";
 import { SellSheet } from "./SellSheet";
@@ -325,6 +326,8 @@ export function CollectionPage() {
                       <CardHover name={i.name??i.scryfall_id} oracleId={i.oracle_id} image={i.image_small}/>
                       {i.finish !== "nonfoil" && <span className="tag">{i.finish[0]!.toUpperCase() + i.finish.slice(1)}</span>}
                       {i.proxy && <span className="tag">Proxy</span>}
+                      {/* What makes this row its own beside another of the same printing. */}
+                      {markWords(i).map((w) => <span key={w} className="tag">{w[0]!.toUpperCase() + w.slice(1)}</span>)}
                     </span>
                     <span className="coll-row-where coll-wide">
                       {place}, {i.set_name ?? "unknown set"} #{i.collector_number}, {cond}

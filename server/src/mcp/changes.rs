@@ -1703,6 +1703,8 @@ async fn apply_collection(st: &AppState, user: &User, kind: &str, id: &str, p: &
                 purchase_price: None,
                 note: None,
                 proxy: None,
+                altered: None,
+                signed: None,
                 scryfall_id: None,
                 split: None,
             };
@@ -1736,6 +1738,8 @@ async fn apply_collection(st: &AppState, user: &User, kind: &str, id: &str, p: &
                     purchase_price: None,
                     note: None,
                     proxy: None,
+                    altered: None,
+                    signed: None,
                     scryfall_id: None,
                     split: None,
                 };
@@ -2464,6 +2468,8 @@ async fn apply_edit_copies(st: &AppState, user: &User, id: &str, p: &Value) -> A
             purchase_price: (p["set_price"] == true).then(|| p["price_paid"].as_f64()),
             note: (p["set_note"] == true).then(|| p["note"].as_str().map(String::from)),
             proxy,
+            altered: None,
+            signed: None,
             scryfall_id: None,
             // Fewer than the row holds: those copies split off into a row of their own.
             split: (take < r.qty).then_some(take),
