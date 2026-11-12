@@ -2,6 +2,9 @@
    decks and profiles (the server compiles this file into their stylesheet), the static pages
    (/about/, /privacy/, /tos/, /delete-account/, /docs/mcp/) and the sign-in page. The markup is
    server/src/public_page.rs, site_header and site_footer; a test keeps every page's copy the same.
+   The header is Yama's frame as the app draws it (12 Nov 2026): the wordmark, the five tabs and
+   You. A laptop has the tabs as a row of words; a phone has a top bar (wordmark, search, You) and
+   the tabs along the bottom with their icons, as in the app.
    Night table tokens, each with its value as a fallback so a page without the app's tokens draws
    the same. Rename the file when it changes in a way an older page can't use (it is linked by name). */
 /* Latin files, declared for the Latin range only (Fontsource's): a character outside it, such as an
@@ -25,7 +28,7 @@
 .site-frame-header *,
 .site-frame-footer * { box-sizing: border-box; }
 
-/* Wordmark, the four places, then the way into the app. */
+/* Wordmark, the five tabs, then You. */
 .site-frame-header {
   min-height: 88px;
   display: grid;
@@ -56,7 +59,37 @@
 .site-frame-header nav a:hover,
 .site-frame-footer nav a:hover { text-decoration: underline; text-underline-offset: 4px; text-decoration-thickness: 1px; }
 /* A short word still gets a 44 px target; in the header it sits in the middle of it. */
-.site-frame-header nav a { justify-content: center; }
+.site-frame-header nav a { justify-content: center; font-weight: 700; }
+/* A laptop's tabs are words alone; the icons and search are the phone's (below). */
+.site-frame-header nav a svg,
+.site-frame-search { display: none; }
+
+/* The strip of the current tab's pages, under the header (the app's .tab-sections): an
+   underlined row, the current page's entry text-colored over a 2 px rule. */
+.site-frame-sections {
+  box-sizing: border-box;
+  max-width: calc(var(--content-w, 1120px) + 64px);
+  margin: 0 auto;
+  padding: 0 32px;
+  display: flex;
+  gap: 0 22px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  box-shadow: inset 0 -1px 0 var(--line, #2a2e33);
+}
+.site-frame-sections a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font: 700 15px/1.3 var(--body, "Atkinson Hyperlegible Next", system-ui, sans-serif);
+  color: var(--dim, #a9adb3);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.site-frame-sections a:hover,
+.site-frame-sections a[aria-current] { color: var(--text, #f2efe8); }
+.site-frame-sections a[aria-current] { box-shadow: inset 0 -2px 0 var(--text, #f2efe8); }
+.site-frame-sections a:focus-visible { outline: 2px solid var(--text, #f2efe8); outline-offset: -2px; border-radius: 4px; }
 .site-frame-open {
   grid-area: open;
   display: inline-flex;
@@ -83,25 +116,52 @@
 .site-frame-footer .site-notice p + p { margin-top: 8px; }
 .site-frame-footer .site-notice a { color: inherit; text-underline-offset: 3px; }
 
-/* Phones: the wordmark and the button on one row, the four places on a row of their own. Nothing
-   wraps inside a link and every link is a 44 px target. */
+/* Phones: a top bar with the wordmark, search and You, and the five tabs fixed along the bottom
+   with their icons, 76 px tall as in the app. The footer leaves room for the bar. Nothing wraps
+   inside a link and every link is a 44 px target. */
 @media (max-width: 720px) {
   .site-frame-header {
     min-height: 0;
-    padding-block: 12px 4px;
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas: "brand open" "nav nav";
-    gap: 4px 16px;
+    padding-block: 8px 4px;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-areas: "brand search open";
+    gap: 0 8px;
   }
   .site-frame-wordmark { width: 68px; }
   .site-frame-wordmark svg { height: 30px; }
-  .site-frame-header nav { justify-content: flex-start; gap: 0 20px; overflow-x: auto; scrollbar-width: none; }
-  /* The row scrolls if it ever has to, which would clip a ring drawn outside a link: draw it inside. */
-  .site-frame-header nav a:focus-visible { outline-offset: -2px; }
-  .site-frame-header nav a,
+  .site-frame-search { grid-area: search; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; color: var(--dim, #a9adb3); }
+  .site-frame-search svg { width: 24px; height: 24px; }
+  .site-frame-search:hover { color: var(--text, #f2efe8); }
+  .site-frame-header nav {
+    grid-area: auto;
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: 20;
+    height: calc(76px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0;
+    background: var(--ground, #0b0c0e);
+    border-top: 1px solid var(--line, #2a2e33);
+  }
+  .site-frame-header nav a {
+    display: grid;
+    place-items: center;
+    align-content: center;
+    gap: 4px;
+    min-width: 0;
+    font-size: 12px;
+    letter-spacing: -0.01em;
+  }
+  .site-frame-header nav a:hover { text-decoration: none; }
+  .site-frame-header nav a svg { display: block; width: 26px; height: 26px; }
+  /* A ring drawn outside a tab would be cut off by the screen's edge: draw it inside. */
+  .site-frame-header nav a:focus-visible { outline-offset: -4px; }
   .site-frame-footer nav a { font-size: 15px; }
   .site-frame-open { padding: 8px 16px; }
-  .site-frame-footer { margin-top: 40px; padding-bottom: 28px; }
+  .site-frame-sections { gap: 0 18px; padding: 0 20px; }
+  .site-frame-footer { margin-top: 40px; padding-bottom: calc(28px + 76px + env(safe-area-inset-bottom, 0px)); }
 }
 @media (max-width: 600px) {
   .site-frame-header,
@@ -110,7 +170,7 @@
 @media (max-width: 350px) {
   .site-frame-header,
   .site-frame-footer { padding-inline: 16px; }
-  .site-frame-header nav { gap: 0 14px; }
-  .site-frame-header nav a,
+  .site-frame-sections { padding: 0 16px; }
+  .site-frame-header nav a { font-size: 11px; }
   .site-frame-footer nav a { font-size: 14px; }
 }

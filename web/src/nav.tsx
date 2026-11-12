@@ -1,7 +1,7 @@
 // Yama's top-level navigation, in one table (Bryan, 12 Nov 2026: one frame for the app and the
-// public pages). The laptop rail, the phone's bottom tabs and the strip of a tab's pages read it.
-// The server's public pages still have their own header (server/src/public_page.rs); giving them
-// these tabs is a later change.
+// public pages). The laptop rail, the phone's bottom tabs and the strip of a tab's pages read it,
+// and the server draws the same five tabs on its public pages (server/src/public_page.rs,
+// SITE_TABS and DECKS_PAGES; nav.test.tsx holds them to this table).
 //
 // Home (`/`) belongs to no tab: the wordmark goes there. Adding a page to a tab is one line in
 // that tab's `sections` (or `owns`, for a page that isn't listed). Nothing here changes an

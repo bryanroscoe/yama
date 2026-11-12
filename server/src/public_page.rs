@@ -60,15 +60,51 @@ fn plural(n: i64, one: &str, many: &str) -> String {
 /// Same geometry as components/Wordmark.tsx and design/logo/yama-wordmark.svg.
 pub(crate) const WORDMARK: &str = r#"<svg viewBox="0 -8 280 110" aria-hidden="true"><g fill="currentColor"><path d="M0 0H20L32 30L44 0H64L42 56V100H22V56Z"/><path d="M60 100L92 -6L124 100H104L92 60L80 100Z"/><path d="M134 100V0H152L170 44L188 0H206V100H186V40L170 79L154 40V100Z"/><path d="M216 100L248 -6L280 100H260L248 60L236 100Z"/></g></svg>"#;
 
-/// The places every public page's header links to. The sign-in page (web/src/pages/Landing.tsx)
-/// lists the same ones; its test reads this table.
-pub(crate) const SITE_NAV: [(&str, &str); 4] = [("/precons", "Precons"), ("/commanders", "Commanders"), ("/docs/mcp/", "MCP guide"), ("/about/", "About")];
+/// A tab's icon: the same drawing as web/src/components/icons.tsx (a test there holds the paths
+/// to these). It shows in the phone's bottom bar; a laptop's header has the words alone.
+macro_rules! icon {
+    ($paths:literal) => {
+        concat!(
+            r#"<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">"#,
+            $paths,
+            "</svg>"
+        )
+    };
+}
+
+/// The five tabs of Yama's frame, the same names and places as the app's (web/src/nav.tsx,
+/// MAIN_TABS; web/src/nav.test.tsx reads this table). Each is the app's page: a visitor who isn't
+/// signed in is asked to where the page needs an account.
+pub(crate) const SITE_TABS: [(&str, &str, &str); 5] = [
+    ("/play/table", "Play", icon!(r#"<rect x="3" y="6" width="8" height="12" rx="1.5" transform="rotate(-8 7 12)"/><rect x="13" y="6" width="8" height="12" rx="1.5" transform="rotate(8 17 12)"/>"#)),
+    ("/decks", "Decks", icon!(r#"<rect x="6" y="3" width="12" height="16" rx="1.5"/><path d="M4 7v12a2 2 0 0 0 2 2h10"/>"#)),
+    ("/cards", "Cards", icon!(r#"<rect x="5.5" y="3" width="13" height="18" rx="1.5"/><path d="M9 7h6M9 13.5h6v3.5H9z"/>"#)),
+    ("/collection", "Collection", icon!(r#"<rect x="4" y="5" width="10" height="14" rx="1.5"/><path d="M17 7v12M20 9v8"/>"#)),
+    ("/group", "Playgroup", icon!(r#"<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5"/>"#)),
+];
+
+/// Search, in the phone's top bar (the Cards tab on a laptop).
+const SEARCH_ICON: &str = icon!(r#"<circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/>"#);
+
+/// The Decks tab's pages, as the app lists them for someone not signed in (nav.tsx): the strip
+/// under the header of every public page that belongs to Decks.
+pub(crate) const DECKS_PAGES: [(&str, &str); 3] = [("/decks", "My decks"), ("/precons", "Precons"), ("/commanders", "Commanders")];
+
+/// The public pages that belong to the Decks tab: the precon and commander reference and a
+/// shared deck. A profile, a shared plan and the text pages belong to no tab.
+const DECKS_PUBLIC: [&str; 3] = ["/precons", "/commanders", "/d"];
 
 /// The footer's links, the same on every public page.
-pub(crate) const SITE_FOOT: [(&str, &str); 5] =
-    [("/about/", "About"), ("/precons/methodology", "How we rank"), ("/about/#contact", "Help and contact"), ("/privacy/", "Privacy"), ("/tos/", "Terms")];
+pub(crate) const SITE_FOOT: [(&str, &str); 6] = [
+    ("/about/", "About"),
+    ("/docs/mcp/", "Connect an assistant"),
+    ("/precons/methodology", "How we rank"),
+    ("/about/#contact", "Help and contact"),
+    ("/privacy/", "Privacy"),
+    ("/tos/", "Terms"),
+];
 
-/// How the page at `path` relates to the header place `href`, as an `aria-current` attribute:
+/// How the page at `path` relates to the place `href`, as an `aria-current` attribute:
 /// "page" for the place itself, "true" for a page under it (`/precons/veloci-ramp-tor` under
 /// `/precons`), nothing otherwise.
 fn in_place(path: &str, href: &str) -> &'static str {
@@ -83,15 +119,32 @@ fn in_place(path: &str, href: &str) -> &'static str {
     }
 }
 
-/// The header of every public page (styled by web/public/site-frame-v1.css): the wordmark, the
-/// four places, and the way into the app. The static pages under web/public carry this exact
-/// markup; a test below holds them to it.
+/// Whether a public page belongs to the Decks tab.
+fn in_decks(path: &str) -> bool {
+    DECKS_PUBLIC.iter().any(|place| !in_place(path, place).is_empty())
+}
+
+/// The header of every public page (styled by web/public/site-frame-v1.css): Yama's frame, as
+/// the app draws it. The wordmark goes home; the five tabs are a row of words on a laptop and
+/// the bottom bar on a phone; then search (phones) and You, which opens the account's own page.
+/// A page that belongs to the Decks tab lights it and gets the strip of the tab's pages under
+/// the header. The static pages under web/public carry this exact markup; a test below holds
+/// them to it.
 pub(crate) fn site_header(path: &str) -> String {
+    let decks = in_decks(path);
     let mut s = format!("<a class=\"site-frame-skip\" href=\"#content\">Skip to content</a><header class=\"site-frame-header\"><a class=\"site-frame-wordmark\" href=\"/\" aria-label=\"Yama home\">{WORDMARK}</a><nav aria-label=\"Yama\">");
-    for (href, label) in SITE_NAV {
-        write!(s, "<a href=\"{href}\"{}>{label}</a>", in_place(path, href)).unwrap();
+    for (href, label, icon) in SITE_TABS {
+        let current = if decks && href == "/decks" { " aria-current=\"true\"" } else { "" };
+        write!(s, "<a href=\"{href}\"{current}>{icon}<span>{label}</span></a>").unwrap();
     }
-    s.push_str("</nav><a class=\"site-frame-open\" href=\"/\">Open Yama</a></header>");
+    write!(s, "</nav><a class=\"site-frame-search\" href=\"/cards\" aria-label=\"Search cards\">{SEARCH_ICON}</a><a class=\"site-frame-open\" href=\"/profile\">You</a></header>").unwrap();
+    if decks {
+        s.push_str("<nav class=\"site-frame-sections\" aria-label=\"Decks pages\">");
+        for (href, label) in DECKS_PAGES {
+            write!(s, "<a href=\"{href}\"{}>{label}</a>", in_place(path, href)).unwrap();
+        }
+        s.push_str("</nav>");
+    }
     s
 }
 
@@ -616,21 +669,64 @@ mod frame_tests {
     }
 
     #[test]
-    fn the_header_marks_the_place_a_page_belongs_to() {
-        let current = |path: &str| -> Vec<&str> { SITE_NAV.iter().filter(|(href, _)| !in_place(path, href).is_empty()).map(|(_, label)| *label).collect() };
-        assert_eq!(current("/precons"), ["Precons"]);
-        assert_eq!(current("/precons/methodology"), ["Precons"]);
-        assert_eq!(current("/precons/veloci-ramp-tor"), ["Precons"]);
+    fn the_header_marks_the_tab_and_the_page_a_page_belongs_to() {
+        let tab = |path: &str| site_header(path).contains("<a href=\"/decks\" aria-current=\"true\">");
+        let strip = |path: &str| -> Vec<(&str, &str)> {
+            let html = site_header(path);
+            DECKS_PAGES
+                .iter()
+                .filter_map(|(href, _)| {
+                    let at = html.find(&format!("<a href=\"{href}\" aria-current=\""))?;
+                    Some((*href, if html[at..].starts_with(&format!("<a href=\"{href}\" aria-current=\"page\"")) { "page" } else { "true" }))
+                })
+                .filter(|(href, _)| *href != "/decks")
+                .collect()
+        };
+        // The precon and commander reference and a shared deck are Decks pages: the tab is lit and
+        // the strip of its pages is there, with the page's own entry marked.
+        for path in ["/precons", "/precons/methodology", "/precons/veloci-ramp-tor", "/commanders", "/commanders/atraxa", "/d/abc"] {
+            assert!(tab(path), "{path}: Decks isn't lit");
+            assert!(site_header(path).contains("<nav class=\"site-frame-sections\" aria-label=\"Decks pages\">"), "{path}: no strip");
+        }
+        assert_eq!(strip("/precons"), [("/precons", "page")]);
         // Only the place itself is the current page; a page under it marks the place, so one
         // document never claims two current pages (the methodology page is in the footer too).
-        assert!(site_header("/precons/methodology").contains("<a href=\"/precons\" aria-current=\"true\">Precons</a>"));
+        assert_eq!(strip("/precons/methodology"), [("/precons", "true")]);
+        assert_eq!(strip("/precons/veloci-ramp-tor"), [("/precons", "true")]);
+        assert_eq!(strip("/commanders"), [("/commanders", "page")]);
+        assert!(strip("/d/abc").is_empty());
         assert!(site_footer("/precons/methodology").contains("<a href=\"/precons/methodology\" aria-current=\"page\">How we rank</a>"));
-        assert_eq!(current("/commanders"), ["Commanders"]);
-        assert_eq!(current("/docs/mcp/"), ["MCP guide"]);
-        assert_eq!(current("/about/"), ["About"]);
-        assert!(current("/u/pat").is_empty() && current("/d/abc").is_empty() && current("/privacy/").is_empty() && current("/preconsx").is_empty());
-        assert!(site_header("/commanders").contains("<a href=\"/commanders\" aria-current=\"page\">Commanders</a>"));
+        // A profile, a shared plan and the text pages belong to no tab: nothing lit, no strip.
+        for path in ["/u/pat", "/u/pat/collection", "/r/abc", "/about/", "/privacy/", "/docs/mcp/", "/preconsx", "/decks-of-mine"] {
+            let html = site_header(path);
+            assert!(!html.contains("aria-current"), "{path}: something is marked current");
+            assert!(!html.contains("site-frame-sections"), "{path}: a strip");
+        }
         assert!(site_footer("/privacy/").contains("<a href=\"/privacy/\" aria-current=\"page\">Privacy</a>"));
+        assert!(site_footer("/docs/mcp/").contains("<a href=\"/docs/mcp/\" aria-current=\"page\">Connect an assistant</a>"));
+    }
+
+    /// The frame's names and places: the app's five tabs, the wordmark going home, and You.
+    #[test]
+    fn the_header_is_the_apps_frame() {
+        let html = site_header("/about/");
+        let tabs: Vec<(&str, &str)> = SITE_TABS.iter().map(|(href, label, _)| (*href, *label)).collect();
+        assert_eq!(tabs, [("/play/table", "Play"), ("/decks", "Decks"), ("/cards", "Cards"), ("/collection", "Collection"), ("/group", "Playgroup")]);
+        let mut at = 0;
+        for (href, label, icon) in SITE_TABS {
+            let link = format!("<a href=\"{href}\">{icon}<span>{label}</span></a>");
+            let found = html[at..].find(&link).unwrap_or_else(|| panic!("{label} is missing or out of order"));
+            at += found + link.len();
+            assert!(icon.starts_with("<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\""), "{label}: the icon would be read out");
+        }
+        assert!(html.contains("<a class=\"site-frame-wordmark\" href=\"/\" aria-label=\"Yama home\">"));
+        assert!(html.contains("<a class=\"site-frame-search\" href=\"/cards\" aria-label=\"Search cards\">"));
+        assert!(html.ends_with("<a class=\"site-frame-open\" href=\"/profile\">You</a></header>"));
+        // The old header's places: precons and commanders are under Decks, the guide in the footer.
+        for gone in ["Open Yama", "MCP guide", ">About<"] {
+            assert!(!html.contains(gone), "{gone} is still in the header");
+        }
+        assert_eq!(DECKS_PAGES, [("/decks", "My decks"), ("/precons", "Precons"), ("/commanders", "Commanders")]);
     }
 
     /// One header and footer everywhere: each static page under web/public carries exactly what
@@ -661,6 +757,7 @@ mod frame_tests {
     fn the_compiled_stylesheet_includes_the_frame() {
         let css = &crate::public_precons::html::stylesheet().0;
         assert!(css.contains(".site-frame-header") && css.contains(".site-frame-footer") && css.contains(".site-frame-open"));
+        assert!(css.contains(".site-frame-sections") && css.contains(".site-frame-search"), "the tabs' strip or the phone's search has no styles");
         assert!(!css.contains(".public-header") && !css.contains(".footer-top"), "the old frame's rules are still in precons.css");
     }
 }

@@ -1,9 +1,11 @@
 import type { ReactNode } from "react";
 import { ArtPanel } from "../components/ArtPanel";
-import { SITE_FOOT, SITE_NAV } from "../components/siteFrame";
+import { SearchIcon } from "../components/icons";
+import { SITE_FOOT } from "../components/siteFrame";
 import { SiteNotice } from "../components/SiteNotice";
 import { Wordmark } from "../components/Wordmark";
 import { openPage } from "../native";
+import { MAIN_TABS, tab } from "../nav";
 // The header and footer every public page has (the server's pages and the static ones link it).
 import "../../public/site-frame-v1.css";
 import "./landing.css";
@@ -19,10 +21,13 @@ export function Landing({ children, focused = false }: { children: ReactNode; fo
       <a className="site-frame-skip" href="#content">Skip to content</a>
       <header className="site-frame-header">
         <a className="site-frame-wordmark" href="/" aria-label="Yama home"><Wordmark /></a>
+        {/* Yama's frame, as on every public page: the five tabs, a row of words on a laptop and
+            the bottom bar on a phone. Plain links: each opens its page as the app would. */}
         <nav aria-label="Yama">
-          {SITE_NAV.map(([href, label]) => <a key={href} href={href}>{label}</a>)}
+          {MAIN_TABS.map(tab).map((t) => <a key={t.id} href={t.to}>{t.icon}<span>{t.label}</span></a>)}
         </nav>
-        {/* Everywhere else this slot opens Yama; here the next step is signing in. */}
+        <a className="site-frame-search" href="/cards" aria-label="Search cards"><SearchIcon /></a>
+        {/* Everywhere else this slot is You; here the next step is signing in. */}
         <a className="site-frame-open" href="#sign-in">Sign in</a>
       </header>
 
