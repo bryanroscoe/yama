@@ -17,6 +17,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useBlocker } from "react-router";
 import { Dialog, DialogHead } from "./components/Dialog";
+import { Button } from "./components/ui";
 
 export interface UnsavedGuard {
   /** A way out is waiting for the person's answer. */
@@ -161,8 +162,8 @@ export function UnsavedPrompt({ guard, what = "your changes" }: { guard: Unsaved
           <DialogHead close={false}>Leave without saving?</DialogHead>
           <p>If you leave now, {what} will be lost.</p>
           <div className="row">
-            <button type="button" className="primary" autoFocus onClick={stay}>Keep editing</button>
-            <button type="button" onClick={guard.leave}>Leave without saving</button>
+            <Button variant="primary" autoFocus onClick={stay}>Keep editing</Button>
+            <Button onClick={guard.leave}>Leave without saving</Button>
           </div>
         </div>
       </Dialog>

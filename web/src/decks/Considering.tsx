@@ -5,7 +5,7 @@ import { plural } from "@yama/core";
 import { useId } from "react";
 import { Link } from "react-router";
 import type { MaybeEntry } from "../api";
-import { CardImage } from "../components/ui";
+import { Button, CardImage } from "../components/ui";
 
 /** "You own 2", "Proxy only" or "Not owned". */
 export function consideringOwned(c: Pick<MaybeEntry, "owned" | "proxies">): string {
@@ -29,13 +29,13 @@ export function Considering({ cards, deckId, onOpen }: { cards: MaybeEntry[]; de
       <ul className="deck-considering-cards">
         {cards.map((c) => (
           <li key={c.oracle_id}>
-            <button type="button" className="deck-considering-card" onClick={() => onOpen(c.oracle_id)}>
+            <Button className="deck-considering-card" onClick={() => onOpen(c.oracle_id)}>
               <CardImage src={c.card?.image_small} name={c.name} className="deck-considering-thumb" />
               <span className="deck-considering-text">
                 <span>{c.qty > 1 ? `${c.qty} ` : ""}{c.name}</span>
                 <span className="small dim">{c.card?.type_line ? `${c.card.type_line}. ` : ""}{consideringOwned(c)}</span>
               </span>
-            </button>
+            </Button>
           </li>
         ))}
       </ul>

@@ -5,6 +5,7 @@ import { useMe, usePower } from "../auth";
 import { datasets } from "../datasets/api";
 import { AreaHead, SubNav } from "../components/DeckTabs";
 import "./lab.css";
+import { ButtonLink } from "../components/ui";
 
 /** The Lab pages, in order. `also` marks deeper pages that belong to an entry. */
 /** `power`: starts simulations, so admins and power users only. `evidence`: the account's own
@@ -51,7 +52,7 @@ export function LabHead({
   const evidence = useEvidence();
   // The Datasets page lists itself while open, even for an account the sub-nav would leave it out for.
   const pages = LAB_PAGES.filter((p) => (power || !p.power) && (evidence || !p.evidence || pathname.startsWith(p.to)));
-  return <AreaHead title={title} index={index} slim={slim} back={back} area="Lab" sections={null} action={action ?? (index ? <a className="button" href="/precons">Public precons</a> : undefined)} nav={<SubNav label="Lab pages" pages={pages} also={pathname} />} />;
+  return <AreaHead title={title} index={index} slim={slim} back={back} area="Lab" sections={null} action={action ?? (index ? <ButtonLink href="/precons">Public precons</ButtonLink> : undefined)} nav={<SubNav label="Lab pages" pages={pages} also={pathname} />} />;
 }
 
 /** The Lab tab (`/lab`). Each page draws its own head (LabHead). */

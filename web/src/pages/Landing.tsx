@@ -7,6 +7,7 @@ import { openPage } from "../native";
 // The header and footer every public page has (the server's pages and the static ones link it).
 import "../../public/site-frame-v1.css";
 import "./landing.css";
+import { Button } from "../components/ui";
 
 /** Runtime Scryfall art, with the credit beside the crop. */
 const LANDING_ART = "https://cards.scryfall.io/art_crop/front/d/d/dd4a00ff-2206-4e12-a0ab-61ed82c9e6c5.jpg";
@@ -65,7 +66,7 @@ export function Landing({ children, focused = false }: { children: ReactNode; fo
                 if (h) openPage(`/u/${encodeURIComponent(h)}`);
               }}>
                 <input name="handle" aria-label="Handle" placeholder="@handle" autoCapitalize="none" spellCheck={false} maxLength={31} required />
-                <button type="submit">Open profile</button>
+                <Button type="submit">Open profile</Button>
               </form>
             </div>
           </section>

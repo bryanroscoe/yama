@@ -93,23 +93,6 @@
   padding: 0 16px;
   font-size: var(--t-label);
 }
-.admin button.danger {
-  color: var(--bad);
-}
-.admin button.danger:hover {
-  border-color: var(--bad);
-}
-.admin-sheet button.danger-fill {
-  background: var(--bad);
-  border-color: var(--bad);
-  color: var(--ground);
-}
-.admin-sheet button.danger-fill:disabled {
-  background: var(--raised);
-  border-color: var(--raised);
-  color: var(--dim);
-  opacity: 1;
-}
 
 /* An account's shared-key toggle: its own row under the account's name and actions. */
 .admin-shared {

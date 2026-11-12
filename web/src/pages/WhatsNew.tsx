@@ -3,6 +3,7 @@ import { Link, useLocation } from "react-router";
 import { NEWS, SEEN_KEY, noticeLine, unseen } from "../whatsNew";
 import "../components/calendar.css";
 import { fmtDate } from "@yama/core";
+import { Button, ButtonLink } from "../components/ui";
 
 const SEEN_EVENT = "yama-news-seen";
 
@@ -52,8 +53,8 @@ export function NewsNotice() {
     <aside className="news-notice" aria-label="What's new">
       <p>{line}</p>
       <span className="row">
-        <Link to="/new" className="button">See what's new</Link>
-        <button className="quiet" onClick={markSeen}>Dismiss</button>
+        <ButtonLink to="/new">See what's new</ButtonLink>
+        <Button variant="quiet" onClick={markSeen}>Dismiss</Button>
       </span>
     </aside>
   );

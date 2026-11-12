@@ -11,6 +11,7 @@ import { Pips, Segmented } from "./ui";
 import { isGuest } from "../guest";
 import { Combobox, PickerField, PickerSheet, useTouch, type Option } from "./GamePicker";
 import { fitsSegmented } from "./deckChoices";
+import { Button } from "./Button";
 
 // ── decks ─────────────────────────────────────────────────────────────────
 
@@ -287,9 +288,8 @@ export function DeckPicker({ text, onText, onPick, decks = NO_DECKS, handle, who
               <>
                 {filters}
                 {source === "table" && text && (
-                  <button
-                    type="button"
-                    className="quiet small picker-extra"
+                  <Button
+                    variant="quiet" size="small" className="picker-extra"
                     onClick={() => {
                       close();
                       // Clearing the deck puts the seat back on its commander alone.
@@ -298,7 +298,7 @@ export function DeckPicker({ text, onText, onPick, decks = NO_DECKS, handle, who
                     }}
                   >
                     No deck, just name the commander
-                  </button>
+                  </Button>
                 )}
               </>
             }

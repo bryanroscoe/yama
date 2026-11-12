@@ -5,7 +5,7 @@ import { api } from "../api";
 import { saveExport } from "../download";
 import { useMe } from "../auth";
 import { LabHead } from "../lab/LabLayout";
-import { Details, ErrorText, Loading } from "../components/ui";
+import { Button, Details, ErrorText, Loading } from "../components/ui";
 import { KINDS, count, dataset, datasets, object, percent, periodLabel, preconEvidence, recordName, setPreconEvidence, sourceUrl, text, type Dataset, type DatasetRead, type EvidenceRecord, type Source } from "./api";
 import "./datasets.css";
 import { fmtDate } from "@yama/core";
@@ -44,7 +44,7 @@ function UploadDataset() {
     <p>Upload a prepared yama-dataset/1 JSON or JSON.gz file, up to 32 MiB. It is validated before saving to your private account.</p>
     <form className="dataset-upload" onSubmit={(e) => { e.preventDefault(); if (file) upload.mutate(file); }}>
       <label>Dataset file<input type="file" accept=".json,.gz,application/json,application/gzip" disabled={upload.isPending} onChange={(e) => { setFile(e.target.files?.[0] ?? null); upload.reset(); }} /></label>
-      <button type="submit" disabled={!file || upload.isPending}>{upload.isPending ? "Importing…" : "Import dataset"}</button>
+      <Button type="submit" disabled={!file || upload.isPending}>{upload.isPending ? "Importing…" : "Import dataset"}</Button>
       <ErrorText error={upload.error} />
     </form>
   </Details>;
@@ -121,7 +121,7 @@ export function RecordCard({ record, explore }: { record: EvidenceRecord; explor
   const d = record.data;
   const stats = object(d.stats);
   return <article className="dataset-record">
-    <div className="dataset-record-head"><h3>{recordName(record)}</h3><button className="outline" onClick={() => explore(record)}>Explore history</button></div>
+    <div className="dataset-record-head"><h3>{recordName(record)}</h3><Button variant="outline" onClick={() => explore(record)}>Explore history</Button></div>
     <p className="small dim">{KINDS[record.kind]}</p>
     {record.kind === "performance" && <>
       <p className="dataset-value">{percent(d.value)} <span>source-reported normalized 4-player win rate</span></p>
@@ -188,9 +188,9 @@ function DatasetDetail({ id }: { id: string }) {
       <p className="dim">Private to your account. Revision {head.revision}, imported {fmtDate(head.imported_at)}.</p>
       <p>{head.method}</p>
       <div className="dataset-actions">
-        <button className={sources ? "outline" : "primary"} onClick={() => update({ section: "" })}>Browse records</button>
-        <button className={sources ? "primary" : "outline"} onClick={() => update({ section: "sources" })}>Source documents ({count(head.source_documents)})</button>
-        <button className="outline" disabled={download.isPending} onClick={() => download.mutate(head.revision)}>{download.isPending ? "Downloading…" : "Download original dataset"}</button>
+        <Button variant={sources ? "outline" : "primary"} onClick={() => update({ section: "" })}>Browse records</Button>
+        <Button variant={sources ? "primary" : "outline"} onClick={() => update({ section: "sources" })}>Source documents ({count(head.source_documents)})</Button>
+        <Button variant="outline" disabled={download.isPending} onClick={() => download.mutate(head.revision)}>{download.isPending ? "Downloading…" : "Download original dataset"}</Button>
       </div>
       <ErrorText error={download.error} />
       <Details label="Attribution and recovery coverage">
@@ -202,16 +202,16 @@ function DatasetDetail({ id }: { id: string }) {
         <form className="dataset-filters" onSubmit={search} key={`${params.get("search")}-${params.get("kind")}`}>
           <label>Commander or precon name<input name="search" defaultValue={params.get("search") || ""} maxLength={240} placeholder="Try Riders of Rohan or Atraxa" /></label>
           <label>Evidence type<select name="kind" defaultValue={params.get("kind") || ""}><option value="">All evidence</option>{Object.entries(KINDS).map(([kind, label]) => <option key={kind} value={kind}>{label}</option>)}</select></label>
-          <button type="submit">Search</button>
+          <Button type="submit">Search</Button>
         </form>
         {params.get("entity") && <>
-          <div className="dataset-actions"><h2>{params.get("label") || params.get("entity")}</h2><button className="outline" onClick={() => update({ entity: "", label: "", kind: "", search: "" })}>Clear entity</button></div>
+          <div className="dataset-actions"><h2>{params.get("label") || params.get("entity")}</h2><Button variant="outline" onClick={() => update({ entity: "", label: "", kind: "", search: "" })}>Clear entity</Button></div>
           <form className="dataset-filters" key={`${params.get("half_life_days")}-${params.get("as_of")}`} onSubmit={(e) => {
             e.preventDefault(); const form = new FormData(e.currentTarget);
             update({ half_life_days: String(form.get("half_life_days") || "180"), as_of: String(form.get("as_of") || "") });
           }}>
             <label>Recency half-life (days)<input name="half_life_days" type="number" min={1} max={3650} required defaultValue={params.get("half_life_days") || "180"} /></label>
-            <label>Evaluate as of<input name="as_of" type="date" defaultValue={params.get("as_of") || ""} /></label><button type="submit">Update weighting</button>
+            <label>Evaluate as of<input name="as_of" type="date" defaultValue={params.get("as_of") || ""} /></label><Button type="submit">Update weighting</Button>
           </form>
           {data && <MonthlySummaries data={data} />}
         </>}
@@ -221,9 +221,9 @@ function DatasetDetail({ id }: { id: string }) {
       {!sources && data?.records?.length === 0 && <p>No matching records. Try another name or evidence type.</p>}
       {sources && data?.sources?.length === 0 && <p>No source documents on this page.</p>}
       <nav className="dataset-actions" aria-label="Evidence pages">
-        <button disabled={offset <= 0 || read.isFetching} onClick={() => update({ offset: String(Math.max(0, offset - 25)) }, true)}>Previous</button>
+        <Button disabled={offset <= 0 || read.isFetching} onClick={() => update({ offset: String(Math.max(0, offset - 25)) }, true)}>Previous</Button>
         <span>Page {Math.floor(offset / 25) + 1}</span>
-        <button disabled={data?.next_offset == null || read.isFetching} onClick={() => update({ offset: String(data?.next_offset) }, true)}>Next</button>
+        <Button disabled={data?.next_offset == null || read.isFetching} onClick={() => update({ offset: String(data?.next_offset) }, true)}>Next</Button>
       </nav>
     </>}
   </div>;

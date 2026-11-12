@@ -16,7 +16,7 @@ import {
 } from "@yama/core/plan";
 import { useState } from "react";
 import { Link } from "react-router";
-import { Dialog } from "../components/ui";
+import { Button, Dialog } from "../components/ui";
 import { deviceId, outbox } from "./outbox";
 import type { PlanView } from "./view";
 import { fmtDate, usd, NO_PRICE } from "@yama/core";
@@ -187,7 +187,7 @@ export function MarkBoughtSheet({ swap, view, userId, storeKey, onClose }: { swa
           </label>
         </div>
         <div className="row">
-          <button className="primary" disabled={!ok}>Mark bought</button>
+          <Button type="submit" variant="primary" disabled={!ok}>Mark bought</Button>
         </div>
       </form>
     </Dialog>

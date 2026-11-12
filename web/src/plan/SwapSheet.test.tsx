@@ -123,14 +123,14 @@ describe("choosing what goes on a swap sheet", () => {
     const none = selectedSheet("?deckScope=selected", true);
     expect(none).toContain("Decks to print (0 of 3)");
     expect(none).toContain("Choose at least one deck to print.");
-    expect(none).toMatch(/<button disabled="" aria-busy="false">Print<\/button>/);
+    expect(none).toMatch(/<button type="button" disabled="" aria-busy="false">Print<\/button>/);
     expect(none).not.toContain('class="ss-steps"');
     expect(selectedSheet("", true)).toContain("Decks to print (3 of 3)");
   });
 
   it("disables Print when every full-sheet section is omitted", () => {
     const html = selectedSheet("?omit=instructions,sort,swaps");
-    expect(html).toMatch(/<button disabled="" aria-busy="false">Print<\/button>/);
+    expect(html).toMatch(/<button type="button" disabled="" aria-busy="false">Print<\/button>/);
     expect(html).toContain('Choose at least one section to print.');
     expect(html).not.toContain('class="ss-sort"');
     expect(html).not.toContain('class="ss-deck"');

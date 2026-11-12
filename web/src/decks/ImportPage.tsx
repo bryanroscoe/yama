@@ -6,7 +6,7 @@ import { Navigate, useLocation, useNavigate, useSearchParams } from "react-route
 import { api, type DeckSummary, type DeckView, type PreconList, type PublicDeck } from "../api";
 import { AreaHead } from "../components/DeckTabs";
 import { hasDeckNamed } from "../components/calendar";
-import { CardImage, ErrorText, Pips, Loading, Segmented } from "../components/ui";
+import { Button, CardImage, ErrorText, Loading, Pips, Segmented } from "../components/ui";
 import {
   checks,
   commanderChoices,
@@ -125,8 +125,8 @@ function ImportEditor() {
             <span className="import-drop-hint small dim wide-only">Or drop a file here.</span>
           </label>
           <div className="import-actions">
-            <button type="button" onClick={() => void list.pasteFromClipboard()}>Paste</button>
-            <button type="button" onClick={() => fileInput.current?.click()}>Choose a file</button>
+            <Button onClick={() => void list.pasteFromClipboard()}>Paste</Button>
+            <Button onClick={() => fileInput.current?.click()}>Choose a file</Button>
             <input
               ref={fileInput}
               type="file"
@@ -139,9 +139,9 @@ function ImportEditor() {
               }}
             />
             {text && (
-              <button type="button" className="quiet" onClick={() => list.setUserText("")}>
+              <Button variant="quiet" onClick={() => list.setUserText("")}>
                 Clear
-              </button>
+              </Button>
             )}
           </div>
           {notice && (
@@ -203,12 +203,12 @@ function Batch({ drafts, active, setActive }: { drafts: Draft[]; active: number;
           const c = checks(d);
           return (
             <li key={i}>
-              <button type="button" className={`import-batch-row${i === active ? " active" : ""}`} aria-pressed={i === active} onClick={() => setActive(i)}>
+              <Button className={`import-batch-row${i === active ? " active" : ""}`} aria-pressed={i === active} onClick={() => setActive(i)}>
                 <span className="import-batch-name">{d.name || "Unnamed deck"}</span>
                 <span className={`small ${c.ready && !c.problems.length ? "import-good" : "import-warn"}`}>
                   {c.total} cards{!c.ready ? `, ${c.problems.length} to fix` : c.problems.length ? `, ${c.problems.length} to check` : ""}
                 </span>
-              </button>
+              </Button>
             </li>
           );
         })}
@@ -269,9 +269,9 @@ function DraftView({ draft, setDraft, formatLabel, deckNames }: { draft: Draft; 
             <p className="small dim">
               {draft.commanderGuessed ? "Yama guessed this from the list. " : ""}
               {choices.length > cmdrs.length ? (
-                <button type="button" className="linkish" onClick={() => setChoosing(true)}>
+                <Button className="linkish" onClick={() => setChoosing(true)}>
                   Choose a different commander
-                </button>
+                </Button>
               ) : null}
             </p>
           </>
@@ -444,18 +444,18 @@ function SaveBar({
       <ErrorText error={save.error ?? saveAll.error} />
       <div className="import-save-row">
         {mode === "update" ? (
-          <button type="button" className="primary" disabled={!target || !current.data || current.isFetching || !c.ready || save.isPending} onClick={() => save.mutate()}>
+          <Button variant="primary" disabled={!target || !current.data || current.isFetching || !c.ready || save.isPending} onClick={() => save.mutate()}>
             {save.isPending ? "Saving…" : "Save as a new version"}
-          </button>
+          </Button>
         ) : (
-          <button type="button" className="primary" disabled={!c.ready || save.isPending} onClick={() => save.mutate()}>
+          <Button variant="primary" disabled={!c.ready || save.isPending} onClick={() => save.mutate()}>
             {save.isPending ? "Adding…" : "Add the deck"}
-          </button>
+          </Button>
         )}
         {mode === "new" && drafts.length > 1 && (
-          <button type="button" disabled={!ready.length || saveAll.isPending} onClick={() => saveAll.mutate()}>
+          <Button disabled={!ready.length || saveAll.isPending} onClick={() => saveAll.mutate()}>
             {saveAll.isPending ? "Adding…" : `Add all ${ready.length} ready`}
-          </button>
+          </Button>
         )}
         {!c.ready && <span className="small dim">{c.problems[0]}</span>}
         {c.ready && c.problems.length > 0 && <span className="small dim">You can save now and fix the rest later.</span>}
@@ -489,9 +489,9 @@ function DiffList({ title, sign, tone, lines }: { title: string; sign: string; t
         ))}
       </ul>
       {lines.length > shown.length && (
-        <button type="button" className="linkish" onClick={() => setAll(true)}>
+        <Button className="linkish" onClick={() => setAll(true)}>
           Show all {lines.length}
-        </button>
+        </Button>
       )}
     </div>
   );

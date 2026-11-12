@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, publicOrigin, type Sharing, type Visibility } from "../api";
 import { useMe } from "../auth";
-import { ErrorText } from "../components/ui";
+import { Button, ErrorText } from "../components/ui";
 import { useCopy, VISIBILITY_CHOICES } from "./ShareDeck";
 import "./share.css";
 import { ask } from "../components/confirm";
@@ -70,14 +70,14 @@ export function SharingSettings() {
           <span className="hint">3–30 letters, digits, - or _. Your profile is at /u/handle.</span>
           <span className="row">
             <input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="yourname" maxLength={31} autoCapitalize="none" spellCheck={false} />
-            <button disabled={save.isPending || handle.trim().replace(/^@/, "").toLowerCase() === (s.handle ?? "")}>Save</button>
+            <Button type="submit" disabled={save.isPending || handle.trim().replace(/^@/, "").toLowerCase() === (s.handle ?? "")}>Save</Button>
           </span>
         </label>
       </form>
       {profile && (
         <div className="row share-profile-link">
           <a href={profile} target="_blank" rel="noreferrer">{profile.replace(/^https?:\/\//, "")}</a>
-          <button className="outline" onClick={() => void copy(profile)}>Copy profile link</button>
+          <Button variant="outline" onClick={() => void copy(profile)}>Copy profile link</Button>
           {copied && <span className="small" role="status">{copied}</span>}
         </div>
       )}
@@ -99,22 +99,22 @@ export function SharingSettings() {
         </span>
       </div>
       <div className="row">
-        <button
-          className="outline"
+        <Button
+          variant="outline"
           disabled={all.isPending || total === 0 || s.decks.public === total}
           onClick={() => shareAll("public", `Make all ${total} decks public on your profile?`, s.handle ? undefined : "Pick a handle too, so your profile can list them.", "Make them public")}
         >
           Make all my decks public
-        </button>
+        </Button>
         {/* Outlined like its partner: a quiet button wrapped onto its own line on a phone and
             looked indented by its own padding. */}
-        <button
-          className="outline"
+        <Button
+          variant="outline"
           disabled={all.isPending || total === 0 || s.decks.private === total}
           onClick={() => shareAll("private", `Make all ${total} decks private?`, "Every link you've sent stops working until you share again.", "Make them private")}
         >
           Make all private
-        </button>
+        </Button>
       </div>
 
       <label className="share-collection-toggle">

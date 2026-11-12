@@ -9,7 +9,7 @@ import { Link } from "react-router";
 import { api } from "../api";
 import { SignInForm, signInPath } from "../auth";
 import { AlphaTag, ALPHA_NOTE } from "../components/AlphaTag";
-import { ErrorText } from "../components/ui";
+import { Button, ErrorText } from "../components/ui";
 import { GUEST_SESSION_KEY, useGuestSession, type GuestSession } from "../guestPlay";
 import { PlayHome } from "./PlayHome";
 import "./play.css";
@@ -129,9 +129,9 @@ function GuestStart({ siteKey }: { siteKey: string }) {
       <div ref={box} className="gp-check" />
       <ErrorText error={problem} />
       <ErrorText error={start.error} />
-      <button type="button" className="primary" disabled={!token || start.isPending} onClick={() => start.mutate()}>
+      <Button variant="primary" disabled={!token || start.isPending} onClick={() => start.mutate()}>
         {start.isPending ? "Starting…" : token ? "Play as a guest" : "Checking you're a person…"}
-      </button>
+      </Button>
     </div>
   );
 }
@@ -153,9 +153,9 @@ export function GuestNote({ session }: { session: GuestSession }) {
         You're playing as a guest, on precons{until ? `. Your games are kept until ${until}` : ""}.{" "}
         <Link to={signInPath("/play")}>Sign in</Link> to play your own decks and with friends.
       </p>
-      <button type="button" className="quiet" disabled={leave.isPending} onClick={() => leave.mutate()}>
+      <Button variant="quiet" disabled={leave.isPending} onClick={() => leave.mutate()}>
         Stop, and delete my guest games
-      </button>
+      </Button>
       <ErrorText error={leave.error} />
     </div>
   );

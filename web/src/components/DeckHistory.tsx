@@ -14,6 +14,7 @@ import { ErrorText, Loading } from "./ui";
 import "../plan/plans.css";
 import "../decks/deckTabs.css";
 import { fmtDate } from "@yama/core";
+import { Button } from "./Button";
 
 /** Pairs shown before "Show all". */
 const PAIRS_SHOWN = 8;
@@ -46,10 +47,10 @@ export function DeckHistoryBody({ deckId, currentVersionId }: { deckId: string; 
             {list.map((v, i) => {
               const now = v.id === currentVersionId;
               return (
-                <button key={v.id} type="button" className="deck-history-version" aria-pressed={v.id === selected?.id} onClick={() => setPick(v.id)}>
+                <Button key={v.id} className="deck-history-version" aria-pressed={v.id === selected?.id} onClick={() => setPick(v.id)}>
                   <b>{v.note || (i === list.length - 1 ? "The first list" : "A saved list")}</b>
                   <span className="dim">{now ? `Now, ${fmtDate(v.created_at)}` : v.history_only ? `Scan, ${fmtDate(v.created_at)}` : fmtDate(v.created_at)}</span>
-                </button>
+                </Button>
               );
             })}
           </div>
@@ -135,28 +136,28 @@ function VersionChanges({ deckId, version, base, current, onRestored }: { deckId
         </ul>
       )}
       {pairs.length > shown.length && (
-        <button type="button" className="quiet small deck-tab-more" onClick={() => setAll(true)}>
+        <Button variant="quiet" size="small" className="deck-tab-more" onClick={() => setAll(true)}>
           Show all {pairs.length}
-        </button>
+        </Button>
       )}
       {!current &&
         (confirming ? (
           <div className="deck-history-confirm" role="group" aria-label="Put this list back">
             <span>The current list stays in History.</span>
             <div className="row">
-              <button type="button" className="primary" disabled={restore.isPending} onClick={() => restore.mutate()}>
+              <Button variant="primary" disabled={restore.isPending} onClick={() => restore.mutate()}>
                 Put it back
-              </button>
-              <button type="button" className="quiet" disabled={restore.isPending} onClick={() => setConfirming(false)}>
+              </Button>
+              <Button variant="quiet" disabled={restore.isPending} onClick={() => setConfirming(false)}>
                 Cancel
-              </button>
+              </Button>
             </div>
             <ErrorText error={restore.error} />
           </div>
         ) : (
-          <button type="button" className="deck-tab-action" onClick={() => setConfirming(true)}>
+          <Button className="deck-tab-action" onClick={() => setConfirming(true)}>
             Put this list back
-          </button>
+          </Button>
         ))}
     </section>
   );

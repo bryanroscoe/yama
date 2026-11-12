@@ -4,7 +4,7 @@ import { Link } from "react-router";
 import { BackButton } from "../../components/DeckTabs";
 import { api, type Playgroup } from "../../api";
 import { useMe } from "../../auth";
-import { Details, ErrorText, Loading, CopyButton } from "../../components/ui";
+import { Button, ButtonLink, CopyButton, Details, ErrorText, Loading } from "../../components/ui";
 import { applyLabel, initialMatches, parseExport, resultText, statusText, useMythicBridge, type MythicApplied, type MythicExport, type MythicGameRow, type MythicPreview } from "./mythic";
 import { MythicDecks } from "./MythicDecks";
 import { MYTHIC_SNIPPET } from "./snippet";
@@ -127,7 +127,7 @@ export function MythicImportPage() {
               <ErrorText error={preview.error} />
               {preview.error && Object.keys(choices).length > 0 && (
                 <div className="row">
-                  <button className="outline" onClick={() => setChoices({})}>Start the choices over</button>
+                  <Button variant="outline" onClick={() => setChoices({})}>Start the choices over</Button>
                 </div>
               )}
               {preview.isLoading && <Loading>Reading the file…</Loading>}
@@ -168,9 +168,9 @@ export function MythicImportPage() {
                     {p.games.map((g) => <GameLine key={g.mythic_id} g={g} choice={choices[g.mythic_id]} onChoose={(c) => setChoices((m) => ({ ...m, [g.mythic_id]: c }))} />)}
                   </ul>
                   <div className="row">
-                    <button disabled={apply.isPending || preview.isFetching || p.games.every((g) => g.action === "skip")} onClick={() => apply.mutate()}>
+                    <Button disabled={apply.isPending || preview.isFetching || p.games.every((g) => g.action === "skip")} onClick={() => apply.mutate()}>
                       {applyLabel(p.games)}
-                    </button>
+                    </Button>
                   </div>
                   <ErrorText error={apply.error} />
                   {apply.data && (
@@ -275,7 +275,7 @@ export function MythicImportEntry() {
       <h2 style={{ margin: 0 }}>Import from Mythic Tools</h2>
       <p className="dim" style={{ margin: 0 }}>Bring in games your group logged in Mythic Tools.</p>
       <div className="row">
-        <Link className="button" to="/group/mythic">Import games</Link>
+        <ButtonLink to="/group/mythic">Import games</ButtonLink>
       </div>
     </section>
   );

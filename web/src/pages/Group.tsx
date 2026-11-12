@@ -3,7 +3,7 @@ import { useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { api, API_BASE, type GameRow, type PlaygroupStats, type Playgroup } from "../api";
 import { useMe } from "../auth";
-import { ErrorText } from "../components/ui";
+import { Button, ButtonLink, ErrorText } from "../components/ui";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { GroupStats } from "../components/GroupStats";
 import { Members } from "./GroupMembers";
@@ -46,7 +46,7 @@ export function GroupPage() {
       <div className="grp-pair">
         {/* Keyed by group: a name being typed or an error shown never carries over to another group. */}
         {group && <Members key={group.id} group={group} />}
-        <section className="grp-section" id="sharing"><h2>You</h2><Link className="button outline" to="/profile">Your profile and account</Link></section>
+        <section className="grp-section" id="sharing"><h2>You</h2><ButtonLink variant="outline" to="/profile">Your profile and account</ButtonLink></section>
       </div>
       <ExportGames group={group} />
       <MythicImportEntry />
@@ -140,7 +140,7 @@ function GroupDetail({ group, switcher }: { group: Playgroup; switcher: ReactNod
             <span>Join code</span>
             <b>{group.join_code}</b>
           </span>
-          <button onClick={() => void share()}>{shared ? "Copied" : "Share"}</button>
+          <Button onClick={() => void share()}>{shared ? "Copied" : "Share"}</Button>
         </div>
       </div>
 
@@ -302,13 +302,13 @@ function ExportGames({ group }: { group?: Playgroup }) {
         {group && (
           <>
             <span>{group.name}</span>
-            <a className="button" {...link("json", group.id)} download>JSON</a>
-            <a className="button" {...link("csv", group.id)} download>CSV</a>
+            <ButtonLink {...link("json", group.id)} download>JSON</ButtonLink>
+            <ButtonLink {...link("csv", group.id)} download>CSV</ButtonLink>
           </>
         )}
         <span>Every game you played or recorded</span>
-        <a className="button" {...link("json")} download>JSON</a>
-        <a className="button" {...link("csv")} download>CSV</a>
+        <ButtonLink {...link("json")} download>JSON</ButtonLink>
+        <ButtonLink {...link("csv")} download>CSV</ButtonLink>
       </div>
     </section>
   );
@@ -326,11 +326,11 @@ function GroupActions() {
       <h2>Start or join a playgroup</h2>
       <form className="row" onSubmit={(e) => { e.preventDefault(); create.mutate(); }}>
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Playgroup name" maxLength={60} required style={{ flex: "1 1 12rem" }} />
-        <button disabled={create.isPending}>Start playgroup</button>
+        <Button type="submit" disabled={create.isPending}>Start playgroup</Button>
       </form>
       <form className="row" onSubmit={(e) => { e.preventDefault(); join.mutate(); }}>
         <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="Join code" required style={{ flex: "1 1 12rem" }} autoCapitalize="characters" />
-        <button disabled={join.isPending}>Join</button>
+        <Button type="submit" disabled={join.isPending}>Join</Button>
       </form>
       <ErrorText error={create.error ?? join.error} />
     </section>

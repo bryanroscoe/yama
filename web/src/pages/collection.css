@@ -436,14 +436,8 @@
   min-width: 0;
   line-height: 1.25;
 }
-.coll-page .coll-danger {
-  background: var(--bad);
-  border-color: var(--bad);
-  color: var(--ground);
-}
 .coll-page .coll-danger-quiet {
   align-self: flex-start;
-  color: var(--bad);
 }
 .coll-delete {
   padding: 12px;

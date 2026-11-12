@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useInstall } from "../install";
+import { Button } from "./Button";
 
 const INSTALL_DISMISSED = "yama.install.dismissed";
 
@@ -23,8 +24,8 @@ export function InstallBanner() {
         </span>
       </p>
       <div className="row">
-        {install.canPrompt && <button className="primary" onClick={() => void install.install()}>Install</button>}
-        <button className={install.canPrompt ? "quiet" : "outline"} onClick={dismiss}>Not now</button>
+        {install.canPrompt && <Button variant="primary" onClick={() => void install.install()}>Install</Button>}
+        <Button variant={install.canPrompt ? "quiet" : "outline"} onClick={dismiss}>Not now</Button>
       </div>
     </aside>
   );

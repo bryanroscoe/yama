@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { importReport } from "../research/api";
-import { Details, ErrorText, Dialog, Loading } from "../components/ui";
+import { Button, Details, Dialog, ErrorText, Loading } from "../components/ui";
 import { uploadPlan } from "./api";
 import { shortHash } from "./PlanLayout";
 import type { PlanView } from "./view";
@@ -87,25 +87,25 @@ export function ImportSheet({ view, onClose }: { view: PlanView; onClose: () => 
               <b>{note.title}</b>: a plan for {note.decks} {note.decks === 1 ? "deck" : "decks"}. Importing saves it to your plans, replacing a plan with the same ID.
             </p>
             <div className="row">
-              <button className="primary" disabled={saveNote.isPending} onClick={() => saveNote.mutate(note.doc)}>
+              <Button variant="primary" disabled={saveNote.isPending} onClick={() => saveNote.mutate(note.doc)}>
                 {saveNote.isPending ? "Importing…" : "Import"}
-              </button>
-              <button className="quiet" onClick={onClose}>Cancel</button>
+              </Button>
+              <Button variant="quiet" onClick={onClose}>Cancel</Button>
             </div>
           </>
         )}
         {report && <Report report={report} view={view} applied={!!apply.data} />}
         {check.data && !check.data.unchanged && !apply.data && file && (
           <div className="row">
-            <button className="primary" disabled={apply.isPending} onClick={() => apply.mutate(file)}>
+            <Button variant="primary" disabled={apply.isPending} onClick={() => apply.mutate(file)}>
               {apply.isPending ? "Importing…" : "Import"}
-            </button>
-            <button className="quiet" onClick={onClose}>Cancel</button>
+            </Button>
+            <Button variant="quiet" onClick={onClose}>Cancel</Button>
           </div>
         )}
         {(apply.data || check.data?.unchanged) && (
           <div className="row">
-            <button className="primary" onClick={onClose}>Done</button>
+            <Button variant="primary" onClick={onClose}>Done</Button>
           </div>
         )}
       </div>

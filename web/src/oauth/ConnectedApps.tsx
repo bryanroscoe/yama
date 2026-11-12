@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ErrorText, CopyButton } from "../components/ui";
+import { Button, CopyButton, ErrorText } from "../components/ui";
 import { publicOrigin } from "../api";
 import { disconnectApp, listConnectedApps } from "./api";
 import { accessLabel, appKind, appName, claudeCodeCommand } from "./logic";
@@ -49,13 +49,13 @@ export function ConnectedApps() {
                   {accessLabel(a.access)}. Connected {fmtDate(a.connected_at)}. Last used {a.last_used_at ? fmtDate(a.last_used_at) : "never"}.
                 </span>
               </span>
-              <button
-                className="quiet small"
+              <Button
+                variant="quiet" size="small"
                 disabled={disconnect.isPending}
                 onClick={async () => (await ask({ title: `Disconnect "${appName(a.name)}"?`, body: "It stops working until you connect it again.", confirm: "Disconnect", danger: true })) && disconnect.mutate(a.id)}
               >
                 Disconnect
-              </button>
+              </Button>
             </div>
           ))}
         </div>

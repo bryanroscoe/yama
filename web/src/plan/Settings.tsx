@@ -2,7 +2,7 @@ import { localBuyRule, MAX_TIERS, rulesAt, shoppingRulesDraft, shoppingRulesProb
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router";
-import { Details, ErrorText, CopyButton } from "../components/ui";
+import { Button, CopyButton, Details, ErrorText } from "../components/ui";
 import { ConnectedApps } from "../oauth/ConnectedApps";
 import { publicOrigin } from "../api";
 import { createKey, listImports, listKeys, removeShoppingRules, revokeKey, saveShoppingRules, type KeyScope, type ScriptKey } from "./api";
@@ -99,9 +99,9 @@ function ShoppingRules() {
       </p>
       {!draft && (
         <p>
-          <button type="button" className="button outline" onClick={() => setDraft(shoppingRulesDraft(sets, view.today))}>
+          <Button variant="outline" onClick={() => setDraft(shoppingRulesDraft(sets, view.today))}>
             Change your buy rule
-          </button>
+          </Button>
         </p>
       )}
       {draft && lb && (
@@ -138,17 +138,16 @@ function ShoppingRules() {
                     , at most
                     <input type="number" inputMode="decimal" min={0} step={0.05} value={numText(t.max_multiple)} onChange={(e) => setTier(i, { max_multiple: Number(e.target.value) })} />× market
                   </label>
-                  <button type="button" className="button outline" onClick={() => setLb({ tiers: lb.tiers.filter((_, n) => n !== i) })} aria-label={`Remove range ${i + 1}`}>
+                  <Button variant="outline" onClick={() => setLb({ tiers: lb.tiers.filter((_, n) => n !== i) })} aria-label={`Remove range ${i + 1}`}>
                     Remove
-                  </button>
+                  </Button>
                 </div>
               );
             })}
             {lb.tiers.length < MAX_TIERS && (
               <p>
-                <button
-                  type="button"
-                  className="button outline"
+                <Button
+                  variant="outline"
                   onClick={() => {
                     const lastTier = lb.tiers[lb.tiers.length - 1];
                     const before = lb.tiers.slice(0, -1);
@@ -159,7 +158,7 @@ function ShoppingRules() {
                   }}
                 >
                   Add a market range
-                </button>
+                </Button>
               </p>
             )}
             <p className="dim small">No ranges: market isn't checked. With ranges, a card with no market price qualifies only at or under the always-fine price.</p>
@@ -189,12 +188,12 @@ function ShoppingRules() {
           )}
           <p className="dim small">Saves a new rule set from {fmtDate(view.today)}. Checks from earlier days keep the rules of their own day, and a later plan import won't replace it.</p>
           <p className="rules-actions">
-            <button type="submit" className="button primary" disabled={save.isPending || problems.length > 0}>
+            <Button type="submit" variant="primary" disabled={save.isPending || problems.length > 0}>
               Save from today
-            </button>
-            <button type="button" className="button outline" onClick={() => setDraft(null)}>
+            </Button>
+            <Button variant="outline" onClick={() => setDraft(null)}>
               Cancel
-            </button>
+            </Button>
           </p>
           {save.error && <ErrorText error={save.error} />}
         </form>
@@ -209,9 +208,9 @@ function ShoppingRules() {
                 {s.origin === "yama" && s === newest && (
                   <>
                     {" "}
-                    <button type="button" className="button outline" disabled={remove.isPending} onClick={() => remove.mutate(s.effective_from)}>
+                    <Button variant="outline" disabled={remove.isPending} onClick={() => remove.mutate(s.effective_from)}>
                       Undo this one
-                    </button>
+                    </Button>
                   </>
                 )}
               </li>
@@ -277,7 +276,7 @@ function Keys() {
           <option value="mcp">For Claude</option>
         </select>
         <input value={name} onChange={(e) => setName(e.target.value)} aria-label="Where the key is used" required maxLength={100} style={{ flex: "1 1 14rem" }} />
-        <button disabled={create.isPending || !name.trim()}>Make a key</button>
+        <Button type="submit" disabled={create.isPending || !name.trim()}>Make a key</Button>
       </form>
       <ErrorText error={create.error ?? revoke.error ?? keys.error} />
       {create.data && (
@@ -318,13 +317,13 @@ function Keys() {
                 </span>
               </span>
               {live(k) && (
-                <button
-                  className="quiet small"
+                <Button
+                  variant="quiet" size="small"
                   disabled={revoke.isPending}
                   onClick={async () => (await ask({ title: `Revoke "${k.name}"?`, body: "Scripts using it stop working.", confirm: "Revoke key", danger: true })) && revoke.mutate(k.id)}
                 >
                   Revoke
-                </button>
+                </Button>
               )}
             </div>
           ))}
@@ -361,8 +360,8 @@ function ThisDevice({ userId }: { userId: string }) {
         {box.pending.length ? ` ${box.pending.length} of your answers are saved here, waiting to sync.` : ""}
       </p>
       <div className="row">
-        {box.pending.length > 0 && <button onClick={() => void outbox.sync(userId)}>Send answers now</button>}
-        <button onClick={() => void clear()}>Clear plan data on this device</button>
+        {box.pending.length > 0 && <Button onClick={() => void outbox.sync(userId)}>Send answers now</Button>}
+        <Button onClick={() => void clear()}>Clear plan data on this device</Button>
       </div>
     </section>
   );

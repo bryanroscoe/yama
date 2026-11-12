@@ -1,11 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
-import { Link } from "react-router";
 import { api } from "../api";
 import { useMe } from "../auth";
 import { forgetTable, rememberTable, useFollowedTable } from "./following";
 import { joinFragment, type Relay } from "./share";
 import { fmtTime } from "@yama/core";
+import { Button, ButtonLink } from "../components/ui";
 
 interface ActiveTable {
   id: string;
@@ -52,8 +52,8 @@ export function SharedTables({ localGameId }: { localGameId?: string }) {
             <h2>Your shared table</h2>
             <p className="dim">{followed.names}. Reconnect to see the host’s latest totals.</p>
             <div className="row">
-              <Link className="button primary" to={`/table/join/${followed.gameId}${joinFragment(followed.key, followed.relay)}`}>Back to the shared table</Link>
-              <button className="quiet" onClick={() => forgetTable(user, followed.gameId)}>Dismiss</button>
+              <ButtonLink variant="primary" to={`/table/join/${followed.gameId}${joinFragment(followed.key, followed.relay)}`}>Back to the shared table</ButtonLink>
+              <Button variant="quiet" onClick={() => forgetTable(user, followed.gameId)}>Dismiss</Button>
             </div>
           </div>
         </div>
@@ -63,7 +63,7 @@ export function SharedTables({ localGameId }: { localGameId?: string }) {
           <div>
             <h2>{t.group_name ? `${t.group_name} is playing` : "Your table is live"}</h2>
             <p className="dim">{t.host_name} started a game at {fmtTime(t.started_at)}.</p>
-            <Link className="button primary" to={`/table/join/${t.id}${t.key ? joinFragment(t.key, t.relay) : ""}`}>Join the table</Link>
+            <ButtonLink variant="primary" to={`/table/join/${t.id}${t.key ? joinFragment(t.key, t.relay) : ""}`}>Join the table</ButtonLink>
           </div>
         </div>
       ))}

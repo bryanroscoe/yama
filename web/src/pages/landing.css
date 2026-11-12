@@ -59,4 +59,3 @@
 .landing-shared p { margin: 0 0 12px; color: var(--dim); line-height: 1.5; }
 .landing-handle { display: flex; gap: 8px; flex-wrap: wrap; }
 .landing-handle input { flex: 1 1 200px; min-height: var(--target); }
-.landing-handle button { min-height: var(--target); }

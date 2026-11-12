@@ -4,7 +4,7 @@
 // say little; "sim doubtful" (--warn) is a lesser warning. Decks with no known problem get nothing.
 
 import { useState, type ReactNode } from "react";
-import { Details, Dialog } from "../components/ui";
+import { Button, Details, Dialog } from "../components/ui";
 import type { Confidence, ConfidenceLevel } from "./api";
 import { confidenceMark, confidenceSentence, reasonText, sentence } from "./logic";
 import "./lab.css";
@@ -19,8 +19,7 @@ export function ConfidenceMark({ confidence, name, method }: { confidence: Confi
   if (!confidence || !mark) return null;
   return (
     <>
-      <button
-        type="button"
+      <Button
         className={`conf-mark ${confidence.level}`}
         title={confidence.reasons.length ? confidence.reasons.map(reasonText).join("\n") : undefined}
         aria-haspopup="dialog"
@@ -28,7 +27,7 @@ export function ConfidenceMark({ confidence, name, method }: { confidence: Confi
         onClick={() => setOpen(true)}
       >
         {mark}
-      </button>
+      </Button>
       {open && (
         <Dialog label={`${sentence(mark)}: ${name}`} title={sentence(mark)} onClose={() => setOpen(false)}>
           <div className="stack conf-sheet">

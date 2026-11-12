@@ -1,5 +1,6 @@
 import { Link } from "react-router";
 import { ConnectButton, HowTo } from "../components/HowTo";
+import { ButtonLink } from "../components/ui";
 
 /**
  * What each Plans page is for, where what's on it comes from and what to do there (Bryan,
@@ -32,7 +33,7 @@ export function ReviewHowTo({ open }: { open: boolean }) {
           into the deck.
         </>,
       ]}
-      actions={<ConnectButton className="outline" />}
+      actions={<ConnectButton variant="outline" />}
     />
   );
 }
@@ -56,8 +57,8 @@ export function BuyHowTo({ open }: { open: boolean }) {
       ]}
       actions={
         <>
-          <Link className="button outline" to="/decks/plans/get/trip">Plan a store trip</Link>
-          <Link className="button outline" to="/decks/plans/settings#shopping-rules">Your shopping rules</Link>
+          <ButtonLink variant="outline" to="/decks/plans/get/trip">Plan a store trip</ButtonLink>
+          <ButtonLink variant="outline" to="/decks/plans/settings#shopping-rules">Your shopping rules</ButtonLink>
         </>
       }
     />
@@ -82,9 +83,9 @@ export function TripHowTo({ open }: { open: boolean }) {
       ]}
       actions={
         <>
-          <a className="button outline" href="#trip-list">Add to your list</a>
-          <a className="button outline" href="#trip-stock">Check stores</a>
-          <a className="button outline" href="#trip-prefs">Your stores</a>
+          <ButtonLink variant="outline" href="#trip-list">Add to your list</ButtonLink>
+          <ButtonLink variant="outline" href="#trip-stock">Check stores</ButtonLink>
+          <ButtonLink variant="outline" href="#trip-prefs">Your stores</ButtonLink>
         </>
       }
     />
@@ -148,7 +149,7 @@ export function ChangesHowTo({ open }: { open: boolean }) {
           <b>Each waits here</b> with exactly what it changes. Apply makes the change; Discard drops it. Nothing happens until you choose.
         </>,
       ]}
-      actions={<ConnectButton className="outline" />}
+      actions={<ConnectButton variant="outline" />}
     />
   );
 }

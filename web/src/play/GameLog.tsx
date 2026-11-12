@@ -4,7 +4,7 @@
 // An answer Yama gave for you from memory is tagged Automatic, with Turn off.
 
 import { useEffect, useRef, useState } from "react";
-import { Dialog, DialogHead } from "../components/ui";
+import { Button, Dialog, DialogHead } from "../components/ui";
 import { aboutMe, LOG_FILTERS, lineCard, logRows, type LogFilter, type Names } from "./feed";
 import { answerOf } from "./turns";
 import type { Act, CardMeta, Happening, LogLine, TurnsView } from "./types";
@@ -42,9 +42,9 @@ export function GameLog(props: {
           {events && (
             <div className="glog-filters" role="group" aria-label="Show">
               {LOG_FILTERS.filter((f) => names.you !== null || f.id === "all" || f.id === "spells" || f.id === "combat").map((f) => (
-                <button key={f.id} type="button" className={`glog-filter${filter === f.id ? " on" : ""}`} aria-pressed={filter === f.id} onClick={() => setFilter(f.id)}>
+                <Button key={f.id} className={`glog-filter${filter === f.id ? " on" : ""}`} aria-pressed={filter === f.id} onClick={() => setFilter(f.id)}>
                   {f.label}
-                </button>
+                </Button>
               ))}
             </div>
           )}
@@ -101,9 +101,9 @@ function Row({ h, text, names, meta, art, turns, connected, onPref }: { h: Happe
           (answer ? (
             <>
               {" "}
-              <button type="button" className="link" onClick={() => onPref(answer.forget)} disabled={!connected}>
+              <Button className="link" onClick={() => onPref(answer.forget)} disabled={!connected}>
                 Turn off
-              </button>
+              </Button>
             </>
           ) : (
             <span className="dim small"> Turned off</span>

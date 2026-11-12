@@ -9,7 +9,7 @@ import { api, type DeckSummary, type GameDetail, type GameSeat } from "../api";
 import { MythicNote } from "../bridges/mythic/MythicImport";
 import { ArtMosaic } from "../components/ArtMosaic";
 import { artCredits } from "../components/ArtPanel";
-import { ErrorText, Loading } from "../components/ui";
+import { Button, ButtonLink, ErrorText, Loading } from "../components/ui";
 import { useCardArt } from "../components/useCardArt";
 import { history } from "./history";
 import { useLoggedQueue } from "./loggedQueue";
@@ -214,8 +214,8 @@ export function GameDetailPage() {
           )}
           {g.mode === "in_person" && !going && !isViewing() && (
             <div className="row">
-              {g.can_edit && <button disabled={!decks.data && !decks.isError} onClick={() => setSheet("edit")}>Edit this game</button>}
-              <button disabled={!decks.data && !decks.isError} onClick={() => setSheet("copy")}>Log another like this</button>
+              {g.can_edit && <Button disabled={!decks.data && !decks.isError} onClick={() => setSheet("edit")}>Edit this game</Button>}
+              <Button disabled={!decks.data && !decks.isError} onClick={() => setSheet("copy")}>Log another like this</Button>
             </div>
           )}
         </div>
@@ -225,16 +225,16 @@ export function GameDetailPage() {
       {going && (
         <section className="gd-going" aria-label="This game is still going">
           {here ? (
-            <button className="primary" onClick={() => navigate("/table/play")}>Back to the table</button>
+            <Button variant="primary" onClick={() => navigate("/table/play")}>Back to the table</Button>
           ) : mayContinue ? (
             <>
               <div className="row">
                 {live.data?.hosting && (
-                  <Link className="button primary" to={`/table/join/${g.id}${live.data.key ? joinFragment(live.data.key, live.data.relay ?? "edge") : ""}`}>Follow it live</Link>
+                  <ButtonLink variant="primary" to={`/table/join/${g.id}${live.data.key ? joinFragment(live.data.key, live.data.relay ?? "edge") : ""}`}>Follow it live</ButtonLink>
                 )}
-                <button className={live.data?.hosting ? "" : "primary"} disabled={busyElsewhere || carryOn.isPending} onClick={() => carryOn.mutate()}>
+                <Button className={live.data?.hosting ? "" : "primary"} disabled={busyElsewhere || carryOn.isPending} onClick={() => carryOn.mutate()}>
                   {carryOn.isPending ? "Opening…" : "Continue on this device"}
-                </button>
+                </Button>
               </div>
               <p className="small dim">
                 {busyElsewhere
@@ -310,13 +310,13 @@ export function GameDetailPage() {
 
       {g.can_delete && !isViewing() && (
         <section className="gd-delete" aria-label="Delete this game">
-          <button
-            className="outline bad"
+          <Button
+            variant="outline" className="bad"
             disabled={remove.isPending}
             onClick={async () => (await ask({ title: "Delete this game from Yama?", body: "It comes out of the history and stats for everyone who played. This can't be undone.", confirm: "Delete game", danger: true })) && remove.mutate()}
           >
             {remove.isPending ? "Deleting…" : "Delete this game"}
-          </button>
+          </Button>
           <p className="small dim">Only you can, since you recorded it. Use it for a test game or one entered by mistake.</p>
           <ErrorText error={remove.error} />
         </section>

@@ -7,7 +7,7 @@ import { api, ApiError, type DeckSummary, type DeckView, type SearchResult } fro
 import { useMe } from "../auth";
 import { artCredits } from "../components/ArtPanel";
 import { Crop } from "../components/Crop";
-import { CardImage, Details, ErrorText, ManaCost, Loading, EmptyState } from "../components/ui";
+import { Button, ButtonLink, CardImage, Details, EmptyState, ErrorText, Loading, ManaCost } from "../components/ui";
 import { useCardArt } from "../components/useCardArt";
 import { offlineSearch } from "../offline/cards";
 import type { ExperimentDetail, ExperimentItem, NewExperiment, Pace, PreconDetail, TryPrefill } from "./api";
@@ -330,9 +330,9 @@ function TryForm() {
             </label>
             <CreateError error={create.error} />
             <RunBlockers items={blockers} />
-            <button className="primary" onClick={() => create.mutate(solo ? "solo" : "change")} disabled={blockers.length > 0 || create.isPending || !me.data}>
+            <Button variant="primary" onClick={() => create.mutate(solo ? "solo" : "change")} disabled={blockers.length > 0 || create.isPending || !me.data}>
               {create.isPending ? "Starting…" : solo ? `Run ${base!.label} as it is` : changed ? "Run the change" : "Run"}
-            </button>
+            </Button>
             <p className="lab-note" style={{ margin: 0 }}>
               {solo ? "Every pod is played once." : "Same shuffles and seats for both lists."}{engines.mode === "both" ? " Each engine plays the same pods." : ""} Simulated games, not your table. <Link to="/lab/runs">My runs</Link>
             </p>
@@ -375,9 +375,9 @@ function PlanShortcuts({
             {later.map((st) => {
               const target = planLists.find((l) => l.plan?.state === st.id)!;
               return (
-                <button key={st.id} type="button" onClick={() => setSwaps(() => listDiff(base.lines, target.lines!, pairs).map((s) => ({ ...s, note: `On the way to your ${st.label.toLowerCase()} list` })))}>
+                <Button key={st.id} onClick={() => setSwaps(() => listDiff(base.lines, target.lines!, pairs).map((s) => ({ ...s, note: `On the way to your ${st.label.toLowerCase()} list` })))}>
                   {PLAN_STATES[from]!.label} vs {st.label.toLowerCase()}
-                </button>
+                </Button>
               );
             })}
           </div>
@@ -447,9 +447,9 @@ function ChangesPanel({
     <div className="lab-swaps" aria-live="polite">
       <div className="lab-swaps-head">
         <h3>Changes</h3>
-        <button type="button" className="quiet" onClick={() => setSwaps(() => [])}>
+        <Button variant="quiet" onClick={() => setSwaps(() => [])}>
           Clear all
-        </button>
+        </Button>
       </div>
       {swaps.map((s) => (
         <div key={s.id}>
@@ -467,15 +467,15 @@ function ChangesPanel({
                 {s.in ? (
                   <b>{s.in}</b>
                 ) : (
-                  <button type="button" className="quiet" onClick={() => setSwapping(`fill:${s.id}`)}>
+                  <Button variant="quiet" onClick={() => setSwapping(`fill:${s.id}`)}>
                     Pick a replacement
-                  </button>
+                  </Button>
                 )}
               </span>
             </span>
-            <button type="button" className="lab-diff-undo" aria-label={`Undo ${swapText([s])}`} onClick={() => remove(s.id)}>
+            <Button className="lab-diff-undo" aria-label={`Undo ${swapText([s])}`} onClick={() => remove(s.id)}>
               ×
-            </button>
+            </Button>
           </div>
           {s.note && (
             <p className="lab-note" style={{ margin: "2px 0 0 8px" }}>
@@ -582,17 +582,17 @@ function DeckList({
                       <span className="lab-row-actions">
                         {left > 0 ? (
                           <>
-                            <button type="button" className={swapping === l.name ? "primary" : ""} aria-expanded={swapping === l.name} onClick={() => setSwapping(swapping === l.name ? null : l.name)} aria-label={`Swap ${l.name}`}>
+                            <Button variant={swapping === l.name ? "primary" : "secondary"} aria-expanded={swapping === l.name} onClick={() => setSwapping(swapping === l.name ? null : l.name)} aria-label={`Swap ${l.name}`}>
                               Swap
-                            </button>
-                            <button type="button" className="quiet" onClick={() => setSwaps((s) => [...s, swap(l.name, null)])} aria-label={`Cut ${l.name}`}>
+                            </Button>
+                            <Button variant="quiet" onClick={() => setSwaps((s) => [...s, swap(l.name, null)])} aria-label={`Cut ${l.name}`}>
                               Cut
-                            </button>
+                            </Button>
                           </>
                         ) : (
-                          <button type="button" className="quiet" onClick={() => keep(l.name)} aria-label={`Keep ${l.name}`}>
+                          <Button variant="quiet" onClick={() => keep(l.name)} aria-label={`Keep ${l.name}`}>
                             Keep
-                          </button>
+                          </Button>
                         )}
                       </span>
                     )}
@@ -666,9 +666,9 @@ function SwapPicker({
     <div className="lab-picker" role="group" aria-label={out ? `Replace ${out}` : "Pick a replacement"}>
       <div className="lab-swaps-head">
         <b>{out ? `Replace ${out} with…` : "Pick a card"}</b>
-        <button type="button" className="quiet" onClick={onClose}>
+        <Button variant="quiet" onClick={onClose}>
           Close
-        </button>
+        </Button>
       </div>
       {ideas.length > 0 && (
         <div className="lab-pick" style={{ maxHeight: "14rem" }}>
@@ -682,9 +682,9 @@ function SwapPicker({
                   <br />
                   <span className="dim small">{i.note}</span>
                 </span>
-                <button type="button" onClick={() => onPick(i.name, c, i.note)} aria-label={`Use ${i.name}`}>
+                <Button onClick={() => onPick(i.name, c, i.note)} aria-label={`Use ${i.name}`}>
                   Use
-                </button>
+                </Button>
               </div>
             );
           })}
@@ -765,9 +765,9 @@ function CardSearch({ identity, onPick, inBase, action, autoFocus = false }: { i
                   {(c.owned ?? 0) > 0 ? `, you own ${c.owned}${c.owned_in ? ` (in ${c.owned_in})` : ""}` : ""}
                 </span>
               </span>
-              <button type="button" onClick={() => onPick(c.name, { type_line: c.type_line, color_identity: c.color_identity, image_small: c.image_small, mana_cost: c.mana_cost, cmc: c.cmc })} aria-label={`${action} ${c.name}`}>
+              <Button onClick={() => onPick(c.name, { type_line: c.type_line, color_identity: c.color_identity, image_small: c.image_small, mana_cost: c.mana_cost, cmc: c.cmc })} aria-label={`${action} ${c.name}`}>
                 {action}
-              </button>
+              </Button>
             </div>
           ))}
           {shown.length === 0 && <p className="small dim">No cards match.</p>}
@@ -827,9 +827,9 @@ function RunningBox({ e }: { e: ExperimentItem }) {
         </div>
       )}
       <span className="lab-note">{experimentLabel(e)}.</span>
-      <Link className="button outline" to={`/lab/runs/${e.id}`}>
+      <ButtonLink variant="outline" to={`/lab/runs/${e.id}`}>
         Open the run
-      </Link>
+      </ButtonLink>
     </section>
   );
 }

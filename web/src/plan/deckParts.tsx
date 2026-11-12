@@ -5,7 +5,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { api, type DeckSummary } from "../api";
 import { useMe } from "../auth";
-import { ErrorText } from "../components/ui";
+import { Button, ErrorText } from "../components/ui";
 import { linkDeck } from "./api";
 import { deviceId, outbox, useOutbox } from "./outbox";
 import type { PlanView } from "./view";
@@ -32,7 +32,7 @@ export function LinkDeck({ deck }: { deck: PlanDeck }) {
       {deck.deck_id ? (
         <p className="small">
           This plan is for {linked ? <Link to={`/decks/${linked.id}`}>{linked.name}</Link> : "a deck that's archived or no longer yours"}.{" "}
-          <button className="quiet small" onClick={() => link.mutate(null)} disabled={link.isPending}>Unlink</button>
+          <Button variant="quiet" size="small" onClick={() => link.mutate(null)} disabled={link.isPending}>Unlink</Button>
         </p>
       ) : (
         <p className="dim small">Link a deck to see its game results here.</p>
@@ -50,11 +50,11 @@ export function LinkDeck({ deck }: { deck: PlanDeck }) {
               </option>
             ))}
           </select>
-          <button className="quiet" onClick={() => setOpen(false)}>Cancel</button>
+          <Button variant="quiet" onClick={() => setOpen(false)}>Cancel</Button>
         </div>
       ) : (
         <div className="row">
-          <button onClick={() => setOpen(true)}>{deck.deck_id ? "Link another deck" : "Link a Yama deck"}</button>
+          <Button onClick={() => setOpen(true)}>{deck.deck_id ? "Link another deck" : "Link a Yama deck"}</Button>
         </div>
       )}
       <ErrorText error={link.error ?? decks.error} />
@@ -143,13 +143,13 @@ export function Ideas({ deck, view }: { deck: PlanDeck; view: PlanView }) {
             <textarea value={why} onChange={(e) => setWhy(e.target.value)} maxLength={2000} />
           </label>
           <div className="row">
-            <button className="primary" disabled={!inn.trim()}>Send to the inbox</button>
-            <button type="button" className="quiet" onClick={() => setOpen(false)}>Cancel</button>
+            <Button type="submit" variant="primary" disabled={!inn.trim()}>Send to the inbox</Button>
+            <Button variant="quiet" onClick={() => setOpen(false)}>Cancel</Button>
           </div>
         </form>
       ) : (
         <div className="row">
-          <button onClick={() => { setSaved(false); setOpen(true); }} disabled={!userId}>Suggest a change</button>
+          <Button onClick={() => { setSaved(false); setOpen(true); }} disabled={!userId}>Suggest a change</Button>
         </div>
       )}
     </section>

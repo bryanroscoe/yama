@@ -6,7 +6,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { count } from "@yama/core";
 import { useId, useState } from "react";
 import { api, type DeckView, type Visibility } from "../api";
-import { Dialog, ErrorText } from "../components/ui";
+import { Button, Dialog, ErrorText } from "../components/ui";
 import { UnsavedPrompt, useUnsavedChanges } from "../unsaved";
 import "./deck-settings.css";
 
@@ -60,7 +60,7 @@ export function DeckAbout({ deck, onEdit }: { deck: Pick<DeckView, "description"
     <section className="deck-about" aria-labelledby={heading}>
       <div className="deck-about-head">
         <h2 id={heading}>About this deck</h2>
-        <button type="button" className="quiet" onClick={onEdit}>Edit</button>
+        <Button variant="quiet" onClick={onEdit}>Edit</Button>
       </div>
       <Paragraphs text={deck.description} />
       <p className="small dim">{deck.visibility === "private" ? "Only you see this while the deck is private." : "Shown to anyone who can see this deck."}</p>
@@ -102,8 +102,8 @@ export function EditDescription({ deck, onClose: closeSheet }: { deck: Pick<Deck
         </p>
         <ErrorText error={save.error} />
         <div className="deck-settings-actions">
-          <button className="primary" disabled={save.isPending || left < 0}>{save.isPending ? "Saving…" : "Save"}</button>
-          <button type="button" className="quiet" onClick={onClose}>Cancel</button>
+          <Button type="submit" variant="primary" disabled={save.isPending || left < 0}>{save.isPending ? "Saving…" : "Save"}</Button>
+          <Button variant="quiet" onClick={onClose}>Cancel</Button>
         </div>
       </form>
       <UnsavedPrompt guard={guard} what="what you wrote about this deck" />

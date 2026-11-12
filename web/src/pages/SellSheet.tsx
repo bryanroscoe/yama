@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { SellOffers } from "./SellOffers";
 import { saveFile } from "../download";
-import { Details, ErrorText, Dialog, EmptyState, Segmented, CopyButton } from "../components/ui";
+import { Button, CopyButton, Details, Dialog, EmptyState, ErrorText, Segmented } from "../components/ui";
 import { leftOut, overLimit, SELL_FORMATS, sellable, sellText, special, type SellCard, type SellFormat } from "./sellList";
 import { shortDate, usd, count, plural } from "@yama/core";
 
@@ -116,13 +116,13 @@ export function SellSheet({ items, from, inDeckBox, onClose }: { items: SellItem
         <div className="row">
           {info.paste ? (
             <>
-              <CopyButton className="primary" disabled={text.copies === 0} text={text.text} label="Copy the list" />
-              <button className="outline" disabled={text.copies === 0} onClick={() => void download()}>Download</button>
+              <CopyButton variant="primary" disabled={text.copies === 0} text={text.text} label="Copy the list" />
+              <Button variant="outline" disabled={text.copies === 0} onClick={() => void download()}>Download</Button>
             </>
           ) : (
             <>
-              <button className="primary" disabled={text.copies === 0} onClick={() => void download()}>Download CSV</button>
-              <CopyButton className="outline" disabled={text.copies === 0} text={text.text} label="Copy" />
+              <Button variant="primary" disabled={text.copies === 0} onClick={() => void download()}>Download CSV</Button>
+              <CopyButton variant="outline" disabled={text.copies === 0} text={text.text} label="Copy" />
             </>
           )}
         </div>
@@ -154,8 +154,8 @@ export function SellSheet({ items, from, inDeckBox, onClose }: { items: SellItem
               <span className="small dim">
                 {count(chosen.length)} of {count(cards.length)} {cards.length === 1 ? "row" : "rows"} ticked
               </span>
-              <button className="quiet small" onClick={() => all("all")}>Tick all</button>
-              <button className="quiet small" onClick={() => all("none")}>Untick all</button>
+              <Button variant="quiet" size="small" onClick={() => all("all")}>Tick all</Button>
+              <Button variant="quiet" size="small" onClick={() => all("none")}>Untick all</Button>
             </div>
             <ul className="sell-list">
               {cards.slice(0, limit).map((c) => {
@@ -187,9 +187,9 @@ export function SellSheet({ items, from, inDeckBox, onClose }: { items: SellItem
               })}
             </ul>
             {cards.length > limit && (
-              <button className="coll-more" onClick={() => setLimit((l) => l + MORE)}>
+              <Button className="coll-more" onClick={() => setLimit((l) => l + MORE)}>
                 {cards.length - limit > MORE ? `Show ${MORE} more of ${count(cards.length - limit)}` : `Show the last ${count(cards.length - limit)}`}
-              </button>
+              </Button>
             )}
           </>
         )}

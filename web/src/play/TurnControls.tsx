@@ -11,7 +11,7 @@ import { PLAY_SPEEDS, type PlaySpeed } from "./motion";
 import { TAP_MANA } from "./pay";
 import { answerBy, moved, shift, type PassChoice, type SettingsSection } from "./turns";
 import type { Act, CardMeta, CardView, ResolveAllView, StackItem, TapMana, TurnsView } from "./types";
-import { Segmented } from "../components/ui";
+import { Button, Segmented } from "../components/ui";
 
 const seatDot = (tone: SeatTone | undefined) => (tone ? ({ ["--seat" as string]: `var(--${tone})` } as React.CSSProperties) : undefined);
 
@@ -21,11 +21,11 @@ export function PassList({ choices, onPick, keys, disabled }: { choices: PassCho
     <ul className="pass-list" aria-label="Ways to pass">
       {choices.map((c) => (
         <li key={c.id}>
-          <button type="button" className={c.on ? "on" : ""} aria-pressed={c.id === "full" ? !!c.on : undefined} disabled={disabled || c.disabled} onClick={() => onPick(c)}>
+          <Button className={c.on ? "on" : ""} aria-pressed={c.id === "full" ? !!c.on : undefined} disabled={disabled || c.disabled} onClick={() => onPick(c)}>
             <b>{c.label}{c.id === "full" ? (c.on ? ", on" : ", off") : ""}</b>
             {keys && c.key && <kbd>{c.key}</kbd>}
             <span>{c.hint}</span>
-          </button>
+          </Button>
         </li>
       ))}
     </ul>
@@ -59,7 +59,7 @@ export function ModeChip({ label, onStop, disabled }: { label: string; onStop: (
   return (
     <div className="mode-chip" role="status">
       <span>{label}</span>
-      <button type="button" onClick={onStop} disabled={disabled}>Cancel passing</button>
+      <Button onClick={onStop} disabled={disabled}>Cancel passing</Button>
     </div>
   );
 }
@@ -156,19 +156,19 @@ export function GameSettings({ section, onSection, turns, hand, meta, whose, ton
   const nav = compact ? (
     <div role="tablist" aria-label="Sections" className="gs-tabs">
       {SECTIONS.filter((s) => s.id !== "rewind" || solo).map((s) => (
-        <button key={s.id} type="button" role="tab" aria-selected={section === s.id} className={`${section === s.id ? "on" : ""}${s.id === "concede" ? " bad" : ""}`} onClick={() => onSection(s.id)}>
+        <Button key={s.id} role="tab" aria-selected={section === s.id} className={`${section === s.id ? "on" : ""}${s.id === "concede" ? " bad" : ""}`} onClick={() => onSection(s.id)}>
           {s.id === "concede" && solo ? "End game" : s.short}
-        </button>
+        </Button>
       ))}
     </div>
   ) : (
     <nav aria-label="Sections" className="gs-nav">
       <h2>This game</h2>
       {SECTIONS.filter((s) => s.id !== "rewind" || solo).map((s) => (
-        <button key={s.id} type="button" aria-current={section === s.id} className={`${section === s.id ? "on" : ""}${s.id === "concede" ? " bad" : ""}`} onClick={() => onSection(s.id)}>
+        <Button key={s.id} aria-current={section === s.id} className={`${section === s.id ? "on" : ""}${s.id === "concede" ? " bad" : ""}`} onClick={() => onSection(s.id)}>
           {s.id === "concede" && solo ? "End game" : s.label}
           {counts[s.id] !== undefined && <span>{counts[s.id]}</span>}
-        </button>
+        </Button>
       ))}
       <p className="gs-note">Settings here last for this game. Stops and the ways to pass are in the turn strip.</p>
     </nav>
@@ -209,7 +209,7 @@ function Yields({ turns, meta, whose, tone, onAct, disabled, compact }: { turns:
             <span className="dim small">{y.controller !== undefined ? `${whose(y.controller)} trigger, ` : ""}{y.every ? "it and its copies" : "this one only"}</span>
             {y.text && !compact && <span className="small">{y.text}</span>}
           </span>
-          <button type="button" className="outline" disabled={disabled} onClick={() => onAct(y.remove)}>Remove</button>
+          <Button variant="outline" disabled={disabled} onClick={() => onAct(y.remove)}>Remove</Button>
         </div>
       ))}
       {!turns.yields.length && <p className="gs-empty">No yields. Yama stops for every trigger your stops cover.</p>}
@@ -233,7 +233,7 @@ function Answers({ turns, meta, whose, onAct, disabled }: { turns: TurnsView; me
             <span>{a.answer}</span>
             <span className="dim small">{answerBy(a)}</span>
           </span>
-          <button type="button" className="outline" disabled={disabled} onClick={() => onAct(a.forget)}>Turn off</button>
+          <Button variant="outline" disabled={disabled} onClick={() => onAct(a.forget)}>Turn off</Button>
         </div>
       ))}
       {!turns.answers.length && <p className="gs-empty">No automatic answers. Yama will ask every time.</p>}
@@ -288,8 +288,7 @@ function HandOrder({ hand, meta, onAct, disabled, compact }: { hand: CardView[];
           const grab = drag.handle(i);
           return (
             <li key={id} data-reorder>
-              <button
-                type="button"
+              <Button
                 className={id === sel ? "on" : ""}
                 aria-pressed={id === sel}
                 aria-label={`${c.name}, card ${i + 1} of ${order.length}`}
@@ -304,15 +303,15 @@ function HandOrder({ hand, meta, onAct, disabled, compact }: { hand: CardView[];
                 onPointerCancel={grab.onPointerCancel}
               >
                 {meta[c.name]?.image ? <img src={meta[c.name]!.image!} alt="" draggable={false} /> : <span className="gs-card-name">{c.name}</span>}
-              </button>
+              </Button>
             </li>
           );
         })}
       </ol>
       {hand.length > 0 && (
         <span className="gs-arrows">
-          <button type="button" className="outline" aria-label="Move left" disabled={disabled || at <= 0} onClick={() => step(-1)}>←</button>
-          <button type="button" className="outline" aria-label="Move right" disabled={disabled || at < 0 || at >= order.length - 1} onClick={() => step(1)}>→</button>
+          <Button variant="outline" aria-label="Move left" disabled={disabled || at <= 0} onClick={() => step(-1)}>←</Button>
+          <Button variant="outline" aria-label="Move right" disabled={disabled || at < 0 || at >= order.length - 1} onClick={() => step(1)}>→</Button>
           <span className="dim small">{at >= 0 ? `${byId.get(sel!)?.name} is card ${at + 1} of ${order.length}.` : ""}</span>
         </span>
       )}

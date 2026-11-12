@@ -4,6 +4,7 @@
 import { NOTE_MAX, WIN_CONDITIONS, type FunRating, type WinCondition } from "@yama/core";
 import { useState } from "react";
 import "./stats.css";
+import { Button } from "./Button";
 
 export interface CaptureSeat {
   seat: number;
@@ -26,9 +27,9 @@ function Chips<T extends string | number>({ options, value, onChange, label }: {
   return (
     <div className="choices" role="group" aria-label={label}>
       {options.map((o) => (
-        <button key={o.key} type="button" className="choice" aria-pressed={value === o.key} onClick={() => onChange(value === o.key ? null : o.key)}>
+        <Button key={o.key} className="choice" aria-pressed={value === o.key} onClick={() => onChange(value === o.key ? null : o.key)}>
           {o.label}
-        </button>
+        </Button>
       ))}
     </div>
   );
@@ -55,8 +56,7 @@ export function FirstPlayerPicker({ seats, value, onChange }: { seats: CaptureSe
   return (
     <Question title="Who went first?">
       <Chips options={seats.map((s) => ({ key: s.seat, label: s.name }))} value={forgot ? null : value} onChange={pick} label="First player" />
-      <button
-        type="button"
+      <Button
         className="choice choice-unknown"
         aria-pressed={forgot && value === null}
         onClick={() => {
@@ -65,7 +65,7 @@ export function FirstPlayerPicker({ seats, value, onChange }: { seats: CaptureSe
         }}
       >
         Don't remember
-      </button>
+      </Button>
     </Question>
   );
 }
@@ -82,9 +82,9 @@ export function FunPicker({ seats, value, onChange }: { seats: CaptureSeat[]; va
             <span>{s.name}</span>
             <div className="fun-scale" role="group" aria-label={`Fun for ${s.name}`}>
               {[1, 2, 3, 4, 5].map((n) => (
-                <button key={n} type="button" aria-pressed={rating(s.seat) === n} aria-label={`${n} of 5`} onClick={() => set(s.seat, rating(s.seat) === n ? null : n)}>
+                <Button key={n} aria-pressed={rating(s.seat) === n} aria-label={`${n} of 5`} onClick={() => set(s.seat, rating(s.seat) === n ? null : n)}>
                   {n}
-                </button>
+                </Button>
               ))}
             </div>
           </div>

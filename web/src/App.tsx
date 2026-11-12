@@ -13,7 +13,7 @@ import { AppUpdate } from "./components/AppUpdate";
 import { SiteNotice } from "./components/SiteNotice";
 import { StandIn } from "./components/StandIn";
 import { AdminIcon, CardsIcon, CollectionIcon, DecksIcon, GroupIcon, LabIcon, PlayIcon, TableIcon } from "./components/icons";
-import { ErrorText } from "./components/ui";
+import { Button, ButtonLink, ErrorText } from "./components/ui";
 import { Wordmark } from "./components/Wordmark";
 import { ViewBanner } from "./components/ViewBanner";
 import { VIEWING_KEY } from "./viewingFlag";
@@ -224,7 +224,7 @@ export function App() {
           <ErrorText error={me.error} />
           <p className="dim">The server didn't answer. If you're offline, the life counter still works: signed in on this device before, or without an account.</p>
           {/* Counting without an account needs nothing from the server. */}
-          <button className="primary" onClick={() => chooseGuest(true)}>Count life without an account</button>
+          <Button variant="primary" onClick={() => chooseGuest(true)}>Count life without an account</Button>
         </div>
       </main>
     );
@@ -344,9 +344,9 @@ function NotFound() {
       <h1>Not found</h1>
       <p className="dim">There's no page here. It may have moved, or the link has a typo.</p>
       <p>
-        <Link className="button" to="/">
+        <ButtonLink to="/">
           Go to the Table
-        </Link>
+        </ButtonLink>
       </p>
     </main>
   );

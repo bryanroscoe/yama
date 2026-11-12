@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ErrorText } from "../components/ui";
+import { Button, ErrorText } from "../components/ui";
 import { accessLabel, allows, appName, caution, returnsTo, type Access, type ConsentInfo } from "./logic";
 
 /**
@@ -62,12 +62,12 @@ export function ConsentView({
       <p className="oauth-caution">{caution(info.loopback)}</p>
       <ErrorText error={error} />
       <div className="oauth-actions">
-        <button className="primary" disabled={busy} onClick={() => onAllow(access)}>
+        <Button variant="primary" disabled={busy} onClick={() => onAllow(access)}>
           Allow
-        </button>
-        <button className="outline" disabled={busy} onClick={onDeny}>
+        </Button>
+        <Button variant="outline" disabled={busy} onClick={onDeny}>
           Deny
-        </button>
+        </Button>
       </div>
       <p className="dim small oauth-foot">You can disconnect it any time in Decks, Plans, Settings.</p>
     </section>

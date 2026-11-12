@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { api, shareUrl, type DeckView, type Sharing, type Visibility } from "../api";
 import { useMe } from "../auth";
-import { ErrorText, Dialog, Segmented } from "../components/ui";
+import { Button, ButtonLink, Dialog, ErrorText, Segmented } from "../components/ui";
 import { configurationLabel } from "./buildCatalog";
 import "./share.css";
 
@@ -34,8 +34,8 @@ export function ResetConfirm({ pending, onConfirm, onKeep }: { pending: boolean;
     <div className="share-reset" role="alert">
       <span>The old link will stop working.</span>
       <span className="share-link-actions">
-        <button disabled={pending} onClick={onConfirm}>{pending ? "Making it…" : "Make a new link"}</button>
-        <button className="quiet" onClick={onKeep}>Keep this one</button>
+        <Button disabled={pending} onClick={onConfirm}>{pending ? "Making it…" : "Make a new link"}</Button>
+        <Button variant="quiet" onClick={onKeep}>Keep this one</Button>
       </span>
     </div>
   );
@@ -83,7 +83,7 @@ export function ShareDeck({ deck, onClose }: { deck: DeckView; onClose: () => vo
         <fieldset className="share-choices">
           <legend className="share-legend">
             Who can see it
-            <button type="button" className="share-help" aria-label="What sharing shows" aria-expanded={help} onClick={() => setHelp((h) => !h)}>?</button>
+            <Button className="share-help" aria-label="What sharing shows" aria-expanded={help} onClick={() => setHelp((h) => !h)}>?</Button>
           </legend>
           {help && (
             <div className="share-help-note" role="note">
@@ -106,9 +106,9 @@ export function ShareDeck({ deck, onClose }: { deck: DeckView; onClose: () => vo
               <input readOnly value={link} onFocus={(e) => e.currentTarget.select()} />
             </label>
             <div className="share-link-actions">
-              <button className="primary" onClick={() => void copy(link)}>Copy link</button>
-              <a className="button" href={link} target="_blank" rel="noreferrer">Open it</a>
-              <button className="quiet" aria-expanded={askReset} onClick={() => setAskReset(true)}>Make a new link</button>
+              <Button variant="primary" onClick={() => void copy(link)}>Copy link</Button>
+              <ButtonLink href={link} target="_blank" rel="noreferrer">Open it</ButtonLink>
+              <Button variant="quiet" aria-expanded={askReset} onClick={() => setAskReset(true)}>Make a new link</Button>
               {copied && <span className="small" role="status">{copied}</span>}
             </div>
             {askReset && <ResetConfirm pending={reset.isPending} onConfirm={() => reset.mutate()} onKeep={() => setAskReset(false)} />}
@@ -134,7 +134,7 @@ export function ShareDeck({ deck, onClose }: { deck: DeckView; onClose: () => vo
                   <span>{c.label}</span>
                   <span className="share-row-value">
                     <span className="dim">{labelOf(pending?.id === c.id ? pending.visibility : c.visibility)}</span>
-                    <button className="quiet" aria-expanded={changing === c.id} onClick={() => setChanging(changing === c.id ? null : c.id)}>Change</button>
+                    <Button variant="quiet" aria-expanded={changing === c.id} onClick={() => setChanging(changing === c.id ? null : c.id)}>Change</Button>
                   </span>
                 </div>
                 {changing === c.id && (
@@ -192,7 +192,7 @@ export function NewConfiguration({ deck, onClose }: { deck: DeckView; onClose: (
         </label>
         <ErrorText error={make.error} />
         <div className="row">
-          <button className="primary" disabled={make.isPending || !label.trim()}>Make it</button>
+          <Button type="submit" variant="primary" disabled={make.isPending || !label.trim()}>Make it</Button>
         </div>
       </form>
     </Dialog>

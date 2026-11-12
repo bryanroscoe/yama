@@ -5,7 +5,7 @@ import { Link, useNavigate, useParams } from "react-router";
 import { usePower } from "../auth";
 import { api } from "../api";
 import { queryFailure, RefreshFailed } from "../components/QueryError";
-import { ErrorText, Pips, Loading, Segmented } from "../components/ui";
+import { Button, ErrorText, Loading, Pips, Segmented } from "../components/ui";
 import { engineLine, enginesOf, halfOf } from "./engines";
 import { agreementParts, type HalfEngine } from "./logic";
 import type { ComparePrefill, ExperimentDetail, ExperimentItem, ExperimentMode, ExperimentStatus, FieldChoice, PodView, Summary, TryPrefill } from "./api";
@@ -105,9 +105,9 @@ function Again({ e }: { e: ExperimentDetail }) {
     <div className="lab-again">
       <span className="lab-games-label">Run again</span>
       <Segmented label="Games" value={pick} onChange={setGames} options={choices.map((g) => [g, g] as const)} />
-      <button className="primary" onClick={() => again.mutate()} disabled={again.isPending}>
+      <Button variant="primary" onClick={() => again.mutate()} disabled={again.isPending}>
         {again.isPending ? "Starting…" : pick > perEngine ? `Run again with ${pick} games` : `Run again (${pick} games)`}
-      </button>
+      </Button>
       <span className="lab-note">
         Same setup, new shuffles. {modeOf(e) === "tournament" ? "The count is appearances per deck, per engine." : ""}{enginesOf(e).mode === "both" ? ` ${pick} ${modeOf(e) === "tournament" ? "appearances per deck" : "games"} on each engine.` : ""}
       </span>
@@ -151,9 +151,9 @@ function MoreGames({ e }: { e: ExperimentDetail }) {
       <div className="lab-again">
         <span className="lab-games-label">Add</span>
         <Segmented label="Games to add" value={pick} onChange={setGames} options={choices.map((g) => [g, g] as const)} />
-        <button className="primary" onClick={() => more.mutate()} disabled={more.isPending}>
+        <Button variant="primary" onClick={() => more.mutate()} disabled={more.isPending}>
           {more.isPending ? "Adding…" : `Add ${pick} games${each}`}
-        </button>
+        </Button>
       </div>
       <ErrorText error={more.error} />
     </section>
@@ -306,18 +306,18 @@ export function RunPage() {
         {!live && power && <Again e={e} />}
         <div className="row">
           {live && (
-            <button onClick={() => cancel.mutate()} disabled={cancel.isPending}>
+            <Button onClick={() => cancel.mutate()} disabled={cancel.isPending}>
               Cancel the rest
-            </button>
+            </Button>
           )}
           {!power ? null : modeOf(e) === "change" || modeOf(e) === "solo" ? (
-            <button onClick={() => navigate("/lab/try", { state: { prefill: prefillFrom(e) } })}>{modeOf(e) === "solo" ? "Try a change to it" : "Edit the change"}</button>
+            <Button onClick={() => navigate("/lab/try", { state: { prefill: prefillFrom(e) } })}>{modeOf(e) === "solo" ? "Try a change to it" : "Edit the change"}</Button>
           ) : (
-            <button onClick={() => navigate("/lab/compare", { state: { prefill: comparePrefill(e) } })}>Edit and run again</button>
+            <Button onClick={() => navigate("/lab/compare", { state: { prefill: comparePrefill(e) } })}>Edit and run again</Button>
           )}
-          <button className="quiet" onClick={async () => (await ask({ title: "Delete this run and its results?", confirm: "Delete run", danger: true })) && remove.mutate()} disabled={remove.isPending}>
+          <Button variant="quiet" onClick={async () => (await ask({ title: "Delete this run and its results?", confirm: "Delete run", danger: true })) && remove.mutate()} disabled={remove.isPending}>
             Delete
-          </button>
+          </Button>
         </div>
         <ErrorText error={cancel.error ?? remove.error} />
       </section>
@@ -766,8 +766,8 @@ function VersusResults({ e, s, engine }: { e: ExperimentDetail; s: Summary; engi
             </table>
           </div>
           {meetings.length > 200 && <div className="lab-chips">
-            <button type="button" disabled={matchupPage === 0} onClick={() => setMatchupPage((p) => p - 1)}>Previous matchups</button>
-            <button type="button" disabled={(matchupPage + 1) * 200 >= meetings.length} onClick={() => setMatchupPage((p) => p + 1)}>Next matchups</button>
+            <Button disabled={matchupPage === 0} onClick={() => setMatchupPage((p) => p - 1)}>Previous matchups</Button>
+            <Button disabled={(matchupPage + 1) * 200 >= meetings.length} onClick={() => setMatchupPage((p) => p + 1)}>Next matchups</Button>
           </div>}
         </>
       )}

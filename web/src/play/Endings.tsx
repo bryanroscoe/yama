@@ -8,7 +8,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { useNavigate } from "react-router";
 import { GAME_WORDS, NOTE_MAX, WIN_CONDITIONS, winConditionLabel, wonText, type WinCondition } from "@yama/core";
 import { api } from "../api";
 import { useMe } from "../auth";
@@ -18,7 +18,7 @@ import { FunPicker, WinConditionPicker } from "../components/GameCapture";
 import { serialQueue } from "./saveQueue";
 import { INFERRED, lastOut, list, outText, standings, whyText, type Names } from "./feed";
 import type { OnlineGame, Out, SeatInfo, Stats, View } from "./types";
-import { ErrorText } from "../components/ui";
+import { Button, ButtonLink, ErrorText } from "../components/ui";
 
 type Art = (seat: number) => { art: string | null; artist: string | null };
 /** What a player has answered on the game-over screen; a key left out hasn't been answered here. */
@@ -80,7 +80,7 @@ export function KnockoutNote({ out, view, names, art, onClose }: { out: Out; vie
         </span>
         {a.art && a.artist && <span className="ko-art-credit">Art: {a.artist}, © Wizards of the Coast</span>}
       </span>
-      <button type="button" className="gi-close" aria-label="Dismiss" onClick={onClose}>×</button>
+      <Button className="gi-close" aria-label="Dismiss" onClick={onClose}>×</Button>
     </div>
   );
 }
@@ -378,7 +378,7 @@ export function GameOver(props: {
                     onBlur={() => noteDraft !== undefined && noteDraft.trim() !== (note ?? "") && saveNote()}
                   />
                   {noteDraft !== undefined && noteDraft.trim() !== (note ?? "") && (
-                    <button type="button" className="small" style={{ justifySelf: "start" }} onClick={saveNote} disabled={noteSaving}>{noteSaving ? "Saving…" : "Save the note"}</button>
+                    <Button size="small" style={{ justifySelf: "start" }} onClick={saveNote} disabled={noteSaving}>{noteSaving ? "Saving…" : "Save the note"}</Button>
                   )}
                 </div>
               ) : (
@@ -396,20 +396,20 @@ export function GameOver(props: {
           </div>
           <ErrorText small error={error} />
           <div className="go-buttons">
-            <button type="button" className="outline" onClick={props.onLog}>Game log</button>
-            <button type="button" className="outline" onClick={props.onBoard}>See the final board</button>
-            <Link to="/play" className="button outline">Back to Play online</Link>
+            <Button variant="outline" onClick={props.onLog}>Game log</Button>
+            <Button variant="outline" onClick={props.onBoard}>See the final board</Button>
+            <ButtonLink to="/play" variant="outline">Back to Play online</ButtonLink>
             {host ? (
-              <button type="button" className="primary" onClick={rematch} disabled={busy}>Set up rematch</button>
+              <Button variant="primary" onClick={rematch} disabled={busy}>Set up rematch</Button>
             ) : game?.rematch ? (
-              <button type="button" className="primary" onClick={join} disabled={busy}>Join the rematch</button>
+              <Button variant="primary" onClick={join} disabled={busy}>Join the rematch</Button>
             ) : null}
           </div>
           {host && <span className="small dim">Rematch makes a new table with the same seats and decks; the others join it from here or with its code.</span>}
           {host && (
-            <button type="button" className="quiet small" style={{ alignSelf: "flex-start" }} onClick={remove} disabled={busy}>
+            <Button variant="quiet" size="small" style={{ alignSelf: "flex-start" }} onClick={remove} disabled={busy}>
               Delete this game
-            </button>
+            </Button>
           )}
         </aside>
       </div>
@@ -422,7 +422,7 @@ export function GameOverBar({ text, onOpen }: { text: string; onOpen: () => void
   return (
     <div className="go-bar" role="status">
       <b>{text}</b>
-      <button type="button" className="outline small" onClick={onOpen}>Show the result</button>
+      <Button variant="outline" size="small" onClick={onOpen}>Show the result</Button>
     </div>
   );
 }

@@ -4,7 +4,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api";
-import { Details, ErrorText, Dialog, Loading } from "../components/ui";
+import { Button, Details, Dialog, ErrorText, Loading } from "../components/ui";
 import { isViewing } from "../viewingFlag";
 import "../decks/collect.css";
 import "./swapsheet.css";
@@ -145,12 +145,12 @@ export function SwapInSheet({ deckKey, deckName, onClose }: { deckKey: string; d
             <ErrorText error={apply.error} />
             {!result && (
               <div className="row">
-                <button type="button" className="primary" disabled={viewing || apply.isPending} onClick={() => apply.mutate()}>
+                <Button variant="primary" disabled={viewing || apply.isPending} onClick={() => apply.mutate()}>
                   {apply.isPending ? "Swapping…" : "Swap them in"}
-                </button>
-                <button type="button" className="quiet" onClick={onClose}>
+                </Button>
+                <Button variant="quiet" onClick={onClose}>
                   Cancel
-                </button>
+                </Button>
                 {viewing && <span className="small dim">Read only while viewing as someone.</span>}
               </div>
             )}

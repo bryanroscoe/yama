@@ -7,6 +7,7 @@ import { MANA } from "@yama/core";
 import { shortName } from "./text";
 import type { CardMeta, CardView } from "./types";
 import type { Pile } from "./model";
+import { Button } from "../components/ui";
 
 export interface TileHandlers {
   /** Click (or tap): select, toggle an attacker, assign a blocker. */
@@ -188,8 +189,7 @@ export function FieldTile({ pile, meta, look, h, label: extraLabel }: { pile: Pi
   const kw = look.keywords && c.keywords?.length ? { text: c.keywords.join(", "), tone: "plain" as const } : undefined;
   const under = look.under ?? kw;
   return (
-    <button
-      type="button"
+    <Button
       className={cls}
       style={look.by ? ({ ["--by" as string]: `var(--${look.by})` } as React.CSSProperties) : undefined}
       data-id={c.id}
@@ -248,7 +248,7 @@ export function FieldTile({ pile, meta, look, h, label: extraLabel }: { pile: Pi
           <path d="M8 1v4M8 11v4M1 8h4M11 8h4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
         </svg>
       )}
-    </button>
+    </Button>
   );
 }
 
@@ -267,8 +267,7 @@ export function HandCard({ card, meta, look, h, style, caption }: {
     .filter(Boolean)
     .join(", ");
   return (
-    <button
-      type="button"
+    <Button
       className={`hc${look.playable ? " playable" : ""}${look.selected ? " selected" : ""}${look.pick ? " pick" : ""}${look.picked ? " picked" : ""}`}
       style={style}
       data-id={card.id}
@@ -291,7 +290,7 @@ export function HandCard({ card, meta, look, h, style, caption }: {
       {meta?.image ? <img src={meta.image} alt="" loading="lazy" draggable={false} /> : <span className="hc-name">{card.name}</span>}
       {caption && <span className="hc-caption">{caption}</span>}
       {look.picked && <span className="pick-badge num" aria-hidden="true">{look.picked}</span>}
-    </button>
+    </Button>
   );
 }
 

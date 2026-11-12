@@ -13,7 +13,7 @@ import { DeckResults } from "../components/DeckResults";
 import { statCards } from "../components/DeckStats";
 import { HelpPopover } from "../components/HelpPopover";
 import { NameList, useOnlineSupport } from "../components/OnlineSupport";
-import { CardImage, ErrorText, Loading, Segmented } from "../components/ui";
+import { Button, CardImage, ErrorText, Loading, Segmented } from "../components/ui";
 import { BuyDeck } from "./BuyDeck";
 import { PowerLine, ScoreTable, ScryCheckButton, useDeckAnalysis } from "./DeckAnalysis";
 import { colorShares, curveColumns, isStockConfiguration, landFaceCopies, curveSpread, DIAL, dialArc, dialPoint, groupTotal, inputsNote, marginSpan, pctWidth, playsLike, points, POWER_BANDS, REFERENCES, referenceOf, type Reference } from "./statsTab";
@@ -64,9 +64,9 @@ function Pic({ name, images, inDeck, onCard, className = "stats-pic" }: { name: 
   const img = <CardImage src={images.get(name)} name={name} className="stats-pic-img" />;
   if (!inDeck.has(name)) return <span className={`${className} out`} title={name}>{img}</span>;
   return (
-    <button type="button" className={className} onClick={() => onCard(name)} aria-label={`${name}, full card`}>
+    <Button className={className} onClick={() => onCard(name)} aria-label={`${name}, full card`}>
       {img}
-    </button>
+    </Button>
   );
 }
 
@@ -120,7 +120,7 @@ function PowerSection({ deckId, versionId, cards, images, inDeck, onCard }: { de
             </div>
             <div className="power-vectors" role="group" aria-label="Five scores">
               {a.vectors.map((x) => (
-                <button key={x.key} type="button" className="vector" aria-pressed={x.key === selected.key} onClick={() => setSel(x.key)}>
+                <Button key={x.key} className="vector" aria-pressed={x.key === selected.key} onClick={() => setSel(x.key)}>
                   <span className="vector-name"><b>{x.label}</b><span className="dim">{x.band}</span></span>
                   <span className="vector-track" aria-hidden="true">
                     <span className="fill" style={{ width: pctWidth(x.score) }} />
@@ -128,7 +128,7 @@ function PowerSection({ deckId, versionId, cards, images, inDeck, onCard }: { de
                     {r && <span className="ref" style={{ left: `${r.value}%` }} />}
                   </span>
                   <b className="vector-score">{Math.round(x.score)}</b>
-                </button>
+                </Button>
               ))}
               <span className="vector-marks dim">
                 {REFERENCES.map((m) => <span key={m.key}>{m.value} {m.key === "stock" ? "a stock precon" : m.label}</span>)}
@@ -190,7 +190,7 @@ function VectorCards({ analysis: a, vector, images, inDeck, onCard }: { analysis
                   <Pic name={c.name} images={images} inDeck={inDeck} onCard={onCard} className="point-pic" />
                   <span className="point-name">
                     {c.copies > 1 && `${c.copies} `}
-                    {inDeck.has(c.name) ? <button type="button" className="name-link" onClick={() => onCard(c.name)}>{c.name}</button> : c.name}
+                    {inDeck.has(c.name) ? <Button className="name-link" onClick={() => onCard(c.name)}>{c.name}</Button> : c.name}
                   </span>
                   <span className="point-bar" aria-hidden="true"><span style={{ width: pctWidth(c.points * 10) }} /></span>
                   <b className="point-num">{points(c.points)}</b>
@@ -357,14 +357,13 @@ function ThemesSection({ analysis: a, images, inDeck, onCard }: { analysis: Deck
                 {shown.map((n) => <Pic key={n} name={n} images={images} inDeck={inDeck} onCard={onCard} />)}
               </span>
               {t.cards.length > 5 && (
-                <button
-                  type="button"
-                  className="quiet small theme-more"
+                <Button
+                  variant="quiet" size="small" className="theme-more"
                   aria-expanded={open}
                   onClick={() => setAll((s) => { const n = new Set(s); if (open) n.delete(t.key); else n.add(t.key); return n; })}
                 >
                   {open ? "Show fewer" : `Show all ${t.cards.length}`}
-                </button>
+                </Button>
               )}
             </div>
           );

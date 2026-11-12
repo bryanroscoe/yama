@@ -6,7 +6,7 @@ import { type DeckEntry, type DeckView } from "../api";
 import { artCredits } from "../components/ArtPanel";
 import { CardHover } from "../components/CardRef";
 import { Crop } from "../components/Crop";
-import { CardImage, EmptyState, Segmented, CopyButton } from "../components/ui";
+import { Button, CardImage, CopyButton, EmptyState, Segmented } from "../components/ui";
 import { cardGroups, cardRows, copiesShown, copyChip, copyKinds, priceOf, rowPriceDates, showCounts, shownText, type CardGroupBy, type CardRow, type CardShow, type CardSort } from "./cardList";
 import { printingLabel } from "./priceList";
 import "./cards-tab.css";
@@ -173,7 +173,7 @@ export function DeckCardsTab({
         return (
           <section key={g.id} id={g.id} className="cards-group" aria-labelledby={`${g.id}-h`}>
             <h2 className="cards-group-head" id={`${g.id}-h`}>
-              <button type="button" aria-expanded={open} onClick={() => toggle(g.id)}>
+              <Button aria-expanded={open} onClick={() => toggle(g.id)}>
                 <span className="cards-group-title">{g.title}</span>
                 <span className="dim num">{g.count}</span>
                 <span className="cards-group-price dim num">
@@ -183,25 +183,25 @@ export function DeckCardsTab({
                 <svg className="cards-group-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="m6 9 6 6 6-6" />
                 </svg>
-              </button>
+              </Button>
             </h2>
             {open && view === "pictures" && (
               <div className="cards-pictures">
                 {g.rows.map((r) => (
-                  <button key={r.key} type="button" className="cards-picture" onClick={() => onOpen(r.entry.oracle_id)} aria-label={label(r)}>
+                  <Button key={r.key} className="cards-picture" onClick={() => onOpen(r.entry.oracle_id)} aria-label={label(r)}>
                     <CardHover name={r.entry.name} oracleId={r.entry.oracle_id} image={r.entry.card?.image_normal}>
                       <CardImage src={r.entry.card?.image_normal} name={r.entry.name} />
                     </CardHover>
                     {copiesShown(r, show) > 1 && <span className="qty-badge num">×{copiesShown(r, show)}</span>}
                     {chip(r)}
-                  </button>
+                  </Button>
                 ))}
               </div>
             )}
             {open && view === "list" && (
               <div className="cards-rows">
                 {g.rows.map((r) => (
-                  <button key={r.key} type="button" className="cards-row" onClick={() => onOpen(r.entry.oracle_id)}>
+                  <Button key={r.key} className="cards-row" onClick={() => onOpen(r.entry.oracle_id)}>
                     <Crop src={r.entry.card?.image_art_crop} size="sm" />
                     <span className="cards-row-text">
                       <span className="cards-row-name">
@@ -212,7 +212,7 @@ export function DeckCardsTab({
                     </span>
                     {chip(r)}
                     <span className="cards-row-price dim num">{r.entry.cheapest_usd != null ? usd(r.entry.cheapest_usd * copiesShown(r, show)) : "No price"}</span>
-                  </button>
+                  </Button>
                 ))}
               </div>
             )}
@@ -235,10 +235,10 @@ export function DeckCardsTab({
                       return (
                         <tr key={r.key}>
                           <td>
-                            <button type="button" className="cards-table-name" onClick={() => onOpen(r.entry.oracle_id)}>
+                            <Button className="cards-table-name" onClick={() => onOpen(r.entry.oracle_id)}>
                               {n > 1 ? `${n} ` : ""}
                               <CardHover name={r.entry.name} oracleId={r.entry.oracle_id} image={r.entry.card?.image_normal} />
-                            </button>
+                            </Button>
                           </td>
                           <td className="num">{r.type === "Lands" ? "" : r.mv}</td>
                           <td>{outAt.has(r.entry.name) ? chip(r) : copyKinds(r, show)}</td>

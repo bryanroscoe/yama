@@ -11,7 +11,7 @@ import { AlphaTag } from "../components/AlphaTag";
 import { api, type DeckSummary } from "../api";
 import { ArtMosaic } from "../components/ArtMosaic";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
-import { ErrorText, Segmented } from "../components/ui";
+import { Button, ErrorText, Segmented } from "../components/ui";
 import type { PreconItem, PreconList } from "../lab/api";
 import { shortName } from "./text";
 import { LEVELS, SPEEDS, statusLine, tableNames, watchRequest, type Level, type WatchSeatPlan, type WatchSummary } from "./watch";
@@ -151,7 +151,7 @@ function WatchSetup({ decks, precons }: { decks: DeckSummary[]; precons: PreconI
       <div className="ph-new-head">
         <h2 id="wh-new-h">New game</h2>
         {choices.length > 0 && seats.some((s) => s.source === "precon") && (
-          <button type="button" className="quiet" onClick={shuffle}>Random precons</button>
+          <Button variant="quiet" onClick={shuffle}>Random precons</Button>
         )}
       </div>
       <ol className="ph-seats">
@@ -171,9 +171,9 @@ function WatchSetup({ decks, precons }: { decks: DeckSummary[]; precons: PreconI
                   <b>{deck?.name ?? "No deck"}</b>
                   <span>{s.source === "deck" ? "Your deck" : "Precon"}, {s.level.toLowerCase()} computer</span>
                 </span>
-                <button type="button" className="ph-change" aria-expanded={editing === i} aria-label={`Change seat ${i + 1}`} onClick={() => setEditing(editing === i ? null : i)}>
+                <Button className="ph-change" aria-expanded={editing === i} aria-label={`Change seat ${i + 1}`} onClick={() => setEditing(editing === i ? null : i)}>
                   {editing === i ? "Done" : "Change"}
-                </button>
+                </Button>
               </div>
               <div className="ph-seat-fields">
                 <Segmented
@@ -193,7 +193,7 @@ function WatchSetup({ decks, precons }: { decks: DeckSummary[]; precons: PreconI
                 )}
                 <div className="ph-skills" role="group" aria-label={`Computer for seat ${i + 1}`}>
                   {LEVELS.map((k) => (
-                    <button key={k} type="button" aria-pressed={s.level === k} onClick={() => update(i, { level: k })}>{k}</button>
+                    <Button key={k} aria-pressed={s.level === k} onClick={() => update(i, { level: k })}>{k}</Button>
                   ))}
                 </div>
               </div>
@@ -225,26 +225,25 @@ function WatchSetup({ decks, precons }: { decks: DeckSummary[]; precons: PreconI
       <div className="ph-new-foot">
         <span className="ph-seat-buttons">
           {seats.length < 4 && (
-            <button type="button" className="outline ph-add" onClick={() => setSeats((a) => [...a, { source: "precon", deckId: decks[0]?.id ?? "", preconId: pick(a.length), level: "Medium" }])}>
+            <Button variant="outline" className="ph-add" onClick={() => setSeats((a) => [...a, { source: "precon", deckId: decks[0]?.id ?? "", preconId: pick(a.length), level: "Medium" }])}>
               Add a seat
-            </button>
+            </Button>
           )}
           {seats.length > 2 && (
-            <button
-              type="button"
-              className="quiet ph-remove"
+            <Button
+              variant="quiet" className="ph-remove"
               onClick={() => {
                 setSeats((a) => a.slice(0, -1));
                 if (first !== null && first >= seats.length - 1) setFirst(null);
               }}
             >
               Remove the last seat
-            </button>
+            </Button>
           )}
         </span>
-        <button type="button" className="primary ph-open" onClick={() => create.mutate()} disabled={create.isPending || shown.some((d) => !d)}>
+        <Button variant="primary" className="ph-open" onClick={() => create.mutate()} disabled={create.isPending || shown.some((d) => !d)}>
           {create.isPending ? "Starting…" : "Start watching"}
-        </button>
+        </Button>
       </div>
     </section>
   );

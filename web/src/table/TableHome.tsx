@@ -6,7 +6,7 @@ import { api, type DeckSummary, type GameDetail, type GameRow, type Playgroup } 
 import { useMe } from "../auth";
 import { ArtMosaic } from "../components/ArtMosaic";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
-import { ErrorText, Pips, Dialog, Loading, Segmented } from "../components/ui";
+import { Button, ButtonLink, Dialog, ErrorText, Loading, Pips, Segmented } from "../components/ui";
 import { FirstPlayerPicker, FunPicker, KnockoutPicker, NotePicker, WinConditionPicker, type KnockoutAnswer } from "../components/GameCapture";
 import { useCardArt } from "../components/useCardArt";
 import { localDay } from "./versions";
@@ -87,7 +87,7 @@ export function TableHome() {
       {!guest && loggedRefused.map((q) => (
         <p key={q.body.id} className="small error">
           A game you logged {q.refused ? "couldn't be saved to Yama" : "hasn't uploaded yet"} ({q.error}). It's kept on this device{q.refused ? "" : " and will be tried again"}.{" "}
-          <button className="quiet small" onClick={async () => (await ask({ title: "Throw away this logged game?", body: "This device has the only copy of this save of it.", confirm: "Discard it", danger: true })) && discardLogged(q.body.id)}>Discard it</button>
+          <Button variant="quiet" size="small" onClick={async () => (await ask({ title: "Throw away this logged game?", body: "This device has the only copy of this save of it.", confirm: "Discard it", danger: true })) && discardLogged(q.body.id)}>Discard it</Button>
         </p>
       ))}
       {!guest && rejected.length > 0 && (
@@ -114,7 +114,7 @@ export function TableHome() {
               const art = showArt ? panelArt(p) : null;
               return (
                 <li key={p.seat}>
-                  <button className="ip-row-btn" onClick={() => navigate("/table/play")} aria-label={`${p.name}, ${p.eliminated ? "out" : `${p.life} life`}. Back to the table`}>
+                  <Button className="ip-row-btn" onClick={() => navigate("/table/play")} aria-label={`${p.name}, ${p.eliminated ? "out" : `${p.life} life`}. Back to the table`}>
                   <ArtPanel as="span" className="ip-row" art={art} artist={p.artist} wash="left" credit={false}>
                     <span className="ip-text">
                       <span className="ip-name">
@@ -125,7 +125,7 @@ export function TableHome() {
                     </span>
                     <span className="ip-life num">{p.eliminated ? "Out" : p.life}</span>
                   </ArtPanel>
-                  </button>
+                  </Button>
                 </li>
               );
             })}
@@ -134,10 +134,10 @@ export function TableHome() {
             <p className="small dim" style={{ margin: 0 }}>{artCredits(state.players.filter((p) => panelArt(p)).map((p) => p.artist))}</p>
           )}
           <div className="row">
-            <button className="primary" onClick={() => navigate("/table/play")}>Back to the table</button>
-            <button className="quiet" disabled={hosting.following === game.setup.id} onClick={async () => (await ask(DISCARD_GAME)) && discardGame()}>
+            <Button variant="primary" onClick={() => navigate("/table/play")}>Back to the table</Button>
+            <Button variant="quiet" disabled={hosting.following === game.setup.id} onClick={async () => (await ask(DISCARD_GAME)) && discardGame()}>
               Discard
-            </button>
+            </Button>
           </div>
         </section>
       ) : (
@@ -151,9 +151,9 @@ export function TableHome() {
             <span className="rg-waiting" role="status">
               <span className="status-dot warn" aria-hidden="true" />
               {outbox.length} {outbox.length === 1 ? "game" : "games"} waiting to upload
-              <button className="quiet small" onClick={() => void sync()} disabled={syncStatus.syncing}>
+              <Button variant="quiet" size="small" onClick={() => void sync()} disabled={syncStatus.syncing}>
                 Upload now
-              </button>
+              </Button>
             </span>
           ) : null
         }
@@ -173,7 +173,7 @@ function GuestBanner() {
           {" "}Games stay on this device{games.length ? ` (${games.length} so far)` : ""}. Sign in to share the table and keep your games and decks.
         </span>
       </p>
-      <Link className="button primary" to="/signin">Sign in</Link>
+      <ButtonLink variant="primary" to="/signin">Sign in</ButtonLink>
     </aside>
   );
 }
@@ -198,10 +198,10 @@ function SaveGuestGames() {
         </span>
       </p>
       <div className="row">
-        {what && <button className="primary" onClick={saveGuestGames}>{one ? "Save it" : "Save them"}</button>}
-        <button className="quiet" onClick={async () => (await ask({ title: "Throw away the games counted without an account?", body: "They were never saved to Yama.", confirm: "Throw them away", danger: true })) && dropGuestGames()}>
+        {what && <Button variant="primary" onClick={saveGuestGames}>{one ? "Save it" : "Save them"}</Button>}
+        <Button variant="quiet" onClick={async () => (await ask({ title: "Throw away the games counted without an account?", body: "They were never saved to Yama.", confirm: "Throw them away", danger: true })) && dropGuestGames()}>
           Throw away
-        </button>
+        </Button>
       </div>
     </aside>
   );
@@ -400,7 +400,7 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
       {!guest && <WhoPlaying groups={groups.data ?? []} groupId={groupId} groupReady={!groupId || !!group} onGroup={chooseGroup} people={people} seats={seats} onToggle={toggle} />}
       <div className="ng-section-head">
         <h2>{format === "commander" ? "Players and decks" : "Players"}</h2>
-        {seats.length > 2 && <button className="quiet small" onClick={shuffle}>Shuffle seats</button>}
+        {seats.length > 2 && <Button variant="quiet" size="small" onClick={shuffle}>Shuffle seats</Button>}
       </div>
       {wide ? (
         <div className="ng-body">
@@ -433,7 +433,7 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
             <Dialog label={`Seat ${editing + 1}`} onClose={() => setEditing(null)}>
               <div className="stack">
                 <SeatEditor {...seatProps(editing)} />
-                <button className="primary" onClick={() => setEditing(null)}>Done</button>
+                <Button variant="primary" onClick={() => setEditing(null)}>Done</Button>
               </div>
             </Dialog>
           )}
@@ -441,7 +441,7 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
       )}
       <div className="ng-footer">
         <span className="dim">{startSub}</span>
-        <button className="primary ng-start" onClick={() => void start()} disabled={starting}>{startLabel}</button>
+        <Button variant="primary" className="ng-start" onClick={() => void start()} disabled={starting}>{startLabel}</Button>
       </div>
     </section>
   );
@@ -490,15 +490,15 @@ function WhoPlaying({ groups, groupId, groupReady, onGroup, people, seats, onTog
           {shown.map((p) => {
             const on = seats.some((s) => seatHolds(s, p));
             return (
-              <button key={p.memberId ?? p.userId ?? `name:${p.name}`} type="button" className="who-chip" aria-pressed={on} disabled={!on && full} onClick={() => onToggle(p)}>
+              <Button key={p.memberId ?? p.userId ?? `name:${p.name}`} className="who-chip" aria-pressed={on} disabled={!on && full} onClick={() => onToggle(p)}>
                 {on && <span aria-hidden="true" className="who-check">✓</span>}
                 {p.name}
                 {p.sub === "You" && <span className="who-chip-sub"> (you)</span>}
-              </button>
+              </Button>
             );
           })}
           {people.length > PEOPLE_SHOWN && (
-            <button type="button" className="quiet small" onClick={() => setAll((a) => !a)}>{all ? "Fewer" : `${people.length - PEOPLE_SHOWN} more`}</button>
+            <Button variant="quiet" size="small" onClick={() => setAll((a) => !a)}>{all ? "Fewer" : `${people.length - PEOPLE_SHOWN} more`}</Button>
           )}
         </div>
       ) : (
@@ -529,7 +529,7 @@ function SeatRow({ index, seat, deckName, onOpen, commander = true }: { index: n
   const cmdr = seat.partnerName ? `${seat.commanderName} and ${seat.partnerName}` : seat.commanderName;
   const what = !commander ? (deckName ?? "Change player") : seat.commanderName ? (deckName ? `${deckName}, ${cmdr}` : cmdr) : "Pick a commander";
   return (
-    <button className="seat-row" onClick={onOpen} aria-label={`Seat ${index + 1}: ${who}, ${what}. Change`}>
+    <Button className="seat-row" onClick={onOpen} aria-label={`Seat ${index + 1}: ${who}, ${what}. Change`}>
       <ArtPanel as="span" className="seat-row-art" art={seat.art} artist={seat.artist} wash="left" empty={!seat.commanderName} credit={false}>
         <span className="seat-row-text">
           <span className="seat-row-n">Seat {index + 1}</span>
@@ -538,7 +538,7 @@ function SeatRow({ index, seat, deckName, onOpen, commander = true }: { index: n
         </span>
         {seat.commanderName && <Pips identity={seat.colorIdentity} label={false} />}
       </ArtPanel>
-    </button>
+    </Button>
   );
 }
 
@@ -588,10 +588,10 @@ function RecentGames({ waiting, notes }: { waiting: ReactNode; notes: ReactNode 
         <h2>Recent games</h2>
         <span className="rg-actions">
           {waiting}
-          <button className="outline rg-log" onClick={() => setLogging(true)}>
+          <Button variant="outline" className="rg-log" onClick={() => setLogging(true)}>
             <span className="rg-log-long">Log a game played without Yama</span>
             <span className="rg-log-short">Log a game</span>
-          </button>
+          </Button>
         </span>
       </div>
       {notes}
@@ -906,9 +906,9 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
                   Won this game
                 </label>
                 {seats.length > 1 && (
-                  <button type="button" className="quiet small" onClick={() => removeSeat(i)}>
+                  <Button variant="quiet" size="small" onClick={() => removeSeat(i)}>
                     Remove {s.name.trim() || "this player"}
-                  </button>
+                  </Button>
                 )}
               </>
             }
@@ -919,7 +919,7 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
           It was a draw
         </label>
         <div className="row">
-          <button type="button" onClick={addSeat}>Add a player</button>
+          <Button onClick={addSeat}>Add a player</Button>
         </div>
         {named.length > 0 && (
           <>
@@ -944,11 +944,11 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
           </p>
         )}
         <div className="row">
-          <button className="primary" disabled={save.isPending}>{editing ? "Save the changes" : "Save the game"}</button>
+          <Button type="submit" variant="primary" disabled={save.isPending}>{editing ? "Save the changes" : "Save the game"}</Button>
           {!editing && (
-            <button type="button" disabled={save.isPending} onClick={() => save.mutate(true)}>
+            <Button disabled={save.isPending} onClick={() => save.mutate(true)}>
               Save and log another
-            </button>
+            </Button>
           )}
         </div>
       </form>

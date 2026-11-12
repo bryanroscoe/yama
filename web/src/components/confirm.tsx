@@ -1,4 +1,5 @@
 import { useEffect, useId, useSyncExternalStore, type ReactNode } from "react";
+import { Button } from "./Button";
 import { Dialog, DialogHead } from "./Dialog";
 
 // The app's own "are you sure?" and "this went wrong", in place of the browser's confirm() and
@@ -111,13 +112,13 @@ export function ConfirmDialog({ question, notice = false, onAnswer }: { question
       <div className="dialog-actions">
         {!notice && (
           // The safe answer takes focus first when the other one destroys something.
-          <button type="button" className="outline" autoFocus={danger} onClick={() => onAnswer(false)}>
+          <Button variant="outline" autoFocus={danger} onClick={() => onAnswer(false)}>
             Cancel
-          </button>
+          </Button>
         )}
-        <button type="button" className={danger ? "danger" : "primary"} autoFocus={!danger} onClick={() => onAnswer(true)}>
+        <Button variant={danger ? "secondary" : "primary"} danger={danger} autoFocus={!danger} onClick={() => onAnswer(true)}>
           {confirm}
-        </button>
+        </Button>
       </div>
     </Dialog>
   );

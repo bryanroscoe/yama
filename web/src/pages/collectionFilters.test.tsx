@@ -77,7 +77,7 @@ describe("the collection as pictures", () => {
     // The normal-size image from Scryfall, untouched: no style or filter on it, nothing inside the button but the image.
     expect(html).toContain('src="https://cards.scryfall.io/normal/1.jpg"');
     expect(html).not.toMatch(/<img[^>]*style=/);
-    expect(html).toMatch(/<button class="coll-tile" aria-label="Sol Ring, 2 copies"><img [^>]*><\/button>/);
+    expect(html).toMatch(/<button type="button" class="coll-tile" aria-label="Sol Ring, 2 copies"><img [^>]*><\/button>/);
     expect(html).toContain("×2");
     expect(html).toContain(">Foil<");
     expect(html).toContain(">Etched<");

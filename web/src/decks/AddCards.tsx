@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { addToList, countInList, identityName, MAYBE, removeFromList } from "@yama/core";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { api, type SearchResult } from "../api";
-import { CardImage, EmptyState, ErrorText, Loading, ManaCost } from "../components/ui";
+import { Button, CardImage, EmptyState, ErrorText, Loading, ManaCost } from "../components/ui";
 import { identityQuery } from "../lab/logic";
 import { offlineSearch } from "../offline/cards";
 import { anyNumber, fitFor, inListText, moreText, ownedText, type Hit } from "./cardFit";
@@ -155,23 +155,23 @@ export function AddCards({ text, onChange, identity, disabled = false, note }: {
                     <span className="small edit-list-hit-in">{where}</span>
                     <span className="edit-list-hit-slot">
                       {canRemove && (
-                        <button type="button" data-act="remove" disabled={disabled} onClick={() => remove(c, from)} aria-label={`Remove ${c.name} from ${PLACES[from]}`}>
+                        <Button data-act="remove" disabled={disabled} onClick={() => remove(c, from)} aria-label={`Remove ${c.name} from ${PLACES[from]}`}>
                           Remove
-                        </button>
+                        </Button>
                       )}
                     </span>
                     <span className="edit-list-hit-slot">
                       {canConsider && (
-                        <button type="button" data-act="consider" disabled={disabled} onClick={() => consider(c)} aria-label={`Consider ${c.name}: keep it with the deck, not in it`}>
+                        <Button data-act="consider" disabled={disabled} onClick={() => consider(c)} aria-label={`Consider ${c.name}: keep it with the deck, not in it`}>
                           Consider
-                        </button>
+                        </Button>
                       )}
                     </span>
                     <span className="edit-list-hit-slot">
                       {canAdd && (
-                        <button type="button" data-act="add" className={main === 0 ? "primary" : undefined} disabled={disabled} onClick={() => add(c)} aria-label={main ? `Add another ${c.name}` : `Add ${c.name} to the list`}>
+                        <Button data-act="add" className={main === 0 ? "primary" : undefined} disabled={disabled} onClick={() => add(c)} aria-label={main ? `Add another ${c.name}` : `Add ${c.name} to the list`}>
                           {main ? "Add another" : "Add"}
-                        </button>
+                        </Button>
                       )}
                     </span>
                   </span>

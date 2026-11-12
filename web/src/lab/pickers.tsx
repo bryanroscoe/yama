@@ -9,7 +9,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { api, type DeckCard, type DeckSummary } from "../api";
 import { useMe } from "../auth";
 import { ArtPanel, artCredit } from "../components/ArtPanel";
-import { ErrorText, Pips, Segmented } from "../components/ui";
+import { Button, ErrorText, Pips, Segmented } from "../components/ui";
 import { FORGE_PROFILES, type BaseChoice, type EngineMode, type EngineSupport, type FieldChoice, type Pace } from "./api";
 import { forgeSeconds, type EngineState } from "./engines";
 import { contactHref } from "../components/PowerOnly";
@@ -159,9 +159,9 @@ export function DeckChooser({
               {value.identity != null && <> ({identityName(value.identity)})</>}.
             </span>
           </span>
-          <button type="button" className="lab-base-change" onClick={() => onChange(null)}>
+          <Button className="lab-base-change" onClick={() => onChange(null)}>
             Change
-          </button>
+          </Button>
         </ArtPanel>
         {value.art && <span className="small dim">{artCredit(value.art.artist)}</span>}
       </div>
@@ -202,9 +202,9 @@ export function DeckChooser({
       {title && <span className="lab-games-label">{title}</span>}
       <div className="lab-chips" role="radiogroup" aria-label={title ?? "Choose a deck"}>
         {sources.map(([k, label]) => (
-          <button key={k} type="button" role="radio" aria-checked={source === k} onClick={() => setSource(k)}>
+          <Button key={k} role="radio" aria-checked={source === k} onClick={() => setSource(k)}>
             {label}
-          </button>
+          </Button>
         ))}
       </div>
       {source === "list" ? (
@@ -215,9 +215,9 @@ export function DeckChooser({
             <textarea value={text} onChange={(e) => setText(e.target.value)} />
           </label>
           <div className="row">
-            <button type="button" onClick={() => parse.mutate(text)} disabled={!text.trim() || parse.isPending}>
+            <Button onClick={() => parse.mutate(text)} disabled={!text.trim() || parse.isPending}>
               Use this list
-            </button>
+            </Button>
           </div>
           <ErrorText error={parse.error} />
         </div>
@@ -228,7 +228,7 @@ export function DeckChooser({
             {rows.slice(0, needle ? 30 : 12).map((c) => {
               const taken = exclude.includes(c.key);
               return (
-                <button key={c.key} type="button" className="lab-line" onClick={() => onChange(c)} disabled={taken} style={{ gridTemplateColumns: "1fr auto" }}>
+                <Button key={c.key} className="lab-line" onClick={() => onChange(c)} disabled={taken} style={{ gridTemplateColumns: "1fr auto" }}>
                   <span className="name">
                     <b>{c.label}</b>
                     <br />
@@ -238,7 +238,7 @@ export function DeckChooser({
                     </span>
                   </span>
                   {c.identity != null ? <Pips identity={c.identity} /> : <span />}
-                </button>
+                </Button>
               );
             })}
             {rows.length === 0 && (
@@ -400,10 +400,10 @@ export function FieldPicker({
 
 export function Choice({ on, pick, title, children }: { on: boolean; pick: () => void; title: string; children: ReactNode }) {
   return (
-    <button type="button" className="lab-choice" role="radio" aria-checked={on} onClick={pick}>
+    <Button className="lab-choice" role="radio" aria-checked={on} onClick={pick}>
       <b>{title}</b>
       <span>{children}</span>
-    </button>
+    </Button>
   );
 }
 

@@ -78,9 +78,6 @@
   gap: 4px;
 }
 /* Big enough to hit with a thumb while holding cards. */
-.deck-scan-actions button {
-  min-height: 40px;
-}
 .deck-scan-tag {
   margin-left: 8px;
   font-size: var(--t-sm);

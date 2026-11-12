@@ -4,6 +4,7 @@
 import type { CSSProperties } from "react";
 import { layoutOptions, setLayout, tableLayout, useLayoutChoice, type LayoutKey } from "./layouts";
 import "./layouts.css";
+import { Button } from "../components/ui";
 
 /** The panels in miniature, each with its seat's art and number, turned toward its player. */
 export function LayoutSketch({ n, layout, art, className = "" }: { n: number; layout: LayoutKey; art?: (seat: number) => string | undefined; className?: string }) {
@@ -39,10 +40,10 @@ export function LayoutPicker({ n, art, className = "" }: { n: number; art?: (sea
       <span id={`layout-${n}`} className="field-label">Panels</span>
       <div className="layout-options" role="group" aria-labelledby={`layout-${n}`}>
         {options.map((o) => (
-          <button key={o.key} type="button" className="layout-option" aria-pressed={o.key === chosen} onClick={() => setLayout(n, o.key)}>
+          <Button key={o.key} className="layout-option" aria-pressed={o.key === chosen} onClick={() => setLayout(n, o.key)}>
             <LayoutSketch n={n} layout={o.key} art={art} />
             <span className="layout-label">{o.label}</span>
-          </button>
+          </Button>
         ))}
       </div>
       {about && <p className="small dim layout-about">{about} Seat 1 is nearest this device; the rest go clockwise. Each device keeps its own layout.</p>}

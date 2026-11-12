@@ -9,11 +9,10 @@ import { closeQuestion, unsavedScans } from "./scanClose";
 import { SellSheet } from "./SellSheet";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router";
 import { exportLink } from "../download";
 import { api, API_BASE, ApiError, type CollectionItem, type CollectionSummary, type Container, type DeckSummary } from "../api";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
-import { CardImage, Details, ErrorText, Dialog, Loading, EmptyState, Segmented } from "../components/ui";
+import { Button, ButtonLink, CardImage, Details, Dialog, EmptyState, ErrorText, Loading, Segmented } from "../components/ui";
 import "./collection.css";
 import "../decks/collect.css";
 import { changeText, keptText, missingLabel, missingText, previewLines, resultLines, type MythicReport } from "./mythicImport";
@@ -179,12 +178,12 @@ export function CollectionPage() {
           )}
         </div>
         <div className="coll-actions">
-          <button className="outline coll-import" onClick={() => setImporting("cards")}>
+          <Button variant="outline" className="coll-import" onClick={() => setImporting("cards")}>
             <span className="coll-wide">Import cards</span>
             <span className="coll-narrow">Import</span>
-          </button>
-          <a className="button outline coll-export" {...exportLink("/api/collection/export.csv", "yama-collection.csv")}>Export CSV</a>
-          <button className="primary coll-scan" onClick={() => setScanning(true)}>Scan cards</button>
+          </Button>
+          <ButtonLink variant="outline" className="coll-export" {...exportLink("/api/collection/export.csv", "yama-collection.csv")}>Export CSV</ButtonLink>
+          <Button variant="primary" className="coll-scan" onClick={() => setScanning(true)}>Scan cards</Button>
         </div>
       </div>
 
@@ -195,24 +194,24 @@ export function CollectionPage() {
               <span className="coll-wide">Binders, boxes and decks</span>
               <span className="coll-narrow">Where they live</span>
             </h2>
-            <button className="coll-new" onClick={() => setNewContainer(true)}>New</button>
+            <Button className="coll-new" onClick={() => setNewContainer(true)}>New</Button>
           </div>
           {newContainer && <NewContainer onClose={() => setNewContainer(false)} />}
           <ul className="container-tiles">
             {tiles.map(({ c, art, artist }) => (
               <li key={c.id}>
-                <button className="container-tile" aria-pressed={container === c.id} onClick={() => setContainer(container === c.id ? "" : c.id)}>
+                <Button className="container-tile" aria-pressed={container === c.id} onClick={() => setContainer(container === c.id ? "" : c.id)}>
                   <ArtPanel as="span" art={art} artist={artist} wash="bottom" credit={false}>
                     <span className="ct-kind">{KIND_LABEL[c.kind] ?? c.kind}</span>
                     <span className="ct-name">{c.name}</span>
                     <span className="ct-meta num">{tileMeta(c.copies, c.market_value_usd, c.copies_without_price)}</span>
                   </ArtPanel>
-                </button>
+                </Button>
               </li>
             ))}
             {loose > 0 && (
               <li>
-                <button className="container-tile" aria-pressed={container === "none"} onClick={() => setContainer(container === "none" ? "" : "none")}>
+                <Button className="container-tile" aria-pressed={container === "none"} onClick={() => setContainer(container === "none" ? "" : "none")}>
                   <ArtPanel as="span" art={null} wash="bottom" empty>
                     <span className="ct-kind">Not filed</span>
                     <span className="ct-name">
@@ -221,7 +220,7 @@ export function CollectionPage() {
                     </span>
                     <span className="ct-meta num">{tileMeta(loose, undefined, undefined)}</span>
                   </ArtPanel>
-                </button>
+                </Button>
               </li>
             )}
           </ul>
@@ -236,20 +235,20 @@ export function CollectionPage() {
       <section className="coll-cards" aria-labelledby="coll-cards-h">
         <div className="coll-cards-head">
           <h2 id="coll-cards-h">{heading}</h2>
-          {chosen && <button className="outline small" onClick={() => setDeleting(chosen)}>Delete {(KIND_LABEL[chosen.kind] ?? "container").toLowerCase()}</button>}
-          {container && <button className="quiet small" onClick={() => setContainer("")}>Show everything</button>}
+          {chosen && <Button variant="outline" size="small" onClick={() => setDeleting(chosen)}>Delete {(KIND_LABEL[chosen.kind] ?? "container").toLowerCase()}</Button>}
+          {container && <Button variant="quiet" size="small" onClick={() => setContainer("")}>Show everything</Button>}
           <Segmented className="coll-sort" label="Order" value={sort} onChange={setSort} options={[["value", "By value"], ["name", "By name"]]} />
           {(proxies > 0 || kind !== "all") && (
             <Segmented className="coll-kind" label="Real cards or proxies" value={kind} onChange={setKind} options={[["all", "All"], ["real", "Real"], ["proxy", "Proxies"]]} />
           )}
           {!!items.data?.length && !items.isPlaceholderData && filter.trim() === query && (
-            <button className="outline coll-sell" onClick={() => setSelling(true)}>Sell list</button>
+            <Button variant="outline" className="coll-sell" onClick={() => setSelling(true)}>Sell list</Button>
           )}
           <label className="coll-filter">
             <span className="visually-hidden">Filter by name</span>
             <input type="search" placeholder="Filter by name" value={filter} onChange={(e) => setFilter(e.target.value)} />
           </label>
-          {tiles.length === 0 && loose === 0 && <button onClick={() => setNewContainer(true)}>New binder, box or deck</button>}
+          {tiles.length === 0 && loose === 0 && <Button onClick={() => setNewContainer(true)}>New binder, box or deck</Button>}
         </div>
 
         {!!items.data?.length && (
@@ -274,7 +273,7 @@ export function CollectionPage() {
               <option value="">Any finish</option>
               {options.finishes.map((x) => <option key={x} value={x}>{FINISH_LABEL[x] ?? x}</option>)}
             </select>
-            {filtering && <button className="quiet small" onClick={() => setFilters(NO_FILTERS)}>Clear filters</button>}
+            {filtering && <Button variant="quiet" size="small" onClick={() => setFilters(NO_FILTERS)}>Clear filters</Button>}
             <Segmented className="coll-show" label="Show as" value={show} onChange={showAs} options={[["list", "List"], ["grid", "Pictures"]]} />
           </div>
         )}
@@ -284,7 +283,7 @@ export function CollectionPage() {
 
         {done && (
           <p className="coll-done" role="status">
-            {done} <button className="quiet small" onClick={() => setDone(null)}>OK</button>
+            {done} <Button variant="quiet" size="small" onClick={() => setDone(null)}>OK</Button>
           </p>
         )}
         <ErrorText error={items.error ?? summary.error} />
@@ -292,9 +291,9 @@ export function CollectionPage() {
           <EmptyState
             action={
               <>
-                <button className="outline" onClick={() => setImporting("cards")}>Import a list or a file</button>
-                <button className="outline" onClick={() => setScanning(true)}>Scan cards</button>
-                <Link className="button outline" to="/cards">Add from card search</Link>
+                <Button variant="outline" onClick={() => setImporting("cards")}>Import a list or a file</Button>
+                <Button variant="outline" onClick={() => setScanning(true)}>Scan cards</Button>
+                <ButtonLink variant="outline" to="/cards">Add from card search</ButtonLink>
               </>
             }
           >
@@ -307,7 +306,7 @@ export function CollectionPage() {
           </EmptyState>
         )}
         {!!items.data?.length && sorted.length === 0 && (
-          <EmptyState action={<button className="outline" onClick={() => setFilters(NO_FILTERS)}>Clear filters</button>}>
+          <EmptyState action={<Button variant="outline" onClick={() => setFilters(NO_FILTERS)}>Clear filters</Button>}>
             Nothing here matches those filters.
           </EmptyState>
         )}
@@ -319,7 +318,7 @@ export function CollectionPage() {
             const cond = CONDITIONS[i.condition] ?? i.condition;
             return (
               <li key={i.id}>
-                <button className="coll-row" onClick={() => setOpen(i)}>
+                <Button className="coll-row" onClick={() => setOpen(i)}>
                   {i.image_art_crop ? <img className="coll-art" src={i.image_art_crop} alt="" loading="lazy" crossOrigin="anonymous" /> : <CardImage src={i.image_small} name={i.name ?? "?"} className="coll-art coll-thumb" />}
                   <span className="coll-row-text">
                     <span className="coll-row-name">
@@ -340,16 +339,16 @@ export function CollectionPage() {
                   </span>
                   <span className="coll-qty num">×{i.qty}</span>
                   <span className="coll-price num">{usd(i.unit_price_usd)}</span>
-                </button>
+                </Button>
               </li>
             );
           })}
         </ul>
         )}
         {left > 0 && (
-          <button className="coll-more" onClick={() => setLimit((n) => n + MORE)}>
+          <Button className="coll-more" onClick={() => setLimit((n) => n + MORE)}>
             {left > MORE ? `Show ${MORE} more of ${count(left)}` : `Show the last ${count(left)}`}
-          </button>
+          </Button>
         )}
         {!!items.data?.length && (
           <div className="small dim coll-note help-heading">
@@ -362,7 +361,7 @@ export function CollectionPage() {
             {thumbArtists.length > 0 ? <span>{artCredits(thumbArtists)}</span> : null}
           </div>
         )}
-        <a className="button outline coll-export-narrow" {...exportLink("/api/collection/export.csv", "yama-collection.csv")}>Export CSV</a>
+        <ButtonLink variant="outline" className="coll-export-narrow" {...exportLink("/api/collection/export.csv", "yama-collection.csv")}>Export CSV</ButtonLink>
       </section>
 
       {open && (
@@ -484,10 +483,10 @@ function MythicImportSheet({ onClose }: { onClose: () => void }) {
             {r.errors.length > 0 && <ul className="error small">{r.errors.map((e) => <li key={e}>{e}</li>)}</ul>}
             {!result && (
               <div className="row">
-                <button className="primary" disabled={apply.isPending || preview.isFetching} onClick={() => apply.mutate()}>
+                <Button variant="primary" disabled={apply.isPending || preview.isFetching} onClick={() => apply.mutate()}>
                   {apply.isPending ? "Importing…" : "Import"}
-                </button>
-                <button className="quiet" onClick={onClose}>Cancel</button>
+                </Button>
+                <Button variant="quiet" onClick={onClose}>Cancel</Button>
               </div>
             )}
           </>
@@ -514,8 +513,8 @@ export function DeleteContainer({ container, onClose, onDeleted }: { container: 
         <h2>Delete “{container.name}”?</h2>
         <p>Any cards inside will stay in your collection as loose cards. Saved decks and their lists will stay too.</p>
         <div className="row">
-          <button className="coll-danger" disabled={remove.isPending} onClick={() => remove.mutate()}>{remove.isPending ? "Deleting…" : `Delete ${label}`}</button>
-          <button className="quiet" disabled={remove.isPending} onClick={onClose}>Cancel</button>
+          <Button variant="destructive" disabled={remove.isPending} onClick={() => remove.mutate()}>{remove.isPending ? "Deleting…" : `Delete ${label}`}</Button>
+          <Button variant="quiet" disabled={remove.isPending} onClick={onClose}>Cancel</Button>
         </div>
         <ErrorText error={remove.error} />
       </div>
@@ -549,8 +548,8 @@ function NewContainer({ onClose }: { onClose: () => void }) {
         Name
         <input value={name} onChange={(e) => setName(e.target.value)} required placeholder="Trade binder" />
       </label>
-      <button className="primary" disabled={create.isPending}>Create</button>
-      <button type="button" className="quiet" onClick={onClose}>Cancel</button>
+      <Button type="submit" variant="primary" disabled={create.isPending}>Create</Button>
+      <Button variant="quiet" onClick={onClose}>Cancel</Button>
       <ErrorText error={create.error} />
     </form>
   );
@@ -817,9 +816,9 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
             <div className="stack">
               <p role="status">{question}</p>
               <div className="row">
-                {unsaved.failed > 0 && <button className="primary" disabled={unsaved.sending > 0} onClick={retryAll}>{unsaved.sending > 0 ? "Saving…" : "Try again"}</button>}
-                <button onClick={() => setClosing(false)}>Keep scanning</button>
-                <button className="quiet" onClick={onClose}>Close without saving</button>
+                {unsaved.failed > 0 && <Button variant="primary" disabled={unsaved.sending > 0} onClick={retryAll}>{unsaved.sending > 0 ? "Saving…" : "Try again"}</Button>}
+                <Button onClick={() => setClosing(false)}>Keep scanning</Button>
+                <Button variant="quiet" onClick={onClose}>Close without saving</Button>
               </div>
             </div>
           </Dialog>

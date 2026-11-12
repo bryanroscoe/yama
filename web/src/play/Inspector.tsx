@@ -7,7 +7,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { cardDetailQuery } from "../cardDetail";
-import { Dialog, Loading } from "../components/ui";
+import { Button, Dialog, Loading } from "../components/ui";
 import { faceOf, inspectorFacts, inspectorTabs, type InspectorTab, type Names } from "./feed";
 import type { CardMeta, CardView, OptionView, View } from "./types";
 import { fmtDate } from "@yama/core";
@@ -71,9 +71,9 @@ function InspectorBody({ card, meta, view, names, cardById, options, onChoose, o
         {image ? <img src={image} alt={card.name} /> : <span className="gi-blank">{card.name}</span>}
         {meta?.artist && <span className="gi-credit">Art: {meta.artist}, © Wizards of the Coast. Image from Scryfall.</span>}
         {twoFaced && (
-          <button type="button" className="outline gi-flip" onClick={() => setBack((b) => !b)} aria-pressed={back}>
+          <Button variant="outline" className="gi-flip" onClick={() => setBack((b) => !b)} aria-pressed={back}>
             Flip
-          </button>
+          </Button>
         )}
       </div>
       <div className="gi-main">
@@ -88,7 +88,7 @@ function InspectorBody({ card, meta, view, names, cardById, options, onChoose, o
               </span>
             )}
           </span>
-          <button type="button" className="gi-close" aria-label="Close" onClick={onClose}>×</button>
+          <Button className="gi-close" aria-label="Close" onClick={onClose}>×</Button>
         </div>
         {chips.length > 0 && (
           <div className="gi-chips">
@@ -100,9 +100,9 @@ function InspectorBody({ card, meta, view, names, cardById, options, onChoose, o
         {!!card.imprinted?.length && <p className="gi-imprint">Imprinted: {card.imprinted.join(", ")}{card.mana_colors?.length ? `. Mana colors: ${card.mana_colors.join(" / ")}` : ""}</p>}
         <div role="tablist" aria-label="About this card" className="gi-tabs">
           {tabs.map((t) => (
-            <button key={t.id} type="button" role="tab" aria-selected={shown === t.id} className={shown === t.id ? "on" : undefined} onClick={() => setTab(t.id)}>
+            <Button key={t.id} role="tab" aria-selected={shown === t.id} className={shown === t.id ? "on" : undefined} onClick={() => setTab(t.id)}>
               {t.label}
-            </button>
+            </Button>
           ))}
         </div>
         <div className="gi-panel" role="tabpanel">
@@ -134,9 +134,9 @@ function InspectorBody({ card, meta, view, names, cardById, options, onChoose, o
           {options.length > 0 ? (
             <div className="inspector-options">
               {options.map((o, i) => (
-                <button key={o.index} type="button" className={i === 0 && options.length === 1 ? "primary" : "outline"} onClick={() => onChoose(o)} disabled={disabled}>
+                <Button key={o.index} variant={i === 0 && options.length === 1 ? "primary" : "outline"} onClick={() => onChoose(o)} disabled={disabled}>
                   {o.label}
-                </button>
+                </Button>
               ))}
             </div>
           ) : (

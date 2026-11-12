@@ -8,7 +8,7 @@ import { api, type ConfigurationRef, type DeckSummary, type DeckView } from "../
 import { bracketName } from "../components/Bracket";
 import { neededCost } from "../components/DeckPrices";
 import { MenuSeparator, MoreMenu } from "../components/MoreMenu";
-import { ErrorText } from "../components/ui";
+import { Button, ErrorText } from "../components/ui";
 import { configurationLabel, legacyConfiguration } from "./buildCatalog";
 import { deckLists, listLabel } from "./DeckLists";
 import { shortDate, usd } from "@yama/core";
@@ -157,7 +157,7 @@ export function ListPicker({
         {variants.length > 0 && <span className="more-menu-head">Playgroup variants</span>}
         {variants.map((v) => <Link key={v.id} to={v.href}>{v.label}</Link>)}
         <MenuSeparator />
-        <button onClick={onNewList}>Save a copy as a new list</button>
+        <Button onClick={onNewList}>Save a copy as a new list</Button>
         <Link to={`/decks/builds?savedDeck=${box.id}`}>Print swap cards</Link>
       </MoreMenu>
     </div>
@@ -193,12 +193,12 @@ export function SavedListBar({ deck }: { deck: DeckView }) {
         A saved list, not the one in your box. <Link to={`/decks/${lists.main.id}`}>Open the list in the box</Link>
       </span>
       {!asking ? (
-        <button onClick={() => { use.reset(); setAsking(true); }}>Put this list in the box</button>
+        <Button onClick={() => { use.reset(); setAsking(true); }}>Put this list in the box</Button>
       ) : (
         <span className="deck-saved-confirm" role="group" aria-label="Confirm">
           <span>The current list stays in History.</span>
-          <button className="primary" disabled={use.isPending} onClick={() => use.mutate(deck.id)}>{use.isPending ? "Putting it in…" : "Put it in"}</button>
-          <button className="quiet" onClick={() => setAsking(false)}>Cancel</button>
+          <Button variant="primary" disabled={use.isPending} onClick={() => use.mutate(deck.id)}>{use.isPending ? "Putting it in…" : "Put it in"}</Button>
+          <Button variant="quiet" onClick={() => setAsking(false)}>Cancel</Button>
         </span>
       )}
       <ErrorText error={use.error} />

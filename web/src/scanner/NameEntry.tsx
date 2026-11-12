@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { Button } from "../components/ui";
 
 /** Type a card's name instead of scanning it. */
 export function NameEntry({ onPick, placeholder = "Or type the name" }: { onPick: (name: string) => void; placeholder?: string }) {
@@ -26,7 +27,7 @@ export function NameEntry({ onPick, placeholder = "Or type the name" }: { onPick
         <ul className="scan-name-list">
           {names.map((n) => (
             <li key={n}>
-              <button
+              <Button
                 onClick={() => {
                   setQ("");
                   setNames([]);
@@ -34,7 +35,7 @@ export function NameEntry({ onPick, placeholder = "Or type the name" }: { onPick
                 }}
               >
                 {n}
-              </button>
+              </Button>
             </li>
           ))}
         </ul>

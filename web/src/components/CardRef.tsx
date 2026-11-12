@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { api, type Card, type CardDetail, type SearchResult } from "../api";
 import { cardSearchPath, isGuest } from "../guest";
 import "./card-ref.css";
+import { Button } from "./Button";
 
 export type PreviewCard = Pick<Card, "oracle_id" | "name" | "image_normal" | "back_image_normal" | "oracle_text" | "type_line" | "mana_cost"> & { remote?: boolean };
 
@@ -59,10 +60,10 @@ function Preview({ name, oracleId, image, anchor, pinned, onClose, id }: { name:
   }, [anchor, id, onClose, pinned]);
   const src = back ? card.data?.back_image_normal : image ?? card.data?.image_normal;
   return createPortal(<div id={id} role={pinned ? "dialog" : "tooltip"} aria-label={name} className={`card-ref-preview${pinned ? " is-pinned" : ""}`} style={position}>
-    {pinned && <button type="button" className="card-ref-close quiet" autoFocus onClick={onClose} aria-label={`Close ${name} preview`}>Close</button>}
+    {pinned && <Button variant="quiet" className="card-ref-close" autoFocus onClick={onClose} aria-label={`Close ${name} preview`}>Close</Button>}
     {src && !failedImage ? <img src={src} alt={card.data?.name ?? name} crossOrigin="anonymous" onError={() => setFailedImage(true)} /> : <div className="card-ref-fallback"><b>{name}</b><p>{card.isPending ? "Loading card…" : card.isError ? "Card lookup failed. Try opening the card search." : "No card image is available in Yama yet."}</p>{card.data?.mana_cost && <p>{card.data.mana_cost}</p>}{card.data?.type_line && <p>{card.data.type_line}</p>}{card.data?.oracle_text && <p>{card.data.oracle_text}</p>}</div>}
     {src && card.data?.oracle_text && <p className="visually-hidden">{card.data.oracle_text}</p>}
-    {pinned && <div className="card-ref-footer">{card.data?.back_image_normal && <button type="button" className="outline small" onClick={() => { setBack(!back); setFailedImage(false); }}>{back ? "Front face" : "Other face"}</button>}<a href={previewDetailsUrl(name, card.data)} target="_blank" rel="noreferrer">{card.data?.remote ? "Open on Scryfall" : "Open card details"}</a></div>}
+    {pinned && <div className="card-ref-footer">{card.data?.back_image_normal && <Button variant="outline" size="small" onClick={() => { setBack(!back); setFailedImage(false); }}>{back ? "Front face" : "Other face"}</Button>}<a href={previewDetailsUrl(name, card.data)} target="_blank" rel="noreferrer">{card.data?.remote ? "Open on Scryfall" : "Open card details"}</a></div>}
   </div>, document.body);
 }
 
@@ -85,11 +86,11 @@ export function CardRef({ name, oracleId, image, children, className = "", thumb
   const suppressFocus = useRef(false);
   const id = useId();
   return <>
-    <button ref={ref} type="button" className={`card-ref ${className}`.trim()} aria-label={`Preview ${name}`} aria-describedby={open && !pinned ? id : undefined} aria-expanded={pinned} aria-haspopup="dialog" data-card-name={name}
+    <Button ref={ref} className={`card-ref ${className}`.trim()} aria-label={`Preview ${name}`} aria-describedby={open && !pinned ? id : undefined} aria-expanded={pinned} aria-haspopup="dialog" data-card-name={name}
       onPointerEnter={(e) => { if (e.pointerType !== "touch") setOpen(true); }} onPointerLeave={() => { if (!pinned) setOpen(false); }} onFocus={() => { if (suppressFocus.current) suppressFocus.current=false; else setOpen(true); }} onBlur={() => { if (!pinned) setOpen(false); }}
       onClick={(e) => { e.stopPropagation(); setPinned(!pinned); setOpen(!pinned); }}>
       {thumbnail && image && <img className="card-ref-thumb" src={image} alt="" loading="lazy" crossOrigin="anonymous" />}{children ?? name}
-    </button>
+    </Button>
     {open && ref.current && typeof document !== "undefined" && <Preview id={id} name={name} oracleId={oracleId ?? undefined} image={image} anchor={ref.current} pinned={pinned} onClose={() => { suppressFocus.current=true;setPinned(false);setOpen(false);ref.current?.focus(); }} />}
   </>;
 }

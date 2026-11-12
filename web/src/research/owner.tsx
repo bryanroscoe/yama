@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createContext, useContext, useState } from "react";
 import { useMe } from "../auth";
 import { CardRef, CardText } from "../components/CardRef";
-import { ErrorText } from "../components/ui";
+import { Button, ErrorText } from "../components/ui";
 import { changedAnswer, safeUrl, saveReview, type Combo, type Item, type ResearchBundle, type ReviewOp, type Scenario, type Source } from "./api";
 import { planSummariesKey } from "./view";
 import { usd, fmtDate } from "@yama/core";
@@ -169,23 +169,21 @@ export function ReviewEditor({ bundle, target, buildId, compact = false }: { bun
       {stale && <p className="small warn">The note changed since your answer. Your previous answer is kept; answer again.</p>}
       <div className="research-review-actions">
         {buildId ? (
-          <button
-            type="button"
+          <Button
             className={answer?.decision === buildId && !stale ? "primary" : "outline"}
             aria-pressed={answer?.decision === buildId && !stale}
             disabled={save.isPending}
             onClick={() => decide(answer?.decision === buildId && !stale ? null : buildId)}
           >
             {answer?.decision === buildId && !stale ? "Preferred build ✓" : "Prefer this build"}
-          </button>
+          </Button>
         ) : (
           ([
             ["want", "Want"],
             ["unsure", "Unsure"],
             ["no", "Don’t want"],
           ] as const).map(([value, label]) => (
-            <button
-              type="button"
+            <Button
               key={value}
               className={`small ${answer?.decision === value && !stale ? "primary" : "outline"}`}
               aria-pressed={answer?.decision === value && !stale}
@@ -193,7 +191,7 @@ export function ReviewEditor({ bundle, target, buildId, compact = false }: { bun
               onClick={() => decide(answer?.decision === value && !stale ? null : value)}
             >
               {label}
-            </button>
+            </Button>
           ))
         )}
         <span className="small dim" role="status">
@@ -207,17 +205,17 @@ export function ReviewEditor({ bundle, target, buildId, compact = false }: { bun
           <textarea rows={2} maxLength={6000} value={note} disabled={save.isPending} onChange={(e) => setNote(e.target.value)} />
         </label>
         <div className="row research-note-save">
-          <button type="button" className="outline small" disabled={save.isPending || note === (answer?.note ?? "")} onClick={() => decide(answer?.decision ?? null)}>
+          <Button variant="outline" size="small" disabled={save.isPending || note === (answer?.note ?? "")} onClick={() => decide(answer?.decision ?? null)}>
             Save note
-          </button>
+          </Button>
           <span className="small dim">{NOTE_WHERE}</span>
         </div>
       </details>
       <ErrorText error={save.error} />
       {save.isError && save.variables && (
-        <button type="button" className="outline small" onClick={() => save.mutate(save.variables!)}>
+        <Button variant="outline" size="small" onClick={() => save.mutate(save.variables!)}>
           Retry same save
-        </button>
+        </Button>
       )}
     </div>
   );

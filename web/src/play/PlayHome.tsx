@@ -10,7 +10,7 @@ import { Link, useNavigate, useSearchParams } from "react-router";
 import { api, type DeckSummary, type Playgroup } from "../api";
 import { ArtMosaic } from "../components/ArtMosaic";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
-import { ErrorText, Segmented } from "../components/ui";
+import { Button, ButtonLink, ErrorText, Segmented } from "../components/ui";
 import { AlphaTag, ALPHA_NOTE } from "../components/AlphaTag";
 import { OnlineSupport } from "../components/OnlineSupport";
 import { BracketChips } from "../components/Bracket";
@@ -85,7 +85,7 @@ export function PlayHome({ guest }: { guest?: GuestSession } = {}) {
             <section className="ph-watch" aria-labelledby="ph-watch-h">
               <h2 id="ph-watch-h">Watch AIs play</h2>
               <p className="dim">Watch your decks or precons play at your pace.</p>
-              <Link to="/play/watch" className="button outline">Set up a game</Link>
+              <ButtonLink to="/play/watch" variant="outline">Set up a game</ButtonLink>
             </section>
           )}
           <section className="ph-games" aria-labelledby="ph-games-h">
@@ -198,8 +198,8 @@ function NewGame({ decks, guest }: { decks: DeckSummary[]; guest: boolean }) {
         <h2>New game</h2>
         <p className="dim">Add a deck to start playing.</p>
         <div className="row">
-          <Link className="button primary" to="/decks/import">Add a deck</Link>
-          <Link className="button outline" to="/lab">Start from a precon</Link>
+          <ButtonLink variant="primary" to="/decks/import">Add a deck</ButtonLink>
+          <ButtonLink variant="outline" to="/lab">Start from a precon</ButtonLink>
         </div>
       </section>
     );
@@ -251,9 +251,9 @@ function NewGame({ decks, guest }: { decks: DeckSummary[]; guest: boolean }) {
                   <b>{i === 0 ? "You" : s.kind === "ai" ? `Computer, ${s.difficulty.toLowerCase()}` : who}</b>
                   <span>{s.kind === "friend" ? "Joins with the code" : seatArt?.name ?? "No deck"}</span>
                 </span>
-                <button type="button" className="ph-change" aria-expanded={editing === i} aria-label={`Change seat ${i + 1}`} onClick={() => setEditing(editing === i ? null : i)}>
+                <Button className="ph-change" aria-expanded={editing === i} aria-label={`Change seat ${i + 1}`} onClick={() => setEditing(editing === i ? null : i)}>
                   {editing === i ? "Done" : "Change"}
-                </button>
+                </Button>
               </div>
               <div className="ph-seat-fields">
                 {i > 0 && !guest && (
@@ -275,7 +275,7 @@ function NewGame({ decks, guest }: { decks: DeckSummary[]; guest: boolean }) {
                 {s.kind === "ai" && (
                   <div className="ph-skills" role="group" aria-label={`Difficulty for seat ${i + 1}`}>
                     {SKILLS.map((k) => (
-                      <button key={k} type="button" aria-pressed={s.difficulty === k} onClick={() => update(i, { difficulty: k })}>{k}</button>
+                      <Button key={k} aria-pressed={s.difficulty === k} onClick={() => update(i, { difficulty: k })}>{k}</Button>
                     ))}
                   </div>
                 )}
@@ -303,12 +303,11 @@ function NewGame({ decks, guest }: { decks: DeckSummary[]; guest: boolean }) {
       <div className="ph-new-foot">
         <span className="ph-seat-buttons">
           {seats.length < 6 && (
-            <button type="button" className="outline ph-add" onClick={() => setSeats((a) => [...a, { kind: "ai", deckId: "", difficulty: "Medium" }])}>Add a seat</button>
+            <Button variant="outline" className="ph-add" onClick={() => setSeats((a) => [...a, { kind: "ai", deckId: "", difficulty: "Medium" }])}>Add a seat</Button>
           )}
           {seats.length > 2 && (
-            <button
-              type="button"
-              className="quiet ph-remove"
+            <Button
+              variant="quiet" className="ph-remove"
               onClick={() => {
                 setSeats((a) => a.slice(0, -1));
                 // The seat chosen to go first went with it: back to a roll.
@@ -316,12 +315,12 @@ function NewGame({ decks, guest }: { decks: DeckSummary[]; guest: boolean }) {
               }}
             >
               Remove the last seat
-            </button>
+            </Button>
           )}
         </span>
-        <button type="button" className="primary ph-open" onClick={() => create.mutate()} disabled={create.isPending}>
+        <Button variant="primary" className="ph-open" onClick={() => create.mutate()} disabled={create.isPending}>
           {seats.some((s) => s.kind === "friend") ? "Open the table" : "Start the game"}
-        </button>
+        </Button>
       </div>
     </section>
   );
@@ -349,7 +348,7 @@ function JoinGame({ decks }: { decks: DeckSummary[] }) {
         <div className="ph-join-deck">
           <SavedDeckPicker label="Your deck" decks={decks} value={deckId || decks[0]!.id} onChange={setDeckId} />
         </div>
-        <button type="submit" className="ph-join-go" disabled={join.isPending}>Join</button>
+        <Button type="submit" className="ph-join-go" disabled={join.isPending}>Join</Button>
       </form>
       {chosen && (chosen.bracket != null || chosen.estimate) && <BracketChips declared={chosen.bracket} estimate={chosen.estimate} />}
       {chosen && <OnlineSupport deckId={chosen.id} versionId={chosen.current_version_id} />}

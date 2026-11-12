@@ -1,6 +1,6 @@
 import { plural, usd } from "@yama/core";
 import type { CollectionItem } from "../api";
-import { CardImage } from "../components/ui";
+import { Button, CardImage } from "../components/ui";
 import { markWords } from "./collectionEdit";
 import { FINISH_LABEL } from "./collectionFilters";
 
@@ -14,9 +14,9 @@ export function CollectionGrid<T extends CollectionItem>({ items, onOpen }: { it
     <ul className="coll-grid">
       {items.map((i) => (
         <li key={i.id}>
-          <button className="coll-tile" onClick={() => onOpen(i)} aria-label={`${i.name ?? "A printing Yama doesn't know"}, ${plural(i.qty, "copy", "copies")}`}>
+          <Button className="coll-tile" onClick={() => onOpen(i)} aria-label={`${i.name ?? "A printing Yama doesn't know"}, ${plural(i.qty, "copy", "copies")}`}>
             <CardImage src={i.image_normal ?? i.image_small} name={i.name ?? "?"} />
-          </button>
+          </Button>
           <span className="coll-tile-meta">
             <span className="coll-tile-what">
               <span className="num">×{i.qty}</span>

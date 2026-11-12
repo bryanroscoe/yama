@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { MAX_LOCKED, scanSets, type ScanSet } from "./setlock";
-import { Loading, ErrorText } from "../components/ui";
+import { Button, ErrorText, Loading } from "../components/ui";
 
 const SHOWN = 30;
 
@@ -48,9 +48,9 @@ export function SetLockPicker({ codes, loading, onChange, onClose }: { codes: st
               <span>
                 {byCode.get(c)?.name ?? c.toUpperCase()} <span className="dim">{c.toUpperCase()}</span>
               </span>
-              <button className="scan-alt" onClick={() => onChange(codes.filter((x) => x !== c))}>
+              <Button className="scan-alt" onClick={() => onChange(codes.filter((x) => x !== c))}>
                 Remove
-              </button>
+              </Button>
             </li>
           ))}
         </ul>
@@ -67,7 +67,7 @@ export function SetLockPicker({ codes, loading, onChange, onClose }: { codes: st
       {!full && sets !== null && (
         <div className="scan-lock-list" role="listbox" aria-label="Sets">
           {shown.map((s) => (
-            <button
+            <Button
               key={s.code}
               role="option"
               aria-selected={false}
@@ -82,17 +82,17 @@ export function SetLockPicker({ codes, loading, onChange, onClose }: { codes: st
                 {s.code.toUpperCase()}
                 {year(s) ? `, ${year(s)}` : ""}, {s.cards} cards
               </span>
-            </button>
+            </Button>
           ))}
           {shown.length === 0 && <p className="scan-note">No set matches “{q}”.</p>}
         </div>
       )}
       {full && <p className="scan-note">That's {MAX_LOCKED} sets, the most at once.</p>}
       <div className="scan-other-ways">
-        <button className="primary" onClick={onClose}>
+        <Button variant="primary" onClick={onClose}>
           {codes.length ? "Scan these sets" : "Scan any set"}
-        </button>
-        {codes.length > 0 && <button onClick={() => onChange([])}>Any set</button>}
+        </Button>
+        {codes.length > 0 && <Button onClick={() => onChange([])}>Any set</Button>}
       </div>
     </div>
   );

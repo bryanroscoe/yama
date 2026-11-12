@@ -3,7 +3,7 @@ import { useEffect } from "react";
 import { Link, useLocation } from "react-router";
 import { api, publicOrigin, type Sharing } from "../api";
 import { useMe } from "../auth";
-import { ErrorText, Loading } from "../components/ui";
+import { Button, ButtonLink, ErrorText, Loading } from "../components/ui";
 import { useCopy } from "../decks/ShareDeck";
 import { AccountSettings } from "./AccountSettings";
 import "./profile.css";
@@ -38,8 +38,8 @@ export function ProfilePage() {
       <ErrorText error={sharing.error} />
       {profile ? <>
         <div className="row">
-          <a className="button primary" href={profile} target="_blank" rel="noreferrer">View public profile</a>
-          <button className="outline" onClick={() => void copy(profile)}>Copy profile link</button>
+          <ButtonLink variant="primary" href={profile} target="_blank" rel="noreferrer">View public profile</ButtonLink>
+          <Button variant="outline" onClick={() => void copy(profile)}>Copy profile link</Button>
           <Link to="/sharing#sharing">Edit sharing</Link>
         </div>
         {copied && <p className="small" role="status">{copied}</p>}
@@ -50,7 +50,7 @@ export function ProfilePage() {
         </nav>
       </> : s && <>
         <p>Choose a handle to give friends a link to your public profile.</p>
-        <Link className="button primary" to="/sharing#sharing">Set up public profile</Link>
+        <ButtonLink variant="primary" to="/sharing#sharing">Set up public profile</ButtonLink>
       </>}
     </section>}
 
