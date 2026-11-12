@@ -8,7 +8,7 @@
 // card's own, never invented.
 
 import { useEffect, useLayoutEffect, useReducer, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { SymbolText } from "../components/ManaSymbols";
+import { spokenText, SymbolText } from "../components/ManaSymbols";
 import { MANA } from "@yama/core";
 import { api } from "../api";
 import { CostText } from "./CostText";
@@ -968,7 +968,7 @@ export function NamePick({ p, draft, onDraft, ctx, compact, disabled }: Props) {
               autoFocus={!compact}
               disabled={disabled}
               placeholder={cardNames ? "Type a card name" : free ? `Type a ${p.choiceType ?? "word"}` : "Filter the list"}
-              aria-label={p.prompt}
+              aria-label={spokenText(p.prompt)}
               aria-controls="dw-name-list"
               onChange={(e) => {
                 setQ(e.target.value);
@@ -1062,7 +1062,7 @@ export function ModePick({ p, draft, onDraft, ctx, compact, disabled }: Props) {
             </span>
           )}
           <h2><SymbolText text={p.prompt} /></h2>
-          {rule && <span className="dw-oracle">{rule}</span>}
+          {rule && <span className="dw-oracle"><SymbolText text={rule} /></span>}
         </span>
         <span className="dw-count">{counter(p, draft)}</span>
       </div>
@@ -1081,7 +1081,7 @@ export function ModePick({ p, draft, onDraft, ctx, compact, disabled }: Props) {
             >
               <span className="dw-mark-box" aria-hidden="true">{times && multi ? "✓" : ""}</span>
               <span className="dw-mode-text">
-                {o.text ?? o.name}
+                <SymbolText text={o.text ?? o.name} />
                 {!o.eligible && <span className="dw-note">Can't be chosen now.</span>}
               </span>
               {p.repeat && times > 0 && <span className="pick-badge num">×{times}</span>}
@@ -1186,7 +1186,7 @@ export function ManaColorPick({ p, draft, onDraft, ctx, compact, disabled }: Pro
   return (
     <div className={`dw-mana${compact ? " compact" : ""}`}>
       <Head p={p} ctx={ctx} compact={compact} />
-      <div className="dw-mana-list" role="radiogroup" aria-label={p.prompt}>
+      <div className="dw-mana-list" role="radiogroup" aria-label={spokenText(p.prompt)}>
         {p.options.map((o) => {
           const on = draft.ids.includes(o.id);
           const codes = single ? [o.id] : o.id.split("");
@@ -1235,14 +1235,14 @@ export function PhyrexianPick({ p, draft, onDraft, ctx, compact, disabled }: Pro
           const withLife = draft.ids.includes(o.id);
           return (
             <div key={o.id} className="dw-shard">
-              <span className="dw-shard-pip" style={{ background: manaFill(o.name), color: manaInk(o.name) }} aria-hidden="true">{o.name.replace(/[{}]/g, "")}</span>
+              <span className="dw-shard-pip" style={{ background: manaFill(o.name), color: manaInk(o.name) }} aria-hidden="true"><SymbolText text={o.name} /></span>
               <span className="dw-shard-text">
-                <b>{o.name} in the cost</b>
-                <span>{o.eligible ? `Pay with ${o.cost ?? "mana"} or 2 life.` : o.text}</span>
+                <b><SymbolText text={o.name} /> in the cost</b>
+                <span>{o.eligible ? <>Pay with {o.cost ? <SymbolText text={o.cost} /> : "mana"} or 2 life.</> : <SymbolText text={o.text} />}</span>
               </span>
-              <span className="dw-seg" role="radiogroup" aria-label={`Pay ${o.name} with`}>
+              <span className="dw-seg" role="radiogroup" aria-label={`Pay ${spokenText(o.name)} with`}>
                 <button type="button" role="radio" aria-checked={!withLife} className={withLife ? "" : "on"} disabled={disabled || !o.eligible} onClick={() => set(o.id, false)}>
-                  {o.cost ?? "Mana"}
+                  {o.cost ? <SymbolText text={o.cost} /> : "Mana"}
                 </button>
                 <button type="button" role="radio" aria-checked={withLife} className={withLife ? "on" : ""} disabled={disabled || !o.eligible} onClick={() => set(o.id, true)}>
                   2 life
@@ -1282,7 +1282,7 @@ export function CostRows({ p, draft, onDraft, ctx, compact, disabled }: Props) {
           {!compact && p.oracle && <span className="dw-oracle"><SymbolText text={p.oracle} /></span>}
         </span>
       </div>
-      <div className={`dw-cost-list${p.options.length === 2 ? " two" : ""}`} role="radiogroup" aria-label={p.prompt}>
+      <div className={`dw-cost-list${p.options.length === 2 ? " two" : ""}`} role="radiogroup" aria-label={spokenText(p.prompt)}>
         {p.options.map((o) => {
           const on = draft.ids.includes(o.id);
           return (
@@ -1380,7 +1380,7 @@ export function FaceChoice({ p, draft, onDraft, ctx, compact, disabled }: Props)
   return (
     <div className={`dw-faces${compact ? " compact" : ""}`}>
       <Head p={head} ctx={ctx} compact={compact} />
-      <div className="dw-face-list" role="radiogroup" aria-label={p.prompt}>
+      <div className="dw-face-list" role="radiogroup" aria-label={spokenText(p.prompt)}>
         {p.options.map((o) => {
           const on = draft.ids.includes(o.id);
           const text = halves ? face(o.name)?.oracle_text : null;
@@ -1396,8 +1396,8 @@ export function FaceChoice({ p, draft, onDraft, ctx, compact, disabled }: Props)
               {img(o) ? <img src={img(o)!} alt="" draggable={false} /> : <span className="dw-card-name">{o.name}</span>}
               <span className="dw-face-text">
                 <b>{title(o)}</b>
-                {line(o) && <span className="dw-face-cost">{line(o)}</span>}
-                {text && <span>{text}</span>}
+                {line(o) && <span className="dw-face-cost"><SymbolText text={line(o)} /></span>}
+                {text && <span><SymbolText text={text} /></span>}
                 {!o.eligible && <span className="dw-note">Can't be cast now.</span>}
               </span>
             </ReadButton>
@@ -1537,7 +1537,7 @@ export function VotePanel({ p, draft, onDraft, ctx, compact, disabled }: Props) 
     <div className={`dw-vote${compact ? " compact" : ""}`}>
       <Head p={p} ctx={ctx} count={counter(p, draft)} compact={compact} />
       <div className="dw-vote-body">
-        <div className={`dw-vote-grid${cards ? "" : " words"}`} role="radiogroup" aria-label={p.prompt}>
+        <div className={`dw-vote-grid${cards ? "" : " words"}`} role="radiogroup" aria-label={spokenText(p.prompt)}>
           {p.options.map((o, i) => {
             const on = mine === o.id;
             const n = tally(i);
@@ -1683,7 +1683,7 @@ export function WordPick({ p, draft, onDraft, ctx, compact, disabled }: Props) {
   return (
     <div className={`dw-words${compact ? " compact" : ""}`}>
       <Head p={p} ctx={ctx} count={counter(p, draft)} compact={compact} />
-      <div className="dw-mode-list" role="radiogroup" aria-label={p.prompt}>
+      <div className="dw-mode-list" role="radiogroup" aria-label={spokenText(p.prompt)}>
         {p.options.map((o) => {
           const on = draft.ids.includes(o.id);
           return (
@@ -1697,7 +1697,7 @@ export function WordPick({ p, draft, onDraft, ctx, compact, disabled }: Props) {
               onClick={() => onDraft(togglePick(p, draft, o.id))}
             >
               <span className="dw-mark-box" aria-hidden="true" />
-              <span className="dw-mode-text">{o.name}</span>
+              <span className="dw-mode-text"><SymbolText text={o.name} /></span>
             </button>
           );
         })}
@@ -1731,7 +1731,7 @@ export function LuckPick({ p, draft, onDraft, ctx, compact, disabled }: Props) {
   return (
     <div className={`dw-luck${compact ? " compact" : ""}`}>
       <Head p={p} ctx={ctx} count={counter(p, draft)} compact={compact} />
-      <div className="dw-luck-list" role={p.max === 1 ? "radiogroup" : "group"} aria-label={p.prompt}>
+      <div className="dw-luck-list" role={p.max === 1 ? "radiogroup" : "group"} aria-label={spokenText(p.prompt)}>
         {p.options.map((o) => {
           const on = draft.ids.includes(o.id);
           const face = coin ? o.name.slice(0, 1) : o.name;
@@ -1939,7 +1939,7 @@ export function FaceDownCast({ p, ctx, compact }: Props) {
             <b>What you see</b>
             <span className="dw-fd-row">
               <FaceDownTile name={name} />
-              <span className="dw-note">Cast for {p.options.find((o) => o.id === "alternative")?.cost ?? "{3}"}, it enters as a 2/2 with no name that only you can read.</span>
+              <span className="dw-note">Cast for <SymbolText text={p.options.find((o) => o.id === "alternative")?.cost ?? "{3}"} />, it enters as a 2/2 with no name that only you can read.</span>
             </span>
           </div>
           <div className="dw-fd-view">
@@ -1989,7 +1989,7 @@ export function MeldPanel({ p, draft, onDraft, ctx, compact, disabled }: Props) 
   return (
     <div className={`dw-meld${compact ? " compact" : ""}`}>
       <Head p={p} ctx={ctx} compact={compact} />
-      <div className="dw-meld-list" role="radiogroup" aria-label={p.prompt}>
+      <div className="dw-meld-list" role="radiogroup" aria-label={spokenText(p.prompt)}>
         {p.options.map((o) => {
           const on = draft.ids.includes(o.id);
           const parts = (p.shown ?? []).filter((c) => c.group === o.id);
@@ -2266,13 +2266,13 @@ export function ShortcutPanel({ p, draft, onDraft, ctx, compact, disabled }: Pro
       <Head p={p} ctx={ctx} compact={compact} />
       {loop}
       {p.purpose === "shortcut" && <b className="dw-loop-ask">Repeat how many times?</b>}
-      <div className="dw-mode-list" role="radiogroup" aria-label={p.prompt}>
+      <div className="dw-mode-list" role="radiogroup" aria-label={spokenText(p.prompt)}>
         {p.options.map((o) => {
           const on = draft.ids.includes(o.id);
           return (
             <button key={o.id} type="button" role="radio" aria-checked={on} className={`dw-mode${on ? " picked" : o.eligible ? " pick" : ""}`} disabled={disabled || !o.eligible} onClick={() => onDraft(togglePick(p, draft, o.id))}>
               <span className="dw-mark-box" aria-hidden="true" />
-              <span className="dw-mode-text">{o.name}</span>
+              <span className="dw-mode-text"><SymbolText text={o.name} /></span>
             </button>
           );
         })}

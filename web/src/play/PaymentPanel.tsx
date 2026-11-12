@@ -81,7 +81,7 @@ export function PaymentRail({ p, meta, tapMana, onTapMana, onAct, disabled, summ
   if (summary) {
     return (
       <div className="pay-rail summary">
-        {p.payingFor && p.cost && <p className="small dim">Paying {p.cost} for {p.payingFor.name}</p>}
+        {p.payingFor && p.cost && <p className="small dim">Paying <SymbolText text={p.cost} /> for {p.payingFor.name}</p>}
         <Pips p={p} />
         <p className="pay-pool">
           <span className="dim">Mana pool:</span>

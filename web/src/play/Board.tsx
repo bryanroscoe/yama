@@ -13,7 +13,7 @@
 // the bottom, and every hand face up when asked.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ManaCost, SymbolText } from "../components/ManaSymbols";
+import { ManaCost, spokenText, SymbolText } from "../components/ManaSymbols";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router";
 import { api, API_BASE } from "../api";
@@ -1712,7 +1712,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
       title={companionOption?.label ?? "Your companion"}
     >
       {meta[myCompanion.name]?.image ? <img src={meta[myCompanion.name]!.image!} alt="" draggable={false} /> : <span className="hc-name">{myCompanion.name}</span>}
-      <span className="hc-caption">{companionOption ? `Companion: pay ${companionOption.cost ?? "{3}"}` : "Companion"}</span>
+      <span className="hc-caption">{companionOption ? <>Companion: pay <SymbolText text={companionOption.cost ?? "{3}"} /></> : "Companion"}</span>
     </button>
   ) : null;
   // Cards you can cast or use from exile or your graveyard sit beside your hand (PP-21): an
@@ -1824,7 +1824,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
         </div>
       ) : stage === "dialog" ? (
         <div className="dw-overlay">
-          <section className={`dw-dialog ${dialogSize(widget.p, widget.draft)}`} role="dialog" aria-label={widget.p.prompt}>
+          <section className={`dw-dialog ${dialogSize(widget.p, widget.draft)}`} role="dialog" aria-label={spokenText(widget.p.prompt)}>
             <DecisionStage {...widget} compact={false} />
             {chooserBody}
             {status}

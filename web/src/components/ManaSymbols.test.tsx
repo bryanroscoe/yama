@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { ManaCost, OracleText, SymbolText, symbolFile, symbolName } from "./ManaSymbols";
+import { ManaCost, OracleText, spokenText, SymbolText, symbolFile, symbolName } from "./ManaSymbols";
 
 describe("symbolFile", () => {
   it("maps codes to Scryfall's symbol file names", () => {
@@ -19,6 +19,7 @@ describe("symbolFile", () => {
     expect(symbolFile("../x")).toBeNull();
     expect(symbolFile("a b")).toBeNull();
     expect(symbolFile("TOOLONGCODE")).toBeNull();
+    expect(symbolFile("THIS")).toBeNull();
   });
 });
 
@@ -62,5 +63,13 @@ describe("rendering", () => {
   it("puts each line of Oracle text in its own paragraph", () => {
     const html = renderToStaticMarkup(<OracleText text={"Flying\n{1}: Draw a card."} />);
     expect(html.match(/<p>/g)).toHaveLength(2);
+  });
+});
+
+describe("spokenText", () => {
+  it("reads symbols by name for string-only labels", () => {
+    expect(spokenText("Pay {2}{R}.")).toBe("Pay 2 red.");
+    expect(spokenText("Choose a mode")).toBe("Choose a mode");
+    expect(spokenText("{T}: Add {G}")).toBe("tap: Add green");
   });
 });

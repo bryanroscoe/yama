@@ -8,7 +8,7 @@ import { useState, type ReactNode } from "react";
 
 const SYMBOL = /\{([^{}\s]{1,12})\}/g;
 /** Codes Scryfall serves: numbers, letters, hybrids and Phyrexian with slashes, half and infinity. */
-const SERVED = /^(?:[0-9]+|[A-Z]{1,6}|[0-9A-Z]{1,2}(?:\/[0-9A-Z]{1,2}){1,2}|½|∞)$/;
+const SERVED = /^(?:[0-9]{1,7}|[WUBRGCTQXYZSEPALD]|CHAOS|PW|TK|H[WUBRG]?|[WUBRGC2](?:\/[WUBRGCP]){1,2}|½|∞)$/;
 
 const NAMES: Record<string, string> = {
   W: "white", U: "blue", B: "black", R: "red", G: "green", C: "colorless",
@@ -38,6 +38,14 @@ export function symbolName(code: string): string {
   const named = (phyrexian ? parts.slice(0, -1) : parts).map((p) => NAMES[p] ?? p);
   const base = named.join(" or ");
   return phyrexian ? `Phyrexian ${base}` : base;
+}
+
+/** Text for a string-only place (an aria-label, a title): "Pay {2}{R}" reads "Pay 2 red". */
+export function spokenText(text: string): string;
+export function spokenText(text: string | null | undefined): string | undefined;
+export function spokenText(text: string | null | undefined): string | undefined {
+  if (!text) return text ?? undefined;
+  return text.replace(SYMBOL, (all, code: string) => (symbolFile(code) ? ` ${symbolName(code)} ` : all)).replace(/ {2,}/g, " ").replace(/ ([.,:;)])/g, "$1").trim();
 }
 
 /** One symbol. Its alt text is the usual notation, so copying text keeps "{G}". */
@@ -70,7 +78,7 @@ export function SymbolText({ text }: { text: string | null | undefined }): React
     const at = m.index ?? 0;
     if (!symbolFile(m[1]!)) continue;
     if (at > last) out.push(text.slice(last, at));
-    out.push(<ManaSymbol key={at} code={m[1]!} />);
+    out.push(<ManaSymbol key={`${at}:${m[1]}`} code={m[1]!} />);
     last = at + m[0].length;
   }
   if (last < text.length) out.push(text.slice(last));
