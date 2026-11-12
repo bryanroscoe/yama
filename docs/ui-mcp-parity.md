@@ -64,7 +64,7 @@ part of it). "Gap" rows are the backlog, in rough priority order inside each are
 | Add a deck's cards to the collection, optionally as proxies (Collect) | Collect sheet | — | **Gap (MCP).** Stage `collect_deck` |
 | Deck check: scan or tick the cards physically in the box | Check, Scan pages | — | UI only (physical; camera) |
 | Share a deck (visibility, new link) | Share deck | — | **Gap (MCP)**, privacy-sensitive: stage it, never apply from Ask Claude |
-| Browse public decks (search, commander, colors, bracket, started from a precon) | Browse | — | **Gap (MCP)**, read (2026-11-12): a tool over `sharing::browse::listed`, the function the page's route calls |
+| Browse public decks (search, commander, colors, bracket, started from a precon) | Browse | `browse_public_decks` | Both (2026-11-12): the tool calls `sharing::browse::listed`, the function the page's route calls |
 | Send a deck to Mythic Tools | Deck page | — | UI only (outside service hand-off) |
 | Online play support (what the engine can't run) | Stats tab | — | **Gap (MCP)**, read |
 | Sample opening hands, mulligan | Deck page, Sample hand | `sample_hands` (seeded, several hands) | Both |
