@@ -1052,9 +1052,9 @@ fn note() -> serde_json::Value {
             "builds": [{
                 "id": "b3", "label": "Bracket 3 · Upgraded", "bracket": 3, "why": "Cleaner removal.",
                 "list": "Commander\n1 Nalia de'Arnise\nDeck\n1 Swords to Plowshares\n98 Plains",
-                "acquisition": {"buys": [{"card": "Swords to Plowshares", "store": "Hidden Hobby Shop", "price": 3.5}]},
+                "acquisition": {"buys": [{"card": "Swords to Plowshares", "store": "Hidden Hobby Shop", "price": 37.77}]},
                 "swaps": [{"id": "stp", "card_in": "Swords to Plowshares", "card_out": "Stick Together", "why": "One-mana exile.", "why_out": "Symmetrical.", "pairing_note": "Swap together with the land change.",
-                           "acquisition": {"store": "Hidden Hobby Shop", "price": 3.5}}]
+                           "acquisition": {"store": "Hidden Hobby Shop", "price": 37.77}}]
             }]
         }]
     })
@@ -1101,7 +1101,9 @@ async fn research_notes_are_private_until_shared_and_show_only_the_guide() {
     for shown in ["Swap together with the land change.", "Cleaner removal.", "Play a party member every turn.", "One-mana exile.", "Symmetrical.", "Swords to Plowshares", "Stick Together"] {
         assert!(deck.contains(shown), "{shown}");
     }
-    for hidden in ["my private review note", "secret price ceiling", "Secret Store", "Hidden Hobby Shop", "Secret shopping list", "secret binder", "Installed secretly", "3.5"] {
+    // The price paid is a number no page draws for any other reason (the frame's icons have
+    // plenty of small decimals in their shapes).
+    for hidden in ["my private review note", "secret price ceiling", "Secret Store", "Hidden Hobby Shop", "Secret shopping list", "secret binder", "Installed secretly", "37.77"] {
         assert!(!body.contains(hidden) && !deck.contains(hidden), "{hidden}");
     }
     // A cut card isn't in the build's list; its row still gets its image for the preview.
