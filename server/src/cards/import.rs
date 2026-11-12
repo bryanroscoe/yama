@@ -11,8 +11,10 @@
 //! `image_art_crop` the art). Only URLs are stored; images load from Scryfall at runtime.
 //!
 //! The files are large (hundreds of MB), so they're parsed as a stream on a blocking thread and
-//! handed to the async writer in batches. Scryfall regenerates bulk files every 12 hours; weekly
-//! is enough for rules data, daily for prices.
+//! handed to the async writer in batches. Scryfall regenerates bulk files every 12 hours. Prices
+//! and Oracle data (new cards, Commander legality, Game Changer flags) are read daily: a set goes
+//! Commander-legal on Scryfall on its release day, and a weekly read left it "not legal" in Yama
+//! for days. Rulings change rarely and stay weekly.
 
 use crate::config::Config;
 use crate::util::{new_id, now};
@@ -214,7 +216,7 @@ async fn retry_due(pool: &SqlitePool, kind: &str, early: Option<&(u32, chrono::D
     waited(n, last) && early.is_none_or(|(n, last)| waited(*n, Some(*last)))
 }
 
-/// Background refresh for a running server: prices daily, rules text and rulings weekly. A kind
+/// Background refresh for a running server: prices and Oracle data daily, rulings weekly. A kind
 /// whose last successful import came from an older importer version (see [`importer_version`])
 /// is imported on the first pass, which runs at startup. A kind that keeps failing waits longer
 /// between tries ([`retry_due`]).
@@ -222,7 +224,7 @@ pub fn spawn_scheduler(pool: SqlitePool, data_dir: PathBuf) {
     tokio::spawn(async move {
         let mut early: HashMap<&str, (u32, chrono::DateTime<chrono::Utc>)> = HashMap::new();
         loop {
-            for (kind, max_age_hours) in [("default_cards", 20), ("oracle_cards", 24 * 6), ("rulings", 24 * 6)] {
+            for (kind, max_age_hours) in [("default_cards", 20), ("oracle_cards", 20), ("rulings", 24 * 6)] {
                 if !retry_due(&pool, kind, early.get(kind)).await {
                     tracing::debug!(kind, "Scryfall import failed recently; waiting before trying again");
                     continue;

@@ -56,7 +56,7 @@ A page listing what has shipped, in plain sentences, with a notice on each devic
 
 ### Card data
 
-Scryfall bulk import: ~36.5k cards, ~116k printings, daily prices kept by date, rulings, the Game Changer flag. Images are Scryfall's WebP sizes (JPEG fallback for older files).
+Scryfall bulk import: ~36.5k cards, ~116k printings, daily prices kept by date, rulings, the Game Changer flag. Cards, Commander legality and Game Changer flags refresh daily, so a new set is legal in Yama the day Scryfall marks it; rulings weekly. Images are Scryfall's WebP sizes (JPEG fallback for older files).
 
 ### Card search
 
