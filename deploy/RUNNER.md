@@ -184,6 +184,13 @@ checking and report the same `YAMA_RELEASE_RESULT`. No backend checks out code.
   repository went public it uses this backend only: keep the secrets in the `production`
   environment (deployment branches: `main`), and never register the saget runner on it.
 
+Cloudflare occasionally drops the long-lived SSH connection mid-release (ssh exits 255 with
+"Broken pipe"; seen after 2 and 11 minutes on 2026-11-12, with keepalives running). The host
+ignores the hangup and finishes the release regardless. The job therefore asks again, up to
+four attempts: the new request waits for the release lock, then reports what production
+actually holds (already healthy, superseded, or a rebuild if the first attempt failed), so the
+run's result matches the release. Any other failure, including the host refusing, is not retried.
+
 The pin is `cloudflared` 2026.5.1: later releases are reported to ignore service tokens for
 `access ssh` and fall back to browser login
 ([cloudflare/cloudflared#1674](https://github.com/cloudflare/cloudflared/issues/1674)). To
