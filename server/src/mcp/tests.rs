@@ -62,32 +62,25 @@ async fn only_an_mcp_key_or_a_question_token_gets_in() {
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
 
+/// Every account may start a short simulation a day (12 Nov 2026), so every account's assistant
+/// is listed the tools that start one, before it has a run. Until then only power users were.
 #[tokio::test]
-async fn only_power_users_get_the_tools_that_start_simulations() {
+async fn every_account_gets_the_tools_that_start_simulations() {
     let (app, pool) = app().await;
-    let (id, session) = user(&pool, "friend@example.com").await;
-    // A run of their own from when they could start one: still theirs to read and cancel.
-    sqlx::query(
-        "INSERT INTO lab_experiments (id, owner_id, name, status, spec, games_total, games_done, engine, card_data, runner, difficulty, created_at, updated_at)
-         VALUES ('run-old', ?, 'An old run', 'done', '{}', 100, 100, 'phase', 'x', 'x', 'Easy', '2026-11-01T00:00:00Z', 't')",
-    )
-    .bind(&id)
-    .execute(&pool)
-    .await
-    .unwrap();
+    let (_, session) = user(&pool, "friend@example.com").await;
     let mcp = key(&app, &session, Some("mcp")).await;
     let (_, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("tools/list", json!({})))).await;
     let names: Vec<&str> = r["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-    // By their names and by the names they had before the renames.
+    for n in ["start_lab_run", "add_lab_games", "rerun_lab_run", "get_overview", "list_lab_runs", "get_lab_run", "list_lab_games", "cancel_lab_run", "get_precon"] {
+        assert!(names.contains(&n), "{n} missing from {names:?}");
+    }
+    // By their names and by the names they had before the renames: a call reaches the tool, which
+    // answers about its arguments (none here), not that there is no such tool.
     for n in ["start_lab_run", "add_lab_games", "rerun_lab_run", "more_lab_games", "run_lab_again"] {
-        assert!(!names.contains(&n), "{n} offered to an account that isn't a power user");
         let (status, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("tools/call", json!({"name": n, "arguments": {}})))).await;
         assert_eq!(status, StatusCode::OK, "{r}");
-        assert!(r["error"]["message"].as_str().unwrap().contains("unknown tool"), "{r}");
-    }
-    // Their own data and runs stay readable.
-    for n in ["get_overview", "list_lab_runs", "get_lab_run", "cancel_lab_run", "get_precon"] {
-        assert!(names.contains(&n), "{n} missing from {names:?}");
+        assert!(r.get("error").is_none() && !r.to_string().contains("unknown tool"), "{n}: {r}");
+        assert_eq!(r["result"]["isError"], true, "{n} with no arguments: {r}");
     }
 }
 
@@ -882,26 +875,20 @@ async fn a_staging_call_repeated_with_its_op_id_stages_once() {
     assert_eq!(change_id(&a_text), change_id(&b_text));
     assert_eq!(staged().await, 3);
 
-    // Every staging tool takes op_id, and says so in its schema. An account that isn't a power
-    // user and has no stores or lab runs is listed no tool that starts a simulation, none for
-    // stores and no cancel_lab_run.
+    // Every staging tool takes op_id, and says so in its schema. Any account may start a short
+    // simulation a day, so one with no stores or lab runs is listed the lab's four (`Has::load`)
+    // and none for stores.
     let (_, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("tools/list", json!({})))).await;
-    let plain = [
-        "add_wish", "edit_deck", "delete_deck", "track_build", "approve_plan", "propose_swap", "answer_review", "mark_bought", "swap_in_prints",
-        "mark_installed", "add_to_collection", "move_cards", "set_condition", "update_deck", "remove_wish", "create_container", "remove_from_collection",
-        "edit_copies", "save_deck",
-    ];
-    assert_eq!(staging_names(&r), plain, "staging tools listed for an account that can't start simulations and has no stores or runs");
-    // A power user is listed the lab's four as well, with op_id like the rest: it may start a
-    // run, so it is offered the lab tools before it has one (`Has::load`). Still none for stores.
-    let (_, power_session) = power_user(&pool, "power@example.com").await;
-    let power = key(&app, &power_session, Some("mcp")).await;
-    let (_, r) = send(&app, Method::POST, "/mcp", Some(&power), Some(rpc("tools/list", json!({})))).await;
     let with_lab = [
         "add_wish", "edit_deck", "delete_deck", "track_build", "approve_plan", "propose_swap", "answer_review", "mark_bought", "swap_in_prints",
         "mark_installed", "start_lab_run", "add_lab_games", "rerun_lab_run", "cancel_lab_run", "add_to_collection", "move_cards", "set_condition",
         "update_deck", "remove_wish", "create_container", "remove_from_collection", "edit_copies", "save_deck",
     ];
+    assert_eq!(staging_names(&r), with_lab, "staging tools listed for an account with no stores or runs");
+    // A power user is listed the same tools: the difference is the allowance, not the catalog.
+    let (_, power_session) = power_user(&pool, "power@example.com").await;
+    let power = key(&app, &power_session, Some("mcp")).await;
+    let (_, r) = send(&app, Method::POST, "/mcp", Some(&power), Some(rpc("tools/list", json!({})))).await;
     assert_eq!(staging_names(&r), with_lab, "staging tools listed for a power user with no stores");
 }
 

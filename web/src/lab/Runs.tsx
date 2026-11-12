@@ -1,7 +1,5 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router";
-import { usePower } from "../auth";
-import { PowerNote } from "../components/PowerOnly";
 import { api } from "../api";
 import { queryFailure, RefreshFailed } from "../components/QueryError";
 import { Button, ButtonLink, CardThumb, Details, EmptyState, ErrorText, Loading, PageHeader, StatusPill, toneOf } from "../components/ui";
@@ -90,7 +88,6 @@ export const runsPage = (before?: string) =>
   api<ExperimentItem[]>(`/api/lab/experiments?limit=${RUNS_PAGE}${before ? `&before=${encodeURIComponent(before)}` : ""}`);
 
 export function RunsPage() {
-  const power = usePower();
   const qc = useQueryClient();
   const pages = useInfiniteQuery({
     queryKey: ["lab", "experiments", "pages"],
@@ -115,30 +112,22 @@ export function RunsPage() {
       <LabHead
         title="Lab runs"
         action={
-          power ? (
-            <span className="row" style={{ gap: 8 }}>
-              <ButtonLink to="/lab/compare">
-                Compare decks
-              </ButtonLink>
-              <ButtonLink variant="primary" to="/lab/try">
-                Try a change
-              </ButtonLink>
-            </span>
-          ) : undefined
+          <span className="row" style={{ gap: 8 }}>
+            <ButtonLink to="/lab/compare">
+              Compare decks
+            </ButtonLink>
+            <ButtonLink variant="primary" to="/lab/try">
+              Try a change
+            </ButtonLink>
+          </span>
         }
       />
       <ErrorText error={exps.error ?? stop.error ?? remove.error} />
       {exps.data?.length === 0 && batch.length === 0 && (
-        power ? (
-          <EmptyState>
-            No runs yet. <Link to="/lab/try">Try a change</Link> to play a list against a changed copy of it (or as it is), <Link to="/lab/compare">compare decks</Link> against each other, or start from a precon in{" "}
-            <Link to="/lab">Precons</Link>.
-          </EmptyState>
-        ) : (
-          <EmptyState>
-            No runs. <PowerNote /> See the <Link to="/lab">simulated precon rankings</Link>.
-          </EmptyState>
-        )
+        <EmptyState>
+          No runs yet. <Link to="/lab/try">Try a change</Link> to play a list against a changed copy of it (or as it is), <Link to="/lab/compare">compare decks</Link> against each other, or start from a precon in{" "}
+          <Link to="/lab">Precons</Link>.
+        </EmptyState>
       )}
       {exps.data && exps.data.length > 0 && (
         <section className="lab-runs" aria-label="Your experiments">

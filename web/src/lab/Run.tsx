@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { count, identityName, listText, fmtDate, fmtDateTime } from "@yama/core";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import { usePower } from "../auth";
 import { api } from "../api";
 import { queryFailure, RefreshFailed } from "../components/QueryError";
 import { Button, ErrorText, Field, Loading, Pips, Segmented } from "../components/ui";
@@ -197,7 +196,6 @@ function fieldFrom(e: ExperimentItem): FieldChoice | undefined {
 }
 
 export function RunPage() {
-  const power = usePower();
   const { id } = useParams();
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -287,7 +285,7 @@ export function RunPage() {
         )
       )}
 
-      {power && e.status === "done" && !["versus", "tournament"].includes(modeOf(e)) && <MoreGames e={e} />}
+      {e.status === "done" && !["versus", "tournament"].includes(modeOf(e)) && <MoreGames e={e} />}
 
       <section>
         <h2>{modeOf(e) === "change" ? "The change" : modeOf(e) === "solo" ? "The list" : "The decks"}</h2>
@@ -304,14 +302,14 @@ export function RunPage() {
       )}
 
       <section>
-        {!live && power && <Again e={e} />}
+        {!live && <Again e={e} />}
         <div className="row">
           {live && (
             <Button onClick={() => cancel.mutate()} disabled={cancel.isPending}>
               Cancel the rest
             </Button>
           )}
-          {!power ? null : modeOf(e) === "change" || modeOf(e) === "solo" ? (
+          {modeOf(e) === "change" || modeOf(e) === "solo" ? (
             <Button onClick={() => navigate("/lab/try", { state: { prefill: prefillFrom(e) } })}>{modeOf(e) === "solo" ? "Try a change to it" : "Edit the change"}</Button>
           ) : (
             <Button onClick={() => navigate("/lab/compare", { state: { prefill: comparePrefill(e) } })}>Edit and run again</Button>

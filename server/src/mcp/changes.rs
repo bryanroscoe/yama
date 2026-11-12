@@ -1205,12 +1205,13 @@ fn engine_words(engine: &str, ai: &str, forge_ai: &str) -> String {
 }
 
 pub async fn start_lab_run(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
-    user.require_power()?;
+    crate::lab::experiments::require_allowance(user, &st.cfg.lab_quota)?;
     let pool = &st.pool;
     let mode = arg::opt_string(args, "mode", 20)?.unwrap_or_else(|| "change".into());
     let games = games_arg(user, args, None)?;
     let engine = arg::opt_string(args, "engine", 10)?.unwrap_or_else(|| "phase".into());
-    crate::lab::forge::EngineMode::parse(Some(&engine)).map_err(AppError::bad)?;
+    let engines = crate::lab::forge::EngineMode::parse(Some(&engine)).map_err(AppError::bad)?;
+    crate::lab::experiments::require_engine(user, engines.forge())?;
     let ai = arg::opt_string(args, "ai", 10)?.unwrap_or_else(|| "Easy".into());
     if !["Easy", "Medium"].contains(&ai.as_str()) && !user.is_admin {
         return Err(AppError::bad("ai must be Easy or Medium"));
@@ -1370,7 +1371,7 @@ fn per_pod(mode: &str) -> usize {
 }
 
 pub async fn more_lab_games(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
-    user.require_power()?;
+    crate::lab::experiments::require_allowance(user, &st.cfg.lab_quota)?;
     let id = arg::text(args, "id")?;
     let run = run_info(&st.pool, &user.id, id).await?;
     if matches!(run.mode.as_str(), "versus" | "tournament") {
@@ -1414,7 +1415,7 @@ async fn apply_more_games(st: &AppState, user: &User, p: &Value) -> AppResult<Va
 }
 
 pub async fn run_lab_again(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
-    user.require_power()?;
+    crate::lab::experiments::require_allowance(user, &st.cfg.lab_quota)?;
     let id = arg::text(args, "id")?;
     let run = run_info(&st.pool, &user.id, id).await?;
     let had = if run.mode == "tournament" {

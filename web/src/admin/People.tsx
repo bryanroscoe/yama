@@ -48,12 +48,12 @@ export function PeoplePage() {
     toggle.mutate(a);
   };
   const flipPower = async (a: AccountInfo) => {
-    if (a.power_user && !(await ask({ title: `Stop ${a.email} being a power user?`, body: "They keep their runs but can't start simulations or ask Claude, and watching the computer play goes back to the daily allowance every account has.", confirm: "Stop power user", danger: true }))) return;
+    if (a.power_user && !(await ask({ title: `Stop ${a.email} being a power user?`, body: "They keep their runs and can't ask Claude. Simulations and watching the computer play go back to the daily allowance every account has.", confirm: "Stop power user", danger: true }))) return;
     power.mutate(a);
   };
   const flipInvite = async (a: AccountInfo) => {
     if (a.invited) {
-      const after = open ? "They're signed out, and can sign in again with the smaller allowance." : "They're signed out and can't sign in again.";
+      const after = open ? "They're signed out, and can sign in again with the standard allowance." : "They're signed out and can't sign in again.";
       if (!(await ask({ title: `Remove ${a.email}'s invite?`, body: after, confirm: "Remove invite", danger: true }))) return;
     }
     invite.mutate(a);
@@ -96,7 +96,7 @@ export function PeoplePage() {
                   <Button variant="outline" onClick={() => flipInvite(a)} disabled={invite.isPending}>
                     {a.invited ? "Remove invite" : "Invite"}
                   </Button>
-                  <Button variant="outline" onClick={() => flipPower(a)} disabled={power.isPending} title="Power users may start simulations and ask Claude, and watch the computer play with no daily limit">
+                  <Button variant="outline" onClick={() => flipPower(a)} disabled={power.isPending} title="Power users may ask Claude, run full-size simulations, and watch the computer play with no daily limit">
                     {a.power_user ? "Remove power user" : "Make power user"}
                   </Button>
                   <Button variant="outline" onClick={() => flip(a)} disabled={toggle.isPending}>
@@ -154,7 +154,7 @@ function WhoCanSignIn({ open }: { open: boolean }) {
       <h2 id="adm-signin">Who can sign in</h2>
       <p className="admin-lead">
         {open
-          ? "Anyone with a Google account can join. Invited people get the full lab, play and Ask Claude allowance; everyone else gets a smaller one."
+          ? "Anyone with a Google account can join, on the standard allowance: 3 open games, 10 watched games a day and one short simulation a day. An invite gives the larger one: 10 open games and larger imports."
           : "Only invited people can sign in."}{" "}
         {invites.data ? `${n} ${n === 1 ? "invite" : "invites"}.` : ""}
       </p>

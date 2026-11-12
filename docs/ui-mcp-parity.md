@@ -134,7 +134,7 @@ part of it). "Gap" rows are the backlog, in rough priority order inside each are
 |---|---|---|---|
 | Precon rankings, one precon with evidence | Lab, precon detail | `get_precon` (one) | Partial: **Gap (MCP)** for the ranked list |
 | Save a precon as a deck | Precon detail | `get_precon` + `save_deck` | Both |
-| Start a run, more games, run again, cancel | Lab Try / Compare, run page | `start_lab_run`, `add_lab_games`, `rerun_lab_run`, `cancel_lab_run` (staged, power users) | Both |
+| Start a run, more games, run again, cancel | Lab Try / Compare, run page | `start_lab_run`, `add_lab_games`, `rerun_lab_run`, `cancel_lab_run` (staged; every account, within its allowance) | Both |
 | Runs, one run, games and tables | Runs, run, deck and table pages | `list_lab_runs`, `get_lab_run`, `list_lab_games` | Both |
 | Delete a run | Runs, run page | — | Gap (MCP), staged |
 | Batches of runs | Batch page | — | **Gap (MCP)**, read |

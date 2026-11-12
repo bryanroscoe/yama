@@ -224,7 +224,7 @@ export const adminApi = {
   stopWatch: (id: string) => api(`/api/admin/watch/${encodeURIComponent(id)}/stop`, { method: "POST" }),
   invite: (id: string) => api(`/api/admin/users/${encodeURIComponent(id)}/invite`, { method: "POST" }),
   uninvite: (id: string) => api(`/api/admin/users/${encodeURIComponent(id)}/invite`, { method: "DELETE" }),
-  /** Make an account a power user (simulations, Ask Claude, no daily limit on watched games), or stop it being one. */
+  /** Make an account a power user (Ask Claude, full-size simulations, no daily limit on watched games), or stop it being one. */
   setPower: (id: string, on: boolean) => api(`/api/admin/users/${encodeURIComponent(id)}/power`, { method: on ? "POST" : "DELETE" }),
   deleteAccount: (id: string, confirmEmail: string) =>
     api<DeleteReport>(`/api/admin/users/${encodeURIComponent(id)}`, { method: "DELETE", json: { confirm_email: confirmEmail } }),

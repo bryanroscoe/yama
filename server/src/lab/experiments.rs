@@ -12,18 +12,26 @@
 //! created (cards, and the opponents' cards too), so a later edit to a deck or a re-imported
 //! precon catalog never changes an experiment part way through.
 //!
-//! Who: only admins and power users (`User::power`, 2026-10-31) may start, repeat or extend an
-//! experiment; everyone else still reads their own earlier runs.
+//! Who: every signed-in account may start, repeat or extend an experiment, within its allowance
+//! ([`Tier`]; 12 Nov 2026). From 2026-10-31 until then only admins and power users (`User::power`)
+//! could, and everyone else read their own earlier runs.
 //!
-//! Isolation: every query binds the owner; another user's experiment is "not found". Limits for
-//! anyone but an admin: 100, 200 or 400 games, Easy or Medium, and one experiment playing plus two
-//! waiting. An account that joined without an invite (`User::limited`) gets less: 100 games, one
-//! experiment at a time, and a daily number of games (YAMA_LAB_OPEN_DAILY_GAMES, counted from
-//! `lab_usage`, which deleting an experiment doesn't touch). Games waiting or playing are capped
-//! for everyone but admins together (YAMA_LAB_QUEUE_GAMES) and, within that, for accounts without
-//! an invite together (YAMA_LAB_OPEN_QUEUE_GAMES), so a crowd of new accounts can't fill the
-//! queue. Admins may ask for any even number of games up to 2,000 and any AI level, and no cap
-//! applies to them.
+//! Isolation: every query binds the owner; another user's experiment is "not found". Allowances,
+//! all Easy or Medium except an admin's:
+//! - **full** (a power user with an invite): 100, 200 or 400 games, one experiment playing plus
+//!   two waiting;
+//! - **standard** (a power user who signed up with Google, `User::limited`): 100 games, one
+//!   experiment at a time, and a daily number of games (YAMA_LAB_OPEN_DAILY_GAMES);
+//! - **short** (every other account): one short run a day: [`SHORT_GAMES`] games on Phase, one
+//!   experiment at a time, and YAMA_LAB_SHORT_DAILY_GAMES games in 24 hours (20, so one run; 0
+//!   turns simulations off for these accounts);
+//! - **admin**: any even number of games up to 2,000, any AI level, and no cap.
+//!
+//! The day's games are counted from `lab_usage`, which deleting an experiment doesn't touch, in
+//! the transaction that stores the experiment, so requests arriving together can't both pass.
+//! Games waiting or playing are capped for everyone but admins together (YAMA_LAB_QUEUE_GAMES)
+//! and, within that, for the standard and short accounts together (YAMA_LAB_OPEN_QUEUE_GAMES), so
+//! a crowd of new accounts can't fill the queue.
 //!
 //! Sizes are checked before any expensive work: a request body of at most 256 KB, a pasted list of
 //! at most 64 KB and 300 card lines, at most 200 cards to add and cut, at most 100 copies on a line
@@ -107,14 +115,88 @@ pub const GAME_CHOICES: [u32; 3] = [100, 200, 400];
 pub const ADMIN_MAX_GAMES: u32 = 2_000;
 /// Unfinished experiments (one playing plus two waiting) a user who isn't an admin may have.
 pub const MAX_UNFINISHED: i64 = 3;
-/// Games an experiment may have for an account that joined without an invite.
+/// Games an experiment may have on the standard allowance ([`Tier::Standard`]).
 pub const OPEN_GAME_CHOICES: [u32; 1] = [100];
-/// Unfinished experiments such an account may have: one at a time, none waiting.
+/// Unfinished experiments an account on the standard or short allowance may have: one at a time,
+/// none waiting.
 pub const OPEN_MAX_UNFINISHED: i64 = 1;
+/// Games in the short run every account gets ([`Tier::Short`]): 10 pods of a change, a fifth
+/// of the smallest run a power user starts.
+pub const SHORT_GAMES: u32 = 20;
+pub const SHORT_GAME_CHOICES: [u32; 1] = [SHORT_GAMES];
+
+/// What an account may run (see the module docs).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tier {
+    /// No caps.
+    Admin,
+    /// A power user with an invite.
+    Full,
+    /// A power user who signed up with Google (`User::limited`).
+    Standard,
+    /// Every other account: one short run a day.
+    Short,
+}
+
+pub fn tier(user: &User) -> Tier {
+    if user.is_admin {
+        Tier::Admin
+    } else if !user.power {
+        Tier::Short
+    } else if user.limited {
+        Tier::Standard
+    } else {
+        Tier::Full
+    }
+}
 
 /// The game counts `user` may choose.
 pub fn game_choices(user: &User) -> &'static [u32] {
-    if user.limited && !user.is_admin { &OPEN_GAME_CHOICES } else { &GAME_CHOICES }
+    match tier(user) {
+        Tier::Admin | Tier::Full => &GAME_CHOICES,
+        Tier::Standard => &OPEN_GAME_CHOICES,
+        Tier::Short => &SHORT_GAME_CHOICES,
+    }
+}
+
+/// Experiments `user` may have unfinished at once, and the games they may ask for in 24 hours
+/// (`None`: no limit).
+pub fn caps(user: &User, quota: &LabQuota) -> (Option<i64>, Option<i64>) {
+    match tier(user) {
+        Tier::Admin => (None, None),
+        Tier::Full => (Some(MAX_UNFINISHED), None),
+        Tier::Standard => (Some(OPEN_MAX_UNFINISHED), Some(quota.open_daily_games)),
+        Tier::Short => (Some(OPEN_MAX_UNFINISHED), Some(quota.short_daily_games)),
+    }
+}
+
+/// Why a simulation is refused on a server that gives the short allowance no games.
+pub const NO_SHORT_RUNS: &str = "Simulations on this server need access that an admin turns on for an account. To ask for it, use the contact on the About page.";
+
+/// Whether `user` has an allowance to start a run at all: everyone, unless the server gives the
+/// short allowance less than one short run a day (YAMA_LAB_SHORT_DAILY_GAMES).
+pub fn may_start(user: &User, quota: &LabQuota) -> bool {
+    tier(user) != Tier::Short || quota.short_daily_games >= i64::from(SHORT_GAMES)
+}
+
+/// Refuse an account with no allowance to start a run ([`may_start`]).
+pub fn require_allowance(user: &User, quota: &LabQuota) -> AppResult<()> {
+    if may_start(user, quota) { Ok(()) } else { Err(AppError::Forbidden(NO_SHORT_RUNS.into())) }
+}
+
+/// Refuse Forge on the short allowance: it plays on its own worker and counts double, so it
+/// stays with power users.
+pub fn require_engine(user: &User, forge: bool) -> AppResult<()> {
+    if forge && tier(user) == Tier::Short {
+        return Err(AppError::bad(format!("Your account's simulations play on Phase only. {}", crate::auth::ASK_FOR_MORE)));
+    }
+    Ok(())
+}
+
+/// Whether `user` may start a run on these engines at all, before sizes and the day's count.
+fn check_may_start(user: &User, engines: &Engines, quota: &LabQuota) -> AppResult<()> {
+    require_allowance(user, quota)?;
+    require_engine(user, engines.mode.forge())
 }
 /// AI levels anyone may choose; admins may choose any level the engine has.
 const USER_DIFFICULTIES: [&str; 2] = ["Easy", "Medium"];
@@ -1163,12 +1245,11 @@ pub(crate) fn check_games(user: &User, games: u32) -> AppResult<()> {
     if ok {
         return Ok(());
     }
-    Err(AppError::bad(if user.is_admin {
-        format!("games must be an even number from 2 to {ADMIN_MAX_GAMES}")
-    } else if user.limited {
-        format!("games must be {} on your account. {}", OPEN_GAME_CHOICES[0], crate::auth::ASK_FOR_MORE)
-    } else {
-        "games must be 100, 200 or 400".to_string()
+    Err(AppError::bad(match tier(user) {
+        Tier::Admin => format!("games must be an even number from 2 to {ADMIN_MAX_GAMES}"),
+        Tier::Full => "games must be 100, 200 or 400".to_string(),
+        Tier::Standard => format!("games must be {} on your account. {}", OPEN_GAME_CHOICES[0], crate::auth::ASK_FOR_MORE),
+        Tier::Short => format!("games must be {SHORT_GAMES} on your account, which runs one short simulation a day. {}", crate::auth::ASK_FOR_MORE),
     }))
 }
 
@@ -1301,9 +1382,9 @@ pub async fn create_with(
     if let Some(d) = by_op_id(pool, user, op_id.as_deref()).await? {
         return Ok(d);
     }
-    user.require_power()?;
     let mode = Mode::parse(req.mode.as_deref())?;
     let engines = engines_for(&req, fa)?;
+    check_may_start(user, &engines, quota)?;
     check_games(user, req.games)?;
     let difficulty = canonical_difficulty(req.difficulty.as_deref().unwrap_or(DEFAULT_DIFFICULTY))?;
     if !user.is_admin && !USER_DIFFICULTIES.contains(&difficulty.as_str()) {
@@ -1799,15 +1880,15 @@ pub async fn again_with(
     if let Some(d) = by_op_id(pool, user, op_id).await? {
         return Ok(d);
     }
-    user.require_power()?;
     let (old_name, text): (String, String) = sqlx::query_as("SELECT name, spec FROM lab_experiments WHERE id = ? AND owner_id = ?")
         .bind(id)
         .bind(&user.id)
         .fetch_optional(pool)
         .await?
         .ok_or(AppError::NotFound("experiment"))?;
-    check_games(user, games)?;
     let old: ExperimentSpec = serde_json::from_str(&text).map_err(anyhow::Error::from)?;
+    check_may_start(user, &old.engines, quota)?;
+    check_games(user, games)?;
     if !user.is_admin && !USER_DIFFICULTIES.contains(&old.difficulty.as_str()) {
         return Err(AppError::bad("difficulty must be Easy or Medium"));
     }
@@ -1946,8 +2027,8 @@ pub async fn more_with(
         // Applied already (a retried request), or changed since the page loaded.
         return detail(pool, &user.id, id).await;
     }
-    // Only new games need power: a retry above answers even after the grant is gone.
-    user.require_power()?;
+    // Only new games need an allowance: a retry above answers whatever the account may run now.
+    check_may_start(user, &old.engines, quota)?;
     if status != "done" {
         return Err(AppError::Conflict(match status.as_str() {
             "queued" | "running" => "This run is still playing. Add games once it has finished.".into(),
@@ -2083,40 +2164,48 @@ async fn games_today(conn: &mut SqliteConnection, owner: &str) -> AppResult<i64>
 
 /// Refuse a new experiment of `games` that would take `user` past their allowance, or the lab past
 /// its queue caps. `stored`: the experiment row is already written in this transaction (so it
-/// counts as unfinished) but its games aren't yet.
+/// counts as unfinished) but its games and its `lab_usage` row aren't yet. Called with `stored`
+/// inside the transaction that stores the experiment, after its first write has taken SQLite's
+/// write lock, so of several requests arriving together each sees the ones before it.
 async fn check_allowance(conn: &mut SqliteConnection, user: &User, games: u32, quota: &LabQuota, stored: bool) -> AppResult<()> {
-    if user.is_admin {
-        return Ok(());
-    }
+    let small = match tier(user) {
+        Tier::Admin => return Ok(()),
+        Tier::Full => false,
+        Tier::Standard | Tier::Short => true,
+    };
+    let (at_a_time, per_day) = caps(user, quota);
     let games = i64::from(games);
     let unfinished = unfinished(&mut *conn, &user.id).await? - i64::from(stored);
-    if user.limited {
-        if unfinished >= OPEN_MAX_UNFINISHED {
-            return Err(AppError::Conflict(
-                format!("Your account runs one experiment at a time. Wait for yours to finish, or cancel it. {}", crate::auth::ASK_FOR_MORE),
-            ));
-        }
+    if at_a_time.is_some_and(|n| unfinished >= n) {
+        return Err(if small {
+            AppError::Conflict(format!("Your account runs one experiment at a time. Wait for yours to finish, or cancel it. {}", crate::auth::ASK_FOR_MORE))
+        } else {
+            at_limit()
+        });
+    }
+    if let Some(per_day) = per_day {
         let used = games_today(&mut *conn, &user.id).await?;
-        if used + games > quota.open_daily_games {
+        if used + games > per_day {
             return Err(AppError::Conflict(format!(
-                "Your account can run {} games a day, and you've asked for {used} in the last 24 hours. Try again later. {}",
-                quota.open_daily_games,
+                "Your account can run {per_day} games a day, and you've asked for {used} in the last 24 hours. Try again later. {}",
                 crate::auth::ASK_FOR_MORE
             )));
         }
-    } else if unfinished >= MAX_UNFINISHED {
-        return Err(at_limit());
     }
+    // Games waiting or playing: everyone's but admins', and those of the standard and short
+    // accounts (the SQL of `tier`: not invited, or not a power user).
     let (all, open): (i64, i64) = sqlx::query_as(concat!(
-        "SELECT COUNT(*), COALESCE(SUM(limited), 0) FROM (SELECT ",
+        "SELECT COUNT(*), COALESCE(SUM(small), 0) FROM (SELECT (",
         crate::auth::limited_sql!(),
-        " AS limited FROM lab_experiment_games g JOIN lab_experiments e ON e.id = g.experiment_id JOIN users u ON u.id = e.owner_id
+        " OR NOT ",
+        crate::auth::power_sql!(),
+        ") AS small FROM lab_experiment_games g JOIN lab_experiments e ON e.id = g.experiment_id JOIN users u ON u.id = e.owner_id
            WHERE e.status IN ('queued','running') AND g.result IS NULL AND u.is_admin = 0)"
     ))
     .fetch_one(&mut *conn)
     .await?;
     let busy = || AppError::Conflict("The lab has too many games waiting right now. Try again later.".into());
-    if user.limited && open + games > quota.open_queue_games {
+    if small && open + games > quota.open_queue_games {
         return Err(busy());
     }
     if all + games > quota.queue_games {
@@ -2125,7 +2214,7 @@ async fn check_allowance(conn: &mut SqliteConnection, user: &User, games: u32, q
     Ok(())
 }
 
-/// The smaller allowance of an account that joined without an invite, as the Try page shows it.
+/// What an account on the standard or short allowance may run, as the Try page shows it.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Allowance {
     /// Games in one experiment.
@@ -2137,12 +2226,12 @@ pub struct Allowance {
     pub used_today: i64,
 }
 
+/// The allowance the Try page says: `None` for an account with no daily number of games (the
+/// full allowance, and admins).
 pub async fn allowance(pool: &SqlitePool, user: &User, quota: &LabQuota) -> AppResult<Option<Allowance>> {
-    if !user.limited || user.is_admin {
-        return Ok(None);
-    }
+    let (Some(at_a_time), Some(games_per_day)) = caps(user, quota) else { return Ok(None) };
     let used_today = games_today(&mut *pool.acquire().await?, &user.id).await?;
-    Ok(Some(Allowance { games: OPEN_GAME_CHOICES[0], at_a_time: OPEN_MAX_UNFINISHED, games_per_day: quota.open_daily_games, used_today }))
+    Ok(Some(Allowance { games: game_choices(user)[0], at_a_time, games_per_day, used_today }))
 }
 
 /// "easy" -> "Easy", as the engine names its levels; unknown levels are refused.
@@ -2988,7 +3077,7 @@ pub struct Pace {
     pub your_pending: i64,
     /// Game counts this account may choose.
     pub game_choices: Vec<u32>,
-    /// The smaller allowance of an account that joined without an invite; null for anyone else.
+    /// What an account on the standard or short allowance may run; null for anyone else.
     pub allowance: Option<Allowance>,
     /// The Forge worker (filled in by the handler): whether Forge can be chosen, and how it is.
     pub forge: forge::ForgeView,
@@ -3166,7 +3255,7 @@ pub struct EngineSupport {
 /// The card support of the lists a run would test, per engine, before it is made. The lists are
 /// read with the owner's checks, as a run would read them.
 async fn engines_check_handler(State(st): State<AppState>, CurrentUser(user): CurrentUser, body: Bytes) -> AppResult<Json<EngineSupport>> {
-    user.require_power()?;
+    st.limits.lab_requests.check_user(&user)?;
     let sim = st.lab.simulator()?;
     let req: EnginesCheck = serde_json::from_slice(&body).map_err(|e| AppError::bad(format!("bad request body: {e}")))?;
     if req.names.len() > MAX_CHECK_NAMES || req.lists.len() > MAX_CHECK_LISTS {
@@ -3180,8 +3269,10 @@ async fn engines_check_handler(State(st): State<AppState>, CurrentUser(user): Cu
     names.sort();
     names.dedup();
     let extra: Vec<LabCard> = names.iter().map(|n| LabCard { name: n.clone(), oracle_id: None, qty: 1, commander: false }).collect();
-    let fa = st.lab.forge_access();
+    // The short allowance plays on Phase only, so its accounts never ask the Forge worker.
+    let fa = if tier(&user) == Tier::Short { ForgeAccess::default() } else { st.lab.forge_access() };
     let (forge, forge_note) = match (&fa.client, &fa.cards) {
+        (None, _) if tier(&user) == Tier::Short => (None, Some("Your account's simulations play on Phase only".to_string())),
         (None, _) => (None, Some("Forge isn't set up on this server".to_string())),
         (Some(_), None) => (None, Some("The Forge worker is offline, so Forge's card support can't be checked right now".to_string())),
         (Some(client), Some(fc)) => {
@@ -3206,7 +3297,8 @@ async fn pace_handler(State(st): State<AppState>, CurrentUser(user): CurrentUser
     let available = st.lab.simulator().map(|_| ()).map_err(|e| e.to_string());
     let mut p = pace(&st.pool, &user, st.lab.threads(), available).await?;
     p.allowance = allowance(&st.pool, &user, &st.cfg.lab_quota).await?;
-    p.forge = st.lab.forge_view();
+    // The short allowance plays on Phase only: the page offers no Forge to choose.
+    p.forge = if tier(&user) == Tier::Short { forge::ForgeView::default() } else { st.lab.forge_view() };
     Ok(Json(p))
 }
 
@@ -3225,6 +3317,7 @@ async fn list_handler(
 }
 
 async fn create_handler(State(st): State<AppState>, CurrentUser(user): CurrentUser, body: Bytes) -> AppResult<Json<ExperimentDetail>> {
+    st.limits.lab_requests.check_user(&user)?;
     let sim = st.lab.simulator()?;
     let req: NewExperiment = serde_json::from_slice(&body).map_err(|e| AppError::bad(format!("bad request body: {e}")))?;
     let created = create_with(&st.pool, &user, req, sim.as_ref(), &st.cfg.lab_quota, &st.lab.forge_access()).await?;
@@ -3240,6 +3333,7 @@ pub struct Again {
 }
 
 async fn again_handler(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>, body: Bytes) -> AppResult<Json<ExperimentDetail>> {
+    st.limits.lab_requests.check_user(&user)?;
     let sim = st.lab.simulator()?;
     let req: Again = serde_json::from_slice(&body).map_err(|e| AppError::bad(format!("bad request body: {e}")))?;
     let created = again_with(&st.pool, &user, &id, req.games, req.op_id.as_deref(), sim.as_ref(), &st.cfg.lab_quota, &st.lab.forge_access()).await?;
@@ -3257,6 +3351,7 @@ pub struct More {
 }
 
 async fn more_handler(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>, body: Bytes) -> AppResult<Json<ExperimentDetail>> {
+    st.limits.lab_requests.check_user(&user)?;
     let sim = st.lab.simulator()?;
     let req: More = serde_json::from_slice(&body).map_err(|e| AppError::bad(format!("bad request body: {e}")))?;
     let mut d = more_with(&st.pool, &user, &id, req.games, req.seen_pods, sim.as_ref(), &st.cfg.lab_quota, &st.lab.forge_access()).await?;

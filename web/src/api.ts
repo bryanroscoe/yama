@@ -186,14 +186,14 @@ export interface User {
   display_name: string;
   is_admin: boolean;
   /**
-   * Joined through open sign-up and not invited: the smaller lab and online play allowance.
+   * Signed up with Google and not invited: the standard allowance (an invite gives the larger one).
    * Missing from a user cached by an older build, which reads as false.
    */
   limited?: boolean;
   /**
-   * An admin, or an account an admin made a power user: may start simulations and use Ask Claude,
-   * and has no daily limit on watched games. Missing from a user cached by an older build, which
-   * reads as false.
+   * An admin, or an account an admin made a power user: may use Ask Claude, and gets the larger
+   * simulation allowance and no daily limit on watched games. Missing from a user cached by an
+   * older build, which reads as false.
    */
   power?: boolean;
   /** Set while an admin views Yama as this person, read only (viewing.ts). */

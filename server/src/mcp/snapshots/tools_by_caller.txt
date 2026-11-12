@@ -140,7 +140,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## script key: 66 tools
+## script key: 69 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -181,6 +181,9 @@ answer_review	write
 mark_bought	write
 swap_in_prints	write
 mark_installed	write
+start_lab_run	write
+add_lab_games	write
+rerun_lab_run	write
 cancel_lab_run	write
 add_to_collection	write
 move_cards	write
@@ -208,7 +211,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## OAuth sign-in: 66 tools
+## OAuth sign-in: 69 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -249,6 +252,9 @@ answer_review	write
 mark_bought	write
 swap_in_prints	write
 mark_installed	write
+start_lab_run	write
+add_lab_games	write
+rerun_lab_run	write
 cancel_lab_run	write
 add_to_collection	write
 move_cards	write

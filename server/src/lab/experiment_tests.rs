@@ -274,34 +274,132 @@ async fn an_experiment_is_frozen_and_paired_when_created() {
     }
 }
 
+/// Every account may start a run (12 Nov 2026). One that isn't a power user gets the short
+/// allowance: one 20-game run on Phase in 24 hours, one at a time.
 #[tokio::test]
-async fn only_admins_and_power_users_start_repeat_or_extend_experiments() {
+async fn an_account_that_isnt_a_power_user_runs_one_short_simulation_a_day() {
     let pool = fixture().await;
     let sim = FakeSim::new();
     let quota = crate::config::LabQuota::default();
     let fa = ForgeAccess::default();
-    let bryan = user("bryan", false);
+    // Invited or signed up with Google, it is the same allowance.
+    let pat = User { power: false, ..user("bryan", false) };
+    let newbie = User { power: false, ..add_open_user(&pool, "newbie").await };
+    for u in [&pat, &newbie] {
+        assert_eq!((tier(u), game_choices(u), caps(u, &quota)), (Tier::Short, &[SHORT_GAMES][..], (Some(1), Some(20))));
+    }
+    assert_eq!(tier(&user("bryan", false)), Tier::Full);
+    assert_eq!(tier(&User { limited: true, ..user("bryan", false) }), Tier::Standard);
+    assert_eq!(tier(&user("admin", true)), Tier::Admin);
+
+    // The size is fixed, and the refusal says what it is, not how the account joined.
+    for g in [2, 100, 200, 400] {
+        let e = bad(create_with(&pool, &pat, swap_req(g), sim.as_ref(), &quota, &fa).await.unwrap_err());
+        assert!(e.contains("games must be 20") && e.contains("one short simulation a day") && e.contains("About page") && !e.contains("invite"), "{e}");
+    }
+    // Phase only: Forge stays with power users, and its worker is never asked.
+    let forge = FakeForge::new(&[]);
+    for engine in ["forge", "both"] {
+        let e = bad(create_with(&pool, &pat, with_engine(swap_req(20), engine), sim.as_ref(), &quota, &forge_access(&forge)).await.unwrap_err());
+        assert!(e.contains("Phase only"), "{e}");
+    }
+    assert_eq!(forge.checked.load(Ordering::SeqCst), 0);
+    assert!(bad(create_with(&pool, &pat, req(json!({"base": {"kind": "precon", "id": "p1"}, "variant": {"cut": ["Forest"], "add": ["Sol Ring"]}, "field": {"kind": "precons_top", "n": 3}, "games": 20, "difficulty": "Hard"})), sim.as_ref(), &quota, &fa).await.unwrap_err()).contains("Easy or Medium"));
+
+    // The day's run: 10 pods, each played by both lists.
     let with_op = |op: &str| {
-        let mut r = swap_req(100);
+        let mut r = swap_req(20);
         r.op_id = Some(op.into());
         r
     };
-    let d = create(&pool, &bryan, with_op("op-1"), sim.as_ref()).await.unwrap();
-    let id = d.item.id.clone();
-    // The same account after its power-user grant is withdrawn: it still reads the run and a retry
-    // of the create that already happened answers with it, but it starts nothing new.
-    let plain = User { power: false, ..user("bryan", false) };
-    assert_eq!(create_with(&pool, &plain, with_op("op-1"), sim.as_ref(), &quota, &fa).await.unwrap().item.id, id);
-    let forbidden = |e: AppError| matches!(e, AppError::Forbidden(m) if m == crate::auth::POWER_ONLY);
-    assert!(forbidden(create_with(&pool, &plain, with_op("op-2"), sim.as_ref(), &quota, &fa).await.unwrap_err()));
-    assert!(forbidden(again_with(&pool, &plain, &id, 100, None, sim.as_ref(), &quota, &fa).await.unwrap_err()));
-    // 100 games of a change run are 50 pods: asking from that count is new work, from any other
-    // it's a retry (or a stale page) and answers with the run.
-    assert!(forbidden(more_with(&pool, &plain, &id, 100, 50, sim.as_ref(), &quota, &fa).await.unwrap_err()));
-    assert_eq!(more_with(&pool, &plain, &id, 100, 0, sim.as_ref(), &quota, &fa).await.unwrap().item.id, id);
-    assert_eq!(detail(&pool, "bryan", &id).await.unwrap().item.id, id);
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lab_experiments WHERE owner_id='bryan'").fetch_one(&pool).await.unwrap();
-    assert_eq!(count, 1);
+    let first = create_with(&pool, &pat, with_op("op-1"), sim.as_ref(), &quota, &fa).await.unwrap();
+    assert_eq!((first.item.progress.total, first.item.status.as_str()), (20, "queued"));
+    // A retry of the same request answers with the run; a new one waits for it to finish.
+    assert_eq!(create_with(&pool, &pat, with_op("op-1"), sim.as_ref(), &quota, &fa).await.unwrap().item.id, first.item.id);
+    let e = create_with(&pool, &pat, with_op("op-2"), sim.as_ref(), &quota, &fa).await.unwrap_err();
+    assert!(matches!(&e, AppError::Conflict(m) if m.contains("one experiment at a time")), "{e:?}");
+    let worker = LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone()));
+    worker.drain().await;
+    let done = detail(&pool, "bryan", &first.item.id).await.unwrap();
+    assert_eq!((done.item.status.as_str(), done.item.summary.as_ref().map(|s| s.paired.pods)), ("done", Some(10)));
+
+    // That was today's: a new run, the same run again and more games on it are all refused, and
+    // the refusal says the limit and what was used. Deleting the run doesn't hand the day back.
+    let used_up = |e: AppError| matches!(&e, AppError::Conflict(m) if m.contains("20 games a day") && m.contains("asked for 20") && m.contains("About page") && !m.contains("invite"));
+    assert!(used_up(create_with(&pool, &pat, with_op("op-2"), sim.as_ref(), &quota, &fa).await.unwrap_err()));
+    assert!(used_up(again_with(&pool, &pat, &first.item.id, 20, None, sim.as_ref(), &quota, &fa).await.unwrap_err()));
+    assert!(used_up(more_with(&pool, &pat, &first.item.id, 20, 10, sim.as_ref(), &quota, &fa).await.unwrap_err()));
+    // A request about pods the run doesn't have is a retry or a stale page: it answers with the run.
+    assert_eq!(more_with(&pool, &pat, &first.item.id, 20, 0, sim.as_ref(), &quota, &fa).await.unwrap().item.id, first.item.id);
+    let runs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lab_experiments WHERE owner_id = 'bryan'").fetch_one(&pool).await.unwrap();
+    assert_eq!(runs, 1, "refused runs leave nothing behind");
+    // The Try page hears what it may offer and what is left, and no Forge.
+    let p = pace(&pool, &pat, 2, Ok(())).await.unwrap();
+    assert_eq!(p.game_choices, vec![20]);
+    assert_eq!(allowance(&pool, &pat, &quota).await.unwrap(), Some(Allowance { games: 20, at_a_time: 1, games_per_day: 20, used_today: 20 }));
+    // Another account's day is its own.
+    create_with(&pool, &newbie, swap_req(20), sim.as_ref(), &quota, &fa).await.unwrap();
+
+    // The next day: more games on the finished run, then that day is used too.
+    sqlx::query("UPDATE lab_usage SET created_at = '2026-01-01T00:00:00Z' WHERE owner_id = 'bryan'").execute(&pool).await.unwrap();
+    let more = more_with(&pool, &pat, &first.item.id, 20, 10, sim.as_ref(), &quota, &fa).await.unwrap();
+    assert_eq!(more.item.progress.total, 40);
+    worker.drain().await;
+    assert!(used_up(again_with(&pool, &pat, &first.item.id, 20, None, sim.as_ref(), &quota, &fa).await.unwrap_err()));
+
+    // A power user's run from before the account lost the grant is still theirs to read, and the
+    // short allowance is what they may start now.
+    let big = create(&pool, &user("other", false), swap_req(100), sim.as_ref()).await.unwrap();
+    let other = User { power: false, ..user("other", false) };
+    assert_eq!(detail(&pool, "other", &big.item.id).await.unwrap().item.id, big.item.id);
+    assert!(bad(again_with(&pool, &other, &big.item.id, 100, None, sim.as_ref(), &quota, &fa).await.unwrap_err()).contains("games must be 20"));
+
+    // A server that gives these accounts no games (YAMA_LAB_SHORT_DAILY_GAMES=0) refuses them as
+    // it did before 12 Nov 2026; power users are untouched.
+    let off = crate::config::LabQuota { short_daily_games: 0, ..Default::default() };
+    let kim = User { power: false, ..user("admin", false) };
+    let e = create_with(&pool, &kim, swap_req(20), sim.as_ref(), &off, &fa).await.unwrap_err();
+    assert!(matches!(&e, AppError::Forbidden(m) if m == NO_SHORT_RUNS), "{e:?}");
+    assert!(!may_start(&kim, &off) && may_start(&kim, &quota) && may_start(&user("bryan", false), &off));
+    assert!(allowance(&pool, &kim, &off).await.unwrap().is_some_and(|a| a.games_per_day == 0));
+}
+
+/// The short run costs lab time, so its daily count has to hold when requests arrive together:
+/// the allowance is checked again in the transaction that stores the run, after the write lock.
+#[tokio::test]
+async fn the_daily_short_run_holds_when_requests_arrive_together() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let quota = crate::config::LabQuota::default();
+    let fa = ForgeAccess::default();
+    let pat = User { power: false, ..user("bryan", false) };
+    let started = futures_util::future::join_all((0..12).map(|_| create_with(&pool, &pat, swap_req(20), sim.as_ref(), &quota, &fa))).await;
+    let ok = started.iter().filter(|r| r.is_ok()).count();
+    assert_eq!(ok, 1, "one run, however many are asked for at once");
+    for refused in started.into_iter().filter_map(Result::err) {
+        assert!(matches!(&refused, AppError::Conflict(m) if m.contains("one experiment at a time") || m.contains("20 games a day")), "{refused:?}");
+    }
+    let (runs, games, charged): (i64, i64, i64) = sqlx::query_as(
+        "SELECT (SELECT COUNT(*) FROM lab_experiments WHERE owner_id = 'bryan'), (SELECT COUNT(*) FROM lab_experiment_games),
+                (SELECT COALESCE(SUM(games), 0) FROM lab_usage WHERE owner_id = 'bryan')",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!((runs, games, charged), (1, 20, 20), "the refused requests stored and charged nothing");
+
+    // With the run finished the at-a-time rule no longer stands in the way, so only the day's
+    // count can refuse: again, together.
+    let worker = LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone()));
+    worker.drain().await;
+    let again = futures_util::future::join_all((0..12).map(|_| create_with(&pool, &pat, swap_req(20), sim.as_ref(), &quota, &fa))).await;
+    assert!(again.iter().all(|r| matches!(r, Err(AppError::Conflict(m)) if m.contains("20 games a day"))), "the day is used");
+    // A new day, together: one run again.
+    sqlx::query("UPDATE lab_usage SET created_at = '2026-01-01T00:00:00Z'").execute(&pool).await.unwrap();
+    let next = futures_util::future::join_all((0..12).map(|_| create_with(&pool, &pat, swap_req(20), sim.as_ref(), &quota, &fa))).await;
+    assert_eq!(next.iter().filter(|r| r.is_ok()).count(), 1);
+    let charged: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(games), 0) FROM lab_usage WHERE owner_id = 'bryan'").fetch_one(&pool).await.unwrap();
+    assert_eq!(charged, 40);
 }
 
 #[tokio::test]
@@ -1261,7 +1359,8 @@ async fn another_users_queue_cant_be_worked_out_from_the_pace_and_eta() {
     assert!((admins.seconds_per_game.unwrap() - 10.0).abs() < 1e-9);
 }
 
-/// A Google account with no invite: what open sign-up makes (`User::limited`).
+/// A power user who signed up with Google and has no invite (`User::limited`): the standard
+/// allowance.
 async fn add_open_user(pool: &SqlitePool, id: &str) -> User {
     sqlx::query("INSERT INTO users (id, google_sub, email, display_name, created_at) VALUES (?,?,?,?, 'now')")
         .bind(id)
@@ -1275,11 +1374,11 @@ async fn add_open_user(pool: &SqlitePool, id: &str) -> User {
 }
 
 #[tokio::test]
-async fn accounts_without_an_invite_get_the_smaller_allowance() {
+async fn power_users_who_signed_up_with_google_get_the_standard_allowance() {
     let pool = fixture().await;
     let sim = FakeSim::new();
     let newbie = add_open_user(&pool, "newbie").await;
-    let quota = crate::config::LabQuota { queue_games: 2_000, open_queue_games: 400, open_daily_games: 200 };
+    let quota = crate::config::LabQuota { queue_games: 2_000, open_queue_games: 400, open_daily_games: 200, ..Default::default() };
     for g in [200, 400] {
         assert!(bad(create_with(&pool, &newbie, swap_req(g), sim.as_ref(), &quota, &ForgeAccess::default()).await.unwrap_err()).contains("must be 100"));
     }
@@ -1309,10 +1408,10 @@ async fn accounts_without_an_invite_get_the_smaller_allowance() {
 }
 
 #[tokio::test]
-async fn the_queue_is_capped_for_everyone_but_admins_with_a_smaller_share_for_new_accounts() {
+async fn the_queue_is_capped_for_everyone_but_admins_with_a_smaller_share_for_the_smaller_allowances() {
     let pool = fixture().await;
     let sim = FakeSim::new();
-    let quota = crate::config::LabQuota { queue_games: 300, open_queue_games: 100, open_daily_games: 1_000 };
+    let quota = crate::config::LabQuota { queue_games: 300, open_queue_games: 100, open_daily_games: 1_000, ..Default::default() };
     let (a, b) = (add_open_user(&pool, "new-a").await, add_open_user(&pool, "new-b").await);
     let first = create_with(&pool, &a, swap_req(100), sim.as_ref(), &quota, &ForgeAccess::default()).await.unwrap();
     let busy = |r: Result<ExperimentDetail, AppError>| matches!(r, Err(AppError::Conflict(m)) if m.contains("too many games waiting"));
@@ -1853,7 +1952,7 @@ async fn forge_games_count_double_against_the_daily_allowance() {
     let sim = FakeSim::new();
     let f = FakeForge::new(&[]);
     let newbie = add_open_user(&pool, "newbie").await;
-    let quota = crate::config::LabQuota { queue_games: 2_000, open_queue_games: 400, open_daily_games: 300 };
+    let quota = crate::config::LabQuota { queue_games: 2_000, open_queue_games: 400, open_daily_games: 300, ..Default::default() };
     let first = create_with(&pool, &newbie, with_engine(swap_req(100), "forge"), sim.as_ref(), &quota, &forge_access(&f)).await.unwrap();
     let used: i64 = sqlx::query_scalar("SELECT SUM(games) FROM lab_usage WHERE owner_id = 'newbie'").fetch_one(&pool).await.unwrap();
     assert_eq!(used, 100 * i64::from(super::forge::FORGE_WEIGHT));

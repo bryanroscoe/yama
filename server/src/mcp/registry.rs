@@ -62,8 +62,6 @@ pub enum Kind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Offer {
     Everyone,
-    /// Tools that start simulations: admins and power users (`User::power`, 2026-10-31).
-    Power,
     /// Applying and discarding: outside clients, after the person's yes. Never Ask Claude.
     Appliers,
 }
@@ -79,7 +77,8 @@ pub enum Needs {
     Stores,
     /// At least one evidence dataset (an admin gives an account one).
     Datasets,
-    /// A lab run of their own, or the access to start one.
+    /// A lab run of their own, or an allowance to start one (every account has one since 12 Nov
+    /// 2026, unless the server gives the short allowance no games).
     LabRuns,
 }
 
@@ -96,8 +95,8 @@ impl Has {
     pub const EVERYTHING: Has = Has { stores: true, datasets: true, lab_runs: true };
     pub const NOTHING: Has = Has { stores: false, datasets: false, lab_runs: false };
 
-    /// What this account has, from its own rows.
-    pub async fn load(pool: &sqlx::SqlitePool, user: &User) -> AppResult<Has> {
+    /// What this account has, from its own rows and its lab allowance.
+    pub async fn load(pool: &sqlx::SqlitePool, user: &User, lab: &crate::config::LabQuota) -> AppResult<Has> {
         let (stores, datasets, runs): (bool, bool, bool) = sqlx::query_as(
             "SELECT EXISTS (SELECT 1 FROM plan_stores WHERE owner_id = ?1 AND retired_at IS NULL AND kind != 'printer'),
                     EXISTS (SELECT 1 FROM evidence_datasets WHERE owner_id = ?1),
@@ -106,7 +105,7 @@ impl Has {
         .bind(&user.id)
         .fetch_one(pool)
         .await?;
-        Ok(Has { stores, datasets, lab_runs: runs || user.power })
+        Ok(Has { stores, datasets, lab_runs: runs || crate::lab::experiments::may_start(user, lab) })
     }
 
     fn meets(&self, needs: Needs) -> bool {
@@ -192,7 +191,6 @@ pub fn find(name: &str) -> Option<&'static Tool> {
 pub fn offered_to(tool: &Tool, user: &User, via: &Via) -> bool {
     let offered = match tool.offer {
         Offer::Everyone => true,
-        Offer::Power => user.power,
         Offer::Appliers => via.may_apply(),
     };
     // A read-only connection gets the tools that read; anything that stages or writes needs more.

@@ -59,8 +59,7 @@ describe("waiting and empty states use the shared components", () => {
   it("no page styles its own empty state", () => {
     // Use <EmptyState> from components/ui; its variants are plain, boxed, panel and compact.
     // An empty card slot (a dashed outline where a card goes) and a picker's "no match" row aren't empty states.
-    // The power-users-only note is a note, not an empty state.
-    const slots = /\b(plan-pair-empty|mpc-thumb-empty|combo-empty|power-only)\b/;
+    const slots = /\b(plan-pair-empty|mpc-thumb-empty|combo-empty)\b/;
     const found = uses(/className="(?:[^"]* )?(?:[\w-]+-)?empty(?:[" ])/, (file, line) => file === "web/src/components/ui.tsx" || BOARD.test(file) || slots.test(line));
     expect(found).toEqual([]);
   });

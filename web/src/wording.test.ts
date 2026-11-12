@@ -35,10 +35,9 @@ describe("wording everyone sees", () => {
   });
 
   it("says what a limit is instead of how the account joined", () => {
-    const found = shownText().flatMap(({ file, text }) =>
-      // The admin area counts accounts by how they joined; that page is for admins.
-      file.startsWith("admin/") ? [] : [/joined without an invite/, /power users for now/].filter((re) => re.test(text)).map((re) => `${file}: ${re}`),
-    );
+    // The admin area too: it names the allowance (standard, or the larger one an invite gives).
+    const joined = [/without an invite/, /\(no invite\)/, /smaller allowance/, /power users for now/];
+    const found = shownText().flatMap(({ file, text }) => joined.filter((re) => re.test(text)).map((re) => `${file}: ${re}`));
     expect(found).toEqual([]);
   });
 

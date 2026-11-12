@@ -1,4 +1,4 @@
-// Watch AIs play: seat 2 to 4 decks (yours or precons), give each an AI, choose who goes first,
+// Watch the computer play: seat 2 to 4 decks (yours or precons), give each a level, choose who goes first,
 // and watch the computer play every seat (server/src/watch.rs). Built from the Play online
 // artboards' new-game seats; there's no artboard of its own.
 
@@ -47,7 +47,7 @@ export function WatchHome() {
       <BackLink inline to="/play" label="Back to Play online" text="Play online" />
       <div className="ph-head">
         <h1>
-          Watch AIs play
+          Watch the computer play
           <AlphaTag />
         </h1>
         <p className="dim">

@@ -81,9 +81,10 @@ describe("the tabs", () => {
   it("list a section only for the people it is for", () => {
     const labels = (id: Parameters<typeof tab>[0], who: Who) => sectionsFor(tab(id), who).map((s) => s.label);
     expect(labels("play", guest)).toEqual(["Life counter", "Play online"]);
-    expect(labels("play", account)).toEqual(["Life counter", "Play online", "Game history"]);
+    // Every account may watch the computer play and start a simulation, power user or not.
+    expect(labels("play", account)).toEqual(["Life counter", "Play online", "Watch", "Game history"]);
     expect(labels("play", owner)).toEqual(["Life counter", "Play online", "Watch", "Game history"]);
-    expect(labels("workshop", account)).toEqual(["Plans", "Get the cards", "Swap cards", "Lab runs"]);
+    expect(labels("workshop", account)).toEqual(["Plans", "Get the cards", "Swap cards", "Try a change", "Compare decks", "Lab runs"]);
     expect(labels("workshop", { ...account, evidence: true })).toContain("Datasets");
     expect(labels("workshop", owner)).toEqual(["Plans", "Get the cards", "Swap cards", "Try a change", "Compare decks", "Lab runs", "Datasets"]);
     // Precons is the account's own table signed in and the public reference signed out.
@@ -152,10 +153,10 @@ describe("the strip of a tab's pages", () => {
     for (const path of ["/decks/abc", "/decks/abc/stats", "/decks/plans/blight-curse", "/cards", "/group", "/profile", "/sharing", "/admin", "/nowhere"]) expect(strip(path), path).toBe("");
   });
 
-  it("lists the Workshop's simulation pages only for admins and power users, and Datasets for accounts that have one", () => {
+  it("lists the Workshop's simulation pages for every account, and Datasets for accounts that have one", () => {
     const plain = links(strip("/lab/runs"));
-    expect(plain).toEqual(["/decks/plans", "/decks/plans/get", "/decks/builds", "/lab/runs"]);
-    expect(links(strip("/lab/runs", { id: "u1", power: true }))).toEqual(["/decks/plans", "/decks/plans/get", "/decks/builds", "/lab/try", "/lab/compare", "/lab/runs"]);
+    expect(plain).toEqual(["/decks/plans", "/decks/plans/get", "/decks/builds", "/lab/try", "/lab/compare", "/lab/runs"]);
+    expect(links(strip("/lab/runs", { id: "u1", power: true }))).toEqual(plain);
     expect(links(strip("/lab/runs", { id: "u1" }, [{ id: "playgroup-history" }]))).toContain("/lab/datasets");
     expect(links(strip("/lab/runs", { id: "u1", power: true, is_admin: true }))).toContain("/lab/datasets");
     // The Datasets page lists itself while open, whoever is looking, so the strip never comes

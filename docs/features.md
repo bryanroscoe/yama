@@ -32,7 +32,7 @@ laptop, a row on the You page on a phone. Every older address still opens its pa
 
 ### Sign-in
 
-Google ID tokens with an invite list, or open to any verified Google account with `YAMA_OPEN_SIGNUP=1` (accounts without an invite get a smaller lab and online play allowance; see [deploy/README.md](../deploy/README.md#open-sign-up-anyone-with-a-google-account)). Password accounts only from the command line. Sign-in, searches, join codes, imports and new games are rate-limited; admins can disable or delete an account in the admin area (`/admin`), or disable one with `user disable`. Email-only dev login for local use.
+Google ID tokens with an invite list, or open to any verified Google account with `YAMA_OPEN_SIGNUP=1` (an account gets the standard allowance, and an invite gives the larger one; see [deploy/README.md](../deploy/README.md#open-sign-up-anyone-with-a-google-account)). Password accounts only from the command line. Sign-in, searches, join codes, imports and new games are rate-limited; admins can disable or delete an account in the admin area (`/admin`), or disable one with `user disable`. Email-only dev login for local use.
 
 ### Signed out
 
@@ -216,6 +216,8 @@ Commander on the [Phase](https://github.com/bryanroscoe/yama-phase) rules engine
 ### Simulation lab
 
 One shared-field tournament with 4–256 distinct deck lists, randomized four-player pods, games-per-deck targets, optional precon benchmarks and per-engine rankings/matchups. Batch runner for all-AI games (`play/src/bin/lab.rs`, core in `play/src/lab.rs`); the Commander precon catalog and analysed rating runs imported from commander-decks, with read APIs; "Try a change" experiments played by the server (`/api/lab/experiments`, YAMA_LAB_THREADS isolated game processes, default 1). Pages under Decks, Lab: the precon table and pages (with links to EDHREC's corresponding precon guide and related articles), "Try a change", and your runs, including your imported batch runs. Needs the engine card data ([engine integration](engine-integration.md)).
+
+Every signed-in account can start a simulation: one short run a day (20 games on Phase, one at a time; `YAMA_LAB_SHORT_DAILY_GAMES`). Power users run 100 games (100, 200 or 400 with an invite) and may choose Forge. The Try a change and Compare decks pages say the account's limit and what is left of it, a refusal says the limit, and the daily count is checked in the transaction that stores the run, so requests arriving together can't both pass. The assistant's lab tools are listed for every account.
 
 Phase retry-tail progress shows the experiment's pending/retry counts and hides the normal-pace
 ETA when only slow retries remain. A completed Phase half is labeled while Forge continues. This

@@ -319,11 +319,26 @@ describe("the smaller lab allowance", () => {
     expect(gameChoices(undefined)).toEqual([100, 200, 400]);
   });
 
-  it("says what an account without an invite may run and what's left today", () => {
+  it("says what an account with a daily number of games may run and what's left today", () => {
     expect(allowanceText({ games: 100, at_a_time: 1, games_per_day: 300, used_today: 100 })).toBe(
       "Your account runs 100-game experiments, one at a time, up to 300 games a day (200 left today).",
     );
     expect(allowanceText({ games: 100, at_a_time: 1, games_per_day: 300, used_today: 400 })).toContain("(0 left today)");
+  });
+
+  it("says the one short run a day every account gets, and whether today's is used", () => {
+    expect(allowanceText({ games: 20, at_a_time: 1, games_per_day: 20, used_today: 0 })).toBe(
+      "Your account runs one short simulation a day, of 20 games. Today's is still to run.",
+    );
+    expect(allowanceText({ games: 20, at_a_time: 1, games_per_day: 20, used_today: 20 })).toBe(
+      "Your account runs one short simulation a day, of 20 games. You've used today's: the next is 24 hours after it started.",
+    );
+    // More was used before the account's allowance changed: still used, never a negative number.
+    expect(allowanceText({ games: 20, at_a_time: 1, games_per_day: 20, used_today: 100 })).toContain("You've used today's");
+    // The limit is said as what it is, never as how the account joined.
+    expect(allowanceText({ games: 20, at_a_time: 1, games_per_day: 20, used_today: 0 })).not.toMatch(/invite|power user/);
+    // A server that gives these accounts no games.
+    expect(allowanceText({ games: 20, at_a_time: 1, games_per_day: 0, used_today: 0 })).toBe("Simulations on this server need access that an admin turns on for an account.");
   });
 });
 

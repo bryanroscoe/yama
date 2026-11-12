@@ -19,12 +19,12 @@ export function UsagePage() {
         <section className="admin-section" aria-labelledby="adm-totals">
           <h2 id="adm-totals">Everyone</h2>
           <div className="admin-figures">
-            <Figure value={count(t.accounts)} label={`accounts, ${count(t.open_signup_accounts)} without an invite${t.disabled ? `, ${count(t.disabled)} disabled` : ""}`} />
+            <Figure value={count(t.accounts)} label={`accounts, ${count(t.open_signup_accounts)} on the standard allowance${t.disabled ? `, ${count(t.disabled)} disabled` : ""}`} />
             <Figure value={count(t.seen_today)} label="used Yama in the last 24 hours" />
             <Figure value={count(t.lab_games_today)} label="lab games asked for in the last 24 hours" />
             <Figure
               value={count(t.lab_games_queued)}
-              label={`lab games waiting, of ${count(t.lab_queue_cap)} allowed; ${count(t.lab_open_queue_games)} of ${count(t.lab_open_queue_cap)} from accounts without an invite`}
+              label={`lab games waiting, of ${count(t.lab_queue_cap)} allowed; ${count(t.lab_open_queue_games)} of ${count(t.lab_open_queue_cap)} from accounts with a daily number of games`}
             />
             <Figure value={count(t.advisor_today)} label="questions to Claude in the last 24 hours" />
             <Figure value={count(t.watch_running)} label="watched games running" />
@@ -84,7 +84,7 @@ function AccountUsage({ a }: { a: UsageRow }) {
       <div className="admin-text">
         <b>
           {a.display_name}
-          {a.is_admin ? " (admin)" : a.limited ? " (no invite)" : ""}
+          {a.is_admin ? " (admin)" : a.limited ? " (standard allowance)" : ""}
         </b>
         <span>{a.email}</span>
         <span>{holdings(a)}</span>
