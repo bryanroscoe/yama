@@ -10,6 +10,7 @@ import type { DeckView } from "../api";
 import { SPELLBOOK, useDeckCheck } from "../components/Bracket";
 import { DeclareBracket } from "../components/DeclareBracket";
 import { gameChangerFloor, SENDS_LIST } from "../components/deckCheck";
+import { CardHover } from "../components/CardRef";
 import { HelpPopover } from "../components/HelpPopover";
 import { fmtDate } from "@yama/core";
 import { Button } from "../components/ui";
@@ -39,6 +40,8 @@ export function WhyBracket({ deck, at, outAt, onCard }: { deck: DeckView; at: nu
   const proxied = new Set(deck.cards.filter((e) => e.proxies > 0 && e.owned === 0).map((e) => e.name));
   const reservedProxies = reserved?.filter((x) => proxied.has(x)).length ?? 0;
   const shown = at ?? deck.bracket;
+  // Rolling over a chip shows the card, the same preview as card names elsewhere.
+  const imageOf = (name: string) => deck.cards.find((e) => e.name === name)?.card?.image_normal ?? null;
   // The hero's Bracket tile links here (#why-bracket-head); the router doesn't scroll to a hash.
   const { hash, key } = useLocation();
   const box = useRef<HTMLElement>(null);
@@ -84,7 +87,7 @@ export function WhyBracket({ deck, at, outAt, onCard }: { deck: DeckView; at: nu
             {gcs.map((g) => (
               <li key={g.name}>
                 <Button className={g.out ? "out" : ""} onClick={() => onCard(g.name)} aria-label={g.out ? `${g.name}, out at Bracket ${at}` : g.name}>
-                  {g.name}
+                  <CardHover name={g.name} image={imageOf(g.name)} />
                 </Button>
               </li>
             ))}
@@ -101,7 +104,9 @@ export function WhyBracket({ deck, at, outAt, onCard }: { deck: DeckView; at: nu
                 <ul className="why-bracket-chips" aria-label={c.cards.join(" and ")}>
                   {c.cards.map((name) => (
                     <li key={name}>
-                      <Button onClick={() => onCard(name)}>{name}</Button>
+                      <Button onClick={() => onCard(name)}>
+                        <CardHover name={name} image={imageOf(name)} />
+                      </Button>
                     </li>
                   ))}
                 </ul>

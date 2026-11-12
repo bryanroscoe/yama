@@ -16,7 +16,7 @@ import { NameList, useOnlineSupport } from "../components/OnlineSupport";
 import { Button, CardImage, ErrorText, Loading, Segmented } from "../components/ui";
 import { BuyDeck } from "./BuyDeck";
 import { PowerLine, ScoreTable, ScryCheckButton, useDeckAnalysis } from "./DeckAnalysis";
-import { colorShares, curveColumns, isStockConfiguration, landFaceCopies, curveSpread, DIAL, dialArc, dialPoint, groupTotal, inputsNote, marginSpan, pctWidth, playsLike, points, POWER_BANDS, REFERENCES, referenceOf, type Reference } from "./statsTab";
+import { colorShares, curveColumns, isStockConfiguration, landFaceCopies, curveSpread, DIAL, dialArc, dialPoint, groupTotal, inputsNote, marginSpan, pctWidth, playsLike, points, POWER_BANDS, REFERENCES, comparisonOf, earlierVersions, powerChange, stockListOf, type Reference } from "./statsTab";
 import "./deckStatsTab.css";
 
 type OnCard = (name: string) => void;
@@ -75,9 +75,19 @@ function Pic({ name, images, inDeck, onCard, className = "stats-pic" }: { name: 
 function PowerSection({ deckId, versionId, cards, images, inDeck, onCard }: { deckId: string; versionId: string | null; cards: DeckEntry[]; images: Images; inDeck: Set<string>; onCard: OnCard }) {
   const q = useDeckAnalysis(deckId, versionId);
   const a = q.data?.current ?? null;
-  const [ref, setRef] = useState<Reference>("none");
+  const [ref, setRef] = useState<Reference | "own-stock" | "version">("none");
   const [sel, setSel] = useState<string | null>(null);
-  const r = referenceOf(ref);
+  const earlier = earlierVersions(q.data);
+  const [versionPick, setVersionPick] = useState<string | null>(null);
+  const pickedVersion = versionPick && earlier.some((v) => v.id === versionPick) ? versionPick : (earlier[0]?.id ?? null);
+  const ownStock = stockListOf(q.data);
+  const r = comparisonOf(ref === "version" ? (pickedVersion ? `version:${pickedVersion}` : "none") : ref, q.data);
+  const compareOptions: [Reference | "own-stock" | "version", string][] = [
+    ["none", "Nothing"],
+    ...(ownStock ? [["own-stock", "Its stock list"] as ["own-stock", string]] : []),
+    ...(earlier.length ? [["version", "Earlier version"] as ["version", string]] : []),
+    ...REFERENCES.map((x) => [x.key, x.label] as [Reference, string]),
+  ];
   const selected = a ? (a.vectors.find((x) => x.key === sel) ?? a.vectors[0] ?? null) : null;
   return (
     <section className="stats-power" aria-labelledby="stats-power-h">
@@ -89,7 +99,16 @@ function PowerSection({ deckId, versionId, cards, images, inDeck, onCard }: { de
         {a && (
           <span className="stats-compare">
             <span className="dim">Compare with</span>
-            <Segmented as="span" label="Compare with" value={ref} onChange={setRef} options={[["none", "Nothing"], ...REFERENCES.map((x) => [x.key, x.label])] as [Reference, string][]} />
+            <Segmented as="span" label="Compare with" value={ref} onChange={setRef} options={compareOptions} />
+            {ref === "version" && (
+              <select className="stats-version-pick" aria-label="Which version" value={pickedVersion ?? ""} onChange={(e) => setVersionPick(e.target.value)}>
+                {earlier.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {`Version ${v.number}, ${fmtDate(v.created_at)}${v.note ? `: ${v.note}` : ""}`}
+                  </option>
+                ))}
+              </select>
+            )}
           </span>
         )}
       </div>
@@ -110,7 +129,12 @@ function PowerSection({ deckId, versionId, cards, images, inDeck, onCard }: { de
                 <span className="stats-pill">{a.label}</span>
                 <span className={`stats-pill ${a.confidence === "high" ? "good" : "warn"}`}>{inputsNote(a.confidence)}</span>
               </span>
-              {r && <span className="power-ref">Amber marks: {r.name} on each score</span>}
+              {r && (
+                <span className="power-ref">
+                  Amber marks: {r.name} on each score
+                  {r.power != null && <>. It was {r.power.toFixed(1)}, so {powerChange(a.power, r.power)}</>}
+                </span>
+              )}
               {a.caps.length > 0 && (
                 <div className="power-caps">
                   <h3>Holding it down</h3>
@@ -125,13 +149,13 @@ function PowerSection({ deckId, versionId, cards, images, inDeck, onCard }: { de
                   <span className="vector-track" aria-hidden="true">
                     <span className="fill" style={{ width: pctWidth(x.score) }} />
                     {REFERENCES.map((m) => <span key={m.key} className="mark" style={{ left: `${m.value}%` }} />)}
-                    {r && <span className="ref" style={{ left: `${r.value}%` }} />}
+                    {r && <span className="ref" style={{ left: pctWidth(r.value(x.key)) }} />}
                   </span>
                   <b className="vector-score">{Math.round(x.score)}</b>
                 </Button>
               ))}
               <span className="vector-marks dim">
-                {REFERENCES.map((m) => <span key={m.key}>{m.value} {m.key === "stock" ? "a stock precon" : m.label}</span>)}
+                {REFERENCES.map((m) => <span key={m.key}>{m.value} {m.key === "stock" ? "a typical precon" : m.label}</span>)}
               </span>
             </div>
           </div>
