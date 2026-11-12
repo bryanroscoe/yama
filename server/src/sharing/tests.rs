@@ -1975,11 +1975,13 @@ async fn a_deck_is_listed_publicly_only_when_public_and_its_owner_took_the_new_m
     // Its owner says yes: listed, and the first yes is the one kept.
     super::list_publicly(&pool, &owner).await.unwrap();
     let (_, me) = send(&app, Method::GET, "/api/me/sharing", Some(&auth), None).await;
-    let since = me["public_listed_at"].as_str().expect("set").to_string();
+    assert!(me["public_listed_at"].is_string(), "{me}");
     assert!(listed().await);
+    // (An older time than any clock gives now, so a second yes that overwrote it would show.)
+    set("UPDATE users SET public_listed_at = '2026-01-01T00:00:00Z' WHERE id = ?").await;
     super::list_publicly(&pool, &owner).await.unwrap();
     let again: String = sqlx::query_scalar("SELECT public_listed_at FROM users WHERE id = ?").bind(&owner).fetch_one(&pool).await.unwrap();
-    assert_eq!(again, since);
+    assert_eq!(again, "2026-01-01T00:00:00Z");
 
     // Only a public deck: by link, private and archived are never listed.
     for v in ["link", "private"] {
