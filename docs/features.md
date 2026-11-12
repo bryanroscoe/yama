@@ -101,6 +101,7 @@ Camera OCR in Collection; swap checks from Plans, Prints, Swap sheet or a plan d
 - Edit as text with versions, with a card search on the edit page that adds or removes a card in one press and says whether it fits the commander's colors and whether you own it
 - Version history with a diff between any two versions
 - Commander validation
+- Check cards: compare physical cards with the saved list without changes, scan a new version, or find cards missing from your collection; each menu action has its description on a separate line
 - Owned/needed with cheapest market price
 - Sample hands with mulligans
 - Game Changers count
