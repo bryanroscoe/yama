@@ -591,17 +591,27 @@ async fn a_printing_the_owner_made_up_never_reaches_a_public_download() {
 }
 
 /// Which printing of a card someone owns is collection data. A shared deck names the owner's
-/// copy as a card's printing only when they share their collection; otherwise it is read as if
-/// they owned none of its cards. A proxy never names one. The owner's own view doesn't change.
+/// copy as a card's printing only when they share their collection on a profile; otherwise it is
+/// read as if they owned none of its cards. A proxy never names one, and neither does the box a
+/// copy is filed in. The owner's own view doesn't change.
 #[tokio::test]
 async fn a_shared_deck_names_its_owners_printings_only_when_the_collection_is_shared() {
     let (app, pool) = app().await;
     let (bryan, bt) = user(&pool, "bryan@example.com").await;
-    // Each card's default printing, and another printing the owner has: Sol Ring for real, in
-    // foil; Lightning Bolt only as a proxy.
+    // Each card's default printing, and other printings. The owner has Sol Ring for real, in
+    // foil, and a second real copy filed in the deck's own box; Lightning Bolt only as a proxy;
+    // Opt as a real copy and a proxy.
     card(&pool, "o-sol", "Sol Ring", "Artifact", "p-sol", "cmm", "410").await;
     card(&pool, "o-bolt", "Lightning Bolt", "Instant", "p-bolt", "lea", "161").await;
-    for (id, oracle, name, set, number) in [("p-sol-ltc", "o-sol", "Sol Ring", "ltc", "284"), ("p-bolt-m11", "o-bolt", "Lightning Bolt", "m11", "149")] {
+    card(&pool, "o-opt", "Opt", "Instant", "p-opt", "eld", "59").await;
+    for (id, oracle, name, set, number) in [
+        ("p-sol-ltc", "o-sol", "Sol Ring", "ltc", "284"),
+        ("p-sol-znc", "o-sol", "Sol Ring", "znc", "111"),
+        ("p-sol-c21", "o-sol", "Sol Ring", "c21", "263"),
+        ("p-bolt-m11", "o-bolt", "Lightning Bolt", "m11", "149"),
+        ("p-opt-dom", "o-opt", "Opt", "dom", "60"),
+        ("p-opt-xln", "o-opt", "Opt", "xln", "65"),
+    ] {
         sqlx::query("INSERT INTO printings (scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang, updated_at) VALUES (?, ?, ?, ?, 'Other Set', ?, 'en', 'now')")
             .bind(id)
             .bind(oracle)
@@ -612,56 +622,80 @@ async fn a_shared_deck_names_its_owners_printings_only_when_the_collection_is_sh
             .await
             .unwrap();
     }
-    let ops = json!([
-        { "op_id": "own-sol", "kind": "add", "scryfall_id": "p-sol-ltc", "qty": 1, "proxy": false, "container_id": null, "finish": "foil" },
-        { "op_id": "proxy-bolt", "kind": "add", "scryfall_id": "p-bolt-m11", "qty": 1, "proxy": true, "container_id": null, "finish": "nonfoil" },
-    ]);
-    assert_eq!(send(&app, Method::POST, "/api/collection/ops", Some(&bt), Some(ops)).await.0, StatusCode::OK);
-    let (status, made) = send(&app, Method::POST, "/api/decks", Some(&bt), Some(json!({ "name": "Tricks", "text": "Commander\n1 Sol Ring\nDeck\n1 Lightning Bolt", "visibility": "public" }))).await;
+    let (status, made) = send(&app, Method::POST, "/api/decks", Some(&bt), Some(json!({ "name": "Tricks", "text": "Commander\n1 Sol Ring\nDeck\n1 Lightning Bolt\n1 Opt", "visibility": "public" }))).await;
     assert_eq!(status, StatusCode::OK, "{made}");
     let id = made["id"].as_str().unwrap().to_string();
     let token = token_of(&pool, &id).await;
+    // The deck's own box, with the ZNC Sol Ring in it.
+    let (status, boxed) = send(&app, Method::POST, "/api/containers", Some(&bt), Some(json!({ "name": "Tricks box", "kind": "deck" }))).await;
+    assert_eq!(status, StatusCode::OK, "{boxed}");
+    let deck_box = boxed["id"].as_str().unwrap().to_string();
+    assert_eq!(send(&app, Method::PATCH, &format!("/api/decks/{id}"), Some(&bt), Some(json!({ "container_id": deck_box }))).await.0, StatusCode::OK);
+    let ops = json!([
+        { "op_id": "own-sol", "kind": "add", "scryfall_id": "p-sol-ltc", "qty": 1, "proxy": false, "container_id": null, "finish": "foil" },
+        { "op_id": "boxed-sol", "kind": "add", "scryfall_id": "p-sol-znc", "qty": 1, "proxy": false, "container_id": deck_box, "finish": "nonfoil" },
+        { "op_id": "proxy-bolt", "kind": "add", "scryfall_id": "p-bolt-m11", "qty": 1, "proxy": true, "container_id": deck_box, "finish": "nonfoil" },
+        { "op_id": "own-opt", "kind": "add", "scryfall_id": "p-opt-xln", "qty": 1, "proxy": false, "container_id": null, "finish": "nonfoil" },
+        { "op_id": "proxy-opt", "kind": "add", "scryfall_id": "p-opt-dom", "qty": 1, "proxy": true, "container_id": deck_box, "finish": "nonfoil" },
+    ]);
+    let (status, added) = send(&app, Method::POST, "/api/collection/ops", Some(&bt), Some(ops)).await;
+    assert_eq!(status, StatusCode::OK, "{added}");
     let shared = || async {
         let (_, _, moxfield) = page(&app, &format!("/d/{token}/moxfield.txt")).await;
         let (_, _, csv) = page(&app, &format!("/d/{token}/csv.csv")).await;
+        let (_, _, archidekt) = page(&app, &format!("/d/{token}/archidekt.txt")).await;
         let (_, _, html) = page(&app, &format!("/d/{token}")).await;
         let (_, api) = send(&app, Method::GET, &format!("/api/public/decks/{token}"), None, None).await;
-        (moxfield, csv, html, api["text"].as_str().unwrap().to_string())
+        (moxfield, csv, archidekt, html, api["text"].as_str().unwrap().to_string())
     };
-    // What the owner sees on their own deck page: their copies, whatever they share.
+    // What the owner sees on their own deck page: their copies (the one in the deck's box
+    // first, a proxy when that is all they have), whatever they share.
     let own = || async {
         let (_, deck) = send(&app, Method::GET, &format!("/api/decks/{id}"), Some(&bt), None).await;
         let printing = |name: &str| {
             let c = deck["cards"].as_array().unwrap().iter().find(|c| c["name"] == name).unwrap().clone();
-            format!("{} {} {} {}", c["printing"]["set_code"].as_str().unwrap(), c["printing"]["collector_number"].as_str().unwrap(), c["printing"]["finish"].as_str().unwrap(), c["printing"]["from"].as_str().unwrap())
+            format!("{} {} {}", c["printing"]["set_code"].as_str().unwrap(), c["printing"]["collector_number"].as_str().unwrap(), c["printing"]["from"].as_str().unwrap())
         };
-        (printing("Sol Ring"), printing("Lightning Bolt"))
+        [printing("Sol Ring"), printing("Lightning Bolt"), printing("Opt")]
+    };
+    let theirs_as_owner = ["znc 111 owned", "m11 149 owned", "xln 65 owned"];
+    let as_if_unowned = "Commander\n1 Sol Ring (CMM) 410\n\nDeck\n1 Lightning Bolt (LEA) 161\n1 Opt (ELD) 59\n";
+    let unowned = |(moxfield, csv, archidekt, html, text): (String, String, String, String, String), when: &str| {
+        assert_eq!(moxfield, as_if_unowned, "{when}");
+        assert_eq!(text, moxfield, "{when}");
+        assert_eq!(csv, "Quantity,Name,Board,Set code,Collector number,Finish\n1,Sol Ring,Commander,CMM,410,nonfoil\n1,Lightning Bolt,Main,LEA,161,nonfoil\n1,Opt,Main,ELD,59,nonfoil\n", "{when}");
+        assert_eq!(archidekt, "1x Sol Ring (cmm) 410 [Commander{top}]\n1x Lightning Bolt (lea) 161\n1x Opt (eld) 59\n", "{when}");
+        // The page writes a printing as "CMM 410" (", foil" after a foil one).
+        assert!(html.contains("CMM 410") && html.contains("LEA 161") && html.contains("ELD 59"), "{when}: {html}");
+        for theirs in ["LTC 284", "ZNC 111", "M11 149", "XLN 65", "DOM 60"] {
+            assert!(!html.contains(theirs), "{when}: {theirs}");
+        }
     };
 
     // The collection is not shared (the default, for a new account too): every card names a
     // paper printing, as for a card the owner doesn't have, in the page, the downloads and the API.
-    let private: bool = sqlx::query_scalar("SELECT collection_public FROM users WHERE id = ?").bind(&bryan).fetch_one(&pool).await.unwrap();
-    assert!(!private);
-    let (moxfield, csv, html, text) = shared().await;
-    assert_eq!(moxfield, "Commander\n1 Sol Ring (CMM) 410\n\nDeck\n1 Lightning Bolt (LEA) 161\n");
-    assert_eq!(text, moxfield);
-    assert_eq!(csv, "Quantity,Name,Board,Set code,Collector number,Finish\n1,Sol Ring,Commander,CMM,410,nonfoil\n1,Lightning Bolt,Main,LEA,161,nonfoil\n");
-    for theirs in ["LTC", "ltc", "284", "M11", "m11", "149", ",foil", "*F*"] {
-        assert!(!moxfield.contains(theirs) && !csv.contains(theirs), "{theirs}");
-    }
-    // The page writes a printing as "CMM 410" (", foil" after a foil one).
-    assert!(html.contains("CMM 410") && html.contains("LEA 161"), "{html}");
-    assert!(!html.contains("LTC 284") && !html.contains("M11 149"), "{html}");
-    assert_eq!(own().await, ("ltc 284 foil owned".to_string(), "m11 149 nonfoil owned".to_string()));
+    let off: bool = sqlx::query_scalar("SELECT collection_public FROM users WHERE id = ?").bind(&bryan).fetch_one(&pool).await.unwrap();
+    assert!(!off);
+    unowned(shared().await, "collection not shared");
+    assert_eq!(own().await, theirs_as_owner);
 
-    // The collection is shared: their real copy names Sol Ring's printing and finish. The proxy
-    // names nothing: sharing never shows proxies.
+    // Turned on, but with no handle there is no profile and no collection page: the collection
+    // isn't shared anywhere, so the deck doesn't share it either.
     send(&app, Method::PUT, "/api/me/sharing", Some(&bt), Some(json!({ "collection_public": true }))).await;
-    let (moxfield, csv, html, text) = shared().await;
-    assert_eq!(moxfield, "Commander\n1 Sol Ring (LTC) 284 *F*\n\nDeck\n1 Lightning Bolt (LEA) 161\n");
+    unowned(shared().await, "collection on, no handle");
+
+    // With a handle the collection is shared: a real copy names the printing and finish. Not
+    // the copy in the deck's box (where copies are filed is never shared): one fixed pick. A
+    // proxy names nothing, alone (Lightning Bolt) or beside a real copy (Opt).
+    send(&app, Method::PUT, "/api/me/sharing", Some(&bt), Some(json!({ "handle": "saget" }))).await;
+    let (moxfield, csv, archidekt, html, text) = shared().await;
+    assert_eq!(moxfield, "Commander\n1 Sol Ring (LTC) 284 *F*\n\nDeck\n1 Lightning Bolt (LEA) 161\n1 Opt (XLN) 65\n");
     assert_eq!(text, moxfield);
-    assert!(csv.contains("1,Sol Ring,Commander,LTC,284,foil") && csv.contains("1,Lightning Bolt,Main,LEA,161,nonfoil"), "{csv}");
-    assert!(html.contains("LTC 284, foil") && html.contains("LEA 161") && !html.contains("M11 149"), "{html}");
+    assert!(csv.contains("1,Sol Ring,Commander,LTC,284,foil") && csv.contains("1,Lightning Bolt,Main,LEA,161,nonfoil") && csv.contains("1,Opt,Main,XLN,65,nonfoil"), "{csv}");
+    assert!(archidekt.contains("1x Sol Ring (ltc) 284 *F*") && archidekt.contains("1x Opt (xln) 65"), "{archidekt}");
+    assert!(html.contains("LTC 284, foil") && html.contains("LEA 161") && html.contains("XLN 65"), "{html}");
+    assert!(!html.contains("M11 149") && !html.contains("DOM 60") && !html.contains("ZNC 111"), "{html}");
+    assert_eq!(own().await, theirs_as_owner);
     // What a browser that saw the page and a download while the collection was shared holds.
     let seen = |path: String| {
         let app = app.clone();
@@ -672,10 +706,20 @@ async fn a_shared_deck_names_its_owners_printings_only_when_the_collection_is_sh
     };
     let (page_tag, file_tag) = (seen(format!("/d/{token}")).await, seen(format!("/d/{token}/moxfield.txt")).await);
 
-    // Turned off again, it takes effect at once; a printing the deck itself names (an import's)
-    // still shows either way, since the deck names it, not the collection.
+    // A printing the deck itself names (an import's) shows whatever is shared, and comes before
+    // the owner's copy: the deck names it, not the collection. One it names for a proxy doesn't.
+    let (_, named) = send(&app, Method::POST, "/api/decks", Some(&bt), Some(json!({ "name": "Named", "text": "Commander\n1 Sol Ring\nDeck\n1 Lightning Bolt", "visibility": "link",
+        "prints": [{ "oracle_id": "o-sol", "set_code": "c21", "collector_number": "263", "finish": "nonfoil" },
+                   { "oracle_id": "o-bolt", "set_code": "m11", "collector_number": "149", "finish": "nonfoil", "proxy": true }] }))).await;
+    let named = token_of(&pool, named["id"].as_str().unwrap()).await;
+    let names_its_own = "Commander\n1 Sol Ring (C21) 263\n\nDeck\n1 Lightning Bolt (LEA) 161\n";
+    assert_eq!(page(&app, &format!("/d/{named}/moxfield.txt")).await.2, names_its_own);
+
+    // Turned off again, it takes effect at once.
     send(&app, Method::PUT, "/api/me/sharing", Some(&bt), Some(json!({ "collection_public": false }))).await;
-    assert_eq!(shared().await.0, "Commander\n1 Sol Ring (CMM) 410\n\nDeck\n1 Lightning Bolt (LEA) 161\n");
+    unowned(shared().await, "collection turned off again");
+    assert_eq!(page(&app, &format!("/d/{named}/moxfield.txt")).await.2, names_its_own);
+    assert_eq!(own().await, theirs_as_owner);
     // A browser asking again with what it has gets the new page, not "unchanged".
     for (path, tag, theirs) in [(format!("/d/{token}"), &page_tag, "LTC 284"), (format!("/d/{token}/moxfield.txt"), &file_tag, "(LTC) 284")] {
         let res = app.clone().oneshot(Request::builder().uri(&path).header(header::IF_NONE_MATCH, tag.as_str()).body(Body::empty()).unwrap()).await.unwrap();
@@ -683,11 +727,6 @@ async fn a_shared_deck_names_its_owners_printings_only_when_the_collection_is_sh
         let body = String::from_utf8_lossy(&axum::body::to_bytes(res.into_body(), usize::MAX).await.unwrap()).into_owned();
         assert!(!body.contains(theirs), "{path}: {body}");
     }
-    assert_eq!(own().await, ("ltc 284 foil owned".to_string(), "m11 149 nonfoil owned".to_string()));
-    let (_, named) = send(&app, Method::POST, "/api/decks", Some(&bt), Some(json!({ "name": "Named", "text": "Commander\n1 Sol Ring", "visibility": "link",
-        "prints": [{ "oracle_id": "o-sol", "set_code": "ltc", "collector_number": "284", "finish": "foil" }] }))).await;
-    let named = token_of(&pool, named["id"].as_str().unwrap()).await;
-    assert_eq!(page(&app, &format!("/d/{named}/moxfield.txt")).await.2, "Commander\n1 Sol Ring (LTC) 284 *F*\n");
 }
 
 #[test]

@@ -7,7 +7,7 @@
 //! display name and email included). A deck's description is the exception its owner writes for
 //! exactly this: it shows on the deck's page, escaped, and nowhere else. A deck's printings are
 //! the ones the deck names (an import's), else a paper printing; the owner's own copies name
-//! one only when they share their collection, and their proxies never do. A deck
+//! one only when they share their collection on a profile, and a proxy never does. A deck
 //! page also shows what's worked out from the list (legality, the stored bracket check, stats,
 //! market value) and, when the owner turns it on, its plan's simulated win rates for the lists
 //! it and its listed configurations stand for, nothing else from the plan.
@@ -674,7 +674,6 @@ struct DeckRow {
     description: Option<String>,
     updated_at: String,
     current_version_id: Option<String>,
-    container_id: Option<String>,
     parent_id: Option<String>,
     visibility: String,
 }
@@ -709,7 +708,7 @@ pub(crate) async fn shared_deck(pool: &SqlitePool, token: &str) -> AppResult<Sha
     let row: DeckRow = sqlx::query_as(
         "SELECT d.id, d.owner_id, d.name, d.bracket, d.description,
                 COALESCE((SELECT v.created_at FROM deck_versions v WHERE v.id = d.current_version_id), d.created_at) AS updated_at,
-                d.current_version_id, d.container_id, d.parent_id, d.visibility
+                d.current_version_id, d.parent_id, d.visibility
          FROM decks d JOIN users u ON u.id = d.owner_id
          WHERE d.share_token = ? AND d.visibility IN ('link', 'public') AND d.archived = 0 AND d.taken_down_at IS NULL AND u.disabled_at IS NULL",
     )
@@ -743,17 +742,21 @@ pub(crate) async fn shared_deck(pool: &SqlitePool, token: &str) -> AppResult<Sha
     // facts, and the printings of cards with neither: one query each, however long the list.
     //
     // Which printing of a card someone owns is collection data, and the collection is shared
-    // only when its owner turns that on (`users.collection_public`). Decks are public by default
-    // now, so without that a shared deck is read as if its owner owned none of its cards: the
-    // printing the deck names, else a paper printing. With it, their real copies name the
-    // printing, as the shared collection page already shows them; a proxy never does (sharing
-    // never shows proxies). The owner's own deck page and exports (`decks.rs`) are not this.
+    // only when its owner turns that on and has a profile to show it on
+    // (`users.collection_public` and a handle, as the collection page needs). Decks are public
+    // by default now, so without that a shared deck is read as if its owner owned none of its
+    // cards: the printing the deck names, else a paper printing. With it, their real copies
+    // name the printing, as the shared collection page shows them; a proxy never does (sharing
+    // never shows proxies), and neither does where a copy is filed: the copy is picked in one
+    // fixed order, not by the deck's box. The owner's own deck page and exports (`decks.rs`)
+    // are not this.
     let ids: Vec<&str> = list.iter().map(|c| c.oracle_id.as_str()).collect();
-    let items: Vec<crate::collection::Item> = if sharer.collection_public {
+    let mut items: Vec<crate::collection::Item> = if sharer.collection_public && sharer.handle.is_some() {
         crate::collection::items_for_cards(pool, &row.owner_id, &ids).await?.into_iter().filter(|i| !i.proxy).collect()
     } else {
         vec![]
     };
+    items.sort_by(|a, b| (&a.set_code, &a.collector_number, &a.finish).cmp(&(&b.set_code, &b.collector_number, &b.finish)));
     let mut by_oracle: HashMap<&str, Vec<&crate::collection::Item>> = HashMap::new();
     for i in &items {
         if let Some(o) = i.oracle_id.as_deref() {
@@ -771,10 +774,11 @@ pub(crate) async fn shared_deck(pool: &SqlitePool, token: &str) -> AppResult<Sha
     .into_iter()
     .map(|(id, t, cmc, layout, image, ci, art, artist)| (id, (t, cmc, layout, image, ci, art, artist)))
     .collect();
-    let has_chosen = |c: &DeckCard| chosen.get(&c.oracle_id).filter(|p| plain_print(p)).and_then(|p| p.collector_number.as_ref()).is_some();
+    // A printing the deck names for a proxy isn't shown either.
+    let has_chosen = |c: &DeckCard| chosen.get(&c.oracle_id).filter(|p| plain_print(p) && !p.proxy).and_then(|p| p.collector_number.as_ref()).is_some();
     let unprinted: Vec<&str> = list
         .iter()
-        .filter(|c| !has_chosen(c) && crate::decks::owned_printing(by_oracle.get(c.oracle_id.as_str()).map(Vec::as_slice).unwrap_or_default(), row.container_id.as_deref()).is_none())
+        .filter(|c| !has_chosen(c) && crate::decks::owned_printing(by_oracle.get(c.oracle_id.as_str()).map(Vec::as_slice).unwrap_or_default(), None).is_none())
         .map(|c| c.oracle_id.as_str())
         .collect();
     let choices = crate::decks::printing_choices_for(pool, &unprinted).await?;
@@ -793,12 +797,12 @@ pub(crate) async fn shared_deck(pool: &SqlitePool, token: &str) -> AppResult<Sha
             }
         }
         // The printing the deck names, then (only when the collection is shared, above) a real
-        // copy of the owner's, the one in the deck's box first, else a paper printing.
+        // copy of the owner's, else a paper printing.
         let mine: &[&crate::collection::Item] = by_oracle.get(c.oracle_id.as_str()).map(Vec::as_slice).unwrap_or_default();
-        let chosen_print = chosen.get(&c.oracle_id).filter(|p| plain_print(p)).and_then(|p| {
+        let chosen_print = chosen.get(&c.oracle_id).filter(|p| plain_print(p) && !p.proxy).and_then(|p| {
             p.collector_number.clone().map(|n| PrintRef { set_code: p.set_code.clone(), collector_number: n, finish: p.finish.clone(), from: "chosen" })
         });
-        let printing = match chosen_print.or_else(|| crate::decks::owned_printing(mine, row.container_id.as_deref())) {
+        let printing = match chosen_print.or_else(|| crate::decks::owned_printing(mine, None)) {
             Some(p) => Some(p),
             None => crate::decks::paper_printing(choices.get(&c.oracle_id).map(Vec::as_slice).unwrap_or_default()),
         };
