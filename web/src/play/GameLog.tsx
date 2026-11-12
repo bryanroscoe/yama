@@ -4,6 +4,7 @@
 // An answer Yama gave for you from memory is tagged Automatic, with Turn off.
 
 import { useEffect, useRef, useState } from "react";
+import { SymbolText } from "../components/ManaSymbols";
 import { Button, Dialog, DialogHead } from "../components/ui";
 import { aboutMe, LOG_FILTERS, lineCard, logRows, type LogFilter, type Names } from "./feed";
 import { answerOf } from "./turns";
@@ -96,7 +97,7 @@ function Row({ h, text, names, meta, art, turns, connected, onPref }: { h: Happe
     <li className={`glog-row${auto ? " auto" : ""}`}>
       {img ? <img src={img} alt="" /> : <span className="glog-blank" aria-hidden="true" />}
       <span>
-        {text}
+        <SymbolText text={text} />
         {auto &&
           (answer ? (
             <>

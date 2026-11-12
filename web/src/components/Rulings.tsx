@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { SymbolText } from "./ManaSymbols";
 import type { Ruling } from "../api";
 import { cardDetailQuery } from "../cardDetail";
 import "./cards.css";
@@ -17,7 +18,7 @@ export function Rulings({ rulings }: { rulings: Ruling[] | null }) {
       <ol>
         {rulings.map((r, i) => (
           <li key={i}>
-            <p>{r.comment}</p>
+            <p><SymbolText text={r.comment} /></p>
             <p className="ruling-meta">
               {fmtDate(r.published_at)}, {SOURCES[r.source] ?? r.source}
             </p>

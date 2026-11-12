@@ -182,7 +182,8 @@ describe("card pictures use the shared components", () => {
     // Use <CardThumb src={…} /> from components/ui for a small picture beside a name,
     // <CardImage> for a full card, <Crop> or <ArtPanel> for an art tile. These files are those
     // components, or show pictures that aren't Scryfall's (MPC Autofill's, the print sheet's).
-    const own = new Set(["ui.tsx", "Crop.tsx", "ArtPanel.tsx", "ArtMosaic.tsx", "CardRef.tsx", "CardThumb.tsx"].map((f) => `web/src/components/${f}`).concat(["web/src/plan/MpcPrint.tsx", "web/src/plan/SwapSheet.tsx"]));
+    // ManaSymbols.tsx draws mana symbols ({G}, {T}) and is the one place for those.
+    const own = new Set(["ui.tsx", "Crop.tsx", "ArtPanel.tsx", "ArtMosaic.tsx", "CardRef.tsx", "CardThumb.tsx", "ManaSymbols.tsx"].map((f) => `web/src/components/${f}`).concat(["web/src/plan/MpcPrint.tsx", "web/src/plan/SwapSheet.tsx"]));
     const found = uses(/<img\b/, (file) => own.has(file) || BOARD.test(file));
     expect(found).toEqual([]);
     // The placeholder goes in `fallback`, so a picture that fails to load gets it too.

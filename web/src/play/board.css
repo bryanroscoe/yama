@@ -5294,6 +5294,13 @@ button.portrait:hover {
   color: var(--ground);
   font: 800 14px/1 var(--display);
 }
+.dw-shard-pip .ms {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  margin: 0;
+  vertical-align: 0;
+}
 .dw-shard-text {
   display: flex;
   flex-direction: column;
@@ -8052,7 +8059,6 @@ button.dw-pile2:disabled {
 .pb.wide.rail-collapsed .pb-rail:has(.responding) { position: static; grid-column: 2; grid-row: 2; width: auto; max-height: 100%; border-radius: 0; box-shadow: none; }
 .pb.wide .pb-mine:has(.pb-lane) { justify-content: flex-start; }
 .pb-lane .pb-row:has(.ft-under) { padding-bottom: 28px; }
-.pb-primary .mana-cost, .pb-secondary .mana-cost, .dw-cost .mana-cost { display: inline-flex; align-items: center; justify-content: center; min-width: 1.3em; margin-inline: 2px; padding-inline: 2px; border: 1px solid currentColor; border-radius: 999px; font-size: .9em; line-height: 1.3; }
 .ft-fd .ft-counters { flex: none; width: 100%; }
 .rail-decision.responding .rail-body { flex: 0 1 auto; }
 .rail-decision.responding .rail-foot { margin-top: 0; }

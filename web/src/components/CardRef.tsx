@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { ManaCost, SymbolText } from "./ManaSymbols";
 import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { api, type Card, type CardDetail, type SearchResult } from "../api";
@@ -61,8 +62,8 @@ function Preview({ name, oracleId, image, anchor, pinned, onClose, id }: { name:
   const src = back ? card.data?.back_image_normal : image ?? card.data?.image_normal;
   return createPortal(<div id={id} role={pinned ? "dialog" : "tooltip"} aria-label={name} className={`card-ref-preview${pinned ? " is-pinned" : ""}`} style={position}>
     {pinned && <Button variant="quiet" className="card-ref-close" autoFocus onClick={onClose} aria-label={`Close ${name} preview`}>Close</Button>}
-    {src && !failedImage ? <img src={src} alt={card.data?.name ?? name} crossOrigin="anonymous" onError={() => setFailedImage(true)} /> : <div className="card-ref-fallback"><b>{name}</b><p>{card.isPending ? "Loading card…" : card.isError ? "Card lookup failed. Try opening the card search." : "No card image is available in Yama yet."}</p>{card.data?.mana_cost && <p>{card.data.mana_cost}</p>}{card.data?.type_line && <p>{card.data.type_line}</p>}{card.data?.oracle_text && <p>{card.data.oracle_text}</p>}</div>}
-    {src && card.data?.oracle_text && <p className="visually-hidden">{card.data.oracle_text}</p>}
+    {src && !failedImage ? <img src={src} alt={card.data?.name ?? name} crossOrigin="anonymous" onError={() => setFailedImage(true)} /> : <div className="card-ref-fallback"><b>{name}</b><p>{card.isPending ? "Loading card…" : card.isError ? "Card lookup failed. Try opening the card search." : "No card image is available in Yama yet."}</p>{card.data?.mana_cost && <p><ManaCost cost={card.data.mana_cost} /></p>}{card.data?.type_line && <p>{card.data.type_line}</p>}{card.data?.oracle_text && <p><SymbolText text={card.data.oracle_text} /></p>}</div>}
+    {src && card.data?.oracle_text && <p className="visually-hidden"><SymbolText text={card.data.oracle_text} /></p>}
     {pinned && <div className="card-ref-footer">{card.data?.back_image_normal && <Button variant="outline" size="small" onClick={() => { setBack(!back); setFailedImage(false); }}>{back ? "Front face" : "Other face"}</Button>}<a href={previewDetailsUrl(name, card.data)} target="_blank" rel="noreferrer">{card.data?.remote ? "Open on Scryfall" : "Open card details"}</a></div>}
   </div>, document.body);
 }

@@ -6,6 +6,7 @@
 // choices (GCast's Command Tower menu). The main button in the rail or dock confirms.
 
 import { useEffect, useRef } from "react";
+import { SymbolText } from "../components/ManaSymbols";
 import { MANA } from "@yama/core";
 import { artCredits } from "../components/ArtPanel";
 import { Warn } from "./Decide";
@@ -80,7 +81,7 @@ export function PaymentRail({ p, meta, tapMana, onTapMana, onAct, disabled, summ
   if (summary) {
     return (
       <div className="pay-rail summary">
-        {p.payingFor && p.cost && <p className="small dim">Paying {p.cost} for {p.payingFor.name}</p>}
+        {p.payingFor && p.cost && <p className="small dim">Paying <SymbolText text={p.cost} /> for {p.payingFor.name}</p>}
         <Pips p={p} />
         <p className="pay-pool">
           <span className="dim">Mana pool:</span>
@@ -172,7 +173,7 @@ export function PaymentSheet({ p, meta, onAct, menu, onMenu, disabled, cardName,
               {art ? <img src={art} alt="" /> : <span className="blank" />}
               <span>
                 <b>{n}</b>
-                <span className="small">{chip?.text}</span>
+                <span className="small"><SymbolText text={chip?.text} /></span>
               </span>
             </Button>
           );
@@ -199,7 +200,7 @@ function ChoiceList({ source, onPick, disabled }: { source: ManaSourceView; onPi
               <span key={i} className="mana-dot" style={{ background: fill(m) }} />
             ))}
           </span>
-          <span className="mana-choice-text">{c.text}</span>
+          <span className="mana-choice-text"><SymbolText text={c.text} /></span>
           {/* A land's row says it taps; an ability's text and convoke's say so themselves. */}
           <span className={`mana-choice-cost${c.penalty ? " bad" : ""}`}>{c.penalty ? penaltyText(c.penalty) : c.kind === "tap" ? "Tap" : ""}</span>
         </Button>
