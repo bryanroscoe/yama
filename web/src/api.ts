@@ -420,6 +420,9 @@ export interface Sharing {
   wants_include_pending: boolean;
   /** Shared decks show their plan's simulated win rates. */
   share_lab_results: boolean;
+  /** When your public decks became listed publicly (Browse, commander and precon pages, search
+   *  engines); null for an account from before public-by-default that hasn't answered yet. */
+  public_listed_at: string | null;
   /** Live decks by visibility. */
   decks: Record<Visibility, number>;
 }

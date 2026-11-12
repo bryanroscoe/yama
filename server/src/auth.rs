@@ -480,12 +480,15 @@ async fn google_account(st: &AppState, sub: &str, email: &str, name: Option<&str
                     st.limits.new_accounts.allows("all")?;
                 }
                 let made = sqlx::query(
-                    "INSERT INTO users (id, google_sub, email, display_name, is_admin, created_at) VALUES (?, ?, ?, ?, 0, ?) ON CONFLICT DO NOTHING",
+                    // A new account's public decks are listed publicly from the start
+                    // (`sharing::LISTED`): `public_listed_at` is when it took that meaning on.
+                    "INSERT INTO users (id, google_sub, email, display_name, is_admin, created_at, public_listed_at) VALUES (?, ?, ?, ?, 0, ?, ?) ON CONFLICT DO NOTHING",
                 )
                 .bind(new_id())
                 .bind(sub)
                 .bind(email)
                 .bind(display_name(name, email))
+                .bind(now())
                 .bind(now())
                 .execute(&st.pool)
                 .await?;
@@ -595,7 +598,9 @@ pub async fn add_local_user(
     let hash = hash_password(&password)?;
     let name = name.map(str::to_string).unwrap_or_else(|| email.split('@').next().unwrap_or("player").to_string());
     sqlx::query(
-        "INSERT INTO users (id, email, display_name, is_admin, admin_granted, password_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+        // Only a new row gets `public_listed_at` (`sharing::LISTED`): an account that was here
+        // before keeps whatever it had, NULL included.
+        "INSERT INTO users (id, email, display_name, is_admin, admin_granted, password_hash, created_at, public_listed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(email) DO UPDATE SET password_hash = excluded.password_hash,
                                           admin_granted = users.admin_granted OR excluded.admin_granted,
                                           is_admin = users.is_admin OR excluded.admin_granted",
@@ -606,6 +611,7 @@ pub async fn add_local_user(
     .bind(admin)
     .bind(admin)
     .bind(&hash)
+    .bind(now())
     .bind(now())
     .execute(pool)
     .await?;
@@ -836,13 +842,16 @@ async fn delete_me(
 async fn upsert_user(st: &AppState, email: &str, name: &str) -> AppResult<User> {
     let is_admin = is_admin_email(&st.cfg, email);
     sqlx::query(
-        "INSERT INTO users (id, email, display_name, is_admin, created_at) VALUES (?, ?, ?, ?, ?)
+        // As in `add_local_user`: a new row is listed publicly from the start, an existing one keeps
+        // what it had.
+        "INSERT INTO users (id, email, display_name, is_admin, created_at, public_listed_at) VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT(email) DO UPDATE SET is_admin = excluded.is_admin OR users.admin_granted",
     )
     .bind(new_id())
     .bind(email)
     .bind(name)
     .bind(is_admin)
+    .bind(now())
     .bind(now())
     .execute(&st.pool)
     .await?;

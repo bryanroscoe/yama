@@ -79,6 +79,38 @@ pub fn visibility(v: &str) -> AppResult<&str> {
     VISIBILITIES.iter().copied().find(|x| *x == v).ok_or_else(|| AppError::bad("visibility is private, link or public"))
 }
 
+/// SQL that is true for a deck `d` and its owner `u` when the deck is **listed publicly**: shown
+/// in Browse and on its commander's and precon's pages, in the sitemap, and open to search
+/// engines. Every listing and every "may this be indexed" question goes through this one
+/// condition (or [`deck_listed`], which is the same thing for one deck), so they cannot disagree.
+///
+/// A listed deck is public, live and has its share token; its owner's account is not turned
+/// off, has a handle (a listing names its builder, and until an account has one its public decks
+/// are public by link only), and has taken on the new meaning of "public"
+/// (`users.public_listed_at`, migration 0083): accounts made since public-by-default have it from
+/// sign-up, older accounts once their owner answers the prompt. Without it a public deck keeps
+/// the old meaning: on its owner's profile, by its link, `noindex`, and nowhere else.
+pub(crate) const LISTED: &str = "d.visibility = 'public' AND d.archived = 0 AND d.share_token IS NOT NULL \
+     AND u.disabled_at IS NULL AND u.guest = 0 AND u.handle IS NOT NULL AND u.public_listed_at IS NOT NULL";
+
+/// Whether this deck is listed publicly ([`LISTED`]). An unknown deck is not.
+#[allow(dead_code)] // The listings that ask this (Browse, the sitemap) come in the changes after this one.
+pub(crate) async fn deck_listed(pool: &SqlitePool, deck_id: &str) -> AppResult<bool> {
+    Ok(sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT EXISTS(SELECT 1 FROM decks d JOIN users u ON u.id = d.owner_id WHERE d.id = ? AND {LISTED})")))
+        .bind(deck_id)
+        .fetch_one(pool)
+        .await?)
+}
+
+/// The account takes on the new meaning of "public" from now: its public decks are listed
+/// ([`LISTED`]). Kept if already set, so the first time stays on record. For an account's owner
+/// answering the one-time prompt; new accounts get it at sign-up (`auth.rs`).
+#[allow(dead_code)] // The prompt that calls this is its own change.
+pub(crate) async fn list_publicly(pool: &SqlitePool, user: &str) -> AppResult<()> {
+    sqlx::query("UPDATE users SET public_listed_at = COALESCE(public_listed_at, ?) WHERE id = ?").bind(now()).bind(user).execute(pool).await?;
+    Ok(())
+}
+
 /// Handles that would read as Yama itself, or as a page.
 const RESERVED: [&str; 20] = [
     "admin", "administrator", "api", "about", "help", "support", "yama", "official", "staff", "moderator", "mod", "me", "new",
@@ -121,13 +153,16 @@ struct Sharing {
     wants_include_pending: bool,
     /// Shared decks show their plan's simulated win rates.
     share_lab_results: bool,
+    /// When the account's public decks became listed publicly ([`LISTED`]); null for an account
+    /// from before public-by-default whose owner hasn't answered the prompt.
+    public_listed_at: Option<String>,
     /// Live decks by visibility.
     decks: DeckCounts,
 }
 
 async fn sharing(pool: &SqlitePool, user: &str) -> AppResult<Sharing> {
-    let (handle, new_deck_visibility, collection_public, wants_public, wants_include_pending, share_lab_results): (Option<String>, String, bool, bool, bool, bool) =
-        sqlx::query_as("SELECT handle, new_deck_visibility, collection_public, wants_public, wants_include_pending, share_lab_results FROM users WHERE id = ?")
+    let (handle, new_deck_visibility, collection_public, wants_public, wants_include_pending, share_lab_results, public_listed_at): (Option<String>, String, bool, bool, bool, bool, Option<String>) =
+        sqlx::query_as("SELECT handle, new_deck_visibility, collection_public, wants_public, wants_include_pending, share_lab_results, public_listed_at FROM users WHERE id = ?")
             .bind(user)
             .fetch_one(pool)
             .await?;
@@ -144,7 +179,7 @@ async fn sharing(pool: &SqlitePool, user: &str) -> AppResult<Sharing> {
             _ => decks.private = n,
         }
     }
-    Ok(Sharing { handle, new_deck_visibility, collection_public, wants_public, wants_include_pending, share_lab_results, decks })
+    Ok(Sharing { handle, new_deck_visibility, collection_public, wants_public, wants_include_pending, share_lab_results, public_listed_at, decks })
 }
 
 async fn get_sharing(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Sharing>> {

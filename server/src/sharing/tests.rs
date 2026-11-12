@@ -1944,3 +1944,63 @@ async fn unresolved_planned_cards_stay_on_the_want_list_without_invented_prices(
     assert_eq!(lines.len(),1);
     assert_eq!(lines[0].oracle_id.as_deref(),Some("future-id"));
 }
+
+/// "Listed publicly" (`sharing::LISTED`) is the one answer to whether a deck may appear in Browse,
+/// the commander and precon listings and the sitemap, and be indexed. People made decks public
+/// when that meant "on my profile, not indexed": theirs stay unlisted until they answer the
+/// prompt, which is what `public_listed_at` records.
+#[tokio::test]
+async fn a_deck_is_listed_publicly_only_when_public_and_its_owner_took_the_new_meaning() {
+    let (app, pool) = app().await;
+    let (owner, auth) = user(&pool, "lister@example.com").await;
+    let (id, _) = deck(&pool, &owner, "Listed or not").await;
+    let listed = || async { super::deck_listed(&pool, &id).await.unwrap() };
+    let set = |sql: &'static str| {
+        let pool = pool.clone();
+        let owner = owner.clone();
+        async move {
+            sqlx::query(sql).bind(&owner).execute(&pool).await.unwrap();
+        }
+    };
+    let path = format!("/api/decks/{id}");
+
+    // An account from before the change: public with a handle is still the old meaning.
+    send(&app, Method::PUT, "/api/me/sharing", Some(&auth), Some(json!({ "handle": "lister" }))).await;
+    send(&app, Method::PATCH, &path, Some(&auth), Some(json!({ "visibility": "public" }))).await;
+    let (_, me) = send(&app, Method::GET, "/api/me/sharing", Some(&auth), None).await;
+    assert!(me["public_listed_at"].is_null(), "{me}");
+    assert!(!listed().await, "an account that never agreed is not listed");
+    assert_eq!(page(&app, "/u/lister").await.0, StatusCode::OK, "its profile still shows the deck");
+
+    // Its owner says yes: listed, and the first yes is the one kept.
+    super::list_publicly(&pool, &owner).await.unwrap();
+    let (_, me) = send(&app, Method::GET, "/api/me/sharing", Some(&auth), None).await;
+    let since = me["public_listed_at"].as_str().expect("set").to_string();
+    assert!(listed().await);
+    super::list_publicly(&pool, &owner).await.unwrap();
+    let again: String = sqlx::query_scalar("SELECT public_listed_at FROM users WHERE id = ?").bind(&owner).fetch_one(&pool).await.unwrap();
+    assert_eq!(again, since);
+
+    // Only a public deck: by link, private and archived are never listed.
+    for v in ["link", "private"] {
+        send(&app, Method::PATCH, &path, Some(&auth), Some(json!({ "visibility": v }))).await;
+        assert!(!listed().await, "{v}");
+    }
+    send(&app, Method::PATCH, &path, Some(&auth), Some(json!({ "visibility": "public" }))).await;
+    assert!(listed().await);
+    sqlx::query("UPDATE decks SET archived = 1 WHERE id = ?").bind(&id).execute(&pool).await.unwrap();
+    assert!(!listed().await, "archived");
+    sqlx::query("UPDATE decks SET archived = 0 WHERE id = ?").bind(&id).execute(&pool).await.unwrap();
+
+    // The owner: no handle (public by link until one is chosen), turned off, or a guest player.
+    set("UPDATE users SET handle = NULL WHERE id = ?").await;
+    assert!(!listed().await, "no handle");
+    set("UPDATE users SET handle = 'lister', disabled_at = '2026-11-12T00:00:00Z' WHERE id = ?").await;
+    assert!(!listed().await, "account turned off");
+    set("UPDATE users SET disabled_at = NULL, guest = 1 WHERE id = ?").await;
+    assert!(!listed().await, "guest player");
+    set("UPDATE users SET guest = 0 WHERE id = ?").await;
+    assert!(listed().await);
+
+    assert!(!super::deck_listed(&pool, "no-such-deck").await.unwrap());
+}
