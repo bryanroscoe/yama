@@ -325,11 +325,13 @@ impl PlayHub {
         log: Option<String>,
         answers: Option<String>,
     ) {
-        let lines: Vec<yama_play::LogLine> = log.as_deref().and_then(|l| serde_json::from_str(l).ok()).unwrap_or_default();
+        let lines: Option<Vec<yama_play::LogLine>> = log.as_deref().and_then(|l| serde_json::from_str(l).ok());
         let checked = (|| -> anyhow::Result<(Vec<SeatCfg>, Match)> {
+            // Without the saved log there's nothing to check the replay against.
+            let lines = lines.as_deref().context("no readable saved log")?;
             let seats: Vec<SeatCfg> = serde_json::from_str(&seats).context("reading the seats")?;
             let replay = replay.as_deref().context("no saved replay")?;
-            let mut m = engine.resume_checked(replay, &ai_seats(&seats), &lines)?;
+            let mut m = engine.resume_checked(replay, &ai_seats(&seats), lines)?;
             if let Some(answers) = answers.as_deref().and_then(|a| serde_json::from_str(a).ok()) {
                 m.set_remembered(answers);
             }
@@ -351,7 +353,7 @@ impl PlayHub {
             }
             Err(why) => {
                 tracing::warn!(game_id, from = old.unwrap_or("unrecorded"), error = %format!("{why:#}"), "closing an online game the current engine can't continue");
-                if let Err(e) = close_unrunnable(pool, &game_id, lines).await {
+                if let Err(e) = close_unrunnable(pool, &game_id, lines.unwrap_or_default()).await {
                     tracing::error!(game_id, error = %format!("{e:#}"), "couldn't close an online game");
                 }
             }
@@ -786,8 +788,11 @@ async fn adopt_current_engine(pool: &SqlitePool, game_id: &str, old: Option<&str
         .await?
         .rows_affected();
     anyhow::ensure!(changed == 1, "the game's saved engine changed meanwhile");
+    // The new identity and the game as the current engine saves it commit together: a failure
+    // leaves the game on its old engine, to be tried again at the next start.
+    persist_in(&mut tx, game_id, m, false).await?;
     tx.commit().await?;
-    persist(pool, game_id, m, false).await
+    Ok(())
 }
 
 /// Close a live game no engine here can continue: it ends without a winner, as an ended solo
@@ -816,20 +821,27 @@ async fn close_unrunnable(pool: &SqlitePool, game_id: &str, mut lines: Vec<yama_
 const CLOSED_NOTE: &str = "This game was closed without a winner: it was saved on an older version of Yama's rules engine, and couldn't be continued on this one.";
 
 async fn persist(pool: &SqlitePool, game_id: &str, m: &Match, knockouts: bool) -> anyhow::Result<()> {
-    let stage = if m.is_over() { "over" } else { "live" };
     let mut tx = pool.begin().await?;
-    history::archive_original(&mut tx, game_id, yama_play::ENGINE_VERSION).await?;
+    persist_in(&mut tx, game_id, m, knockouts).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// [`persist`] inside a transaction the caller commits.
+async fn persist_in(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, game_id: &str, m: &Match, knockouts: bool) -> anyhow::Result<()> {
+    let stage = if m.is_over() { "over" } else { "live" };
+    history::archive_original(tx, game_id, yama_play::ENGINE_VERSION).await?;
     let changed=sqlx::query("UPDATE online_games SET replay = ?, log = ?, answers = ?, revision = ?, stage = ?, updated_at = ? WHERE game_id = ? AND EXISTS (SELECT 1 FROM games WHERE id=? AND engine_version=?)")
         .bind(m.replay_json())
         .bind(serde_json::to_string(m.log_lines())?)
         .bind((!m.remembered().is_empty()).then(|| serde_json::to_string(m.remembered())).transpose()?)
         .bind(m.revision as i64).bind(stage).bind(now()).bind(game_id).bind(game_id).bind(yama_play::ENGINE_VERSION)
-        .execute(&mut *tx).await?.rows_affected();
+        .execute(&mut **tx).await?.rows_affected();
     anyhow::ensure!(changed == 1, "saved game identity changed; refusing current-runtime write");
     // The spectator's feed says who dealt a knockout's damage; nobody is out in most saves.
     let events = if (knockouts || m.is_over()) && !m.outs().is_empty() { m.events(None) } else { vec![] };
     if knockouts || m.is_over() {
-        write_knockouts(&mut tx, game_id, &results::knockouts(m.outs(), &events)).await?;
+        write_knockouts(tx, game_id, &results::knockouts(m.outs(), &events)).await?;
     }
     if m.is_over() {
         let view = m.view(None);
@@ -842,18 +854,17 @@ async fn persist(pool: &SqlitePool, game_id: &str, m: &Match, knockouts: bool) -
             .bind(i64::from(m.starting_seat()))
             .bind(results::win_condition(m.outs(), &events, winner))
             .bind(game_id)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
         for p in &view.players {
             sqlx::query("UPDATE game_seats SET final_life = ? WHERE game_id = ? AND seat = ?")
                 .bind(i64::from(p.life))
                 .bind(game_id)
                 .bind(i64::from(p.seat))
-                .execute(&mut *tx)
+                .execute(&mut **tx)
                 .await?;
         }
     }
-    tx.commit().await?;
     Ok(())
 }
 
@@ -1652,20 +1663,25 @@ async fn remove(State(st): State<AppState>, Player(user): Player, Path(id): Path
     if r.stage == "live" && !stranded {
         return Err(playing());
     }
-    // The stage is checked again in the delete: Start may have won the race.
+    // The stage, and for a live game its retired engine, are checked again in the delete: Start
+    // may have won the race, or startup may have moved the game to the current engine meanwhile.
     let deleted = sqlx::query(
         "DELETE FROM games WHERE id = ?1 AND created_by = ?2 AND mode = 'online'
-           AND EXISTS (SELECT 1 FROM online_games o WHERE o.game_id = ?1 AND o.host_id = ?2 AND (o.stage != 'live' OR ?3))",
+           AND EXISTS (SELECT 1 FROM online_games o WHERE o.game_id = ?1 AND o.host_id = ?2
+             AND (o.stage != 'live' OR (?3 AND (games.engine_version IS NULL OR games.engine_version NOT IN (?4, ?5)))))",
     )
     .bind(&id)
     .bind(&user.id)
     .bind(stranded)
+    .bind(yama_play::ENGINE_VERSION)
+    .bind(history::IDENTITY)
     .execute(&st.pool)
     .await?
     .rows_affected();
     if deleted == 0 {
         return Err(playing());
     }
+    st.play.stop(&id);
     st.play.unavailable.lock().unwrap().remove(&id);
     Ok(Json(serde_json::json!({ "deleted": true, "was": if r.stage == "lobby" { "lobby" } else { "game" } })))
 }

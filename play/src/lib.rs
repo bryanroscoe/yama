@@ -2878,7 +2878,13 @@ pub const MOVED_NOTE: &str = "This game moved to a newer version of Yama's rules
 /// produced every saved one. Lines for one seat only, and Yama's own lines, aren't compared.
 pub fn check_replayed_log(saved: &[LogLine], regenerated: &[LogLine]) -> Result<(), String> {
     let mut produced = regenerated.iter().rev();
-    for line in saved.iter().rev().filter(|l| l.seat.is_none() && !yama_line(&l.text)) {
+    let compared: Vec<&LogLine> = saved.iter().rev().filter(|l| l.seat.is_none() && !yama_line(&l.text)).collect();
+    // Every action is saved with its lines, so a replay that wrote lines can't match a save with
+    // none: nothing would be checked.
+    if compared.is_empty() && !regenerated.is_empty() {
+        return Err("the saved log has no lines to check the replay against".into());
+    }
+    for line in compared {
         match produced.next() {
             Some(r) if r.turn == line.turn && r.text == line.text => {}
             Some(r) => return Err(format!("the log differs in turn {}: saved \"{}\", replayed \"{}\"", line.turn, line.text, r.text)),

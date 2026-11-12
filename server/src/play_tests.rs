@@ -2227,6 +2227,7 @@ async fn games_on_a_retired_engine_move_over_when_they_replay_the_same_and_close
         ("unrecorded", None, replay.as_str(), log.clone()),
         ("differs", Some("phase-old"), replay.as_str(), serde_json::to_string(&tampered).unwrap()),
         ("unreadable", Some("phase-old"), "NOT JSON", log.clone()),
+        ("no-log", Some("phase-old"), replay.as_str(), log.clone()),
     ];
     for (id, identity, replay, log) in &cases {
         saved_game(&pool, id, &host, *identity, "live", replay).await;
@@ -2238,6 +2239,8 @@ async fn games_on_a_retired_engine_move_over_when_they_replay_the_same_and_close
             .await
             .unwrap();
     }
+    // Without its saved log a game can't be checked, however well it replays.
+    sqlx::query("UPDATE online_games SET log = NULL WHERE game_id = 'no-log'").execute(&pool).await.unwrap();
     hub.resume_live(&pool).await;
     let state = |id: &'static str| {
         let pool = pool.clone();
@@ -2267,7 +2270,7 @@ async fn games_on_a_retired_engine_move_over_when_they_replay_the_same_and_close
     let unrecorded: String = sqlx::query_scalar("SELECT engine_version FROM online_game_originals WHERE game_id = 'unrecorded'").fetch_one(&pool).await.unwrap();
     assert_eq!(unrecorded, "unrecorded");
     // Doesn't: closed without a winner, its old engine and original kept, nothing running.
-    for id in ["differs", "unreadable"] {
+    for id in ["differs", "unreadable", "no-log"] {
         let (stage, engine_version, status, log) = state(id).await;
         assert_eq!((stage.as_str(), engine_version.as_deref(), status.as_str()), ("over", Some("phase-old"), "abandoned"), "{id}");
         assert!(log.unwrap().contains("This game was closed without a winner"), "{id}");
@@ -2299,4 +2302,7 @@ fn a_replayed_log_must_match_the_saved_one_from_the_end() {
     assert!(yama_play::check_replayed_log(&[line(1, "b")], &replayed).is_err(), "the replay went further than the save");
     assert!(yama_play::check_replayed_log(&[line(1, "z"), line(1, "a"), line(1, "b"), line(2, "c")], &replayed).is_err());
     assert!(yama_play::check_replayed_log(&[line(1, "c")], &[line(2, "c")]).is_err(), "turns must match");
+    assert!(yama_play::check_replayed_log(&[], &replayed).is_err(), "nothing saved to check against");
+    assert!(yama_play::check_replayed_log(&[line(2, "Ana conceded.")], &replayed).is_err(), "only Yama's own lines saved");
+    assert_eq!(yama_play::check_replayed_log(&[], &[]), Ok(()), "a game with no lines yet");
 }
