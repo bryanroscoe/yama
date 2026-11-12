@@ -1189,6 +1189,22 @@ pub(super) async fn versioned_style(
     Ok(response)
 }
 
+/// `/robots.txt`, from the server with its own content type and cache header, so the web
+/// app's fallback page is never what a crawler (or Cloudflare's cache) gets for it. The public
+/// pages may be indexed: the precon and commander reference, and decks their builders made
+/// public, which the sitemap names. Shared pages that are not listed publicly say so
+/// themselves with `noindex`, and so do the public JSON answers under `/api/`: nothing is
+/// disallowed here, because a crawler that may not fetch an address never sees its `noindex`
+/// and can list the bare address anyway. Not counted against the public pages' limit: a
+/// crawler that is refused robots.txt may stay away from the whole site.
+pub(super) async fn robots(State(st): State<AppState>, headers: HeaderMap) -> AppResult<Response> {
+    let mut body = String::from("User-agent: *\nAllow: /\n");
+    if let Some(base) = st.cfg.public_url.as_deref() {
+        write!(body, "\nSitemap: {}/sitemap.xml\n", base.trim_end_matches('/')).unwrap();
+    }
+    Ok(cached(&headers, body, "text/plain; charset=utf-8"))
+}
+
 pub(super) async fn sitemap(
     State(st): State<AppState>,
     address: ClientAddress,
@@ -1218,6 +1234,12 @@ pub(super) async fn sitemap(
             .map(|s| format!("/precons/{s}")),
     ) {
         write!(body, "<url><loc>{}{}</loc></url>", e(base), e(&path)).unwrap();
+    }
+    // The decks that are listed publicly (Browse's listing): the only shared pages that may be
+    // indexed. A deck shared by link, a profile and a collection are never here.
+    for (token, saved) in crate::sharing::browse::sitemap_decks(&st.pool).await? {
+        let lastmod = if chrono::NaiveDate::parse_from_str(&saved, "%Y-%m-%d").is_ok() { format!("<lastmod>{saved}</lastmod>") } else { String::new() };
+        write!(body, "<url><loc>{}/d/{}</loc>{lastmod}</url>", e(base), e(&token)).unwrap();
     }
     body.push_str("</urlset>");
     Ok(cached(&headers, body, "application/xml; charset=utf-8"))

@@ -6,12 +6,28 @@ use crate::public_precons::html::stylesheet;
 use axum::extract::Query;
 use std::fmt::Write;
 
+/// A shared page that asks search engines not to index it: every shared page but a listed deck's.
 pub(super) fn page(st: &AppState, path: &str, title: &str, description: &str, image: Option<&str>, body: &str) -> String {
+    page_for(st, path, title, description, image, body, false)
+}
+
+/// A page search engines may index: a deck that is listed publicly (`sharing::LISTED`). It
+/// names its own address as the canonical one.
+pub(super) fn indexed_page(st: &AppState, path: &str, title: &str, description: &str, image: Option<&str>, body: &str) -> String {
+    page_for(st, path, title, description, image, body, true)
+}
+
+fn page_for(st: &AppState, path: &str, title: &str, description: &str, image: Option<&str>, body: &str, index: bool) -> String {
     let base = st.cfg.public_url.as_deref().map(|b| b.trim_end_matches('/'));
+    let robots = match (index, base) {
+        (false, _) => "<meta name=\"robots\" content=\"noindex\">".to_string(),
+        (true, Some(b)) => format!("<link rel=\"canonical\" href=\"{}{}\">", e(b), e(path)),
+        (true, None) => String::new(),
+    };
     let url = base.map(|b| format!("<meta property=\"og:url\" content=\"{}{}\">", e(b), e(path))).unwrap_or_default();
     let og_image = image.map(|i| format!("<meta property=\"og:image\" content=\"{}\">", e(i))).unwrap_or_default();
     format!(
-        r##"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#0b0c0e"><meta name="robots" content="noindex"><title>{title} | Yama</title><meta name="description" content="{description}"><meta property="og:title" content="{title}"><meta property="og:description" content="{description}"><meta property="og:type" content="website">{url}{og_image}<link rel="icon" href="/icon.svg"><link rel="preload" href="/precon-fonts/big-shoulders-display-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="{css}"><script defer src="/card-preview-v1.js"></script><script defer src="/share-copy-v1.js"></script></head><body class="public-precons public-shared">{header}<main id="content">{body}</main>{footer}</body></html>"##,
+        r##"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#0b0c0e">{robots}<title>{title} | Yama</title><meta name="description" content="{description}"><meta property="og:title" content="{title}"><meta property="og:description" content="{description}"><meta property="og:type" content="website">{url}{og_image}<link rel="icon" href="/icon.svg"><link rel="preload" href="/precon-fonts/big-shoulders-display-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="{css}"><script defer src="/card-preview-v1.js"></script><script defer src="/share-copy-v1.js"></script></head><body class="public-precons public-shared">{header}<main id="content">{body}</main>{footer}</body></html>"##,
         title = e(title),
         description = e(description),
         css = stylesheet().1,
@@ -199,7 +215,15 @@ pub(super) async fn deck(State(st): State<AppState>, address: ClientAddress, hea
     body.push_str("</div>");
     write!(body, "<p class=\"report-link\"><a href=\"/d/{}/report\" rel=\"nofollow\">Report this deck</a></p>", e(&d.token)).unwrap();
     let description = format!("{}{}, a Commander deck shared on Yama.", d.name, if d.commanders.is_empty() { String::new() } else { format!(" ({})", d.commanders.join(" and ")) });
-    Ok(response(&headers, page(&st, &format!("/d/{token}"), &d.name, &description, d.art.as_ref().map(|a| a.0.as_str()), &body)))
+    // A deck that is listed publicly may be indexed; every other shared deck asks not to be.
+    let path = format!("/d/{token}");
+    let art = d.art.as_ref().map(|a| a.0.as_str());
+    if !d.listed {
+        return Ok(response(&headers, page(&st, &path, &d.name, &description, art, &body)));
+    }
+    let mut res = response(&headers, indexed_page(&st, &path, &d.name, &description, art, &body));
+    res.headers_mut().remove("x-robots-tag");
+    Ok(res)
 }
 
 /// A deck's description as paragraphs: a blank line starts a new one, a single line break stays

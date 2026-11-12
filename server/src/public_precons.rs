@@ -45,6 +45,7 @@ pub fn router() -> Router<AppState> {
         .route("/precons/style.css", get(html::style))
         .route("/precons/assets/{filename}", get(html::versioned_style))
         .route("/sitemap.xml", get(html::sitemap))
+        .route("/robots.txt", get(html::robots))
 }
 
 /// Only these GET/HEAD APIs bypass view-as resolution: their output has no account context.
