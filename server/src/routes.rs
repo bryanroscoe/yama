@@ -82,6 +82,7 @@ pub fn app(state: AppState) -> Router {
         .merge(crate::scan::router(&state.cfg.data_dir))
         .merge(crate::scan_samples::router())
         .merge(crate::sharing::router())
+        .merge(crate::moderation::router())
         .merge(crate::people::router())
         .merge(crate::advisor::router())
         .merge(crate::mcp::router())

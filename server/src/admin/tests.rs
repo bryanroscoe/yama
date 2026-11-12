@@ -536,6 +536,13 @@ async fn deleting_an_account_leaves_nothing_of_it() {
     let (v_deck, v_version) = deck(&pool, &v, "Victim's deck").await;
     let (b_deck, b_version) = deck(&pool, &b, "Bystander's deck").await;
     fill(&pool, "deck_version_checks", &[("version_id", t(&v_version))]).await;
+    // Moderation: a report about its deck and one about its profile, a takedown of its deck,
+    // and what it decided as an admin about someone else's (kept, without it).
+    fill(&pool, "content_reports", &[("kind", t("deck")), ("owner_id", t(&v)), ("deck_id", t(&v_deck))]).await;
+    fill(&pool, "content_reports", &[("kind", t("profile")), ("owner_id", t(&v))]).await;
+    fill(&pool, "deck_takedowns", &[("deck_id", t(&v_deck)), ("owner_id", t(&v)), ("admin_id", t(&b))]).await;
+    fill(&pool, "content_reports", &[("kind", t("deck")), ("owner_id", t(&b)), ("deck_id", t(&b_deck)), ("resolved_by", t(&v))]).await;
+    fill(&pool, "deck_takedowns", &[("deck_id", t(&b_deck)), ("owner_id", t(&b)), ("admin_id", t(&v))]).await;
     let container = fill(&pool, "containers", &[("owner_id", t(&v))]).await;
     fill(&pool, "collection_items", &[("owner_id", t(&v)), ("container_id", t(&container))]).await;
     fill(&pool, "applied_ops", &[("owner_id", t(&v))]).await;
@@ -711,6 +718,12 @@ async fn deleting_an_account_leaves_nothing_of_it() {
     assert_eq!(count(&pool, "invites", "email", "victim@example.com").await, 0);
     assert_eq!(count(&pool, "decks", "id", &v_deck).await, 0);
     assert_eq!(count(&pool, "deck_versions", "id", &v_version).await, 0);
+    assert_eq!(count(&pool, "content_reports", "owner_id", &v).await, 0);
+    assert_eq!(count(&pool, "deck_takedowns", "owner_id", &v).await, 0);
+    assert_eq!(count(&pool, "content_reports", "owner_id", &b).await, 1);
+    assert_eq!(scalar(&pool, "SELECT resolved_by FROM content_reports WHERE owner_id = ?", &b).await, None);
+    assert_eq!(count(&pool, "deck_takedowns", "owner_id", &b).await, 1);
+    assert_eq!(scalar(&pool, "SELECT admin_id FROM deck_takedowns WHERE owner_id = ?", &b).await, None);
     let seats_on_its_deck: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM game_seats WHERE deck_version_id = ?").bind(&v_version).fetch_one(&pool).await.unwrap();
     assert_eq!(seats_on_its_deck, 0);
@@ -752,6 +765,8 @@ async fn deleting_an_account_leaves_nothing_of_it() {
         // Likewise the audit rows of views between the two accounts go with the victim.
         let expected = match (*table, *column) {
             ("online_games", "host_id") | ("view_sessions", "admin_id") | ("view_sessions", "target_id") => before - 1,
+            // The takedown the bystander made of the victim's deck goes with that deck.
+            ("deck_takedowns", "admin_id") => before - 1,
             _ => before,
         };
         assert!(after >= expected, "the bystander lost {table}.{column} rows ({before} before, {after} after)");

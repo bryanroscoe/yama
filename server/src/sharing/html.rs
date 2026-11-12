@@ -197,6 +197,7 @@ pub(super) async fn deck(State(st): State<AppState>, address: ClientAddress, hea
     body.push_str(&crate::public_page::stats_panel(&x.stats));
     body.push_str(&crate::public_page::singles_panel(&x.singles));
     body.push_str("</div>");
+    write!(body, "<p class=\"report-link\"><a href=\"/d/{}/report\" rel=\"nofollow\">Report this deck</a></p>", e(&d.token)).unwrap();
     let description = format!("{}{}, a Commander deck shared on Yama.", d.name, if d.commanders.is_empty() { String::new() } else { format!(" ({})", d.commanders.join(" and ")) });
     Ok(response(&headers, page(&st, &format!("/d/{token}"), &d.name, &description, d.art.as_ref().map(|a| a.0.as_str()), &body)))
 }
@@ -334,6 +335,7 @@ pub(super) async fn profile(State(st): State<AppState>, address: ClientAddress, 
         }
     }
     body.push_str(&super::research::profile_plans(&st.pool, &sharer.id).await?);
+    write!(body, "<p class=\"report-link\"><a href=\"/u/{}/report\" rel=\"nofollow\">Report this profile</a></p>", e(&h)).unwrap();
     let description = format!("@{h}'s Commander decks on Yama.");
     let image = decks.iter().find_map(|d| d.art.as_ref().map(|a| a.0.clone()));
     Ok(response(&headers, page(&st, &format!("/u/{h}"), &format!("@{h}"), &description, image.as_deref(), &body)))

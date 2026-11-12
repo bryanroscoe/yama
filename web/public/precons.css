@@ -1553,3 +1553,17 @@ a.source-chip:hover,a.source-chip:focus-visible {
 .share-about { max-width:70ch; margin:0 0 32px; }
 .share-about h2 { margin:0 0 8px; }
 .share-about p { margin:0 0 8px; overflow-wrap:anywhere; }
+
+/* Report a shared deck or profile: a link under the page, and one short form (no script). */
+.report-link { margin:40px 0 0; font-size:14px; }
+.report-link a { color:var(--dim); display:inline-flex; align-items:center; min-height:44px; }
+.report-form { max-width:560px; margin:0 auto; padding:8px 0 56px; }
+.report-form .back-link { padding-inline:0; display:inline-flex; align-items:center; }
+.report-form h1 { margin:8px 0 12px; }
+.report-form fieldset { border:0; padding:0; margin:24px 0 20px; min-width:0; }
+.report-form legend { padding:0; margin-bottom:8px; font-weight:700; }
+.report-form .choice { display:flex; align-items:center; gap:12px; min-height:44px; cursor:pointer; }
+.report-form .choice input { width:20px; height:20px; min-height:0; padding:0; margin:0; flex:none; accent-color:var(--text); }
+.report-form textarea { display:block; margin-top:8px; font-family:inherit; resize:vertical; }
+.report-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px; margin-top:20px; }
+.report-error { margin-top:16px; padding:12px 14px; border:1px solid var(--line); border-radius:8px; }

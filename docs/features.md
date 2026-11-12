@@ -57,6 +57,14 @@ Share button changes it afterwards. A first public deck asks for a handle (on th
 in the deck's Share sheet). Without one the deck is public by link; it joins the profile once a
 handle is chosen.
 
+Every shared deck and profile page has a Report link: anyone can tell Yama's moderator what is
+wrong with it, without an account, and nothing about the sender is kept. In Admin, Moderation, an
+admin dismisses a report or takes the deck down with a reason; a deck taken down is private, with
+its configurations, and cannot be shared again until an admin restores it. Its owner is told why
+when they try to share it. Public pages mask a
+short list of slurs in deck names and descriptions, refuse them in handles, and show links in a
+public deck's name and description as "[link removed]".
+
 Yama moved to [yama.ing](https://yama.ing) on 28 October 2026. Anyone still on the old address
 should sync pending changes there before signing in at the new one; installed apps and MCP
 connectors need the new URL.

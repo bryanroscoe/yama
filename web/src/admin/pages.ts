@@ -2,6 +2,7 @@
 export { AdminLayout } from "./AdminLayout";
 export { BugReportsPage } from "./BugReports";
 export { LabRunsPage } from "./LabRuns";
+export { ModerationPage } from "./Moderation";
 export { PeoplePage } from "./People";
 export { ServerPage } from "./Server";
 export { UsagePage } from "./Usage";

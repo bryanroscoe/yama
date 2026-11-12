@@ -263,7 +263,58 @@ export const adminApi = {
   grantShared: (id: string, dailyLimit: number | null) =>
     api<SharedOverview>(`/api/admin/users/${encodeURIComponent(id)}/advisor-shared`, { method: "PUT", json: { daily_limit: dailyLimit } }),
   revokeShared: (id: string) => api<SharedOverview>(`/api/admin/users/${encodeURIComponent(id)}/advisor-shared`, { method: "DELETE" }),
+  moderation: () => api<Moderation>("/api/admin/moderation"),
+  dismissReport: (id: string, note?: string) =>
+    api<Moderation>(`/api/admin/moderation/reports/${encodeURIComponent(id)}/dismiss`, { method: "POST", json: { note: note ?? null } }),
+  /** `deck` is a deck id, a share token or a shared page's address. */
+  takeDown: (deck: string, reason: string) => api<Moderation>("/api/admin/moderation/takedowns", { method: "POST", json: { deck, reason } }),
+  restoreDeck: (takedownId: string) => api<Moderation>(`/api/admin/moderation/takedowns/${encodeURIComponent(takedownId)}/restore`, { method: "POST" }),
 };
+
+/** A report of a shared deck or a profile (server/src/moderation.rs). */
+export interface ContentReport {
+  id: string;
+  kind: "deck" | "profile";
+  reason: string;
+  details: string | null;
+  created_at: string;
+  resolved_at: string | null;
+  resolution: "taken_down" | "dismissed" | null;
+  note: string | null;
+  owner_id: string;
+  owner_email: string;
+  handle: string | null;
+  deck_id: string | null;
+  /** As its owner named it, unfiltered. */
+  deck_name: string | null;
+  deck_token: string | null;
+  deck_visibility: "private" | "link" | "public" | null;
+  deck_taken_down: boolean;
+  /** Its owner deleted it since. */
+  deck_archived: boolean;
+}
+
+/** A deck an admin made private, and why. */
+export interface Takedown {
+  id: string;
+  deck_id: string;
+  deck_name: string;
+  owner_email: string;
+  handle: string | null;
+  admin_email: string | null;
+  reason: string;
+  was_visibility: string;
+  created_at: string;
+  restored_at: string | null;
+}
+
+export interface Moderation {
+  /** Each reason's stored value and its words. */
+  reasons: [string, string][];
+  open: ContentReport[];
+  resolved: ContentReport[];
+  takedowns: Takedown[];
+}
 
 /** One "View as" (server/src/view_as.rs), for the viewing log. */
 export interface ViewLogRow {

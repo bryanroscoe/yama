@@ -1431,6 +1431,10 @@ async fn update_deck(
         Some(n) if n.trim() != name => deck_name(&n)?,
         _ => name,
     };
+    // A deck an admin took down stays private until an admin restores it (`moderation.rs`).
+    if body.visibility.as_deref().is_some_and(|v| v != "private") {
+        crate::moderation::refuse_if_taken_down(&mut tx, &id).await?;
+    }
     let configuration = match body.configuration {
         Some(label) => configuration_label(label.as_deref())?,
         None => configuration,
@@ -1570,8 +1574,12 @@ async fn new_configuration(
             .await?;
     }
     // It shares no more than the list it copies: the source deck's visibility, not the default
-    // for new decks.
-    sqlx::query("UPDATE decks SET parent_id = ?, configuration = ?, visibility = (SELECT visibility FROM decks WHERE id = ?) WHERE id = ?")
+    // for new decks. A configuration of a deck an admin took down is taken down with it
+    // (`moderation.rs`), so it can't be shared in its place.
+    sqlx::query(
+        "UPDATE decks SET parent_id = ?1, configuration = ?2, visibility = (SELECT visibility FROM decks WHERE id = ?3),
+                taken_down_at = (SELECT taken_down_at FROM decks WHERE id = ?1) WHERE id = ?4",
+    )
         .bind(&root)
         .bind(&label)
         .bind(&id)
