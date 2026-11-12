@@ -132,6 +132,86 @@
   padding: 8px 16px;
   font-size: 0.9375rem;
 }
+/* Set, color, type, rarity and finish, then list or pictures. */
+.coll-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.coll-page .coll-filters select {
+  flex: 1 1 8.5rem;
+  width: auto;
+  min-width: 0;
+  min-height: var(--target);
+  font-size: var(--t-sm);
+}
+.coll-page .coll-show {
+  margin-left: auto;
+}
+.coll-page .coll-show > button {
+  min-height: var(--target);
+  padding: 0 0.9rem;
+  font-size: var(--t-sm);
+}
+/* Pictures: the whole card, as printed. What Yama adds (copies, finish, price) sits under it, never over it. */
+.coll-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 10px;
+}
+.coll-grid li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.coll-page .coll-tile {
+  display: block;
+  padding: 0;
+  min-height: 0;
+  border: none;
+  background: none;
+  border-radius: var(--card-radius);
+}
+.coll-page .coll-tile:hover {
+  background: none;
+}
+.coll-tile-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--t-sm);
+}
+.coll-tile-what {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 6px;
+  min-width: 0;
+  color: var(--dim);
+}
+.coll-tile-what .tag {
+  font-size: 0.75rem;
+  padding: 0 8px;
+}
+.coll-tile-price {
+  flex: none;
+  font-weight: 700;
+}
+@media (min-width: 900px) {
+  .coll-page .coll-filters select {
+    flex: 0 1 11rem;
+  }
+  .coll-grid {
+    grid-template-columns: repeat(auto-fill, minmax(min(172px, 100%), 1fr));
+    gap: 22px 16px;
+  }
+}
 .coll-list {
   list-style: none;
   margin: 0;
