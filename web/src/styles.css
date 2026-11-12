@@ -2699,13 +2699,16 @@ fieldset.seat > legend:not(.visually-hidden) + * {
 body:has(.view-banner) {
   --sticky-top: calc(env(safe-area-inset-top, 0px) + var(--target) + 16px);
 }
+/* Section tabs (design/system/components/SectionTabs; Bryan, 11 Nov 2026: the strip was "hard to
+   find" under the pill filters): page-level navigation, so the labels are in the display face at
+   section-heading size, the current one under a 3 px underline. */
 .section-tabs {
   position: sticky;
   top: var(--sticky-top);
   z-index: var(--z-bar);
   display: flex;
-  gap: 24px;
-  margin: 0 0 var(--s-4);
+  gap: var(--s-5);
+  margin: var(--s-3) 0 var(--s-4);
   padding: 0 2px;
   background: var(--ground);
   border-bottom: 1px solid var(--line);
@@ -2717,18 +2720,24 @@ body:has(.view-banner) {
 }
 .section-tabs > a {
   display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: var(--target);
+  align-items: baseline;
+  gap: 8px;
+  padding: 10px 0 8px;
+  min-height: var(--target-primary);
+  box-sizing: border-box;
   color: var(--dim);
+  font-family: var(--display);
   font-weight: 700;
-  font-size: var(--t-button);
+  font-size: var(--t-lg);
+  line-height: 1.25;
   text-decoration: none;
   white-space: nowrap;
-  border-bottom: 2px solid transparent;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -1px;
 }
 .section-tabs > a:hover {
   color: var(--text);
+  border-bottom-color: var(--line);
 }
 .section-tabs > a[aria-current] {
   color: var(--text);
@@ -2738,9 +2747,18 @@ body:has(.view-banner) {
   display: none;
 }
 .section-tabs > a > span {
+  font-family: var(--body);
   font-weight: 400;
   font-size: var(--t-sm);
   color: var(--dim);
+}
+@media (max-width: 899px) {
+  .section-tabs {
+    gap: var(--s-4);
+  }
+  .section-tabs > a {
+    font-size: var(--t-md);
+  }
 }
 /* Phones: three secondaries share one row, so their menu chevrons go (the canvas draws none). */
 @media (max-width: 899px) {

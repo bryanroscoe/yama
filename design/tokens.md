@@ -148,7 +148,10 @@ page of the redesign canvas (`design/screens/redesign-2026-11/Language.dc.html`)
 4. **Section tabs, not folds.** A page with more than three sections gets a sticky strip of 3–5
    tabs under its header (a deck: Cards, Stats, Plan, History; a plan: Changes, Questions, How it
    plays). Content under a tab is open. A disclosure is only for a method or a long list nobody needs
-   by default, at most one per section, never nested.
+   by default, at most one per section, never nested. The strip is the page's top-level navigation
+   and must outrank the filters and segmented controls under it: tab labels in the display face at
+   24 px (20 px on phones), the current one under a 3 px underline (Bryan, 11 Nov 2026: at 15 px
+   body text it was "hard to find").
 5. **No micro copy.** No hint lines under options, fields, headings or buttons, and no explanatory
    paragraphs. Headings, labels and buttons do the work; anything more goes behind one small "?"
    button per section that opens a popover. A destructive action still says its consequence, in one
