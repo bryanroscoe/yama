@@ -27,13 +27,16 @@ Opening Yama with a life counter game touched in the last 12 hours goes straight
 The life counter's setup is at `/play/table` (it was `/`; `/table` redirects there).
 
 Five tabs: Play (the life counter, online play, watching, game history), Decks (your decks,
-precons, commanders), Cards, Collection (your cards, trading with a friend) and Playgroup. A
+precons, commanders), Cards, Collection (your cards, your wish list, trading with a friend) and Playgroup. A
 laptop has them in a left rail under the wordmark, which goes home, with you at the foot; a phone
 has a top bar (wordmark, search, you) and the five tabs along the bottom. A tab with more than
 one page lists them in a strip above the page. You (your avatar) opens your public profile,
 Sharing settings, Settings, connecting an assistant, What's new, help and the admin area.
-Workshop holds plans, getting the cards, swap sheets, simulations and datasets: a rail tab on a
-laptop, a row on the You page on a phone. Every older address still opens its page
+Workshop holds plans, getting the cards, swap sheets, simulations, datasets and Mythic Tools: a
+rail tab on a laptop, a row on the You page on a phone. It shows with Advanced on (You,
+Settings): on by itself for admins, power users and an account that already has a plan, a lab
+run, a Mythic link or a wish, off for everyone else until they turn it on. It hides navigation
+only; the pages still open by link. Every older address still opens its page
 (`web/src/nav.tsx`). The public pages (precons, commanders, shared decks and profiles, About,
 Privacy, Terms, the assistant guide and the sign-in page) carry the same frame: the five tabs
 as a row of words on a laptop and along the bottom on a phone, with You where the app has your

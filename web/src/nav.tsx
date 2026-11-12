@@ -19,6 +19,8 @@ export interface Who {
   power: boolean;
   /** Has imported datasets to browse, or may upload one. */
   evidence: boolean;
+  /** This server can read Mythic Tools (the bridge is set up). Absent reads as no. */
+  mythic?: boolean;
 }
 
 export interface NavSection {
@@ -91,16 +93,17 @@ export const TABS: NavTab[] = [
     icon: <CollectionIcon />,
     sections: [
       { to: "/collection", label: "Cards", end: true },
+      { to: "/collection/wishlist", label: "Wish list" },
       { to: "/collection/trade", label: "Trade with a friend", also: ["/sharing/compare"] },
     ],
   },
-  { id: "playgroup", to: "/group", label: "Playgroup", icon: <GroupIcon />, owns: ["/mythic"], sections: [{ to: "/group", label: "Playgroup" }] },
+  { id: "playgroup", to: "/group", label: "Playgroup", icon: <GroupIcon />, sections: [{ to: "/group", label: "Playgroup", end: true }] },
   {
     id: "workshop",
     to: "/decks/plans",
     label: "Workshop",
     icon: <WorkshopIcon />,
-    owns: ["/decks/plans"],
+    owns: ["/decks/plans", "/group/mythic", "/mythic"],
     sections: [
       { to: "/decks/plans", label: "Plans", end: true, also: ["/decks/plans/archived", "/decks/plans/settings", "/decks/research", "/decks/plan"] },
       { to: "/decks/plans/get", label: "Get the cards" },
@@ -109,6 +112,7 @@ export const TABS: NavTab[] = [
       { to: "/lab/compare", label: "Compare decks" },
       { to: "/lab/runs", label: "Lab runs" },
       { to: "/lab/datasets", label: "Datasets", when: (w) => w.evidence },
+      { to: "/group/mythic", label: "Mythic Tools", also: ["/mythic"], when: (w) => !!w.mythic },
     ],
   },
   // The avatar. Its page is the menu, so it has no strip (pages/Profile.tsx).

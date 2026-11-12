@@ -80,6 +80,20 @@ export const KeptAccount = createContext<User | null>(null);
  * everyone else; this only hides what they can't use. Watching the computer play and starting a
  * simulation are open to every account within its allowance, which those pages say.
  */
+/**
+ * Whether Advanced is on for this account, which shows the Workshop. A user cached by a build
+ * from before the switch has no answer yet: admins and power users had those pages, so they
+ * keep them until Yama's server says.
+ */
+export function advancedOf(me: Pick<User, "advanced" | "is_admin" | "power"> | null | undefined): boolean {
+  if (!me) return false;
+  return me.advanced ?? (me.is_admin || me.power === true);
+}
+
+export function useAdvanced(): boolean {
+  return advancedOf(useMe().data);
+}
+
 export function usePower(): boolean {
   return useMe().data?.power === true;
 }

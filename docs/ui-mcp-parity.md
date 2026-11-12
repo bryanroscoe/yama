@@ -168,6 +168,7 @@ part of it). "Gap" rows are the backlog, in rough priority order inside each are
 | Changes waiting for review: list, apply, discard | Changes, Ask Claude panel | `list_changes`, `apply_change`, `discard_change` (outside clients) | Both |
 | Sharing settings (profile, collection, want list, decks) | Sharing | — | UI only on purpose for now: changing who sees your data is a privacy decision |
 | Script keys, connected apps, Ask Claude settings and conversations | Plans settings, You > Settings | — | UI only on purpose (credentials) |
+| Advanced (whether the app shows the Workshop) | You > Settings | — | UI only on purpose (it changes the app's navigation, nothing a tool reads or writes) |
 | Delete account | Settings | — | UI only on purpose |
 | Admin pages | Admin | — | UI only on purpose |
 

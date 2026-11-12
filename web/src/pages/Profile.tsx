@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { Link, useLocation } from "react-router";
 import { api, publicOrigin, type Sharing } from "../api";
-import { useMe } from "../auth";
+import { advancedOf, useMe } from "../auth";
 import { contactHref } from "../components/PowerOnly";
 import { Button, ButtonLink, ErrorText, Loading } from "../components/ui";
 import { tab } from "../nav";
@@ -66,8 +66,8 @@ export function ProfilePage() {
       <Link to="/new"><b>What's new</b><span>What has changed in Yama lately.</span></Link>
       <a href={contactHref()}><b>Help</b><span>How to reach the person who runs Yama.</span></a>
       {me.is_admin && <Link to="/admin"><b>Admin</b><span>Who can sign in, accounts, usage and the server.</span></Link>}
-      {/* Phones only: the laptop rail has the Workshop tab (profile.css). */}
-      <Link to={tab("workshop").to} className="you-workshop"><b>Workshop</b><span>Plans, getting the cards, swap sheets and the lab.</span></Link>
+      {/* With Advanced on (Settings). Phones only: the laptop rail has the Workshop tab (profile.css). */}
+      {advancedOf(me) && <Link to={tab("workshop").to} className="you-workshop"><b>Workshop</b><span>Plans, getting the cards, swap sheets and the lab.</span></Link>}
     </nav>
     <AccountSettings />
   </main>;

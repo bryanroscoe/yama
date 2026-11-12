@@ -12,6 +12,7 @@ const SECTIONS: Record<string, { title: string; lede: string; extra?: ReactNode 
   profile: { title: "You", lede: "Sign in to see your public profile, sharing settings and account." },
   sharing: { title: "Sharing settings", lede: "Sign in to manage your public profile, shared decks and build notes." },
   "sharing/compare": { title: "Compare collections", lede: "Sign in to see which of a friend's wanted cards you have, and which of yours they have." },
+  "collection/wishlist": { title: "Wish list", lede: "Sign in to keep a list of the cards you want to get." },
   "collection/trade": { title: "Trade with a friend", lede: "Sign in to see which of a friend's wanted cards you have, and which of yours they have." },
   "decks/plans": { title: "Workshop", lede: "Sign in to see your plans." },
   "decks/builds": { title: "Workshop", lede: "Sign in to print the changes between two lists of a deck." },

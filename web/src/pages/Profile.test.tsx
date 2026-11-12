@@ -8,10 +8,10 @@ import { RequireAccount } from "../components/RequireAccount";
 vi.mock("./AccountSettings", () => ({ AccountSettings: () => <section>Account settings</section> }));
 afterEach(() => vi.unstubAllGlobals());
 
-function page({ user = "u1", handle = "saget", collection = true, wants = true, viewing = false, admin = false }: { user?: string | null; handle?: string | null; collection?: boolean; wants?: boolean; viewing?: boolean; admin?: boolean } = {}) {
+function page({ user = "u1", handle = "saget", collection = true, wants = true, viewing = false, admin = false, advanced = true as boolean | "unset", power = false }: { user?: string | null; handle?: string | null; collection?: boolean; wants?: boolean; viewing?: boolean; admin?: boolean; advanced?: boolean | "unset"; power?: boolean } = {}) {
   vi.stubGlobal("location", { origin: "https://yama.ing" });
   const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
-  client.setQueryData(["me"], user ? { id: user, display_name: "Bryan", email: "test@example.invalid", is_admin: admin, viewing: viewing ? {} : null } : null);
+  client.setQueryData(["me"], user ? { id: user, display_name: "Bryan", email: "test@example.invalid", is_admin: admin, power, ...(advanced === "unset" ? {} : { advanced }), viewing: viewing ? {} : null } : null);
   client.setQueryData(["auth-config"], {});
   // Seed only the first account: switching accounts must not reuse its public links.
   client.setQueryData(["sharing", "u1"], { handle, collection_public: collection, wants_public: wants });
@@ -31,6 +31,16 @@ describe("You", () => {
     expect(html).toContain("Copy profile link");
     // The tabs hold these now; the menu doesn't repeat them.
     for (const path of ["/collection", "/decks", "/group"]) expect(html).not.toContain(`href="${path}"`);
+  });
+
+  it("lists the Workshop only with Advanced on", () => {
+    expect(page({ advanced: false })).not.toContain("<b>Workshop</b>");
+    expect(page({ advanced: false, admin: true })).not.toContain("<b>Workshop</b>");
+    expect(page({ advanced: true })).toContain('href="/decks/plans"');
+    // A user cached by a build from before the switch: admins and power users keep it.
+    expect(page({ advanced: "unset" })).not.toContain("<b>Workshop</b>");
+    expect(page({ advanced: "unset", admin: true })).toContain("<b>Workshop</b>");
+    expect(page({ advanced: "unset", power: true })).toContain("<b>Workshop</b>");
   });
 
   it("lists Admin for admins only, and no sharing settings while an admin views as someone", () => {
