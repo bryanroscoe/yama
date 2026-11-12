@@ -5,7 +5,7 @@
 import { useEffect, useRef } from "react";
 import { useLocation } from "react-router";
 import type { DeckView } from "../api";
-import { useDeckCheck } from "../components/Bracket";
+import { SPELLBOOK, useDeckCheck } from "../components/Bracket";
 import { DeclareBracket } from "../components/DeclareBracket";
 import { gameChangerFloor, SENDS_LIST } from "../components/deckCheck";
 import { HelpPopover } from "../components/HelpPopover";
@@ -15,6 +15,13 @@ import { Button } from "../components/ui";
 /** The Game Changers at the bracket shown: the list's own, minus any the swap bag takes out. */
 export function gameChangersAt(listed: string[] | null, out: ReadonlySet<string>): { name: string; out: boolean }[] {
   return (listed ?? []).map((name) => ({ name, out: out.has(name) }));
+}
+
+/** What a combo does, short enough for the side column: its first two results. */
+export function comboResult(results: string[]): string {
+  if (!results.length) return "";
+  const head = results.slice(0, 2).join(", ");
+  return `${head}${results.length > 2 ? ", and more" : ""}.`;
 }
 
 const n = (count: number, none = "None") => (count ? String(count) : none);
@@ -71,6 +78,27 @@ export function WhyBracket({ deck, at, outAt, onCard }: { deck: DeckView; at: nu
           <dt>Two-card combos</dt>
           <dd>{r ? n(twoCard.length, "None found") : "Not checked yet"}</dd>
         </div>
+        {twoCard.length > 0 && (
+          <ul className="why-bracket-combos" aria-label="Two-card combos">
+            {twoCard.map((c) => (
+              <li key={c.id}>
+                <ul className="why-bracket-chips" aria-label={c.cards.join(" and ")}>
+                  {c.cards.map((name) => (
+                    <li key={name}>
+                      <Button onClick={() => onCard(name)}>{name}</Button>
+                    </li>
+                  ))}
+                </ul>
+                <p className="dim">
+                  {comboResult(c.results)}{" "}
+                  <a href={`${SPELLBOOK}combo/${encodeURIComponent(c.id)}/`} target="_blank" rel="noreferrer">
+                    How it works
+                  </a>
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
         <div>
           <dt>Mass land denial</dt>
           <dd>{r ? n(r.mld.length) : "Not checked yet"}</dd>

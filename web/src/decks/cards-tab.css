@@ -319,6 +319,21 @@
   font-size: var(--t-xs);
   font-weight: 400;
 }
+.why-bracket-combos {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+.why-bracket-combos .why-bracket-chips {
+  margin: 0;
+}
+.why-bracket-combos p {
+  margin: 4px 0 0;
+  font-size: var(--t-xs);
+}
 .why-bracket .why-bracket-chips button.out {
   background: transparent;
   color: var(--dim);
