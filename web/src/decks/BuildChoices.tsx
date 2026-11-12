@@ -46,7 +46,7 @@ export function BuildChoicesPage() {
   if (!loading && family) return <FamilyPage key={family.key} family={family} status={errors} art={artOf(family)} />;
   const shown = families;
   return <main className="page plan note-page build-choices">
-    <AreaHead title="Swap cards" index back={{ to: "/decks", label: "Decks" }} />
+    <AreaHead title="Swap cards" index />
     <HowTo
       title="How swap cards work"
       open={!loading && !families.some((f) => f.choices.length > 1)}
@@ -191,7 +191,7 @@ function FamilyPage({ family, status, art }: { family: BuildFamily; status: Reac
       <BackLink to="/decks/builds" label="Back to swap cards" onArt />
       {art.art && <span className="plan-hero-credit">{commanderOf(family)}. {artCredit(art.artist)}</span>}
       <div className="plan-hero-inner">
-        <nav className="plan-crumbs" aria-label="Breadcrumb"><Link to="/decks">Decks</Link><span aria-hidden="true">/</span><Link to="/decks/builds">Swap cards</Link></nav>
+        <nav className="plan-crumbs" aria-label="Breadcrumb"><Link to="/decks/builds">Swap cards</Link></nav>
         {commanderOf(family) && <span className="plan-hero-cmdr">{deck && <Pips identity={deck.color_identity} />} {commanderOf(family)}</span>}
         <h1 className="plan-hero-title">{family.name}</h1>
         {to && <span className="plan-hero-chips"><span className="art-chip plain">{to.label}</span></span>}

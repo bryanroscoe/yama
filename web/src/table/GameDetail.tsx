@@ -161,7 +161,7 @@ export function GameDetailPage() {
   if (!g) {
     return (
       <main className="page">
-        <p><Link to={back}>{back === "/" ? "Table" : "Game history"}</Link></p>
+        <p><Link to={back}>{back === "/" ? "Life counter" : "Game history"}</Link></p>
         <ErrorText error={game.error ?? new Error("That game isn't here.")} />
       </main>
     );
@@ -200,7 +200,7 @@ export function GameDetailPage() {
 
   return (
     <main className="page game-detail">
-      <BackLink inline to={back} label={back === "/" ? "Back to Table" : "Back to game history"} text={back === "/" ? "Table" : "Game history"} />
+      <BackLink inline to={back} label={back === "/" ? "Back to the life counter" : "Back to game history"} text={back === "/" ? "Life counter" : "Game history"} />
       <header className="gd-head">
         <ArtMosaic className="gd-art" arts={(winner ? [art.get(splitPair(winner).commander ?? "")] : shown).filter((a) => !!a?.art).slice(0, 4).map((a) => a!.art)} />
         <div className="gd-title">

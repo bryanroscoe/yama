@@ -53,7 +53,7 @@ export function GameHistoryPage() {
   return (
     <main className="page game-history">
       <header className="gh-head">
-        <nav className="gh-crumbs" aria-label="Related pages"><Link to="/">Table</Link><Link to="/group">Playgroup stats</Link></nav>
+        <nav className="gh-crumbs" aria-label="Related pages"><Link to="/">Life counter</Link><Link to="/group">Playgroup stats</Link></nav>
         <h1>Game history</h1>
       </header>
       <p className="dim">Review old games or delete ones you recorded.</p>

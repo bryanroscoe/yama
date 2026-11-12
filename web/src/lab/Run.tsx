@@ -231,7 +231,7 @@ export function RunPage() {
   if (queryFailure(exp) === "page") {
     return (
       <>
-        <LabHead slim back={{ to: "/lab/runs", label: "Back to my runs" }} />
+        <LabHead slim back={{ to: "/lab/runs", label: "Back to lab runs" }} />
         <ErrorText error={exp.error} />
       </>
     );
@@ -244,7 +244,7 @@ export function RunPage() {
 
   return (
     <>
-      <LabHead slim back={{ to: "/lab/runs", label: "Back to my runs" }} />
+      <LabHead slim back={{ to: "/lab/runs", label: "Back to lab runs" }} />
       <RefreshFailed query={exp} what="this run" />
       <ArtPanel art={e.base?.art}>
         <span>

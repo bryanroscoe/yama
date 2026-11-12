@@ -1,10 +1,12 @@
 // Simple line icons, 24px grid.
 const s = { fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
 
-export const TableIcon = () => (
-  <svg viewBox="0 0 24 24" aria-hidden="true" {...s}><path d="M12 21s-7-4.5-7-11a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 6.5-7 11-7 11z" /></svg>
-);
+/** One card, face up: the Cards tab. */
 export const CardsIcon = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" {...s}><rect x="5.5" y="3" width="13" height="18" rx="1.5" /><path d="M9 7h6M9 13.5h6v3.5H9z" /></svg>
+);
+/** Search, in the phone's top bar. */
+export const SearchIcon = () => (
   <svg viewBox="0 0 24 24" aria-hidden="true" {...s}><circle cx="11" cy="11" r="6" /><path d="m20 20-4.5-4.5" /></svg>
 );
 export const CollectionIcon = () => (
@@ -13,15 +15,13 @@ export const CollectionIcon = () => (
 export const DecksIcon = () => (
   <svg viewBox="0 0 24 24" aria-hidden="true" {...s}><rect x="6" y="3" width="12" height="16" rx="1.5" /><path d="M4 7v12a2 2 0 0 0 2 2h10" /></svg>
 );
-export const LabIcon = () => (
-  <svg viewBox="0 0 24 24" aria-hidden="true" {...s}><path d="M9 3h6M10 3v6l-5.6 9.4A1.7 1.7 0 0 0 5.9 21h12.2a1.7 1.7 0 0 0 1.5-2.6L14 9V3" /><path d="M7.2 15h9.6" /></svg>
-);
 export const GroupIcon = () => (
   <svg viewBox="0 0 24 24" aria-hidden="true" {...s}><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0" /><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5" /></svg>
 );
 export const PlayIcon = () => (
   <svg viewBox="0 0 24 24" aria-hidden="true" {...s}><rect x="3" y="6" width="8" height="12" rx="1.5" transform="rotate(-8 7 12)" /><rect x="13" y="6" width="8" height="12" rx="1.5" transform="rotate(8 17 12)" /></svg>
 );
-export const AdminIcon = () => (
-  <svg viewBox="0 0 24 24" aria-hidden="true" {...s}><path d="M12 3 5 6v5c0 4.5 3 8.5 7 10 4-1.5 7-5.5 7-10V6z" /><path d="m9 12 2 2 4-4" /></svg>
+/** A wrench: the Workshop tab. */
+export const WorkshopIcon = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" {...s}><path d="M14.7 6.3a4 4 0 0 0 5 5L11 20a2.1 2.1 0 0 1-3-3z" /><path d="m14.7 6.3 2.8-2.8" /></svg>
 );

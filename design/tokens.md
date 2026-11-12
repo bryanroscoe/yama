@@ -123,9 +123,10 @@ warnings, missing data, source dates, price sources and art credits visible besi
 - **Segmented control:** a `--surface` track with 3 px padding. The selected segment is a `--text` pill with dark text; the others are `--dim` text.
 - **Inputs:** `--surface` on ground, or `--ground` on surface, with a 1px `--line` border. Labels are 13–14 px bold, above the field.
 - **Navigation:**
-  - Laptop: a left rail of 220–248 px. The active item is a `--raised` pill. At the bottom is your commander-art avatar with the sync status under it.
-  - Phone: a bottom tab bar, 76 px, with seven tabs (Table, Play, Cards, Collection, Decks, Lab, Group). The active tab is `--text`, the others `--dim`.
-  - The Decks tab has a segmented control at the top: Decks | Sharing | Swap cards | Plans.
+  - One table (`web/src/nav.tsx`) holds the tabs, each tab's pages and which tab an address belongs to (12 Nov 2026).
+  - Laptop: a left rail of 220–248 px: the wordmark (home), then Play, Decks, Cards, Collection, Playgroup and Workshop. The active item is a `--raised` pill. At the bottom is you: your commander-art avatar with the sync status under it, opening the You page.
+  - Phone: a top bar (the wordmark, search, your initials) that scrolls away with the page, and a bottom tab bar, 76 px, with five tabs (Play, Decks, Cards, Collection, Playgroup). The active tab is `--text`, the others `--dim`. Workshop is a row on the You page.
+  - A tab with more than one page lists them in a strip above the page: an underlined row, the current page `--text` over a 2 px rule. It shows on those pages and not on a page they lead to (a deck, a plan's deck), which has its own way back.
 
 ## Density, actions and page structure (8 Nov 2026)
 

@@ -1,6 +1,7 @@
-/* The Decks tab's shared pieces (components/DeckTabs.tsx): the page head with Decks | Plans | Lab,
-   the section sub-navs, round back buttons, and the art-crop rows the deck, plan and lab pages
-   share. Night table tokens only (styles.css); sentence case; no middle dots. */
+/* Shared pieces of the Decks, Workshop and You pages (components/DeckTabs.tsx): the page head,
+   the admin area's row of pages, round back buttons, and the art-crop rows the deck, plan and lab
+   pages share. The frame lists a tab's pages above the head (styles.css, .tab-sections). Night
+   table tokens only (styles.css); sentence case; no middle dots. */
 
 /* ── page head ──────────────────────────────────────────────────────────── */
 
@@ -12,7 +13,7 @@
 .area-top {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  grid-template-areas: "back title action" "tabs tabs tabs";
+  grid-template-areas: "back title action";
   align-items: center;
   gap: 16px 10px;
 }
@@ -36,44 +37,13 @@
   gap: 8px;
   align-items: center;
 }
-.area-top > .deck-sections {
-  grid-area: tabs;
-  margin: 0;
-}
-/* The Plans count's hidden label is absolutely placed; without this it escaped the scrolling
-   control and made the page 9 px wider than a phone (the tab bar's last label was clipped). */
-.deck-sections > a {
-  position: relative;
-}
-.area-phone {
-  display: none;
-}
 
-/* Phones: a section's front page puts "Decks" over a full-width control; other pages a back
-   button and the title. */
+/* Phones: a section's front page has its name and action; other pages a back button and the
+   title. */
 @media (max-width: 899px) {
-  .area-top > .deck-sections {
-    display: flex;
-    width: 100%;
-  }
-  /* Four sections fit a 390 px phone: tighter sides, and none shrinks below its label. */
-  .area-top > .deck-sections > a {
-    flex: 1 0 auto;
-    justify-content: center;
-    min-height: var(--target);
-    padding-inline: 0.6rem;
-  }
-  .is-index .area-wide {
-    display: none;
-  }
-  .is-index .area-phone {
-    display: inline;
-  }
   .is-index .area-top {
-    grid-template-areas: "title title action" "tabs tabs tabs";
+    grid-template-areas: "title title action";
   }
-  .is-sub .area-top > .deck-sections,
-  .is-sub > .area-subnav,
   .is-sub .area-top > .area-action {
     display: none;
   }
@@ -87,37 +57,27 @@
   .is-slim .area-top {
     grid-template-areas: "back . .";
   }
+  /* One of a tab's own pages that isn't its front page (Lab runs): no back button, so no
+     column for one to indent the title. */
+  .is-sub.no-back .area-top {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "title .";
+  }
 }
 
-/* Laptops: one row, title on the left; no back buttons (the sub-nav is there). */
+/* Laptops: one row, title on the left; no back buttons (the frame's strip is there). */
 @media (min-width: 900px) {
   .area-top {
-    grid-template-columns: minmax(0, 1fr) auto auto;
-    grid-template-areas: "title tabs action";
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "title action";
     align-items: end;
   }
   .area-top > .area-back {
     display: none;
   }
-  .is-slim .area-top {
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas: ". tabs";
-  }
 }
 
-/* The Plans count on the control: a small warn pill. */
-.deck-tab-badge {
-  display: inline-block;
-  margin-left: 6px;
-  padding: 0 7px;
-  border-radius: var(--r-pill);
-  background: var(--warn);
-  color: var(--ground);
-  font-size: var(--t-12);
-  line-height: 1.5;
-}
-
-/* Overview, Review, Buy... and Precons, Try a change, My runs: an underlined row. */
+/* The admin area's pages: an underlined row. */
 .area-subnav {
   display: flex;
   gap: 0 22px;

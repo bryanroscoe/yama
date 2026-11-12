@@ -115,7 +115,7 @@ export function ShareDeck({ deck, onClose }: { deck: DeckView; onClose: () => vo
         )}
         {visibility === "public" && !handle && sharing.data && (
           <p className="small share-line">
-            Your profile needs a handle before it lists anything. <Link to="/sharing#sharing">Pick a handle in Sharing</Link>.
+            Your profile needs a handle before it lists anything. <Link to="/sharing#sharing">Pick a handle in Sharing settings</Link>.
           </p>
         )}
         {visibility === "public" && handle && (
@@ -154,7 +154,7 @@ export function ShareDeck({ deck, onClose }: { deck: DeckView; onClose: () => vo
         {sharing.data && (
           <div className="share-row share-row-head share-lab">
             <span>Simulated win rates <span className="dim">{sharing.data.share_lab_results ? "shown" : "hidden"}</span></span>
-            <Link to="/sharing#sharing" onClick={onClose}>Change in Sharing</Link>
+            <Link to="/sharing#sharing" onClick={onClose}>Change in Sharing settings</Link>
           </div>
         )}
         <ErrorText error={set.error ?? reset.error} />

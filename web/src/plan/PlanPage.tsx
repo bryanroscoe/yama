@@ -87,8 +87,6 @@ function PlanHero({ deck, plan, view }: { deck: PlanDeck; plan: DeckPlanState; v
       {art && <span className="plan-hero-credit">{artCredit(commander?.artist)}</span>}
       <div className="plan-hero-inner">
         <nav className="plan-crumbs" aria-label="Breadcrumb">
-          <Link to="/decks">Decks</Link>
-          <span aria-hidden="true">/</span>
           <Link to="/decks/plans">Plans</Link>
         </nav>
         <span className="plan-hero-cmdr">

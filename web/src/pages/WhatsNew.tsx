@@ -1,9 +1,10 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { Link, useLocation } from "react-router";
+import { useMe } from "../auth";
 import { NEWS, SEEN_KEY, noticeLine, unseen } from "../whatsNew";
 import "../components/calendar.css";
 import { fmtDate } from "@yama/core";
-import { Button, ButtonLink, PageHeader } from "../components/ui";
+import { BackLink, Button, ButtonLink, PageHeader } from "../components/ui";
 
 const SEEN_EVENT = "yama-news-seen";
 
@@ -64,12 +65,15 @@ export function WhatsNewPage() {
   // What this device had seen before opening the page, so the new entries stay marked after
   // the page records that they've been seen.
   const [before] = useState(readSeen);
+  const me = useMe().data;
   const freshIds = new Set(unseen(NEWS, before).map((e) => e.id));
   useEffect(() => {
     markSeen();
   }, []);
   return (
     <main className="page">
+      {/* A page of You: the way back, for a phone whose top bar has scrolled away. */}
+      {me && <BackLink inline to="/profile" label="Back to You" text="You" />}
       <PageHeader title="What's new" />
       <div className="whats-new">
         {NEWS.map((e) => (

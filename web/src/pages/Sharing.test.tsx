@@ -2,9 +2,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { SiteLinks } from "../components/SiteLinks";
 import { RequireAccount } from "../components/RequireAccount";
-import { ComparePage, SharingPage } from "./Sharing";
+import { ComparePage, SharingPage, TradePage } from "./Sharing";
 
 // The Plans count reads the plan store and the offline outbox; neither matters to these pages.
 vi.mock("../plan/store", () => ({ usePlan: () => ({ bundle: null }) }));
@@ -12,7 +11,7 @@ vi.mock("../plan/outbox", () => ({ outbox: { localOps: () => [] }, useOutbox: ()
 
 afterEach(() => vi.unstubAllGlobals());
 
-function page(me: { id: string; viewing?: object } | null = { id: "u1" }, empty = false, handle: string | null = "saget", wantsPublic = false) {
+function page(me: { id: string; viewing?: object } | null = { id: "u1" }, empty = false, handle: string | null = "saget", wantsPublic = false, path = "/sharing") {
   vi.stubGlobal("location", { origin: "https://yama.ing" });
   const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
   client.setQueryData(["me"], me);
@@ -28,7 +27,7 @@ function page(me: { id: string; viewing?: object } | null = { id: "u1" }, empty 
     { id: "public", title: "Public builds", visibility: "public", share_token: "public-token" },
     { id: "private", title: "Private note", visibility: "private", share_token: "secret-token" },
   ]);
-  const html = renderToStaticMarkup(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/sharing"]}><SiteLinks /><Routes><Route element={<RequireAccount />}><Route path="sharing" element={<SharingPage />} /></Route></Routes></MemoryRouter></QueryClientProvider>);
+  const html = renderToStaticMarkup(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><Routes><Route element={<RequireAccount />}><Route path="sharing" element={<SharingPage />} /><Route path="collection/trade" element={<TradePage />} /></Route></Routes></MemoryRouter></QueryClientProvider>);
   client.clear();
   return html;
 }
@@ -45,18 +44,13 @@ describe("returning to shared content", () => {
     expect(html).not.toContain("secret-token");
   });
 
-  it("keeps public pages as document links and marks Sharing current", () => {
+  it("is You's Sharing settings: a way back to You, and no trading or Decks control of its own", () => {
     const html = page();
-    expect(html).toContain('aria-current="page" class="active" href="/sharing"');
-    for (const path of ["/precons", "/commanders"]) expect(html).toContain(`href="https://yama.ing${path}"`);
-  });
-
-  it("keeps the Decks sections control, with Sharing chosen", () => {
-    const html = page();
-    expect(html).toContain('aria-label="Decks sections"');
-    const sections = html.slice(html.indexOf('aria-label="Decks sections"'));
-    expect(sections.slice(0, sections.indexOf("</nav>"))).toMatch(/aria-current="page"[^>]*href="\/sharing"/);
-    expect(html).toContain('href="/decks/builds"');
+    expect(html).toContain("<h1 class=\"area-title\">Sharing settings</h1>");
+    expect(html).toContain('href="/profile"');
+    expect(html).not.toContain("Decks sections");
+    expect(html).not.toContain("Compare with a friend");
+    expect(html).not.toContain('href="/decks/builds"');
   });
 
   it("explains where to start when nothing is shared", () => {
@@ -98,15 +92,21 @@ describe("returning to shared content", () => {
 
 describe("trading with friends", () => {
   it("links the want list once it's on the profile, and says how to turn it on before", () => {
-    const on = page({ id: "u1" }, false, "saget", true);
+    const trade = (handle: string | null = "saget", wantsPublic = false, me: { id: string; viewing?: object } | null = { id: "u1" }) => page(me, false, handle, wantsPublic, "/collection/trade");
+    const on = trade("saget", true);
+    expect(on).toContain("<h1 class=\"area-title\">Trade with a friend</h1>");
     expect(on).toContain('href="https://yama.ing/u/saget/wants"');
     expect(on).toContain("Copy want list link");
-    expect(on).toContain("Public decks, public plans, what you&#x27;re looking for and your collection appear here.");
-    const off = page();
+    expect(page({ id: "u1" }, false, "saget", true)).toContain("Public decks, public plans, what you&#x27;re looking for and your collection appear here.");
+    const off = trade();
     expect(off).not.toContain("/u/saget/wants");
     expect(off).toContain("Show what I&#x27;m looking for on my profile");
+    expect(off).toContain('href="/sharing#sharing"');
     expect(off).toContain("Compare with a friend");
-    expect(page({ id: "u1" }, false, null)).toContain("choose a handle and turn on");
+    expect(trade(null)).toContain("choose a handle and turn on");
+    // Another account's cached want list never shows, nor while an admin views as someone.
+    for (const me of [{ id: "u2" }, { id: "u1", viewing: {} }]) expect(trade("saget", true, me)).not.toContain("/u/saget");
+    expect(trade("saget", true, null)).toContain("Sign in to see which of a friend");
   });
 
   function compare(data: object) {
