@@ -46,6 +46,13 @@ be built with `CARGO_TARGET_DIR="$PWD/target" CARGO_BUILD_JOBS=1 cargo build --l
 The process's `--fixture DATA` mode creates synthetic local opening/completed games for the
 integration test; it never reads a database or production game.
 
+**Pinned Yama commits predate the public repository.** `historical.json` pins Yama commits from
+before the history rewrite of 2026-11-11, so a fresh clone of the public repository doesn't have
+them and `build-historical.py` stops with a message saying so. They are in the private
+`bryanroscoe/yama-archive`: add it as a remote and fetch it, or pass `--yama-repo` a clone that
+has it. saget's deploy checkout keeps them under `refs/archive/private-main`. Never publish
+that history to get them, and never remap the pins: they bind the reviewed source digest.
+
 Production packaging exports both pinned historical repositories and builds the worker in a
 separate Docker stage (`historical-source` context). The runtime image contains both binaries.
 The default historical data path is the old filename alongside the configured current data.
