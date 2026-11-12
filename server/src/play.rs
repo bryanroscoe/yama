@@ -316,6 +316,15 @@ impl PlayHub {
         self.unavailable.lock().unwrap().get(&r.game_id).cloned().or_else(|| self.runtime_error(r.engine_version.as_deref()))
     }
 
+    /// A live game that can never run on this server: saved on a runtime identity that is neither
+    /// the current engine nor the preserved historical one (identities are exact, so an unknown
+    /// one never becomes runnable), with no thread. Its host may delete it, and it holds no place
+    /// among the games anyone may have open. A game that is only waiting for its engine (loading,
+    /// failed, or the historical runtime not installed or retrying) is not stranded.
+    fn stranded(&self, r: &Row) -> bool {
+        r.stage == "live" && is_retired_runtime(r.engine_version.as_deref()) && self.live(&r.game_id).is_none()
+    }
+
     /// Run a live game on its own thread. `prefs` are the seated people's saved turn controls.
     fn spawn_game(self: &Arc<Self>, game_id: String, m: Match, seats: Vec<SeatCfg>, prefs: HashMap<u8, PlayPrefs>, pool: SqlitePool) {
         let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
@@ -929,6 +938,10 @@ struct OnlineGame {
     #[serde(skip_serializing_if = "Option::is_none")]
     rematch: Option<Rematch>,
     runtime_error: Option<String>,
+    /// You host this game and it can never run on this server ([`PlayHub::stranded`]): you may
+    /// delete it.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    stranded: bool,
     /// The live game uses the exact runtime supported by the installed Phase board.
     phase_board: bool,
     /// For a game this server is playing, from your view of the board: its turn, whose turn it is,
@@ -1071,6 +1084,7 @@ async fn list(State(st): State<AppState>, Player(user): Player) -> AppResult<Jso
             .map(|r| {
                 let mut game = summarize(r, &user.id, HashMap::new(), &estimates, &arts);
                 game.runtime_error = st.play.game_error(r);
+                game.stranded = r.host_id == user.id && st.play.stranded(r);
                 game.phase_board = st.cfg.board_dist.is_some() && board::supports_runtime(&r.stage, r.engine_version.as_deref());
                 if r.stage != "over"
                     && let Some(live) = st.play.live(&r.game_id)
@@ -1115,6 +1129,7 @@ fn summarize(
         ended_at: if r.stage == "over" { r.ended_at.clone() } else { None },
         rematch: None,
         runtime_error: None,
+        stranded: false,
         phase_board: false,
         turn: None,
         active: None,
@@ -1153,6 +1168,7 @@ async fn detail(State(st): State<AppState>, Player(user): Player, Path(id): Path
     let arts = commander_arts(&st.pool, r.seats().iter()).await?;
     let mut game = summarize(&r, &user.id, missing, &estimates, &arts);
     game.runtime_error = st.play.game_error(&r);
+    game.stranded = r.host_id == user.id && st.play.stranded(&r);
     game.phase_board = st.cfg.board_dist.is_some() && board::supports_runtime(&r.stage, r.engine_version.as_deref());
     game.rematch = rematch_for(&st.pool, &r, &user.id).await?;
     if r.stage == "over" {
@@ -1410,16 +1426,33 @@ pub const OPEN_MAX_OPEN_GAMES: i64 = 2;
 /// Unfinished games all accounts without an invite may host together.
 pub const OPEN_MAX_OPEN_GAMES_ALL: i64 = 20;
 
+/// Whether a saved runtime identity is one this server can never run: not the current engine and
+/// not the preserved historical runtime (`PlayHub::runtime_error`; identities are exact).
+fn is_retired_runtime(identity: Option<&str>) -> bool {
+    !matches!(identity, Some(yama_play::ENGINE_VERSION) | Some(history::IDENTITY))
+}
+
+/// SQL true for an `online_games o` row whose `games g` row is a game this server can never run
+/// ([`is_retired_runtime`]): such a game holds no thread or match and nobody can finish it, so it
+/// takes no place among open games (an engine upgrade mustn't lock its host out of play). `?1`
+/// and `?2` are the current and historical identities. A current live game always has its
+/// identity (start sets it in the same transaction), so this never matches one with a thread.
+const NOT_STRANDED: &str = "NOT (o.stage = 'live' AND (g.engine_version IS NULL OR g.engine_version NOT IN (?1, ?2)))";
+
 /// Refuse a new game that would take `user` past the limits on unfinished games they host.
 async fn check_open_games(pool: &SqlitePool, user: &User) -> AppResult<()> {
     if user.is_admin {
         return Ok(());
     }
-    let (waiting, playing): (i64, i64) =
-        sqlx::query_as("SELECT IFNULL(SUM(stage = 'lobby'), 0), IFNULL(SUM(stage = 'live'), 0) FROM online_games WHERE host_id = ? AND stage IN ('lobby','live')")
-            .bind(&user.id)
-            .fetch_one(pool)
-            .await?;
+    let (waiting, playing): (i64, i64) = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT IFNULL(SUM(o.stage = 'lobby'), 0), IFNULL(SUM(o.stage = 'live'), 0) FROM online_games o LEFT JOIN games g ON g.id = o.game_id
+         WHERE o.host_id = ?3 AND o.stage IN ('lobby','live') AND {NOT_STRANDED}"
+    )))
+    .bind(yama_play::ENGINE_VERSION)
+    .bind(history::IDENTITY)
+    .bind(&user.id)
+    .fetch_one(pool)
+    .await?;
     let cap = if user.guest {
         crate::guests::GUEST_MAX_OPEN_GAMES
     } else if user.limited {
@@ -1431,9 +1464,12 @@ async fn check_open_games(pool: &SqlitePool, user: &User) -> AppResult<()> {
         return Err(AppError::Conflict(open_games_message(waiting, playing)));
     }
     if user.guest {
-        let guests: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM online_games o JOIN users u ON u.id = o.host_id WHERE o.stage IN ('lobby','live') AND u.guest = 1",
-        )
+        let guests: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT COUNT(*) FROM online_games o JOIN users u ON u.id = o.host_id LEFT JOIN games g ON g.id = o.game_id
+             WHERE o.stage IN ('lobby','live') AND u.guest = 1 AND {NOT_STRANDED}"
+        )))
+        .bind(yama_play::ENGINE_VERSION)
+        .bind(history::IDENTITY)
         .fetch_one(pool)
         .await?;
         if guests >= crate::guests::GUEST_MAX_OPEN_GAMES_ALL {
@@ -1441,10 +1477,13 @@ async fn check_open_games(pool: &SqlitePool, user: &User) -> AppResult<()> {
         }
     }
     if user.limited {
-        let all: i64 = sqlx::query_scalar(concat!(
-            "SELECT COUNT(*) FROM online_games o JOIN users u ON u.id = o.host_id WHERE o.stage IN ('lobby','live') AND ",
+        let all: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT COUNT(*) FROM online_games o JOIN users u ON u.id = o.host_id LEFT JOIN games g ON g.id = o.game_id
+             WHERE o.stage IN ('lobby','live') AND {NOT_STRANDED} AND {}",
             crate::auth::limited_sql!()
-        ))
+        )))
+        .bind(yama_play::ENGINE_VERSION)
+        .bind(history::IDENTITY)
         .fetch_one(pool)
         .await?;
         if all >= OPEN_MAX_OPEN_GAMES_ALL {
@@ -1479,23 +1518,26 @@ async fn create(
 /// The host closes a table that hasn't started, or deletes a game that's over: it comes out of
 /// everyone's history and stats, as deleting a table game does (`games::remove`). A game being
 /// played isn't deleted from under its players: it ends first (a concession, or End game for a
-/// solo game).
+/// solo game). A live game whose saved runtime can't run here can never end, so its host may
+/// delete it as it stands.
 async fn remove(State(st): State<AppState>, Player(user): Player, Path(id): Path<String>) -> AppResult<Json<serde_json::Value>> {
     let r = load_visible(&st.pool, &id, &user.id).await?;
     if r.host_id != user.id {
         return Err(AppError::Forbidden(if r.stage == "lobby" { "Only the host can close this table." } else { "Only the host can delete this game." }.into()));
     }
     let playing = || AppError::Conflict("This game is being played. Finish it before deleting it.".into());
-    if r.stage == "live" {
+    let stranded = st.play.stranded(&r);
+    if r.stage == "live" && !stranded {
         return Err(playing());
     }
     // The stage is checked again in the delete: Start may have won the race.
     let deleted = sqlx::query(
         "DELETE FROM games WHERE id = ?1 AND created_by = ?2 AND mode = 'online'
-           AND EXISTS (SELECT 1 FROM online_games o WHERE o.game_id = ?1 AND o.host_id = ?2 AND o.stage != 'live')",
+           AND EXISTS (SELECT 1 FROM online_games o WHERE o.game_id = ?1 AND o.host_id = ?2 AND (o.stage != 'live' OR ?3))",
     )
     .bind(&id)
     .bind(&user.id)
+    .bind(stranded)
     .execute(&st.pool)
     .await?
     .rows_affected();

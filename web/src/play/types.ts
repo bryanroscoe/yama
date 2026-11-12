@@ -879,6 +879,8 @@ export interface OnlineGame {
   your_move?: boolean;
   /** Preserved game cannot currently run on its verified historical runtime. */
   runtime_error?: string | null;
+  /** You host this game and it can never run on this server: you may delete it. */
+  stranded?: boolean;
   id: string;
   code: string;
   status: "lobby" | "in_progress" | "finished" | "abandoned";

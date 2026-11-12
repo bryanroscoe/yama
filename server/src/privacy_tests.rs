@@ -188,9 +188,11 @@ async fn online_games_a_stranger_can_host_are_capped() {
     let host = |id: String, owner: String, stage: &'static str| {
         let pool = pool.clone();
         async move {
-            sqlx::query("INSERT INTO games (id, mode, created_by, format, status, starting_life, started_at) VALUES (?, 'online', ?, 'commander', 'in_progress', 40, 'now')")
+            // A started game always carries its engine identity; one without counts as stranded.
+            sqlx::query("INSERT INTO games (id, mode, created_by, format, status, starting_life, started_at, engine_version) VALUES (?, 'online', ?, 'commander', 'in_progress', 40, 'now', ?)")
                 .bind(&id)
                 .bind(&owner)
+                .bind(yama_play::ENGINE_VERSION)
                 .execute(&pool)
                 .await
                 .unwrap();
