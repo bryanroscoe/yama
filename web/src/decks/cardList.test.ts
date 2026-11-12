@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cardGroups, cardRows, copyChip, copyKinds, priceOf, showCounts, shownText } from "./cardList";
+import { cardGroups, cardRows, copyChip, copyKinds, priceOf, showCounts, shownText, stackColumns } from "./cardList";
 import type { DeckEntry } from "../api";
 
 const entry = (name: string, o: Partial<DeckEntry> & { type?: string; cmc?: number } = {}): DeckEntry =>
@@ -72,5 +72,19 @@ describe("the Cards tab's list", () => {
     const realAndProxy = cardRows([entry("Counterspell", { qty: 2, owned: 1, proxies: 1 })])[0]!;
     expect(copyChip(realAndProxy, "all")).toEqual({ tone: "proxy", text: "1 proxy" });
     expect(copyKinds(realAndProxy, "proxy")).toBe("Proxy");
+  });
+});
+
+describe("the Stacks view's columns", () => {
+  const n = (k: number) => Array.from({ length: k }, (_, i) => i);
+  it("keeps a short group in one stack", () => {
+    expect(stackColumns(n(7))).toEqual([n(7)]);
+    expect(stackColumns([])).toEqual([]);
+  });
+  it("splits a long group into even stacks of at most the limit", () => {
+    expect(stackColumns(n(36)).map((c) => c.length)).toEqual([18, 18]);
+    expect(stackColumns(n(37)).map((c) => c.length)).toEqual([13, 13, 11]);
+    expect(stackColumns(n(100)).flat()).toEqual(n(100));
+    expect(Math.max(...stackColumns(n(100)).map((c) => c.length))).toBeLessThanOrEqual(18);
   });
 });

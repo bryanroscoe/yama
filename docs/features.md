@@ -103,6 +103,7 @@ Camera OCR in Collection; swap checks from Plans, Prints, Swap sheet or a plan d
 - Commander validation
 - Check cards: compare physical cards with the saved list without changes, scan a new version, or find cards missing from your collection; each menu action has its description on a separate line
 - Owned/needed with cheapest market price
+- The Cards tab shows the list as pictures, stacks (each group a column of overlapping cards with their name bars showing; pointing at or focusing one shows it whole), a list or a table, grouped by type or mana value
 - Sample hands with mulligans
 - Game Changers count
 - How many cards online play supports
