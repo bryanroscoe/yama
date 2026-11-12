@@ -3,7 +3,7 @@ import { useState } from "react";
 import { accountLine } from "../accounts";
 import { api, type AccountInfo } from "../api";
 import { useAuthConfig, useMe } from "../auth";
-import { ActionBar, Button, Dialog, ErrorText } from "../components/ui";
+import { ActionBar, Button, CheckRow, Dialog, ErrorText } from "../components/ui";
 import { adminApi, type SharedGrant, type SharedOverview, type ViewLogRow } from "./api";
 import { startViewing } from "../viewing";
 import { confirms, deleteSummary, parseDailyCap, searchAccounts, sharedGrantLine, sharedSummary } from "./logic";
@@ -222,10 +222,7 @@ function SharedKeyControl({ account, grant }: { account: AccountInfo; grant: Sha
   const busy = on.isPending || off.isPending;
   return (
     <div className="admin-shared">
-      <label className="admin-check">
-        <input type="checkbox" checked={!!grant} disabled={busy} onChange={(e) => (e.target.checked ? on.mutate(parsed === "invalid" ? null : parsed) : off.mutate())} />
-        Ask Claude on the shared key
-      </label>
+      <CheckRow className="admin-check" checked={!!grant} disabled={busy} onChange={(e) => (e.target.checked ? on.mutate(parsed === "invalid" ? null : parsed) : off.mutate())}>Ask Claude on the shared key</CheckRow>
       {grant && (
         <>
           <span className="admin-shared-line">{sharedGrantLine(grant)}</span>

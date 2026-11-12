@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createContext, useContext, useState } from "react";
 import { useMe } from "../auth";
 import { CardRef, CardText } from "../components/CardRef";
-import { ActionBar, Button, ErrorText } from "../components/ui";
+import { ActionBar, Button, ErrorText, Field } from "../components/ui";
 import { changedAnswer, safeUrl, saveReview, type Combo, type Item, type ResearchBundle, type ReviewOp, type Scenario, type Source } from "./api";
 import { planSummariesKey } from "./view";
 import { usd, fmtDate } from "@yama/core";
@@ -330,8 +330,7 @@ export function AgentShopping({ scenarios: allScenarios = [], defaultId }: { sce
         a store has none.
       </p>
       {scenarios.length > 1 && (
-        <label className="research-select">
-          Option
+        <Field className="research-select" label="Option">
           <select value={scenario.id} onChange={(e) => setSelected(e.target.value)}>
             {scenarios.map((s) => (
               <option value={s.id} key={s.id}>
@@ -339,7 +338,7 @@ export function AgentShopping({ scenarios: allScenarios = [], defaultId }: { sce
               </option>
             ))}
           </select>
-        </label>
+        </Field>
       )}
       <p>{scenario.note}</p>
       {!!scenario.sealed_purchases?.length && (

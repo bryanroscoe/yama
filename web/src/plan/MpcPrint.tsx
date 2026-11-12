@@ -17,7 +17,7 @@ import { Link } from "react-router";
 import { api, errorMessage } from "../api";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
 import { fmtDateTime } from "@yama/core";
-import { Button, EmptyState, Field, StatusPill } from "../components/ui";
+import { Button, CheckRow, EmptyState, Field, StatusPill } from "../components/ui";
 
 /** Yama's answer from MPC Autofill (server/src/mpc.rs): images for each name, best first. */
 export interface MpcImages {
@@ -195,9 +195,7 @@ export function MpcPrint() {
                 ))}
               </select>
             </Field>
-            <label className="plan-check">
-              <input type="checkbox" checked={saved.foil} onChange={(e) => update({ foil: e.target.checked })} /> Holographic foil
-            </label>
+            <CheckRow className="plan-check" checked={saved.foil} onChange={(e) => update({ foil: e.target.checked })}>Holographic foil</CheckRow>
             <span className="small dim">
               {cards.length} {cards.length === 1 ? "card" : "cards"}
               {build.order ? ` in a ${build.order.bracket}-card project` : ""}.

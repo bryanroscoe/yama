@@ -6,7 +6,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { count } from "@yama/core";
 import { useId, useState } from "react";
 import { api, type DeckView, type Visibility } from "../api";
-import { ActionBar, Button, Dialog, ErrorText } from "../components/ui";
+import { ActionBar, Button, Dialog, ErrorText, Field } from "../components/ui";
 import { UnsavedPrompt, useUnsavedChanges } from "../unsaved";
 import "./deck-settings.css";
 
@@ -90,10 +90,9 @@ export function EditDescription({ deck, onClose: closeSheet }: { deck: Pick<Deck
   return (
     <Dialog title="About this deck" onClose={onClose}>
       <form className="deck-settings" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
-        <label>
-          Description
+        <Field label="Description">
           <textarea className="deck-about-text" value={text} onChange={(e) => setText(e.target.value)} rows={8} aria-describedby={hint} placeholder="What the deck does, how it wins, what to watch for." />
-        </label>
+        </Field>
         <p id={hint} className="small deck-about-who">
           <b>Shown to anyone who can see this deck.</b> {whoSees(deck.visibility)}
         </p>

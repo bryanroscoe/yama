@@ -229,9 +229,10 @@ describe("a row of actions uses the shared bar", () => {
     // Use <ActionBar> from components/ui (align="end" | "between" | "center", as="span").
     // These rows do more than line buttons up (a grid on phones, their own gap or button
     // sizes), or belong to a shared piece (dialog-actions, empty-actions). The list only shrinks
-    // (30 names: ps-actions-row keeps its class for the button sizes its stylesheet sets).
+    // (31 names: ps-actions-row keeps its class for the button sizes its stylesheet sets, and
+    // edit-list-hit-actions is a grid that keeps Remove and Add in fixed places).
     const known = new Set(
-      "admin-actions ask-actions attack-actions coll-actions cp-actions dataset-actions deck-actions deck-scan-actions dialog-actions empty-actions grp-delete-actions grp-member-actions grp-you-actions how-to-actions lab-row-actions lab-runcard-actions lobby-actions oauth-actions ps-actions ps-actions-row research-review-actions rg-actions rules-actions scan-added-actions source-actions ss-actions ss-deck-select-actions stats-actions tm-actions tm-share-actions".split(" "),
+      "admin-actions ask-actions attack-actions coll-actions cp-actions dataset-actions deck-actions deck-scan-actions dialog-actions edit-list-hit-actions empty-actions grp-delete-actions grp-member-actions grp-you-actions how-to-actions lab-row-actions lab-runcard-actions lobby-actions oauth-actions ps-actions ps-actions-row research-review-actions rg-actions rules-actions scan-added-actions source-actions ss-actions ss-deck-select-actions stats-actions tm-actions tm-share-actions".split(" "),
     );
     const found = uses(/className=(?:"|\{`)[^"`]*\b[a-z-]+-actions\b/, (file, line) => BOARD_FILES.test(file) || [...line.matchAll(/\b([a-z-]+-actions(?:-[a-z-]+)?)(?![\w-])/g)].every((m) => known.has(m[1] ?? "")));
     expect(found).toEqual([]);

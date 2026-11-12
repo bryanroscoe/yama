@@ -6,7 +6,7 @@ import { useNavigate } from "react-router";
 import { usePower } from "../auth";
 import { api } from "../api";
 import { ArtPanel } from "../components/ArtPanel";
-import { Button, ButtonLink, ErrorText, Segmented } from "../components/ui";
+import { Button, ButtonLink, CheckRow, ErrorText, Segmented } from "../components/ui";
 import { SPEEDS, seatName } from "./watch";
 import type { SeatInfo, Speed, View, WatchStatus } from "./types";
 import { count } from "@yama/core";
@@ -88,10 +88,7 @@ export function WatchControls({ id, status, view, seats, art, pov, onPov, send, 
         onChange={(speed) => send({ type: "speed", speed })}
         options={SPEEDS.map((s) => ({ value: s.speed, label: s.label, title: s.long }))}
       />
-      <label className="pb-check watch-reveal">
-        <input type="checkbox" checked={status.reveal} onChange={(e) => send({ type: "reveal", on: e.target.checked })} />
-        Show every hand
-      </label>
+      <CheckRow className="pb-check watch-reveal" checked={status.reveal} onChange={(e) => send({ type: "reveal", on: e.target.checked })}>Show every hand</CheckRow>
       <div className="watch-pov" role="group" aria-label="Watch from">
         <span className="watch-pov-label">Watch from</span>
         <span className="watch-pov-seats">

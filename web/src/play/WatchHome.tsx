@@ -11,7 +11,7 @@ import { AlphaTag } from "../components/AlphaTag";
 import { api, type DeckSummary } from "../api";
 import { ArtMosaic } from "../components/ArtMosaic";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
-import { BackLink, Button, ErrorText, Segmented } from "../components/ui";
+import { BackLink, Button, CheckRow, ErrorText, Field, Segmented } from "../components/ui";
 import type { PreconItem, PreconList } from "../lab/api";
 import { shortName } from "./text";
 import { LEVELS, SPEEDS, statusLine, tableNames, watchRequest, type Level, type WatchSeatPlan, type WatchSummary } from "./watch";
@@ -198,21 +198,17 @@ function WatchSetup({ decks, precons }: { decks: DeckSummary[]; precons: PreconI
       {shown.some((d) => d?.art) && <p className="ph-credit">{artCredits(shown.map((d) => (d?.art ? d.artist : null)))}</p>}
 
       <div className="wh-options">
-        <label className="wh-first">
-          Goes first
+        <Field className="wh-first" label="Goes first">
           <select value={first ?? ""} onChange={(e) => setFirst(e.target.value === "" ? null : Number(e.target.value))}>
             <option value="">Random, as at a table</option>
             {seats.map((_, i) => <option key={i} value={i}>Seat {i + 1}{shown[i] ? `: ${seatTitle(i)}` : ""}</option>)}
           </select>
-        </label>
+        </Field>
         <div className="wh-speed">
           <span className="wh-label" id="wh-speed-l">Speed</span>
           <Segmented labelledBy="wh-speed-l" value={speed} onChange={setSpeed} options={SPEEDS.map((x) => ({ value: x.speed, label: x.label, title: x.long }))} />
         </div>
-        <label className="pb-check wh-reveal">
-          <input type="checkbox" checked={reveal} onChange={(e) => setReveal(e.target.checked)} />
-          Start with every hand face up
-        </label>
+        <CheckRow className="pb-check wh-reveal" checked={reveal} onChange={(e) => setReveal(e.target.checked)}>Start with every hand face up</CheckRow>
       </div>
 
       <ErrorText error={create.error} />

@@ -421,9 +421,7 @@ function StockCheck({ stores, going, view, userId }: { stores: Store[]; going: s
         <Button variant="outline" disabled={start.isPending || running} onClick={() => start.mutate()}>
           {running ? "Checking stores…" : going ? "Check the stores I'm going to" : "Check stores"}
         </Button>
-        <label className="check small">
-          <input type="checkbox" checked={yestcg} onChange={(e) => setYestcg(e.target.checked)} /> Also ask YesTCG (Austin), which gives condition and quantity
-        </label>
+        <CheckRow className="check small" checked={yestcg} onChange={(e) => setYestcg(e.target.checked)}>Also ask YesTCG (Austin), which gives condition and quantity</CheckRow>
       </p>
       <ErrorText error={start.error} />
       {skipped.length > 0 && (
