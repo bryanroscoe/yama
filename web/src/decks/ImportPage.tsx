@@ -27,6 +27,7 @@ import { createOpIds, newDeckRequest } from "./saveOps";
 import { ask } from "../components/confirm";
 import { ACCEPT, replaceQuestion, useListImport } from "./useListImport";
 import { VisibilityChoice } from "./VisibilityChoice";
+import { HANDLE_HINT, handleProblem, typedHandle, useSaveHandle } from "./ChooseHandle";
 import "./import.css";
 
 /**
@@ -91,6 +92,8 @@ function ImportEditor() {
   // the bar goes away while an edited list is read again, and must come back with the choice
   // made, not with the account's default.
   const [picked, setPicked] = useState<Visibility | null>(null);
+  // The handle typed for a first public deck, kept here for the same reason.
+  const [handle, setHandle] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
   const { text, preview, drafts, draft, setDraft, active, setActive, check, notice } = list;
   const deckNames = decks.data?.map((d) => d.name) ?? [];
@@ -178,6 +181,8 @@ function ImportEditor() {
           setTarget={setTarget}
           picked={picked}
           setPicked={setPicked}
+          handle={handle}
+          setHandle={setHandle}
           note={note}
           setNote={setNote}
           decks={decks.data ?? []}
@@ -348,7 +353,7 @@ function CardRow({ card, off }: { card: ImportCard; off: boolean }) {
   );
 }
 
-function SaveBar({
+export function SaveBar({
   opIdFor,
   drafts,
   draft,
@@ -356,6 +361,8 @@ function SaveBar({
   setTarget,
   picked,
   setPicked,
+  handle,
+  setHandle,
   note,
   setNote,
   decks,
@@ -371,6 +378,9 @@ function SaveBar({
   /** The person's choice of who can see a new deck; null until they pick (the account's default shows). */
   picked: Visibility | null;
   setPicked: (v: Visibility) => void;
+  /** The handle typed for a first public deck; blank saves the deck public by link. */
+  handle: string;
+  setHandle: (h: string) => void;
   note: string;
   setNote: (n: string) => void;
   decks: DeckSummary[];
@@ -386,6 +396,15 @@ function SaveBar({
   const userId = useMe().data?.id;
   const sharing = useQuery({ queryKey: ["sharing", userId], queryFn: ({ signal }) => api<Sharing>("/api/me/sharing", { signal }), enabled: !!userId });
   const visibility = picked ?? sharing.data?.new_deck_visibility;
+  // A first public deck asks for a handle, the name on the profile that lists it. Left blank,
+  // the deck is public by link and joins the profile once a handle is chosen.
+  const saveHandle = useSaveHandle();
+  const needsHandle = mode === "new" && visibility === "public" && !!sharing.data && !sharing.data.handle;
+  const badHandle = needsHandle ? handleProblem(handle) : null;
+  /** The typed handle first, so a taken one stops the save before any deck is made. */
+  const withHandle = async () => {
+    if (needsHandle && typedHandle(handle)) await saveHandle.mutateAsync(handle);
+  };
   const current = useQuery({
     queryKey: ["deck", target],
     queryFn: ({ signal }) => api<DeckView>(`/api/decks/${target}`, { signal }),
@@ -408,6 +427,7 @@ function SaveBar({
         await api(`/api/decks/${target}`, { method: "PUT", json: { cards: body.cards, prints: body.prints, ...(body.maybe.length ? { maybe: body.maybe } : {}), base_version, note: note.trim() || `Imported${formatLabel ? ` from ${formatLabel}` : ""}` } });
         return target;
       }
+      await withHandle();
       return (await create(draft)).id;
     },
     onSuccess: onSaved,
@@ -417,6 +437,7 @@ function SaveBar({
   const ready = drafts.filter((d) => checks(d).ready);
   const saveAll = useMutation({
     mutationFn: async () => {
+      await withHandle();
       for (const d of ready) await create(d);
     },
     onSuccess: onSavedMany,
@@ -462,6 +483,16 @@ function SaveBar({
         </div>
       )}
       {mode === "new" && visibility && <VisibilityChoice value={visibility} onChange={setPicked} disabled={save.isPending || saveAll.isPending} />}
+      {needsHandle && (
+        <Field
+          className="import-handle"
+          label="Your handle"
+          error={badHandle}
+          hint={`Public decks are listed on your profile. ${HANDLE_HINT} Leave it blank and the deck is public by link until you pick one.`}
+        >
+          <input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="yourname" maxLength={31} autoCapitalize="none" autoCorrect="off" spellCheck={false} />
+        </Field>
+      )}
       <ErrorText error={save.error ?? saveAll.error} />
       <div className="import-save-row">
         {mode === "update" ? (
@@ -469,12 +500,12 @@ function SaveBar({
             {save.isPending ? "Saving…" : "Save as a new version"}
           </Button>
         ) : (
-          <Button variant="primary" disabled={!c.ready || save.isPending} onClick={() => save.mutate()}>
+          <Button variant="primary" disabled={!c.ready || save.isPending || !!badHandle} onClick={() => save.mutate()}>
             {save.isPending ? "Adding…" : "Add the deck"}
           </Button>
         )}
         {mode === "new" && drafts.length > 1 && (
-          <Button disabled={!ready.length || saveAll.isPending} onClick={() => saveAll.mutate()}>
+          <Button disabled={!ready.length || saveAll.isPending || !!badHandle} onClick={() => saveAll.mutate()}>
             {saveAll.isPending ? "Adding…" : `Add all ${ready.length} ready`}
           </Button>
         )}

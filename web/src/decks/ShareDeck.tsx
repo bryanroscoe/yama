@@ -5,6 +5,7 @@ import { api, shareUrl, type DeckView, type Sharing, type Visibility } from "../
 import { useMe } from "../auth";
 import { ActionBar, Button, ButtonLink, Dialog, ErrorText, Field, Segmented } from "../components/ui";
 import { configurationLabel } from "./buildCatalog";
+import { ChooseHandle } from "./ChooseHandle";
 import "./share.css";
 
 export const VISIBILITY_CHOICES: { value: Visibility; label: string; hint: string }[] = [
@@ -113,11 +114,7 @@ export function ShareDeck({ deck, onClose }: { deck: DeckView; onClose: () => vo
             {askReset && <ResetConfirm pending={reset.isPending} onConfirm={() => reset.mutate()} onKeep={() => setAskReset(false)} />}
           </div>
         )}
-        {visibility === "public" && !handle && sharing.data && (
-          <p className="small share-line">
-            Your profile needs a handle before it lists anything. <Link to="/sharing#sharing">Pick a handle in Sharing settings</Link>.
-          </p>
-        )}
+        {visibility === "public" && !handle && sharing.data && <ChooseHandle />}
         {visibility === "public" && handle && (
           <p className="small share-line">
             Listed on <a href={`/u/${handle}`}>your profile, @{handle}</a>.

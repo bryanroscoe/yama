@@ -68,4 +68,32 @@ describe("the share sheet", () => {
     client.clear();
     vi.unstubAllGlobals();
   });
+
+  it("asks for a handle on a public deck of an account without one, and only then", () => {
+    vi.stubGlobal("location", new URL("https://yama.ing/decks/m"));
+    const sheet = (visibility: string, handle: string | null) => {
+      const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } });
+      client.setQueryData(["me"], { id: "u1" });
+      client.setQueryData(["sharing", "u1"], { handle, new_deck_visibility: "private", collection_public: false, share_lab_results: true, decks: { private: 1, link: 1, public: 0 } });
+      const html = renderToStaticMarkup(
+        <QueryClientProvider client={client}>
+          <MemoryRouter>
+            <ShareDeck deck={{ ...deck, visibility } as DeckView} onClose={() => {}} />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+      client.clear();
+      return html;
+    };
+    const asked = sheet("public", null);
+    expect(asked).toContain("Save handle");
+    expect(asked).toContain("This deck is public by link.");
+    // The link still works without a handle.
+    expect(asked).toContain("Copy link");
+    expect(sheet("public", "saget")).not.toContain("Save handle");
+    expect(sheet("public", "saget")).toContain("your profile, @saget");
+    expect(sheet("link", null)).not.toContain("Save handle");
+    expect(sheet("private", null)).not.toContain("Save handle");
+    vi.unstubAllGlobals();
+  });
 });

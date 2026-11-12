@@ -198,3 +198,13 @@
 .share-lab a {
   font-size: var(--t-label);
 }
+
+/* A first public deck's handle, in the Share sheet. */
+.choose-handle {
+  display: grid;
+  gap: 8px;
+}
+.choose-handle label {
+  display: grid;
+  gap: 4px;
+}
