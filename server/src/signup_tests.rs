@@ -160,6 +160,46 @@ async fn open_signup_lets_any_verified_google_account_in_with_the_smaller_allowa
     assert_eq!(body["user"]["display_name"].as_str().unwrap().len(), 60);
 }
 
+/// Public by default: an account made from now on has its public decks listed publicly from the
+/// start (`users.public_listed_at`, `sharing::LISTED`). One that was here before keeps the old
+/// meaning until its owner answers the prompt, however it signs in next.
+#[tokio::test]
+async fn new_accounts_are_listed_publicly_and_older_ones_are_left_as_they_were() {
+    let (app, pool) = server(|c| {
+        c.open_signup = true;
+        c.dev_login = true;
+    })
+    .await;
+    let listed = |email: &'static str| {
+        let pool = pool.clone();
+        async move { sqlx::query_scalar::<_, Option<String>>("SELECT public_listed_at FROM users WHERE email = ?").bind(email).fetch_one(&pool).await.unwrap() }
+    };
+    // Accounts from before the change: one that signs in with Google, one with a password, one
+    // through dev login.
+    for (id, email) in [("old-g", "old-google@gmail.com"), ("old-p", "old-password@example.com"), ("old-d", "old-dev@example.com")] {
+        sqlx::query("INSERT INTO users (id, email, display_name, created_at) VALUES (?, ?, 'Old', '2026-10-01T00:00:00Z')").bind(id).bind(email).execute(&pool).await.unwrap();
+    }
+    crate::auth::add_invite(&pool, "old-google@gmail.com", None).await.unwrap();
+    signed_in(&app, "g-old", "old-google@gmail.com").await;
+    crate::auth::add_local_user(&pool, "old-password@example.com", None, false, Some("a long enough password".into())).await.unwrap();
+    let (status, _, _) = post_from(&app, "/api/auth/dev", json!({ "email": "old-dev@example.com", "name": "Old" }), &fresh_address(), None).await;
+    assert_eq!(status, StatusCode::OK);
+    for email in ["old-google@gmail.com", "old-password@example.com", "old-dev@example.com"] {
+        assert_eq!(listed(email).await, None, "{email}");
+    }
+    assert_eq!(users(&pool).await, 3);
+
+    // Each way of making an account sets it.
+    signed_in(&app, "g-new", "new-google@gmail.com").await;
+    crate::auth::add_local_user(&pool, "new-password@example.com", None, false, Some("a long enough password".into())).await.unwrap();
+    let (status, _, _) = post_from(&app, "/api/auth/dev", json!({ "email": "new-dev@example.com", "name": "New" }), &fresh_address(), None).await;
+    assert_eq!(status, StatusCode::OK);
+    for email in ["new-google@gmail.com", "new-password@example.com", "new-dev@example.com"] {
+        let at = listed(email).await.unwrap_or_else(|| panic!("{email} should be listed from sign-up"));
+        assert!(chrono::DateTime::parse_from_rfc3339(&at).is_ok(), "{email}: {at}");
+    }
+}
+
 #[tokio::test]
 async fn google_tokens_are_checked_carefully() {
     let (app, pool) = server(|c| c.open_signup = true).await;
