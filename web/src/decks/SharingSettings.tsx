@@ -140,7 +140,8 @@ export function SharingSettings() {
         <input type="checkbox" checked={s.collection_public} disabled={save.isPending} onChange={(e) => save.mutate({ collection_public: e.target.checked })} />
         Show my collection on my profile
         <span className="hint">
-          Card names, printings, finishes, conditions and counts of real cards. Not proxies, where they're filed, notes or prices.
+          Card names, printings, finishes, conditions and counts of real cards. Not proxies, where they're filed, notes or prices. Your shared decks
+          then name the printings of your own copies too.
           {!s.handle && " Needs a handle."}
         </span>
       </label>

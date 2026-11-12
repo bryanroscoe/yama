@@ -93,7 +93,7 @@ export function ShareDeck({ deck, onClose }: { deck: DeckView; onClose: () => vo
           </legend>
           {help && (
             <div className="share-help-note" role="note">
-              <span><b>Shown:</b> the cards, the printings its exports name, its commander art and the bracket you declare.</span>
+              <span><b>Shown:</b> the cards, a printing for each (the one your list names, else an ordinary one; your own copies' printings only if you show your collection), its commander art and the bracket you declare.</span>
               <span><b>Never shown:</b> your collection, proxies, prices you paid, notes, boxes, plans, games and account details.</span>
             </div>
           )}

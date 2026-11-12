@@ -6,7 +6,8 @@
 //! containers, proxies, ownership counts, plans, games, playgroups or account details (the Google
 //! display name and email included). A deck's description is the exception its owner writes for
 //! exactly this: it shows on the deck's page, escaped, and nowhere else. A deck's printings are
-//! the ones its exports name. A deck
+//! the ones the deck names (an import's), else a paper printing; the owner's own copies name
+//! one only when they share their collection, and their proxies never do. A deck
 //! page also shows what's worked out from the list (legality, the stored bracket check, stats,
 //! market value) and, when the owner turns it on, its plan's simulated win rates for the lists
 //! it and its listed configurations stand for, nothing else from the plan.
@@ -740,8 +741,19 @@ pub(crate) async fn shared_deck(pool: &SqlitePool, token: &str) -> AppResult<Sha
     let chosen = crate::deck_import::deck_prints(pool, &row.id).await?;
     // The owner's copies of just these cards (for the printing their exports name), each card's
     // facts, and the printings of cards with neither: one query each, however long the list.
+    //
+    // Which printing of a card someone owns is collection data, and the collection is shared
+    // only when its owner turns that on (`users.collection_public`). Decks are public by default
+    // now, so without that a shared deck is read as if its owner owned none of its cards: the
+    // printing the deck names, else a paper printing. With it, their real copies name the
+    // printing, as the shared collection page already shows them; a proxy never does (sharing
+    // never shows proxies). The owner's own deck page and exports (`decks.rs`) are not this.
     let ids: Vec<&str> = list.iter().map(|c| c.oracle_id.as_str()).collect();
-    let items = crate::collection::items_for_cards(pool, &row.owner_id, &ids).await?;
+    let items: Vec<crate::collection::Item> = if sharer.collection_public {
+        crate::collection::items_for_cards(pool, &row.owner_id, &ids).await?.into_iter().filter(|i| !i.proxy).collect()
+    } else {
+        vec![]
+    };
     let mut by_oracle: HashMap<&str, Vec<&crate::collection::Item>> = HashMap::new();
     for i in &items {
         if let Some(o) = i.oracle_id.as_deref() {
@@ -780,8 +792,8 @@ pub(crate) async fn shared_deck(pool: &SqlitePool, token: &str) -> AppResult<Sha
                 art = Some((url, artist, c.name.clone()));
             }
         }
-        // As the owner's own exports name it: the printing the deck names, a copy of theirs (real
-        // before proxy, the one in the deck's box first), else a paper printing.
+        // The printing the deck names, then (only when the collection is shared, above) a real
+        // copy of the owner's, the one in the deck's box first, else a paper printing.
         let mine: &[&crate::collection::Item] = by_oracle.get(c.oracle_id.as_str()).map(Vec::as_slice).unwrap_or_default();
         let chosen_print = chosen.get(&c.oracle_id).filter(|p| plain_print(p)).and_then(|p| {
             p.collector_number.clone().map(|n| PrintRef { set_code: p.set_code.clone(), collector_number: n, finish: p.finish.clone(), from: "chosen" })

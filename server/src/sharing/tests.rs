@@ -590,6 +590,86 @@ async fn a_printing_the_owner_made_up_never_reaches_a_public_download() {
     }
 }
 
+/// Which printing of a card someone owns is collection data. A shared deck names the owner's
+/// copy as a card's printing only when they share their collection; otherwise it is read as if
+/// they owned none of its cards. A proxy never names one. The owner's own view doesn't change.
+#[tokio::test]
+async fn a_shared_deck_names_its_owners_printings_only_when_the_collection_is_shared() {
+    let (app, pool) = app().await;
+    let (bryan, bt) = user(&pool, "bryan@example.com").await;
+    // Each card's default printing, and another printing the owner has: Sol Ring for real, in
+    // foil; Lightning Bolt only as a proxy.
+    card(&pool, "o-sol", "Sol Ring", "Artifact", "p-sol", "cmm", "410").await;
+    card(&pool, "o-bolt", "Lightning Bolt", "Instant", "p-bolt", "lea", "161").await;
+    for (id, oracle, name, set, number) in [("p-sol-ltc", "o-sol", "Sol Ring", "ltc", "284"), ("p-bolt-m11", "o-bolt", "Lightning Bolt", "m11", "149")] {
+        sqlx::query("INSERT INTO printings (scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang, updated_at) VALUES (?, ?, ?, ?, 'Other Set', ?, 'en', 'now')")
+            .bind(id)
+            .bind(oracle)
+            .bind(name)
+            .bind(set)
+            .bind(number)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    let ops = json!([
+        { "op_id": "own-sol", "kind": "add", "scryfall_id": "p-sol-ltc", "qty": 1, "proxy": false, "container_id": null, "finish": "foil" },
+        { "op_id": "proxy-bolt", "kind": "add", "scryfall_id": "p-bolt-m11", "qty": 1, "proxy": true, "container_id": null, "finish": "nonfoil" },
+    ]);
+    assert_eq!(send(&app, Method::POST, "/api/collection/ops", Some(&bt), Some(ops)).await.0, StatusCode::OK);
+    let (status, made) = send(&app, Method::POST, "/api/decks", Some(&bt), Some(json!({ "name": "Tricks", "text": "Commander\n1 Sol Ring\nDeck\n1 Lightning Bolt", "visibility": "public" }))).await;
+    assert_eq!(status, StatusCode::OK, "{made}");
+    let id = made["id"].as_str().unwrap().to_string();
+    let token = token_of(&pool, &id).await;
+    let shared = || async {
+        let (_, _, moxfield) = page(&app, &format!("/d/{token}/moxfield.txt")).await;
+        let (_, _, csv) = page(&app, &format!("/d/{token}/csv.csv")).await;
+        let (_, _, html) = page(&app, &format!("/d/{token}")).await;
+        let (_, api) = send(&app, Method::GET, &format!("/api/public/decks/{token}"), None, None).await;
+        (moxfield, csv, html, api["text"].as_str().unwrap().to_string())
+    };
+    // What the owner sees on their own deck page: their copies, whatever they share.
+    let own = || async {
+        let (_, deck) = send(&app, Method::GET, &format!("/api/decks/{id}"), Some(&bt), None).await;
+        let printing = |name: &str| {
+            let c = deck["cards"].as_array().unwrap().iter().find(|c| c["name"] == name).unwrap().clone();
+            format!("{} {} {} {}", c["printing"]["set_code"].as_str().unwrap(), c["printing"]["collector_number"].as_str().unwrap(), c["printing"]["finish"].as_str().unwrap(), c["printing"]["from"].as_str().unwrap())
+        };
+        (printing("Sol Ring"), printing("Lightning Bolt"))
+    };
+
+    // The collection is not shared (the default, for a new account too): every card names a
+    // paper printing, as for a card the owner doesn't have, in the page, the downloads and the API.
+    let private: bool = sqlx::query_scalar("SELECT collection_public FROM users WHERE id = ?").bind(&bryan).fetch_one(&pool).await.unwrap();
+    assert!(!private);
+    let (moxfield, csv, html, text) = shared().await;
+    assert_eq!(moxfield, "Commander\n1 Sol Ring (CMM) 410\n\nDeck\n1 Lightning Bolt (LEA) 161\n");
+    assert_eq!(text, moxfield);
+    assert_eq!(csv, "Quantity,Name,Board,Set code,Collector number,Finish\n1,Sol Ring,Commander,CMM,410,nonfoil\n1,Lightning Bolt,Main,LEA,161,nonfoil\n");
+    for theirs in ["LTC", "ltc", "284", "M11", "m11", "149", ",foil", "*F*"] {
+        assert!(!moxfield.contains(theirs) && !csv.contains(theirs) && !html.contains(&format!("({theirs})")), "{theirs}");
+    }
+    assert_eq!(own().await, ("ltc 284 foil owned".to_string(), "m11 149 nonfoil owned".to_string()));
+
+    // The collection is shared: their real copy names Sol Ring's printing and finish. The proxy
+    // names nothing: sharing never shows proxies.
+    send(&app, Method::PUT, "/api/me/sharing", Some(&bt), Some(json!({ "collection_public": true }))).await;
+    let (moxfield, csv, _, text) = shared().await;
+    assert_eq!(moxfield, "Commander\n1 Sol Ring (LTC) 284 *F*\n\nDeck\n1 Lightning Bolt (LEA) 161\n");
+    assert_eq!(text, moxfield);
+    assert!(csv.contains("1,Sol Ring,Commander,LTC,284,foil") && csv.contains("1,Lightning Bolt,Main,LEA,161,nonfoil"), "{csv}");
+
+    // Turned off again, it takes effect at once; a printing the deck itself names (an import's)
+    // still shows either way, since the deck names it, not the collection.
+    send(&app, Method::PUT, "/api/me/sharing", Some(&bt), Some(json!({ "collection_public": false }))).await;
+    assert_eq!(shared().await.0, "Commander\n1 Sol Ring (CMM) 410\n\nDeck\n1 Lightning Bolt (LEA) 161\n");
+    assert_eq!(own().await, ("ltc 284 foil owned".to_string(), "m11 149 nonfoil owned".to_string()));
+    let (_, named) = send(&app, Method::POST, "/api/decks", Some(&bt), Some(json!({ "name": "Named", "text": "Commander\n1 Sol Ring", "visibility": "link",
+        "prints": [{ "oracle_id": "o-sol", "set_code": "ltc", "collector_number": "284", "finish": "foil" }] }))).await;
+    let named = token_of(&pool, named["id"].as_str().unwrap()).await;
+    assert_eq!(page(&app, &format!("/d/{named}/moxfield.txt")).await.2, "Commander\n1 Sol Ring (LTC) 284 *F*\n");
+}
+
 #[test]
 fn a_csv_cell_a_spreadsheet_would_run_is_defused() {
     let printing = |number: &str| Some(crate::decks::PrintRef { set_code: "plst".into(), collector_number: number.into(), finish: "nonfoil".into(), from: "default" });
