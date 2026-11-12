@@ -87,6 +87,10 @@ function ImportEditor() {
 
   const [note, setNote] = useState("");
   const [target, setTarget] = useState<string>("");
+  // Who can see the new deck, once the person has picked. It lives here, not in the save bar:
+  // the bar goes away while an edited list is read again, and must come back with the choice
+  // made, not with the account's default.
+  const [picked, setPicked] = useState<Visibility | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const { text, preview, drafts, draft, setDraft, active, setActive, check, notice } = list;
   const deckNames = decks.data?.map((d) => d.name) ?? [];
@@ -172,6 +176,8 @@ function ImportEditor() {
           draft={draft}
           target={target}
           setTarget={setTarget}
+          picked={picked}
+          setPicked={setPicked}
           note={note}
           setNote={setNote}
           decks={decks.data ?? []}
@@ -348,6 +354,8 @@ function SaveBar({
   draft,
   target,
   setTarget,
+  picked,
+  setPicked,
   note,
   setNote,
   decks,
@@ -360,6 +368,9 @@ function SaveBar({
   draft: Draft;
   target: string;
   setTarget: (id: string) => void;
+  /** The person's choice of who can see a new deck; null until they pick (the account's default shows). */
+  picked: Visibility | null;
+  setPicked: (v: Visibility) => void;
   note: string;
   setNote: (n: string) => void;
   decks: DeckSummary[];
@@ -374,7 +385,6 @@ function SaveBar({
   // server uses the default itself.
   const userId = useMe().data?.id;
   const sharing = useQuery({ queryKey: ["sharing", userId], queryFn: ({ signal }) => api<Sharing>("/api/me/sharing", { signal }), enabled: !!userId });
-  const [picked, setPicked] = useState<Visibility | null>(null);
   const visibility = picked ?? sharing.data?.new_deck_visibility;
   const current = useQuery({
     queryKey: ["deck", target],

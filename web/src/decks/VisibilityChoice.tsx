@@ -14,7 +14,7 @@ export function visibilityMeans(v: Visibility): string {
     case "public":
       return "Anyone with the link can see the list, and it is listed on your profile.";
     case "link":
-      return "Only people you send the link to can see the list. It isn't listed anywhere.";
+      return "Anyone with the link can see the list. It isn't listed anywhere.";
     default:
       return "Only you can see it.";
   }
