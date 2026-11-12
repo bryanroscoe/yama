@@ -111,6 +111,7 @@ export function WhyBracket({ deck, at, outAt, onCard }: { deck: DeckView; at: nu
                   ))}
                 </ul>
                 <p className="dim">
+                  {c.templates.length > 0 && <>Plus {c.templates.join(", ").toLowerCase()}. </>}
                   {comboResult(c.results)}{" "}
                   <a href={`${SPELLBOOK}combo/${encodeURIComponent(c.id)}/`} target="_blank" rel="noreferrer">
                     How it works

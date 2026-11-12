@@ -139,5 +139,6 @@ describe("comparing the five scores", () => {
     expect(powerChange(6.2, 3.4)).toBe("+2.8");
     expect(powerChange(3.4, 6.2)).toBe("−2.8");
     expect(powerChange(5, 5.04)).toBe("no change");
+    expect(powerChange(6.26, 3.44)).toBe("+2.9");
   });
 });

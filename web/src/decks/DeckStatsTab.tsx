@@ -88,6 +88,8 @@ function PowerSection({ deckId, versionId, cards, images, inDeck, onCard }: { de
     ...(earlier.length ? [["version", "Earlier version"] as ["version", string]] : []),
     ...REFERENCES.map((x) => [x.key, x.label] as [Reference, string]),
   ];
+  // A list or version can go away on a refetch; fall back to Nothing rather than a blank control.
+  const shownRef = compareOptions.some(([k]) => k === ref) ? ref : "none";
   const selected = a ? (a.vectors.find((x) => x.key === sel) ?? a.vectors[0] ?? null) : null;
   return (
     <section className="stats-power" aria-labelledby="stats-power-h">
@@ -99,8 +101,8 @@ function PowerSection({ deckId, versionId, cards, images, inDeck, onCard }: { de
         {a && (
           <span className="stats-compare">
             <span className="dim">Compare with</span>
-            <Segmented as="span" label="Compare with" value={ref} onChange={setRef} options={compareOptions} />
-            {ref === "version" && (
+            <Segmented as="span" label="Compare with" value={shownRef} onChange={setRef} options={compareOptions} />
+            {shownRef === "version" && (
               <select className="stats-version-pick" aria-label="Which version" value={pickedVersion ?? ""} onChange={(e) => setVersionPick(e.target.value)}>
                 {earlier.map((v) => (
                   <option key={v.id} value={v.id}>
@@ -144,7 +146,7 @@ function PowerSection({ deckId, versionId, cards, images, inDeck, onCard }: { de
             </div>
             <div className="power-vectors" role="group" aria-label="Five scores">
               {a.vectors.map((x) => (
-                <Button key={x.key} className="vector" aria-pressed={x.key === selected.key} onClick={() => setSel(x.key)}>
+                <Button key={x.key} className="vector" aria-pressed={x.key === selected.key} onClick={() => setSel(x.key)} aria-label={r?.power != null ? `${x.label}, ${Math.round(x.score)}; ${r.name}, ${Math.round(r.value(x.key))}` : undefined}>
                   <span className="vector-name"><b>{x.label}</b><span className="dim">{x.band}</span></span>
                   <span className="vector-track" aria-hidden="true">
                     <span className="fill" style={{ width: pctWidth(x.score) }} />

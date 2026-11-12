@@ -107,8 +107,9 @@ export function comparisonOf(r: Reference | "own-stock" | `version:${string}`, v
 
 /** "+0.4", "-1.2", "no change": how far the power level moved from what it's compared with. */
 export function powerChange(now: number, then: number): string {
-  const d = Math.round((now - then) * 10) / 10;
-  return d === 0 ? "no change" : `${d > 0 ? "+" : "−"}${Math.abs(d).toFixed(1)}`;
+  // Round each first, so the change matches the two numbers as shown.
+  const d = Math.round(now * 10) / 10 - Math.round(then * 10) / 10;
+  return Math.abs(d) < 0.05 ? "no change" : `${d > 0 ? "+" : "−"}${Math.abs(d).toFixed(1)}`;
 }
 
 /** A bar's width: 0 to 100 percent. */
