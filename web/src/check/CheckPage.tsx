@@ -58,6 +58,7 @@ const ACCEPT = ".txt,.dec,.mwdeck,text/plain";
 const MAX_FILE = 200_000;
 
 export function CheckPage() {
+  const accountId = useMe().data?.id;
   const [deck, setDeckState] = useState<GuestDeck | null>(() => readGuestDeck());
   const [editing, setEditing] = useState(false);
   // Whether this browser kept the list: when it wouldn't (storage blocked), the page still works
@@ -81,7 +82,9 @@ export function CheckPage() {
       />
     );
   }
-  return <CheckedDeck deck={deck} kept={kept} setDeck={setDeck} onEdit={() => setEditing(true)} />;
+  // Keyed by who is signed in: the choice of who can see the deck, a typed handle and a save's
+  // error belong to one account, and start afresh when another signs in on this page.
+  return <CheckedDeck key={accountId ?? "guest"} deck={deck} kept={kept} setDeck={setDeck} onEdit={() => setEditing(true)} />;
 }
 
 /** The box: paste a list, choose a file or drop one, and check it. */
@@ -222,7 +225,13 @@ function CheckedDeck({ deck, kept, setDeck, onEdit }: { deck: GuestDeck; kept: b
     mutationFn: async () => {
       // The typed handle first, so a taken one stops the save before any deck is made.
       if (needsHandle && typedHandle(handle)) await saveHandle.mutateAsync(handle);
-      return api<{ id: string }>("/api/decks", { method: "POST", json: saveRequest(deck, r!, visibility!) });
+      const made = await api<{ id: string }>("/api/decks", { method: "POST", json: saveRequest(deck, r!, visibility!) });
+      // A save sent again after its answer was lost names the deck the first one made, as it was
+      // saved then (the op id). If the choice changed in between, the deck must still end up as
+      // chosen now, so it is set on the deck itself: a deck is never left more public than the
+      // choice on screen when Save was pressed.
+      await api(`/api/decks/${encodeURIComponent(made.id)}`, { method: "PATCH", json: { visibility } });
+      return made;
     },
     onSuccess: (made) => {
       // It's an ordinary deck of the account now: this browser's copy goes. Only that copy: a
