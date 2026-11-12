@@ -38,7 +38,9 @@ export function dialogName(el: Element | null | undefined): string | undefined {
 
 /** What goes with a report besides the person's words. */
 export function reportContext(origin: Origin, region: Region | null): Record<string, unknown> {
-  const heading = document.querySelector("main h1, h1")?.textContent;
+  // What shows: a head can hold a phone title and a laptop title, one of them hidden.
+  const h1 = document.querySelector<HTMLElement>("main h1, h1");
+  const heading = h1 ? (h1.innerText ?? h1.textContent) : undefined;
   return {
     ...(origin.dialog ? { dialog: origin.dialog } : {}),
     ...(heading ? { heading: squeeze(heading, 120) } : {}),

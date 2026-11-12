@@ -673,6 +673,10 @@ async fn deleting_an_account_leaves_nothing_of_it() {
         fill(&pool,"research_reviews",&[("owner_id",t(owner)),("report_id",t(&report)),("version",V::I(1))]).await;
         fill(&pool,"research_review_ops",&[("owner_id",t(owner)),("receipt",t("{}"))]).await;
     }
+    // Bug reports each sent: the victim's go, the bystander's stay.
+    for owner in [&v, &b] {
+        fill(&pool, "bug_reports", &[("owner_id", t(owner)), ("page", t("/decks")), ("message", t("broken"))]).await;
+    }
     // The victim's own shared-key grant (goes), and one it made for the bystander (stays, unsigned).
     fill(&pool, "advisor_shared_access", &[("user_id", t(&v)), ("granted_by", V::Null)]).await;
     fill(&pool, "advisor_shared_access", &[("user_id", t(&b)), ("granted_by", t(&v))]).await;
