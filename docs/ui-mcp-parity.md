@@ -55,7 +55,7 @@ part of it). "Gap" rows are the backlog, in rough priority order inside each are
 | Import a public Moxfield or Archidekt deck | Import | `get_public_deck` + `save_deck` | Both |
 | Version history and differences | Deck page, History tab | `list_deck_versions`, `compare_decks` | Both |
 | Restore an older version | History tab | `save_deck` with the old list | Both |
-| Validate a list without saving | Import preview, Edit list | `check_deck_list` | Both |
+| Validate a list without saving | Import preview, Edit list, Check a deck (`/check`, no account needed; the same reader, `server/src/list_check.rs`) | `check_deck_list` | Both |
 | Delete a deck or configuration | Deck settings | `delete_deck` (staged) | Both |
 | Rename, move to a box, declare a bracket | Deck settings, Declare bracket | `update_deck` (staged): name and declared bracket | Partial (2026-11-11): **Gap (MCP)** for moving a deck to a box |
 | Export the list as text | Deck export (copy, .txt) | `get_deck` returns the list | Both |

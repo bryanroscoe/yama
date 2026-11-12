@@ -16,7 +16,7 @@
 <a class="site-frame-open" href="/">Open Yama</a></header>
 <main id="content">
 <h1>Privacy policy</h1>
-<p class="dim">Last updated November 12, 2026 (what Cloudflare measures, and its cookies).</p>
+<p class="dim">Last updated November 12, 2026 (checking a deck without an account; what Cloudflare measures, and its cookies).</p>
 
 <p>Yama (yama.ing) is a free, non-commercial hobby app for playing and tracking Magic: The Gathering Commander games. It is run by one person, Bryan Roscoe, on a home server in the United States. This page says what Yama stores, why, who else is involved, and how to have your data deleted.</p>
 
@@ -27,6 +27,7 @@
 <p>Whatever you create in Yama is stored with your account: decks and their versions, your card collection, life totals and logged games, playgroups, online games and where they stop for you, deck plans and review answers, simulation runs, script keys, and the apps you connect, such as Claude (their keys and sign-in tokens are stored only as a one-way hash).</p>
 <p>The card scanner looks at the camera on your device; video doesn't leave it. If you turn on <b>Save scan photos</b> in the scanner (it's off unless you do), Yama keeps a small photo of the part of the frame around each card you add or correct, with what the card was, so the scanner can be tested and improved on real cards. They are stored with your account and used only to test and train Yama's scanner, never shown to other people or sent to another service. Yama keeps the newest 2,000 and deletes them when you tap Delete them in the scanner or delete your account.</p>
 <p>The life counter also works without an account. Then nothing about your games reaches Yama: they stay in your browser on that device until you sign in there and choose to save them to your account. Looking up a commander sends only what you typed.</p>
+<p><a href="/check">Check a deck</a> works without an account too. The list you paste is kept in your browser on that device. Each time you open the page your browser sends the list to Yama, which works out the answer (legality, brackets, power, stats and market value) and stores nothing: not the list, not the answer, and nothing that ties it to you. Yama doesn't send that list to Commander Spellbook or any other service. If you sign in and choose to save it, it becomes a deck in your account like any other.</p>
 
 <h2>Who can see it</h2>
 <ul>
@@ -48,12 +49,12 @@
   <li><b>Google</b> handles sign-in.</li>
   <li><b>Cloudflare</b> carries traffic between your browser and the server, so it sees your IP address and requests. It checks that visitors aren't automated, which can show a short check before a page loads, and it counts page visits and measures how fast pages load (Cloudflare Web Analytics, which uses no cookies and doesn't identify you).</li>
   <li><b>Scryfall</b> serves card images and card data. Your browser loads images straight from Scryfall, so Scryfall sees your IP address.</li>
-  <li><b>Commander Spellbook</b> receives a deck's card list (by card ID, with no account details) when Yama checks a deck for combos and its Commander bracket.</li>
+  <li><b>Commander Spellbook</b> receives a deck's card list (by card ID, with no account details) when Yama checks a deck saved to an account for combos and its Commander bracket. A list checked without an account is not sent.</li>
   <li><b>Apps you connect.</b> If you connect Claude (Claude Code, or a connector in Claude's apps) after Yama asks you to allow it, that app reads your decks, plans, Review, collection and lab runs through Yama's tools, under its own terms. Disconnect it any time in Decks, Plans, Settings.</li>
 </ul>
 
 <h2>IP addresses and logs</h2>
-<p>Yama uses your IP address for a short time, in memory, to limit repeated sign-in attempts, new accounts, card searches made without an account and reports of shared pages. It is not stored with your account and is forgotten when the server restarts. The server keeps short technical logs for fixing problems.</p>
+<p>Yama uses your IP address for a short time, in memory, to limit repeated sign-in attempts, new accounts, card searches and deck checks made without an account, and reports of shared pages. It is not stored with your account and is forgotten when the server restarts. The server keeps short technical logs for fixing problems.</p>
 <p>If you report a shared deck or profile, Yama keeps which page it was, the reason you picked and anything you wrote, so a moderator can look at it. It does not keep who sent the report. Reports about an account's pages are deleted when that account is deleted.</p>
 
 <h2>How long data is kept, and deleting it</h2>

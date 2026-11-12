@@ -58,8 +58,9 @@ export function DeckCardsTab({
   atBracket,
   status,
   onOpen,
+  plain = false,
 }: {
-  deck: DeckView;
+  deck: Pick<DeckView, "cards" | "ownership">;
   controls: ReturnType<typeof useCardControls>;
   /** Cards going out at the bracket being previewed. */
   outAt: ReadonlySet<string>;
@@ -67,8 +68,12 @@ export function DeckCardsTab({
   /** Where your copies are, or that you need it (the list view's second line). */
   status: (e: DeckEntry) => ReactNode;
   onOpen: (oracleId: string) => void;
+  /** A list that belongs to no account (the Check a deck page): nothing about owning its cards,
+   *  so no Show filter, no "Need" chips and no Copy column. */
+  plain?: boolean;
 }) {
-  const { show, setShow, view, setView, groupBy, setGroupBy, sort, setSort } = controls;
+  const { setShow, view, setView, groupBy, setGroupBy, sort, setSort } = controls;
+  const show: CardShow = plain ? "all" : controls.show;
   const rows = useMemo(() => cardRows(deck.cards), [deck.cards]);
   const counts = showCounts(rows);
   const groups = useMemo(() => cardGroups(rows, show, groupBy, sort), [rows, show, groupBy, sort]);
@@ -99,6 +104,7 @@ export function DeckCardsTab({
   // A stack shows only the name bar, so its chip is short ("Out"); the card's label says the rest.
   const chip = (r: CardRow, short = false) => {
     if (outAt.has(r.entry.name)) return <span className="card-chip out">{short ? "Out" : `Out at Bracket ${atBracket}`}</span>;
+    if (plain) return null;
     const c = copyChip(r, show);
     return c ? <span className={`card-chip ${c.tone}`}>{c.text}</span> : null;
   };
@@ -113,14 +119,14 @@ export function DeckCardsTab({
   };
   const label = (r: CardRow) => {
     const n = copiesShown(r, show);
-    return `${n > 1 ? `${n} ` : ""}${r.entry.name}${r.need ? `, need ${r.need}` : ""}${r.proxy && !r.real ? ", proxy" : ""}${outAt.has(r.entry.name) ? `, out at Bracket ${atBracket}` : ""}`;
+    return `${n > 1 ? `${n} ` : ""}${r.entry.name}${r.need && !plain ? `, need ${r.need}` : ""}${r.proxy && !r.real ? ", proxy" : ""}${outAt.has(r.entry.name) ? `, out at Bracket ${atBracket}` : ""}`;
   };
 
   return (
     <div className="cards-tab">
       <div className="cards-controls">
         <div className="cards-controls-row">
-          <Segmented<CardShow> as="span" compact
+          {!plain && <Segmented<CardShow> as="span" compact
             label="Show"
             value={show}
             onChange={setShow}
@@ -129,7 +135,7 @@ export function DeckCardsTab({
               ["need", <>Still need <span className="num">{counts.need}</span></>],
               ["proxy", <>Proxies <span className="num">{counts.proxy}</span></>],
             ]}
-          />
+          />}
           <Segmented<CardView> as="span" compact label="View" value={view} onChange={setView} options={[["pictures", "Pictures"], ["stacks", "Stacks"], ["list", "List"], ["table", "Table"]]} />
           <span className="cards-total">
             <b className="num">{total.usd != null ? usd(total.usd) : "No price"}</b>
@@ -246,7 +252,7 @@ export function DeckCardsTab({
                 <tr>
                   <th scope="col">Card</th>
                   <th scope="col">Mana value</th>
-                  <th scope="col">Copy</th>
+                  {!plain && <th scope="col">Copy</th>}
                   <th scope="col">Cheapest printing</th>
                   <th scope="col" className="num">Price</th>
                 </tr>
@@ -264,7 +270,7 @@ export function DeckCardsTab({
                         </Button>
                       </td>
                       <td className="num">{r.type === "Lands" ? "" : r.mv}</td>
-                      <td>{outAt.has(r.entry.name) ? chip(r) : copyKinds(r, show)}</td>
+                      {!plain && <td>{outAt.has(r.entry.name) ? chip(r) : copyKinds(r, show)}</td>}
                       <td className="dim">
                         {p ? (
                           <a href={`https://scryfall.com/card/${encodeURIComponent(p.set_code)}/${encodeURIComponent(p.collector_number)}`} target="_blank" rel="noreferrer">

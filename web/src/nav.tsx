@@ -77,6 +77,8 @@ export const TABS: NavTab[] = [
       { to: "/lab", label: "Precons", end: true, also: ["/lab/p"], when: signedIn },
       { to: "/precons", label: "Precons", page: true, when: signedOut },
       { to: "/commanders", label: "Commanders", page: true },
+      // Open to everyone: a pasted list checked without an account (check/).
+      { to: "/check", label: "Check a deck" },
     ],
   },
   { id: "cards", to: "/cards", label: "Cards", icon: <CardsIcon />, sections: [{ to: "/cards", label: "Search" }] },

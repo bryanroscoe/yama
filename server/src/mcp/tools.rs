@@ -21,8 +21,6 @@ use std::fmt::Write as _;
 
 /// Names one `get_cards` call may ask about.
 const MAX_NAMES: usize = 20;
-/// Lines one `check_deck_list` call may send.
-const MAX_LIST_LINES: usize = 300;
 
 /// A staging tool's handler from one of `changes`' `async fn(st, user, via, args)`.
 macro_rules! stage {
@@ -2018,12 +2016,10 @@ async fn deck(pool: &SqlitePool, user: &User, wanted: &str) -> AppResult<String>
 
 async fn check_list(pool: &SqlitePool, args: &Value) -> AppResult<String> {
     let text = args.get("list").and_then(Value::as_str).ok_or_else(|| AppError::bad("list is missing"))?;
-    if text.lines().count() > MAX_LIST_LINES {
-        return Err(AppError::bad(format!("a list can be at most {MAX_LIST_LINES} lines")));
-    }
     let first = args.get("first_is_commander").and_then(Value::as_bool).unwrap_or(true);
-    let parsed = crate::decks::resolve(pool, crate::decks::parse_list(text, first)).await?;
-    let info = card_info(pool, &parsed.cards).await?;
+    // The reader the `/check` page uses for a list nobody has saved (list_check.rs).
+    let crate::list_check::Read { cards, unknown, info } = crate::list_check::read(pool, text, first).await?;
+    let parsed = crate::decks::ParseResult { cards, unknown };
     let mut out = String::new();
     let commanders: Vec<&str> = parsed.cards.iter().filter(|c| c.board == Board::Commander).map(|c| c.name.as_str()).collect();
     let _ = writeln!(out, "Commander: {}", if commanders.is_empty() { "none found".into() } else { commanders.join(" and ") });

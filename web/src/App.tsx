@@ -46,6 +46,7 @@ const changes = area(() => import("./advisor/Changes"));
 const research = area(() => import("./research/Research"));
 const deckScan = area(() => import("./decks/DeckScanPage"));
 const deckCheck = area(() => import("./decks/DeckCheckPage"));
+const checkDeck = area(() => import("./check/CheckPage"));
 const consent = area(() => import("./oauth/Consent"));
 const guestTable = area(() => import("./table/GuestTable"));
 const gameDetail = area(() => import("./table/GameDetail"));
@@ -102,6 +103,7 @@ const ResearchPage = research.page("ResearchPage");
 const DatasetsPage = lab.page("DatasetsPage");
 const DeckScanPage = deckScan.page("DeckScanPage");
 const DeckCheckPage = deckCheck.page("DeckCheckPage");
+const CheckPage = checkDeck.page("CheckPage");
 const OAuthConsent = consent.page("OAuthConsent");
 const GuestTable = guestTable.page("GuestTable");
 const GameDetailPage = gameDetail.page("GameDetailPage");
@@ -262,6 +264,8 @@ export function App() {
         <Route path="new" element={<Framed><WhatsNewPage /></Framed>} />
         {/* Open to everyone: signed out, it offers a game against the computer as a guest. */}
         <Route path="play" element={signedIn ? <Paged page={PlayHome} title="Play online" /> : <Paged page={GuestPlayHome} title="Play online" />} />
+        {/* Open to everyone: check a pasted list; it stays in the browser until it's saved (check/). */}
+        <Route path="check" element={<Paged page={CheckPage} title="Check a deck" />} />
         <Route element={<RequireAccount />}>
           <Route path="table/games" element={<Paged page={GameHistoryPage} title="Game history" />} />
           <Route path="table/games/:id" element={<Paged page={GameDetailPage} kind="detail" />} />

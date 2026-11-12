@@ -142,6 +142,10 @@ pub struct Limits {
     /// `/api/guest/cards/search`: commander lookups from the life counter without an account,
     /// per client address.
     pub guest_search: RateLimiter,
+    /// `/api/public/deck-check`: a pasted list checked without an account (`list_check.rs`), per
+    /// client address. Someone editing a list checks it again with each change; a script checks
+    /// hundreds.
+    pub public_deck_checks: RateLimiter,
     /// New accounts through open sign-up, per client address: a person makes one, a script many.
     pub new_accounts_address: RateLimiter,
     /// New accounts through open sign-up from everywhere together, so a flood from many addresses
@@ -232,6 +236,7 @@ impl Default for Limits {
             sign_in_email: RateLimiter::new("sign-in attempts for this email", SIGN_IN_ATTEMPTS, SIGN_IN_WINDOW),
             search: RateLimiter::new("card searches", 120, MINUTE),
             guest_search: RateLimiter::new("card searches from this address", 60, MINUTE),
+            public_deck_checks: RateLimiter::new("deck checks from this address", 40, 10 * MINUTE),
             new_accounts_address: RateLimiter::new("new accounts from this address", NEW_ACCOUNTS_PER_ADDRESS, DAY),
             new_accounts: RateLimiter::new("new accounts on Yama just now", NEW_ACCOUNTS_PER_HOUR, 60 * MINUTE),
             new_account_gate: tokio::sync::Mutex::new(()),
