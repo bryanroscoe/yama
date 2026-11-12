@@ -334,7 +334,7 @@ function TryForm() {
               {create.isPending ? "Starting…" : solo ? `Run ${base!.label} as it is` : changed ? "Run the change" : "Run"}
             </Button>
             <p className="lab-note" style={{ margin: 0 }}>
-              {solo ? "Every pod is played once." : "Same shuffles and seats for both lists."}{engines.mode === "both" ? " Each engine plays the same pods." : ""} Simulated games, not your table. <Link to="/lab/runs">My runs</Link>
+              {solo ? "Every pod is played once." : "Same shuffles and seats for both lists."}{engines.mode === "both" ? " Each engine plays the same pods." : ""} Simulated games, not your table. <Link to="/lab/runs">Lab runs</Link>
             </p>
           </section>
         </aside>

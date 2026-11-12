@@ -57,6 +57,12 @@
   .is-slim .area-top {
     grid-template-areas: "back . .";
   }
+  /* One of a tab's own pages that isn't its front page (Lab runs): no back button, so no
+     column for one to indent the title. */
+  .is-sub.no-back .area-top {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "title .";
+  }
 }
 
 /* Laptops: one row, title on the left; no back buttons (the frame's strip is there). */

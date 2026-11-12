@@ -52,7 +52,7 @@ export function ShareNote({ bundle }: { bundle: ResearchBundle }) {
     </div>}
     {visibility === "public" && sharing.data && (handle
       ? <p className="small dim">Listed on <a href={`/u/${handle}`}>your profile, @{handle}</a>.</p>
-      : <p className="small">Your profile needs a handle before it lists anything. <Link to="/sharing#sharing">Pick a handle in Sharing</Link>.</p>)}
+      : <p className="small">Your profile needs a handle before it lists anything. <Link to="/sharing#sharing">Pick a handle in Sharing settings</Link>.</p>)}
     <ErrorText error={set.error ?? reset.error} />
   </details>;
 }

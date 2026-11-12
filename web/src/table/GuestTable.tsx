@@ -148,7 +148,7 @@ function GuestGame({ gameId }: { gameId: string }) {
   if (ended) return (
     <main className="page">
       <h1>This table has ended</h1>
-      <p className="dim">The host finished or discarded this game. Open Table to find the next one.</p>
+      <p className="dim">The host finished or discarded this game. Open the life counter to find the next one.</p>
       <ButtonLink variant="primary" to="/">Back to the life counter</ButtonLink>
     </main>
   );

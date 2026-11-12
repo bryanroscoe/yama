@@ -7,7 +7,7 @@
    `.plan` (the layout's <main>) to stay ahead of its element rules.
 
    Semantic classes, in page order:
-   - Page heads are components/DeckTabs' AreaHead (title, Decks | Plans | Lab, the sub-nav).
+   - Page heads are components/DeckTabs' AreaHead; the frame lists the Workshop's pages above them.
    - .plan-figures / .plan-figure: the big numbers. .plan-section-head: a section title.
    - Overview: .plan-tile, an art tile per deck (left wash), with .art-chip warn chips.
    - Deck page: .plan-hero (art; bottom wash on phones, left wash on laptops), .plan-question,

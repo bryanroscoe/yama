@@ -396,10 +396,6 @@
 .grp-you-actions {
   justify-content: flex-start;
 }
-.group-page .grp-new {
-  font-size: var(--t-label);
-  color: var(--dim);
-}
 .grp-invites {
   margin: 0;
   padding-left: 1.2rem;

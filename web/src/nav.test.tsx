@@ -1,9 +1,12 @@
+import { readFileSync } from "node:fs";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TabSections } from "./components/TabSections";
 import { MAIN_TABS, TABS, sectionOf, sectionsFor, tab, tabOf, type Who } from "./nav";
+// @ts-expect-error The polish tool's route reader is plain JavaScript with no types.
+import { routesFromApp } from "../scripts/polish/routes.mjs";
 
 // The Plans count reads the plan store and the offline outbox; neither matters to these pages.
 vi.mock("./plan/store", () => ({ usePlan: () => ({ bundle: null }) }));
@@ -11,9 +14,9 @@ vi.mock("./plan/outbox", () => ({ outbox: { localOps: () => [] }, useOutbox: () 
 
 afterEach(() => vi.unstubAllGlobals());
 
-const guest: Who = { signedIn: false, power: false, admin: false, evidence: false };
+const guest: Who = { signedIn: false, power: false, evidence: false };
 const account: Who = { ...guest, signedIn: true };
-const owner: Who = { signedIn: true, power: true, admin: true, evidence: true };
+const owner: Who = { signedIn: true, power: true, evidence: true };
 
 describe("the tabs", () => {
   it("are Play, Decks, Cards, Collection and Playgroup, with Workshop and You beside them", () => {
@@ -41,6 +44,8 @@ describe("the tabs", () => {
         "/decks/plans/get",
         "/decks/plans/get/trip",
         "/decks/plans/blight-curse",
+        "/decks/plans/d/get",
+        "/decks/plans/settings",
         "/decks/plans/archived/abc",
         "/decks/plan/trip",
         "/decks/research",
@@ -50,6 +55,8 @@ describe("the tabs", () => {
         "/lab/compare",
         "/lab/runs",
         "/lab/runs/abc/decks/1",
+        "/lab/runs/batch/abc",
+        "/lab/datasets",
         "/lab/datasets/playgroup-history",
       ],
       you: ["/profile", "/sharing", "/new", "/admin", "/admin/usage"],
@@ -59,6 +66,16 @@ describe("the tabs", () => {
     // A page whose name only starts like a tab's isn't under it.
     expect(tabOf("/decksx")).toBeNull();
     expect(tabOf("/labs")).toBeNull();
+  });
+
+  it("hold every route the app has: a new page says which tab it belongs to", () => {
+    // Pages with no tab: the sign-in and consent pages and the full-screen life counter and
+    // online board, which draw no frame. Add a route to a tab in nav.tsx, not to this list.
+    const frameless = ["/signin", "/oauth/authorize", "/table/play", "/table/join/:gameId", "/play/:id", "/play/watch/:id"];
+    const routes = (routesFromApp(readFileSync(new URL("./App.tsx", import.meta.url), "utf8")) as string[]).filter((r) => !frameless.includes(r));
+    expect(routes.length).toBeGreaterThan(40);
+    const tabless = routes.filter((r) => !tabOf(r.replace(/:\w+/g, "x")));
+    expect(tabless).toEqual([]);
   });
 
   it("list a section only for the people it is for", () => {
@@ -106,7 +123,7 @@ function strip(path: string, me: { id: string; power?: boolean; is_admin?: boole
   client.clear();
   return html;
 }
-const current = (html: string) => [...html.matchAll(/<a [^>]*aria-current="page"[^>]*href="([^"]+)"/g)].map((m) => m[1] ?? "");
+const current = (html: string) => [...html.matchAll(/<a [^>]*aria-current="(?:page|true)"[^>]*href="([^"]+)"/g)].map((m) => m[1] ?? "");
 const links = (html: string) => [...html.matchAll(/href="([^"]+)"/g)].map((m) => m[1] ?? "");
 
 describe("the strip of a tab's pages", () => {
@@ -125,6 +142,12 @@ describe("the strip of a tab's pages", () => {
     expect(current(strip("/collection/trade"))).toEqual(["/collection/trade"]);
   });
 
+  it("calls only an entry's own address the current page; a page under it marks the place", () => {
+    expect(strip("/lab/runs")).toMatch(/aria-current="page"[^>]*href="\/lab\/runs"/);
+    expect(strip("/lab/runs/abc")).toMatch(/aria-current="true"[^>]*href="\/lab\/runs"/);
+    expect(strip("/decks/import")).toMatch(/aria-current="true"[^>]*href="\/decks"/);
+  });
+
   it("stays off a page that has its own way back, and off tabs with one page", () => {
     for (const path of ["/decks/abc", "/decks/abc/stats", "/decks/plans/blight-curse", "/cards", "/group", "/profile", "/sharing", "/admin", "/nowhere"]) expect(strip(path), path).toBe("");
   });
@@ -135,6 +158,10 @@ describe("the strip of a tab's pages", () => {
     expect(links(strip("/lab/runs", { id: "u1", power: true }))).toEqual(["/decks/plans", "/decks/plans/get", "/decks/builds", "/lab/try", "/lab/compare", "/lab/runs"]);
     expect(links(strip("/lab/runs", { id: "u1" }, [{ id: "playgroup-history" }]))).toContain("/lab/datasets");
     expect(links(strip("/lab/runs", { id: "u1", power: true, is_admin: true }))).toContain("/lab/datasets");
+    // The Datasets page lists itself while open, whoever is looking, so the strip never comes
+    // and goes there while the account's datasets are still being asked for.
+    expect(current(strip("/lab/datasets"))).toEqual(["/lab/datasets"]);
+    expect(current(strip("/lab/datasets/playgroup-history"))).toEqual(["/lab/datasets"]);
   });
 
   it("gives someone signed out the public precon and commander pages as document links", () => {

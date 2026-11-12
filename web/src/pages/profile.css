@@ -16,7 +16,6 @@
 @media (min-width: 900px) {
   .profile-library > a.you-workshop { display: none; }
 }
-.profile-page .grp-new { display: inline-flex; align-items: center; min-height: var(--target); }
 .profile-page #grp-you { scroll-margin-top: 24px; }
 .profile-page .grp-section { display: flex; flex-direction: column; gap: 16px; }
 @media (max-width: 599px) {

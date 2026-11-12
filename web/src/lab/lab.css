@@ -8,9 +8,8 @@
    the mark's colour), so charts read on any ground the text reads on.
 
    Semantic classes, in page order:
-   - The Decks | Plans | Lab control at the top of the Decks tab is the shared .segmented pill
-     (components/DeckTabs.tsx).
-   - Page heads are components/DeckTabs' AreaHead, with the lab's sub-nav (LabLayout's LabHead).
+   - Page heads are components/DeckTabs' AreaHead (LabLayout's LabHead); the frame lists the
+     pages around them (styles.css, .tab-sections).
    - .lab-label: the line every simulated number carries (engine, card data, AI level, games, date).
    - .lab-real: real-game numbers (playgroup.gg), set apart from simulated ones.
    - .lab-art: the shared ArtPanel (Scryfall art_crop, loaded at runtime, never filtered) behind a

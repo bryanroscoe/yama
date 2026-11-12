@@ -246,7 +246,7 @@ The one way to show a state: a small pill of status text on its own tint
 - On art (a deck's or a plan's header) a pill sits on a near-solid chip; the stylesheet does
   that for `.hero-status` and `.plans-hero-meta`.
 - Don't write `className="tag"` or `className="pill"`; the old raised `.pill` look is gone.
-- Not this: a count on a tab or a card (`deck-tab-badge`, `qty-badge`), a toggle chip in a
+- Not this: a count on a tab or a card (`tab-sections-badge`, `qty-badge`), a toggle chip in a
   filter row, and the online board's own tags.
 
 ### ActionBar (`components/ActionBar.tsx`)

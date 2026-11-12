@@ -1,7 +1,7 @@
 // Yama's top-level navigation, in one table (Bryan, 12 Nov 2026: one frame for the app and the
-// public pages). The laptop rail, the phone's bottom tabs, the strip of a tab's sections and the
-// You page all read it, and the server's public header carries the same names
-// (server/src/public_page.rs, SITE_TABS; nav.test.tsx holds the two together).
+// public pages). The laptop rail, the phone's bottom tabs and the strip of a tab's pages read it.
+// The server's public pages still have their own header (server/src/public_page.rs); giving them
+// these tabs is a later change.
 //
 // Adding a page to a tab is one line in that tab's `sections` (or `owns`, for a page that isn't
 // listed). Nothing here changes an address: a page moves between tabs by changing which tab its
@@ -16,7 +16,6 @@ export interface Who {
   signedIn: boolean;
   /** An admin or a power user: may start simulations and watched games. */
   power: boolean;
-  admin: boolean;
   /** Has imported datasets to browse, or may upload one. */
   evidence: boolean;
 }
@@ -120,6 +119,11 @@ export const tab = (id: TabId): NavTab => TABS.find((t) => t.id === id)!;
 /** Whether `path` is the address `at` or a page under it. `/` has no pages under it. */
 function under(path: string, at: string): boolean {
   return path === at || (at !== "/" && path.startsWith(`${at}/`));
+}
+
+/** Whether the page at `pathname` is `at` or under it (a trailing slash doesn't matter). */
+export function holdsPath(pathname: string, at: string): boolean {
+  return under(pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname, at);
 }
 
 /** How closely a section holds `path`: the length of the address that matched, or 0. */

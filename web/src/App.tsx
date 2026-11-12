@@ -4,7 +4,6 @@ import { chooseGuest, useGuestChosen } from "./guest";
 import { afterSignIn, Login, useMe } from "./auth";
 import { useGuestSession } from "./guestPlay";
 import { useCacheSweeps, useLapsedAccount } from "./session";
-import { AlphaTag } from "./components/AlphaTag";
 import { RequireAccount } from "./components/RequireAccount";
 import { RailMe, TopBarMe } from "./components/RailMe";
 import { TabSections } from "./components/TabSections";
@@ -247,7 +246,7 @@ export function App() {
         <Route element={<RequireAccount />}>
           <Route path="table/games" element={<Paged page={GameHistoryPage} title="Game history" />} />
           <Route path="table/games/:id" element={<Paged page={GameDetailPage} kind="detail" />} />
-          <Route path="play/watch" element={<Paged page={WatchHome} title="Watch AIs play" />} />
+          <Route path="play/watch" element={<Paged page={WatchHome} title="Watch the computer play" />} />
           <Route path="collection" element={<Paged page={CollectionPage} title="Collection" kind="tiles" />} />
           <Route path="decks" element={<Paged page={DecksPage} title="Decks" kind="tiles" />} />
           <Route path="decks/builds" element={<Paged page={BuildChoicesPage} />} />
@@ -303,8 +302,8 @@ export function App() {
           <Route path="decks/:id/edit" element={<Paged page={EditListPage} kind="detail" />} />
           <Route path="decks/:id/scan" element={<Paged page={DeckScanPage} kind="detail" />} />
           <Route path="decks/:id/check" element={<Paged page={DeckCheckPage} kind="detail" />} />
-          <Route path="profile" element={<Paged page={ProfilePage} title="Your profile" />} />
-          <Route path="sharing" element={<Paged page={SharingPage} title="Sharing" />} />
+          <Route path="profile" element={<Paged page={ProfilePage} title="You" />} />
+          <Route path="sharing" element={<Paged page={SharingPage} title="Sharing settings" />} />
           <Route path="sharing/compare/:handle" element={<Paged page={ComparePage} kind="detail" />} />
           <Route path="collection/trade" element={<Paged page={TradePage} title="Trade with a friend" />} />
           <Route path="group" element={<Paged page={GroupPage} title="Playgroup" />} />

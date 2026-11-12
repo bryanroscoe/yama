@@ -51,7 +51,7 @@ export function AreaHead({
   status?: ReactNode;
 }) {
   return (
-    <header className={`area-head ${index ? "is-index" : "is-sub"}${slim ? " is-slim" : ""}`}>
+    <header className={`area-head ${index ? "is-index" : "is-sub"}${slim ? " is-slim" : ""}${!index && !back ? " no-back" : ""}`}>
       <div className="area-top">
         {back && !index && <BackLink to={back.to} label={back.label} />}
         {!slim && <h1 className="area-title">{title}</h1>}

@@ -61,7 +61,7 @@ describe("You", () => {
 
   it("asks signed-out visitors to sign in, with no personal or cached public links", () => {
     const html = page({ user: null });
-    expect(html).toContain("Sign in to see your cards");
+    expect(html).toContain("Sign in to see your public profile");
     expect(html).not.toContain("/u/saget");
     expect(html).not.toContain("Sharing settings");
   });
