@@ -127,6 +127,9 @@ export function uncountedExtras(carts: SourceCart[]): { total: number; skus: Map
 }
 export const uncountedSku = (o: SourceOffer) => `${new URL(o.url).origin}|${o.variant_id || offerId(o)}`;
 
+/** "N Card" lines, one per card, for pasting into other stores' deck-list searches. */
+export const cardListText = (rows: SourceCard[]): string => rows.filter(c => c.uses.length).map(c => `${c.uses.length} ${c.name}`).sort((a,b) => a.slice(a.indexOf(" ")+1).localeCompare(b.slice(b.indexOf(" ")+1))).join("\n");
+
 /** A bulk preview only allocates known stock, cheapest qualifying variant first. */
 export function knownStockChoices(rows: SourceCard[]): Record<string, SourceChoice[]> {
   const choices: Record<string, SourceChoice[]> = Object.create(null);
