@@ -5,7 +5,7 @@
 //! their tokens and codes), its invite, decks and their
 //! versions and checks, the collection and containers, synced ops, plans (every `plan_*` table),
 //! lab runs, experiments and usage, scan photos, advisor keys, settings, conversations, usage and its shared-key grant, online-play settings, calendar
-//! watches, records of table games it deleted, "View as" sessions of it or by it (the audit rows go too), and the account itself. Its watched games stop, any live online game it is in
+//! watches, bug reports, records of table games it deleted, "View as" sessions of it or by it (the audit rows go too), and the account itself. Its watched games stop, any live online game it is in
 //! ends, and its shared-table sockets close (tables it hosts end for their guests).
 //!
 //! **What stays, anonymised, because other people's records depend on it:**
@@ -48,6 +48,7 @@ pub const USER_COLUMNS: &[(&str, &str)] = &[
     ("api_tokens", "owner_id"),
     ("applied_ops", "owner_id"),
     ("assistant_changes", "owner_id"),
+    ("bug_reports", "owner_id"),
     ("history_corrections", "owner_id"),
     ("calendar_watches", "user_id"),
     ("collection_items", "owner_id"),
@@ -134,6 +135,8 @@ const OWNED_DELETES: &[(&str, &str)] = &[
     ("oauth_grants", "user_id"),
     ("calendar_watches", "user_id"),
     ("deleted_games", "deleted_by"),
+    // Bug reports it sent.
+    ("bug_reports", "owner_id"),
     // Scan photos it kept for improving the scanner.
     ("scan_samples", "owner_id"),
     // Online play: saved stops and full control.

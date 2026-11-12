@@ -3,6 +3,7 @@ mod advisor;
 mod analysis;
 mod auth;
 mod bridges;
+mod bug_reports;
 mod calendar;
 mod cards;
 mod collection;

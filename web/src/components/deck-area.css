@@ -37,6 +37,10 @@
   gap: 8px;
   align-items: center;
 }
+/* The page's own action sits in the action cell with the bug (bugs/BugButton.tsx). */
+.area-action-own {
+  display: contents;
+}
 
 /* Phones: a section's front page has its name and action; other pages a back button and the
    title. */
@@ -44,24 +48,24 @@
   .is-index .area-top {
     grid-template-areas: "title title action";
   }
-  .is-sub .area-top > .area-action {
+  .is-sub .area-top > .area-action > .area-action-own {
     display: none;
   }
   .is-sub .area-top {
-    grid-template-areas: "back title .";
+    grid-template-areas: "back title action";
     align-items: center;
   }
   .is-sub .area-title {
     font-size: var(--t-big);
   }
   .is-slim .area-top {
-    grid-template-areas: "back . .";
+    grid-template-areas: "back . action";
   }
   /* One of a tab's own pages that isn't its front page (Lab runs): no back button, so no
      column for one to indent the title. */
   .is-sub.no-back .area-top {
     grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas: "title .";
+    grid-template-areas: "title action";
   }
 }
 

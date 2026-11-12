@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { useContext, type ReactNode } from "react";
+import { BugButton, ReportBug } from "../bugs/BugButton";
 
 /**
  * A page's title row: the `h1`, an optional line under it, and the page's actions at the end
@@ -16,7 +17,15 @@ export function PageHeader({ title, sub, actions, className }: { title: ReactNod
       ) : (
         <h1>{title}</h1>
       )}
-      {actions}
+      {/* Report a bug, for someone signed in, after the page's own actions. */}
+      {useContext(ReportBug) ? (
+        <div className="page-head-end">
+          {actions}
+          <BugButton />
+        </div>
+      ) : (
+        actions
+      )}
     </div>
   );
 }

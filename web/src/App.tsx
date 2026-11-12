@@ -24,6 +24,7 @@ import { OldPlanRedirect } from "./plan/OldPlanRedirect";
 // What's new is small and its notice shows on every page.
 import { NewsNotice, WhatsNewPage } from "./pages/WhatsNew";
 import { joinLink, useRestoreHosting } from "./table/share";
+import { BugReportProvider } from "./bugs/BugReport";
 import { tablePlay } from "./table/playLoader";
 import { TableHome } from "./table/TableHome";
 
@@ -80,6 +81,7 @@ const PeoplePage = admin.page("PeoplePage");
 const UsagePage = admin.page("UsagePage");
 const ServerPage = admin.page("ServerPage");
 const LabRunsPage = admin.page("LabRunsPage");
+const BugReportsPage = admin.page("BugReportsPage");
 const DecksPage = decks.page("DecksPage");
 const DeckPage = decks.page("DeckPage");
 const ImportPage = decks.page("ImportPage");
@@ -217,7 +219,8 @@ export function App() {
     );
   }
   return (
-    <>
+    // Report a bug from any page or dialog: signed in as yourself (viewing as someone is read-only).
+    <BugReportProvider enabled={signedIn && !me.data?.viewing}>
     {me.data?.viewing && <ViewBanner me={me.data} />}
     <Routes>
       {/* The sign-in page: the public landing page around the ways in. Signed in, it goes on to
@@ -314,6 +317,7 @@ export function App() {
             <Route path="usage" element={<UsagePage />} />
             <Route path="server" element={<ServerPage />} />
             <Route path="lab" element={<LabRunsPage />} />
+            <Route path="bugs" element={<BugReportsPage />} />
           </Route>
         </Route>
         {/* The life counter's setup lives at /; /table is the address people guess for it. */}
@@ -321,7 +325,7 @@ export function App() {
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>
-    </>
+    </BugReportProvider>
   );
 }
 

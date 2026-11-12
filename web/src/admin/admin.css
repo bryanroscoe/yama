@@ -13,6 +13,12 @@
 .admin-head h1 {
   margin: 0;
 }
+.admin-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
 .admin-section {
   display: flex;
   flex-direction: column;
@@ -326,4 +332,45 @@
   .admin-section h2 {
     font-size: var(--t-xl);
   }
+}
+
+/* Bug reports (BugReports.tsx). */
+.bug-list > li.bug-row {
+  align-items: start;
+}
+.bug-message {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.bug-detail {
+  flex: 1 1 100%;
+  display: flex;
+  gap: 16px;
+  align-items: start;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.bug-detail dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 12px;
+  font-size: var(--t-sm);
+  min-width: 0;
+}
+.bug-detail dt {
+  color: var(--dim);
+}
+.bug-detail dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.bug-code {
+  font-family: var(--mono);
+}
+.bug-device {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: var(--t-12);
+  overflow-wrap: anywhere;
 }

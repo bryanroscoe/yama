@@ -15,6 +15,15 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-12-bug-reports",
+    date: "2026-11-12",
+    title: "Report a bug from anywhere",
+    items: [
+      "Press the little bug at the top of a page or a dialog to tell us what went wrong.",
+      "Point at it lets you drag a box round the problem, or tap it, so we can see where. No screenshot is taken.",
+    ],
+  },
+  {
     id: "2026-11-11-considering",
     date: "2026-11-11",
     title: "Keep cards you're considering with a deck",
