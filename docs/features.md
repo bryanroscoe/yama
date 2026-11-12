@@ -287,6 +287,9 @@ with observed win rates and their game counts, and keeps each source's own rate,
 attribution one click away. Reported games can overlap across services, so nothing claims a
 count of unique games.
 
+A commander that leads public decks on Yama says how many under its name, linked to them in
+Browse.
+
 ### Public precon reference
 
 The public precon reference (`/precons`) serves stock lists, experimental meta rankings,
@@ -294,6 +297,9 @@ explicitly published Phase/Forge simulation evidence, attributed real-game resul
 market references without sign-in. The personal Lab still requires sign-in. Results are published
 with `publish-precons MANIFEST`; imports never publish automatically. See
 [public precons and publication](public-precons.md).
+
+A precon's page lists the public decks that started from it (the newest six, with a link to the
+rest in Browse): decks whose list still holds at least half of the precon's own cards.
 
 Precon comparisons and detail pages show [source-backed upgradeability](precon-upgradeability.md)
 for the whole package: all 619 stock-compatible in-box commander configurations across 174

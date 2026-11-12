@@ -259,4 +259,75 @@ async fn the_first_listing_after_many_decks_are_listed_is_complete() {
     let (_, body) = send(&app, Method::GET, "/api/public/browse", None, None).await;
     assert_eq!((&body["total"], &body["pages"]), (&json!(205), &json!(9)));
     assert_eq!(names(&app, "?q=Deck%20000").await, ["Deck 000"]);
+
+#[tokio::test]
+async fn a_precons_page_lists_the_public_decks_started_from_it() {
+    let (app, pool) = app().await;
+    seed_cards(&pool).await;
+    // A later precon with the same hundred cards shares the first one's decks.
+    sqlx::query("INSERT INTO precons(id,lab_id,name,set_code,commanders,color_identity,cards,source,content_sha256,imported_at,same_list_as) SELECT 'goblin-reprint','precons/goblin-reprint','Goblin Reprint',set_code,commanders,color_identity,cards,source,content_sha256,imported_at,'goblin-precon' FROM precons WHERE id = 'goblin-precon'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let section = |precon: &'static str| {
+        let pool = pool.clone();
+        async move { super::browse::precon_section(&pool, precon).await.unwrap() }
+    };
+    // Nobody has built on it yet: the page says nothing.
+    assert_eq!(section("goblin-precon").await, "");
+    let bob = lister(&app, &pool, "bob").await;
+    let token = |id: String| {
+        let pool = pool.clone();
+        async move { sqlx::query_scalar::<_, String>("SELECT share_token FROM decks WHERE id = ?").bind(id).fetch_one(&pool).await.unwrap() }
+    };
+    let upgraded = deck(&app, &pool, &bob, "Upgraded <goblins>", krenko_list(29), "public", "2026-11-02T00:00:00Z").await;
+    deck(&app, &pool, &bob, "Goblin brew", krenko_list(5), "public", "2026-11-03T00:00:00Z").await;
+    let private = deck(&app, &pool, &bob, "Private upgrade", krenko_list(30), "link", "2026-11-04T00:00:00Z").await;
+    let html = section("goblin-precon").await;
+    assert!(html.contains("1 public deck</p>") && html.contains("Decks started from this precon"), "{html}");
+    assert!(html.contains(&format!("href=\"/d/{}\"", token(upgraded.clone()).await)));
+    assert!(html.contains("Upgraded &lt;goblins&gt;") && html.contains("by @bob") && html.contains("50 cards"), "what its owner typed is escaped: {html}");
+    assert!(html.contains("href=\"/decks/browse?precon=goblin-precon\""));
+    assert!(html.contains("Krenko, Mob Boss. Art by Karl Kopinski, © Wizards of the Coast."), "the art is credited");
+    assert!(!html.contains("Goblin brew") && !html.contains("Private upgrade") && !html.contains(&token(private).await));
+    assert!(!html.contains("style="), "public pages allow no inline styles");
+    assert_eq!(section("goblin-reprint").await, html.replace("precon=goblin-precon", "precon=goblin-reprint"));
+    assert_eq!(section("no-such-precon").await, "");
+
+    // More than a page's worth: the newest six, and a link to all of them.
+    for i in 0..6 {
+        deck(&app, &pool, &bob, &format!("Upgrade {i}"), krenko_list(25 + i), "public", &format!("2026-11-1{i}T00:00:00Z")).await;
+    }
+    let html = section("goblin-precon").await;
+    assert!(html.contains("7 public decks</p>") && html.contains("Browse all 7 ↗"), "{html}");
+    assert_eq!(html.matches("class=\"share-deck\"").count(), 6);
+    assert!(html.contains("Upgrade 5") && !html.contains("Upgraded &lt;goblins&gt;"));
+
+    // Leaving the listing takes the deck off the page at once.
+    send(&app, Method::POST, "/api/me/sharing/decks", Some(&bob.1), Some(json!({ "visibility": "private" }))).await;
+    assert_eq!(section("goblin-precon").await, "");
+}
+
+#[tokio::test]
+async fn the_commander_ranking_counts_public_decks_per_commander() {
+    let (app, pool) = app().await;
+    seed_cards(&pool).await;
+    let ann = lister(&app, &pool, "ann").await;
+    let old = user(&pool, "old@example.com").await;
+    send(&app, Method::PUT, "/api/me/sharing", Some(&old.1), Some(json!({ "handle": "oldtimer" }))).await;
+    deck(&app, &pool, &ann, "Goblins one", krenko_list(0), "public", "2026-11-01T00:00:00Z").await;
+    deck(&app, &pool, &ann, "Goblins two", krenko_list(3), "public", "2026-11-02T00:00:00Z").await;
+    deck(&app, &pool, &ann, "Counters", vec![card("atraxa", "Atraxa, Praetors' Voice", Board::Commander)], "public", "2026-11-03T00:00:00Z").await;
+    deck(&app, &pool, &ann, "Hidden goblins", krenko_list(1), "link", "2026-11-04T00:00:00Z").await;
+    deck(&app, &pool, &old, "Unlisted goblins", krenko_list(2), "public", "2026-11-05T00:00:00Z").await;
+    let counts = super::browse::commander_counts(&pool).await.unwrap();
+    assert_eq!(counts.get("krenko, mob boss"), Some(&2));
+    assert_eq!(counts.get("atraxa, praetors' voice"), Some(&1));
+    assert_eq!(counts.len(), 2);
+    let line = super::browse::commander_link("Krenko, Mob Boss", &counts);
+    assert!(line.contains("href=\"/decks/browse?commander=Krenko%2C+Mob+Boss\"") && line.contains("2 public decks</a>"), "{line}");
+    assert!(super::browse::commander_link("Atraxa, Praetors' Voice", &counts).contains("1 public deck</a>"));
+    assert_eq!(super::browse::commander_link("Karn, Silver Golem", &counts), "");
+    // The link's filter finds the same decks.
+    assert_eq!(names(&app, "?commander=Krenko%2C+Mob+Boss").await, ["Goblins two", "Goblins one"]);
 }
