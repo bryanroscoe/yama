@@ -647,22 +647,42 @@ async fn a_shared_deck_names_its_owners_printings_only_when_the_collection_is_sh
     assert_eq!(text, moxfield);
     assert_eq!(csv, "Quantity,Name,Board,Set code,Collector number,Finish\n1,Sol Ring,Commander,CMM,410,nonfoil\n1,Lightning Bolt,Main,LEA,161,nonfoil\n");
     for theirs in ["LTC", "ltc", "284", "M11", "m11", "149", ",foil", "*F*"] {
-        assert!(!moxfield.contains(theirs) && !csv.contains(theirs) && !html.contains(&format!("({theirs})")), "{theirs}");
+        assert!(!moxfield.contains(theirs) && !csv.contains(theirs), "{theirs}");
     }
+    // The page writes a printing as "CMM 410" (", foil" after a foil one).
+    assert!(html.contains("CMM 410") && html.contains("LEA 161"), "{html}");
+    assert!(!html.contains("LTC 284") && !html.contains("M11 149"), "{html}");
     assert_eq!(own().await, ("ltc 284 foil owned".to_string(), "m11 149 nonfoil owned".to_string()));
 
     // The collection is shared: their real copy names Sol Ring's printing and finish. The proxy
     // names nothing: sharing never shows proxies.
     send(&app, Method::PUT, "/api/me/sharing", Some(&bt), Some(json!({ "collection_public": true }))).await;
-    let (moxfield, csv, _, text) = shared().await;
+    let (moxfield, csv, html, text) = shared().await;
     assert_eq!(moxfield, "Commander\n1 Sol Ring (LTC) 284 *F*\n\nDeck\n1 Lightning Bolt (LEA) 161\n");
     assert_eq!(text, moxfield);
     assert!(csv.contains("1,Sol Ring,Commander,LTC,284,foil") && csv.contains("1,Lightning Bolt,Main,LEA,161,nonfoil"), "{csv}");
+    assert!(html.contains("LTC 284, foil") && html.contains("LEA 161") && !html.contains("M11 149"), "{html}");
+    // What a browser that saw the page and a download while the collection was shared holds.
+    let seen = |path: String| {
+        let app = app.clone();
+        async move {
+            let res = app.oneshot(Request::builder().uri(&path).body(Body::empty()).unwrap()).await.unwrap();
+            res.headers()[header::ETAG].to_str().unwrap().to_string()
+        }
+    };
+    let (page_tag, file_tag) = (seen(format!("/d/{token}")).await, seen(format!("/d/{token}/moxfield.txt")).await);
 
     // Turned off again, it takes effect at once; a printing the deck itself names (an import's)
     // still shows either way, since the deck names it, not the collection.
     send(&app, Method::PUT, "/api/me/sharing", Some(&bt), Some(json!({ "collection_public": false }))).await;
     assert_eq!(shared().await.0, "Commander\n1 Sol Ring (CMM) 410\n\nDeck\n1 Lightning Bolt (LEA) 161\n");
+    // A browser asking again with what it has gets the new page, not "unchanged".
+    for (path, tag, theirs) in [(format!("/d/{token}"), &page_tag, "LTC 284"), (format!("/d/{token}/moxfield.txt"), &file_tag, "(LTC) 284")] {
+        let res = app.clone().oneshot(Request::builder().uri(&path).header(header::IF_NONE_MATCH, tag.as_str()).body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK, "{path}");
+        let body = String::from_utf8_lossy(&axum::body::to_bytes(res.into_body(), usize::MAX).await.unwrap()).into_owned();
+        assert!(!body.contains(theirs), "{path}: {body}");
+    }
     assert_eq!(own().await, ("ltc 284 foil owned".to_string(), "m11 149 nonfoil owned".to_string()));
     let (_, named) = send(&app, Method::POST, "/api/decks", Some(&bt), Some(json!({ "name": "Named", "text": "Commander\n1 Sol Ring", "visibility": "link",
         "prints": [{ "oracle_id": "o-sol", "set_code": "ltc", "collector_number": "284", "finish": "foil" }] }))).await;
