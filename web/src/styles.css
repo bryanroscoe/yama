@@ -846,7 +846,12 @@ body::before {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin-left: auto;
+}
+/* With the bug at its end the title takes the room left over, so a long one wraps beside the bug
+   rather than pushing it to a row of its own. */
+.page-head:has(> .page-head-end) > :first-child {
+  flex: 1 1 0;
+  min-width: min(100%, 12rem);
 }
 
 /* Phones: the wordmark, search and you above every page. It scrolls away with the page; the

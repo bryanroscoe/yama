@@ -6,7 +6,7 @@ import { api } from "../api";
 import { Button } from "../components/Button";
 import { Dialog, useModalLayer } from "../components/Dialog";
 import { Field } from "../components/Field";
-import { ActionBar, ErrorText } from "../components/ui";
+import { ActionBar, Details, ErrorText } from "../components/ui";
 import { ReportBug } from "./BugButton";
 import { boxFrom, elementAt, readRegion, squeeze, type Box, type Region } from "./region";
 import "./bugs.css";
@@ -52,12 +52,25 @@ export function reportContext(origin: Origin, region: Region | null): Record<str
 /** Lets everything under it report a bug when `enabled` (someone is signed in as themselves). */
 export function BugReportProvider({ enabled, children }: { enabled: boolean; children: ReactNode }) {
   const [origin, setOrigin] = useState<Origin | null>(null);
-  const open = useCallback((from?: Element | null) => setOrigin({ dialog: dialogName(from) }), []);
+  // The button that opened the form. Pointing swaps the form for the picker and back, so the
+  // layer that closes last didn't open from it: focus goes back to it here.
+  const opener = useRef<HTMLElement | null>(null);
+  const open = useCallback((from?: Element | null) => {
+    opener.current = from instanceof HTMLElement ? from : null;
+    setOrigin({ dialog: dialogName(from) });
+  }, []);
+  const close = useCallback(() => {
+    setOrigin(null);
+    const to = opener.current;
+    opener.current = null;
+    // After the layer's own clean-up has put focus where it remembered.
+    if (to) requestAnimationFrame(() => to.isConnected && to.focus({ preventScroll: true }));
+  }, []);
   return (
     <ReportBug.Provider value={enabled ? open : null}>
       {children}
       {/* No bug buttons inside the report itself. */}
-      {enabled && origin && createPortal(<ReportBug.Provider value={null}><BugReport origin={origin} onClose={() => setOrigin(null)} /></ReportBug.Provider>, document.body)}
+      {enabled && origin && createPortal(<ReportBug.Provider value={null}><BugReport origin={origin} onClose={close} /></ReportBug.Provider>, document.body)}
     </ReportBug.Provider>
   );
 }
@@ -70,6 +83,8 @@ function BugReport({ origin, onClose }: { origin: Origin; onClose: () => void })
   const [message, setMessage] = useState("");
   const [region, setRegion] = useState<Region | null>(null);
   const [pointing, setPointing] = useState(false);
+  // The field takes focus when the form first opens, not each time it comes back from pointing.
+  const [pointed, setPointed] = useState(false);
   const send = useMutation({
     mutationFn: () => api<{ id: string }>("/api/bug-reports", { method: "POST", json: { message: message.trim(), page, context: reportContext(origin, region) } }),
   });
@@ -80,8 +95,12 @@ function BugReport({ origin, onClose }: { origin: Origin; onClose: () => void })
         onPick={(r) => {
           setRegion(r);
           setPointing(false);
+          setPointed(true);
         }}
-        onCancel={() => setPointing(false)}
+        onCancel={() => {
+          setPointing(false);
+          setPointed(true);
+        }}
       />
     );
   }
@@ -108,7 +127,7 @@ function BugReport({ origin, onClose }: { origin: Origin; onClose: () => void })
         }}
       >
         <Field label="What went wrong?" error={tooLong ? `Keep it under ${MESSAGE_MAX} characters.` : undefined}>
-          <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={4} autoFocus placeholder="What you did, what you expected and what happened" />
+          <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={4} autoFocus={!pointed} placeholder="What you did, what you expected and what happened" />
         </Field>
         <div className="bug-where">
           {region ? (
@@ -121,6 +140,9 @@ function BugReport({ origin, onClose }: { origin: Origin; onClose: () => void })
                   <Button size="small" variant="outline" onClick={() => setPointing(true)}>Point again</Button>
                   <Button size="small" variant="quiet" onClick={() => setRegion(null)}>Remove</Button>
                 </ActionBar>
+                <Details label="Everything sent from the box" className="bug-sent">
+                  <SentDetail region={region} />
+                </Details>
               </div>
             </>
           ) : (
@@ -143,6 +165,34 @@ function BugReport({ origin, onClose }: { origin: Origin; onClose: () => void })
         </div>
       </form>
     </Dialog>
+  );
+}
+
+/** All that a report keeps about the box, word for word, so nothing is sent unseen. */
+function SentDetail({ region }: { region: Region }) {
+  return (
+    <dl className="bug-sent-list">
+      {region.images.length > 0 && (
+        <>
+          <dt>Pictures</dt>
+          <dd>{region.images.join(", ")}</dd>
+        </>
+      )}
+      <dt>Words</dt>
+      <dd>{region.text || "None"}</dd>
+      {region.controls.length > 0 && (
+        <>
+          <dt>Controls</dt>
+          <dd>{region.controls.join("; ")}</dd>
+        </>
+      )}
+      {region.path && (
+        <>
+          <dt>Element</dt>
+          <dd>{region.path}</dd>
+        </>
+      )}
+    </dl>
   );
 }
 

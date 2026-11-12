@@ -56,38 +56,97 @@ async fn create(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json
         return Err(AppError::bad(format!("keep the description under {MAX_MESSAGE} characters")));
     }
     let page = body.page.trim();
-    if page.chars().count() > MAX_PAGE {
-        return Err(AppError::bad("the page address is too long"));
+    if !is_app_path(page) {
+        return Err(AppError::bad("the page must be an address in Yama, starting with /"));
     }
     let context = match body.context {
-        None | Some(serde_json::Value::Null) => "{}".to_string(),
-        Some(v @ serde_json::Value::Object(_)) => v.to_string(),
+        None | Some(serde_json::Value::Null) => serde_json::json!({}),
+        Some(serde_json::Value::Object(map)) => clean_context(&map),
         Some(_) => return Err(AppError::bad("context must be an object")),
-    };
+    }
+    .to_string();
     if context.len() > MAX_CONTEXT {
         return Err(AppError::bad("too much detail came with the report"));
     }
     let since = (chrono::Utc::now() - chrono::Duration::hours(24)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-    let today: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM bug_reports WHERE owner_id = ? AND created_at > ?")
-        .bind(&user.id)
-        .bind(&since)
-        .fetch_one(&st.pool)
-        .await?;
-    if today >= PER_DAY {
+    let id = new_id();
+    // Counted and written in one statement, so reports sent at once can't pass the limit together.
+    let added = sqlx::query(
+        "INSERT INTO bug_reports (id, owner_id, created_at, page, message, context)
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6
+          WHERE (SELECT COUNT(*) FROM bug_reports WHERE owner_id = ?2 AND created_at > ?7) < ?8",
+    )
+    .bind(&id)
+    .bind(&user.id)
+    .bind(now())
+    .bind(page)
+    .bind(message)
+    .bind(&context)
+    .bind(&since)
+    .bind(PER_DAY)
+    .execute(&st.pool)
+    .await?;
+    if added.rows_affected() == 0 {
         return Err(AppError::TooManyRequests { message: format!("that's {PER_DAY} reports today; thank you, try again tomorrow"), retry_after: 3600 });
     }
-    let id = new_id();
-    sqlx::query("INSERT INTO bug_reports (id, owner_id, created_at, page, message, context) VALUES (?, ?, ?, ?, ?, ?)")
-        .bind(&id)
-        .bind(&user.id)
-        .bind(now())
-        .bind(page)
-        .bind(message)
-        .bind(&context)
-        .execute(&st.pool)
-        .await?;
-    tracing::info!(account = %user.email, page, "bug reported");
+    tracing::info!(account = %user.id, report = %id, "bug reported");
     Ok((StatusCode::CREATED, Json(Created { id })))
+}
+
+/// A path in the app ("/decks/1?tab=list"): one leading slash, no scheme or host, no control
+/// characters. The admin page links to it, so it must never lead off the site.
+pub fn is_app_path(page: &str) -> bool {
+    page.starts_with('/') && !page.starts_with("//") && !page.contains('\\') && page.chars().count() <= MAX_PAGE && !page.chars().any(char::is_control)
+}
+
+fn text(v: Option<&serde_json::Value>, max: usize) -> Option<serde_json::Value> {
+    let t = v?.as_str()?.trim();
+    (!t.is_empty()).then(|| serde_json::Value::String(t.chars().take(max).collect()))
+}
+
+fn number(v: Option<&serde_json::Value>) -> Option<serde_json::Value> {
+    let n = v?.as_f64()?;
+    n.is_finite().then(|| serde_json::json!((n * 100.0).round() / 100.0))
+}
+
+fn texts(v: Option<&serde_json::Value>, max_items: usize, max: usize) -> serde_json::Value {
+    let items = v.and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|i| text(Some(i), max)).take(max_items).collect()).unwrap_or_default();
+    serde_json::Value::Array(items)
+}
+
+/// Keeps what the report button sends, typed and cut to size, and drops anything else, so the
+/// admin page can trust every field it shows.
+fn clean_context(ctx: &serde_json::Map<String, serde_json::Value>) -> serde_json::Value {
+    let mut out = serde_json::Map::new();
+    let mut put = |k: &str, v: Option<serde_json::Value>| {
+        if let Some(v) = v {
+            out.insert(k.into(), v);
+        }
+    };
+    put("dialog", text(ctx.get("dialog"), 200));
+    put("heading", text(ctx.get("heading"), 200));
+    put("build", text(ctx.get("build"), 64));
+    put("agent", text(ctx.get("agent"), 400));
+    if let Some(vp) = ctx.get("viewport").and_then(|v| v.as_object())
+        && let (Some(w), Some(h)) = (number(vp.get("w")), number(vp.get("h")))
+    {
+        let dpr = number(vp.get("dpr")).unwrap_or(serde_json::json!(1));
+        put("viewport", Some(serde_json::json!({ "w": w, "h": h, "dpr": dpr })));
+    }
+    if let Some(sel) = ctx.get("selection").and_then(|v| v.as_object())
+        && let (Some(x), Some(y), Some(w), Some(h)) = (number(sel.get("x")), number(sel.get("y")), number(sel.get("w")), number(sel.get("h")))
+    {
+        let mut s = serde_json::json!({ "x": x, "y": y, "w": w, "h": h,
+            "controls": texts(sel.get("controls"), 20, 120), "images": texts(sel.get("images"), 20, 120) });
+        if let Some(t) = text(sel.get("text"), 2000) {
+            s["text"] = t;
+        }
+        if let Some(p) = text(sel.get("path"), 400) {
+            s["path"] = p;
+        }
+        put("selection", Some(s));
+    }
+    serde_json::Value::Object(out)
 }
 
 #[derive(Deserialize)]
@@ -230,8 +289,19 @@ mod tests {
         assert_eq!(post(json!({ "message": "   ", "page": "/" })).await, StatusCode::BAD_REQUEST);
         assert_eq!(post(json!({ "message": "a".repeat(super::MAX_MESSAGE + 1), "page": "/" })).await, StatusCode::BAD_REQUEST);
         assert_eq!(post(json!({ "message": "a", "page": "/", "context": [1] })).await, StatusCode::BAD_REQUEST);
-        assert_eq!(post(json!({ "message": "a", "page": "/", "context": { "t": "x".repeat(super::MAX_CONTEXT) } })).await, StatusCode::BAD_REQUEST);
-        for _ in 0..super::PER_DAY {
+        for page in ["https://evil.example/admin", "//evil.example", "", "decks", "/a\nb", "/\\evil.example"] {
+            assert_eq!(post(json!({ "message": "a", "page": page })).await, StatusCode::BAD_REQUEST, "{page:?}");
+        }
+        // Unknown fields are dropped, so a big one doesn't count against the size.
+        assert_eq!(post(json!({ "message": "a", "page": "/", "context": { "t": "x".repeat(super::MAX_CONTEXT) } })).await, StatusCode::CREATED);
+        // The cleaned context keeps typed fields only, so the admin page can trust them.
+        assert_eq!(
+            super::clean_context(json!({ "agent": {}, "x": 1, "dialog": " Add ", "viewport": { "w": 390, "h": "tall" },
+                "selection": { "x": 1, "y": 2, "w": 3, "h": 4, "images": "Sol Ring", "controls": ["button: Add", 7], "text": ["no"] } })
+                .as_object().unwrap()),
+            json!({ "dialog": "Add", "selection": { "x": 1.0, "y": 2.0, "w": 3.0, "h": 4.0, "controls": ["button: Add"], "images": [] } })
+        );
+        for _ in 0..super::PER_DAY - 1 {
             assert_eq!(post(json!({ "message": "a", "page": "/" })).await, StatusCode::CREATED);
         }
         assert_eq!(post(json!({ "message": "a", "page": "/" })).await, StatusCode::TOO_MANY_REQUESTS);

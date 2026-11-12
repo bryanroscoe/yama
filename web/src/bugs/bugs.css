@@ -157,3 +157,21 @@
   width: 18px;
   height: 18px;
 }
+
+/* Everything the box sends, word for word. */
+.bug-sent-list {
+  margin: 8px 0 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 12px;
+  font-size: var(--t-sm);
+  max-height: 12rem;
+  overflow: auto;
+}
+.bug-sent-list dt {
+  color: var(--dim);
+}
+.bug-sent-list dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}

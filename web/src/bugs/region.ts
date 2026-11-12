@@ -65,27 +65,34 @@ export function commonAncestor(els: Element[]): Element | null {
 }
 
 /**
- * The elements under a point, skipping `skip` (the picker drawn over everything). A dialog makes
- * the page under it inert, and the browser leaves inert elements out of hit testing: the hit test
- * lifts that for the moment it takes (nothing renders or runs in between) and puts it back.
+ * Runs `fn` with the page hit-testable. A dialog makes the page under it inert, and the browser
+ * leaves inert elements out of hit testing: this lifts that for as long as `fn` runs (it's
+ * synchronous: nothing renders or runs in between) and puts it back. `skip` (the picker drawn over
+ * everything) stops catching the pointer meanwhile. Lift once around a batch of hit tests: each
+ * change of `inert` costs a style recalculation.
  */
-export function elementsAt(x: number, y: number, skip: Element | null): Element[] {
-  if (typeof document.elementsFromPoint !== "function") return [];
+export function hitTesting<T>(skip: Element | null, fn: () => T): T {
   const inert = [...document.querySelectorAll<HTMLElement>("[inert]")];
   const pe = skip instanceof HTMLElement ? skip.style.pointerEvents : "";
   try {
     for (const el of inert) el.inert = false;
     if (skip instanceof HTMLElement) skip.style.pointerEvents = "none";
-    return document.elementsFromPoint(x, y).filter((el) => !skip?.contains(el) && el !== document.documentElement && el !== document.body);
+    return fn();
   } finally {
     for (const el of inert) el.inert = true;
     if (skip instanceof HTMLElement) skip.style.pointerEvents = pe;
   }
 }
 
-/** The topmost element under a point. */
+/** The topmost element under a point, leaving out `skip`. Call inside hitTesting. */
+function topAt(x: number, y: number, skip: Element | null): Element | null {
+  if (typeof document.elementsFromPoint !== "function") return null;
+  return document.elementsFromPoint(x, y).find((el) => !skip?.contains(el) && el !== document.documentElement && el !== document.body) ?? null;
+}
+
+/** The topmost element under a point, skipping `skip`. */
 export function elementAt(x: number, y: number, skip: Element | null): Element | null {
-  return elementsAt(x, y, skip)[0] ?? null;
+  return hitTesting(skip, () => topAt(x, y, skip));
 }
 
 function nameOf(el: Element): string {
@@ -98,12 +105,14 @@ export function readRegion(box: Box, skip: Element | null): Region {
   // The topmost element at a grid of points across the box, and what holds them all.
   const hits = new Set<Element>();
   const steps = 6;
-  for (let i = 0; i <= steps; i++) {
-    for (let j = 0; j <= steps; j++) {
-      const el = elementAt(box.x + (box.w * i) / steps, box.y + (box.h * j) / steps, skip);
-      if (el) hits.add(el);
+  hitTesting(skip, () => {
+    for (let i = 0; i <= steps; i++) {
+      for (let j = 0; j <= steps; j++) {
+        const el = topAt(box.x + (box.w * i) / steps, box.y + (box.h * j) / steps, skip);
+        if (el) hits.add(el);
+      }
     }
-  }
+  });
   const anchor = commonAncestor([...hits]);
   const region: Region = { ...box, text: "", controls: [], images: [], path: pathOf(anchor) };
   if (!anchor) return region;

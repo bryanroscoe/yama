@@ -42,8 +42,18 @@ function ReportRow({ report: r }: { report: BugReport }) {
   const refresh = () => void qc.invalidateQueries({ queryKey: ["admin-bugs"] });
   const resolve = useMutation({ mutationFn: () => adminApi.resolveBug(r.id, !r.resolved_at), onSuccess: refresh });
   const remove = useMutation({ mutationFn: () => adminApi.deleteBug(r.id), onSuccess: refresh });
-  const c = r.context ?? {};
-  const sel = c.selection;
+  // The server keeps only typed fields (bug_reports.rs, clean_context); checked again here so one
+  // odd report can't stop the page drawing.
+  const c = r.context && typeof r.context === "object" ? r.context : {};
+  const str = (v: unknown) => (typeof v === "string" ? v : "");
+  const list = (v: unknown) => (Array.isArray(v) ? v.filter((i): i is string => typeof i === "string") : []);
+  const raw = c.selection;
+  const sel =
+    raw && typeof raw === "object" && [raw.x, raw.y, raw.w, raw.h].every((n) => typeof n === "number")
+      ? { ...raw, text: str(raw.text), path: str(raw.path), images: list(raw.images), controls: list(raw.controls) }
+      : null;
+  const viewport = c.viewport && typeof c.viewport.w === "number" && typeof c.viewport.h === "number" ? c.viewport : undefined;
+  const inApp = (p: string) => p.startsWith("/") && !p.startsWith("//") && !p.includes("\\");
   return (
     <li className="bug-row">
       <div className="admin-text">
@@ -53,9 +63,9 @@ function ReportRow({ report: r }: { report: BugReport }) {
           {r.resolved_at ? `, resolved ${ago(r.resolved_at)}` : ""}
         </span>
         <span>
-          On <Link to={r.page || "/"}>{r.page || "/"}</Link>
-          {c.heading ? `, page ${c.heading}` : ""}
-          {c.dialog ? `, in the ${c.dialog} dialog` : ""}
+          On {inApp(r.page) ? <Link to={r.page}>{r.page}</Link> : r.page}
+          {str(c.heading) ? `, page ${str(c.heading)}` : ""}
+          {str(c.dialog) ? `, in the ${str(c.dialog)} dialog` : ""}
         </span>
       </div>
       <div className="admin-actions">
@@ -76,9 +86,9 @@ function ReportRow({ report: r }: { report: BugReport }) {
       </div>
       {sel && (
         <div className="bug-detail">
-          <RegionPreview region={sel} viewport={c.viewport} />
+          <RegionPreview region={sel} viewport={viewport} />
           <dl>
-            {sel.images?.length ? (
+            {sel.images.length ? (
               <>
                 <dt>Pictures</dt>
                 <dd>{sel.images.join(", ")}</dd>
@@ -90,7 +100,7 @@ function ReportRow({ report: r }: { report: BugReport }) {
                 <dd>{sel.text}</dd>
               </>
             ) : null}
-            {sel.controls?.length ? (
+            {sel.controls.length ? (
               <>
                 <dt>Controls</dt>
                 <dd>{sel.controls.join("; ")}</dd>
@@ -110,9 +120,9 @@ function ReportRow({ report: r }: { report: BugReport }) {
         </div>
       )}
       <p className="bug-device dim">
-        {c.viewport ? `${c.viewport.w} by ${c.viewport.h} window${c.viewport.dpr && c.viewport.dpr !== 1 ? ` at ${c.viewport.dpr}x` : ""}. ` : ""}
-        {c.build ? `Build ${c.build}. ` : ""}
-        {c.agent}
+        {viewport ? `${viewport.w} by ${viewport.h} window${typeof viewport.dpr === "number" && viewport.dpr !== 1 ? ` at ${viewport.dpr}x` : ""}. ` : ""}
+        {str(c.build) ? `Build ${str(c.build)}. ` : ""}
+        {str(c.agent)}
       </p>
       <ErrorText error={resolve.error ?? remove.error} small />
     </li>
