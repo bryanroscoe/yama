@@ -719,6 +719,10 @@ async fn store_stock_reads_snapshots_and_check_stores_only_stages() {
 async fn catalog_refresh_keeps_empty_card_scope_instead_of_expanding_the_trip() {
     let (app,pool)=app().await;
     let (owner,session)=user(&pool,"reader@example.com").await;
+    sqlx::query("INSERT INTO plan_stores(id,owner_id,key,name,kind,homepage,sort,origin,created_at,updated_at) VALUES('catalog-store',?,'pats','Local Store','local','https://patsgames.com',1,'import','now','now')")
+        .bind(&owner).execute(&pool).await.unwrap();
+    sqlx::query("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<301) INSERT INTO shopping_wants(id,owner_id,kind,name,qty,priority,source,added_at) SELECT 'want-'||x,?,'card','Card '||x,1,'need','page','now' FROM n")
+        .bind(&owner).execute(&pool).await.unwrap();
     let mcp=key(&app,&session,Some("mcp")).await;
     let (err,text)=call(&app,&mcp,"check_stores",json!({"stores":["pats"],"refresh_catalog":true})).await;
     assert!(!err,"{text}");
