@@ -288,9 +288,9 @@ export function DeckPage() {
   };
   // The ActionBar (design/tokens.md, rule 2; SPEC section 0): Edit list, Check cards, Share, More.
   const checkActions = <>
-    <Link to={`/decks/${d.id}/check`}><span>Check the box against the list</span><span className="more-menu-note">Saves nothing</span></Link>
-    <Link to={`/decks/${d.id}/scan`}><span>Scan the box as the list</span><span className="more-menu-note">Saves a version</span></Link>
-    <Button onClick={() => { cards.setShow("need"); if (tab !== "cards") navigate(tabHref("cards")); }}><span>Compare with my collection</span><span className="more-menu-note">Still need</span></Button>
+    <Link className="deck-check-action" to={`/decks/${d.id}/check`}><span>Check physical cards</span><span className="more-menu-note">Compare with this list without saving changes</span></Link>
+    <Link className="deck-check-action" to={`/decks/${d.id}/scan`}><span>Scan a new version</span><span className="more-menu-note">Save a list from your physical cards</span></Link>
+    <Button className="deck-check-action" onClick={() => { cards.setShow("need"); if (tab !== "cards") navigate(tabHref("cards")); }}><span>Find missing cards</span><span className="more-menu-note">Compare this list with my collection</span></Button>
   </>;
   const moreActions = <>
     <Button onClick={() => navigate("/", { state: { deckId: d.id } })}>Play</Button>
