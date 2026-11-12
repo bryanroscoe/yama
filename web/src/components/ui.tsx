@@ -16,12 +16,7 @@ export function Pips({ identity, label = true }: { identity: string; label?: boo
   );
 }
 
-/** "{2}{G/U}" → "2 G/U" in the display face. Real mana symbols are Wizards' art; we don't ship them. */
-export function ManaCost({ cost }: { cost: string | null }) {
-  if (!cost) return null;
-  const text = cost.replace(/\{([^}]+)\}/g, " $1").replace(/\s\/\/\s/g, " // ").trim();
-  return <span className="mana-cost" aria-label={`mana cost ${cost}`}>{text}</span>;
-}
+export { ManaCost, ManaSymbol, OracleText, SymbolText } from "./ManaSymbols";
 
 export function CardImage({ src, name, className = "card-img" }: { src: string | null | undefined; name: string; className?: string }) {
   if (!src) return <div className="card-fallback">{name}</div>;

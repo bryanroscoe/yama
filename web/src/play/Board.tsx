@@ -13,6 +13,7 @@
 // the bottom, and every hand face up when asked.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ManaCost, SymbolText } from "../components/ManaSymbols";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router";
 import { api, API_BASE } from "../api";
@@ -1757,7 +1758,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
       <div className="response-text"><b>{Who(responseTop.controller)}'s {responseTop.name}</b>
         <button type="button" className="outline" onClick={() => setSheet("hand")}>Choose a response</button>
         <span>{responseTop.trigger ? "Triggered ability" : responseTop.ability ? "Activated ability" : "Spell"}</span>
-        <p>{responseTop.text || meta[responseTop.name]?.oracle_text}</p>
+        <p><SymbolText text={responseTop.text || meta[responseTop.name]?.oracle_text} /></p>
         {!!responseTop.targets?.length && <p>Targets: {responseTop.targets.map((t) => t.target?.kind === "player" ? Who(t.target.seat) : t.name).join(", ")}</p>}
       </div>
     </section>
@@ -1850,7 +1851,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
             {meta[widget.p.source.name]?.image && <img src={meta[widget.p.source.name]!.image!} alt="" />}
             <span>
               <b>{widget.p.purpose === "target" && !view.battlefield.some((c) => c.id === widget.p.source!.id) ? `Casting ${widget.p.source.name}` : widget.p.source.name}</b>
-              {widget.p.oracle && <span className="dock-card-text">{widget.p.oracle}</span>}
+              {widget.p.oracle && <span className="dock-card-text"><SymbolText text={widget.p.oracle} /></span>}
             </span>
           </p>
         )}
@@ -2500,7 +2501,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
                 <details className="rail-recent">
                   <summary>Recent events</summary>
                   {recent.map((l, i) => (
-                    <p key={i}><span className="dim num">T{l.turn}</span> {l.text}</p>
+                    <p key={i}><span className="dim num">T{l.turn}</span> <SymbolText text={l.text} /></p>
                   ))}
                 </details>
               )}
@@ -2751,9 +2752,9 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
           <div className="dock-card" aria-live="polite">
             <p className="dock-card-head">
               <b>{phoneSelected.name}</b>
-              {meta[phoneSelected.name] && <span className="dim">{meta[phoneSelected.name]!.type_line}{meta[phoneSelected.name]!.mana_cost ? `, ${meta[phoneSelected.name]!.mana_cost}` : ""}</span>}
+              {meta[phoneSelected.name] && <span className="dim">{meta[phoneSelected.name]!.type_line}{meta[phoneSelected.name]!.mana_cost ? <>, <ManaCost cost={meta[phoneSelected.name]!.mana_cost} /></> : ""}</span>}
             </p>
-            {meta[phoneSelected.name]?.oracle_text && <p className="dock-card-text">{meta[phoneSelected.name]!.oracle_text}</p>}
+            {meta[phoneSelected.name]?.oracle_text && <p className="dock-card-text"><SymbolText text={meta[phoneSelected.name]!.oracle_text} /></p>}
             <button type="button" className="quiet small" onClick={() => setInspect(phoneSelected)}>Read card</button>
           </div>
         )}
@@ -2797,7 +2798,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
                   return (
                     <button key={o.index} type="button" className={`chip${img ? "" : " general"}`} onClick={() => choose(o)} disabled={pending}>
                       {img && <img src={img} alt="" />}
-                      <span>{o.label}</span>
+                      <span><SymbolText text={o.label} /></span>
                     </button>
                   );
                 })}
@@ -3429,7 +3430,7 @@ function StackList({ view, meta, you, who, art, onHover, onRead, canHover, tones
                   {s.casting ? ", being cast" : ""}
                   {s.yielded ? ", passing for you" : ""}
                 </span>
-                {words && <span className="stack-words">{words}</span>}
+                {words && <span className="stack-words"><SymbolText text={words} /></span>}
                 {!!s.modes?.length && <span className="stack-words modes">{s.modes.join(" ")}</span>}
                 {!!s.targets?.length && (
                   <span className="stack-targets">
@@ -3581,7 +3582,7 @@ function DecisionBody(props: {
         {forSelected.length ? (
           <div className="rail-options">
             {forSelected.map((o) => (
-              <button key={o.index} type="button" className="outline" onClick={() => props.onChoose(o)} disabled={props.pending}>{o.label}</button>
+              <button key={o.index} type="button" className="outline" onClick={() => props.onChoose(o)} disabled={props.pending}><SymbolText text={o.label} /></button>
             ))}
           </div>
         ) : (
@@ -3601,7 +3602,7 @@ function DecisionBody(props: {
       {general.length > 0 && (
         <div className="rail-options">
           {general.map((o) => (
-            <button key={o.index} type="button" className="outline" onClick={() => props.onChoose(o)} disabled={props.pending}>{o.label}</button>
+            <button key={o.index} type="button" className="outline" onClick={() => props.onChoose(o)} disabled={props.pending}><SymbolText text={o.label} /></button>
           ))}
         </div>
       )}
@@ -3611,7 +3612,7 @@ function DecisionBody(props: {
             <li key={o.index}>
               <button type="button" className="option-row" onClick={() => props.onChoose(o)} disabled={props.pending}>
                 {thumb(o)}
-                <span>{o.label}</span>
+                <span><SymbolText text={o.label} /></span>
               </button>
             </li>
           ))}

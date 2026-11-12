@@ -4,6 +4,7 @@
 // itself out by its own width, so the sheet gets the phone layout.
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { SymbolText } from "../components/ManaSymbols";
 import { useState } from "react";
 import { Link, useLocation } from "react-router";
 import { api, type Card, type CollectionItem, type Printing } from "../api";
@@ -28,7 +29,6 @@ export function canBeCommander(c: Pick<Card, "type_line" | "oracle_text">): bool
 }
 
 /** "{1}{W}{W}" → "1 W W", the way the card page writes a cost in its display face. */
-const costText = (cost: string | null) => (cost ? cost.replace(/\{([^}]+)\}/g, " $1").replace(/\s\/\/\s/g, " // ").trim() : "");
 
 /** The cheapest market price across printings and finishes, with where it's from. */
 export function cheapest(printings: Printing[]): { p: Printing; finish: Finish; value: number } | null {
@@ -198,11 +198,11 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
               </span>
               <h1>{card.name}</h1>
               <p className="cp-type">
-                <span className="cp-cost-inline">{costText(card.mana_cost) ? `${costText(card.mana_cost)}. ` : ""}</span>
+                {card.mana_cost && <span className="cp-cost-inline"><ManaCost cost={card.mana_cost} />{". "}</span>}
                 {typeLine}
               </p>
             </div>
-            {card.oracle_text && <p className="cp-oracle">{card.oracle_text}</p>}
+            {card.oracle_text && <p className="cp-oracle"><SymbolText text={card.oracle_text} /></p>}
             <div className="cp-chips">
               <Legality status={card.legalities.commander} />
               {canBeCommander(card) && <span className="cp-chip">Can be your commander</span>}

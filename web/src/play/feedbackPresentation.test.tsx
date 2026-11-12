@@ -72,7 +72,8 @@ it("rejects a card clipped by its scrolling battlefield even inside the window",
 it("renders mana in a payment action without exposing raw engine notation", () => {
   const markup = renderToStaticMarkup(<CostText text="Pay {2}{R}" />);
   expect(markup).toContain("Pay ");
-  expect(markup).toContain('class="mana-cost"');
+  expect(markup).toContain('class="ms"');
+  expect(markup).toContain("card-symbols/R.svg");
   expect(markup).not.toContain('>{2}');
   expect(markup).not.toContain('>{R}');
 });

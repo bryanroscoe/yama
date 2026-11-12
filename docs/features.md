@@ -60,7 +60,7 @@ A page listing what has shipped, in plain sentences, with a notice on each devic
 
 ### Card data
 
-Scryfall bulk import: ~36.5k cards, ~116k printings, daily prices kept by date, rulings, the Game Changer flag. Cards, Commander legality and Game Changer flags refresh daily, so a new set is legal in Yama the day Scryfall marks it; rulings weekly. Images are Scryfall's WebP sizes (JPEG fallback for older files).
+Scryfall bulk import: ~36.5k cards, ~116k printings, daily prices kept by date, rulings, the Game Changer flag. Cards, Commander legality and Game Changer flags refresh daily, so a new set is legal in Yama the day Scryfall marks it; rulings weekly. Images are Scryfall's WebP sizes (JPEG fallback for older files). Mana costs and symbols in rules text ({T}, {2}{G/U}, {W/P}) show as the symbols everywhere a card's cost or text appears, loaded from Scryfall at runtime and kept for offline use once seen; a symbol that can't load shows as its text.
 
 ### Card search
 

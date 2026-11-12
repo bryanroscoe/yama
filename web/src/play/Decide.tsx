@@ -8,6 +8,7 @@
 // card's own, never invented.
 
 import { useEffect, useLayoutEffect, useReducer, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { SymbolText } from "../components/ManaSymbols";
 import { MANA } from "@yama/core";
 import { api } from "../api";
 import { CostText } from "./CostText";
@@ -195,12 +196,12 @@ function Head({ p, ctx, count, compact, image = false, extra }: { p: Pending; ct
             {s.artist && !image && !compact ? `. Art: ${s.artist}, ${COPYRIGHT}` : ""}
           </span>
         )}
-        <h2>{p.prompt}</h2>
-        {!compact && p.oracle && <span className="dw-oracle">{p.oracle}</span>}
+        <h2><SymbolText text={p.prompt} /></h2>
+        {!compact && p.oracle && <span className="dw-oracle"><SymbolText text={p.oracle} /></span>}
         {!compact && <Warn text={p.warn} />}
       </span>
       {extra ?? (count ? <span className="dw-count" aria-live="polite">{count}</span> : null)}
-      {compact && p.oracle && <span className="dw-oracle wide">{p.oracle}</span>}
+      {compact && p.oracle && <span className="dw-oracle wide"><SymbolText text={p.oracle} /></span>}
       {compact && p.warn && (
         <span className="wide">
           <Warn text={p.warn} />
@@ -240,7 +241,7 @@ export function YesNoStrip({ p, draft, onDraft, ctx, compact, disabled }: Props)
         )}
         <b className="dw-question">{question}</b>
         {presentation && <span className="dw-note">{presentation.detail}</span>}
-        {p.oracle && <span className="dw-oracle">{p.oracle}</span>}
+        {p.oracle && <span className="dw-oracle"><SymbolText text={p.oracle} /></span>}
         <Warn text={p.warn} />
         {/* Where the engine can remember the answer, or Yama can (an unless-cost, the command zone). */}
         {p.remember && draft.kind === "yesno" && (
@@ -570,7 +571,7 @@ export function TriggerOrder({ p, draft, onDraft, ctx, compact, disabled }: Prop
     <div className={`dw-triggers${compact ? " compact" : ""}`}>
       <div className="dw-head">
         <span className="dw-head-text">
-          <h2>{p.prompt}</h2>
+          <h2><SymbolText text={p.prompt} /></h2>
           <span className="dw-oracle">The top one resolves first.</span>
         </span>
         <span className="dw-count">{counter(p, draft)}</span>
@@ -590,7 +591,7 @@ export function TriggerOrder({ p, draft, onDraft, ctx, compact, disabled }: Prop
               <ReadImg src={art ?? null} name={name} onRead={() => o && ctx.onRead(o.name)} />
               <span className="dw-trigger-text">
                 <b>{name}</b>
-                {o?.text && <span>{o.text}</span>}
+                {o?.text && <span><SymbolText text={o.text} /></span>}
                 <span className="dw-credit">
                   {orderTag(p, i, n) === "Then" ? "" : `${orderTag(p, i, n)}. `}
                   {artist ? `Art: ${artist}` : ""}
@@ -672,7 +673,7 @@ export function SplitRows({ p, draft, onDraft, ctx, compact, disabled }: Props) 
               )}
               <span className="dw-split-text" style={seatDot(o.controller !== undefined ? ctx.tone(o.controller) : undefined)}>
                 <b>{o.name}</b>
-                {o.text && <span>{o.text}</span>}
+                {o.text && <span><SymbolText text={o.text} /></span>}
                 {o.controller !== undefined && (
                   <span>
                     <span className="seat-dot" aria-hidden="true" />
@@ -854,8 +855,8 @@ export function NumberPick({ p, draft, onDraft, ctx, compact, disabled }: Props)
                 {manaCost && <ManaCost cost={manaCost} />}
               </span>
             )}
-            <h2>{p.prompt}</h2>
-            {p.oracle && <span className="dw-oracle">{p.oracle}</span>}
+            <h2><SymbolText text={p.prompt} /></h2>
+            {p.oracle && <span className="dw-oracle"><SymbolText text={p.oracle} /></span>}
           </span>
         )}
         {x ? (
@@ -1007,7 +1008,7 @@ export function NamePick({ p, draft, onDraft, ctx, compact, disabled }: Props) {
                   {w.text && (
                     <span className="dw-where" style={seatDot(w.seat !== undefined ? ctx.tone(w.seat) : undefined)}>
                       {w.seat !== undefined && <span className="seat-dot" aria-hidden="true" />}
-                      {w.text}
+                      <SymbolText text={w.text} />
                     </span>
                   )}
                 </button>
@@ -1060,7 +1061,7 @@ export function ModePick({ p, draft, onDraft, ctx, compact, disabled }: Props) {
               {manaCost && <ManaCost cost={manaCost} />}
             </span>
           )}
-          <h2>{p.prompt}</h2>
+          <h2><SymbolText text={p.prompt} /></h2>
           {rule && <span className="dw-oracle">{rule}</span>}
         </span>
         <span className="dw-count">{counter(p, draft)}</span>
@@ -1104,7 +1105,7 @@ export function ReplacePick({ p, draft, onDraft, ctx, compact, disabled }: Props
       <div className="dw-head">
         <span className="dw-head-text">
           <h2>Which applies first?</h2>
-          <span className="dw-oracle">{p.prompt}.</span>
+          <span className="dw-oracle"><SymbolText text={p.prompt} />.</span>
         </span>
       </div>
       <div className="dw-replace-list" role="radiogroup" aria-label="Applies first">
@@ -1116,7 +1117,7 @@ export function ReplacePick({ p, draft, onDraft, ctx, compact, disabled }: Props
               {img && !compact ? <img src={img} alt="" /> : null}
               <span className="dw-replace-text">
                 <b>{o.name}</b>
-                {o.text && <span>{o.text}</span>}
+                {o.text && <span><SymbolText text={o.text} /></span>}
               </span>
               {first !== undefined && <span className={`dw-tag${on ? " first" : ""}`}>{on ? "Applies first" : "Then this"}</span>}
             </button>
@@ -1277,8 +1278,8 @@ export function CostRows({ p, draft, onDraft, ctx, compact, disabled }: Props) {
         {image && s && !compact && <ReadImg src={image} name={s.name} onRead={() => ctx.onRead(s.name, s.id)} />}
         <span className="dw-head-text">
           {s && <span className="dw-source-line">{sourceLine(p, ctx)}</span>}
-          <h2>{p.prompt}</h2>
-          {!compact && p.oracle && <span className="dw-oracle">{p.oracle}</span>}
+          <h2><SymbolText text={p.prompt} /></h2>
+          {!compact && p.oracle && <span className="dw-oracle"><SymbolText text={p.oracle} /></span>}
         </span>
       </div>
       <div className={`dw-cost-list${p.options.length === 2 ? " two" : ""}`} role="radiogroup" aria-label={p.prompt}>
@@ -2001,7 +2002,7 @@ export function MeldPanel({ p, draft, onDraft, ctx, compact, disabled }: Props) 
               <b className="dw-meld-op" aria-hidden="true">→</b>
               {result && <ReadImg src={img(result)} name={result.name} onRead={() => ctx.onRead(result.name)} />}
               <span className="dw-meld-text">
-                <b>{o.text}</b>
+                <b><SymbolText text={o.text} /></b>
                 <span>{o.name}</span>
               </span>
             </button>
@@ -2107,7 +2108,7 @@ export function DungeonRooms({ p, draft, onDraft, ctx, compact, disabled }: Prop
                   <b>{r.name}</b>
                   {tag && <span className="dw-room-tag">{tag}</span>}
                 </span>
-                <span className="dw-room-text">{r.text}</span>
+                <span className="dw-room-text"><SymbolText text={r.text} /></span>
               </button>
             );
           })}
@@ -2133,7 +2134,7 @@ function DungeonRoomList({ p, draft, onDraft, ctx, disabled }: Props) {
             <b>{here.name}</b>
             <span className="dw-room-tag">You are here</span>
           </span>
-          <span className="dw-room-text">{here.text}</span>
+          <span className="dw-room-text"><SymbolText text={here.text} /></span>
         </span>
       )}
       <div className="dw-room-rows" role="radiogroup" aria-label="Rooms you can go to">
@@ -2145,7 +2146,7 @@ function DungeonRoomList({ p, draft, onDraft, ctx, disabled }: Props) {
                 <b>{o.name}</b>
                 <span className="dw-room-tag">{on ? "Next" : "Can go"}</span>
               </span>
-              <span className="dw-room-text">{o.text}</span>
+              <span className="dw-room-text"><SymbolText text={o.text} /></span>
             </button>
           );
         })}
@@ -2290,7 +2291,7 @@ export function PickBanner({ p, draft }: { p: Pending; draft: Draft }) {
   return (
     <div className="dw-banner" role="status">
       {p.source?.art && <img src={p.source.art} alt="" />}
-      <span>{p.prompt}</span>
+      <span><SymbolText text={p.prompt} /></span>
       {count && <span className="dw-banner-count">{count}</span>}
     </div>
   );
@@ -2334,7 +2335,7 @@ export function DecisionRail({ p, draft, ctx, stage, disabled, onReset, onDraft 
       )}
       {stage === "board" && p.answer !== "tap_mana" && (
         <>
-          {p.oracle && <p className="chooser-oracle">{p.oracle}</p>}
+          {p.oracle && <p className="chooser-oracle"><SymbolText text={p.oracle} /></p>}
           <p className="chooser-count" aria-live="polite">{counter(p, draft)}</p>
           <p className="rail-help">
             {p.answer === "choose_pair"
@@ -2387,7 +2388,7 @@ export function DecisionRail({ p, draft, ctx, stage, disabled, onReset, onDraft 
             <b className={`num${!p.upTo && rest === 0 ? " done" : ""}`}>{p.upTo ? (p.total ?? 0) - rest : rest}</b>
             <span>{p.upTo ? `of ${p.total ?? 0}` : "left to remove"}</span>
           </p>
-          {p.oracle && <p className="chooser-oracle">{p.oracle}</p>}
+          {p.oracle && <p className="chooser-oracle"><SymbolText text={p.oracle} /></p>}
           <p className="rail-help">{p.upTo ? "Any number, none included: set them with the steppers on the board." : "Set them with the steppers on the board."}</p>
         </>
       )}
@@ -2397,7 +2398,7 @@ export function DecisionRail({ p, draft, ctx, stage, disabled, onReset, onDraft 
             <b className={`num${rest === 0 ? " done" : ""}`}>{rest}</b>
             <span>of {p.total ?? 0} left</span>
           </p>
-          {p.oracle && <p className="chooser-oracle">{p.oracle}</p>}
+          {p.oracle && <p className="chooser-oracle"><SymbolText text={p.oracle} /></p>}
           <p className="rail-help">
             The engine's split is filled in; change it on the targets.{(p.perOptionMin ?? 0) > 0 ? ` Each gets at least ${p.perOptionMin}.` : ""}
           </p>

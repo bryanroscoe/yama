@@ -5,6 +5,7 @@
 // rail offers for it. Only the card's real text: nothing written about it by Yama.
 
 import { useQuery } from "@tanstack/react-query";
+import { ManaCost, SymbolText } from "../components/ManaSymbols";
 import { useRef, useState } from "react";
 import { cardDetailQuery } from "../cardDetail";
 import { Button, Dialog, Loading } from "../components/ui";
@@ -84,7 +85,7 @@ function InspectorBody({ card, meta, view, names, cardById, options, onChoose, o
               <span className="dim">
                 {twoFaced && back ? "Back face: " : ""}
                 {face.type}
-                {cost ? `. ${cost}` : ""}
+                {cost ? <>. <ManaCost cost={cost} /></> : ""}
               </span>
             )}
           </span>
@@ -110,7 +111,7 @@ function InspectorBody({ card, meta, view, names, cardById, options, onChoose, o
             (face?.text ? (
               <div className="gi-oracle">
                 {face.text.split("\n").map((p, i) => (
-                  <p key={i}>{p}</p>
+                  <p key={i}><SymbolText text={p} /></p>
                 ))}
                 <span className="dim small">Oracle text, from Scryfall.</span>
               </div>
@@ -135,7 +136,7 @@ function InspectorBody({ card, meta, view, names, cardById, options, onChoose, o
             <div className="inspector-options">
               {options.map((o, i) => (
                 <Button key={o.index} variant={i === 0 && options.length === 1 ? "primary" : "outline"} onClick={() => onChoose(o)} disabled={disabled}>
-                  {o.label}
+                  <SymbolText text={o.label} />
                 </Button>
               ))}
             </div>

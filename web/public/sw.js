@@ -262,6 +262,6 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Scryfall card images: keep the ones you've seen for offline lookups at the table.
-  if (url.hostname === "cards.scryfall.io") event.respondWith(cardImage(event));
+  // Scryfall card images and mana symbols: keep the ones you've seen for offline lookups at the table.
+  if (url.hostname === "cards.scryfall.io" || (url.hostname === "svgs.scryfall.io" && url.pathname.startsWith("/card-symbols/"))) event.respondWith(cardImage(event));
 });
