@@ -466,7 +466,7 @@ bug icon on practically every pop-up and page.
   copy card images and other players' names and art into our database, add weight to every page,
   and break on cross-origin images. Dialogs make the page under them inert, which also hides it
   from hit testing; the picker lifts `inert` only for the synchronous `elementsFromPoint` call.
-- **Storage.** `bug_reports` (migration 0083): owner, page, message, a JSON context of at most
+- **Storage.** `bug_reports` (migration 0084): owner, page, message, a JSON context of at most
   16 KB, `resolved_at`. Only admins read them (`/api/admin/bug-reports`, the same 404 for anyone
   else as the other admin routes); they are deleted with the account and the privacy policy says
   what a report keeps. 20 reports per account per day.
