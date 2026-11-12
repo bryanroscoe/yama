@@ -77,8 +77,8 @@ export const referenceOf = (r: Reference) => REFERENCES.find((x) => x.key === r)
 export interface Comparison {
   /** Shown after "Amber marks:". */
   name: string;
-  /** Its mark on each score, out of 100. */
-  value: (key: VectorKey) => number;
+  /** Its mark on each score, out of 100; null when it has no such score. */
+  value: (key: VectorKey) => number | null;
   /** Its power level, when it's one of this deck's own lists. */
   power: number | null;
 }
@@ -109,7 +109,8 @@ export function comparisonOf(r: Reference | "own-stock" | `version:${string}`, v
 export function comparisonOfDeck(name: string, other: DeckAnalysis | null | undefined): Comparison | null {
   if (!other) return null;
   const score = new Map(other.vectors.map((v) => [v.key, v.score]));
-  return { name, value: (k) => score.get(k) ?? 0, power: other.power };
+  // A score the other deck lacks gets no mark (never a mark at 0).
+  return { name, value: (k) => score.get(k) ?? null, power: other.power };
 }
 
 /** The decks you can compare with: your others that have a saved list, by name. */

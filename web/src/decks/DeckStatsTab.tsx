@@ -123,7 +123,7 @@ function PowerSection({ deckId, versionId, cards, images, inDeck, onCard }: { de
             )}
             {shownRef === "deck" && (decks.isPending ? (
               <Loading small>Loading your decks…</Loading>
-            ) : others.length === 0 ? (
+            ) : decks.isError ? null : others.length === 0 ? (
               <span className="dim">No other decks with a saved list</span>
             ) : (
               <select className="stats-version-pick" aria-label="Which deck" value={otherDeck?.id ?? ""} onChange={(e) => setDeckPick(e.target.value)}>
@@ -138,8 +138,9 @@ function PowerSection({ deckId, versionId, cards, images, inDeck, onCard }: { de
         )}
       </div>
       <ErrorText error={q.error} />
-      {shownRef === "deck" && <ErrorText error={decks.error ?? otherAnalysis.error} small />}
+      {shownRef === "deck" && <ErrorText error={decks.error ?? otherAnalysis.error} retry={() => (decks.error ? decks.refetch() : otherAnalysis.refetch())} small />}
       {shownRef === "deck" && otherDeck && otherAnalysis.isPending && <Loading small>Working out {otherDeck.name}…</Loading>}
+      {shownRef === "deck" && otherDeck && otherAnalysis.isSuccess && !otherAnalysis.data.current && <p className="dim">{otherDeck.name} has no power level yet.</p>}
       {versionId == null && <p className="dim">Add cards to see the deck's power level.</p>}
       {q.isPending && versionId != null && <Loading>Working it out…</Loading>}
       {a && selected && (
@@ -171,12 +172,12 @@ function PowerSection({ deckId, versionId, cards, images, inDeck, onCard }: { de
             </div>
             <div className="power-vectors" role="group" aria-label="Five scores">
               {a.vectors.map((x) => (
-                <Button key={x.key} className="vector" aria-pressed={x.key === selected.key} onClick={() => setSel(x.key)} aria-label={r?.power != null ? `${x.label}, ${Math.round(x.score)}; ${r.name}, ${Math.round(r.value(x.key))}` : undefined}>
+                <Button key={x.key} className="vector" aria-pressed={x.key === selected.key} onClick={() => setSel(x.key)} aria-label={r?.power != null && r.value(x.key) != null ? `${x.label}, ${Math.round(x.score)}; ${r.name}, ${Math.round(r.value(x.key)!)}` : undefined}>
                   <span className="vector-name"><b>{x.label}</b><span className="dim">{x.band}</span></span>
                   <span className="vector-track" aria-hidden="true">
                     <span className="fill" style={{ width: pctWidth(x.score) }} />
                     {REFERENCES.map((m) => <span key={m.key} className="mark" style={{ left: `${m.value}%` }} />)}
-                    {r && <span className="ref" style={{ left: pctWidth(r.value(x.key)) }} />}
+                    {r && r.value(x.key) != null && <span className="ref" style={{ left: pctWidth(r.value(x.key)!) }} />}
                   </span>
                   <b className="vector-score">{Math.round(x.score)}</b>
                 </Button>
