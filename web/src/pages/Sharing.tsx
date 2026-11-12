@@ -4,7 +4,7 @@ import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { api, publicOrigin, shareUrl, type DeckSummary, type Sharing, type TradeCompare, type TradeMatch, type Visibility } from "../api";
 import { useMe } from "../auth";
 import { AreaHead } from "../components/DeckTabs";
-import { Button, ButtonLink, CardImage, ErrorText, Loading } from "../components/ui";
+import { BackLink, Button, ButtonLink, CardImage, ErrorText, Loading } from "../components/ui";
 import { SharingSettings } from "../decks/SharingSettings";
 import { useCopy } from "../decks/ShareDeck";
 import { noteShareUrl, reports } from "../research/api";
@@ -103,7 +103,7 @@ export function ComparePage() {
   const at = `@${c?.handle ?? handle}`;
   const profile = `${publicOrigin()}/u/${encodeURIComponent(c?.handle ?? handle)}`;
   return <main className="page sharing-page">
-    <Link className="sharing-browse" to="/sharing">← Sharing</Link>
+    <BackLink inline to="/sharing" label="Back to Sharing" text="Sharing" className="sharing-browse" />
     <AreaHead title={`You and ${at}`} />
     <p className="dim">Cards you could trade, from what {at} shares. Market prices are dated TCGplayer market prices from Scryfall, not offers. Copies are real cards; proxies aren't counted.</p>
     {q.isPending && enabled && <Loading>Comparing…</Loading>}

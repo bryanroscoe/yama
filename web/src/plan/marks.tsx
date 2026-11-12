@@ -16,7 +16,7 @@ import {
 } from "@yama/core/plan";
 import { useState } from "react";
 import { Link } from "react-router";
-import { Button, Dialog } from "../components/ui";
+import { Button, Dialog, Field, StatusPill } from "../components/ui";
 import { deviceId, outbox } from "./outbox";
 import type { PlanView } from "./view";
 import { fmtDate, usd, NO_PRICE } from "@yama/core";
@@ -42,9 +42,9 @@ export function InstalledTick({ swap, view, userId, compact = false, short = fal
     const card = swap.role === "standin" ? swap.in : "This swap";
     return (
       <div className={`plan-tick plan-tick-deck${compact ? " small" : ""}${short ? " plan-tick-short" : ""}`}>
-        <span className={`tag ${on || swap.deck_superseded ? "good" : "plain"}`}>
+        <StatusPill tone={on || swap.deck_superseded ? "good" : "neutral"}>
           {on ? "In the deck" : swap.deck_superseded ? "Its print is in" : st.skipped ? "Skipped" : "Not in the deck yet"}
-        </span>
+        </StatusPill>
         {!short && (
           <span className="faint small">
             {on
@@ -154,8 +154,7 @@ export function MarkBoughtSheet({ swap, view, userId, storeKey, onClose }: { swa
         <p className="dim small">
           This goes to your {view.app} inbox. It isn't an order and doesn't count the card as yours until your plan records the purchase.
         </p>
-        <label>
-          Where
+        <Field label="Where">
           <select value={store} onChange={(e) => setStore(e.target.value)}>
             {stores.map((s) => (
               <option key={s.key} value={s.key}>
@@ -164,17 +163,15 @@ export function MarkBoughtSheet({ swap, view, userId, storeKey, onClose }: { swa
             ))}
             <option value="">Somewhere else</option>
           </select>
-        </label>
+        </Field>
         {store === "" && (
-          <label>
-            Store
+          <Field label="Store">
             <input value={other} onChange={(e) => setOther(e.target.value)} maxLength={200} required />
-          </label>
+          </Field>
         )}
-        <label>
-          Paid for one copy (leave empty if you don't know)
+        <Field label="Paid for one copy (leave empty if you don't know)">
           <input inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} placeholder={NO_PRICE} />
-        </label>
+        </Field>
         {!priceOk && <p className="error small">A price is a number, like 0.75.</p>}
         <div className="row">
           <label style={{ flex: "1 1 6rem" }}>

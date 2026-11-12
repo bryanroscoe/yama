@@ -11,7 +11,7 @@ import { artCredits } from "../components/ArtPanel";
 import { Warn } from "./Decide";
 import { TAP_MANA, choiceAct, keptNote, paidInFull, paymentStatus, penaltyText, pipsLabel, poolText, sourceClick, sourceChip } from "./pay";
 import type { Act, CardMeta, ManaChoiceView, ManaSourceView, PaymentView, TapMana } from "./types";
-import { Button } from "../components/ui";
+import { Button, Field } from "../components/ui";
 
 /** A mana colour's fill for a dot ("any" is a split of all five). */
 function fill(code: string): string {
@@ -34,14 +34,13 @@ export function Pips({ p, big = false }: { p: PaymentView; big?: boolean }) {
 
 function TapManaSetting({ value, onChange, disabled }: { value: TapMana; onChange: (t: TapMana) => void; disabled: boolean }) {
   return (
-    <label className="pay-setting">
-      Tap mana for me
+    <Field className="pay-setting" label="Tap mana for me">
       <select value={value} disabled={disabled} onChange={(e) => onChange(e.target.value as TapMana)}>
         {TAP_MANA.map((t) => (
           <option key={t.id} value={t.id}>{t.label}</option>
         ))}
       </select>
-    </label>
+    </Field>
   );
 }
 

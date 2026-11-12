@@ -5,7 +5,7 @@ import { Link, useNavigate, useParams } from "react-router";
 import { usePower } from "../auth";
 import { api } from "../api";
 import { queryFailure, RefreshFailed } from "../components/QueryError";
-import { Button, ErrorText, Loading, Pips, Segmented } from "../components/ui";
+import { Button, ErrorText, Field, Loading, Pips, Segmented } from "../components/ui";
 import { engineLine, enginesOf, halfOf } from "./engines";
 import { agreementParts, type HalfEngine } from "./logic";
 import type { ComparePrefill, ExperimentDetail, ExperimentItem, ExperimentMode, ExperimentStatus, FieldChoice, PodView, Summary, TryPrefill } from "./api";
@@ -723,7 +723,7 @@ function VersusResults({ e, s, engine }: { e: ExperimentDetail; s: Summary; engi
             Two decks that sat at the same table, and which of the two finished higher in each game they shared, whoever won the game. One table is {v.pod} games, so most pairs in a big
             field have only a handful; under {FEW_GAMES} games a pair can't tell you much. Open a pair to see its tables.
           </p>
-          <label>Filter pairs by deck<input value={matchupFilter} onChange={(e) => { setMatchupFilter(e.target.value); setMatchupPage(0); }} /></label>
+          <Field label="Filter pairs by deck"><input value={matchupFilter} onChange={(e) => { setMatchupFilter(e.target.value); setMatchupPage(0); }} /></Field>
           <p className="small dim">Showing {meetings.length ? matchupPage * 200 + 1 : 0}–{Math.min((matchupPage + 1) * 200, meetings.length)} of {meetings.length} pairs. {v.pod === 2 ? "In a 1v1 run this is the same as who won." : "This is finish order at four-player tables, not a 1v1 win rate."}</p>
           <div className="lab-scroll">
             <table className="plain small lab-h2h">

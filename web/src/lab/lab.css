@@ -107,10 +107,6 @@
 .lab details > summary::-webkit-details-marker {
   display: none;
 }
-.lab .tag.warn {
-  color: var(--warn);
-  border-color: color-mix(in srgb, var(--warn) 40%, transparent);
-}
 .lab-back {
   display: inline-flex;
   align-items: center;
@@ -1086,7 +1082,7 @@
   grid-column: -3 / -2;
   grid-row: 2;
 }
-.lab-runcard-head > .pill {
+.lab-runcard-head > .tag {
   grid-column: -2 / -1;
   grid-row: 1;
 }

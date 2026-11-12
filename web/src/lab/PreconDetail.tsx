@@ -8,7 +8,7 @@ import { Link, useParams } from "react-router";
 import { usePower } from "../auth";
 import { api } from "../api";
 import { queryFailure, RefreshFailed } from "../components/QueryError";
-import { Button, ButtonLink, CardImage, Details, ErrorText, Loading, ManaCost, Pips } from "../components/ui";
+import { Button, ButtonLink, CardImage, Details, ErrorText, Loading, ManaCost, Pips, StatusPill } from "../components/ui";
 import { CardSheet } from "../pages/Cards";
 import type { Matchup, PreconDetail, PreconItem, RatingV2, RunLabel } from "./api";
 import { ConfidenceNote } from "./confidence";
@@ -130,8 +130,8 @@ function PreconDetailBody({ id }: { id: string | undefined }) {
                   <CardImage src={c.image_small} name={c.name} className="thumb" />
                   <span className="name">
                     {c.qty > 1 ? `${c.qty} ` : ""}
-                    <CardHover name={c.name} oracleId={c.oracle_id} image={c.image_normal}/> {partly.has(c.name) && <span className="tag warn">partly in the engine</span>}
-                    {!c.oracle_id && <span className="tag">unknown to Yama</span>}
+                    <CardHover name={c.name} oracleId={c.oracle_id} image={c.image_normal}/> {partly.has(c.name) && <StatusPill tone="warn">partly in the engine</StatusPill>}
+                    {!c.oracle_id && <StatusPill>unknown to Yama</StatusPill>}
                     <span className="dim small" style={{ display: "block" }} title={priceSource(c.price_date)}>{usd(c.unit_price_usd)}{c.qty > 1 && c.unit_price_usd != null ? ` each, ${usd(c.unit_price_usd * c.qty)} total` : ""}{c.price_date ? ` (${c.price_date})` : ""}</span>
                   </span>
                   <ManaCost cost={c.mana_cost} />
@@ -246,7 +246,7 @@ function Rating({ detail, all }: { detail: PreconDetail; all: PreconItem[] }) {
       </div>
       {r.flags.length > 0 && (
         <p className="row" style={{ gap: "0.35rem" }}>
-          {r.flags.map((f) => <span key={f} className="tag warn">{f}</span>)}
+          {r.flags.map((f) => <StatusPill key={f} tone="warn">{f}</StatusPill>)}
         </p>
       )}
       <RunLine run={run} />

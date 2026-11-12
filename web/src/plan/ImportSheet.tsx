@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { importReport } from "../research/api";
-import { Button, Details, Dialog, ErrorText, Loading } from "../components/ui";
+import { Button, Details, Dialog, ErrorText, Field, Loading, StatusPill } from "../components/ui";
 import { uploadPlan } from "./api";
 import { shortHash } from "./PlanLayout";
 import type { PlanView } from "./view";
@@ -62,8 +62,7 @@ export function ImportSheet({ view, onClose }: { view: PlanView; onClose: () => 
             <p className="dim small">
               A plan file an agent saved (yama-research/1), or your planner's JSON export. A planner export shows what importing it would change first.
             </p>
-            <label>
-              Plan file
+            <Field label="Plan file">
               <input
                 type="file"
                 accept=".json,application/json"
@@ -76,7 +75,7 @@ export function ImportSheet({ view, onClose }: { view: PlanView; onClose: () => 
                   if (f) read.mutate(f);
                 }}
               />
-            </label>
+            </Field>
           </>
         )}
         {(check.isPending || read.isPending) && <Loading>Checking the file…</Loading>}
@@ -144,7 +143,7 @@ function Report({ report: r, view, applied }: { report: ImportReport; view: Plan
     <div className="stack plan-report">
       {applied ? (
         <p role="status">
-          <span className="tag good">Imported</span> Your plans now show this file.
+          <StatusPill tone="good">Imported</StatusPill> Your plans now show this file.
         </p>
       ) : (
         <p className="dim small">What importing this file would do:</p>
@@ -180,7 +179,7 @@ function Report({ report: r, view, applied }: { report: ImportReport; view: Plan
       </Details>
       {older && (
         <p>
-          <span className="tag warn">Older file</span> This file is guide v{r.guide_version}, older than the guide v{before?.guide_version} plan Yama has.
+          <StatusPill tone="warn">Older file</StatusPill> This file is guide v{r.guide_version}, older than the guide v{before?.guide_version} plan Yama has.
           Importing it goes back to the older plan.
         </p>
       )}

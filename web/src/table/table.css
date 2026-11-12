@@ -1395,11 +1395,6 @@
   justify-content: space-between;
   gap: 10px;
 }
-.ps-actions-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
 .ps-actions-row button {
   display: inline-flex;
   align-items: center;

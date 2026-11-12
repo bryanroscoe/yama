@@ -8,7 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { Link } from "react-router";
 import { useMe } from "../auth";
-import { ButtonLink, EmptyState, ErrorText, Loading } from "../components/ui";
+import { ButtonLink, EmptyState, ErrorText, Loading, StatusPill } from "../components/ui";
 import { outbox, useOutbox } from "../plan/outbox";
 import { planHref } from "../plan/href";
 import { SwapPair } from "../plan/parts";
@@ -54,7 +54,7 @@ export function DeckPlanTab({ deckId, deckName }: { deckId: string; deckName: st
               <div key={`${u.deck.key}/${u.plan.next?.n}`} className="deck-tab-row">
                 <span className="deck-tab-row-main">
                   <b>{u.label}</b>
-                  <span className="tag warn">{PLAN_STATE_LABEL.waiting}</span>
+                  <StatusPill tone="warn">{PLAN_STATE_LABEL.waiting}</StatusPill>
                   <span className="dim">{changesWord(u.changes)}</span>
                 </span>
                 <ButtonLink to={`${planHref(u.deck.key)}${u.hash}`}>
@@ -113,7 +113,7 @@ function CurrentPlan({ current, view }: { current: NonNullable<DeckPlanHub["curr
       <div className="deck-plan-head">
         <span className="deck-plan-title">
           <h2 id="deck-plan-current">Current plan</h2>
-          <span className="tag good">{PLAN_STATE_LABEL[plan.state]}</span>
+          <StatusPill tone="good">{PLAN_STATE_LABEL[plan.state]}</StatusPill>
         </span>
         <ButtonLink to={planHref(deck.key)}>
           Open the plan

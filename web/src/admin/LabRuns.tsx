@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Button, ErrorText } from "../components/ui";
+import { ActionBar, Button, ErrorText } from "../components/ui";
 import { adminApi, type LabRun } from "./api";
 import { ago, count } from "@yama/core";
 import { ask } from "../components/confirm";
@@ -76,7 +76,7 @@ function RunRow({ run }: { run: LabRun }) {
         <ErrorText error={rename.error ?? del.error} />
       </div>
       {!editing && (
-        <div className="admin-actions">
+        <ActionBar className="admin-actions">
           <Button variant="outline" onClick={() => setEditing(true)}>
             Rename
           </Button>
@@ -87,7 +87,7 @@ function RunRow({ run }: { run: LabRun }) {
           >
             Delete
           </Button>
-        </div>
+        </ActionBar>
       )}
     </li>
   );

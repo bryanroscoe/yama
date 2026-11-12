@@ -29,7 +29,7 @@ import { createTesseractOcr, type TesseractOcr } from "./tesseract";
 import type { OcrEngine, Quad, RgbaImage, ScanCandidate, ScanCatalog, ScanResult } from "./types";
 import "./scanner.css";
 import { shortDate, usd } from "@yama/core";
-import { Button, ErrorText } from "../components/ui";
+import { Button, ErrorText, Field } from "../components/ui";
 
 export interface ScannerViewProps {
   /**
@@ -1298,8 +1298,7 @@ export function ScannerView({
               {onAccept && (
                 <div className="scan-accept">
                   {!identityOnly && !single && (
-                    <label className="scan-copies">
-                      Copies
+                    <Field className="scan-copies" label="Copies">
                       <select value={copies} onChange={(e) => setCopies(Number(e.target.value))}>
                         {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
                           <option key={n} value={n}>
@@ -1307,7 +1306,7 @@ export function ScannerView({
                           </option>
                         ))}
                       </select>
-                    </label>
+                    </Field>
                   )}
                   <Button
                     variant="primary"

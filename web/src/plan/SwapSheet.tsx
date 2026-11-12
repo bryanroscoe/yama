@@ -8,7 +8,7 @@ import { destination, SwapCardResult, SwapReasons } from "./SwapDetails";
 import { prepareSheetForPrint } from "./print";
 import type { PlanView } from "./view";
 import "./swapsheet.css";
-import { Button, EmptyState, ErrorText, Loading } from "../components/ui";
+import { Button, CheckRow, EmptyState, ErrorText, Field, Loading } from "../components/ui";
 
 const SwapScanner = lazy(() => import("./SwapScanner"));
 const SHEETS = [
@@ -106,7 +106,7 @@ export function SwapSheetPage() {
         </div>
         <ErrorText error={printError} />
         <div className="ss-controls">
-          <label>Sheet<select value={mode} disabled={printing} onChange={(e) => change("sheet", e.target.value)}>{SHEETS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}</select></label>
+          <Field label="Sheet"><select value={mode} disabled={printing} onChange={(e) => change("sheet", e.target.value)}>{SHEETS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}</select></Field>
 
         </div>
         <fieldset className="ss-print-options ss-deck-options" disabled={printing}>
@@ -122,16 +122,16 @@ export function SwapSheetPage() {
         <fieldset className="ss-print-options" disabled={printing}>
           <legend>Include in print</legend>
           {mode === "full" && <>
-            <label><input type="checkbox" checked={include("instructions")} onChange={() => togglePart("instructions")} /> Instructions</label>
-            <label><input type="checkbox" checked={include("sort")} onChange={() => togglePart("sort")} /> Print sorting checklist</label>
-            <label><input type="checkbox" checked={include("swaps")} onChange={() => togglePart("swaps")} /> Deck swap tables</label>
+            <CheckRow checked={include("instructions")} onChange={() => togglePart("instructions")}>Instructions</CheckRow>
+            <CheckRow checked={include("sort")} onChange={() => togglePart("sort")}>Print sorting checklist</CheckRow>
+            <CheckRow checked={include("swaps")} onChange={() => togglePart("swaps")}>Deck swap tables</CheckRow>
           </>}
-          <label><input type="checkbox" checked={pictures} onChange={() => togglePart("pictures")} /> Card pictures</label>
-          <label><input type="checkbox" checked={reasons} onChange={() => change("reasons", reasons ? "" : "1")} /> Add and cut reasons</label>
+          <CheckRow checked={pictures} onChange={() => togglePart("pictures")}>Card pictures</CheckRow>
+          <CheckRow checked={reasons} onChange={() => change("reasons", reasons ? "" : "1")}>Add and cut reasons</CheckRow>
         </fieldset>
         {!hasContent && <p role="status">Choose at least one section to print.</p>}
         <form className="ss-lookup" onSubmit={(e) => { e.preventDefault(); setChecked(name.trim()); }}>
-          <label>Check either card by name<input list="ss-card-names" value={name} onChange={(e) => setName(e.target.value)} placeholder="Card coming in or going out" /></label>
+          <Field label="Check either card by name"><input list="ss-card-names" value={name} onChange={(e) => setName(e.target.value)} placeholder="Card coming in or going out" /></Field>
           <datalist id="ss-card-names">{choices.map((n) => <option key={n} value={n} />)}</datalist>
           <Button type="submit" disabled={!name.trim()}>Check card</Button>
         </form>

@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router";
 import { CardRef } from "../components/CardRef";
-import { Button, ButtonLink, ErrorText, Loading } from "../components/ui";
+import { Button, ButtonLink, CheckRow, ErrorText, Field, Loading } from "../components/ui";
 import { report, reports, safeUrl, type ResearchBundle } from "../research/api";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
 import { allChoices, choicesFor, offerRows, offerId, optionalUse, portfolioRows, sourceSnapshot, sourceCarts, type SourceChoice } from "./sourcing-model";
@@ -21,7 +21,7 @@ export function Sourcing() {
   return <div className="sourcing-page">
     <PlansHead title="Shop across your decks" />
     <nav className="source-nav"><Link to="/decks/plans/get/trip">Active plan store trip</Link><a href="/docs/mcp/#local-shopping">Buying guide</a></nav>
-    <label className="source-report">Saved shopping list <select value={id} onChange={e => setParams(e.target.value ? { report: e.target.value } : {})}><option value="">Choose a report</option>{notes.data?.map(n => <option key={n.id} value={n.id}>{n.title} (revision {n.revision})</option>)}</select></label>
+    <Field className="source-report" label="Saved shopping list"><select value={id} onChange={e => setParams(e.target.value ? { report: e.target.value } : {})}><option value="">Choose a report</option>{notes.data?.map(n => <option key={n.id} value={n.id}>{n.title} (revision {n.revision})</option>)}</select></Field>
     <ErrorText error={notes.error ?? snapshot.error} />
     {(notes.isPending || (!!id && snapshot.isPending)) && <Loading>Loading shopping list…</Loading>}
     {!notes.isPending && !id && <p>No sourcing report selected. Ask your assistant to save a portfolio source check with per-copy allocations and dated store offers.</p>}
@@ -95,7 +95,7 @@ export function Portfolio({ bundle }: { bundle: ResearchBundle }) {
     {parsed.conflicts.length > 0 && <p role="alert">{parsed.conflicts.length} conflicting copy identities excluded; these need reconciliation.</p>}
     <div className="source-freshness"><b>Saved quotes{dates.at(-1) ? ` through ${fmtDateTime(dates.at(-1))}` : ": date unknown"}</b><span>Search links open a store; they do not run a stock check.</span><details><summary>List version and evidence</summary><p>{doc.summary}</p><p>Report revision {bundle.revision}. Quote dates: {dates.length ? `${fmtDateTime(dates[0])} to ${fmtDateTime(dates.at(-1))}` : "unknown"}. Owned cards and print reservations have not been rechecked. This list does not approve a plan or place an order.</p><Link to={`/decks/plans/archived/${encodeURIComponent(doc.id)}`}>Source report and methods</Link> and <Link to="/decks/plans/settings#shopping-rules">Your buying rules</Link></details></div>
     <section className="source-cap" aria-label="Local price limit">
-      <label>Maximum per card ($)<input type="number" inputMode="decimal" min={0} max={MAX_RULE_USD} step="0.05" disabled={saveCap.isPending} placeholder="No ceiling" value={capInput} onChange={e => { setCapText(e.target.value); saveCap.reset(); }} /></label>
+      <Field label="Maximum per card ($)"><input type="number" inputMode="decimal" min={0} max={MAX_RULE_USD} step="0.05" disabled={saveCap.isPending} placeholder="No ceiling" value={capInput} onChange={e => { setCapText(e.target.value); saveCap.reset(); }} /></Field>
       <Button disabled={problems.length > 0 || saveCap.isPending || (cap.value === savedCap || (saveCap.isSuccess && cap.value === saveCap.variables))} onClick={() => saveCap.mutate(cap.value)}>{saveCap.isPending ? "Saving…" : "Save cap as default"}</Button>
       <span className="small dim">Applies now to this page and its carts. Save to use it for future shopping. Blank means no dollar ceiling; your market limits still apply.</span>
       {cap.value != null && current.rule?.always_ok_usd != null && cap.value < current.rule.always_ok_usd && <span className="small dim">Saving also lowers your always-okay amount to {usd(cap.value)} to fit this ceiling.</span>}
@@ -105,12 +105,12 @@ export function Portfolio({ bundle }: { bundle: ResearchBundle }) {
     </section>
     {rows.some(c => c.offers.some(o => o.eligibility_unknown)) && <p className="small dim">Some older listings lack condition, finish or language evidence. They stay out of carts until the saved report is updated; a higher dollar ceiling alone cannot verify those details.</p>}
     <div className="source-filters">
-      <label>Bracket<select value={bracket} onChange={e => setBracket(e.target.value)}><option value="">All brackets (one copy per deck)</option>{[2,3,4,5].map(b => <option key={b} value={b}>Bracket {b}</option>)}</select></label>
-      <label>Cards for<select value={scope} onChange={e => setScope(e.target.value)}><option value="all">All needs and optional upgrades</option><option value="gaps">Cards to source</option><option value="optional">Real replacements for proxies</option></select></label>
-      <label>Condition<select value={condition} onChange={e => setCondition(e.target.value)}><option value="nm">Near Mint only</option><option value="any">Any saved condition (prefer NM)</option></select></label>
-      <label>Store<select value={store} onChange={e => setStore(e.target.value)}><option value="">All stores</option>{stores.map(s => <option key={s.key}>{s.name}</option>)}</select></label>
-      <label>Find a card<input type="search" value={search} onChange={e => setSearch(e.target.value)} /></label>
-      <div className="source-filter-options"><label className="source-check"><input type="checkbox" checked={onlyOffers} onChange={e => setOnlyOffers(e.target.checked)} />Within buy rules only</label><label className="source-check"><input type="checkbox" checked={recordedStockOnly} onChange={e => setRecordedStockOnly(e.target.checked)} />Exclude unknown stock counts</label></div>
+      <Field label="Bracket"><select value={bracket} onChange={e => setBracket(e.target.value)}><option value="">All brackets (one copy per deck)</option>{[2,3,4,5].map(b => <option key={b} value={b}>Bracket {b}</option>)}</select></Field>
+      <Field label="Cards for"><select value={scope} onChange={e => setScope(e.target.value)}><option value="all">All needs and optional upgrades</option><option value="gaps">Cards to source</option><option value="optional">Real replacements for proxies</option></select></Field>
+      <Field label="Condition"><select value={condition} onChange={e => setCondition(e.target.value)}><option value="nm">Near Mint only</option><option value="any">Any saved condition (prefer NM)</option></select></Field>
+      <Field label="Store"><select value={store} onChange={e => setStore(e.target.value)}><option value="">All stores</option>{stores.map(s => <option key={s.key}>{s.name}</option>)}</select></Field>
+      <Field label="Find a card"><input type="search" value={search} onChange={e => setSearch(e.target.value)} /></Field>
+      <div className="source-filter-options"><CheckRow className="source-check" checked={onlyOffers} onChange={e => setOnlyOffers(e.target.checked)}>Within buy rules only</CheckRow><CheckRow className="source-check" checked={recordedStockOnly} onChange={e => setRecordedStockOnly(e.target.checked)}>Exclude unknown stock counts</CheckRow></div>
     </div>
     <details className="source-deck-picker"><summary>Decks: {count(decks.size)} of {count(recipients.size)} selected</summary><div className="source-actions"><Button onClick={() => setDecks(new Set(recipients.keys()))}>All decks</Button><Button onClick={() => setDecks(new Set())}>Clear decks</Button></div><div className="source-decks">{[...recipients].sort((a,b) => a[1].localeCompare(b[1])).map(([key,name]) => <label className="source-check" key={key}><input type="checkbox" checked={decks.has(key)} onChange={() => setDecks(prev => { const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next; })} />{name}</label>)}</div></details>
     <section className="source-selection" aria-label="Selected store carts">
@@ -132,7 +132,7 @@ export function Portfolio({ bundle }: { bundle: ResearchBundle }) {
           return <div className="source-offer" key={offerId(o)}>
             <div><a href={o.url} target="_blank" rel="noreferrer">{o.store}</a><span className="small dim">{o.title || "Printing not recorded"}. {o.condition || "Condition unknown"}.</span><span className="small dim">{o.qty == null ? "Stock count unknown" : `${o.qty} listed`}. Checked: {o.checked_at ? fmtDateTime(o.checked_at) : "date unknown"}.</span></div>
             <div className="source-prices"><b>{usd(o.price!)}</b>{!o.qualifies && <span className="small">{o.eligibility_unknown ? "Listing details need verification" : "Outside buy rules"}</span>}<span className="small">{o.market != null ? <>{exact ? "Printing market" : "Market reference"}: {o.market_source ? <a href={o.market_source} target="_blank" rel="noreferrer">{usd(o.market)}</a> : usd(o.market)}</> : "Printing market unavailable"}</span><span className="small dim">{low != null ? `Lowest saved ${o.condition || "condition unknown"}: ${usd(low)}` : "Condition low unavailable"}</span>{o.market != null && <span className="small dim">Market is not condition-specific.{o.market_checked_at ? ` Checked: ${fmtDateTime(o.market_checked_at)}.` : ""}</span>}</div>
-            <label className="source-qty">Copies<input disabled={!o.qualifies} aria-label={`${c.name} copies from ${o.store}`} type="number" min={0} max={Math.min(c.uses.length,o.qty ?? Infinity)} step={1} value={choicesFor(choices,c.name).find(choice => choice.offer === offerId(o))?.qty ?? 0} onChange={e=>change(c.name,offerId(o),+e.target.value)} /></label>
+            <Field className="source-qty" label="Copies"><input disabled={!o.qualifies} aria-label={`${c.name} copies from ${o.store}`} type="number" min={0} max={Math.min(c.uses.length,o.qty ?? Infinity)} step={1} value={choicesFor(choices,c.name).find(choice => choice.offer === offerId(o))?.qty ?? 0} onChange={e=>change(c.name,offerId(o),+e.target.value)} /></Field>
           </div>;
         })}
         {!offers.length && <p className="small dim">No saved offer matches these condition and store filters.</p>}

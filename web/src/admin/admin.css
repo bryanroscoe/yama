@@ -83,11 +83,6 @@
 .admin .admin-bad {
   color: var(--bad);
 }
-.admin-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
 .admin-actions button {
   min-height: var(--target);
   padding: 0 16px;

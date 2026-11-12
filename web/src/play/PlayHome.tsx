@@ -10,7 +10,7 @@ import { Link, useNavigate, useSearchParams } from "react-router";
 import { api, type DeckSummary, type Playgroup } from "../api";
 import { ArtMosaic } from "../components/ArtMosaic";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
-import { Button, ButtonLink, ErrorText, Segmented } from "../components/ui";
+import { Button, ButtonLink, ErrorText, Field, Segmented } from "../components/ui";
 import { AlphaTag, ALPHA_NOTE } from "../components/AlphaTag";
 import { OnlineSupport } from "../components/OnlineSupport";
 import { BracketChips } from "../components/Bracket";
@@ -216,13 +216,12 @@ function NewGame({ decks, guest }: { decks: DeckSummary[]; guest: boolean }) {
       <div className="ph-new-head">
         <h2 id="ph-new-h">New game</h2>
         {!!groups.data?.length && (
-          <label className="ph-group">
-            Playgroup
+          <Field className="ph-group" label="Playgroup">
             <select value={groupId} onChange={(e) => setGroupId(e.target.value)}>
               <option value="">None (not in group stats)</option>
               {groups.data.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
             </select>
-          </label>
+          </Field>
         )}
       </div>
       <p className="small dim">Rules engine: Phase. Choose Easy, Medium or Hard for each computer below before starting.</p>
@@ -291,13 +290,12 @@ function NewGame({ decks, guest }: { decks: DeckSummary[]; guest: boolean }) {
       </ol>
       {art.some((a) => a?.image) && <p className="ph-credit">{artCredits(art.map((a) => (a?.image ? a.artist : null)))}</p>}
       <div className="wh-options">
-        <label className="wh-first">
-          Goes first
+        <Field className="wh-first" label="Goes first">
           <select value={goesFirst ?? ""} onChange={(e) => setGoesFirst(e.target.value === "" ? null : Number(e.target.value))}>
             <option value="">Roll for it, as at a table</option>
             {seats.map((s, i) => <option key={i} value={i}>{seatWho(s, i)}</option>)}
           </select>
-        </label>
+        </Field>
       </div>
       <ErrorText error={create.error} />
       <div className="ph-new-foot">

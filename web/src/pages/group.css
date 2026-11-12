@@ -662,11 +662,6 @@
 .grp-delete-confirm input {
   min-height: var(--target);
 }
-.grp-delete-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
 .grp-delete-actions button {
   min-height: var(--target);
   padding: 0 16px;

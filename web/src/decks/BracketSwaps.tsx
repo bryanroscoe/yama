@@ -5,7 +5,7 @@
 import type { Bag, Bracket } from "@yama/core/plan";
 import { SwapPair } from "../plan/parts";
 import "../plan/plans.css";
-import { ButtonLink } from "../components/ui";
+import { ActionBar, ButtonLink } from "../components/ui";
 
 /** The brackets the plan has a bag for, highest first, each with its swaps from the box (bags are cumulative). */
 export function bracketSwaps(bracket: Bracket | null | undefined): { bracket: number; swaps: Bag[] }[] {
@@ -48,10 +48,10 @@ export function SwapPanel({
         <h2 id="deck-swap-head">
           For Bracket {at}, swap {swaps.length} {swaps.length === 1 ? "card" : "cards"}
         </h2>
-        <span className="deck-swap-actions">
+        <ActionBar as="span">
           <ButtonLink to={printHref}>Print swap cards</ButtonLink>
           <ButtonLink variant="quiet" to={backHref}>Back to the box</ButtonLink>
-        </span>
+        </ActionBar>
       </div>
       <ul className="deck-swap-pairs">
         {swaps.map((s) => (

@@ -5,7 +5,7 @@ import { api } from "../api";
 import { saveExport } from "../download";
 import { useMe } from "../auth";
 import { LabHead } from "../lab/LabLayout";
-import { Button, Details, ErrorText, Loading } from "../components/ui";
+import { Button, Details, ErrorText, Field, Loading } from "../components/ui";
 import { KINDS, count, dataset, datasets, object, percent, periodLabel, preconEvidence, recordName, setPreconEvidence, sourceUrl, text, type Dataset, type DatasetRead, type EvidenceRecord, type Source } from "./api";
 import "./datasets.css";
 import { fmtDate } from "@yama/core";
@@ -43,7 +43,7 @@ function UploadDataset() {
   return <Details label="Import a dataset">
     <p>Upload a prepared yama-dataset/1 JSON or JSON.gz file, up to 32 MiB. It is validated before saving to your private account.</p>
     <form className="dataset-upload" onSubmit={(e) => { e.preventDefault(); if (file) upload.mutate(file); }}>
-      <label>Dataset file<input type="file" accept=".json,.gz,application/json,application/gzip" disabled={upload.isPending} onChange={(e) => { setFile(e.target.files?.[0] ?? null); upload.reset(); }} /></label>
+      <Field label="Dataset file"><input type="file" accept=".json,.gz,application/json,application/gzip" disabled={upload.isPending} onChange={(e) => { setFile(e.target.files?.[0] ?? null); upload.reset(); }} /></Field>
       <Button type="submit" disabled={!file || upload.isPending}>{upload.isPending ? "Importing…" : "Import dataset"}</Button>
       <ErrorText error={upload.error} />
     </form>
@@ -200,8 +200,8 @@ function DatasetDetail({ id }: { id: string }) {
       </Details>
       {!sources && <>
         <form className="dataset-filters" onSubmit={search} key={`${params.get("search")}-${params.get("kind")}`}>
-          <label>Commander or precon name<input name="search" defaultValue={params.get("search") || ""} maxLength={240} placeholder="Try Riders of Rohan or Atraxa" /></label>
-          <label>Evidence type<select name="kind" defaultValue={params.get("kind") || ""}><option value="">All evidence</option>{Object.entries(KINDS).map(([kind, label]) => <option key={kind} value={kind}>{label}</option>)}</select></label>
+          <Field label="Commander or precon name"><input name="search" defaultValue={params.get("search") || ""} maxLength={240} placeholder="Try Riders of Rohan or Atraxa" /></Field>
+          <Field label="Evidence type"><select name="kind" defaultValue={params.get("kind") || ""}><option value="">All evidence</option>{Object.entries(KINDS).map(([kind, label]) => <option key={kind} value={kind}>{label}</option>)}</select></Field>
           <Button type="submit">Search</Button>
         </form>
         {params.get("entity") && <>
@@ -210,8 +210,8 @@ function DatasetDetail({ id }: { id: string }) {
             e.preventDefault(); const form = new FormData(e.currentTarget);
             update({ half_life_days: String(form.get("half_life_days") || "180"), as_of: String(form.get("as_of") || "") });
           }}>
-            <label>Recency half-life (days)<input name="half_life_days" type="number" min={1} max={3650} required defaultValue={params.get("half_life_days") || "180"} /></label>
-            <label>Evaluate as of<input name="as_of" type="date" defaultValue={params.get("as_of") || ""} /></label><Button type="submit">Update weighting</Button>
+            <Field label="Recency half-life (days)"><input name="half_life_days" type="number" min={1} max={3650} required defaultValue={params.get("half_life_days") || "180"} /></Field>
+            <Field label="Evaluate as of"><input name="as_of" type="date" defaultValue={params.get("as_of") || ""} /></Field><Button type="submit">Update weighting</Button>
           </form>
           {data && <MonthlySummaries data={data} />}
         </>}

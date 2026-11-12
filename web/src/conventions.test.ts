@@ -33,6 +33,18 @@ function uses(pattern: RegExp, allowed: (file: string, line: string) => boolean 
   return found;
 }
 
+/** The opening tag that starts at `from`, to the `>` that closes it (not one inside `{…}`). */
+function openingTag(text: string, from: number): string {
+  let depth = 0;
+  for (let i = from; i < text.length; i++) {
+    const c = text[i];
+    if (c === "{") depth++;
+    else if (c === "}") depth--;
+    else if (c === ">" && depth === 0) return text.slice(from, i + 1);
+  }
+  return text.slice(from);
+}
+
 // The online board belongs to another stream of work; its files join these rules when it does.
 const BOARD = /^web\/src\/play\//;
 const BOARD_FILES = /^web\/src\/play\/(Board|Decide)\.tsx$/;
@@ -161,6 +173,78 @@ describe("buttons use the shared components", () => {
     // Use <ButtonLink to="…"> (a page in the app) or <ButtonLink href="…"> from components/ui.
     // The class written as a string, in braces, in a template or as cx's first name.
     const found = uses(/className=\{?\s*(cx\()?["'`]button[\s"'`]/, (file) => file === BUTTON || BOARD_FILES.test(file));
+    expect(found).toEqual([]);
+  });
+});
+
+describe("the way back uses the shared link", () => {
+  it("no page draws its own back link", () => {
+    // Use <BackLink to="…" label="Back to …" text="…"> from components/ui (onArt on an art
+    // header, inline on a page with no top row). The card page's Back is a button: it goes
+    // back in history, wherever that is.
+    const found = uses(/className="[^"]*\b(area-back|hero-back|lobby-back|gd-back)\b|←/, (file) => file === "web/src/components/BackLink.tsx" || BOARD.test(file));
+    expect(found).toEqual([]);
+  });
+});
+
+describe("every control has a name", () => {
+  /** A label's own words: what is left of it without its control and without tags. */
+  const wordsOf = (label: string) =>
+    label
+      .replace(/<(select|textarea)\b[^]*?<\/\1>/g, "")
+      .replace(/<(input|select|textarea)\b[^]*?\/>/g, "")
+      .replace(/^<label\b[^>]*>/, "")
+      .replace(/<\/?[A-Za-z][^>]*>/g, "");
+
+  it("no input, select or textarea goes without a label that has words, an aria-label or aria-labelledby", () => {
+    // Use <Field label="…"> or <CheckRow> from components/ui. A control whose name is already
+    // on the page takes aria-labelledby; a search box or a bare number takes aria-label; a
+    // label written by hand with htmlFor names its control by id.
+    const found: string[] = [];
+    for (const path of sources(WEB)) {
+      const file = relative(ROOT, path);
+      if (BOARD_FILES.test(file) || file === "web/src/components/Field.tsx") continue;
+      const text = readFileSync(path, "utf8");
+      // A <label> counts only when it says something: a letter or an expression beside the control.
+      const inside: [number, number][] = [...text.matchAll(/<(label|Field|CheckRow)\b/g)]
+        .map((m): [number, number, string] => [m.index, text.indexOf(`</${m[1]}>`, m.index), m[1] ?? ""])
+        .filter(([from, to, tag]) => tag !== "label" || /[A-Za-z{]/.test(wordsOf(text.slice(from, to))))
+        .map(([from, to]) => [from, to]);
+      for (const m of text.matchAll(/<(input|select|textarea)\b/g)) {
+        const tag = openingTag(text, m.index);
+        if (inside.some(([from, to]) => from < m.index && m.index < to)) continue;
+        // The hidden attribute itself, not a class or an aria- attribute that ends in "hidden".
+        if (/aria-label(ledby)?=|type="hidden"|(?<![\w-])hidden(?=[\s/>={])/.test(tag)) continue;
+        const id = /\bid="([^"]+)"/.exec(tag)?.[1];
+        if (id && text.includes(`htmlFor="${id}"`)) continue;
+        found.push(`${file}:${text.slice(0, m.index).split("\n").length}: ${tag.replace(/\s+/g, " ").slice(0, 100)}`);
+      }
+    }
+    expect(found).toEqual([]);
+  });
+});
+
+describe("a row of actions uses the shared bar", () => {
+  it("no page adds its own -actions row class", () => {
+    // Use <ActionBar> from components/ui (align="end" | "between" | "center", as="span").
+    // These rows do more than line buttons up (a grid on phones, their own gap or button
+    // sizes), or belong to a shared piece (dialog-actions, empty-actions). The list only shrinks
+    // (31 names: ps-actions-row keeps its class for the button sizes its stylesheet sets, and
+    // edit-list-hit-actions is a grid that keeps Remove and Add in fixed places).
+    const known = new Set(
+      "admin-actions ask-actions attack-actions coll-actions cp-actions dataset-actions deck-actions deck-scan-actions dialog-actions edit-list-hit-actions empty-actions grp-delete-actions grp-member-actions grp-you-actions how-to-actions lab-row-actions lab-runcard-actions lobby-actions oauth-actions ps-actions ps-actions-row research-review-actions rg-actions rules-actions scan-added-actions source-actions ss-actions ss-deck-select-actions stats-actions tm-actions tm-share-actions".split(" "),
+    );
+    const found = uses(/className=(?:"|\{`)[^"`]*\b[a-z-]+-actions\b/, (file, line) => BOARD_FILES.test(file) || [...line.matchAll(/\b([a-z-]+-actions(?:-[a-z-]+)?)(?![\w-])/g)].every((m) => known.has(m[1] ?? "")));
+    expect(found).toEqual([]);
+  });
+});
+
+describe("a state is shown with the shared pill", () => {
+  it("no page writes its own status pill or tag", () => {
+    // Use <StatusPill tone="good|warn|bad"> from components/ui for a state ("In the deck",
+    // "Waiting for your OK"), or <Tag> for a label that names a kind ("Foil", "Proxy").
+    // The class written as a string, in braces, in a template or as cx's first name.
+    const found = uses(/className=\{?\s*(cx\()?["'`](tag|pill)[\s"'`]/, (file) => file === "web/src/components/StatusPill.tsx" || BOARD_FILES.test(file));
     expect(found).toEqual([]);
   });
 });

@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { api, shareUrl, type DeckView, type Sharing, type Visibility } from "../api";
 import { useMe } from "../auth";
-import { Button, ButtonLink, Dialog, ErrorText, Segmented } from "../components/ui";
+import { ActionBar, Button, ButtonLink, Dialog, ErrorText, Field, Segmented } from "../components/ui";
 import { configurationLabel } from "./buildCatalog";
 import "./share.css";
 
@@ -33,10 +33,10 @@ export function ResetConfirm({ pending, onConfirm, onKeep }: { pending: boolean;
   return (
     <div className="share-reset" role="alert">
       <span>The old link will stop working.</span>
-      <span className="share-link-actions">
+      <ActionBar as="span">
         <Button disabled={pending} onClick={onConfirm}>{pending ? "Making it…" : "Make a new link"}</Button>
         <Button variant="quiet" onClick={onKeep}>Keep this one</Button>
-      </span>
+      </ActionBar>
     </div>
   );
 }
@@ -101,16 +101,15 @@ export function ShareDeck({ deck, onClose }: { deck: DeckView; onClose: () => vo
 
         {visibility !== "private" && link && (
           <div className="share-link">
-            <label>
-              Link
+            <Field label="Link">
               <input readOnly value={link} onFocus={(e) => e.currentTarget.select()} />
-            </label>
-            <div className="share-link-actions">
+            </Field>
+            <ActionBar>
               <Button variant="primary" onClick={() => void copy(link)}>Copy link</Button>
               <ButtonLink href={link} target="_blank" rel="noreferrer">Open it</ButtonLink>
               <Button variant="quiet" aria-expanded={askReset} onClick={() => setAskReset(true)}>Make a new link</Button>
               {copied && <span className="small" role="status">{copied}</span>}
-            </div>
+            </ActionBar>
             {askReset && <ResetConfirm pending={reset.isPending} onConfirm={() => reset.mutate()} onKeep={() => setAskReset(false)} />}
           </div>
         )}
@@ -186,10 +185,9 @@ export function NewConfiguration({ deck, onClose }: { deck: DeckView; onClose: (
         <p className="small dim" style={{ margin: 0 }}>
           Another build of {main}, starting from this list. It shows under {main} in your decks, with its own versions, games and sharing.
         </p>
-        <label>
-          Name
+        <Field label="Name">
           <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="stock, high power, budget" maxLength={60} required autoFocus />
-        </label>
+        </Field>
         <ErrorText error={make.error} />
         <div className="row">
           <Button type="submit" variant="primary" disabled={make.isPending || !label.trim()}>Make it</Button>

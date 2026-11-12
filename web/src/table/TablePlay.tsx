@@ -32,7 +32,7 @@ import {
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router";
 import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
-import { Button, Dialog, DialogHead, Pips, Segmented } from "../components/ui";
+import { ActionBar, Button, Dialog, DialogHead, Pips, Segmented } from "../components/ui";
 import { useCardArt, type CardArt } from "../components/useCardArt";
 import { FirstPlayerPicker, FunPicker, NotePicker, WinConditionPicker } from "../components/GameCapture";
 import { panelArt, setShowArt, useShowArt } from "./art";
@@ -887,14 +887,14 @@ export function PlayerSheet({ state, seat, onClose, artFor, onAttack, onTake, on
         </span>
       </ArtPanel>
       <div className="ps-actions">
-        <span className="ps-actions-row">
+        <ActionBar as="span" className="ps-actions-row">
           {[-10, -5, 5, 10].map((d) => (
             <Button key={d} className="ps-jump" onClick={() => dispatch({ type: "life", seat, delta: d })} aria-label={`${d > 0 ? "Gain" : "Lose"} ${Math.abs(d)} life`}>
               {d > 0 ? `+${d}` : `−${-d}`}
             </Button>
           ))}
-        </span>
-        <span className="ps-actions-row">
+        </ActionBar>
+        <ActionBar as="span" className="ps-actions-row">
           {commanderGame && onTake && state.players.length > 1 && !p.eliminated && (
             <Button variant="outline" onClick={onTake}>
               <ShieldIcon /> Take commander damage
@@ -905,15 +905,15 @@ export function PlayerSheet({ state, seat, onClose, artFor, onAttack, onTake, on
               <SwordsIcon /> Deal commander damage
             </Button>
           )}
-        </span>
-        <span className="ps-actions-row">
+        </ActionBar>
+        <ActionBar as="span" className="ps-actions-row">
           {host ? (
             <Button variant="outline" onClick={() => setChanging(true)}>{commanderGame ? "Change player or deck" : "Change player"}</Button>
           ) : (
             commanderGame && <Button variant="outline" onClick={() => setChanging(true)}>{p.commanderName ? "Change commander" : "Pick a commander"}</Button>
           )}
           {onWin && !p.eliminated && <Button variant="primary" className="ps-win" onClick={onWin}>{p.name} won</Button>}
-        </span>
+        </ActionBar>
       </div>
 
       {commanderGame && state.players.length > 1 && (

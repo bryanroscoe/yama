@@ -5,7 +5,7 @@ import { Link, useParams, useSearchParams } from "react-router";
 import { api } from "../api";
 import { ArtPanel as SharedArtPanel, artCredits } from "../components/ArtPanel";
 import { queryFailure, RefreshFailed } from "../components/QueryError";
-import { Button, Details, ErrorText, Loading, Pips } from "../components/ui";
+import { Button, Details, ErrorText, Field, Loading, Pips } from "../components/ui";
 import type { ExperimentDetail, TableDeck, TableGame, TableView, Tables } from "./api";
 import { enginesOf } from "./engines";
 import { LabHead } from "./LabLayout";
@@ -211,10 +211,9 @@ export function RunDeckPage() {
               Finish order between the two decks in the games they shared, whoever won. Under {FEW_GAMES} untied games a pair says very little: one table is {podOf(e)} games.
             </p>
             {met.length > 8 && (
-              <label className="small">
-                Find a deck
+              <Field className="small" label="Find a deck">
                 <input value={rivalSearch} onChange={(ev) => setRivalSearch(ev.target.value)} />
-              </label>
+              </Field>
             )}
             <ul className="rt-rivals">
               {rivalRows.slice(0, 60).map((r) => (

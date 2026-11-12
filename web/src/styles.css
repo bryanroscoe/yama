@@ -424,6 +424,12 @@ label > span.hint {
   color: var(--dim);
   font-size: var(--t-sm);
 }
+/* Field's error sits under its control, in --bad. */
+label > span.field-error {
+  font-weight: 400;
+  color: var(--bad);
+  font-size: var(--t-sm);
+}
 .row {
   display: flex;
   gap: 12px;
@@ -433,6 +439,99 @@ label > span.hint {
 .stack {
   display: grid;
   gap: var(--gap);
+}
+/* ActionBar: a row of actions, 8 px apart, wrapping on a narrow screen. */
+.action-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-1);
+}
+.action-bar.is-end {
+  justify-content: flex-end;
+}
+.action-bar.is-between {
+  justify-content: space-between;
+}
+.action-bar.is-center {
+  justify-content: center;
+}
+
+/* ── BackLink: the way back to the page above ─────────────────────────── */
+
+/* BackLink inline: a line of dim words with the chevron, for a page with no top row. */
+.back-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+  color: var(--dim);
+  font-weight: 700;
+  text-decoration: none;
+}
+.back-inline:hover {
+  color: var(--text);
+}
+.area-back {
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+}
+.area-back:hover {
+  background: var(--raised);
+}
+.area-back-text {
+  display: none;
+}
+/* On commander art: a dark glass circle. */
+.area-back.on-art {
+  position: absolute;
+  z-index: 3;
+  top: 14px;
+  left: 14px;
+  background: rgb(11 12 14 / 0.6);
+  color: var(--on-art);
+}
+/* Off art, a page's own back button sits above its title and names where it goes on laptops
+   (Scan and Check go back to the deck, the Mythic import to the playgroup). */
+.area-back.has-text:not(.on-art) {
+  justify-self: start;
+  align-self: start;
+}
+@media (min-width: 900px) {
+  .area-back.has-text:not(.on-art) {
+    display: inline-flex;
+    width: auto;
+    max-width: 100%;
+    height: 40px;
+    gap: 6px;
+    padding: 0 16px 0 12px;
+    font-weight: 700;
+  }
+  .area-back.has-text:not(.on-art) .area-back-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .area-back.on-art.has-text {
+    top: 24px;
+    left: var(--page-pad);
+    display: inline-flex;
+    width: auto;
+    height: 40px;
+    gap: 6px;
+    padding: 0 14px 0 10px;
+    font-weight: 700;
+  }
+  .area-back.has-text .area-back-text {
+    display: inline;
+  }
 }
 .error {
   color: var(--bad);
@@ -533,7 +632,7 @@ label > span.hint {
 .how-to-steps q {
   font-style: italic;
 }
-.assistant-only .pill {
+.assistant-only .tag {
   margin-right: 4px;
 }
 .how-to-actions {
@@ -1230,6 +1329,8 @@ button.list-row:hover {
   border-radius: var(--r-pill);
   border: 1px solid var(--line);
   color: var(--dim);
+  /* A pill is one line: a few words, never a sentence. */
+  white-space: nowrap;
 }
 /* Online play is in alpha (components/AlphaTag.tsx). */
 .alpha-tag {
@@ -1279,6 +1380,19 @@ button.list-row:hover {
   color: var(--bad);
   background: var(--bad-tint);
   border-color: transparent;
+}
+/* On art (a deck's or a plan's header) a pill sits on a near-solid chip, as all small text does. */
+:is(.plans-hero-meta, .hero-status) .tag {
+  background: var(--art-chip);
+}
+:is(.plans-hero-meta, .hero-status) .tag.good {
+  background: color-mix(in srgb, var(--ground) 70%, var(--good) 20%);
+}
+:is(.plans-hero-meta, .hero-status) .tag.warn {
+  background: color-mix(in srgb, var(--ground) 70%, var(--warn) 20%);
+}
+:is(.plans-hero-meta, .hero-status) .tag.bad {
+  background: color-mix(in srgb, var(--ground) 70%, var(--bad) 20%);
 }
 
 table.plain {
@@ -1974,26 +2088,6 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   display: grid;
   gap: 10px;
 }
-.hero-back {
-  position: absolute;
-  z-index: 3;
-  top: 14px;
-  left: 14px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  width: 44px;
-  height: 44px;
-  border-radius: var(--r-pill);
-  background: rgb(11 12 14 / 0.6);
-  color: var(--on-art);
-  font-weight: 700;
-  text-decoration: none;
-}
-.hero-back-text {
-  display: none;
-}
 .hero-credit {
   position: absolute;
   z-index: 3;
@@ -2048,16 +2142,6 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   .deck-hero > .art-body {
     padding: 72px var(--page-pad) 28px;
   }
-  .hero-back {
-    top: 24px;
-    left: var(--page-pad);
-    width: auto;
-    height: 40px;
-    padding: 0 14px 0 10px;
-  }
-  .hero-back-text {
-    display: inline;
-  }
   .hero-credit {
     top: 34px;
     right: var(--page-pad);
@@ -2098,7 +2182,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   color: var(--on-art);
   text-shadow: var(--art-shadow);
 }
-.hero-status .pill {
+.hero-status .tag {
   text-shadow: none;
 }
 .deck-hero.art-none .hero-status {

@@ -6,7 +6,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { count } from "@yama/core";
 import { useId, useState } from "react";
 import { api, type DeckView, type Visibility } from "../api";
-import { Button, Dialog, ErrorText } from "../components/ui";
+import { ActionBar, Button, Dialog, ErrorText, Field } from "../components/ui";
 import { UnsavedPrompt, useUnsavedChanges } from "../unsaved";
 import "./deck-settings.css";
 
@@ -90,10 +90,9 @@ export function EditDescription({ deck, onClose: closeSheet }: { deck: Pick<Deck
   return (
     <Dialog title="About this deck" onClose={onClose}>
       <form className="deck-settings" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
-        <label>
-          Description
+        <Field label="Description">
           <textarea className="deck-about-text" value={text} onChange={(e) => setText(e.target.value)} rows={8} aria-describedby={hint} placeholder="What the deck does, how it wins, what to watch for." />
-        </label>
+        </Field>
         <p id={hint} className="small deck-about-who">
           <b>Shown to anyone who can see this deck.</b> {whoSees(deck.visibility)}
         </p>
@@ -101,10 +100,10 @@ export function EditDescription({ deck, onClose: closeSheet }: { deck: Pick<Deck
           Plain text: links and formatting show as typed. {left < 0 ? `${count(-left)} too many characters.` : `${count(left)} characters left.`}
         </p>
         <ErrorText error={save.error} />
-        <div className="deck-settings-actions">
+        <ActionBar>
           <Button type="submit" variant="primary" disabled={save.isPending || left < 0}>{save.isPending ? "Saving…" : "Save"}</Button>
           <Button variant="quiet" onClick={onClose}>Cancel</Button>
-        </div>
+        </ActionBar>
       </form>
       <UnsavedPrompt guard={guard} what="what you wrote about this deck" />
     </Dialog>

@@ -5,7 +5,7 @@ import { useState } from "react";
 import type { Printing } from "../api";
 import { printingOptions } from "./printings";
 import type { Added, Finish, Fix } from "./session";
-import { Button, DialogHead, ErrorText, Loading } from "../components/ui";
+import { Button, DialogHead, ErrorText, Field, Loading } from "../components/ui";
 
 const FINISH_LABEL: Record<Finish, string> = { nonfoil: "regular", foil: "foil", proxy: "proxy" };
 const PRINTINGS_FIRST = 12;
@@ -79,8 +79,7 @@ function AddedRow({ a, onFix, onRetry }: { a: Added; onFix: AddedListProps["onFi
             {a.auto ? ", added by Keep adding" : ""}
           </span>
           <div className="scan-added-actions">
-            <label className="scan-copies">
-              Copies
+            <Field className="scan-copies" label="Copies">
               <select value={a.copies} disabled={busy} onChange={(e) => void run({ ...base, copies: Number(e.target.value) })}>
                 {Array.from({ length: Math.max(10, a.copies) }, (_, i) => i + 1).map((n) => (
                   <option key={n} value={n}>
@@ -88,15 +87,14 @@ function AddedRow({ a, onFix, onRetry }: { a: Added; onFix: AddedListProps["onFi
                   </option>
                 ))}
               </select>
-            </label>
-            <label className="scan-copies">
-              Finish
+            </Field>
+            <Field className="scan-copies" label="Finish">
               <select value={a.finish} disabled={busy} onChange={(e) => void run({ ...base, finish: e.target.value as Finish })}>
                 <option value="nonfoil">Regular</option>
                 <option value="foil">Foil</option>
                 <option value="proxy">Proxy</option>
               </select>
-            </label>
+            </Field>
             <Button className="scan-alt" disabled={busy} onClick={() => void openPrintings()}>
               {printings ? "Keep this printing" : "Change printing"}
             </Button>

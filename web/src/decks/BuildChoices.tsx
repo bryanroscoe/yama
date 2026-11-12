@@ -6,8 +6,8 @@ import { CardRef } from "../components/CardRef";
 import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
 import { HowTo } from "../components/HowTo";
 import { useCardArt } from "../components/useCardArt";
-import { AreaHead, BackButton } from "../components/DeckTabs";
-import { Button, ButtonLink, ErrorText, Loading, Pips } from "../components/ui";
+import { AreaHead } from "../components/DeckTabs";
+import { BackLink, Button, ButtonLink, ErrorText, Field, Loading, Pips, StatusPill } from "../components/ui";
 import { useMe } from "../auth";
 import { usePlan } from "../plan/store";
 import { buildNotes, buildNotesKey } from "../research/api";
@@ -106,9 +106,9 @@ const openLabel = (c: BuildChoice) => (c.savedDeck ? "Open the deck" : c.id.star
 /** Where a build's cards come from, as the pill under its builds says it. */
 function trackPill(c: BuildChoice) {
   if (c.savedDeck) return null;
-  if (c.track === "owned_now") return <span className="pill good">Built from cards you have</span>;
-  if (c.track === "aspirational") return <span className="pill warn">Needs cards bought or printed</span>;
-  return <span className="pill quiet">Whether you have its cards isn't checked</span>;
+  if (c.track === "owned_now") return <StatusPill tone="good">Built from cards you have</StatusPill>;
+  if (c.track === "aspirational") return <StatusPill tone="warn">Needs cards bought or printed</StatusPill>;
+  return <StatusPill>Whether you have its cards isn't checked</StatusPill>;
 }
 /** The builds as rows of chips: the deck's own lists, then each plan's, as a plan's page shows a
  *  deck's builds. Older snapshots fold away. */
@@ -185,7 +185,7 @@ function FamilyPage({ family, status, art }: { family: BuildFamily; status: Reac
   const rowsOf = (swaps ?? []).map((s): ChangeRow => ({ add: s.in.name, cut: s.out.name, n: 1, why: s.why ?? "", notes: [s.where, s.out.board === "commander" || s.in.board === "commander" ? "Changes the commander." : null].filter((x): x is string => !!x), add_image: null, cut_image: null }));
   return <main className="plan plan-deck-page note-page build-choices">
     <ArtPanel as="header" className="plan-hero" art={art.art} artist={art.artist} wash="bottom" toGround credit={false}>
-      <BackButton to="/decks/builds" label="Back to swap cards" className="on-art" />
+      <BackLink to="/decks/builds" label="Back to swap cards" onArt />
       {art.art && <span className="plan-hero-credit">{commanderOf(family)}. {artCredit(art.artist)}</span>}
       <div className="plan-hero-inner">
         <nav className="plan-crumbs" aria-label="Breadcrumb"><Link to="/decks">Decks</Link><span aria-hidden="true">/</span><Link to="/decks/builds">Swap cards</Link></nav>
@@ -203,7 +203,7 @@ function FamilyPage({ family, status, art }: { family: BuildFamily; status: Reac
         <BuildChips choices={all} value={to.id} onChange={(id) => pick("to", id)} />
         <div className="note-pills">
           {trackPill(to)}
-          {swaps && <a className="pill note-pill-link" href="#bc-changes">{swaps.length} in, {swaps.length} out from {from.label}</a>}
+          {swaps && <StatusPill className="note-pill-link" href="#bc-changes">{swaps.length} in, {swaps.length} out from {from.label}</StatusPill>}
         </div>
         <p className="small dim bc-source">{to.source}. <Link to={to.href}>{openLabel(to)}</Link></p>
         {to.warnings.length > 0 && <details className="note-fold"><summary>Notes and limits for this build ({to.warnings.length})</summary><ul className="small">{to.warnings.map((w, j) => <li key={j}>{w}</li>)}</ul></details>}
@@ -220,7 +220,7 @@ function FamilyPage({ family, status, art }: { family: BuildFamily; status: Reac
         {swaps && swaps.length > 0 && <section className="note-section" aria-labelledby="bc-print">
           <SectionHead id="bc-print" eyebrow={`${parts} two-sided card${parts === 1 ? "" : "s"}`}>Print swap cards</SectionHead>
           <p className="small">Print on US Letter, double-sided, <b>flip on long edge</b>, actual size (100%), headers and footers off. Cut on the lines. Each card is 2.5 × 3.5 inches; the back undoes the same swaps. Test one sheet for your printer's alignment first.</p>
-          <div className="row bc-print"><label>Swaps per card <select value={rows} onChange={(e) => setRows(Number(e.target.value))}>{[3, 4, 5, 6].map((n) => <option key={n} value={n}>{n}</option>)}</select></label><Button variant="primary" disabled={overflow || !fontsReady} onClick={() => window.print()}>Print double-sided swap cards</Button></div>
+          <div className="row bc-print"><Field label="Swaps per card"><select value={rows} onChange={(e) => setRows(Number(e.target.value))}>{[3, 4, 5, 6].map((n) => <option key={n} value={n}>{n}</option>)}</select></Field><Button variant="primary" disabled={overflow || !fontsReady} onClick={() => window.print()}>Print double-sided swap cards</Button></div>
           {overflow && <p className="error" role="alert">Some text does not fit. Choose fewer swaps per card before printing.</p>}
         </section>}
 

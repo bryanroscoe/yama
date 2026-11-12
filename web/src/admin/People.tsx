@@ -3,7 +3,7 @@ import { useState } from "react";
 import { accountLine } from "../accounts";
 import { api, type AccountInfo } from "../api";
 import { useAuthConfig, useMe } from "../auth";
-import { Button, Dialog, ErrorText } from "../components/ui";
+import { ActionBar, Button, CheckRow, Dialog, ErrorText } from "../components/ui";
 import { adminApi, type SharedGrant, type SharedOverview, type ViewLogRow } from "./api";
 import { startViewing } from "../viewing";
 import { confirms, deleteSummary, parseDailyCap, searchAccounts, sharedGrantLine, sharedSummary } from "./logic";
@@ -92,7 +92,7 @@ export function PeoplePage() {
                 </span>
               </div>
               {!a.is_admin && a.id !== me.data?.id && (
-                <div className="admin-actions">
+                <ActionBar className="admin-actions">
                   <Button variant="outline" onClick={() => flipInvite(a)} disabled={invite.isPending}>
                     {a.invited ? "Remove invite" : "Invite"}
                   </Button>
@@ -108,7 +108,7 @@ export function PeoplePage() {
                   <Button variant="outline" danger onClick={() => setDeleting(a)}>
                     Delete
                   </Button>
-                </div>
+                </ActionBar>
               )}
               {sharing && a.id !== me.data?.id && <SharedKeyControl account={a} grant={shared.data!.grants.find((g) => g.user_id === a.id)} />}
             </li>
@@ -222,10 +222,7 @@ function SharedKeyControl({ account, grant }: { account: AccountInfo; grant: Sha
   const busy = on.isPending || off.isPending;
   return (
     <div className="admin-shared">
-      <label className="admin-check">
-        <input type="checkbox" checked={!!grant} disabled={busy} onChange={(e) => (e.target.checked ? on.mutate(parsed === "invalid" ? null : parsed) : off.mutate())} />
-        Ask Claude on the shared key
-      </label>
+      <CheckRow className="admin-check" checked={!!grant} disabled={busy} onChange={(e) => (e.target.checked ? on.mutate(parsed === "invalid" ? null : parsed) : off.mutate())}>Ask Claude on the shared key</CheckRow>
       {grant && (
         <>
           <span className="admin-shared-line">{sharedGrantLine(grant)}</span>
@@ -273,14 +270,14 @@ function DeleteSheet({ account, onClose, onDone }: { account: AccountInfo; onClo
           <input value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" autoCapitalize="off" spellCheck={false} />
         </label>
         <ErrorText error={del.error} />
-        <div className="admin-actions">
+        <ActionBar className="admin-actions">
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
           <Button variant="destructive" disabled={!ok || del.isPending} onClick={() => del.mutate()}>
             {del.isPending ? "Deleting…" : "Delete account and data"}
           </Button>
-        </div>
+        </ActionBar>
       </div>
     </Dialog>
   );

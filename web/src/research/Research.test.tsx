@@ -14,7 +14,7 @@ import { usd } from "@yama/core";
 vi.mock("../auth",()=>({useMe:()=>({data:{id:"owner"}})}));
 // The deck page's Track this build reads the plan's device outbox, which needs a browser.
 vi.mock("../plan/outbox",()=>({outbox:{localOps:()=>[],enqueue:()=>{},sync:async()=>{}},deviceId:()=>"device",useOutbox:()=>({pending:[],rejected:[]})}));
-vi.mock("../components/DeckTabs",()=>({AreaHead:({title}:{title?:string})=>title?<h1>{title}</h1>:null,BackButton:({label}:{label:string})=><a>{label}</a>}));
+vi.mock("../components/DeckTabs",()=>({AreaHead:({title}:{title?:string})=>title?<h1>{title}</h1>:null}));
 
 function fullPage(query="") {
   const build={id:"b3",label:"Bracket 3",bracket:3,power:{range:"6–7/10",label:"Strong casual"},list:"Commander\n1 Saheeli\nDeck\n1 Thought Monitor\n1 Sol Ring\n97 Forest",gameplay_profile:{plan:"Copy artifacts and turn a developed board into combat pressure.",setup:["Three lands and an early rock"],finishers:["Cyberdrive Awakener after building artifact tokens"],interaction:"Keep Negate open",pace:"Needs an engine and a board; no measured finish-turn result.",confidence:"Structural review"},swaps:[{id:"monitor",card_in:"Thought Monitor",card_out:"Glimmer of Genius",why:"Repeatable artifact draw",acquisition:{kind:"print",detail:"No qualifying offer verified"}}]};

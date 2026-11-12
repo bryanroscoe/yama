@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
-import { Button, ErrorText } from "../components/ui";
+import { ActionBar, Button, ErrorText } from "../components/ui";
 import { adminApi, type PerfSummary, type ServerInfo, type WatchItem } from "./api";
 import { bytes, duration, usd } from "./logic";
 import { ago, count, fmtDateTime, plural, fmtDate } from "@yama/core";
@@ -371,11 +371,11 @@ function WatchSection({ games }: { games: WatchItem[] }) {
                 </span>
               </div>
               {!g.finished && (
-                <div className="admin-actions">
+                <ActionBar className="admin-actions">
                   <Button variant="outline" danger onClick={() => stop.mutate(g.id)} disabled={stop.isPending}>
                     Stop
                   </Button>
-                </div>
+                </ActionBar>
               )}
             </li>
           ))}

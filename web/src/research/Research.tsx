@@ -4,8 +4,8 @@ import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-r
 import { useMe } from "../auth";
 import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
 import { CardRef, CardText } from "../components/CardRef";
-import { AreaHead, BackButton } from "../components/DeckTabs";
-import { Button, ButtonLink, ErrorText, Loading, Pips } from "../components/ui";
+import { AreaHead } from "../components/DeckTabs";
+import { BackLink, Button, ButtonLink, ErrorText, Loading, Pips, StatusPill } from "../components/ui";
 import { saveFile } from "../download";
 import { copySharedNote, report, targetForSwap, type Build, type GameplayProfile, type Power, type ResearchBundle, type ResearchDeck } from "./api";
 import { DeckChanged, useDeckNamed } from "./about";
@@ -120,7 +120,7 @@ function NotePage({ bundle }: { bundle: ResearchBundle }) {
         <Origin doc={doc} />
         <h1>{doc.title}</h1>
         <p className="note-archived">
-          <span className="tag plain">Archived</span> A research note, kept for reference. It's never a current plan, and nothing in it is on your shopping list. Open a deck and choose Use a deck from it to make that build a new version of the deck's plan, waiting for your OK.
+          <StatusPill>Archived</StatusPill> A research note, kept for reference. It's never a current plan, and nothing in it is on your shopping list. Open a deck and choose Use a deck from it to make that build a new version of the deck's plan, waiting for your OK.
         </p>
         {doc.summary && <p className="note-summary">{doc.summary}</p>}
         {Array.isArray(doc.local_sources) && doc.local_sources.length > 0 && (
@@ -495,7 +495,7 @@ function DeckPage({ bundle, deck }: { bundle: ResearchBundle; deck: ResearchDeck
   return (
     <main className="plan plan-deck-page note-page">
       <ArtPanel as="header" className="plan-hero" art={v?.art?.image} artist={v?.art?.artist} wash="bottom" toGround credit={false}>
-        <BackButton to={noteHref(doc.id)} label="Back to the note" className="on-art" />
+        <BackLink to={noteHref(doc.id)} label="Back to the note" onArt />
         {v?.art && (
           <span className="plan-hero-credit">
             {deck.commander}. {artCredit(v.art.artist)}
@@ -538,16 +538,16 @@ function DeckPage({ bundle, deck }: { bundle: ResearchBundle; deck: ResearchDeck
           {yours ? <>Load it into <Link to={`/decks/${encodeURIComponent(yours.id)}/edit`}>your {yours.name} deck</Link> (Edit the list, then Another list)</> : "Load it into one of your decks with Edit list on the deck's page"}, or print <Link to={`/decks/builds${yours ? `?savedDeck=${encodeURIComponent(yours.id)}` : ""}`}>swap cards</Link> for the deck box.
         </p>
         <div className="note-pills">
-          {bracketLabel(build) && <span className="pill">{bracketLabel(build)}</span>}
+          {bracketLabel(build) && <StatusPill>{bracketLabel(build)}</StatusPill>}
           {Array.isArray(build.game_changers) && (
-            <span className="pill">
+            <StatusPill>
               {build.game_changers.length} Game Changer{build.game_changers.length === 1 ? "" : "s"}
-            </span>
+            </StatusPill>
           )}
-          <a className="tag note-pill-link" href="#changes-head">
+          <StatusPill className="note-pill-link" href="#changes-head">
             {added} in, {removed} out from the starting list
-          </a>
-          {isOwnedBuild(build) && <span className="tag good">Buildable now from your cards</span>}
+          </StatusPill>
+          {isOwnedBuild(build) && <StatusPill tone="good">Buildable now from your cards</StatusPill>}
         </div>
 
         <TrackPanel key={build.id} bundle={bundle} deck={deck} build={build} />
@@ -714,7 +714,7 @@ function DeckPage({ bundle, deck }: { bundle: ResearchBundle; deck: ResearchDeck
                           {copies.length > 0 && (
                             <p className="note-swap-state">
                               {copies.map((c) => (
-                                <span key={c.key} className={`tag ${tracking.status(c) === "In the deck" ? "good" : "quiet"}`}>{tracking.status(c)}</span>
+                                <StatusPill key={c.key} tone={tracking.status(c) === "In the deck" ? "good" : "neutral"}>{tracking.status(c)}</StatusPill>
                               ))}
                             </p>
                           )}

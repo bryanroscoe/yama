@@ -8,7 +8,7 @@ import { api, type DeckEntry, type DeckSummary, type DeckView } from "../api";
 import { useMe } from "../auth";
 import { AreaHead } from "../components/DeckTabs";
 import { LoadFailed, queryFailure, RefreshFailed } from "../components/QueryError";
-import { Button, ButtonLink, CardImage, EmptyState, ErrorText, Pips } from "../components/ui";
+import { BackLink, Button, ButtonLink, CardImage, EmptyState, ErrorText, Pips, StatusPill, toneOf } from "../components/ui";
 import { pct } from "../lab/logic";
 import { pairedFor, simShort, useRuns } from "../lab/paired";
 import { outbox, useOutbox } from "../plan/outbox";
@@ -310,10 +310,7 @@ export function DeckPage() {
   return (
     <main className="deck-page">
       <ArtPanel as="header" className="deck-hero" art={commander?.image_art_crop} artist={commander?.artist} wash="bottom" toGround credit={false}>
-        <Link to="/decks" className="hero-back" aria-label="Back to decks">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
-          <span className="hero-back-text">Decks</span>
-        </Link>
+        <BackLink to="/decks" label="Back to decks" text="Decks" onArt />
         {commander && (
           <span className="hero-credit">
             <span className="hero-credit-card">{commander.name}. </span>
@@ -328,7 +325,7 @@ export function DeckPage() {
             </span>
             <h1 className="hero-title">{d.parent_id ? d.configurations.find((c) => c.id === d.parent_id)?.name ?? d.name : d.name}</h1>
             <span className="hero-status">
-              <span className={`pill ${status.tone}`}>{status.pill}</span>
+              <StatusPill tone={toneOf(status.tone)}>{status.pill}</StatusPill>
               <span>{status.line}</span>
             </span>
           </div>

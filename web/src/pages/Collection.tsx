@@ -12,7 +12,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { exportLink } from "../download";
 import { api, API_BASE, ApiError, type CollectionItem, type CollectionSummary, type Container, type DeckSummary } from "../api";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
-import { Button, ButtonLink, CardImage, Details, Dialog, EmptyState, ErrorText, Loading, Segmented } from "../components/ui";
+import { Button, ButtonLink, CardImage, Details, Dialog, EmptyState, ErrorText, Field, Loading, Segmented, Tag } from "../components/ui";
 import "./collection.css";
 import "../decks/collect.css";
 import { changeText, keptText, missingLabel, missingText, previewLines, resultLines, type MythicReport } from "./mythicImport";
@@ -323,10 +323,10 @@ export function CollectionPage() {
                   <span className="coll-row-text">
                     <span className="coll-row-name">
                       <CardHover name={i.name??i.scryfall_id} oracleId={i.oracle_id} image={i.image_small}/>
-                      {i.finish !== "nonfoil" && <span className="tag">{i.finish[0]!.toUpperCase() + i.finish.slice(1)}</span>}
-                      {i.proxy && <span className="tag">Proxy</span>}
+                      {i.finish !== "nonfoil" && <Tag>{i.finish[0]!.toUpperCase() + i.finish.slice(1)}</Tag>}
+                      {i.proxy && <Tag>Proxy</Tag>}
                       {/* What makes this row its own beside another of the same printing. */}
-                      {markWords(i).map((w) => <span key={w} className="tag">{w[0]!.toUpperCase() + w.slice(1)}</span>)}
+                      {markWords(i).map((w) => <Tag key={w}>{w[0]!.toUpperCase() + w.slice(1)}</Tag>)}
                     </span>
                     <span className="coll-row-where coll-wide">
                       {place}, {i.set_name ?? "unknown set"} #{i.collector_number}, {cond}
@@ -438,10 +438,9 @@ function MythicImportSheet({ onClose }: { onClose: () => void }) {
         <p className="dim small">
           Mythic Tools exports decks separately. Import each deck's CSV here, or its text list from Decks.
         </p>
-        <label>
-          CSV file
+        <Field label="CSV file">
           <input type="file" accept=".csv,text/csv" onChange={(e) => e.target.files?.[0] && void choose(e.target.files[0])} />
-        </label>
+        </Field>
         {preview.isFetching && <Loading>Checking the file against your collection…</Loading>}
         <ErrorText error={preview.error ?? apply.error} />
         {r && (
@@ -744,21 +743,19 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
 
   const controls = (
     <div className="scan-choices">
-      <label>
-        Finish
+      <Field label="Finish">
         <select value={finish} onChange={(e) => setFinish(e.target.value as Finish)}>
           <option value="nonfoil">Regular</option>
           <option value="foil">Foil</option>
           <option value="proxy">Proxy</option>
         </select>
-      </label>
-      <label>
-        Put in
+      </Field>
+      <Field label="Put in">
         <select value={container} onChange={(e) => setContainer(e.target.value)}>
           <option value="">Not filed anywhere</option>
           {containers.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.kind})</option>)}
         </select>
-      </label>
+      </Field>
       <label className="scan-keep">
         <input
           type="checkbox"

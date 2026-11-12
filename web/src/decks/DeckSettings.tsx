@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, type Container, type DeckSummary, type DeckView } from "../api";
 import { SearchPicker } from "../components/SearchPicker";
-import { Button, Dialog, ErrorText, Segmented } from "../components/ui";
+import { ActionBar, Button, CheckRow, Dialog, ErrorText, Field, Segmented } from "../components/ui";
 import { UnsavedPrompt, useUnsavedChanges } from "../unsaved";
 import { folderMoveProblem, foldersOf, isFollowedFolder } from "./deckIndex";
 import "./deck-settings.css";
@@ -117,10 +117,9 @@ export function DeckSettings({ deck, onClose: closeSheet }: { deck: DeckView; on
   return (
     <Dialog title="Name, box and ownership" onClose={onClose}>
       <form className="deck-settings" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
-        <label>
-          Name
+        <Field label="Name">
           <input value={name} onChange={(e) => setName(e.target.value)} maxLength={120} required />
-        </label>
+        </Field>
         {!parent && (
           <label>
             Folder
@@ -161,14 +160,8 @@ export function DeckSettings({ deck, onClose: closeSheet }: { deck: DeckView; on
         </div>
         <fieldset className="deck-settings-field deck-settings-kind" disabled={hasLists}>
           <legend className="deck-settings-label">Show it</legend>
-          <label>
-            <input type="radio" name="deck-kind" checked={!parent} onChange={() => setParent(null)} />
-            As its own deck
-          </label>
-          <label>
-            <input type="radio" name="deck-kind" checked={!!parent} onChange={() => setPicking("parent")} />
-            As a list of another deck
-          </label>
+          <CheckRow type="radio" name="deck-kind" checked={!parent} onChange={() => setParent(null)}>As its own deck</CheckRow>
+          <CheckRow type="radio" name="deck-kind" checked={!!parent} onChange={() => setPicking("parent")}>As a list of another deck</CheckRow>
           {parent && (
             <Button className="deck-settings-pick" onClick={() => setPicking("parent")}>
               <span>{parentName}</span>
@@ -177,16 +170,15 @@ export function DeckSettings({ deck, onClose: closeSheet }: { deck: DeckView; on
           )}
         </fieldset>
         {parent && (
-          <label>
-            Name of the list
+          <Field label="Name of the list">
             <input value={list} onChange={(e) => setList(e.target.value)} maxLength={60} />
-          </label>
+          </Field>
         )}
         <ErrorText error={save.error} />
-        <div className="deck-settings-actions">
+        <ActionBar>
           <Button type="submit" variant="primary" disabled={save.isPending || !name.trim() || !!folderProblem}>{save.isPending ? "Saving…" : "Save"}</Button>
           <Button variant="quiet" onClick={onClose}>Cancel</Button>
-        </div>
+        </ActionBar>
       </form>
       <UnsavedPrompt guard={guard} what="your changes to this deck" />
     </Dialog>

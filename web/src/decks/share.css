@@ -143,12 +143,6 @@
 .share-sheet .share-link input {
   font-weight: 400;
 }
-.share-link-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
 .share-reset {
   padding: 12px 16px;
   border-radius: 16px;
