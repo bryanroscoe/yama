@@ -2,6 +2,7 @@
 // bracket bands, the reference marks on the five scores, and the curve and color summaries.
 
 import type { ColorStat, CurveBucket, StatCard } from "@yama/core";
+import type { DeckAnalysisView, VectorKey } from "../api";
 
 /** The dial: a half circle from 1 (left) to 10 (right) around (CX, CY). */
 export const DIAL = { cx: 160, cy: 160, r: 130, needle: 108 } as const;
@@ -65,12 +66,51 @@ export type Reference = "none" | "stock" | "b4" | "cedh";
 
 /** The marks on every score bar, out of 100. */
 export const REFERENCES: { key: Exclude<Reference, "none">; label: string; name: string; value: number }[] = [
-  { key: "stock", label: "Stock", name: "a stock precon", value: 40 },
+  { key: "stock", label: "Typical precon", name: "a typical stock precon", value: 40 },
   { key: "b4", label: "Bracket 4", name: "a Bracket 4 build", value: 75 },
   { key: "cedh", label: "cEDH", name: "a cEDH deck", value: 95 },
 ];
 
 export const referenceOf = (r: Reference) => REFERENCES.find((x) => x.key === r) ?? null;
+
+/** Something the five scores can be compared with: one of this deck's own lists, or a typical deck. */
+export interface Comparison {
+  /** Shown after "Amber marks:". */
+  name: string;
+  /** Its mark on each score, out of 100. */
+  value: (key: VectorKey) => number;
+  /** Its power level, when it's one of this deck's own lists. */
+  power: number | null;
+}
+
+/** This deck's stock list, when it has one apart from the list shown and it has been analysed. */
+export function stockListOf(view: DeckAnalysisView | undefined) {
+  return view?.configurations.find((c) => !c.this && isStockConfiguration(c.configuration) && c.power != null && c.scores) ?? null;
+}
+
+/** This list's saved versions before the current one, newest first. */
+export const earlierVersions = (view: DeckAnalysisView | undefined) => view?.versions.filter((v) => !v.current) ?? [];
+
+/** What the compare control points at: a typical deck, this deck's stock list, or a saved version. */
+export function comparisonOf(r: Reference | "own-stock" | `version:${string}`, view: DeckAnalysisView | undefined): Comparison | null {
+  if (r === "own-stock") {
+    const c = stockListOf(view);
+    return c?.scores && c.power != null ? { name: "this deck's stock list", value: (k) => c.scores![k], power: c.power } : null;
+  }
+  if (r.startsWith("version:")) {
+    const v = view?.versions.find((x) => x.id === r.slice(8));
+    return v ? { name: `version ${v.number}`, value: (k) => v.scores[k], power: v.power } : null;
+  }
+  const t = referenceOf(r as Reference);
+  return t ? { name: t.name, value: () => t.value, power: null } : null;
+}
+
+/** "+0.4", "-1.2", "no change": how far the power level moved from what it's compared with. */
+export function powerChange(now: number, then: number): string {
+  // Round each first, so the change matches the two numbers as shown.
+  const d = Math.round(now * 10) / 10 - Math.round(then * 10) / 10;
+  return Math.abs(d) < 0.05 ? "no change" : `${d > 0 ? "+" : "−"}${Math.abs(d).toFixed(1)}`;
+}
 
 /** A bar's width: 0 to 100 percent. */
 export const pctWidth = (n: number) => `${Math.max(0, Math.min(100, n))}%`;

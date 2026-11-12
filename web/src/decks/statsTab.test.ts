@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { bandOf, isStockConfiguration, landFaceCopies, colorShares, curveColumns, curveSpread, DIAL, dialAngle, dialArc, dialPoint, groupTotal, marginSpan, playsLike, inputsNote, pctWidth, points, POWER_BANDS, referenceOf } from "./statsTab";
+import { bandOf, isStockConfiguration, landFaceCopies, colorShares, curveColumns, curveSpread, DIAL, dialAngle, dialArc, dialPoint, groupTotal, marginSpan, playsLike, inputsNote, pctWidth, points, POWER_BANDS, referenceOf, comparisonOf, earlierVersions, powerChange, stockListOf } from "./statsTab";
+import { analysisView } from "./analysisFixture";
 
 const near = (a: number, b: number) => expect(Math.abs(a - b)).toBeLessThan(1e-9);
 
@@ -113,5 +114,31 @@ describe("land faces and stock lists", () => {
   it("knows a stock list by either name, in any case", () => {
     for (const n of ["stock", "Stock", "ORIGINAL", "original"]) expect(isStockConfiguration(n)).toBe(true);
     for (const n of ["Bracket 3", "stocky", null, undefined]) expect(isStockConfiguration(n)).toBe(false);
+  });
+});
+
+describe("comparing the five scores", () => {
+  const view = analysisView(6.2);
+  it("offers this deck's own stock list and earlier versions, with their power", () => {
+    expect(stockListOf(view)?.id).toBe("stock");
+    expect(earlierVersions(view).map((v) => v.id)).toEqual(["v1"]);
+    const own = comparisonOf("own-stock", view);
+    expect(own?.name).toBe("this deck's stock list");
+    expect(own?.power).toBe(3.4);
+    expect(own?.value("speed")).toBe(51);
+    expect(comparisonOf("version:v1", view)?.name).toBe("version 1");
+    expect(comparisonOf("version:nope", view)).toBeNull();
+  });
+  it("keeps the typical marks the same on every score", () => {
+    const b4 = comparisonOf("b4", view);
+    expect(b4?.value("mana")).toBe(75);
+    expect(b4?.power).toBeNull();
+    expect(comparisonOf("none", view)).toBeNull();
+  });
+  it("says how far power moved", () => {
+    expect(powerChange(6.2, 3.4)).toBe("+2.8");
+    expect(powerChange(3.4, 6.2)).toBe("−2.8");
+    expect(powerChange(5, 5.04)).toBe("no change");
+    expect(powerChange(6.26, 3.44)).toBe("+2.9");
   });
 });

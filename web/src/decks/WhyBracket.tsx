@@ -1,13 +1,16 @@
 // Why this bracket (deck page SPEC 1b, board Deck): beside the Cards tab's list, the markers that
 // set a bracket (Game Changers, two-card combos, mass land denial, extra turns, the Reserve List)
-// and the bracket you tell the table. Previewing a lower bracket strikes the Game Changers its
+// with the power level from the Stats tab on top, and the bracket you tell the table. Previewing a lower bracket strikes the Game Changers its
 // swap bag takes out. Explanations sit behind one "?".
 import { useEffect, useRef } from "react";
-import { useLocation } from "react-router";
+import { Link, useLocation } from "react-router";
+import { useDeckAnalysis } from "./DeckAnalysis";
+import { playsLike } from "./statsTab";
 import type { DeckView } from "../api";
-import { useDeckCheck } from "../components/Bracket";
+import { SPELLBOOK, useDeckCheck } from "../components/Bracket";
 import { DeclareBracket } from "../components/DeclareBracket";
 import { gameChangerFloor, SENDS_LIST } from "../components/deckCheck";
+import { CardHover } from "../components/CardRef";
 import { HelpPopover } from "../components/HelpPopover";
 import { fmtDate } from "@yama/core";
 import { Button } from "../components/ui";
@@ -17,10 +20,18 @@ export function gameChangersAt(listed: string[] | null, out: ReadonlySet<string>
   return (listed ?? []).map((name) => ({ name, out: out.has(name) }));
 }
 
+/** What a combo does, short enough for the side column: its first two results. */
+export function comboResult(results: string[]): string {
+  if (!results.length) return "";
+  const head = results.slice(0, 2).join(", ");
+  return `${head}${results.length > 2 ? ", and more" : ""}.`;
+}
+
 const n = (count: number, none = "None") => (count ? String(count) : none);
 
 export function WhyBracket({ deck, at, outAt, onCard }: { deck: DeckView; at: number | null; outAt: ReadonlySet<string>; onCard: (name: string) => void }) {
   const check = useDeckCheck(deck.id, deck.version_id);
+  const power = useDeckAnalysis(deck.id, deck.version_id).data?.current ?? null;
   const r = check.data?.result ?? null;
   const gcs = gameChangersAt(deck.game_changers, outAt);
   const kept = gcs.filter((g) => !g.out).length;
@@ -29,6 +40,8 @@ export function WhyBracket({ deck, at, outAt, onCard }: { deck: DeckView; at: nu
   const proxied = new Set(deck.cards.filter((e) => e.proxies > 0 && e.owned === 0).map((e) => e.name));
   const reservedProxies = reserved?.filter((x) => proxied.has(x)).length ?? 0;
   const shown = at ?? deck.bracket;
+  // Rolling over a chip shows the card, the same preview as card names elsewhere.
+  const imageOf = (name: string) => deck.cards.find((e) => e.name === name)?.card?.image_normal ?? null;
   // The hero's Bracket tile links here (#why-bracket-head); the router doesn't scroll to a hash.
   const { hash, key } = useLocation();
   const box = useRef<HTMLElement>(null);
@@ -52,6 +65,19 @@ export function WhyBracket({ deck, at, outAt, onCard }: { deck: DeckView; at: nu
         </HelpPopover>
       </span>
       <dl className="why-bracket-rows">
+        {power && (
+          <>
+            <div>
+              <dt>Power level, 1 to 10</dt>
+              <dd>
+                {power.power.toFixed(1)} <span className="dim">±{power.margin.toFixed(1)}</span>
+              </dd>
+            </div>
+            <p className="why-bracket-note dim">
+              {playsLike(power)}. <Link to={`/decks/${deck.id}/stats`}>The dial and what moves it</Link>
+            </p>
+          </>
+        )}
         <div>
           <dt>Game Changers</dt>
           <dd>{deck.game_changers ? n(kept) : "Not checked yet"}</dd>
@@ -61,7 +87,7 @@ export function WhyBracket({ deck, at, outAt, onCard }: { deck: DeckView; at: nu
             {gcs.map((g) => (
               <li key={g.name}>
                 <Button className={g.out ? "out" : ""} onClick={() => onCard(g.name)} aria-label={g.out ? `${g.name}, out at Bracket ${at}` : g.name}>
-                  {g.name}
+                  <CardHover name={g.name} image={imageOf(g.name)} />
                 </Button>
               </li>
             ))}
@@ -71,6 +97,30 @@ export function WhyBracket({ deck, at, outAt, onCard }: { deck: DeckView; at: nu
           <dt>Two-card combos</dt>
           <dd>{r ? n(twoCard.length, "None found") : "Not checked yet"}</dd>
         </div>
+        {twoCard.length > 0 && (
+          <ul className="why-bracket-combos" aria-label="Two-card combos">
+            {twoCard.map((c) => (
+              <li key={c.id}>
+                <ul className="why-bracket-chips" aria-label={c.cards.join(" and ")}>
+                  {c.cards.map((name) => (
+                    <li key={name}>
+                      <Button onClick={() => onCard(name)}>
+                        <CardHover name={name} image={imageOf(name)} />
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+                <p className="dim">
+                  {c.templates.length > 0 && <>Plus {c.templates.join(", ").toLowerCase()}. </>}
+                  {comboResult(c.results)}{" "}
+                  <a href={`${SPELLBOOK}combo/${encodeURIComponent(c.id)}/`} target="_blank" rel="noreferrer">
+                    How it works
+                  </a>
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
         <div>
           <dt>Mass land denial</dt>
           <dd>{r ? n(r.mld.length) : "Not checked yet"}</dd>

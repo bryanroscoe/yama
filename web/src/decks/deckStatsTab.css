@@ -752,3 +752,6 @@ button.combo-pic:hover {
   flex-wrap: wrap;
   gap: 8px;
 }
+.stats-version-pick {
+  max-width: 100%;
+}
