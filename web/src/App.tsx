@@ -51,6 +51,7 @@ const consent = area(() => import("./oauth/Consent"));
 const guestTable = area(() => import("./table/GuestTable"));
 const gameDetail = area(() => import("./table/GameDetail"));
 const gameHistory = area(() => import("./table/GameHistory"));
+const browse = area(() => import("./browse/Browse"));
 
 const PlayHome = play.page("PlayHome");
 const GuestPlayHome = play.page("GuestPlayHome");
@@ -85,6 +86,7 @@ const ServerPage = admin.page("ServerPage");
 const LabRunsPage = admin.page("LabRunsPage");
 const BugReportsPage = admin.page("BugReportsPage");
 const ModerationPage = admin.page("ModerationPage");
+const BrowsePage = browse.page("BrowsePage");
 const DecksPage = decks.page("DecksPage");
 const DeckPage = decks.page("DeckPage");
 const ImportPage = decks.page("ImportPage");
@@ -262,6 +264,8 @@ export function App() {
             never stay on screen as the next account's placeholder. */}
         <Route path="cards" element={<Framed><CardsPage key={me.data?.id ?? "guest"} /></Framed>} />
         <Route path="new" element={<Framed><WhatsNewPage /></Framed>} />
+        {/* Browse: the decks people made public. Open to everyone; "browse" outranks "decks/:id". */}
+        <Route path="decks/browse" element={<Paged page={BrowsePage} title="Browse decks" kind="tiles" />} />
         {/* Open to everyone: signed out, it offers a game against the computer as a guest. */}
         <Route path="play" element={signedIn ? <Paged page={PlayHome} title="Play online" /> : <Paged page={GuestPlayHome} title="Play online" />} />
         {/* Open to everyone: check a pasted list; it stays in the browser until it's saved (check/). */}

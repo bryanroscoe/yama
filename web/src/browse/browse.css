@@ -1,0 +1,23 @@
+/* Browse: the Decks list's tiles and tools, plus what only a public listing has. */
+.browse-tiles > li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.browse-tiles .browse-copy {
+  align-self: flex-start;
+}
+/* "Started from a precon" sits on the fields' baseline, as tall as the selects beside it. */
+.deck-index-fields label.browse-precon {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--target);
+  font-weight: 400;
+  cursor: pointer;
+}
+.browse-about {
+  margin: 0 0 16px;
+  max-width: 60ch;
+}

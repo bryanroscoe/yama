@@ -73,6 +73,8 @@ export const TABS: NavTab[] = [
     owns: ["/decks"],
     sections: [
       { to: "/decks", label: "My decks", end: true, also: ["/decks/import", "/decks/changes"] },
+      // The decks people made public (browse/Browse.tsx): open to everyone.
+      { to: "/decks/browse", label: "Browse" },
       // Signed in, the precon table with your own results; signed out, the public reference.
       { to: "/lab", label: "Precons", end: true, also: ["/lab/p"], when: signedIn },
       { to: "/precons", label: "Precons", page: true, when: signedOut },
