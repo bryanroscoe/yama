@@ -10,6 +10,7 @@ import {
   lossesOf,
   MANA,
   nextSeat,
+  rematchSeat,
   seatOrder,
   POISON_LETHAL,
   panelFills,
@@ -295,6 +296,12 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
                 players: seatOrder(state).flatMap((s, i) => state.players.filter((p) => p.seat === s).map((p) => ({ ...p, seat: i }))).map(({ seat, name, memberId, userId, deckVersionId, deckLabel, commanderName, partnerName, colorIdentity, art, artist, partnerArt, partnerArtist }) =>
                   ({ seat, name, memberId, userId, deckVersionId, deckLabel, commanderName, partnerName, colorIdentity, art, artist, partnerArt, partnerArtist })),
               });
+              // This device's seat follows its player into the renumbered seats.
+              if (ownSeat !== null) {
+                const seat = rematchSeat(state, ownSeat);
+                setOwnSeat(seat);
+                localStorage.setItem(`yama.guest.${id}`, String(seat));
+              }
               setFinishing(null);
               setAskFirst(true);
               if (sharing) startHosting(id);

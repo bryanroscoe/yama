@@ -25,6 +25,7 @@ import {
   turnPosition,
   turnSpans,
   nextSeat,
+  rematchSeat,
   seatOrder,
   wonText,
   type LoggedEvent,
@@ -220,6 +221,13 @@ describe("table", () => {
     s = apply(s, { type: "swap_places", a: 2, b: 0 });
     expect(seatOrder(s)).toEqual([0, 1, 2]);
     expect(apply(s, { type: "swap_places", a: 0, b: 7 })).toBe(s);
+  });
+
+  it("Play again numbers seats in the order people sat, and each device's seat follows its player", () => {
+    const s = apply(initialState(setup), { type: "swap_places", a: 0, b: 2 });
+    expect([0, 1, 2].map((seat) => rematchSeat(s, seat))).toEqual([2, 1, 0]);
+    expect(rematchSeat(s, -1)).toBe(-1);
+    expect(rematchSeat(initialState(setup), 2)).toBe(2);
   });
 
   it("skips an event from a newer app instead of losing the game", () => {

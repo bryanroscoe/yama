@@ -364,6 +364,16 @@ export function seatOrder(state: Pick<TableState, "players" | "order">): Seat[] 
   return state.order ?? state.players.map((p) => p.seat);
 }
 
+/**
+ * A seat's number in the next game after Play again, which numbers seats in the order people sat
+ * (seatOrder). A device's own seat moves with its player; -1 (watching) or a seat not in the game
+ * stays as it is.
+ */
+export function rematchSeat(state: Pick<TableState, "players" | "order">, seat: Seat): Seat {
+  const i = seatOrder(state).indexOf(seat);
+  return i < 0 ? seat : i;
+}
+
 /** Whose turn comes after the current one, skipping anyone out. null when everyone is out. */
 export function nextSeat(state: Pick<TableState, "players" | "order" | "activeSeat">): Seat | null {
   const order = seatOrder(state);

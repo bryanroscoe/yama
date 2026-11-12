@@ -2,7 +2,7 @@
 // with everyone else along the top, or the whole table. Tap anyone to see or change their
 // totals; the host's device keeps the game and only it can end it.
 
-import { RELAY_TOKEN, replay, type LoggedEvent, type TableEvent, type TableSetup } from "@yama/core";
+import { RELAY_TOKEN, rematchSeat, replay, type LoggedEvent, type TableEvent, type TableSetup } from "@yama/core";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { Button, ButtonLink, Pips } from "../components/ui";
@@ -85,8 +85,15 @@ function GuestGame({ gameId }: { gameId: string }) {
         else if (msg.type === "state" && msg.next?.gameId && msg.next?.key) {
           // The table is playing again: follow it to the next game, in the same seat.
           const next = msg.next as { gameId: string; key: string; relay?: string };
+          // Play again numbers seats in the order people sat: the seat follows this device's player.
           const mine = localStorage.getItem(`yama.guest.${gameId}`);
-          if (mine !== null) localStorage.setItem(`yama.guest.${next.gameId}`, mine);
+          const ended = msg.setup?.id === gameId && Array.isArray(msg.log) ? replay(msg.setup, msg.log) : null;
+          if (mine !== null) {
+            const moved = ended ? rematchSeat(ended, Number(mine)) : Number(mine);
+            localStorage.setItem(`yama.guest.${next.gameId}`, String(moved));
+            // The same page follows to the next game, so its seat moves here as well as in storage.
+            setSeat(moved);
+          }
           navigate(`/table/join/${next.gameId}${joinFragment(next.key, next.relay === "cf" ? "edge" : "server")}`, { replace: true });
         } else if (msg.type === "state" && msg.ended) {
           setEnded(true);
