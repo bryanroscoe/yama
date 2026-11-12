@@ -25,6 +25,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
+use anyhow::Context as _;
 use sqlx::SqlitePool;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
@@ -238,6 +239,15 @@ impl PlayHub {
         // historical startup is deadline-bound and cached for the remaining historical rows.
         rows.sort_by_key(|row| row.5.as_deref() == Some(history::IDENTITY));
         for (game_id, seats, replay, log, answers, identity) in rows {
+            // A game on an engine version this server can never run moves to the current engine
+            // if it replays the same, and is closed if it doesn't: none is left that nobody can
+            // play or finish (Bryan, 12 Nov 2026). Without a current engine it waits for one.
+            if is_retired_runtime(identity.as_deref())
+                && let Ok(engine) = self.engine()
+            {
+                self.upgrade_or_close(pool, &engine, game_id, identity, seats, replay, log, answers).await;
+                continue;
+            }
             // No replay or remembered-action parsing before the saved identity is routed.
             if let Some(error) = self.runtime_error(identity.as_deref()) {
                 self.unavailable.lock().unwrap().insert(game_id, error);
@@ -300,6 +310,54 @@ impl PlayHub {
         }
     }
 
+    /// Move a live game saved on a retired engine version to the current engine, if replaying it
+    /// here checks out ([`Engine::resume_checked`]), and run it; otherwise close it without a
+    /// winner. Either way its original record is kept (`online_game_originals`).
+    #[allow(clippy::too_many_arguments)]
+    async fn upgrade_or_close(
+        self: &Arc<Self>,
+        pool: &SqlitePool,
+        engine: &Engine,
+        game_id: String,
+        identity: Option<String>,
+        seats: String,
+        replay: Option<String>,
+        log: Option<String>,
+        answers: Option<String>,
+    ) {
+        let lines: Vec<yama_play::LogLine> = log.as_deref().and_then(|l| serde_json::from_str(l).ok()).unwrap_or_default();
+        let checked = (|| -> anyhow::Result<(Vec<SeatCfg>, Match)> {
+            let seats: Vec<SeatCfg> = serde_json::from_str(&seats).context("reading the seats")?;
+            let replay = replay.as_deref().context("no saved replay")?;
+            let mut m = engine.resume_checked(replay, &ai_seats(&seats), &lines)?;
+            if let Some(answers) = answers.as_deref().and_then(|a| serde_json::from_str(a).ok()) {
+                m.set_remembered(answers);
+            }
+            anyhow::ensure!(!m.is_over(), "the replay ends the game");
+            Ok((seats, m))
+        })();
+        let old = identity.as_deref();
+        match checked {
+            Ok((seats, mut m)) => {
+                m.note(format!("{}, picking up where it was.", yama_play::MOVED_NOTE));
+                if let Err(e) = adopt_current_engine(pool, &game_id, old, &m).await {
+                    tracing::error!(game_id, error = %format!("{e:#}"), "couldn't move an online game to the current engine");
+                    self.unavailable.lock().unwrap().insert(game_id, "This game couldn't be moved to the current rules engine.".into());
+                    return;
+                }
+                let prefs = seat_prefs(pool, &seats).await;
+                tracing::info!(game_id, from = old.unwrap_or("unrecorded"), "moved online game to the current engine");
+                self.spawn_game(game_id, m, seats, prefs, pool.clone());
+            }
+            Err(why) => {
+                tracing::warn!(game_id, from = old.unwrap_or("unrecorded"), error = %format!("{why:#}"), "closing an online game the current engine can't continue");
+                if let Err(e) = close_unrunnable(pool, &game_id, lines).await {
+                    tracing::error!(game_id, error = %format!("{e:#}"), "couldn't close an online game");
+                }
+            }
+        }
+    }
+
     /// Exact identities only. An unknown/absent identity never means "use current".
     fn runtime_error(&self, identity: Option<&str>) -> Option<String> {
         match identity {
@@ -313,6 +371,9 @@ impl PlayHub {
     fn game_error(&self, r: &Row) -> Option<String> {
         if r.stage == "lobby" {
             return None;
+        }
+        if r.stage == "over" && is_retired_runtime(r.engine_version.as_deref()) {
+            return Some("This game was played on an older version of Yama's rules engine, so its final board can't be shown. Its record is kept.".into());
         }
         self.unavailable.lock().unwrap().get(&r.game_id).cloned().or_else(|| self.runtime_error(r.engine_version.as_deref()))
     }
@@ -697,6 +758,63 @@ async fn write_knockouts(tx: &mut sqlx::SqliteConnection, game_id: &str, found: 
 
 /// Save the game as it stands. `knockouts` also writes each seat's knockout to the game record
 /// (always done once the game is over): the caller asks for it when the knockouts have changed.
+/// Keep a game's record as it was before Yama changes it for the first time, whatever engine it
+/// was saved on (`online_game_originals`; an unrecorded identity is kept as "unrecorded").
+async fn keep_original(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, game_id: &str) -> anyhow::Result<()> {
+    sqlx::query(
+        "INSERT OR IGNORE INTO online_game_originals(game_id, engine_version, replay, log, answers, revision, stage, saved_at)
+         SELECT o.game_id, IFNULL(g.engine_version, 'unrecorded'), o.replay, o.log, o.answers, o.revision, o.stage, ?
+         FROM online_games o JOIN games g ON g.id = o.game_id WHERE o.game_id = ?",
+    )
+    .bind(now())
+    .bind(game_id)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// Record that a game checked out on the current engine ([`PlayHub::upgrade_or_close`]) now runs
+/// on it, then save it as the current engine writes it.
+async fn adopt_current_engine(pool: &SqlitePool, game_id: &str, old: Option<&str>, m: &Match) -> anyhow::Result<()> {
+    let mut tx = pool.begin().await?;
+    keep_original(&mut tx, game_id).await?;
+    let changed = sqlx::query("UPDATE games SET engine_version = ? WHERE id = ? AND engine_version IS ?")
+        .bind(yama_play::ENGINE_VERSION)
+        .bind(game_id)
+        .bind(old)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+    anyhow::ensure!(changed == 1, "the game's saved engine changed meanwhile");
+    tx.commit().await?;
+    persist(pool, game_id, m, false).await
+}
+
+/// Close a live game no engine here can continue: it ends without a winner, as an ended solo
+/// game does, and says why in its log.
+async fn close_unrunnable(pool: &SqlitePool, game_id: &str, mut lines: Vec<yama_play::LogLine>) -> anyhow::Result<()> {
+    let turn = lines.last().map(|l| l.turn).unwrap_or(0);
+    lines.push(yama_play::LogLine::public(turn, CLOSED_NOTE.into()));
+    let mut tx = pool.begin().await?;
+    keep_original(&mut tx, game_id).await?;
+    let at = now();
+    let closed = sqlx::query("UPDATE online_games SET stage = 'over', log = ?, updated_at = ? WHERE game_id = ? AND stage = 'live'")
+        .bind(serde_json::to_string(&lines)?)
+        .bind(&at)
+        .bind(game_id)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+    if closed == 1 {
+        sqlx::query("UPDATE games SET status = 'abandoned', winner_seat = NULL, ended_at = ? WHERE id = ?").bind(&at).bind(game_id).execute(&mut *tx).await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
+/// The last line of a game closed because the current engine couldn't continue it.
+const CLOSED_NOTE: &str = "This game was closed without a winner: it was saved on an older version of Yama's rules engine, and couldn't be continued on this one.";
+
 async fn persist(pool: &SqlitePool, game_id: &str, m: &Match, knockouts: bool) -> anyhow::Result<()> {
     let stage = if m.is_over() { "over" } else { "live" };
     let mut tx = pool.begin().await?;
