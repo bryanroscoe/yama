@@ -1871,7 +1871,7 @@ pub(super) async fn profile_plans(pool: &SqlitePool, owner: &str) -> AppResult<S
             }
             s.push_str("</span><div class=\"art-wash\"></div>");
         }
-        write!(s, "<span class=\"share-deck-copy\"><b>{}</b><span>{decks} {}</span><small>Saved {}</small></span></a></li>", e(&title), if decks == 1 { "deck" } else { "decks" }, when(&saved)).unwrap();
+        write!(s, "<span class=\"share-deck-copy\"><b>{}</b><span>{decks} {}</span><small>Saved {}</small></span></a></li>", e(&public_text(&title, true)), if decks == 1 { "deck" } else { "decks" }, when(&saved)).unwrap();
         credits.extend(art.into_iter().map(|a| credit(&Some(a))));
     }
     s.push_str("</ul>");

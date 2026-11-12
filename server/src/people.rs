@@ -85,7 +85,7 @@ async fn decks(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(
     let rows: Vec<(String, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
         "SELECT d.name, d.parent_id, d.configuration, d.current_version_id FROM decks d
          LEFT JOIN decks p ON p.id = d.parent_id
-         WHERE d.owner_id = ? AND d.archived = 0 AND d.visibility = 'public' AND d.share_token IS NOT NULL
+         WHERE d.owner_id = ? AND d.archived = 0 AND d.visibility = 'public' AND d.taken_down_at IS NULL AND d.share_token IS NOT NULL
          ORDER BY lower(COALESCE(p.name, d.name)), d.parent_id IS NOT NULL, lower(COALESCE(d.configuration, d.name))",
     )
     .bind(&owner)
@@ -98,6 +98,8 @@ async fn decks(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(
             (Some(_), Some(c)) if !name.contains(c.as_str()) => format!("{name} ({c})"),
             _ => name,
         };
+        // As the profile page shows it: through the public text filter.
+        let name = crate::sharing::public_text(&name, true);
         let (art, artist) = face.art.map(|(url, artist, _)| (Some(url), artist)).unwrap_or_default();
         out.push(PublicDeck { name, commanders: face.commanders, color_identity: face.color_identity, art, artist, card_count: face.card_count, version_id: version });
     }

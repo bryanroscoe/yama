@@ -83,6 +83,7 @@ const UsagePage = admin.page("UsagePage");
 const ServerPage = admin.page("ServerPage");
 const LabRunsPage = admin.page("LabRunsPage");
 const BugReportsPage = admin.page("BugReportsPage");
+const ModerationPage = admin.page("ModerationPage");
 const DecksPage = decks.page("DecksPage");
 const DeckPage = decks.page("DeckPage");
 const ImportPage = decks.page("ImportPage");
@@ -333,6 +334,7 @@ export function App() {
             <Route path="server" element={<ServerPage />} />
             <Route path="lab" element={<LabRunsPage />} />
             <Route path="bugs" element={<BugReportsPage />} />
+            <Route path="moderation" element={<ModerationPage />} />
           </Route>
         </Route>
         {/* /table is the address people guess for the life counter's setup. */}

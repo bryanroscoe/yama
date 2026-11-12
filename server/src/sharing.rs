@@ -11,6 +11,7 @@
 //! market value) and, when the owner turns it on, its plan's simulated win rates for the lists
 //! it and its listed configurations stand for, nothing else from the plan.
 mod html;
+mod report;
 mod want_sources;
 mod research;
 pub(crate) mod wants;
@@ -48,6 +49,10 @@ pub fn router() -> Router<AppState> {
         .route("/api/sharing/wants/{handle}/pending", axum::routing::put(wants::pending_route))
         .route("/api/sharing/compare/{handle}", get(wants::compare_route))
         .route("/d/{token}", get(html::deck))
+        // Before the downloads: a fixed part of a path wins over `{file}`.
+        .route("/d/{token}/report", get(report::deck_form))
+        .route("/u/{handle}/report", get(report::profile_form))
+        .route("/report", post(report::submit).layer(axum::extract::DefaultBodyLimit::max(16 * 1024)))
         .route("/d/{token}/{file}", get(download))
         .route("/r/{token}", get(research::note))
         .route("/r/{token}/{deck}", get(research::deck))
@@ -73,6 +78,8 @@ pub(crate) fn valid_token(s: &str) -> bool {
     (16..=40).contains(&s.len()) && s.bytes().all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
 }
 
+pub(crate) use crate::moderation::text::public as public_text;
+
 pub const VISIBILITIES: [&str; 3] = ["private", "link", "public"];
 
 pub fn visibility(v: &str) -> AppResult<&str> {
@@ -84,13 +91,14 @@ pub fn visibility(v: &str) -> AppResult<&str> {
 /// engines. Every listing and every "may this be indexed" question goes through this one
 /// condition (or [`deck_listed`], which is the same thing for one deck), so they cannot disagree.
 ///
-/// A listed deck is public, live and has its share token; its owner's account is not turned
+/// A listed deck is public, live, not taken down by an admin (`moderation.rs`) and has its
+/// share token; its owner's account is not turned
 /// off, has a handle (a listing names its builder, and until an account has one its public decks
 /// are public by link only), and has taken on the new meaning of "public"
 /// (`users.public_listed_at`, migration 0083): accounts made since public-by-default have it from
 /// sign-up, older accounts once their owner answers the prompt. Without it a public deck keeps
 /// the old meaning: on its owner's profile, by its link, `noindex`, and nowhere else.
-pub(crate) const LISTED: &str = "d.visibility = 'public' AND d.archived = 0 AND d.share_token IS NOT NULL \
+pub(crate) const LISTED: &str = "d.visibility = 'public' AND d.archived = 0 AND d.share_token IS NOT NULL AND d.taken_down_at IS NULL \
      AND u.disabled_at IS NULL AND u.guest = 0 AND u.handle IS NOT NULL AND u.public_listed_at IS NOT NULL";
 
 /// Whether this deck is listed publicly ([`LISTED`]). An unknown deck is not.
@@ -208,6 +216,13 @@ async fn put_sharing(State(st): State<AppState>, CurrentUser(user): CurrentUser,
             None => None,
         };
         if let Some(h) = &h {
+            // The public text filter's words (`moderation/text.rs`): a handle is public by
+            // nature. Checked when one is chosen, not when one is looked up (`parse_handle`), so
+            // a handle someone already has keeps working and they can keep it.
+            let mine: Option<String> = sqlx::query_scalar("SELECT handle FROM users WHERE id = ?").bind(&user.id).fetch_one(&st.pool).await?;
+            if mine.as_deref() != Some(h.as_str()) && !crate::moderation::text::handle_ok(h) {
+                return Err(AppError::bad("that handle can't be used; pick another"));
+            }
             let taken: Option<String> =
                 sqlx::query_scalar("SELECT id FROM users WHERE handle = ? AND id <> ?").bind(h).bind(&user.id).fetch_optional(&st.pool).await?;
             if taken.is_some() {
@@ -248,7 +263,9 @@ struct ShareAll {
 /// Every live deck at once, e.g. "Make all my decks public".
 async fn share_all(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(body): Json<ShareAll>) -> AppResult<Json<Sharing>> {
     let v = visibility(&body.visibility)?;
-    sqlx::query("UPDATE decks SET visibility = ?, share_token = COALESCE(share_token, ?), updated_at = ? WHERE owner_id = ? AND archived = 0")
+    // A deck an admin took down stays private (`moderation.rs`).
+    sqlx::query("UPDATE decks SET visibility = ?, share_token = COALESCE(share_token, ?), updated_at = ? WHERE owner_id = ? AND archived = 0 AND taken_down_at IS NULL
+           AND NOT EXISTS (SELECT 1 FROM decks m WHERE m.id = decks.parent_id AND m.taken_down_at IS NOT NULL)")
         .bind(v)
         .bind(new_token())
         .bind(now())
@@ -538,6 +555,7 @@ struct DeckRow {
     current_version_id: Option<String>,
     container_id: Option<String>,
     parent_id: Option<String>,
+    visibility: String,
 }
 
 /// Whether a printing a deck names is fit to show on a public page or write into a download as
@@ -558,7 +576,11 @@ fn plain_print(p: &crate::deck_import::DeckPrint) -> bool {
 }
 
 /// A deck shared by link or on a profile, by its token. Private, archived and unknown decks,
-/// and decks of disabled accounts, are all the same "not found".
+/// decks an admin took down and decks of disabled accounts are all the same "not found".
+///
+/// What its owner typed (the name, the description, configuration labels) comes back through
+/// the public text filter (`moderation/text.rs`): its short list of slurs masked, and for a
+/// public deck links taken out. A deck shared by link keeps its links.
 pub(crate) async fn shared_deck(pool: &SqlitePool, token: &str) -> AppResult<SharedDeck> {
     if !valid_token(token) {
         return Err(AppError::NotFound("deck"));
@@ -566,9 +588,9 @@ pub(crate) async fn shared_deck(pool: &SqlitePool, token: &str) -> AppResult<Sha
     let row: DeckRow = sqlx::query_as(
         "SELECT d.id, d.owner_id, d.name, d.bracket, d.description,
                 COALESCE((SELECT v.created_at FROM deck_versions v WHERE v.id = d.current_version_id), d.created_at) AS updated_at,
-                d.current_version_id, d.container_id, d.parent_id
+                d.current_version_id, d.container_id, d.parent_id, d.visibility
          FROM decks d JOIN users u ON u.id = d.owner_id
-         WHERE d.share_token = ? AND d.visibility IN ('link', 'public') AND d.archived = 0 AND u.disabled_at IS NULL",
+         WHERE d.share_token = ? AND d.visibility IN ('link', 'public') AND d.archived = 0 AND d.taken_down_at IS NULL AND u.disabled_at IS NULL",
     )
     .bind(token)
     .fetch_optional(pool)
@@ -659,6 +681,7 @@ pub(crate) async fn shared_deck(pool: &SqlitePool, token: &str) -> AppResult<Sha
             printing,
         });
     }
+    let public = row.visibility == "public";
     let group = crate::decks::configuration_group(pool, &row.owner_id, &row.id).await?;
     let listed: Vec<_> = group
         .iter()
@@ -673,17 +696,17 @@ pub(crate) async fn shared_deck(pool: &SqlitePool, token: &str) -> AppResult<Sha
         .filter_map(|g| {
             Some(SharedLink {
                 token: g.share_token.clone()?,
-                label: display_configuration(g.configuration.as_deref(), &g.name, g.id == group[0].id),
+                label: public_text(&display_configuration(g.configuration.as_deref(), &g.name, g.id == group[0].id), public),
                 current: g.id == row.id,
             })
         })
         .collect();
     Ok(SharedDeck {
         sharer,
-        name: row.name,
+        name: public_text(&row.name, public),
         token: token.to_string(),
         bracket: row.bracket,
-        description: row.description,
+        description: row.description.map(|d| public_text(&d, public)),
         updated_at: row.updated_at,
         commanders,
         color_identity: "WUBRG".chars().filter(|c| identity.contains(*c)).collect(),
@@ -787,7 +810,7 @@ fn legacy_configuration(label: &str) -> bool {
 pub(crate) async fn profile_decks(pool: &SqlitePool, owner: &str) -> AppResult<Vec<ProfileDeck>> {
     let rows: Vec<PublicRow> = sqlx::query_as(
         "SELECT id, name, share_token, parent_id, configuration, current_version_id FROM decks
-         WHERE owner_id = ? AND archived = 0 AND visibility = 'public' AND share_token IS NOT NULL
+         WHERE owner_id = ? AND archived = 0 AND visibility = 'public' AND taken_down_at IS NULL AND share_token IS NOT NULL
          ORDER BY lower(name)",
     )
     .bind(owner)
@@ -799,19 +822,19 @@ pub(crate) async fn profile_decks(pool: &SqlitePool, owner: &str) -> AppResult<V
         let mut configurations: Vec<(String, String)> = rows
             .iter()
             .filter(|c| c.parent_id.as_deref() == Some(r.id.as_str()))
-            .map(|c| (c.share_token.clone(), display_configuration(c.configuration.as_deref(), &c.name, false)))
+            .map(|c| (c.share_token.clone(), public_text(&display_configuration(c.configuration.as_deref(), &c.name, false), true)))
             .collect();
         configurations.sort_by_key(|c| (c.1 != "Stock", c.1.to_lowercase()));
         let face = deck_face(pool, r.current_version_id.as_deref()).await?;
         // A configuration listed on its own (its main deck isn't public) keeps its full name.
         out.push(ProfileDeck {
             token: r.share_token.clone(),
-            name: r.name.clone(),
+            name: public_text(&r.name, true),
             commanders: face.commanders,
             color_identity: face.color_identity,
             art: face.art,
             card_count: face.card_count,
-            label: display_configuration(r.configuration.as_deref(), &r.name, r.parent_id.is_none()),
+            label: public_text(&display_configuration(r.configuration.as_deref(), &r.name, r.parent_id.is_none()), true),
             configurations,
         });
     }

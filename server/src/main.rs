@@ -24,6 +24,7 @@ mod games;
 mod guests;
 mod lab;
 mod limits;
+mod moderation;
 mod mcp;
 mod mpc;
 mod oauth;

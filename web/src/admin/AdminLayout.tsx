@@ -11,6 +11,7 @@ const ADMIN_PAGES = [
   { to: "/admin/server", label: "Server" },
   { to: "/admin/lab", label: "Lab runs" },
   { to: "/admin/bugs", label: "Bug reports" },
+  { to: "/admin/moderation", label: "Moderation" },
 ];
 
 /** The admin area (admins only; the server also refuses everyone else). */
