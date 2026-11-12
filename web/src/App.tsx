@@ -1,5 +1,5 @@
 import { useEffect, useRef, type ReactNode } from "react";
-import { Link, Navigate, Outlet, Route, Routes, useLocation, useMatch } from "react-router";
+import { Link, Navigate, Outlet, Route, Routes, useLocation, useMatch, useNavigate } from "react-router";
 import { chooseGuest, useGuestChosen } from "./guest";
 import { afterSignIn, Login, useMe } from "./auth";
 import { useGuestSession } from "./guestPlay";
@@ -166,6 +166,7 @@ export function App() {
   useRestoreHosting(me.data?.id ?? null);
   const guestChosen = useGuestChosen();
   const { search } = useLocation();
+  const navigate = useNavigate();
   const answered = useRef(false);
   if (!me.isPending) answered.current = true;
   // An account's cached data leaves this tab when the account signs out or another signs in
@@ -213,8 +214,17 @@ export function App() {
           </h1>
           <ErrorText error={me.error} />
           <p className="dim">The server didn't answer. If you're offline, the life counter still works: signed in on this device before, or without an account.</p>
-          {/* Counting without an account needs nothing from the server. */}
-          <Button variant="primary" onClick={() => chooseGuest(true)}>Count life without an account</Button>
+          {/* Counting without an account needs nothing from the server: straight to the life
+              counter's setup, not Home, whose way in can't work offline. */}
+          <Button
+            variant="primary"
+            onClick={() => {
+              chooseGuest(true);
+              void navigate("/play/table", { replace: true });
+            }}
+          >
+            Count life without an account
+          </Button>
         </div>
       </main>
     );

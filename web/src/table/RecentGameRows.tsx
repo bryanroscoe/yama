@@ -11,7 +11,8 @@ import { useCardArt } from "../components/useCardArt";
 import { recentGameText, turnsText, winningSeat } from "./recent";
 import "./home.css";
 
-export function RecentGameRows({ games: shown }: { games: GameRow[] }) {
+/** `from`: where a game's page goes back to, when that isn't the life counter's setup. */
+export function RecentGameRows({ games: shown, from }: { games: GameRow[]; from?: string }) {
   const winnerShown = winningSeat;
   const art = useCardArt(shown.flatMap((g) => (winnerShown(g) ? [winnerShown(g)!] : g.seats).map((s) => s.commander_name)));
   const seatArt = (g: GameRow) => g.seats.map((s) => art.get(s.commander_name ?? "")).filter((a) => !!a?.art).slice(0, 4);
@@ -28,7 +29,7 @@ export function RecentGameRows({ games: shown }: { games: GameRow[] }) {
           return (
             <li key={g.id}>
               {/* An online game keeps its replay with the online board; a table game has its own page. */}
-              <Link className="rg-row" to={g.mode === "in_person" ? `/table/games/${g.id}` : `/play/${g.id}`} aria-label={`${text.title}${text.with ? ` with ${text.with}` : ""}, ${fmtDate(g.started_at, { year: false })}. Details`}>
+              <Link className="rg-row" state={from ? { history: from } : undefined} to={g.mode === "in_person" ? `/table/games/${g.id}` : `/play/${g.id}`} aria-label={`${text.title}${text.with ? ` with ${text.with}` : ""}, ${fmtDate(g.started_at, { year: false })}. Details`}>
               {winner ? (
                 <span className="rg-art">{a?.art && <CardThumb src={a.art} />}</span>
               ) : (

@@ -1,8 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { lastTouched, resumesOnOpen, RESUME_WITHIN_MS } from "./resume";
+import { isOpening, lastTouched, opened, resumesOnOpen, RESUME_WITHIN_MS, visitBeganAt } from "./resume";
 
 const at = (iso: string) => Date.parse(iso);
 const game = (startedAt: string, touched: string[] = []) => ({ setup: { startedAt } as never, log: touched.map((t, i) => ({ seq: i + 1, at: t, event: { type: "pass" } as never })) });
+
+describe("the visit's first look at Home", () => {
+  it("is only on a visit that began at Home, and only until Home has been shown once", () => {
+    visitBeganAt("/");
+    expect(isOpening()).toBe(true);
+    // Asking doesn't use it up: a second render of the same first look still sees it.
+    expect(isOpening()).toBe(true);
+    opened();
+    expect(isOpening()).toBe(false);
+    opened();
+    expect(isOpening()).toBe(false);
+  });
+
+  it("isn't on a visit that began on another page and came Home later", () => {
+    for (const path of ["/decks", "/play/table", "/table/play", "/signin"]) {
+      visitBeganAt(path);
+      expect(isOpening(), path).toBe(false);
+    }
+  });
+});
 
 describe("opening Yama on a game in progress", () => {
   it("goes by when the game was last touched, not when it started", () => {

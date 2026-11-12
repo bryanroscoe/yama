@@ -1,7 +1,7 @@
 // Opening Yama with a game in progress goes straight to it (Bryan, 12 Nov 2026): the life
 // counter's game on this device, if someone touched it lately. A game left on the device from
-// another night stays on Home as a card to go back to or discard, so an old game never takes
-// over every visit.
+// another night stays on Home as a card to go back to, so an old game never takes over every
+// visit.
 import type { LocalGame } from "./store";
 
 /** How lately a game was touched for Yama to open on it: a long game night. */
@@ -21,7 +21,13 @@ export function resumesOnOpen(game: Pick<LocalGame, "setup" | "log"> | null | un
 }
 
 // True only for the page load that opened Yama at `/`, until Home has been on screen once.
-let opening = typeof location !== "undefined" && location.pathname === "/";
+let opening = false;
+
+/** A visit began at `pathname`: only one that began at Home can open on a game. */
+export function visitBeganAt(pathname: string) {
+  opening = pathname === "/";
+}
+if (typeof location !== "undefined") visitBeganAt(location.pathname);
 
 /** Whether this is the first look at Home on a visit that opened there. */
 export const isOpening = () => opening;

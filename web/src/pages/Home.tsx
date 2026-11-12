@@ -1,6 +1,6 @@
 // Home (`/`): where Yama opens and where the wordmark goes (Bryan, 12 Nov 2026). Signed out it
 // says what Yama is and lists what works without an account. Signed in it puts a game in progress
-// on top, then starting a game, your recent decks and your playgroup's latest games. The life
+// on top, then starting a game, your recent decks and the latest games you played in. The life
 // counter's setup, which used to be this page, is at /play/table.
 import { useQuery } from "@tanstack/react-query";
 import { fmtDateTime } from "@yama/core";
@@ -9,10 +9,11 @@ import { Link, Navigate } from "react-router";
 import { api, publicOrigin, type DeckSummary, type GameRow } from "../api";
 import { useMe } from "../auth";
 import { artCredits } from "../components/ArtPanel";
-import { ButtonLink, CardThumb, EmptyState, ErrorText } from "../components/ui";
+import { ButtonLink, CardThumb, EmptyState, Loading } from "../components/ui";
 import { gameSummary } from "../table/history";
 import { RecentGameRows } from "../table/RecentGameRows";
 import { isOpening, opened, resumesOnOpen } from "../table/resume";
+import { SharedTables } from "../table/SharedTables";
 import { usePendingDeletes, useTable } from "../table/store";
 import "./homePage.css";
 
@@ -44,16 +45,45 @@ export function HomePage() {
   return me.data ? <SignedInHome /> : <SignedOutHome />;
 }
 
+/**
+ * The life counter's game on this device, to go back to: "in progress" if it was touched lately,
+ * otherwise a saved game that may not be the one being played. Nothing once it has finished.
+ */
+function GameCard() {
+  const { game, state } = useTable();
+  if (!game || !state || state.finished) return null;
+  const recent = resumesOnOpen(game, Date.now());
+  return (
+    <section className="home-resume" aria-labelledby="home-resume-title">
+      <div>
+        <h2 id="home-resume-title">{recent ? "Game in progress" : "Saved game on this device"}</h2>
+        <p>{gameSummary(state)}</p>
+        <p className="small dim">Started {fmtDateTime(game.setup.startedAt)}, on this device.{recent ? "" : " Go back to it only if this is the game you’re playing."}</p>
+      </div>
+      <ButtonLink variant="primary" to="/table/play">Back to the table</ButtonLink>
+    </section>
+  );
+}
+
+/** Whether this device has a life counter game to go back to (the view's one primary action). */
+function useGoing(): boolean {
+  const { game, state } = useTable();
+  return !!game && !!state && !state.finished;
+}
+
 function SignedOutHome() {
+  const going = useGoing();
   return (
     <main className="page home-page">
       <header className="home-intro">
         <h1>Commander, at your table.</h1>
         <p className="home-lede">Yama is a free Magic: The Gathering app for Commander players. Count life, look up cards and compare precons without an account. Sign in to keep your decks, your collection and your playgroup's games.</p>
         <p>
-          <ButtonLink variant="primary" to="/signin">Sign in</ButtonLink>
+          {/* One primary: going back to a game counted here without an account, else the way in. */}
+          <ButtonLink variant={going ? "outline" : "primary"} to="/signin">Sign in</ButtonLink>
         </p>
       </header>
+      <GameCard />
       <section aria-labelledby="home-open-title">
         <h2 id="home-open-title">No account needed</h2>
         <div className="home-links">
@@ -74,7 +104,8 @@ function SignedOutHome() {
 }
 
 function SignedInHome() {
-  const { game, state } = useTable();
+  const { game } = useTable();
+  const going = useGoing();
   const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
   const games = useQuery({ queryKey: ["games"], queryFn: ({ signal }) => api<GameRow[]>("/api/games", { signal }) });
   // A game deleted while offline stays out of the list until Yama catches up.
@@ -83,20 +114,12 @@ function SignedInHome() {
   const recent = decks.data?.filter((d) => !d.parent_id).sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, RECENT_DECKS);
   const latest = games.data?.filter((g) => !deleting.includes(g.id)).slice(0, LATEST_GAMES);
   const pictured = recent?.filter((d) => d.commander_image) ?? [];
-  const going = !!game && !!state && !state.finished;
   return (
     <main className="page home-page">
       <h1>Home</h1>
-      {going && (
-        <section className="home-resume" aria-labelledby="home-resume-title">
-          <div>
-            <h2 id="home-resume-title">Game in progress</h2>
-            <p>{gameSummary(state)}</p>
-            <p className="small dim">Started {fmtDateTime(game.setup.startedAt)}, on this device.</p>
-          </div>
-          <ButtonLink variant="primary" to="/table/play">Back to the table</ButtonLink>
-        </section>
-      )}
+      {/* A table followed from another device, and the playgroup's shared tables under way. */}
+      <SharedTables localGameId={game?.setup.id} />
+      <GameCard />
       <section aria-labelledby="home-start-title">
         <h2 id="home-start-title">Start a game</h2>
         <div className="home-start">
@@ -108,7 +131,9 @@ function SignedInHome() {
       </section>
       <section aria-labelledby="home-decks-title">
         <h2 id="home-decks-title">Your recent decks</h2>
-        <ErrorText error={decks.error} />
+        {decks.isPending && <Loading>Loading your decks…</Loading>}
+        {/* Home opens offline too: a quiet line, not an alarm, when Yama can't be reached. */}
+        {decks.isError && !decks.data && <p className="dim">Your decks will show here when Yama can be reached.</p>}
         {recent?.length === 0 && (
           <EmptyState
             variant="compact"
@@ -143,10 +168,11 @@ function SignedInHome() {
         )}
       </section>
       <section aria-labelledby="home-games-title">
-        <h2 id="home-games-title">Your playgroup's latest games</h2>
-        <ErrorText error={games.error} />
+        <h2 id="home-games-title">Your latest games</h2>
+        {games.isPending && <Loading>Loading your games…</Loading>}
+        {games.isError && !games.data && <p className="dim">Your games will show here when Yama can be reached.</p>}
         {latest?.length === 0 && <p className="dim">No games yet. A game you finish on the life counter, play online or log shows up here.</p>}
-        {!!latest?.length && <RecentGameRows games={latest} />}
+        {!!latest?.length && <RecentGameRows games={latest} from="/" />}
         <p className="home-more">
           <Link to="/table/games">All games</Link>
           <Link to="/group">Playgroup stats</Link>

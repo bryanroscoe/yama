@@ -21,7 +21,8 @@ Online play is in alpha: expect bugs and slow turns.
 Home (`/`, where the wordmark goes) is where Yama opens. Signed out it says what Yama is and
 lists what works without an account: the life counter, a game against the computer, precons,
 commanders and card search. Signed in it puts a life counter game in progress on top, then
-starting a game, your four most recently changed decks and your playgroup's latest three games.
+starting a game, your four most recently changed decks and the latest three games you played
+in. A table you follow from another device and your playgroup's shared tables show there too.
 Opening Yama with a life counter game touched in the last 12 hours goes straight to that game.
 The life counter's setup is at `/play/table` (it was `/`; `/table` redirects there).
 

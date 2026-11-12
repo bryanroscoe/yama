@@ -9,6 +9,7 @@ const table = vi.hoisted(() => ({ game: null as unknown, state: null as unknown,
 vi.mock("../table/store", () => ({ useTable: () => ({ game: table.game, state: table.state }), usePendingDeletes: () => ["deleted"] }));
 vi.mock("../table/resume", () => ({ isOpening: () => table.opening, opened: () => {}, resumesOnOpen: () => table.recent }));
 vi.mock("../components/useCardArt", () => ({ useCardArt: () => new Map() }));
+vi.mock("../table/SharedTables", () => ({ SharedTables: () => <p>Shared tables</p> }));
 // A redirect draws nothing in a static render: show where it goes.
 vi.mock("react-router", async (original) => ({ ...(await original<typeof import("react-router")>()), Navigate: ({ to }: { to: string }) => <p>Goes to {to}</p> }));
 
@@ -56,10 +57,17 @@ describe("Home, signed out", () => {
     expect(hrefs(html)).toEqual(["/signin", "/play/table", "/play", "https://yama.ing/precons", "https://yama.ing/commanders", "/cards"]);
   });
 
-  it("shows nothing of an account's: no decks, games or game in progress", () => {
-    Object.assign(table, going);
+  it("shows nothing of an account's: no decks, games or shared tables", () => {
     const html = home({ me: null, decks: [deck("a")], games: [game("g1")] });
-    for (const text of ["Deck a", "Kelly", "Your recent decks", "Game in progress", "latest games"]) expect(html).not.toContain(text);
+    for (const text of ["Deck a", "Kelly", "Your recent decks", "Game in progress", "latest games", "Shared tables"]) expect(html).not.toContain(text);
+  });
+
+  it("offers the way back to a game counted here without an account, as the one primary action", () => {
+    Object.assign(table, going);
+    const html = home({ me: null });
+    expect(html).toMatch(/<a class="button primary"[^>]*href="\/table\/play"[^>]*>Back to the table<\/a>/);
+    expect(html).toMatch(/<a class="button outline"[^>]*href="\/signin"[^>]*>Sign in<\/a>/);
+    expect(html.match(/class="button primary"/g)).toHaveLength(1);
   });
 });
 
@@ -67,9 +75,11 @@ describe("Home, signed in", () => {
   it("offers starting a game, your recent decks and your playgroup's latest games", () => {
     const html = home({ decks: [deck("a")], games: [game("g1")] });
     expect(html).toContain("<h1>Home</h1>");
-    for (const title of ["Start a game", "Your recent decks", "Your playgroup&#x27;s latest games"]) expect(html).toContain(title);
+    for (const title of ["Start a game", "Your recent decks", "Your latest games", "Shared tables"]) expect(html).toContain(title);
     expect(html).toMatch(/<a class="button primary"[^>]*href="\/play\/table"[^>]*>Count life at the table<\/a>/);
     for (const path of ["/play", "/decks/a", "/decks", "/table/games/g1", "/table/games", "/group"]) expect(html).toContain(`href="${path}"`);
+    // Nothing is waiting or failing, so nothing says so.
+    for (const text of ["Loading", "can be reached", 'role="alert"']) expect(html).not.toContain(text);
     expect(html).not.toContain("Game in progress");
     expect(html).not.toContain("No account needed");
   });
@@ -128,8 +138,11 @@ describe("opening Yama with a game in progress", () => {
   it("shows Home when coming back to it later, for a game left from another night, and for a finished one", () => {
     Object.assign(table, going, { opening: false });
     expect(home()).toContain("<h1>Home</h1>");
+    // Left from another night: a saved game to go back to, not one in progress.
     Object.assign(table, { opening: true, recent: false });
-    expect(home()).toContain("Game in progress");
+    expect(home()).toContain("Saved game on this device");
+    expect(home()).toContain("only if this is the game you’re playing");
+    expect(home()).not.toContain("Game in progress");
     Object.assign(table, { recent: true, state: { ...going.state, finished: true } });
     expect(home()).toContain("<h1>Home</h1>");
     Object.assign(table, { game: null, state: null });

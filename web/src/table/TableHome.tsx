@@ -3,7 +3,7 @@ import { FORMATS, formatLabel, type FunRating, type PlayerSetup, type TableForma
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { api, type DeckSummary, type GameDetail, type GameRow, type Playgroup } from "../api";
-import { useMe } from "../auth";
+import { signInPath, useMe } from "../auth";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { Button, ButtonLink, CheckRow, Dialog, ErrorText, Loading, PageHeader, Pips, Segmented } from "../components/ui";
 import { FirstPlayerPicker, FunPicker, KnockoutPicker, NotePicker, WinConditionPicker, type KnockoutAnswer } from "../components/GameCapture";
@@ -175,7 +175,8 @@ function GuestBanner() {
           {" "}Games stay on this device{games.length ? ` (${games.length} so far)` : ""}. Sign in to share the table and keep your games and decks.
         </span>
       </p>
-      <ButtonLink variant="primary" to="/signin">Sign in</ButtonLink>
+      {/* Back here once signed in, where the games counted as a guest are offered to the account. */}
+      <ButtonLink variant="primary" to={signInPath("/play/table")}>Sign in</ButtonLink>
     </aside>
   );
 }
