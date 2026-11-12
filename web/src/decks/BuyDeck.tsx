@@ -2,7 +2,7 @@
 import { plural, shortDate, usd } from "@yama/core";
 import { useId, useState } from "react";
 import type { DeckEntry } from "../api";
-import { CopyButton, Segmented } from "../components/ui";
+import { ButtonLink, CopyButton, Segmented } from "../components/ui";
 import { buyList, type BuyWhat } from "./buyList";
 
 export function BuyDeck({ cards }: { cards: DeckEntry[] }) {
@@ -39,16 +39,16 @@ export function BuyDeck({ cards }: { cards: DeckEntry[] }) {
       </p>
       <p className="buy-deck-links">
         {list.tcgplayer && (
-          <a className="button outline" href={list.tcgplayer} target="_blank" rel="noreferrer">
+          <ButtonLink variant="outline" href={list.tcgplayer} target="_blank" rel="noreferrer">
             Open in TCGplayer Mass Entry
-          </a>
+          </ButtonLink>
         )}
         {list.cardKingdom && (
-          <a className="button outline" href={list.cardKingdom} target="_blank" rel="noreferrer">
+          <ButtonLink variant="outline" href={list.cardKingdom} target="_blank" rel="noreferrer">
             Open in Card Kingdom's deck builder
-          </a>
+          </ButtonLink>
         )}
-        <CopyButton text={list.paste} label="Copy the list" className="button outline" />
+        <CopyButton text={list.paste} label="Copy the list" variant="outline" />
       </p>
       {(!list.tcgplayer || !list.cardKingdom) && (
         <p className="small dim">This list is too long for a link. Copy it, then paste it into TCGplayer's Mass Entry or Card Kingdom's deck builder.</p>

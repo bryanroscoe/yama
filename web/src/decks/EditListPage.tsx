@@ -225,7 +225,7 @@ function EditList({ id }: { id: string }) {
       ) : (
         <>
           <p>This list is written in another site's format, so Add and Remove can't change it a line at a time.</p>
-          <button type="button" onClick={() => edit(tidyText(draft))}>Rewrite it in Yama's format</button>
+          <Button onClick={() => edit(tidyText(draft))}>Rewrite it in Yama's format</Button>
           <p className="small dim">Keeps every card, its board and its printing. Comments and other sites' tags are dropped.</p>
         </>
       )}

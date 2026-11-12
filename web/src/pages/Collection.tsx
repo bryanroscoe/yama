@@ -513,7 +513,7 @@ export function DeleteContainer({ container, onClose, onDeleted }: { container: 
         <h2>Delete “{container.name}”?</h2>
         <p>Any cards inside will stay in your collection as loose cards. Saved decks and their lists will stay too.</p>
         <div className="row">
-          <Button className="coll-danger" disabled={remove.isPending} onClick={() => remove.mutate()}>{remove.isPending ? "Deleting…" : `Delete ${label}`}</Button>
+          <Button variant="destructive" disabled={remove.isPending} onClick={() => remove.mutate()}>{remove.isPending ? "Deleting…" : `Delete ${label}`}</Button>
           <Button variant="quiet" disabled={remove.isPending} onClick={onClose}>Cancel</Button>
         </div>
         <ErrorText error={remove.error} />

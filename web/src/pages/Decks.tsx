@@ -304,7 +304,7 @@ export function DeckPage() {
     <Button onClick={() => setDescribing(true)}>{d.description ? "Edit the description" : "Add a description"}</Button>
     {askOffered && <AskClaudeButton onClick={() => setAsking(true)} />}
     <MenuSeparator />
-    <Button className="deck-delete" onClick={() => setDeleting(true)}>{deleteWording(d).action}</Button>
+    <Button danger onClick={() => setDeleting(true)}>{deleteWording(d).action}</Button>
   </>;
 
   return (

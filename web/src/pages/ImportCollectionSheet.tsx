@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, type Container } from "../api";
 import { CopyButton } from "../components/CopyButton";
-import { Details, Dialog, ErrorText, Loading } from "../components/ui";
+import { Button, Details, Dialog, ErrorText, Loading } from "../components/ui";
 import "../decks/collect.css";
 import {
   chosenPlace,
@@ -92,8 +92,8 @@ export function ImportCollectionSheet({ containers, onClose, onMythic }: { conta
             {file ? (
               <p>
                 {file.name}{" "}
-                <button
-                  className="quiet small"
+                <Button
+                  variant="quiet" size="small"
                   onClick={() => {
                     setFile(null);
                     setCheck(null);
@@ -101,7 +101,7 @@ export function ImportCollectionSheet({ containers, onClose, onMythic }: { conta
                   }}
                 >
                   Paste a list instead
-                </button>
+                </Button>
               </p>
             ) : (
               <label>
@@ -147,10 +147,10 @@ export function ImportCollectionSheet({ containers, onClose, onMythic }: { conta
             </label>
             {!file && !check && (
               <div className="row">
-                <button className="primary" disabled={!pasted.trim()} onClick={() => start(pasted, null)}>
+                <Button variant="primary" disabled={!pasted.trim()} onClick={() => start(pasted, null)}>
                   Check the list
-                </button>
-                <button className="quiet" onClick={onClose}>Cancel</button>
+                </Button>
+                <Button variant="quiet" onClick={onClose}>Cancel</Button>
               </div>
             )}
           </>
@@ -161,30 +161,30 @@ export function ImportCollectionSheet({ containers, onClose, onMythic }: { conta
         {r && !result && r.source === "a Mythic Tools export" && (
           <p>
             This is a Mythic Tools export. Its own import also keeps its boxes and decks.{" "}
-            <button className="quiet small" onClick={onMythic}>Import from Mythic Tools</button>
+            <Button variant="quiet" size="small" onClick={onMythic}>Import from Mythic Tools</Button>
           </p>
         )}
         {r && !result && (
           <div className="row">
-            <button className="primary" disabled={apply.isPending || preview.isFetching || r.added === 0 || needsName} onClick={() => apply.mutate()}>
+            <Button variant="primary" disabled={apply.isPending || preview.isFetching || r.added === 0 || needsName} onClick={() => apply.mutate()}>
               {apply.isPending ? "Importing…" : r.added ? `Add ${count(r.added)} ${r.added === 1 ? "card" : "cards"}` : "Nothing to add"}
-            </button>
+            </Button>
             {/* A list imported before adds nothing. Buying the same cards again is a reason to ask for it anyway. */}
             {r.already_imported && r.added === 0 && r.copies > 0 && !again && (
-              <button className="outline" disabled={preview.isFetching} onClick={() => setAgain(newAgain())}>Add them again</button>
+              <Button variant="outline" disabled={preview.isFetching} onClick={() => setAgain(newAgain())}>Add them again</Button>
             )}
-            <button className="quiet" onClick={onClose}>Cancel</button>
+            <Button variant="quiet" onClick={onClose}>Cancel</Button>
             {needsName && <span className="dim small">Name the new box first.</span>}
           </div>
         )}
         {result && (
           <div className="row">
-            <button className="primary" onClick={onClose}>Done</button>
+            <Button variant="primary" onClick={onClose}>Done</Button>
           </div>
         )}
         {!r && (
           <p className="dim small">
-            Coming from Mythic Tools? <button className="quiet small" onClick={onMythic}>Import from Mythic Tools</button> also brings its boxes and decks.
+            Coming from Mythic Tools? <Button variant="quiet" size="small" onClick={onMythic}>Import from Mythic Tools</Button> also brings its boxes and decks.
           </p>
         )}
       </div>
@@ -211,7 +211,7 @@ export function ImportReportView({ report: r, done }: { report: ImportReport; do
           <h3>Not added</h3>
           <ul className="collect-cards small">{r.unmatched.map((u, i) => <li key={i}>{unmatchedText(u)}</li>)}</ul>
           <div className="row">
-            <CopyButton className="outline small" text={unmatchedList(r)} label={r.unmatched.length === 1 ? "Copy this line" : "Copy these lines"} />
+            <CopyButton variant="outline" size="small" text={unmatchedList(r)} label={r.unmatched.length === 1 ? "Copy this line" : "Copy these lines"} />
           </div>
         </section>
       )}
