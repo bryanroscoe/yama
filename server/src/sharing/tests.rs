@@ -161,6 +161,9 @@ async fn a_public_deck_without_a_handle_is_public_by_link_and_joins_the_profile_
     let (bryan, bt) = user(&pool, "bryan@example.com").await;
     let (id, _) = deck(&pool, &bryan, "Riders of Rohan").await;
     let token = token_of(&pool, &id).await;
+    // A Google name nothing else on a page could spell.
+    sqlx::query("UPDATE users SET display_name = 'Zebediah Quillfeather' WHERE id = ?").bind(&bryan).execute(&pool).await.unwrap();
+    let nameless = |text: &str| !text.contains("Zebediah") && !text.contains("Quillfeather") && !text.contains("bryan@example.com");
     let (s, _) = send(&app, Method::PATCH, &format!("/api/decks/{id}"), Some(&bt), Some(json!({ "visibility": "public" }))).await;
     assert_eq!(s, StatusCode::OK);
 
@@ -168,9 +171,10 @@ async fn a_public_deck_without_a_handle_is_public_by_link_and_joins_the_profile_
     let (status, _, body) = page(&app, &format!("/d/{token}")).await;
     assert_eq!(status, StatusCode::OK);
     assert!(body.contains("Riders of Rohan"));
-    assert!(body.contains("Shared on Yama") && !body.contains("Shared by") && !body.contains("bryan@example.com"), "{body}");
+    assert!(body.contains("Shared on Yama") && !body.contains("Shared by") && nameless(&body), "{body}");
     let (s, shared) = send(&app, Method::GET, &format!("/api/public/decks/{token}"), None, None).await;
     assert_eq!((s, &shared["handle"]), (StatusCode::OK, &json!(null)));
+    assert!(nameless(&shared.to_string()), "{shared}");
 
     // Choosing a handle lists it on the profile; the deck itself was not touched.
     let before: (String, String) = sqlx::query_as("SELECT visibility, updated_at FROM decks WHERE id = ?").bind(&id).fetch_one(&pool).await.unwrap();
@@ -180,9 +184,9 @@ async fn a_public_deck_without_a_handle_is_public_by_link_and_joins_the_profile_
     assert_eq!(before, after);
     let (status, _, profile) = page(&app, "/u/saget").await;
     assert_eq!(status, StatusCode::OK);
-    assert!(profile.contains(&format!("/d/{token}")) && profile.contains("Riders of Rohan"), "{profile}");
+    assert!(profile.contains(&format!("/d/{token}")) && profile.contains("Riders of Rohan") && nameless(&profile), "{profile}");
     let (_, _, body) = page(&app, &format!("/d/{token}")).await;
-    assert!(body.contains("Shared by <a href=\"/u/saget\">@saget</a>"), "{body}");
+    assert!(body.contains("Shared by <a href=\"/u/saget\">@saget</a>") && nameless(&body), "{body}");
 }
 
 /// Every shared page names a card from card data by its id. A list stored before saves checked

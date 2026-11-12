@@ -442,6 +442,9 @@ export function SaveBar({
     },
     onSuccess: onSavedMany,
   });
+  // One save at a time: while "Add the deck" or "Add all" is on its way, neither can start again
+  // and the handle and the choice hold still, so two saves can never send two handles.
+  const busy = save.isPending || saveAll.isPending;
 
   return (
     <section className="import-save" aria-labelledby="imp-save">
@@ -482,7 +485,7 @@ export function SaveBar({
           </label>
         </div>
       )}
-      {mode === "new" && visibility && <VisibilityChoice value={visibility} onChange={setPicked} disabled={save.isPending || saveAll.isPending} />}
+      {mode === "new" && visibility && <VisibilityChoice value={visibility} onChange={setPicked} disabled={busy} />}
       {needsHandle && (
         <Field
           className="import-handle"
@@ -490,22 +493,22 @@ export function SaveBar({
           error={badHandle}
           hint={`Public decks are listed on your profile. ${HANDLE_HINT} Leave it blank and the deck is public by link until you pick one.`}
         >
-          <input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="yourname" maxLength={31} autoCapitalize="none" autoCorrect="off" spellCheck={false} />
+          <input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="yourname" maxLength={31} autoCapitalize="none" autoCorrect="off" spellCheck={false} disabled={busy} />
         </Field>
       )}
       <ErrorText error={save.error ?? saveAll.error} />
       <div className="import-save-row">
         {mode === "update" ? (
-          <Button variant="primary" disabled={!target || !current.data || current.isFetching || !c.ready || save.isPending} onClick={() => save.mutate()}>
+          <Button variant="primary" disabled={!target || !current.data || current.isFetching || !c.ready || busy} onClick={() => save.mutate()}>
             {save.isPending ? "Saving…" : "Save as a new version"}
           </Button>
         ) : (
-          <Button variant="primary" disabled={!c.ready || save.isPending || !!badHandle} onClick={() => save.mutate()}>
+          <Button variant="primary" disabled={!c.ready || busy || !!badHandle} onClick={() => save.mutate()}>
             {save.isPending ? "Adding…" : "Add the deck"}
           </Button>
         )}
         {mode === "new" && drafts.length > 1 && (
-          <Button disabled={!ready.length || saveAll.isPending || !!badHandle} onClick={() => saveAll.mutate()}>
+          <Button disabled={!ready.length || busy || !!badHandle} onClick={() => saveAll.mutate()}>
             {saveAll.isPending ? "Adding…" : `Add all ${ready.length} ready`}
           </Button>
         )}

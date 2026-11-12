@@ -4,6 +4,10 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// These tests wait out the page's real 700 ms pause before it reads a list, twice in some: give
+// a busy machine room rather than fail on the default five seconds.
+vi.setConfig({ testTimeout: 30_000 });
 import { ImportPage } from "./ImportPage";
 
 const server = vi.hoisted(() => ({
@@ -11,6 +15,10 @@ const server = vi.hoisted(() => ({
   startsAs: "public" as string,
   handle: "saget" as string | null,
   taken: false,
+  /** Two decks in one list, for "Add all". */
+  two: false,
+  /** While set, a handle save waits for it. */
+  hold: null as Promise<void> | null,
 }));
 
 const card = (oracle_id: string, name: string, board: string, extra: object = {}) => ({
@@ -26,13 +34,17 @@ vi.mock("../api", async (original) => ({
     server.sent.push({ path, method, json: init?.json });
     if (path === "/api/me/sharing" && method === "PUT") {
       if (server.taken) return Promise.reject(new Error("That handle is taken. Pick another."));
-      server.handle = (init?.json as { handle: string }).handle;
+      const handle = (init?.json as { handle: string }).handle;
+      return (server.hold ?? Promise.resolve()).then(() => {
+        server.handle = handle;
+        return { handle, new_deck_visibility: server.startsAs, collection_public: false, wants_public: false, wants_include_pending: false, share_lab_results: false, decks: { private: 0, link: 0, public: 0 } };
+      });
     }
     if (path === "/api/me/sharing") return Promise.resolve({ handle: server.handle, new_deck_visibility: server.startsAs, collection_public: false, wants_public: false, wants_include_pending: false, share_lab_results: false, decks: { private: 0, link: 0, public: 0 } });
     if (path === "/api/decks/import/preview")
       return Promise.resolve({
         format: null, format_label: null, link: null, skipped: [],
-        decks: [{ name: "Riders of Rohan", unknown: [], commander_marked: true, commander_guessed: false, cards: [card("o-cmd", "Test Commander", "commander", { can_be_commander: true, type_line: "Legendary Creature" }), card("o-sol", "Sol Ring", "main")] }],
+        decks: (server.two ? ["Riders of Rohan", "Second deck"] : ["Riders of Rohan"]).map((name) => ({ name, unknown: [], commander_marked: true, commander_guessed: false, cards: [card("o-cmd", "Test Commander", "commander", { can_be_commander: true, type_line: "Legendary Creature" }), card("o-sol", "Sol Ring", "main")] })),
       });
     if (path === "/api/decks" && method === "POST") return Promise.resolve({ id: "d1" });
     if (path === "/api/decks") return Promise.resolve([]);
@@ -51,6 +63,8 @@ beforeEach(() => {
   server.startsAs = "public";
   server.handle = "saget";
   server.taken = false;
+  server.two = false;
+  server.hold = null;
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -66,7 +80,7 @@ afterEach(() => {
 
 /** Let the page settle (the list is read 700 ms after typing stops) until `ready` holds. */
 async function until(ready: () => boolean, what: string) {
-  for (let i = 0; i < 80 && !ready(); i++) await act(() => new Promise((r) => setTimeout(r, 50)));
+  for (let i = 0; i < 300 && !ready(); i++) await act(() => new Promise((r) => setTimeout(r, 50)));
   if (!ready()) throw new Error(`timed out waiting for ${what}`);
 }
 
@@ -178,6 +192,29 @@ describe("a first public deck's handle", () => {
     await act(async () => button("Add the deck")!.click());
     await until(() => host.textContent!.includes("That handle is taken"), "the refusal");
     expect(calls("/api/decks", "POST")).toHaveLength(0);
+  });
+
+  it("holds both save buttons and the handle while a save is on its way, so two saves can't send two handles", async () => {
+    server.handle = null;
+    server.two = true;
+    let release = () => {};
+    server.hold = new Promise<void>((r) => (release = r));
+    const router = await open();
+    type(list);
+    await until(() => !!button("Add all 2 ready") && !!handleBox(), "both decks to be read");
+    typeHandle("alpha");
+    await act(async () => button("Add all 2 ready")!.click());
+    // The handle save hasn't answered yet.
+    await until(() => !!button("Adding…"), "the save to start");
+    const all = [...host.querySelectorAll("button")];
+    expect(all.find((b) => b.textContent === "Add the deck")!.disabled).toBe(true);
+    expect(all.find((b) => b.textContent === "Adding…")!.disabled).toBe(true);
+    expect(handleBox()!.disabled).toBe(true);
+    act(() => all.find((b) => b.textContent === "Add the deck")!.click());
+    await act(async () => release());
+    await until(() => router.state.location.pathname === "/decks", "the save");
+    expect(calls("/api/me/sharing", "PUT").map((c) => c.json)).toEqual([{ handle: "alpha" }]);
+    expect(calls("/api/decks", "POST")).toHaveLength(2);
   });
 
   it("is optional: left blank, the deck is saved public and no handle is sent", async () => {
