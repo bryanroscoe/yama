@@ -31,7 +31,7 @@ cd "$DEPLOY_DIR/.."
 . "$DEPLOY_DIR/target.sh"
 DIR=/mnt/user/appdata/yama-lab/forge
 CD=${COMMANDER_DECKS:-../commander-decks}
-FORGE_VERSION=2.0.15
+FORGE_VERSION=2.0.16
 XMX_MB=${FORGE_XMX_MB:-1536}
 
 cmd=${1:-}

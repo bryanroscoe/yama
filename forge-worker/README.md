@@ -11,9 +11,12 @@ Forge as a second engine for Yama's Lab runs (server/src/lab/forge.rs, deploy/Do
 - `forge_runner.py`, `common.py`: copies of commander-decks `scripts/sim/forge_runner.py` and `common.py`
   (commit 689dbc5). Keep them identical to those files; the worker only overrides where they write
   (`DECK_CACHE`, `WORK_ROOT`, the card index folder) and the seed it passes Forge.
-- Forge itself is Yama's own build, not a release: `deploy/Dockerfile.forge-worker` unpacks a pinned tarball
-  (forge-referee `dist/build-dist.sh`; current build `yama3`: yama2's Forge, master 3ead7e68 with AI speed fixes, see
-  forge-referee `patches/yama2/README.md`, plus `yama-serve.jar`). Results carry its label, `forge 2.0.16-745401a4+yama3.54567890`.
+- Forge is the 2.0.16 release plus the five retained Yama optimizations and the
+  reviewed shared-team poison-defense integration fix, source `559a7be0`.
+  `forge-referee/dist/build-dist.sh` builds `yama4` and recompiles `yama-serve.jar`
+  against that engine. The pinned package is SHA-256
+  `c77b32ebedaf37d890560c0f13fd9a54887ab2954d8e3681cd3cb46a2beccfab`;
+  results carry `forge 2.0.16-559a7be0+yama4.c77b32eb`.
 - `test_worker.py`: `python3 forge-worker/test_worker.py` (no Forge needed).
 
 Forge (https://github.com/Card-Forge/forge) is GPL-3.0 and runs as separate programs (its own JVMs). None of

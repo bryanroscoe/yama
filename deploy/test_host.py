@@ -1137,6 +1137,28 @@ class EngineDataPreflight(unittest.TestCase):
         self.assertEqual(self.verifier.call_args.args[1], 'candidate')
         self.assertEqual([a[1] for a in self.verifier.call_args.args[2]], [str(self.current), str(self.previous)])
 
+    def test_v0119_requires_its_exact_data_and_exports_a_second_context(self):
+        directory = self.source / 'runtime/v0119'
+        directory.mkdir()
+        old = self.data / 'engine/v0119.json'
+        old.write_bytes(b'frozen v0119 data')
+        (directory / 'historical.json').write_text(json.dumps({'card_sha256': hashlib.sha256(old.read_bytes()).hexdigest()}))
+        self.manifest['historical_v0119_file'] = old.name
+        (self.source / 'deploy/engine-data.json').write_text(json.dumps(self.manifest))
+        host.preflight_engine_data(self.source, self.service, 'candidate')
+        self.assertEqual([a[1] for a in self.verifier.call_args.args[2]],
+                         [str(self.current), str(self.previous), str(old)])
+        with patch.object(host, 'run') as run:
+            contexts = host.historical_build_context(self.source, self.root, self.root / 'repo', self.root / 'phase')
+            self.assertEqual(run.call_count, 2)
+            self.assertIn('historical-v0119-source=' + str(self.root / 'historical-v0119'), contexts)
+        old.write_bytes(b'incorrect data')
+        with self.assertRaisesRegex(host.Refused, 'Wrong historical v0.119'):
+            host.preflight_engine_data(self.source, self.service, 'candidate')
+        old.unlink()
+        with self.assertRaisesRegex(host.Refused, 'Missing.*historical v0.119'):
+            host.preflight_engine_data(self.source, self.service, 'candidate')
+
     def test_updated_host_supports_old_main_before_upgrade_merge(self):
         old = self.root / 'old-main'
         old.mkdir()
@@ -1242,6 +1264,25 @@ class EngineImagePreflight(unittest.TestCase):
         self.assertIn('sha256:candidate', args)
         self.assertIn('--verify-data', args[args.index('-c') + 1])
         self.assertEqual(cleanup.call_args.args[0][-1], args[args.index('--name') + 1])
+
+    def test_v0119_probe_checks_both_binaries_and_rejects_shadowing(self):
+        artifacts = [*self.artifacts, ('/data/v0119.json', '/host/data/v0119.json', 'c' * 64)]
+        with patch.object(host, 'run', return_value='[]') as run, patch.object(host.subprocess, 'run'):
+            host.verify_engine_image(self.service, 'candidate', artifacts)
+        args = run.call_args.args[0]
+        script = args[args.index('-c') + 1]
+        self.assertIn('historical-runtime-v0119.sha256', script)
+        self.assertIn('exec /usr/local/bin/historical-runtime-v0119 --verify-data "$5"', script)
+        self.assertEqual(args[-1], '/data/v0119.json')
+        self.assertEqual(args.count('--mount'), 3)
+        for target in ['/usr/local/bin/historical-runtime-v0119', '/usr/local/share/yama/historical-runtime-v0119.sha256']:
+            service = {**self.service, 'volumes': [{'type': 'bind', 'source': '/replacement', 'target': target}]}
+            with self.assertRaisesRegex(host.Refused, 'shadow'):
+                host.verify_engine_image(service, 'candidate', artifacts)
+        for key in ['YAMA_V0119_RUNTIME', 'YAMA_V0119_RUNTIME_DIGEST']:
+            service = {**self.service, 'environment': {key: '/data/unverified'}}
+            with self.assertRaisesRegex(host.Refused, 'override'):
+                host.verify_engine_image(service, 'candidate', artifacts)
 
     def test_probe_timeout_removes_only_its_container_and_fails_release(self):
         with patch.object(host, 'run', side_effect=['[]', host.Refused('timed out')]), \

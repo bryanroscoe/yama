@@ -639,11 +639,43 @@ fn the_owner_puts_a_card_on_top_or_bottom_of_their_library() {
 fn top_or_bottom_names_whose_library() {
     let e = engine();
     let (mut m, ids_) = table(&e, 2, &[("Grizzly Bears", At::Grave(1))]);
-    m.state.waiting_for = WaitingFor::TopOrBottomChoice { player: PlayerId(0), object_id: ids_[0] };
+    m.state.waiting_for = WaitingFor::TopOrBottomChoice { player: PlayerId(0), object_id: ids_[0], top_position: engine::types::ability::LibraryPosition::Top };
     let p = Pending::of(&filter_state_for_viewer(&m.state, PlayerId(0)), PlayerId(0), &[], &["Ana".into(), "Ben".into()]).unwrap();
     assert_eq!(p.prompt, "Put Grizzly Bears on the top or bottom of Ben's library?");
     assert!(p.admits(&Act::ChooseTopOrBottom { top: true }).is_ok());
     assert!(p.admits(&Act::SelectCards { cards: vec![ids_[0].0] }).is_err());
+    m.state.waiting_for = WaitingFor::TopOrBottomChoice {
+        player: PlayerId(0), object_id: ids_[0],
+        top_position: engine::types::ability::LibraryPosition::NthFromTop { n: 2 },
+    };
+    let p = Pending::of(&filter_state_for_viewer(&m.state, PlayerId(0)), PlayerId(0), &[], &["Ana".into(), "Ben".into()]).unwrap();
+    assert_eq!(p.prompt, "Put Grizzly Bears second from the top or on the bottom of Ben's library?");
+    assert_eq!(p.options.iter().map(|o| o.name.as_str()).collect::<Vec<_>>(), ["Second from top", "Bottom"]);
+    assert!(p.admits(&Act::ChooseTopOrBottom { top: true }).is_ok());
+}
+
+#[test]
+fn resolution_distributions_offer_a_subset_while_announced_targets_each_need_one() {
+    use engine::types::ability::{Effect, ResolvedAbility, TargetRef};
+    use engine::types::game_state::{DistributionScope, DistributionUnit};
+    let e = engine();
+    let (mut m, ids_) = table(&e, 3, &[("Grizzly Bears", At::Field)]);
+    let targets = vec![TargetRef::Player(PlayerId(0)), TargetRef::Player(PlayerId(1)), TargetRef::Player(PlayerId(2))];
+    let scopes = [
+        (DistributionScope::AnnouncedTargets, 3, 1),
+        (DistributionScope::ResolutionCandidates { pending_effect: Box::new(ResolvedAbility::new(
+            Effect::Unimplemented { name: "test".into(), description: None }, vec![], ids_[0], PlayerId(0),
+        )) }, 1, 0),
+    ];
+    for (scope, total, minimum) in scopes {
+        m.state.waiting_for = WaitingFor::DistributeAmong {
+            player: PlayerId(0), total, targets: targets.clone(), unit: DistributionUnit::Damage, scope,
+        };
+        let p = Pending::of(&filter_state_for_viewer(&m.state, PlayerId(0)), PlayerId(0), &[], &["Ana".into(), "Ben".into(), "Cy".into()]).unwrap();
+        assert_eq!(p.total, Some(total));
+        assert_eq!(p.options.len(), 3);
+        assert_eq!(p.per_option_min, Some(minimum));
+    }
 }
 
 #[test]

@@ -590,6 +590,30 @@ preserves records. Runtime packaging and executable validation are in
 its verified card data, not merely the existence of Git history. Guard-only rejection is not
 compatibility for a known supported historical identity.
 
+**Engine upgrade (11 November 2026):** Phase is synchronized with upstream v0.122
+while retaining the fork's hosted board, AI and parser changes that are not
+superseded upstream. A second frozen historical worker preserves the exact
+v0.119 adapter at Yama `4146a91a` / Phase `19be58d4` and its `cbd552b4` data;
+the existing v0.113 worker and source binding remain unchanged. Each generation
+has an independent process cache, source/executable binding and exact identity
+write fence. The v0.119 worker retains native controls, rewind and abandoned
+results; it does not load the v0.113 control shim. A separately pinned Yama
+result mapper derives public knockout facts and the win condition on that original
+runtime; its source is covered by the export binding. Historical persistence also
+clears knockouts removed by rewind. The original board carries
+its versioned JSON; current Phase board actions cannot enter old runtimes.
+Packaging supplies both historical binaries and host preflight verifies all
+three data artifacts. The host exporter must be separately installed before
+this application release. See [runtime packaging](runtime/README.md).
+
+Forge uses the stable 2.0.16 release (`583714b8`) plus the preserved custom
+patches and a team-combat blocker compatibility correction, at `559a7be0`.
+The `yama4` package rebuilds the existing referee/JVM harness against that
+source. Its content hash is pinned in `deploy/Dockerfile.forge-worker`; games
+report `forge 2.0.16-559a7be0+yama4.c77b32eb`, keeping the new source distinct
+from earlier `745401a4` results. Default, Experimental, Cautious and Reckless
+profiles, persistent-JVM reset and timeout replacement retain their contracts.
+
 **Game startup (2 November 2026):** loading the selected decks and account defaults
 precedes the write transaction. The lobby claim, runtime identity, seed, seats and
 initial replay commit together, so readers see a lobby until the saved game is
@@ -922,7 +946,7 @@ Companion comes before Play because it's smaller and we'd use it every game nigh
 
 ### How online play ended up working
 
-- **Engine:** upstream Phase v0.119.0+ (main `df87a7c`) with Yama's commits rebased on top (fork main `dd276b0`, re-pinned 30 Oct 2026; card data `cbd552b4`), in the private `bryanroscoe/yama-phase` repository (`../yama-phase` locally), wrapped by `play/` (`Engine`, `Match`). The fork carries the stable build, AI, stall, layer dependency, card and recovery fixes once kept as `patches/phase` (retired); the earlier v0.113.0-based fork is tagged `archive/pre-sync-20261028`, and the stacks it replaced since are `archive/pre-sync-20261030` (`ebb64e3`, 29 Oct) and `archive/pre-sync-20261030-2` (`b7520eb`). Deploys fetch `deploy/phase-repo` and build the exact published commit in `deploy/phase-rev`; production changes move the card export and replay version with that pin. A preserving optimization or test-only checkpoint may retain the preceding runtime version when the relevant inputs and replay behavior are unchanged. Simulation results carry their engine, card-data and runner identities, so different builds are not silently pooled. `soak` checks replay determinism. Historical measurements and remaining gaps are in [the recovery report](docs/engine-recovery-2026-10-25.md).
+- **Engine:** upstream Phase v0.122.0+ (main `c53dd8a8`, synchronized 11 Nov 2026) with Yama's custom commits rebased on top, in the public `bryanroscoe/yama-phase` repository (`../yama-phase` locally), wrapped by `play/` (`Engine`, `Match`). `deploy/phase-rev` and `deploy/engine-data.json` record the exact fork commit and card export. The fork carries the stable build, AI, stall, layer dependency, card and recovery fixes once kept as `patches/phase` (retired); the earlier v0.113.0-based fork is tagged `archive/pre-sync-20261028`, and the stacks it replaced since are `archive/pre-sync-20261030` (`ebb64e3`, 29 Oct) and `archive/pre-sync-20261030-2` (`b7520eb`). Deploys fetch `deploy/phase-repo` and build the exact published commit in `deploy/phase-rev`; production changes move the card export and replay version with that pin. A preserving optimization or test-only checkpoint may retain the preceding runtime version when the relevant inputs and replay behavior are unchanged. Simulation results carry their engine, card-data and runner identities, so different builds are not silently pooled. `soak` checks replay determinism. Historical measurements and remaining gaps are in [the recovery report](docs/engine-recovery-2026-10-25.md).
 - **Board:** until 2026-10-29 we didn't fork phase's 1,400-file client (now superseded: see "phase's own board" below). Since 2026-10-19 it follows the Night table artboards (design/screens/PlayBoard and PlayBoardPhone): opponents in turn order on their commander art, a turn strip with the stop ladder, square art tiles (a tapped tile turns its art, never its name), the hand fan and a right rail with the stack and one big button whose label says what it will do. Each decision is the engine's own option list (`AiDecisionContract`), the same list the AI chooses from, shown as plain-language buttons. Tapping a card filters the list to options for that card. The server sends each card's full-size image and rules text with every view, so any card can be read at full size (hover preview on desktop, a card sheet on phones). Every option is legal by construction, every engine decision type works from day one, and the UI can grow special cases (drag to attack, mana payment) later.
 - **Smart stops:** the server passes for a person unless:
   - it's their main phase,

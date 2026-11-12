@@ -2256,7 +2256,7 @@ export function ShortcutPanel({ p, draft, onDraft, ctx, compact, disabled }: Pro
           <span>times, and take priority there.</span>
         </div>
         {people}
-        <p className="dw-foot">Accepting lets it run {shortcutCount(s?.count)}. Shortening it names the place you'll make a different choice.</p>
+        <p className="dw-foot">Accepting lets it run {shortcutCount(s?.count, s?.iteration_count)}. Shortening it names the place you'll make a different choice.</p>
       </div>
     );
   }

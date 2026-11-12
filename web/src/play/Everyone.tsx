@@ -105,7 +105,7 @@ export function TogetherBody({ t, meta, Who, tone, you, compact }: {
         <div className="together" aria-label="The shortcut">
           {head}
           <span className="small">
-            {s.proposer === you ? "You propose" : `${Who(s.proposer)} proposes`} repeating it {shortcutCount(s.count)}.
+            {s.proposer === you ? "You propose" : `${Who(s.proposer)} proposes`} repeating it {shortcutCount(s.count, s.iteration_count)}.
             {s.grows?.length ? ` Grows without limit: ${s.grows.join(", ")}.` : ""}
           </span>
           <span className="together-rows">{s.responders.map(([seat, state]) => row(seat, word[state], state === "deciding"))}</span>

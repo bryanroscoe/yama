@@ -713,7 +713,7 @@ fn convert(shown: &[GameEvent], all: &[GameEvent], state: &GameState, lens: &mut
             GameEvent::CounterRemoved { object_id, counter_type, count } if *count > 0 => {
                 counters(&mut out, lens.seen(*object_id, &known), counter_type, -i64::from(*count))
             }
-            GameEvent::ControllerChanged { object_id, old_controller, new_controller } if old_controller != new_controller => {
+            GameEvent::ControllerChanged { object_id, old_controller, new_controller, evidence: _ } if old_controller != new_controller => {
                 Some(What::Control { card: lens.seen(*object_id, &known), from: old_controller.0, to: new_controller.0 })
             }
             GameEvent::Transformed { object_id } => Some(What::Transformed { card: lens.seen(*object_id, &known) }),

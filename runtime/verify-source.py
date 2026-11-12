@@ -1,6 +1,17 @@
 #!/usr/bin/env python3
 """Verify the exact source export before compiling it; expected digest comes from Yama's tree."""
-import hashlib, json, pathlib, sys
+import hashlib, json, pathlib, subprocess, sys
+
+def require_commit(repo, revision, source, option):
+    """Check availability before creating a partial historical source export."""
+    available = subprocess.run(['git', '-C', str(repo), 'cat-file', '-e', revision + '^{commit}'],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if available.returncode:
+        raise SystemExit(
+            f'{repo} has no commit {revision}. '
+            f'Obtain the original objects from {source} and pass that checkout with '
+            f'{option}. '
+            'Do not replace the manifest pin with a rewritten commit or publish archived history.')
 
 def source_digest(root):
     digest = hashlib.sha256()

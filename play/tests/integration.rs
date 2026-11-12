@@ -6,6 +6,7 @@ mod decisions;
 mod determinism;
 mod lab_regressions;
 mod lab_regressions_candidate;
+mod lab_regressions_v0122;
 mod llm_pilot;
 mod loading;
 mod starting_seat;

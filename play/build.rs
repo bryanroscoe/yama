@@ -25,7 +25,7 @@ fn main() {
     assert!(pin.len() == 40 && pin.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)), "invalid deployment Phase pin");
     verify_phase_source(pin);
     println!("cargo:rustc-env=YAMA_PLAY_PHASE_REV={pin}");
-    for p in ["build.rs", "src", "Cargo.toml", "../Cargo.toml", "../Cargo.lock", "../server/src", "../server/resources", "../server/migrations", "../server/build.rs", "../server/Cargo.toml", "../runtime/historical.json", "../runtime/historical-source.json", "../deploy/phase-rev"] {
+    for p in ["build.rs", "src", "Cargo.toml", "../Cargo.toml", "../Cargo.lock", "../server/src", "../server/resources", "../server/migrations", "../server/build.rs", "../server/Cargo.toml", "../runtime/historical.json", "../runtime/historical-source.json", "../runtime/v0119/historical.json", "../runtime/v0119/historical-source.json", "../deploy/phase-rev"] {
         println!("cargo:rerun-if-changed={p}");
     }
     for v in ["YAMA_LAB_RUNNER", "YAMA_LAB_GIT_SHA", "YAMA_LAB_GIT_DIRTY", "YAMA_PHASE_SOURCE_REV"] {
@@ -105,7 +105,7 @@ fn detect() -> String {
             }
         }
     }
-    match git(&["status", "--porcelain", "--", ".", "../server", "../Cargo.toml", "../Cargo.lock", "../runtime/historical.json", "../runtime/historical-source.json", "../deploy/phase-rev"]) {
+    match git(&["status", "--porcelain", "--", ".", "../server", "../Cargo.toml", "../Cargo.lock", "../runtime/historical.json", "../runtime/historical-source.json", "../runtime/v0119/historical.json", "../runtime/v0119/historical-source.json", "../deploy/phase-rev"]) {
         Some(s) if s.is_empty() => sha,
         _ => format!("{sha}-dirty-{hash}"),
     }
@@ -131,6 +131,8 @@ fn source_hash() -> String {
         ("server/Cargo.toml", dir.join("../server/Cargo.toml")),
         ("runtime/historical.json", dir.join("../runtime/historical.json")),
         ("runtime/historical-source.json", dir.join("../runtime/historical-source.json")),
+        ("runtime/v0119/historical.json", dir.join("../runtime/v0119/historical.json")),
+        ("runtime/v0119/historical-source.json", dir.join("../runtime/v0119/historical-source.json")),
         ("deploy/phase-rev", dir.join("../deploy/phase-rev")),
     ] {
         if path.is_file() {

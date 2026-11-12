@@ -4,7 +4,7 @@
 // so it's tested; Decide.tsx and Board.tsx draw them.
 
 import type { TimeMove } from "./answer";
-import type { Act, CardView, DungeonMap, OptionView, Pending } from "./types";
+import type { Act, CardView, DungeonMap, OptionView, Pending, ShortcutView } from "./types";
 
 /**
  * The act a special action option sends (the engine's own option, matched by the server):
@@ -115,8 +115,11 @@ export function timeChoices(step: "remove" | "add" | undefined): TimeMove[] {
 }
 
 /** A shortcut's count in words: "20 times", "until a player loses". */
-export function shortcutCount(count: number | undefined): string {
-  return count === undefined ? "until a player loses" : count === 1 ? "once" : `${count} times`;
+export function shortcutCount(count: number | undefined, iteration?: ShortcutView["iteration_count"]): string {
+  if (iteration === "WithoutEnd") return "without end (draw)";
+  if (iteration === "UntilLethal") return "until a player loses";
+  const repetitions = iteration?.Fixed ?? count;
+  return repetitions === undefined ? "until a player loses" : repetitions === 1 ? "once" : `${repetitions} times`;
 }
 
 /** Stepping a shortcut's stopping place (GRareRules): `null` is accepting the whole count. Down from accepting is the last place before the end; up from it stays. */

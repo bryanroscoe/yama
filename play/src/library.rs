@@ -10,6 +10,7 @@
 //! presses "Done looking".
 
 use engine::types::actions::{GameAction, LearnOption};
+use engine::types::ability::LibraryPosition;
 use engine::types::game_state::{GameState, WaitingFor};
 use engine::types::identifiers::ObjectId;
 use engine::types::player::PlayerId;
@@ -45,7 +46,7 @@ fn first_pick(candidates: &[GameAction]) -> Option<serde_json::Value> {
 /// The decisions this module describes, or `None` for any other.
 pub(crate) fn of(vs: &GameState, me: PlayerId, candidates: &[GameAction], names: &[String]) -> Option<Pending> {
     let p = match &vs.waiting_for {
-        WaitingFor::TopOrBottomChoice { player, object_id } if *player == me => {
+        WaitingFor::TopOrBottomChoice { player, object_id, top_position } if *player == me => {
             // CR 401.4: the top or the bottom of its owner's library.
             let name = Match::name_in(vs, object_id);
             let owner = vs.objects.get(object_id).map(|o| o.owner);
@@ -54,7 +55,26 @@ pub(crate) fn of(vs: &GameState, me: PlayerId, candidates: &[GameAction], names:
                 Some(o) => format!("{}'s", names.get(usize::from(o.0)).cloned().unwrap_or_else(|| format!("Player {}", o.0 + 1))),
                 None => "its owner's".to_string(),
             };
-            let mut p = Pending::new(Kind::Pick, Answer::ChooseTopOrBottom, "top_or_bottom", format!("Put {name} on the top or bottom of {whose} library?"), vec![word("top", "Top"), word("bottom", "Bottom")])
+            let (places, upper) = match top_position {
+                LibraryPosition::Top => ("on the top or bottom".to_string(), "Top".to_string()),
+                LibraryPosition::NthFromTop { n } => {
+                    let ordinal = match n {
+                        1 => "first".to_string(),
+                        2 => "second".to_string(),
+                        3 => "third".to_string(),
+                        _ => {
+                            let suffix = match n % 100 {
+                                11..=13 => "th",
+                                _ => match n % 10 { 1 => "st", 2 => "nd", 3 => "rd", _ => "th" },
+                            };
+                            format!("{n}{suffix}")
+                        }
+                    };
+                    (format!("{ordinal} from the top or on the bottom"), format!("{} from top", capitalised(&ordinal)))
+                }
+                _ => return None,
+            };
+            let mut p = Pending::new(Kind::Pick, Answer::ChooseTopOrBottom, "top_or_bottom", format!("Put {name} {places} of {whose} library?"), vec![word("top", upper), word("bottom", "Bottom")])
                 .range(1, 1, false)
                 .from(vs, resolving_source(vs));
             p.shown = vec![card(vs, object_id, false)];

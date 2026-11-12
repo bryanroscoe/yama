@@ -64,11 +64,11 @@ use crate::{DeckLine, Engine, SeatDeck};
 /// The engine label every result line carries. Through 28 Oct 2026 the fork was phase v0.113.0
 /// plus Yama's fixes ("phase-rs v0.113.0+aifix+tempo+endgame+stallfix+cardfix+recovery1": AI,
 /// stall, card and recovery fixes; docs/engine-recovery-2026-10-25.md). Since 29 Oct 2026 it is
-/// upstream phase v0.119.0 with Yama's commits rebased on top (bryanroscoe/yama-phase at
+/// upstream phase v0.119.0, updated to v0.122.0 on 11 Nov, with Yama's commits rebased on top (bryanroscoe/yama-phase at
 /// deploy/phase-rev). Use the full source revision verified by build.rs, so every pin
 /// gets a distinct label. Earlier labels remain on their original results and must
 /// not be pooled with these.
-pub const ENGINE: &str = concat!("phase-rs v0.119.0+yama-", env!("YAMA_PLAY_PHASE_REV"));
+pub const ENGINE: &str = concat!("phase-rs v0.122.0+yama-", env!("YAMA_PLAY_PHASE_REV"));
 /// Added to [`ENGINE`] on result lines of games played with the engine's loop detection on
 /// ([`GameOptions::loops`]), so they're never pooled with the usual results.
 pub const LOOPS_SUFFIX: &str = "+loops";
@@ -1575,7 +1575,7 @@ mod tests {
         // The independently versioned release pin must identify both CLI results
         // and server experiment builds, including pins changed after this test.
         let pinned = include_str!("../../deploy/phase-rev").trim();
-        assert_eq!(ENGINE.strip_prefix("phase-rs v0.119.0+yama-"), Some(pinned));
+        assert_eq!(ENGINE.strip_prefix("phase-rs v0.122.0+yama-"), Some(pinned));
         assert_eq!(engine_label(false), ENGINE);
         assert_eq!(engine_label(true), format!("{ENGINE}+loops"));
     }

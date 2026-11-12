@@ -1,7 +1,8 @@
 # Saved-game runtimes
 
 PR #29 changes the typed card schema and replay semantics. Runtime routing is by the exact
-saved identity, before replay parsing. The current engine loads only verified `cbd552b4` bytes.
+saved identity, before replay parsing. The current engine loads only the data bytes matching
+its compiled SHA-256 and `deploy/engine-data.json`; each retained runtime has its own hash.
 `historical.json` maps the previously supported `a3bc47c9/cards-1e5608e6` identity to the exact
 pre-upgrade Yama adapter and Phase source. The retained Phase commit is reachable through
 `archive/pre-sync-20261028`. Its adapter's `ENGINE_VERSION` is checked at worker startup.
@@ -31,7 +32,14 @@ cargo test --workspace historical_runtime_continues_live_games -- --ignored --no
 ```
 
 The source exporter uses Git objects, never changes either checkout, and refuses an existing
-export directory. It adds the transport binary, a byte-verifying data loader, and the
+export directory. After the public-history cutover, the original Yama commits remain in
+the private `bryanroscoe/yama-archive` repository. A fresh public clone does not contain
+them: fetch the archive into an authorized local checkout and pass it with `--yama-repo`.
+The primary Mac checkout retains an `archive` remote; the deployment checkout retains
+`refs/archive/private-main`. Exporters check all pinned commits before creating output
+and report the required source when one is missing. Keep manifest pins unchanged;
+rewritten commits are not substitutes for the reviewed historical source.
+The exporter adds the transport binary, a byte-verifying data loader, and the
 `historical-controls.rs` host-control transport shim to the frozen adapter. The shim
 reconstructs logged passing modes and scoped stops without replaying new actions. Account
 defaults initialize only missing fields once per seat; explicit changes remain authoritative.
@@ -115,3 +123,72 @@ The exported Cargo package is `yama-play-historical`, with its Rust library stil
 Using the same package name was reproduced overwriting the current runner stamp with the
 Git-less export's stamp. Candidate acceptance now requires an exact 40-character Yama revision
 and, in a Git checkout, verifies that it matches HEAD before playing any scenario.
+
+## Preserved v0.119 games
+
+The v0.122 upgrade also retains the exact v0.119 adapter at Yama
+`4146a91a1c51c9374e8969954964c4f8c92759d1` and Phase
+`19be58d497a6618b34c0862ca1d27c8c48999480`, with the original `cbd552b4`
+card data. `v0119/historical.json` and `v0119/historical-source.json` bind this
+second generation independently. `build-v0119.py OUTPUT --prepare-only` exports
+it without the v0.113 loader or controls shim. Its package and executable are
+`yama-play-historical-v0119` and `historical-runtime-v0119`.
+
+Both historical generations have separate verified processes and exact identity
+routing. The v0.119 worker uses its native replay controls, revision, rewind audit
+and abandonment behavior; it supports Go back and End game through the original
+board protocol. Solo rewind history remains process-local. New Phase board
+messages never cross into a historical runtime.
+
+Production requires both packaged historical binaries and digest sidecars, and
+all three data files. Stage the new current export beside the existing files;
+retain `card-data-cbd552b41f962f5b.json` and
+`card-data-1e5608e61683de41.json`. Install the separately reviewed host exporter
+before merging the application upgrade. `YAMA_V0119_RUNTIME`,
+`YAMA_V0119_RUNTIME_DIGEST` and `YAMA_V0119_CARD_DATA` are local test overrides;
+production's host gate requires the independently verified packaged binaries.
+
+The v0.119 worker also returns public knockout/result facts. Its adapter and
+engine stay at their original pins; the engine-independent result mapper comes
+from the separately pinned `results_yama` revision in its manifest. That source
+file is included in the reviewed export digest. Historical saves use the same
+seat-update rules as current games, including clearing a knockout after rewind.
+The v0.113 protocol has no such extension and its existing stored facts remain
+untouched. New Phase types never interpret the old replay or actions.
+
+## Preserved v0.119 gameplay acceptance
+
+The current checkout's `candidate_v0119_*` tests delegate to the original frozen
+integration harness. They never load v0.119 data into the current v0.122 engine.
+The five frozen input files and `candidate-v0119.json` remain unchanged; known
+historical gameplay failures still fail. They are distinct from current v0.122
+acceptance and from the seven native saved-game control tests.
+
+Use an existing verified v0.119 export, or prepare one with
+`runtime/build-v0119.py OUTPUT --prepare-only` as described above. Under the normal
+shared-target lock and compiler guard, with sufficient disk space and jobs=1,
+build its integration executable:
+
+```sh
+CARGO_BUILD_JOBS=1 YAMA_PHASE_SOURCE_REV=19be58d497a6618b34c0862ca1d27c8c48999480 \
+  YAMA_LAB_GIT_SHA=4146a91a1c51c9374e8969954964c4f8c92759d1 YAMA_LAB_GIT_DIRTY=1 \
+  cargo test --locked --manifest-path OUTPUT/yama/Cargo.toml \
+  -p yama-play-historical-v0119 --test integration --no-run
+```
+
+The runner stamp names the pinned adapter source plus the export's overlay hash;
+it does not impersonate the current checkout. Set the binary variable below to
+the integration **test executable** emitted by that build, not the historical
+worker. The current wrapper verifies its original engine, data and source runner
+identities and propagates every gameplay failure.
+
+```sh
+YAMA_V0119_ACCEPTANCE_TEST_BINARY=/absolute/path/to/frozen/integration-test-executable \
+  YAMA_V0119_CARD_DATA=/absolute/path/to/card-data-cbd552b41f962f5b.json \
+  CARGO_BUILD_JOBS=1 cargo test --locked -p yama-play --test integration \
+  candidate_v0119 -- --ignored --nocapture --test-threads=1
+```
+
+`candidate_v0122_*` independently uses the current compiled pin/data and its
+versioned expectation. Do not change either suite's metadata to make it match
+the other engine.

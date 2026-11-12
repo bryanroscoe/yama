@@ -501,7 +501,7 @@ pub(crate) fn cost_for(vs: &GameState, resume: &CostResume) -> (Option<ObjectId>
         CostResume::TurnFaceUp { source, .. } => {
             return (Some(source.object_id), format!(" to turn {} face up", Match::name_in(vs, &source.object_id)));
         }
-        CostResume::Resolution => return (None, String::new()),
+        CostResume::Resolution | CostResume::TeamTapPayment { .. } => return (None, String::new()),
     };
     (Some(id), format!(" to {verb} {}", Match::name_in(vs, &id)))
 }

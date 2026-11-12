@@ -1,0 +1,43 @@
+{
+  "phase": "273ad56c8afdc15fd0fcff9f44f47816504f997f",
+  "generator_phase": "c7fa78d9be700e0b547510f13f556050055b685d",
+  "data_sha256": "19b30ee31fc29d11df4edfb02ecc9543c4facb17c635b17dfd5347c81462a630",
+  "runner": "647f7431fda9437267d0f5cbf0599d47a2d9b78f-dirty-a22ed82b",
+  "control": {
+    "winner": 0,
+    "turns": 66,
+    "actions": 3178
+  },
+  "historical_control": {
+    "winner": 3,
+    "turns": 54,
+    "actions": 2072
+  },
+  "previous_candidate_control": {
+    "winner": 3,
+    "turns": 44,
+    "actions": 1754
+  },
+  "trace_diagnostic": {
+    "new_trace_sha256": "bddec3ac8b47626645aa8d956f7affb1a60227296a7600396fd549455bc6f860",
+    "old_data_trace_sha256": "f37ecd1f4eb3b866d911d9799662a8c21ef116f0dafc60d4c7bcd68999566eee",
+    "same_trace": false,
+    "new_terminal": [
+      "== end: game over, winner Some(0); turns 66 actions 3178 eliminations [(3, 58), (2, 60), (1, 66)]"
+    ],
+    "old_data_terminal": [
+      "== end: game over, winner Some(0); turns 52 actions 2424 eliminations [(3, 46), (2, 48), (1, 52)]"
+    ],
+    "first_difference": {
+      "line": 3242,
+      "new": " T40 s3 DecideOptionalEffect { accept: true }",
+      "old": "    | Priority passes to Player 1"
+    }
+  },
+  "notes": [
+    "All 284 distinct fixture card names exist in both exports; no Oracle text changed.",
+    "Under Phase 0.122 with old v0.119 data, the control wins with seat 0 on turn 52 after 2,424 actions. This diagnostic is not historical v0.119 acceptance.",
+    "The first data-only trace divergence is turn 40: Leyline Tyrant optional payment is now a typed PayCost/X effect. The new trace accepts and pays zero, then targets World Breaker. Later paths can also differ; this does not establish an exclusive cause.",
+    "The current-data trace repeats the native full-game outcome exactly with no cap, stall or engine error."
+  ]
+}

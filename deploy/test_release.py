@@ -321,7 +321,7 @@ class FirstTimeArtifacts(unittest.TestCase):
         (deploy / 'yama.env.example').write_text('TEST=1\n')
         text = (SCRIPTS / 'first-time.sh').read_text()
         self.files = []
-        for name, digest_key in [('CARD_DATA', 'SHA'), ('HISTORICAL_CARD_DATA', 'HISTORICAL_SHA')]:
+        for name, digest_key in [('CARD_DATA', 'SHA'), ('HISTORICAL_CARD_DATA', 'HISTORICAL_SHA'), ('V0119_CARD_DATA', 'V0119_SHA')]:
             filename = re.search(r'^' + name + r'=(.+)$', text, re.M)[1]
             content = ('synthetic ' + name).encode()
             (self.local / filename).write_bytes(content)
@@ -392,7 +392,7 @@ else:
     def run_setup(self):
         return subprocess.run(['sh', str(self.script)], env=self.env, capture_output=True, text=True)
 
-    def test_fresh_server_gets_both_verified_artifacts(self):
+    def test_fresh_server_gets_all_three_verified_artifacts(self):
         result = self.run_setup()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('Server prepared.', result.stdout)
@@ -416,6 +416,18 @@ else:
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn('Server prepared.', result.stdout)
 
+    def test_missing_or_corrupt_v0119_source_cannot_report_ready(self):
+        previous = self.local / self.files[2]
+        previous.unlink()
+        result = self.run_setup()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn('Server prepared.', result.stdout)
+        previous.write_bytes(b'wrong v0119 bytes')
+        result = self.run_setup()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn('Server prepared.', result.stdout)
+        self.assertFalse((self.remote / self.files[2]).exists())
+
     def test_setup_hashes_match_release_manifests(self):
         text = (SCRIPTS / 'first-time.sh').read_text()
         current = json.loads((SCRIPTS / 'engine-data.json').read_text())
@@ -424,6 +436,9 @@ else:
         self.assertIn('CARD_DATA=' + Path(current['current_file']).name, text)
         self.assertIn('HISTORICAL_SHA=' + historical['card_sha256'], text)
         self.assertIn('HISTORICAL_CARD_DATA=' + current['historical_file'], text)
+        v0119 = json.loads((SCRIPTS.parent / 'runtime/v0119/historical.json').read_text())
+        self.assertIn('V0119_SHA=' + v0119['card_sha256'], text)
+        self.assertIn('V0119_CARD_DATA=' + current['historical_v0119_file'], text)
 
     def test_failed_check_transfer_or_verification_preserves_valid_existing_artifact(self):
         previous = self.files[1]

@@ -674,6 +674,7 @@ pub(crate) fn unless_cost_text(vs: &GameState, cost: &AbilityCost) -> String {
         AbilityCost::Sacrifice(s) => match &s.requirement {
             SacrificeRequirement::Count { count } => format!("sacrifice {}", a_or(*count as usize, "permanent", "permanents")),
             SacrificeRequirement::Aggregate { .. } => "sacrifice permanents".into(),
+            SacrificeRequirement::All => "sacrifice all matching permanents".into(),
         },
         AbilityCost::Exile { count, .. } => format!("exile {}", a_or(*count as usize, "card", "cards")),
         _ => serde_json::to_value(cost).map(|v| phase_llm::render::action::describe_tagged(vs, &v)).unwrap_or_else(|_| "the cost".into()),
@@ -1202,7 +1203,7 @@ impl Pending {
                 });
                 p
             }
-            WaitingFor::DistributeAmong { player, total, targets, unit } if *player == me => {
+            WaitingFor::DistributeAmong { player, total, targets, unit, scope } if *player == me => {
                 let (unit_name, unit_kind) = match unit {
                     DistributionUnit::Damage | DistributionUnit::EvenSplitDamage => ("damage".to_string(), "damage"),
                     DistributionUnit::Counters(kind) => (format!("{} counters", one_line(kind).to_lowercase()), "counters"),
@@ -1214,8 +1215,9 @@ impl Pending {
                 p.max = *total as usize;
                 p.total = Some(*total);
                 p.unit = Some(unit_kind);
-                // CR 601.2d: each target gets at least one.
-                p.per_option_min = Some(1);
+                // Announced targets each receive one (CR 601.2d). Resolution
+                // candidates may be omitted; chosen portions stay positive.
+                p.per_option_min = Some(if scope.is_announced_targets() { 1 } else { 0 });
                 p.default_answer = first(|a| matches!(a, GameAction::DistributeAmong { .. })).map(|a| match a {
                     GameAction::DistributeAmong { distribution } => split_answer(distribution.iter().map(|(t, n)| (target_id(&TargetView::from_ref(t)), *n))),
                     _ => Value::Null,
@@ -1431,7 +1433,7 @@ impl Pending {
                 // cast this spell, discard a card"). Costs measured another way keep the buttons.
                 let (verb, one, many) = match kind {
                     PayCostKind::Discard => ("Discard", "card", "cards"),
-                    PayCostKind::Reveal => ("Reveal", "card", "cards"),
+                    PayCostKind::Reveal { shared_quality: _ } => ("Reveal", "card", "cards"),
                     PayCostKind::Sacrifice => ("Sacrifice", "permanent", "permanents"),
                     PayCostKind::ReturnToHand => ("Return", "permanent", "permanents"),
                     PayCostKind::ExileFromZone { .. } | PayCostKind::ExileFromManaZone { .. } => ("Exile", "card", "cards"),
@@ -1445,7 +1447,11 @@ impl Pending {
                 // An exact count, or at least `min_count` (CR 118.3).
                 let (lo, up) = if *min_count > 0 && *min_count < *n { (*min_count, true) } else { (*n, false) };
                 let what = if up { format!("up to {}", count(*n, one, many)) } else { a_or(*n, one, many) };
-                Pending::new(Kind::Pick, Answer::SelectCards, "cost", format!("{verb} {what}{why}"), cards(vs, choices)).range(lo, *n, up).from(vs, source)
+                let shared = match kind {
+                    PayCostKind::Reveal { shared_quality: Some(quality) } => format!(" with shared {}", humanize_identifier(&format!("{quality:?}")).to_lowercase()),
+                    _ => String::new(),
+                };
+                Pending::new(Kind::Pick, Answer::SelectCards, "cost", format!("{verb} {what}{shared}{why}"), cards(vs, choices)).range(lo, *n, up).from(vs, source)
             }
             WaitingFor::WardDiscardChoice { player, cards: ids, pending_effect, remaining, .. } if *player == me => {
                 // Ward is being paid (the yes came first): the card to discard, one at a time.
@@ -1873,7 +1879,7 @@ impl Pending {
                 if self.purpose == "precast_shortcut" {
                     return if count.is_none() { Ok(()) } else { Err("This shortcut has no count to choose.".into()) };
                 }
-                self.one_of(&count.map_or_else(|| "lethal".to_string(), |n| n.to_string()))
+                self.one_of(&count.map_or_else(|| if self.eligible("without_end") { "without_end".to_string() } else { "lethal".to_string() }, |n| n.to_string()))
             }
             (Answer::ProposeShortcut, Act::DeclineShortcut) => Ok(()),
             (Answer::RespondToShortcut, Act::RespondToShortcut { stop_at }) => match stop_at {
@@ -2249,8 +2255,8 @@ pub enum Act {
         #[serde(default)]
         add: Vec<TargetView>,
     },
-    /// Propose the shortcut the engine found: repeat it `count` times, or (`None`) until a player
-    /// loses; the pre-cast shortcut has no count.
+    /// Propose the shortcut the engine found: repeat it `count` times, or (`None`) use the
+    /// engine-offered nonfinite ending; the pre-cast shortcut has no count.
     ProposeShortcut {
         count: Option<u32>,
     },

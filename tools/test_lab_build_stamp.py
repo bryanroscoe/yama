@@ -36,8 +36,11 @@ class BuildStampTests(unittest.TestCase):
             (native / "runtime").mkdir()
             (native / "deploy").mkdir()
             (native / "deploy/phase-rev").write_text(phase_revision + "\n")
-            for name in ("historical.json", "historical-source.json"):
-                (native / "runtime" / name).write_text('{"identity":"original"}\n')
+            manifests = ("historical.json", "historical-source.json", "v0119/historical.json", "v0119/historical-source.json")
+            for name in manifests:
+                path = native / "runtime" / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('{"identity":"original"}\n')
             for name in ("Cargo.toml", "Cargo.lock", "play/Cargo.toml"):
                 (native / name).write_text("fixture\n")
             subprocess.run(["git", "init", "--quiet", str(native)], check=True, capture_output=True)
@@ -72,10 +75,10 @@ class BuildStampTests(unittest.TestCase):
             self.assertNotEqual(server_dirty, native_dirty)
             self.assertEqual(server_dirty, stamp(exported,
                 {"YAMA_LAB_GIT_SHA": revision, "YAMA_LAB_GIT_DIRTY": "1"}))
-            for name in ("historical.json", "historical-source.json"):
+            for name in manifests:
                 for tree in (native, exported):
                     (tree / "server/src/lab/process.rs").write_text("// original execution policy\n")
-                    for manifest in ("historical.json", "historical-source.json"):
+                    for manifest in manifests:
                         (tree / "runtime" / manifest).write_text('{"identity":"original"}\n')
                     (tree / "runtime" / name).write_text('{"identity":"different"}\n')
                 runtime_dirty = stamp(native, {})

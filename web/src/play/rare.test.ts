@@ -218,6 +218,11 @@ describe("loop shortcuts", () => {
     const lethal = { ...p, options: [option("lethal", { name: "Until a player loses" })], defaultAnswer: ["lethal"] };
     expect(buttons(lethal, initialDraft(lethal), noCancel).primary).toBe("Propose: repeat until a player loses");
     expect(toAct(lethal, initialDraft(lethal))).toEqual({ kind: "propose_shortcut", count: null });
+    const endless = { ...p, options: [option("without_end", { name: "Without end (draw)" })], defaultAnswer: ["without_end"] };
+    expect(buttons(endless, initialDraft(endless), noCancel).primary).toBe("Propose: repeat without end (draw)");
+    expect(toAct(endless, initialDraft(endless))).toEqual({ kind: "propose_shortcut", count: null });
+    expect(shortcutCount(undefined, "WithoutEnd")).toBe("without end (draw)");
+    expect(shortcutCount(undefined, { Fixed: 7 })).toBe("7 times");
   });
   it("accepts a proposal whole, or shortens it to a place before its end", () => {
     const p = pending({ kind: "number", answer: "respond_to_shortcut", purpose: "shortcut_response", min: 0, max: 19, total: 20, shortcut: { proposer: 0, count: 20, responders: [[1, "deciding"]] } });

@@ -103,9 +103,11 @@ fn dungeon_map(id: DungeonId, current: Option<u8>) -> DungeonMap {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ShortcutView {
     pub proposer: u8,
-    /// How many times it repeats; `None` until a player loses (CR 704.5a).
+    /// Finite repetition count; the engine count distinguishes nonfinite endings.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub count: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub iteration_count: Option<IterationCount>,
     /// What grows (or shrinks) each time round, in words: "Tokens created", "Ben's life".
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub grows: Vec<String>,
@@ -181,8 +183,9 @@ pub(crate) fn public_shortcut(vs: &GameState, names: &[String]) -> Option<Shortc
             proposer: proposal.proposer.0,
             count: match proposal.count {
                 IterationCount::Fixed(n) => Some(n),
-                IterationCount::UntilLethal => None,
+                IterationCount::UntilLethal | IterationCount::WithoutEnd => None,
             },
+            iteration_count: Some(proposal.count.clone()),
             grows: proposal.unbounded.iter().map(|a| axis_words(a, names)).collect(),
             wins: proposal.win_kind.map(win_words),
             winner: proposal.predicted_winner.map(|w| w.0),
@@ -191,7 +194,7 @@ pub(crate) fn public_shortcut(vs: &GameState, names: &[String]) -> Option<Shortc
         }),
         WaitingFor::RespondToPrecastCopyShortcut { player, remaining_players, .. } => {
             let proposer = vs.stack.last().map(|e| e.controller)?;
-            Some(ShortcutView { proposer: proposer.0, count: None, grows: vec![], wins: None, winner: None, responders: responders(vs, proposer, Some(*player), remaining_players), shortened_by: None })
+            Some(ShortcutView { proposer: proposer.0, count: None, iteration_count: None, grows: vec![], wins: None, winner: None, responders: responders(vs, proposer, Some(*player), remaining_players), shortened_by: None })
         }
         _ => None,
     }
@@ -280,6 +283,7 @@ pub(crate) fn label(vs: &GameState, action: &GameAction, names: &[String]) -> Op
         }
         GameAction::DeclareShortcut { count: IterationCount::Fixed(n), .. } => (format!("Propose: repeat {n} times"), None),
         GameAction::DeclareShortcut { count: IterationCount::UntilLethal, .. } => ("Propose: repeat until a player loses".into(), None),
+        GameAction::DeclareShortcut { count: IterationCount::WithoutEnd, .. } => ("Propose: repeat without end (draw)".into(), None),
         GameAction::DeclineShortcut | GameAction::PrecastCopyShortcut { response: PrecastCopyShortcutResponse::Decline, .. } => ("Keep playing it out".into(), None),
         GameAction::PrecastCopyShortcut { response: PrecastCopyShortcutResponse::Propose { .. }, .. } => ("Propose the shortcut".into(), None),
         GameAction::RespondToShortcut { response: ShortcutResponse::Accept } | GameAction::PrecastCopyShortcut { response: PrecastCopyShortcutResponse::Accept, .. } => {
@@ -345,7 +349,7 @@ pub(crate) fn action_for(waiting: &WaitingFor, candidates: &[GameAction], act: &
             .iter()
             .find(|a| match a {
                 GameAction::DeclareShortcut { count: IterationCount::Fixed(n), .. } => *count == Some(*n),
-                GameAction::DeclareShortcut { count: IterationCount::UntilLethal, .. } => count.is_none(),
+                GameAction::DeclareShortcut { count: IterationCount::UntilLethal | IterationCount::WithoutEnd, .. } => count.is_none(),
                 _ => false,
             })
             .cloned(),
@@ -429,7 +433,7 @@ pub(crate) fn from_action(action: &GameAction) -> Option<Act> {
         GameAction::DeclareShortcut { count, .. } => Act::ProposeShortcut {
             count: match count {
                 IterationCount::Fixed(n) => Some(*n),
-                IterationCount::UntilLethal => None,
+                IterationCount::UntilLethal | IterationCount::WithoutEnd => None,
             },
         },
         GameAction::DeclineShortcut => Act::DeclineShortcut,
@@ -601,6 +605,7 @@ pub(crate) fn of(vs: &GameState, me: PlayerId, candidates: &[GameAction], names:
                 .filter_map(|a| match a {
                     GameAction::DeclareShortcut { count: IterationCount::UntilLethal, .. } => Some(word("lethal", "Until a player loses")),
                     GameAction::DeclareShortcut { count: IterationCount::Fixed(n), .. } => Some(word(n.to_string(), format!("{n} times"))),
+                    GameAction::DeclareShortcut { count: IterationCount::WithoutEnd, .. } => Some(word("without_end", "Without end (draw)")),
                     _ => None,
                 })
                 .collect();
@@ -610,6 +615,7 @@ pub(crate) fn of(vs: &GameState, me: PlayerId, candidates: &[GameAction], names:
             p.shortcut = Some(ShortcutView {
                 proposer: me.0,
                 count: None,
+                iteration_count: candidates.iter().find_map(|a| if let GameAction::DeclareShortcut { count, .. } = a { Some(count.clone()) } else { None }),
                 grows: certificate.unbounded.iter().map(|a| axis_words(a, names)).collect(),
                 wins: certificate.win_kind.map(win_words),
                 winner: predicted_winner.map(|w| w.0),
@@ -624,11 +630,12 @@ pub(crate) fn of(vs: &GameState, me: PlayerId, candidates: &[GameAction], names:
             let places = proposal.shortening_places();
             let count = match proposal.count {
                 IterationCount::Fixed(n) => Some(n),
-                IterationCount::UntilLethal => None,
+                IterationCount::UntilLethal | IterationCount::WithoutEnd => None,
             };
             let who = seat_name(proposal.proposer, names);
             let prompt = match count {
                 Some(n) => format!("{who} proposes a shortcut: repeat {n} times"),
+                None if proposal.count == IterationCount::WithoutEnd => format!("{who} proposes a shortcut: repeat without end (draw)"),
                 None => format!("{who} proposes a shortcut: repeat until a player loses"),
             };
             let mut p = Pending::new(Kind::Number, Answer::RespondToShortcut, "shortcut_response", prompt, vec![]).from(vs, vs.stack.last().map(|e| e.source_id));
@@ -638,6 +645,7 @@ pub(crate) fn of(vs: &GameState, me: PlayerId, candidates: &[GameAction], names:
             p.shortcut = Some(ShortcutView {
                 proposer: proposal.proposer.0,
                 count,
+                iteration_count: Some(proposal.count.clone()),
                 grows: proposal.unbounded.iter().map(|a| axis_words(a, names)).collect(),
                 wins: proposal.win_kind.map(win_words),
                 winner: proposal.predicted_winner.map(|w| w.0),
@@ -651,7 +659,7 @@ pub(crate) fn of(vs: &GameState, me: PlayerId, candidates: &[GameAction], names:
             let mut p = Pending::new(Kind::Yesno, Answer::ProposeShortcut, "precast_shortcut", "The engine can take this to its end in one step. Propose the shortcut?", vec![])
                 .yes_no("Propose the shortcut", "Keep playing it out")
                 .from(vs, vs.stack.last().map(|e| e.source_id));
-            p.shortcut = Some(ShortcutView { proposer: me.0, count: None, grows: vec![], wins: None, winner: None, responders: responders(vs, me, None, &[]), shortened_by: None });
+            p.shortcut = Some(ShortcutView { proposer: me.0, count: None, iteration_count: None, grows: vec![], wins: None, winner: None, responders: responders(vs, me, None, &[]), shortened_by: None });
             p
         }
         WaitingFor::RespondToPrecastCopyShortcut { player, breakpoint_ids, remaining_players, .. } if *player == me => {
@@ -663,7 +671,7 @@ pub(crate) fn of(vs: &GameState, me: PlayerId, candidates: &[GameAction], names:
                 .range(1, 1, false)
                 .from(vs, vs.stack.last().map(|e| e.source_id));
             p.default_answer = Some(json!(["accept"]));
-            p.shortcut = Some(ShortcutView { proposer: proposer.0, count: None, grows: vec![], wins: None, winner: None, responders: responders(vs, proposer, Some(me), remaining_players), shortened_by: None });
+            p.shortcut = Some(ShortcutView { proposer: proposer.0, count: None, iteration_count: None, grows: vec![], wins: None, winner: None, responders: responders(vs, proposer, Some(me), remaining_players), shortened_by: None });
             p
         }
         // CR 608.2c: "You may repeat this process any number of times."

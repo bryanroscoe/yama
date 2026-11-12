@@ -1,0 +1,61 @@
+{
+  "phase": "c7fa78d9be700e0b547510f13f556050055b685d",
+  "upstream": "c53dd8a81af2354a14e811a806670c21585a7c06",
+  "inputs": {
+    "downloaded_at": "2026-11-11T15:27:12.378354+00:00",
+    "mtgjson_meta": {
+      "meta": {
+        "date": "2026-11-11",
+        "version": "5.3.0+20261111"
+      },
+      "data": {
+        "date": "2026-11-11",
+        "version": "5.3.0+20261111"
+      }
+    },
+    "inputs": {
+      "mtgjson/AtomicCards.json": {
+        "bytes": 164871319,
+        "sha256": "fa88856a4bbc2b27f9c689cb35ab58c50927e863f59b2b3df927951f4e10e283"
+      },
+      "mtgjson/Meta.json": {
+        "bytes": 113,
+        "sha256": "244337c27bd79fa2af87139272733ac0d130b747c70a9d95cd81a56380571957"
+      },
+      "mtgjson/CardTypes.json": {
+        "bytes": 7193,
+        "sha256": "148559532cdc0c328939d17dbb059bfc242aff0368e9acd966832bd53362ff5e"
+      },
+      "mtgjson/SetList.json": {
+        "bytes": 11932589,
+        "sha256": "612f1a0cdb79c5d01d4974e6f4822642a3cb8857d911844e110a4f3bb3e603cc"
+      },
+      "bracket_lists.json": {
+        "bytes": 1008,
+        "sha256": "033b43c5f646509144583818a7ba7c5c54048baf09b2afb5c3b01113d6c77b07"
+      }
+    },
+    "token_set_refresh": {
+      "completed_at": "2026-11-11T16:26:07.807762+00:00",
+      "downloaded": 345,
+      "failed": 0,
+      "skipped": 0,
+      "index_sha256": "6cdf4c230fe63b117610f108c22a99a39e2860c098b7f05e29778d2916e1552b",
+      "indexed_files": 464
+    }
+  },
+  "export": {
+    "generated_at": "2026-11-11T21:00:33.675963+00:00",
+    "gated_sets_as_of": "2026-11-11",
+    "profile": "tool",
+    "file": "card-data-19b30ee31fc29d11.json",
+    "sha256": "19b30ee31fc29d11df4edfb02ecc9543c4facb17c635b17dfd5347c81462a630",
+    "bytes": 102326733,
+    "cards": 35481,
+    "indexed_faces": 36280,
+    "validator": "card-data-validate: schema and export integrity passed"
+  },
+  "phase_role": "generator",
+  "runtime_phase": "273ad56c8afdc15fd0fcff9f44f47816504f997f",
+  "runtime_compatibility": "c7..273ad56 changes no generator, parser or engine production source; retained test helpers/expectations, LLM player-field registration, preserved append-only protocol record, stale comment removal and upstream-only publication guards"
+}

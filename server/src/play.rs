@@ -69,6 +69,7 @@ pub struct PlayHub {
     engine: Mutex<EngineState>,
     live: Mutex<HashMap<String, LiveGame>>,
     historical: Option<history::Config>,
+    historical_v0119: Option<history::Config>,
     unavailable: Mutex<HashMap<String, String>>,
     setup_gate: Arc<tokio::sync::Semaphore>,
 }
@@ -182,6 +183,7 @@ impl PlayHub {
             engine: Mutex::new(EngineState::Loading),
             live: Mutex::new(HashMap::new()),
             historical: card_data.as_deref().map(history::Config::discover),
+            historical_v0119: card_data.as_deref().map(history::Config::discover_v0119),
             setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()),
         });
         let Some(path) = card_data else {
@@ -237,7 +239,7 @@ impl PlayHub {
                 .fetch_all(pool).await.unwrap_or_default();
         // Current games recover before any historical subprocess is contacted. A failed
         // historical startup is deadline-bound and cached for the remaining historical rows.
-        rows.sort_by_key(|row| row.5.as_deref() == Some(history::IDENTITY));
+        rows.sort_by_key(|row| row.5.as_deref() != Some(yama_play::ENGINE_VERSION));
         for (game_id, seats, replay, log, answers, identity) in rows {
             // A game on an engine version this server can never run moves to the current engine
             // if it replays the same, and is closed if it doesn't: none is left that nobody can
@@ -254,8 +256,7 @@ impl PlayHub {
                 continue;
             }
             let (Ok(seats), Some(replay)) = (serde_json::from_str::<Vec<SeatCfg>>(&seats), replay) else { continue };
-            if identity.as_deref() == Some(history::IDENTITY) {
-                let config = self.historical.as_ref().unwrap();
+            if let Some(config) = self.historical_for(identity.as_deref()) {
                 let resumed = loop {
                     let attempt = (|| -> anyhow::Result<_> {
                         let mut worker = history::Worker::start(config)?;
@@ -310,6 +311,15 @@ impl PlayHub {
         }
     }
 
+    fn historical_for(&self, identity: Option<&str>) -> Option<&history::Config> {
+        match identity {
+            Some(history::IDENTITY) => self.historical.as_ref(),
+            Some(history::V0119_IDENTITY) => self.historical_v0119.as_ref(),
+            _ => None,
+        }
+    }
+
+    /// Exact identities only. An unknown/absent identity never means "use current".
     /// Move a live game saved on a retired engine version to the current engine, if replaying it
     /// here checks out ([`Engine::resume_checked`]), and run it; otherwise close it without a
     /// winner. Either way its original record is kept (`online_game_originals`).
@@ -364,8 +374,8 @@ impl PlayHub {
     fn runtime_error(&self, identity: Option<&str>) -> Option<String> {
         match identity {
             Some(yama_play::ENGINE_VERSION) => self.engine().err().map(|e|e.to_string()),
-            Some(history::IDENTITY) if self.historical.as_ref().is_some_and(|c|c.available()) => None,
-            Some(history::IDENTITY) => Some("This game requires the preserved v0.113 runtime and card data, which are not installed. Its records are unchanged.".into()),
+            Some(history::IDENTITY | history::V0119_IDENTITY) if self.historical_for(identity).is_some_and(|c| c.available()) => None,
+            Some(history::IDENTITY | history::V0119_IDENTITY) => Some("This game requires its preserved runtime and card data, which are not installed. Its records are unchanged.".into()),
             _ => Some("This game's saved runtime identity is unknown or unavailable. Its records are unchanged; a verified matching runtime is required.".into()),
         }
     }
@@ -381,7 +391,7 @@ impl PlayHub {
     }
 
     /// A live game that can never run on this server: saved on a runtime identity that is neither
-    /// the current engine nor the preserved historical one (identities are exact, so an unknown
+    /// the current engine nor either preserved historical runtime (identities are exact, so an unknown
     /// one never becomes runnable), with no thread. Its host may delete it, and it holds no place
     /// among the games anyone may have open. A game that is only waiting for its engine (loading,
     /// failed, or the historical runtime not installed or retrying) is not stranded.
@@ -1558,17 +1568,17 @@ pub const OPEN_MAX_OPEN_GAMES: i64 = 3;
 pub const OPEN_MAX_OPEN_GAMES_ALL: i64 = 20;
 
 /// Whether a saved runtime identity is one this server can never run: not the current engine and
-/// not the preserved historical runtime (`PlayHub::runtime_error`; identities are exact).
+/// not either preserved historical runtime (`PlayHub::runtime_error`; identities are exact).
 fn is_retired_runtime(identity: Option<&str>) -> bool {
-    !matches!(identity, Some(yama_play::ENGINE_VERSION) | Some(history::IDENTITY))
+    !matches!(identity, Some(yama_play::ENGINE_VERSION | history::IDENTITY | history::V0119_IDENTITY))
 }
 
 /// SQL true for an `online_games o` row whose `games g` row is a game this server can never run
 /// ([`is_retired_runtime`]): such a game holds no thread or match and nobody can finish it, so it
 /// takes no place among open games (an engine upgrade mustn't lock its host out of play). `?1`
-/// and `?2` are the current and historical identities. A current live game always has its
+/// through `?3` are the current and both historical identities. A current live game always has its
 /// identity (start sets it in the same transaction), so this never matches one with a thread.
-const NOT_STRANDED: &str = "NOT (o.stage = 'live' AND (g.engine_version IS NULL OR g.engine_version NOT IN (?1, ?2)))";
+const NOT_STRANDED: &str = "NOT (o.stage = 'live' AND (g.engine_version IS NULL OR g.engine_version NOT IN (?1, ?2, ?3)))";
 
 /// Refuse a new game that would take `user` past the limits on unfinished games they host.
 async fn check_open_games(pool: &SqlitePool, user: &User) -> AppResult<()> {
@@ -1577,10 +1587,11 @@ async fn check_open_games(pool: &SqlitePool, user: &User) -> AppResult<()> {
     }
     let (waiting, playing): (i64, i64) = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT IFNULL(SUM(o.stage = 'lobby'), 0), IFNULL(SUM(o.stage = 'live'), 0) FROM online_games o LEFT JOIN games g ON g.id = o.game_id
-         WHERE o.host_id = ?3 AND o.stage IN ('lobby','live') AND {NOT_STRANDED}"
+         WHERE o.host_id = ?4 AND o.stage IN ('lobby','live') AND {NOT_STRANDED}"
     )))
     .bind(yama_play::ENGINE_VERSION)
     .bind(history::IDENTITY)
+    .bind(history::V0119_IDENTITY)
     .bind(&user.id)
     .fetch_one(pool)
     .await?;
@@ -1601,6 +1612,7 @@ async fn check_open_games(pool: &SqlitePool, user: &User) -> AppResult<()> {
         )))
         .bind(yama_play::ENGINE_VERSION)
         .bind(history::IDENTITY)
+        .bind(history::V0119_IDENTITY)
         .fetch_one(pool)
         .await?;
         if guests >= crate::guests::GUEST_MAX_OPEN_GAMES_ALL {
@@ -1615,6 +1627,7 @@ async fn check_open_games(pool: &SqlitePool, user: &User) -> AppResult<()> {
         )))
         .bind(yama_play::ENGINE_VERSION)
         .bind(history::IDENTITY)
+        .bind(history::V0119_IDENTITY)
         .fetch_one(pool)
         .await?;
         if all >= OPEN_MAX_OPEN_GAMES_ALL {
@@ -1668,13 +1681,14 @@ async fn remove(State(st): State<AppState>, Player(user): Player, Path(id): Path
     let deleted = sqlx::query(
         "DELETE FROM games WHERE id = ?1 AND created_by = ?2 AND mode = 'online'
            AND EXISTS (SELECT 1 FROM online_games o WHERE o.game_id = ?1 AND o.host_id = ?2
-             AND (o.stage != 'live' OR (?3 AND (games.engine_version IS NULL OR games.engine_version NOT IN (?4, ?5)))))",
+             AND (o.stage != 'live' OR (?3 AND (games.engine_version IS NULL OR games.engine_version NOT IN (?4, ?5, ?6)))))",
     )
     .bind(&id)
     .bind(&user.id)
     .bind(stranded)
     .bind(yama_play::ENGINE_VERSION)
     .bind(history::IDENTITY)
+    .bind(history::V0119_IDENTITY)
     .execute(&st.pool)
     .await?
     .rows_affected();
@@ -1708,7 +1722,7 @@ async fn end_solo(
     if r.stage == "over" {
         return Ok(Json(serde_json::json!({"ended": true})));
     }
-    if r.engine_version.as_deref() != Some(yama_play::ENGINE_VERSION) {
+    if !matches!(r.engine_version.as_deref(), Some(yama_play::ENGINE_VERSION | history::V0119_IDENTITY)) {
         return Err(AppError::Conflict(
             "This saved game's runtime does not support ending a solo table.".into(),
         ));
@@ -2600,8 +2614,7 @@ async fn final_view(
         let (replay, log): (Option<String>, Option<String>) =
             sqlx::query_as("SELECT replay, log FROM online_games WHERE game_id = ?").bind(&id).fetch_one(&st.pool).await?;
         let replay = replay.ok_or(AppError::NotFound("game record"))?;
-        if r.engine_version.as_deref() == Some(history::IDENTITY) {
-            let config = st.play.historical.clone().unwrap();
+        if let Some(config) = st.play.historical_for(r.engine_version.as_deref()).cloned() {
             let child_seats = seats.clone();
             let view = tokio::task::spawn_blocking(move || -> anyhow::Result<serde_json::Value> {
                 let mut worker = history::Worker::start(&config)?;

@@ -480,7 +480,7 @@ mod tests {
                 .bind(&id).bind(&id).bind(&owner).bind(serde_json::to_string(&seats).unwrap()).bind(matched.replay_json()).execute(&pool).await.unwrap();
             let hub = Arc::new(PlayHub {
                 engine: Mutex::new(EngineState::Ready(Arc::new(engine))), live: Mutex::new(HashMap::new()),
-                historical: None, setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()),
+                historical: None, historical_v0119: None, setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()),
             });
             hub.spawn_game(id.clone(), matched, seats, HashMap::new(), pool.clone());
             let live = hub.live(&id).unwrap();
@@ -538,7 +538,7 @@ mod tests {
         let saved = resumed.replay_json();
         let frame: serde_json::Value = serde_json::from_str(&started("g", &mut resumed, Some(0)).unwrap()).unwrap();
         assert_eq!(frame["gameplay_preferences"], serde_json::json!({
-            "full_control": true, "priority_passing_mode": "Standard",
+            "full_control": true, "priority_passing_mode": "Standard", "un_card_actions_enabled": false,
             "phase_stops": [
                 {"phase": "Draw", "scope": "AllTurns"},
                 {"phase": "End", "scope": "OpponentsTurns"},
@@ -549,6 +549,22 @@ mod tests {
         assert!(resumed.controls(0).full_control);
         let watched: serde_json::Value = serde_json::from_str(&started("g", &mut resumed, None).unwrap()).unwrap();
         assert!(watched["gameplay_preferences"].is_null(), "watchers receive no seat's preferences");
+    }
+
+    #[test]
+    fn opening_a_resumed_un_card_opt_in_preserves_its_seat_without_replaying_it() {
+        let (e, mut m) = ordinary_game();
+        let action = serde_json::from_value(serde_json::json!({
+            "type": "UnAction", "data": {"action": {"type": "SetEnabled", "data": {"enabled": true}}},
+        })).expect("upstream un-card preference action");
+        apply(&mut m, 0, Move::Action(action)).unwrap();
+        let mut resumed = e.resume(&m.replay_json(), &[]).unwrap();
+        let saved = resumed.replay_json();
+        for (seat, enabled) in [(0, true), (1, false)] {
+            let frame: serde_json::Value = serde_json::from_str(&started("g", &mut resumed, Some(seat)).unwrap()).unwrap();
+            assert_eq!(frame["gameplay_preferences"]["un_card_actions_enabled"], enabled);
+        }
+        assert_eq!(resumed.replay_json(), saved, "opening never dispatches an opt-in action");
     }
 
     #[test]

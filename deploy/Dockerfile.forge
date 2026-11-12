@@ -16,8 +16,8 @@
 ARG JAVA_IMAGE=eclipse-temurin:17-jre
 
 FROM ${JAVA_IMAGE} AS forge
-ARG FORGE_VERSION=2.0.15
-ARG FORGE_SHA256=4468f182b60f6ca62d89697baa208981085af744f116781af751c611826db600
+ARG FORGE_VERSION=2.0.16
+ARG FORGE_SHA256=feb1338c2f4a8c62e9289b6270caa7fcc38f2441d5ec4d7cff237c2c1a3b15d0
 RUN apt-get update && apt-get install -y --no-install-recommends bzip2 && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL --retry 3 -o /tmp/forge.tar.bz2 \
       "https://github.com/Card-Forge/forge/releases/download/forge-${FORGE_VERSION}/forge-installer-${FORGE_VERSION}.tar.bz2" \
@@ -32,7 +32,7 @@ RUN curl -fsSL --retry 3 -o /tmp/forge.tar.bz2 \
  && chmod -R a+rX /opt/forge
 
 FROM ${JAVA_IMAGE}
-ARG FORGE_VERSION=2.0.15
+ARG FORGE_VERSION=2.0.16
 # A passwd entry for uid 99 gives the JVM a real user.home (/work) instead of "?".
 RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/* \
  && useradd -u 99 -g 100 -M -d /work -s /usr/sbin/nologin forge

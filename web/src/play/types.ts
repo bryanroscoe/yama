@@ -415,8 +415,9 @@ export interface DungeonMap {
 /** A proposed shortcut (play/src/rare.rs, ShortcutView). */
 export interface ShortcutView {
   proposer: number;
-  /** How many times it repeats; absent until a player loses. */
+  /** Finite count; the engine enum distinguishes nonfinite endings. */
   count?: number;
+  iteration_count?: "UntilLethal" | "WithoutEnd" | { Fixed: number };
   /** What grows each time round, in words. */
   grows?: string[];
   /** How it ends the game, when the engine says. */
@@ -526,7 +527,7 @@ export type Act =
   | { kind: "choose_dungeon_room"; room: number }
   /** Time travel: a time counter off each of `remove`, then onto each of `add`. */
   | { kind: "time_travel"; remove: TargetView[]; add: TargetView[] }
-  /** Propose the shortcut: repeat it `count` times, or (null) until a player loses. */
+  /** Propose the shortcut: finite count, or (null) the engine-offered nonfinite ending. */
   | { kind: "propose_shortcut"; count: number | null }
   | { kind: "decline_shortcut" }
   /** Accept a shortcut (null), or stop it after that many repetitions (or at the engine's stopping place with that id). */

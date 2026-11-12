@@ -22,7 +22,7 @@ cd "$DEPLOY_DIR/.."
 . "$DEPLOY_DIR/target.sh"
 DIR=/mnt/user/appdata/yama-lab
 CARDS=/mnt/user/appdata/yama/data/engine
-CARD_FILE=card-data-cbd552b41f962f5b.json
+CARD_FILE=card-data-19b30ee31fc29d11.json
 
 cmd=${1:-}
 case "$cmd" in

@@ -14,11 +14,28 @@ use std::time::{Duration, Instant};
 pub(super) const IDENTITY: &str = "phase-v0.113.0+a3bc47c9-yama/cards-1e5608e6";
 const MANIFEST: &str = include_str!("../../runtime/historical.json");
 const SOURCE: &str = include_str!("../../runtime/historical-source.json");
+pub(super) const V0119_IDENTITY: &str = "phase-v0.119.0+19be58d497a6618b34c0862ca1d27c8c48999480-yama/cards-cbd552b4";
+#[derive(Clone, Copy)]
+pub(super) struct Runtime {
+    identity: &'static str,
+    manifest: &'static str,
+    source: &'static str,
+    controls: bool,
+}
+const LEGACY: Runtime = Runtime { identity: IDENTITY, manifest: MANIFEST, source: SOURCE, controls: false };
+const V0119: Runtime = Runtime {
+    identity: V0119_IDENTITY,
+    manifest: include_str!("../../runtime/v0119/historical.json"),
+    source: include_str!("../../runtime/v0119/historical-source.json"),
+    controls: true,
+};
+fn legacy_identity() -> &'static str { IDENTITY }
 const DEADLINE: Duration = Duration::from_secs(60);
 const MAX_RESPONSE: u64 = 128 << 20;
 
 #[derive(Clone)]
 pub(super) struct Config {
+    runtime: Runtime,
     pub binary: PathBuf,
     pub data: PathBuf,
     pub digest: PathBuf,
@@ -45,9 +62,26 @@ impl Config {
             .unwrap_or_else(|| PathBuf::from("/usr/local/share/yama/historical-runtime.sha256"));
         config
     }
+    pub fn discover_v0119(current_data: &std::path::Path) -> Self {
+        let binary = std::env::var_os("YAMA_V0119_RUNTIME").map(PathBuf::from).unwrap_or_else(||
+            std::env::current_exe().unwrap_or_default().with_file_name("historical-runtime-v0119"));
+        let data = std::env::var_os("YAMA_V0119_CARD_DATA").map(PathBuf::from).unwrap_or_else(||
+            current_data.with_file_name("card-data-cbd552b41f962f5b.json"));
+        let mut config = Self::for_v0119(binary, data);
+        config.digest = std::env::var_os("YAMA_V0119_RUNTIME_DIGEST").map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/usr/local/share/yama/historical-runtime-v0119.sha256"));
+        config
+    }
+    pub fn for_v0119(binary: PathBuf, data: PathBuf) -> Self {
+        let mut config = Self::new(binary, data);
+        config.runtime = V0119;
+        config
+    }
+    pub fn identity(&self) -> &'static str { self.runtime.identity }
     pub fn new(binary: PathBuf, data: PathBuf) -> Self {
         let digest = binary.with_extension("sha256");
         Self {
+            runtime: LEGACY,
             binary,
             data,
             digest,
@@ -260,8 +294,8 @@ impl Process {
             .context("historical runtime greeting timed out")
             .and_then(|result| result)
             .map_err(Retryable)?;
-        let expected: Value = serde_json::from_str(MANIFEST)?;
-        let source: Value = serde_json::from_str(SOURCE)?;
+        let expected: Value = serde_json::from_str(config.runtime.manifest)?;
+        let source: Value = serde_json::from_str(config.runtime.source)?;
         ensure!(
             hello["hello"] == expected && hello["source"] == source,
             "historical runtime provenance mismatch"
@@ -362,6 +396,7 @@ fn read_response(output: &mut impl BufRead) -> anyhow::Result<Value> {
 }
 
 pub(super) struct Worker {
+    runtime: Runtime,
     process: Arc<Process>,
     session: String,
     opened: bool,
@@ -389,6 +424,7 @@ impl Worker {
             },
         };
         Ok(Self {
+            runtime: config.runtime,
             process,
             session: uuid::Uuid::new_v4().to_string(),
             opened: false,
@@ -419,6 +455,18 @@ impl Worker {
     }
     #[cfg(test)]
     pub(super) fn test_session(&self) -> String { self.session.clone() }
+    fn saved(&self, response: &Value) -> anyhow::Result<Saved> {
+        let mut saved: Saved = serde_json::from_value(response["state"].clone())?;
+        ensure!(self.runtime.controls || !saved.abandoned, "unsupported abandoned state");
+        if self.runtime.controls {
+            ensure!(saved.results.is_some(), "frozen v0.119 result facts missing");
+        } else {
+            // The original v0.113 source has no result-facts extension.
+            saved.results = None;
+        }
+        saved.identity = self.runtime.identity;
+        Ok(saved)
+    }
     pub fn open(
         &mut self,
         config: &Config,
@@ -438,11 +486,11 @@ impl Worker {
             .map(|s| s.seat)
             .collect();
         let parse = |s: Option<String>| s.map(|s| serde_json::from_str::<Value>(&s)).transpose();
-        let v = self.call(json!({"op":"open", "identity":IDENTITY,"data":config.data,
+        let v = self.call(json!({"op":"open", "identity":self.runtime.identity,"data":config.data,
             "replay":replay,"log":parse(log)?,"answers":parse(answers)?,"ai":ai,"humans":humans,
             "names":seats.iter().map(|s|&s.name).collect::<Vec<_>>()}))?;
         self.opened = true;
-        Ok(serde_json::from_value(v["state"].clone())?)
+        self.saved(&v)
     }
 }
 
@@ -463,7 +511,24 @@ impl Drop for Worker {
 }
 
 #[derive(Deserialize)]
+struct HistoricalKnockout {
+    seat: u8,
+    turn: u32,
+    by: Option<u8>,
+    seen: bool,
+}
+#[derive(Deserialize)]
+struct HistoricalResults {
+    knockouts: Vec<HistoricalKnockout>,
+    win_condition: Option<String>,
+}
+
+#[derive(Deserialize)]
 pub(super) struct Saved {
+    #[serde(skip, default = "legacy_identity")]
+    identity: &'static str,
+    #[serde(default)]
+    abandoned: bool,
     views: Vec<(Option<u8>, Value)>,
     replay: String,
     log: Value,
@@ -473,6 +538,8 @@ pub(super) struct Saved {
     winner: Option<u8>,
     turn: u32,
     first: u8,
+    #[serde(default)]
+    results: Option<HistoricalResults>,
 }
 impl Saved {
     fn snapshot(&self) -> Snapshot {
@@ -481,18 +548,27 @@ impl Saved {
     async fn persist(&self, pool: &SqlitePool, id: &str) -> anyhow::Result<()> {
         // Archive the original exactly once and fence every write by the runtime identity.
         let mut tx = pool.begin().await?;
-        archive_original(&mut tx, id, IDENTITY).await?;
+        archive_original(&mut tx, id, self.identity).await?;
         let changed = sqlx::query("UPDATE online_games SET replay=?, log=?, answers=?, revision=?, stage=?, updated_at=? WHERE game_id=? AND EXISTS (SELECT 1 FROM games WHERE id=? AND engine_version=?)")
             .bind(&self.replay).bind(self.log.to_string()).bind(self.answers.to_string())
-            .bind(self.revision as i64).bind(if self.over {"over"} else {"live"}).bind(now()).bind(id).bind(id).bind(IDENTITY)
+            .bind(self.revision as i64).bind(if self.over {"over"} else {"live"}).bind(now()).bind(id).bind(id).bind(self.identity)
             .execute(&mut *tx).await?.rows_affected();
         ensure!(changed == 1, "saved game identity changed; refusing historical write");
+        if let Some(facts) = &self.results {
+            let found: Vec<_> = facts.knockouts.iter().map(|k| results::Knockout {
+                seat: k.seat, turn: k.turn, by: k.by, seen: k.seen,
+            }).collect();
+            write_knockouts(&mut tx, id, &found).await?;
+        }
         if self.over {
-            sqlx::query("UPDATE games SET status='finished', winner_seat=?, turns=?, ended_at=?, first_seat=? WHERE id=?")
-                .bind(self.winner.map(i64::from))
+            sqlx::query("UPDATE games SET status=?, winner_seat=?, turns=?, ended_at=?, first_seat=?, win_condition=CASE WHEN ? THEN ? ELSE win_condition END WHERE id=?")
+                .bind(if self.abandoned { "abandoned" } else { "finished" })
+                .bind(if self.abandoned { None } else { self.winner.map(i64::from) })
                 .bind(i64::from(self.turn))
                 .bind(now())
                 .bind(i64::from(self.first))
+                .bind(self.results.is_some())
+                .bind(if self.abandoned { None } else { self.results.as_ref().and_then(|r| r.win_condition.as_deref()) })
                 .bind(id)
                 .execute(&mut *tx)
                 .await?;
@@ -519,6 +595,9 @@ pub(super) async fn archive_original(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite
 }
 
 fn request(cmd: Cmd) -> Option<(Value, Option<oneshot::Sender<Result<(), String>>>)> {
+    request_for(cmd, false)
+}
+fn request_for(cmd: Cmd, controls: bool) -> Option<(Value, Option<oneshot::Sender<Result<(), String>>>)> {
     let (v, reply) = match cmd {
         Cmd::Choose { seat, revision, index, reply } => {
             (json!({"type":"choose","seat":seat,"revision":revision,"index":index}), Some(reply))
@@ -543,6 +622,10 @@ fn request(cmd: Cmd) -> Option<(Value, Option<oneshot::Sender<Result<(), String>
         Cmd::Hold { seat, on } => (json!({"type":"hold","seat":seat,"on":on}), None),
         // Historical runtimes retain their original wire schema. The current
         // Phase board is rejected by the authenticated route before this point.
+        Cmd::GoBack { seat, revision, checkpoint, reply } if controls =>
+            (json!({"type":"go_back","seat":seat,"revision":revision,"checkpoint":checkpoint}), Some(reply)),
+        Cmd::EndSolo { seat, reply } if controls =>
+            (json!({"type":"end_solo","seat":seat}), Some(reply)),
         Cmd::GoBack { reply, .. } | Cmd::EndSolo { reply, .. } => {
             let _ = reply.send(Err("This historical runtime does not support this control.".into()));
             return None;
@@ -616,7 +699,7 @@ fn run(
         if let Some((value, persist)) = deferred.front() {
             match worker.call(value.clone()) {
                 Ok(v) => {
-                    saved = serde_json::from_value(v["state"].clone())?;
+                    saved = worker.saved(&v)?;
                     if *persist {
                         rt.block_on(saved.persist(pool, id))?;
                         advance |= v["advance"].as_bool().unwrap_or(false);
@@ -637,7 +720,7 @@ fn run(
                 Err(e) if e.is::<Busy>() => break, // retain board/receiver and retry after yielding
                 Err(e) => return Err(e),
             };
-            saved = serde_json::from_value(v["state"].clone())?;
+            saved = worker.saved(&v)?;
             if v["moved"].as_u64().unwrap_or(0) > 0 {
                 rt.block_on(saved.persist(pool, id))?;
                 let _ = views.send(Arc::new(saved.snapshot()));
@@ -649,6 +732,10 @@ fn run(
                 break;
             }
             advance = !v["settled"].as_bool().unwrap_or(true);
+            // Admit pending human controls between bounded AI batches, including
+            // a sole human who is already out. Rewind must stop the next batch.
+            // The v0.113 driver keeps its original batching contract.
+            if worker.runtime.controls { break; }
         }
         let _ = views.send(Arc::new(saved.snapshot()));
         if saved.over { continue; }
@@ -672,7 +759,8 @@ fn run(
             }
             continue;
         }
-        let (v, reply) = request(cmd).unwrap();
+        let Some((v, reply)) = request_for(cmd, worker.runtime.controls) else { continue };
+        let rewinding = v["type"] == "go_back";
         // Keep fire-and-forget commands (notably concede) in order until admitted.
         // Commands with a reply get an explicit retry, never a later surprise execution.
         if !deferred.is_empty() {
@@ -682,9 +770,9 @@ fn run(
         }
         match worker.call(v.clone()) {
             Ok(v) => {
-                saved = serde_json::from_value(v["state"].clone())?;
+                saved = worker.saved(&v)?;
                 rt.block_on(saved.persist(pool, id))?;
-                advance |= v["advance"].as_bool().unwrap_or(false);
+                advance = if rewinding { false } else { advance || v["advance"].as_bool().unwrap_or(false) };
                 if let Some(reply) = reply { let _ = reply.send(Ok(())); }
             }
             Err(e) => {
@@ -852,7 +940,7 @@ mod supervision_tests {
         let (owner, token) = user(&pool, "retry-owner@example.com").await;
         st.play = Arc::new(PlayHub {
             engine: Mutex::new(EngineState::Failed("current engine deliberately absent".into())),
-            live: Mutex::new(HashMap::new()), historical: Some(config.clone()),
+            live: Mutex::new(HashMap::new()), historical: Some(config.clone()), historical_v0119: None,
             setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()),
         });
         let hub = st.play.clone();
@@ -877,6 +965,155 @@ mod supervision_tests {
         assert_eq!(before, after);
         assert!(!previous.process.alive.load(Ordering::SeqCst));
     }
+    #[test]
+    fn historical_generations_require_their_own_greeting_and_process_cache() {
+        let (legacy_dir, legacy) = script(&format!("{}\nwhile IFS= read -r line; do printf '%s\\n' '{{}}'; done", hello()));
+        let legacy_worker = Worker::start(&legacy).unwrap();
+        let modern_hello = format!("printf '%s\\n' '{}'", json!({
+            "hello": serde_json::from_str::<Value>(V0119.manifest).unwrap(),
+            "source": serde_json::from_str::<Value>(V0119.source).unwrap(),
+        }));
+        let (_modern_dir, mut modern) = script(&format!("{modern_hello}\nwhile IFS= read -r line; do printf '%s\\n' '{{}}'; done"));
+        modern.runtime = V0119;
+        let modern_worker = Worker::start(&modern).unwrap();
+        assert_ne!(legacy_worker.process_id(), modern_worker.process_id());
+        assert_eq!(Worker::start(&legacy).unwrap().process_id(), legacy_worker.process_id());
+        assert_eq!(Worker::start(&modern).unwrap().process_id(), modern_worker.process_id());
+        let (_wrong_dir, mut wrong) = script(&format!("{}\nexec /bin/sleep 30", hello()));
+        wrong.runtime = V0119;
+        assert!(Worker::start(&wrong).is_err(), "a legacy greeting cannot claim the modern identity");
+        assert!(legacy_worker.process.alive.load(Ordering::SeqCst));
+        assert!(modern_worker.process.alive.load(Ordering::SeqCst));
+        drop(legacy_dir);
+    }
+
+    #[tokio::test]
+    async fn v0119_persistence_uses_trusted_identity_and_keeps_abandonment_without_winner() {
+        let modern_hello = format!("printf '%s\\n' '{}'", json!({
+            "hello": serde_json::from_str::<Value>(V0119.manifest).unwrap(),
+            "source": serde_json::from_str::<Value>(V0119.source).unwrap(),
+        }));
+        let (_dir, mut config) = script(&format!("{modern_hello}\nwhile IFS= read -r line; do printf '%s\\n' '{{}}'; done"));
+        config.runtime = V0119;
+        let worker = Worker::start(&config).unwrap();
+        let saved = worker.saved(&json!({"state":{
+            "identity":"untrusted-child-identity", "views":[[null,{"players":[]}]],
+            "replay":"preserved replay", "log":[], "answers":[], "revision":4,
+            "over":true, "abandoned":true, "winner":1, "turn":9, "first":0,
+            "results":{"knockouts":[],"win_condition":"combat"}
+        }})).unwrap();
+        assert_eq!(saved.identity, V0119_IDENTITY);
+        let st = crate::testutil::state().await;
+        let pool = &st.pool;
+        let (owner, _) = crate::testutil::user(pool, "historical-owner@example.com").await;
+        sqlx::query("INSERT INTO games(id,mode,created_by,format,status,starting_life,started_at,engine_version) VALUES ('v0119-end','online',?,'commander','in_progress',40,'original',?)")
+            .bind(&owner).bind(V0119_IDENTITY).execute(pool).await.unwrap();
+        sqlx::query("INSERT INTO online_games(game_id,code,host_id,stage,seats,replay,revision,created_at,updated_at) VALUES ('v0119-end','v0119-end',?,'live','[]','original replay',0,'original','original')")
+            .bind(&owner).execute(pool).await.unwrap();
+        saved.persist(pool, "v0119-end").await.unwrap();
+        let result: (String, Option<i64>, String) = sqlx::query_as("SELECT status,winner_seat,engine_version FROM games WHERE id='v0119-end'").fetch_one(pool).await.unwrap();
+        assert_eq!(result, ("abandoned".into(), None, V0119_IDENTITY.into()));
+        let archived: String = sqlx::query_scalar("SELECT replay FROM online_game_originals WHERE game_id='v0119-end'").fetch_one(pool).await.unwrap();
+        assert_eq!(archived, "original replay");
+        sqlx::query("UPDATE games SET engine_version=? WHERE id='v0119-end'").bind(IDENTITY).execute(pool).await.unwrap();
+        assert!(saved.persist(pool, "v0119-end").await.is_err());
+        let revision: i64 = sqlx::query_scalar("SELECT revision FROM online_games WHERE game_id='v0119-end'").fetch_one(pool).await.unwrap();
+        assert_eq!(revision, 4);
+    }
+
+    #[tokio::test]
+    async fn v0119_result_facts_record_knockouts_and_clear_them_on_rewind() {
+        let st = crate::testutil::state().await;
+        let pool = &st.pool;
+        let (owner, _) = crate::testutil::user(pool, "historical-results@example.com").await;
+        sqlx::query("INSERT INTO games(id,mode,created_by,format,status,starting_life,started_at,engine_version) VALUES ('v0119-results','online',?,'commander','in_progress',40,'original',?)")
+            .bind(&owner).bind(V0119_IDENTITY).execute(pool).await.unwrap();
+        sqlx::query("INSERT INTO online_games(game_id,code,host_id,stage,seats,replay,revision,created_at,updated_at) VALUES ('v0119-results','v0119-results',?,'live','[]','original replay',0,'original','original')")
+            .bind(&owner).execute(pool).await.unwrap();
+        for seat in 0..3 {
+            sqlx::query("INSERT INTO game_seats(game_id,seat,guest_name) VALUES ('v0119-results',?,'Someone')")
+                .bind(seat).execute(pool).await.unwrap();
+        }
+        let make = |facts: Value, over: bool| {
+            let mut saved: Saved = serde_json::from_value(json!({
+                "views":[[null,{"players":[]}]],"replay":"frozen replay","log":[],"answers":[],
+                "revision":5,"over":over,"winner":0,"turn":9,"first":0,"results":facts,
+            })).unwrap();
+            saved.identity = V0119_IDENTITY;
+            saved
+        };
+        let facts = json!({"knockouts":[{"seat":1,"turn":5,"by":0,"seen":true}],"win_condition":null});
+        make(facts.clone(), false).persist(pool, "v0119-results").await.unwrap();
+        let recorded: (Option<i64>, Option<i64>) = sqlx::query_as("SELECT eliminated_turn,eliminated_by_seat FROM game_seats WHERE game_id='v0119-results' AND seat=1").fetch_one(pool).await.unwrap();
+        assert_eq!(recorded, (Some(5),Some(0)));
+        make(json!({"knockouts":[],"win_condition":null}), false).persist(pool, "v0119-results").await.unwrap();
+        let rewound: (Option<i64>, Option<i64>) = sqlx::query_as("SELECT eliminated_turn,eliminated_by_seat FROM game_seats WHERE game_id='v0119-results' AND seat=1").fetch_one(pool).await.unwrap();
+        assert_eq!(rewound, (None,None));
+        make(json!({"knockouts":[{"seat":1,"turn":9,"by":0,"seen":true}],"win_condition":"combat"}), true)
+            .persist(pool, "v0119-results").await.unwrap();
+        let finished: (Option<i64>,Option<String>) = sqlx::query_as("SELECT winner_seat,win_condition FROM games WHERE id='v0119-results'").fetch_one(pool).await.unwrap();
+        assert_eq!(finished, (Some(0),Some("combat".into())));
+        sqlx::query("UPDATE games SET engine_version=? WHERE id='v0119-results'").bind(IDENTITY).execute(pool).await.unwrap();
+        assert!(make(json!({"knockouts":[],"win_condition":null}), false).persist(pool,"v0119-results").await.is_err());
+        let fenced: Option<i64> = sqlx::query_scalar("SELECT eliminated_turn FROM game_seats WHERE game_id='v0119-results' AND seat=1").fetch_one(pool).await.unwrap();
+        assert_eq!(fenced, Some(9));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn v0119_rewind_and_end_solo_are_admitted_between_ai_batches() {
+        let temporary = tempfile::tempdir().unwrap();
+        let marker = temporary.path().join("batches");
+        let state = |over, abandoned| json!({"views":[[null,{"players":[]}]],
+            "replay":"frozen replay","log":[],"answers":[],"revision":2,
+            "over":over,"abandoned":abandoned,"winner":null,"turn":2,"first":0,
+            "results":{"knockouts":[],"win_condition":null}});
+        let live = json!({"state":state(false,false),"moved":1,"settled":false,"fault":null});
+        let ended = json!({"state":state(true,true),"advance":false});
+        let restored = json!({"state":state(false,false),"advance":false});
+        let runaway = json!({"state":state(true,false),"moved":1,"settled":true,"fault":null});
+        let modern_hello = format!("printf '%s\\n' '{}'", json!({
+            "hello":serde_json::from_str::<Value>(V0119.manifest).unwrap(),
+            "source":serde_json::from_str::<Value>(V0119.source).unwrap()}));
+        let body = format!("{modern_hello}\nn=0\nwhile IFS= read -r request; do\ncase \"$request\" in\n*'\"type\":\"end_solo\"'*) printf '%s\\n' '{ended}' ;;\n*'\"type\":\"go_back\"'*) printf '%s\\n' '{restored}' ;;\n*'\"op\":\"batch\"'*) n=$((n + 1)); printf '%s\\n' \"$n\" >> '{}'; if [ \"$n\" -ge 4 ]; then printf '%s\\n' '{runaway}'; else printf '%s\\n' '{live}'; fi ;;\n*) printf '%s\\n' '{{\"closed\":true}}' ;;\nesac\ndone", marker.display());
+        let (_dir, mut config) = script(&body);
+        config.runtime = V0119;
+        config.deadline = Duration::from_secs(5);
+        let worker = Worker::start(&config).unwrap();
+        let initial = worker.saved(&live).unwrap();
+        let st = crate::testutil::state().await;
+        let pool = st.pool.clone();
+        let (owner, _) = crate::testutil::user(&pool, "historical-batches@example.com").await;
+        sqlx::query("INSERT INTO games(id,mode,created_by,format,status,starting_life,started_at,engine_version) VALUES ('v0119-batches','online',?,'commander','in_progress',40,'original',?)")
+            .bind(&owner).bind(V0119_IDENTITY).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO online_games(game_id,code,host_id,stage,seats,replay,revision,created_at,updated_at) VALUES ('v0119-batches','v0119-batches',?,'live','[]','original',0,'original','original')")
+            .bind(&owner).execute(&pool).await.unwrap();
+        let (send, receive) = mpsc::channel();
+        let (rewind_reply, rewind_result) = oneshot::channel();
+        send.send(Cmd::GoBack { seat:0, revision:1, checkpoint:None, reply:rewind_reply }).unwrap();
+        let (end_reply, end_result) = oneshot::channel();
+        send.send(Cmd::EndSolo { seat:0, reply:end_reply }).unwrap();
+        let (views, _reader) = watch::channel(Arc::new(initial.snapshot()));
+        let handle = tokio::runtime::Handle::current();
+        let task = tokio::task::spawn_blocking(move || run("v0119-batches", worker, initial, HashMap::new(), receive, views, &pool, &handle));
+        tokio::time::timeout(Duration::from_secs(10), rewind_result).await.unwrap().unwrap().unwrap();
+        tokio::time::timeout(Duration::from_secs(10), end_result).await.unwrap().unwrap().unwrap();
+        tokio::time::timeout(Duration::from_secs(10), task).await.unwrap().unwrap().unwrap();
+        assert_eq!(std::fs::read_to_string(marker).unwrap(), "1\n", "rewind pauses AI before the next queued control");
+    }
+
+    #[tokio::test]
+    async fn new_controls_are_routed_only_to_the_frozen_v0119_adapter() {
+        let (reply, result) = oneshot::channel();
+        assert!(request_for(Cmd::EndSolo { seat: 0, reply }, false).is_none());
+        assert!(result.await.unwrap().is_err());
+        let (reply, _result) = oneshot::channel();
+        let (request, _) = request_for(Cmd::GoBack { seat: 1, revision: 9, checkpoint: Some(7), reply }, true).unwrap();
+        assert_eq!(request, json!({"op":"command","type":"go_back","seat":1,"revision":9,"checkpoint":7}));
+        let (reply, _result) = oneshot::channel();
+        let (request, _) = request_for(Cmd::EndSolo { seat: 1, reply }, true).unwrap();
+        assert_eq!(request["type"], "end_solo");
+    }
+
     #[test]
     fn hung_request_invalidates_shared_sessions_and_drop_never_waits_on_io() {
         let (_dir, config) = script(&format!("{}\nexec /bin/sleep 30", hello()));

@@ -615,6 +615,18 @@ fn a_shortcut_is_accepted_or_shortened_and_everyone_sees_it() {
     let p = pending_of(&m, 1);
     assert_eq!((p.prompt.as_str(), p.total), ("Ana proposes a shortcut: repeat until a player loses", None));
     assert_eq!(p.shortcut.as_ref().unwrap().responders, [(1, "deciding"), (2, "answered")]);
+    // The engine distinguishes a mandatory endless loop (draw) from a lethal loop.
+    let mut endless = proposal(IterationCount::WithoutEnd);
+    endless.predicted_winner = None;
+    endless.win_kind = None;
+    m.state.waiting_for = WaitingFor::RespondToShortcut { player: PlayerId(1), remaining_players: vec![], proposal: endless };
+    let p = pending_of(&m, 1);
+    assert_eq!(p.prompt, "Ana proposes a shortcut: repeat without end (draw)");
+    assert_eq!(p.shortcut.as_ref().unwrap().iteration_count, Some(IterationCount::WithoutEnd));
+    assert!(p.admits(&Act::RespondToShortcut { stop_at: None }).is_ok());
+    let Some(crate::TogetherView::Shortcut { shortcut, .. }) = m.view(Some(2)).together else { panic!("Cy sees the draw proposal") };
+    assert_eq!(shortcut.iteration_count, Some(IterationCount::WithoutEnd));
+    assert_eq!(shortcut.winner, None);
 }
 
 #[test]
@@ -624,6 +636,7 @@ fn the_engines_answers_to_shortcuts_read_back_as_acts() {
     let cases = [
         (GameAction::DeclareShortcut { count: IterationCount::Fixed(7), template: None }, Act::ProposeShortcut { count: Some(7) }),
         (GameAction::DeclareShortcut { count: IterationCount::UntilLethal, template: None }, Act::ProposeShortcut { count: None }),
+        (GameAction::DeclareShortcut { count: IterationCount::WithoutEnd, template: None }, Act::ProposeShortcut { count: None }),
         (GameAction::DeclineShortcut, Act::DeclineShortcut),
         (GameAction::PrecastCopyShortcut { epoch: 3, response: PrecastCopyShortcutResponse::Shorten { breakpoint_id: 41 } }, Act::RespondToShortcut { stop_at: Some(41) }),
     ];

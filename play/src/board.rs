@@ -37,6 +37,7 @@ pub struct GameplayPreferences {
     phase_stops: Vec<engine::types::phase::PhaseStop>,
     priority_passing_mode: engine::types::game_state::PriorityPassingMode,
     full_control: bool,
+    un_card_actions_enabled: bool,
 }
 
 impl crate::Match {
@@ -64,7 +65,10 @@ impl crate::Match {
             PriorityPassingMode::FullControl => PriorityPassingMode::Standard,
             mode => mode,
         };
-        GameplayPreferences { phase_stops, priority_passing_mode, full_control: controls.full_control }
+        GameplayPreferences {
+            phase_stops, priority_passing_mode, full_control: controls.full_control,
+            un_card_actions_enabled: self.engine_state().un_actions.is_enabled(PlayerId(seat)),
+        }
     }
 }
 
@@ -125,6 +129,8 @@ pub fn hello() -> ServerMessage {
         wire_formats: Vec::new(),
         heartbeat: None,
         command_correlation: None,
+        state_codecs: Vec::new(),
+        selected_state_codec: None,
     }
 }
 

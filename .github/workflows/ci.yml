@@ -299,6 +299,8 @@ jobs:
         run: |
           python3 deploy/test_release.py
           python3 deploy/test_host.py
+          python3 runtime/test_source_availability.py
+          python3 runtime/test_provenance.py
       - name: Test portable workers and build identity
         run: python3 -m unittest discover -s tools -p 'test_lab*.py'
       - name: Test the Forge worker

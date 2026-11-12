@@ -189,7 +189,7 @@ fn only_whitelisted_answers_parse() {
 #[tokio::test(flavor = "multi_thread")]
 async fn act_is_checked_against_the_seats_own_decision() {
     let pool = crate::db::test_pool().await;
-    let hub = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()), historical: None, setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()) });
+    let hub = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()), historical: None, historical_v0119: None, setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()) });
     // Two people. Seat 0's cards (Island, Opt, Preordain) appear nowhere in seat 1's deck.
     let mine = deck(&[("Island", 50), ("Opt", 25), ("Preordain", 24)]);
     let theirs = deck(&[("Mountain", 60), ("Blaze", 39)]);
@@ -297,7 +297,7 @@ async fn turn_controls_are_saved_per_account_and_apply_to_live_games() {
     assert_eq!(load_prefs(&pool, &user).await.unwrap(), Some(PlayPrefs::default()));
 
     // A live game starts with each seat's saved settings, and its board says what they are.
-    let hub = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()), historical: None, setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()) });
+    let hub = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()), historical: None, historical_v0119: None, setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()) });
     let m = engine().new_match_first(5, vec![deck(&[("Mountain", 99)]), deck(&[("Forest", 99)])], &[], Some(0)).unwrap();
     let saved = HashMap::from([(0u8, PlayPrefs { stops: None, full_control: true, tap_mana: PayMode::Auto })]);
     hub.spawn_game("game-turns-1".into(), m, vec![seat(0, "Ana"), seat(1, "Ben")], saved, pool.clone());
@@ -512,7 +512,7 @@ async fn the_host_starts_a_rematch_and_the_other_players_can_join_it() {
     use crate::testutil::{deck as make_deck, send as request, user};
     use axum::http::{Method, StatusCode};
     let mut st = crate::testutil::state().await;
-    st.play = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()), historical: None, setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()), });
+    st.play = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()), historical: None, historical_v0119: None, setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()), });
     let pool = st.pool.clone();
     let app = crate::routes::app(st);
     let (host, host_token) = user(&pool, "ana@example.com").await;
@@ -711,7 +711,7 @@ async fn online_games_start_with_loop_detection_and_save_it() {
     use crate::testutil::{send as request, user};
     use axum::http::{Method, StatusCode};
     let mut st = crate::testutil::state().await;
-    st.play = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()), historical: None, setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()) });
+    st.play = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()), historical: None, historical_v0119: None, setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()) });
     let hub = st.play.clone();
     let pool = st.pool.clone();
     let app = crate::routes::app(st);
@@ -765,10 +765,15 @@ async fn saved_bytes(pool: &SqlitePool, id: &str) -> String {
         .bind(id).fetch_one(pool).await.unwrap()
 }
 fn ready_hub(historical: Option<history::Config>) -> Arc<PlayHub> {
+    let (historical, historical_v0119) = match historical {
+        Some(config) if config.identity() == history::V0119_IDENTITY => (None, Some(config)),
+        other => (other, None),
+    };
     Arc::new(PlayHub {
         engine: Mutex::new(EngineState::Ready(Arc::new(engine()))),
         live: Mutex::new(HashMap::new()),
         historical,
+        historical_v0119,
         setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()),
     })
 }
@@ -879,12 +884,27 @@ fn loaded_content_must_match_even_when_the_filename_claims_the_right_hash() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "requires separately built pinned historical runtime and verified full historical data"]
 async fn historical_runtime_continues_live_games_and_rebuilds_final_boards_privately() {
-    use crate::testutil::{send as request, user};
-    use axum::http::{Method, StatusCode};
     let config = history::Config::new(
         std::env::var_os("YAMA_HISTORICAL_RUNTIME").expect("set historical binary").into(),
         std::env::var_os("YAMA_HISTORICAL_CARD_DATA").expect("set verified historical data").into(),
     );
+    exercise_historical_runtime(config).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires the frozen v0.119 runtime and verified full v0.119 data"]
+async fn v0119_runtime_continues_live_games_and_rebuilds_final_boards_privately() {
+    let config = history::Config::for_v0119(
+        std::env::var_os("YAMA_V0119_RUNTIME").expect("set v0.119 binary").into(),
+        std::env::var_os("YAMA_V0119_CARD_DATA").expect("set verified v0.119 data").into(),
+    );
+    exercise_historical_runtime(config).await;
+}
+
+async fn exercise_historical_runtime(config: history::Config) {
+    use crate::testutil::{send as request, user};
+    use axum::http::{Method, StatusCode};
+    let identity = config.identity();
     let output = std::process::Command::new(&config.binary).arg("--fixture").arg(&config.data).output().unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     let fixture: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
@@ -911,7 +931,7 @@ async fn historical_runtime_continues_live_games_and_rebuilds_final_boards_priva
             &pool,
             &format!("historical-{stage}"),
             &host,
-            Some(history::IDENTITY),
+            Some(identity),
             stage,
             fixture[stage]["replay"].as_str().unwrap(),
         )
@@ -990,7 +1010,21 @@ async fn historical_runtime_continues_live_games_and_rebuilds_final_boards_priva
     let expected = golden.call(serde_json::json!({"op":"view","viewer":0})).unwrap();
     let (code, continued) = request(&app, Method::GET, "/api/play/historical-live/view", Some(&token), None).await;
     assert_eq!(code, StatusCode::OK);
-    assert_eq!(continued["view"], expected["view"]);
+    let mut continued_view = continued["view"].clone();
+    if identity == history::V0119_IDENTITY {
+        // The live process retains its just-created rewind checkpoint. Reopening
+        // persists the game and audit, but intentionally starts with no checkpoint.
+        assert_eq!(continued_view["can_go_back"], true);
+        assert!(continued_view["rewind_checkpoint"].is_u64());
+        assert_eq!(continued_view["rewind_steps"], 1);
+        assert_eq!(expected["view"]["can_go_back"], false);
+        assert!(expected["view"]["rewind_checkpoint"].is_null());
+        assert_eq!(expected["view"]["rewind_steps"], 0);
+        for key in ["can_go_back", "rewind_checkpoint", "rewind_steps"] {
+            continued_view[key] = expected["view"][key].clone();
+        }
+    }
+    assert_eq!(continued_view, expected["view"], "all other historical view fields survive recovery");
     drop(golden);
     live.cmds.send(Cmd::Concede { seat: 0 }).unwrap();
     for _ in 0..200 {
@@ -1003,7 +1037,7 @@ async fn historical_runtime_continues_live_games_and_rebuilds_final_boards_priva
     }
     let (stage,version,original):(String,String,String)=sqlx::query_as("SELECT o.stage,g.engine_version,a.replay FROM online_games o JOIN games g ON g.id=o.game_id JOIN online_game_originals a ON a.game_id=g.id WHERE g.id='historical-live'").fetch_one(&pool).await.unwrap();
     assert_eq!(stage, "over");
-    assert_eq!(version, history::IDENTITY);
+    assert_eq!(version, identity);
     assert_eq!(original, live_original);
     let (code, body) = request(&app, Method::GET, "/api/play/historical-live/view", Some(&token), None).await;
     assert_eq!(code, StatusCode::OK, "{body}");
@@ -1012,9 +1046,9 @@ async fn historical_runtime_continues_live_games_and_rebuilds_final_boards_priva
     let dir = tempfile::tempdir().unwrap();
     let bad = dir.path().join("card-data-1e5608e61683de41.json");
     std::fs::write(&bad, "not JSON").unwrap();
-    let bad_config = history::Config::new(config.binary, bad);
+    let bad_config = if identity == history::V0119_IDENTITY { history::Config::for_v0119(config.binary, bad) } else { history::Config::new(config.binary, bad) };
     let bad_hub = ready_hub(Some(bad_config));
-    saved_game(&pool, "wrong-content", &host, Some(history::IDENTITY), "live", "invalid replay must not be parsed").await;
+    saved_game(&pool, "wrong-content", &host, Some(identity), "live", "invalid replay must not be parsed").await;
     let before = saved_bytes(&pool, "wrong-content").await;
     bad_hub.resume_live(&pool).await;
     assert!(bad_hub.live("wrong-content").is_none());
@@ -1476,7 +1510,7 @@ async fn ending_a_solo_game_is_durable_and_does_not_award_a_winner() {
     st.play = Arc::new(PlayHub {
         engine: Mutex::new(EngineState::Ready(e.clone())),
         live: Mutex::new(HashMap::new()),
-        historical: None,
+        historical: None, historical_v0119: None,
         setup_gate: Arc::new(tokio::sync::Semaphore::new(1)),
         unavailable: Mutex::new(HashMap::new()),
     });
@@ -1866,9 +1900,10 @@ async fn games_stranded_on_a_retired_runtime_free_their_place_and_can_be_deleted
     // Games only waiting for their engine are not stranded: the historical runtime isn't
     // installed here, and the current engine has failed. Both come back once fixed.
     saved_game(&pool, "waiting-historical", &host, Some(history::IDENTITY), "live", "{}").await;
+    saved_game(&pool, "waiting-v0119", &host, Some(history::V0119_IDENTITY), "live", "{}").await;
     saved_game(&pool, "waiting-current", &host, Some(yama_play::ENGINE_VERSION), "live", "{}").await;
     let app = crate::routes::app(st);
-    for id in ["waiting-historical", "waiting-current"] {
+    for id in ["waiting-historical", "waiting-v0119", "waiting-current"] {
         let (_, detail) = request(&app, Method::GET, &format!("/api/play/{id}"), Some(&token), None).await;
         assert!(detail["runtime_error"].is_string(), "{detail}");
         assert_eq!(detail.get("stranded"), None, "{detail}");
@@ -1885,6 +1920,28 @@ async fn games_stranded_on_a_retired_runtime_free_their_place_and_can_be_deleted
     }
     let left: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM games WHERE id LIKE 'stranded-%'").fetch_one(&pool).await.unwrap();
     assert_eq!(left, 0);
+}
+
+/// The new current pin must not make retained v0.119 tables appear retired.
+#[tokio::test]
+async fn retained_v0119_games_still_hold_open_game_places() {
+    use crate::testutil::user;
+    let pool = crate::db::test_pool().await;
+    let (host, _) = user(&pool, "retained-v0119@example.com").await;
+    let user_row = crate::auth::User { id: host.clone(), email: "retained-v0119@example.com".into(), display_name: "Ana".into(), is_admin: false, limited: true, power: false, guest: false };
+    for n in 0..OPEN_MAX_OPEN_GAMES {
+        check_open_games(&pool, &user_row).await.expect("room remains below the configured allowance");
+        saved_game(&pool, &format!("retained-{n}"), &host, Some(history::V0119_IDENTITY), "live", "{}").await;
+    }
+    assert!(!is_retired_runtime(Some(history::V0119_IDENTITY)));
+    // A ready current engine must not reinterpret or close a recognized saved
+    // game just because its preserved worker is temporarily unavailable.
+    ready_hub(None).resume_live(&pool).await;
+    let rows: Vec<(String, String)> = sqlx::query_as("SELECT g.engine_version,o.stage FROM games g JOIN online_games o ON o.game_id=g.id WHERE g.id LIKE 'retained-%'")
+        .fetch_all(&pool).await.unwrap();
+    assert_eq!(rows.len() as i64, OPEN_MAX_OPEN_GAMES);
+    assert!(rows.iter().all(|(identity, stage)| identity == history::V0119_IDENTITY && stage == "live"));
+    assert!(check_open_games(&pool, &user_row).await.is_err(), "preserved games count even while their worker is unavailable");
 }
 
 #[test]
