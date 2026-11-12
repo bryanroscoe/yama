@@ -18,6 +18,13 @@ Online play is in alpha: expect bugs and slow turns.
 
 ## Navigation
 
+Home (`/`, where the wordmark goes) is where Yama opens. Signed out it says what Yama is and
+lists what works without an account: the life counter, a game against the computer, precons,
+commanders and card search. Signed in it puts a life counter game in progress on top, then
+starting a game, your four most recently changed decks and your playgroup's latest three games.
+Opening Yama with a life counter game touched in the last 12 hours goes straight to that game.
+The life counter's setup is at `/play/table` (it was `/`; `/table` redirects there).
+
 Five tabs: Play (the life counter, online play, watching, game history), Decks (your decks,
 precons, commanders), Cards, Collection (your cards, trading with a friend) and Playgroup. A
 laptop has them in a left rail under the wordmark, which goes home, with you at the foot; a phone
@@ -36,7 +43,7 @@ Google ID tokens with an invite list, or open to any verified Google account wit
 
 ### Signed out
 
-Yama opens as usual with its full navigation: the life counter and card search work without an
+Yama opens on Home with its full navigation: the life counter and card search work without an
 account, and pages that keep someone's own data (decks, collection, playgroup, the Lab) ask them
 to sign in where the page would be. The sign-in page (`/signin`) highlights the public precon
 reference and MCP guide, explains what an account adds, and keeps Google sign-in directly

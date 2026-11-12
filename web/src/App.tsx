@@ -27,8 +27,9 @@ import { joinLink, useRestoreHosting } from "./table/share";
 import { BugReportProvider } from "./bugs/BugReport";
 import { tablePlay } from "./table/playLoader";
 import { TableHome } from "./table/TableHome";
+import { HomePage } from "./pages/Home";
 
-// The life counter's setup and card search are part of the app itself: they're where Yama opens and what
+// Home, the life counter's setup and card search are part of the app itself: they're where Yama opens and what
 // works offline before anything else has loaded. Every other area loads when first opened
 // (lazyPages.tsx), with a stand-in shaped like it meanwhile.
 const play = area(() => import("./play/pages"));
@@ -237,9 +238,13 @@ export function App() {
       <Route path="/play/:id" element={signedIn ? <Paged page={PlayGame} kind="board" /> : <GuestOrSignIn><Paged page={PlayGame} kind="board" /></GuestOrSignIn>} />
       <Route path="/play/watch/:id" element={signedIn ? <Paged page={WatchGame} kind="board" /> : <Login />} />
       <Route element={<Shell />}>
-        {/* Keyed by who's signed in: a session that ends (or starts) under an open setup starts
-            it afresh, so no account's seats, decks or playgroup carry into a guest game. */}
-        <Route index element={<Framed><TableHome key={me.data?.id ?? "guest"} /></Framed>} />
+        {/* Home: where Yama opens and the wordmark goes. Keyed by who's signed in, so one
+            account's decks and games never stay on screen as the next one's. */}
+        <Route index element={<Framed><HomePage key={me.data?.id ?? "guest"} /></Framed>} />
+        {/* The life counter's setup (it was `/` until 12 Nov 2026). Keyed by who's signed in: a
+            session that ends (or starts) under an open setup starts it afresh, so no account's
+            seats, decks or playgroup carry into a guest game. */}
+        <Route path="play/table" element={<Framed><TableHome key={me.data?.id ?? "guest"} /></Framed>} />
         {/* Keyed by who is signed in, as the Table is: one account's results (with its own copies)
             never stay on screen as the next account's placeholder. */}
         <Route path="cards" element={<Framed><CardsPage key={me.data?.id ?? "guest"} /></Framed>} />
@@ -320,8 +325,8 @@ export function App() {
             <Route path="bugs" element={<BugReportsPage />} />
           </Route>
         </Route>
-        {/* The life counter's setup lives at /; /table is the address people guess for it. */}
-        <Route path="table" element={<Navigate to="/" replace />} />
+        {/* /table is the address people guess for the life counter's setup. */}
+        <Route path="table" element={<Navigate to="/play/table" replace />} />
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>

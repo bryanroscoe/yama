@@ -3,9 +3,9 @@
 // The server's public pages still have their own header (server/src/public_page.rs); giving them
 // these tabs is a later change.
 //
-// Adding a page to a tab is one line in that tab's `sections` (or `owns`, for a page that isn't
-// listed). Nothing here changes an address: a page moves between tabs by changing which tab its
-// address belongs to.
+// Home (`/`) belongs to no tab: the wordmark goes there. Adding a page to a tab is one line in
+// that tab's `sections` (or `owns`, for a page that isn't listed). Nothing here changes an
+// address: a page moves between tabs by changing which tab its address belongs to.
 import type { ReactNode } from "react";
 import { CardsIcon, CollectionIcon, DecksIcon, GroupIcon, PlayIcon, WorkshopIcon } from "./components/icons";
 
@@ -54,12 +54,12 @@ const signedOut = (w: Who) => !w.signedIn;
 export const TABS: NavTab[] = [
   {
     id: "play",
-    to: "/",
+    to: "/play/table",
     label: "Play",
     icon: <PlayIcon />,
     owns: ["/table", "/play"],
     sections: [
-      { to: "/", label: "Life counter", end: true },
+      { to: "/play/table", label: "Life counter" },
       { to: "/play", label: "Play online", end: true, alpha: true },
       { to: "/play/watch", label: "Watch", end: true, when: signedIn },
       { to: "/table/games", label: "Game history", when: signedIn },
@@ -116,9 +116,9 @@ export const MAIN_TABS: TabId[] = ["play", "decks", "cards", "collection", "play
 
 export const tab = (id: TabId): NavTab => TABS.find((t) => t.id === id)!;
 
-/** Whether `path` is the address `at` or a page under it. `/` has no pages under it. */
+/** Whether `path` is the address `at` or a page under it. */
 function under(path: string, at: string): boolean {
-  return path === at || (at !== "/" && path.startsWith(`${at}/`));
+  return path === at || path.startsWith(`${at}/`);
 }
 
 /** Whether the page at `pathname` is `at` or under it (a trailing slash doesn't matter). */

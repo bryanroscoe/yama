@@ -26,6 +26,9 @@ import { ask } from "../components/confirm";
 
 const FORMAT_KEYS: TableFormat[] = ["commander", "standard", "other"];
 
+/** The life counter's setup page, where a game opened from its Recent games goes back to. */
+const SETUP = "/play/table";
+
 const seatName = (s: GameSeat) => s.display_name ?? s.guest_name ?? `Player ${s.seat + 1}`;
 
 /** The game as this device's table keeps it, from what the server stored. Art and colors come later. */
@@ -99,7 +102,7 @@ export function GameDetailPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const from = (location.state as { history?: string } | null)?.history;
-  const back = from?.startsWith("/table/games?") ? from : "/";
+  const back = from?.startsWith("/table/games?") ? from : SETUP;
   const local = useTable();
   const game = useQuery({ queryKey: ["game", id], queryFn: ({ signal }) => api<GameDetail>(`/api/games/${id}`, { signal }) });
   const g = game.data;
@@ -161,7 +164,7 @@ export function GameDetailPage() {
   if (!g) {
     return (
       <main className="page">
-        <p><Link to={back}>{back === "/" ? "Life counter" : "Game history"}</Link></p>
+        <p><Link to={back}>{back === SETUP ? "Life counter" : "Game history"}</Link></p>
         <ErrorText error={game.error ?? new Error("That game isn't here.")} />
       </main>
     );
@@ -200,7 +203,7 @@ export function GameDetailPage() {
 
   return (
     <main className="page game-detail">
-      <BackLink inline to={back} label={back === "/" ? "Back to the life counter" : "Back to game history"} text={back === "/" ? "Life counter" : "Game history"} />
+      <BackLink inline to={back} label={back === SETUP ? "Back to the life counter" : "Back to game history"} text={back === SETUP ? "Life counter" : "Game history"} />
       <header className="gd-head">
         <ArtMosaic className="gd-art" arts={(winner ? [art.get(splitPair(winner).commander ?? "")] : shown).filter((a) => !!a?.art).slice(0, 4).map((a) => a!.art)} />
         <div className="gd-title">

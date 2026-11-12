@@ -33,7 +33,7 @@ npm run polish -- shoot --base http://localhost:5173 --as you@example.com
 npm run polish -- shoot --base https://yama.saget.org --as bryanroscoe@gmail.com --viewports mobile /decks /cards
 ```
 
-Paths given on the command line are app addresses, not tab names: the life counter's setup is `/`.
+Paths given on the command line are app addresses, not tab names: Home is `/` and the life counter's setup is `/play/table`.
 
 Without `--as` it uses the session saved for that host (`~/.config/yama-polish/<host>.json`, mode 600) and otherwise shoots signed out: the sign-in screen and the public pages. `npm run polish -- --help` lists every option. Other ways to sign in: `login --dev-email`, `login --browser` (sign in by hand in a Chrome window) and `login --cookie-stdin`.
 

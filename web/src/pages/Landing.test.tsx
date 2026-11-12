@@ -11,7 +11,7 @@ describe("signed-out discovery", () => {
     }
     expect(html).toContain("No account needed");
     // The life counter needs no account: the landing points at it, ahead of the sign-in form.
-    expect(html).toMatch(/<a class="landing-destination landing-counter" href="\/">/);
+    expect(html).toMatch(/<a class="landing-destination landing-counter" href="\/play\/table">/);
     expect(html.indexOf("Count life at the table")).toBeLessThan(html.indexOf("Google sign-in placeholder"));
     expect(html).toContain('href="#sign-in"');
     expect(html.indexOf("No account needed")).toBeLessThan(html.indexOf("Google sign-in placeholder"));
