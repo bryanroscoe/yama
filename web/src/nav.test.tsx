@@ -18,6 +18,34 @@ const guest: Who = { signedIn: false, power: false, evidence: false };
 const account: Who = { ...guest, signedIn: true };
 const owner: Who = { signedIn: true, power: true, evidence: true };
 
+// The server draws the same frame on its public pages (server/src/public_page.rs).
+const rust = readFileSync(new URL("../../server/src/public_page.rs", import.meta.url), "utf8");
+const icons = readFileSync(new URL("./components/icons.tsx", import.meta.url), "utf8");
+
+describe("the public pages' frame", () => {
+  it("has the app's five tabs, by the same names, opening the same pages", () => {
+    const table = rust.match(/SITE_TABS: \[[^\]]*\] = \[([^]*?)\n\];/)?.[1] ?? "";
+    const tabs = [...table.matchAll(/\("(\/[^"]*)", "([^"]+)", icon!/g)].map((m) => [m[1], m[2]]);
+    expect(tabs).toEqual(MAIN_TABS.map((id) => [tab(id).to, tab(id).label]));
+  });
+
+  it("lists the Decks pages someone signed out sees in the app, by the same names", () => {
+    const table = rust.match(/DECKS_PAGES: \[[^\]]*\] = \[([^\n]*)\];/)?.[1] ?? "";
+    const pages = [...table.matchAll(/\("(\/[^"]*)", "([^"]+)"\)/g)].map((m) => [m[1], m[2]]);
+    expect(pages.length).toBeGreaterThan(0);
+    const app = sectionsFor(tab("decks"), guest).map((s) => [s.to, s.label]);
+    // Every page the server lists is one the app lists, in the app's order (the app may list more).
+    expect(app.filter(([to]) => pages.some(([p]) => p === to))).toEqual(pages);
+  });
+
+  it("draws its icons as the app does", () => {
+    const drawn = [...rust.matchAll(/icon!\(r#"(.*?)"#\)/g)].map((m) => m[1] ?? "");
+    expect(drawn).toHaveLength(6);
+    const app = icons.replace(/\s*\/>/g, "/>");
+    for (const shapes of drawn) for (const shape of shapes.match(/<[a-z]+ [^>]*\/>/g) ?? []) expect(app, shape).toContain(shape);
+  });
+});
+
 describe("the tabs", () => {
   it("are Play, Decks, Cards, Collection and Playgroup, with Workshop and You beside them", () => {
     expect(MAIN_TABS.map((id) => tab(id).label)).toEqual(["Play", "Decks", "Cards", "Collection", "Playgroup"]);

@@ -14,7 +14,7 @@ Help someone answer: which stock precons interest me, how do they compare, how m
 
 Keep the entire catalog browsable even when a deck is unrated or an engine cannot judge it. A missing result means "not rated" or "insufficient evidence," never last place. Start with the simulation ranking clearly named; offer real-game evidence separately. The experimental meta rank described below is an ordinal consensus with declared editorial weights, not a definitive power ranking or a calibrated win-rate forecast.
 
-Public navigation offers Precons, Methodology and Open Yama. The current root and signed-in Lab links keep working. A visitor can read, select/copy and download a stock list without an account. "Sign in to save this deck" and "Sign in to try a change" open the corresponding existing authenticated route, retaining the selected precon through sign-in. These actions use the existing owner checks, idempotent writes and allowances.
+Public pages carry Yama's frame (the five tabs and You); the precon pages light Decks and list My decks, Precons and Commanders under it, and the footer links the methodology. The current root and signed-in Lab links keep working. A visitor can read, select/copy and download a stock list without an account. "Sign in to save this deck" and "Sign in to try a change" open the corresponding existing authenticated route, retaining the selected precon through sign-in. These actions use the existing owner checks, idempotent writes and allowances.
 
 Use Night table tokens, readable mobile rows, ordinary sentence-case labels and source links beside their figures. Card images load from Scryfall at runtime without filters; art crops carry the artist and copyright. Keep the free, unofficial, not-endorsed-by-Wizards notice.
 

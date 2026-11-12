@@ -34,7 +34,10 @@ one page lists them in a strip above the page. You (your avatar) opens your publ
 Sharing settings, Settings, connecting an assistant, What's new, help and the admin area.
 Workshop holds plans, getting the cards, swap sheets, simulations and datasets: a rail tab on a
 laptop, a row on the You page on a phone. Every older address still opens its page
-(`web/src/nav.tsx`).
+(`web/src/nav.tsx`). The public pages (precons, commanders, shared decks and profiles, About,
+Privacy, Terms, the assistant guide and the sign-in page) carry the same frame: the five tabs
+as a row of words on a laptop and along the bottom on a phone, with You where the app has your
+avatar, and the Decks pages listed under the header of the precon and commander reference.
 
 ## Accounts, sign-in and sharing
 
