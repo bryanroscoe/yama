@@ -781,3 +781,39 @@ async fn duplicate_printing_failures_preserve_the_other_cards_valid_quote() {
     let quotes=store_quotes(&pool,&owner,&["Card A".into(),"Card B".into()]).await.unwrap();
     assert_eq!(quotes.len(),1);assert_eq!(quotes[0]["card"],"Card B");assert_eq!(quotes[0]["qty"],1);
 }
+
+/// Shopify refuses `/products.json` for some stores (Mothership and Pat's answered every request
+/// with 429 on 2026-11-12, even the first). The refresh asks once, not three times, and the
+/// cards still get their own search.
+#[tokio::test]
+async fn a_refused_catalog_is_asked_once_and_the_cards_are_still_searched() {
+    let (_, pool) = app().await;
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let c = calls.clone();
+    let app = Router::new()
+        .route(
+            "/products.json",
+            get(move || {
+                let c = c.clone();
+                async move {
+                    c.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    (axum::http::StatusCode::TOO_MANY_REQUESTS, [("retry-after", "1")], "")
+                }
+            }),
+        )
+        .route("/search/suggest.json", get(|Query(q): Query<HashMap<String, String>>| async move { Json(suggest(&q["q"])) }))
+        .route("/products/{h}", get(|AxPath(h): AxPath<String>| async move { product(&h).map(Json).ok_or(axum::http::StatusCode::NOT_FOUND) }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let mut f = Fetcher::new(reqwest::Client::new(), None);
+    let found = fetch_shopify_catalog(&pool, &mut f, &base, &["Sol Ring".into()], true, "9999", &mut Raw::default()).await;
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1, "a refused catalog isn't asked again");
+    assert!(found.errors[0].starts_with("Catalog unavailable") && found.errors[0].contains("each card was searched instead"), "{:?}", found.errors);
+    assert!(found.failed.is_empty(), "{:?}", found.failed);
+    assert!(found.listings.iter().any(|l| l.card == "Sol Ring" && l.available == Some(true)));
+    assert!(!f.first_429, "the catalog's give-up-at-once setting doesn't outlive it");
+    let only = fetch_shopify_catalog(&pool, &mut f, &base, &[], true, "9999", &mut Raw::default()).await;
+    assert_eq!(status_of(&only, Some(0)), "error", "a catalog-only refresh that was refused is still an error");
+    server.abort();
+}

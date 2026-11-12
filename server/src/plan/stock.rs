@@ -651,11 +651,15 @@ pub struct Fetcher {
     pause: Duration,
     cookie: Option<String>,
     refresh: bool,
+    /// Give up at the first 429 instead of waiting it out and asking again. For requests a store
+    /// may refuse outright (a Shopify `/products.json` catalog): retrying only extends the hold
+    /// the store puts on every other request from Yama.
+    first_429: bool,
 }
 
 impl Fetcher {
     pub fn new(http: reqwest::Client, pause: Option<Duration>) -> Self {
-        Fetcher { http, pause: pause.unwrap_or(Duration::ZERO), cookie: None, refresh: false }
+        Fetcher { http, pause: pause.unwrap_or(Duration::ZERO), cookie: None, refresh: false, first_429: false }
     }
 
     /// GET or POST with a browser's headers, retrying 429 (as long as the store asks, up to
@@ -753,7 +757,7 @@ impl Fetcher {
                         return Ok((text, true));
                     }
                     last = format!("{url}: HTTP {status}");
-                    if status == 429 && asked > MAX_ASKED {
+                    if status == 429 && (asked > MAX_ASKED || self.first_429) {
                         return Err(format!("{url}: the store asked Yama to wait {} s", asked.as_secs()));
                     }
                     if status != 429 && status < 500 {
@@ -824,7 +828,13 @@ pub struct Found {
 async fn fetch_shopify_catalog(pool: &SqlitePool, f: &mut Fetcher, base: &str, cards: &[String], refresh: bool, requested: &str, raw: &mut Raw) -> Found {
     match catalog::products(pool,f,base,refresh,requested,raw).await {
         Ok(None) => fetch_shopify(f,base,cards,raw).await,
-        Err(e) => Found { failed: cards.to_vec(), errors: vec![format!("Catalog unavailable: {e}. Previous cache preserved.")], ..Default::default() },
+        // Many Shopify stores refuse `/products.json` outright. The cards still get their own
+        // search, so a refused catalog never leaves a store with no answer.
+        Err(e) => {
+            let mut found = if cards.is_empty() { Found::default() } else { fetch_shopify(f,base,cards,raw).await };
+            found.errors.insert(0,format!("Catalog unavailable: {e}. Previous cache preserved{}.", if cards.is_empty() { "" } else { "; each card was searched instead" }));
+            found
+        }
         Ok(Some((at,products))) => {
             let mut found = Found { cached_at: Some(at), ..Default::default() };
             let wanted: HashMap<String,&String> = cards.iter().map(|c|(card_key(c),c)).collect();

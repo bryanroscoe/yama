@@ -112,6 +112,20 @@ export function sourceCarts(rows: SourceCard[], choices: Record<string, SourceCh
   return [...carts.values()];
 }
 
+/**
+ * Copies per uncounted variant beyond the one its in-stock listing proves, summed over cart rows,
+ * so URL aliases of one variant share that single confirmed copy.
+ */
+export function uncountedExtras(carts: SourceCart[]): { total: number; skus: Map<string, number> } {
+  const skus = new Map<string, number>();
+  for (const r of carts.flatMap(c => c.rows)) if (r.offer.qty == null) {
+    const sku = uncountedSku(r.offer);
+    skus.set(sku, (skus.get(sku) ?? 0) + r.qty);
+  }
+  return { total: [...skus.values()].reduce((n, q) => n + Math.max(0, q - 1), 0), skus };
+}
+export const uncountedSku = (o: SourceOffer) => `${new URL(o.url).origin}|${o.variant_id || offerId(o)}`;
+
 /** A bulk preview only allocates known stock, cheapest qualifying variant first. */
 export function knownStockChoices(rows: SourceCard[]): Record<string, SourceChoice[]> {
   const choices: Record<string, SourceChoice[]> = Object.create(null);
@@ -132,21 +146,26 @@ export const nearMint = (condition: string) => /^(nm|near[ -]?mint)(?:$|\s|\/)/i
 export function offerRows(rows: SourceCard[], condition: string, store: string, recordedStockOnly = false): SourceCard[] {
   return rows.map(c => ({...c, offers:c.offers.filter(o => (!store || o.store === store) && (condition !== "nm" || nearMint(o.condition)) && (!recordedStockOnly || (o.qty != null && o.qty > 0)))}));
 }
-/** Fill requested quantities, even when a retailer omits stock count. This prepares a cart, not a stock claim. */
+/**
+ * Bulk selection, cheapest qualifying printing first (Near Mint before others). A recorded count
+ * caps a variant. A listing without a count was in stock when checked, which proves one copy, so it
+ * supplies one; any more stay a manual request. This prepares a cart, not a stock claim.
+ */
 export function allChoices(rows: SourceCard[]): Record<string, SourceChoice[]> {
   const choices: Record<string, SourceChoice[]> = Object.create(null);
   const stockUsed = new Map<string,number>();
   const limits = new Map<string,number>();
+  const skuOf = (o: SourceOffer) => `${new URL(o.url).origin}|${o.variant_id || offerId(o)}`;
   for (const row of rows) for (const o of row.offers) if(o.qty != null && o.qty >= 0) {
-    const sku = `${new URL(o.url).origin}|${o.variant_id || offerId(o)}`;
+    const sku = skuOf(o);
     limits.set(sku,Math.min(limits.get(sku) ?? o.qty,o.qty));
   }
   for (const row of rows) {
     let remaining = row.uses.length;
     choices[row.name] = [];
-    for (const o of [...row.offers].filter(o => o.qualifies && o.price != null && o.qty != null && o.qty > 0).sort((a,b) => Number(nearMint(b.condition))-Number(nearMint(a.condition)) || a.price!-b.price!)) {
-      const sku = `${new URL(o.url).origin}|${o.variant_id || offerId(o)}`;
-      const qty = Math.min(remaining,Math.max(0,(limits.get(sku) ?? o.qty!)-(stockUsed.get(sku) ?? 0)));
+    for (const o of [...row.offers].filter(o => o.qualifies && o.price != null && o.qty !== 0).sort((a,b) => Number(nearMint(b.condition))-Number(nearMint(a.condition)) || a.price!-b.price! || Number(b.qty != null)-Number(a.qty != null))) {
+      const sku = skuOf(o);
+      const qty = Math.min(remaining,Math.max(0,(limits.get(sku) ?? o.qty ?? 1)-(stockUsed.get(sku) ?? 0)));
       stockUsed.set(sku,(stockUsed.get(sku) ?? 0)+qty);
       if(qty > 0) choices[row.name]!.push({offer:offerId(o),qty});
       remaining -= qty;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sourceCards, portfolioRows, sourceCarts, knownStockChoices, sourceSnapshot, allChoices, nearMint, offerRows, offerId } from "./sourcing-model";
+import { sourceCards, portfolioRows, sourceCarts, knownStockChoices, sourceSnapshot, allChoices, nearMint, offerRows, offerId, uncountedExtras } from "./sourcing-model";
 import type { ResearchDocument } from "../research/api";
 
 const offer = { store:"Mothership",price:0.5,qty:1,condition:"Near Mint",url:"https://mothershipatx.com/products/ring",variant_id:"123",checked_at:"2026-11-10",qualifies:true };
@@ -102,11 +102,31 @@ describe("shopping clarity",()=>{
   expect(offerRows(rows,"nm","")[0]!.offers).toHaveLength(1);
   expect(offerRows(rows,"any","")[0]!.offers).toHaveLength(2);
  });
- it("leaves unknown quantities for an explicit request instead of inventing bulk stock",()=>{
-  const rows=sourceCards([{...raw[0]!,offers:[{...offer,qty:null}]}]);
+ it("takes one copy from an in-stock listing without a count, never more",()=>{
+  const rows=sourceCards([{...raw[0]!,uses:[use("one","a"),use("two","b")],offers:[{...offer,qty:null}]}]);
   expect(knownStockChoices(rows)["Sol Ring"]).toEqual([]);
-  const selected=allChoices(rows);expect(selected["Sol Ring"]).toEqual([]);
-  expect(sourceCarts(rows,selected,new Map())).toEqual([]);
+  const selected=allChoices(rows);expect(selected["Sol Ring"]).toEqual([{offer:offerId(offer),qty:1}]);
+  const carts=sourceCarts(rows,selected,new Map());
+  expect(carts[0]!.rows.map(r=>[r.qty,r.offer.qty])).toEqual([[1,null]]);
+ });
+ it("adds every store's uncounted listings, not only counted ones",()=>{
+  const ms={...offer,store:"Mothership",url:"https://mothershipatx.com/products/a",variant_id:"1",qty:null,price:0.25};
+  const counted={...offer,store:"Multiverse",url:"https://multiverse.test/a",variant_id:"",qty:3,price:0.5};
+  const rows=sourceCards([{...raw[0]!,uses:[use("one","a"),use("two","b"),use("three","c")],offers:[counted,ms]}]);
+  const carts=sourceCarts(rows,allChoices(rows),new Map());
+  expect(carts.map(c=>[c.store,c.rows[0]!.qty])).toEqual([["Mothership",1],["Multiverse",2]]);
+ });
+ it("counts copies needing confirmation per variant, so URL aliases share the one proven copy",()=>{
+  const a={...offer,qty:null},b={...offer,qty:null,url:offer.url+"?variant=123"};
+  const rows=sourceCards([{...raw[0]!,uses:[use("one","a"),use("two","b")],offers:[a,b]}]);
+  const carts=sourceCarts(rows,{"Sol Ring":[{offer:offerId(a),qty:1},{offer:b.url,qty:1}]},new Map());
+  expect(carts[0]!.rows.map(r=>r.qty)).toEqual([1,1]);
+  expect(uncountedExtras(carts).total).toBe(1);
+  expect(uncountedExtras(sourceCarts(rows,allChoices(rows),new Map())).total).toBe(0);
+ });
+ it("still skips listings recorded as sold out",()=>{
+  const rows=sourceCards([{...raw[0]!,offers:[{...offer,qty:0}]}]);
+  expect(allChoices(rows)["Sol Ring"]).toEqual([]);
  });
  it("preserves exact printing market provenance and all saved variants",()=>{
   const rows=sourceCards([{...raw[0]!,offers:[{...offer,title:"Sol Ring [C21]",market:1.25,market_source:"https://scryfall.com/card/c21/263/sol-ring",market_evidence:{scryfall_id:"id",matching:"retailer image ID",checked_at:"2026-11-10"}},{...offer,url:"https://store.test/nm"}]}]);
@@ -146,13 +166,13 @@ it("applies recorded stock filtering to offers and the same add-all cart action"
  expect(cart[0]!.rows[0]!.qty).toBe(1);expect(cart[0]!.rows[0]!.offer.qty).toBe(1);
 });
 
-it("fills a shortage with another printing and leaves missing counts unresolved",()=>{
- const rows=sourceCards([{...raw[0]!,uses:[use("one","a"),use("two","b"),use("three","c")],offers:[{...offer,qty:null,price:0.1},{...offer,qty:1,variant_id:"456",price:0.5},{...offer,qty:1,variant_id:"789",price:0.75}]}]);
+it("fills a shortage with another printing and leaves the rest unresolved",()=>{
+ const rows=sourceCards([{...raw[0]!,uses:[use("one","a"),use("two","b"),use("three","c"),use("four","d")],offers:[{...offer,qty:null,price:0.1},{...offer,qty:1,variant_id:"456",price:0.5},{...offer,qty:1,variant_id:"789",price:0.75}]}]);
  const selected=allChoices(rows);
- expect(selected["Sol Ring"]!.map(x=>x.qty)).toEqual([1,1]);
+ expect(selected["Sol Ring"]!.map(x=>x.qty)).toEqual([1,1,1]);
  const carts=sourceCarts(rows,selected,new Map());
- expect(carts[0]!.rows.map(r=>r.offer.variant_id)).toEqual(["456","789"]);
- expect(carts[0]!.rows.reduce((n,r)=>n+r.qty,0)).toBe(2);
+ expect(carts[0]!.rows.map(r=>r.offer.variant_id)).toEqual(["123","456","789"]);
+ expect(carts[0]!.rows.reduce((n,r)=>n+r.qty,0)).toBe(3);
 });
 
 it("does not exhaust demand on URL aliases for the same stock",()=>{
