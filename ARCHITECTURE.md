@@ -5,7 +5,8 @@ in the browser and as an installable web app; an Android app is built but not ye
 does two jobs on one account: a **companion** for game night (life
 counter, playgroups and stats, cards, collection, prices, decks) and **online play** against
 friends or AI, with every game stored as a replay. Personal data stays private to each account
-unless its owner shares it.
+unless its owner shares it. Decided 12 November 2026 and being built: new accounts' decks become
+public by default ([Public by default and the navigation](#public-by-default-and-the-navigation-2026-11-12)).
 
 This document has two parts:
 
@@ -308,7 +309,10 @@ into `/mcp` with a token scoped to that one question. Details:
 - **Owner isolation at every boundary.** Queries bind the owner; worker keys, script keys and
   leased Lab work are scoped to their owner; deleting an account removes its dependent data.
 - **Sharing is opt-in and a separate projection.** Public pages read only what the owner chose
-  to share. They never show account details, prices paid, notes, containers, proxies or games,
+  to share. Decided 12 November 2026 and being built: a new account's decks become public by
+  default, an older account's decks stay as their owner set them, collection and wish list
+  stay opt-in, and playgroups, games and stats are never public
+  ([Public by default and the navigation](#public-by-default-and-the-navigation-2026-11-12)). They never show account details, prices paid, notes, containers, proxies or games,
   and a shared plan never shows its owner's answers, ownership or shopping evidence.
 - **Hidden information stays on the server.** Each seat in an online game receives its own
   filtered view.
@@ -371,12 +375,12 @@ section 4 is the first sketch; the current system is [above](#the-system-at-a-gl
 - **Lab and evidence:** [Simulation lab (2026-10-19)](#simulation-lab-2026-10-19), [Forge as a second Lab engine (2026-10-22)](#forge-as-a-second-lab-engine-2026-10-22), [Lab time-outs (2026-10-23)](#lab-time-outs-2026-10-23), [Referee: phase checked against Forge (2026-10-24)](#referee-phase-checked-against-forge-2026-10-24), [Shared-field tournaments (2026-10-26)](#shared-field-tournaments-2026-10-26), [Lab execution targets (2026-10-27)](#lab-execution-targets-2026-10-27), [Phase retry-tail progress (2026-10-28)](#phase-retry-tail-progress-2026-10-28), [Lab: off the write lock, and its cost (2026-11-02)](#lab-off-the-write-lock-and-its-cost-2026-11-02), [Historical evidence datasets (2026-10-28)](#historical-evidence-datasets-2026-10-28), [Precon evidence from datasets (2026-10-29)](#precon-evidence-from-datasets-2026-10-29), [Public precon reference (2026-10-27)](#public-precon-reference-2026-10-27), [Precon upgradeability (2026-10-27)](#precon-upgradeability-2026-10-27), [Public commander ranking (2026-11-01)](#public-commander-ranking-2026-11-01), [Precon power comparison (2026-11-09)](#precon-power-comparison-2026-11-09), [Star Trek stock catalog (2026-11-09)](#star-trek-stock-catalog-2026-11-09).
 - **Game night:** [Table and playgroup stats (2026-10-19)](#table-and-playgroup-stats-2026-10-19).
 - **Cards, collection and prices:** [Release calendar and What's new (2026-10-19)](#release-calendar-and-whats-new-2026-10-19), [A deck's cards in the collection, and Mythic re-imports (2026-10-23)](#a-decks-cards-in-the-collection-and-mythic-re-imports-2026-10-23), [Deck market values (2026-10-27)](#deck-market-values-2026-10-27), [Scan this deck (2026-10-29)](#scan-this-deck-2026-10-29), [Mythic Tools bridge (2026-10-31, proposal)](#mythic-tools-bridge-2026-10-31-proposal), [Store trips (2026-11-01)](#store-trips-2026-11-01), [Deleting collection containers (2026-11-02)](#deleting-collection-containers-2026-11-02), [Sell lists for store buylists (2026-11-02)](#sell-lists-for-store-buylists-2026-11-02), [Local buylist offers (2026-11-02)](#local-buylist-offers-2026-11-02), [Price history (2026-11-02)](#price-history-2026-11-02), [Recording printed copies in a deck box (2026-11-02)](#recording-printed-copies-in-a-deck-box-2026-11-02).
-- **Decks, plans and sharing:** [Brackets, deck stats and exports (2026-10-19)](#brackets-deck-stats-and-exports-2026-10-19), [Deck import (2026-10-22)](#deck-import-2026-10-22), [Sharing and deck configurations (2026-10-28)](#sharing-and-deck-configurations-2026-10-28), [Review, installed decks and the Lab tab (2026-10-28)](#review-installed-decks-and-the-lab-tab-2026-10-28), [Check this deck (2026-11-01)](#check-this-deck-2026-11-01), [Deck configurations and quieter editing (2026-11-03)](#deck-configurations-and-quieter-editing-2026-11-03), [One plan page (2026-11-04)](#one-plan-page-2026-11-04), [Printing with MakePlayingCards (2026-11-05)](#printing-with-makeplayingcards-2026-11-05), [Plans: one plan per deck (2026-11-06)](#plans-one-plan-per-deck-2026-11-06), [Site design pass (2026-11-08)](#site-design-pass-2026-11-08).
+- **Decks, plans and sharing:** [Brackets, deck stats and exports (2026-10-19)](#brackets-deck-stats-and-exports-2026-10-19), [Deck import (2026-10-22)](#deck-import-2026-10-22), [Sharing and deck configurations (2026-10-28)](#sharing-and-deck-configurations-2026-10-28), [Review, installed decks and the Lab tab (2026-10-28)](#review-installed-decks-and-the-lab-tab-2026-10-28), [Check this deck (2026-11-01)](#check-this-deck-2026-11-01), [Deck configurations and quieter editing (2026-11-03)](#deck-configurations-and-quieter-editing-2026-11-03), [One plan page (2026-11-04)](#one-plan-page-2026-11-04), [Printing with MakePlayingCards (2026-11-05)](#printing-with-makeplayingcards-2026-11-05), [Plans: one plan per deck (2026-11-06)](#plans-one-plan-per-deck-2026-11-06), [Site design pass (2026-11-08)](#site-design-pass-2026-11-08), [Public by default and the navigation (2026-11-12)](#public-by-default-and-the-navigation-2026-11-12).
 - **Assistants:** [Ask Claude, the advisor (2026-10-22)](#ask-claude-the-advisor-2026-10-22), [Yama's tools for Claude (MCP, 2026-10-22)](#yamas-tools-for-claude-mcp-2026-10-22).
 
 ### The proposal (17 October 2026)
 
-A free Magic app, on Android phones and in the browser (iOS shelved: no Apple account, section 12). Personal data stays private to each account unless its owner shares it (Sharing, 2026-10-28); the public precon reference is described below (2026-10-27). It does two jobs on one account:
+A free Magic app, on Android phones and in the browser (iOS shelved: no Apple account, section 12). Personal data stays private to each account unless its owner shares it (Sharing, 2026-10-28; from the 12 November 2026 decision, new accounts' decks will be public by default: Public by default, 2026-11-12); the public precon reference is described below (2026-10-27). It does two jobs on one account:
 
 - **Play:** Commander online against friends or AI, with every game stored and replayable.
 - **Companion:** what Mythic Tools does today (life counter, playgroups and stats, card scanner, collection, prices, card lookup and decks), plus links to Play that Mythic Tools can't offer.
@@ -1126,7 +1130,7 @@ Operating steps, source research and the path to a combined ranking are in [docs
 
 Bryan (2026-10-28): "I want to send my friends the decks I have ... mark all my stuff as public and then share my profile and just generally make the site a bit more open", with a handle you choose (his is saget), the collection shareable too, and a deck's builds ("Riders of Rohan" and its stock and after-prints lists) as a first-class, collapsible thing. Code: `server/src/sharing.rs` (+ `sharing/html.rs`, `sharing/tests.rs`), migration 0035.
 
-- **Opt in, never by default.** Every existing deck and collection stays private. `decks.visibility` is `private` (only the owner), `link` (anyone with `/d/<share_token>`) or `public` (that, and listed on the profile). `users.new_deck_visibility` is what a new deck starts as (`create_deck_in` reads it), so someone can choose "public" once; "Make all my decks public" (`POST /api/me/sharing/decks`) changes every live deck. `users.collection_public` adds the collection to the profile. Settings and a library of already-shared decks and research/build notes live at `/sharing`, reachable from the app-wide Sharing / Precons / Commanders links and Decks sections. Your name in the laptop rail opens the private `/profile` page; the app-wide Your profile link makes it reachable on phones too. It brings together collection, wish list (Get the cards), decks, plans, sharing/trades and playgroup links, with account settings below. The public profile has prominent view/copy actions and links to the collection and wish list only when shared. Without a handle it links to setup; navigation never changes visibility. Playgroup keeps a profile/account link at the old `#sharing` anchor. The library lists every shared configuration separately, offers public-page and copy-link actions plus owner editing links, and changes no visibility on navigation. Public destinations use full document navigation to the server-rendered pages. The Sharing library loads as its own lazy area with a Sharing stand-in, following the app loading model. Settings live on that Sharing page; each deck's Share sheet sets its own visibility and resets its link (`POST /api/decks/{id}/share-link`, a new random token of about 92 bits, so every old link ends).
+- **Opt in, never by default** (superseded for new accounts' decks by [Public by default and the navigation](#public-by-default-and-the-navigation-2026-11-12), 12 November 2026; this is what the code does until that ships, and it stays the rule for existing accounts, collections and wish lists). Every existing deck and collection stays private. `decks.visibility` is `private` (only the owner), `link` (anyone with `/d/<share_token>`) or `public` (that, and listed on the profile). `users.new_deck_visibility` is what a new deck starts as (`create_deck_in` reads it), so someone can choose "public" once; "Make all my decks public" (`POST /api/me/sharing/decks`) changes every live deck. `users.collection_public` adds the collection to the profile. Settings and a library of already-shared decks and research/build notes live at `/sharing`, reachable from the app-wide Sharing / Precons / Commanders links and Decks sections. Your name in the laptop rail opens the private `/profile` page; the app-wide Your profile link makes it reachable on phones too. It brings together collection, wish list (Get the cards), decks, plans, sharing/trades and playgroup links, with account settings below. The public profile has prominent view/copy actions and links to the collection and wish list only when shared. Without a handle it links to setup; navigation never changes visibility. Playgroup keeps a profile/account link at the old `#sharing` anchor. The library lists every shared configuration separately, offers public-page and copy-link actions plus owner editing links, and changes no visibility on navigation. Public destinations use full document navigation to the server-rendered pages. The Sharing library loads as its own lazy area with a Sharing stand-in, following the app loading model. Settings live on that Sharing page; each deck's Share sheet sets its own visibility and resets its link (`POST /api/decks/{id}/share-link`, a new random token of about 92 bits, so every old link ends).
 - **Handles, not names.** A profile is `/u/<handle>`: 3 to 30 of a-z, 0-9, - and _, starting with a letter, stored lowercase, unique, a short reserved list refused. Without a handle there is no profile; link sharing still works. Pages never show the Google display name (often a full real name) or email.
 - **A separate public projection.** Shared pages are rendered by the Rust server before the app's sign-in gate, like the precon reference, with its stylesheet, notice and Content-Security-Policy. They read only: a deck's name, current card list, the printing its exports name (the import's chosen printing, the owner's copy, else a paper printing, as the owner's own Export does), commander art with the artist credited, declared bracket, the date of its current list and its *public* configurations (a link-only configuration is never listed from another deck's page); for the collection, real (non-proxy) copies grouped by printing, finish, language and condition. Never prices paid, notes, containers, proxies, ownership counts, versions' notes, plans, games, playgroups or account details. Private, archived and unknown decks and disabled accounts are the same 404. `sharing::tests` checks this from a signed-out client.
 - **The deck page, in public (2026-10-28).** Bryan: "make sure the deck view is as similar as possible to the one inside the actual Yama app", with the reasons and brackets. A shared deck page shows what the app's deck page shows about the list, from what's stored (viewing never starts a check or a run): Commander legality with its problems, the declared bracket beside Yama's starting suggestion from the version's stored Commander Spellbook check, why, and the Game Changers, mass land denial, extra turns and combos behind it; stacks of card images or a list (two radio buttons and CSS, no script); deck stats (`server/src/deck_stats.rs`, the counting rules of `packages/core` deckStats, shared with the MCP analysis); the list's market value; and, only if the owner turns on "Show simulated win rates on shared decks" (`users.share_lab_results`, migration 0038, off by default: sharing a deck isn't consent to publish plan results), the newest paired lab run of the deck's plan (`lab::paired_for_plan`, as `web/src/lab/paired.ts` finds it), limited to the lists this deck and its listed configurations stand for (a main deck is "now", "stock" is stock, "after prints" is after): raw simulated win rates with intervals and their paired differences, labelled as AI pods, not a forecast. No run names, other lists, plan swaps or real games. The shared HTML pieces (escaping, headers, identity pips, card lines and stacks, these sections) are `server/src/public_page.rs`, used by the precon pages too. On wide screens both the app's deck hero and the public heroes contain Scryfall's full art composition in a window on the right capped at 626 pixels, washed into the page on the left, instead of stretching it soft across the screen.
@@ -2487,3 +2491,82 @@ Sourcing has one bulk-add action. Exclude unknown stock counts is a filter on of
 ### Public store catalog cache (2026-11-11)
 
 Explicit Shopify catalog refreshes walk the public product feed with per-host pacing and existing account stock-check limits. A complete, bounded crawl replaces one compressed public cache per allowlisted storefront in SQLite; partial crawls preserve the old cache. Future card checks reuse it with its original date, then read variant-specific quantity evidence. Private reports, carts, account choices and market references are not part of this shared cache. The sourcing page displays all filtered rows and only bulk-allocates recorded quantities across eligible printings; unknown quantities require an explicit request.
+
+### Public by default and the navigation (2026-11-12)
+
+Bryan, 11 November 2026: "This feels like it's just my personal tool and not that useful for the
+average person… We're changing our stance to make this more of a public-by-default site. We want
+logged-in users to be able to do more by default. A lot of these sites let you just type in decks."
+On 12 November he approved the proposal written from that: "We already decided to make play
+against computer public by the way. Collection, play groups, and stats are linked to a user so
+they can't be. But everything else, I agree." This replaces "private unless shared" (Sharing,
+2026-10-28) for decks only.
+
+Status: decided. This record is the plan; the features below ship in the pull requests that
+follow it (navigation and Home, Check a deck, moderation and then the default, Browse, the
+allowances), and `docs/features.md` says what is live.
+
+**Who can do what.**
+
+| | No account | Signed in |
+|---|---|---|
+| Life counter, shared table | yes | yes, with games saved to history and the playgroup |
+| Card search, card pages, precons, commanders | yes | plus what you own and "start a deck from this" |
+| Play against the computer | yes, after a Turnstile check (guest play) | yes |
+| Check a deck: paste a list and get the full deck page | yes; the list stays in the browser | saved, versioned, shared |
+| Browse public decks | yes | plus save a copy |
+| Collection, playgroups, stats | no: they belong to an account | yes |
+
+**What is public.**
+
+- A new account's new decks are public: on its profile, in Browse, on the commander's and the
+  precon's page, and indexable by search engines. The save step offers Public, Link only and
+  Private and remembers the choice. `decks.visibility` and `users.new_deck_visibility` are
+  unchanged as the model.
+- An account that existed before this keeps its default and its decks. It is asked once ("Yama
+  decks are now public by default. Make yours public?"); existing decks change only if it ticks
+  that. Its decks were made public while the privacy page said shared pages are not indexed, so
+  until it answers (`users.public_listed_at` is NULL) they keep the old meaning: on the profile
+  only, `noindex`, not in Browse or the sitemap.
+- Nothing is stored on the server for a visitor without an account. A guest's deck lives in the
+  browser, as guest games do, and moves into the account on sign-in. Anonymous public saving was
+  rejected: user-typed text on public pages with nobody accountable means spam and takedowns.
+- Plans and notes stay private. Collection and wish list stay opt-in. Games, playgroups and
+  stats stay with their members. Account details, email, Google name, prices paid, notes,
+  containers and proxies are never public.
+- Public text needs moderation, shipped before the default changes: a Report link on public
+  pages, an admin takedown that sets a deck to private, and a filter on public names and
+  descriptions. Likes, comments, follows and view counts are not built.
+
+**More for every signed-in account.** Three open games against the computer instead of two, a
+precon for any seat so a new account can play before importing a deck, Watch with a daily cap,
+and one short "Try a change" simulation a day. The full simulation allowance and Ask Claude (it
+costs API money) stay with power users. Connecting your own assistant over MCP stays open to all.
+
+**Navigation.** One frame for the app and the public pages; the wordmark goes Home.
+
+| Tab | Holds |
+|---|---|
+| Play | Life counter, Play online, Watch, game history |
+| Decks | My decks, Browse, Precons, Commanders, Check a deck |
+| Cards | Search, release calendar |
+| Collection | Cards, Wish list, Sell, Trade with a friend |
+| Playgroup | Stats, members, game log |
+| You (avatar) | Public profile, Sharing settings, Settings, Connect an assistant, What's new, Help, Admin |
+| Workshop (Advanced only) | Plans, Get the cards, Swap cards, Lab runs and Try a change, Datasets, Mythic Tools, buylist offers, script keys |
+
+- Home is `/`. Signed out it says what Yama is and offers Check a deck, Start a game, Browse and
+  Precons. Signed in it shows a game in progress first, then Start a game, recent decks, the
+  playgroup's latest games and a Start here list until it is done. The life counter setup moves
+  to `/play/table`; old addresses redirect.
+- Advanced is a switch in Settings, on automatically for admins, power users and any account
+  that already has a plan, a lab run or a Mythic link. Everyone else sees no Workshop unless they
+  turn it on.
+- Each deck has its own Share control; the account-wide switches are in You.
+- Names: Playgroup, Life counter, and "the computer" in player-facing text.
+
+**Privacy page and analytics.** The page said Yama "uses no analytics or tracking" while
+Cloudflare Web Analytics collected visit and page-speed measurements through a beacon in the
+browser. The page now says what Cloudflare does (carries traffic, checks for automated visitors,
+counts visits and measures page speed without cookies). Yama itself
+runs no analytics.
