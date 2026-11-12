@@ -110,7 +110,10 @@ describe("the tabs", () => {
     expect(at("/lab/runs/abc")).toBe("Lab runs");
     expect(at("/sharing/compare/pat")).toBe("Trade with a friend");
     // Not for this account: the page still belongs to the tab, with no entry to mark.
-    expect(at("/lab/try", account)).toBeNull();
+    expect(at("/lab/datasets", account)).toBeNull();
+    // Every account may start a simulation, so its pages are entries for everyone.
+    expect(at("/lab/try", account)).toBe("Try a change");
+    expect(at("/play/watch", account)).toBe("Watch");
   });
 });
 
