@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ResearchBundle } from "../research/api";
 const mock=vi.hoisted(()=>({save:vi.fn().mockResolvedValue({}),fetch:vi.fn().mockResolvedValue({settings:[{effective_from:"2026-11-02",origin:"yama",note:null,rules:{local_buy:{max_usd:2,always_ok_usd:0.5,tiers:[{market_under:null,max_multiple:1.1}]},sealed_max_usd:65}}]}),view:{today:"2026-11-11",b:{settings:[{effective_from:"2026-11-02",origin:"yama",note:null,rules:{local_buy:{max_usd:2,always_ok_usd:0.5,tiers:[{market_under:null,max_multiple:1.5}]},sealed_max_usd:51}}],stores:[{key:"shop",name:"Shop",kind:"local",homepage:"https://shop.example"}]}}}));
 vi.mock("./PlanLayout",()=>({usePlanOutlet:()=>({view:mock.view,userId:"owner"})}));
-vi.mock("./api",()=>({saveShoppingRules:mock.save,fetchBundle:mock.fetch}));
+vi.mock("./api",()=>({saveShoppingRules:mock.save,fetchBundle:mock.fetch,storeCatalogs:vi.fn().mockResolvedValue({catalogs:[]}),checkStores:vi.fn(),storeSnapshots:vi.fn().mockResolvedValue({snapshots:[]})}));
 import { Portfolio } from "./Sourcing";
 const bundle:ResearchBundle={revision:1,updated_at:"2026-11-11",target_hashes:{},reviews:[],document:{schema:"yama-research/1",id:"cap",title:"Cap",generated_at:"2026-11-10",decks:[{key:"d",name:"Deck",commander:"Commander",builds:[{id:"b3",label:"B3",bracket:3,list:"1 Commander\n1 Card"}]}],local_sources:[{name:"Card",uses:[{id:"d-copy",deck:"d",deck_name:"Deck",category:"unresolved"}],offers:[{store:"Shop",price:3,market:3,condition:"Near Mint",qty:null,url:"https://shop.example/card",variant_id:"123",qualifies:false,rule_reason:"over $2 ceiling"}]}]}};
 describe("sourcing cap controls",()=>{
@@ -20,7 +20,9 @@ describe("sourcing cap controls",()=>{
    const enter=async(value:string)=>act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value")!.set!.call(input,value);input.dispatchEvent(new Event("input",{bubbles:true}));});
    await enter("3");expect(host.querySelectorAll('.source-card')).toHaveLength(1);expect(mock.save).not.toHaveBeenCalled();
    const button=(name:string)=>[...host.querySelectorAll('button')].find(b=>b.textContent===name)!;
-   await act(async()=>button("Add all matching cards").click());expect(host.textContent).toContain("1 selected copy");
+   await act(async()=>button("Add all matching cards").click());expect(host.textContent).toContain("0 selected copies");
+   const manual=host.querySelector<HTMLInputElement>(".source-qty input")!;
+   await act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value")!.set!.call(manual,"1");manual.dispatchEvent(new Event("input",{bubbles:true}));});expect(host.textContent).toContain("1 selected copy");
    expect([...host.querySelectorAll("button")].filter(b=>b.textContent?.startsWith("Add "))).toHaveLength(1);
    const stockFilter=[...host.querySelectorAll("label")].find(l=>l.textContent?.includes("Exclude unknown stock counts"))!.querySelector("input")!;
    await act(async()=>stockFilter.click());expect(host.querySelectorAll(".source-card")).toHaveLength(0);expect(host.textContent).toContain("0 selected copies");

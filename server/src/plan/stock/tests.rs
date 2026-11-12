@@ -182,6 +182,8 @@ fn titles_and_variants_parse() {
     assert_eq!(found.iter().map(|x| x.0.as_str()).collect::<Vec<_>>(), ["sol-ring-c21-263", "sol-ring-etched-cmm-410"]);
     let l = shopify_product(&product("sol-ring-c21-263.js").unwrap(), "Sol Ring", "https://patsgames.com", "sol-ring-c21-263");
     assert_eq!(l.len(), 4);
+    assert!(l[0].url.as_deref().unwrap().ends_with("?variant=111"));
+    assert!(l[1].url.as_deref().unwrap().ends_with("?variant=112"));
     assert_eq!((l[0].price, l[0].finish, l[0].variant.as_deref(), l[0].set_code.as_deref()), (Some(1.5), Some("nonfoil"), Some("111"), Some("c21")));
     assert_eq!(l[1].finish, Some("foil"));
     let etched = shopify_product(&product("sol-ring-etched-cmm-410.js").unwrap(), "Sol Ring", "https://patsgames.com", "x");
@@ -261,7 +263,7 @@ async fn a_check_reads_each_store_and_the_bundle_quotes_the_newest_answer() {
     snapshot(&pool, &owner, "s-mv", "multiverse-hobbies", "yestcg", Some(&refs)).await;
     snapshot(&pool, &owner, "s-mv2", "multiverse-too", "yestcg", Some(&refs)).await;
     let t = |id: &str, store: &str, kind: Kind, host: Option<&str>| Target { snapshot: id.into(), store: store.into(), kind, base: base.clone(), host: host.map(String::from) };
-    let job = Job {
+    let job = Job { refresh_catalog: false,
         owner: owner.clone(),
         cards: cards.clone(),
         targets: vec![t("s-pats", "pats", Kind::Shopify, None), t("s-bc", "black-castle", Kind::Pro, None), t("s-mv", "multiverse-hobbies", Kind::YesTcg, Some("mversetcg.tcgplayerpro.com")), t("s-mv2", "multiverse-too", Kind::YesTcg, Some("mversetcg.tcgplayerpro.com"))],
@@ -317,7 +319,7 @@ async fn a_check_reads_each_store_and_the_bundle_quotes_the_newest_answer() {
 
     // A newer snapshot of the same store supersedes the older one for the cards it covers only.
     snapshot(&pool, &owner, "s-pats2", "pats", "shopify", Some(&["Sol Ring"])).await;
-    let job = Job { owner: owner.clone(), cards: vec!["Sol Ring".into()], targets: vec![Target { snapshot: "s-pats2".into(), store: "pats".into(), kind: Kind::Shopify, base: format!("{base}/nothing-here"), host: None }] };
+    let job = Job { refresh_catalog: false, owner: owner.clone(), cards: vec!["Sol Ring".into()], targets: vec![Target { snapshot: "s-pats2".into(), store: "pats".into(), kind: Kind::Shopify, base: format!("{base}/nothing-here"), host: None }] };
     run(pool.clone(), crate::routes::http_client(), job, None).await;
     assert_eq!(snapshots(&pool, &owner, 10).await.unwrap()[0]["status"], "error", "every request failed");
     // An error snapshot answers nothing, so the older one still counts.
@@ -472,7 +474,7 @@ async fn a_staged_check_applied_again_reads_nothing() {
     store_row(&st.pool, &owner, "pats", "Pat's Games", "https://patsgames.com", 1).await;
     snapshot(&st.pool, &owner, "s-done", "pats", "shopify", Some(&["Sol Ring"])).await;
     sqlx::query("UPDATE store_snapshots SET status = 'ok', fetched_at = requested_at, change_id = 'chg-1' WHERE id = 's-done'").execute(&st.pool).await.unwrap();
-    let body = CheckBody { stores: Some(vec!["pats".into()]), cards: Some(vec!["Sol Ring".into()]), yestcg: false };
+    let body = CheckBody { stores: Some(vec!["pats".into()]), cards: Some(vec!["Sol Ring".into()]), yestcg: false, refresh_catalog: false };
     let again = start(&st, &owner, &body, "assistant", Some("chg-1")).await.unwrap();
     assert_eq!(again["already"], true);
     assert_eq!(again["snapshots"][0]["id"], "s-done");
@@ -506,7 +508,7 @@ async fn pruning_keeps_the_days_reads_so_the_cap_holds() {
     tx.commit().await.unwrap();
     let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM store_snapshots WHERE owner_id = ?").bind(&owner).fetch_one(&st.pool).await.unwrap();
     assert_eq!(n, DAILY_SNAPSHOTS + 4, "the day's reads and the pending change's read stay; the other old one goes");
-    let body = CheckBody { stores: Some(vec!["pats".into()]), cards: Some(vec!["Sol Ring".into()]), yestcg: false };
+    let body = CheckBody { stores: Some(vec!["pats".into()]), cards: Some(vec!["Sol Ring".into()]), yestcg: false, refresh_catalog: false };
     assert!(matches!(start(&st, &owner, &body, "page", None).await, Err(AppError::TooManyRequests { .. })));
 }
 
@@ -703,4 +705,79 @@ async fn checks_queued_for_the_same_answer_share_one_request() {
         assert_eq!(answer, json!({"products": []}));
     }
     assert_eq!(hits.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn variant_selected_low_stock_counts() {
+    let page = r#"<form id="product-form-main"><input name="id" value="123"></form><div id="Inventory-main"><svg></svg>Low stock! Only 1 left</div>"#;
+    assert_eq!(shopify_variant_quantity(page, "123"), Some(1));
+    assert_eq!(shopify_variant_quantity(&format!("<div><div>{page}</div></div>"), "123"), Some(1));
+    assert_eq!(shopify_variant_quantity(page, "456"), None);
+    assert_eq!(shopify_variant_quantity(&page.replace("Only 1 left", "In stock"), "123"), None);
+    assert_eq!(shopify_variant_quantity(&page.replace("Only 1 left", "Only 2 left"), "123"), Some(2));
+    assert_eq!(shopify_variant_quantity(&page.replace("Only 1 left", "4 in stock"), "123"), Some(4));
+    assert_eq!(shopify_variant_quantity(&page.replace("Inventory-main", "Inventory-other"), "123"), None);
+    assert_eq!(shopify_variant_quantity(r#"<div class="product-card">Only 1 left</div>"#, "123"), None);
+    assert_eq!(shopify_variant_quantity(&format!("{page}{page}"), "123"), None);
+}
+
+#[tokio::test]
+async fn cached_prices_keep_their_date_while_new_quantity_checks_take_precedence() {
+    let (_,pool)=app().await;
+    let (owner,_)=user(&pool,"reader@example.com").await;
+    let price_date="2026-11-01T00:00:00Z";
+    for (id,qty,date) in [("z-old",1,"2026-11-10T00:00:00Z"),("a-new",2,"2026-11-11T00:00:00Z")] {
+        snapshot(&pool,&owner,id,"pats","shopify",Some(&["Sol Ring"])).await;
+        let listing=Listing {card:"Sol Ring".into(),qty:Some(qty),quantity_checked_at:Some(date.into()),price:Some(1.75),available:Some(true),..Default::default()};
+        let found=Found {listings:vec![listing],cached_at:Some(price_date.into()),..Default::default()};
+        finish(&pool,&owner,id,&found,Some(1),None).await.unwrap();
+        let completed:String=sqlx::query_scalar("SELECT fetched_at FROM store_snapshots WHERE id=?").bind(id).fetch_one(&pool).await.unwrap();
+        assert_ne!(completed,price_date);
+        sqlx::query("UPDATE store_snapshots SET fetched_at=?,check_id=? WHERE id=?").bind(date).bind(id).bind(id).execute(&pool).await.unwrap();
+    }
+    let quotes=store_quotes(&pool,&owner,&["Sol Ring".into()]).await.unwrap();
+    assert_eq!(quotes[0]["qty"],2);
+    assert_eq!(quotes[0]["checked"],price_date);
+    assert_eq!(quotes[0]["quantity_checked_at"],"2026-11-11T00:00:00Z");
+}
+
+#[test]
+fn a_cached_sold_out_variant_can_restock_without_a_catalog_refresh() {
+    let cached=json!({"title":"Card A [Set]","variants":[{"id":123,"title":"Near Mint / English / Normal","price":175,"available":false},{"id":456,"title":"Near Mint / English / Foil","price":200,"available":true}]});
+    let mut listings=shopify_product(&cached,"Card A","https://mothershipatx.com","card-a");
+    assert!(refresh_variant_availability(&mut listings,&json!({"variants":[{"id":123,"available":true},{"id":456,"available":false}]})));
+    let selected:Vec<_>=listings.iter().filter(|l|l.available==Some(true)).collect();
+    assert_eq!(selected.len(),1);assert_eq!(selected[0].variant.as_deref(),Some("123"));
+    assert_eq!(selected[0].price,Some(1.75));
+    let html=r#"<form id="product-form-main"><input name="id" value="123"></form><div id="Inventory-main">Only 1 left</div>"#;
+    assert_eq!(shopify_variant_quantity(html,"123"),Some(1));
+    assert!(!refresh_variant_availability(&mut listings,&json!({"variants":[{"id":123,"available":true}]})),"a truncated answer is not proof another variant is sold out");
+    assert!(!refresh_variant_availability(&mut listings,&json!({"variants":[{"id":123,"available":true},{"id":123,"available":false}]})));
+}
+
+#[test]
+fn failed_catalog_only_refresh_is_an_error_even_without_requested_cards() {
+    let failed=Found {errors:vec!["catalog fetch failed; previous cache preserved".into()],..Default::default()};
+    assert_eq!(status_of(&failed,Some(0)),"error");
+    assert_eq!(status_of(&Found::default(),Some(0)),"ok","an empty successful catalog refresh is valid");
+    let partial=Found {errors:vec!["one card failed".into()],failed:vec!["Card A".into()],..Default::default()};
+    assert_eq!(status_of(&partial,Some(2)),"partial","a mixed card check still reports partial coverage");
+}
+
+#[tokio::test]
+async fn duplicate_printing_failures_preserve_the_other_cards_valid_quote() {
+    let (_,pool)=app().await;
+    let (owner,_)=user(&pool,"reader@example.com").await;
+    snapshot(&pool,&owner,"partial-printings","pats","shopify",Some(&["Card A","Card B"])).await;
+    let found=Found {
+        failed:vec!["Card A".into()," card a ".into()],
+        errors:vec!["printing one failed".into(),"printing two failed".into()],
+        listings:vec![Listing {card:"Card B".into(),price:Some(0.5),qty:Some(1),available:Some(true),..Default::default()}],
+        ..Default::default()
+    };
+    finish(&pool,&owner,"partial-printings",&found,Some(2),None).await.unwrap();
+    let (status,failed):(String,String)=sqlx::query_as("SELECT status,failed FROM store_snapshots WHERE id='partial-printings'").fetch_one(&pool).await.unwrap();
+    assert_eq!(status,"partial");assert_eq!(serde_json::from_str::<Value>(&failed).unwrap(),json!(["Card A"]));
+    let quotes=store_quotes(&pool,&owner,&["Card A".into(),"Card B".into()]).await.unwrap();
+    assert_eq!(quotes.len(),1);assert_eq!(quotes[0]["card"],"Card B");assert_eq!(quotes[0]["qty"],1);
 }

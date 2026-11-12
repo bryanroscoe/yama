@@ -117,3 +117,17 @@ trip does not represent the selected build, state that explicitly and provide th
 preview links without claiming the integration has been updated. Refreshing saved
 research does not by itself update an external HTML artifact; regenerate it from
 the same verified source and stamp its list revision and stock date.
+
+## Catalog cache and exact quantities
+
+For Shopify stores, stage `check_stores` with `refresh_catalog: true` to rebuild the complete public `/products.json` catalog. Apply the staged change through the usual review. A catalog refresh reads store data only; it does not modify a retailer cart. The native sourcing page also offers **Refresh store catalogs** and shows each catalog's date and product count.
+
+A successful refresh replaces the persistent public catalog atomically. Interrupted, repeated-page, oversized or unreadable crawls preserve the previous complete cache and report an error. Later card checks reuse that dated catalog to find alternate printings; without a cache they use the existing card search. Refresh explicitly when current catalog availability or prices are needed. Other store connectors keep their existing behavior.
+
+Catalog availability flags and search badges are not exact variant counts. Mothership search totals can combine nonfoil, foil and different conditions. Yama reads the variant-selected product page and associates “Only N left”, “N in stock” or “Out of stock” with that variant's form. Missing, mismatched or ambiguous quantity evidence stays unknown. GraphQL product queries are public, but its `quantityAvailable` field requires merchant-granted inventory access.
+
+All filtered source rows are shown. **Add all matching cards** allocates recorded quantities across eligible printings without duplicating a variant's stock. It leaves unknown counts out of automatic selection; explicit quantity requests remain possible and are labelled unconfirmed. Remaining unselected copies stay visible. A saved quote is dated evidence, not a reservation.
+
+Refreshing a catalog does not rewrite a saved research report. To refresh a report, read it first, check its wanted cards against the cache, preserve all builds, reviews and copy allocations, then save and read back the updated source evidence. Keep market references distinct from retailer prices and match condition, finish, language and the account's buying rules.
+
+When fresh variant quantities are read against an older catalog, `checked`/`checked_at` retains the catalog price date and `quantity_checked_at` records the separate stock observation. Preserve both when saving source offers. Do not assign the fresh quantity date to the cached price or vice versa.
