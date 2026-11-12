@@ -15,6 +15,69 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-11-copy-language-signed-altered",
+    date: "2026-11-11",
+    title: "Mark a copy as signed, altered or in another language",
+    items: ["A card's sheet in Collection now sets its language and whether it is signed or altered, for every copy in the row or just one."],
+    link: { to: "/collection", label: "Open Collection" },
+  },
+  {
+    id: "2026-11-11-collection-filters",
+    date: "2026-11-11",
+    title: "Filter your collection, and see it as pictures",
+    items: [
+      "Collection filters by set, color, type, rarity and finish, and says what the cards left are worth.",
+      "Switch between the list and a grid of card pictures; your choice is remembered on this device.",
+    ],
+    link: { to: "/collection", label: "Open Collection" },
+  },
+  {
+    id: "2026-11-11-collection-import",
+    date: "2026-11-11",
+    title: "Bring your collection from any app",
+    items: [
+      "Collection takes a pasted list or a file exported from ManaBox, Moxfield, Archidekt, Deckbox, Dragon Shield or TCGplayer, with each card's set, finish, condition and language where the file has them.",
+      "You see what matches before anything is added, choose the box it goes into, and lines that match no card stay listed to fix by hand.",
+      "Importing the same list twice adds nothing, and a newer export can add only the copies you don't have yet.",
+    ],
+    link: { to: "/collection", label: "Open Collection" },
+  },
+  {
+    id: "2026-11-11-card-in-your-decks",
+    date: "2026-11-11",
+    title: "A card's page shows your decks that run it",
+    items: ["Open a card to see which of your decks run it, and the combos it is part of in them, as Commander Spellbook found them when each deck was last checked."],
+    link: { to: "/cards", label: "Open Cards" },
+  },
+  {
+    id: "2026-11-11-card-name-suggestions",
+    date: "2026-11-11",
+    title: "Card names as you type",
+    items: ["The Cards search box suggests card names while you type. Pick one to open the card."],
+    link: { to: "/cards", label: "Open Cards" },
+  },
+  {
+    id: "2026-11-11-search-operators",
+    date: "2026-11-11",
+    title: "Search cards by set, artist, year and price",
+    items: [
+      "Card search reads set:cmm, a:\"rebecca guay\", year>=2020 and usd<5. A card with no price never matches a price.",
+      "More is: searches: is:reserved, is:partner, is:companion, is:mdfc, is:transform, is:hybrid, is:historic and others.",
+      "Sort results by price or by when a card first came out.",
+    ],
+    link: { to: "/cards", label: "Open Cards" },
+  },
+  {
+    id: "2026-11-11-table-clock",
+    date: "2026-11-11",
+    title: "A clock on the life counter",
+    items: [
+      "Turn on Clock in the table menu to see how long the game has run and, if you count turns, how long this turn has taken. It is off unless you turn it on, on each phone.",
+      "It works without a connection, and a finished game's page says how long it ran.",
+    ],
+    link: { to: "/", label: "Open Table" },
+  },
+  {
     id: "2026-11-11-guest-play",
     date: "2026-11-11",
     title: "Play the computer without an account",
