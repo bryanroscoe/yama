@@ -175,7 +175,9 @@ pub async fn make_yama_deck(
         }
     }
     let deck_name = format!("{name} ({label} list)");
-    let id = crate::decks::create_deck_with_note(&st.pool, &user.id, &deck_name, Some(PLANS_FOLDER), deck_cards, &note).await?;
+    // Private whatever the account's setting for new decks: it is a plan's list, and plans
+    // are private unless shared.
+    let id = crate::decks::create_private_deck(&st.pool, &user.id, &deck_name, Some(PLANS_FOLDER), deck_cards, &note).await?;
     Ok(Json(json!({ "id": id, "name": deck_name, "existing": false, "note": note })))
 }
 
@@ -264,6 +266,7 @@ mod tests {
     #[tokio::test]
     async fn a_yama_deck_made_from_a_list_belongs_to_the_caller() {
         let (app, pool, a_id, a, b) = setup().await;
+        sqlx::query("UPDATE users SET new_deck_visibility = 'public' WHERE id = ?").bind(&a_id).execute(&pool).await.unwrap();
         let (status, made) = send(&app, Method::POST, "/api/plan/decks/alpha/yama-deck", Some(&a), Some(json!({"state": "stock"}))).await;
         assert_eq!(status, StatusCode::OK, "{made}");
         assert_eq!(made["existing"], false);
@@ -272,6 +275,9 @@ mod tests {
 
         let (owner, folder): (String, String) = sqlx::query_as("SELECT owner_id, folder FROM decks WHERE id = ?").bind(&id).fetch_one(&pool).await.unwrap();
         assert_eq!((owner.as_str(), folder.as_str()), (a_id.as_str(), "Plans"));
+        // A plan's list is private unless shared, even for an account whose new decks start public.
+        let seen: String = sqlx::query_scalar("SELECT visibility FROM decks WHERE id = ?").bind(&id).fetch_one(&pool).await.unwrap();
+        assert_eq!(seen, "private");
         let (status, deck) = send(&app, Method::GET, &format!("/api/decks/{id}"), Some(&a), None).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(deck["validation"]["total"], 100);

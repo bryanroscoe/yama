@@ -1,7 +1,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { Link, Navigate, Outlet, Route, Routes, useLocation, useMatch, useNavigate } from "react-router";
 import { chooseGuest, useGuestChosen } from "./guest";
-import { afterSignIn, Login, useMe } from "./auth";
+import { advancedOf, afterSignIn, Login, useMe } from "./auth";
 import { useGuestSession } from "./guestPlay";
 import { useCacheSweeps, useLapsedAccount } from "./session";
 import { RequireAccount } from "./components/RequireAccount";
@@ -46,10 +46,12 @@ const changes = area(() => import("./advisor/Changes"));
 const research = area(() => import("./research/Research"));
 const deckScan = area(() => import("./decks/DeckScanPage"));
 const deckCheck = area(() => import("./decks/DeckCheckPage"));
+const checkDeck = area(() => import("./check/CheckPage"));
 const consent = area(() => import("./oauth/Consent"));
 const guestTable = area(() => import("./table/GuestTable"));
 const gameDetail = area(() => import("./table/GameDetail"));
 const gameHistory = area(() => import("./table/GameHistory"));
+const browse = area(() => import("./browse/Browse"));
 
 const PlayHome = play.page("PlayHome");
 const GuestPlayHome = play.page("GuestPlayHome");
@@ -72,6 +74,8 @@ const PlanPage = plan.page("PlanPage");
 const Archived = plan.page("Archived");
 const GetCards = plan.page("GetCards");
 const Trip = plan.page("Trip");
+const WishListLayout = plan.page("WishListLayout");
+const WishListPage = plan.page("WishListPage");
 const Sourcing = plan.page("Sourcing");
 const SwapSheetPage = plan.page("SwapSheetPage");
 const MpcPrint = plan.page("MpcPrint");
@@ -84,6 +88,7 @@ const ServerPage = admin.page("ServerPage");
 const LabRunsPage = admin.page("LabRunsPage");
 const BugReportsPage = admin.page("BugReportsPage");
 const ModerationPage = admin.page("ModerationPage");
+const BrowsePage = browse.page("BrowsePage");
 const DecksPage = decks.page("DecksPage");
 const DeckPage = decks.page("DeckPage");
 const ImportPage = decks.page("ImportPage");
@@ -102,6 +107,7 @@ const ResearchPage = research.page("ResearchPage");
 const DatasetsPage = lab.page("DatasetsPage");
 const DeckScanPage = deckScan.page("DeckScanPage");
 const DeckCheckPage = deckCheck.page("DeckCheckPage");
+const CheckPage = checkDeck.page("CheckPage");
 const OAuthConsent = consent.page("OAuthConsent");
 const GuestTable = guestTable.page("GuestTable");
 const GameDetailPage = gameDetail.page("GameDetailPage");
@@ -121,8 +127,9 @@ function Shell({ pending = false }: { pending?: boolean }) {
   const me = useMe();
   const { pathname } = useLocation();
   const here = tabOf(pathname);
-  // Workshop is a tab in the laptop rail and a row on the You page on a phone (five tabs there).
-  const tabs = [...MAIN_TABS.map(tab), ...(!pending && me.data ? [tab("workshop")] : [])];
+  // Workshop shows with Advanced on (Settings): a tab in the laptop rail, and a row on the You
+  // page on a phone (five tabs there).
+  const tabs = [...MAIN_TABS.map(tab), ...(!pending && advancedOf(me.data) ? [tab("workshop")] : [])];
   return (
     <div className="shell">
       <header className="topbar">
@@ -260,8 +267,12 @@ export function App() {
             never stay on screen as the next account's placeholder. */}
         <Route path="cards" element={<Framed><CardsPage key={me.data?.id ?? "guest"} /></Framed>} />
         <Route path="new" element={<Framed><WhatsNewPage /></Framed>} />
+        {/* Browse: the decks people made public. Open to everyone; "browse" outranks "decks/:id". */}
+        <Route path="decks/browse" element={<Paged page={BrowsePage} title="Browse decks" kind="tiles" />} />
         {/* Open to everyone: signed out, it offers a game against the computer as a guest. */}
         <Route path="play" element={signedIn ? <Paged page={PlayHome} title="Play online" /> : <Paged page={GuestPlayHome} title="Play online" />} />
+        {/* Open to everyone: check a pasted list; it stays in the browser until it's saved (check/). */}
+        <Route path="check" element={<Paged page={CheckPage} title="Check a deck" />} />
         <Route element={<RequireAccount />}>
           <Route path="table/games" element={<Paged page={GameHistoryPage} title="Game history" />} />
           <Route path="table/games/:id" element={<Paged page={GameDetailPage} kind="detail" />} />
@@ -325,6 +336,10 @@ export function App() {
           <Route path="sharing" element={<Paged page={SharingPage} title="Sharing settings" />} />
           <Route path="sharing/compare/:handle" element={<Paged page={ComparePage} kind="detail" />} />
           <Route path="collection/trade" element={<Paged page={TradePage} title="Trade with a friend" />} />
+          {/* The wish list is kept with the plans (one bundle), so it loads under their layout. */}
+          <Route path="collection/wishlist" element={<Paged page={WishListLayout} title="Wish list" />}>
+            <Route index element={<WishListPage />} />
+          </Route>
           <Route path="group" element={<Paged page={GroupPage} title="Playgroup" />} />
           <Route path="group/mythic" element={<Paged page={MythicImportPage} />} />
           <Route path="mythic/sent" element={<Paged page={MythicSentPage} />} />

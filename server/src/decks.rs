@@ -160,7 +160,7 @@ pub(crate) async fn checked_cards(pool: &SqlitePool, cards: Vec<DeckCard>) -> Ap
 
 /// The caps on a list as it will be stored, whichever way its rows were read: how many
 /// different cards, and how many copies of one card over all its boards.
-fn within_caps(cards: &[DeckCard]) -> AppResult<()> {
+pub(crate) fn within_caps(cards: &[DeckCard]) -> AppResult<()> {
     if cards.len() > MAX_DECK_ROWS {
         return Err(AppError::bad(format!("a list can have at most {MAX_DECK_ROWS} different cards")));
     }
@@ -178,7 +178,7 @@ fn within_caps(cards: &[DeckCard]) -> AppResult<()> {
 /// Parsed lines within the same caps, before any is looked up (`resolve` asks the database about
 /// each line, and adds up the copies of a card named twice, so its result goes through
 /// `within_caps` as well).
-fn capped_lines(lines: Vec<ParsedLine>) -> AppResult<Vec<ParsedLine>> {
+pub(crate) fn capped_lines(lines: Vec<ParsedLine>) -> AppResult<Vec<ParsedLine>> {
     if lines.len() > MAX_DECK_ROWS {
         return Err(AppError::bad(format!("a list can have at most {MAX_DECK_ROWS} lines")));
     }
@@ -602,6 +602,17 @@ pub async fn create_deck_with_note(
     Ok(id)
 }
 
+/// A deck that starts private whatever its owner's setting for new decks: one Yama makes from
+/// data that is private unless shared, with no step where the person chooses who sees it (the
+/// contents of a collection box, a plan's list). Its Share button shares it like any other.
+pub async fn create_private_deck(pool: &SqlitePool, owner: &str, name: &str, folder: Option<&str>, cards: Vec<DeckCard>, note: &str) -> AppResult<String> {
+    let mut tx = pool.begin().await?;
+    let id = create_deck_as(&mut tx, owner, name, folder, &cards, note, Some("private")).await?;
+    tx.commit().await?;
+    crate::deck_checks::wake();
+    Ok(id)
+}
+
 /// As `create_deck_with_note`, inside the caller's transaction, so the deck commits (or rolls
 /// back) together with the caller's own writes (the lab's op record for a precon deck). The
 /// version's outside check is queued in the same transaction; call `deck_checks::wake()` after
@@ -614,15 +625,29 @@ pub async fn create_deck_in(
     cards: &[DeckCard],
     note: &str,
 ) -> AppResult<String> {
+    create_deck_as(conn, owner, name, folder, cards, note, None).await
+}
+
+/// As `create_deck_in`, with who can see the deck when that isn't its owner's setting for new
+/// decks (`create_private_deck`).
+async fn create_deck_as(
+    conn: &mut SqliteConnection,
+    owner: &str,
+    name: &str,
+    folder: Option<&str>,
+    cards: &[DeckCard],
+    note: &str,
+    visibility: Option<&str>,
+) -> AppResult<String> {
     if name.trim().is_empty() {
         return Err(AppError::bad("deck needs a name"));
     }
     let id = new_id();
     let stamp = now();
-    // A new deck starts as its owner's chosen default (Sharing).
+    // A new deck starts as its owner's chosen default (Sharing), unless the caller says.
     sqlx::query(
         "INSERT INTO decks (id, owner_id, name, folder, created_at, updated_at, visibility, share_token)
-         SELECT ?,?,?,?,?,?, new_deck_visibility, ? FROM users WHERE id = ?",
+         SELECT ?,?,?,?,?,?, COALESCE(?, new_deck_visibility), ? FROM users WHERE id = ?",
     )
     .bind(&id)
     .bind(owner)
@@ -630,6 +655,7 @@ pub async fn create_deck_in(
     .bind(folder)
     .bind(&stamp)
     .bind(&stamp)
+    .bind(visibility)
     .bind(crate::sharing::new_token())
     .bind(owner)
     .execute(&mut *conn)
@@ -2083,6 +2109,14 @@ pub(crate) fn is_basic(name: &str) -> bool {
     BASICS.contains(&name)
 }
 
+/// Whether a card can be a commander: a legendary creature, vehicle or spacecraft, a Background,
+/// or a card whose text says so.
+pub(crate) fn can_lead(card: &Card) -> bool {
+    (card.type_line.contains("Legendary") && (card.type_line.contains("Creature") || card.type_line.contains("Vehicle") || card.type_line.contains("Spacecraft")))
+        || card.oracle_text.to_lowercase().contains("can be your commander")
+        || card.type_line.contains("Background")
+}
+
 /// Commander deck checks: size, singleton, color identity, legality, and commander eligibility.
 /// Uses Scryfall's legality data, which is only as fresh as the last import.
 pub fn validate(cards: &[DeckCard], info: &HashMap<String, Card>) -> Validation {
@@ -2099,12 +2133,7 @@ pub fn validate(cards: &[DeckCard], info: &HashMap<String, Card>) -> Validation 
     for c in &commanders {
         let Some(card) = info.get(&c.oracle_id) else { continue };
         identity.push_str(&card.color_identity);
-        let text = card.oracle_text.to_lowercase();
-        let eligible = (card.type_line.contains("Legendary")
-            && (card.type_line.contains("Creature") || card.type_line.contains("Vehicle") || card.type_line.contains("Spacecraft")))
-            || text.contains("can be your commander")
-            || card.type_line.contains("Background");
-        if !eligible {
+        if !can_lead(card) {
             v.errors.push(format!("{} can't be a commander", c.name));
         }
     }
@@ -2953,7 +2982,9 @@ pub async fn sync_deck_from_container(pool: &SqlitePool, owner: &str, container_
         .collect();
     match existing {
         None => {
-            let id = create_deck_with_cards(pool, owner, name, Some(MYTHIC_FOLDER), cards).await?;
+            // Private whatever the account's setting: the list is the contents of a collection
+            // box, and the collection is shared only when its owner turns that on.
+            let id = create_private_deck(pool, owner, name, Some(MYTHIC_FOLDER), cards, "created").await?;
             sqlx::query("UPDATE decks SET container_id = ? WHERE id = ?").bind(container_id).bind(&id).execute(pool).await?;
             Ok(ContainerSync::Created)
         }

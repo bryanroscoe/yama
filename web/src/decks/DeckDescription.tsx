@@ -30,8 +30,8 @@ export function descriptionToSave(text: string): string | null {
 
 /** Who sees the description, for the deck's sharing as it is now. */
 export function whoSees(visibility: Visibility): string {
-  if (visibility === "public") return "This deck is public on your profile, so anyone can read it now.";
-  if (visibility === "link") return "This deck is shared by link, so anyone with the link can read it now.";
+  if (visibility === "public") return "This deck is public, so anyone can read it now.";
+  if (visibility === "link") return "This deck is link only, so anyone with the link can read it now.";
   return "This deck is private, so only you see it for now. Share the deck and they will see it too.";
 }
 

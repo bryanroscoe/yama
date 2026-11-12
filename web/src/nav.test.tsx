@@ -18,6 +18,34 @@ const guest: Who = { signedIn: false, power: false, evidence: false };
 const account: Who = { ...guest, signedIn: true };
 const owner: Who = { signedIn: true, power: true, evidence: true };
 
+// The server draws the same frame on its public pages (server/src/public_page.rs).
+const rust = readFileSync(new URL("../../server/src/public_page.rs", import.meta.url), "utf8");
+const icons = readFileSync(new URL("./components/icons.tsx", import.meta.url), "utf8");
+
+describe("the public pages' frame", () => {
+  it("has the app's five tabs, by the same names, opening the same pages", () => {
+    const table = rust.match(/SITE_TABS: \[[^\]]*\] = \[([^]*?)\n\];/)?.[1] ?? "";
+    const tabs = [...table.matchAll(/\("(\/[^"]*)", "([^"]+)", icon!/g)].map((m) => [m[1], m[2]]);
+    expect(tabs).toEqual(MAIN_TABS.map((id) => [tab(id).to, tab(id).label]));
+  });
+
+  it("lists the Decks pages someone signed out sees in the app, by the same names", () => {
+    const table = rust.match(/DECKS_PAGES: \[[^\]]*\] =\s*\[([^\n]*)\];/)?.[1] ?? "";
+    const pages = [...table.matchAll(/\("(\/[^"]*)", "([^"]+)"\)/g)].map((m) => [m[1], m[2]]);
+    expect(pages.length).toBeGreaterThan(0);
+    const app = sectionsFor(tab("decks"), guest).map((s) => [s.to, s.label]);
+    // Every page the server lists is one the app lists, in the app's order (the app may list more).
+    expect(app.filter(([to]) => pages.some(([p]) => p === to))).toEqual(pages);
+  });
+
+  it("draws its icons as the app does", () => {
+    const drawn = [...rust.matchAll(/icon!\(r#"(.*?)"#\)/g)].map((m) => m[1] ?? "");
+    expect(drawn).toHaveLength(6);
+    const app = icons.replace(/\s*\/>/g, "/>");
+    for (const shapes of drawn) for (const shape of shapes.match(/<[a-z]+ [^>]*\/>/g) ?? []) expect(app, shape).toContain(shape);
+  });
+});
+
 describe("the tabs", () => {
   it("are Play, Decks, Cards, Collection and Playgroup, with Workshop and You beside them", () => {
     expect(MAIN_TABS.map((id) => tab(id).label)).toEqual(["Play", "Decks", "Cards", "Collection", "Playgroup"]);
@@ -37,8 +65,8 @@ describe("the tabs", () => {
       play: ["/play/table", "/table", "/table/games", "/table/games/abc", "/play", "/play/watch", "/play/abc"],
       decks: ["/decks", "/decks/", "/decks/import", "/decks/changes", "/decks/abc", "/decks/abc/stats", "/decks/abc/edit", "/lab", "/lab/p/riders"],
       cards: ["/cards"],
-      collection: ["/collection", "/collection/trade", "/sharing/compare/pat"],
-      playgroup: ["/group", "/group/mythic", "/mythic/sent"],
+      collection: ["/collection", "/collection/wishlist", "/collection/trade", "/sharing/compare/pat"],
+      playgroup: ["/group"],
       workshop: [
         "/decks/plans",
         "/decks/plans/get",
@@ -58,6 +86,8 @@ describe("the tabs", () => {
         "/lab/runs/batch/abc",
         "/lab/datasets",
         "/lab/datasets/playgroup-history",
+        "/group/mythic",
+        "/mythic/sent",
       ],
       you: ["/profile", "/sharing", "/new", "/admin", "/admin/usage"],
     };
@@ -90,9 +120,13 @@ describe("the tabs", () => {
     expect(labels("workshop", account)).toEqual(["Plans", "Get the cards", "Swap cards", "Try a change", "Compare decks", "Lab runs"]);
     expect(labels("workshop", { ...account, evidence: true })).toContain("Datasets");
     expect(labels("workshop", owner)).toEqual(["Plans", "Get the cards", "Swap cards", "Try a change", "Compare decks", "Lab runs", "Datasets"]);
+    // Mythic Tools is listed only where the server can read Mythic Tools.
+    expect(labels("workshop", { ...owner, mythic: true })).toEqual(["Plans", "Get the cards", "Swap cards", "Try a change", "Compare decks", "Lab runs", "Datasets", "Mythic Tools"]);
     // Precons is the account's own table signed in and the public reference signed out.
-    expect(sectionsFor(tab("decks"), account).map((s) => s.to)).toEqual(["/decks", "/lab", "/commanders"]);
-    expect(sectionsFor(tab("decks"), guest).map((s) => s.to)).toEqual(["/decks", "/precons", "/commanders"]);
+    expect(sectionsFor(tab("decks"), account).map((s) => s.to)).toEqual(["/decks", "/decks/browse", "/lab", "/commanders", "/check"]);
+    expect(sectionsFor(tab("decks"), guest).map((s) => s.to)).toEqual(["/decks", "/decks/browse", "/precons", "/commanders", "/check"]);
+    // Check a deck is for everyone, and its page lights the Decks tab.
+    expect(tabOf("/check")?.id).toBe("decks");
   });
 
   it("know which of a tab's pages a page is, and that a deck or a plan's own page is none of them", () => {
@@ -147,6 +181,9 @@ describe("the strip of a tab's pages", () => {
     expect(current(strip("/decks/plans/archived/abc"))).toEqual(["/decks/plans"]);
     expect(current(strip("/decks/plans/get/sourcing"))).toEqual(["/decks/plans/get"]);
     expect(current(strip("/collection/trade"))).toEqual(["/collection/trade"]);
+    expect(current(strip("/collection/wishlist"))).toEqual(["/collection/wishlist"]);
+    // The wish list is for every account, whatever Advanced says.
+    expect(links(strip("/collection"))).toEqual(["/collection", "/collection/wishlist", "/collection/trade"]);
   });
 
   it("calls only an entry's own address the current page; a page under it marks the place", () => {
@@ -173,8 +210,8 @@ describe("the strip of a tab's pages", () => {
 
   it("gives someone signed out the public precon and commander pages as document links", () => {
     const html = strip("/decks", null);
-    expect(links(html)).toEqual(["/decks", "https://yama.ing/precons", "https://yama.ing/commanders"]);
-    expect(links(strip("/decks"))).toEqual(["/decks", "/lab", "https://yama.ing/commanders"]);
+    expect(links(html)).toEqual(["/decks", "/decks/browse", "https://yama.ing/precons", "https://yama.ing/commanders", "/check"]);
+    expect(links(strip("/decks"))).toEqual(["/decks", "/decks/browse", "/lab", "https://yama.ing/commanders", "/check"]);
     expect(links(strip("/play/table", null))).toEqual(["/play/table", "/play"]);
   });
 

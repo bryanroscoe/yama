@@ -10,6 +10,9 @@
 //! page also shows what's worked out from the list (legality, the stored bracket check, stats,
 //! market value) and, when the owner turns it on, its plan's simulated win rates for the lists
 //! it and its listed configurations stand for, nothing else from the plan.
+pub(crate) mod browse;
+#[cfg(test)]
+mod browse_tests;
 mod html;
 mod report;
 mod want_sources;
@@ -37,7 +40,9 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/me/sharing", get(get_sharing).put(put_sharing))
         .route("/api/me/sharing/decks", post(share_all))
+        .route("/api/me/sharing/public-default", post(answer_public_default))
         .route("/api/public/decks/{token}", get(api_deck))
+        .route("/api/public/browse", get(browse::list))
         .route("/u", get(lookup))
         .route("/u/{handle}", get(html::profile))
         .route("/u/{handle}/collection", get(html::collection))
@@ -63,9 +68,9 @@ pub fn router() -> Router<AppState> {
         .route("/api/research-plans", get(research::owner_plans))
 }
 
-/// Only this GET API bypasses view-as resolution: its output has no account context.
+/// Only these GET APIs bypass view-as resolution: their output has no account context.
 pub fn is_public_api(path: &str) -> bool {
-    path.strip_prefix("/api/public/decks/").is_some_and(valid_token)
+    path == "/api/public/browse" || path.strip_prefix("/api/public/decks/").is_some_and(valid_token)
 }
 
 /// A deck's share token: 24 hex digits of a random UUID (about 92 random bits; the migration's
@@ -102,7 +107,6 @@ pub(crate) const LISTED: &str = "d.visibility = 'public' AND d.archived = 0 AND 
      AND u.disabled_at IS NULL AND u.guest = 0 AND u.handle IS NOT NULL AND u.public_listed_at IS NOT NULL";
 
 /// Whether this deck is listed publicly ([`LISTED`]). An unknown deck is not.
-#[allow(dead_code)] // The listings that ask this (Browse, the sitemap) come in the changes after this one.
 pub(crate) async fn deck_listed(pool: &SqlitePool, deck_id: &str) -> AppResult<bool> {
     Ok(sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT EXISTS(SELECT 1 FROM decks d JOIN users u ON u.id = d.owner_id WHERE d.id = ? AND {LISTED})")))
         .bind(deck_id)
@@ -117,6 +121,42 @@ pub(crate) async fn deck_listed(pool: &SqlitePool, deck_id: &str) -> AppResult<b
 pub(crate) async fn list_publicly(pool: &SqlitePool, user: &str) -> AppResult<()> {
     sqlx::query("UPDATE users SET public_listed_at = COALESCE(public_listed_at, ?) WHERE id = ?").bind(now()).bind(user).execute(pool).await?;
     Ok(())
+}
+
+/// What an account's new decks start as, whether its public decks are listed publicly
+/// ([`LISTED`]'s `public_listed_at`), and whether it has a handle (and so a profile).
+pub(crate) async fn new_deck_visibility(pool: &SqlitePool, user: &str) -> AppResult<(String, bool, bool)> {
+    Ok(sqlx::query_as("SELECT new_deck_visibility, public_listed_at IS NOT NULL, handle IS NOT NULL FROM users WHERE id = ?").bind(user).fetch_one(pool).await?)
+}
+
+/// The less visible of two visibilities (private, then link, then public).
+pub(crate) fn less_visible<'a>(a: &'a str, b: &'a str) -> &'a str {
+    let rank = |v: &str| VISIBILITIES.iter().position(|x| *x == v).unwrap_or(0);
+    if rank(b) < rank(a) { b } else { a }
+}
+
+/// A visibility in words, mid-sentence: "public", "link only", "private".
+pub(crate) fn visibility_words(v: &str) -> &'static str {
+    match v {
+        "public" => "public",
+        "link" => "link only",
+        _ => "private",
+    }
+}
+
+/// One sentence on who can see a deck of this visibility, for text that stages or reports a new
+/// deck (an assistant's `save_deck`). For a public deck it says the most it can be seen: the
+/// profile only for an account with a handle, and Browse and search engines, as what can happen,
+/// only for an account whose public decks are listed.
+pub(crate) fn who_can_see(visibility: &str, listed: bool, handle: bool) -> &'static str {
+    match (visibility, listed, handle) {
+        ("public", true, true) => "Public. Anyone can see it: it is on your profile, and can be listed in Browse and found by search engines.",
+        ("public", true, false) => "Public. Anyone with its link can see it; once you pick a handle it is on your profile, and can be listed in Browse and found by search engines.",
+        ("public", false, true) => "Public. Anyone with its link can see it, and it is listed on your profile.",
+        ("public", false, false) => "Public. Anyone with its link can see it; once you pick a handle it is listed on your profile.",
+        ("link", ..) => "Link only. Anyone who has its link can see it, and it isn't listed anywhere.",
+        _ => "Private. Only you can see it.",
+    }
 }
 
 /// Handles that would read as Yama itself, or as a page.
@@ -263,26 +303,105 @@ struct ShareAll {
 /// Every live deck at once, e.g. "Make all my decks public".
 async fn share_all(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(body): Json<ShareAll>) -> AppResult<Json<Sharing>> {
     let v = visibility(&body.visibility)?;
+    let mut tx = st.pool.begin().await?;
+    set_live_decks(&mut tx, &user.id, v).await?;
+    tx.commit().await?;
+    Ok(Json(sharing(&st.pool, &user.id).await?))
+}
+
+/// Every live deck of `owner` to one visibility, each with a share token of its own.
+async fn set_live_decks(conn: &mut sqlx::SqliteConnection, owner: &str, v: &str) -> AppResult<()> {
     // A deck an admin took down stays private (`moderation.rs`).
     sqlx::query("UPDATE decks SET visibility = ?, share_token = COALESCE(share_token, ?), updated_at = ? WHERE owner_id = ? AND archived = 0 AND taken_down_at IS NULL
            AND NOT EXISTS (SELECT 1 FROM decks m WHERE m.id = decks.parent_id AND m.taken_down_at IS NOT NULL)")
         .bind(v)
         .bind(new_token())
         .bind(now())
-        .bind(&user.id)
-        .execute(&st.pool)
+        .bind(owner)
+        .execute(&mut *conn)
         .await?;
     // COALESCE used one token for every deck that had none (only decks made before tokens):
     // give each its own.
     let dupes: Vec<String> = sqlx::query_scalar(
         "SELECT id FROM decks WHERE owner_id = ? AND share_token IN (SELECT share_token FROM decks GROUP BY share_token HAVING COUNT(*) > 1)",
     )
-    .bind(&user.id)
-    .fetch_all(&st.pool)
+    .bind(owner)
+    .fetch_all(&mut *conn)
     .await?;
     for id in dupes {
-        sqlx::query("UPDATE decks SET share_token = ? WHERE id = ?").bind(new_token()).bind(&id).execute(&st.pool).await?;
+        sqlx::query("UPDATE decks SET share_token = ? WHERE id = ?").bind(new_token()).bind(&id).execute(&mut *conn).await?;
     }
+    Ok(())
+}
+
+#[derive(Deserialize)]
+struct PublicDefaultAnswer {
+    /// What the account's new decks start as from now on: private, link or public.
+    new_decks: String,
+    /// What happens to the decks it already has: "keep" changes none of them, "public" makes
+    /// every live deck public (only with `new_decks` public: the tick under "yes"), "link" turns
+    /// its public decks into link-only ones so none of them is listed. Required: keeping lists
+    /// the account's public decks, so it has to be said, never assumed.
+    existing: String,
+    /// How many live public decks the person was shown when they answered. If the account has
+    /// another number by now (a deck shared on another device meanwhile), the answer is refused
+    /// rather than applied to decks they weren't told about.
+    public_decks: i64,
+}
+
+/// The answer to the one-time question "Yama decks are now public by default. Make yours
+/// public?", asked of accounts from before public-by-default (`public_listed_at` NULL).
+///
+/// Whatever the answer, the account takes on the new meaning of "public" from now ([`LISTED`]):
+/// the question explained it and offered link only. The answer sets what new decks start as.
+/// Existing decks change only when the answer says so in `existing`; without it none does.
+/// Asked once: when the account has already answered (or was made after the change) this
+/// changes nothing and says so (409), so a request sent again, or a second device answering
+/// later, can't undo what the owner has chosen since, and isn't told its answer was taken.
+async fn answer_public_default(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(body): Json<PublicDefaultAnswer>) -> AppResult<Json<Sharing>> {
+    let new_decks = visibility(&body.new_decks)?;
+    let existing = match body.existing.as_str() {
+        "keep" => "keep",
+        "link" => "link",
+        "public" if new_decks == "public" => "public",
+        "public" => return Err(AppError::bad("existing decks become public only when new decks are public")),
+        _ => return Err(AppError::bad("existing is keep, public or link")),
+    };
+    // Immediate, so two answers at once can't both find the question open.
+    let mut tx = st.pool.begin_with("BEGIN IMMEDIATE").await?;
+    let asked = sqlx::query("UPDATE users SET new_deck_visibility = ?, public_listed_at = ? WHERE id = ? AND public_listed_at IS NULL")
+        .bind(new_decks)
+        .bind(now())
+        .bind(&user.id)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected()
+        == 1;
+    if !asked {
+        return Err(AppError::Conflict("You've already answered this, perhaps on another device. Sharing settings show what your decks start as now.".into()));
+    }
+    let public_now: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM decks WHERE owner_id = ? AND archived = 0 AND visibility = 'public'")
+        .bind(&user.id)
+        .fetch_one(&mut *tx)
+        .await?;
+    if public_now != body.public_decks {
+        // Dropping the transaction leaves the question open.
+        return Err(AppError::Conflict("Your decks changed since this question opened. Open it again to see them as they are now.".into()));
+    }
+    match existing {
+        "public" => set_live_decks(&mut tx, &user.id, "public").await?,
+        // The live decks the question counted. A deleted deck is never shared or listed and
+        // nothing brings one back, so it is left as it was.
+        "link" => {
+            sqlx::query("UPDATE decks SET visibility = 'link', updated_at = ? WHERE owner_id = ? AND archived = 0 AND visibility = 'public'")
+                .bind(now())
+                .bind(&user.id)
+                .execute(&mut *tx)
+                .await?;
+        }
+        _ => {}
+    }
+    tx.commit().await?;
     Ok(Json(sharing(&st.pool, &user.id).await?))
 }
 
@@ -349,6 +468,10 @@ pub(crate) struct SharedLink {
 
 #[derive(Clone)]
 pub(crate) struct SharedDeck {
+    /// Listed publicly ([`LISTED`]): its page may be indexed by search engines and is in the
+    /// sitemap. A deck shared by link, and a public deck of an account that hasn't taken on the
+    /// new meaning of "public", is not.
+    pub(crate) listed: bool,
     pub(crate) sharer: Sharer,
     pub(crate) name: String,
     pub(crate) token: String,
@@ -702,6 +825,7 @@ pub(crate) async fn shared_deck(pool: &SqlitePool, token: &str) -> AppResult<Sha
         })
         .collect();
     Ok(SharedDeck {
+        listed: deck_listed(pool, &row.id).await?,
         sharer,
         name: public_text(&row.name, public),
         token: token.to_string(),

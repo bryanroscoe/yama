@@ -15,7 +15,7 @@ import { NO_PRICE, fmtDate, usd } from "@yama/core";
 function SharedLink({ name, manage, url, visibility }: { name: string; manage: string; url: string | null; visibility: Visibility }) {
   const [copied, copy] = useCopy();
   return <li className="sharing-item">
-    <div><Link to={manage}>{name}</Link><p className="small dim">{visibility === "public" ? "Public" : "Anyone with the link"}</p></div>
+    <div><Link to={manage}>{name}</Link><p className="small dim">{visibility === "public" ? "Public" : "Link only"}</p></div>
     <div className="row">
       {url && <><ButtonLink variant="outline" href={url} target="_blank" rel="noreferrer">Open shared page<span className="visually-hidden">: {name}</span></ButtonLink><Button variant="outline" onClick={() => void copy(url)}>Copy link<span className="visually-hidden">: {name}</span></Button></>}
       <ButtonLink variant="quiet" to={manage}>Manage<span className="visually-hidden">: {name}</span></ButtonLink>

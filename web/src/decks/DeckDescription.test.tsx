@@ -91,7 +91,7 @@ describe("writing the description", () => {
     show({ id: "d1", description: "Lands.", visibility: "link" });
     expect(box().value).toBe("Lands.");
     const hint = document.getElementById(box().getAttribute("aria-describedby")!)!;
-    expect(hint.textContent).toBe("Shown to anyone who can see this deck. This deck is shared by link, so anyone with the link can read it now.");
+    expect(hint.textContent).toBe("Shown to anyone who can see this deck. This deck is link only, so anyone with the link can read it now.");
     expect(document.body.textContent).toContain(`${(DESCRIPTION_MAX - 6).toLocaleString("en-US")} characters left.`);
   });
 

@@ -6,6 +6,7 @@ import { Button, ErrorText, Field } from "../components/ui";
 import { useCopy, VISIBILITY_CHOICES } from "./ShareDeck";
 import "./share.css";
 import { ask } from "../components/confirm";
+import { PublicDefaultDialog } from "./PublicDefaultPrompt";
 
 /** A handle being typed, and the saved handle it was typed over. */
 export interface TypedHandle {
@@ -29,6 +30,8 @@ export function SharingSettings() {
   const handle = handleShown(typed, sharing.data?.handle ?? null);
   const setHandle = (value: string) => setTyped({ value, over: sharing.data?.handle ?? null });
   const [copied, copy] = useCopy();
+  const viewing = !!useMe().data?.viewing;
+  const [asking, setAsking] = useState(false);
   const done = (s: Sharing) => {
     qc.setQueryData(["sharing", userId], s);
     void qc.invalidateQueries({ queryKey: ["decks"] });
@@ -53,8 +56,10 @@ export function SharingSettings() {
       <div className="grp-you-text">
         <b>Sharing</b>
         <span>
-          Everything is private until you share it. Shared decks show their cards and printings, never prices you paid, notes, plans or
-          games, and never your name or email.
+          New decks start as the setting below, and each deck's Share button changes it. A public deck is on your profile{s.handle ? "" : " once you pick a handle"}
+          {s.public_listed_at ? ", and can be listed in Browse and found by search engines" : ""}; a link-only deck is seen only by people who have its link.
+          Shared decks show their cards and printings, never prices you paid, notes, plans or games, and never your name or email. Your
+          collection, wish list, plans, games and playgroups stay private unless you share them.
         </span>
       </div>
 
@@ -82,6 +87,14 @@ export function SharingSettings() {
         </div>
       )}
 
+      {s.public_listed_at === null && !viewing && (
+        <div className="public-default-banner">
+          <span>Yama decks are now public by default. Yours stay as they are, and none is listed in Browse, until you answer.</span>
+          <Button onClick={() => setAsking(true)}>Choose for your decks</Button>
+        </div>
+      )}
+      {asking && s.public_listed_at === null && <PublicDefaultDialog sharing={s} onClose={() => setAsking(false)} />}
+
       <Field label="New decks start as">
         <select value={s.new_deck_visibility} onChange={(e) => save.mutate({ new_deck_visibility: e.target.value })} disabled={save.isPending}>
           {VISIBILITY_CHOICES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
@@ -93,7 +106,7 @@ export function SharingSettings() {
           <span>
             {total === 0
               ? "No decks yet."
-              : `${s.decks.public} public, ${s.decks.link} shared by link, ${s.decks.private} private.`}
+              : `${s.decks.public} public, ${s.decks.link} link only, ${s.decks.private} private.`}
           </span>
         </span>
       </div>
@@ -101,7 +114,14 @@ export function SharingSettings() {
         <Button
           variant="outline"
           disabled={all.isPending || total === 0 || s.decks.public === total}
-          onClick={() => shareAll("public", `Make all ${total} decks public on your profile?`, s.handle ? undefined : "Pick a handle too, so your profile can list them.", "Make them public")}
+          onClick={() =>
+            shareAll(
+              "public",
+              `Make all ${total} decks public?`,
+              [s.public_listed_at ? "They are on your profile, and can be listed in Browse and found by search engines." : "They are listed on your profile.", s.handle ? "" : "Pick a handle too, so your profile can list them."].filter(Boolean).join(" "),
+              "Make them public",
+            )
+          }
         >
           Make all my decks public
         </Button>

@@ -21,8 +21,6 @@ use std::fmt::Write as _;
 
 /// Names one `get_cards` call may ask about.
 const MAX_NAMES: usize = 20;
-/// Lines one `check_deck_list` call may send.
-const MAX_LIST_LINES: usize = 300;
 
 /// A staging tool's handler from one of `changes`' `async fn(st, user, via, args)`.
 macro_rules! stage {
@@ -391,6 +389,38 @@ pub(super) const TOOLS: &[Tool] = &[
         stages: None,
         output: None,
         untrusted: Some("another person's shared profile"),
+        renamed: &[],
+        needs: Needs::Nothing,
+    },
+    Tool {
+        name: "browse_public_decks",
+        aliases: &[],
+        title: "Browse public decks",
+        description: "Commander decks other players made public on Yama, the most recently saved first, 24 at a time \
+                      (next_cursor continues): each with its name, builder's handle, commanders, colors, declared bracket, \
+                      card count, the precon it started from and its page's address. The Browse page's list; it reads no \
+                      account.",
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "search": {"type": "string", "description": "Part of a deck's or a commander's name."},
+                    "commander": {"type": "string", "description": "Part of a commander's name."},
+                    "colors": {"type": "string", "maxLength": 20, "description": "Colors the deck includes, as letters of WUBRG, such as UB. C alone: colorless decks."},
+                    "bracket": {"type": "integer", "minimum": 1, "maximum": 5, "description": "The bracket its builder declares."},
+                    "precon": {"type": "string", "description": "any: decks that started from a precon. Or one precon's id (get_precon)."},
+                    "cursor": {"type": "string", "maxLength": 200, "description": "next_cursor from the answer before, with the same other arguments."}
+                },
+                "additionalProperties": false
+            })
+        },
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_browse_public_decks),
+        stages: None,
+        output: Some(registry::paged),
+        untrusted: Some("other players' public decks (deck names and handles)"),
         renamed: &[],
         needs: Needs::Nothing,
     },
@@ -1776,6 +1806,46 @@ async fn run_playgroups(c: Ctx<'_>, args: &Value) -> AppResult<String> {
     playgroups(pool, user, args).await
 }
 
+/// `browse_public_decks`: the Browse page's listing (`sharing::browse::listed`), so the tool and
+/// the page can't disagree about what is listed. No account is read, the caller's included.
+async fn run_browse_public_decks(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    use crate::sharing::browse::{Filter, PER_PAGE, listed};
+    let st = c.st;
+    let text = |key: &str, max: usize| arg::opt_text(args, key, max).map(|t| t.map(str::to_string));
+    let bracket = match args.get("bracket").filter(|v| !v.is_null()) {
+        None => None,
+        Some(v) => Some(v.as_i64().filter(|b| (1..=5).contains(b)).ok_or_else(|| AppError::bad("bracket must be a whole number from 1 to 5"))?.to_string()),
+    };
+    let mut filter = Filter { q: text("search", 1000)?, commander: text("commander", arg::TEXT)?, colors: text("colors", 20)?, bracket, precon: text("precon", arg::TEXT)?, page: None };
+    // A cursor continues the list these arguments make, and no other.
+    let parts = [&filter.q, &filter.commander, &filter.colors, &filter.bracket, &filter.precon].map(|v| v.as_deref().unwrap_or(""));
+    let scope = super::page::scope("browse_public_decks", &parts);
+    let start = super::page::start(args, &scope, 0)?;
+    filter.page = Some((start / PER_PAGE).to_string());
+    let found = listed(&st.pool, &filter, PER_PAGE).await?;
+    let base = st.cfg.public_url.as_deref().map(|b| b.trim_end_matches('/')).unwrap_or("");
+    let decks: Vec<Value> = found
+        .decks
+        .iter()
+        .map(|d| {
+            json!({
+                "name": d.name,
+                "by": format!("@{}", d.handle),
+                "commanders": d.commanders,
+                "colors": if d.color_identity.is_empty() { "colorless" } else { d.color_identity.as_str() },
+                "bracket": d.bracket,
+                "cards": d.card_count,
+                "saved": d.updated_at.get(..10).unwrap_or(&d.updated_at),
+                "started_from": d.precon.as_ref().map(|p| p.name.as_str()),
+                "page": format!("{base}/d/{}", d.token),
+            })
+        })
+        .collect();
+    let at = super::page::Page { offset: found.page * PER_PAGE, limit: PER_PAGE };
+    let total = usize::try_from(found.total).unwrap_or(0);
+    Ok(json!({ "total": found.total, "decks": decks, "next_cursor": at.next(&scope, total) }).to_string())
+}
+
 #[allow(unused_variables)]
 async fn run_games(c: Ctx<'_>, args: &Value) -> AppResult<String> {
     let Ctx { st, user, via } = c;
@@ -2018,12 +2088,10 @@ async fn deck(pool: &SqlitePool, user: &User, wanted: &str) -> AppResult<String>
 
 async fn check_list(pool: &SqlitePool, args: &Value) -> AppResult<String> {
     let text = args.get("list").and_then(Value::as_str).ok_or_else(|| AppError::bad("list is missing"))?;
-    if text.lines().count() > MAX_LIST_LINES {
-        return Err(AppError::bad(format!("a list can be at most {MAX_LIST_LINES} lines")));
-    }
     let first = args.get("first_is_commander").and_then(Value::as_bool).unwrap_or(true);
-    let parsed = crate::decks::resolve(pool, crate::decks::parse_list(text, first)).await?;
-    let info = card_info(pool, &parsed.cards).await?;
+    // The reader the `/check` page uses for a list nobody has saved (list_check.rs).
+    let crate::list_check::Read { cards, unknown, info } = crate::list_check::read(pool, text, first).await?;
+    let parsed = crate::decks::ParseResult { cards, unknown };
     let mut out = String::new();
     let commanders: Vec<&str> = parsed.cards.iter().filter(|c| c.board == Board::Commander).map(|c| c.name.as_str()).collect();
     let _ = writeln!(out, "Commander: {}", if commanders.is_empty() { "none found".into() } else { commanders.join(" and ") });

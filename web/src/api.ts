@@ -196,6 +196,13 @@ export interface User {
    * older build, which reads as false.
    */
   power?: boolean;
+  /**
+   * Advanced is on: the app shows the Workshop (plans, getting the cards, swap sheets,
+   * simulations, datasets, Mythic Tools). The account's own choice in Settings, or, until it
+   * makes one, on for an admin, a power user and an account that already has something there.
+   * Missing from a user cached by an older build: `advancedOf` in auth.tsx reads that.
+   */
+  advanced?: boolean;
   /** Set while an admin views Yama as this person, read only (viewing.ts). */
   viewing?: import("./viewing").Viewing;
 }

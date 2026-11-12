@@ -19,22 +19,28 @@ Online play is in alpha: expect bugs and slow turns.
 ## Navigation
 
 Home (`/`, where the wordmark goes) is where Yama opens. Signed out it says what Yama is and
-lists what works without an account: the life counter, a game against the computer, precons,
-commanders and card search. Signed in it puts a life counter game in progress on top, then
+lists what works without an account: checking a deck, the life counter, a game against the
+computer, precons, commanders and card search. Signed in it puts a life counter game in progress on top, then
 starting a game, your four most recently changed decks and the latest three games you played
 in. A table you follow from another device and your playgroup's shared tables show there too.
 Opening Yama with a life counter game touched in the last 12 hours goes straight to that game.
 The life counter's setup is at `/play/table` (it was `/`; `/table` redirects there).
 
 Five tabs: Play (the life counter, online play, watching, game history), Decks (your decks,
-precons, commanders), Cards, Collection (your cards, trading with a friend) and Playgroup. A
+precons, commanders), Cards, Collection (your cards, your wish list, trading with a friend) and Playgroup. A
 laptop has them in a left rail under the wordmark, which goes home, with you at the foot; a phone
 has a top bar (wordmark, search, you) and the five tabs along the bottom. A tab with more than
 one page lists them in a strip above the page. You (your avatar) opens your public profile,
 Sharing settings, Settings, connecting an assistant, What's new, help and the admin area.
-Workshop holds plans, getting the cards, swap sheets, simulations and datasets: a rail tab on a
-laptop, a row on the You page on a phone. Every older address still opens its page
-(`web/src/nav.tsx`).
+Workshop holds plans, getting the cards, swap sheets, simulations, datasets and Mythic Tools: a
+rail tab on a laptop, a row on the You page on a phone. It shows with Advanced on (You,
+Settings): on by itself for admins, power users and an account that already has a plan, a lab
+run, a Mythic link or a wish, off for everyone else until they turn it on. It hides navigation
+only; the pages still open by link. Every older address still opens its page
+(`web/src/nav.tsx`). The public pages (precons, commanders, shared decks and profiles, About,
+Privacy, Terms, the assistant guide and the sign-in page) carry the same frame: the five tabs
+as a row of words on a laptop and along the bottom on a phone, with You where the app has your
+avatar, and the Decks pages listed under the header of the precon and commander reference.
 
 ## Accounts, sign-in and sharing
 
@@ -46,7 +52,12 @@ Google ID tokens with an invite list, or open to any verified Google account wit
 
 Yama opens on Home with its full navigation: the life counter and card search work without an
 account, and pages that keep someone's own data (decks, collection, playgroup, the Lab) ask them
-to sign in where the page would be. The sign-in page (`/signin`) highlights the public precon
+to sign in where the page would be. Check a deck (`/check`) takes a pasted list or a text file
+from anyone and shows what the deck page shows about a list: Commander legality, what bracket it
+plays like and the least the card rules allow, Game Changers, the power level, stats, sample
+hands and dated market value. The list is kept in the browser only and is still there on the
+next visit; the server keeps neither the list nor the result and sends it to no other service, so combos (Commander
+Spellbook) come once it is saved. "Sign in to save this deck" makes it an ordinary deck. The sign-in page (`/signin`) highlights the public precon
 reference and MCP guide, explains what an account adds, and keeps Google sign-in directly
 accessible. OAuth and private links use a focused sign-in view.
 
@@ -59,11 +70,21 @@ configurations, shared plans (groups of builds), copyable links and the account-
 each deck and plan has its own Share control. Trading with a friend is under Collection. A shared deck or collection never shows account details, prices paid,
 notes, containers, proxies, planner plans or games.
 
-Adding a deck asks who can see it (Public, Link only or Private) on the save step. The choice
-starts as the account's default and is remembered as that default for the next deck; each deck's
-Share button changes it afterwards. A first public deck asks for a handle (on the save step and
+Decks are public by default: an account made on or after November 12, 2026 starts its new decks
+Public (on the profile once it has a handle; a public deck can be listed in Browse and found by
+search engines). Adding a deck asks who can
+see it (Public, Link only or Private) on the save step. The choice starts as the account's
+setting and is remembered for the next deck; each deck's Share button says who can see it and
+changes it afterwards. A deck made without that step (saved from Check a deck, copied from a precon, a Mythic Tools deck
+import, an assistant's staged deck) says what it starts as first; one Yama makes from a collection
+box or a plan's list always starts Private. A first public deck asks for a handle (on the save step and
 in the deck's Share sheet). Without one the deck is public by link; it joins the profile once a
 handle is chosen.
+
+An account from before public by default is asked once, on its Decks page: "Yama decks are now
+public by default. Make yours public?" It chooses what new decks start as (Public, Link only or
+Private) and whether its existing decks change; none changes unless it says so, and until it
+answers its public decks stay on its profile only.
 
 Every shared deck and profile page has a Report link: anyone can tell Yama's moderator what is
 wrong with it, without an account, and nothing about the sender is kept. In Admin, Moderation, an
@@ -72,6 +93,13 @@ its configurations, and cannot be shared again until an admin restores it. Its o
 when they try to share it. Public pages mask a
 short list of slurs in deck names and descriptions, refuse them in handles, and show links in a
 public deck's name and description as "[link removed]".
+
+A deck that is listed publicly (public, with a handle, on an account that has taken on
+public-by-default) may be indexed by search engines: its page drops `noindex`, names its own
+address as canonical, and is in `/sitemap.xml`. Decks shared by link, public decks of accounts
+that have not answered the question, profiles, collections, want lists, shared plans and every
+download still ask not to be indexed. `/robots.txt` points crawlers at the sitemap and disallows
+nothing, so a crawler can read each page's own `noindex`.
 
 Yama moved to [yama.ing](https://yama.ing) on 28 October 2026. Anyone still on the old address
 should sync pending changes there before signing in at the new one; installed apps and MCP
@@ -139,6 +167,7 @@ Camera OCR in Collection; swap checks from Plans, Prints, Swap sheet or a plan d
 
 ### Decks
 
+- Browse (`/decks/browse`, no account needed): decks people have made public, the most recently saved list first, with a search by deck or commander name and filters for commander, colors, declared bracket and "started from a precon" (worked out from the list: it still holds at least half of a precon's own cards). Open one for its full page, or save a copy to your own decks
 - The Decks list has folders (set in a deck's settings; imports set one too), a search by name or commander, filters by folder, color and declared bracket, and a sort by name, most recently changed or record (the Mythic Tools folder stays with the decks that import keeps up to date)
 - Paste any common list format
 - Edit as text with versions, with a card search on the edit page that adds or removes a card in one press and says whether it fits the commander's colors and whether you own it
@@ -273,6 +302,9 @@ with observed win rates and their game counts, and keeps each source's own rate,
 attribution one click away. Reported games can overlap across services, so nothing claims a
 count of unique games.
 
+A commander that leads public decks on Yama says how many under its name, linked to them in
+Browse.
+
 ### Public precon reference
 
 The public precon reference (`/precons`) serves stock lists, experimental meta rankings,
@@ -280,6 +312,9 @@ explicitly published Phase/Forge simulation evidence, attributed real-game resul
 market references without sign-in. The personal Lab still requires sign-in. Results are published
 with `publish-precons MANIFEST`; imports never publish automatically. See
 [public precons and publication](public-precons.md).
+
+A precon's page lists the public decks that started from it (the newest six, with a link to the
+rest in Browse): decks whose list still holds at least half of the precon's own cards.
 
 Precon comparisons and detail pages show [source-backed upgradeability](precon-upgradeability.md)
 for the whole package: all 619 stock-compatible in-box commander configurations across 174

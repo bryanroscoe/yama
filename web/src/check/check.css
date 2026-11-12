@@ -1,0 +1,42 @@
+/* Check a deck without an account (/check). The result reuses the deck page's own styles
+   (styles.css, decks/cards-tab.css, decks/deckStatsTab.css); these are the box and its notes. */
+.check-form {
+  display: grid;
+  gap: var(--s-3);
+  max-width: 760px;
+}
+.check-form .import-drop textarea {
+  min-height: 20rem;
+}
+.check-name {
+  display: grid;
+  gap: 6px;
+  max-width: 420px;
+}
+.check-problem {
+  margin: 0;
+  color: var(--bad);
+}
+.check-kept {
+  max-width: 760px;
+  margin: var(--s-4) 0 0;
+}
+.check-note {
+  margin: var(--s-2) 0 0;
+}
+.check-commander {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--s-2) var(--s-3);
+  margin: var(--s-3) 0 0;
+}
+.check-commander > p {
+  flex-basis: 100%;
+  margin: 0;
+}
+.check-commander label {
+  display: grid;
+  gap: 6px;
+  min-width: min(100%, 260px);
+}

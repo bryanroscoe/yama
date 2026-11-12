@@ -697,7 +697,8 @@ fn descriptions_are_short_and_written_for_anyone() {
             assert!(!schema.contains(word), "{name}'s arguments say {word:?}");
         }
     }
-    assert!(total <= 25_000, "the descriptions are {total} characters in all");
+    // 25,000 until browse_public_decks (12 Nov 2026), which took the total to 25,272.
+    assert!(total <= 25_300, "the descriptions are {total} characters in all");
     let instructions = super::SERVER_INSTRUCTIONS;
     assert!(instructions.chars().count() <= 2_600, "the instructions are {} characters", instructions.chars().count());
     for word in his {

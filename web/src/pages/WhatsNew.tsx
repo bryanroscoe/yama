@@ -97,7 +97,7 @@ export function WhatsNewPage() {
         ))}
         <footer>
           <p>
-            Yama is free, unofficial fan software. Personal data stays private to each account. It isn't affiliated with, endorsed by, or sponsored by Wizards of the
+            Yama is free, unofficial fan software. New decks are public unless you choose otherwise; everything else stays private to your account unless you share it. It isn't affiliated with, endorsed by, or sponsored by Wizards of the
             Coast.
           </p>
           <p>

@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { User } from "../api";
-import { YourName } from "./AccountSettings";
+import { AdvancedSetting, YourName } from "./AccountSettings";
 
 function render(me: Partial<User>) {
   const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
@@ -14,6 +14,37 @@ function render(me: Partial<User>) {
   client.clear();
   return html;
 }
+
+describe("the Advanced switch", () => {
+  const setting = (me: Partial<User>) => {
+    const client = new QueryClient();
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={client}>
+        <AdvancedSetting me={{ id: "u1", email: "pat@example.com", display_name: "Pat Rivers", is_admin: false, ...me } as User} />
+      </QueryClientProvider>,
+    );
+    client.clear();
+    return html;
+  };
+
+  it("says whether the Workshop is showing and offers the other choice", () => {
+    const off = setting({ advanced: false });
+    expect(off).toContain("<b>Advanced: off</b>");
+    expect(off).toContain("Turn on Advanced");
+    expect(off).toContain("plans, getting the cards, swap sheets, simulations and datasets");
+    const on = setting({ advanced: true });
+    expect(on).toContain("<b>Advanced: on</b>");
+    expect(on).toContain("Turn off Advanced");
+  });
+
+  it("reads an account cached before the switch as on for admins and power users only", () => {
+    expect(setting({})).toContain("Advanced: off");
+    expect(setting({ is_admin: true })).toContain("Advanced: on");
+    expect(setting({ power: true })).toContain("Advanced: on");
+    // The account's own choice wins over what it is.
+    expect(setting({ is_admin: true, advanced: false })).toContain("Advanced: off");
+  });
+});
 
 describe("the name you go by", () => {
   it("shows the name and the account, and offers to change the name", () => {

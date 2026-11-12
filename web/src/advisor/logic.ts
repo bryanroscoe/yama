@@ -279,6 +279,8 @@ export function toolActivity(name: string): string {
     case "precon":
     case "get_precon":
       return "Reading a precon…";
+    case "browse_public_decks":
+      return "Looking through public decks…";
     case "changes":
     case "list_changes":
       return "Checking changes waiting for you…";

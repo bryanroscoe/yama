@@ -77,7 +77,7 @@ describe("dialogs use the shared modal layer", () => {
     "web/src/plan/SwapScanner.tsx",
     "web/src/decks/DeckCheckPage.tsx",
     "web/src/decks/DeckScanPage.tsx",
-    "web/src/pages/Decks.tsx",
+    "web/src/decks/SampleHand.tsx",
     // Pointing at a bug: drawn over everything, dialogs included.
     "web/src/bugs/BugReport.tsx",
   ]);

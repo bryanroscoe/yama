@@ -1225,6 +1225,35 @@ fn default_name(base: &str, variant: &VariantDisplay, text_variant: bool) -> Str
     name
 }
 
+/// A new run's seed: random, so no two runs play the same pods.
+fn new_seed() -> u64 {
+    // A test that asserts a simulated verdict names the seed, so its pods are the same every time.
+    #[cfg(test)]
+    if let Some(seed) = test_seed::take() {
+        return seed;
+    }
+    u64::from_le_bytes(uuid::Uuid::new_v4().as_bytes()[..8].try_into().expect("8 bytes"))
+}
+
+/// Tests only: the seed of the next run created on this thread. A verdict is statistics over the
+/// run's pods, and the pods' seeds come from the run's seed, so with a random seed a test that
+/// asserts "better" fails once in a while (50 pods of the tests' fake simulator: about 1 run in
+/// 175). Each test has its own thread, so one test's seed never reaches another.
+#[cfg(test)]
+pub(crate) mod test_seed {
+    thread_local! {
+        static NEXT: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
+    }
+
+    pub fn set(seed: u64) {
+        NEXT.with(|next| next.set(Some(seed)));
+    }
+
+    pub(super) fn take() -> Option<u64> {
+        NEXT.with(|next| next.take())
+    }
+}
+
 /// [`create_with`] under the default lab caps (tests; the server passes its configured caps).
 #[cfg(test)]
 pub async fn create(pool: &SqlitePool, user: &User, req: NewExperiment, sim: &dyn Simulator) -> AppResult<ExperimentDetail> {
@@ -1405,7 +1434,7 @@ pub async fn create_with(
     let (forge_cards, forge_warning) = if engines.mode.forge() { forge_cards_for(pool, &user.id, fa).await? } else { (None, None) };
     let chk = Check { sim, phase: engines.mode.phase(), forge: forge_cards.as_deref() };
     let id = new_id();
-    let seed = u64::from_le_bytes(uuid::Uuid::new_v4().as_bytes()[..8].try_into().expect("8 bytes"));
+    let seed = new_seed();
     let mut built = match mode {
         Mode::Change => build_change(pool, user, &req, &chk, &id, seed, &difficulty).await?,
         Mode::Solo => build_solo(pool, user, &req, &chk, &id, seed, &difficulty).await?,
@@ -1942,7 +1971,7 @@ pub async fn again_with(
         return Err(AppError::bad(format!("Some opponents now have cards the simulator can't play: {}", shown(&unplayable))));
     }
     let new_id = new_id();
-    let seed = u64::from_le_bytes(uuid::Uuid::new_v4().as_bytes()[..8].try_into().expect("8 bytes"));
+    let seed = new_seed();
     let field_ids: Vec<String> = field.iter().map(|l| l.id.clone()).collect();
     // Decks kept in every pod are stored first, and every game uses them, so they're all still here.
     let every = old.display.field.every_pod.min(field.len()).min(POD - 1);

@@ -75,7 +75,8 @@ export function previewLines(r: MythicReport, day: (iso: string) => string = (is
   }
   if (r.new_containers.length) out.push(`New: ${r.new_containers.join(", ")}.`);
   if (r.retyped_containers.length) out.push(`Changed type, as in the file: ${r.retyped_containers.join(", ")}.`);
-  if (r.deck_containers.length) out.push(`${r.deck_containers.length === 1 ? "This deck becomes a Yama deck" : "These decks become Yama decks"} too: ${r.deck_containers.join(", ")}.`);
+  if (r.deck_containers.length)
+    out.push(`${r.deck_containers.length === 1 ? "This deck becomes a Yama deck" : "These decks become Yama decks"} too, private until you share ${r.deck_containers.length === 1 ? "it" : "them"}: ${r.deck_containers.join(", ")}.`);
   return out;
 }
 
@@ -98,7 +99,7 @@ export function resultLines(r: MythicReport): string[] {
   if (r.removed) out.push(`Removed ${plural(r.removed, "card")} the file no longer lists.`);
   if (!r.added && !r.removed) out.push(r.already_imported ? "Nothing changed: you'd imported this file already." : "Nothing changed: Yama has everything in the file.");
   if (r.missing > r.removed) out.push(`${plural(r.missing - r.removed, "card")} the file no longer lists ${r.missing - r.removed === 1 ? "stays" : "stay"} in Yama.`);
-  if (r.decks_created.length) out.push(`New decks: ${r.decks_created.join(", ")}. Check each one's commander on the Decks tab.`);
+  if (r.decks_created.length) out.push(`New decks, private until you share them: ${r.decks_created.join(", ")}. Check each one's commander on the Decks tab.`);
   if (r.decks_updated.length) out.push(`Updated decks: ${r.decks_updated.join(", ")}.`);
   if (r.decks_kept.length) out.push(`Decks you made in Yama keep their own lists: ${r.decks_kept.join(", ")}.`);
   return out;

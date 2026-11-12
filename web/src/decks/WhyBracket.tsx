@@ -2,11 +2,11 @@
 // set a bracket (Game Changers, two-card combos, mass land denial, extra turns, the Reserve List)
 // with the power level from the Stats tab on top, and the bracket you tell the table. Previewing a lower bracket strikes the Game Changers its
 // swap bag takes out. Explanations sit behind one "?".
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Link, useLocation } from "react-router";
 import { useDeckAnalysis } from "./DeckAnalysis";
 import { playsLike } from "./statsTab";
-import type { DeckView } from "../api";
+import type { DeckAnalysis, DeckCheckResult, DeckView } from "../api";
 import { SPELLBOOK, useDeckCheck } from "../components/Bracket";
 import { DeclareBracket } from "../components/DeclareBracket";
 import { gameChangerFloor, SENDS_LIST } from "../components/deckCheck";
@@ -32,7 +32,49 @@ const n = (count: number, none = "None") => (count ? String(count) : none);
 export function WhyBracket({ deck, at, outAt, onCard }: { deck: DeckView; at: number | null; outAt: ReadonlySet<string>; onCard: (name: string) => void }) {
   const check = useDeckCheck(deck.id, deck.version_id);
   const power = useDeckAnalysis(deck.id, deck.version_id).data?.current ?? null;
-  const r = check.data?.result ?? null;
+  return (
+    <WhyBracketPanel deck={deck} result={check.data?.result ?? null} power={power} statsHref={`/decks/${deck.id}/stats`} at={at} outAt={outAt} onCard={onCard}>
+      <DeclareBracket deckId={deck.id} declared={deck.bracket} />
+      {/* The list goes to an outside service: always say so where its answers show (ARCHITECTURE.md). */}
+      {check.data?.enabled && (
+        <p className="why-bracket-source dim">
+          {SENDS_LIST} Combos and flags from{" "}
+          <a href={check.data.source_url || "https://commanderspellbook.com/"} target="_blank" rel="noreferrer">
+            Commander Spellbook
+          </a>
+          .
+        </p>
+      )}
+    </WhyBracketPanel>
+  );
+}
+
+/**
+ * The panel itself, from what it is given: a saved deck's stored check and analysis (WhyBracket),
+ * or an unsaved list's (the Check a deck page), which has no outside check behind it: `unchecked`
+ * is then what its combo rows say.
+ */
+export function WhyBracketPanel({
+  deck,
+  result: r,
+  power,
+  statsHref,
+  at,
+  outAt,
+  onCard,
+  unchecked = "Not checked yet",
+  children,
+}: {
+  deck: Pick<DeckView, "bracket" | "cards" | "game_changers" | "game_changers_as_of" | "reserved_list">;
+  result: DeckCheckResult | null;
+  power: DeckAnalysis | null;
+  statsHref: string;
+  at: number | null;
+  outAt: ReadonlySet<string>;
+  onCard: (name: string) => void;
+  unchecked?: string;
+  children?: ReactNode;
+}) {
   const gcs = gameChangersAt(deck.game_changers, outAt);
   const kept = gcs.filter((g) => !g.out).length;
   const twoCard = r?.combos.filter((x) => x.definitely_two_card) ?? [];
@@ -74,7 +116,7 @@ export function WhyBracket({ deck, at, outAt, onCard }: { deck: DeckView; at: nu
               </dd>
             </div>
             <p className="why-bracket-note dim">
-              {playsLike(power)}. <Link to={`/decks/${deck.id}/stats`}>The dial and what moves it</Link>
+              {playsLike(power)}. <Link to={statsHref}>The dial and what moves it</Link>
             </p>
           </>
         )}
@@ -95,7 +137,7 @@ export function WhyBracket({ deck, at, outAt, onCard }: { deck: DeckView; at: nu
         )}
         <div>
           <dt>Two-card combos</dt>
-          <dd>{r ? n(twoCard.length, "None found") : "Not checked yet"}</dd>
+          <dd>{r ? n(twoCard.length, "None found") : unchecked}</dd>
         </div>
         {twoCard.length > 0 && (
           <ul className="why-bracket-combos" aria-label="Two-card combos">
@@ -123,28 +165,18 @@ export function WhyBracket({ deck, at, outAt, onCard }: { deck: DeckView; at: nu
         )}
         <div>
           <dt>Mass land denial</dt>
-          <dd>{r ? n(r.mld.length) : "Not checked yet"}</dd>
+          <dd>{r ? n(r.mld.length) : unchecked}</dd>
         </div>
         <div>
           <dt>Extra turns</dt>
-          <dd>{r ? n(r.extra_turns.length) : "Not checked yet"}</dd>
+          <dd>{r ? n(r.extra_turns.length) : unchecked}</dd>
         </div>
         <div>
           <dt>Reserve List</dt>
           <dd>{reserved ? (reserved.length ? `${reserved.length}${reservedProxies === reserved.length ? ", all proxies" : reservedProxies ? `, ${reservedProxies} proxies` : ""}` : "None") : "Not checked yet"}</dd>
         </div>
       </dl>
-      <DeclareBracket deckId={deck.id} declared={deck.bracket} />
-      {/* The list goes to an outside service: always say so where its answers show (ARCHITECTURE.md). */}
-      {check.data?.enabled && (
-        <p className="why-bracket-source dim">
-          {SENDS_LIST} Combos and flags from{" "}
-          <a href={check.data.source_url || "https://commanderspellbook.com/"} target="_blank" rel="noreferrer">
-            Commander Spellbook
-          </a>
-          .
-        </p>
-      )}
+      {children}
     </section>
   );
 }

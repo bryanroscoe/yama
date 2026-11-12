@@ -485,7 +485,9 @@ async fn google_account(st: &AppState, sub: &str, email: &str, name: Option<&str
                 let made = sqlx::query(
                     // A new account's public decks are listed publicly from the start
                     // (`sharing::LISTED`): `public_listed_at` is when it took that meaning on.
-                    "INSERT INTO users (id, google_sub, email, display_name, is_admin, created_at, public_listed_at) VALUES (?, ?, ?, ?, 0, ?, ?) ON CONFLICT DO NOTHING",
+                    // Its new decks start public (public by default, 12 Nov 2026); the save step
+                    // offers Link only and Private, and Sharing settings change the default.
+                    "INSERT INTO users (id, google_sub, email, display_name, is_admin, created_at, public_listed_at, new_deck_visibility) VALUES (?, ?, ?, ?, 0, ?, ?, 'public') ON CONFLICT DO NOTHING",
                 )
                 .bind(new_id())
                 .bind(sub)
@@ -603,7 +605,8 @@ pub async fn add_local_user(
     sqlx::query(
         // Only a new row gets `public_listed_at` (`sharing::LISTED`): an account that was here
         // before keeps whatever it had, NULL included.
-        "INSERT INTO users (id, email, display_name, is_admin, admin_granted, password_hash, created_at, public_listed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        // The same for what its new decks start as: public for a new row only.
+        "INSERT INTO users (id, email, display_name, is_admin, admin_granted, password_hash, created_at, public_listed_at, new_deck_visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'public')
          ON CONFLICT(email) DO UPDATE SET password_hash = excluded.password_hash,
                                           admin_granted = users.admin_granted OR excluded.admin_granted,
                                           is_admin = users.is_admin OR excluded.admin_granted",
@@ -757,37 +760,77 @@ async fn logout(State(st): State<AppState>, headers: HeaderMap, jar: CookieJar) 
 struct Me {
     #[serde(flatten)]
     user: User,
+    /// Whether the app shows the Workshop (plans, getting the cards, swap sheets, simulations,
+    /// datasets, Mythic Tools): `advanced` below. It hides navigation only; every page behind it
+    /// is still served to its owner.
+    advanced: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     viewing: Option<crate::view_as::Viewing>,
 }
 
-async fn me(CurrentUser(user): CurrentUser, crate::view_as::MaybeView(view): crate::view_as::MaybeView) -> Json<Me> {
-    Json(Me { user, viewing: view.as_ref().map(crate::view_as::Viewing::from) })
+/// Whether Advanced is on for `user` (12 Nov 2026): the account's own choice from Settings, or,
+/// until it makes one, on for an admin, a power user and an account that already has something in
+/// the Workshop (a plan or a note, a lab run, a Mythic link, a wish), so nothing disappears for
+/// anyone using those pages. Everything it reads is the account's own (`owner_id`).
+async fn advanced(pool: &SqlitePool, user: &User) -> AppResult<bool> {
+    let (chosen, has): (Option<i64>, i64) = sqlx::query_as(
+        "SELECT u.advanced,
+                EXISTS(SELECT 1 FROM plan_decks WHERE owner_id = u.id)
+             OR EXISTS(SELECT 1 FROM research_reports WHERE owner_id = u.id)
+             OR EXISTS(SELECT 1 FROM lab_experiments WHERE owner_id = u.id)
+             OR EXISTS(SELECT 1 FROM mythic_links WHERE owner_id = u.id)
+             OR EXISTS(SELECT 1 FROM shopping_wants WHERE owner_id = u.id)
+           FROM users u WHERE u.id = ?",
+    )
+    .bind(&user.id)
+    .fetch_one(pool)
+    .await?;
+    Ok(chosen.map_or(user.is_admin || user.power || has != 0, |on| on != 0))
+}
+
+async fn me(State(st): State<AppState>, CurrentUser(user): CurrentUser, crate::view_as::MaybeView(view): crate::view_as::MaybeView) -> AppResult<Json<Me>> {
+    let advanced = advanced(&st.pool, &user).await?;
+    Ok(Json(Me { user, advanced, viewing: view.as_ref().map(crate::view_as::Viewing::from) }))
 }
 
 #[derive(Deserialize)]
 struct UpdateMe {
-    display_name: String,
+    /// The name you go by. Absent leaves it as it is.
+    display_name: Option<String>,
+    /// Advanced on or off: the account's own choice from now on. Absent leaves it as it is.
+    advanced: Option<bool>,
 }
 
-/// `PATCH /api/me`: change the name you go by. It is what playgroup members and the people you
-/// play with see; it starts as the Google profile's name and was fixed from then on. Shared
-/// pages never show it (they go by the handle). Refused while an admin views as someone, like
-/// every write (`view_as::guard`).
-async fn update_me(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(body): Json<UpdateMe>) -> AppResult<Json<Me>> {
-    let name = body.display_name.trim();
-    if name.is_empty() {
-        return Err(AppError::bad("your name can't be blank"));
+/// `PATCH /api/me`: change the name you go by, or turn Advanced on or off. The name is what
+/// playgroup members and the people you play with see; it starts as the Google profile's name
+/// and was fixed from then on. Shared pages never show it (they go by the handle). Refused while
+/// an admin views as someone, like every write (`view_as::guard`).
+async fn update_me(State(st): State<AppState>, CurrentUser(mut user): CurrentUser, Json(body): Json<UpdateMe>) -> AppResult<Json<Me>> {
+    if body.display_name.is_none() && body.advanced.is_none() {
+        return Err(AppError::bad("nothing to change"));
     }
-    if name.chars().any(|c| c.is_control() || matches!(c, '\u{2028}' | '\u{2029}')) {
-        return Err(AppError::bad("your name can't hold line breaks or control characters"));
-    }
-    if name.chars().count() > MAX_NAME {
-        return Err(AppError::bad(format!("your name can have at most {MAX_NAME} characters")));
+    let name = body.display_name.as_deref().map(str::trim);
+    if let Some(name) = name {
+        if name.is_empty() {
+            return Err(AppError::bad("your name can't be blank"));
+        }
+        if name.chars().any(|c| c.is_control() || matches!(c, '\u{2028}' | '\u{2029}')) {
+            return Err(AppError::bad("your name can't hold line breaks or control characters"));
+        }
+        if name.chars().count() > MAX_NAME {
+            return Err(AppError::bad(format!("your name can have at most {MAX_NAME} characters")));
+        }
     }
     st.limits.profile_writes.check_user(&user)?;
-    sqlx::query("UPDATE users SET display_name = ? WHERE id = ?").bind(name).bind(&user.id).execute(&st.pool).await?;
-    Ok(Json(Me { user: User { display_name: name.to_string(), ..user }, viewing: None }))
+    if let Some(name) = name {
+        sqlx::query("UPDATE users SET display_name = ? WHERE id = ?").bind(name).bind(&user.id).execute(&st.pool).await?;
+        user.display_name = name.to_string();
+    }
+    if let Some(on) = body.advanced {
+        sqlx::query("UPDATE users SET advanced = ? WHERE id = ?").bind(on).bind(&user.id).execute(&st.pool).await?;
+    }
+    let advanced = advanced(&st.pool, &user).await?;
+    Ok(Json(Me { user, advanced, viewing: None }))
 }
 
 #[derive(Deserialize)]
@@ -845,9 +888,9 @@ async fn delete_me(
 async fn upsert_user(st: &AppState, email: &str, name: &str) -> AppResult<User> {
     let is_admin = is_admin_email(&st.cfg, email);
     sqlx::query(
-        // As in `add_local_user`: a new row is listed publicly from the start, an existing one keeps
-        // what it had.
-        "INSERT INTO users (id, email, display_name, is_admin, created_at, public_listed_at) VALUES (?, ?, ?, ?, ?, ?)
+        // As in `add_local_user`: a new row is listed publicly from the start and its new decks
+        // start public; an existing one keeps what it had.
+        "INSERT INTO users (id, email, display_name, is_admin, created_at, public_listed_at, new_deck_visibility) VALUES (?, ?, ?, ?, ?, ?, 'public')
          ON CONFLICT(email) DO UPDATE SET is_admin = excluded.is_admin OR users.admin_granted",
     )
     .bind(new_id())

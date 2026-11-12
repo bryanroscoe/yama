@@ -534,3 +534,107 @@ async fn open_signup_makes_a_few_accounts_per_address_and_invites_skip_the_count
     let invited = json!({ "credential": google("g-invited", "invited@gmail.com") });
     assert_eq!(post_from(&app, "/api/auth/google", invited, from, None).await.0, StatusCode::OK);
 }
+
+/// Public by default: an account made from now on starts its new decks public, however it is
+/// made. An account that was here before keeps its own setting (private unless it chose
+/// otherwise) however it signs in next; only its owner's answer to the prompt changes it.
+#[tokio::test]
+async fn new_accounts_start_their_decks_public_and_older_ones_keep_their_setting() {
+    let (app, pool) = server(|c| {
+        c.open_signup = true;
+        c.dev_login = true;
+    })
+    .await;
+    let starts_as = |email: &'static str| {
+        let pool = pool.clone();
+        async move { sqlx::query_scalar::<_, String>("SELECT new_deck_visibility FROM users WHERE email = ?").bind(email).fetch_one(&pool).await.unwrap() }
+    };
+    // Accounts from before the change, one of which had chosen link only.
+    for (id, email) in [("old-g", "old-google@gmail.com"), ("old-p", "old-password@example.com"), ("old-d", "old-dev@example.com")] {
+        sqlx::query("INSERT INTO users (id, email, display_name, created_at) VALUES (?, ?, 'Old', '2026-10-01T00:00:00Z')").bind(id).bind(email).execute(&pool).await.unwrap();
+    }
+    sqlx::query("UPDATE users SET new_deck_visibility = 'link' WHERE id = 'old-p'").execute(&pool).await.unwrap();
+    crate::auth::add_invite(&pool, "old-google@gmail.com", None).await.unwrap();
+    signed_in(&app, "g-old", "old-google@gmail.com").await;
+    crate::auth::add_local_user(&pool, "old-password@example.com", None, false, Some("a long enough password".into())).await.unwrap();
+    let (status, _, _) = post_from(&app, "/api/auth/dev", json!({ "email": "old-dev@example.com", "name": "Old" }), &fresh_address(), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(starts_as("old-google@gmail.com").await, "private");
+    assert_eq!(starts_as("old-password@example.com").await, "link");
+    assert_eq!(starts_as("old-dev@example.com").await, "private");
+
+    // Each way of making an account starts its decks public.
+    signed_in(&app, "g-new", "new-google@gmail.com").await;
+    crate::auth::add_local_user(&pool, "new-password@example.com", None, false, Some("a long enough password".into())).await.unwrap();
+    let (status, _, _) = post_from(&app, "/api/auth/dev", json!({ "email": "new-dev@example.com", "name": "New" }), &fresh_address(), None).await;
+    assert_eq!(status, StatusCode::OK);
+    for email in ["new-google@gmail.com", "new-password@example.com", "new-dev@example.com"] {
+        assert_eq!(starts_as(email).await, "public", "{email}");
+        // Only decks: a new account's collection, want list and simulated results are not shared.
+        let shared: (bool, bool, bool, bool) = sqlx::query_as("SELECT collection_public, wants_public, wants_include_pending, share_lab_results FROM users WHERE email = ?").bind(email).fetch_one(&pool).await.unwrap();
+        assert_eq!(shared, (false, false, false, false), "{email}");
+    }
+
+    // So a new account's first deck is public unless the save step says otherwise, and an old
+    // account's is what it was.
+    let new_id: String = sqlx::query_scalar("SELECT id FROM users WHERE email = 'new-google@gmail.com'").fetch_one(&pool).await.unwrap();
+    let deck = crate::decks::create_deck_with_cards(&pool, &new_id, "First deck", None, vec![]).await.unwrap();
+    let old = crate::decks::create_deck_with_cards(&pool, "old-g", "Old account's deck", None, vec![]).await.unwrap();
+    let vis = |id: String| {
+        let pool = pool.clone();
+        async move { sqlx::query_scalar::<_, String>("SELECT visibility FROM decks WHERE id = ?").bind(id).fetch_one(&pool).await.unwrap() }
+    };
+    assert_eq!(vis(deck).await, "public");
+    assert_eq!(vis(old).await, "private");
+}
+
+/// Advanced (the Workshop's navigation): automatic until the account chooses. On for an admin, a
+/// power user and an account that already has something in the Workshop; the account's own choice
+/// from Settings after that, either way.
+#[tokio::test]
+async fn advanced_is_automatic_until_the_account_chooses() {
+    let (app, pool) = server(|c| c.open_signup = true).await;
+    let advanced = |token: String| {
+        let app = app.clone();
+        async move { send(&app, Method::GET, "/api/me", Some(&token), None).await.1["advanced"].clone() }
+    };
+    let (plain, user) = signed_in(&app, "g-plain", "plain@gmail.com").await;
+    let id = user["id"].as_str().unwrap().to_string();
+    let (admin, _) = signed_in(&app, "g-admin", "admin@example.com").await;
+    let (other, _) = signed_in(&app, "g-other", "other@gmail.com").await;
+    // Nothing in the Workshop and no choice made: off. An admin has it on.
+    assert_eq!(advanced(plain.clone()).await, false);
+    assert_eq!(advanced(admin.clone()).await, true);
+
+    // A power user has it on, and loses it with the access.
+    sqlx::query("UPDATE users SET power_user = 1 WHERE id = ?").bind(&id).execute(&pool).await.unwrap();
+    assert_eq!(advanced(plain.clone()).await, true);
+    sqlx::query("UPDATE users SET power_user = 0 WHERE id = ?").bind(&id).execute(&pool).await.unwrap();
+    assert_eq!(advanced(plain.clone()).await, false);
+
+    // Something of the account's own in the Workshop (a Mythic link) turns it on, for that account only.
+    sqlx::query("INSERT INTO mythic_links (owner_id, kind, mythic_id, yama_id, synced_at) VALUES (?, 'deck', 'm1', 'y1', 'now')").bind(&id).execute(&pool).await.unwrap();
+    assert_eq!(advanced(plain.clone()).await, true);
+    assert_eq!(advanced(other.clone()).await, false);
+
+    // The account's own choice wins from then on: off although it has a link, and the name is untouched.
+    let (status, me) = send(&app, Method::PATCH, "/api/me", Some(&plain), Some(json!({ "advanced": false }))).await;
+    assert_eq!(status, StatusCode::OK, "{me}");
+    assert_eq!((me["advanced"].as_bool(), me["id"].as_str()), (Some(false), Some(id.as_str())));
+    assert_eq!(advanced(plain.clone()).await, false);
+    // On for an account with nothing there, by choice; nobody else's changes.
+    let (status, me) = send(&app, Method::PATCH, "/api/me", Some(&other), Some(json!({ "advanced": true }))).await;
+    assert_eq!((status, me["advanced"].as_bool()), (StatusCode::OK, Some(true)));
+    assert_eq!(advanced(other.clone()).await, true);
+    assert_eq!(advanced(plain.clone()).await, false);
+    // An admin may turn it off too.
+    send(&app, Method::PATCH, "/api/me", Some(&admin), Some(json!({ "advanced": false }))).await;
+    assert_eq!(advanced(admin.clone()).await, false);
+
+    // Changing the name alone still works and leaves the choice; a change of nothing is refused.
+    let (status, me) = send(&app, Method::PATCH, "/api/me", Some(&other), Some(json!({ "display_name": "  Other Name " }))).await;
+    assert_eq!(status, StatusCode::OK, "{me}");
+    assert_eq!((me["display_name"].as_str(), me["advanced"].as_bool()), (Some("Other Name"), Some(true)));
+    assert_eq!(send(&app, Method::PATCH, "/api/me", Some(&other), Some(json!({}))).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(send(&app, Method::PATCH, "/api/me", Some(&other), Some(json!({ "display_name": " " }))).await.0, StatusCode::BAD_REQUEST);
+}

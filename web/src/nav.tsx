@@ -1,7 +1,7 @@
 // Yama's top-level navigation, in one table (Bryan, 12 Nov 2026: one frame for the app and the
-// public pages). The laptop rail, the phone's bottom tabs and the strip of a tab's pages read it.
-// The server's public pages still have their own header (server/src/public_page.rs); giving them
-// these tabs is a later change.
+// public pages). The laptop rail, the phone's bottom tabs and the strip of a tab's pages read it,
+// and the server draws the same five tabs on its public pages (server/src/public_page.rs,
+// SITE_TABS and DECKS_PAGES; nav.test.tsx holds them to this table).
 //
 // Home (`/`) belongs to no tab: the wordmark goes there. Adding a page to a tab is one line in
 // that tab's `sections` (or `owns`, for a page that isn't listed). Nothing here changes an
@@ -19,6 +19,8 @@ export interface Who {
   power: boolean;
   /** Has imported datasets to browse, or may upload one. */
   evidence: boolean;
+  /** This server can read Mythic Tools (the bridge is set up). Absent reads as no. */
+  mythic?: boolean;
 }
 
 export interface NavSection {
@@ -73,10 +75,14 @@ export const TABS: NavTab[] = [
     owns: ["/decks"],
     sections: [
       { to: "/decks", label: "My decks", end: true, also: ["/decks/import", "/decks/changes"] },
+      // The decks people made public (browse/Browse.tsx): open to everyone.
+      { to: "/decks/browse", label: "Browse" },
       // Signed in, the precon table with your own results; signed out, the public reference.
       { to: "/lab", label: "Precons", end: true, also: ["/lab/p"], when: signedIn },
       { to: "/precons", label: "Precons", page: true, when: signedOut },
       { to: "/commanders", label: "Commanders", page: true },
+      // Open to everyone: a pasted list checked without an account (check/).
+      { to: "/check", label: "Check a deck" },
     ],
   },
   { id: "cards", to: "/cards", label: "Cards", icon: <CardsIcon />, sections: [{ to: "/cards", label: "Search" }] },
@@ -87,16 +93,17 @@ export const TABS: NavTab[] = [
     icon: <CollectionIcon />,
     sections: [
       { to: "/collection", label: "Cards", end: true },
+      { to: "/collection/wishlist", label: "Wish list" },
       { to: "/collection/trade", label: "Trade with a friend", also: ["/sharing/compare"] },
     ],
   },
-  { id: "playgroup", to: "/group", label: "Playgroup", icon: <GroupIcon />, owns: ["/mythic"], sections: [{ to: "/group", label: "Playgroup" }] },
+  { id: "playgroup", to: "/group", label: "Playgroup", icon: <GroupIcon />, sections: [{ to: "/group", label: "Playgroup", end: true }] },
   {
     id: "workshop",
     to: "/decks/plans",
     label: "Workshop",
     icon: <WorkshopIcon />,
-    owns: ["/decks/plans"],
+    owns: ["/decks/plans", "/group/mythic", "/mythic"],
     sections: [
       { to: "/decks/plans", label: "Plans", end: true, also: ["/decks/plans/archived", "/decks/plans/settings", "/decks/research", "/decks/plan"] },
       { to: "/decks/plans/get", label: "Get the cards" },
@@ -105,6 +112,7 @@ export const TABS: NavTab[] = [
       { to: "/lab/compare", label: "Compare decks" },
       { to: "/lab/runs", label: "Lab runs" },
       { to: "/lab/datasets", label: "Datasets", when: (w) => w.evidence },
+      { to: "/group/mythic", label: "Mythic Tools", also: ["/mythic"], when: (w) => !!w.mythic },
     ],
   },
   // The avatar. Its page is the menu, so it has no strip (pages/Profile.tsx).

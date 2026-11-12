@@ -582,10 +582,10 @@ pub fn text(r: &MythicReport) -> String {
         }
     }
     if !r.deck_containers.is_empty() {
-        let _ = writeln!(out, "Deck containers (each a Yama deck): {}", r.deck_containers.join(", "));
+        let _ = writeln!(out, "Deck containers (each a Yama deck, private until shared): {}", r.deck_containers.join(", "));
     }
     for (label, list) in [
-        ("New decks", &r.decks_created),
+        ("New decks (private until shared)", &r.decks_created),
         ("Updated decks", &r.decks_updated),
         ("Decks made in Yama keep their lists", &r.decks_kept),
         ("Not in Yama's card data (kept anyway)", &r.unknown_printings),
