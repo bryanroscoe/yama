@@ -9,7 +9,7 @@ import { api, type DeckSummary, type GameDetail, type GameSeat } from "../api";
 import { MythicNote } from "../bridges/mythic/MythicImport";
 import { ArtMosaic } from "../components/ArtMosaic";
 import { artCredits } from "../components/ArtPanel";
-import { BackLink, Button, ButtonLink, ErrorText, Loading } from "../components/ui";
+import { BackLink, Button, ButtonLink, CardThumb, ErrorText, Loading } from "../components/ui";
 import { useCardArt } from "../components/useCardArt";
 import { history } from "./history";
 import { useLoggedQueue } from "./loggedQueue";
@@ -269,7 +269,7 @@ export function GameDetailPage() {
                     : "";
             return (
               <li key={s.seat} className="gd-seat">
-                <span className="gd-seat-art">{a?.art && <img src={a.art} alt="" loading="lazy" />}</span>
+                <span className="gd-seat-art">{a?.art && <CardThumb src={a.art} />}</span>
                 <span className="gd-seat-text">
                   <span className="gd-seat-name">{seatName(s)}</span>
                   <span className="small dim">{commander ? (partner ? `${commander} and ${partner}` : commander) : "No commander saved"}</span>

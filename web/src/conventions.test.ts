@@ -177,6 +177,64 @@ describe("buttons use the shared components", () => {
   });
 });
 
+describe("card pictures use the shared components", () => {
+  it("no page writes a raw <img> for a card or its art", () => {
+    // Use <CardThumb src={…} /> from components/ui for a small picture beside a name,
+    // <CardImage> for a full card, <Crop> or <ArtPanel> for an art tile. These files are those
+    // components, or show pictures that aren't Scryfall's (MPC Autofill's, the print sheet's).
+    const own = new Set(["ui.tsx", "Crop.tsx", "ArtPanel.tsx", "ArtMosaic.tsx", "CardRef.tsx", "CardThumb.tsx"].map((f) => `web/src/components/${f}`).concat(["web/src/plan/MpcPrint.tsx", "web/src/plan/SwapSheet.tsx"]));
+    const found = uses(/<img\b/, (file) => own.has(file) || BOARD.test(file));
+    expect(found).toEqual([]);
+    // The placeholder goes in `fallback`, so a picture that fails to load gets it too.
+    expect(uses(/\? <CardThumb\b/, (file) => BOARD.test(file))).toEqual([]);
+  });
+});
+
+describe("tabs are one of the shared pieces", () => {
+  it("no page builds a tablist", () => {
+    // SubNav or DeckTabs for pages, SectionTabs for sections of a page, Segmented for a view,
+    // aria-expanded buttons for things that open and close (design/system/shared-code.md, Tabs).
+    const found = uses(/role="(tablist|tab|tabpanel)"/, (file) => BOARD.test(file));
+    expect(found).toEqual([]);
+  });
+});
+
+describe("a page's title row uses the shared header", () => {
+  it("no page writes its own page-head", () => {
+    // Use <PageHeader title="…" sub={…} actions={…} /> from components/ui. The stand-in drawn
+    // while a page's code loads has no title yet, so it keeps the bare row.
+    const found = uses(/className="page-head\b/, (file) => file === "web/src/components/PageHeader.tsx" || file === "web/src/components/StandIn.tsx");
+    expect(found).toEqual([]);
+  });
+});
+
+describe("paging and showing the rest use the shared controls", () => {
+  it("no page writes its own Previous and Next", () => {
+    // Use <Pager label="…" page={n} pages={total} onPrevious={…} onNext={…} /> from components/ui.
+    // Read whole files: the words are often on a line of their own inside the button.
+    const found = sources(WEB)
+      .map((path) => relative(ROOT, path))
+      .filter((file) => file !== "web/src/components/Pager.tsx" && !BOARD.test(file))
+      .filter((file) => />\s*(Previous|Next)\s*<\/(Button|ButtonLink|button|a|Link)>/.test(readFileSync(join(ROOT, file), "utf8")));
+    expect(found).toEqual([]);
+  });
+
+  it("no list writes its own Show all and Show fewer toggle", () => {
+    // Use <ShowMore total={n} onToggle={…} /> (with expanded={…} when it folds back) from
+    // components/ui. A list that names what it shows ("Show the slowest 12") keeps its own words.
+    const found = uses(/"Show fewer"|>\s*Show fewer\s*</, (file) => file === "web/src/components/Pager.tsx" || BOARD_FILES.test(file));
+    expect(found).toEqual([]);
+    // "Show all 42" written out: these four keep theirs (a link-styled line on the import page,
+    // the scanner's printing tiles, the admin tables that name what they show). Don't add to them.
+    const own = new Set(["web/src/decks/ImportPage.tsx", "web/src/scanner/AddedList.tsx", "web/src/scanner/ScannerView.tsx", "web/src/admin/Server.tsx"]);
+    const written = sources(WEB)
+      .map((path) => relative(ROOT, path))
+      .filter((file) => file !== "web/src/components/Pager.tsx" && !own.has(file) && !BOARD_FILES.test(file))
+      .filter((file) => /(>|`)\s*Show all (\$?\{)/.test(readFileSync(join(ROOT, file), "utf8")));
+    expect(written).toEqual([]);
+  });
+});
+
 describe("the way back uses the shared link", () => {
   it("no page draws its own back link", () => {
     // Use <BackLink to="…" label="Back to …" text="…"> from components/ui (onArt on an art

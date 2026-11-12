@@ -54,7 +54,7 @@ describe("game history", () => {
     const past = page("offset=50", []);
     expect(past).toContain("No more games on this page.");
     expect(past).toMatch(/<button[^>]*>Back to the first page<\/button>/);
-    expect(past).toContain('<button type="button">Previous</button>');
+    expect(past).toContain('<button type="button" aria-disabled="false">Previous</button>');
     // Every game on the page is waiting to be deleted: the page is empty, not the account's history wrong.
     expect(page("", [game("deleted")])).toContain("No games yet");
   });
@@ -65,8 +65,8 @@ describe("game history", () => {
     expect(html).toContain('value="Kelly"');
     expect(html).toContain('value="oldest" selected=""');
     expect(html).toContain("Page 2");
-    expect(html).toContain('<button type="button">Previous</button>');
-    expect(html).toContain('<button type="button">Next</button>');
+    expect(html).toContain('<button type="button" aria-disabled="false">Previous</button>');
+    expect(html).toContain('<button type="button" aria-disabled="false">Next</button>');
     expect(html).toContain("Still going, 1 unnamed player");
   });
 

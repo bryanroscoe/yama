@@ -6,6 +6,7 @@ import { pickerPlacement } from "./pickerPlacement";
 import "./gamePicker.css";
 import { useModalLayer } from "./Dialog";
 import { Button } from "./Button";
+import { CardThumb } from "./CardThumb";
 
 /** One selectable item, with optional commander art, colors and supporting text. */
 export interface Option<T> {
@@ -197,7 +198,7 @@ export function Combobox<T>({
                 onClick={(e) => { e.preventDefault(); pick(o); }}
                 onMouseEnter={() => setActive(i)}
               >
-                {o.art !== undefined && (o.art ? <img className="combo-art" src={o.art} alt="" /> : <span className="combo-art combo-art-none" />)}
+                {o.art !== undefined && <CardThumb className="combo-art" src={o.art} eager fallback={<span className="combo-art combo-art-none" />} />}
                 <span className="combo-text">
                   <span className="combo-label">{o.label}</span>
                   {o.sub && <span className="combo-sub">{o.sub}</span>}
@@ -318,7 +319,7 @@ export function PickerSheet<T>({ label, query, onQuery, options, onPick, onClose
         {options.map((o) => (
           <li key={o.key}>
             <Button className="combo-option picker-option" onClick={() => onPick(o.value)}>
-              {o.art !== undefined && (o.art ? <img className="combo-art" src={o.art} alt="" loading="lazy" /> : <span className="combo-art combo-art-none" />)}
+              {o.art !== undefined && <CardThumb className="combo-art" src={o.art} fallback={<span className="combo-art combo-art-none" />} />}
               <span className="combo-text">
                 <span className="combo-label">{o.label}</span>
                 {o.sub && <span className="combo-sub">{o.sub}</span>}

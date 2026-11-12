@@ -457,6 +457,24 @@ label > span.field-error {
   justify-content: center;
 }
 
+/* Pager: Previous and Next around the page number, centered under its list. */
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  margin-top: var(--s-3);
+}
+/* The end of the list isn't a fault: the button that can't go further is flat, not faded. It
+   stays focusable, so the keyboard keeps its place when a page turns it off. */
+.pager > button[aria-disabled="true"],
+.pager > button[aria-disabled="true"]:hover {
+  background: var(--surface);
+  color: var(--dim);
+  cursor: default;
+}
+
 /* ── BackLink: the way back to the page above ─────────────────────────── */
 
 /* BackLink inline: a line of dim words with the chevron, for a page with no top row. */
@@ -2472,10 +2490,6 @@ fieldset.seat > legend:not(.visually-hidden) + * {
 }
 .need-dot + .qty-badge {
   left: 14px;
-}
-.stack-more {
-  min-height: var(--target);
-  background: var(--surface);
 }
 .deck-preview {
   display: none;

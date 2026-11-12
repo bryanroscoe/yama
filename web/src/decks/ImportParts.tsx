@@ -10,12 +10,14 @@ export function GuideTabs({ guideKey, setGuideKey }: { guideKey: string | null; 
   const guide = guideFor(guideKey);
   return (
     <>
-      <div className="import-sources" role="tablist" aria-label="Where your deck is">
+      {/* Each one opens its steps and closes them again, so they are disclosures, not tabs:
+          a tab can't be closed and one is always chosen. */}
+      <div className="import-sources" role="group" aria-label="Where your deck is">
         {GUIDES.map((g) => (
           <Button
             key={g.key}
-            role="tab"
-            aria-selected={guideKey === g.key}
+            aria-expanded={guideKey === g.key}
+            aria-controls={guideKey === g.key ? "import-guide" : undefined}
             className={`import-source${guideKey === g.key ? " active" : ""}`}
             onClick={() => setGuideKey(guideKey === g.key ? null : g.key)}
           >
@@ -24,7 +26,7 @@ export function GuideTabs({ guideKey, setGuideKey }: { guideKey: string | null; 
         ))}
       </div>
       {guide && (
-        <div className="import-guide" role="tabpanel" aria-label={`From ${guide.name}`}>
+        <div className="import-guide" id="import-guide" role="region" aria-label={`From ${guide.name}`}>
           <ol>
             {guide.steps.map((s) => (
               <li key={s}>{s}</li>

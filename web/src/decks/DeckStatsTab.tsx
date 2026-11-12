@@ -13,7 +13,7 @@ import { DeckResults } from "../components/DeckResults";
 import { statCards } from "../components/DeckStats";
 import { HelpPopover } from "../components/HelpPopover";
 import { NameList, useOnlineSupport } from "../components/OnlineSupport";
-import { Button, CardImage, ErrorText, Loading, Segmented } from "../components/ui";
+import { Button, CardImage, ErrorText, Loading, Segmented, ShowMore } from "../components/ui";
 import { BuyDeck } from "./BuyDeck";
 import { PowerLine, ScoreTable, ScryCheckButton, useDeckAnalysis } from "./DeckAnalysis";
 import { colorShares, curveColumns, isStockConfiguration, landFaceCopies, curveSpread, DIAL, dialArc, dialPoint, groupTotal, inputsNote, marginSpan, pctWidth, playsLike, points, POWER_BANDS, REFERENCES, referenceOf, type Reference } from "./statsTab";
@@ -357,13 +357,7 @@ function ThemesSection({ analysis: a, images, inDeck, onCard }: { analysis: Deck
                 {shown.map((n) => <Pic key={n} name={n} images={images} inDeck={inDeck} onCard={onCard} />)}
               </span>
               {t.cards.length > 5 && (
-                <Button
-                  variant="quiet" size="small" className="theme-more"
-                  aria-expanded={open}
-                  onClick={() => setAll((s) => { const n = new Set(s); if (open) n.delete(t.key); else n.add(t.key); return n; })}
-                >
-                  {open ? "Show fewer" : `Show all ${t.cards.length}`}
-                </Button>
+                <ShowMore className="theme-more" total={t.cards.length} expanded={open} onToggle={() => setAll((s) => { const n = new Set(s); if (open) n.delete(t.key); else n.add(t.key); return n; })} />
               )}
             </div>
           );
