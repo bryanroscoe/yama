@@ -4,11 +4,12 @@
 //! The engine and its AI are CPU-heavy and recurse deeply, so each live match runs on its own
 //! OS thread with a 32 MiB stack (as phase does) and talks to the async side over channels.
 //!
-//! Because every unfinished game can hold a thread and its match in memory, anyone but an admin
-//! may host at most [`MAX_OPEN_GAMES`] games that haven't finished (lobbies and live games), an
-//! account that joined without an invite [`OPEN_MAX_OPEN_GAMES`], and such accounts together
-//! [`OPEN_MAX_OPEN_GAMES_ALL`]. New games and join codes are rate-limited per account too
-//! (`limits.rs`).
+//! Because every unfinished game can hold a thread and its match in memory, the games an account
+//! hosts that haven't finished (lobbies and live games) are capped: [`OPEN_MAX_OPEN_GAMES`] for an
+//! account with the standard allowance (`User::limited`: anyone who signed up with Google),
+//! [`MAX_OPEN_GAMES`] for an invited one, one for a guest (`guests.rs`) and none for an admin;
+//! standard accounts together hold at most [`OPEN_MAX_OPEN_GAMES_ALL`]. The refusal says the
+//! limit. New games and join codes are rate-limited per account too (`limits.rs`).
 
 use crate::auth::User;
 use crate::guests::Player;
@@ -1419,11 +1420,12 @@ struct CreateRequest {
     first: Option<u8>,
 }
 
-/// Unfinished games (lobbies and live ones) anyone but an admin may host.
+/// Unfinished games (lobbies and live ones) an invited account may host. Admins have no cap.
 pub const MAX_OPEN_GAMES: i64 = 10;
-/// The same for an account that joined without an invite.
-pub const OPEN_MAX_OPEN_GAMES: i64 = 2;
-/// Unfinished games all accounts without an invite may host together.
+/// The same for an account with the standard allowance (`User::limited`). It was 2 until
+/// 12 Nov 2026 (Bryan: "We want logged-in users to be able to do more by default").
+pub const OPEN_MAX_OPEN_GAMES: i64 = 3;
+/// Unfinished games all accounts with the standard allowance may host together.
 pub const OPEN_MAX_OPEN_GAMES_ALL: i64 = 20;
 
 /// Whether a saved runtime identity is one this server can never run: not the current engine and
@@ -1461,7 +1463,7 @@ async fn check_open_games(pool: &SqlitePool, user: &User) -> AppResult<()> {
         MAX_OPEN_GAMES
     };
     if waiting + playing >= cap {
-        return Err(AppError::Conflict(open_games_message(waiting, playing)));
+        return Err(AppError::Conflict(open_games_message(waiting, playing, cap)));
     }
     if user.guest {
         let guests: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
@@ -1493,16 +1495,18 @@ async fn check_open_games(pool: &SqlitePool, user: &User) -> AppResult<()> {
     Ok(())
 }
 
-/// Why a new game is refused at the limit, naming what is open and the way out of each kind: a
-/// table that hasn't started is closed, a game being played is finished.
-fn open_games_message(waiting: i64, playing: i64) -> String {
+/// Why a new game is refused at the limit: what is open, how many the account may have open at
+/// once, and the way out of each kind (a table that hasn't started is closed, a game being played
+/// is finished).
+fn open_games_message(waiting: i64, playing: i64, cap: i64) -> String {
     let tables = |n: i64| if n == 1 { "1 table waiting for players".to_string() } else { format!("{n} tables waiting for players") };
     let games = |n: i64| if n == 1 { "1 game being played".to_string() } else { format!("{n} games being played") };
     let one = |n: i64| if n == 1 { "it" } else { "one" };
+    let limit = if cap == 1 { "the limit is 1 open game at a time".to_string() } else { format!("the limit is {cap} open games at a time") };
     match (waiting, playing) {
-        (w, 0) => format!("You have {}. Close {} from its page before opening another.", tables(w), one(w)),
-        (0, p) => format!("You have {}. Finish {} before starting another.", games(p), one(p)),
-        (w, p) => format!("You have {} and {}. Close a waiting table from its page, or finish a game, before starting another.", tables(w), games(p)),
+        (w, 0) => format!("You have {}, and {limit}. Close {} from its page before opening another.", tables(w), one(w)),
+        (0, p) => format!("You have {}, and {limit}. Finish {} before starting another.", games(p), one(p)),
+        (w, p) => format!("You have {} and {}, and {limit}. Close a waiting table from its page, or finish a game, before starting another.", tables(w), games(p)),
     }
 }
 

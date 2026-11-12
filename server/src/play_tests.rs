@@ -1852,9 +1852,11 @@ async fn games_stranded_on_a_retired_runtime_free_their_place_and_can_be_deleted
     saved_game(&pool, "stranded-b", &host, None, "live", "{}").await;
     hub.resume_live(&pool).await;
     check_open_games(&pool, &user_row).await.expect("stranded games don't hold places");
-    // Runnable games still count: two current-runtime tables fill an open sign-up allowance.
+    // Runnable games still count: three current-runtime tables fill the standard allowance.
     saved_game(&pool, "open-a", &host, Some(yama_play::ENGINE_VERSION), "lobby", "{}").await;
     saved_game(&pool, "open-b", &host, Some(yama_play::ENGINE_VERSION), "lobby", "{}").await;
+    check_open_games(&pool, &user_row).await.expect("two open games leave room for a third");
+    saved_game(&pool, "open-c", &host, Some(yama_play::ENGINE_VERSION), "lobby", "{}").await;
     assert!(check_open_games(&pool, &user_row).await.is_err());
     // Games only waiting for their engine are not stranded: the historical runtime isn't
     // installed here, and the current engine has failed. Both come back once fixed.
@@ -1882,14 +1884,14 @@ async fn games_stranded_on_a_retired_runtime_free_their_place_and_can_be_deleted
 }
 
 #[test]
-fn the_limit_message_names_what_is_open_and_how_to_close_it() {
-    assert_eq!(open_games_message(1, 0), "You have 1 table waiting for players. Close it from its page before opening another.");
-    assert_eq!(open_games_message(2, 0), "You have 2 tables waiting for players. Close one from its page before opening another.");
-    assert_eq!(open_games_message(0, 1), "You have 1 game being played. Finish it before starting another.");
-    assert_eq!(open_games_message(0, 3), "You have 3 games being played. Finish one before starting another.");
+fn the_limit_message_names_what_is_open_the_limit_and_how_to_close_it() {
+    assert_eq!(open_games_message(1, 0, 1), "You have 1 table waiting for players, and the limit is 1 open game at a time. Close it from its page before opening another.");
+    assert_eq!(open_games_message(3, 0, 3), "You have 3 tables waiting for players, and the limit is 3 open games at a time. Close one from its page before opening another.");
+    assert_eq!(open_games_message(0, 1, 1), "You have 1 game being played, and the limit is 1 open game at a time. Finish it before starting another.");
+    assert_eq!(open_games_message(0, 3, 3), "You have 3 games being played, and the limit is 3 open games at a time. Finish one before starting another.");
     assert_eq!(
-        open_games_message(1, 1),
-        "You have 1 table waiting for players and 1 game being played. Close a waiting table from its page, or finish a game, before starting another."
+        open_games_message(1, 2, 3),
+        "You have 1 table waiting for players and 2 games being played, and the limit is 3 open games at a time. Close a waiting table from its page, or finish a game, before starting another."
     );
 }
 
