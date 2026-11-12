@@ -3,14 +3,16 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&family=Big+Shoulders+Display:wght@700&display=swap" rel="stylesheet">
 <style>
 body{margin:0;background:var(--ground);color:var(--text);font-family:var(--font-body)}
 .wrap{padding:24px}
-nav{position:sticky;top:0;z-index:1;background:var(--ground);display:flex;gap:24px;border-bottom:1px solid var(--line);overflow-x:auto}
-nav a{display:inline-flex;align-items:center;gap:6px;height:44px;color:var(--dim);text-decoration:none;font-weight:700;font-size:15px;border-bottom:2px solid transparent;white-space:nowrap}
+nav{position:sticky;top:0;z-index:1;background:var(--ground);display:flex;gap:32px;border-bottom:1px solid var(--line);overflow-x:auto}
+nav a{display:inline-flex;align-items:baseline;gap:8px;padding:10px 0 8px;min-height:52px;box-sizing:border-box;color:var(--dim);text-decoration:none;font-family:var(--font-display);font-weight:700;font-size:24px;line-height:1.25;border-bottom:3px solid transparent;margin-bottom:-1px;white-space:nowrap}
+nav a:hover{color:var(--text);border-bottom-color:var(--line)}
 nav a[aria-current="page"]{color:var(--text);border-bottom-color:var(--text)}
-nav a span{font-weight:400;font-size:13px;color:var(--dim)}
+nav a span{font-family:var(--font-body);font-weight:400;font-size:13px;color:var(--dim)}
+@media (max-width:899px){nav{gap:24px}nav a{font-size:20px}}
 </style>
 </head>
 <body>
