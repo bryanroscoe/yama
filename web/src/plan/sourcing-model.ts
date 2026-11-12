@@ -112,6 +112,20 @@ export function sourceCarts(rows: SourceCard[], choices: Record<string, SourceCh
   return [...carts.values()];
 }
 
+/**
+ * Copies per uncounted variant beyond the one its in-stock listing proves, summed over cart rows,
+ * so URL aliases of one variant share that single confirmed copy.
+ */
+export function uncountedExtras(carts: SourceCart[]): { total: number; skus: Map<string, number> } {
+  const skus = new Map<string, number>();
+  for (const r of carts.flatMap(c => c.rows)) if (r.offer.qty == null) {
+    const sku = uncountedSku(r.offer);
+    skus.set(sku, (skus.get(sku) ?? 0) + r.qty);
+  }
+  return { total: [...skus.values()].reduce((n, q) => n + Math.max(0, q - 1), 0), skus };
+}
+export const uncountedSku = (o: SourceOffer) => `${new URL(o.url).origin}|${o.variant_id || offerId(o)}`;
+
 /** A bulk preview only allocates known stock, cheapest qualifying variant first. */
 export function knownStockChoices(rows: SourceCard[]): Record<string, SourceChoice[]> {
   const choices: Record<string, SourceChoice[]> = Object.create(null);

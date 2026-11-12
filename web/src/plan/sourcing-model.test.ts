@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sourceCards, portfolioRows, sourceCarts, knownStockChoices, sourceSnapshot, allChoices, nearMint, offerRows, offerId } from "./sourcing-model";
+import { sourceCards, portfolioRows, sourceCarts, knownStockChoices, sourceSnapshot, allChoices, nearMint, offerRows, offerId, uncountedExtras } from "./sourcing-model";
 import type { ResearchDocument } from "../research/api";
 
 const offer = { store:"Mothership",price:0.5,qty:1,condition:"Near Mint",url:"https://mothershipatx.com/products/ring",variant_id:"123",checked_at:"2026-11-10",qualifies:true };
@@ -115,6 +115,14 @@ describe("shopping clarity",()=>{
   const rows=sourceCards([{...raw[0]!,uses:[use("one","a"),use("two","b"),use("three","c")],offers:[counted,ms]}]);
   const carts=sourceCarts(rows,allChoices(rows),new Map());
   expect(carts.map(c=>[c.store,c.rows[0]!.qty])).toEqual([["Mothership",1],["Multiverse",2]]);
+ });
+ it("counts copies needing confirmation per variant, so URL aliases share the one proven copy",()=>{
+  const a={...offer,qty:null},b={...offer,qty:null,url:offer.url+"?variant=123"};
+  const rows=sourceCards([{...raw[0]!,uses:[use("one","a"),use("two","b")],offers:[a,b]}]);
+  const carts=sourceCarts(rows,{"Sol Ring":[{offer:offerId(a),qty:1},{offer:b.url,qty:1}]},new Map());
+  expect(carts[0]!.rows.map(r=>r.qty)).toEqual([1,1]);
+  expect(uncountedExtras(carts).total).toBe(1);
+  expect(uncountedExtras(sourceCarts(rows,allChoices(rows),new Map())).total).toBe(0);
  });
  it("still skips listings recorded as sold out",()=>{
   const rows=sourceCards([{...raw[0]!,offers:[{...offer,qty:0}]}]);
