@@ -10,6 +10,9 @@
 //! page also shows what's worked out from the list (legality, the stored bracket check, stats,
 //! market value) and, when the owner turns it on, its plan's simulated win rates for the lists
 //! it and its listed configurations stand for, nothing else from the plan.
+pub(crate) mod browse;
+#[cfg(test)]
+mod browse_tests;
 mod html;
 mod report;
 mod want_sources;
@@ -39,6 +42,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/me/sharing/decks", post(share_all))
         .route("/api/me/sharing/public-default", post(answer_public_default))
         .route("/api/public/decks/{token}", get(api_deck))
+        .route("/api/public/browse", get(browse::list))
         .route("/u", get(lookup))
         .route("/u/{handle}", get(html::profile))
         .route("/u/{handle}/collection", get(html::collection))
@@ -64,9 +68,9 @@ pub fn router() -> Router<AppState> {
         .route("/api/research-plans", get(research::owner_plans))
 }
 
-/// Only this GET API bypasses view-as resolution: its output has no account context.
+/// Only these GET APIs bypass view-as resolution: their output has no account context.
 pub fn is_public_api(path: &str) -> bool {
-    path.strip_prefix("/api/public/decks/").is_some_and(valid_token)
+    path == "/api/public/browse" || path.strip_prefix("/api/public/decks/").is_some_and(valid_token)
 }
 
 /// A deck's share token: 24 hex digits of a random UUID (about 92 random bits; the migration's
@@ -103,7 +107,7 @@ pub(crate) const LISTED: &str = "d.visibility = 'public' AND d.archived = 0 AND 
      AND u.disabled_at IS NULL AND u.guest = 0 AND u.handle IS NOT NULL AND u.public_listed_at IS NOT NULL";
 
 /// Whether this deck is listed publicly ([`LISTED`]). An unknown deck is not.
-#[allow(dead_code)] // The listings that ask this (Browse, the sitemap) come in the changes after this one.
+#[allow(dead_code)] // Asked by the shared page once listed decks may be indexed (the change after Browse).
 pub(crate) async fn deck_listed(pool: &SqlitePool, deck_id: &str) -> AppResult<bool> {
     Ok(sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT EXISTS(SELECT 1 FROM decks d JOIN users u ON u.id = d.owner_id WHERE d.id = ? AND {LISTED})")))
         .bind(deck_id)

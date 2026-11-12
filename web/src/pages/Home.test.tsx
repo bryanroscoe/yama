@@ -52,9 +52,9 @@ describe("Home, signed out", () => {
     expect(html).toContain("free Magic: The Gathering app for Commander players");
     expect(html).toContain('href="/signin"');
     expect(html).toContain("No account needed");
-    expect(HOME_LINKS.map((l) => l.to)).toEqual(["/play/table", "/play", "/precons", "/commanders", "/cards"]);
+    expect(HOME_LINKS.map((l) => l.to)).toEqual(["/play/table", "/play", "/decks/browse", "/precons", "/commanders", "/cards"]);
     // The server's own pages are document links; the app's are routes.
-    expect(hrefs(html)).toEqual(["/signin", "/play/table", "/play", "https://yama.ing/precons", "https://yama.ing/commanders", "/cards"]);
+    expect(hrefs(html)).toEqual(["/signin", "/play/table", "/play", "/decks/browse", "https://yama.ing/precons", "https://yama.ing/commanders", "/cards"]);
   });
 
   it("shows nothing of an account's: no decks, games or shared tables", () => {

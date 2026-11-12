@@ -25,6 +25,7 @@ import "./homePage.css";
 export const HOME_LINKS: { to: string; title: string; text: string; action: string; page?: boolean }[] = [
   { to: "/play/table", title: "Start a game", text: "A life counter for up to six players. Games stay on this device.", action: "Count life" },
   { to: "/play", title: "Play the computer", text: "A game of Commander online, with precons to choose from. In alpha: expect bugs and slow turns.", action: "Play online" },
+  { to: "/decks/browse", title: "See what people are building", text: "Commander decks players have made public, by commander, colors and bracket.", action: "Browse decks" },
   { to: "/precons", title: "Find your next precon", text: "Every Commander precon: stock lists, rankings and upgrades.", action: "Browse precons", page: true },
   { to: "/commanders", title: "Look up a commander", text: "Commanders ranked by how they do in real games.", action: "Browse commanders", page: true },
   { to: "/cards", title: "Search cards", text: "Every card, with rulings, printings and dated market prices.", action: "Search" },
