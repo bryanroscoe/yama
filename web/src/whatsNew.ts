@@ -15,6 +15,20 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-12-public-by-default",
+    date: "2026-11-12",
+    title: "Yama opens up: Home, Browse, and checking a deck without an account",
+    items: [
+      "Yama has five tabs now: Play, Decks, Cards, Collection and Playgroup, with You behind your picture. Home is the first page, with a Start here list until you have a deck, a collection, a playgroup and a game.",
+      "Check a deck without an account: paste a list and see whether it's legal, its bracket and why, its stats, sample hands and what it's worth. Sign in to save it.",
+      "Browse the Commander decks players have made public: search by deck or commander, filter by colors, bracket or the precon a deck started from, and save a copy. Every shared deck and profile has a Report link.",
+      "Decks are public by default: a new account's decks start Public, adding a deck asks who can see it (Public, Link only or Private) and remembers your choice. If you already had an account, Yama asks once before anything of yours changes.",
+      "Every account can watch the computer play its decks (10 games a day), test a change to a deck with one short simulation a day, and keep three online games open at once.",
+      "Plans, buying cards, simulations and Mythic Tools are in Workshop, which shows when Advanced is on in You, Settings. It's already on if you use them, and your wish list is under Collection.",
+    ],
+    link: { to: "/decks/browse", label: "Browse decks" },
+  },
+  {
     id: "2026-11-12-bug-reports",
     date: "2026-11-12",
     title: "Report a bug from anywhere",

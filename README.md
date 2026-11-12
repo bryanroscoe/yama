@@ -24,8 +24,9 @@ working at a table with bad wifi.
 | Public reference | [Precons](https://yama.ing/precons) and [commanders](https://yama.ing/commanders) for anyone, without signing in: stock lists, attributed real-game results and dated prices. |
 | Assistants | An [MCP server](https://yama.ing/docs/mcp/) so Claude, ChatGPT or Codex can read your decks and collection and stage changes for you to approve. |
 
-Personal data stays private to its account unless the owner shares it by link or on a public
-profile. The full list, area by area, is in [docs/features.md](docs/features.md).
+A new account's decks are public unless it chooses Link only or Private, and anyone can browse
+public decks or check a list without an account. Everything else (collection, wish list,
+playgroups, games, plans) stays private to its account unless the owner shares it. The full list, area by area, is in [docs/features.md](docs/features.md).
 
 ## How it fits together
 
