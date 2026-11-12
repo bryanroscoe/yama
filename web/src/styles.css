@@ -930,6 +930,9 @@ body::before {
 .tab-sections a {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  /* A short word (Cards, Watch) still gets a full target. */
+  min-width: var(--target);
   min-height: var(--target);
   color: var(--dim);
   text-decoration: none;

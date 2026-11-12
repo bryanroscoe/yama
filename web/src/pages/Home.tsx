@@ -15,6 +15,7 @@ import { RecentGameRows } from "../table/RecentGameRows";
 import { isOpening, opened, resumesOnOpen } from "../table/resume";
 import { SharedTables } from "../table/SharedTables";
 import { usePendingDeletes, useTable } from "../table/store";
+import { StartHere } from "./StartHere";
 import "./homePage.css";
 
 /**
@@ -43,7 +44,7 @@ export function HomePage() {
   const straight = isOpening() && !!game && !!state && !state.finished && resumesOnOpen(game, Date.now());
   useEffect(opened, []);
   if (straight) return <Navigate to="/table/play" replace />;
-  return me.data ? <SignedInHome /> : <SignedOutHome />;
+  return me.data ? <SignedInHome userId={me.data.id} /> : <SignedOutHome />;
 }
 
 /**
@@ -104,7 +105,7 @@ function SignedOutHome() {
   );
 }
 
-function SignedInHome() {
+function SignedInHome({ userId }: { userId: string }) {
   const { game } = useTable();
   const going = useGoing();
   const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
@@ -121,6 +122,8 @@ function SignedInHome() {
       {/* A table followed from another device, and the playgroup's shared tables under way. */}
       <SharedTables localGameId={game?.setup.id} />
       <GameCard />
+      {/* The first steps, until they are done: on top for a new account, gone for everyone else. */}
+      <StartHere userId={userId} decks={decks.data} games={games.data} />
       <section aria-labelledby="home-start-title">
         <h2 id="home-start-title">Start a game</h2>
         <div className="home-start">

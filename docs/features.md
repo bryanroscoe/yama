@@ -23,6 +23,9 @@ lists what works without an account: checking a deck, the life counter, a game a
 computer, precons, commanders and card search. Signed in it puts a life counter game in progress on top, then
 starting a game, your four most recently changed decks and the latest three games you played
 in. A table you follow from another device and your playgroup's shared tables show there too.
+Until they are done, a Start here list sits on top: add a deck, bring your collection, start or
+join a playgroup, play a game. Each is ticked from the account's own data; "Hide this list" is
+remembered on the device.
 Opening Yama with a life counter game touched in the last 12 hours goes straight to that game.
 The life counter's setup is at `/play/table` (it was `/`; `/table` redirects there).
 

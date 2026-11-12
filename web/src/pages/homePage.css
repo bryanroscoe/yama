@@ -138,6 +138,67 @@
   color: var(--dim);
   font-size: var(--t-sm);
 }
+/* Start here: the first steps, each with its mark, what it is and where to do it. */
+.home-start-here-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 16px;
+}
+.home-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.home-steps > li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-list);
+}
+.home-step-mark {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--raised);
+  font-weight: 700;
+}
+.home-steps > li.is-done .home-step-mark {
+  background: var(--good-tint);
+  color: var(--good);
+}
+.home-step-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.home-step-text span {
+  color: var(--dim);
+  font-size: var(--t-15);
+}
+.home-step-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+@media (max-width: 599px) {
+  .home-steps > li {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .home-step-links {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+}
 .home-more {
   display: flex;
   flex-wrap: wrap;
