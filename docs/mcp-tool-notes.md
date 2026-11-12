@@ -29,7 +29,9 @@ once. `list_changes` with an `id` shows one change whole; check it before `apply
 
 - Simulated games are AI against AI in a rules engine. Read the paired difference with its
   interval, not one win rate. A game that ran out of CPU time, crashed or failed isn't scored.
-- Games per engine are 100, 200 or 400 (more for admins); for a tournament the number is
+- Games per engine are a size the account may run: 20 on the one short run a day every account
+  gets (Phase only), 100, 200 or 400 for power users (more for admins). Left out, a new run takes
+  the smallest. A refusal says the limit and what was used. For a tournament the number is
   appearances per deck, and the games actually scheduled are what the allowance is charged.
 - A run on both engines plays every pod on each. Its ETA and queue position are for Phase;
   Forge has its own queue. Admins also see how many earlier Phase games are ahead in the

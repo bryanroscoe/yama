@@ -288,8 +288,10 @@ The tools were written around one person's setup. What changed so they read righ
 
 - **Listed for what the account has** (`registry::Needs`, `Has`). The store tools (trip,
   settings, rules, preferences, stock, checks) are listed once the account has a store; the
-  dataset tools once it has a dataset; the lab's read tools once it has a run of its own or may
-  start one (starting stays with power users). The shopping list and wishes need no store.
+  dataset tools once it has a dataset; the lab's tools once it has a run of its own or may
+  start one (every account may since 12 Nov 2026: one short run a day; a server that gives
+  those accounts no games lists the tools only for an account with a run). The shopping list
+  and wishes need no store.
   Listing is all this decides: a call by name still answers.
 - **The instructions** (`SERVER_INSTRUCTIONS`) describe the tools for any account, in about 2,100
   characters: what to read first, that writes are staged, the two exceptions, what a plan is,
@@ -315,7 +317,8 @@ every document the server embeds is copied into the image build.
 
 - **Golden `tools/list`.** `snapshots/tools_list.json` is the whole list a power user's outside
   client gets (names, titles, descriptions, schemas, annotations); `snapshots/tools_by_caller.txt`
-  is which tools each kind of caller gets (script key or OAuth, power user or not, Ask Claude). A
+  is which tools each kind of caller gets (script key or OAuth, power user or not, Ask Claude;
+  since 12 Nov 2026 an account that isn't a power user is listed the same tools as one that is). A
   change fails the test until the files are regenerated (`YAMA_UPDATE_SNAPSHOTS=1`) and committed,
   so every change connected clients will see shows up in a diff.
 - **Every tool answers cleanly.** Each tool is called with no arguments, and with every argument

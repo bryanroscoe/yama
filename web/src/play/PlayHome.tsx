@@ -82,7 +82,7 @@ export function PlayHome({ guest }: { guest?: GuestSession } = {}) {
           {status.data?.enabled && !guest && <JoinGame decks={decks.data ?? []} />}
           {status.data?.enabled && !guest && (
             <section className="ph-watch" aria-labelledby="ph-watch-h">
-              <h2 id="ph-watch-h">Watch AIs play</h2>
+              <h2 id="ph-watch-h">Watch the computer play</h2>
               <p className="dim">Watch your decks or precons play at your pace.</p>
               <ButtonLink to="/play/watch" variant="outline">Set up a game</ButtonLink>
             </section>

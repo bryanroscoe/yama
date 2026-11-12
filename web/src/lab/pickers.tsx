@@ -463,7 +463,7 @@ export function RunBlockers({ items }: { items: { text: string; href?: string; l
 
 // ── engines ──────────────────────────────────────────────────────────────────
 
-export { engineFields, engineState, engineText, forgeSeconds, type EngineState } from "./engines";
+export { engineFields, engineState, engineText, forgeSeconds, offeredEngines, type EngineState } from "./engines";
 
 const ENGINE_OPTIONS: { id: EngineMode; label: string }[] = [
   { id: "phase", label: "Phase" },
@@ -493,7 +493,7 @@ export function EnginePicker({ value, onChange, pace, games, id }: { value: Engi
         onChange={(mode) => onChange({ ...value, mode })}
         options={ENGINE_OPTIONS.map((o) => ({ value: o.id, label: o.label, disabled: o.id !== "phase" && !forgeOk }))}
       />
-      <span className="lab-note">{forgeOk ? note : "Phase: Yama's own rules engine. Forge isn't set up on this server, so Phase is the only engine here."}</span>
+      <span className="lab-note">{forgeOk ? note : "Phase: Yama's own rules engine, and the only one your simulations run on here."}</span>
       {forgeOk && value.mode !== "phase" && !forge?.online && <span className="lab-note lab-warn">The Forge worker isn't answering right now. You can still start the run; its Forge games wait until the worker is back.</span>}
       <div className="lab-engine-ai">
         {value.mode !== "forge" && (

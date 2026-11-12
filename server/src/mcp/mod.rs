@@ -255,7 +255,7 @@ async fn mcp_route(State(st): State<AppState>, extensions: axum::http::Extension
             )
         }
         "ping" => rpc_result(&id, json!({})),
-        "tools/list" => match registry::Has::load(&st.pool, &user).await {
+        "tools/list" => match registry::Has::load(&st.pool, &user, &st.cfg.lab_quota).await {
             Ok(has) => rpc_result(&id, json!({"tools": registry::list_for(&user, &via, has)})),
             Err(e) => rpc_error(&id, -32603, &tool_error(e)),
         },

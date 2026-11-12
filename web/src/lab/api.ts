@@ -567,7 +567,7 @@ export interface Pace {
   your_pending: number;
   /** Game counts this account may choose (missing on older servers: 100, 200 and 400). */
   game_choices?: number[];
-  /** The smaller allowance of an account that joined without an invite; null for anyone else. */
+  /** What an account with a daily number of games may run (every account but power users with an invite, and admins); null for anyone else. */
   allowance?: Allowance | null;
   /** The Forge worker (missing on older servers: no Forge). */
   forge?: ForgeView;

@@ -1,4 +1,4 @@
-// Watch the AIs play: request shapes and the words the screens use (server/src/watch.rs).
+// Watch the computer play: request shapes and the words the screens use (server/src/watch.rs).
 
 import { plural } from "@yama/core";
 import { shortName } from "./text";

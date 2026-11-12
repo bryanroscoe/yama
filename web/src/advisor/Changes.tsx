@@ -3,7 +3,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router";
-import { usePower } from "../auth";
 import { AreaHead } from "../components/DeckTabs";
 import { ChangesHowTo } from "../plan/howto";
 import { ActionBar, Button, Details, ErrorText, Loading, StatusPill } from "../components/ui";
@@ -18,8 +17,6 @@ const VIA: Record<StagedChange["via"], string> = {
 };
 
 /** One staged change, with Apply and Discard while it waits. */
-/** Staged changes that start simulations when applied. */
-const SIMULATIONS: StagedChange["kind"][] = ["start_lab_run", "more_lab_games", "run_lab_again"];
 /** What part of Yama a change is about, as a tag before it: a plan's changes say so. */
 const AREA: Partial<Record<StagedChange["kind"], string>> = {
   track_build: "Plan",
@@ -44,10 +41,6 @@ export function ChangeCard({ change, onNavigate, onDecided }: { change: StagedCh
   });
   const shown = decide.data ?? change;
   const busy = decide.isPending;
-  // Applying a staged lab run starts simulations: admins and power users only (the server refuses
-  // anyone else). Discard stays.
-  const power = usePower();
-  const canApply = power || !SIMULATIONS.includes(shown.kind);
   return (
     <div className={`ask-change is-${shown.status}`}>
       <p className="ask-change-what">
@@ -63,11 +56,9 @@ export function ChangeCard({ change, onNavigate, onDecided }: { change: StagedCh
             </p>
           )}
           <ActionBar>
-            {canApply && (
-              <Button variant="primary" disabled={busy} onClick={() => decide.mutate("apply")}>
-                {busy && decide.variables === "apply" ? "Applying…" : shown.kind === "delete_deck" ? "Delete" : shown.kind === "remove_from_collection" ? "Remove" : "Apply"}
-              </Button>
-            )}
+            <Button variant="primary" disabled={busy} onClick={() => decide.mutate("apply")}>
+              {busy && decide.variables === "apply" ? "Applying…" : shown.kind === "delete_deck" ? "Delete" : shown.kind === "remove_from_collection" ? "Remove" : "Apply"}
+            </Button>
             <Button variant="outline" disabled={busy} onClick={() => decide.mutate("discard")}>
               Discard
             </Button>

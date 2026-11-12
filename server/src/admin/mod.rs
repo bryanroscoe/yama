@@ -256,8 +256,8 @@ async fn usage(State(st): State<AppState>, AdminUser(_): AdminUser) -> AppResult
             Limits { advisor_per_day: shared_per_day, ..Limits::default() }
         } else {
             Limits {
-                lab_games_per_day: a.limited.then_some(quota.open_daily_games),
-                lab_runs_at_a_time: Some(if a.limited { crate::lab::experiments::OPEN_MAX_UNFINISHED } else { crate::lab::experiments::MAX_UNFINISHED }),
+                lab_games_per_day: crate::lab::experiments::caps(&user, quota).1,
+                lab_runs_at_a_time: crate::lab::experiments::caps(&user, quota).0,
                 advisor_per_day: shared_per_day.or(Some(if a.limited { crate::advisor::DAILY_LIMITED } else { crate::advisor::DAILY_INVITED })),
                 watch_at_a_time: crate::watch::at_a_time(&user).map(|n| n as i64),
             }
@@ -271,7 +271,8 @@ async fn usage(State(st): State<AppState>, AdminUser(_): AdminUser) -> AppResult
         t.lab_games_queued += a.lab_games_queued;
         t.advisor_today += a.advisor_today;
         t.watch_running += a.watch_running;
-        if a.limited {
+        // The smaller share of the lab queue: the standard and short allowances.
+        if matches!(crate::lab::experiments::tier(&user), crate::lab::experiments::Tier::Standard | crate::lab::experiments::Tier::Short) {
             t.lab_open_queue_games += a.lab_games_queued;
         }
     }

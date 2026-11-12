@@ -62,8 +62,8 @@ macro_rules! limited_sql {
 }
 pub(crate) use limited_sql;
 
-/// SQL that is true for a `users u` row that may use the heavy and AI features (`User::power`):
-/// an admin, or an account an admin made a power user (migration 0047).
+/// SQL that is true for a `users u` row with the power-user allowances (`User::power`): an admin,
+/// or an account an admin made a power user (migration 0047).
 macro_rules! power_sql {
     () => {
         "(u.is_admin = 1 OR u.power_user = 1)"
@@ -71,8 +71,9 @@ macro_rules! power_sql {
 }
 pub(crate) use power_sql;
 
-/// Why a request for a power-user feature was refused.
-pub const POWER_ONLY: &str = "Simulations and Ask Claude need access that an admin turns on for an account. To ask for it, use the contact on the About page.";
+/// Why a request for a power-user feature was refused. Ask Claude is the only one left: every
+/// account may watch the computer play and start a short simulation since 12 Nov 2026.
+pub const POWER_ONLY: &str = "Ask Claude needs access that an admin turns on for an account. To ask for it, use the contact on the About page.";
 
 /// What to do about a limit, said after the limit itself.
 pub const ASK_FOR_MORE: &str = "To ask for a higher limit, use the contact on the About page.";
@@ -113,13 +114,14 @@ pub struct User {
     pub display_name: String,
     pub is_admin: bool,
     /// A Google account that isn't invited (nor an admin or a password account): someone who
-    /// joined through open sign-up, or whose invite was withdrawn. Gets the smaller lab and play
-    /// allowance, and can't use Yama while open sign-up is off.
+    /// signed up with Google, or whose invite was withdrawn. Gets the standard allowance (open
+    /// games, imports, tool calls; an invite gives the larger one), and can't use Yama while open
+    /// sign-up is off.
     pub limited: bool,
-    /// An admin, or an account an admin made a power user: may start simulations and use Ask
-    /// Claude (2026-10-31), and has no daily count on watched games. Everyone else keeps their own
-    /// data and reads simulation results, but can't start that work; they may watch the computer
-    /// play a number of games a day (12 Nov 2026, `watch.rs`).
+    /// An admin, or an account an admin made a power user (2026-10-31): may use Ask Claude, and
+    /// gets the larger simulation allowance and no daily count on watched games. Every other
+    /// account may watch a number of games a day and start one short simulation a day
+    /// (12 Nov 2026; `watch.rs`, `lab/experiments.rs`).
     pub power: bool,
     /// A guest player with no account (`guests.rs`): signed in only to the play routes, by its
     /// own cookie. No other way in accepts one.
@@ -128,7 +130,7 @@ pub struct User {
 }
 
 impl User {
-    /// Refuse a power-user feature (simulations, Ask Claude) to anyone else.
+    /// Refuse a power-user feature (Ask Claude) to anyone else.
     pub fn require_power(&self) -> AppResult<()> {
         if self.power { Ok(()) } else { Err(AppError::Forbidden(POWER_ONLY.into())) }
     }
@@ -213,8 +215,8 @@ async fn signed_in(parts: &mut Parts, state: &AppState) -> Result<User, AppError
     access_user(parts, state).await?.ok_or(AppError::Unauthorized)
 }
 
-/// Extractor: the signed-in user, when they may use the power-user features (simulations, Ask
-/// Claude). Anyone else signed in gets a 403 that says why; signed out is 401.
+/// Extractor: the signed-in user, when they may use the power-user feature (Ask Claude). Anyone
+/// else signed in gets a 403 that says why; signed out is 401.
 pub struct PowerUser(pub User);
 
 impl FromRequestParts<AppState> for PowerUser {

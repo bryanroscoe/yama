@@ -20,6 +20,16 @@ export function engineState(prefill?: { difficulty?: string; engines?: Engines }
   };
 }
 
+/**
+ * The engine choice as this account may run it. Forge is offered only where the pace says it is
+ * set up, which it never is for the one short run a day, so a choice carried over from an older
+ * run (Try again, Edit) falls back to Phase instead of being sent and refused. Until the pace is
+ * in, the choice stands.
+ */
+export function offeredEngines(e: EngineState, pace: Pace | undefined): EngineState {
+  return e.mode !== "phase" && pace && !pace.forge?.configured ? { ...e, mode: "phase" } : e;
+}
+
 /** The request fields for an engine choice. */
 export function engineFields(e: EngineState): { difficulty: string; engine?: EngineMode; forge_ai?: string } {
   return e.mode === "phase" ? { difficulty: e.difficulty } : { difficulty: e.difficulty, engine: e.mode, forge_ai: e.forgeAi };

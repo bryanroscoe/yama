@@ -1879,7 +1879,7 @@
             "type": "string"
           },
           "games": {
-            "description": "Games per engine, or appearances per deck per engine for tournament: 100 (default), 200 or 400 (admins up to 2,000). Tournament total games scale with field size and are charged in full.",
+            "description": "Games per engine, or appearances per deck per engine for tournament: a size the account may run (20 on the one short run a day every account gets; 100, 200 or 400 for power users; admins up to 2,000). Left out: the smallest. Tournament total games scale with field size and are charged in full.",
             "type": "integer"
           },
           "label": {
@@ -1965,7 +1965,7 @@
         "additionalProperties": false,
         "properties": {
           "games": {
-            "description": "Games per engine to add: 100, 200 or 400 (admins up to 2,000).",
+            "description": "Games per engine to add: a size the account may run (20 on the one short run a day every account gets; 100, 200 or 400 for power users; admins up to 2,000).",
             "type": "integer"
           },
           "op_id": {

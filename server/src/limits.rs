@@ -192,6 +192,10 @@ pub struct Limits {
     pub advisor: RateLimiter,
     /// New watched all-AI games, per account (each one starts a rules engine thread).
     pub watch_creates: RateLimiter,
+    /// Lab runs asked for (new, again, more games) and card-support checks, per account: every
+    /// account may ask since 12 Nov 2026, and each request reads decks and asks the engine about
+    /// cards before the allowance in `lab/experiments.rs` is counted.
+    pub lab_requests: RateLimiter,
     /// OAuth app registrations (`oauth/`), per address: each one stores a client.
     pub oauth_register: RateLimiter,
     /// OAuth token and revocation requests, per address. claude.ai's come from Anthropic's few
@@ -244,6 +248,7 @@ impl Default for Limits {
             play_creates: RateLimiter::new("new online games", 30, 60 * MINUTE),
             advisor: RateLimiter::new("questions to Claude", 6, MINUTE),
             watch_creates: RateLimiter::new("new watched games", 30, 60 * MINUTE),
+            lab_requests: RateLimiter::new("simulation requests", 120, 10 * MINUTE),
             oauth_register: RateLimiter::new("app registrations from this address", 30, 60 * MINUTE),
             oauth_token: RateLimiter::new("token requests from this address", 300, 10 * MINUTE),
             oauth_approve: RateLimiter::new("app sign-ins", 30, 10 * MINUTE),

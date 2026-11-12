@@ -72,7 +72,7 @@ pub struct Config {
     /// CIDR ranges, comma-separated). Set it to the Cloudflare tunnel connector's Docker network;
     /// without it, per-address limits count the connector's address (see `limits.rs`).
     pub trusted_proxies: Vec<Cidr>,
-    /// The lab's caps on queued games and on accounts that joined without an invite.
+    /// The lab's caps on queued games and on what the smaller allowances may ask for in a day.
     pub lab_quota: LabQuota,
     /// "Ask Claude" (`advisor/`): where the sidecar is, and who may use the server's subscription.
     pub advisor: AdvisorConfig,
@@ -221,17 +221,20 @@ pub struct LabQuota {
     /// Most games waiting or playing at once for everyone but admins together
     /// (YAMA_LAB_QUEUE_GAMES, default 2,000).
     pub queue_games: i64,
-    /// Most of those from accounts that joined without an invite, together
+    /// Most of those from accounts on the standard or short allowance, together
     /// (YAMA_LAB_OPEN_QUEUE_GAMES, default 400).
     pub open_queue_games: i64,
-    /// Games one account that joined without an invite may ask for in 24 hours
-    /// (YAMA_LAB_OPEN_DAILY_GAMES, default 300: three 100-game runs).
+    /// Games a power user on the standard allowance (signed up with Google, no invite) may ask
+    /// for in 24 hours (YAMA_LAB_OPEN_DAILY_GAMES, default 300: three 100-game runs).
     pub open_daily_games: i64,
+    /// Games an account that isn't a power user may ask for in 24 hours
+    /// (YAMA_LAB_SHORT_DAILY_GAMES, default 20: one short run; 0 gives those accounts none).
+    pub short_daily_games: i64,
 }
 
 impl Default for LabQuota {
     fn default() -> Self {
-        Self { queue_games: 2_000, open_queue_games: 400, open_daily_games: 300 }
+        Self { queue_games: 2_000, open_queue_games: 400, open_daily_games: 300, short_daily_games: 20 }
     }
 }
 
@@ -270,6 +273,7 @@ impl Config {
             queue_games: number("YAMA_LAB_QUEUE_GAMES", defaults.queue_games)?,
             open_queue_games: number("YAMA_LAB_OPEN_QUEUE_GAMES", defaults.open_queue_games)?,
             open_daily_games: number("YAMA_LAB_OPEN_DAILY_GAMES", defaults.open_daily_games)?,
+            short_daily_games: number("YAMA_LAB_SHORT_DAILY_GAMES", defaults.short_daily_games)?,
         };
         let data_dir = PathBuf::from(std::env::var("YAMA_DATA_DIR").unwrap_or_else(|_| "data".into()));
         std::fs::create_dir_all(&data_dir).with_context(|| format!("creating {}", data_dir.display()))?;

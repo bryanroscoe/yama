@@ -656,9 +656,20 @@ export function gameChoices(pace: Pace | null | undefined): number[] {
   return choices.length ? choices : [100, 200, 400];
 }
 
-/** The smaller allowance of an account that joined without an invite, in one plain line. The page adds where to ask for more. */
+/**
+ * What an account with a daily number of games may run, in one plain line that says the limit and
+ * what is left of it. The page adds where to ask for more. Every account has one short run a day;
+ * power users on the standard allowance have a number of games.
+ */
 export function allowanceText(a: Allowance): string {
   const left = Math.max(0, a.games_per_day - a.used_today);
+  // A server that gives these accounts no games at all.
+  if (a.games_per_day < a.games) return "Simulations on this server need access that an admin turns on for an account.";
+  // One run a day is said as a run, not as games to count.
+  if (a.games_per_day < 2 * a.games) {
+    const run = `Your account runs one short simulation a day, of ${a.games} games.`;
+    return left >= a.games ? `${run} Today's is still to run.` : `${run} You've used today's: the next is 24 hours after it started.`;
+  }
   const atOnce = a.at_a_time === 1 ? "one at a time" : `${a.at_a_time} at a time`;
   return (
     `Your account runs ${a.games}-game experiments, ${atOnce}, up to ${a.games_per_day} games a day ` +

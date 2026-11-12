@@ -134,7 +134,7 @@ fn every_tool_is_well_formed() {
         let decides = names.contains(&"apply_change") || names.contains(&"discard_change");
         assert_eq!(decides, via.may_apply(), "{label}: only outside clients apply and discard");
         let simulates = ["start_lab_run", "add_lab_games", "rerun_lab_run"].iter().any(|n| names.contains(n));
-        assert_eq!(simulates, user.power && via.may_stage(), "{label}: only power users start simulations");
+        assert_eq!(simulates, via.may_stage(), "{label}: every account that may stage may start a simulation");
         // A read-only connection is offered nothing that writes.
         let writes = tools.iter().any(|t| t["annotations"]["readOnlyHint"] == false);
         assert_eq!(writes, via.may_stage(), "{label}");
@@ -637,9 +637,21 @@ async fn an_account_is_listed_the_tools_it_can_use() {
     let none = |v: Vec<bool>| v.iter().all(|x| !x);
     let all = |v: Vec<bool>| v.iter().all(|x| *x);
 
-    // A new account: its decks, cards, collection, games and notes, and nothing it can't use.
+    // A new account: its decks, cards, collection, games and notes, the lab (every account may
+    // start a short simulation a day), and nothing it can't use.
     assert!(all(has(&app, &mcp, &["get_overview", "get_deck", "search_cards", "edit_deck", "save_deck", "add_wish", "get_shopping_list", "list_games", "save_research"]).await));
-    assert!(none(has(&app, &mcp, &stores).await) && none(has(&app, &mcp, &datasets).await) && none(has(&app, &mcp, &lab_reads).await) && none(has(&app, &mcp, &lab_starts).await));
+    assert!(none(has(&app, &mcp, &stores).await) && none(has(&app, &mcp, &datasets).await));
+    assert!(all(has(&app, &mcp, &lab_reads).await) && all(has(&app, &mcp, &lab_starts).await), "the lab's tools, before it has a run");
+    // On a server that gives the short allowance no games, an account that isn't a power user is
+    // listed the lab's tools only once it has a run to read; a power user always is.
+    let off = crate::config::LabQuota { short_daily_games: 0, ..Default::default() };
+    let on = crate::config::LabQuota::default();
+    let account = |power: bool| User { id: id.clone(), power, ..who(power) };
+    let lab_tools = |has: super::registry::Has| names(&super::registry::list_for(&account(false), &Via::Key, has)).into_iter().filter(|n| lab_reads.contains(n) || lab_starts.contains(n)).count();
+    let none_yet = super::registry::Has::load(&pool, &account(false), &off).await.unwrap();
+    assert_eq!((none_yet.lab_runs, lab_tools(none_yet)), (false, 0));
+    assert!(super::registry::Has::load(&pool, &account(false), &on).await.unwrap().lab_runs);
+    assert!(super::registry::Has::load(&pool, &account(true), &off).await.unwrap().lab_runs);
     // A client with an older list may still call one: it is told what there is, which is nothing.
     let (_, text) = clean_call(&app, &mcp, "get_shopping_settings", json!({})).await;
     assert!(!text.is_empty());
@@ -660,10 +672,10 @@ async fn an_account_is_listed_the_tools_it_can_use() {
     .execute(&pool)
     .await
     .unwrap();
-    assert!(all(has(&app, &mcp, &lab_reads).await) && none(has(&app, &mcp, &lab_starts).await), "their own runs to read, none to start");
-    sqlx::query("UPDATE users SET power_user = 1 WHERE id = ?").bind(&id).execute(&pool).await.unwrap();
-    assert!(all(has(&app, &mcp, &lab_starts).await));
-    assert!(none(has(&app, &other, &stores).await) && none(has(&app, &other, &datasets).await) && none(has(&app, &other, &lab_reads).await), "another account's rows don't count");
+    assert!(all(has(&app, &mcp, &lab_reads).await) && all(has(&app, &mcp, &lab_starts).await));
+    let with_run = super::registry::Has::load(&pool, &account(false), &off).await.unwrap();
+    assert_eq!((with_run.lab_runs, lab_tools(with_run)), (true, lab_reads.len() + lab_starts.len()), "their own run to read, whatever they may start");
+    assert!(none(has(&app, &other, &stores).await) && none(has(&app, &other, &datasets).await), "another account's rows don't count");
 }
 
 #[test]

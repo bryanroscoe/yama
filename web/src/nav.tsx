@@ -14,7 +14,8 @@ export type TabId = "play" | "decks" | "cards" | "collection" | "playgroup" | "w
 /** What the frame knows about whoever is looking, to decide which sections to list. */
 export interface Who {
   signedIn: boolean;
-  /** An admin or a power user: may start simulations and watched games. */
+  /** An admin or a power user. Nothing in the frame depends on it since every account may watch
+   *  the computer play and start a simulation (12 Nov 2026); Ask Claude is not a page. */
   power: boolean;
   /** Has imported datasets to browse, or may upload one. */
   evidence: boolean;
@@ -49,7 +50,6 @@ export interface NavTab {
 
 const signedIn = (w: Who) => w.signedIn;
 const signedOut = (w: Who) => !w.signedIn;
-const power = (w: Who) => w.power;
 
 export const TABS: NavTab[] = [
   {
@@ -61,7 +61,7 @@ export const TABS: NavTab[] = [
     sections: [
       { to: "/", label: "Life counter", end: true },
       { to: "/play", label: "Play online", end: true, alpha: true },
-      { to: "/play/watch", label: "Watch", end: true, when: power },
+      { to: "/play/watch", label: "Watch", end: true, when: signedIn },
       { to: "/table/games", label: "Game history", when: signedIn },
     ],
   },
@@ -101,8 +101,8 @@ export const TABS: NavTab[] = [
       { to: "/decks/plans", label: "Plans", end: true, also: ["/decks/plans/archived", "/decks/plans/settings", "/decks/research", "/decks/plan"] },
       { to: "/decks/plans/get", label: "Get the cards" },
       { to: "/decks/builds", label: "Swap cards" },
-      { to: "/lab/try", label: "Try a change", when: power },
-      { to: "/lab/compare", label: "Compare decks", when: power },
+      { to: "/lab/try", label: "Try a change" },
+      { to: "/lab/compare", label: "Compare decks" },
       { to: "/lab/runs", label: "Lab runs" },
       { to: "/lab/datasets", label: "Datasets", when: (w) => w.evidence },
     ],
