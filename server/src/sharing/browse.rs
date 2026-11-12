@@ -375,3 +375,102 @@ pub(super) async fn list(State(st): State<AppState>, address: ClientAddress, hea
     let listing = listed(&st.pool, &filter, PER_PAGE).await?;
     Ok(fresh(&headers, serde_json::to_string(&listing).map_err(anyhow::Error::from)?, "application/json"))
 }
+
+// ── on the public precon and commander pages ───────────────────────────────
+
+/// Decks shown on a precon's page before the rest are a link to Browse.
+const ON_A_PAGE: usize = 6;
+
+/// "Counterpunch" as a query value: `Counterpunch`, "Krenko, Mob Boss" as `Krenko%2C+Mob+Boss`.
+fn query_value(text: &str) -> String {
+    url::form_urlencoded::byte_serialize(text.as_bytes()).collect()
+}
+
+/// Listed decks as the tiles a profile uses, with one line of art credits under them. Every
+/// piece of text is escaped here; the names came through the public text filter in [`listed`].
+fn tiles(decks: &[ListedDeck]) -> String {
+    use crate::public_page::{e, identity as pips};
+    use std::fmt::Write;
+    let mut s = String::from("<ul class=\"share-decks\">");
+    for d in decks {
+        write!(s, "<li class=\"share-deck\"><a class=\"share-deck-main\" href=\"/d/{}\">", e(&d.token)).unwrap();
+        if let Some(art) = &d.art {
+            write!(s, "<img src=\"{}\" alt=\"\" loading=\"lazy\"><div class=\"art-wash\"></div>", e(&art.url)).unwrap();
+        }
+        write!(
+            s,
+            "<span class=\"share-deck-copy\">{}<b>{}</b><span>{}</span><small>{} cards, by @{}</small></span></a></li>",
+            pips(&d.color_identity),
+            e(&d.name),
+            e(&if d.commanders.is_empty() { "No commander set".to_string() } else { d.commanders.join(" and ") }),
+            d.card_count,
+            e(&d.handle)
+        )
+        .unwrap();
+    }
+    s.push_str("</ul>");
+    let credits: Vec<String> = decks.iter().filter_map(|d| d.art.as_ref()).map(|a| format!("{}. Art by {}, © Wizards of the Coast.", e(&a.card), e(&a.artist))).collect();
+    if !credits.is_empty() {
+        write!(s, "<details class=\"art-credits dim\"><summary>Art credits</summary><p>{}</p></details>", credits.join(" ")).unwrap();
+    }
+    s
+}
+
+/// The section of a precon's public page that lists the public decks started from it: the
+/// newest few as tiles and a link to the rest in Browse. Empty when there are none, so a precon
+/// nobody has built on shows nothing. A precon with the same hundred cards as an earlier one
+/// shares that one's decks ([`listed`] resolves it).
+pub(crate) async fn precon_section(pool: &SqlitePool, precon: &str) -> AppResult<String> {
+    use crate::public_page::e;
+    let found = listed(pool, &Filter { precon: Some(precon.to_string()), ..Filter::default() }, ON_A_PAGE).await?;
+    if found.total == 0 {
+        return Ok(String::new());
+    }
+    let more = if found.total as usize > found.decks.len() { format!("Browse all {} ↗", found.total) } else { "Open in Browse ↗".to_string() };
+    Ok(format!(
+        "<section class=\"list-section listed-decks\" aria-labelledby=\"listed-head\"><div class=\"section-heading\"><div><p class=\"eyebrow\">{} public {}</p><h2 id=\"listed-head\">Decks started from this precon</h2></div><a href=\"/decks/browse?precon={}\">{more}</a></div><p class=\"dim\">Decks Yama players made public that still hold at least half of this precon's own cards, newest first.</p>{}</section>",
+        found.total,
+        if found.total == 1 { "deck" } else { "decks" },
+        e(&query_value(precon)),
+        tiles(&found.decks)
+    ))
+}
+
+/// How many listed decks each commander leads, by the commander's name in lower case. One
+/// query for a whole page of commanders.
+pub(crate) async fn commander_counts(pool: &SqlitePool) -> AppResult<HashMap<String, i64>> {
+    // As in `listed`: a face that can't be made must not take the ranking page down.
+    if let Err(err) = refresh_faces(pool).await {
+        tracing::warn!(error = ?err, "commander ranking: making deck faces failed; counting the ones already kept");
+    }
+    // `LISTED` is a constant; nothing is bound.
+    let rows: Vec<(String, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT c.value, COUNT(*) FROM decks d JOIN users u ON u.id = d.owner_id
+           JOIN deck_version_faces f ON f.version_id = d.current_version_id, json_each(f.commanders) c
+          WHERE {LISTED}
+            AND (d.parent_id IS NULL OR NOT EXISTS (
+                  SELECT 1 FROM decks m WHERE m.id = d.parent_id AND m.visibility = 'public' AND m.archived = 0 AND m.taken_down_at IS NULL))
+          GROUP BY c.value"
+    )))
+    .fetch_all(pool)
+    .await?;
+    let mut counts: HashMap<String, i64> = HashMap::new();
+    for (name, n) in rows {
+        *counts.entry(name.to_lowercase()).or_default() += n;
+    }
+    Ok(counts)
+}
+
+/// A line under a commander on the ranking page: how many public decks it leads, linked to
+/// them in Browse. Nothing when there are none.
+pub(crate) fn commander_link(name: &str, counts: &HashMap<String, i64>) -> String {
+    match counts.get(&name.to_lowercase()) {
+        Some(n) if *n > 0 => format!(
+            "<small class=\"commander-precon\"><a href=\"/decks/browse?commander={}\">{} public {}</a> on Yama</small>",
+            crate::public_page::e(&query_value(name)),
+            n,
+            if *n == 1 { "deck" } else { "decks" }
+        ),
+        _ => String::new(),
+    }
+}

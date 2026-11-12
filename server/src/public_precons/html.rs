@@ -1034,7 +1034,13 @@ pub(super) async fn detail(
         body.push_str("</ul>");
     }
     write!(body,"<details><summary>Select the list to copy</summary><textarea readonly rows=\"14\" aria-label=\"Stock decklist\">{}</textarea></details></section>",e(&deck_text(&data))).unwrap();
-    Ok(response(
+    // Public decks that started from this precon (Browse's listing). They are people's own
+    // decks, and leaving the listing takes effect at once, so a page that shows any is
+    // revalidated on every visit instead of being kept for a minute like the rest.
+    let decks = crate::sharing::browse::precon_section(&st.pool, &slug).await?;
+    let has_decks = !decks.is_empty();
+    body.push_str(&decks);
+    let mut res = response(
         &headers,
         page(
             &st,
@@ -1046,7 +1052,11 @@ pub(super) async fn detail(
             ),
             &body,
         ),
-    ))
+    );
+    if has_decks {
+        res.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    }
+    Ok(res)
 }
 
 pub(super) async fn methodology(

@@ -353,6 +353,8 @@ pub(super) async fn index(
     if rows.is_empty() {
         body.push_str("<div class=\"empty-state\"><h2>No matching commanders</h2><p>Try fewer games, a different color or <a href=\"/commanders\">clear the filters</a>.</p></div>");
     } else {
+        // Public decks each commander leads (Browse's listing), for a line under its name.
+        let decks = crate::sharing::browse::commander_counts(&st.pool).await?;
         body.push_str("<div class=\"public-table-wrap\"><table class=\"public-table commander-table\"><caption class=\"sr-only\">Commander ranking by observed win rate</caption><thead><tr><th scope=\"col\">Commander</th><th scope=\"col\">Combined win rate</th><th scope=\"col\">Games<small>Source details</small></th></tr></thead><tbody>");
         for (rank, c) in rows.iter().skip((current - 1) * PER_PAGE).take(PER_PAGE) {
             let thumb = c
@@ -376,7 +378,7 @@ pub(super) async fn index(
                 .map(|r| format!("{:.1}%", r * 100.0))
                 .unwrap_or_else(|| "Unavailable".into());
             write!(body, "<tr><th scope=\"row\"><span class=\"deck-link\">{thumb}<span><strong>{}</strong><span class=\"deck-meta\">{}</span>{}</span></span><small class=\"thumb-credit\">{credit}</small></th><td class=\"meta-cell\" data-label=\"Combined win rate\"><span class=\"result-value\">{rate}</span><small>{rank_label}</small></td><td data-label=\"Games\">{}</td>",
-                e(&c.name), identity(&c.color_identity), precon_links(c, &ranks), evidence_cell(c, &r.sources)).unwrap();
+                e(&c.name), identity(&c.color_identity), format!("{}{}", precon_links(c, &ranks), crate::sharing::browse::commander_link(&c.name, &decks)), evidence_cell(c, &r.sources)).unwrap();
             body.push_str("</tr>");
         }
         body.push_str("</tbody></table></div>");
