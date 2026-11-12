@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createOpIds } from "./saveOps";
+import { createOpIds, newDeckRequest } from "./saveOps";
 
 describe("op ids for creating decks", () => {
   const counter = () => {
@@ -38,5 +38,22 @@ describe("op ids for creating decks", () => {
 
   it("keeps ids apart between two imports", () => {
     expect(createOpIds()(0, "Rohan", body)).not.toBe(createOpIds()(0, "Rohan", body));
+  });
+});
+
+describe("the request that adds a deck", () => {
+  const body = { cards: [{ oracle_id: "a", qty: 1 }], prints: [], maybe: [] };
+
+  it("carries the save step's choice of who can see it", () => {
+    expect(newDeckRequest("Rohan", body, "op-1", "link")).toEqual({ name: "Rohan", cards: body.cards, prints: [], maybe: [], op_id: "op-1", visibility: "link" });
+  });
+
+  it("leaves the choice out until the account's default has loaded, so the server uses that default", () => {
+    expect(newDeckRequest("Rohan", body, "op-1", undefined)).not.toHaveProperty("visibility");
+  });
+
+  it("keeps one op id whatever the choice, so a save sent again makes one deck", () => {
+    const opIdFor = createOpIds();
+    expect(newDeckRequest("Rohan", body, opIdFor(0, "Rohan", body), "public").op_id).toBe(newDeckRequest("Rohan", body, opIdFor(0, "Rohan", body), "private").op_id);
   });
 });

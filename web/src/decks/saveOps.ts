@@ -19,3 +19,13 @@ export function createOpIds(newId: () => string = () => crypto.randomUUID()) {
     return id;
   };
 }
+
+/**
+ * The body of `POST /api/decks` for one deck of the import. The save step's choice of who can see
+ * it goes along once the account's default has loaded; without it the server uses that default.
+ * The choice is not part of the op id: a save sent again after the choice changed names the deck
+ * already made rather than making a second one.
+ */
+export function newDeckRequest<B extends { cards: unknown; prints: unknown; maybe: unknown[] }>(name: string, body: B, opId: string, visibility: string | undefined) {
+  return { name, cards: body.cards, prints: body.prints, maybe: body.maybe, op_id: opId, ...(visibility ? { visibility } : {}) };
+}
