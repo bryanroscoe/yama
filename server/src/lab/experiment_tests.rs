@@ -85,6 +85,9 @@ impl Simulator for FakeSim {
     }
 }
 
+/// The seed the tests that assert a simulated verdict create their run with (`test_seed`).
+const VERDICT_SEED: u64 = 4;
+
 /// For cancel: no game of any experiment is playing.
 fn idle(_: &str) -> bool {
     false
@@ -626,7 +629,11 @@ async fn limits_per_user_and_retried_creates() {
 async fn the_worker_plays_both_lists_on_the_same_pods_and_summarizes() {
     let pool = fixture().await;
     let sim = FakeSim::new();
+    // A named seed, so the verdict below is the same every run: of its 100 pods the fake sim
+    // gives the changed list alone 21 (`FakeSim::play`, pod seed % 10 of 2 or 3).
+    super::experiments::test_seed::set(VERDICT_SEED);
     let d = create(&pool, &user("bryan", false), swap_req(200), sim.as_ref()).await.unwrap();
+    assert_eq!(d.seed, VERDICT_SEED);
     let worker = LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone()));
     worker.drain().await;
     let played = sim.played();
@@ -1882,9 +1889,15 @@ async fn both_engines_play_every_pod_and_their_results_stay_apart() {
     let pool = fixture().await;
     let sim = FakeSim::new();
     let f = FakeForge::new(&[]);
+    // A named seed, so the verdicts below are the same every run: of its 50 pods the fake sim
+    // gives the changed list alone 11, which reads as better. With a random seed 3 or fewer came
+    // up about once in 175 runs, the interval's low end rounded to 0, and Phase's verdict was
+    // "can't tell" (stream K's CI, 12 Nov 2026).
+    super::experiments::test_seed::set(VERDICT_SEED);
     let d = create_with(&pool, &user("bryan", false), with_engine(swap_req(100), "both"), sim.as_ref(), &crate::config::LabQuota::default(), &forge_access(&f))
         .await
         .unwrap();
+    assert_eq!(d.seed, VERDICT_SEED);
     assert_eq!(d.item.progress.total, 200);
     assert_eq!(d.item.label.engine, format!("{ENGINE}, forge 9.9"));
     // Each phase game has a Forge twin: the same seed and seats, its own id, after every phase game.
@@ -1922,8 +1935,9 @@ async fn both_engines_play_every_pod_and_their_results_stay_apart() {
     assert!(ps.builds.iter().all(|b| b.build.engine == ENGINE));
     assert!(fs.builds.iter().all(|b| b.build.engine == "forge 9.9"));
     // Phase says better (the fake sim favours the change); the fake Forge sees no difference.
-    assert_eq!(ps.verdict.kind, VerdictKind::Better);
-    assert_eq!(fs.verdict.kind, VerdictKind::Unclear);
+    assert_eq!((ps.paired.variant_only, ps.paired.base_only), (11, 0), "the pods this seed deals");
+    assert_eq!(ps.verdict.kind, VerdictKind::Better, "{}", ps.verdict.text);
+    assert_eq!(fs.verdict.kind, VerdictKind::Unclear, "{}", fs.verdict.text);
     let a = done.item.agreement.unwrap();
     assert_ne!(a.kind, super::stats::AgreementKind::Waiting);
     assert!(done.item.label.engine.contains("forge 9.9") && done.item.label.engine.contains(ENGINE));
