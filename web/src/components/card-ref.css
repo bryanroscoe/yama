@@ -1,11 +1,11 @@
 .card-ref { display: inline; padding: 0; min-height: 0; border: 0; border-radius: 0; background: none; color: inherit; font: inherit; line-height: inherit; text-align: inherit; cursor: pointer; text-decoration: underline; text-decoration-color: var(--dim); text-decoration-style: dotted; text-underline-offset: .18em; }
 .card-ref:hover,.card-ref:focus-visible { color: var(--text); text-decoration-style: solid; outline-offset: 4px; }
 .card-hover { display: inline; }
-.card-ref-preview { position: fixed; z-index: 2200; padding: 0; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--text); box-shadow: 0 14px 60px #0009; overflow: auto; pointer-events: none; }
+.card-ref-preview { position: fixed; z-index: var(--z-preview); padding: 0; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--text); box-shadow: 0 14px 60px #0009; overflow: auto; pointer-events: none; }
 .card-ref-preview.is-pinned { pointer-events: auto; }
 .card-ref-preview > img { display: block; width: 100%; height: auto; border-radius: 13px; }
-.card-ref-fallback { padding: 20px; font-size: .9rem; white-space: pre-line; }
+.card-ref-fallback { padding: 20px; font-size: var(--t-label); white-space: pre-line; }
 .card-ref-close { position: sticky; top: 0; display: block; margin-left: auto; min-height: 34px; background: var(--surface); color: var(--text); }
-.card-ref-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; font-size: .85rem; }
+.card-ref-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; font-size: var(--t-label); }
 .card-ref-thumb { display: inline-block; vertical-align: middle; width: 42px; border-radius: 3px; margin-right: 8px; }
-@media (max-width: 600px) { .card-ref-preview.is-pinned { left: 50% !important; top: 50% !important; transform: translate(-50%,-50%); max-height: calc(100dvh - 24px) !important; width: min(320px,calc(100vw - 24px)) !important; } }
+@media (max-width: 599px) { .card-ref-preview.is-pinned { left: 50% !important; top: 50% !important; transform: translate(-50%,-50%); max-height: calc(100dvh - 24px) !important; width: min(320px,calc(100vw - 24px)) !important; } }

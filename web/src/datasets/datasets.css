@@ -2,24 +2,24 @@
 .datasets-page p, .datasets-page code, .datasets-page h2, .datasets-page h3 { overflow-wrap: anywhere; }
 /* Inside the Lab (lab.css sets .lab h2 and .lab section): these keep their own sizes and spacing. */
 .lab .datasets-page h2 { font-size: 1.7rem; }
-.datasets-page h3 { font-size: 1.15rem; margin: 0; }
-.datasets-page pre { max-height: 26rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .8rem; }
+.datasets-page h3 { font-size: var(--t-18); margin: 0; }
+.datasets-page pre { max-height: 26rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--t-sm); }
 .dataset-card, .dataset-record, .lab section.dataset-card { padding: 1.2rem; border: 1px solid var(--line); border-radius: var(--r, 12px); background: var(--surface); margin: 1rem 0; }
 .dataset-counts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .7rem; }
 .dataset-counts a { padding: .7rem; border: 1px solid var(--line); border-radius: 8px; color: var(--text); text-decoration: none; }
-.dataset-counts b { display: block; font-size: 1.4rem; margin-top: .3rem; }
+.dataset-counts b { display: block; font-size: var(--t-22); margin-top: .3rem; }
 .dataset-actions, .dataset-record-head { display: flex; flex-wrap: wrap; gap: .7rem; align-items: center; margin-block: 1rem; }
 .dataset-record-head { justify-content: space-between; margin-top: 0; }
 .dataset-filters, .dataset-upload { display: flex; flex-wrap: wrap; gap: .8rem; align-items: end; margin-block: 1.4rem; }
 .dataset-filters label, .dataset-upload label { display: grid; gap: .4rem; flex: 1; min-width: min(100%, 230px); }
 .dataset-filters input, .dataset-filters select, .dataset-upload input { width: 100%; min-width: 0; }
 .dataset-value { font-size: 1.8rem; margin-block: .5rem; font-variant-numeric: tabular-nums; }
-.dataset-value span { display: block; font-size: .9rem; color: var(--dim); }
-.dataset-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .5rem 1rem; font-size: .88rem; }
+.dataset-value span { display: block; font-size: var(--t-label); color: var(--dim); }
+.dataset-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .5rem 1rem; font-size: var(--t-label); }
 .dataset-facts dt { color: var(--dim); }
 .dataset-facts dd { margin: 0; }
 .dataset-monthly, .lab section.dataset-monthly { margin-block: 1.8rem; }
-@media (max-width: 700px) { .dataset-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); } .dataset-facts { grid-template-columns: 1fr; gap: .3rem; } }
+@media (max-width: 899px) { .dataset-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); } .dataset-facts { grid-template-columns: 1fr; gap: .3rem; } }
 .dataset-toggle { display: flex; gap: .5rem; align-items: center; min-height: var(--target); margin-block: .6rem; }
 /* The global input rule is width 100%: a checkbox took the row and pushed its words to the edge. */
 .dataset-toggle input { flex: none; width: 20px; height: 20px; min-height: 0; padding: 0; }

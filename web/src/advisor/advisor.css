@@ -328,7 +328,7 @@
   font: inherit;
   margin: 0;
 }
-@media (max-width: 650px) {
+@media (max-width: 899px) {
   .proposal-card-columns {
     grid-template-columns: minmax(0, 1fr);
   }

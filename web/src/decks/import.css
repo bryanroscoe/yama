@@ -4,11 +4,11 @@
 .import-page h2 {
   font-family: var(--display);
   font-weight: 700;
-  font-size: 1.75rem;
+  font-size: var(--t-28);
   margin: 0 0 8px;
 }
 .import-page h3 {
-  font-size: 0.95rem;
+  font-size: var(--t-15);
   margin: 0 0 6px;
 }
 .import-grid {
@@ -78,12 +78,12 @@
 }
 .import-drop-label {
   font-weight: 700;
-  font-size: 0.9rem;
+  font-size: var(--t-label);
 }
 .import-drop textarea {
   min-height: 220px;
   font-family: var(--mono, ui-monospace, monospace);
-  font-size: 0.9rem;
+  font-size: var(--t-label);
   line-height: 1.45;
 }
 .import-drop.dragging textarea {
@@ -127,7 +127,7 @@
 .import-count {
   font-family: var(--display);
   font-weight: 800;
-  font-size: 2.75rem;
+  font-size: var(--t-big);
   line-height: 1;
 }
 .import-commander {
@@ -148,7 +148,7 @@
   border-radius: 4.75% / 3.4%;
 }
 .import-cmdr figcaption {
-  font-size: 0.85rem;
+  font-size: var(--t-label);
   margin-top: 4px;
 }
 .linkish {
@@ -179,7 +179,7 @@
   border: 2px solid transparent;
   color: var(--text);
   text-align: left;
-  font-size: 0.8rem;
+  font-size: var(--t-sm);
 }
 .import-pick.active {
   border-color: var(--text);
@@ -220,7 +220,7 @@
   display: grid;
   gap: 4px;
   color: var(--warn);
-  font-size: 0.95rem;
+  font-size: var(--t-15);
 }
 .import-problems li::before {
   content: "";

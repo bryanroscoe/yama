@@ -55,7 +55,7 @@
 }
 .combo-list {
   position: absolute;
-  z-index: 30;
+  z-index: var(--z-popover);
   left: 0;
   right: 0;
   top: calc(100% + 4px);
@@ -182,7 +182,7 @@ span.combo-toggle {
 .picker {
   position: fixed;
   /* Over the seat sheet and the admin "View as" banner (70). */
-  z-index: 80;
+  z-index: var(--z-picker);
   inset: 0;
   display: flex;
   flex-direction: column;

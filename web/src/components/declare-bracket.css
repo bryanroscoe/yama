@@ -5,7 +5,7 @@
   gap: 6px;
 }
 .declare-bracket-label {
-  font-size: 0.875rem;
+  font-size: var(--t-label);
   font-weight: 700;
 }
 .declare-bracket-choices {

@@ -289,7 +289,7 @@
   font-weight: 700;
 }
 
-@media (max-width: 520px) {
+@media (max-width: 599px) {
   .rt-games {
     grid-template-columns: 1fr;
   }

@@ -72,7 +72,7 @@
   margin: 0;
   font-family: var(--display);
   font-weight: 700;
-  font-size: 1.75rem;
+  font-size: var(--t-28);
   line-height: 1;
 }
 .plans-get-card {
@@ -126,7 +126,7 @@
 .plans-tile-name {
   font-family: var(--display);
   font-weight: 800;
-  font-size: 1.75rem;
+  font-size: var(--t-28);
   line-height: 1;
   color: var(--on-art);
 }
@@ -565,7 +565,7 @@ button.link-button:hover {
   margin: 8px 0;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 899px) {
   .plans-side {
     position: static;
   }

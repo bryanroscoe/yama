@@ -203,7 +203,7 @@ fieldset.seat.seat-card2 {
   box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.3);
 }
 .seat-credit {
-  font-size: 0.75rem;
+  font-size: var(--t-12);
   font-weight: 400;
   color: var(--dim);
 }
@@ -254,13 +254,13 @@ fieldset.seat.seat-card2 {
   min-width: 0;
 }
 .seat-row-n {
-  font-size: 0.75rem;
+  font-size: var(--t-12);
   color: var(--on-art-dim);
 }
 .seat-row-name {
   font-family: var(--display);
   font-weight: 800;
-  font-size: 32px;
+  font-size: var(--t-xl);
   line-height: 1;
   text-shadow: var(--art-shadow);
 }
@@ -293,7 +293,7 @@ fieldset.seat.seat-card2 {
 .new-game2 .ng-start {
   width: 100%;
   min-height: 56px;
-  font-size: 1.125rem;
+  font-size: var(--t-18);
 }
 
 /* ── recent games ───────────────────────────────────────────────────────── */
@@ -436,7 +436,7 @@ fieldset.seat.seat-card2 {
     align-items: end;
   }
   .recent-games .rg-head h2 {
-    font-size: 36px;
+    font-size: var(--t-36);
     line-height: 1;
   }
   .recent-games .rg-log {
@@ -518,7 +518,7 @@ fieldset.seat.seat-card2 {
   gap: 8px;
   font-family: var(--display);
   font-weight: 800;
-  font-size: 1.75rem;
+  font-size: var(--t-28);
   text-shadow: var(--art-shadow);
 }
 .ip-name .pip {
@@ -536,7 +536,7 @@ fieldset.seat.seat-card2 {
 .ip-life {
   font-family: var(--display);
   font-weight: 700;
-  font-size: 2.75rem;
+  font-size: var(--t-big);
   line-height: 1;
   text-shadow: var(--art-shadow);
 }
@@ -708,7 +708,7 @@ a.rg-row:focus-visible {
   padding-top: 2px;
 }
 /* On a phone the art sits above the title, so the title and its facts get the full width. */
-@media (max-width: 520px) {
+@media (max-width: 599px) {
   .gd-head {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -788,7 +788,7 @@ a.rg-row:focus-visible {
   flex: 1 1 18rem;
 }
 /* Phones: the counter's setup starts on the first screen, with the way in beside the note. */
-@media (max-width: 520px) {
+@media (max-width: 599px) {
   .guest-banner:has(> .button) {
     flex-wrap: nowrap;
     margin-bottom: 1rem;
@@ -876,7 +876,7 @@ a.rg-row:focus-visible {
 }
 .who-check {
   flex: none;
-  font-size: 14px;
+  font-size: var(--t-label);
 }
 .new-game2 .ng-phone {
   gap: 20px;
@@ -904,7 +904,7 @@ a.rg-row:focus-visible {
 .new-game2 .seat-row-name {
   overflow-wrap: anywhere;
   line-height: 1.15;
-  font-size: 28px;
+  font-size: var(--t-28);
 }
 .new-game2 .seat-row-art.art-panel {
   min-height: 104px;
@@ -925,7 +925,7 @@ a.rg-row:focus-visible {
 .new-game2 .ng-footer .ng-start {
   width: auto;
   min-width: 180px;
-  font-size: 1rem;
+  font-size: var(--t-base);
 }
 @media (max-width: 599px) {
   .ng-settings {
