@@ -40,6 +40,10 @@ links and sharing settings. Precons and Commanders stay in the same navigation; 
 stays with connected apps. A shared deck or collection never shows account details, prices paid,
 notes, containers, proxies, planner plans or games.
 
+Adding a deck asks who can see it (Public, Link only or Private) on the save step. The choice
+starts as the account's default and is remembered as that default for the next deck; each deck's
+Share button changes it afterwards.
+
 Yama moved to [yama.ing](https://yama.ing) on 28 October 2026. Anyone still on the old address
 should sync pending changes there before signing in at the new one; installed apps and MCP
 connectors need the new URL.

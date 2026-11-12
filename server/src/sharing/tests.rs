@@ -633,6 +633,76 @@ async fn handles_and_defaults() {
     assert!(list.as_array().unwrap().iter().all(|d| d["visibility"] == "public" && d["share_token"].is_string()));
 }
 
+/// The save step's choice (Public, Link only, Private) sets the new deck's visibility and is
+/// remembered as what the account's next decks start as.
+#[tokio::test]
+async fn the_save_steps_choice_sets_the_deck_and_is_remembered() {
+    let (app, pool) = app().await;
+    let (bryan, bt) = user(&pool, "bryan@example.com").await;
+    let (sam, st) = user(&pool, "sam@example.com").await;
+    let vis = |id: String| {
+        let pool = pool.clone();
+        async move { sqlx::query_scalar::<_, String>("SELECT visibility FROM decks WHERE id = ?").bind(id).fetch_one(&pool).await.unwrap() }
+    };
+    let default_of = |user: String| {
+        let pool = pool.clone();
+        async move { sqlx::query_scalar::<_, String>("SELECT new_deck_visibility FROM users WHERE id = ?").bind(user).fetch_one(&pool).await.unwrap() }
+    };
+    let make = |name: &'static str, extra: serde_json::Value| {
+        let (app, bt) = (app.clone(), bt.clone());
+        async move {
+            let mut body = json!({ "name": name, "cards": [] });
+            body.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            send(&app, Method::POST, "/api/decks", Some(&bt), Some(body)).await
+        }
+    };
+
+    // No choice sent: the account's default, which stays what it was.
+    let (s, plain) = make("Plain", json!({})).await;
+    assert_eq!(s, StatusCode::OK, "{plain}");
+    assert_eq!(vis(plain["id"].as_str().unwrap().into()).await, "private");
+    assert_eq!(default_of(bryan.clone()).await, "private");
+
+    // A choice: that deck gets it, with a link of its own, and the next deck without a choice follows it.
+    let (s, linked) = make("Linked", json!({ "visibility": "link" })).await;
+    assert_eq!(s, StatusCode::OK, "{linked}");
+    let linked = linked["id"].as_str().unwrap().to_string();
+    assert_eq!(vis(linked.clone()).await, "link");
+    assert!(super::valid_token(&token_of(&pool, &linked).await));
+    assert_eq!(default_of(bryan.clone()).await, "link");
+    let (_, next) = make("Next", json!({})).await;
+    assert_eq!(vis(next["id"].as_str().unwrap().into()).await, "link");
+    let (_, v) = send(&app, Method::GET, "/api/me/sharing", Some(&bt), None).await;
+    assert_eq!(v["new_deck_visibility"], "link");
+
+    // Choosing Private again is remembered too, and earlier decks keep what they were saved as.
+    let (_, hidden) = make("Hidden", json!({ "visibility": "private" })).await;
+    assert_eq!(vis(hidden["id"].as_str().unwrap().into()).await, "private");
+    assert_eq!(default_of(bryan.clone()).await, "private");
+    assert_eq!(vis(linked.clone()).await, "link");
+
+    // Anything else is refused, and makes no deck and changes no default.
+    let (s, _) = make("Wrong", json!({ "visibility": "everyone" })).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let wrong: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM decks WHERE name = 'Wrong'").fetch_one(&pool).await.unwrap();
+    assert_eq!((wrong, default_of(bryan.clone()).await.as_str()), (0, "private"));
+
+    // A request sent again makes one deck, even when the choice changed in between: it names
+    // the deck already made, as it was saved, and changes nothing.
+    let (_, first) = make("Once", json!({ "visibility": "public", "op_id": "save-1" })).await;
+    let (s, again) = make("Once", json!({ "visibility": "link", "op_id": "save-1" })).await;
+    assert_eq!((s, &again["id"]), (StatusCode::OK, &first["id"]));
+    assert_eq!(vis(first["id"].as_str().unwrap().into()).await, "public");
+    assert_eq!(default_of(bryan.clone()).await, "public");
+    let once: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM decks WHERE name = 'Once'").fetch_one(&pool).await.unwrap();
+    assert_eq!(once, 1);
+
+    // One account's choice is its own: another account's default and decks are untouched.
+    assert_eq!(default_of(sam.clone()).await, "private");
+    let (_, theirs) = send(&app, Method::POST, "/api/decks", Some(&st), Some(json!({ "name": "Sam's", "cards": [] }))).await;
+    assert_eq!(vis(theirs["id"].as_str().unwrap().into()).await, "private");
+}
+
 #[tokio::test]
 async fn configurations_group_one_level_deep() {
     let (app, pool) = app().await;

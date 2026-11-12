@@ -314,6 +314,15 @@
 .import-mode {
   justify-self: start;
 }
+/* Who can see the new deck: the label, the three choices, and one line on what the choice means. */
+.visibility-choice {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+}
+.visibility-choice-label {
+  font-weight: 700;
+}
 .import-save-row {
   display: flex;
   flex-wrap: wrap;

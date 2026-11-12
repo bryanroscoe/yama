@@ -452,6 +452,11 @@ struct NewDeck {
     /// deck failed) makes one deck (`applied_ops`). Without it every request makes a deck.
     #[serde(default)]
     op_id: Option<String>,
+    /// Who can see the new deck (private, link or public), as chosen on the save step. The
+    /// choice is remembered: it becomes what the account's next decks start as. Without it the
+    /// deck starts as the account's default.
+    #[serde(default)]
+    visibility: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -468,6 +473,9 @@ async fn create_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser,
     if op_id.is_some_and(|op| op.trim().is_empty() || op.len() > 100) {
         return Err(AppError::bad("op_id can't be blank or longer than 100 characters"));
     }
+    // Not part of the request's fingerprint below: an op sent again after the choice changed
+    // names the deck it already made (as it was saved) instead of making a second one.
+    let chosen = body.visibility.as_deref().map(crate::sharing::visibility).transpose()?;
     // What this request asks for, as it was sent: the same request has the same fingerprint
     // whatever card data has changed since, and an op id sent again for another deck (other
     // rows, other text, other printings) is refused rather than answered with the first one.
@@ -516,6 +524,10 @@ async fn create_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser,
         && let Some(done) = replayed(&mut tx, &user.id, op, &asked).await?
     {
         return Ok(Json(done));
+    }
+    // The save step's choice becomes the account's default first, so the deck starts as it.
+    if let Some(v) = chosen {
+        sqlx::query("UPDATE users SET new_deck_visibility = ? WHERE id = ?").bind(v).bind(&user.id).execute(&mut *tx).await?;
     }
     let id = create_deck_in(&mut tx, &user.id, &name, folder.as_deref(), &cards, "created").await?;
     if !maybe.is_empty() {

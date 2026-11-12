@@ -3,7 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { GROUP_ORDER, groupOf } from "@yama/core";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigate, useSearchParams } from "react-router";
-import { api, type DeckSummary, type DeckView, type PreconList, type PublicDeck } from "../api";
+import { api, type DeckSummary, type DeckView, type PreconList, type PublicDeck, type Sharing, type Visibility } from "../api";
+import { useMe } from "../auth";
 import { AreaHead } from "../components/DeckTabs";
 import { hasDeckNamed } from "../components/calendar";
 import { ActionBar, Button, CardImage, ErrorText, Field, Loading, Pips, Segmented } from "../components/ui";
@@ -22,9 +23,10 @@ import {
 } from "./importLogic";
 import { CommanderPicker, GuideTabs, LinkNote, Skipped, UnknownLines } from "./ImportParts";
 import { UnsavedPrompt, useUnsavedChanges } from "../unsaved";
-import { createOpIds } from "./saveOps";
+import { createOpIds, newDeckRequest } from "./saveOps";
 import { ask } from "../components/confirm";
 import { ACCEPT, replaceQuestion, useListImport } from "./useListImport";
+import { VisibilityChoice } from "./VisibilityChoice";
 import "./import.css";
 
 /**
@@ -175,6 +177,8 @@ function ImportEditor() {
           decks={decks.data ?? []}
           formatLabel={preview?.format_label ?? preview?.link?.site_name ?? null}
           onSaved={(id) => {
+            // The save step's choice is now the account's default (Sharing shows it).
+            void qc.invalidateQueries({ queryKey: ["sharing"] });
             void qc.invalidateQueries({ queryKey: ["decks"] });
             void qc.invalidateQueries({ queryKey: ["deck", id] });
             // The deck page then offers to add the cards to the collection (CollectSheet).
@@ -182,6 +186,7 @@ function ImportEditor() {
             navigate(`/decks/${id}?collect=1`, { replace: !!precon });
           }}
           onSavedMany={() => {
+            void qc.invalidateQueries({ queryKey: ["sharing"] });
             void qc.invalidateQueries({ queryKey: ["decks"] });
             guard.allow();
             navigate("/decks");
@@ -364,6 +369,13 @@ function SaveBar({
 }) {
   const c = checks(draft);
   const [mode, setMode] = useState<"new" | "update">("new");
+  // Who can see a new deck: the account's default until the person picks here; what they pick
+  // goes with the save and is remembered. Until the default has loaded nothing is sent, and the
+  // server uses the default itself.
+  const userId = useMe().data?.id;
+  const sharing = useQuery({ queryKey: ["sharing", userId], queryFn: ({ signal }) => api<Sharing>("/api/me/sharing", { signal }), enabled: !!userId });
+  const [picked, setPicked] = useState<Visibility | null>(null);
+  const visibility = picked ?? sharing.data?.new_deck_visibility;
   const current = useQuery({
     queryKey: ["deck", target],
     queryFn: ({ signal }) => api<DeckView>(`/api/decks/${target}`, { signal }),
@@ -374,7 +386,7 @@ function SaveBar({
   const create = (d: Draft) => {
     const b = toSave(d);
     const name = d.name.trim();
-    return api<{ id: string }>("/api/decks", { method: "POST", json: { name, cards: b.cards, prints: b.prints, maybe: b.maybe, op_id: opIdFor(drafts.indexOf(d), name, b) } });
+    return api<{ id: string }>("/api/decks", { method: "POST", json: newDeckRequest(name, b, opIdFor(drafts.indexOf(d), name, b), visibility) });
   };
   const save = useMutation({
     mutationFn: async () => {
@@ -439,6 +451,7 @@ function SaveBar({
           </label>
         </div>
       )}
+      {mode === "new" && visibility && <VisibilityChoice value={visibility} onChange={setPicked} disabled={save.isPending || saveAll.isPending} />}
       <ErrorText error={save.error ?? saveAll.error} />
       <div className="import-save-row">
         {mode === "update" ? (
