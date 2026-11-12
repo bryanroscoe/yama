@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sourceCards, portfolioRows, sourceCarts, knownStockChoices, sourceSnapshot, allChoices, nearMint, offerRows, offerId, uncountedExtras } from "./sourcing-model";
+import { sourceCards, portfolioRows, sourceCarts, knownStockChoices, sourceSnapshot, allChoices, nearMint, offerRows, offerId, uncountedExtras, cardListText } from "./sourcing-model";
 import type { ResearchDocument } from "../research/api";
 
 const offer = { store:"Mothership",price:0.5,qty:1,condition:"Near Mint",url:"https://mothershipatx.com/products/ring",variant_id:"123",checked_at:"2026-11-10",qualifies:true };
@@ -184,4 +184,9 @@ it("does not exhaust demand on URL aliases for the same stock",()=>{
 it("keeps quantity and cached price observation dates separate",()=>{
  const card=sourceCards([{...raw[0]!,offers:[{...offer,checked_at:"2026-11-01",quantity_checked_at:"2026-11-11"}]}])[0]!;
  expect(card.offers[0]!.checked_at).toBe("2026-11-01");expect(card.offers[0]!.quantity_checked_at).toBe("2026-11-11");
+});
+
+it("writes the wanted cards as quantity-name lines for other sites",()=>{
+ const rows=sourceCards([{name:"Sol Ring",uses:[use("a","a"),use("b","b")],offers:[]},{name:"Arcane Signet",uses:[use("c","c")],offers:[offer]},{name:"Spare",uses:[],offers:[offer]}]);
+ expect(cardListText(rows)).toBe("1 Arcane Signet\n2 Sol Ring");
 });

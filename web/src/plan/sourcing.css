@@ -22,3 +22,4 @@
 .source-cap{display:flex;flex-wrap:wrap;align-items:end;gap:.5rem 1rem;border-bottom:1px solid var(--line);padding:.75rem 0}.source-cap>label{display:grid;gap:.25rem;font-size:var(--t-label);font-weight:600}.source-cap input{width:9rem;min-width:0}.source-cap>.small,.source-cap>details,.source-cap>p{flex-basis:100%}.source-cap summary{font-size:var(--t-label);cursor:pointer}
 
 .source-filter-options{display:flex;flex-wrap:wrap;gap:.5rem 1rem;grid-column:1/-1;font-size:var(--t-label)}.sourcing-page .source-filter-options label{min-height:32px;margin:0}
+.source-list-export{border-bottom:1px solid var(--line);padding:.5rem 0}.source-list-export textarea{display:block;width:100%;box-sizing:border-box;margin-top:.75rem;font:inherit;font-family:var(--mono,ui-monospace,monospace)}

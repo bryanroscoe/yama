@@ -3,10 +3,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router";
 import { CardRef } from "../components/CardRef";
+import { CopyButton } from "../components/CopyButton";
 import { Button, ButtonLink, CheckRow, ErrorText, Field, Loading } from "../components/ui";
 import { report, reports, safeUrl, type ResearchBundle } from "../research/api";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
-import { allChoices, choicesFor, offerRows, offerId, optionalUse, portfolioRows, sourceSnapshot, sourceCarts, uncountedExtras, uncountedSku, type SourceChoice } from "./sourcing-model";
+import { allChoices, cardListText, choicesFor, offerRows, offerId, optionalUse, portfolioRows, sourceSnapshot, sourceCarts, uncountedExtras, uncountedSku, type SourceChoice } from "./sourcing-model";
 import { localBuyRule, rulesAt, MAX_RULE_USD, shoppingRulesProblems, type RuleSet } from "@yama/core/plan";
 import { fetchBundle, saveShoppingRules, storeCatalogs, checkStores, storeSnapshots } from "./api";
 import { capDraft, pricedRows, readCap } from "./source-pricing";
@@ -77,9 +78,11 @@ export function Portfolio({ bundle }: { bundle: ResearchBundle }) {
   const [condition, setCondition] = useState("nm");
   const [onlyOffers, setOnlyOffers] = useState(true);
   const [recordedStockOnly, setRecordedStockOnly] = useState(false);
+  const [preferFoil, setPreferFoil] = useState(false);
+  const hasFoil = useMemo(() => cards.some(c => c.offers.some(o => o.foil_alternative)), [cards]);
   const [choices, setChoices] = useState<Record<string, SourceChoice[]>>({});
   const portfolio = useMemo(() => portfolioRows(cards, doc, decks, bracket, scope), [cards, doc, decks, bracket, scope]);
-  const rows = offerRows(pricedRows(portfolio,draft.local_buy,problems.length === 0),condition,store,recordedStockOnly).filter(c => c.name.toLowerCase().includes(search.toLowerCase()));
+  const rows = offerRows(pricedRows(portfolio,draft.local_buy,problems.length === 0,preferFoil).map(c => preferFoil ? c : {...c, offers: c.offers.filter(o => !o.foil_alternative)}),condition,store,recordedStockOnly).filter(c => c.name.toLowerCase().includes(search.toLowerCase()));
   const visible = rows.filter(c => !onlyOffers || c.offers.some(o => o.qualifies && o.qty !== 0 && o.price != null));
   const stores = view.b.stores.filter(s => !s.retired && s.kind !== "printer");
   const cartTemplates = new Map<string,string>();
@@ -94,6 +97,8 @@ export function Portfolio({ bundle }: { bundle: ResearchBundle }) {
   // A listing without a count was in stock when checked: one copy is evidenced, any more are not.
   const extras = uncountedExtras(carts), unconfirmed = extras.total;
   const copies = visible.flatMap(c => c.uses), optional = copies.filter(optionalUse).length;
+  // Every wanted card under the deck, bracket, scope and name filters, whatever any store has.
+  const wantedList = cardListText(portfolio.filter(c => c.name.toLowerCase().includes(search.toLowerCase())));
   const change = (name: string, url: string, qty: number) => setChoices(c => ({ ...c, [name]: [...choicesFor(c,name).filter(o => o.offer !== url), { offer: url, qty }] }));
   const dates = [...new Set(cards.flatMap(c => c.offers.map(o => o.checked_at).filter(Boolean)))].sort();
   if (!cards.some(c => c.uses.length)) return <p>This report has no portfolio source rows. Ask your assistant for a <code>local_sources</code> snapshot, or use the active plan store trip.</p>;
@@ -124,15 +129,16 @@ export function Portfolio({ bundle }: { bundle: ResearchBundle }) {
       <Field label="Condition"><select value={condition} onChange={e => setCondition(e.target.value)}><option value="nm">Near Mint only</option><option value="any">Any saved condition (prefer NM)</option></select></Field>
       <Field label="Store"><select value={store} onChange={e => setStore(e.target.value)}><option value="">All stores</option>{stores.map(s => <option key={s.key}>{s.name}</option>)}</select></Field>
       <Field label="Find a card"><input type="search" value={search} onChange={e => setSearch(e.target.value)} /></Field>
-      <div className="source-filter-options"><CheckRow className="source-check" checked={onlyOffers} onChange={e => setOnlyOffers(e.target.checked)}>Within buy rules only</CheckRow><CheckRow className="source-check" checked={recordedStockOnly} onChange={e => setRecordedStockOnly(e.target.checked)}>Exclude unknown stock counts</CheckRow></div>
+      <div className="source-filter-options"><CheckRow className="source-check" checked={onlyOffers} onChange={e => setOnlyOffers(e.target.checked)}>Within buy rules only</CheckRow><CheckRow className="source-check" checked={recordedStockOnly} onChange={e => setRecordedStockOnly(e.target.checked)}>Exclude unknown stock counts</CheckRow>{hasFoil && <CheckRow className="source-check" checked={preferFoil} onChange={e => setPreferFoil(e.target.checked)}>Prefer foil at about the same price</CheckRow>}</div>
     </div>
     <details className="source-deck-picker"><summary>Decks: {count(decks.size)} of {count(recipients.size)} selected</summary><div className="source-actions"><Button onClick={() => setDecks(new Set(recipients.keys()))}>All decks</Button><Button onClick={() => setDecks(new Set())}>Clear decks</Button></div><div className="source-decks">{[...recipients].sort((a,b) => a[1].localeCompare(b[1])).map(([key,name]) => <label className="source-check" key={key}><input type="checkbox" checked={decks.has(key)} onChange={() => setDecks(prev => { const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next; })} />{name}</label>)}</div></details>
     <section className="source-selection" aria-label="Selected store carts">
-      <div className="source-actions"><Button onClick={() => setChoices(allChoices(visible))}>Add all matching cards</Button>{selectedCopies > 0 && <Button onClick={() => setChoices({})}>Clear selection</Button>}</div>
+      <div className="source-actions"><Button onClick={() => setChoices(allChoices(visible,preferFoil))}>Add all matching cards</Button>{selectedCopies > 0 && <Button onClick={() => setChoices({})}>Clear selection</Button>}</div>
       <p><b>{plural(selectedCopies,"selected copy","selected copies")}. {usd(carts.reduce((n,c) => n+c.total,0))} before tax.</b>{unconfirmed > 0 && <span> {plural(unconfirmed,"copy needs","copies need")} stock confirmation.</span>}</p>
-      <p className="small dim">Adds matching copies up to the saved stock counts, using other eligible printings for any remainder. A listing without a count (some stores show only in stock or sold out) adds one copy, since in stock means at least one; request more on that row and the store may reduce the quantity. Stock was read when the quote was checked and may have changed. No purchase is made.</p>
+      <p className="small dim">Adds matching copies up to the saved stock counts, using other eligible printings for any remainder. A listing without a count (some stores show only in stock or sold out) adds one copy, since in stock means at least one; request more on that row and the store may reduce the quantity. Stock was read when the quote was checked and may have changed.{hasFoil && " Prefer foil picks a foil copy first when it meets your rules and costs at most $0.25 or 10% more (whichever is larger) than the cheapest plain copy."} No purchase is made.</p>
       {carts.length > 0 && <details open><summary>Store carts and listings</summary>{carts.map(cart => <div className="source-cart" key={cart.rows[0]!.offer.url}><h3>{cart.store}: {usd(cart.total)}</h3>{cart.url && <ButtonLink href={cart.url} target="_blank" rel="noreferrer">Open filled store cart</ButtonLink>}<ul>{cart.rows.map(r => <li key={`${r.card}:${offerId(r.offer)}`}>{r.qty} × <a href={r.offer.url} target="_blank" rel="noreferrer">{r.card}</a>{r.offer.qty == null && ((extras.skus.get(uncountedSku(r.offer)) ?? 0) > 1 ? " — only 1 copy confirmed in stock" : " — in stock, count not listed")}</li>)}</ul>{!cart.url && <p>Add these on their store listing pages; this store has no filled-cart link.</p>}</div>)}<p className="small dim">Filled Shopify links replace the existing store cart. Choose pickup at checkout. This is the selected subtotal, not the cost to complete every deck.</p></details>}
     </section>
+    <details className="source-list-export"><summary>Card list for other sites</summary><p className="small dim">Every wanted card for the selected decks, brackets and cards-for filter, as “quantity name” lines for deck-list searches such as instock.cards. Store, condition and buy-rule filters don’t apply.</p><div className="source-actions"><CopyButton text={wantedList} label="Copy card list" disabled={!wantedList} /></div><textarea readOnly rows={8} value={wantedList} aria-label="Card list" onFocus={e => e.currentTarget.select()} /></details>
     <p className="small dim">{plural(Math.max(0,copies.length-selectedCopies),"matching copy not selected","matching copies not selected")}. Missing stock counts and shortages stay unresolved; a cart is not proof that every copy is available.</p>
     <p className="source-count">{plural(visible.length,"matching card")}. {plural(copies.length-optional,"copy to source","copies to source")} and {plural(optional,"optional real replacement","optional real replacements")} across selected decks. {condition === "nm" && "Only saved Near Mint offers are shown; other conditions and unrecorded NM variants are excluded."}</p>
     <div className="source-rows">{visible.map(c => {
@@ -146,7 +152,7 @@ export function Portfolio({ bundle }: { bundle: ResearchBundle }) {
           const low=peers.length ? Math.min(...peers.map(p=>p.price!)) : null;
           return <div className="source-offer" key={offerId(o)}>
             <div><a href={o.url} target="_blank" rel="noreferrer">{o.store}</a><span className="small dim">{o.title || "Printing not recorded"}. {o.condition || "Condition unknown"}.</span><span className="small dim">{o.qty == null ? "Stock count unknown: available quantity not verified" : `${o.qty} listed`}. {o.qty != null && <>Stock checked: {o.quantity_checked_at || o.checked_at ? fmtDateTime(o.quantity_checked_at || o.checked_at) : "date unknown"}. </>}Price checked: {o.checked_at ? fmtDateTime(o.checked_at) : "date unknown"}.</span></div>
-            <div className="source-prices"><b>{usd(o.price!)}</b>{!o.qualifies && <span className="small">{o.eligibility_unknown ? "Listing details need verification" : "Outside buy rules"}</span>}<span className="small">{o.market != null ? <>{exact ? "Printing market" : "Market reference"}: {o.market_source ? <a href={o.market_source} target="_blank" rel="noreferrer">{usd(o.market)}</a> : usd(o.market)}</> : "Printing market unavailable"}</span><span className="small dim">{low != null ? `Lowest saved ${o.condition || "condition unknown"}: ${usd(low)}` : "Condition low unavailable"}</span>{o.market != null && <span className="small dim">Market is not condition-specific.{o.market_checked_at ? ` Checked: ${fmtDateTime(o.market_checked_at)}.` : ""}</span>}</div>
+            <div className="source-prices"><b>{usd(o.price!)}</b>{!o.qualifies && <span className="small">{o.eligibility_unknown ? "Listing details need verification" : o.foil_block === "price" ? "Foil costs more than a plain copy" : o.foil_block === "no_plain" ? "No plain copy to compare the foil with" : "Outside buy rules"}</span>}{o.qualifies && o.foil_alternative && <span className="small">Foil at about the plain price</span>}<span className="small">{o.market != null ? <>{exact ? "Printing market" : "Market reference"}: {o.market_source ? <a href={o.market_source} target="_blank" rel="noreferrer">{usd(o.market)}</a> : usd(o.market)}</> : "Printing market unavailable"}</span><span className="small dim">{low != null ? `Lowest saved ${o.condition || "condition unknown"}: ${usd(low)}` : "Condition low unavailable"}</span>{o.market != null && <span className="small dim">Market is not condition-specific.{o.market_checked_at ? ` Checked: ${fmtDateTime(o.market_checked_at)}.` : ""}</span>}</div>
             <Field className="source-qty" label="Copies"><input disabled={!o.qualifies} aria-label={`${c.name} copies from ${o.store}`} type="number" min={0} max={Math.min(c.uses.length,o.qty ?? Infinity)} step={1} value={choicesFor(choices,c.name).find(choice => choice.offer === offerId(o))?.qty ?? 0} onChange={e=>change(c.name,offerId(o),+e.target.value)} /></Field>
           </div>;
         })}
