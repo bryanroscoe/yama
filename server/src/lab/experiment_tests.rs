@@ -1454,6 +1454,40 @@ async fn the_queue_is_capped_for_everyone_but_admins_with_a_smaller_share_for_th
     create_with(&pool, &user("other", false), swap_req(100), sim.as_ref(), &quota, &ForgeAccess::default()).await.unwrap();
 }
 
+/// Short runs keep to half of the smaller queue share, so a crowd of new accounts can't shut the
+/// power users on the standard allowance out of it; and a disabled account's waiting games, which
+/// the worker doesn't play, don't hold places.
+#[tokio::test]
+async fn short_runs_keep_to_their_part_of_the_queue() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let fa = ForgeAccess::default();
+    // 200 games may wait from the smaller allowances, 100 of them from short accounts: five runs.
+    let quota = crate::config::LabQuota { queue_games: 2_000, open_queue_games: 200, ..Default::default() };
+    let busy = |r: Result<ExperimentDetail, AppError>| matches!(r, Err(AppError::Conflict(m)) if m.contains("too many games waiting"));
+    let mut shorts = vec![];
+    for i in 0..6 {
+        let id = format!("short-{i}");
+        add_user(&pool, &id, false).await;
+        shorts.push(User { power: false, ..user(&id, false) });
+    }
+    for u in &shorts[..5] {
+        create_with(&pool, u, swap_req(20), sim.as_ref(), &quota, &fa).await.unwrap();
+    }
+    assert!(busy(create_with(&pool, &shorts[5], swap_req(20), sim.as_ref(), &quota, &fa).await), "the short accounts' part is full");
+    // A power user on the standard allowance still has the rest of the share, and then it is full.
+    let standard = add_open_user(&pool, "standard").await;
+    sqlx::query("UPDATE users SET power_user = 1 WHERE id = 'standard'").execute(&pool).await.unwrap();
+    create_with(&pool, &standard, swap_req(100), sim.as_ref(), &quota, &fa).await.unwrap();
+    let other = add_open_user(&pool, "standard-2").await;
+    sqlx::query("UPDATE users SET power_user = 1 WHERE id = 'standard-2'").execute(&pool).await.unwrap();
+    assert!(busy(create_with(&pool, &other, swap_req(100), sim.as_ref(), &quota, &fa).await));
+    // An account an admin turned off: its games wait unplayed, and no longer hold a place.
+    sqlx::query("UPDATE users SET disabled_at = 'now' WHERE id = 'short-0'").execute(&pool).await.unwrap();
+    create_with(&pool, &shorts[5], swap_req(20), sim.as_ref(), &quota, &fa).await.unwrap();
+    assert!(busy(create_with(&pool, &other, swap_req(100), sim.as_ref(), &quota, &fa).await), "the share is still full for the standard allowance");
+}
+
 #[tokio::test]
 async fn a_disabled_accounts_experiments_wait() {
     let pool = fixture().await;

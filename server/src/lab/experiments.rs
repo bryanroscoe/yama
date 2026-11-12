@@ -29,9 +29,11 @@
 //!
 //! The day's games are counted from `lab_usage`, which deleting an experiment doesn't touch, in
 //! the transaction that stores the experiment, so requests arriving together can't both pass.
-//! Games waiting or playing are capped for everyone but admins together (YAMA_LAB_QUEUE_GAMES)
-//! and, within that, for the standard and short accounts together (YAMA_LAB_OPEN_QUEUE_GAMES), so
-//! a crowd of new accounts can't fill the queue.
+//! Games waiting or playing are capped for everyone but admins together (YAMA_LAB_QUEUE_GAMES),
+//! within that for the standard and short accounts together (YAMA_LAB_OPEN_QUEUE_GAMES), and
+//! within that for the short accounts together (half of it, [`SHORT_QUEUE_SHARE`]), so a crowd of
+//! new accounts can't fill the queue or shut the standard power users out of their share. A
+//! disabled account's waiting games aren't counted (the worker doesn't play them).
 //!
 //! Sizes are checked before any expensive work: a request body of at most 256 KB, a pasted list of
 //! at most 64 KB and 300 card lines, at most 200 cards to add and cut, at most 100 copies on a line
@@ -124,6 +126,9 @@ pub const OPEN_MAX_UNFINISHED: i64 = 1;
 /// of the smallest run a power user starts.
 pub const SHORT_GAMES: u32 = 20;
 pub const SHORT_GAME_CHOICES: [u32; 1] = [SHORT_GAMES];
+/// The short accounts together may fill one part in this many of the smaller queue share
+/// (YAMA_LAB_OPEN_QUEUE_GAMES): half, so 200 games waiting by default, ten short runs.
+pub const SHORT_QUEUE_SHARE: i64 = 2;
 
 /// What an account may run (see the module docs).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2192,19 +2197,28 @@ async fn check_allowance(conn: &mut SqliteConnection, user: &User, games: u32, q
             )));
         }
     }
-    // Games waiting or playing: everyone's but admins', and those of the standard and short
-    // accounts (the SQL of `tier`: not invited, or not a power user).
-    let (all, open): (i64, i64) = sqlx::query_as(concat!(
-        "SELECT COUNT(*), COALESCE(SUM(small), 0) FROM (SELECT (",
+    // Games waiting or playing: everyone's but admins', those of the standard and short accounts
+    // (the SQL of `tier`: not invited, or not a power user), and those of the short accounts
+    // alone. A disabled account's games aren't counted: the worker doesn't play them, so they
+    // would hold places until someone cancelled them.
+    let (all, open, short): (i64, i64, i64) = sqlx::query_as(concat!(
+        "SELECT COUNT(*), COALESCE(SUM(small), 0), COALESCE(SUM(short), 0) FROM (SELECT (",
         crate::auth::limited_sql!(),
         " OR NOT ",
         crate::auth::power_sql!(),
-        ") AS small FROM lab_experiment_games g JOIN lab_experiments e ON e.id = g.experiment_id JOIN users u ON u.id = e.owner_id
-           WHERE e.status IN ('queued','running') AND g.result IS NULL AND u.is_admin = 0)"
+        ") AS small, (NOT ",
+        crate::auth::power_sql!(),
+        ") AS short FROM lab_experiment_games g JOIN lab_experiments e ON e.id = g.experiment_id JOIN users u ON u.id = e.owner_id
+           WHERE e.status IN ('queued','running') AND g.result IS NULL AND u.is_admin = 0 AND u.disabled_at IS NULL)"
     ))
     .fetch_one(&mut *conn)
     .await?;
     let busy = || AppError::Conflict("The lab has too many games waiting right now. Try again later.".into());
+    // The short accounts keep to their part of that share, so a crowd of them can't shut the
+    // power users on the standard allowance out of it.
+    if tier(user) == Tier::Short && short + games > quota.open_queue_games / SHORT_QUEUE_SHARE {
+        return Err(busy());
+    }
     if small && open + games > quota.open_queue_games {
         return Err(busy());
     }
