@@ -2,7 +2,7 @@ import { CardHover } from "../components/CardRef";
 import { UpgradeabilitySection } from "./Upgradeability";
 import { DeckPrices } from "../components/DeckPrices";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { identityName, usd, priceSource, fmtDate } from "@yama/core";
+import { count, identityName, usd, priceSource, fmtDate, shortDate } from "@yama/core";
 import { useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { usePower } from "../auth";
@@ -83,7 +83,7 @@ function PreconDetailBody({ id }: { id: string | undefined }) {
             Rank {p.playgroup.rank} of {p.playgroup.of}
             {p.playgroup.tier ? `, tier ${p.playgroup.tier}` : ""}
             {p.playgroup.win_rate_4p != null ? `, ${p.playgroup.win_rate_4p.toFixed(1)}% wins in 4-player pods` : ""}
-            {p.playgroup.games != null ? ` over ${p.playgroup.games} logged games` : ""}.
+            {p.playgroup.games != null ? ` over ${count(p.playgroup.games)} logged games` : ""}.
           </p>
           <p className="lab-note">Fetched {fmtDate(p.playgroup.fetched)}</p>
           <Details label="About real-game results"><p>
@@ -132,7 +132,7 @@ function PreconDetailBody({ id }: { id: string | undefined }) {
                     {c.qty > 1 ? `${c.qty} ` : ""}
                     <CardHover name={c.name} oracleId={c.oracle_id} image={c.image_normal}/> {partly.has(c.name) && <StatusPill tone="warn">partly in the engine</StatusPill>}
                     {!c.oracle_id && <StatusPill>unknown to Yama</StatusPill>}
-                    <span className="dim small" style={{ display: "block" }} title={priceSource(c.price_date)}>{usd(c.unit_price_usd)}{c.qty > 1 && c.unit_price_usd != null ? ` each, ${usd(c.unit_price_usd * c.qty)} total` : ""}{c.price_date ? ` (${c.price_date})` : ""}</span>
+                    <span className="dim small" style={{ display: "block" }} title={priceSource(c.price_date)}>{usd(c.unit_price_usd)}{c.qty > 1 && c.unit_price_usd != null ? ` each, ${usd(c.unit_price_usd * c.qty)} total` : ""}{shortDate(c.price_date) ? `, ${fmtDate(c.price_date)}` : ""}</span>
                   </span>
                   <ManaCost cost={c.mana_cost} />
                 </Button>
@@ -240,8 +240,8 @@ function Rating({ detail, all }: { detail: PreconDetail; all: PreconItem[] }) {
           </div>
         )}
         <div className="lab-figure">
-          <b>{r.games}</b>
-          <span>{r.games === 1 ? "Game" : "Games"}{wins != null ? ` / ${wins} wins` : ""}</span>
+          <b>{count(r.games)}</b>
+          <span>{r.games === 1 ? "Game" : "Games"}{wins != null ? ` / ${count(wins)} wins` : ""}</span>
         </div>
       </div>
       {r.flags.length > 0 && (

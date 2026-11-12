@@ -15,6 +15,7 @@ import {
   confidenceMark,
   confidenceSentence,
   reasonText,
+  runSizeText,
   splitUnjudged,
   worstConfidence,
   caveat,
@@ -453,5 +454,15 @@ describe("a reason from a stored analysis", () => {
     expect(reasonText("known phase gap: the AI stalls in phase two of combat")).toBe("Known Phase gap: the AI stalls in phase two of combat");
     expect(reasonText("it attacks on phase one")).toBe("It attacks on phase one");
     expect(reasonText("simulated on phase-rs v0.113.0")).toBe("Simulated on phase-rs v0.113.0");
+  });
+});
+
+describe("a run's size in words", () => {
+  it("writes counts with their comma, per engine when both played", () => {
+    expect(runSizeText("tournament", 8700, true)).toBe("8,700 games on each engine");
+    expect(runSizeText("compare", 8700, true)).toBe("8,700 games on each engine (4,350 pods, each played by both decks)");
+    expect(runSizeText("change", 2400, false)).toBe("2,400 games (1,200 pods, each played by both lists)");
+    expect(runSizeText("solo", 400, false)).toBe("400 games (each pod once)");
+    expect(runSizeText("versus", 1000, false, 2)).toBe("1,000 games, 1v1");
   });
 });
