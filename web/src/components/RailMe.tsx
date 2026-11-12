@@ -6,6 +6,7 @@ import { signInPath, useMe } from "../auth";
 import { useOutbox, useRejected, useSyncStatus } from "../table/store";
 import { artCredit } from "./ArtPanel";
 import { ButtonLink } from "./Button";
+import { BugLink } from "../bugs/BugButton";
 import { CardThumb } from "./CardThumb";
 
 const subscribeOnline = (onChange: () => void) => {
@@ -60,6 +61,7 @@ export function RailMe({ current = false }: { current?: boolean }) {
   const deck = decks.data?.find((d) => d.commander_image);
   return (
     <div className="rail-foot">
+      <BugLink className="rail-bug" />
       <Link to="/profile" className={`rail-me${current ? " active" : ""}`} aria-current={current ? (pathname === "/profile" ? "page" : "true") : undefined} title="You: your profile, sharing and settings">
         <span className="avatar"><CardThumb src={deck?.commander_image} eager fallback={initialsOf(name)} /></span>
         <span className="rail-me-text">

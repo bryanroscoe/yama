@@ -79,6 +79,8 @@ describe("dialogs use the shared modal layer", () => {
     "web/src/decks/DeckCheckPage.tsx",
     "web/src/decks/DeckScanPage.tsx",
     "web/src/pages/Decks.tsx",
+    // Pointing at a bug: drawn over everything, dialogs included.
+    "web/src/bugs/BugReport.tsx",
   ]);
   // The Cards tab's card page covers the results but not the rail: a page over a page, not a modal.
   const PAGE_OVER_PAGE = "web/src/pages/Cards.tsx";

@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useId, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type Ref, type RefObject } from "react";
+import { BugButton, ReportBug } from "../bugs/BugButton";
 import { Button } from "./Button";
 
 // One modal layer for the whole app: Dialog, and anything else that covers the page (the full
@@ -200,16 +201,25 @@ const DialogClose = createContext<(() => void) | null>(null);
 export function DialogHead({ children, onClose, close = true, id, headingRef }: { children: ReactNode; onClose?: () => void; close?: boolean; id?: string; headingRef?: Ref<HTMLHeadingElement> }) {
   const closeDialog = useContext(DialogClose);
   const shut = onClose ?? closeDialog;
+  const report = useContext(ReportBug);
   return (
     <div className="sheet-head dialog-head">
       <h2 id={id} ref={headingRef} tabIndex={-1}>
         {children}
       </h2>
-      {close && shut && (
+      {close && shut && (report ? (
+        <div className="dialog-head-end">
+          {/* Report a bug, for someone signed in (bugs/BugButton.tsx). */}
+          <BugButton />
+          <Button variant="quiet" className="dialog-close" onClick={shut}>
+            Close
+          </Button>
+        </div>
+      ) : (
         <Button variant="quiet" className="dialog-close" onClick={shut}>
           Close
         </Button>
-      )}
+      ))}
     </div>
   );
 }

@@ -214,7 +214,36 @@ export interface DeleteReport {
   rows_deleted: number;
 }
 
+/** A bug report (server/src/bug_reports.rs), with what the report button gathered. */
+export interface BugReport {
+  id: string;
+  created_at: string;
+  page: string;
+  message: string;
+  context: {
+    dialog?: string;
+    heading?: string;
+    selection?: { x: number; y: number; w: number; h: number; text?: string; controls?: string[]; images?: string[]; path?: string };
+    viewport?: { w: number; h: number; dpr?: number };
+    build?: string;
+    agent?: string;
+  };
+  resolved_at: string | null;
+  reporter_id: string;
+  reporter_email: string;
+  reporter_name: string;
+}
+
+export interface BugReportList {
+  reports: BugReport[];
+  open: number;
+  resolved: number;
+}
+
 export const adminApi = {
+  bugReports: (show: "open" | "resolved") => api<BugReportList>(`/api/admin/bug-reports?show=${show}`),
+  resolveBug: (id: string, resolved: boolean) => api(`/api/admin/bug-reports/${encodeURIComponent(id)}`, { method: "PATCH", json: { resolved } }),
+  deleteBug: (id: string) => api(`/api/admin/bug-reports/${encodeURIComponent(id)}`, { method: "DELETE" }),
   usage: () => api<Usage>("/api/admin/usage"),
   server: () => api<ServerInfo>("/api/admin/server"),
   perf: () => api<PerfSummary>("/api/admin/perf"),

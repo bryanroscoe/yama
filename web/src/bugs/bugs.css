@@ -1,0 +1,159 @@
+/* Report a bug (bugs/BugReport.tsx): the bug in heads, the form, and the pointer over the page. */
+
+.bug-button {
+  display: inline-grid;
+  place-items: center;
+  width: var(--target);
+  min-width: var(--target);
+  height: var(--target);
+  min-height: var(--target);
+  padding: 0;
+  color: var(--dim);
+  flex: none;
+}
+.bug-button:hover,
+.bug-button:focus-visible {
+  color: var(--text);
+}
+.bug-button svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* The form sits over whatever it was opened from, even a full-screen layer. */
+.dialog-layer:has(> .bug-sheet) > .scrim {
+  z-index: var(--z-report);
+}
+.sheet.bug-sheet {
+  z-index: var(--z-report);
+}
+.bug-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.bug-form textarea {
+  width: 100%;
+  resize: vertical;
+}
+.bug-where {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-3);
+}
+.bug-where p {
+  margin: 0;
+  flex: 1 1 14rem;
+}
+.bug-where-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 14rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.bug-note {
+  margin: 0;
+  font-size: var(--t-sm);
+}
+.dim.bug-note,
+.bug-where .dim {
+  color: var(--dim);
+}
+
+/* The screen in miniature with the box drawn on it. */
+.bug-mini {
+  position: relative;
+  width: 96px;
+  max-height: 160px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--raised);
+  overflow: hidden;
+  flex: none;
+}
+.bug-mini-box {
+  position: absolute;
+  min-width: 3px;
+  min-height: 3px;
+  border: 2px solid var(--text);
+  border-radius: 2px;
+  background: rgb(242 239 232 / 0.18);
+}
+
+/* Pointing: the page shows through; a drag draws a box, hovering outlines what a tap picks. */
+.bug-picker {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-report);
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  background: rgb(11 12 14 / 0.12);
+}
+.bug-picker:focus {
+  outline: none;
+}
+.bug-picker-box {
+  position: fixed;
+  pointer-events: none;
+  border: 2px dashed var(--text);
+  border-radius: 4px;
+  background: rgb(242 239 232 / 0.08);
+  box-shadow: 0 0 0 1px rgb(11 12 14 / 0.8);
+}
+.bug-picker-box.is-drag {
+  border-style: solid;
+}
+.bug-picker-bar {
+  position: fixed;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 50%;
+  translate: -50% 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  max-width: calc(100vw - 32px);
+  padding: 8px 8px 8px 16px;
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: var(--art-shadow);
+  cursor: default;
+}
+.bug-picker-bar p {
+  margin: 0;
+  font-size: var(--t-label);
+}
+.bug-picker-bar p:focus {
+  outline: none;
+}
+
+/* The laptop rail's "Report a bug". */
+.rail-bug {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--r-nav);
+  background: none;
+  color: var(--dim);
+  font: inherit;
+  font-size: var(--t-sm);
+  cursor: pointer;
+}
+.rail-bug:hover,
+.rail-bug:focus-visible {
+  color: var(--text);
+  background: var(--raised);
+}
+.rail-bug svg {
+  width: 18px;
+  height: 18px;
+}

@@ -370,7 +370,7 @@ was the plan; what was built is in the [README](README.md#repository-layout). Th
 section 4 is the first sketch; the current system is [above](#the-system-at-a-glance).
 
 - **The proposal, section by section:** [1. What we're building](#1-what-were-building), [2. Apps and code layout](#2-apps-and-code-layout), [3. Rules engine (Play)](#3-rules-engine-play), [4. Backend](#4-backend), [5. Offline-first data (Table, Collection, Cards)](#5-offline-first-data-table-collection-cards), [6. Scanner](#6-scanner), [7. AI opponents (Play)](#7-ai-opponents-play), [8. Table mode (life counter)](#8-table-mode-life-counter), [9. Data model (first cut)](#9-data-model-first-cut), [10. Milestones](#10-milestones), [Progress (2026-10-18)](#progress-2026-10-18), [11. Risks](#11-risks), [12. Questions for Bryan](#12-questions-for-bryan), [Sources](#sources).
-- **Repository, releases and operations:** [Repository and licence (11 November 2026)](#repository-and-licence-11-november-2026), [Open sign-up (2026-10-20)](#open-sign-up-2026-10-20), [Admin area (2026-10-22)](#admin-area-2026-10-22), [View as (2026-10-22)](#view-as-2026-10-22), [Power users and the semi-public release (2026-10-31)](#power-users-and-the-semi-public-release-2026-10-31), [More for signed-in accounts (2026-11-12)](#more-for-signed-in-accounts-2026-11-12), [Polish runs (2026-10-31)](#polish-runs-2026-10-31), [Database backups (2026-11-02)](#database-backups-2026-11-02), [Faster first load, caching and cache busting (2026-11-02)](#faster-first-load-caching-and-cache-busting-2026-11-02), [Performance and operations (2026-11-02)](#performance-and-operations-2026-11-02).
+- **Repository, releases and operations:** [Repository and licence (11 November 2026)](#repository-and-licence-11-november-2026), [Open sign-up (2026-10-20)](#open-sign-up-2026-10-20), [Admin area (2026-10-22)](#admin-area-2026-10-22), [Bug reports (12 November 2026)](#bug-reports-12-november-2026), [View as (2026-10-22)](#view-as-2026-10-22), [Power users and the semi-public release (2026-10-31)](#power-users-and-the-semi-public-release-2026-10-31), [More for signed-in accounts (2026-11-12)](#more-for-signed-in-accounts-2026-11-12), [Polish runs (2026-10-31)](#polish-runs-2026-10-31), [Database backups (2026-11-02)](#database-backups-2026-11-02), [Faster first load, caching and cache busting (2026-11-02)](#faster-first-load-caching-and-cache-busting-2026-11-02), [Performance and operations (2026-11-02)](#performance-and-operations-2026-11-02).
 - **Online play and the engine:** [How online play ended up working](#how-online-play-ended-up-working), [Watch the AIs play (2026-10-22)](#watch-the-ais-play-2026-10-22), [Drag and drop on the online board (2026-10-22)](#drag-and-drop-on-the-online-board-2026-10-22), [Board motion (2026-10-22)](#board-motion-2026-10-22), [phase's own board (2026-10-29)](#phases-own-board-2026-10-29), [Engine choice and direct restoration (2026-10-30)](#engine-choice-and-direct-restoration-2026-10-30), [PR 29 historical runtime supervision and provenance follow-up (30 October 2026)](#pr-29-historical-runtime-supervision-and-provenance-follow-up-30-october-2026), [Phase board release integration (1 November 2026)](#phase-board-release-integration-1-november-2026), [Online game startup isolation (2026-11-10)](#online-game-startup-isolation-2026-11-10), [Playing mode recovery and presentation (2026-11-10)](#playing-mode-recovery-and-presentation-2026-11-10).
 - **Lab and evidence:** [Simulation lab (2026-10-19)](#simulation-lab-2026-10-19), [Forge as a second Lab engine (2026-10-22)](#forge-as-a-second-lab-engine-2026-10-22), [Lab time-outs (2026-10-23)](#lab-time-outs-2026-10-23), [Referee: phase checked against Forge (2026-10-24)](#referee-phase-checked-against-forge-2026-10-24), [Shared-field tournaments (2026-10-26)](#shared-field-tournaments-2026-10-26), [Lab execution targets (2026-10-27)](#lab-execution-targets-2026-10-27), [Phase retry-tail progress (2026-10-28)](#phase-retry-tail-progress-2026-10-28), [Lab: off the write lock, and its cost (2026-11-02)](#lab-off-the-write-lock-and-its-cost-2026-11-02), [Historical evidence datasets (2026-10-28)](#historical-evidence-datasets-2026-10-28), [Precon evidence from datasets (2026-10-29)](#precon-evidence-from-datasets-2026-10-29), [Public precon reference (2026-10-27)](#public-precon-reference-2026-10-27), [Precon upgradeability (2026-10-27)](#precon-upgradeability-2026-10-27), [Public commander ranking (2026-11-01)](#public-commander-ranking-2026-11-01), [Precon power comparison (2026-11-09)](#precon-power-comparison-2026-11-09), [Star Trek stock catalog (2026-11-09)](#star-trek-stock-catalog-2026-11-09).
 - **Game night:** [Table and playgroup stats (2026-10-19)](#table-and-playgroup-stats-2026-10-19).
@@ -446,6 +446,30 @@ on the public repository, because a fork's pull request could rewrite a workflow
 The move happened on 11 November 2026: old main `7950d7df` became new main `a7ef2db5` with the
 same tree. `runtime/historical.json` keeps pinning old SHAs; saget's deploy checkout keeps that
 history under `refs/archive/private-main`, and local clones get it from the `archive` remote.
+
+## Bug reports (12 November 2026)
+
+Bryan asked for "a bug report button for any logged-in player on any screen", with a way to
+"select a particular part of the screen and then report a bug via a context dialog", and a little
+bug icon on practically every pop-up and page.
+
+- **Where the button is.** `DialogHead` (so every titled dialog), `PageHeader`, `AreaHead` (Decks,
+  Plans and Lab heads), the admin head, and Report a bug at the foot of the laptop rail. The
+  buttons read a context that `BugReportProvider` (App.tsx) fills only for someone signed in as
+  themselves; signed out, viewing as someone, or in a test without the provider they draw nothing,
+  and the heads keep their old markup. Full-screen pages without a head (the life counter, the
+  online board) don't carry it yet.
+- **Pointing.** Point at it swaps the form for a full-screen layer: a drag draws a box, a tap picks
+  the element under it (hovering outlines it). The box is described in words, not pixels: the text
+  whose lines show inside it, the names of controls and the alt text of pictures (card names) that
+  overlap it, and the element path that holds them. A screenshot library was left out: it would
+  copy card images and other players' names and art into our database, add weight to every page,
+  and break on cross-origin images. Dialogs make the page under them inert, which also hides it
+  from hit testing; the picker lifts `inert` only for the synchronous `elementsFromPoint` call.
+- **Storage.** `bug_reports` (migration 0083): owner, page, message, a JSON context of at most
+  16 KB, `resolved_at`. Only admins read them (`/api/admin/bug-reports`, the same 404 for anyone
+  else as the other admin routes); they are deleted with the account and the privacy policy says
+  what a report keeps. 20 reports per account per day.
 
 ## 1. What we're building
 

@@ -101,6 +101,7 @@
   --z-banner: 70; /* the viewing-as banner */
   --z-frame: 75; /* the page frame's own edge */
   --z-picker: 80; /* the full-screen picker */
+  --z-report: 85; /* the bug report form and its pointer, over any dialog or layer */
   --z-question: 90; /* "are you sure?" and "leave without saving?": over everything you can work in */
   --z-preview: 2200; /* the card preview that follows the pointer, over all of it */
 
@@ -839,6 +840,14 @@ body::before {
 .page-head h1 {
   margin: 0;
 }
+/* The page's actions and the bug (bugs/BugButton.tsx), together at the end of the row. */
+.page-head-end {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
 
 /* Phones: the wordmark, search and you above every page. It scrolls away with the page; the
    laptop rail holds all three instead. */
@@ -1377,6 +1386,12 @@ button.list-row:hover {
 }
 .dialog-head h2 {
   margin: 0;
+}
+.dialog-head-end {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
 }
 .sheet > .dialog-head {
   margin-bottom: var(--s-4);

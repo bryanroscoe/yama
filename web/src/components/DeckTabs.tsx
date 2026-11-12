@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { useContext, type ReactNode } from "react";
+import { BugButton, ReportBug } from "../bugs/BugButton";
 import { Link, NavLink } from "react-router";
 import "./deck-area.css";
 import { BackLink } from "./BackLink";
@@ -50,13 +51,20 @@ export function AreaHead({
   action?: ReactNode;
   status?: ReactNode;
 }) {
+  const report = useContext(ReportBug);
   return (
     <header className={`area-head ${index ? "is-index" : "is-sub"}${slim ? " is-slim" : ""}${!index && !back ? " no-back" : ""}`}>
       <div className="area-top">
         {back && !index && <BackLink to={back.to} label={back.label} />}
         {!slim && <h1 className="area-title">{title}</h1>}
         {status && <div className="area-status">{status}</div>}
-        {action && <div className="area-action">{action}</div>}
+        {/* The bug (bugs/BugButton.tsx) stays on phones too, where the page's own action steps aside. */}
+        {(action || report) && (
+          <div className="area-action">
+            {action && <span className="area-action-own">{action}</span>}
+            <BugButton />
+          </div>
+        )}
       </div>
     </header>
   );

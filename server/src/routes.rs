@@ -55,6 +55,7 @@ pub fn app(state: AppState) -> Router {
         .merge(crate::auth::router())
         .merge(crate::guests::router())
         .merge(crate::admin::router())
+        .merge(crate::bug_reports::router())
         .merge(crate::view_as::router())
         .merge(crate::cards::router())
         .merge(crate::calendar::router())

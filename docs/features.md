@@ -63,6 +63,16 @@ connectors need the new URL.
 
 Installable web app (home screen, offline shell); Capacitor config for native apps ([mobile.md](mobile.md)).
 
+### Bug reports
+
+Anyone signed in can report a bug from the little bug on every page head and dialog head (and
+Report a bug at the foot of the laptop rail). The form asks what went wrong; Point at it hides
+the form so they can drag a box round the problem, or tap it, and the report keeps the box with
+the words, controls and card names inside it, the page's address, the dialog it came from, the
+window size, the build and the browser. No screenshot is taken. Admins read, resolve and delete
+reports in Admin, Bug reports. Reports are limited to 20 per account a day and go with the
+account when it is deleted.
+
 ### What's new
 
 A page listing what has shipped, in plain sentences, with a notice on each device about what shipped since its first visit, until the page is opened (Account settings links to it too).

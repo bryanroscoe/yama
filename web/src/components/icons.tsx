@@ -25,3 +25,6 @@ export const PlayIcon = () => (
 export const WorkshopIcon = () => (
   <svg viewBox="0 0 24 24" aria-hidden="true" {...s}><path d="M14.7 6.3a4 4 0 0 0 5 5L11 20a2.1 2.1 0 0 1-3-3z" /><path d="m14.7 6.3 2.8-2.8" /></svg>
 );
+export const BugIcon = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" {...s}><rect x="8" y="7" width="8" height="13" rx="4" /><path d="M9.5 7a2.5 2.5 0 0 1 5 0M12 11v9M4 13h4M16 13h4M5 7l3 2M19 7l-3 2M5 19l3-2M19 19l-3-2" /></svg>
+);
