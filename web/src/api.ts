@@ -548,6 +548,9 @@ export interface DeckView {
   configuration: string | null;
   visibility: Visibility;
   share_token: string | null;
+  /** What the owner wrote about the deck. Not private like a version's note: the deck's shared
+   *  page shows it to anyone who can see the deck. */
+  description?: string | null;
   /** The main deck and every configuration of it, this one included, main deck first. */
   configurations: ConfigurationRef[];
   cards: DeckEntry[];

@@ -493,3 +493,30 @@
 .deck-tiles.by-record .deck-record {
   display: inline;
 }
+
+/* ── About this deck: the owner's description, above the tabs ───────────── */
+
+.deck-about {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 70ch;
+  margin: 0 0 16px;
+}
+.deck-about-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.deck-about h2 {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: var(--t-lg);
+  line-height: 1.1;
+}
+.deck-about p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}

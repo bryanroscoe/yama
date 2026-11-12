@@ -2,6 +2,7 @@ import { HelpPopover } from "../components/HelpPopover";
 import { CardHover } from "../components/CardRef";
 import { CollectionItemSheet } from "./CollectionItemSheet";
 import { ImportCollectionSheet } from "./ImportCollectionSheet";
+import { CollectionGrid } from "./CollectionGrid";
 import { UnsavedPrompt, useUnsavedChanges } from "../unsaved";
 import { closeQuestion, unsavedScans } from "./scanClose";
 import { SellSheet } from "./SellSheet";
@@ -15,6 +16,7 @@ import { CardImage, Details, ErrorText, Dialog, Loading, EmptyState, Segmented }
 import "./collection.css";
 import "../decks/collect.css";
 import { changeText, keptText, missingLabel, missingText, previewLines, resultLines, type MythicReport } from "./mythicImport";
+import { activeFilters, clampFilters, COLOR_OPTIONS, filterOptions, FINISH_LABEL, NO_FILTERS, passes, rarityLabel, totals, totalsText, type Filters } from "./collectionFilters";
 
 const KIND_LABEL: Record<string, string> = { binder: "Binder", box: "Box", deck: "Deck box", list: "List" };
 
@@ -47,6 +49,15 @@ const CONDITIONS: Record<string, string> = { NM: "near mint", LP: "lightly playe
  *  and drawing every row at once made the page crawl. */
 const SHOW = 24;
 const MORE = 200;
+/** List or pictures, remembered on this device. */
+const VIEW = "yama.collection.view";
+function storedView(): "list" | "grid" {
+  try {
+    return typeof localStorage !== "undefined" && localStorage.getItem(VIEW) === "grid" ? "grid" : "list";
+  } catch {
+    return "list";
+  }
+}
 
 /** Most valuable first (by the price of one copy); copies with no price go last, by name. */
 function byValue(a: Item, b: Item): number {
@@ -67,6 +78,16 @@ export function CollectionPage() {
   const [sort, setSort] = useState<"value" | "name">("value");
   const [limit, setLimit] = useState(SHOW);
   const [kind, setKind] = useState<"all" | "real" | "proxy">("all");
+  const [chosenFilters, setFilters] = useState<Filters>(NO_FILTERS);
+  const [show, setShow] = useState(storedView);
+  const showAs = (v: "list" | "grid") => {
+    setShow(v);
+    try {
+      localStorage.setItem(VIEW, v);
+    } catch {
+      // Private browsing: the choice lasts for this visit.
+    }
+  };
   // Asked of the server once typing settles, not on every key.
   const query = useDebounced(filter.trim(), 250);
 
@@ -103,12 +124,20 @@ export function CollectionPage() {
   const chosen = containers.data?.find((c) => c.id === container);
   const priced = priceSource(s?.price_date);
   const day = shortDate(s?.price_date) ?? "an unknown date";
+  // The filters offer what the rows in view hold; a choice those rows no longer have is dropped.
+  const options = useMemo(() => filterOptions(items.data ?? []), [items.data]);
+  const filters = useMemo(() => clampFilters(chosenFilters, options), [chosenFilters, options]);
+  // Once the rows are in, a choice they don't hold is forgotten: left chosen, it would come
+  // back unasked when another box or search brought rows that have it.
+  if (items.data && !items.isPlaceholderData && Object.values(filters).join("|") !== Object.values(chosenFilters).join("|")) setFilters(filters);
+  const filtering = activeFilters(filters) > 0;
   const sorted = useMemo(
-    () => [...(items.data ?? [])].sort(sort === "value" ? byValue : (a, b) => (a.name ?? "").localeCompare(b.name ?? "")),
-    [items.data, sort],
+    () => (items.data ?? []).filter((i) => passes(i, filters)).sort(sort === "value" ? byValue : (a, b) => (a.name ?? "").localeCompare(b.name ?? "")),
+    [items.data, sort, filters],
   );
+  const filter1 = (patch: Partial<Filters>) => setFilters({ ...filters, ...patch });
   // Another binder, filter or order starts from the top again.
-  const view = `${container}|${query}|${kind}|${sort}`;
+  const view = `${container}|${query}|${kind}|${sort}|${show}|${Object.values(filters).join("|")}`;
   const [viewed, setViewed] = useState(view);
   if (viewed !== view) {
     setViewed(view);
@@ -117,7 +146,8 @@ export function CollectionPage() {
   const shown = sorted.slice(0, limit);
   const left = sorted.length - shown.length;
   const heading = chosen ? chosen.name : container === "none" ? "Loose cards" : sort === "value" ? "Most valuable" : "Every card";
-  const thumbArtists = shown.filter((i) => i.image_art_crop).map((i) => i.artist);
+  // The list shows art crops (credited under it); the pictures are whole cards, which name their artist.
+  const thumbArtists = show === "list" ? shown.filter((i) => i.image_art_crop).map((i) => i.artist) : [];
   return (
     <main className="page coll-page">
       <div className="coll-head">
@@ -221,6 +251,36 @@ export function CollectionPage() {
           {tiles.length === 0 && loose === 0 && <button onClick={() => setNewContainer(true)}>New binder, box or deck</button>}
         </div>
 
+        {!!items.data?.length && (
+          <div className="coll-filters" role="group" aria-label="Filter and view">
+            <select aria-label="Set" value={filters.set} onChange={(e) => filter1({ set: e.target.value })}>
+              <option value="">Any set</option>
+              {options.sets.map((s) => <option key={s.code} value={s.code}>{s.name} ({s.code.toUpperCase()})</option>)}
+            </select>
+            <select aria-label="Color" value={filters.color} onChange={(e) => filter1({ color: e.target.value })}>
+              <option value="">Any color</option>
+              {COLOR_OPTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+            </select>
+            <select aria-label="Card type" value={filters.type} onChange={(e) => filter1({ type: e.target.value })}>
+              <option value="">Any type</option>
+              {options.types.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <select aria-label="Rarity" value={filters.rarity} onChange={(e) => filter1({ rarity: e.target.value })}>
+              <option value="">Any rarity</option>
+              {options.rarities.map((r) => <option key={r} value={r}>{rarityLabel(r)}</option>)}
+            </select>
+            <select aria-label="Finish" value={filters.finish} onChange={(e) => filter1({ finish: e.target.value })}>
+              <option value="">Any finish</option>
+              {options.finishes.map((x) => <option key={x} value={x}>{FINISH_LABEL[x] ?? x}</option>)}
+            </select>
+            {filtering && <button className="quiet small" onClick={() => setFilters(NO_FILTERS)}>Clear filters</button>}
+            <Segmented className="coll-show" label="Show as" value={show} onChange={showAs} options={[["list", "List"], ["grid", "Pictures"]]} />
+          </div>
+        )}
+        {filtering && sorted.length > 0 && (
+          <p className="small dim coll-note" role="status">{totalsText(totals(sorted), usdWhole)}</p>
+        )}
+
         {done && (
           <p className="coll-done" role="status">
             {done} <button className="quiet small" onClick={() => setDone(null)}>OK</button>
@@ -245,6 +305,13 @@ export function CollectionPage() {
             {kind === "proxy" ? "No proxies" : kind === "real" ? "No real cards" : "Nothing"} here{query ? ` called "${query}"` : ""}.
           </EmptyState>
         )}
+        {!!items.data?.length && sorted.length === 0 && (
+          <EmptyState action={<button className="outline" onClick={() => setFilters(NO_FILTERS)}>Clear filters</button>}>
+            Nothing here matches those filters.
+          </EmptyState>
+        )}
+        {show === "grid" && <CollectionGrid items={shown} onOpen={setOpen} />}
+        {show === "list" && (
         <ul className="coll-list">
           {shown.map((i) => {
             const place = i.container_name ?? "Not filed";
@@ -275,6 +342,7 @@ export function CollectionPage() {
             );
           })}
         </ul>
+        )}
         {left > 0 && (
           <button className="coll-more" onClick={() => setLimit((n) => n + MORE)}>
             {left > MORE ? `Show ${MORE} more of ${count(left)}` : `Show the last ${count(left)}`}
@@ -308,7 +376,7 @@ export function CollectionPage() {
       {selling && (
         <SellSheet
           items={sorted}
-          from={(chosen ? chosen.name : container === "none" ? "loose cards" : "every card") + (query ? ` called "${query}"` : "")}
+          from={(chosen ? chosen.name : container === "none" ? "loose cards" : "every card") + (query ? ` called "${query}"` : "") + (filtering ? ", filtered" : "")}
           inDeckBox={chosen?.kind === "deck"}
           onClose={() => setSelling(false)}
         />
