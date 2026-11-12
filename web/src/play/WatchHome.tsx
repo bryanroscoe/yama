@@ -39,6 +39,8 @@ export function WatchHome() {
   // Every account may watch; most have a daily number of games, which the page says up front.
   const allowance = useQuery({ queryKey: ["watch-allowance"], queryFn: () => api<WatchAllowance>("/api/watch/allowance"), refetchOnMount: "always" });
   const allowed = allowance.data ? watchAllowanceText(allowance.data) : null;
+  // Nothing left of the day: the page says so above, and Start waits rather than being refused.
+  const usedUp = allowance.data?.per_day != null && (allowance.data.used_today ?? 0) >= allowance.data.per_day;
   const listArt = (games.data ?? []).flatMap((g) => g.seats.filter((s) => s.commander_art));
   return (
     <main className="page play-home watch-home">
@@ -55,7 +57,7 @@ export function WatchHome() {
       </div>
       {status.data && !status.data.enabled && <p className="dim">The rules engine isn't running on this server: {status.data.reason}</p>}
       <div className="ph-cols">
-        {status.data?.enabled && decks.data && precons.data && <WatchSetup decks={decks.data} precons={precons.data.precons} />}
+        {status.data?.enabled && decks.data && precons.data && <WatchSetup decks={decks.data} precons={precons.data.precons} usedUp={usedUp} />}
         <div className="ph-side">
           <section className="ph-games" aria-labelledby="wh-games-h">
             <h2 id="wh-games-h">Your watched games</h2>
@@ -90,7 +92,7 @@ export function WatchHome() {
   );
 }
 
-function WatchSetup({ decks, precons }: { decks: DeckSummary[]; precons: PreconItem[] }) {
+function WatchSetup({ decks, precons, usedUp }: { decks: DeckSummary[]; precons: PreconItem[]; usedUp: boolean }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   // Repeats of an earlier list are left out; sorted by name with the set for twins of a name.
@@ -229,7 +231,7 @@ function WatchSetup({ decks, precons }: { decks: DeckSummary[]; precons: PreconI
             </Button>
           )}
         </span>
-        <Button variant="primary" className="ph-open" onClick={() => create.mutate()} disabled={create.isPending || shown.some((d) => !d)}>
+        <Button variant="primary" className="ph-open" onClick={() => create.mutate()} disabled={create.isPending || usedUp || shown.some((d) => !d)}>
           {create.isPending ? "Starting…" : "Start watching"}
         </Button>
       </div>

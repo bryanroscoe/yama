@@ -388,7 +388,8 @@ fn every_account_may_watch_one_game_at_a_time_and_a_number_a_day() {
 /// under one lock, so only as many as fit get a thread.
 #[test]
 fn games_started_together_cant_pass_the_caps() {
-    let hub = WatchHub::with_timing(quick());
+    // Slow moves, so the one game that starts is still playing however late a contender asks.
+    let hub = WatchHub::with_timing(Timing { delays: [Duration::from_secs(1); 3], ..quick() });
     let pat = plain("pat");
     let start = std::sync::Barrier::new(16);
     let started: Vec<Arc<WatchGame>> = std::thread::scope(|s| {

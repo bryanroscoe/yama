@@ -17,7 +17,7 @@
 //!   [`OPEN_MAX_WATCH_GAMES`] for everyone else ([`small_allowance`]);
 //! - new games in 24 hours for an account that isn't a power user ([`WATCH_GAMES_PER_DAY`]),
 //!   counted in memory, so a restart starts the day again (the caps on unfinished games are what
-//!   protect the server; this one keeps any one account from holding a place all day);
+//!   protect the server; this one bounds how many games an account starts);
 //! - unfinished games for everyone together ([`MAX_WATCH_GAMES_ALL`]), and within that for the
 //!   accounts with the small allowance together ([`OPEN_MAX_WATCH_GAMES_ALL`]); admins are left
 //!   out, as for online games;
@@ -751,7 +751,7 @@ impl WatchHub {
             games.insert(id.clone(), game.clone());
         }
         let timing = self.timing.clone();
-        std::thread::Builder::new()
+        let started = std::thread::Builder::new()
             .name(format!("watch-{}", &id[..8.min(id.len())]))
             .stack_size(crate::play::STACK)
             .spawn(move || {
@@ -777,8 +777,13 @@ impl WatchHub {
                     };
                     frame_tx.send_replace(Arc::new(Frame { view: last.view.clone(), status }));
                 }
-            })
-            .expect("watch thread");
+            });
+        if let Err(err) = started {
+            // No thread, so no game: it mustn't stay in the list holding a place nobody can free.
+            self.remove(&game.id);
+            tracing::error!(game = %game.id, error = %err, "couldn't start a watched game's thread");
+            return Err(AppError::Unavailable("The server couldn't start another game right now. Try again in a moment.".into()));
+        }
         Ok(game)
     }
 }
