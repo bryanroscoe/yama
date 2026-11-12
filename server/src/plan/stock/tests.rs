@@ -763,3 +763,21 @@ fn failed_catalog_only_refresh_is_an_error_even_without_requested_cards() {
     let partial=Found {errors:vec!["one card failed".into()],failed:vec!["Card A".into()],..Default::default()};
     assert_eq!(status_of(&partial,Some(2)),"partial","a mixed card check still reports partial coverage");
 }
+
+#[tokio::test]
+async fn duplicate_printing_failures_preserve_the_other_cards_valid_quote() {
+    let (_,pool)=app().await;
+    let (owner,_)=user(&pool,"reader@example.com").await;
+    snapshot(&pool,&owner,"partial-printings","pats","shopify",Some(&["Card A","Card B"])).await;
+    let found=Found {
+        failed:vec!["Card A".into()," card a ".into()],
+        errors:vec!["printing one failed".into(),"printing two failed".into()],
+        listings:vec![Listing {card:"Card B".into(),price:Some(0.5),qty:Some(1),available:Some(true),..Default::default()}],
+        ..Default::default()
+    };
+    finish(&pool,&owner,"partial-printings",&found,Some(2),None).await.unwrap();
+    let (status,failed):(String,String)=sqlx::query_as("SELECT status,failed FROM store_snapshots WHERE id='partial-printings'").fetch_one(&pool).await.unwrap();
+    assert_eq!(status,"partial");assert_eq!(serde_json::from_str::<Value>(&failed).unwrap(),json!(["Card A"]));
+    let quotes=store_quotes(&pool,&owner,&["Card A".into(),"Card B".into()]).await.unwrap();
+    assert_eq!(quotes.len(),1);assert_eq!(quotes[0]["card"],"Card B");assert_eq!(quotes[0]["qty"],1);
+}

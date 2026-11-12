@@ -1082,9 +1082,14 @@ async fn fetch_yestcg(f: &mut Fetcher, base: &str, cards: &[String], hosts: &[St
 
 // ── saving ──────────────────────────────────────────────────────────────────
 
+fn distinct_failed(found: &Found) -> Vec<&String> {
+    let mut seen = HashSet::new();
+    found.failed.iter().filter(|card|seen.insert(card_key(card))).collect()
+}
+
 fn status_of(found: &Found, asked: Option<usize>) -> &'static str {
     let answered = match asked {
-        Some(n) => n.saturating_sub(found.failed.len()),
+        Some(n) => n.saturating_sub(distinct_failed(found).len()),
         None => usize::from(found.errors.is_empty() || !found.listings.is_empty()),
     };
     if (answered == 0 && asked.is_none_or(|n| n > 0)) || (found.listings.is_empty() && !found.errors.is_empty() && asked == Some(0)) {
@@ -1116,7 +1121,7 @@ async fn finish(pool: &SqlitePool, owner: &str, id: &str, found: &Found, asked: 
         .bind(error)
         .bind(now())
         .bind(&found.cached_at)
-        .bind((!found.failed.is_empty()).then(|| json!(found.failed).to_string()))
+        .bind((!found.failed.is_empty()).then(|| json!(distinct_failed(found)).to_string()))
         .bind(raw)
         .bind(found.listings.len() as i64)
         .bind(id)
