@@ -44,10 +44,43 @@ export function PlayGame() {
     );
   }
   if (!game.data) return <main className="page" />;
-  if (game.data.runtime_error) return <main className="page"><Link to="/play">Play online</Link><p role="alert">{game.data.runtime_error}</p></main>;
+  if (game.data.runtime_error) return <Stranded game={game.data} reason={game.data.runtime_error} />;
   if (game.data.status === "lobby") return <Lobby game={game.data} notice={<RefreshFailed query={game} what="this game" />} />;
   // Keyed by game, so a rematch starts with a fresh board (nothing carried over from the last one).
   return <Board key={id} id={id} live={game.data.status === "in_progress"} phaseBoard={game.data.phase_board === true} />;
+}
+
+/** A game whose saved engine this server can't run: nobody can play or finish it, so the host
+ * may delete it, which also frees its place among the games they may have open. */
+function Stranded({ game, reason }: { game: OnlineGame; reason: string }) {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const remove = useMutation({
+    mutationFn: () => api(`/api/play/${game.id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["play"] });
+      navigate("/play", { replace: true });
+    },
+  });
+  return (
+    <main className="page">
+      <Link to="/play">Play online</Link>
+      <p role="alert">{reason}</p>
+      {game.stranded && (
+        <>
+          <p>This game can’t be continued on this version of Yama. Delete it to free its place for a new game.</p>
+          <ErrorText error={remove.error} />
+          <Button
+            variant="destructive"
+            disabled={remove.isPending}
+            onClick={async () => (await ask({ title: "Delete this game?", body: "It comes out of the history and stats of everyone who played it.", confirm: "Delete the game", danger: true })) && remove.mutate()}
+          >
+            {remove.isPending ? "Deleting…" : "Delete this game"}
+          </Button>
+        </>
+      )}
+    </main>
+  );
 }
 
 function Lobby({ game, notice }: { game: OnlineGame; notice?: ReactNode }) {

@@ -1798,8 +1798,8 @@ async fn the_host_cancels_a_waiting_table_and_deletes_a_finished_game() {
     seats[0].user_id = Some(host.clone());
     seats[1].user_id = Some(friend.clone());
     for (id, stage, status) in [("waiting", "lobby", "in_progress"), ("playing", "live", "in_progress"), ("done", "over", "finished")] {
-        sqlx::query("INSERT INTO games (id,mode,created_by,format,status,starting_life,started_at) VALUES (?,'online',?,'commander',?,40,'2026-11-11T00:00:00Z')")
-            .bind(id).bind(&host).bind(status).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO games (id,mode,created_by,format,status,starting_life,started_at,engine_version) VALUES (?,'online',?,'commander',?,40,'2026-11-11T00:00:00Z',?)")
+            .bind(id).bind(&host).bind(status).bind(yama_play::ENGINE_VERSION).execute(&pool).await.unwrap();
         sqlx::query("INSERT INTO online_games (game_id,code,host_id,stage,seats,created_at,updated_at) VALUES (?,?,?,?,?,'t','t')")
             .bind(id).bind(id.to_uppercase()).bind(&host).bind(stage).bind(serde_json::to_string(&seats).unwrap()).execute(&pool).await.unwrap();
         sqlx::query("INSERT INTO game_seats (game_id,seat,user_id) VALUES (?,0,?)").bind(id).bind(&host).execute(&pool).await.unwrap();
@@ -1832,6 +1832,53 @@ async fn the_host_cancels_a_waiting_table_and_deletes_a_finished_game() {
     assert_eq!(delete("done", &host_token).await.0, StatusCode::NOT_FOUND);
     // The game that was being played is untouched.
     assert_eq!(load_row(&pool, "playing").await.unwrap().stage, "live");
+}
+
+/// Matt, 11 Nov 2026: two games left live on a retired engine build filled his open-game
+/// allowance, and they could neither be played, ended nor deleted, so he couldn't start a game.
+#[tokio::test]
+async fn games_stranded_on_a_retired_runtime_free_their_place_and_can_be_deleted() {
+    use crate::testutil::{send as request, user};
+    use axum::http::{Method, StatusCode};
+    let mut st = crate::testutil::state().await;
+    st.play = ready_hub(None);
+    let hub = st.play.clone();
+    let pool = st.pool.clone();
+    let (host, token) = user(&pool, "stranded@example.com").await;
+    let (_, stranger) = user(&pool, "stranded-stranger@example.com").await;
+    let user_row = crate::auth::User { id: host.clone(), email: "stranded@example.com".into(), display_name: "Matt".into(), is_admin: false, limited: true, power: false, guest: false };
+    // Live, on a runtime this server doesn't have, and never recovered (no thread).
+    saved_game(&pool, "stranded-a", &host, Some("phase-v0.113.0+0571ee32-yama1/cards-eb309108"), "live", "{}").await;
+    saved_game(&pool, "stranded-b", &host, None, "live", "{}").await;
+    hub.resume_live(&pool).await;
+    check_open_games(&pool, &user_row).await.expect("stranded games don't hold places");
+    // Runnable games still count: two current-runtime tables fill an open sign-up allowance.
+    saved_game(&pool, "open-a", &host, Some(yama_play::ENGINE_VERSION), "lobby", "{}").await;
+    saved_game(&pool, "open-b", &host, Some(yama_play::ENGINE_VERSION), "lobby", "{}").await;
+    assert!(check_open_games(&pool, &user_row).await.is_err());
+    // Games only waiting for their engine are not stranded: the historical runtime isn't
+    // installed here, and the current engine has failed. Both come back once fixed.
+    saved_game(&pool, "waiting-historical", &host, Some(history::IDENTITY), "live", "{}").await;
+    saved_game(&pool, "waiting-current", &host, Some(yama_play::ENGINE_VERSION), "live", "{}").await;
+    *hub.engine.lock().unwrap() = EngineState::Failed("deliberately down in the stranded-games test".into());
+    let app = crate::routes::app(st);
+    for id in ["waiting-historical", "waiting-current"] {
+        let (_, detail) = request(&app, Method::GET, &format!("/api/play/{id}"), Some(&token), None).await;
+        assert!(detail["runtime_error"].is_string(), "{detail}");
+        assert_eq!(detail.get("stranded"), None, "{detail}");
+        let (code, body) = request(&app, Method::DELETE, &format!("/api/play/{id}"), Some(&token), None).await;
+        assert_eq!(code, StatusCode::CONFLICT, "{body}");
+    }
+    let (code, _) = request(&app, Method::DELETE, "/api/play/stranded-a", Some(&stranger), None).await;
+    assert_eq!(code, StatusCode::NOT_FOUND);
+    let (_, detail) = request(&app, Method::GET, "/api/play/stranded-a", Some(&token), None).await;
+    assert_eq!(detail["stranded"], true, "{detail}");
+    for id in ["stranded-a", "stranded-b"] {
+        let (code, body) = request(&app, Method::DELETE, &format!("/api/play/{id}"), Some(&token), None).await;
+        assert_eq!((code, body["was"].as_str()), (StatusCode::OK, Some("game")), "{body}");
+    }
+    let left: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM games WHERE id LIKE 'stranded-%'").fetch_one(&pool).await.unwrap();
+    assert_eq!(left, 0);
 }
 
 #[test]
