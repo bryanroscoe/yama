@@ -162,6 +162,14 @@ export function tableLayout(n: number, key: LayoutKey, landscape = false): Layou
   return landscape ? quarterTurn(base) : base;
 }
 
+/**
+ * A layout's places filled with the seats in the order they sit (seatOrder): after two players
+ * swap places, each panel goes where the other's was. Places with nobody for them are dropped.
+ */
+export function seatCells(cells: Cell[], order: number[]): Cell[] {
+  return cells.flatMap((c) => (order[c.seat] === undefined ? [] : [{ ...c, seat: order[c.seat]! }]));
+}
+
 /** "r / c" or "r1 / c1 / r2 / c2" as start and end lines (ends exclusive). */
 function parseArea(area: string): [number, number, number, number] {
   const [r1, c1, r2, c2] = area.split("/").map((s) => Number(s.trim()));

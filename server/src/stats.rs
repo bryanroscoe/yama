@@ -95,8 +95,16 @@ pub struct GameFacts {
     pub first_seat: Option<i64>,
     pub win_condition: Option<String>,
     pub note: Option<String>,
-    /// In seat order, which is turn order (clockwise).
+    /// In turn order (clockwise): seat order, unless the table swapped places mid-game.
     pub seats: Vec<SeatFacts>,
+}
+
+/// Two players traded places at the table (the life counter's `swap_places` event): turn order
+/// goes around their new places, so the seats move in the list. Seats not in the game are ignored.
+fn swap_places(seats: &mut [SeatFacts], a: i64, b: i64) {
+    if let (Some(i), Some(j)) = (seats.iter().position(|s| s.seat == a), seats.iter().position(|s| s.seat == b)) {
+        seats.swap(i, j);
+    }
 }
 
 impl GameFacts {
@@ -276,6 +284,21 @@ pub async fn finished_games(pool: &SqlitePool, scope: Scope<'_>) -> AppResult<Ve
             eliminated_by_seat: s.eliminated_by_seat,
             fun: s.fun,
         });
+    }
+    // Places swapped mid-game, in the order they happened.
+    let swaps: Vec<(String, String)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT e.game_id, e.payload FROM game_events e
+         WHERE e.kind = 'swap_places' AND e.game_id IN (SELECT g.id FROM games g WHERE g.status = 'finished' AND {cond})
+         ORDER BY e.game_id, e.seq"
+    )))
+    .bind(scope.value())
+    .fetch_all(pool)
+    .await?;
+    for (game_id, payload) in swaps {
+        let Ok(e) = serde_json::from_str::<serde_json::Value>(&payload) else { continue };
+        if let (Some(seats), Some(a), Some(b)) = (by_game.get_mut(&game_id), e["a"].as_i64(), e["b"].as_i64()) {
+            swap_places(seats, a, b);
+        }
     }
     Ok(rows
         .into_iter()
@@ -689,6 +712,16 @@ pub(crate) mod tests {
         assert_eq!(g.turn_position(0), None);
         g.first_seat = Some(2);
         assert_eq!([0, 1, 2, 3].map(|s| g.turn_position(s)), [Some(3), Some(4), Some(1), Some(2)]);
+    }
+
+    #[test]
+    fn turn_position_follows_places_swapped_mid_game() {
+        let mut g = game("g", &["a", "b", "c", "d"], Some(2));
+        g.first_seat = Some(0);
+        // Seats 0 and 2 traded places: clockwise is now 2, 1, 0, 3.
+        swap_places(&mut g.seats, 0, 2);
+        swap_places(&mut g.seats, 0, 9);
+        assert_eq!([0, 1, 2, 3].map(|s| g.turn_position(s)), [Some(1), Some(4), Some(3), Some(2)]);
     }
 
     #[test]

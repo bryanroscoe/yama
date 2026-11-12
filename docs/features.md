@@ -150,7 +150,7 @@ box. Older now/after-prints snapshots stay under Older snapshots.
 
 ### Life counter
 
-1–6 players, rotated panels with the commander's art behind each life total (artist and copyright credited on each panel; switch to mana colors per device), commander damage and tax, poison and counters, monarch, initiative, day/night, undo, works offline and syncs later. Roll for first or pick who goes first (passing the turn never guesses it); knocking someone out asks who did it; the finish sheet asks how the game was won and how fun it was, and takes a note (all optional). An optional clock (per device, off by default) shows how long the turn and the game have run; it reads the times the game already records, so it works offline and a finished game's page says how long it ran.
+1–6 players, rotated panels with the commander's art behind each life total (artist and copyright credited on each panel; switch to mana colors per device), commander damage and tax, poison and counters, monarch, initiative, day/night, undo, works offline and syncs later. Roll for first or pick who goes first (passing the turn never guesses it); knocking someone out asks who did it; the finish sheet asks how the game was won and how fun it was, and takes a note (all optional). An optional clock (per device, off by default) shows how long the turn and the game have run; it reads the times the game already records, so it works offline and a finished game's page says how long it ran. If people sat down somewhere other than setup put them, Swap places in the table menu trades two players' panels mid-game; turns then go around in the new order, and each player keeps their totals and history.
 
 ### Shared table
 

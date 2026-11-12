@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { roll } from "./DiceSheet";
-import { layoutOptions, quarterTurn, tableLayout, uprightLayout, type Layout } from "./layouts";
+import { layoutOptions, quarterTurn, seatCells, tableLayout, uprightLayout, type Layout } from "./layouts";
 
 /** Every grid square a layout covers, with the seat on it. */
 function squares(l: Layout): Map<string, number> {
@@ -70,5 +70,16 @@ describe("dice", () => {
       expect(r).toBeGreaterThanOrEqual(1);
       expect(r).toBeLessThanOrEqual(20);
     }
+  });
+
+  it("puts two players who swapped places in each other's panels", () => {
+    const cells = tableLayout(4, "ends").cells;
+    const swapped = seatCells(cells, [2, 1, 0, 3]);
+    const at = (seat: number) => swapped.find((c) => c.seat === seat)!;
+    expect(at(0)).toEqual({ ...cells[2]!, seat: 0 });
+    expect(at(2)).toEqual({ ...cells[0]!, seat: 2 });
+    expect(at(1)).toEqual(cells[1]);
+    expect(at(3)).toEqual(cells[3]);
+    expect(seatCells(cells, [0, 1, 2, 3])).toEqual(cells);
   });
 });

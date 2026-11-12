@@ -24,6 +24,9 @@ import {
   toServerFinish,
   turnPosition,
   turnSpans,
+  nextSeat,
+  rematchSeat,
+  seatOrder,
   wonText,
   type LoggedEvent,
   type TableEvent,
@@ -198,6 +201,38 @@ describe("table", () => {
     s = apply(s, { type: "pass_turn" });
     expect(s.activeSeat).toBe(0);
     expect(s.turn).toBe(2);
+  });
+
+  it("swapping places moves turn order and keeps each player's totals with them", () => {
+    let s = initialState(setup);
+    s = apply(s, { type: "life", seat: 0, delta: -5 });
+    s = apply(s, { type: "swap_places", a: 0, b: 2 });
+    expect(seatOrder(s)).toEqual([2, 1, 0]);
+    expect(s.players.find((p) => p.seat === 0)?.life).toBe(35);
+    // Clockwise is now Alex, Sam, Bryan: after Bryan comes Alex, not Sam.
+    s = apply(s, { type: "pass_turn" });
+    expect(s.activeSeat).toBe(2);
+    s = apply(s, { type: "pass_turn" });
+    expect(s.activeSeat).toBe(1);
+    s = apply(s, { type: "pass_turn" });
+    expect(s.activeSeat).toBe(0);
+    expect(nextSeat(s)).toBe(2);
+    // Swapping back restores setup order; a seat that isn't there changes nothing.
+    s = apply(s, { type: "swap_places", a: 2, b: 0 });
+    expect(seatOrder(s)).toEqual([0, 1, 2]);
+    expect(apply(s, { type: "swap_places", a: 0, b: 7 })).toBe(s);
+  });
+
+  it("Play again numbers seats in the order people sat, and each device's seat follows its player", () => {
+    const s = apply(initialState(setup), { type: "swap_places", a: 0, b: 2 });
+    expect([0, 1, 2].map((seat) => rematchSeat(s, seat))).toEqual([2, 1, 0]);
+    expect(rematchSeat(s, -1)).toBe(-1);
+    expect(rematchSeat(initialState(setup), 2)).toBe(2);
+  });
+
+  it("skips an event from a newer app instead of losing the game", () => {
+    const s = initialState(setup);
+    expect(apply(s, { type: "from_the_future" } as unknown as TableEvent)).toBe(s);
   });
 
   it("replays a log to the same state and tracks commander tax", () => {

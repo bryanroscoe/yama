@@ -23,6 +23,10 @@ const setup: TableSetup = {
 const log = (events: TableEvent[]): LoggedEvent[] => events.map((event, i) => ({ seq: i + 1, at: `2026-10-29T19:0${i}:00Z`, event }));
 
 describe("table history", () => {
+  it("tells a swap of places by name", () => {
+    expect(history(setup, log([{ type: "swap_places", a: 0, b: 1 }])).map((l) => l.text)).toEqual(["Bryan and Sam swapped places."]);
+  });
+
   it("reconciles a corrected terminal result without changing the stored events", () => {
     const detail = {
       id: "g9", status: "finished", winner_seat: 0, win_condition: "combat",
