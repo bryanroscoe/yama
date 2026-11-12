@@ -3,7 +3,7 @@ import { GAME_WORDS } from "@yama/core";
 import { Link, useSearchParams } from "react-router";
 import { api, type GameRow } from "../api";
 import { useMe } from "../auth";
-import { Button, ButtonLink, EmptyState, ErrorText, Loading } from "../components/ui";
+import { Button, ButtonLink, EmptyState, ErrorText, Field, Loading } from "../components/ui";
 import { usePendingDeletes } from "./store";
 import { isPlaceholderName } from "./playerNames";
 import { recentGameText, turnsText } from "./recent";
@@ -61,8 +61,8 @@ export function GameHistoryPage() {
         {FILTERS.map(([key, label]) => <Button key={key} aria-pressed={filter === key} onClick={() => change("filter", key)}>{label}</Button>)}
       </div>
       <div className="gh-search">
-        <label>Find a player or commander<input type="search" value={search} maxLength={100} placeholder="Kelly, Atraxa…" onChange={(e) => change("q", e.target.value, true)} /></label>
-        <label>Order<select value={order} onChange={(e) => change("order", e.target.value)}><option value="newest">Newest first</option><option value="oldest">Oldest first</option></select></label>
+        <Field label="Find a player or commander"><input type="search" value={search} maxLength={100} placeholder="Kelly, Atraxa…" onChange={(e) => change("q", e.target.value, true)} /></Field>
+        <Field label="Order"><select value={order} onChange={(e) => change("order", e.target.value)}><option value="newest">Newest first</option><option value="oldest">Oldest first</option></select></Field>
       </div>
       {filter === "unfinished" && <p className="dim">Games still going, or abandoned.</p>}
       {filter === "unnamed" && <p className="dim">Games with an unnamed human seat or a temporary name like Player 2, Guest 1 or Dude 2.</p>}

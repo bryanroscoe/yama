@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { SellOffers } from "./SellOffers";
 import { saveFile } from "../download";
-import { Button, CopyButton, Details, Dialog, EmptyState, ErrorText, Segmented } from "../components/ui";
+import { Button, CopyButton, Details, Dialog, EmptyState, ErrorText, Segmented, Tag } from "../components/ui";
 import { leftOut, overLimit, SELL_FORMATS, sellable, sellText, special, type SellCard, type SellFormat } from "./sellList";
 import { shortDate, usd, count, plural } from "@yama/core";
 
@@ -168,7 +168,7 @@ export function SellSheet({ items, from, inDeckBox, onClose }: { items: SellItem
                       <span className="sell-row-text">
                         <span className="sell-row-name">
                           {c.name}
-                          {tags.map((t) => <span key={String(t)} className="tag">{t}</span>)}
+                          {tags.map((t) => <Tag key={String(t)}>{t}</Tag>)}
                         </span>
                         <span className="small dim">
                           {(c.set_code ?? "").toUpperCase()} #{c.collector_number}, {CONDITION[c.condition] ?? c.condition}

@@ -643,18 +643,6 @@
   gap: 16px;
   flex-wrap: wrap;
 }
-.lobby-back {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  min-height: 44px;
-  color: var(--dim);
-  font-weight: 700;
-  text-decoration: none;
-}
-.lobby-back:hover {
-  color: var(--text);
-}
 .lobby-group {
   display: none;
   font-size: 14px;
@@ -981,7 +969,7 @@
   align-self: flex-start;
   min-height: 44px;
 }
-.watch-home .lobby-back {
+.watch-home .back-inline {
   align-self: flex-start;
 }
 .wh-options {

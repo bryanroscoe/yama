@@ -90,11 +90,6 @@
   outline: 2px dashed var(--text);
   outline-offset: 2px;
 }
-.import-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
 
 .import-good {
   color: var(--good);

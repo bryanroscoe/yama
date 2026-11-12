@@ -325,11 +325,11 @@ function GroupActions() {
     <section className="stack" style={{ marginBottom: "2.5rem" }}>
       <h2>Start or join a playgroup</h2>
       <form className="row" onSubmit={(e) => { e.preventDefault(); create.mutate(); }}>
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Playgroup name" maxLength={60} required style={{ flex: "1 1 12rem" }} />
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Playgroup name" aria-label="Playgroup name" maxLength={60} required style={{ flex: "1 1 12rem" }} />
         <Button type="submit" disabled={create.isPending}>Start playgroup</Button>
       </form>
       <form className="row" onSubmit={(e) => { e.preventDefault(); join.mutate(); }}>
-        <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="Join code" required style={{ flex: "1 1 12rem" }} autoCapitalize="characters" />
+        <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="Join code" aria-label="Join code" required style={{ flex: "1 1 12rem" }} autoCapitalize="characters" />
         <Button type="submit" disabled={join.isPending}>Join</Button>
       </form>
       <ErrorText error={create.error ?? join.error} />

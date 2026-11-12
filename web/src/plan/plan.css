@@ -895,9 +895,6 @@
 .review-list-plan:focus-visible > span:first-child {
   text-decoration: underline;
 }
-.review-list-plan .pill {
-  flex: none;
-}
 /* A proposal's answer on a tracked deck's page, as a plan's changes take theirs. */
 .plan-answer {
   margin-top: 8px;

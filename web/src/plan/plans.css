@@ -298,15 +298,6 @@ button.link-button:hover {
   flex-wrap: wrap;
   margin-top: 8px;
 }
-.plans-hero-meta .tag {
-  background: var(--art-chip);
-}
-.plans-hero-meta .tag.warn {
-  background: color-mix(in srgb, var(--ground) 70%, var(--warn) 20%);
-}
-.plans-hero-meta .tag.good {
-  background: color-mix(in srgb, var(--ground) 70%, var(--good) 20%);
-}
 .plans-hero-line {
   color: var(--on-art-dim);
   font-size: var(--t-sm);

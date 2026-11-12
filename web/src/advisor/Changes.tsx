@@ -6,7 +6,7 @@ import { Link } from "react-router";
 import { usePower } from "../auth";
 import { AreaHead } from "../components/DeckTabs";
 import { ChangesHowTo } from "../plan/howto";
-import { Button, Details, ErrorText, Loading } from "../components/ui";
+import { ActionBar, Button, Details, ErrorText, Loading, StatusPill } from "../components/ui";
 import { applyChange, changesKey, discardChange, stagedChanges, type StagedChange } from "./api";
 import { Proposal, ProposalText } from "./Proposal";
 import "./advisor.css";
@@ -51,7 +51,7 @@ export function ChangeCard({ change, onNavigate, onDecided }: { change: StagedCh
   return (
     <div className={`ask-change is-${shown.status}`}>
       <p className="ask-change-what">
-        {AREA[shown.kind] && <span className="pill quiet ask-change-area">{AREA[shown.kind]}</span>}
+        {AREA[shown.kind] && <StatusPill className="ask-change-area">{AREA[shown.kind]}</StatusPill>}
         <b>{shown.preview?.target ?? shown.summary}</b>
       </p>
       {shown.preview ? <Proposal preview={shown.preview} /> : shown.detail && <ProposalText text={shown.detail} />}
@@ -62,7 +62,7 @@ export function ChangeCard({ change, onNavigate, onDecided }: { change: StagedCh
               {shown.error}
             </p>
           )}
-          <div className="ask-change-actions">
+          <ActionBar>
             {canApply && (
               <Button variant="primary" disabled={busy} onClick={() => decide.mutate("apply")}>
                 {busy && decide.variables === "apply" ? "Applying…" : shown.kind === "delete_deck" ? "Delete" : shown.kind === "remove_from_collection" ? "Remove" : "Apply"}
@@ -71,7 +71,7 @@ export function ChangeCard({ change, onNavigate, onDecided }: { change: StagedCh
             <Button variant="outline" disabled={busy} onClick={() => decide.mutate("discard")}>
               Discard
             </Button>
-          </div>
+          </ActionBar>
           {!shown.error && <p className="small dim">Waiting for your review. Nothing has changed yet.</p>}
         </>
       ) : shown.status === "applied" ? (

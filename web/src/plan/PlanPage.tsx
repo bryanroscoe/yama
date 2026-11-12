@@ -24,9 +24,8 @@ import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import { AskClaude } from "../advisor/AskClaude";
 import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
-import { BackButton } from "../components/DeckTabs";
 import { useScrollToHash } from "../components/useScrollToHash";
-import { Button, ButtonLink, CopyButton, EmptyState, Pips, Segmented } from "../components/ui";
+import { BackLink, Button, ButtonLink, CopyButton, EmptyState, Pips, Segmented, StatusPill } from "../components/ui";
 import { Ideas, LinkDeck } from "./deckParts";
 import { InstalledTick } from "./marks";
 import { deviceId, outbox, useOutbox } from "./outbox";
@@ -80,11 +79,11 @@ export function PlanPage() {
 function PlanHero({ deck, plan, view }: { deck: PlanDeck; plan: DeckPlanState; view: PlanView }) {
   const commander = view.card(deck.commander[0]);
   const art = view.art(deck);
-  const tone = plan.state === "waiting" ? "warn" : plan.state === "in_progress" || plan.state === "done" ? "good" : "plain";
+  const tone = plan.state === "waiting" ? "warn" : plan.state === "in_progress" || plan.state === "done" ? "good" : "neutral";
   const line = versionLine(plan, view.b.head);
   return (
     <ArtPanel as="header" className="plan-hero" art={art} artist={commander?.artist} wash="bottom" toGround credit={false}>
-      <BackButton to="/decks/plans" label="Back to plans" className="on-art" />
+      <BackLink to="/decks/plans" label="Back to plans" onArt />
       {art && <span className="plan-hero-credit">{artCredit(commander?.artist)}</span>}
       <div className="plan-hero-inner">
         <nav className="plan-crumbs" aria-label="Breadcrumb">
@@ -98,7 +97,7 @@ function PlanHero({ deck, plan, view }: { deck: PlanDeck; plan: DeckPlanState; v
         </span>
         <h1 className="plan-hero-title">{deck.name}</h1>
         <span className="plans-hero-meta">
-          <span className={`tag ${tone}`}>{PLAN_STATE_LABEL[plan.state]}</span>
+          <StatusPill tone={tone}>{PLAN_STATE_LABEL[plan.state]}</StatusPill>
           {line && <span className="plans-hero-line">{line}</span>}
         </span>
       </div>
@@ -183,7 +182,7 @@ function Approve({ deck, plan, view, userId, first = false }: { deck: PlanDeck; 
         <div className="plans-main">
           {!first && (
             <div className="plans-version-head">
-              <span className="tag warn">Waiting for your OK</span>
+              <StatusPill tone="warn">Waiting for your OK</StatusPill>
               <h2 id="plans-approve-head">
                 Version {next.n} adds {changesWord(changes.length)}
               </h2>
@@ -351,7 +350,7 @@ function ChangeRow({ change, view, skipped, problem, cut, onToggle }: { change: 
       <span className="plans-row-main">
         <span>
           <b>{s.in}</b> <span className="dim">{out ? `replaces ${out}` : "no cut named"}</span>
-          {skipped && <span className="tag small plain plans-skip-pill">Skipped</span>}
+          {skipped && <StatusPill className="plans-skip-pill">Skipped</StatusPill>}
         </span>
         {s.why && <span className="small plans-why">{s.why}</span>}
         {cut?.instead_of && <span className="small dim">{cut.instead_of} already goes out, so it takes {out} instead.</span>}
@@ -577,7 +576,7 @@ function ArchivedBanner({ deck, plan, view, userId }: { deck: PlanDeck; plan: De
   const current = view.b.decks.find((d) => d.key !== deck.key && d.name.trim().toLowerCase() === deck.name.trim().toLowerCase() && view.planOf(d).state !== "archived");
   return (
     <section className="plans-archived-banner" aria-label="Archived">
-      <span className="tag plain">Archived</span>
+      <StatusPill>Archived</StatusPill>
       <p>
         {byFile ? "The latest plan file doesn't have this deck." : plan.archived_note === "Archived by you" || !plan.archived_note ? "You archived this plan." : `${plan.archived_note}.`}
         {plan.archived_at ? ` Archived ${fmtDate(plan.archived_at)}.` : ""} Nothing in it is on your shopping list.

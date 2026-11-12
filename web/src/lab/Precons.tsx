@@ -7,7 +7,7 @@ import { Link, useSearchParams } from "react-router";
 import { api } from "../api";
 import { useMe } from "../auth";
 import { WinBar, winCeiling } from "../components/Crop";
-import { Button, Details, EmptyState, ErrorText, Loading, Pips } from "../components/ui";
+import { Button, CheckRow, Details, EmptyState, ErrorText, Loading, Pips } from "../components/ui";
 import { usePlan } from "../plan/store";
 import type { PreconItem, PreconList, Rating, RunLabel, RunListItem } from "./api";
 import { LabHead } from "./LabLayout";
@@ -259,10 +259,7 @@ export function PreconsPage() {
           Only {FEW}+ games
         </label>
         {unjudgedAll > 0 && (
-          <label className="lab-ten">
-            <input type="checkbox" checked={hideUnjudged} onChange={(e) => set({ h: e.target.checked ? "1" : null })} />
-            Hide decks the simulation can't judge
-          </label>
+          <CheckRow className="lab-ten" checked={hideUnjudged} onChange={(e) => set({ h: e.target.checked ? "1" : null })}>Hide decks the simulation can't judge</CheckRow>
         )}
         {!filtering && (
           <Button className="phone-only lab-more" aria-expanded={moreOpen} onClick={() => setMoreOpen(!moreOpen)}>

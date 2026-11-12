@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, type Container } from "../api";
 import { CopyButton } from "../components/CopyButton";
-import { Button, Details, Dialog, ErrorText, Loading } from "../components/ui";
+import { Button, Details, Dialog, ErrorText, Field, Loading } from "../components/ui";
 import "../decks/collect.css";
 import {
   chosenPlace,
@@ -104,8 +104,7 @@ export function ImportCollectionSheet({ containers, onClose, onMythic }: { conta
                 </Button>
               </p>
             ) : (
-              <label>
-                List of cards
+              <Field label="List of cards">
                 <textarea
                   rows={6}
                   placeholder={LIST_EXAMPLE}
@@ -115,14 +114,13 @@ export function ImportCollectionSheet({ containers, onClose, onMythic }: { conta
                     setCheck(null);
                   }}
                 />
-              </label>
+              </Field>
             )}
             <label>
               {file ? "Another file" : "Or a file"}
               <input type="file" accept=".csv,.tsv,.txt,.dek,text/csv,text/plain" onChange={(e) => e.target.files?.[0] && void choose(e.target.files[0])} />
             </label>
-            <label>
-              Put them in
+            <Field label="Put them in">
               <select value={place} onChange={(e) => setPlace(e.target.value)}>
                 <option value="">Not filed anywhere (loose cards)</option>
                 {containers.map((c) => (
@@ -132,12 +130,11 @@ export function ImportCollectionSheet({ containers, onClose, onMythic }: { conta
                 ))}
                 <option value={NEW_BOX}>A new box</option>
               </select>
-            </label>
+            </Field>
             {place === NEW_BOX && (
-              <label>
-                Name of the new box
+              <Field label="Name of the new box">
                 <input value={newName} maxLength={80} placeholder="Bulk" onChange={(e) => setNewName(e.target.value)} />
-              </label>
+              </Field>
             )}
             <label className="collect-remove">
               <input type="checkbox" checked={topUp} onChange={(e) => setTopUp(e.target.checked)} />

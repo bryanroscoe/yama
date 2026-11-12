@@ -222,3 +222,97 @@ Every button in the app is a `Button`; every link that looks like one is a `Butt
   them to their button.
 - Don't write `<button>` or `className="button"` in a page: `conventions.test.ts` fails on
   either, everywhere but the online board's `Board.tsx` and `Decide.tsx`.
+
+### StatusPill and Tag (`components/StatusPill.tsx`)
+
+The one way to show a state: a small pill of status text on its own tint
+(`components/StatusPill/README.md`).
+
+```tsx
+<StatusPill tone="good">In the deck</StatusPill>
+<StatusPill tone="warn">Waiting for your OK</StatusPill>
+<StatusPill tone="bad">Commander: banned</StatusPill>
+<StatusPill>Archived</StatusPill>                              // neutral: dim words, a hairline
+<StatusPill tone={toneOf(status.tone)}>{status.pill}</StatusPill>  // a tone that arrives as a word
+<StatusPill href="#changes">3 in, 3 out</StatusPill>           // a link to what it counts
+<Tag>Foil</Tag>                                                // a label that names a kind, not a state
+```
+
+- The color always comes with a word that says what. It is plain text to a screen reader: no
+  role and no live region (a status that changes while you watch is announced where it changes).
+- One pill per thing, on one line: a few words, never a sentence (it doesn't wrap). A version,
+  a date or a source is plain text, not a pill.
+- `Tag` is never a link; a pill that goes somewhere is a `StatusPill` with `href`.
+- On art (a deck's or a plan's header) a pill sits on a near-solid chip; the stylesheet does
+  that for `.hero-status` and `.plans-hero-meta`.
+- Don't write `className="tag"` or `className="pill"`; the old raised `.pill` look is gone.
+- Not this: a count on a tab or a card (`deck-tab-badge`, `qty-badge`), a toggle chip in a
+  filter row, and the online board's own tags.
+
+### ActionBar (`components/ActionBar.tsx`)
+
+A row of actions (`components/ActionBar/README.md`): the primary, at most three secondaries,
+then `MoreMenu` for the rest. Buttons sit 8 px apart, wrap on a narrow screen and line up on
+their middles.
+
+```tsx
+<ActionBar>
+  <Button variant="primary" onClick={edit}>Edit list</Button>
+  <Button onClick={share}>Share</Button>
+  <MoreMenu>…</MoreMenu>
+</ActionBar>
+<ActionBar align="end">…</ActionBar>      // "end", "between" or "center"
+<ActionBar as="span">…</ActionBar>        // inside a line
+```
+
+- It has no role: the buttons read as they are. Give it `role="group"` and an `aria-label`
+  when the row needs a name of its own.
+- The bar sits at least 16 px below what is above it; the page's own gap does that, not a
+  margin on the bar.
+- Don't add a `something-actions` class for a row that only lines buttons up.
+  `conventions.test.ts` lists the rows that still have one because they do more (a grid on
+  phones, their own gap or button sizes). A dialog's answers stay in `.dialog-actions`.
+
+### Field and CheckRow (`components/Field.tsx`)
+
+A control and its words in one `<label>`, so pressing the words reaches the control and a
+screen reader reads them as its name.
+
+```tsx
+<Field label="Deck name"><input value={name} onChange={…} /></Field>
+<Field label="Finish"><select value={finish} onChange={…}>…</select></Field>
+<Field label="Most a card may cost" error={priceError}><input inputMode="decimal" … /></Field>
+<CheckRow checked={proxy} onChange={(e) => setProxy(e.target.checked)}>Proxy</CheckRow>
+<CheckRow type="radio" name="who" value="me" checked={who === "me"} onChange={…}>Only me</CheckRow>
+```
+
+- `Field`: the label is 14 px bold above the control, which is an `<input>`, a `<select>` or a
+  `<textarea>` (or a component that passes aria attributes on to one). With `error` the control
+  gets `aria-invalid` and is described by the error, which is announced when it appears
+  (`role="alert"`). `hint` is for the rare fact a label can't carry: no hint lines under fields
+  (design/tokens.md, rule 5). The control's name stays the label's words alone; a hint or an
+  error describes it.
+- `CheckRow`: a 20 px box beside its words; the whole row is the target. Everything an
+  `<input>` takes (`checked`, `onChange`, `name`, `value`, `disabled`) passes to the box.
+- A control whose name is already on the page takes `aria-labelledby`; a search box or a bare
+  number in a row takes `aria-label`. `conventions.test.ts` fails on an `<input>`, `<select>`
+  or `<textarea>` with no name at all, and a `<label>` with no words in it doesn't count.
+- A label that lays itself out (a class of its own, markup in its words, two controls) can
+  stay a `<label>`: 73 plain ones moved to these components, the rest are still written out.
+
+### BackLink (`components/BackLink.tsx`)
+
+The way back to the page above this one: one chevron, one wording.
+
+```tsx
+<BackLink to="/decks/plans" label="Back to plans" />                          // a round 44 px button in a page's top row
+<BackLink to={`/decks/${d.id}`} label={`Back to ${d.name}`} text={d.name} />   // laptops show the words
+<BackLink to="/decks" label="Back to decks" text="Decks" onArt />              // in the corner of an art header
+<BackLink inline to="/play" label="Back to Play online" text="Play online" />  // a line of words, no top row
+```
+
+- `text` is the place itself, not "Back". The accessible name reads "Back to" and the place:
+  it is worked out from `text`, or given as `label` when the place needs more words than the
+  screen shows (keep the words on screen in it). `inline` needs `text`. No "←" anywhere.
+- `AreaHead` and `LabHead` draw their own from `back={{ to, label }}`.
+- It is a link. The card page's Back is a `Button`: it goes back in history, wherever that was.

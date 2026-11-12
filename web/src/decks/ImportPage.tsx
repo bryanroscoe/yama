@@ -6,7 +6,7 @@ import { Navigate, useLocation, useNavigate, useSearchParams } from "react-route
 import { api, type DeckSummary, type DeckView, type PreconList, type PublicDeck } from "../api";
 import { AreaHead } from "../components/DeckTabs";
 import { hasDeckNamed } from "../components/calendar";
-import { Button, CardImage, ErrorText, Loading, Pips, Segmented } from "../components/ui";
+import { ActionBar, Button, CardImage, ErrorText, Field, Loading, Pips, Segmented } from "../components/ui";
 import {
   checks,
   commanderChoices,
@@ -124,7 +124,7 @@ function ImportEditor() {
             />
             <span className="import-drop-hint small dim wide-only">Or drop a file here.</span>
           </label>
-          <div className="import-actions">
+          <ActionBar>
             <Button onClick={() => void list.pasteFromClipboard()}>Paste</Button>
             <Button onClick={() => fileInput.current?.click()}>Choose a file</Button>
             <input
@@ -143,7 +143,7 @@ function ImportEditor() {
                 Clear
               </Button>
             )}
-          </div>
+          </ActionBar>
           {notice && (
             <p className="small import-warn" role="status">
               {notice}
@@ -244,10 +244,9 @@ function DraftView({ draft, setDraft, formatLabel, deckNames }: { draft: Draft; 
         {c.identity && <Pips identity={c.identity} />}
       </div>
 
-      <label>
-        Name
+      <Field label="Name">
         <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="Atraxa superfriends" maxLength={120} />
-      </label>
+      </Field>
       {draft.name.trim() && hasDeckNamed(deckNames, draft.name) && (
         <p className="small import-warn" role="note">
           You already have a deck called {draft.name.trim()}. Adding this makes a second; to change that one, choose Update one of your decks below.
@@ -411,8 +410,7 @@ function SaveBar({
       )}
       {mode === "update" && (
         <div className="stack">
-          <label>
-            Which deck
+          <Field label="Which deck">
             <select value={target} onChange={(e) => setTarget(e.target.value)}>
               <option value="">Choose a deck</option>
               {decks.map((d) => (
@@ -421,7 +419,7 @@ function SaveBar({
                 </option>
               ))}
             </select>
-          </label>
+          </Field>
           <ErrorText error={current.error} />
           {changes && (
             <div className="import-diff">

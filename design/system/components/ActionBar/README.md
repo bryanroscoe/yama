@@ -9,3 +9,5 @@ A page's actions as one row: the primary, at most three secondaries, and a More 
 - The bar sits at least 16 px (`stack-gap`) below the content above it.
 
 Replaces the inline "More" expander that dropped a second and third row of pills onto the deck page.
+
+In the app the row is `ActionBar` and the menu is `MoreMenu` (`web/src/components`; [shared-code.md](../../shared-code.md)).

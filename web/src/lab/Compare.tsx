@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { api, type DeckSummary } from "../api";
 import { useMe } from "../auth";
-import { Button, Details } from "../components/ui";
+import { Button, CheckRow, Details } from "../components/ui";
 import type { ComparePrefill, ExperimentDetail, NewExperiment } from "./api";
 import { LabHead } from "./LabLayout";
 import { caveat, durationText, expectedSeconds, gameChoices } from "./logic";
@@ -147,7 +147,7 @@ function CompareForm() {
               <p className="small dim">Identical lists count once.</p>
               <ul>{chosen.map((c) => <li key={c.key}>{c.label} <Button variant="quiet" aria-label={`Remove ${c.label}`} onClick={() => setPicked((p) => p.filter((x) => x?.key !== c.key))}>Remove</Button></li>)}</ul>
               {chosen.length < 256 && <DeckChooser value={null} onChange={(c) => c && setPicked((p) => [...p.filter(Boolean), c])} exclude={chosen.map((c) => c.key)} />}
-              <label><input type="checkbox" checked={includePrecons} onChange={(e) => setIncludePrecons(e.target.checked)} /> Include all supported stock precons as tournament entrants</label>
+              <CheckRow checked={includePrecons} onChange={(e) => setIncludePrecons(e.target.checked)}>Include all supported stock precons as tournament entrants</CheckRow>
             </> : <>{picked.map((c, i) => (
               <div key={i} className="lab-cmp-slot">
                 <div className="lab-swaps-head">

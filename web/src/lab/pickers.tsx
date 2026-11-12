@@ -9,7 +9,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { api, type DeckCard, type DeckSummary } from "../api";
 import { useMe } from "../auth";
 import { ArtPanel, artCredit } from "../components/ArtPanel";
-import { Button, ErrorText, Pips, Segmented } from "../components/ui";
+import { Button, ErrorText, Field, Pips, Segmented } from "../components/ui";
 import { FORGE_PROFILES, type BaseChoice, type EngineMode, type EngineSupport, type FieldChoice, type Pace } from "./api";
 import { forgeSeconds, type EngineState } from "./engines";
 import { contactHref } from "../components/PowerOnly";
@@ -506,14 +506,13 @@ export function EnginePicker({ value, onChange, pace, games, id }: { value: Engi
           </label>
         )}
         {value.mode !== "phase" && (
-          <label>
-            Forge AI
+          <Field label="Forge AI">
             <select value={value.forgeAi} onChange={(e) => onChange({ ...value, forgeAi: e.target.value })}>
               {FORGE_PROFILES.map((p) => (
                 <option key={p}>{p}</option>
               ))}
             </select>
-          </label>
+          </Field>
         )}
       </div>
     </div>

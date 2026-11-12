@@ -42,7 +42,7 @@ export function CopyButton({ text, label, variant, size, className, disabled = f
         <Dialog title={label} onClose={() => setState("idle")}>
           <div className="stack">
             <p className="dim small">This browser won't copy for Yama here. Select the text and copy it.</p>
-            <textarea readOnly value={text} style={{ minHeight: "18rem" }} onFocus={(e) => e.currentTarget.select()} />
+            <textarea readOnly aria-label={label} value={text} style={{ minHeight: "18rem" }} onFocus={(e) => e.currentTarget.select()} />
           </div>
         </Dialog>
       )}

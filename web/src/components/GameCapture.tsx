@@ -5,6 +5,7 @@ import { NOTE_MAX, WIN_CONDITIONS, type FunRating, type WinCondition } from "@ya
 import { useState } from "react";
 import "./stats.css";
 import { Button } from "./Button";
+import { Field } from "./Field";
 
 export interface CaptureSeat {
   seat: number;
@@ -126,8 +127,7 @@ export function KnockoutPicker({ seats, winner, value, onChange }: { seats: Capt
               </label>
               {k && (
                 <div className="knock-fields">
-                  <label>
-                    On turn
+                  <Field label="On turn">
                     <input
                       inputMode="numeric"
                       maxLength={4}
@@ -138,14 +138,13 @@ export function KnockoutPicker({ seats, winner, value, onChange }: { seats: Capt
                         set(s.seat, { ...k, turn: digits ? Number(digits) : null });
                       }}
                     />
-                  </label>
-                  <label>
-                    By
+                  </Field>
+                  <Field label="By">
                     <select value={k.by ?? ""} aria-label={`Who knocked ${s.name} out`} onChange={(e) => set(s.seat, { ...k, by: e.target.value === "" ? null : Number(e.target.value) })}>
                       <option value="">Don't remember</option>
                       {seats.filter((o) => o.seat !== s.seat).map((o) => <option key={o.seat} value={o.seat}>{o.name}</option>)}
                     </select>
-                  </label>
+                  </Field>
                 </div>
               )}
             </div>

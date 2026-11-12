@@ -2,7 +2,7 @@
 // (deckIndex.ts has the rules). Plain fields; the choices live in the address.
 import { MANA, plural } from "@yama/core";
 import { BRACKETS } from "../components/Bracket";
-import { Button, Pips, Segmented } from "../components/ui";
+import { Button, Field, Pips, Segmented } from "../components/ui";
 import { NO_FOLDER, SORTS, isFiltered, shownText, type DeckFilter, type DeckSort } from "./deckIndex";
 
 const COLORS = ["W", "U", "B", "R", "G"] as const;
@@ -41,8 +41,7 @@ export function DeckIndexTools({ filter, onChange, folders, hasUnfiled, shown, t
       />
       <div className="deck-index-fields">
         {(folders.length > 0 || filter.folder !== null) && (
-          <label>
-            Folder
+          <Field label="Folder">
             <select
               value={filter.folder === null ? "" : filter.folder}
               onChange={(e) => onChange({ folder: e.target.value === "" ? null : e.target.value })}
@@ -52,7 +51,7 @@ export function DeckIndexTools({ filter, onChange, folders, hasUnfiled, shown, t
               {stale && <option value={stale}>{stale}</option>}
               {(hasUnfiled || filter.folder === NO_FOLDER) && <option value={NO_FOLDER}>No folder</option>}
             </select>
-          </label>
+          </Field>
         )}
         <div className="deck-index-colors" role="group" aria-label="Colors the deck includes">
           <span className="deck-index-label" aria-hidden="true">Colors</span>
@@ -64,14 +63,13 @@ export function DeckIndexTools({ filter, onChange, folders, hasUnfiled, shown, t
             ))}
           </span>
         </div>
-        <label>
-          Declared bracket
+        <Field label="Declared bracket">
           <select value={filter.bracket} onChange={(e) => onChange({ bracket: e.target.value })}>
             <option value="">Any</option>
             {BRACKETS.map((b) => <option key={b.value} value={String(b.value)}>{b.value}, {b.name}</option>)}
             <option value="none">None declared</option>
           </select>
-        </label>
+        </Field>
         <div className="deck-index-sort">
           <span className="deck-index-label" id="deck-index-sort">Sort by</span>
           <Segmented<DeckSort> compact labelledBy="deck-index-sort" value={filter.sort} onChange={(sort) => onChange({ sort })} options={SORTS} />

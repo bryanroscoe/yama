@@ -6,10 +6,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useModalLayer } from "../components/Dialog";
 import { useParams } from "react-router";
-import { BackButton } from "../components/DeckTabs";
 import { api, ApiError, type DeckView } from "../api";
 import { LoadFailed, queryFailure, RefreshFailed } from "../components/QueryError";
-import { Button, ButtonLink, Details, Dialog, ErrorText, Loading } from "../components/ui";
+import { BackLink, Button, ButtonLink, Details, Dialog, ErrorText, Loading } from "../components/ui";
 import { NameEntry } from "../scanner/NameEntry";
 import type { ScanCatalog } from "../scanner";
 import {
@@ -57,7 +56,7 @@ export function DeckScanPage() {
 
   return (
     <main className="page deck-scan stack">
-      <BackButton to={`/decks/${d.id}`} label={`Back to ${d.name}`} text={d.name} />
+      <BackLink to={`/decks/${d.id}`} label={`Back to ${d.name}`} text={d.name} />
       <h1>Scan {d.name}</h1>
       <RefreshFailed query={deck} what="this deck" />
       {step === "scan" && (

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { api, ApiError, setToken, type User } from "./api";
-import { Button, ErrorText } from "./components/ui";
+import { Button, ErrorText, Field } from "./components/ui";
 import { outbox } from "./plan/outbox";
 import { discardQuestion, signOut, within } from "./plan/signout";
 import { clearPlanData } from "./plan/store";
@@ -374,14 +374,12 @@ export function SignInForm({ heading: SignInTitle, title = "Sign in to Yama", co
               withPassword.mutate();
             }}
           >
-            <label>
-              Email
+            <Field label="Email">
               <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="username" />
-            </label>
-            <label>
-              Password
+            </Field>
+            <Field label="Password">
               <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" />
-            </label>
+            </Field>
             <Button type="submit" variant={clientId || config.data.cf_access ? "secondary" : "primary"} className={clientId || config.data.cf_access ? "login-secondary" : undefined} disabled={withPassword.isPending}>
               {withPassword.isPending ? "Signing in…" : "Sign in"}
             </Button>
@@ -398,14 +396,12 @@ export function SignInForm({ heading: SignInTitle, title = "Sign in to Yama", co
         >
           {(clientId || config.data.password_login) && <Or>or for development</Or>}
           <p className="dim small" style={{ margin: 0 }}>Development sign-in: any email, no password. Only works on a local server.</p>
-          <label>
-            Email
+          <Field label="Email">
             <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
-          </label>
-          <label>
-            Name
+          </Field>
+          <Field label="Name">
             <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="nickname" />
-          </label>
+          </Field>
           <Button type="submit" variant={clientId || config.data.password_login ? "secondary" : "primary"} className={clientId || config.data.password_login ? "login-secondary" : undefined} disabled={dev.isPending}>
             Sign in (development)
           </Button>

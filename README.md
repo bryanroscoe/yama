@@ -18,7 +18,7 @@ working at a table with bad wifi.
 | Playgroups | Game history and stats for a group of friends, with guests who have no account: win rates by player, commander and turn order, each shown with its game count. |
 | Cards | Scryfall-style search that works offline, rulings, printings, dated prices with history, a release calendar and a camera scanner. |
 | Collection | Binders, boxes and deck boxes, real copies and proxies, with lossless Mythic Tools import and export. |
-| Decks | Paste any common list format, keep versions, see what you own and what you still need, sample hands, mana stats, a bracket estimate, and plans for upgrading a deck. |
+| Decks | Paste any common list format or search for cards to add, keep versions, sort decks into folders, keep a Considering list (a maybeboard) and a description with a deck, see what you own and what you still need with links to buy the rest, export for other sites and programs, sample hands, mana stats, a bracket estimate, and plans for upgrading a deck. |
 | Online play (alpha) | Commander against friends or AI on the [Phase](https://github.com/bryanroscoe/yama-phase) rules engine. The server keeps hidden information hidden and saves every game as a replay. |
 | Lab | AI-against-AI tournaments to try a deck change, on Phase and on Forge, read as paired differences with intervals. Starting a run is limited to accounts the admin enables; results stay visible. |
 | Public reference | [Precons](https://yama.ing/precons) and [commanders](https://yama.ing/commanders) for anyone, without signing in: stock lists, attributed real-game results and dated prices. |

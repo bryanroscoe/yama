@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { api, publicOrigin, type DeckView } from "../../api";
-import { Button, Details, Dialog, ErrorText, Loading } from "../../components/ui";
+import { Button, Details, Dialog, ErrorText, Field, Loading } from "../../components/ui";
 import { sendCards, useMythicBridge, type MythicDeckLink } from "./mythic";
 import { mythicSendSnippet } from "./snippet";
 import "./mythic.css";
@@ -63,12 +63,11 @@ export function MythicSend({ deck, onClose }: { deck: DeckView; onClose: () => v
         ) : (
           <>
             <p>Makes this deck in Mythic Tools and links the two, so later sends and imports update each other.</p>
-            <label>
-              Who can see it in Mythic{" "}
+            <Field label="Who can see it in Mythic">
               <select value={privacy} onChange={(e) => { setPrivacy(e.target.value); send.reset(); }}>
                 {PRIVACY.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
               </select>
-            </label>
+            </Field>
           </>
         )}
         {missing.length > 0 && (

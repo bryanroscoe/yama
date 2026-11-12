@@ -63,11 +63,6 @@
   height: 20px;
   margin: 0;
 }
-.deck-settings-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
 .deck-settings-hint {
   font-weight: 400;
   margin: -8px 0 0;

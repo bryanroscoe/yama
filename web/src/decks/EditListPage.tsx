@@ -11,7 +11,7 @@ import { useMe } from "../auth";
 import { ArtPanel } from "../components/ArtPanel";
 import { LoadFailed, queryFailure, RefreshFailed } from "../components/QueryError";
 import { SearchPicker } from "../components/SearchPicker";
-import { Button, Dialog, EmptyState, ErrorText, Loading, Segmented } from "../components/ui";
+import { Button, Dialog, EmptyState, ErrorText, Field, Loading, Segmented } from "../components/ui";
 import { SwapPair, Thumb } from "../plan/parts";
 import { usePlan } from "../plan/store";
 import { UnsavedPrompt, useUnsavedChanges } from "../unsaved";
@@ -368,15 +368,13 @@ function EditList({ id }: { id: string }) {
             <h2 id="edit-save">Save it</h2>
             <Segmented className="edit-list-save-as" label="Save as" value={mode} onChange={setMode} options={[["box", ownLabel], ["new", "A new list"]]} />
             {mode === "new" && (
-              <label>
-                Name of the new list
+              <Field label="Name of the new list">
                 <input value={listName} onChange={(e) => setName(e.target.value)} maxLength={60} required />
-              </label>
+              </Field>
             )}
-            <label>
-              Note
+            <Field label="Note">
               <input value={note} onChange={(e) => setNote(e.target.value)} maxLength={200} />
-            </label>
+            </Field>
             {mode === "box" && moved && (
               <div className="edit-list-confirm" role="alert">
                 <span>This list changed somewhere else since you opened it.</span>

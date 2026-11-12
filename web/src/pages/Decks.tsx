@@ -8,7 +8,7 @@ import { api, type DeckEntry, type DeckSummary, type DeckView } from "../api";
 import { useMe } from "../auth";
 import { AreaHead } from "../components/DeckTabs";
 import { LoadFailed, queryFailure, RefreshFailed } from "../components/QueryError";
-import { Button, ButtonLink, CardImage, EmptyState, ErrorText, Pips } from "../components/ui";
+import { BackLink, Button, ButtonLink, CardImage, EmptyState, ErrorText, Pips, StatusPill, toneOf } from "../components/ui";
 import { pct } from "../lab/logic";
 import { pairedFor, simShort, useRuns } from "../lab/paired";
 import { outbox, useOutbox } from "../plan/outbox";
@@ -288,9 +288,9 @@ export function DeckPage() {
   };
   // The ActionBar (design/tokens.md, rule 2; SPEC section 0): Edit list, Check cards, Share, More.
   const checkActions = <>
-    <Link to={`/decks/${d.id}/check`}><span>Check the box against the list</span><span className="more-menu-note">Saves nothing</span></Link>
-    <Link to={`/decks/${d.id}/scan`}><span>Scan the box as the list</span><span className="more-menu-note">Saves a version</span></Link>
-    <Button onClick={() => { cards.setShow("need"); if (tab !== "cards") navigate(tabHref("cards")); }}><span>Compare with my collection</span><span className="more-menu-note">Still need</span></Button>
+    <Link className="deck-check-action" to={`/decks/${d.id}/check`}><span>Check physical cards</span><span className="more-menu-note">Compare with this list without saving changes</span></Link>
+    <Link className="deck-check-action" to={`/decks/${d.id}/scan`}><span>Scan a new version</span><span className="more-menu-note">Save a list from your physical cards</span></Link>
+    <Button className="deck-check-action" onClick={() => { cards.setShow("need"); if (tab !== "cards") navigate(tabHref("cards")); }}><span>Find missing cards</span><span className="more-menu-note">Compare this list with my collection</span></Button>
   </>;
   const moreActions = <>
     <Button onClick={() => navigate("/", { state: { deckId: d.id } })}>Play</Button>
@@ -310,10 +310,7 @@ export function DeckPage() {
   return (
     <main className="deck-page">
       <ArtPanel as="header" className="deck-hero" art={commander?.image_art_crop} artist={commander?.artist} wash="bottom" toGround credit={false}>
-        <Link to="/decks" className="hero-back" aria-label="Back to decks">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
-          <span className="hero-back-text">Decks</span>
-        </Link>
+        <BackLink to="/decks" label="Back to decks" text="Decks" onArt />
         {commander && (
           <span className="hero-credit">
             <span className="hero-credit-card">{commander.name}. </span>
@@ -328,7 +325,7 @@ export function DeckPage() {
             </span>
             <h1 className="hero-title">{d.parent_id ? d.configurations.find((c) => c.id === d.parent_id)?.name ?? d.name : d.name}</h1>
             <span className="hero-status">
-              <span className={`pill ${status.tone}`}>{status.pill}</span>
+              <StatusPill tone={toneOf(status.tone)}>{status.pill}</StatusPill>
               <span>{status.line}</span>
             </span>
           </div>

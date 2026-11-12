@@ -9,7 +9,7 @@ import { api, type DeckSummary, type GameDetail, type GameSeat } from "../api";
 import { MythicNote } from "../bridges/mythic/MythicImport";
 import { ArtMosaic } from "../components/ArtMosaic";
 import { artCredits } from "../components/ArtPanel";
-import { Button, ButtonLink, ErrorText, Loading } from "../components/ui";
+import { BackLink, Button, ButtonLink, ErrorText, Loading } from "../components/ui";
 import { useCardArt } from "../components/useCardArt";
 import { history } from "./history";
 import { useLoggedQueue } from "./loggedQueue";
@@ -200,7 +200,7 @@ export function GameDetailPage() {
 
   return (
     <main className="page game-detail">
-      <p className="gd-back"><Link to={back}>{back === "/" ? "Table" : "Game history"}</Link></p>
+      <BackLink inline to={back} label={back === "/" ? "Back to Table" : "Back to game history"} text={back === "/" ? "Table" : "Game history"} />
       <header className="gd-head">
         <ArtMosaic className="gd-art" arts={(winner ? [art.get(splitPair(winner).commander ?? "")] : shown).filter((a) => !!a?.art).slice(0, 4).map((a) => a!.art)} />
         <div className="gd-title">

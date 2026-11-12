@@ -6,7 +6,7 @@ import { api, type DeckSummary, type GameDetail, type GameRow, type Playgroup } 
 import { useMe } from "../auth";
 import { ArtMosaic } from "../components/ArtMosaic";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
-import { Button, ButtonLink, Dialog, ErrorText, Loading, Pips, Segmented } from "../components/ui";
+import { Button, ButtonLink, CheckRow, Dialog, ErrorText, Loading, Pips, Segmented } from "../components/ui";
 import { FirstPlayerPicker, FunPicker, KnockoutPicker, NotePicker, WinConditionPicker, type KnockoutAnswer } from "../components/GameCapture";
 import { useCardArt } from "../components/useCardArt";
 import { localDay } from "./versions";
@@ -901,10 +901,7 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
             seatedHandles={seats.flatMap((o, j) => (j !== i && o.handle ? [o.handle] : []))}
             footer={
               <>
-                <label className="check-row">
-                  <input type="radio" name="winner" checked={winner === i} onChange={() => setWinner(i)} />
-                  Won this game
-                </label>
+                <CheckRow className="check-row" type="radio" name="winner" checked={winner === i} onChange={() => setWinner(i)}>Won this game</CheckRow>
                 {seats.length > 1 && (
                   <Button variant="quiet" size="small" onClick={() => removeSeat(i)}>
                     Remove {s.name.trim() || "this player"}
@@ -914,10 +911,7 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
             }
           />
         ))}
-        <label className="check-row">
-          <input type="radio" name="winner" checked={winner === "draw"} onChange={() => { setWinner("draw"); setCondition(null); }} />
-          It was a draw
-        </label>
+        <CheckRow className="check-row" type="radio" name="winner" checked={winner === "draw"} onChange={() => { setWinner("draw"); setCondition(null); }}>It was a draw</CheckRow>
         <div className="row">
           <Button onClick={addSeat}>Add a player</Button>
         </div>

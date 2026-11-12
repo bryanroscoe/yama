@@ -15,6 +15,46 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-11-considering",
+    date: "2026-11-11",
+    title: "Keep cards you're considering with a deck",
+    items: [
+      "A deck has a Considering list (a maybeboard): in Edit the list, write cards under a Considering heading, or press Consider on a search result.",
+      "They show under the deck's cards and stay out of its legality, stats, prices and exports. A list imported with a maybeboard keeps it.",
+    ],
+    link: { to: "/decks", label: "Open Decks" },
+  },
+  {
+    id: "2026-11-11-deck-description",
+    date: "2026-11-11",
+    title: "Say what a deck is about",
+    items: [
+      "A deck can have a description (More, Add a description): what it does, how it wins, what to watch for.",
+      "It shows on the deck's page and, if you share the deck, to anyone who can see it. Version notes stay private.",
+    ],
+    link: { to: "/decks", label: "Open Decks" },
+  },
+  {
+    id: "2026-11-11-more-export-formats",
+    date: "2026-11-11",
+    title: "Export a deck for Archidekt, Cockatrice, Magic Online or a spreadsheet",
+    items: [
+      "Copy or export on a deck (More) now also writes Archidekt's text, a Cockatrice .cod file, a Magic Online .dek file and a CSV.",
+      "The .dek file names cards without Magic Online's catalog numbers, so Magic Online itself may not match every card.",
+    ],
+    link: { to: "/decks", label: "Open Decks" },
+  },
+  {
+    id: "2026-11-11-buy-this-deck",
+    date: "2026-11-11",
+    title: "Buy the cards a deck still needs",
+    items: [
+      "A deck's Stats tab has Buy this deck: open the cards you still need, or the whole list, in TCGplayer Mass Entry or Card Kingdom's deck builder, or copy the list.",
+      "The market total beside the links is dated and is not the store's price. Yama earns nothing from the links.",
+    ],
+    link: { to: "/decks", label: "Open Decks" },
+  },
+  {
     id: "2026-11-11-copy-language-signed-altered",
     date: "2026-11-11",
     title: "Mark a copy as signed, altered or in another language",

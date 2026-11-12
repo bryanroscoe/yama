@@ -64,6 +64,10 @@ function CardZoom({ src, name, onClose }: { src: string; name: string; onClose: 
 
 export { Dialog, DialogHead } from "./Dialog";
 export { CopyButton } from "./CopyButton";
+export { ActionBar } from "./ActionBar";
+export { BackLink } from "./BackLink";
+export { CheckRow, Field } from "./Field";
+export { StatusPill, Tag, toneOf, type Tone } from "./StatusPill";
 export { Button, ButtonLink, type ButtonLook, type ButtonVariant } from "./Button";
 
 /**

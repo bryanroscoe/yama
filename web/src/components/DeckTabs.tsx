@@ -5,6 +5,7 @@ import { outbox, useOutbox } from "../plan/outbox";
 import { usePlan } from "../plan/store";
 import { planView } from "../plan/view";
 import "./deck-area.css";
+import { BackLink } from "./BackLink";
 
 /** The Decks tab's sections, in order. Adding a section is one line here. The Lab has its own
  *  tab since 2026-10-28. Plans holds every plan since 2026-11-04 (Bryan: plans should be
@@ -107,25 +108,6 @@ export function DeckTabs() {
   );
 }
 
-function Chevron() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="m15 18-6-6 6-6" />
-    </svg>
-  );
-}
-
-/** A round back button (44 px), for phone sub-pages and the art heroes. With `text`, laptops
- *  show the words beside the chevron. */
-export function BackButton({ to, label, text, className = "" }: { to: string; label: string; text?: string; className?: string }) {
-  return (
-    <Link to={to} className={`area-back${text ? " has-text" : ""} ${className}`.trim()} aria-label={label}>
-      <Chevron />
-      {text && <span className="area-back-text">{text}</span>}
-    </Link>
-  );
-}
-
 /** An underlined row of section pages (Overview, Review... or the Lab's Precons, Try a change...). */
 export function SubNav({ label, pages, also }: { label: string; pages: { to: string; label: string; end?: boolean; also?: string }[]; also?: string }) {
   return (
@@ -183,7 +165,7 @@ export function AreaHead({
   return (
     <header className={`area-head ${index ? "is-index" : "is-sub"}${slim ? " is-slim" : ""}`}>
       <div className="area-top">
-        {back && !index && <BackButton to={back.to} label={back.label} />}
+        {back && !index && <BackLink to={back.to} label={back.label} />}
         {!slim && (
           <h1 className="area-title">
             {index ? (

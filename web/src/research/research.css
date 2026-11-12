@@ -36,7 +36,6 @@
 .research-sealed { margin:1rem 0; border:1px solid var(--line); padding:1rem; border-radius:.65rem; }
 @media(max-width:700px) { .research-gameplay,.research-full-list { grid-template-columns:1fr; } .research-full-list > div:last-child > ul { columns:1; } }
 @media print { .card-ref { text-decoration:none; } .card-ref-preview { display:none !important; } }
-.research-review-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .research-sources a, .research-item a { overflow-wrap: anywhere; }
 .research-item p { overflow-wrap: anywhere; }
 .research-review.is-compact { margin-top: 8px; }
@@ -79,9 +78,9 @@
 
 
 .note-pills { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
-.note-pills .pill { font-size: var(--t-sm); padding: 4px 12px; }
-a.note-pill-link { text-decoration: none; box-shadow: inset 0 0 0 1px var(--line); background: transparent; }
-a.note-pill-link:hover { box-shadow: inset 0 0 0 1px var(--dim); }
+.note-pills .tag { padding: 4px 12px; }
+a.note-pill-link { text-decoration: none; }
+a.note-pill-link:hover { border-color: var(--dim); }
 .note-how { max-width: 80ch; line-height: 1.5; }
 .note-stale { opacity: 0.6; transition: opacity 0.15s; }
 

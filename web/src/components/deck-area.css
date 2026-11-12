@@ -149,70 +149,6 @@
   }
 }
 
-/* ── back buttons ───────────────────────────────────────────────────────── */
-
-.area-back {
-  display: inline-grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  flex: none;
-  border-radius: var(--r-pill);
-  background: var(--surface);
-  color: var(--text);
-  text-decoration: none;
-}
-.area-back:hover {
-  background: var(--raised);
-}
-.area-back-text {
-  display: none;
-}
-/* On commander art: a dark glass circle. */
-.area-back.on-art {
-  position: absolute;
-  z-index: 3;
-  top: 14px;
-  left: 14px;
-  background: rgb(11 12 14 / 0.6);
-  color: var(--on-art);
-}
-/* Off art, a page's own back button sits above its title and names where it goes on laptops
-   (Scan and Check go back to the deck, the Mythic import to the playgroup). */
-.area-back.has-text:not(.on-art) {
-  justify-self: start;
-  align-self: start;
-}
-@media (min-width: 900px) {
-  .area-back.has-text:not(.on-art) {
-    display: inline-flex;
-    width: auto;
-    max-width: 100%;
-    height: 40px;
-    gap: 6px;
-    padding: 0 16px 0 12px;
-    font-weight: 700;
-  }
-  .area-back.has-text:not(.on-art) .area-back-text {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .area-back.on-art.has-text {
-    top: 24px;
-    left: var(--page-pad);
-    display: inline-flex;
-    width: auto;
-    height: 40px;
-    gap: 6px;
-    padding: 0 14px 0 10px;
-    font-weight: 700;
-  }
-  .area-back.has-text .area-back-text {
-    display: inline;
-  }
-}
-
 /* ── art-crop rows ──────────────────────────────────────────────────────── */
 
 /* A card's art crop as a small landscape tile, never filtered (design/tokens.md). */
@@ -242,35 +178,6 @@
 .crop-sm {
   width: 48px;
   height: 36px;
-}
-
-/* Small status pills: "To buy", "Stand-in now", "Proposed". */
-.pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 3px 10px;
-  border-radius: var(--r-pill);
-  background: var(--raised);
-  color: var(--text);
-  font-size: 0.75rem;
-  font-weight: 700;
-  line-height: 1.35;
-  white-space: nowrap;
-}
-.pill.good {
-  background: var(--good-tint);
-  color: var(--good);
-}
-.pill.warn {
-  background: var(--warn-tint);
-  color: var(--warn);
-}
-.pill.bad {
-  background: var(--bad-tint);
-  color: var(--bad);
-}
-.pill.quiet {
-  color: var(--dim);
 }
 
 /* A raised note above a page's content ("Planned in commander-decks..."). */

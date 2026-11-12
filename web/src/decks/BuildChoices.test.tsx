@@ -4,10 +4,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import { BuildChoicesPage, SwapFace } from "./BuildChoices";
 import { duplexPages, type BuildChoice } from "./buildCatalog";
+import { pictureBatches } from "../components/useCardPictures";
 import { buildNotesKey } from "../research/api";
 
 // Navigation uses browser-only outbox subscriptions; keep real auth/plan hooks for cache tests.
-vi.mock("../components/DeckTabs", () => ({ AreaHead: ({ title }: { title: string }) => <h1>{title}</h1>, BackButton: ({ label }: { label: string }) => <a>{label}</a> }));
+vi.mock("../components/DeckTabs", () => ({ AreaHead: ({ title }: { title: string }) => <h1>{title}</h1> }));
 
 const from: BuildChoice = { id: "a", label: "Bracket 2", kind: "bracket", list: "", source: "Plan v27", href: "/", warnings: [] };
 const to: BuildChoice = { ...from, id: "b", label: "Bracket 3" };
@@ -83,5 +84,37 @@ describe("a deck's swap cards read like its plan page", () => {
     expect(html).toContain("1 in, 1 out from Bracket 2: Core");
     expect(html).toContain("Print swap cards");
     expect(html).not.toContain("[3]");
+  });
+  it("shows each swapped card's picture, looked up by name", () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+    qc.setQueryData(["me"], { id: "owner" });
+    qc.setQueryData(["decks"], []);
+    qc.setQueryData(["plan", "owner"], { decks: [] });
+    // One search covers both names; Island has no art crop but still has its picture.
+    const card = (name: string, file: string, crop: boolean) => ({ name, image_normal: `https://cards.scryfall.io/normal/front/${file}.jpg`, image_art_crop: crop ? "crop.jpg" : null });
+    qc.setQueryData(["card-pictures", ["Island", "Sol Ring"]], [card("Sol Ring", "sol", true), card("Island", "island", false)]);
+    const list = (extra: string) => `Commander\n1 Leader\nDeck\n98 Plains\n${extra}`;
+    qc.setQueryData(buildNotesKey("owner"), [{ document: { id: "audit", title: "Upgrades", decks: [{ key: "party", name: "Party Time", builds: [
+      { id: "b2", label: "Bracket 2 · Core", bracket: 2, list: list("1 Island"), swaps: [] },
+      { id: "b3", label: "Bracket 3 · Upgraded", bracket: 3, list: list("1 Sol Ring"), swaps: [] },
+    ] }] }, revision: 1, updated_at: "2026-10-31T19:00:00Z" }]);
+    const key = `research:${JSON.stringify(["audit", "party"])}`;
+    const html = renderToStaticMarkup(<QueryClientProvider client={qc}><MemoryRouter initialEntries={[`/decks/builds?deck=${encodeURIComponent(key)}`]}><BuildChoicesPage /></MemoryRouter></QueryClientProvider>);
+    qc.clear();
+    expect(html).toMatch(/<img class="thumb note-thumb" src="[^"]*sol\.jpg"/);
+    expect(html).toMatch(/<img class="thumb note-thumb" src="[^"]*island\.jpg"/);
+  });
+});
+
+describe("swap card pictures are looked up in batches", () => {
+  it("keeps every search inside one page and the query limit", () => {
+    const names = Array.from({ length: 130 }, (_, i) => `Card number ${i} with a fairly long name`);
+    const batches = pictureBatches(names);
+    expect(batches.flat()).toEqual(names);
+    for (const b of batches) {
+      expect(b.length).toBeLessThanOrEqual(50);
+      expect(b.map((n) => `!"${n}"`).join(" or ").length).toBeLessThanOrEqual(1000);
+    }
+    expect(batches.length).toBeLessThan(10);
   });
 });
