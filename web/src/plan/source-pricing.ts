@@ -36,7 +36,19 @@ function mayReprice(o: SourceOffer, card: string): boolean {
   return !o.rule_reason && o.finish === "nonfoil" && /^(en|english)$/i.test(o.language ?? "");
 }
 
-/** Re-evaluate dated quotes for today's preview; never mutate the saved research. */
-export function pricedRows(rows: SourceCard[], rule: LocalBuyRule, valid = true): SourceCard[] {
-  return rows.map(c => ({ ...c, offers: c.offers.map(o => ({ ...o, qualifies: valid && o.price != null && mayReprice(o,c.name) && judge(rule, o.price, o.market ?? null) === "ok", eligibility_unknown: !o.qualifies && o.non_price_eligible == null && !o.rule_reason && !mayReprice(o,c.name) })) }));
+/** A foil costs "about the same" as a plain copy: at most $0.25 or 10% more, whichever is larger. */
+export const FOIL_SAME_PRICE = { usd: 0.25, share: 0.1 };
+export const foilNearPlain = (foil: number, plain: number) => foil <= Math.max(plain + FOIL_SAME_PRICE.usd, plain * (1 + FOIL_SAME_PRICE.share)) + 1e-9;
+
+/**
+ * Re-evaluate dated quotes for today's preview; never mutate the saved research. A foil copy of a
+ * card that has a plain version shops only when foil is preferred, passes the same rule, and costs
+ * about the same as the cheapest plain copy that qualifies.
+ */
+export function pricedRows(rows: SourceCard[], rule: LocalBuyRule, valid = true, preferFoil = false): SourceCard[] {
+  return rows.map(c => {
+    const offers = c.offers.map(o => ({ ...o, qualifies: valid && o.price != null && mayReprice(o,c.name) && judge(rule, o.price, o.market ?? null) === "ok", eligibility_unknown: !o.qualifies && o.non_price_eligible == null && !o.rule_reason && !mayReprice(o,c.name) && !o.foil_alternative }));
+    const plain = Math.min(...offers.filter(o => o.qualifies && !o.foil_alternative && o.qty !== 0).map(o => o.price!));
+    return { ...c, offers: offers.map(o => !o.foil_alternative ? o : { ...o, eligibility_unknown: false, qualifies: o.qualifies && preferFoil && Number.isFinite(plain) && foilNearPlain(o.price!, plain) }) };
+  });
 }

@@ -2,7 +2,7 @@ import { safeUrl, type ResearchDocument } from "../research/api";
 import { parseDeckList } from "@yama/core";
 
 export interface SourceUse { id: string; deck: string; deck_name: string; category: string; build_match?: boolean; brackets?: number[] }
-export interface SourceOffer { store: string; price: number | null; qty: number | null; condition: string; url: string; variant_id: string; checked_at: string; quantity_checked_at?: string; qualifies: boolean; rule_reason?: string; non_price_eligible?: boolean; eligibility_unknown?: boolean; title?: string; finish?: string; language?: string; market?: number | null; market_source?: string; market_checked_at?: string; market_match?: string; printing_id?: string }
+export interface SourceOffer { store: string; price: number | null; qty: number | null; condition: string; url: string; variant_id: string; checked_at: string; quantity_checked_at?: string; qualifies: boolean; rule_reason?: string; non_price_eligible?: boolean; eligibility_unknown?: boolean; title?: string; finish?: string; language?: string; market?: number | null; market_source?: string; market_checked_at?: string; market_match?: string; printing_id?: string; foil_alternative?: boolean }
 export interface SourceCard { name: string; status: string; uses: SourceUse[]; offers: SourceOffer[] }
 type Obj = Record<string, unknown>;
 const obj = (v: unknown): Obj => v && typeof v === "object" && !Array.isArray(v) ? v as Obj : {};
@@ -20,11 +20,12 @@ function normalizeSourceCards(value: unknown): SourceCard[] {
       if (!id || !deck) return [];
       return [{ id, deck, deck_name: str(u.deck_name) || deck, category: str(u.category) }];
     });
-    const offers = list(c.offers ?? c.best_offer_per_store).flatMap(rawOffer => {
+    // Foil copies of a card with a plain version come separately; they shop only when preferred.
+    const offers = [...list(c.offers ?? c.best_offer_per_store), ...list(c.foil_offer_per_store).map(o => ({ ...obj(o), foil_alternative: true }))].flatMap(rawOffer => {
       const o = obj(rawOffer), url = safeUrl(str(o.url));
       if (!url || !str(o.store)) return [];
       const qty = number(o.qty);
-      return [{ store: str(o.store), price: number(o.price), qty: qty == null ? null : Math.floor(qty), condition: str(o.condition), url, variant_id: str(o.variant_id), checked_at: str(o.checked_at), quantity_checked_at: str(o.quantity_checked_at) || undefined, qualifies: o.qualifies === true, rule_reason: str(o.rule_reason), non_price_eligible: typeof o.non_price_eligible === "boolean" ? o.non_price_eligible : undefined, title: str(o.title), finish: str(o.finish), language: str(o.language), market: number(o.market), market_source: safeUrl(str(o.market_source)) ?? undefined, market_checked_at: str(obj(o.market_evidence).checked_at), market_match: str(obj(o.market_evidence).matching), printing_id: str(obj(o.market_evidence).scryfall_id) }];
+      return [{ store: str(o.store), price: number(o.price), qty: qty == null ? null : Math.floor(qty), condition: str(o.condition), url, variant_id: str(o.variant_id), checked_at: str(o.checked_at), quantity_checked_at: str(o.quantity_checked_at) || undefined, qualifies: o.qualifies === true, rule_reason: str(o.rule_reason), non_price_eligible: typeof o.non_price_eligible === "boolean" ? o.non_price_eligible : undefined, title: str(o.title), finish: str(o.finish), language: str(o.language), market: number(o.market), market_source: safeUrl(str(o.market_source)) ?? undefined, market_checked_at: str(obj(o.market_evidence).checked_at), market_match: str(obj(o.market_evidence).matching), printing_id: str(obj(o.market_evidence).scryfall_id), ...(o.foil_alternative === true ? { foil_alternative: true } : {}) }];
     });
     return [{ name, status: str(c.status), uses, offers }];
   });
@@ -151,7 +152,7 @@ export function offerRows(rows: SourceCard[], condition: string, store: string, 
  * caps a variant. A listing without a count was in stock when checked, which proves one copy, so it
  * supplies one; any more stay a manual request. This prepares a cart, not a stock claim.
  */
-export function allChoices(rows: SourceCard[]): Record<string, SourceChoice[]> {
+export function allChoices(rows: SourceCard[], preferFoil = false): Record<string, SourceChoice[]> {
   const choices: Record<string, SourceChoice[]> = Object.create(null);
   const stockUsed = new Map<string,number>();
   const limits = new Map<string,number>();
@@ -163,7 +164,7 @@ export function allChoices(rows: SourceCard[]): Record<string, SourceChoice[]> {
   for (const row of rows) {
     let remaining = row.uses.length;
     choices[row.name] = [];
-    for (const o of [...row.offers].filter(o => o.qualifies && o.price != null && o.qty !== 0).sort((a,b) => Number(nearMint(b.condition))-Number(nearMint(a.condition)) || a.price!-b.price! || Number(b.qty != null)-Number(a.qty != null))) {
+    for (const o of [...row.offers].filter(o => o.qualifies && o.price != null && o.qty !== 0).sort((a,b) => Number(nearMint(b.condition))-Number(nearMint(a.condition)) || (preferFoil ? Number(!!b.foil_alternative)-Number(!!a.foil_alternative) : 0) || a.price!-b.price! || Number(b.qty != null)-Number(a.qty != null))) {
       const sku = skuOf(o);
       const qty = Math.min(remaining,Math.max(0,(limits.get(sku) ?? o.qty ?? 1)-(stockUsed.get(sku) ?? 0)));
       stockUsed.set(sku,(stockUsed.get(sku) ?? 0)+qty);
