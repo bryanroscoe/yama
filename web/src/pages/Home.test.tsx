@@ -4,13 +4,14 @@ import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DeckSummary, GameRow } from "../api";
 import { HOME_LINKS, HomePage } from "./Home";
-import { startSteps } from "./StartHere";
 
 const table = vi.hoisted(() => ({ game: null as unknown, state: null as unknown, opening: false, recent: true }));
 vi.mock("../table/store", () => ({ useTable: () => ({ game: table.game, state: table.state }), usePendingDeletes: () => ["deleted"] }));
 vi.mock("../table/resume", () => ({ isOpening: () => table.opening, opened: () => {}, resumesOnOpen: () => table.recent }));
 vi.mock("../components/useCardArt", () => ({ useCardArt: () => new Map() }));
 vi.mock("../table/SharedTables", () => ({ SharedTables: () => <p>Shared tables</p> }));
+// The list has its own tests (StartHere.test.tsx); here, only that Home puts it in its place.
+vi.mock("./StartHere", () => ({ StartHere: ({ userId }: { userId: string }) => <p>Start here list for {userId}</p> }));
 // A redirect draws nothing in a static render: show where it goes.
 vi.mock("react-router", async (original) => ({ ...(await original<typeof import("react-router")>()), Navigate: ({ to }: { to: string }) => <p>Goes to {to}</p> }));
 
@@ -25,16 +26,12 @@ const game = (id: string, more: Partial<GameRow> = {}) => ({
   seats: [{ seat: 0, display_name: "Kelly", commander_name: "Atraxa" }, { seat: 1, display_name: "Pat" }], ...more,
 }) as GameRow;
 
-// An account that has finished Start here, unless a test says otherwise: `copies` in its
-// collection and `groups` playgroups (null: that answer hasn't arrived).
-function home({ me = { id: "u1" } as { id: string } | null, decks = [] as DeckSummary[], games = [] as GameRow[], copies = 5 as number | null, groups = 1 as number | null } = {}) {
+function home({ me = { id: "u1" } as { id: string } | null, decks = [] as DeckSummary[], games = [] as GameRow[] } = {}) {
   vi.stubGlobal("location", { origin: "https://yama.ing" });
   const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
   client.setQueryData(["me"], me);
   client.setQueryData(["decks"], decks);
   client.setQueryData(["games"], games);
-  if (copies !== null) client.setQueryData(["collection-summary"], { copies });
-  if (groups !== null) client.setQueryData(["playgroups"], Array.from({ length: groups }, (_, i) => ({ id: `p${i}` })));
   const html = renderToStaticMarkup(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={["/"]}>
@@ -133,36 +130,12 @@ describe("Home, signed in", () => {
   });
 });
 
-describe("Start here", () => {
-  const list = (html: string) => html.match(/<section class="home-start-here".*?<\/section>/s)?.[0] ?? "";
-
-  it("lists the four first steps for a new account, each with where to do it", () => {
-    const html = list(home({ copies: 0, groups: 0 }));
-    expect(html).toContain("Start here");
-    expect(html).toContain("0 of 4 done");
-    for (const title of ["Add a deck", "Bring your collection", "Start or join a playgroup", "Play a game"]) expect(html).toContain(`<b>${title}</b>`);
-    expect(hrefs(html)).toEqual(["/decks/import", "/lab", "/collection", "/group", "/play/table"]);
-    // On top: before starting a game and the empty decks and games sections.
-    const page = home({ copies: 0, groups: 0 });
-    expect(page.indexOf("home-start-here")).toBeLessThan(page.indexOf("home-start-title"));
-  });
-
-  it("marks a step done from the account's own data, and drops its links", () => {
-    const html = list(home({ decks: [deck("a")], games: [game("g1")], copies: 0, groups: 0 }));
-    expect(html).toContain("2 of 4 done");
-    expect(hrefs(html)).toEqual(["/collection", "/group"]);
-    expect(html.match(/class="is-done"/g)).toHaveLength(2);
-    expect(startSteps({ decks: 1, copies: 0, playgroups: 2, games: 0 }).map((s) => s.done)).toEqual([true, false, true, false]);
-  });
-
-  it("goes once every step is done, and never shows signed out", () => {
-    expect(list(home({ decks: [deck("a")], games: [game("g1")], copies: 3, groups: 1 }))).toBe("");
-    expect(home({ me: null })).not.toContain("Start here");
-  });
-
-  it("waits for every answer, so it never flashes for an account that has finished it", () => {
-    expect(list(home({ copies: null, groups: 0 }))).toBe("");
-    expect(list(home({ copies: 0, groups: null }))).toBe("");
+describe("Start here on Home", () => {
+  it("sits on top for someone signed in, above starting a game, and never shows signed out", () => {
+    const page = home();
+    expect(page).toContain("Start here list for u1");
+    expect(page.indexOf("Start here list")).toBeLessThan(page.indexOf("home-start-title"));
+    expect(home({ me: null })).not.toContain("Start here list");
   });
 });
 

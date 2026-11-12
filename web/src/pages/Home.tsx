@@ -123,7 +123,7 @@ function SignedInHome({ userId }: { userId: string }) {
       <SharedTables localGameId={game?.setup.id} />
       <GameCard />
       {/* The first steps, until they are done: on top for a new account, gone for everyone else. */}
-      <StartHere userId={userId} decks={decks.data} games={games.data} />
+      <StartHere userId={userId} decks={decks} games={games} />
       <section aria-labelledby="home-start-title">
         <h2 id="home-start-title">Start a game</h2>
         <div className="home-start">
