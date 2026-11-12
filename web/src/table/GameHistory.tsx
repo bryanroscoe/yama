@@ -3,7 +3,7 @@ import { GAME_WORDS } from "@yama/core";
 import { Link, useSearchParams } from "react-router";
 import { api, type GameRow } from "../api";
 import { useMe } from "../auth";
-import { ErrorText, Loading } from "../components/ui";
+import { EmptyState, ErrorText, Loading } from "../components/ui";
 import { usePendingDeletes } from "./store";
 import { isPlaceholderName } from "./playerNames";
 import { recentGameText, turnsText } from "./recent";
@@ -12,6 +12,15 @@ import { fmtDate } from "@yama/core";
 
 const FILTERS = [["all", "All games"], ["unfinished", "Unfinished"], ["unnamed", "Unnamed"]] as const;
 const PAGE_SIZE = 50;
+
+/**
+ * Why a page of the history is empty: the account has no games at all ("none"), a filter or a
+ * search found nothing ("no-match"), or the page is past the last game ("past-end").
+ */
+export function emptyHistory({ filter, search, offset }: { filter: string; search: string; offset: number }): "none" | "no-match" | "past-end" {
+  if (offset > 0) return "past-end";
+  return filter !== "all" || search.trim() ? "no-match" : "none";
+}
 
 export function GameHistoryPage() {
   const me = useMe().data;
@@ -29,6 +38,9 @@ export function GameHistoryPage() {
   });
   const deleting = usePendingDeletes();
   const shown = games.data?.games.filter((g) => !deleting.includes(g.id)) ?? [];
+  // Nothing to show, for one of three reasons, each with its own way on.
+  // (A page whose games are all waiting to be deleted, with more after it, just pages on.)
+  const empty = games.data && shown.length === 0 && !games.data.has_more ? emptyHistory({ filter, search, offset }) : null;
   const change = (key: string, value: string, replace = false) => {
     // BrowserRouter updates the address before its React transition commits. A quick filter
     // change followed by typing must build on that address, not the previous render's params.
@@ -56,7 +68,29 @@ export function GameHistoryPage() {
       {filter === "unnamed" && <p className="dim">Games with an unnamed human seat or a temporary name like Player 2, Guest 1 or Dude 2.</p>}
       <ErrorText error={games.error} />
       {games.isPending && <Loading>Loading games…</Loading>}
-      {games.data && shown.length === 0 && <p>No matching games on this page.</p>}
+      {empty === "none" && (
+        <EmptyState
+          title="No games yet"
+          action={
+            <>
+              <Link className="button primary" to="/">Start a game</Link>
+              <Link className="button outline" to="/" state={{ log: true }}>Log one you played</Link>
+            </>
+          }
+        >
+          Games you play at the table, online or log afterwards are listed here.
+        </EmptyState>
+      )}
+      {empty === "no-match" && (
+        <EmptyState action={<Link className="button outline" to="/table/games">Show all games</Link>}>
+          No games match{search ? ` “${search}”` : ""}{filter === "unfinished" ? " among unfinished games" : filter === "unnamed" ? " among games with unnamed players" : ""}.
+        </EmptyState>
+      )}
+      {empty === "past-end" && (
+        <EmptyState action={<button className="outline" onClick={() => change("offset", "0")}>Back to the first page</button>}>
+          No more games on this page.
+        </EmptyState>
+      )}
       <ol className="gh-list">
         {shown.map((g) => {
           const text = recentGameText(g);
@@ -72,11 +106,14 @@ export function GameHistoryPage() {
           );
         })}
       </ol>
-      <nav className="gh-pages" aria-label="Game history pages">
-        <button disabled={offset === 0 || games.isPending} onClick={() => change("offset", String(Math.max(0, offset - PAGE_SIZE)))}>Previous</button>
-        <span>Page {Math.floor(offset / PAGE_SIZE) + 1}</span>
-        <button disabled={!games.data?.has_more || games.isPending} onClick={() => change("offset", String(offset + PAGE_SIZE))}>Next</button>
-      </nav>
+      {/* One page of games, or none, has nothing to page through. */}
+      {(offset > 0 || games.data?.has_more) && (
+        <nav className="gh-pages" aria-label="Game history pages">
+          <button disabled={offset === 0 || games.isPending} onClick={() => change("offset", String(Math.max(0, offset - PAGE_SIZE)))}>Previous</button>
+          <span>Page {Math.floor(offset / PAGE_SIZE) + 1}</span>
+          <button disabled={!games.data?.has_more || games.isPending} onClick={() => change("offset", String(offset + PAGE_SIZE))}>Next</button>
+        </nav>
+      )}
     </main>
   );
 }

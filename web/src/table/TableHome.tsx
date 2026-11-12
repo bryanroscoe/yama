@@ -22,6 +22,8 @@ import { resolveDraft, type CommanderDraft, type Person } from "./pickers";
 import { availablePeople, deckCommanders, SeatEditor, usePeople } from "./SeatEditor";
 import { gameSummary } from "./history";
 import { formFromGame, seatResults, settleRebuilt } from "./logEdit";
+import { useFormChanges } from "./formChanges";
+import { UnsavedPrompt, useUnsavedChanges } from "../unsaved";
 import { useHosting } from "./share";
 import { SharedTables } from "./SharedTables";
 import { forgetTable, followedTable } from "./following";
@@ -558,7 +560,17 @@ const RECENT_PHONE = 3;
 
 function RecentGames({ waiting, notes }: { waiting: ReactNode; notes: ReactNode }) {
   const games = useQuery({ queryKey: ["games"], queryFn: ({ signal }) => api<(GameRow & { note?: string | null })[]>("/api/games", { signal }) });
-  const [logging, setLogging] = useState(false);
+  // Game history's empty state sends people here to log a game: the form opens once, and a
+  // reload of this page doesn't open it again.
+  const location = useLocation();
+  const navigate = useNavigate();
+  const asked = !!(location.state as { log?: boolean } | null)?.log;
+  const [logging, setLogging] = useState(asked);
+  useEffect(() => {
+    if (asked) void navigate(location.pathname, { replace: true, state: null });
+    // Once, when the page opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const wide = useWide();
   // A game deleted while offline stays out of the list until Yama catches up.
   const deleting = usePendingDeletes();
@@ -680,6 +692,13 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
       ...Array.from({ length: 3 }, emptySeat),
     ],
   );
+  // Something has been entered since the form opened (or since the last game saved from it):
+  // its values differ from how they stood. Closing then (Close, Escape, a tap outside) or
+  // leaving the page asks first: the form is long, and it used to close on Escape and drop
+  // everything. What the form fills in itself (below) doesn't count.
+  const entered = useFormChanges({ groupId, format, startingLife, date, turns, winner, first, condition, fun, outs, note, seats });
+  const guard = useUnsavedChanges(entered.changed, { onLeave: onClose });
+  const close = () => guard.close(onClose);
   // An edited game's seats know only their commanders' names: look the cards up again for their
   // art and colors, unless the seat has changed meanwhile.
   useEffect(() => {
@@ -689,7 +708,11 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
       if (!s.commanderName || s.art) return;
       // The saved game already paired them, so they stay a pair.
       void deckCommanders({ commanders: [s.commanderName, ...(s.partnerName ? [s.partnerName] : [])] }, { checkPair: false }).then(
-        (c) => c && updateSeat(key, (now) => (stillHolds(now, s) && !now.art ? settleRebuilt(c, !!s.partnerName, form.savedLabels[key]) : null)),
+        (c) => {
+          if (!c) return;
+          entered.byItself();
+          updateSeat(key, (now) => (stillHolds(now, s) && !now.art ? settleRebuilt(c, !!s.partnerName, form.savedLabels[key]) : null));
+        },
       );
     });
   }, [form]);
@@ -738,10 +761,12 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
     if (!groups.data || !me.data) return;
     const all = groups.data;
     if (groupId && !all.some((g) => g.id === groupId)) {
+      entered.byItself();
       setGroupId("");
       setSeats((s) => withHandles(withoutGroup(s, me.data), undefined, all));
     } else if (form) {
       const group = all.find((g) => g.id === groupId);
+      entered.byItself();
       setSeats((s) => withHandles(rebuildForGroup(s, group, me.data), group, all));
     }
   }, [groups.data, me.data]);
@@ -831,11 +856,13 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
       setOuts(UNANSWERED.outs);
       setNote(UNANSWERED.note);
       setSavedHere((n) => n + 1);
+      // That game is saved; the players and decks carried over aren't work to lose.
+      entered.startOver();
     },
   });
 
   return (
-    <Dialog title={editing ? "Edit the game" : "Log a game"} onClose={onClose}>
+    <Dialog title={editing ? "Edit the game" : "Log a game"} onClose={close}>
       <form className="stack capture" onSubmit={(e) => { e.preventDefault(); save.mutate(false); }}>
         <div className="row" style={{ alignItems: "end" }}>
           <label style={{ flex: "1 1 12rem" }}>
@@ -925,6 +952,7 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
           )}
         </div>
       </form>
+      <UnsavedPrompt guard={guard} what={editing ? "your changes to this game" : "what you've entered for this game"} />
     </Dialog>
   );
 }

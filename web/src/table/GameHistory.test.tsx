@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 import type { GameRow } from "../api";
-import { GameHistoryPage } from "./GameHistory";
+import { emptyHistory, GameHistoryPage } from "./GameHistory";
 
 vi.mock("../auth", () => ({ useMe: () => ({ data: { id: "me" } }) }));
 vi.mock("./store", () => ({ usePendingDeletes: () => ["deleted"] }));
@@ -28,8 +28,35 @@ describe("game history", () => {
     expect(html).toContain("1 unnamed player");
     expect(html).toContain('href="/table/games/kept"');
     expect(html).not.toContain('/table/games/deleted');
-    expect(html).toContain('<button disabled="">Previous</button>');
-    expect(html).toContain('<button disabled="">Next</button>');
+    // One page of games has nothing to page through.
+    expect(html).not.toContain("Previous");
+    expect(html).not.toContain("Page 1");
+  });
+
+  it("gives an account with no games a next step, and no filters' worth of dead ends", () => {
+    const html = page("", []);
+    expect(html).toContain("No games yet");
+    expect(html).toMatch(/<a [^>]*href="\/"[^>]*>Start a game<\/a>/);
+    expect(html).toMatch(/<a [^>]*href="\/"[^>]*>Log one you played<\/a>/);
+    expect(html).not.toContain("No matching games");
+    expect(html).not.toContain("Previous");
+    expect(emptyHistory({ filter: "all", search: "  ", offset: 0 })).toBe("none");
+  });
+
+  it("says a search or a filter found nothing, with the way back to every game", () => {
+    const searched = page("q=Zed", []);
+    expect(searched).toContain("No games match “Zed”.");
+    expect(searched).toMatch(/<a [^>]*href="\/table\/games"[^>]*>Show all games<\/a>/);
+    expect(searched).not.toContain("No games yet");
+    expect(page("filter=unfinished", [])).toContain("No games match among unfinished games.");
+    expect(page("filter=unnamed&q=Kelly", [])).toContain("No games match “Kelly” among games with unnamed players.");
+    // A page past the last game says so and leads back.
+    const past = page("offset=50", []);
+    expect(past).toContain("No more games on this page.");
+    expect(past).toMatch(/<button[^>]*>Back to the first page<\/button>/);
+    expect(past).toContain("<button>Previous</button>");
+    // Every game on the page is waiting to be deleted: the page is empty, not the account's history wrong.
+    expect(page("", [game("deleted")])).toContain("No games yet");
   });
 
   it("opens an old unfinished page with its search, order and next page available", () => {
