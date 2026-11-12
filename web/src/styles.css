@@ -89,7 +89,7 @@
 
   /* Layers of the page, lowest first. Inside a component, small numbers (-2 to 6) order its own
      parts; anything that sits over the page takes one of these (conventions.test.ts). */
-  --z-switch: 10; /* the table's view switch */
+  --z-switch: 10; /* the table's view switch and turn clock */
   --z-page-over: 15; /* a page over a page: the card page beside its results */
   --z-bar: 20; /* the tab bar, sticky section tabs, the scanner */
   --z-status: 25; /* a status line pinned over the bars */

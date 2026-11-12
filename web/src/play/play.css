@@ -1057,7 +1057,7 @@
   gap: 12px;
 }
 .gp-guest h2 {
-  font-size: 2rem;
+  font-size: var(--t-xl);
 }
 .gp-guest p {
   margin: 0;
@@ -1093,7 +1093,7 @@
   flex: 1 1 280px;
   line-height: 1.5;
 }
-@media (max-width: 480px) {
+@media (max-width: 599px) {
   .gp-guest,
   .gp-ways .gp-signin.account-gate-signin {
     padding: 20px;

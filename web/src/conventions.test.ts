@@ -346,6 +346,8 @@ describe("styles come from the scales", () => {
       "web/src/decks/deckAnalysis.css": "10px",
       "web/src/decks/deckCheck.css": "1.2rem 1.6rem 1.8rem 2.6rem",
       "web/src/decks/deckStatsTab.css": "8px 9px 1.875rem 4rem",
+      // A card's name inside a 48 px thumbnail, in the deck editor's search results.
+      "web/src/decks/edit-list.css": "0.6rem",
       "web/src/lab/lab.css": "1.625rem 1.875rem",
       "web/src/pages/cards.css": "1.0625rem 1.625rem 4.25rem",
       "web/src/pages/collection.css": "3.5rem",

@@ -1881,7 +1881,7 @@
   gap: 20px;
   background: var(--ground);
   font-size: var(--t-sm);
-  z-index: 10;
+  z-index: var(--z-switch);
 }
 .table-clock-what {
   color: var(--dim);

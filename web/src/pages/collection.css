@@ -196,7 +196,7 @@
   color: var(--dim);
 }
 .coll-tile-what .tag {
-  font-size: 0.75rem;
+  font-size: var(--t-12);
   padding: 0 8px;
 }
 .coll-tile-price {

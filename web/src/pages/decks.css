@@ -406,7 +406,7 @@
 .deck-folder {
   overflow-wrap: anywhere;
 }
-@media (max-width: 520px) {
+@media (max-width: 599px) {
   .deck-index-fields label {
     flex: 1 1 40%;
   }
