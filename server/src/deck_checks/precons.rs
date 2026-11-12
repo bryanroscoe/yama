@@ -50,6 +50,17 @@ pub async fn results(pool: &SqlitePool) -> sqlx::Result<HashMap<String, CheckRes
     Ok(rows.into_iter().filter_map(|(hash, at, json)| Some((hash, serde_json::from_str::<Stored>(&json).ok()?.result(at)))).collect())
 }
 
+/// The stored answer for one list, by its hash ([`list_hash`]): [`results`] for a single page.
+pub async fn result(pool: &SqlitePool, hash: &str) -> sqlx::Result<Option<CheckResult>> {
+    let row: Option<(String, String)> =
+        sqlx::query_as("SELECT checked_at, result FROM precon_checks WHERE source = ? AND list_hash = ? AND checked_at IS NOT NULL AND result IS NOT NULL")
+            .bind(SPELLBOOK)
+            .bind(hash)
+            .fetch_optional(pool)
+            .await?;
+    Ok(row.and_then(|(at, json)| Some(serde_json::from_str::<Stored>(&json).ok()?.result(at))))
+}
+
 /// Whether a list with this stored state is due a request now: never asked, an answer older than
 /// [`REFRESH_DAYS`], or a failed try whose pause has run out. After [`MAX_ATTEMPTS`] failures it
 /// rests for [`REFRESH_DAYS`] and then starts over.
@@ -216,6 +227,9 @@ mod tests {
         let r = &found[&list_hash(&lists[0].1)];
         assert_eq!((r.bracket_tag.as_str(), r.bracket), ("R", Some(4)));
         assert!(r.game_changers.iter().any(|g| g == "Rhystic Study"), "{:?}", r.game_changers);
+        // One list's page reads the same answer on its own.
+        assert_eq!(result(&pool, &list_hash(&lists[0].1)).await.unwrap().as_ref(), Some(r));
+        assert_eq!(result(&pool, "no-such-list").await.unwrap(), None);
 
         // A corrected stock list is a different list: it is asked about, and reads its own answer.
         sqlx::query("UPDATE precons SET cards = ? WHERE id = 'riders-of-rohan'")
