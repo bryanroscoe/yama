@@ -50,8 +50,9 @@ pub(super) async fn products(pool: &SqlitePool, f: &mut Fetcher, base: &str, ref
     let mut products = Vec::new();
     let mut handles = HashSet::new();
     let mut bytes = 0;
-    let was_refresh = f.refresh;
+    let (was_refresh, was_first) = (f.refresh, f.first_429);
     f.refresh = true;
+    f.first_429 = true;
     let result = tokio::time::timeout(Duration::from_secs(1800), async {
         for page in 1..=MAX_PAGES {
             let url = format!("{base}/products.json?limit=250&page={page}");
@@ -78,6 +79,7 @@ pub(super) async fn products(pool: &SqlitePool, f: &mut Fetcher, base: &str, ref
         Err("Catalog page limit reached; previous cache preserved".into())
     }).await.unwrap_or_else(|_| Err("Catalog refresh timed out after 30 minutes; previous cache preserved".into()));
     f.refresh = was_refresh;
+    f.first_429 = was_first;
     result
 }
 

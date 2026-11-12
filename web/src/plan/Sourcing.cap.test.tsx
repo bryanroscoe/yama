@@ -20,7 +20,8 @@ describe("sourcing cap controls",()=>{
    const enter=async(value:string)=>act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value")!.set!.call(input,value);input.dispatchEvent(new Event("input",{bubbles:true}));});
    await enter("3");expect(host.querySelectorAll('.source-card')).toHaveLength(1);expect(mock.save).not.toHaveBeenCalled();
    const button=(name:string)=>[...host.querySelectorAll('button')].find(b=>b.textContent===name)!;
-   await act(async()=>button("Add all matching cards").click());expect(host.textContent).toContain("0 selected copies");
+   await act(async()=>button("Add all matching cards").click());expect(host.textContent).toContain("1 selected copy");expect(host.textContent).toContain("1 × Card — in stock, count not listed");expect(host.textContent).not.toContain("stock confirmation");
+   await act(async()=>button("Clear selection").click());expect(host.textContent).toContain("0 selected copies");
    const manual=host.querySelector<HTMLInputElement>(".source-qty input")!;
    await act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value")!.set!.call(manual,"1");manual.dispatchEvent(new Event("input",{bubbles:true}));});expect(host.textContent).toContain("1 selected copy");
    expect([...host.querySelectorAll("button")].filter(b=>b.textContent?.startsWith("Add "))).toHaveLength(1);
