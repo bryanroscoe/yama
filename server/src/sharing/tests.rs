@@ -2112,3 +2112,162 @@ async fn a_deck_is_listed_publicly_only_when_public_and_its_owner_took_the_new_m
 
     assert!(!super::deck_listed(&pool, "no-such-deck").await.unwrap());
 }
+
+/// The one-time question for accounts from before public-by-default: "Yama decks are now public
+/// by default. Make yours public?" Either answer takes on the new meaning of "public"; the
+/// answer sets what new decks start as; existing decks change only when the answer says so.
+#[tokio::test]
+async fn the_public_default_question_is_answered_once_and_never_changes_decks_unasked() {
+    let (app, pool) = app().await;
+    let vis = |id: &str| {
+        let (pool, id) = (pool.clone(), id.to_string());
+        async move { sqlx::query_scalar::<_, String>("SELECT visibility FROM decks WHERE id = ?").bind(id).fetch_one(&pool).await.unwrap() }
+    };
+    let listed_at = |user: &str| {
+        let (pool, user) = (pool.clone(), user.to_string());
+        async move { sqlx::query_scalar::<_, Option<String>>("SELECT public_listed_at FROM users WHERE id = ?").bind(user).fetch_one(&pool).await.unwrap() }
+    };
+    // An account from before the change with a private, a link-only and a public deck, and a handle.
+    let old_account = |email: &'static str, handle: &'static str| {
+        let (app, pool) = (app.clone(), pool.clone());
+        async move {
+            let (id, auth) = user(&pool, email).await;
+            send(&app, Method::PUT, "/api/me/sharing", Some(&auth), Some(json!({ "handle": handle }))).await;
+            let (private, _) = deck(&pool, &id, "Kept private").await;
+            let (link, _) = deck(&pool, &id, "By link").await;
+            let (public, _) = deck(&pool, &id, "On the profile").await;
+            send(&app, Method::PATCH, &format!("/api/decks/{link}"), Some(&auth), Some(json!({ "visibility": "link" }))).await;
+            send(&app, Method::PATCH, &format!("/api/decks/{public}"), Some(&auth), Some(json!({ "visibility": "public" }))).await;
+            (id, auth, private, link, public)
+        }
+    };
+    let answer = |auth: &str, body: serde_json::Value| {
+        let (app, auth) = (app.clone(), auth.to_string());
+        async move { send(&app, Method::POST, "/api/me/sharing/public-default", Some(&auth), Some(body)).await }
+    };
+
+    // Nobody signed in: no answer.
+    assert_eq!(
+        send(&app, Method::POST, "/api/me/sharing/public-default", None, Some(json!({ "new_decks": "public", "existing": "keep", "public_decks": 0 }))).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+
+    // An account that never answers, made before anyone else does: nothing below may touch it.
+    let (quiet, quiet_auth, q_private, q_link, q_public) = old_account("quiet@example.com", "quiet").await;
+    let untouched = || {
+        let (pool, quiet, ids) = (pool.clone(), quiet.clone(), [q_private.clone(), q_link.clone(), q_public.clone()]);
+        async move {
+            let (default, listed): (String, Option<String>) = sqlx::query_as("SELECT new_deck_visibility, public_listed_at FROM users WHERE id = ?").bind(&quiet).fetch_one(&pool).await.unwrap();
+            assert_eq!((default.as_str(), listed), ("private", None));
+            let mut seen = vec![];
+            for id in &ids {
+                seen.push(sqlx::query_scalar::<_, String>("SELECT visibility FROM decks WHERE id = ?").bind(id).fetch_one(&pool).await.unwrap());
+            }
+            assert_eq!(seen, ["private", "link", "public"]);
+            assert!(!super::deck_listed(&pool, &ids[2]).await.unwrap());
+        }
+    };
+
+    // No: link only. The default changes, no deck does, and the account has the new meaning, so
+    // the deck its owner had already made public and chose to keep is now listed.
+    let (no, no_auth, private, link, public) = old_account("no@example.com", "nope").await;
+    assert_eq!(listed_at(&no).await, None);
+    assert!(!super::deck_listed(&pool, &public).await.unwrap());
+    // An answer that is wrong or incomplete is refused and leaves the question open. What
+    // happens to existing decks has to be said: keeping lists the public ones, so it is never assumed.
+    for bad in [
+        json!({ "new_decks": "everyone", "existing": "keep", "public_decks": 1 }),
+        json!({ "new_decks": "link", "existing": "public", "public_decks": 1 }),
+        json!({ "new_decks": "public", "existing": "all", "public_decks": 1 }),
+        json!({ "new_decks": "link", "public_decks": 1 }),
+        json!({ "new_decks": "link", "existing": "keep" }),
+        json!({}),
+    ] {
+        let (s, _) = answer(&no_auth, bad.clone()).await;
+        assert!(s == StatusCode::BAD_REQUEST || s == StatusCode::UNPROCESSABLE_ENTITY, "{bad}: {s}");
+    }
+    // An answer about another number of public decks than the account has now (one was shared
+    // on another device after the question opened) is refused too, and nothing is recorded.
+    for seen in [0, 2] {
+        let (s, v) = answer(&no_auth, json!({ "new_decks": "link", "existing": "keep", "public_decks": seen })).await;
+        assert_eq!(s, StatusCode::CONFLICT, "{v}");
+    }
+    assert_eq!(listed_at(&no).await, None);
+    let default: String = sqlx::query_scalar("SELECT new_deck_visibility FROM users WHERE id = ?").bind(&no).fetch_one(&pool).await.unwrap();
+    assert_eq!(default, "private");
+    let (s, v) = answer(&no_auth, json!({ "new_decks": "link", "existing": "keep", "public_decks": 1 })).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["new_deck_visibility"], "link");
+    assert!(v["public_listed_at"].is_string(), "{v}");
+    assert_eq!((vis(&private).await.as_str(), vis(&link).await.as_str(), vis(&public).await.as_str()), ("private", "link", "public"));
+    assert!(super::deck_listed(&pool, &public).await.unwrap());
+    assert!(!super::deck_listed(&pool, &link).await.unwrap());
+    untouched().await;
+    // Asked once: a second answer, even "yes, and all my decks", is refused and changes nothing.
+    let since = listed_at(&no).await;
+    let (s, _) = answer(&no_auth, json!({ "new_decks": "public", "existing": "public", "public_decks": 1 })).await;
+    assert_eq!(s, StatusCode::CONFLICT);
+    let (_, v) = send(&app, Method::GET, "/api/me/sharing", Some(&no_auth), None).await;
+    assert_eq!(v["new_deck_visibility"], "link");
+    assert_eq!((vis(&private).await.as_str(), vis(&link).await.as_str(), vis(&public).await.as_str()), ("private", "link", "public"));
+    assert_eq!(listed_at(&no).await, since);
+
+    // Yes, without the tick: new decks are public from now on, existing decks stay as they were.
+    let (yes, yes_auth, private, link, public) = old_account("yes@example.com", "yesplease").await;
+    let (s, v) = answer(&yes_auth, json!({ "new_decks": "public", "existing": "keep", "public_decks": 1 })).await;
+    assert_eq!((s, &v["new_deck_visibility"]), (StatusCode::OK, &json!("public")));
+    assert_eq!((vis(&private).await.as_str(), vis(&link).await.as_str(), vis(&public).await.as_str()), ("private", "link", "public"));
+    let (_, made) = send(&app, Method::POST, "/api/decks", Some(&yes_auth), Some(json!({ "name": "Made after", "cards": [] }))).await;
+    assert_eq!(vis(made["id"].as_str().unwrap()).await, "public");
+    assert!(listed_at(&yes).await.is_some());
+    untouched().await;
+
+    // Yes, with the tick: every live deck becomes public, each with its own link; a deleted deck doesn't.
+    let (all, all_auth, private, link, public) = old_account("all@example.com", "allofthem").await;
+    let (gone, _) = deck(&pool, &all, "Deleted").await;
+    assert_eq!(send(&app, Method::DELETE, &format!("/api/decks/{gone}"), Some(&all_auth), None).await.0, StatusCode::OK);
+    let (s, v) = answer(&all_auth, json!({ "new_decks": "public", "existing": "public", "public_decks": 1 })).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["decks"], json!({ "private": 0, "link": 0, "public": 3 }));
+    for id in [&private, &link, &public] {
+        assert!(super::deck_listed(&pool, id).await.unwrap());
+    }
+    assert_eq!(vis(&gone).await, "private");
+    assert_ne!(token_of(&pool, &private).await, token_of(&pool, &link).await);
+    untouched().await;
+
+    // No, and take my public decks off the lists: they become link only, the rest stay. Only
+    // the live decks the question counted: one deleted while public is left as it was.
+    let (off, off_auth, private, link, public) = old_account("off@example.com", "offlist").await;
+    let token = token_of(&pool, &public).await;
+    let (deleted, _) = deck(&pool, &off, "Deleted while public").await;
+    send(&app, Method::PATCH, &format!("/api/decks/{deleted}"), Some(&off_auth), Some(json!({ "visibility": "public" }))).await;
+    assert_eq!(send(&app, Method::DELETE, &format!("/api/decks/{deleted}"), Some(&off_auth), None).await.0, StatusCode::OK);
+    let (s, v) = answer(&off_auth, json!({ "new_decks": "private", "existing": "link", "public_decks": 1 })).await;
+    assert_eq!((s, &v["new_deck_visibility"]), (StatusCode::OK, &json!("private")));
+    assert_eq!((vis(&private).await.as_str(), vis(&link).await.as_str(), vis(&public).await.as_str()), ("private", "link", "link"));
+    assert!(!super::deck_listed(&pool, &public).await.unwrap());
+    assert_eq!(vis(&deleted).await, "public");
+    assert!(!super::deck_listed(&pool, &deleted).await.unwrap());
+    assert!(listed_at(&off).await.is_some());
+    // Its link keeps working; the profile no longer lists it.
+    assert_eq!(page(&app, &format!("/d/{token}")).await.0, StatusCode::OK);
+    assert!(!page(&app, "/u/offlist").await.2.contains(&token));
+    untouched().await;
+
+    // An account made after the change was never asked: an answer is refused and changes nothing.
+    let (newer, newer_auth) = user(&pool, "newer@example.com").await;
+    sqlx::query("UPDATE users SET public_listed_at = '2026-11-12T00:00:00Z', new_deck_visibility = 'public' WHERE id = ?").bind(&newer).execute(&pool).await.unwrap();
+    let (mine, _) = deck(&pool, &newer, "Chosen private").await;
+    send(&app, Method::PATCH, &format!("/api/decks/{mine}"), Some(&newer_auth), Some(json!({ "visibility": "private" }))).await;
+    let (s, _) = answer(&newer_auth, json!({ "new_decks": "public", "existing": "public", "public_decks": 0 })).await;
+    assert_eq!(s, StatusCode::CONFLICT);
+    assert_eq!(vis(&mine).await, "private");
+    assert_eq!(listed_at(&newer).await.as_deref(), Some("2026-11-12T00:00:00Z"));
+
+    // The quiet account can still answer for itself.
+    untouched().await;
+    let (s, _) = answer(&quiet_auth, json!({ "new_decks": "private", "existing": "keep", "public_decks": 1 })).await;
+    assert_eq!(s, StatusCode::OK);
+    assert!(listed_at(&quiet).await.is_some());
+}

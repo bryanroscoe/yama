@@ -6,6 +6,7 @@ import { Button, ErrorText, Field } from "../components/ui";
 import { useCopy, VISIBILITY_CHOICES } from "./ShareDeck";
 import "./share.css";
 import { ask } from "../components/confirm";
+import { PublicDefaultDialog } from "./PublicDefaultPrompt";
 
 /** A handle being typed, and the saved handle it was typed over. */
 export interface TypedHandle {
@@ -29,6 +30,8 @@ export function SharingSettings() {
   const handle = handleShown(typed, sharing.data?.handle ?? null);
   const setHandle = (value: string) => setTyped({ value, over: sharing.data?.handle ?? null });
   const [copied, copy] = useCopy();
+  const viewing = !!useMe().data?.viewing;
+  const [asking, setAsking] = useState(false);
   const done = (s: Sharing) => {
     qc.setQueryData(["sharing", userId], s);
     void qc.invalidateQueries({ queryKey: ["decks"] });
@@ -81,6 +84,14 @@ export function SharingSettings() {
           {copied && <span className="small" role="status">{copied}</span>}
         </div>
       )}
+
+      {s.public_listed_at === null && !viewing && (
+        <div className="public-default-banner">
+          <span>Yama decks are now public by default. Yours stay as they are, and none is listed in Browse, until you answer.</span>
+          <Button onClick={() => setAsking(true)}>Choose for your decks</Button>
+        </div>
+      )}
+      {asking && s.public_listed_at === null && <PublicDefaultDialog sharing={s} onClose={() => setAsking(false)} />}
 
       <Field label="New decks start as">
         <select value={s.new_deck_visibility} onChange={(e) => save.mutate({ new_deck_visibility: e.target.value })} disabled={save.isPending}>

@@ -208,3 +208,25 @@
   display: grid;
   gap: 4px;
 }
+
+/* The one-time question for accounts from before public-by-default: a line above the decks, and
+   the question's two groups of radio cards with a line under each choice. */
+.public-default-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-list);
+  padding: 10px 14px;
+  margin-block: 0 16px;
+}
+.public-default-choice {
+  display: grid;
+  gap: 2px;
+}
+.public-default .import-handle {
+  display: grid;
+  gap: 4px;
+}
