@@ -144,6 +144,101 @@
   aspect-ratio: 63 / 88;
   border-radius: 6px;
 }
+/* Stacks: each group a column of overlapping cards showing their name bars (the frame's top 16%
+ * of its width), a long group split into a few stacks. Pointing at or focusing a card pushes the
+ * cards below it down so the whole card shows, in place and unfaded. Margins in % resolve against
+ * the stack's width, so the overlap scales with the card. */
+.cards-stacks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 24px 20px;
+}
+.cards-stacks .cards-group {
+  flex: 0 0 auto;
+  min-width: var(--stack-w);
+  max-width: 100%;
+}
+.cards-tab {
+  --stack-w: clamp(136px, 40vw, 184px);
+}
+/* The heading wraps to the stacks' width rather than widening the column. */
+.cards-stacks .cards-group-head {
+  width: 0;
+  min-width: 100%;
+}
+.cards-stacks .cards-group-head > button {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 0 8px;
+}
+.cards-stacks .cards-group-title {
+  font-size: var(--t-18);
+}
+.cards-stack-cols {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.cards-stack {
+  display: flex;
+  flex-direction: column;
+  width: var(--stack-w);
+  padding-bottom: 4px;
+}
+.cards-tab .cards-stack-card {
+  position: relative;
+  display: block;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--card-radius);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  transition: margin-top 0.15s ease;
+}
+.cards-stack-card + .cards-stack-card {
+  margin-top: calc(-139.34% + 16%);
+}
+/* The gap under an opened card belongs to it (padding, not the next card's margin), so moving the
+ * pointer down off it lands on the next card instead of closing the stack under the pointer. */
+.cards-tab .cards-stack-card:is(:hover, :focus-visible) {
+  z-index: 1;
+  padding-bottom: 6px;
+}
+.cards-stack-card:is(:hover, :focus-visible) + .cards-stack-card {
+  margin-top: 0;
+}
+.cards-stack-card .card-img,
+.cards-stack-card .card-fallback {
+  display: block;
+  width: 100%;
+  aspect-ratio: 488 / 680;
+  border-radius: var(--card-radius);
+}
+/* Marks sit at the name bar's right end, over the mana cost, small enough to fit the bar. */
+.cards-stack-marks {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  display: flex;
+  gap: 4px;
+  pointer-events: none;
+}
+.cards-stack-marks .qty-badge,
+.cards-tab .cards-stack-marks .card-chip {
+  position: static;
+  padding: 1px 6px;
+  font-size: var(--t-xs);
+  line-height: 1.25;
+  background: var(--art-chip);
+}
+@media (prefers-reduced-motion: reduce) {
+  .cards-tab .cards-stack-card {
+    transition: none;
+  }
+}
 .card-chip {
   align-self: flex-start;
   padding: 0 8px;

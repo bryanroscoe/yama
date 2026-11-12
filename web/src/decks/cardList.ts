@@ -138,3 +138,14 @@ export function rowPriceDates(rows: CardRow[]): { oldest: string | null; newest:
   const dates = rows.map((r) => r.entry.cheapest_printing?.date).filter((d): d is string => !!d).sort();
   return { oldest: dates[0] ?? null, newest: dates[dates.length - 1] ?? null };
 }
+
+/** A group's cards split into even stacks of at most `max` cards each, so a long group (or the whole
+ * deck ungrouped) reads as a few side-by-side stacks rather than one very tall one. */
+export function stackColumns<T>(rows: readonly T[], max = 18): T[][] {
+  if (!rows.length) return [];
+  const cols = Math.ceil(rows.length / max);
+  const per = Math.ceil(rows.length / cols);
+  const out: T[][] = [];
+  for (let i = 0; i < rows.length; i += per) out.push(rows.slice(i, i + per));
+  return out;
+}
