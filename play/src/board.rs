@@ -129,6 +129,8 @@ pub fn hello() -> ServerMessage {
         wire_formats: Vec::new(),
         heartbeat: None,
         command_correlation: None,
+        state_codecs: Vec::new(),
+        selected_state_codec: None,
     }
 }
 

@@ -5,6 +5,8 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use std::io::{BufRead, Write};
 use yama_play::{Difficulty, Engine, Match};
+#[path = "historical_support/results.rs"]
+mod results;
 
 fn field<T: DeserializeOwned>(v: &Value, key: &str) -> anyhow::Result<T> {
     serde_json::from_value(v[key].clone()).with_context(|| format!("invalid {key}"))
@@ -14,7 +16,12 @@ fn state(m: &Match, humans: &[u8]) -> Value {
     for &seat in humans {
         views.push((Some(seat), m.view(Some(seat))));
     }
+    let events = if m.outs().is_empty() { vec![] } else { m.events(None) };
+    let knockouts: Vec<_> = results::knockouts(m.outs(), &events).iter().map(|k|
+        json!({"seat":k.seat,"turn":k.turn,"by":k.by,"seen":k.seen})).collect();
+    let winner = if m.abandoned() { None } else { m.winner() };
     json!({"views": views, "replay": m.replay_json(), "log": m.log_lines(),
+        "results": {"knockouts":knockouts,"win_condition":results::win_condition(m.outs(), &events, winner)},
         "answers": m.remembered(), "revision": m.revision, "over": m.is_over(),
         "abandoned": m.abandoned(), "winner": m.winner(), "turn": m.turn(), "first": m.starting_seat()})
 }
@@ -273,7 +280,8 @@ fn main() -> anyhow::Result<()> {
                     "adapter identity mismatch"
                 );
                 ensure!(
-                    source["yama"] == manifest["yama"] && source["phase"] == manifest["phase"],
+                    source["yama"] == manifest["yama"] && source["phase"] == manifest["phase"]
+                        && source["results_yama"] == manifest["results_yama"],
                     "source provenance mismatch"
                 );
                 let engine = Engine::load_verified(

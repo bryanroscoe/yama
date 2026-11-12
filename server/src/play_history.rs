@@ -458,6 +458,12 @@ impl Worker {
     fn saved(&self, response: &Value) -> anyhow::Result<Saved> {
         let mut saved: Saved = serde_json::from_value(response["state"].clone())?;
         ensure!(self.runtime.controls || !saved.abandoned, "unsupported abandoned state");
+        if self.runtime.controls {
+            ensure!(saved.results.is_some(), "frozen v0.119 result facts missing");
+        } else {
+            // The original v0.113 source has no result-facts extension.
+            saved.results = None;
+        }
         saved.identity = self.runtime.identity;
         Ok(saved)
     }
@@ -505,6 +511,19 @@ impl Drop for Worker {
 }
 
 #[derive(Deserialize)]
+struct HistoricalKnockout {
+    seat: u8,
+    turn: u32,
+    by: Option<u8>,
+    seen: bool,
+}
+#[derive(Deserialize)]
+struct HistoricalResults {
+    knockouts: Vec<HistoricalKnockout>,
+    win_condition: Option<String>,
+}
+
+#[derive(Deserialize)]
 pub(super) struct Saved {
     #[serde(skip, default = "legacy_identity")]
     identity: &'static str,
@@ -519,6 +538,8 @@ pub(super) struct Saved {
     winner: Option<u8>,
     turn: u32,
     first: u8,
+    #[serde(default)]
+    results: Option<HistoricalResults>,
 }
 impl Saved {
     fn snapshot(&self) -> Snapshot {
@@ -533,13 +554,21 @@ impl Saved {
             .bind(self.revision as i64).bind(if self.over {"over"} else {"live"}).bind(now()).bind(id).bind(id).bind(self.identity)
             .execute(&mut *tx).await?.rows_affected();
         ensure!(changed == 1, "saved game identity changed; refusing historical write");
+        if let Some(facts) = &self.results {
+            let found: Vec<_> = facts.knockouts.iter().map(|k| results::Knockout {
+                seat: k.seat, turn: k.turn, by: k.by, seen: k.seen,
+            }).collect();
+            write_knockouts(&mut tx, id, &found).await?;
+        }
         if self.over {
-            sqlx::query("UPDATE games SET status=?, winner_seat=?, turns=?, ended_at=?, first_seat=? WHERE id=?")
+            sqlx::query("UPDATE games SET status=?, winner_seat=?, turns=?, ended_at=?, first_seat=?, win_condition=CASE WHEN ? THEN ? ELSE win_condition END WHERE id=?")
                 .bind(if self.abandoned { "abandoned" } else { "finished" })
                 .bind(if self.abandoned { None } else { self.winner.map(i64::from) })
                 .bind(i64::from(self.turn))
                 .bind(now())
                 .bind(i64::from(self.first))
+                .bind(self.results.is_some())
+                .bind(if self.abandoned { None } else { self.results.as_ref().and_then(|r| r.win_condition.as_deref()) })
                 .bind(id)
                 .execute(&mut *tx)
                 .await?;
@@ -970,7 +999,8 @@ mod supervision_tests {
         let saved = worker.saved(&json!({"state":{
             "identity":"untrusted-child-identity", "views":[[null,{"players":[]}]],
             "replay":"preserved replay", "log":[], "answers":[], "revision":4,
-            "over":true, "abandoned":true, "winner":1, "turn":9, "first":0
+            "over":true, "abandoned":true, "winner":1, "turn":9, "first":0,
+            "results":{"knockouts":[],"win_condition":"combat"}
         }})).unwrap();
         assert_eq!(saved.identity, V0119_IDENTITY);
         let st = crate::testutil::state().await;
@@ -991,13 +1021,52 @@ mod supervision_tests {
         assert_eq!(revision, 4);
     }
 
+    #[tokio::test]
+    async fn v0119_result_facts_record_knockouts_and_clear_them_on_rewind() {
+        let st = crate::testutil::state().await;
+        let pool = &st.pool;
+        let (owner, _) = crate::testutil::user(pool, "historical-results@example.com").await;
+        sqlx::query("INSERT INTO games(id,mode,created_by,format,status,starting_life,started_at,engine_version) VALUES ('v0119-results','online',?,'commander','in_progress',40,'original',?)")
+            .bind(&owner).bind(V0119_IDENTITY).execute(pool).await.unwrap();
+        sqlx::query("INSERT INTO online_games(game_id,code,host_id,stage,seats,replay,revision,created_at,updated_at) VALUES ('v0119-results','v0119-results',?,'live','[]','original replay',0,'original','original')")
+            .bind(&owner).execute(pool).await.unwrap();
+        for seat in 0..3 {
+            sqlx::query("INSERT INTO game_seats(game_id,seat,guest_name) VALUES ('v0119-results',?,'Someone')")
+                .bind(seat).execute(pool).await.unwrap();
+        }
+        let make = |facts: Value, over: bool| {
+            let mut saved: Saved = serde_json::from_value(json!({
+                "views":[[null,{"players":[]}]],"replay":"frozen replay","log":[],"answers":[],
+                "revision":5,"over":over,"winner":0,"turn":9,"first":0,"results":facts,
+            })).unwrap();
+            saved.identity = V0119_IDENTITY;
+            saved
+        };
+        let facts = json!({"knockouts":[{"seat":1,"turn":5,"by":0,"seen":true}],"win_condition":null});
+        make(facts.clone(), false).persist(pool, "v0119-results").await.unwrap();
+        let recorded: (Option<i64>, Option<i64>) = sqlx::query_as("SELECT eliminated_turn,eliminated_by_seat FROM game_seats WHERE game_id='v0119-results' AND seat=1").fetch_one(pool).await.unwrap();
+        assert_eq!(recorded, (Some(5),Some(0)));
+        make(json!({"knockouts":[],"win_condition":null}), false).persist(pool, "v0119-results").await.unwrap();
+        let rewound: (Option<i64>, Option<i64>) = sqlx::query_as("SELECT eliminated_turn,eliminated_by_seat FROM game_seats WHERE game_id='v0119-results' AND seat=1").fetch_one(pool).await.unwrap();
+        assert_eq!(rewound, (None,None));
+        make(json!({"knockouts":[{"seat":1,"turn":9,"by":0,"seen":true}],"win_condition":"combat"}), true)
+            .persist(pool, "v0119-results").await.unwrap();
+        let finished: (Option<i64>,Option<String>) = sqlx::query_as("SELECT winner_seat,win_condition FROM games WHERE id='v0119-results'").fetch_one(pool).await.unwrap();
+        assert_eq!(finished, (Some(0),Some("combat".into())));
+        sqlx::query("UPDATE games SET engine_version=? WHERE id='v0119-results'").bind(IDENTITY).execute(pool).await.unwrap();
+        assert!(make(json!({"knockouts":[],"win_condition":null}), false).persist(pool,"v0119-results").await.is_err());
+        let fenced: Option<i64> = sqlx::query_scalar("SELECT eliminated_turn FROM game_seats WHERE game_id='v0119-results' AND seat=1").fetch_one(pool).await.unwrap();
+        assert_eq!(fenced, Some(9));
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn v0119_rewind_and_end_solo_are_admitted_between_ai_batches() {
         let temporary = tempfile::tempdir().unwrap();
         let marker = temporary.path().join("batches");
         let state = |over, abandoned| json!({"views":[[null,{"players":[]}]],
             "replay":"frozen replay","log":[],"answers":[],"revision":2,
-            "over":over,"abandoned":abandoned,"winner":null,"turn":2,"first":0});
+            "over":over,"abandoned":abandoned,"winner":null,"turn":2,"first":0,
+            "results":{"knockouts":[],"win_condition":null}});
         let live = json!({"state":state(false,false),"moved":1,"settled":false,"fault":null});
         let ended = json!({"state":state(true,true),"advance":false});
         let restored = json!({"state":state(false,false),"advance":false});

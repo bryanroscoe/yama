@@ -14,22 +14,14 @@ parser.add_argument('--record-source-provenance', action='store_true', help='Rec
 parser.add_argument('--yama-repo',type=pathlib.Path,default=root)
 parser.add_argument('--phase-repo',type=pathlib.Path,default=root.parent/'yama-phase')
 args=parser.parse_args()
-ARCHIVE_HINT = ('Historical runtimes pin Yama commits from before the public repository\'s history '
-                'rewrite (2026-11-11); they are in the private bryanroscoe/yama-archive, not the public '
-                'repository. Add and fetch it (git remote add archive '
-                'https://github.com/bryanroscoe/yama-archive.git && git fetch archive), or pass --yama-repo '
-                'a clone that has it. Never publish that history to get it.')
-def require_commit(repo, rev, hint=''):
-    found = subprocess.run(['git', '-C', str(repo), 'cat-file', '-e', rev + '^{commit}'],
-                           capture_output=True).returncode == 0
-    if not found:
-        raise SystemExit(f'{repo} has no commit {rev}. {hint}'.rstrip())
-# Check both pins before creating anything, so a fresh public clone fails clearly.
-require_commit(args.yama_repo, manifest['yama'], ARCHIVE_HINT)
-require_commit(args.phase_repo, manifest['phase'])
 out = pathlib.Path(args.output).resolve()
 if out.exists():
     raise SystemExit(f'Refusing existing export: {out}')
+spec = importlib.util.spec_from_file_location('verify_source', root/'runtime/verify-source.py')
+verifier = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(verifier)
+verifier.require_commit(args.yama_repo, manifest['yama'], 'bryanroscoe/yama-archive', '--yama-repo')
+verifier.require_commit(args.phase_repo, manifest['phase'], 'bryanroscoe/yama-phase', '--phase-repo')
 out.mkdir(parents=True)
 def export(repo, rev, dest, paths):
     dest.mkdir()
@@ -70,9 +62,6 @@ with p.open('a') as stream:
 for source, target in [('worker.rs','historical-runtime.rs'),('historical.json','historical.json')]:
     (out/'yama/play/src/bin'/target).write_bytes((root/'runtime'/source).read_bytes())
 (out/'yama/Cargo.lock').write_bytes((root/'runtime/historical.lock').read_bytes())
-spec = importlib.util.spec_from_file_location('verify_source', root/'runtime/verify-source.py')
-verifier = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(verifier)
 provenance = dict(yama=manifest['yama'], phase=manifest['phase'], source_sha256=verifier.source_digest(out))
 expected = root/'runtime/historical-source.json'
 if args.record_source_provenance:

@@ -384,7 +384,7 @@ fn run(sc: &Scenario, raw: &Value, db: &Arc<CardDatabase>) -> Value {
                 } else if let Some(t) = step.targets.pop_front() {
                     Some(t)
                 } else if sc.auto_targets && !step.explicit {
-                    match preferred(&state, *player, &open_targets(slot, selection)) {
+                    match preferred(&state, *player, &selection.current_legal_targets) {
                         Some(t) => Some(t),
                         None => {
                             error = Some("no legal target to pick".into());
@@ -394,16 +394,16 @@ fn run(sc: &Scenario, raw: &Value, db: &Arc<CardDatabase>) -> Value {
                 } else {
                     error = Some(format!(
                         "phase asks for a target the script doesn't give ({} legal)",
-                        slot.legal_targets.len()
+                        selection.current_legal_targets.len()
                     ));
                     break;
                 };
                 if let Some(t) = &t {
-                    if !slot.legal_targets.contains(t) {
+                    if !selection.current_legal_targets.contains(t) {
                         error = Some(format!(
                             "phase says {} is not a legal target ({} legal)",
                             target_text(&state, t),
-                            slot.legal_targets.len()
+                            selection.current_legal_targets.len()
                         ));
                         break;
                     }
@@ -441,7 +441,7 @@ fn run(sc: &Scenario, raw: &Value, db: &Arc<CardDatabase>) -> Value {
                             (*player, None)
                         } else {
                             let Some(t) =
-                                preferred(&state, chooser, &open_targets(slot, selection))
+                                preferred(&state, chooser, &selection.current_legal_targets)
                             else {
                                 error = Some("no legal trigger target to pick".into());
                                 break;
@@ -461,7 +461,7 @@ fn run(sc: &Scenario, raw: &Value, db: &Arc<CardDatabase>) -> Value {
                     },
                 };
                 if let Some(t) = &t {
-                    if !slot.legal_targets.contains(t) {
+                    if !selection.current_legal_targets.contains(t) {
                         error = Some(format!(
                             "phase says {} is not a legal target for {source_name}'s trigger",
                             target_text(&state, t)
@@ -670,28 +670,6 @@ fn ai_answer(
     apply_interaction(state, actor, owner, action.clone())
         .map(|r| r.log_entries)
         .map_err(|e| format!("phase refused its AI's {action:?}: {e}"))
-}
-
-/// The slot's legal targets that this ability hasn't already chosen.
-fn open_targets(
-    slot: &engine::types::game_state::TargetSelectionSlot,
-    selection: &engine::types::game_state::TargetSelectionProgress,
-) -> Vec<TargetRef> {
-    // The engine's own list for this slot already applies "different targets" rules; a mode
-    // chosen twice may reuse a target (CR 700.2d), so don't second-guess it.
-    if !selection.current_legal_targets.is_empty() {
-        return selection.current_legal_targets.clone();
-    }
-    slot.legal_targets
-        .iter()
-        .filter(|t| {
-            !selection
-                .selected_slots
-                .iter()
-                .any(|s| s.as_ref() == Some(*t))
-        })
-        .cloned()
-        .collect()
 }
 
 /// The runner's own pick among legal targets, so both engines get the same one: an opponent's

@@ -528,7 +528,7 @@ function rareAct(p: Pending, d: Draft, yes: boolean): Act | null | undefined {
     case "propose_shortcut":
       // The pre-cast shortcut is a yes or no; a loop's count is one of the engine's.
       if (p.kind === "yesno") return yes ? { kind: "propose_shortcut", count: null } : { kind: "decline_shortcut" };
-      return id === undefined ? null : { kind: "propose_shortcut", count: id === "lethal" ? null : Number(id) };
+      return id === undefined ? null : { kind: "propose_shortcut", count: id === "lethal" || id === "without_end" ? null : Number(id) };
     case "respond_to_shortcut":
       if (d.kind === "number") return { kind: "respond_to_shortcut", stop_at: d.value };
       return id === undefined ? null : { kind: "respond_to_shortcut", stop_at: id === "accept" ? null : Number(id) };
@@ -570,7 +570,7 @@ function rareButtons(p: Pending, d: Draft, who?: (seat: number) => string): { pr
       return { primary: o ? `Go to ${name}` : "Choose a room", ...none };
     case "shortcut":
       return {
-        primary: !o ? "Choose how many times" : o.id === "lethal" ? "Propose: repeat until a player loses" : `Propose: repeat ${o.id} times`,
+        primary: !o ? "Choose how many times" : o.id === "lethal" ? "Propose: repeat until a player loses" : o.id === "without_end" ? "Propose: repeat without end (draw)" : `Propose: repeat ${o.id} times`,
         secondary: "Keep playing it out",
         secondaryDoes: "decline",
       };

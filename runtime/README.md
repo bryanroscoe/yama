@@ -1,7 +1,8 @@
 # Saved-game runtimes
 
 PR #29 changes the typed card schema and replay semantics. Runtime routing is by the exact
-saved identity, before replay parsing. The current engine loads only verified `cbd552b4` bytes.
+saved identity, before replay parsing. The current engine loads only the data bytes matching
+its compiled SHA-256 and `deploy/engine-data.json`; each retained runtime has its own hash.
 `historical.json` maps the previously supported `a3bc47c9/cards-1e5608e6` identity to the exact
 pre-upgrade Yama adapter and Phase source. The retained Phase commit is reachable through
 `archive/pre-sync-20261028`. Its adapter's `ENGINE_VERSION` is checked at worker startup.
@@ -31,7 +32,14 @@ cargo test --workspace historical_runtime_continues_live_games -- --ignored --no
 ```
 
 The source exporter uses Git objects, never changes either checkout, and refuses an existing
-export directory. It adds the transport binary, a byte-verifying data loader, and the
+export directory. After the public-history cutover, the original Yama commits remain in
+the private `bryanroscoe/yama-archive` repository. A fresh public clone does not contain
+them: fetch the archive into an authorized local checkout and pass it with `--yama-repo`.
+The primary Mac checkout retains an `archive` remote; the deployment checkout retains
+`refs/archive/private-main`. Exporters check all pinned commits before creating output
+and report the required source when one is missing. Keep manifest pins unchanged;
+rewritten commits are not substitutes for the reviewed historical source.
+The exporter adds the transport binary, a byte-verifying data loader, and the
 `historical-controls.rs` host-control transport shim to the frozen adapter. The shim
 reconstructs logged passing modes and scoped stops without replaying new actions. Account
 defaults initialize only missing fields once per seat; explicit changes remain authoritative.
@@ -139,3 +147,11 @@ retain `card-data-cbd552b41f962f5b.json` and
 before merging the application upgrade. `YAMA_V0119_RUNTIME`,
 `YAMA_V0119_RUNTIME_DIGEST` and `YAMA_V0119_CARD_DATA` are local test overrides;
 production's host gate requires the independently verified packaged binaries.
+
+The v0.119 worker also returns public knockout/result facts. Its adapter and
+engine stay at their original pins; the engine-independent result mapper comes
+from the separately pinned `results_yama` revision in its manifest. That source
+file is included in the reviewed export digest. Historical saves use the same
+seat-update rules as current games, including clearing a knockout after rewind.
+The v0.113 protocol has no such extension and its existing stored facts remain
+untouched. New Phase types never interpret the old replay or actions.

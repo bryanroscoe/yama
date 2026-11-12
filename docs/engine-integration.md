@@ -1,6 +1,22 @@
 # Embedding phase-rs in Yama
 
-Status: research spike, 2026-10-18. Pinned target: phase **v0.113.0** (tag commit `0571ee32f08c`, released 2026-10-18). All file references are into that tag of <https://github.com/phase-rs/phase>. The current pin (v0.119.0 plus Yama's commits, re-pinned 30 October 2026) is in the next section.
+The original research spike below describes phase **v0.113.0** (tag commit `0571ee32f08c`, released 2026-10-18). Its file references are into that tag of <https://github.com/phase-rs/phase>. Current source composition is recorded first; dated evidence below remains historical.
+
+## Engine v0.122.0 upgrade, 11 November 2026
+
+`deploy/phase-rev` pins the rebased Yama stack on upstream
+`c53dd8a81af2354a14e811a806670c21585a7c06`. The new data is
+`card-data-19b30ee31fc29d11.json`; its full hash, fresh November 11 inputs and
+actual generator revision are recorded in [export provenance](engine-data-2026-11-11.json).
+The generator ran at c7; the final runtime compatibility commit changes no
+generator, parser or engine production source.
+
+Native Phase suites passed. Yama's separately versioned `lab_regressions_v0122`
+acceptance and server integration remain pending; see the exact
+[acceptance record](engine-upgrade-acceptance-2026-11-11.md). The original scenario
+inputs and v0.119/v0.113 identities remain unchanged. Frozen workers retain both
+old runtimes and their matching data. Source validation, source publication,
+deployment and live verification are distinct gates.
 
 ## Current release composition (1 November 2026)
 
@@ -23,8 +39,9 @@ The original record is archived before continuation, and archives follow online-
 when an account is removed. Unknown identities remain explicitly unavailable without mutation.
 
 The original `lab_regressions` suite and its winner 3 / turn 54 / 2,072-action control remain
-historical evidence. `lab_regressions_candidate` runs the identical seeded inputs on verified
-`cbd552b4` data and the current adapter; its separate provenance/expectation is documented in
+historical evidence. `lab_regressions_candidate` records the v0.119 candidate on verified
+`cbd552b4` data; `lab_regressions_v0122` uses the identical seeded inputs with the new runtime
+and verified current data. Their separate provenance/expectations are documented in
 [gameplay validation](gameplay-validation.md). Do not run the old Morph schema on new Phase or
 replace the historical control. Candidate success remains separate from historical-runtime compatibility and actual image/host
 acceptance. The dated seed-10 failure and its subsequent fixes are preserved in the acceptance records.

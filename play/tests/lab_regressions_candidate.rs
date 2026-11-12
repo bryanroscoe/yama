@@ -43,13 +43,13 @@ struct Case {
     expected_control: Option<Control>,
 }
 
-fn card_data() -> PathBuf {
+fn card_data(sha: &str) -> PathBuf {
     std::env::var_os("YAMA_ENGINE_CARD_DATA")
         .map(PathBuf::from)
-        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../data/engine/card-data-cbd552b41f962f5b.json"))
+        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../data/engine/card-data-{}.json", &sha[..16])))
 }
 
-fn check(fixture: &str) {
+pub(crate) fn check(fixture: &str, configuration: &str) {
     // Current and historical builds share a target directory. Refuse a cached
     // Git-less export stamp: gameplay success without exact runner provenance
     // is not an acceptance result for this checkout.
@@ -63,11 +63,12 @@ fn check(fixture: &str) {
         assert_eq!(runner_revision, String::from_utf8_lossy(&git.stdout).trim(),
             "candidate runner belongs to a different source checkout");
     }
-    let provenance: serde_json::Value = serde_json::from_str(include_str!("fixtures/lab-regressions/candidate-v0119.json")).unwrap();
+    let provenance: serde_json::Value = serde_json::from_str(configuration).unwrap();
     assert_eq!(provenance["phase"], include_str!("../../deploy/phase-rev").trim());
     assert_eq!(provenance["card_sha256"], yama_play::CARD_DATA_SHA256);
     let mut case: Case = serde_json::from_str(fixture).expect("frozen fixture parses");
-    let path = card_data();
+    let hash = provenance["card_sha256"].as_str().expect("versioned card hash");
+    let path = card_data(hash);
     assert!(path.is_file(), "missing card data at {}; set YAMA_ENGINE_CARD_DATA", path.display());
     use sha2::{Digest, Sha256};
     let bytes = std::fs::read(&path).expect("candidate card data is readable");
@@ -77,7 +78,7 @@ fn check(fixture: &str) {
         "candidate requires verified data bytes"
     );
     assert_eq!(case.card_data, "1e5608e61683de41", "original input identity changed");
-    case.card_data = "cbd552b41f962f5b".into();
+    case.card_data = hash[..16].into();
     static ENGINE: OnceLock<Engine> = OnceLock::new();
     let engine = ENGINE.get_or_init(|| Engine::load(&path).expect("card data loads"));
     assert_eq!(case.spec.decks, case.decks.iter().map(|d| d.id.clone()).collect::<Vec<_>>(), "seat order is frozen");
@@ -110,7 +111,7 @@ fn check(fixture: &str) {
     if let Some(historical) = case.expected_control {
         // Preserve the historical winner=3/turn=54/actions=2072. A new expectation is
         // established only after investigating this independently versioned candidate.
-        let config: serde_json::Value = serde_json::from_str(include_str!("fixtures/lab-regressions/candidate-v0119.json")).unwrap();
+        let config: serde_json::Value = serde_json::from_str(configuration).unwrap();
         println!("CANDIDATE_PROVENANCE {config}");
         assert_eq!(
             config["historical_control"],
@@ -132,29 +133,29 @@ fn check(fixture: &str) {
 #[test]
 #[ignore = "full seeded scenario; candidate acceptance for the priority-session defect"]
 fn candidate_v0119_lorehold_priority_session_finishes() {
-    check(include_str!("fixtures/lab-regressions/d566002e-18-variant.json"));
+    check(include_str!("fixtures/lab-regressions/d566002e-18-variant.json"), include_str!("fixtures/lab-regressions/candidate-v0119.json"));
 }
 
 #[test]
 #[ignore = "full seeded scenario; candidate acceptance for the priority-session defect"]
 fn candidate_v0119_tricky_terrain_priority_session_finishes() {
-    check(include_str!("fixtures/lab-regressions/12ea113b-8-base.json"));
+    check(include_str!("fixtures/lab-regressions/12ea113b-8-base.json"), include_str!("fixtures/lab-regressions/candidate-v0119.json"));
 }
 
 #[test]
 #[ignore = "full seeded scenario; candidate acceptance for the Adventure-offer defect"]
 fn candidate_v0119_multiverse_adventure_offer_finishes() {
-    check(include_str!("fixtures/lab-regressions/8b516e4e-147-solo.json"));
+    check(include_str!("fixtures/lab-regressions/8b516e4e-147-solo.json"), include_str!("fixtures/lab-regressions/candidate-v0119.json"));
 }
 
 #[test]
 #[ignore = "full seeded scenario; candidate acceptance for the combat-tax defect"]
 fn candidate_v0119_multiverse_combat_tax_finishes() {
-    check(include_str!("fixtures/lab-regressions/8b516e4e-143-solo.json"));
+    check(include_str!("fixtures/lab-regressions/8b516e4e-143-solo.json"), include_str!("fixtures/lab-regressions/candidate-v0119.json"));
 }
 
 #[test]
 #[ignore = "full seeded scenario on pinned card data"]
 fn candidate_v0119_world_shaper_control() {
-    check(include_str!("fixtures/lab-regressions/24915300-25-base.json"));
+    check(include_str!("fixtures/lab-regressions/24915300-25-base.json"), include_str!("fixtures/lab-regressions/candidate-v0119.json"));
 }

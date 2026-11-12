@@ -21,6 +21,12 @@ manifest = json.loads((recipe / 'historical.json').read_text())
 out = args.output.resolve()
 if out.exists():
     raise SystemExit(f'Refusing existing export: {out}')
+spec = importlib.util.spec_from_file_location('verify_source', root / 'runtime/verify-source.py')
+verifier = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(verifier)
+for revision in (manifest['yama'], manifest['results_yama']):
+    verifier.require_commit(args.yama_repo, revision, 'bryanroscoe/yama-archive', '--yama-repo')
+verifier.require_commit(args.phase_repo, manifest['phase'], 'bryanroscoe/yama-phase', '--phase-repo')
 out.mkdir(parents=True)
 
 
@@ -49,13 +55,17 @@ p.write_text(p.read_text().replace('name = "yama-play"', 'name = "yama-play-hist
 for source, target in [('worker.rs', 'historical-runtime-v0119.rs'),
                        ('historical.json', 'historical.json')]:
     (out / 'yama/play/src/bin' / target).write_bytes((recipe / source).read_bytes())
+# Result bookkeeping is engine-independent Yama code from a separately pinned
+# reviewed revision; the adapter/engine/replay semantics stay at their old pins.
+results = subprocess.check_output(['git', '-C', str(args.yama_repo), 'show',
+                                  manifest['results_yama'] + ':server/src/play/results.rs'])
+helper = out / 'yama/play/src/bin/historical_support/results.rs'
+helper.parent.mkdir(parents=True, exist_ok=True)
+helper.write_bytes(results)
 lock = recipe / 'historical.lock'
 if lock.exists():
     (out / 'yama/Cargo.lock').write_bytes(lock.read_bytes())
-spec = importlib.util.spec_from_file_location('verify_source', root / 'runtime/verify-source.py')
-verifier = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(verifier)
-provenance = dict(yama=manifest['yama'], phase=manifest['phase'], source_sha256=verifier.source_digest(out))
+provenance = dict(yama=manifest['yama'], phase=manifest['phase'], results_yama=manifest['results_yama'], source_sha256=verifier.source_digest(out))
 binding = recipe / 'historical-source.json'
 if args.record_source_provenance:
     binding.write_text(json.dumps(provenance, indent=2) + '\n')

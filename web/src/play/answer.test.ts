@@ -163,6 +163,15 @@ describe("splitting damage", () => {
     d = adjust(damage, d, "40", 9);
     expect(toAct(damage, d)).toEqual({ kind: "assign_combat_damage", assignments: [[40, 4]], trample: 1, controller: 0 });
   });
+  it("allows a resolution-time subset when candidates outnumber the amount", () => {
+    const divide = pending({ kind: "split", answer: "distribute_among", purpose: "divide", total: 1, perOptionMin: 0, options: [option("7"), option("8"), option("9")] });
+    const d = adjust(divide, initialDraft(divide), "8", 1);
+    expect(ready(divide, d)).toBe(true);
+    expect(toAct(divide, d)).toEqual({ kind: "distribute_among", distribution: [[{ kind: "object", id: 8 }, 1]] });
+    const announced = { ...divide, total: 3, perOptionMin: 1 };
+    const allOnOne = adjust(announced, initialDraft(announced), "8", 3);
+    expect(ready(announced, allOnOne)).toBe(false);
+  });
   it("gives each target of a divided spell at least one", () => {
     const divide = pending({ kind: "split", answer: "distribute_among", purpose: "divide", total: 3, perOptionMin: 1, options: [option("7"), option("p2", { zone: "player" })] });
     let d = adjust(divide, initialDraft(divide), "7", 3);

@@ -327,7 +327,7 @@ impl PlayHub {
     }
 
     /// A live game that can never run on this server: saved on a runtime identity that is neither
-    /// the current engine nor the preserved historical one (identities are exact, so an unknown
+    /// the current engine nor either preserved historical runtime (identities are exact, so an unknown
     /// one never becomes runnable), with no thread. Its host may delete it, and it holds no place
     /// among the games anyone may have open. A game that is only waiting for its engine (loading,
     /// failed, or the historical runtime not installed or retrying) is not stranded.
@@ -1438,17 +1438,17 @@ pub const OPEN_MAX_OPEN_GAMES: i64 = 3;
 pub const OPEN_MAX_OPEN_GAMES_ALL: i64 = 20;
 
 /// Whether a saved runtime identity is one this server can never run: not the current engine and
-/// not the preserved historical runtime (`PlayHub::runtime_error`; identities are exact).
+/// not either preserved historical runtime (`PlayHub::runtime_error`; identities are exact).
 fn is_retired_runtime(identity: Option<&str>) -> bool {
-    !matches!(identity, Some(yama_play::ENGINE_VERSION) | Some(history::IDENTITY))
+    !matches!(identity, Some(yama_play::ENGINE_VERSION | history::IDENTITY | history::V0119_IDENTITY))
 }
 
 /// SQL true for an `online_games o` row whose `games g` row is a game this server can never run
 /// ([`is_retired_runtime`]): such a game holds no thread or match and nobody can finish it, so it
 /// takes no place among open games (an engine upgrade mustn't lock its host out of play). `?1`
-/// and `?2` are the current and historical identities. A current live game always has its
+/// through `?3` are the current and both historical identities. A current live game always has its
 /// identity (start sets it in the same transaction), so this never matches one with a thread.
-const NOT_STRANDED: &str = "NOT (o.stage = 'live' AND (g.engine_version IS NULL OR g.engine_version NOT IN (?1, ?2)))";
+const NOT_STRANDED: &str = "NOT (o.stage = 'live' AND (g.engine_version IS NULL OR g.engine_version NOT IN (?1, ?2, ?3)))";
 
 /// Refuse a new game that would take `user` past the limits on unfinished games they host.
 async fn check_open_games(pool: &SqlitePool, user: &User) -> AppResult<()> {
@@ -1457,10 +1457,11 @@ async fn check_open_games(pool: &SqlitePool, user: &User) -> AppResult<()> {
     }
     let (waiting, playing): (i64, i64) = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT IFNULL(SUM(o.stage = 'lobby'), 0), IFNULL(SUM(o.stage = 'live'), 0) FROM online_games o LEFT JOIN games g ON g.id = o.game_id
-         WHERE o.host_id = ?3 AND o.stage IN ('lobby','live') AND {NOT_STRANDED}"
+         WHERE o.host_id = ?4 AND o.stage IN ('lobby','live') AND {NOT_STRANDED}"
     )))
     .bind(yama_play::ENGINE_VERSION)
     .bind(history::IDENTITY)
+    .bind(history::V0119_IDENTITY)
     .bind(&user.id)
     .fetch_one(pool)
     .await?;
@@ -1481,6 +1482,7 @@ async fn check_open_games(pool: &SqlitePool, user: &User) -> AppResult<()> {
         )))
         .bind(yama_play::ENGINE_VERSION)
         .bind(history::IDENTITY)
+        .bind(history::V0119_IDENTITY)
         .fetch_one(pool)
         .await?;
         if guests >= crate::guests::GUEST_MAX_OPEN_GAMES_ALL {
@@ -1495,6 +1497,7 @@ async fn check_open_games(pool: &SqlitePool, user: &User) -> AppResult<()> {
         )))
         .bind(yama_play::ENGINE_VERSION)
         .bind(history::IDENTITY)
+        .bind(history::V0119_IDENTITY)
         .fetch_one(pool)
         .await?;
         if all >= OPEN_MAX_OPEN_GAMES_ALL {

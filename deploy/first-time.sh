@@ -6,8 +6,8 @@ set -eu
 DEPLOY_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 . "$DEPLOY_DIR/target.sh"
 DIR=/mnt/user/appdata/yama
-CARD_DATA=card-data-cbd552b41f962f5b.json
-SHA=cbd552b41f962f5b80839d35196cfc9621df2406ef3886ca23db8e2f743be505
+CARD_DATA=card-data-19b30ee31fc29d11.json
+SHA=19b30ee31fc29d11df4edfb02ecc9543c4facb17c635b17dfd5347c81462a630
 HISTORICAL_CARD_DATA=card-data-1e5608e61683de41.json
 HISTORICAL_SHA=1e5608e61683de41c84f08f70115bef38db13df85bc5e01fd0eb249cf023244d
 cd "$DEPLOY_DIR"

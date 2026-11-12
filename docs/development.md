@@ -90,12 +90,12 @@ show the shapes these commands read. Other commands (`import-dataset`, `commande
 Both need the engine's card data in `data/engine/`. The file is an export from Yama's pinned
 parser, it must match `deploy/phase-rev`, and it is not published for download.
 [engine-integration.md](engine-integration.md) describes how to build
-`card-data-cbd552b41f962f5b.json` from the archived inputs; `deploy/engine-data.json` records the
+`card-data-19b30ee31fc29d11.json` from the pinned November 11 inputs (docs/engine-data-2026-11-11.json); `deploy/engine-data.json` records the
 expected SHA-256.
 
 ```sh
 mkdir -p data/engine                    # put the card data file here
-cargo run -p yama-play --bin soak -- data/engine/card-data-cbd552b41f962f5b.json 8 7 Easy path/to/decks
+cargo run -p yama-play --bin soak -- data/engine/card-data-19b30ee31fc29d11.json 8 7 Easy path/to/decks
                                         # an all-AI game; checks replay determinism
 ```
 
@@ -151,7 +151,7 @@ card, and the engine bugs the tests found, are in [card-coverage.md](card-covera
 Regenerate it, and the tests' card fixture, with:
 
 ```sh
-cargo run -p yama-play --bin coverage -- data/engine/card-data-cbd552b41f962f5b.json ../commander-decks \
+cargo run -p yama-play --bin coverage -- data/engine/card-data-19b30ee31fc29d11.json ../commander-decks \
     --fixture play/tests/fixtures/deck-cards.json --smoke play/src/card_tests/smoke_cards.rs
 ```
 
@@ -162,13 +162,13 @@ play ([play-performance.md](play-performance.md)):
 
 ```sh
 cargo build --release -p yama-play --bins
-./target/release/soak data/engine/card-data-cbd552b41f962f5b.json 80 1-20   # 20 full games, loop detection as online
-./target/release/playbench data/engine/card-data-cbd552b41f962f5b.json --games 2   # AI, engine and view times
-YAMA_ENGINE_CARD_DATA=data/engine/card-data-cbd552b41f962f5b.json \
+./target/release/soak data/engine/card-data-19b30ee31fc29d11.json 80 1-20   # 20 full games, loop detection as online
+./target/release/playbench data/engine/card-data-19b30ee31fc29d11.json --games 2   # AI, engine and view times
+YAMA_ENGINE_CARD_DATA=data/engine/card-data-19b30ee31fc29d11.json \
   cargo test --release -p yama-play --test integration -- --ignored determinism::          # same games twice, and resumed
-YAMA_ENGINE_CARD_DATA=data/engine/card-data-cbd552b41f962f5b.json \
-  CARGO_BUILD_JOBS=1 cargo test -p yama-play --test integration lab_regressions_candidate:: -- --ignored --nocapture --test-threads=1 # unchanged seeded inputs on the candidate runtime
-YAMA_ENGINE_CARD_DATA=data/engine/card-data-cbd552b41f962f5b.json \
+YAMA_ENGINE_CARD_DATA=data/engine/card-data-19b30ee31fc29d11.json \
+  CARGO_BUILD_JOBS=1 cargo test -p yama-play --test integration lab_regressions_v0122:: -- --ignored --nocapture --test-threads=1 # unchanged seeded inputs on the candidate runtime
+YAMA_ENGINE_CARD_DATA=data/engine/card-data-19b30ee31fc29d11.json \
   cargo test --release -p yama-server play::bench -- --ignored --nocapture   # a person's move, act to views sent
 ```
 

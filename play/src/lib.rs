@@ -74,10 +74,10 @@ pub use together::TogetherView;
 pub use turns::{Controls, PassMode, ResolveAllView, TurnsView};
 
 /// Full identity of the data bytes parsed by the online runtime.
-pub const CARD_DATA_SHA256: &str = "cbd552b41f962f5b80839d35196cfc9621df2406ef3886ca23db8e2f743be505";
+pub const CARD_DATA_SHA256: &str = "19b30ee31fc29d11df4edfb02ecc9543c4facb17c635b17dfd5347c81462a630";
 
 /// Engine/data identity stored with every game; a replay requires this exact runtime.
-pub const ENGINE_VERSION: &str = concat!("phase-v0.119.0+", env!("YAMA_PLAY_PHASE_REV"), "-yama/cards-cbd552b4");
+pub const ENGINE_VERSION: &str = concat!("phase-v0.122.0+", env!("YAMA_PLAY_PHASE_REV"), "-yama/cards-19b30ee3");
 
 /// How many lines of game log each view carries.
 const LOG_LINES: usize = 60;

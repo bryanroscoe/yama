@@ -131,6 +131,8 @@ else
   step 'Python tests'
   python3 deploy/test_release.py
   python3 deploy/test_host.py
+  python3 runtime/test_source_availability.py
+  python3 runtime/test_provenance.py
   python3 -m unittest discover -s tools -p 'test_lab*.py'
   python3 forge-worker/test_worker.py
   python3 -m unittest discover -s scripts/research -p 'test_*.py'

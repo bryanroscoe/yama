@@ -1,0 +1,29 @@
+{
+  "suite": "candidate-v0122-v1",
+  "inputs": "unchanged sibling historical fixtures; decks, seats, seed, difficulty and limits",
+  "phase": "273ad56c8afdc15fd0fcff9f44f47816504f997f",
+  "upstream": "c53dd8a81af2354a14e811a806670c21585a7c06",
+  "yama_base": "2836b4cd29c66ca18b398cae35d9c49d4602d4e5",
+  "yama_runner": "exact compiled runner is emitted in every result",
+  "card_sha256": "19b30ee31fc29d11df4edfb02ecc9543c4facb17c635b17dfd5347c81462a630",
+  "historical_control": {
+    "winner": 3,
+    "turns": 54,
+    "actions": 2072
+  },
+  "previous_candidate": {
+    "phase": "19be58d497a6618b34c0862ca1d27c8c48999480",
+    "card_sha256": "cbd552b41f962f5b80839d35196cfc9621df2406ef3886ca23db8e2f743be505",
+    "control": {
+      "winner": 3,
+      "turns": 44,
+      "actions": 1754
+    }
+  },
+  "control": {
+    "winner": 0,
+    "turns": 66,
+    "actions": 3178
+  },
+  "control_investigation": "docs/engine-upgrade-acceptance-2026-11-11.md"
+}

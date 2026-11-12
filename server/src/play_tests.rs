@@ -1007,7 +1007,21 @@ async fn exercise_historical_runtime(config: history::Config) {
     let expected = golden.call(serde_json::json!({"op":"view","viewer":0})).unwrap();
     let (code, continued) = request(&app, Method::GET, "/api/play/historical-live/view", Some(&token), None).await;
     assert_eq!(code, StatusCode::OK);
-    assert_eq!(continued["view"], expected["view"]);
+    let mut continued_view = continued["view"].clone();
+    if identity == history::V0119_IDENTITY {
+        // The live process retains its just-created rewind checkpoint. Reopening
+        // persists the game and audit, but intentionally starts with no checkpoint.
+        assert_eq!(continued_view["can_go_back"], true);
+        assert!(continued_view["rewind_checkpoint"].is_u64());
+        assert_eq!(continued_view["rewind_steps"], 1);
+        assert_eq!(expected["view"]["can_go_back"], false);
+        assert!(expected["view"]["rewind_checkpoint"].is_null());
+        assert_eq!(expected["view"]["rewind_steps"], 0);
+        for key in ["can_go_back", "rewind_checkpoint", "rewind_steps"] {
+            continued_view[key] = expected["view"][key].clone();
+        }
+    }
+    assert_eq!(continued_view, expected["view"], "all other historical view fields survive recovery");
     drop(golden);
     live.cmds.send(Cmd::Concede { seat: 0 }).unwrap();
     for _ in 0..200 {
@@ -1881,10 +1895,11 @@ async fn games_stranded_on_a_retired_runtime_free_their_place_and_can_be_deleted
     // Games only waiting for their engine are not stranded: the historical runtime isn't
     // installed here, and the current engine has failed. Both come back once fixed.
     saved_game(&pool, "waiting-historical", &host, Some(history::IDENTITY), "live", "{}").await;
+    saved_game(&pool, "waiting-v0119", &host, Some(history::V0119_IDENTITY), "live", "{}").await;
     saved_game(&pool, "waiting-current", &host, Some(yama_play::ENGINE_VERSION), "live", "{}").await;
     *hub.engine.lock().unwrap() = EngineState::Failed("deliberately down in the stranded-games test".into());
     let app = crate::routes::app(st);
-    for id in ["waiting-historical", "waiting-current"] {
+    for id in ["waiting-historical", "waiting-v0119", "waiting-current"] {
         let (_, detail) = request(&app, Method::GET, &format!("/api/play/{id}"), Some(&token), None).await;
         assert!(detail["runtime_error"].is_string(), "{detail}");
         assert_eq!(detail.get("stranded"), None, "{detail}");
@@ -1901,6 +1916,21 @@ async fn games_stranded_on_a_retired_runtime_free_their_place_and_can_be_deleted
     }
     let left: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM games WHERE id LIKE 'stranded-%'").fetch_one(&pool).await.unwrap();
     assert_eq!(left, 0);
+}
+
+/// The new current pin must not make retained v0.119 tables appear retired.
+#[tokio::test]
+async fn retained_v0119_games_still_hold_open_game_places() {
+    use crate::testutil::user;
+    let pool = crate::db::test_pool().await;
+    let (host, _) = user(&pool, "retained-v0119@example.com").await;
+    let user_row = crate::auth::User { id: host.clone(), email: "retained-v0119@example.com".into(), display_name: "Ana".into(), is_admin: false, limited: true, power: false, guest: false };
+    for n in 0..OPEN_MAX_OPEN_GAMES {
+        check_open_games(&pool, &user_row).await.expect("room remains below the configured allowance");
+        saved_game(&pool, &format!("retained-{n}"), &host, Some(history::V0119_IDENTITY), "live", "{}").await;
+    }
+    assert!(!is_retired_runtime(Some(history::V0119_IDENTITY)));
+    assert!(check_open_games(&pool, &user_row).await.is_err(), "preserved games count even while their worker is unavailable");
 }
 
 #[test]

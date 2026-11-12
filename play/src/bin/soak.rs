@@ -118,7 +118,7 @@ struct Played {
 
 fn run() -> i32 {
     let args: Vec<String> = std::env::args().collect();
-    let card_data = args.get(1).map(String::as_str).unwrap_or("data/engine/card-data-cbd552b41f962f5b.json");
+    let card_data = args.get(1).map(String::as_str).unwrap_or("data/engine/card-data-19b30ee31fc29d11.json");
     let max_turns: u32 = args.get(2).and_then(|v| v.parse().ok()).unwrap_or(8);
     let seeds: Vec<u64> = match args.get(3).map(String::as_str) {
         Some(range) if range.contains('-') => {
