@@ -30,18 +30,18 @@
   margin: var(--s-2) 0 0;
 }
 .check-commander {
-  display: flex;
-  flex-wrap: wrap;
+  /* The note on its own line, then the two pickers side by side (one under the other on a phone). */
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 320px));
   align-items: end;
   gap: var(--s-2) var(--s-3);
   margin: var(--s-3) 0 0;
 }
 .check-commander > p {
-  flex-basis: 100%;
+  grid-column: 1 / -1;
   margin: 0;
 }
 .check-commander label {
   display: grid;
   gap: 6px;
-  min-width: min(100%, 260px);
 }
