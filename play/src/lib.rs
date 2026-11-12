@@ -326,6 +326,23 @@ impl Engine {
 
     /// Rebuild a live game from its saved replay log (after a server restart).
     pub fn resume(&self, replay_json: &str, ai: &[(u8, AiDifficulty)]) -> anyhow::Result<Match> {
+        self.replay(replay_json, ai, None)
+    }
+
+    /// Rebuild a game saved on another engine version and check that this engine plays it out the
+    /// same: every recorded action must apply, and the public log lines this engine writes for
+    /// them must match the ones saved with the game ([`check_replayed_log`]). On success the
+    /// match carries the saved log lines, ready to go on. Any difference is an error: the game
+    /// would not be the one its players left.
+    pub fn resume_checked(&self, replay_json: &str, ai: &[(u8, AiDifficulty)], saved_lines: &[LogLine]) -> anyhow::Result<Match> {
+        let mut regenerated = Vec::new();
+        let mut m = self.replay(replay_json, ai, Some(&mut regenerated))?;
+        check_replayed_log(saved_lines, &regenerated).map_err(|e| anyhow::anyhow!(e))?;
+        m.set_log_lines(saved_lines.to_vec());
+        Ok(m)
+    }
+
+    fn replay(&self, replay_json: &str, ai: &[(u8, AiDifficulty)], mut regenerated: Option<&mut Vec<LogLine>>) -> anyhow::Result<Match> {
         let log: ReplayLog = serde_json::from_str(replay_json).context("reading replay log")?;
         let metadata: ReplayMetadata = serde_json::from_str(replay_json).context("reading saved turn controls")?;
         if let Some(saved) = &metadata.yama_turn_controls {
@@ -349,6 +366,9 @@ impl Engine {
                 };
                 let result = applied.map_err(|e| { anyhow::anyhow!("replay diverged at action {}: {e}", recorded.seq)
                 })?;
+                if let Some(out) = regenerated.as_deref_mut() {
+                    out.extend(public_lines(&result));
+                }
                 if let GameAction::Concede { player_id } = &recorded.action {
                     m.conceded.insert(player_id.0);
                 }
@@ -356,6 +376,7 @@ impl Engine {
             }
         } else {
             // Resolve All boundaries need the replayer's own handling; Yama never writes them.
+            anyhow::ensure!(regenerated.is_none(), "a replay with Resolve All boundaries can't be checked");
             m.state = player.seek(n).map_err(|e| anyhow::anyhow!("replay diverged: {e:?}"))?.clone();
         }
         m.state.debug_mode = false;
@@ -572,7 +593,7 @@ pub struct LogLine {
 }
 
 impl LogLine {
-    fn public(turn: u32, text: String) -> Self {
+    pub fn public(turn: u32, text: String) -> Self {
         LogLine { turn, text, seat: None, auto: None }
     }
 }
@@ -1872,6 +1893,10 @@ impl Match {
             "The solo game was ended without a winner.".into(),
         ));
     }
+    /// Add a public line of Yama's own to the game log (see [`yama_line`]).
+    pub fn note(&mut self, text: String) {
+        self.lines.push(LogLine::public(self.turn(), text));
+    }
     pub fn abandoned(&self) -> bool {
         self.abandoned
     }
@@ -1996,13 +2021,7 @@ impl Match {
         if self.state.pending_cast.is_none() {
             self.kept.clear();
         }
-        for e in &result.log_entries {
-            // Only public, headline entries: detail lines and anything revealing hidden cards stay out.
-            if e.presentation.importance != LogImportance::Essential || e.presentation.visibility != LogVisibility::Public {
-                continue;
-            }
-            self.lines.push(LogLine::public(e.turn, segments_text(&e.segments)));
-        }
+        self.lines.extend(public_lines(result));
         let busy = Busy::start();
         self.feed.record(&result.events, &self.state, &self.conceded);
         self.costs.feed += busy.elapsed();
@@ -2828,6 +2847,51 @@ pub(crate) fn cost_text(cost: &AbilityCost) -> String {
         }
         _ => String::new(),
     }
+}
+
+/// The log lines everyone sees for an action: public, headline entries only. Detail lines and
+/// anything revealing hidden cards stay out.
+fn public_lines(result: &ActionResult) -> impl Iterator<Item = LogLine> + '_ {
+    result
+        .log_entries
+        .iter()
+        .filter(|e| e.presentation.importance == LogImportance::Essential && e.presentation.visibility == LogVisibility::Public)
+        .map(|e| LogLine::public(e.turn, segments_text(&e.segments)))
+}
+
+/// Whether a public line is one Yama wrote itself rather than the engine (a concession, a rewind,
+/// an ended solo game, the stalled-turn notice), so a replay doesn't produce it.
+fn yama_line(text: &str) -> bool {
+    text.ends_with(" conceded.")
+        || text.ends_with(" went back to the previous decision.")
+        || text == "The solo game was ended without a winner."
+        || text.starts_with("The game can't go on: ")
+        || text.starts_with(MOVED_NOTE)
+}
+
+/// The start of the line a game gets when it moves to a newer engine version (`resume_checked`).
+pub const MOVED_NOTE: &str = "This game moved to a newer version of Yama's rules engine";
+
+/// Check the public log lines a replay produced against the ones saved with the game. The saved
+/// log keeps only the latest lines, so they are matched from the end: each saved engine line
+/// must be the replay's line at the same place, in the same turn, and the replay must have
+/// produced every saved one. Lines for one seat only, and Yama's own lines, aren't compared.
+pub fn check_replayed_log(saved: &[LogLine], regenerated: &[LogLine]) -> Result<(), String> {
+    let mut produced = regenerated.iter().rev();
+    let compared: Vec<&LogLine> = saved.iter().rev().filter(|l| l.seat.is_none() && !yama_line(&l.text)).collect();
+    // Every action is saved with its lines, so a replay that wrote lines can't match a save with
+    // none: nothing would be checked.
+    if compared.is_empty() && !regenerated.is_empty() {
+        return Err("the saved log has no lines to check the replay against".into());
+    }
+    for line in compared {
+        match produced.next() {
+            Some(r) if r.turn == line.turn && r.text == line.text => {}
+            Some(r) => return Err(format!("the log differs in turn {}: saved \"{}\", replayed \"{}\"", line.turn, line.text, r.text)),
+            None => return Err(format!("the replay ended before the saved line \"{}\" (turn {})", line.text, line.turn)),
+        }
+    }
+    Ok(())
 }
 
 fn segments_text(segments: &[LogSegment]) -> String {

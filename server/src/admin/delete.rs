@@ -23,7 +23,9 @@
 //!   commander name stays).
 //! - Online games it hosted or sat in lose their lobby, replay and log (`online_games`); a game
 //!   kept for others that was still going is marked abandoned.
-//! - Invites it sent stay, without its name on them; so do shared-key grants it made as an admin.
+//! - Invites it sent stay, without its name on them; so do shared-key grants it made as an admin,
+//!   and the reports it resolved and decks it took down as one (`moderation.rs`). Reports about
+//!   its own pages and takedowns of its own decks go with it.
 //!
 //! Every column that can hold an account id is listed in [`USER_COLUMNS`]; a test compares that
 //! list with the schema (foreign keys to `users` plus owner-like column names), so a new table
@@ -54,6 +56,10 @@ pub const USER_COLUMNS: &[(&str, &str)] = &[
     ("collection_items", "owner_id"),
     ("commander_evidence_sources", "owner_id"),
     ("containers", "owner_id"),
+    ("content_reports", "owner_id"),
+    ("content_reports", "resolved_by"),
+    ("deck_takedowns", "admin_id"),
+    ("deck_takedowns", "owner_id"),
     ("decks", "owner_id"),
     ("deleted_games", "deleted_by"),
     ("evidence_datasets", "owner_id"),
@@ -188,6 +194,9 @@ const OWNED_DELETES: &[(&str, &str)] = &[
     ("mythic_links", "owner_id"),
     ("mythic_imports", "owner_id"),
     ("mythic_pushes", "owner_id"),
+    // Reports about its pages and takedowns of its decks (`moderation.rs`), before the decks.
+    ("content_reports", "owner_id"),
+    ("deck_takedowns", "owner_id"),
     ("decks", "owner_id"),
 ];
 
@@ -454,6 +463,9 @@ pub async fn delete_rows(tx: &mut Transaction<'_, Sqlite>, id: &str) -> AppResul
 
     // ── invites ────────────────────────────────────────────────────────────
     sqlx::query("UPDATE invites SET invited_by = NULL WHERE invited_by = ?").bind(id).execute(&mut **tx).await?;
+    // What it decided as an admin stays on record, without it (`moderation.rs`).
+    sqlx::query("UPDATE content_reports SET resolved_by = NULL WHERE resolved_by = ?").bind(id).execute(&mut **tx).await?;
+    sqlx::query("UPDATE deck_takedowns SET admin_id = NULL WHERE admin_id = ?").bind(id).execute(&mut **tx).await?;
     // Shared-key grants it made stay for the people it granted.
     sqlx::query("UPDATE advisor_shared_access SET granted_by = NULL WHERE granted_by = ?").bind(id).execute(&mut **tx).await?;
     r.rows_deleted += sqlx::query("DELETE FROM invites WHERE email = ?").bind(&email).execute(&mut **tx).await?.rows_affected();

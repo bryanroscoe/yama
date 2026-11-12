@@ -1,5 +1,5 @@
 import { useEffect, useRef, type ReactNode } from "react";
-import { Link, Navigate, Outlet, Route, Routes, useLocation, useMatch } from "react-router";
+import { Link, Navigate, Outlet, Route, Routes, useLocation, useMatch, useNavigate } from "react-router";
 import { chooseGuest, useGuestChosen } from "./guest";
 import { afterSignIn, Login, useMe } from "./auth";
 import { useGuestSession } from "./guestPlay";
@@ -27,8 +27,9 @@ import { joinLink, useRestoreHosting } from "./table/share";
 import { BugReportProvider } from "./bugs/BugReport";
 import { tablePlay } from "./table/playLoader";
 import { TableHome } from "./table/TableHome";
+import { HomePage } from "./pages/Home";
 
-// The life counter's setup and card search are part of the app itself: they're where Yama opens and what
+// Home, the life counter's setup and card search are part of the app itself: they're where Yama opens and what
 // works offline before anything else has loaded. Every other area loads when first opened
 // (lazyPages.tsx), with a stand-in shaped like it meanwhile.
 const play = area(() => import("./play/pages"));
@@ -82,6 +83,7 @@ const UsagePage = admin.page("UsagePage");
 const ServerPage = admin.page("ServerPage");
 const LabRunsPage = admin.page("LabRunsPage");
 const BugReportsPage = admin.page("BugReportsPage");
+const ModerationPage = admin.page("ModerationPage");
 const DecksPage = decks.page("DecksPage");
 const DeckPage = decks.page("DeckPage");
 const ImportPage = decks.page("ImportPage");
@@ -165,6 +167,7 @@ export function App() {
   useRestoreHosting(me.data?.id ?? null);
   const guestChosen = useGuestChosen();
   const { search } = useLocation();
+  const navigate = useNavigate();
   const answered = useRef(false);
   if (!me.isPending) answered.current = true;
   // An account's cached data leaves this tab when the account signs out or another signs in
@@ -212,8 +215,17 @@ export function App() {
           </h1>
           <ErrorText error={me.error} />
           <p className="dim">The server didn't answer. If you're offline, the life counter still works: signed in on this device before, or without an account.</p>
-          {/* Counting without an account needs nothing from the server. */}
-          <Button variant="primary" onClick={() => chooseGuest(true)}>Count life without an account</Button>
+          {/* Counting without an account needs nothing from the server: straight to the life
+              counter's setup, not Home, whose way in can't work offline. */}
+          <Button
+            variant="primary"
+            onClick={() => {
+              chooseGuest(true);
+              void navigate("/play/table", { replace: true });
+            }}
+          >
+            Count life without an account
+          </Button>
         </div>
       </main>
     );
@@ -237,9 +249,13 @@ export function App() {
       <Route path="/play/:id" element={signedIn ? <Paged page={PlayGame} kind="board" /> : <GuestOrSignIn><Paged page={PlayGame} kind="board" /></GuestOrSignIn>} />
       <Route path="/play/watch/:id" element={signedIn ? <Paged page={WatchGame} kind="board" /> : <Login />} />
       <Route element={<Shell />}>
-        {/* Keyed by who's signed in: a session that ends (or starts) under an open setup starts
-            it afresh, so no account's seats, decks or playgroup carry into a guest game. */}
-        <Route index element={<Framed><TableHome key={me.data?.id ?? "guest"} /></Framed>} />
+        {/* Home: where Yama opens and the wordmark goes. Keyed by who's signed in, so one
+            account's decks and games never stay on screen as the next one's. */}
+        <Route index element={<Framed><HomePage key={me.data?.id ?? "guest"} /></Framed>} />
+        {/* The life counter's setup (it was `/` until 12 Nov 2026). Keyed by who's signed in: a
+            session that ends (or starts) under an open setup starts it afresh, so no account's
+            seats, decks or playgroup carry into a guest game. */}
+        <Route path="play/table" element={<Framed><TableHome key={me.data?.id ?? "guest"} /></Framed>} />
         {/* Keyed by who is signed in, as the Table is: one account's results (with its own copies)
             never stay on screen as the next account's placeholder. */}
         <Route path="cards" element={<Framed><CardsPage key={me.data?.id ?? "guest"} /></Framed>} />
@@ -318,10 +334,11 @@ export function App() {
             <Route path="server" element={<ServerPage />} />
             <Route path="lab" element={<LabRunsPage />} />
             <Route path="bugs" element={<BugReportsPage />} />
+            <Route path="moderation" element={<ModerationPage />} />
           </Route>
         </Route>
-        {/* The life counter's setup lives at /; /table is the address people guess for it. */}
-        <Route path="table" element={<Navigate to="/" replace />} />
+        {/* /table is the address people guess for the life counter's setup. */}
+        <Route path="table" element={<Navigate to="/play/table" replace />} />
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>

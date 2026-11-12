@@ -18,6 +18,14 @@ Online play is in alpha: expect bugs and slow turns.
 
 ## Navigation
 
+Home (`/`, where the wordmark goes) is where Yama opens. Signed out it says what Yama is and
+lists what works without an account: the life counter, a game against the computer, precons,
+commanders and card search. Signed in it puts a life counter game in progress on top, then
+starting a game, your four most recently changed decks and the latest three games you played
+in. A table you follow from another device and your playgroup's shared tables show there too.
+Opening Yama with a life counter game touched in the last 12 hours goes straight to that game.
+The life counter's setup is at `/play/table` (it was `/`; `/table` redirects there).
+
 Five tabs: Play (the life counter, online play, watching, game history), Decks (your decks,
 precons, commanders), Cards, Collection (your cards, trading with a friend) and Playgroup. A
 laptop has them in a left rail under the wordmark, which goes home, with you at the foot; a phone
@@ -36,7 +44,7 @@ Google ID tokens with an invite list, or open to any verified Google account wit
 
 ### Signed out
 
-Yama opens as usual with its full navigation: the life counter and card search work without an
+Yama opens on Home with its full navigation: the life counter and card search work without an
 account, and pages that keep someone's own data (decks, collection, playgroup, the Lab) ask them
 to sign in where the page would be. The sign-in page (`/signin`) highlights the public precon
 reference and MCP guide, explains what an account adds, and keeps Google sign-in directly
@@ -56,6 +64,14 @@ starts as the account's default and is remembered as that default for the next d
 Share button changes it afterwards. A first public deck asks for a handle (on the save step and
 in the deck's Share sheet). Without one the deck is public by link; it joins the profile once a
 handle is chosen.
+
+Every shared deck and profile page has a Report link: anyone can tell Yama's moderator what is
+wrong with it, without an account, and nothing about the sender is kept. In Admin, Moderation, an
+admin dismisses a report or takes the deck down with a reason; a deck taken down is private, with
+its configurations, and cannot be shared again until an admin restores it. Its owner is told why
+when they try to share it. Public pages mask a
+short list of slurs in deck names and descriptions, refuse them in handles, and show links in a
+public deck's name and description as "[link removed]".
 
 Yama moved to [yama.ing](https://yama.ing) on 28 October 2026. Anyone still on the old address
 should sync pending changes there before signing in at the new one; installed apps and MCP
@@ -197,7 +213,7 @@ Commander on the [Phase](https://github.com/bryanroscoe/yama-phase) rules engine
 
 - An account can have 3 games open at a time (10 with an invite, 1 for a guest); the refusal at the limit says so and how to free a place.
 - Lobby, friends join by code (the host can close a table that hasn't started, and delete a game that's over), choose who goes first or roll for it, AI seats (Easy/Medium/Hard) on your decks or stock precons, legal options only, auto-pass, per-seat hidden information, replay log saved after every move, games resume after a restart, final boards rebuilt from replays.
-- A live game saved on an engine build this server can never run (anything but the current engine or the preserved v0.113 runtime) is stranded: it takes no place among the games you may have open, and its host may delete it from its page (optional: deleting removes it from everyone's history). Games only waiting for their engine to load or be installed aren't stranded. Every engine upgrade strands the games still in progress on the old one.
+- Games carry over engine upgrades: a game left on an older engine version is replayed on the new one at startup and picks up where it was if everything checks out (the same actions and the same log), with a line in its log saying so. If it doesn't, it is closed without a winner and stays in history. Until a new engine has started, such a game takes no place among the games you may have open, and its host may delete it.
 - Readable board on the Night table design: opponents across the top on their commander art, hover a card for a full-size preview (desktop), right-click, long-press or tap for the card with its rules text and your options for it.
 - One big button says what it will do ("To combat", "Attack (2)", "Resolve")
 - Attack and block by clicking creatures, with any legal declaration (not only the engine's sample)

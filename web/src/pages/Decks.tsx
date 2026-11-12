@@ -293,7 +293,7 @@ export function DeckPage() {
     <Button className="deck-check-action" onClick={() => { cards.setShow("need"); if (tab !== "cards") navigate(tabHref("cards")); }}><span>Find missing cards</span><span className="more-menu-note">Compare this list with my collection</span></Button>
   </>;
   const moreActions = <>
-    <Button onClick={() => navigate("/", { state: { deckId: d.id } })}>Play</Button>
+    <Button onClick={() => navigate("/play/table", { state: { deckId: d.id } })}>Play</Button>
     <Button onClick={() => setGoldfish(true)}>Sample hand</Button>
     <MenuSeparator />
     <Button onClick={() => setExporting(true)}>Copy or export</Button>

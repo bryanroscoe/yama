@@ -217,6 +217,11 @@ pub struct Limits {
     pub new_guests: RateLimiter,
     /// Guest checks (Turnstile tokens sent to Cloudflare) from one address, passed or not.
     pub guest_checks_address: RateLimiter,
+    /// Reports of a shared deck or profile (`moderation.rs`) sent from one address; no account
+    /// is needed to send one.
+    pub reports_address: RateLimiter,
+    /// Reports stored on the whole server in an hour.
+    pub reports: RateLimiter,
 }
 
 impl Default for Limits {
@@ -258,6 +263,8 @@ impl Default for Limits {
             new_guests_address: RateLimiter::new("guest games from this address today", 6, DAY),
             new_guests: RateLimiter::new("guest players on Yama just now", 60, 60 * MINUTE),
             guest_checks_address: RateLimiter::new("tries to start as a guest from this address", 20, 60 * MINUTE),
+            reports_address: RateLimiter::new("reports from this address", 5, 60 * MINUTE),
+            reports: RateLimiter::new("reports on Yama just now", 120, 60 * MINUTE),
         }
     }
 }

@@ -70,7 +70,7 @@ export function TablePlay() {
     const url = new URL(joinUrl(hosting.following));
     return <Navigate to={`${url.pathname}${url.hash}`} replace />;
   }
-  if (!game || !state) return <Navigate to="/" replace />;
+  if (!game || !state) return <Navigate to="/play/table" replace />;
   return <TableScreen game={game} state={state} />;
 }
 
@@ -154,7 +154,7 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
   // Whose turn it is shows only on a device counting turns; most tables don't.
   const counting = following?.countTurns ?? countTurns;
   const sharing = hosting.gameId === state.setup.id;
-  const leave = () => navigate("/");
+  const leave = () => navigate("/play/table");
   const personal = view === "mine" && !!me && !attack && taking === null;
   const panel = (seat: number, rot: number, area: string, vertical = false) => {
     const p = state.players.find((x) => x.seat === seat);
@@ -286,7 +286,7 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
               // Phones following this game move to the next one with it.
               if (again && sharing) announceNext(id);
               finishGame(finishing.winner, details, first);
-              if (!again) return navigate("/");
+              if (!again) return navigate("/play/table");
               // The same seats and commanders, from the start. Commanders swapped mid-game come along,
               // and so do places swapped: seats are numbered again in the order people now sit.
               startGame({

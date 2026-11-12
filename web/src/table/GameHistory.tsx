@@ -53,7 +53,7 @@ export function GameHistoryPage() {
   return (
     <main className="page game-history">
       <header className="gh-head">
-        <nav className="gh-crumbs" aria-label="Related pages"><Link to="/">Life counter</Link><Link to="/group">Playgroup stats</Link></nav>
+        <nav className="gh-crumbs" aria-label="Related pages"><Link to="/play/table">Life counter</Link><Link to="/group">Playgroup stats</Link></nav>
         <h1>Game history</h1>
       </header>
       <p className="dim">Review old games or delete ones you recorded.</p>
@@ -73,8 +73,8 @@ export function GameHistoryPage() {
           title="No games yet"
           action={
             <>
-              <ButtonLink variant="primary" to="/">Start a game</ButtonLink>
-              <ButtonLink variant="outline" to="/" state={{ log: true }}>Log one you played</ButtonLink>
+              <ButtonLink variant="primary" to="/play/table">Start a game</ButtonLink>
+              <ButtonLink variant="outline" to="/play/table" state={{ log: true }}>Log one you played</ButtonLink>
             </>
           }
         >

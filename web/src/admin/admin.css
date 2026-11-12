@@ -373,4 +373,11 @@
   margin: 0;
   font-size: var(--t-12);
   overflow-wrap: anywhere;
+/* What a reporter or an admin wrote, quoted under the row's facts (Reports). */
+.admin-text > span.admin-quote {
+  color: var(--text);
+  white-space: pre-wrap;
+  padding-left: 10px;
+  border-left: 2px solid var(--line);
+  margin: 4px 0;
 }

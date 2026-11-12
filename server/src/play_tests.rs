@@ -800,13 +800,16 @@ async fn recovery_checks_identity_before_replay_and_preserves_live_and_completed
         saved_game(&pool, id, &host, version, stage, "NOT JSON: must never be parsed").await;
     }
     let before: Vec<_> = futures_util::future::join_all(cases.iter().map(|(id, _, _)| saved_bytes(&pool, id))).await;
+    // With a current engine, live games on a retired one are replayed on it and moved over or
+    // closed (games_on_a_retired_engine_move_over_...); without one, nothing is parsed or changed.
+    *hub.engine.lock().unwrap() = EngineState::Failed("deliberately down in the identity routing test".into());
     hub.resume_live(&pool).await;
     assert_eq!(hub.live_count(), 0);
     let app = crate::routes::app(st);
     for (i, (id, _, _)) in cases.iter().enumerate() {
         let (code, body) = request(&app, Method::GET, &format!("/api/play/{id}/view"), Some(&token), None).await;
         assert_eq!(code, StatusCode::CONFLICT, "{body}");
-        assert!(body.to_string().contains("runtime"), "{body}");
+        assert!(body.to_string().contains("runtime") || body.to_string().contains("rules engine"), "{body}");
         let (code, _) = request(&app, Method::GET, &format!("/api/play/{id}/view"), Some(&stranger), None).await;
         assert_eq!(code, StatusCode::NOT_FOUND);
         let (code, detail) = request(&app, Method::GET, &format!("/api/play/{id}"), Some(&token), None).await;
@@ -1884,6 +1887,8 @@ async fn games_stranded_on_a_retired_runtime_free_their_place_and_can_be_deleted
     // Live, on a runtime this server doesn't have, and never recovered (no thread).
     saved_game(&pool, "stranded-a", &host, Some("phase-v0.113.0+0571ee32-yama1/cards-eb309108"), "live", "{}").await;
     saved_game(&pool, "stranded-b", &host, None, "live", "{}").await;
+    // With the current engine down at startup they can't be moved over or closed yet: stranded.
+    *hub.engine.lock().unwrap() = EngineState::Failed("deliberately down in the stranded-games test".into());
     hub.resume_live(&pool).await;
     check_open_games(&pool, &user_row).await.expect("stranded games don't hold places");
     // Runnable games still count: three current-runtime tables fill the standard allowance.
@@ -1897,7 +1902,6 @@ async fn games_stranded_on_a_retired_runtime_free_their_place_and_can_be_deleted
     saved_game(&pool, "waiting-historical", &host, Some(history::IDENTITY), "live", "{}").await;
     saved_game(&pool, "waiting-v0119", &host, Some(history::V0119_IDENTITY), "live", "{}").await;
     saved_game(&pool, "waiting-current", &host, Some(yama_play::ENGINE_VERSION), "live", "{}").await;
-    *hub.engine.lock().unwrap() = EngineState::Failed("deliberately down in the stranded-games test".into());
     let app = crate::routes::app(st);
     for id in ["waiting-historical", "waiting-v0119", "waiting-current"] {
         let (_, detail) = request(&app, Method::GET, &format!("/api/play/{id}"), Some(&token), None).await;
@@ -1930,6 +1934,13 @@ async fn retained_v0119_games_still_hold_open_game_places() {
         saved_game(&pool, &format!("retained-{n}"), &host, Some(history::V0119_IDENTITY), "live", "{}").await;
     }
     assert!(!is_retired_runtime(Some(history::V0119_IDENTITY)));
+    // A ready current engine must not reinterpret or close a recognized saved
+    // game just because its preserved worker is temporarily unavailable.
+    ready_hub(None).resume_live(&pool).await;
+    let rows: Vec<(String, String)> = sqlx::query_as("SELECT g.engine_version,o.stage FROM games g JOIN online_games o ON o.game_id=g.id WHERE g.id LIKE 'retained-%'")
+        .fetch_all(&pool).await.unwrap();
+    assert_eq!(rows.len() as i64, OPEN_MAX_OPEN_GAMES);
+    assert!(rows.iter().all(|(identity, stage)| identity == history::V0119_IDENTITY && stage == "live"));
     assert!(check_open_games(&pool, &user_row).await.is_err(), "preserved games count even while their worker is unavailable");
 }
 
@@ -2229,4 +2240,126 @@ async fn a_guest_plays_a_precon_against_the_computer_one_game_at_a_time() {
     // Deleting the guest takes its games with it.
     assert_eq!(as_guest(&app, Method::DELETE, "/api/guest/session", Some(&guest), None, None).await.0, StatusCode::OK);
     assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM online_games WHERE host_id = ?").bind(&guest_id).fetch_one(&pool).await.unwrap(), 0);
+}
+
+/// Bryan, 12 Nov 2026: a game left on an engine version this server can't run moves to the
+/// current engine when it replays the same, and is closed (no winner) when it doesn't, so none is
+/// left that nobody can play or finish.
+#[tokio::test(flavor = "multi_thread")]
+async fn games_on_a_retired_engine_move_over_when_they_replay_the_same_and_close_when_not() {
+    use crate::testutil::{send as request, user};
+    use axum::http::{Method, StatusCode};
+    let mut st = crate::testutil::state().await;
+    st.play = ready_hub(None);
+    let hub = st.play.clone();
+    let pool = st.pool.clone();
+    let (host, token) = user(&pool, "upgrade-host@example.com").await;
+    // A game the computer played a while on this engine, still going: its replay and public
+    // log as saved.
+    let (replay, lines) = std::thread::Builder::new()
+        .stack_size(STACK)
+        .spawn(|| {
+            let ai = [(0u8, Difficulty::Easy), (1u8, Difficulty::Easy)];
+            let mut m = engine().new_match_first(11, vec![deck(&[("Island", 99)]), deck(&[("Mountain", 99)])], &ai, Some(1)).unwrap();
+            m.run_ai(300).unwrap();
+            assert!(!m.is_over());
+            (m.replay_json(), m.log_lines().to_vec())
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+    assert!(lines.iter().any(|l| l.seat.is_none()), "the fixture game wrote public lines");
+    // Seat 0 is a person now, so a game that moves over waits for them rather than playing out.
+    let mut seats = vec![seat(0, "Ana"), seat(1, "Computer")];
+    seats[0].user_id = Some(host.clone());
+    seats[1].user_id = None;
+    seats[1].kind = "ai".into();
+    seats[1].difficulty = Some("Easy".into());
+    let log = serde_json::to_string(&lines).unwrap();
+    let mut tampered = lines.clone();
+    let last = tampered.iter_mut().rev().find(|l| l.seat.is_none()).unwrap();
+    last.text.push_str(" (not what happened)");
+    let cases = [
+        ("moves", Some("phase-v0.113.0+0571ee32-yama1/cards-eb309108"), replay.as_str(), log.clone()),
+        ("unrecorded", None, replay.as_str(), log.clone()),
+        ("differs", Some("phase-old"), replay.as_str(), serde_json::to_string(&tampered).unwrap()),
+        ("unreadable", Some("phase-old"), "NOT JSON", log.clone()),
+        ("no-log", Some("phase-old"), replay.as_str(), log.clone()),
+    ];
+    for (id, identity, replay, log) in &cases {
+        saved_game(&pool, id, &host, *identity, "live", replay).await;
+        sqlx::query("UPDATE online_games SET seats = ?, log = ? WHERE game_id = ?")
+            .bind(serde_json::to_string(&seats).unwrap())
+            .bind(log)
+            .bind(id)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    // Without its saved log a game can't be checked, however well it replays.
+    sqlx::query("UPDATE online_games SET log = NULL WHERE game_id = 'no-log'").execute(&pool).await.unwrap();
+    hub.resume_live(&pool).await;
+    let state = |id: &'static str| {
+        let pool = pool.clone();
+        async move {
+            sqlx::query_as::<_, (String, Option<String>, String, Option<String>)>(
+                "SELECT o.stage, g.engine_version, g.status, o.log FROM online_games o JOIN games g ON g.id = o.game_id WHERE g.id = ?",
+            )
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+        }
+    };
+    // Replays the same: now on the current engine, running, its log saying it moved.
+    for id in ["moves", "unrecorded"] {
+        let (stage, engine_version, status, log) = state(id).await;
+        assert_eq!((stage.as_str(), engine_version.as_deref(), status.as_str()), ("live", Some(yama_play::ENGINE_VERSION), "in_progress"), "{id}");
+        assert!(log.unwrap().contains(yama_play::MOVED_NOTE), "{id}");
+        assert!(hub.live(id).is_some(), "{id} runs");
+        let (code, detail) = request(&crate::routes::app(st.clone()), Method::GET, &format!("/api/play/{id}"), Some(&token), None).await;
+        assert_eq!(code, StatusCode::OK);
+        assert!(detail["runtime_error"].is_null(), "{detail}");
+    }
+    let original: (String, String) = sqlx::query_as("SELECT engine_version, replay FROM online_game_originals WHERE game_id = 'moves'").fetch_one(&pool).await.unwrap();
+    assert_eq!(original.0, "phase-v0.113.0+0571ee32-yama1/cards-eb309108");
+    assert_eq!(original.1, replay, "the original replay is kept");
+    let unrecorded: String = sqlx::query_scalar("SELECT engine_version FROM online_game_originals WHERE game_id = 'unrecorded'").fetch_one(&pool).await.unwrap();
+    assert_eq!(unrecorded, "unrecorded");
+    // Doesn't: closed without a winner, its old engine and original kept, nothing running.
+    for id in ["differs", "unreadable", "no-log"] {
+        let (stage, engine_version, status, log) = state(id).await;
+        assert_eq!((stage.as_str(), engine_version.as_deref(), status.as_str()), ("over", Some("phase-old"), "abandoned"), "{id}");
+        assert!(log.unwrap().contains("This game was closed without a winner"), "{id}");
+        assert!(hub.live(id).is_none(), "{id}");
+        let winner: Option<i64> = sqlx::query_scalar("SELECT winner_seat FROM games WHERE id = ?").bind(id).fetch_one(&pool).await.unwrap();
+        assert_eq!(winner, None);
+        let kept: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM online_game_originals WHERE game_id = ? AND stage = 'live'").bind(id).fetch_one(&pool).await.unwrap();
+        assert_eq!(kept, 1, "{id}");
+    }
+    // A closed game no longer counts toward the host's open games, and isn't stranded.
+    let (_, detail) = request(&crate::routes::app(st.clone()), Method::GET, "/api/play/differs", Some(&token), None).await;
+    assert_eq!(detail["status"], "abandoned", "{detail}");
+    assert_eq!(detail.get("stranded"), None, "{detail}");
+    for id in ["moves", "unrecorded"] {
+        hub.stop(id);
+    }
+}
+
+#[test]
+fn a_replayed_log_must_match_the_saved_one_from_the_end() {
+    let line = |turn, text: &str| yama_play::LogLine::public(turn, text.into());
+    let replayed = [line(1, "a"), line(1, "b"), line(2, "c")];
+    // The saved log keeps only the latest lines; Yama's own and one seat's lines aren't compared.
+    let mut private = line(2, "Yama answered yes for Rhystic Study, as you asked.");
+    private.seat = Some(0);
+    let saved = [line(1, "b"), line(2, "Ana conceded."), private, line(2, "c")];
+    assert_eq!(yama_play::check_replayed_log(&saved, &replayed), Ok(()));
+    assert!(yama_play::check_replayed_log(&[line(1, "b"), line(2, "x")], &replayed).is_err());
+    assert!(yama_play::check_replayed_log(&[line(1, "b")], &replayed).is_err(), "the replay went further than the save");
+    assert!(yama_play::check_replayed_log(&[line(1, "z"), line(1, "a"), line(1, "b"), line(2, "c")], &replayed).is_err());
+    assert!(yama_play::check_replayed_log(&[line(1, "c")], &[line(2, "c")]).is_err(), "turns must match");
+    assert!(yama_play::check_replayed_log(&[], &replayed).is_err(), "nothing saved to check against");
+    assert!(yama_play::check_replayed_log(&[line(2, "Ana conceded.")], &replayed).is_err(), "only Yama's own lines saved");
+    assert_eq!(yama_play::check_replayed_log(&[], &[]), Ok(()), "a game with no lines yet");
 }
