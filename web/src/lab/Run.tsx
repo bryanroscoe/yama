@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { identityName, listText, fmtDate, fmtDateTime } from "@yama/core";
+import { count, identityName, listText, fmtDate, fmtDateTime } from "@yama/core";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { usePower } from "../auth";
@@ -32,6 +32,7 @@ import {
   settleText,
   shortHash,
   simDetails,
+  runSizeText,
   simLabel,
   unscoredText,
   verdictText,
@@ -106,7 +107,7 @@ function Again({ e }: { e: ExperimentDetail }) {
       <span className="lab-games-label">Run again</span>
       <Segmented label="Games" value={pick} onChange={setGames} options={choices.map((g) => [g, g] as const)} />
       <Button variant="primary" onClick={() => again.mutate()} disabled={again.isPending}>
-        {again.isPending ? "Starting…" : pick > perEngine ? `Run again with ${pick} games` : `Run again (${pick} games)`}
+        {again.isPending ? "Starting…" : pick > perEngine ? `Run again with ${count(pick)} games` : `Run again (${count(pick)} games)`}
       </Button>
       <span className="lab-note">
         Same setup, new shuffles. {modeOf(e) === "tournament" ? "The count is appearances per deck, per engine." : ""}{enginesOf(e).mode === "both" ? ` ${pick} ${modeOf(e) === "tournament" ? "appearances per deck" : "games"} on each engine.` : ""}
@@ -142,7 +143,7 @@ function MoreGames({ e }: { e: ExperimentDetail }) {
       <h2>{unclear ? "Get a clearer answer" : "Add games"}</h2>
       <p className="small" style={{ marginTop: 0 }}>
         {need
-          ? `About ${need.games} more games${each} would get there, at the rate pods have been left out so far.`
+          ? `About ${count(need.games)} more games${each} would get there, at the rate pods have been left out so far.`
           : unclear
             ? "More games give a tighter answer."
             : "More games tighten the interval further."}{" "}
@@ -152,7 +153,7 @@ function MoreGames({ e }: { e: ExperimentDetail }) {
         <span className="lab-games-label">Add</span>
         <Segmented label="Games to add" value={pick} onChange={setGames} options={choices.map((g) => [g, g] as const)} />
         <Button variant="primary" onClick={() => more.mutate()} disabled={more.isPending}>
-          {more.isPending ? "Adding…" : `Add ${pick} games${each}`}
+          {more.isPending ? "Adding…" : `Add ${count(pick)} games${each}`}
         </Button>
       </div>
       <ErrorText error={more.error} />
@@ -268,7 +269,7 @@ export function RunPage() {
       {e.status === "failed" && <p className="error">This run failed: {e.error ?? "no reason recorded"}.</p>}
       {e.status === "cancelled" && (
         <p className="dim">
-          Canceled after {e.progress.done} of {e.progress.total} games{s && !s.verdict.final ? "; games that were playing still count when they finish" : ""}.
+          Canceled after {count(e.progress.done)} of {count(e.progress.total)} games{s && !s.verdict.final ? "; games that were playing still count when they finish" : ""}.
         </p>
       )}
 
@@ -802,11 +803,10 @@ function Change({ e }: { e: ExperimentDetail }) {
   // A "both" run's label counts both engines' games; say them per engine.
   const both = enginesOf(e).mode === "both";
   const n = both ? e.label.games / 2 : e.label.games;
-  const each = both ? " on each engine" : "";
   const ai = `${engineLine(e)}.`;
   if (mode !== "change") {
     const decks = mode === "solo" ? (e.base ? [e.base] : []) : (e.entrants ?? []);
-    const games = mode === "compare" ? `${n} games${each} (${n / 2} pods, each played by both decks)` : mode === "solo" ? `${n} games${each} (each pod once)` : `${n} games${each}${e.label.pod === 2 ? ", 1v1" : ""}`;
+    const games = runSizeText(mode, n, both, e.label.pod);
     return (
       <>
         <ul className="lab-decks small">
@@ -841,7 +841,7 @@ function Change({ e }: { e: ExperimentDetail }) {
       <p className="small">
         Base: {e.base?.label ?? "unknown"}
         {e.base?.source.kind === "deck" ? " (the deck's version when the run was made)" : e.base?.source.kind === "precon" ? " (the precon's stock list)" : ""}. Opponents:{" "}
-        {fieldPhrase(e) ?? "unknown"}. {ai} {n} games{each} ({n / 2} pods, each played by both lists).
+        {fieldPhrase(e) ?? "unknown"}. {ai} {runSizeText("change", n, both)}.
         The lists were frozen when the run was made.
       </p>
       <RunNotes e={e} />

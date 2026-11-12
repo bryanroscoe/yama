@@ -2,7 +2,7 @@ import { CardHover } from "../components/CardRef";
 import { UpgradeabilitySection } from "./Upgradeability";
 import { DeckPrices } from "../components/DeckPrices";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { identityName, usd, priceSource, fmtDate } from "@yama/core";
+import { identityName, usd, priceSource, fmtDate, shortDate } from "@yama/core";
 import { useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { usePower } from "../auth";
@@ -132,7 +132,7 @@ function PreconDetailBody({ id }: { id: string | undefined }) {
                     {c.qty > 1 ? `${c.qty} ` : ""}
                     <CardHover name={c.name} oracleId={c.oracle_id} image={c.image_normal}/> {partly.has(c.name) && <StatusPill tone="warn">partly in the engine</StatusPill>}
                     {!c.oracle_id && <StatusPill>unknown to Yama</StatusPill>}
-                    <span className="dim small" style={{ display: "block" }} title={priceSource(c.price_date)}>{usd(c.unit_price_usd)}{c.qty > 1 && c.unit_price_usd != null ? ` each, ${usd(c.unit_price_usd * c.qty)} total` : ""}{c.price_date ? ` (${c.price_date})` : ""}</span>
+                    <span className="dim small" style={{ display: "block" }} title={priceSource(c.price_date)}>{usd(c.unit_price_usd)}{c.qty > 1 && c.unit_price_usd != null ? ` each, ${usd(c.unit_price_usd * c.qty)} total` : ""}{shortDate(c.price_date) ? `, ${shortDate(c.price_date)}` : ""}</span>
                   </span>
                   <ManaCost cost={c.mana_cost} />
                 </Button>

@@ -2,7 +2,7 @@
 // filters and sorts, and the "Try a change" list arithmetic. No React here, so it's tested on its own.
 
 import { count, fmtDate, GROUP_ORDER, groupOf, identityKeys, percent, plural } from "@yama/core";
-import type { Allowance, Confidence, ConfidenceLevel, ExperimentStatus, Pace, PreconItem, Summary } from "./api";
+import type { Allowance, Confidence, ConfidenceLevel, ExperimentMode, ExperimentStatus, Pace, PreconItem, Summary } from "./api";
 
 // ── wording ──────────────────────────────────────────────────────────────────
 
@@ -50,6 +50,18 @@ export const reasonText = (s: string) =>
     .replace(/\bon phase(?=[,.;:)]|$)/g, "on Phase")
     .replace(/\bphase (gap|engine|AI)\b/g, "Phase $1")
     .replace(/\.\.\./g, "…");
+
+/**
+ * A run's size in words: "8,700 games on each engine (4,350 pods, each played by both decks)".
+ * `games` is one engine's share when the run played `both`.
+ */
+export function runSizeText(mode: ExperimentMode, games: number, both: boolean, pod = 4): string {
+  const size = `${count(games)} games${both ? " on each engine" : ""}`;
+  if (mode === "compare") return `${size} (${count(games / 2)} pods, each played by both decks)`;
+  if (mode === "change") return `${size} (${count(games / 2)} pods, each played by both lists)`;
+  if (mode === "solo") return `${size} (each pod once)`;
+  return `${size}${pod === 2 ? ", 1v1" : ""}`;
+}
 
 /** An interval in whole points: "+1 to +7". */
 export function pointsRange(ci: [number, number]): string {
