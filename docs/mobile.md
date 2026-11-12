@@ -14,7 +14,7 @@ What it buys over the installable web app: native camera control and ML Kit text
 
 Release ladder:
 
-1. **Server and web (done 2026-10-31):** power users. Starting simulations, watched AI games and Ask Claude are for admins and power users only, enforced by the server; results stay visible; MCP stays without the simulation-starting tools (ARCHITECTURE.md, "Power users and the semi-public release"). Grant friends in Admin, People.
+1. **Server and web (done 2026-10-31):** power users. Starting simulations and Ask Claude are for admins and power users only, enforced by the server; results stay visible; MCP stays without the simulation-starting tools (ARCHITECTURE.md, "Power users and the semi-public release"). Watched games were too until 12 Nov 2026; every account may now watch 10 a day. Grant friends in Admin, People.
 2. **Still to build before a Play submission:**
    - **Account deletion (done 2026-11-01):** Your profile, Account settings, Delete account in the app (`DELETE /api/me`), and the web link for the Play listing, `https://yama.ing/delete-account/`.
    - **Native Google sign-in (built 2026-11-01):** the app's sign-in is done ("The Android app", below); Google Cloud still needs the Android OAuth clients.

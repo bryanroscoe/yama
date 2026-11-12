@@ -14,7 +14,7 @@ import { Button, ButtonLink, ErrorText, Field, Segmented } from "../components/u
 import { AlphaTag, ALPHA_NOTE } from "../components/AlphaTag";
 import { OnlineSupport } from "../components/OnlineSupport";
 import { BracketChips } from "../components/Bracket";
-import { useMe, usePower } from "../auth";
+import { useMe } from "../auth";
 import type { OnlineGame, SeatInfo } from "./types";
 import type { PreconList } from "../lab/api";
 import { SavedDeckPicker, PreconPicker } from "../components/DeckPicker";
@@ -49,7 +49,6 @@ function gameStatus(g: OnlineGame): { text: string; tone: "" | "warn" | "dim" } 
 
 /** Play online. `guest`: someone playing without an account (GuestPlay.tsx), on precons only. */
 export function PlayHome({ guest }: { guest?: GuestSession } = {}) {
-  const power = usePower() && !guest;
   const games = useQuery({
     queryKey: guest ? ["play", "guest"] : ["play"],
     queryFn: ({ signal }) => api<OnlineGame[]>("/api/play", { signal }),
@@ -81,7 +80,7 @@ export function PlayHome({ guest }: { guest?: GuestSession } = {}) {
         {status.data?.enabled && <NewGame decks={decks.data ?? []} guest={!!guest} />}
         <div className="ph-side">
           {status.data?.enabled && !guest && <JoinGame decks={decks.data ?? []} />}
-          {status.data?.enabled && power && (
+          {status.data?.enabled && !guest && (
             <section className="ph-watch" aria-labelledby="ph-watch-h">
               <h2 id="ph-watch-h">Watch AIs play</h2>
               <p className="dim">Watch your decks or precons play at your pace.</p>

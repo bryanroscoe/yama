@@ -198,6 +198,7 @@ Commander on the [Phase](https://github.com/bryanroscoe/yama-phase) rules engine
 - Answers Yama remembers for you for the rest of a game ("Always pay" for Rhystic Study and other unless-costs in mana, your commander to the command zone), each logged with Turn off
 - An art credit under every battlefield
 - Phones get opponent tabs, a hand drawer and a docked button
+- Watch the computer play (`/play/watch`, `server/src/watch.rs`): 2 to 4 seats on your decks or stock precons, each with its own level, at 1x, 2x, 4x or straight to the end, with pause, single steps and hands face up. Open to every signed-in account: 10 new games a day, one at a time (power users have no daily count and, with an invite, 3 at a time). The page says the limit and what is left of it.
 
 ## Lab and evidence
 

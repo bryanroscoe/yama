@@ -1,5 +1,6 @@
 // Watch the AIs play: request shapes and the words the screens use (server/src/watch.rs).
 
+import { plural } from "@yama/core";
 import { shortName } from "./text";
 import type { SeatInfo, Speed, WatchStatus } from "./types";
 
@@ -22,6 +23,25 @@ export interface WatchSummary {
   turn: number;
   winner: number | null;
   missing_cards: Record<string, string[]>;
+}
+
+/**
+ * What this account may do with watched games (GET /api/watch/allowance). Null means no limit:
+ * `at_a_time` for admins, the daily count for power users and admins.
+ */
+export interface WatchAllowance {
+  at_a_time: number | null;
+  per_day: number | null;
+  used_today: number | null;
+}
+
+/** The daily allowance in a sentence, saying the limit and what is left of it. Null without a daily count. */
+export function watchAllowanceText(a: WatchAllowance): string | null {
+  if (a.per_day == null) return null;
+  const left = Math.max(0, a.per_day - (a.used_today ?? 0));
+  if (left === 0) return `You've started ${plural(a.per_day, "watched game")} in the last 24 hours, which is the daily limit. You can start another once the earliest of them is 24 hours old.`;
+  const each = a.at_a_time === 1 ? ", one at a time" : a.at_a_time ? `, ${a.at_a_time} at a time` : "";
+  return `You can start ${plural(a.per_day, "watched game")} a day${each}. ${left} left today.`;
 }
 
 /** One seat on the setup page: whose deck, which one, and how well the AI plays it. */

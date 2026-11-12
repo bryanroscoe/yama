@@ -76,7 +76,8 @@ export function useMe() {
 export const KeptAccount = createContext<User | null>(null);
 
 /**
- * Whether the signed-in account may start simulations and watched AI games and use Ask Claude:
+ * Whether the signed-in account may start simulations and use Ask Claude (watching the computer
+ * play is open to every account, within a daily number of games):
  * an admin or a power user. The server refuses everyone else; this only hides what they can't use.
  */
 export function usePower(): boolean {

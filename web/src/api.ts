@@ -191,8 +191,9 @@ export interface User {
    */
   limited?: boolean;
   /**
-   * An admin, or an account an admin made a power user: may start simulations and watched AI
-   * games and use Ask Claude. Missing from a user cached by an older build, which reads as false.
+   * An admin, or an account an admin made a power user: may start simulations and use Ask Claude,
+   * and has no daily limit on watched games. Missing from a user cached by an older build, which
+   * reads as false.
    */
   power?: boolean;
   /** Set while an admin views Yama as this person, read only (viewing.ts). */

@@ -48,7 +48,7 @@ export function PeoplePage() {
     toggle.mutate(a);
   };
   const flipPower = async (a: AccountInfo) => {
-    if (a.power_user && !(await ask({ title: `Stop ${a.email} being a power user?`, body: "They keep their runs but can't start simulations, watch AI games or ask Claude.", confirm: "Stop power user", danger: true }))) return;
+    if (a.power_user && !(await ask({ title: `Stop ${a.email} being a power user?`, body: "They keep their runs but can't start simulations or ask Claude, and watching the computer play goes back to the daily allowance every account has.", confirm: "Stop power user", danger: true }))) return;
     power.mutate(a);
   };
   const flipInvite = async (a: AccountInfo) => {
@@ -96,7 +96,7 @@ export function PeoplePage() {
                   <Button variant="outline" onClick={() => flipInvite(a)} disabled={invite.isPending}>
                     {a.invited ? "Remove invite" : "Invite"}
                   </Button>
-                  <Button variant="outline" onClick={() => flipPower(a)} disabled={power.isPending} title="Power users may start simulations and watched AI games and ask Claude">
+                  <Button variant="outline" onClick={() => flipPower(a)} disabled={power.isPending} title="Power users may start simulations and ask Claude, and watch the computer play with no daily limit">
                     {a.power_user ? "Remove power user" : "Make power user"}
                   </Button>
                   <Button variant="outline" onClick={() => flip(a)} disabled={toggle.isPending}>
