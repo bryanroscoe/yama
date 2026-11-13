@@ -730,6 +730,31 @@ async fn a_commander_figure_that_predicts_stock_games_ranks_precons_without_them
     assert_eq!(standing("deck-12"), None);
 }
 
+#[tokio::test]
+async fn a_standing_reads_the_whole_record_not_the_recent_games() {
+    let (_, pool) = app().await;
+    let (owner, _) = user(&pool, "bryan@example.com").await;
+    enable(&pool, &owner, "Playgroup.gg").await.unwrap();
+    let mut snapshots = Vec::new();
+    for i in 0..10 {
+        let id = format!("deck-{i:02}");
+        precon(&pool, &id, &id, None, None).await;
+        // A thousand games at 12% to 30%, then sixty more that all ran at 20%.
+        let before = 12.0 + 2.0 * i as f64;
+        snapshots.push(precon_obs(&id, &id, "2026-08-06", 1000, before, SHA_A));
+        snapshots.push(precon_obs(&id, &id, "2026-10-17", 1060, (1000.0 * before + 60.0 * 20.0) / 1060.0, SHA_A));
+    }
+    import(&pool, &owner, &document("playgroup-history", snapshots)).await;
+    let v2 = rating_v2_with(&pool, at("2026-10-29"), load(&pool, at("2026-10-29")).await.unwrap()).await.unwrap();
+    let of = |id: &str| v2.precons.iter().find(|p| p.precon == id).unwrap();
+    // The rank's estimate is the recent games: every precon near 20%.
+    assert!((of("deck-00").rate - 20.0).abs() < 0.5 && (of("deck-09").rate - 20.0).abs() < 0.5, "{} {}", of("deck-00").rate, of("deck-09").rate);
+    // The standing is the record: 12.5% and 29.4% over a thousand games stand apart.
+    assert_eq!(v2.field.unwrap().precons, 10);
+    assert_eq!(of("deck-00").standing, Some(calibration::Standing::Behind));
+    assert_eq!(of("deck-09").standing, Some(calibration::Standing::Ahead));
+}
+
 #[test]
 fn a_thin_recent_rate_gives_way_to_the_all_time_figure_at_no_more_than_forty_games() {
     let recent = |games: u64, rate: f64| history::Recent { rate, games, effective_games: games as f64 * 0.8, from: at("2026-08-06"), to: at("2026-10-28"), half_life_days: 180 };

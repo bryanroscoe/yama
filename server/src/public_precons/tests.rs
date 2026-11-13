@@ -888,11 +888,11 @@ fn a_standing_shows_as_a_label_in_the_table_and_a_sentence_on_the_page() {
     let table = html::rating_v2(&row(Some(Standing::Ahead)), Some(&field), false);
     assert!(table.contains("<small class=\"standing\">Ahead of the pack</small>"), "{table}");
     let page = html::rating_v2(&row(Some(Standing::Ahead)), Some(&field), true);
-    assert!(page.contains("<strong>Ahead of the pack.</strong> Its stock games put it above the precon average of 20.8%, by more than luck over that many games would explain."), "{page}");
+    assert!(page.contains("<strong>Ahead of the pack.</strong> Over all its recorded stock games it sits above the precon average of 20.8%, by more than luck over that many games would explain."), "{page}");
     for (standing, label) in [(Standing::Pack, "In the pack"), (Standing::Behind, "Behind the pack"), (Standing::Thin, "Too few games to place")] {
         assert!(html::rating_v2(&row(Some(standing)), Some(&field), false).contains(label));
     }
-    assert!(html::rating_v2(&row(Some(Standing::Thin)), Some(&field), true).contains("count as fewer than 40, so it isn’t placed"));
+    assert!(html::rating_v2(&row(Some(Standing::Thin)), Some(&field), true).contains("It has fewer than 40 recorded stock games, so it isn’t placed"));
     // No stock games, or no field to place it in: nothing is said.
     assert!(!html::rating_v2(&row(None), Some(&field), true).contains("class=\"standing\""));
     assert!(!html::rating_v2(&row(Some(Standing::Ahead)), None, false).contains("class=\"standing\""));
