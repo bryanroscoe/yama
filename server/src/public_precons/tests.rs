@@ -871,5 +871,10 @@ async fn a_precon_page_shows_the_full_power_breakdown() {
     assert!(html.contains("class=\"analysis-vectors\""), "the five scores");
     assert!(html.contains("<summary>How it adds up</summary>"), "every card's points");
     assert!(html.contains(&format!("<span class=\"result-value\">{level:.1}</span>")), "the same number as the headline");
+    // The rest of a deck page's panels, for the stock list.
+    assert!(html.contains("id=\"bracket-head\""), "the bracket panel");
+    assert!(!html.contains("Declared by its owner"), "nobody declares a stock list's bracket");
+    assert!(html.contains("id=\"stats-head\"") && html.contains("<h3>Mana curve</h3>"), "curve and colors");
+    assert!(html.contains("id=\"reserved-head\""), "the Reserve List line");
     assert!(!html.contains(PRIVATE));
 }

@@ -332,15 +332,24 @@ pub(crate) fn reserved_panel(reserved: Option<&[String]>) -> String {
 /// What the Reserve List is, under every count of it.
 pub(crate) const RESERVED_NOTE: &str = "Cards Wizards has promised never to reprint, from Scryfall's card data. Being on the list says a card is scarce, not that it's strong.";
 
+/// Whose list a bracket panel is for: a person's deck, which its owner may have given a bracket,
+/// or a stock precon, which nobody declares one for.
+#[derive(Clone, Copy)]
+pub(crate) enum Declared {
+    Owner(Option<i64>),
+    Stock,
+}
+
 /// The bracket the owner declares beside Yama's starting suggestion, the reason for it, and the
 /// cards and combos behind it (components/Bracket.tsx, BracketPanel). `game_changers` is the
 /// count from our own card data, for when there's no check result. `analysis` gives the power
 /// level shown beside the brackets (analysis/mod.rs); its breakdown is [`analysis_panel`].
-pub(crate) fn bracket_panel(declared: Option<i64>, result: Option<&CheckResult>, game_changers: Option<&[String]>, analysis: Option<&DeckAnalysis>) -> String {
+pub(crate) fn bracket_panel(declared: Declared, result: Option<&CheckResult>, game_changers: Option<&[String]>, analysis: Option<&DeckAnalysis>) -> String {
     let mut s = "<section class=\"public-panel public-bracket\" aria-labelledby=\"bracket-head\"><h2 id=\"bracket-head\">Bracket</h2><div class=\"bracket-pair\">".to_string();
     match declared {
-        Some(b) => write!(s, "<div><span class=\"label\">Declared by its owner</span><span class=\"result-value\">{b}</span><small>{}</small></div>", bracket_name(b)).unwrap(),
-        None => s.push_str("<div><span class=\"label\">Declared by its owner</span><span class=\"result-value dim\">Not declared</span></div>"),
+        Declared::Owner(Some(b)) => write!(s, "<div><span class=\"label\">Declared by its owner</span><span class=\"result-value\">{b}</span><small>{}</small></div>", bracket_name(b)).unwrap(),
+        Declared::Owner(None) => s.push_str("<div><span class=\"label\">Declared by its owner</span><span class=\"result-value dim\">Not declared</span></div>"),
+        Declared::Stock => {}
     }
     match result {
         Some(r) => {
@@ -388,7 +397,11 @@ pub(crate) fn bracket_panel(declared: Option<i64>, result: Option<&CheckResult>,
     if !longer.is_empty() {
         write!(s, "<details><summary>Combos with more pieces: {}</summary>{}</details>", longer.len(), combos(&longer)).unwrap();
     }
-    write!(s, "<p class=\"dim\">Card-list signals and combos from <a href=\"{SPELLBOOK}\">Commander Spellbook</a>. The declared bracket is what the owner tells the table, from the deck's speed, consistency and intended play experience. A suggestion never changes it.</p></section>").unwrap();
+    let closing = match declared {
+        Declared::Owner(_) => "The declared bracket is what the owner tells the table, from the deck's speed, consistency and intended play experience. A suggestion never changes it.",
+        Declared::Stock => "Wizards doesn't give its preconstructed decks a bracket: it says they have a range of power levels. Whoever plays the list tells the table its bracket.",
+    };
+    write!(s, "<p class=\"dim\">Card-list signals and combos from <a href=\"{SPELLBOOK}\">Commander Spellbook</a>. {closing}</p></section>").unwrap();
     s
 }
 
