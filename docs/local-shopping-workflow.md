@@ -17,6 +17,15 @@ evidence used by this page. Preserve each use's stable id and recipient; do not
 sum overlapping research reports or alternative scenarios. The report's lists,
 copy allocations and quote dates remain a snapshot, not a live ownership claim.
 
+A saved report doesn't change when an order is placed. The page leaves out every copy an
+order placed since the report covers (a real order in the plan, placed or received, dated
+after the day the report was made; or, when the report lists `orders_counted`, any such order
+not on that list), and every copy marked bought since. It names the order beside the cards it
+left out, and stops asking stores about a card with no copy left to buy. Record an order in
+the plan and the page follows; the saved report is not rewritten. An MCP client reading the
+report with `get_research` gets the report as saved: before proposing a purchase from it, read
+the plan's orders (`get_plan`, `get_shopping_list`) and take the same copies off.
+
 The maximum-per-card dollar input starts from the current account rule and immediately recalculates offers and all cart quantities, including offers previously rejected only by price. Saved offers must separately retain non-price eligibility; older unexplained rejections need complete condition/finish/language evidence or a report update. Existing market-value limits still apply; unknown markets stay unknown. Save cap as default persists a dated rule for future shopping through the existing settings flow; changing the preview alone does not write research or settings. A lower cap also narrows an always-okay threshold that would exceed it, as shown before saving.
 
 The page defaults to Near Mint, with store, condition, deck, bracket and card-name filters. Each row labels its recipient as a deck and shows the brackets containing that card. Add all matching cards allocates recorded quantities across eligible printings, cheapest first. A listing without a stock count (some stores show only in stock or sold out) supplies one copy, since in stock means at least one; more copies from it are an explicit request, marked unconfirmed. The Exclude unknown stock counts filter leaves out listings without a recorded count, using the same Add all matching cards action. Recorded counts remain dated observations, not reserved stock. The action respects listed quantities and selected recipients, and can split copies across stores. Search and condition filters apply to bulk selection. A requested cart quantity is not verified availability. Printing market references show their matching evidence; market values are not condition-specific. Lowest saved condition prices compare only the positively identified printing, finish and condition, not the whole market. Missing references stay unavailable. Shopify cart links combine variant quantities;

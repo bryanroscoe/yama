@@ -81,6 +81,10 @@ plain-text full `list` with Commander and Deck sections. Optional fields support
   bracket_fit, sources, present, missing_cards and is_caution. A caution can explain a
   nonworking claim; the presence of its cards is not proof that the claim works.
 - Root: summary, method, local_checks, default_scenario_id and alternative shopping `scenarios`.
+  Optional `orders_counted` (with `local_sources`): the keys of every plan order the wanted
+  copies already take into account. The sourcing page leaves out copies in a real, placed or
+  received order that is not on the list; without the list it goes by date, leaving out
+  orders dated after the day in `generated_at`. A producer that reads purchases should set it.
   Optional private `local_sources` rows support the all-deck sourcing preview
   (`/decks/plans/get/sourcing`). Each row has `name`, `status`, `uses` (stable per-copy
   `id`, `deck`, `deck_name`, `category`) and `best_offer_per_store` (nullable entries

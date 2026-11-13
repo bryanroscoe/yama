@@ -10,7 +10,7 @@ import type { LiveStock } from "./live-stock";
 const ORIGIN = "https://mothershipatx.com";
 const mock = vi.hoisted(() => ({
   live: vi.fn(),
-  view: { today: "2026-11-13", b: { settings: [{ effective_from: "2026-11-02", origin: "yama", note: null, rules: { local_buy: { max_usd: 2, always_ok_usd: 0.5, tiers: [{ market_under: null, max_multiple: 1.5 }] }, sealed_max_usd: 51 } }], stores: [{ key: "mothership", name: "Mothership", kind: "local", homepage: "https://mothershipatx.com", cart_url_template: "https://mothershipatx.com/cart/{items}" }] } },
+  view: { markBy: new Map(),  today: "2026-11-13", b: { orders: [], swaps: [],  settings: [{ effective_from: "2026-11-02", origin: "yama", note: null, rules: { local_buy: { max_usd: 2, always_ok_usd: 0.5, tiers: [{ market_under: null, max_multiple: 1.5 }] }, sealed_max_usd: 51 } }], stores: [{ key: "mothership", name: "Mothership", kind: "local", homepage: "https://mothershipatx.com", cart_url_template: "https://mothershipatx.com/cart/{items}" }] } },
 }));
 vi.mock("./PlanLayout", () => ({ usePlanOutlet: () => ({ view: mock.view, userId: "owner" }) }));
 vi.mock("./api", () => ({ saveShoppingRules: vi.fn(), fetchBundle: vi.fn(), storeCatalogs: vi.fn().mockResolvedValue({ catalogs: [] }), checkStores: vi.fn(), storeSnapshots: vi.fn().mockResolvedValue({ snapshots: [] }), liveStock: mock.live }));
