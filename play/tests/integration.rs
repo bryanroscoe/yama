@@ -4,6 +4,7 @@
 
 mod decisions;
 mod determinism;
+mod lab_combos;
 mod lab_regressions;
 mod lab_regressions_candidate;
 mod lab_regressions_v0122;

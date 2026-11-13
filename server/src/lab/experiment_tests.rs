@@ -668,7 +668,7 @@ async fn the_worker_plays_both_lists_on_the_same_pods_and_summarizes() {
     // Storing a result again changes nothing.
     let (spec, decks) = &played[0];
     let line: String = sqlx::query_scalar("SELECT result FROM lab_experiment_games WHERE game = ?").bind(&spec.game).fetch_one(&pool).await.unwrap();
-    let mut other = sim.play(spec, &decks.iter().map(|id| Arc::new(LabList { id: id.clone(), label: String::new(), source: Value::Null, sha256: String::new(), cards: vec![] })).collect::<Vec<_>>(), &LIMITS);
+    let mut other = sim.play(spec, &decks.iter().map(|id| Arc::new(LabList { id: id.clone(), label: String::new(), source: Value::Null, sha256: String::new(), cards: vec![], combos: vec![] })).collect::<Vec<_>>(), &LIMITS);
     other.turns = 99;
     assert!(!store(&pool, &d.item.id, &spec.game, &other).await.unwrap());
     let after: String = sqlx::query_scalar("SELECT result FROM lab_experiment_games WHERE game = ?").bind(&spec.game).fetch_one(&pool).await.unwrap();
@@ -2845,4 +2845,30 @@ async fn the_run_list_comes_a_page_at_a_time() {
     // Someone else's run, or one that's gone, starts from the newest again.
     assert_eq!(list(&pool, "admin", &page(2, Some("not-a-run"))).await.unwrap().len(), 2);
     assert_eq!(list(&pool, "admin", &ListPage::default()).await.unwrap().len(), 3);
+}
+
+#[tokio::test]
+async fn a_runs_lists_are_frozen_with_the_combos_known_in_them() {
+    let pool = fixture().await;
+    // Yama's copy of Spellbook's combos (combos.rs): Sol Ring with Forest (every precon has
+    // both), Sol Ring with Elvish Mystic (only the changed list), and one with a card no list has.
+    for sql in [
+        "INSERT INTO import_runs (id, kind, started_at, finished_at) VALUES ('r', 'spellbook_variants', '2026-11-13T00:00:00Z', '2026-11-13T00:01:00Z')",
+        "INSERT INTO spellbook_cards (n, oracle_id) VALUES (1, 'o-sol-ring'), (2, 'o-elvish-mystic'), (3, 'o-black-lotus'), (4, 'o-forest')",
+        "INSERT INTO spellbook_combos (n, id, cards, popularity, run) VALUES (1, 'ring-mystic', 2, 9, 'r'), (2, 'ring-lotus', 2, 99, 'r'), (3, 'ring-forest', 2, 5, 'r')",
+        "INSERT INTO spellbook_combo_cards (card, combo) VALUES (1, 1), (2, 1), (1, 2), (3, 2), (1, 3), (4, 3)",
+    ] {
+        sqlx::query(sql).execute(&pool).await.unwrap();
+    }
+    let sim = FakeSim::new();
+    let d = create(&pool, &user("bryan", false), swap_req(100), sim.as_ref()).await.unwrap();
+    let spec: String = sqlx::query_scalar("SELECT spec FROM lab_experiments WHERE id = ?").bind(&d.item.id).fetch_one(&pool).await.unwrap();
+    let spec: ExperimentSpec = serde_json::from_str(&spec).unwrap();
+    let combo = |id: &str, cards: &[&str]| LabCombo { id: id.into(), cards: cards.iter().map(|c| c.to_string()).collect() };
+    let ring_forest = combo("ring-forest", &["Forest", "Sol Ring"]);
+    assert_eq!(spec.base.combos, [ring_forest.clone()]);
+    // The more popular first, each card as the list names it.
+    assert_eq!(spec.variant.as_ref().unwrap().combos, [combo("ring-mystic", &["Elvish Mystic", "Sol Ring"]), ring_forest.clone()]);
+    assert_eq!(spec.opponents.len(), 3);
+    assert!(spec.opponents.iter().all(|o| o.list.combos == [ring_forest.clone()]));
 }

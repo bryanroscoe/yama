@@ -133,8 +133,8 @@ pub struct Setup {
     /// Who takes the first turn (seat 0 or 1), instead of the engine's d20 roll.
     pub first: Option<u8>,
     /// What the engine does about loops (CR 732), for the whole game:
-    /// - `Off` (the engine's default): loops run until something breaks them. The lab keeps it,
-    ///   so its results stay comparable.
+    /// - `Off` (the engine's default): loops run until something breaks them. The lab played
+    ///   this way until 13 Nov 2026 (`lab::GameOptions::loops`).
     /// - `Interactive`, for games people play: a loop nobody can break that wins is taken to its
     ///   end at once (CR 732.2a); one somebody could break is offered as a shortcut, which each
     ///   other player accepts or shortens (CR 732.2b, c); and a loop of mandatory actions only, in

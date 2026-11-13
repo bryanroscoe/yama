@@ -6,7 +6,7 @@
 //!
 //! Usage:
 //!   lab --card-data <card-data-HASH.json> --decks-root <dir> --schedule <file.jsonl>
-//!       --out <results.jsonl> [--threads N] [--skip-done] [--retry-errors] [--no-restart] [--loops]
+//!       --out <results.jsonl> [--threads N] [--skip-done] [--retry-errors] [--no-restart] [--no-loops]
 //!       [--llm [--llm-concurrency N] [--llm-timeout SECS] [--llm-max-calls N] [--llm-effort LEVEL]
 //!        [--llm-log FILE] [--llm-object-key] [--llm-prompt-cache] [--llm-guides DIR]
 //!        [--llm-report-issues]]
@@ -59,13 +59,15 @@
 //! d20), so a schedule's seat rotation is a rotation of turn order; when the AI returns no
 //! action, phase's own `fallback_action` answers from the engine-issued options; a turn with
 //! more than MAX_TURN_ACTIONS AI actions is treated as a loop and ends the game as an action cap;
-//! and the engine's loop detection (CR 732) is off. The second and third happen only where a live
+//! and the engine's loop detection (CR 732) is on. The second and third happen only where a live
 //! game would stop or loop, and are logged on stderr with what caused them.
 //!
-//! --loops plays every game with the engine's loop detection on, as live games have it (a loop
-//! nobody can break that wins ends the game, one somebody could break is offered as a shortcut,
-//! a mandatory loop nobody wins is a draw). Its result lines carry the engine label with
-//! "+loops", so they're never pooled with results played without it.
+//! Every game plays with the engine's loop detection, as live games have it (a loop nobody can
+//! break that wins ends the game, one somebody could break is offered as a shortcut, a mandatory
+//! loop nobody wins is a draw), since 13 Nov 2026; result lines carry the engine label with
+//! "+loops". --no-loops plays without it, as every run before did; its result lines carry the
+//! label without "+loops", so the two are never pooled. (--loops is still accepted and changes
+//! nothing.) This runner gives no seat any combos: only the server knows a list's.
 
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
@@ -139,7 +141,7 @@ struct LlmArgs {
     report_issues: bool,
 }
 
-const USAGE: &str = "usage: lab --card-data <card-data-HASH.json> --decks-root <dir> --schedule <file.jsonl> --out <results.jsonl> [--threads N] [--skip-done] [--retry-errors] [--no-restart] [--loops] [--llm [--llm-concurrency N] [--llm-timeout SECS] [--llm-max-calls N] [--llm-effort LEVEL] [--llm-log FILE] [--llm-object-key] [--llm-prompt-cache] [--llm-guides DIR] [--llm-report-issues]]";
+const USAGE: &str = "usage: lab --card-data <card-data-HASH.json> --decks-root <dir> --schedule <file.jsonl> --out <results.jsonl> [--threads N] [--skip-done] [--retry-errors] [--no-restart] [--no-loops] [--llm [--llm-concurrency N] [--llm-timeout SECS] [--llm-max-calls N] [--llm-effort LEVEL] [--llm-log FILE] [--llm-object-key] [--llm-prompt-cache] [--llm-guides DIR] [--llm-report-issues]]";
 
 fn parse_args(args: &[String]) -> Result<Args, String> {
     let mut card_data = None;
@@ -150,7 +152,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
     let mut skip_done = false;
     let mut retry_errors = false;
     let mut no_restart = false;
-    let mut loops = false;
+    let mut loops = true;
     let mut llm = false;
     let mut llm_args = LlmArgs { concurrency: 4, timeout_secs: 90, max_calls: 400, effort: None, log: None, object_key: false, prompt_cache: false, guides: None, report_issues: false };
     let mut llm_flags = false;
@@ -170,6 +172,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
             "--retry-errors" => retry_errors = true,
             "--no-restart" => no_restart = true,
             "--loops" => loops = true,
+            "--no-loops" => loops = false,
             "--llm" => llm = true,
             "--llm-concurrency" | "--llm-timeout" | "--llm-max-calls" => {
                 llm_flags = true;
@@ -452,6 +455,7 @@ fn run_job(shared: &Shared, index: usize, job: &Job, difficulty: AiDifficulty, l
         hang_after: (fault == Some(Fault::Hang)).then_some(30),
         llm: shared.llm.clone(),
         loops: shared.loops,
+        combos: Vec::new(),
     };
     let report = lab::play_game_isolated(&shared.engine, job, difficulty, decks, &shared.card_data, &opts, live);
     for note in &report.notes {

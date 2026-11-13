@@ -91,6 +91,8 @@ fn play_with(
             report_issues,
             guides,
         })),
+        // As these games were first written: without loop detection.
+        loops: false,
         ..GameOptions::default()
     };
     let decks = vec![deck(); spec.decks.len()];
@@ -205,7 +207,7 @@ fn a_game_with_an_llm_pilot_needs_a_transport() {
     let e = engine();
     let s = spec(&["llm:fake-model", "easy"]);
     let live = Mutex::new(Live::new());
-    let report = lab::play_game_isolated(&e, &s, Difficulty::Easy, vec![deck(), deck()], "fixture", &GameOptions::default(), &live);
+    let report = lab::play_game_isolated(&e, &s, Difficulty::Easy, vec![deck(), deck()], "fixture", &GameOptions { loops: false, ..GameOptions::default() }, &live);
     assert_eq!(report.result.end, End::Error);
     assert!(report.result.error.unwrap().contains("no LLM transport"));
 }
@@ -216,7 +218,7 @@ fn heuristic_pilots_per_seat_play_without_a_transport() {
     let mut s = spec(&["veryeasy", "hard", "easy"]);
     s.max_turns = 4;
     let live = Mutex::new(Live::new());
-    let report = lab::play_game_isolated(&e, &s, Difficulty::Easy, vec![deck(), deck(), deck()], "fixture", &GameOptions::default(), &live);
+    let report = lab::play_game_isolated(&e, &s, Difficulty::Easy, vec![deck(), deck(), deck()], "fixture", &GameOptions { loops: false, ..GameOptions::default() }, &live);
     assert!(!report.result.end.failed(), "{:?}", report.result.error);
     assert!(report.result.llm.is_none());
     assert_eq!(report.result.pilots.as_ref().unwrap().len(), 3);

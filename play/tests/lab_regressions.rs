@@ -101,8 +101,10 @@ fn check(fixture: &str) {
             deck
         })
         .collect();
+    // These scenarios were recorded without loop detection.
     let opts = GameOptions {
         turn_action_cap: case.turn_action_cap,
+        loops: false,
         ..Default::default()
     };
     let result = lab::play_game_isolated(
