@@ -208,7 +208,7 @@ function Lobby({ game, notice }: { game: OnlineGame; notice?: ReactNode }) {
               {cancel.isPending ? "Closing…" : "Close this table"}
             </Button>
             <Button variant="primary" className="lobby-start" disabled={open > 0 || start.isPending || cancel.isPending} onClick={() => start.mutate()}>
-              {open > 0 ? "Start when everyone's in" : "Start the game"}
+              {open > 0 ? "Start when everyone's in" : start.isPending ? "Starting…" : "Start the game"}
             </Button>
           </div>
         )}

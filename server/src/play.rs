@@ -2023,6 +2023,8 @@ async fn start_game(st: &AppState, id: &str, user: &str) -> AppResult<()> {
     let permit = tokio::time::timeout(std::time::Duration::from_secs(10), st.play.setup_gate.clone().acquire_owned())
         .await.map_err(|_| AppError::Unavailable("A game is still starting. Try again in a moment.".into()))?
         .map_err(|e| AppError::Other(e.into()))?;
+    // Timed from the slot: reading the decks below touches engine card data as much as setup does.
+    let began = std::time::Instant::now();
     let r = load_row(&st.pool, id).await?;
     if r.host_id != user {
         return Err(AppError::Forbidden("only the host starts the game".into()));
@@ -2053,7 +2055,6 @@ async fn start_game(st: &AppState, id: &str, user: &str) -> AppResult<()> {
     let ai = ai_seats(&seats);
     // Setup can fault cold engine pages in from disk. It must neither block an async
     // worker nor hold SQLite's one writer while constructing the match and replay.
-    let began = std::time::Instant::now();
     let (m, replay, permit) = prepare_match(move || {
         let m = engine.new_match_with(seed, decks, &ai, Setup { first, loops: yama_play::PLAY_LOOPS })?;
         let replay = m.replay_json();
