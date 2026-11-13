@@ -507,6 +507,8 @@ pub(crate) struct SharedDetails {
     /// The deck analysis (power level, vectors, themes) from the list and its stored check, as
     /// the deck page shows it; None only for an empty list.
     pub(crate) analysis: Option<crate::analysis::DeckAnalysis>,
+    /// The commander's public record over every list recorded under it (/commanders).
+    pub(crate) commander: Option<crate::public_commanders::Record>,
     pub(crate) stats: crate::deck_stats::DeckStats,
     pub(crate) singles: crate::deck_prices::SinglesValue,
     /// The run and the plan's key, when the plan has a paired run with a list this deck or a
@@ -659,6 +661,7 @@ pub(crate) async fn shared_details(pool: &SqlitePool, d: &SharedDeck) -> AppResu
         reserved_list,
         check,
         analysis,
+        commander: crate::public_commanders::record_for(pool, &d.list).await,
         stats: crate::deck_stats::stats(pool, &d.list, &info).await?,
         singles: crate::deck_prices::singles(&serde_json::to_value(&d.list).map_err(anyhow::Error::from)?, &prices),
         sim,

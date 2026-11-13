@@ -186,6 +186,44 @@ async fn only_enabled_sources_feed_the_ranking_and_they_combine() {
 }
 
 #[tokio::test]
+async fn a_deck_reads_its_commanders_record_and_place() {
+    let (st, owner) = fixture().await;
+    let pool = &st.pool;
+    let deck = |ids: &[&str]| -> Vec<crate::decks::DeckCard> {
+        let mut cards: Vec<crate::decks::DeckCard> =
+            ids.iter().map(|id| crate::decks::DeckCard { oracle_id: id.to_string(), name: id.to_string(), qty: 1, board: crate::decks::Board::Commander }).collect();
+        // A card in the 99 is never the commander, whatever record it has.
+        cards.push(crate::decks::DeckCard { oracle_id: "o-weak".into(), name: "Weak Commander".into(), qty: 1, board: crate::decks::Board::Main });
+        cards
+    };
+    assert_eq!(record_for(pool, &deck(&["o-strong"])).await, None, "no record until a source is enabled");
+    enable(pool, &owner, "Playgroup.gg").await.unwrap();
+    enable(pool, &owner, "Mythic Tools").await.unwrap();
+
+    let strong = record_for(pool, &deck(&["o-strong"])).await.unwrap();
+    assert_eq!(strong.name, "Strong Commander");
+    assert_eq!(strong.games, 5100);
+    assert!(close(strong.win_rate, (500.0 + 0.30 * 4000.0) / 5100.0, 1e-12));
+    let mut sources = strong.sources.clone();
+    sources.sort();
+    assert_eq!(sources, vec!["Mythic Tools".to_string(), "Playgroup.gg".to_string()]);
+    // Placed among the five with 100 or more games; Partner A alone has 60.
+    assert_eq!((strong.place, strong.placed, strong.min_games), (Some(1), 5, 100));
+    assert!(close(strong.typical.unwrap(), 0.30, 1e-9), "the middle placed commander");
+
+    let weak = record_for(pool, &deck(&["o-weak"])).await.unwrap();
+    assert_eq!(weak.place, Some(5));
+    let few = record_for(pool, &deck(&["o-partner-a"])).await.unwrap();
+    assert_eq!((few.games, few.place), (60, None), "too few games to place");
+    // Partners are read as the pair, in either order.
+    let pair = record_for(pool, &deck(&["o-partner-b", "o-partner-a"])).await.unwrap();
+    assert_eq!((pair.name.as_str(), pair.games), ("Partner A + Partner B", 800));
+    // No commander, or one nobody has recorded: no record.
+    assert_eq!(record_for(pool, &deck(&[])).await, None);
+    assert_eq!(record_for(pool, &deck(&["o-alchemy"])).await, None);
+}
+
+#[tokio::test]
 async fn a_new_revision_replaces_the_old_figures() {
     let (st, owner) = fixture().await;
     let pool = &st.pool;

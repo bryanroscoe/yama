@@ -228,6 +228,26 @@ for 91% of the time, and the 178 precons read as 133 that play like Bracket 2 wi
 card rules object to, 27 that play like Bracket 2 to 3, and 18 that play like Bracket 2 but are
 Bracket 3 by the card rules (a Game Changer). No stock list had a stored combo check yet.
 
+## Commander's record (2026-11-13)
+
+Beside the power level, a deck shows how its commander has done over every list recorded under
+it: "41.4% of 12,480 recorded games won, any list", its place by win rate among the commanders
+with 100 or more games, and the middle placed commander's rate. It is the same figure and rank
+`/commanders` shows by default (`public_commanders::Record`, `record_for`), read from the
+enabled public sources; partners are read as the pair. A deck with no commander, or a commander
+nobody has recorded games under, shows nothing.
+
+It is a separate reading and never part of the 1 to 10. It describes the commander across
+everyone's lists, stock and tuned, in pods of any size, so 25% isn't the even share and it
+can't tell this list from another under the same commander. It is there because it is the
+best single signal Yama holds: on 12 Nov 2026 it tracked stock precons' real win rates at
++0.44 (85 precons with 40 or more games; +0.41 with each precon left out of the fit), where
+the power number managed +0.07 and the best any signal could score was about 0.66, the win
+rates being noisy themselves.
+
+Shown on the deck's Stats tab (`GET /api/decks/{id}/analysis`, `commander`), the shared deck
+page, a stock precon's page, and the MCP `get_deck_analysis` answer (`commander_record`).
+
 ## Precon comparison (2026-11-09)
 
 The public `/precons` table and stock detail pages show computed power (1–10), its

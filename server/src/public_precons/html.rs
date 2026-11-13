@@ -1003,6 +1003,9 @@ pub(super) async fn detail(
     if let Some(a) = &x.analysis {
         body.push_str(&crate::public_page::analysis_panel(a));
     }
+    if let Some(r) = &x.commander {
+        body.push_str(&crate::public_page::commander_panel(r));
+    }
     body.push_str(&crate::public_page::bracket_panel(crate::public_page::Declared::Stock, x.check.as_ref(), x.game_changers.as_deref(), None));
     body.push_str(&crate::public_page::stats_panel(&x.stats));
     body.push_str(&crate::public_page::reserved_panel(x.reserved.as_deref()));

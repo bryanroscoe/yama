@@ -188,6 +188,19 @@
   font-size: 4rem;
   line-height: 1;
 }
+.commander-rate {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}
+.commander-rate b {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: var(--t-big);
+  line-height: 1;
+}
 .power-pills {
   display: flex;
   gap: 8px;

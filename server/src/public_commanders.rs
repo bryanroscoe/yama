@@ -230,6 +230,71 @@ pub struct Ranking {
     pub commanders: Vec<Commander>,
 }
 
+/// Games a commander needs before it is placed among the others: what /commanders lists by
+/// default.
+pub const PLACED_GAMES: u64 = 100;
+
+/// One commander's observed record over every list played under it, with its place by win rate
+/// among the commanders with at least [`PLACED_GAMES`] games (the rank /commanders shows by
+/// default). It describes the commander, never one list: stock and tuned decks and every pod
+/// size are in it, so 25% isn't the even share; `typical` is.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct Record {
+    pub name: String,
+    /// Share of recorded games won, 0 to 1.
+    pub win_rate: f64,
+    pub games: u64,
+    /// The sources that reported those games.
+    pub sources: Vec<String>,
+    /// 1 is the best. None while the commander has fewer than `min_games` games.
+    pub place: Option<usize>,
+    /// How many commanders are placed.
+    pub placed: usize,
+    /// The middle placed commander's win rate.
+    pub typical: Option<f64>,
+    pub min_games: u64,
+}
+
+impl Ranking {
+    /// The record of the commander with this key (sorted Oracle ids joined by `+`), when a
+    /// source has games under it.
+    pub fn record(&self, key: &str) -> Option<Record> {
+        let c = self.commanders.iter().find(|c| c.key == key)?;
+        let win_rate = c.win_rate?;
+        // `commanders` is best first already.
+        let placed: Vec<&Commander> = self.commanders.iter().filter(|c| c.win_rate.is_some() && c.win_rate_games >= PLACED_GAMES).collect();
+        Some(Record {
+            name: c.name.clone(),
+            win_rate,
+            games: c.win_rate_games,
+            sources: c.sources.iter().filter(|f| f.win_rate.is_some() && f.games > 0).map(|f| f.source.clone()).collect(),
+            place: placed.iter().position(|p| p.key == key).map(|i| i + 1),
+            placed: placed.len(),
+            typical: placed.get(placed.len() / 2).and_then(|p| p.win_rate),
+            min_games: PLACED_GAMES,
+        })
+    }
+}
+
+/// The record of a list's commander (partners as the pair they are). None for a list with no
+/// commander or a commander no source has games under. A ranking that can't be built is logged
+/// and reads as no record, so it never takes a deck page down with it.
+pub async fn record_for(pool: &SqlitePool, cards: &[crate::decks::DeckCard]) -> Option<Record> {
+    let mut ids: Vec<&str> = cards.iter().filter(|c| c.board == crate::decks::Board::Commander && c.qty > 0).map(|c| c.oracle_id.as_str()).collect();
+    ids.sort_unstable();
+    ids.dedup();
+    if ids.is_empty() {
+        return None;
+    }
+    match ranking(pool).await {
+        Ok(r) => r.record(&ids.join("+")),
+        Err(e) => {
+            tracing::warn!(error = %e, "the commander ranking could not be read for a deck's record");
+            None
+        }
+    }
+}
+
 fn evidence(lo: f64, hi: f64) -> &'static str {
     match hi - lo {
         w if w <= 12.0 => "moderate",

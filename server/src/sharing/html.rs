@@ -206,6 +206,9 @@ pub(super) async fn deck(State(st): State<AppState>, address: ClientAddress, hea
     if let Some(a) = &x.analysis {
         body.push_str(&crate::public_page::analysis_panel(a));
     }
+    if let Some(r) = &x.commander {
+        body.push_str(&crate::public_page::commander_panel(r));
+    }
     body.push_str(&crate::public_page::reserved_panel(x.reserved_list.as_deref()));
     if let Some((run, key)) = &x.sim {
         body.push_str(&crate::public_page::sim_panel(run, key, &x.sim_states, x.sim_matches));

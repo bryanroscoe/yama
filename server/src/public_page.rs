@@ -405,6 +405,42 @@ pub(crate) fn bracket_panel(declared: Declared, result: Option<&CheckResult>, ga
     s
 }
 
+/// How the commander has done over every list recorded under it (public_commanders::Record),
+/// beside the deck's own analysis. It is the commander's record, not this list's.
+pub(crate) fn commander_panel(r: &crate::public_commanders::Record) -> String {
+    let place = match (r.place, r.typical) {
+        (Some(n), typical) => format!(
+            "#{} of {} {} with {} or more games.{}",
+            count(n as i64),
+            count(r.placed as i64),
+            if r.placed == 1 { "commander" } else { "commanders" },
+            r.min_games,
+            typical.map(|t| format!(" The middle one wins {}.", pct(Some(t)))).unwrap_or_default()
+        ),
+        (None, _) => format!("Too few games to place it among commanders: that takes {}.", r.min_games),
+    };
+    format!(
+        "<section class=\"public-panel public-commander-record\" aria-labelledby=\"commander-record-head\"><h2 id=\"commander-record-head\">Commander's record</h2><p class=\"analysis-power\"><span class=\"result-value\">{}</span> <span class=\"dim\">of {} recorded {} won, any list</span></p><p>{}: {}</p><p class=\"dim\">Every list played under {}, stock or tuned, in pods of any size, as {} {} it. It says how the commander does, not how this list does, and 25% isn't the even share here. <a href=\"/commanders\">All commanders ↗</a></p></section>",
+        pct(Some(r.win_rate)),
+        count(i64::try_from(r.games).unwrap_or(i64::MAX)),
+        if r.games == 1 { "game" } else { "games" },
+        e(&r.name),
+        e(&place),
+        e(&r.name),
+        e(&list_and(&r.sources)),
+        if r.sources.len() == 1 { "reports" } else { "report" },
+    )
+}
+
+/// "A", "A and B", "A, B and C".
+fn list_and(items: &[String]) -> String {
+    match items {
+        [] => "its sources".into(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
+}
+
 /// The power level and its five vectors, the themes, and every card's points in a fold
 /// (components/DeckAnalysis.tsx).
 pub(crate) fn analysis_panel(a: &DeckAnalysis) -> String {
@@ -652,6 +688,34 @@ pub(crate) fn stats_panel(st: &DeckStats) -> String {
 #[cfg(test)]
 mod format_tests {
     use super::*;
+
+    #[test]
+    fn a_commanders_record_reads_as_the_commanders_not_the_lists() {
+        let mut r = crate::public_commanders::Record {
+            name: "Atraxa, Praetors' Voice".into(),
+            win_rate: 0.4142,
+            games: 12_480,
+            sources: vec!["Playgroup.gg".into(), "Mythic Tools".into()],
+            place: Some(12),
+            placed: 1640,
+            typical: Some(0.351),
+            min_games: 100,
+        };
+        let html = commander_panel(&r);
+        assert!(html.contains("<span class=\"result-value\">41.4%</span>"), "{html}");
+        assert!(html.contains("of 12,480 recorded games won, any list"), "{html}");
+        assert!(html.contains("Atraxa, Praetors&#39; Voice: #12 of 1,640 commanders with 100 or more games. The middle one wins 35.1%."), "{html}");
+        assert!(html.contains("as Playgroup.gg and Mythic Tools report it"), "{html}");
+        assert!(html.contains("not how this list does"), "{html}");
+        // Too few games: the rate still shows, without a place.
+        r.place = None;
+        r.games = 1;
+        r.sources.truncate(1);
+        let html = commander_panel(&r);
+        assert!(html.contains("of 1 recorded game won"), "{html}");
+        assert!(html.contains("Too few games to place it among commanders: that takes 100."), "{html}");
+        assert!(html.contains("as Playgroup.gg reports it"), "{html}");
+    }
 
     #[test]
     fn dollars_get_a_comma_at_the_thousands() {

@@ -73,6 +73,18 @@ describe("DeckStatsTab", () => {
     expect(html).not.toContain("·");
   });
 
+  it("shows the commander's record beside the power level, and nothing when there is none", () => {
+    expect(render()).not.toContain("Commander&#x27;s record");
+    const v = analysisView(5.4);
+    v.commander = { name: "Quintorius, History Chaser", win_rate: 0.3312, games: 4210, sources: ["Mythic Tools"], place: 310, placed: 1640, typical: 0.351, min_games: 100 };
+    const html = render(v);
+    expect(html).toContain("Commander&#x27;s record");
+    expect(html).toContain("<b>33.1%</b>");
+    expect(html).toContain("of 4,210 recorded games won, any list");
+    expect(html).toContain("Quintorius, History Chaser: #310 of 1,640 commanders with 100 or more games. The middle one wins 35.1%.");
+    expect(html).toContain('href="/commanders"');
+  });
+
   it("draws the five scores as bars with the stock, Bracket 4 and cEDH marks, and Compare with", () => {
     const html = render();
     for (const v of ["Speed", "Consistency", "Interaction", "Mana base", "Threats"]) expect(html).toContain(`<b>${v}</b>`);

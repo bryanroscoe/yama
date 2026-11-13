@@ -4,9 +4,9 @@
 // results, every section open. Explanations sit behind one "?" per section.
 
 import { useQuery } from "@tanstack/react-query";
-import { deckStats, MANA, fmtDate } from "@yama/core";
+import { count, deckStats, MANA, fmtDate, percent } from "@yama/core";
 import { useMemo, useState } from "react";
-import { api, type AnalysisSummary, type DeckSummary, type Combo, type DeckAnalysis, type DeckAnalysisView, type DeckEntry, type DeckView } from "../api";
+import { api, type AnalysisSummary, type CommanderRecord, type DeckSummary, type Combo, type DeckAnalysis, type DeckAnalysisView, type DeckEntry, type DeckView } from "../api";
 import { BracketPanel, SPELLBOOK, useDeckCheck } from "../components/Bracket";
 import { DeckPrices } from "../components/DeckPrices";
 import { DeckResults } from "../components/DeckResults";
@@ -16,7 +16,7 @@ import { NameList, useOnlineSupport } from "../components/OnlineSupport";
 import { Button, CardImage, ErrorText, Loading, Segmented, ShowMore } from "../components/ui";
 import { BuyDeck } from "./BuyDeck";
 import { PowerLine, ScoreTable, ScryCheckButton, useDeckAnalysis } from "./DeckAnalysis";
-import { colorShares, curveColumns, isStockConfiguration, landFaceCopies, curveSpread, DIAL, dialArc, dialPoint, groupTotal, inputsNote, marginSpan, pctWidth, playsLike, points, POWER_BANDS, REFERENCES, comparisonOf, earlierVersions, powerChange, stockListOf, comparisonOfDeck, otherDecks, type Reference } from "./statsTab";
+import { colorShares, commanderPlace, curveColumns, isStockConfiguration, landFaceCopies, curveSpread, DIAL, dialArc, dialPoint, groupTotal, inputsNote, marginSpan, pctWidth, playsLike, points, POWER_BANDS, REFERENCES, comparisonOf, earlierVersions, powerChange, stockListOf, comparisonOfDeck, otherDecks, type Reference } from "./statsTab";
 import "./deckStatsTab.css";
 
 type OnCard = (name: string) => void;
@@ -31,6 +31,7 @@ export function DeckStatsTab({ deck: d, onCard }: { deck: DeckView; onCard: OnCa
   return (
     <section className="deck-stats-tab" aria-label="Stats">
       <PowerSection deckId={d.id} versionId={d.version_id} cards={d.cards} images={images} inDeck={inDeck} onCard={onCard} />
+      {analysis.data?.commander && <CommanderRecordSection record={analysis.data.commander} />}
       <div className="stats-pair">
         <CurveSection deck={d} />
         <ColorSection cards={d.cards} />
@@ -290,6 +291,30 @@ function PowerHelp({ analysis: a, unsaved = false }: { analysis: DeckAnalysis; u
       <p>Your declared bracket is still yours to choose: intent and the table matter more than a score. Other sites use their own formulas.</p>
       {a.unknown_cards.length > 0 && <p>Not counted: {a.unknown_cards.join(", ")}.</p>}
     </>
+  );
+}
+
+/* ── The commander's record ───────────────────────────────────────────── */
+
+/** How the commander has done over every list recorded under it. Beside the power level, never
+ *  part of it: it says how the commander does, not how this list does. */
+export function CommanderRecordSection({ record: r }: { record: CommanderRecord }) {
+  return (
+    <section className="stats-panel stats-commander" aria-labelledby="stats-commander-h">
+      <span className="stats-title">
+        <h2 id="stats-commander-h" className="stats-h">Commander's record</h2>
+        <HelpPopover label="the commander's record">
+          <p>Every game recorded under {r.name} on {r.sources.length ? r.sources.join(" and ") : "the public sources Yama reads"}, whatever the list: stock or tuned, in pods of any size. That mix is why 25% isn't the even share here; compare it with the middle commander.</p>
+          <p>It says how the commander does, not how this list does, so it isn't part of the power level. Among stock precons it has tracked real results better than any score read from the cards.</p>
+        </HelpPopover>
+      </span>
+      <p className="commander-rate">
+        <b>{percent(r.win_rate, 1)}</b>
+        <span className="dim">of {count(r.games)} recorded {r.games === 1 ? "game" : "games"} won, any list</span>
+      </p>
+      <p>{r.name}: {commanderPlace(r)}</p>
+      <p className="dim small"><a href="/commanders">All commanders</a></p>
+    </section>
   );
 }
 
