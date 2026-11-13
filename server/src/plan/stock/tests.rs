@@ -817,3 +817,183 @@ async fn a_refused_catalog_is_asked_once_and_the_cards_are_still_searched() {
     assert_eq!(status_of(&only, Some(0)), "error", "a catalog-only refresh that was refused is still an error");
     server.abort();
 }
+
+/// Shapes copied from real Storefront API answers (Mothership and Pat's, 2026-11-13).
+fn storefront_answer(q: &str, after: Option<&str>) -> Value {
+    let variant = |id: u64, options: &str, price: &str, available: bool| json!({"id": format!("gid://shopify/ProductVariant/{id}"), "title": options, "availableForSale": available, "price": {"amount": price}});
+    let product = |title: &str, handle: &str, vendor: &str, variants: Vec<Value>| json!({"title": title, "handle": handle, "vendor": vendor, "variants": {"pageInfo": {"hasNextPage": false}, "nodes": variants}});
+    let page = |next: Option<&str>, nodes: Vec<Value>| json!({"data": {"search": {"pageInfo": {"hasNextPage": next.is_some(), "endCursor": next}, "nodes": nodes}}});
+    match (q, after) {
+        ("title:\"Path to Exile\"", None) => page(
+            Some("page-2"),
+            vec![
+                product(
+                    "Path to Exile [Assassin's Creed]",
+                    "path-to-exile-assassins-creed",
+                    "Assassin's Creed",
+                    vec![variant(48711641858216, "Near Mint", "1.5", true), variant(48711642087592, "Near Mint Foil", "1.75", true), variant(48711641890984, "Lightly Played", "1.25", false)],
+                ),
+                // A hit that isn't a product, and another card's product.
+                json!({}),
+                product("Path to Exile Token", "path-to-exile-token", "Tokens", vec![variant(1, "Near Mint", "0.25", true)]),
+            ],
+        ),
+        ("title:\"Path to Exile\"", Some("page-2")) => {
+            page(None, vec![product("Path to Exile [MFP - 1]", "path-to-exile-magicfest-cards-207337", "MagicFest Cards", vec![variant(47754214310106, "Near Mint / English / Normal", "9.25", true)])])
+        }
+        _ => page(None, vec![]),
+    }
+}
+
+/// Storefronts refuse `/products/<handle>.js` now, so a card is read from the Storefront API
+/// alone: every page, each in-stock variant with its own cart id, and no other request.
+#[tokio::test]
+async fn a_shopify_store_is_read_through_its_storefront_api() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let calls = std::sync::Arc::new(AtomicUsize::new(0));
+    let c = calls.clone();
+    let app = Router::new().route(
+        STOREFRONT_PATH,
+        post(move |Json(q): Json<Value>| {
+            let c = c.clone();
+            async move {
+                c.fetch_add(1, Ordering::SeqCst);
+                Json(storefront_answer(q["variables"]["q"].as_str().unwrap_or_default(), q["variables"]["after"].as_str()))
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let mut f = Fetcher::new(reqwest::Client::new(), None);
+    let mut raw = Raw::default();
+    let found = fetch_shopify(&mut f, &base, &["Path to Exile".to_string(), "Absent Card".to_string()], &mut raw).await;
+    assert!(found.failed.is_empty() && found.errors.is_empty(), "{:?} {:?}", found.failed, found.errors);
+    assert_eq!(calls.load(Ordering::SeqCst), 3, "two pages for the first card, one for the card the store doesn't have");
+    assert!(raw.items.iter().all(|i| i["method"] == "POST"), "nothing but the API was asked");
+    let got: Vec<(String, f64, &str, String)> = found.listings.iter().map(|l| (l.variant.clone().unwrap(), l.price.unwrap(), l.finish.unwrap(), l.url.clone().unwrap())).collect();
+    assert_eq!(
+        got,
+        vec![
+            ("48711641858216".to_string(), 1.5, "nonfoil", format!("{base}/products/path-to-exile-assassins-creed?variant=48711641858216")),
+            ("48711642087592".to_string(), 1.75, "foil", format!("{base}/products/path-to-exile-assassins-creed?variant=48711642087592")),
+            ("47754214310106".to_string(), 9.25, "nonfoil", format!("{base}/products/path-to-exile-magicfest-cards-207337?variant=47754214310106")),
+        ],
+        "in-stock variants only, of the card only"
+    );
+    assert!(found.listings.iter().all(|l| l.card == "Path to Exile" && l.available == Some(true) && l.qty.is_none()), "the API gives no stock counts");
+    assert_eq!(found.listings[2].condition.as_deref(), Some("Near Mint"));
+    assert_eq!(found.listings[2].language.as_deref(), Some("English"));
+    assert_eq!(found.listings[0].set_name.as_deref(), Some("Assassin's Creed"));
+    server.abort();
+}
+
+#[test]
+fn a_storefront_page_that_cant_be_read_in_full_is_unknown() {
+    let page = |nodes: Value| json!({"data": {"search": {"pageInfo": {"hasNextPage": false, "endCursor": null}, "nodes": nodes}}});
+    let ok = json!([{"title": "Sol Ring [C21]", "handle": "sol-ring-c21", "vendor": "Commander 2021", "variants": {"pageInfo": {"hasNextPage": false}, "nodes": [
+        {"id": "gid://shopify/ProductVariant/7", "title": "Near Mint", "availableForSale": true, "price": {"amount": "2.0"}}
+    ]}}]);
+    let (listings, next) = storefront_page(&page(ok.clone()), "Sol Ring", "https://shop.example").unwrap();
+    assert_eq!(next, None);
+    assert_eq!(listings.len(), 1);
+    assert_eq!(listings[0].price, Some(2.0));
+    assert_eq!(listings[0].url.as_deref(), Some("https://shop.example/products/sol-ring-c21?variant=7"));
+    // No search result: the API is off or throttled, not "nothing in stock".
+    assert!(storefront_page(&json!({"errors": [{"message": "Throttled"}]}), "Sol Ring", "https://shop.example").is_none());
+    // A next page without its cursor can't be followed.
+    assert!(storefront_page(&json!({"data": {"search": {"pageInfo": {"hasNextPage": true, "endCursor": null}, "nodes": []}}}), "Sol Ring", "https://shop.example").is_none());
+    for (path, bad) in [
+        ("/0/variants/pageInfo/hasNextPage", json!(true)),
+        ("/0/variants/nodes/0/id", json!("gid://shopify/ProductVariant/abc")),
+        ("/0/variants/nodes/0/price/amount", json!("free")),
+        ("/0/variants/nodes/0/price/amount", json!("-1")),
+        ("/0/variants/nodes/0/availableForSale", json!(null)),
+        ("/0/variants/nodes/0/title", json!("")),
+        ("/0/handle", json!("bad/handle")),
+    ] {
+        let mut nodes = ok.clone();
+        *nodes.pointer_mut(path).unwrap() = bad;
+        assert!(storefront_page(&page(nodes), "Sol Ring", "https://shop.example").is_none(), "{path}");
+    }
+    // Another card's unreadable product doesn't make this card unknown.
+    let mut other = ok.clone();
+    other[0]["title"] = json!("Sol Talisman [MH1]");
+    other[0]["handle"] = json!("bad/handle");
+    assert!(storefront_page(&page(other), "Sol Ring", "https://shop.example").unwrap().0.is_empty());
+    assert!(storefront_refused("https://shop.example/api/2025-10/graphql.json: HTTP 404") && !storefront_refused("https://shop.example/api/2025-10/graphql.json: HTTP 429"));
+    assert!(!storefront_refused("https://shop.example/api/2025-10/graphql.json: the answer wasn't JSON"), "a challenge page may pass");
+    // Only a store that keeps the API from the public counts as not offering it.
+    assert!(storefront_denied(&json!({"errors": [{"message": "Access denied", "extensions": {"code": "ACCESS_DENIED"}}]})));
+    assert!(storefront_denied(&json!({"products": []})), "not a GraphQL answer");
+    assert!(!storefront_denied(&json!({"errors": [{"message": "Throttled", "extensions": {"code": "THROTTLED"}}]})));
+    assert!(!storefront_denied(&json!({"errors": [{"message": "Internal error", "extensions": {"code": "INTERNAL_SERVER_ERROR"}}], "data": null})));
+}
+
+/// A throttled answer leaves its card unknown; it doesn't send the rest of the check to the
+/// `.js` reads storefronts refuse. Nor does a saved catalog, for a store that offers the API.
+#[tokio::test]
+async fn a_passing_storefront_failure_or_a_saved_catalog_never_reaches_the_refused_reads() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let (_, pool) = app().await;
+    let old = std::sync::Arc::new(AtomicUsize::new(0));
+    let (o1, o2) = (old.clone(), old.clone());
+    let app = Router::new()
+        .route(
+            "/products.json",
+            get(|Query(q): Query<HashMap<String, String>>| async move {
+                Json(if q.get("page").map(String::as_str) == Some("1") {
+                    json!({"products": [{"handle": "path-to-exile-assassins-creed", "title": "Path to Exile [Assassin's Creed]", "variants": [{"id": 48711641858216u64, "title": "Near Mint", "price": "1.50", "available": true}]}]})
+                } else {
+                    json!({"products": []})
+                })
+            }),
+        )
+        .route(
+            "/products/{h}",
+            get(move || {
+                let o = o1.clone();
+                async move {
+                    o.fetch_add(1, Ordering::SeqCst);
+                    axum::http::StatusCode::TOO_MANY_REQUESTS
+                }
+            }),
+        )
+        .route(
+            "/search/suggest.json",
+            get(move || {
+                let o = o2.clone();
+                async move {
+                    o.fetch_add(1, Ordering::SeqCst);
+                    Json(json!({"resources": {"results": {"products": []}}}))
+                }
+            }),
+        )
+        .route(
+            STOREFRONT_PATH,
+            post(|Json(q): Json<Value>| async move {
+                let asked = q["variables"]["q"].as_str().unwrap_or_default();
+                Json(if asked == "title:\"Busy Card\"" { json!({"errors": [{"message": "Throttled", "extensions": {"code": "THROTTLED"}}]}) } else { storefront_answer(asked, q["variables"]["after"].as_str()) })
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let mut f = Fetcher::new(reqwest::Client::new(), None);
+    // Throttled on the very first card, before anything is answered.
+    let cards = vec!["Busy Card".to_string(), "Path to Exile".to_string()];
+    let found = fetch_shopify(&mut f, &base, &cards, &mut Raw::default()).await;
+    assert_eq!(found.failed, vec!["Busy Card".to_string()]);
+    assert!(found.errors[0].contains("Throttled"), "{:?}", found.errors);
+    assert_eq!(found.listings.len(), 3, "the next card is still read through the API");
+    // With a catalog saved, and again reusing it.
+    let wanted = vec!["Path to Exile".to_string()];
+    for refresh in [true, false] {
+        let found = fetch_shopify_catalog(&pool, &mut f, &base, &wanted, refresh, "9999", &mut Raw::default()).await;
+        assert!(found.failed.is_empty() && found.errors.is_empty(), "{:?} {:?}", found.failed, found.errors);
+        assert_eq!(found.listings.len(), 3);
+        assert!(found.cached_at.is_none(), "live prices, not the catalog's date");
+    }
+    assert_eq!(old.load(Ordering::SeqCst), 0, "neither suggest.json nor a product .js was asked");
+    server.abort();
+}
