@@ -166,11 +166,14 @@ export async function readCloseup(image: RgbaImage, kind: "collector" | "title",
   // box is the wrong guide to which way the text runs. Read the middle, where the name sits,
   // leaving out the mana cost at the right.
   const mid = cropGray(gray, 0.02, 0.2, 0.8, 0.8);
-  const banded = (await ocr.read(prepareText(cropToTextBand(prepareText(mid, 0))), { mode: "line" })).text;
-  const letters = (t: string) => t.replace(/[^A-Za-z]/g, "").length >= 3;
-  if (letters(banded)) return banded;
-  const plain = (await ocr.read(prepareText(mid, 12), { mode: "line" })).text;
-  if (letters(plain)) return plain;
+  // A read counts when it has a few letters and the engine is fairly sure of them: a text band
+  // found on the card's frame or the art reads as a few unsure letters (PaddleOCR, 2026-11-13:
+  // 38 on such noise, 93 and up on real titles).
+  const title = (r: OcrResult) => r.text.replace(/[^A-Za-z]/g, "").length >= 3 && r.confidence >= 50;
+  const banded = await ocr.read(prepareText(cropToTextBand(prepareText(mid, 0))), { mode: "line" });
+  if (title(banded)) return banded.text;
+  const plain = await ocr.read(prepareText(mid, 12), { mode: "line" });
+  if (title(plain)) return plain.text;
   // A box framed loosely around the name: find the text band in all of it.
   return (await ocr.read(prepareText(cropToTextBand(prepareText(gray, 0))), { mode: "line" })).text;
 }

@@ -9,7 +9,7 @@
 // illustration IDs yet), which is harder than among the printings that share the art.
 
 import jpeg from "jpeg-js";
-import { existsSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { Printing } from "../../api";
@@ -18,9 +18,9 @@ import { rectQuad, warpRegionRgba } from "../image";
 import { normaliseName } from "../parse";
 import { COLLECTOR_REGION, NAME_REGION, readCloseup } from "../pipeline";
 import { choosePrinting } from "../printings";
-import { createTesseractOcr } from "../tesseract";
 import type { Point, Quad, RgbaImage } from "../types";
 import { openDbCatalog } from "./dbCatalog";
+import { createEvalOcr } from "./ocr";
 import { DB_PATH, ensureFixtures, FIXTURES, readFixture, SPIKE_DIR } from "./fixtures";
 import { rng } from "./simulate";
 
@@ -56,8 +56,7 @@ describe.skipIf(!process.env.SCANNER_EVAL)("close-up step (simulated)", () => {
   it("settles the printing and the name", { timeout: 30 * 60 * 1000 }, async () => {
     const catalog = openDbCatalog(DB_PATH);
     await ensureFixtures((f) => catalog.imageUrl(f.set, f.number));
-    const langDir = join(SPIKE_DIR, "lang");
-    const ocr = await createTesseractOcr(existsSync(join(langDir, "eng.traineddata.gz")) ? { langPath: langDir, cachePath: langDir } : { cachePath: langDir });
+    const ocr = await createEvalOcr();
     const names = new NameIndex(catalog.names());
     const lines: string[] = ["| Card | Kind | Collector read | Printing | Title read | Name |", "|---|---|---|---|---|---|"];
     let printingsRight = 0;

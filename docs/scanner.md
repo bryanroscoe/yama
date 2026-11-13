@@ -1,6 +1,6 @@
 # Card scanner
 
-Status (2026-11-13): inside the Android app the scanner reads text with **ML Kit** (`mlkit.ts`, `TextReaderPlugin.java`; picked by `ocrEngine.ts`), Tesseract stays the engine in browsers. On the Android 16 emulator ML Kit read the collector line of five Scryfall scans (MOM 214, WOC 145, ECC 57, DMU 107, CMM 1) and each parsed to the right set and number, in 7 to 66 ms per read [ran]; a phone check with real cards is still to do ("Left for a real phone test", item 5). ML Kit reads lower case as printed, so for the capitals-only collector whitelist its text is raised to capitals before filtering. See docs/mobile.md.
+Status (2026-11-13): inside the Android app the scanner reads text with **ML Kit** (`mlkit.ts`, `TextReaderPlugin.java`; picked by `ocrEngine.ts`); in browsers it reads with PaddleOCR's PP-OCRv5 models (ONNX Runtime, in a worker), with Tesseract as the fallback (see "Browser OCR: PP-OCRv5"). On the Android 16 emulator ML Kit read the collector line of five Scryfall scans (MOM 214, WOC 145, ECC 57, DMU 107, CMM 1) and each parsed to the right set and number, in 7 to 66 ms per read [ran]; a phone check with real cards is still to do ("Left for a real phone test", item 5). ML Kit reads lower case as printed, so for the capitals-only collector whitelist its text is raised to capitals before filtering. See docs/mobile.md.
 
 Status (2026-11-06): set lock, Skip and Wrong card, flashlight and zoom, and scan photos are added; see "Set lock, Skip, flashlight and zoom, scan photos". Status (2026-10-28): the hybrid is built. The scanner in `web/src/scanner/` recognises the card by its **art** (ManaVault's MPL-2.0 detector and embedding models, our own glue, in a web worker), finds the card anywhere in the frame, and settles the **printing** from the printings that share that art: the only one, or the collector line read by OCR, or the person's pick. A scan never files a guessed printing. The OCR-only scanner remains as the fallback for cards the art index doesn't know (new sets, battles) and for when the recognition bundle isn't available. See "The art recognizer (built 2026-10-28)". The research below, from 2026-10-18, is kept as written.
 
@@ -28,6 +28,37 @@ Labels used below:
 - **[ran]**: verified by running something on this machine (MacBook, Apple M3 Pro).
 - **[read]**: read in docs or source, not executed.
 - **[inferred]**: my conclusion, not checked.
+
+## Browser OCR: PP-OCRv5 (2026-11-13)
+
+Bryan (2026-11-13): "Tesseract.js was so-so but we need something better... it'd be great if we could do something even better just from the browser. I know other apps can." Decision: the browser's OCR is now PaddleOCR's PP-OCRv5 English recogniser with the PP-OCRv3 text detector, run by onnxruntime-web (already loaded for the art recognizer) in its own worker. Tesseract stays as the fallback: when the build has no models, when they fail to load, or when the worker dies or fails three reads in a row. The Android app's ML Kit is chosen in the same place (`ocrEngine.ts`), ahead of both; in the app without it, PaddleOCR reads from the models bundled in the APK.
+
+How it reads (`paddle.ts`): the detector (2.4 MB) finds the words in the crop as slightly turned boxes; boxes on one line are merged and the recogniser (7.8 MB) reads the line in one run, straightened and scaled to 48 px high, with greedy CTC decoding. A whitelist (the collector line's uppercase set) masks the classes that may win, like Tesseract's. A title read keeps the line with the most text; a collector block keeps its lowest six lines, top to bottom. A line's direction comes from its longest words (a short word's is mostly noise). When the detector finds nothing, the crop is split into lines by rows of ink. Confidence is the mean probability of the kept characters, on Tesseract's 0 to 100 scale. Only the title close-up reads it (to decide whether to try another crop); the printing is settled by the catalog lookup and the title check, as before.
+
+Serving: `web/scripts/paddle-models.mjs` pins the three files (recogniser, its dictionary, detector) to one commit of `monkt/paddleocr-onnx` on Hugging Face with their sizes and SHA-256 sums. The build (`copy-ocr.mjs`) downloads them once into `node_modules/.cache/yama-ocr` (or `YAMA_OCR_CACHE`), checks them, and copies them to `/ocr/paddle-<checksums>/` with a NOTICE, so a new model gets a new address (served immutable; a missing path under `/ocr/` is a 404, never the app page). A build fails if they don't match. If they can't be fetched, a CI build fails (so a pull request finds out), while the deploy's Docker build and `npm run dev` go on without them, with a warning in the build log, and that build's scanner reads with Tesseract: a Hugging Face outage doesn't block a release. Each deploy's build fetches them again (10.3 MB; the Docker build has no cache for them). They are fetched only when the scanner first reads text, and the service worker keeps them like the rest of `/ocr/`. The worker shares the art recognizer's ONNX Runtime WASM file.
+
+Measured the same way as "Measured results" below (Node 26, one WASM thread, the same 26 cards; Tesseract rerun on this machine for the times) [ran]:
+
+| | Tesseract.js 7 | PP-OCRv5 rec + PP-OCRv3 det |
+|---|---|---|
+| Whole card, refined quad: card right / printing right / confident and wrong | 82% / 73% / 0 | **97% / 84% / 0** |
+| Whole card, guide quad | 78% / 63% / 1 | 95% / 75% / 0 |
+| Whole card, exact corners | 85% / 77% / 1 | 99% / 93% / 0 |
+| Rough captures (dark, glare, blur, black mat), refined | 38% / 15% | 88% / 60% |
+| 1993-2003 frames, card right | 33% | 100% |
+| Close-ups: printings right / wrong / left to pick, of 26 | 19 / 0 / 7 | **20 / 0 / 6** (every card that prints a set code) |
+| Close-ups: titles right, of 26 | 20 | **25** (the miss is the sideways battle) |
+| Whole-card scan, refined, median / p90 ms (Node) | 258 / 424 | 288 / 578 |
+| One collector block read, median / p90 ms (desktop Chrome, worker) | 70 / 143 | 150 / 220 |
+| One title read, median / p90 ms (desktop Chrome) | 21 / 30 | 54 / 75 |
+| Model load in Chrome, files cached | 115 ms | 280 to 520 ms |
+| Download | 2.95 MB model + 2.9 MB WASM core | 10.3 MB models (ONNX Runtime WASM already loaded for the art recognizer) |
+
+What it changed: it reads the bullet, the artist's name and small type almost exactly ("C 0145 WOC•EN DAN SCOTT"), so the set code and number come through in the rough, far and skewed captures where Tesseract read noise. Against Tesseract on the refined quad it gained 20 cards and lost one (the handheld battle, whose title runs sideways). Wrong answers stayed below the 0.8 confidence line in every run. Reading titles through the detector too (rather than the row split) took the whole-card score from 95% to 97% and upside-down scans from 88% to 100%, for about 45 ms more per frame. In a title close-up, a read now has to reach confidence 50 before the scanner stops trying crops: a text band found on the card's frame read as three unsure letters (38) and hid the real title (93 and up); Tesseract's close-up titles are unchanged by this (20 of 26).
+
+What it costs: a collector read takes about twice Tesseract's time on one WASM thread, nearly all of it the recogniser (about 50 ms per line; the collector crop holds two or three lines, the artist's name included) and 43 ms for the detector. On a phone that is likely 300 to 600 ms per collector read [inferred: the 2 to 4 times laptop rule above]. The first text read in a scanner session also waits for the 10.3 MB of models (at most 90 s, then Tesseract); on a slow connection that is a long first wait, once per device, since the service worker keeps them. Reading with Tesseract while the models download would hide it, at the cost of downloading both. Ways to cut the read time, not yet tried: int8 quantisation of the recogniser (smaller and faster in WASM, needs its own accuracy run), WebGPU where the browser has it, and cropping the artist's name off the collector line before reading.
+
+Also considered: Chrome's `TextDetector` (Shape Detection API) isn't exposed in desktop Chrome 157 without a flag (`"TextDetector" in self` is false; `BarcodeDetector` is there) [ran], so it can't be the browser's engine; Android Chrome wasn't checked. PP-OCRv5's own server detector is 84 MB; the v3 mobile detector works fine with the v5 recogniser on these crops.
 
 ## Summary
 
@@ -78,7 +109,7 @@ art score < 0.5 for 3 frames ─▶ the OCR pipeline below, at the detector's qu
 ```
 
 - **Bundle:** `scanner-bundle-retrain-20261026T052522727512Z` from `cfbender/manavault` releases, pinned with SHA-256 sums in `server/src/scan.rs`. The server downloads it once into `data/scan-bundle/<version>/` (on startup when imports run, or on the first `GET /api/scan/bundle`), drops the 126 MB `printings.json` it doesn't need, and turns the 18 MB `arts.json` into a 6 MB column form (3.2 MB gzipped). It serves the files at `/scan-bundle/<version>/` as immutable. Phones never fetch from GitHub.
-- **On the phone:** the first scanner open downloads about 39 MB over the wire (detector 12.6 MB, search 13.9 MB, embed 5.1 MB, artwork index 3.2 MB, ONNX Runtime WASM 3.9 MB, gzipped where it helps), with a progress line, into the Cache API (`yama-scan-v1`, kept by `sw.js`). Later opens load from the cache. Tesseract is loaded only when a collector line has to be read.
+- **On the phone:** the first scanner open downloads about 39 MB over the wire (detector 12.6 MB, search 13.9 MB, embed 5.1 MB, artwork index 3.2 MB, ONNX Runtime WASM 3.9 MB, gzipped where it helps), with a progress line, into the Cache API (`yama-scan-v1`, kept by `sw.js`). Later opens load from the cache. The OCR models (10.3 MB, "Browser OCR: PP-OCRv5") are loaded only when a collector line has to be read.
 - **Printings that share art:** `printings.illustration_id` and `back_illustration_id` (migration 0036, filled by the `default_cards` import, importer version 3, so a running server re-imports on its next pass). Until a printing has illustration data, the endpoint returns every printing of the card (`same_art: false`); the collector line then has to read the set code exactly to settle it.
 - **Cards the index doesn't know:** a bundle from 26 October doesn't know cards printed after it, and the bundle leaves out battles and art series. These score below 0.6 (wrong matches scored at most 0.58 in the eval), so the scanner reads their text instead. Move to a newer bundle by changing the tag and sums in `scan.rs` and rerunning the recognizer eval. ManaVault publishes a bundle every week or two.
 - **Re-arming:** after Add (or Not this), the same artwork isn't found again until the card leaves the view or another card shows, so one card is never added twice by accident. Copies (1 to 10) are chosen on the result.
@@ -115,8 +146,8 @@ In desktop Chromium against the local server ("Use a photo", synthetic photos): 
 
 ```
 frame ─▶ grey ─▶ guide quad ─▶ snap to the card's edges (locate.ts)
-      ─▶ collector crop, upscaled ─▶ Tesseract (block, uppercase whitelist) ─▶ parse set, number, language
-      ─▶ title crop, cropped to its text band ─▶ Tesseract (single line) ─▶ fuzzy match over ~37k names
+      ─▶ collector crop, upscaled ─▶ OCR (block, uppercase whitelist) ─▶ parse set, number, language
+      ─▶ title crop, cropped to its text band ─▶ OCR (single line) ─▶ fuzzy match over ~37k names
       ─▶ decide: lookup(set, number); the title confirms it, or picks the printing from the set or number
 ```
 
@@ -138,6 +169,8 @@ Setup: 26 real card scans from Scryfall's image CDN (`large`, 672 × 936), rende
 "Quad" is where the pipeline thinks the card is: `refined` is the shipped default (guide snapped to the edges), `guide` is the guide alone, `truth` is the exact corners (an upper bound for OCR). "Printing right" counts only cards that print a set code.
 
 ### OCR pipeline (Tesseract.js 7, Node 26)
+
+These are the 2026-10-18 Tesseract numbers; the PaddleOCR engine's are in "Browser OCR: PP-OCRv5".
 
 | Quad | Variant | Scans | Card right | Printing right | Confident and wrong | Median ms | p90 ms | Median corner error |
 |---|---|---|---|---|---|---|---|---|
@@ -190,6 +223,7 @@ Every miss with an upright card is the battle (Invasion of Tolvada, printed side
 | tesseract.js 7.0.0 | Apache-2.0 [read: npm] | dependency of `web` |
 | tesseract.js-core 7.0.0 (WASM) | Apache-2.0 [read: npm] | loaded by tesseract.js |
 | `@tesseract.js-data/eng` 4.0.0_best_int | MIT package [read: npm]; the data is Tesseract's `tessdata_best`, Apache-2.0 [read] | downloaded at runtime (2.95 MB) |
+| PP-OCRv5 English mobile recogniser (`en_PP-OCRv5_mobile_rec`) and PP-OCRv3 mobile detector, ONNX | Apache-2.0 (PaddlePaddle's PaddleOCR; the ONNX conversion `monkt/paddleocr-onnx` is published as Apache-2.0) [read: Hugging Face model card, PaddleOCR repo] | downloaded at build time, pinned by commit and SHA-256 (`web/scripts/paddle-models.mjs`), served by the app with a NOTICE (10.3 MB) |
 | jpeg-js 0.4.4 | BSD-3-Clause [read: npm] | dev dependency, eval harness only |
 | onnxruntime-web 1.31.1 | MIT [read: npm] | dependency of `web`; its WASM runtime is a build asset |
 | cfbender/oracle code and `models/*.pt` | MPL-2.0 [read: repo licence] | not used directly |
@@ -218,7 +252,7 @@ const res = await scanFrame(imageData, { ocr, catalog, names, guide });
 // res.candidates (best first), res.quad, res.raw (OCR text), res.timings
 ```
 
-`OcrEngine` and `ScanCatalog` are injected: `createTesseractOcr()` and `createServerCatalog()` for the app, `eval/dbCatalog.ts` (read-only SQLite) for tests.
+`OcrEngine` and `ScanCatalog` are injected: `createScannerOcr()` (`ocrEngine.ts`: ML Kit in the Android app, PaddleOCR in the browser, Tesseract as the fallback) and `createServerCatalog()` for the app, `eval/dbCatalog.ts` (read-only SQLite) for tests.
 
 Files, all under `web/src/scanner/`:
 
@@ -232,7 +266,11 @@ Files, all under `web/src/scanner/`:
 | `parse.ts` | collector-line parser, set-code lookalikes, name normalising |
 | `fuzzy.ts` | trigram plus fitting-edit-distance name index |
 | `pick.ts` | `pickPrinting`: printing from title plus partial collector read |
-| `tesseract.ts` | `OcrEngine` on tesseract.js (two workers) |
+| `ocrEngine.ts` | `createScannerOcr`: which OCR engine reads text (ML Kit, PaddleOCR, Tesseract), and the fallback to Tesseract |
+| `paddle.ts` | `OcrEngine` on PaddleOCR (PP-OCRv5 recogniser, PP-OCRv3 detector; ONNX Runtime passed in) |
+| `ocr.worker.ts`, `paddleClient.ts` | PaddleOCR in a web worker |
+| `paddle.test.ts` | unit tests for its pure parts (detector boxes, line splitting, CTC decoding, fallback) |
+| `tesseract.ts` | `OcrEngine` on tesseract.js (two workers), the fallback |
 | `recognizer.ts` | the art recognizer: detector, embed and search graphs (ONNX Runtime passed in) |
 | `art.worker.ts`, `artClient.ts` | the recognizer in a web worker; bundle download and Cache API |
 | `printings.ts` | `printingOptions` (`/api/scan/printings`) and `choosePrinting` |
@@ -244,7 +282,7 @@ Files, all under `web/src/scanner/`:
 | `scanner.test.ts` | unit tests, part of `npm test` |
 | `eval/` | accuracy harness: fixtures, scene simulator, DB catalog, `eval.test.ts` (OCR), `recognizer.test.ts` (art, free-hand), `embedding.test.ts` (the 2026-10-18 spike) |
 
-Run the evals (need `data/yama.db`; they download card images and models into `/tmp/yama-scanner-spike` on first run):
+Run the evals (need `data/yama.db`, or `YAMA_DB=<path>`; they download card images and models into `/tmp/yama-scanner-spike`, or `SCANNER_SPIKE_DIR`, on first run). The OCR evals read with PaddleOCR; `SCANNER_OCR=tesseract` reads with Tesseract, and `SCANNER_DUMP=<dir>` writes every crop read and its text:
 
 ```sh
 SCANNER_EVAL=1 npx vitest run web/src/scanner/eval/eval.test.ts            # OCR, default quad only, about 1.5 min
