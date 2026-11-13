@@ -10,7 +10,7 @@ const HURRYING_MS = 5_000, READING_MS = 30_000, SETTLED_MS = 10 * 60_000;
  * being reread, so the page asks again while it is open: often while cards wait for a read,
  * rarely once every card is read. `hurry` names the cards in the carts, read first.
  */
-export function useLiveStock(owner: string, cards: string[], hurry: string[]): { state: LiveState; error: unknown } {
+export function useLiveStock(owner: string, cards: string[], hurry: string[]): { state: LiveState; error: unknown; /** The first answer has arrived: which stores are reread is known. */ loaded: boolean } {
   const [state, setState] = useState<LiveState>(emptyLive);
   const [error, setError] = useState<unknown>(null);
   const since = useRef<string | null>(null);
@@ -42,5 +42,5 @@ export function useLiveStock(owner: string, cards: string[], hurry: string[]): {
     timer = setTimeout(ask, 300);
     return () => { stopped = true; clearTimeout(timer); };
   }, [owner, cardsKey, hurryKey]);
-  return { state, error };
+  return { state, error, loaded: state.at != null };
 }

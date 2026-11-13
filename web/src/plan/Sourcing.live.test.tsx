@@ -19,7 +19,7 @@ import { Portfolio } from "./Sourcing";
 const bundle: ResearchBundle = { revision: 1, updated_at: "2026-11-11", target_hashes: {}, reviews: [], document: { schema: "yama-research/1", id: "live", title: "Live", generated_at: "2026-11-10", decks: [{ key: "d", name: "Deck", commander: "Commander", builds: [{ id: "b3", label: "B3", bracket: 3, list: "1 Commander\n1 Path to Exile" }] }], local_sources: [{ name: "Path to Exile", uses: [{ id: "d-path", deck: "d", deck_name: "Deck", category: "unresolved" }], best_offer_per_store: [{ store: "Mothership", price: 1.5, market: 1, condition: "Near Mint", finish: "nonfoil", language: "English", qty: null, url: `${ORIGIN}/products/path-ac`, variant_id: "111", checked_at: "2026-11-10", qualifies: true, title: "Path to Exile [Assassin's Creed]" }] }] } };
 const store = { key: "mothership", name: "Mothership", origin: ORIGIN, wanted: 1, read: 1, fresh: 1, hurrying: 0, oldest: "2026-11-13T12:00:00.000Z", newest: "2026-11-13T12:00:00.000Z", failed: 0, error: null, failed_cards: [] };
 const answer = (checked_at: string, price: number | null): LiveStock => ({
-  at: checked_at, reread_hours: 8, offline: false, stores: [store], markets: {}, unknown: [], hurried: 0,
+  at: checked_at, reread_hours: 8, offline: false, reading: true, hurry_left: 6000, stores: [store], markets: {}, unknown: [], hurried: 0,
   answers: [{ origin: ORIGIN, card: "Path to Exile", checked_at, listings: price == null ? [] : [{ title: "Path to Exile [Assassin's Creed] - Near Mint", set: "Assassin's Creed", finish: "nonfoil", condition: "Near Mint", language: null, price, variant: "111", url: `${ORIGIN}/products/path-ac?variant=111` }] }],
 });
 
@@ -46,7 +46,7 @@ describe("sourcing page with live store stock", () => {
       // Read long ago by this test's clock: the cart waits for a reread, and opening it sooner is a plain link.
       expect(host.textContent).toContain("Rechecking 1 listing with the store before you open the cart.");
       const open = host.querySelector<HTMLAnchorElement>(".source-cart a[href*='/cart/']")!;
-      expect(open.href).toBe(`${ORIGIN}/cart/111:1`); expect(open.textContent).toBe("Open the cart without waiting");
+      expect(open.href).toBe(`${ORIGIN}/cart/111:1`); expect(open.textContent).toBe("Open the cart as it is");
       // The card in the cart is asked for first; the store has since sold it.
       await settled(() => expect(mock.live).toHaveBeenCalledWith({ cards: ["Path to Exile"], hurry: ["Path to Exile"], since: "2026-11-13T12:00:00.000Z" }));
       await settled(() => expect(host.textContent).toContain("1 selected card has sold out at the listing you chose and left the carts: Path to Exile."));

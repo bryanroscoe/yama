@@ -222,8 +222,12 @@ it before opening the order page. It can cache this aggressively too."
 - **Read first.** Cards in the page's carts are sent as `hurry`: one whose answer is older than
   half an hour is read before the rest, at the pace of a check a person asks for (0.7 s). At
   most 300 a request and 6,000 hurried reads an account a day, reserved before any is marked.
-  The page offers a store's filled cart as its main action once every card in it was read in
-  the last hour, and says which could not be reread; opening it sooner is a plain link.
+  A request hurries at most 300 cards a store that need it (the longest unread first), so a
+  long cart is worked through over the page's next asks. The page offers a store's filled cart
+  as its main action once every listing in it was read in the last hour; until then, and until
+  the first answer says which stores are reread, opening it is a plain link. It names cards
+  whose newest read failed, and says so when no reread is coming (`reading` false: this server
+  runs no readers; `hurry_left` 0: today's allowance is used up).
 - **What the page gets.** Each store's newest answer per card with its time (every in-stock
   variant: condition, finish, price, cart id; no stock count, which the stores don't publish),
   the card's cheapest non-foil market from Yama's price data, and how far each reader has got.

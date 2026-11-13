@@ -14,6 +14,10 @@
 //! gives no conditions, and YesTCG is asked only when a person asks.
 
 use super::*;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Whether this server started its readers ([`spawn`]): without them nothing is reread.
+static READING: AtomicBool = AtomicBool::new(false);
 
 /// A wanted card is reread this often.
 pub const REREAD: Duration = Duration::from_secs(8 * 3600);
@@ -25,7 +29,7 @@ const SLOW: Duration = Duration::from_secs(4);
 const HURRY_OLDER: Duration = Duration::from_secs(30 * 60);
 /// A card whose read failed is tried again after this.
 const RETRY: Duration = Duration::from_secs(30 * 60);
-/// Cards one request may name, and how many of them it may hurry.
+/// Cards one request may name, and how many of them it may hurry at each store.
 pub const MAX_WANTED: usize = 2000;
 pub const MAX_HURRIED: usize = 300;
 /// Hurried reads per account per day (a check a person asks for allows about as many).
@@ -54,27 +58,40 @@ fn hurried() -> &'static std::sync::Mutex<HashMap<String, (String, u64)>> {
 }
 
 /// Take up to `reads` from the account's allowance for today, in one step so two requests can't
-/// both spend what is left. Returns how many it got.
-fn hurry_reserve(owner: &str, reads: u64) -> u64 {
-    let today = Utc::now().format("%Y-%m-%d").to_string();
+/// both spend what is left. Returns the day they were taken from and how many it got.
+fn hurry_reserve(owner: &str, reads: u64) -> (String, u64) {
     let mut map = hurried().lock().expect("hurried");
+    let today = Utc::now().format("%Y-%m-%d").to_string();
     map.retain(|_, (day, _)| *day == today);
-    let used = map.entry(owner.to_string()).or_insert((today, 0));
+    let used = map.entry(owner.to_string()).or_insert((today.clone(), 0));
     let granted = reads.min(HURRIED_DAILY.saturating_sub(used.1));
     used.1 += granted;
-    granted
+    (today, granted)
 }
 
-/// Give back reserved reads that weren't needed (their answers were new, or already waiting).
-fn hurry_return(owner: &str, reads: u64) {
-    if let Some(used) = hurried().lock().expect("hurried").get_mut(owner) {
+/// Give back reserved reads that weren't needed (their answers were new, or already waiting),
+/// to the day they were taken from: a reservation from before midnight never adds to today's.
+fn hurry_return(owner: &str, day: &str, reads: u64) {
+    if let Some(used) = hurried().lock().expect("hurried").get_mut(owner)
+        && used.0 == day
+    {
         used.1 = used.1.saturating_sub(reads);
     }
 }
 
+/// What is left of the account's allowance today.
+fn hurry_left(owner: &str) -> u64 {
+    let today = Utc::now().format("%Y-%m-%d").to_string();
+    match hurried().lock().expect("hurried").get(owner) {
+        Some((day, used)) if *day == today => HURRIED_DAILY.saturating_sub(*used),
+        _ => HURRIED_DAILY,
+    }
+}
+
 /// Remember that these cards (key, name) are wanted at these stores, and mark the `hurry` keys
-/// whose answer is older than [`HURRY_OLDER`] to be read first. Returns how many reads it hurried.
-pub async fn want(pool: &SqlitePool, bases: &[String], cards: &[(String, String)], hurry: &[String]) -> AppResult<u64> {
+/// whose answer is older than [`HURRY_OLDER`] to be read first, at most `hurry_each` at a store
+/// (the longest unread first). Returns how many reads it hurried.
+pub async fn want(pool: &SqlitePool, bases: &[String], cards: &[(String, String)], hurry: &[String], hurry_each: u64) -> AppResult<u64> {
     let named = serde_json::to_string(&cards.iter().map(|(key, name)| json!([key, name])).collect::<Vec<_>>()).map_err(anyhow::Error::from)?;
     let hurry_keys = serde_json::to_string(hurry).map_err(anyhow::Error::from)?;
     // A page asks again every time it looks; an hour-old mark is new enough.
@@ -93,16 +110,20 @@ pub async fn want(pool: &SqlitePool, bases: &[String], cards: &[(String, String)
         .bind(&recent)
         .execute(&mut *tx)
         .await?;
-        if !hurry.is_empty() {
-            // Not one already waiting to be read first.
+        if !hurry.is_empty() && hurry_each > 0 {
+            // Not one already waiting to be read first. Cards whose answer is new take none of the
+            // places, so a long cart is worked through over the page's next asks.
             hurried += sqlx::query(
-                "UPDATE store_live SET rush_at = ?1 WHERE base = ?2 AND card_key IN (SELECT value FROM json_each(?3))
-                 AND (checked_at IS NULL OR checked_at < ?4) AND (rush_at IS NULL OR (checked_at IS NOT NULL AND rush_at <= checked_at))",
+                "UPDATE store_live SET rush_at = ?1 WHERE rowid IN (
+                   SELECT rowid FROM store_live WHERE base = ?2 AND card_key IN (SELECT value FROM json_each(?3))
+                     AND (checked_at IS NULL OR checked_at < ?4) AND (rush_at IS NULL OR (checked_at IS NOT NULL AND rush_at <= checked_at))
+                   ORDER BY checked_at IS NOT NULL, checked_at, card_key LIMIT ?5)",
             )
             .bind(&at)
             .bind(base)
             .bind(&hurry_keys)
             .bind(&old)
+            .bind(hurry_each.min(i64::MAX as u64) as i64)
             .execute(&mut *tx)
             .await?
             .rows_affected();
@@ -221,6 +242,7 @@ async fn read_store(pool: SqlitePool, http: reqwest::Client, base: String, slow:
 
 /// Start a reader for each store Yama reads card by card.
 pub fn spawn(pool: SqlitePool, http: reqwest::Client) {
+    READING.store(true, Ordering::Relaxed);
     for host in SHOPIFY_HOSTS {
         tokio::spawn(read_store(pool.clone(), http.clone(), format!("https://{host}"), SLOW));
     }
@@ -261,8 +283,8 @@ pub async fn live_route(State(st): State<AppState>, CurrentUser(user): CurrentUs
 /// so nothing but a card's name is ever asked of a store. Offline, it reads what is held and
 /// remembers nothing new.
 pub async fn live(pool: &SqlitePool, owner: &str, body: &LiveBody, offline: bool) -> AppResult<Value> {
-    if body.cards.len() > MAX_WANTED {
-        return Err(AppError::bad(format!("At most {MAX_WANTED} cards ({} given).", body.cards.len())));
+    if body.cards.len() > MAX_WANTED || body.hurry.len() > MAX_WANTED {
+        return Err(AppError::bad(format!("At most {MAX_WANTED} cards ({} given).", body.cards.len().max(body.hurry.len()))));
     }
     let mut names: Vec<(String, String)> = Vec::new();
     let mut seen = HashSet::new();
@@ -303,19 +325,20 @@ pub async fn live(pool: &SqlitePool, owner: &str, body: &LiveBody, offline: bool
     let at = now();
     let mut hurried_now = 0;
     if !offline && !bases.is_empty() && !known.is_empty() {
+        let known_keys: HashSet<&str> = known.iter().map(|(key, _)| key.as_str()).collect();
         let mut hurry: Vec<String> = Vec::new();
+        let mut asked = HashSet::new();
         for card in &body.hurry {
             let key = card_key(card);
-            if hurry.len() < MAX_HURRIED && known.iter().any(|(k, _)| *k == key) && !hurry.contains(&key) {
+            if known_keys.contains(key.as_str()) && asked.insert(key.clone()) {
                 hurry.push(key);
             }
         }
-        // A hurried card is one read at every store: no more cards than today's allowance covers.
+        // A hurried card is one read at every store: no more than today's allowance covers.
         let stores_each = bases.len() as u64;
-        let reserved = hurry_reserve(owner, hurry.len() as u64 * stores_each);
-        hurry.truncate((reserved / stores_each) as usize);
-        let wanted = want(pool, &bases, &known, &hurry).await;
-        hurry_return(owner, reserved.saturating_sub(*wanted.as_ref().unwrap_or(&0)));
+        let (day, reserved) = hurry_reserve(owner, hurry.len().min(MAX_HURRIED) as u64 * stores_each);
+        let wanted = want(pool, &bases, &known, &hurry, reserved / stores_each).await;
+        hurry_return(owner, &day, reserved.saturating_sub(*wanted.as_ref().unwrap_or(&0)));
         hurried_now = wanted?;
     }
     let keys: Vec<&String> = known.iter().map(|(key, _)| key).collect();
@@ -378,7 +401,9 @@ pub async fn live(pool: &SqlitePool, owner: &str, body: &LiveBody, offline: bool
         }
     }
     Ok(json!({
-        "at": at, "reread_hours": REREAD.as_secs() / 3600, "offline": offline, "stores": store_rows, "answers": answers, "markets": markets,
+        "at": at, "reread_hours": REREAD.as_secs() / 3600, "offline": offline, "stores": store_rows,
+        // Whether anything is being reread at all, and how many hurried reads the account has left today.
+        "reading": !offline && READING.load(Ordering::Relaxed), "hurry_left": hurry_left(owner), "answers": answers, "markets": markets,
         "unknown": unknown.iter().map(|(_, name)| name).collect::<Vec<_>>(), "hurried": hurried_now,
     }))
 }
@@ -391,11 +416,15 @@ mod tests {
     #[test]
     fn the_hurried_allowance_is_reserved_whole() {
         let owner = "allowance-test-account";
-        assert_eq!(hurry_reserve(owner, HURRIED_DAILY - 1), HURRIED_DAILY - 1);
-        assert_eq!(hurry_reserve(owner, 600), 1, "one read left, however many were asked for");
-        assert_eq!(hurry_reserve(owner, 600), 0);
-        hurry_return(owner, 10);
-        assert_eq!(hurry_reserve(owner, 600), 10);
-        assert_eq!(hurry_reserve("another-test-account", 5), 5);
+        let (day, got) = hurry_reserve(owner, HURRIED_DAILY - 1);
+        assert_eq!(got, HURRIED_DAILY - 1);
+        assert_eq!(hurry_reserve(owner, 600).1, 1, "one read left, however many were asked for");
+        assert_eq!((hurry_reserve(owner, 600).1, hurry_left(owner)), (0, 0));
+        // Reads taken on an earlier day are not given back to today.
+        hurry_return(owner, "2026-01-01", 10);
+        assert_eq!(hurry_left(owner), 0);
+        hurry_return(owner, &day, 10);
+        assert_eq!(hurry_reserve(owner, 600).1, 10);
+        assert_eq!(hurry_reserve("another-test-account", 5).1, 5);
     }
 }

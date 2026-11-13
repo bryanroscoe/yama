@@ -1,3 +1,4 @@
+import { plural } from "@yama/core";
 import { safeUrl } from "../research/api";
 import { knownRestrictionsPass } from "./source-pricing";
 import { offerId, type SourceCard, type SourceChoice, type SourceOffer } from "./sourcing-model";
@@ -9,11 +10,11 @@ export interface LiveAnswer { origin: string; card: string; checked_at: string; 
 export interface LiveStore { key: string; name: string; origin: string; wanted: number; read: number; fresh: number; hurrying: number; oldest: string | null; newest: string | null; failed: number; error: string | null; /** Cards whose newest read gave no answer. */ failed_cards: string[] }
 /** The card's cheapest non-foil printing in Yama's price data. */
 export interface LiveMarket { usd: number; date: string; printing: string; source: string }
-export interface LiveStock { at: string; reread_hours: number; offline: boolean; stores: LiveStore[]; answers: LiveAnswer[]; markets: Record<string, LiveMarket>; unknown: string[]; hurried: number }
+export interface LiveStock { at: string; reread_hours: number; offline: boolean; /** Whether the server is rereading stores at all. */ reading: boolean; /** Read-first requests the account has left today. */ hurry_left: number; stores: LiveStore[]; answers: LiveAnswer[]; markets: Record<string, LiveMarket>; unknown: string[]; hurried: number }
 
 /** What the page holds between asks: each store's newest answer per card. */
-export interface LiveState { at: string | null; reread_hours: number; stores: LiveStore[]; answers: Map<string, LiveAnswer>; markets: Map<string, LiveMarket>; unknown: string[] }
-export const emptyLive: LiveState = { at: null, reread_hours: 8, stores: [], answers: new Map(), markets: new Map(), unknown: [] };
+export interface LiveState { at: string | null; reread_hours: number; reading: boolean; hurry_left: number; stores: LiveStore[]; answers: Map<string, LiveAnswer>; markets: Map<string, LiveMarket>; unknown: string[] }
+export const emptyLive: LiveState = { at: null, reread_hours: 8, reading: false, hurry_left: 0, stores: [], answers: new Map(), markets: new Map(), unknown: [] };
 const answerKey = (origin: string, card: string) => `${origin}\n${card}`;
 
 /** An ask returns only what was read since the last one: add it to what is already held. */
@@ -24,7 +25,7 @@ export function mergeLive(state: LiveState, next: LiveStock): LiveState {
     if (!held || held.checked_at <= a.checked_at) answers.set(answerKey(a.origin, a.card), a);
   }
   for (const [card, market] of Object.entries(next.markets)) markets.set(card, market);
-  return { at: next.at, reread_hours: next.reread_hours, stores: next.stores, answers, markets, unknown: next.unknown };
+  return { at: next.at, reread_hours: next.reread_hours, reading: next.reading, hurry_left: next.hurry_left, stores: next.stores, answers, markets, unknown: next.unknown };
 }
 
 const originOf = (url: string) => { try { return new URL(url).origin; } catch { return ""; } };
@@ -90,24 +91,43 @@ export function migrateChoices(choices: Record<string, SourceChoice[]>, cards: S
   const next: Record<string, SourceChoice[]> = Object.create(null);
   for (const name of Object.keys(choices)) {
     const row = byName.get(name);
-    next[name] = (choices[name] ?? []).map(choice => {
+    let movedHere = false;
+    const list = (choices[name] ?? []).map(choice => {
       if (!row || row.offers.some(o => offerId(o) === choice.offer || o.url === choice.offer)) return choice;
       const heirs = row.offers.filter(o => o.replaces?.includes(choice.offer));
       if (heirs.length !== 1) return choice;
-      moved = true;
+      movedHere = true;
       return { ...choice, offer: offerId(heirs[0]!) };
     });
+    if (!movedHere) { next[name] = list; continue; }
+    moved = true;
+    // A pick that moved may land on a listing with a pick of its own: they are one listing now,
+    // so one entry holds the copies asked of both. A count set back to zero asks for nothing.
+    const copies = new Map<string, number>();
+    for (const choice of list) copies.set(choice.offer, (copies.get(choice.offer) ?? 0) + (Number.isFinite(choice.qty) ? Math.max(0, choice.qty) : 0));
+    next[name] = [...copies].map(([offer, qty]) => ({ offer, qty }));
   }
   return moved ? next : choices;
 }
 
 /** How long a read counts as having checked a cart's card. The server rereads a cart's card older than half that. */
 export const CART_CHECKED_MS = 60 * 60_000;
-/** A cart's listings at a store Yama rereads: how many still wait to be reread, and which could not be. */
+/**
+ * A cart's listings at a store Yama rereads: which cards' newest read failed (however recent
+ * their last answer), and how many other listings were not read within the hour.
+ */
 export function cartCheck(rows: { card: string; offer: SourceOffer }[], store: LiveStore, now: number): { waiting: number; failed: string[] } {
-  const stale = rows.filter(r => !(r.offer.live && now - Date.parse(r.offer.checked_at) <= CART_CHECKED_MS));
-  const failed = [...new Set(stale.filter(r => store.failed_cards.includes(r.card)).map(r => r.card))].sort((a, b) => a.localeCompare(b));
-  return { waiting: stale.filter(r => !failed.includes(r.card)).length, failed };
+  const failed = [...new Set(rows.filter(r => store.failed_cards.includes(r.card)).map(r => r.card))].sort((a, b) => a.localeCompare(b));
+  const waiting = rows.filter(r => !failed.includes(r.card) && !(r.offer.live && now - Date.parse(r.offer.checked_at) <= CART_CHECKED_MS)).length;
+  return { waiting, failed };
+}
+
+/** What is happening to a cart's listings that were not read within the hour: only what is true. */
+export function waitingText(waiting: number, store: LiveStore, live: Pick<LiveState, "reading" | "hurry_left" | "reread_hours">): string {
+  const listings = plural(waiting, "listing"), were = waiting === 1 ? "was" : "were";
+  if (!live.reading) return `${listings} here ${were} not read in the last hour, and this server is not rereading stores, so nothing newer is coming.`;
+  if (!store.hurrying && live.hurry_left <= 0) return `${listings} here ${were} not read in the last hour. Today’s read-first requests are used up, so the store is reread on the regular round, about every ${live.reread_hours} hours.`;
+  return `Rechecking ${listings} with the store before you open the cart. This page updates as each is read.`;
 }
 
 /** Cards in a selection whose chosen listing the stores no longer have. */

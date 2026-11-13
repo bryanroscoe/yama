@@ -11,7 +11,7 @@ import { allChoices, cardListText, choicesFor, offerRows, offerId, optionalUse, 
 import { localBuyRule, rulesAt, MAX_RULE_USD, shoppingRulesProblems, type RuleSet } from "@yama/core/plan";
 import { fetchBundle, saveShoppingRules, storeCatalogs, checkStores, storeSnapshots } from "./api";
 import { capDraft, pricedRows, readCap } from "./source-pricing";
-import { cartCheck, liveRows, migrateChoices, soldOut, storeProgress } from "./live-stock";
+import { cartCheck, liveRows, migrateChoices, soldOut, storeProgress, waitingText } from "./live-stock";
 import { useLiveStock } from "./useLiveStock";
 import "./sourcing.css";
 
@@ -164,11 +164,14 @@ export function Portfolio({ bundle }: { bundle: ResearchBundle }) {
         // At a store Yama rereads, the filled cart is the main action once its cards were reread.
         const reader = live.state.stores.find(s => s.origin === new URL(cart.rows[0]!.offer.url).origin);
         const check = reader ? cartCheck(cart.rows, reader, Date.now()) : null;
+        // Until the first answer arrives nobody knows whether this store is reread: don't offer its cart as checked.
+        const unknown = !live.loaded && wantedNames.length > 0 && !!cart.url;
         return <div className="source-cart" key={cart.rows[0]!.offer.url}><h3>{cart.store}: {usd(cart.total)}</h3>
-        {check && check.waiting > 0 && <p role="status">Rechecking {plural(check.waiting,"listing")} with the store before you open the cart. This page updates as each is read.</p>}
+        {unknown && (live.error ? <p role="alert">Live stock could not be loaded, so these are the saved quotes and may have sold out.</p> : <p role="status">Checking what the store’s site lists now.</p>)}
+        {reader && check && check.waiting > 0 && <p role="status">{waitingText(check.waiting, reader, live.state)}</p>}
         {check && check.failed.length > 0 && <p role="alert">{plural(check.failed.length,"card")} could not be reread on the last try, so {check.failed.length === 1 ? "its listing is" : "their listings are"} as last read: {check.failed.join(", ")}.</p>}
         {check && !check.waiting && !check.failed.length && <p className="small dim">Every listing here was in stock on the store’s site within the last hour.</p>}
-        {cart.url && (check && check.waiting > 0 ? <a href={cart.url} target="_blank" rel="noreferrer">Open the cart without waiting</a> : <ButtonLink href={cart.url} target="_blank" rel="noreferrer">Open filled store cart</ButtonLink>)}<ul>{cart.rows.map(r => <li key={`${r.card}:${offerId(r.offer)}`}>{r.qty} × <a href={r.offer.url} target="_blank" rel="noreferrer">{r.card}</a>{r.offer.qty == null && ((extras.skus.get(uncountedSku(r.offer)) ?? 0) > 1 ? " — only 1 copy confirmed in stock" : " — in stock, count not listed")}</li>)}</ul>{!cart.url && <p>Add these on their store listing pages; this store has no filled-cart link.</p>}</div>; })}<p className="small dim">Filled Shopify links replace the existing store cart. Choose pickup at checkout. This is the selected subtotal, not the cost to complete every deck.</p></details>}
+        {cart.url && (unknown || (check && check.waiting > 0) ? <a href={cart.url} target="_blank" rel="noreferrer">Open the cart as it is</a> : <ButtonLink href={cart.url} target="_blank" rel="noreferrer">Open filled store cart</ButtonLink>)}<ul>{cart.rows.map(r => <li key={`${r.card}:${offerId(r.offer)}`}>{r.qty} × <a href={r.offer.url} target="_blank" rel="noreferrer">{r.card}</a>{r.offer.qty == null && ((extras.skus.get(uncountedSku(r.offer)) ?? 0) > 1 ? " — only 1 copy confirmed in stock" : " — in stock, count not listed")}</li>)}</ul>{!cart.url && <p>Add these on their store listing pages; this store has no filled-cart link.</p>}</div>; })}<p className="small dim">Filled Shopify links replace the existing store cart. Choose pickup at checkout. This is the selected subtotal, not the cost to complete every deck.</p></details>}
     </section>
     <details className="source-list-export"><summary>Card list for other sites</summary><p className="small dim">Every wanted card for the selected decks, brackets and cards-for filter, as “quantity name” lines for deck-list searches such as instock.cards. Store, condition and buy-rule filters don’t apply.</p><div className="source-actions"><CopyButton text={wantedList} label="Copy card list" disabled={!wantedList} /></div><textarea readOnly rows={8} value={wantedList} aria-label="Card list" onFocus={e => e.currentTarget.select()} /></details>
     <p className="small dim">{plural(Math.max(0,copies.length-selectedCopies),"matching copy not selected","matching copies not selected")}. Missing stock counts and shortages stay unresolved; a cart is not proof that every copy is available.</p>

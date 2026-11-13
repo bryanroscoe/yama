@@ -1081,6 +1081,8 @@ async fn wanted_cards_are_read_in_the_background_and_served_with_their_dates() {
     let (_, second) = send(&app, Method::POST, "/api/plan/stock/live", Some(&token), Some(ask(None))).await;
     assert_eq!((second["stores"][0]["read"].as_i64(), second["stores"][0]["fresh"].as_i64(), second["stores"][0]["failed"].as_i64()), (Some(2), Some(2), Some(0)), "{second}");
     assert_eq!(second["stores"][0]["failed_cards"], json!([]));
+    assert_eq!(second["reading"], false, "this server started no readers");
+    assert!(second["hurry_left"].as_u64().is_some_and(|left| left > 0));
     let answers = second["answers"].as_array().unwrap();
     let path = answers.iter().find(|a| a["card"] == "Path to Exile").expect("the card's answer");
     assert_eq!(path["origin"], REAL);
@@ -1120,21 +1122,27 @@ async fn a_failed_read_waits_and_a_hurried_card_goes_first() {
     let card = |name: &str| (card_key(name), name.to_string());
     let mut f = Fetcher::new(reqwest::Client::new(), None);
 
-    live::want(&pool, &bases, &[card("Busy Card")], &[]).await.unwrap();
+    live::want(&pool, &bases, &[card("Busy Card")], &[], 300).await.unwrap();
     assert_eq!(live::step(&pool, &mut f, &base, Duration::ZERO).await.unwrap(), live::Step::Failed);
     let (checked, error): (Option<String>, Option<String>) = sqlx::query_as("SELECT checked_at, error FROM store_live WHERE card_key = 'busy card'").fetch_one(&pool).await.unwrap();
     assert!(checked.is_none() && error.is_some_and(|e| e.contains("Throttled")));
     assert_eq!(live::step(&pool, &mut f, &base, Duration::ZERO).await.unwrap(), live::Step::Idle, "not asked again straight away");
 
     // Two cards read yesterday: both are due, and the hurried one is read first.
-    live::want(&pool, &bases, &[card("Absent Card"), card("Path to Exile")], &[]).await.unwrap();
+    live::want(&pool, &bases, &[card("Absent Card"), card("Path to Exile")], &[], 300).await.unwrap();
     sqlx::query("UPDATE store_live SET checked_at = '2026-01-01T00:00:00.000Z', tried_at = '2026-01-01T00:00:00.000Z', listings = '[]' WHERE card_key != 'busy card'").execute(&pool).await.unwrap();
-    assert_eq!(live::want(&pool, &bases, &[card("Absent Card"), card("Path to Exile")], &[card_key("Path to Exile")]).await.unwrap(), 1);
-    assert_eq!(live::want(&pool, &bases, &[card("Path to Exile")], &[card_key("Path to Exile")]).await.unwrap(), 0, "already waiting to be read first");
+    assert_eq!(live::want(&pool, &bases, &[card("Absent Card"), card("Path to Exile")], &[card_key("Path to Exile")], 300).await.unwrap(), 1);
+    assert_eq!(live::want(&pool, &bases, &[card("Path to Exile")], &[card_key("Path to Exile")], 300).await.unwrap(), 0, "already waiting to be read first");
     assert_eq!(live::step(&pool, &mut f, &base, Duration::ZERO).await.unwrap(), live::Step::Read);
     let read_first: Vec<String> = sqlx::query_scalar("SELECT card_key FROM store_live WHERE checked_at > '2026-06-01'").fetch_all(&pool).await.unwrap();
     assert_eq!(read_first, vec!["path to exile".to_string()]);
-    assert_eq!(live::want(&pool, &bases, &[card("Path to Exile")], &[card_key("Path to Exile")]).await.unwrap(), 0, "its answer is new: nothing to hurry");
+    assert_eq!(live::want(&pool, &bases, &[card("Path to Exile")], &[card_key("Path to Exile")], 300).await.unwrap(), 0, "its answer is new: nothing to hurry");
+    // A card whose answer is new takes none of the places: with one place, the stale card gets it.
+    sqlx::query("UPDATE store_live SET rush_at = NULL").execute(&pool).await.unwrap();
+    assert_eq!(live::want(&pool, &bases, &[], &[card_key("Path to Exile"), card_key("Absent Card")], 1).await.unwrap(), 1);
+    let hurried: Vec<String> = sqlx::query_scalar("SELECT card_key FROM store_live WHERE rush_at IS NOT NULL").fetch_all(&pool).await.unwrap();
+    assert_eq!(hurried, vec!["absent card".to_string()]);
+    assert_eq!(live::want(&pool, &bases, &[], &[card_key("Absent Card")], 0).await.unwrap(), 0, "no allowance, nothing hurried");
 
     // A card nobody has asked about for weeks is left alone, with its last answer kept.
     sqlx::query("UPDATE store_live SET wanted_at = '2026-01-01T00:00:00.000Z'").execute(&pool).await.unwrap();

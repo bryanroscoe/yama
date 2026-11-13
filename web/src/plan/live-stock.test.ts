@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cartCheck, emptyLive, liveRows, mergeLive, migrateChoices, soldOut, storeProgress, type LiveListing, type LiveStock, type LiveStore } from "./live-stock";
+import { cartCheck, emptyLive, liveRows, mergeLive, migrateChoices, soldOut, storeProgress, waitingText, type LiveListing, type LiveStock, type LiveStore } from "./live-stock";
 import { allChoices, offerId, sourceCarts, type SourceCard, type SourceOffer } from "./sourcing-model";
 import { pricedRows } from "./source-pricing";
 
@@ -9,7 +9,7 @@ const saved = (over: Partial<SourceOffer> = {}): SourceOffer => ({ store: "Mothe
 const elsewhere = saved({ store: "Multiverse Hobbies", url: "https://mversetcg.tcgplayerpro.com/p/1", variant_id: "", qty: 3, price: 1.25 });
 const card = (offers: SourceOffer[] = [saved(), elsewhere]): SourceCard => ({ name: "Path to Exile", status: "qualifying", uses: [{ id: "a", deck: "d", deck_name: "Deck", category: "unresolved" }], offers });
 const listing = (over: Partial<LiveListing> = {}): LiveListing => ({ title: "Path to Exile [Assassin's Creed] - Near Mint", set: "Assassin's Creed", finish: "nonfoil", condition: "Near Mint", language: null, price: 1.75, variant: "111", url: "https://mothershipatx.com/products/path-ac?variant=111", ...over });
-const answered = (listings: LiveListing[], checked_at = READ): LiveStock => ({ at: "2026-11-13T12:00:01.000Z", reread_hours: 8, offline: false, stores: [store], answers: [{ origin: store.origin, card: "Path to Exile", checked_at, listings }], markets: { "Path to Exile": { usd: 1.4, date: "2026-11-12", printing: "Test Set (TST) #7", source: "TCGplayer market via Scryfall, cheapest non-foil" } }, unknown: [], hurried: 0 });
+const answered = (listings: LiveListing[], checked_at = READ): LiveStock => ({ at: "2026-11-13T12:00:01.000Z", reread_hours: 8, offline: false, reading: true, hurry_left: 6000, stores: [store], answers: [{ origin: store.origin, card: "Path to Exile", checked_at, listings }], markets: { "Path to Exile": { usd: 1.4, date: "2026-11-12", printing: "Test Set (TST) #7", source: "TCGplayer market via Scryfall, cheapest non-foil" } }, unknown: [], hurried: 0 });
 const held = (listings: LiveListing[], checked_at = READ) => mergeLive(emptyLive, answered(listings, checked_at));
 const rule = { max_usd: 5, always_ok_usd: null, tiers: [{ market_under: null, max_multiple: 1 }] };
 
@@ -67,6 +67,20 @@ describe("live store stock on the sourcing page", () => {
     expect(migrateChoices(picked, twins)).toBe(picked);
   });
 
+  it("joins a moved pick with the pick already on that listing, and a zero asks for nothing", () => {
+    // The report holds the same listing twice: once without its variant id, once with it.
+    const loose = saved({ variant_id: "" }), named = saved();
+    const after = liveRows([card([loose, named, elsewhere])], held([listing()]));
+    const live = offerId(after[0]!.offers.find(o => o.live)!);
+    expect(live).toBe(offerId(named));
+    // Picked the loose one, set it back to zero, then picked the named one.
+    const cleared = migrateChoices({ "Path to Exile": [{ offer: offerId(loose), qty: 0 }, { offer: offerId(named), qty: 1 }] }, after);
+    expect(cleared["Path to Exile"]).toEqual([{ offer: live, qty: 1 }]);
+    expect(sourceCarts(pricedRows(after, rule), cleared, new Map())[0]!.rows.map(r => r.qty)).toEqual([1]);
+    const both = migrateChoices({ "Path to Exile": [{ offer: offerId(loose), qty: 1 }, { offer: offerId(named), qty: 1 }] }, after);
+    expect(both["Path to Exile"]).toEqual([{ offer: live, qty: 2 }]);
+  });
+
   it("offers a store's cart as checked only once its listings were reread, and names the ones that could not be", () => {
     const now = Date.parse(READ) + 10 * 60_000;
     const fresh = liveRows([card()], held([listing()]))[0]!.offers.find(o => o.live)!;
@@ -74,6 +88,16 @@ describe("live store stock on the sourcing page", () => {
     expect(cartCheck([{ card: "Path to Exile", offer: fresh }], store, now + 2 * 60 * 60_000)).toEqual({ waiting: 1, failed: [] });
     expect(cartCheck([{ card: "Path to Exile", offer: saved() }], store, now)).toEqual({ waiting: 1, failed: [] });
     expect(cartCheck([{ card: "Path to Exile", offer: saved() }], { ...store, failed_cards: ["Path to Exile"] }, now)).toEqual({ waiting: 0, failed: ["Path to Exile"] });
+    // Read a quarter of an hour ago, then a reread failed: the failure is said, whatever the age of the last answer.
+    expect(cartCheck([{ card: "Path to Exile", offer: fresh }], { ...store, failed_cards: ["Path to Exile"] }, now)).toEqual({ waiting: 0, failed: ["Path to Exile"] });
+  });
+
+  it("says a recheck is coming only when one is", () => {
+    const live = { reading: true, hurry_left: 6000, reread_hours: 8 };
+    expect(waitingText(2, store, live)).toBe("Rechecking 2 listings with the store before you open the cart. This page updates as each is read.");
+    expect(waitingText(1, { ...store, hurrying: 1 }, { ...live, hurry_left: 0 })).toContain("Rechecking 1 listing");
+    expect(waitingText(1, store, { ...live, hurry_left: 0 })).toBe("1 listing here was not read in the last hour. Today’s read-first requests are used up, so the store is reread on the regular round, about every 8 hours.");
+    expect(waitingText(3, store, { ...live, reading: false })).toBe("3 listings here were not read in the last hour, and this server is not rereading stores, so nothing newer is coming.");
   });
 
   it("keeps the report where the store has no answer yet or the saved quote is newer", () => {
