@@ -63,6 +63,8 @@ pub(super) async fn assign(pool: &SqlitePool, rows: &mut [Precon]) -> AppResult<
 pub(super) struct Breakdown {
     pub analysis: Option<analysis::DeckAnalysis>,
     pub check: Option<crate::deck_checks::CheckResult>,
+    /// The face commander's record over every list recorded under it, stock or not.
+    pub commander: Option<crate::public_commanders::Record>,
     pub game_changers: Option<Vec<String>>,
     pub reserved: Option<Vec<String>>,
     pub stats: crate::deck_stats::DeckStats,
@@ -78,12 +80,13 @@ pub(super) async fn full(pool: &SqlitePool, p: &Precon) -> AppResult<Breakdown> 
     let game_changers = crate::decks::game_changers(&cards, &info);
     let reserved = crate::decks::reserved_list(&cards, &info);
     let stats = crate::deck_stats::stats(pool, &cards, &info).await?;
+    let commander = crate::public_commanders::record_for(pool, &cards).await;
     let (analysis, check) = tokio::task::spawn_blocking(move || {
         let entries: Vec<_> = cards.iter().map(|c| Entry { card: c, facts: facts.get(&c.oracle_id) }).collect();
         let assessed = entries.iter().any(|e| e.card.board != crate::decks::Board::Side && e.facts.is_some());
         (assessed.then(|| analysis::analyze(&entries, check.as_ref(), &mut Cache::default())), check)
     }).await.map_err(anyhow::Error::from)?;
-    Ok(Breakdown { analysis, check, game_changers, reserved, stats })
+    Ok(Breakdown { analysis, check, commander, game_changers, reserved, stats })
 }
 
 pub(super) fn cell(p: &Precon) -> String {

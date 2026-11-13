@@ -204,11 +204,14 @@ pub async fn analyze(st: &AppState, user: &User, args: &Value) -> AppResult<Valu
     if let Some(a) = power.as_mut() {
         crate::analysis::add_unresolved(a, &list.unknown);
     }
+    let commander_record = crate::public_commanders::record_for(&st.pool, &list.cards).await;
     Ok(
         json!({"computed_at": crate::util::now(), "deck_id": list.deck_id, "version": list.version,
         "validation": crate::decks::validate(&list.cards,&info), "unknown_names": list.unknown,
         "game_changers": crate::decks::game_changers(&list.cards,&info),
         "reserved_list": reserved_list, "policy": policy,
+        "commander_record": commander_record,
+        "commander_record_note": "The commander's record over every list recorded under it on the public sources Yama reads (/commanders): share of games won, stock and tuned lists and all pod sizes together, so compare it with `typical` (the middle placed commander), not 25%. `place` ranks it among the `placed` commanders with `min_games` or more games. It describes the commander, not this list, and isn't part of the power level.",
         "analysis": power, "analysis_note": "Yama's unofficial deck analysis, as the deck page and shared deck page show it: each card earns points for what its text does in categories under five vectors (Speed, Consistency, Interaction, Mana base, Threats; 0-100, about 40 a typical stock precon and 75 a typical Bracket 4 build), Commander Spellbook's combos from the stored check add to Threats (a saved version only; combos.checked says whether there was one), and the weighted vectors map to the older 1-10 power-level scale with a ± margin and caps. The margin starts at a measured ±0.7; `confidence` says how complete the inputs were (high: every card read with a combo check), not how right the score is. `bracket` holds two readings kept apart: `plays_like` [low, high], the brackets power ± margin reaches, and `rules`, the least bracket Wizards' card rules allow (Game Changers, and what the Spellbook check flags, listed in `flags`; null when it can't be read). A list can be Bracket 3 by the rules and still play like Bracket 2. Card-text signals, not played performance; other sites' numbers aren't directly comparable.",
         "statistics": {"cards": total_cards,"lands": stats.lands,"nonlands": stats.nonlands,"curve_0_through_7_plus": stats.curve.map(|(c, o)| c + o),
             "average_mana_value": stats.average_mana_value().map(round),

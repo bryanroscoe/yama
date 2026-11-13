@@ -1,7 +1,7 @@
 // Pure helpers for the deck page's Stats tab (DeckStatsTab.tsx): the power dial's geometry and
 // bracket bands, the reference marks on the five scores, and the curve and color summaries.
 
-import type { ColorStat, CurveBucket, StatCard } from "@yama/core";
+import { count, percent, plural, type ColorStat, type CurveBucket, type StatCard } from "@yama/core";
 import type { DeckAnalysis, DeckAnalysisView, DeckSummary, VectorKey } from "../api";
 
 /** The dial: a half circle from 1 (left) to 10 (right) around (CX, CY). */
@@ -49,6 +49,18 @@ export function playsLike(a: { power_bracket: number; bracket?: { plays_like: [n
 /** What the confidence level means: how complete the inputs were, not how right the score is. */
 export function inputsNote(confidence: "high" | "medium" | "low"): string {
   return confidence === "high" ? "Every card read" : confidence === "medium" ? "Some inputs missing" : "Many inputs missing";
+}
+
+/** "A", "A and B", "A, B and C". */
+export function listAnd(items: string[]): string {
+  return items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
+/** Where a commander's record puts it among the others, or why it has no place yet. */
+export function commanderPlace(r: { place: number | null; placed: number; typical: number | null; min_games: number }): string {
+  if (r.place == null) return `Too few games to place it among commanders: that takes ${count(r.min_games)} games. A rate from this few can be far off.`;
+  const place = `#${count(r.place)} of ${plural(r.placed, "commander")} with ${count(r.min_games)} or more games.`;
+  return r.typical == null ? place : `${place} The middle one wins ${percent(r.typical, 1)}.`;
 }
 
 /** The bracket whose usual range holds a power level. */

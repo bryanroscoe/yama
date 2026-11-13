@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bandOf, isStockConfiguration, landFaceCopies, colorShares, curveColumns, curveSpread, DIAL, dialAngle, dialArc, dialPoint, groupTotal, marginSpan, playsLike, inputsNote, pctWidth, points, POWER_BANDS, referenceOf, comparisonOf, earlierVersions, powerChange, stockListOf, comparisonOfDeck, otherDecks } from "./statsTab";
+import { bandOf, commanderPlace, listAnd, isStockConfiguration, landFaceCopies, colorShares, curveColumns, curveSpread, DIAL, dialAngle, dialArc, dialPoint, groupTotal, marginSpan, playsLike, inputsNote, pctWidth, points, POWER_BANDS, referenceOf, comparisonOf, earlierVersions, powerChange, stockListOf, comparisonOfDeck, otherDecks } from "./statsTab";
 import { analysis, analysisView } from "./analysisFixture";
 import type { DeckSummary } from "../api";
 
@@ -157,5 +157,20 @@ describe("comparing with another deck", () => {
     const d = (id: string, name: string, v: string | null) => ({ id, name, current_version_id: v }) as DeckSummary;
     expect(otherDecks([d("me", "Lorehold", "v"), d("b", "Zur", "v"), d("c", "Atraxa", "v"), d("e", "Empty", null)], "me").map((x) => x.id)).toEqual(["c", "b"]);
     expect(otherDecks(undefined, "me")).toEqual([]);
+  });
+});
+
+describe("the commander's record", () => {
+  it("places a commander among those with enough games, beside the middle one", () => {
+    expect(commanderPlace({ place: 12, placed: 1640, typical: 0.351, min_games: 100 })).toBe("#12 of 1,640 commanders with 100 or more games. The middle one wins 35.1%.");
+    expect(commanderPlace({ place: 1, placed: 1, typical: null, min_games: 100 })).toBe("#1 of 1 commander with 100 or more games.");
+  });
+
+  it("says why a commander with few games has no place", () => {
+    expect(commanderPlace({ place: null, placed: 1640, typical: 0.351, min_games: 100 })).toBe("Too few games to place it among commanders: that takes 100 games. A rate from this few can be far off.");
+    expect(listAnd([])).toBe("");
+    expect(listAnd(["A"])).toBe("A");
+    expect(listAnd(["A", "B"])).toBe("A and B");
+    expect(listAnd(["A", "B", "C"])).toBe("A, B and C");
   });
 });

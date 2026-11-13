@@ -83,6 +83,9 @@ struct Response {
     method: &'static str,
     /// The current list's analysis; null while the deck has no cards.
     current: Option<DeckAnalysis>,
+    /// The commander's public record over every list recorded under it (/commanders); null
+    /// with no commander or no recorded games. Beside the analysis, never part of the score.
+    commander: Option<crate::public_commanders::Record>,
     versions: Vec<VersionPoint>,
     configurations: Vec<ConfigurationPoint>,
     computed_at: String,
@@ -121,6 +124,10 @@ async fn deck_analysis(State(st): State<AppState>, CurrentUser(user): CurrentUse
     wanted.sort();
     wanted.dedup();
     let lists = crate::decks::load_versions_cards(&st.pool, &wanted).await?;
+    let commander = match current.as_ref().and_then(|v| lists.get(v)) {
+        Some(cards) => crate::public_commanders::record_for(&st.pool, cards).await,
+        None => None,
+    };
     let results = summarize(&st.pool, lists, current.clone()).await?;
 
     let mut versions: Vec<VersionPoint> = kept
@@ -147,7 +154,7 @@ async fn deck_analysis(State(st): State<AppState>, CurrentUser(user): CurrentUse
         })
         .collect();
     let current = current.and_then(|v| results.get(&v).map(|(_, a)| a.clone()));
-    Ok(Json(Response { method: METHOD, current, versions, configurations, computed_at: crate::util::now() }))
+    Ok(Json(Response { method: METHOD, current, commander, versions, configurations, computed_at: crate::util::now() }))
 }
 
 /// Every list's analysis (and its summary): card data and Spellbook answers loaded in one go

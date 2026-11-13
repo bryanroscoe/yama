@@ -888,9 +888,27 @@ export interface AnalysisSummary {
 
 /** GET /api/decks/:id/analysis: the current list's analysis, saved versions (newest first,
  *  the newest 60, scans kept only for History left out) and every configuration of the deck. */
+/** How a commander has done over every list recorded under it on the public sources
+ *  (server/src/public_commanders.rs, Record): the commander's record, never one list's. */
+export interface CommanderRecord {
+  name: string;
+  /** Share of recorded games won, 0 to 1: stock and tuned lists and every pod size together. */
+  win_rate: number;
+  games: number;
+  sources: string[];
+  /** 1 is the best; null under `min_games` games. */
+  place: number | null;
+  placed: number;
+  /** The middle placed commander's win rate. */
+  typical: number | null;
+  min_games: number;
+}
+
 export interface DeckAnalysisView {
   method: string;
   current: DeckAnalysis | null;
+  /** Absent from an older server; null with no commander or no recorded games. */
+  commander?: CommanderRecord | null;
   versions: ({ id: string; number: number; note: string | null; created_at: string; current: boolean } & AnalysisSummary)[];
   configurations: ({ id: string; name: string; configuration: string | null; this: boolean; version_id: string | null } & Partial<AnalysisSummary>)[];
   computed_at: string;
