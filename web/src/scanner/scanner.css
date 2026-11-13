@@ -558,3 +558,69 @@ button.scan-count {
 .scan-keep label {
   font-weight: 400;
 }
+
+/* The sheet's handle: drag down to hide the sheet, drag up or tap to bring it back (sheet.tsx). */
+.scan-camera {
+  touch-action: none; /* two fingers pinch the camera's zoom, not the page */
+}
+.scan-panel {
+  transition: transform 0.2s ease;
+}
+.scan .scan-handle {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  align-self: stretch;
+  min-height: 28px;
+  margin: -12px -16px -6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: grab;
+  touch-action: none;
+}
+.scan-handle span {
+  width: 40px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line);
+}
+.scan-handle:focus-visible span,
+.scan-handle:hover span {
+  background: var(--dim);
+}
+.scan-panel.is-hidden {
+  max-height: none;
+  overflow: hidden;
+  padding-top: 8px;
+  padding-bottom: calc(8px + env(safe-area-inset-bottom));
+}
+.scan-panel.is-hidden > :not(.scan-handle) {
+  display: none;
+}
+.scan .scan-panel.is-hidden .scan-handle {
+  margin: 0 -16px;
+  min-height: 32px;
+}
+
+/* Scan settings: one row, opened with a tap; closed it says what's set. */
+.scan-settings > summary {
+  gap: 10px;
+}
+.scan-settings-title {
+  font-weight: 700;
+}
+.scan-settings-summary {
+  color: var(--dim);
+  font-size: var(--t-sm);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.scan-settings[open] .scan-settings-summary {
+  display: none;
+}
+.scan-settings > .scan-choices {
+  margin-top: 10px;
+}

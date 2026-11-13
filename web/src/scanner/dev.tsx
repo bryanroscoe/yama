@@ -4,6 +4,7 @@ import "@fontsource/big-shoulders-display/800";
 import "@fontsource/atkinson-hyperlegible-next/400";
 import "@fontsource/atkinson-hyperlegible-next/700";
 import "../styles.css";
+import "../controls.css";
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { refreshOfflineCardsIfStale } from "../offline/cards";
@@ -19,7 +20,19 @@ function Dev() {
   if (!ready) return <p className="page">Loading card names</p>;
   return (
     <>
-      <ScannerView onAccept={(c) => setAdded((a) => [c, ...a])} />
+      <ScannerView
+        onAccept={(c) => setAdded((a) => [c, ...a])}
+        controls={<p className="scan-note">The dev page: nothing is saved.</p>}
+        settings={
+          <label className="scan-keep">
+            <input type="checkbox" />
+            <span>
+              <strong>A setting.</strong> Settings fold into one row, as on the Collection page.
+            </span>
+          </label>
+        }
+        settingsSummary="Regular, not filed"
+      />
       {added.length > 0 && (
         <p className="small" style={{ position: "fixed", top: 8, left: 8, zIndex: "var(--z-popover)", margin: 0 }}>
           Added {added.length}: {added.map((c) => c.name).join(", ")}

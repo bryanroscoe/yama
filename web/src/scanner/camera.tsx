@@ -24,6 +24,16 @@ export function readCaps(track: MediaStreamTrack): CameraCaps {
   return { torch: caps.torch === true, zoom };
 }
 
+/**
+ * Where the + and − buttons go from `zoom`: the nearest level above and below it, which works
+ * from a zoom a pinch left between levels. The camera's own top end (or the digital limit) is a
+ * level too.
+ */
+export function zoomSteps(caps: CameraCaps, zoom: number): { above?: number; below?: number } {
+  const levels = [...new Set([...zoomLevels(caps), caps.zoom ? caps.zoom.max : DIGITAL_MAX])].sort((a, b) => a - b);
+  return { above: levels.find((z) => z > zoom + 1e-6), below: [...levels].reverse().find((z) => z < zoom - 1e-6) };
+}
+
 /** The zoom levels to step through. */
 export function zoomLevels(caps: CameraCaps): number[] {
   if (caps.zoom) {
@@ -104,11 +114,32 @@ export function useCameraControls() {
     },
     [caps.zoom],
   );
-  const levels = zoomLevels(caps);
-  const at = levels.findIndex((z) => z >= zoom - 1e-6);
+  /** Any zoom in the camera's range (or 1× to the digital limit), for a pinch. Camera calls are queued, newest wins. */
+  const pending = useRef<{ busy: boolean; next: number | null }>({ busy: false, next: null });
+  const zoomTo = useCallback(
+    (z: number) => {
+      const lo = caps.zoom ? caps.zoom.min : 1;
+      const hi = caps.zoom ? caps.zoom.max : DIGITAL_MAX;
+      const want = Math.round(Math.min(hi, Math.max(lo, z)) * 100) / 100;
+      const p = pending.current;
+      p.next = want;
+      if (p.busy) return;
+      p.busy = true;
+      void (async () => {
+        while (p.next != null) {
+          const v = p.next;
+          p.next = null;
+          await setZoom(v);
+        }
+        p.busy = false;
+      })();
+    },
+    [caps.zoom, setZoom],
+  );
+  const { above, below } = zoomSteps(caps, zoom);
   const step = (d: 1 | -1) => {
-    const next = levels[Math.min(levels.length - 1, Math.max(0, (at < 0 ? 0 : at) + d))];
-    if (next != null && next !== zoom) void setZoom(next);
+    const next = d > 0 ? above : below;
+    if (next != null) void setZoom(next);
   };
   return {
     attach,
@@ -118,8 +149,9 @@ export function useCameraControls() {
     zoom,
     zoomIn: () => step(1),
     zoomOut: () => step(-1),
-    canZoomIn: at < levels.length - 1,
-    canZoomOut: at > 0,
+    zoomTo,
+    canZoomIn: above != null,
+    canZoomOut: below != null,
     /** The zoom the scanner applies itself (1 when the camera zooms). */
     digital: caps.zoom ? 1 : zoom,
     error,

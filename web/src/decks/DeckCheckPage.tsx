@@ -415,6 +415,10 @@ function Camera({ deck, target, draft, verdicts, setDraft, muted, onMute, onClos
       <p className="scan-note">
         <b>{sum.checked} checked</b>: {sum.belongs} belong, {sum.out} to take out, {sum.missing} of {sum.total} not seen yet. Against {target.label.charAt(0).toLowerCase()}{target.label.slice(1)}.
       </p>
+    </div>
+  );
+  const settings = (
+    <>
       <label className="scan-keep">
         <input type="checkbox" checked={keepAdding} onChange={(e) => { setKeepAdding(e.target.checked); setDeviceFlag(KEEP_ADDING, e.target.checked); }} />
         <span><strong>Keep going.</strong> Check each card as soon as the scanner knows it, and go on to the next. It still asks when a card looks like another.</span>
@@ -427,8 +431,9 @@ function Camera({ deck, target, draft, verdicts, setDraft, muted, onMute, onClos
         <input type="checkbox" checked={muted} onChange={(e) => onMute(e.target.checked)} />
         <span><strong>Mute.</strong> Colors only, no sounds or buzzing.</span>
       </label>
-    </div>
+    </>
   );
+  const settingsSummary = `${keepAdding ? "Keep going" : "Ask about each card"}${closeups ? "" : ", no close-ups"}${muted ? ", muted" : ""}`;
   return (
     <div ref={root} className="scan-overlay" role="dialog" aria-modal="true" aria-label={`Check ${deck.name}`} tabIndex={-1} {...layer}>
       {catalog ? (
@@ -447,6 +452,8 @@ function Camera({ deck, target, draft, verdicts, setDraft, muted, onMute, onClos
             haptics={!muted}
             recent={recent}
             controls={controls}
+            settings={settings}
+            settingsSummary={settingsSummary}
             acceptLabel="Count it and check next"
             renderResult={(card) => <VerdictCard v={preview(card.name)} compact />}
             overlay={(pending) => {
