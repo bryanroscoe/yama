@@ -4,19 +4,20 @@
 //   SCANNER_EVAL=1 npx vitest run web/src/scanner/eval
 //
 // Needs the server's card database (data/yama.db) and network on the first run to fetch ~26 card
-// images (about 4 MB) and Tesseract's English model (3 MB) into /tmp/yama-scanner-spike.
+// images (about 4 MB) and the OCR models (PaddleOCR, 10 MB; SCANNER_OCR=tesseract reads with
+// Tesseract and fetches its 3 MB model instead) into /tmp/yama-scanner-spike.
 // Options: SCANNER_EVAL_QUADS=refined,guide,truth  SCANNER_EVAL_VARIANTS=steady,rough
 //          SCANNER_EVAL_CARDS=mom-214,4ed-103  SCANNER_DEBUG=1 (writes crops to /tmp)
 
 import jpeg from "jpeg-js";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { NameIndex } from "../fuzzy";
 import { scanFrame } from "../pipeline";
-import { createTesseractOcr } from "../tesseract";
 import type { Quad, RgbaImage } from "../types";
 import { openDbCatalog } from "./dbCatalog";
+import { createEvalOcr } from "./ocr";
 import { DB_PATH, ensureFixtures, FIXTURES, readFixture, SPIKE_DIR, type Fixture } from "./fixtures";
 import { renderScene, VARIANTS } from "./simulate";
 
@@ -67,8 +68,7 @@ describe.skipIf(!enabled)("scanner eval", () => {
     const t0 = performance.now();
     const names = new NameIndex(catalog.names());
     const indexMs = performance.now() - t0;
-    const langDir = join(SPIKE_DIR, "lang");
-    const ocr = await createTesseractOcr(existsSync(join(langDir, "eng.traineddata.gz")) ? { langPath: langDir, cachePath: langDir } : { cachePath: langDir });
+    const ocr = await createEvalOcr();
     const quads = list(process.env.SCANNER_EVAL_QUADS) ?? ["refined"];
     const variants = list(process.env.SCANNER_EVAL_VARIANTS) ?? Object.keys(VARIANTS);
     const only = list(process.env.SCANNER_EVAL_CARDS);

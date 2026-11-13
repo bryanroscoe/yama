@@ -5,8 +5,11 @@ import { join } from "node:path";
 import { brotliCompressSync, constants, gzipSync } from "node:zlib";
 import { defineConfig, type Plugin } from "vite";
 import { ocrVersion } from "./scripts/ocr-version.mjs";
+import { paddleVersion } from "./scripts/paddle-models.mjs";
 
 const OCR_VERSION = ocrVersion();
+// The PaddleOCR models' folder under /ocr/ (scripts/copy-ocr.mjs), or "" when they weren't fetched.
+const PADDLE_DIR = existsSync(new URL(`./public/ocr/${paddleVersion()}/rec.onnx`, import.meta.url)) ? `/ocr/${paddleVersion()}` : "";
 
 /**
  * The build's file list for the service worker (public/sw.js): `/assets/precache-<hash>.json`,
@@ -29,7 +32,7 @@ function precacheList(): Plugin {
         .sort()
         .map((f) => `/${f}`);
       const precache = files.filter((f) => /\.(js|css|woff2)$/.test(f));
-      const keep = [`/ocr/${OCR_VERSION}/`];
+      const keep = [`/ocr/${OCR_VERSION}/`, ...(PADDLE_DIR ? [`${PADDLE_DIR}/`] : [])];
       const body = JSON.stringify({ precache, files, keep });
       const name = `assets/precache-${createHash("sha256").update(body).digest("hex").slice(0, 16)}.json`;
       writeFileSync(join(outDir, name), body);
@@ -107,6 +110,8 @@ export default defineConfig({
     "import.meta.env.VITE_SW_VERSION": JSON.stringify(createHash("sha256").update(readFileSync(new URL("./public/sw.js", import.meta.url))).digest("hex").slice(0, 16)),
     // The OCR engine's folder under /ocr/ (scripts/copy-ocr.mjs).
     "import.meta.env.VITE_OCR_VERSION": JSON.stringify(OCR_VERSION),
+    // The PaddleOCR models' folder, or "" (scripts/copy-ocr.mjs).
+    "import.meta.env.VITE_PADDLE_DIR": JSON.stringify(PADDLE_DIR),
   },
   // The scanner's art recognizer runs in a module worker (src/scanner/art.worker.ts).
   worker: { format: "es" },

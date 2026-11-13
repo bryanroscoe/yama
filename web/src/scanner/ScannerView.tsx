@@ -5,8 +5,8 @@
 // is filed under a guessed printing.
 //
 // When the recognition bundle isn't available (the server is still downloading it, or an old
-// browser), or a card's art isn't in it (new sets, battles), the scanner reads text with
-// Tesseract instead (pipeline.ts), as it did before.
+// browser), or a card's art isn't in it (new sets, battles), the scanner reads text instead
+// (pipeline.ts), with the engine ocrEngine.ts picks.
 //
 // Needs a secure context for the camera (https or localhost). "Use a photo" works anywhere.
 
@@ -40,7 +40,7 @@ export interface ScannerViewProps {
   onAccept?: (card: ScanCandidate, copies: number, auto: boolean) => void | Promise<boolean>;
   /** For reading text: defaults to the server lookup plus the offline card names. */
   catalog?: ScanCatalog;
-  /** For reading text: defaults to tesseract.js. */
+  /** For reading text: defaults to `createScannerOcr` (ML Kit in the app, PaddleOCR in the browser, else tesseract.js). */
   ocr?: OcrEngine;
   onClose?: () => void;
   /** Copies added since the scanner opened, for the "Added 3 so far" chip. */
@@ -393,11 +393,11 @@ export function ScannerView({
   const ocrRef = useRef<Promise<OcrEngine> | null>(null);
   /** False once the scanner closes: work finishing after that must clean up after itself. */
   const alive = useRef(true);
-  /** The text reader (ML Kit in the Android app, Tesseract elsewhere; ocrEngine.ts), started on first use. */
+  /** The text reader (ML Kit in the Android app, PaddleOCR or Tesseract in the browser; ocrEngine.ts), started on first use. */
   const ocrEngine = useCallback(() => {
-    // Served by the app (scripts/copy-ocr.mjs), so it works offline and loads nothing from a CDN.
-    // The folder and tesseract's own saved copy of the model are named by the engine's version, so
-    // a new engine is fetched rather than an old copy kept.
+    // Tesseract's files are served by the app (scripts/copy-ocr.mjs), so it works offline and loads
+    // nothing from a CDN. The folder and tesseract's own saved copy of the model are named by the
+    // engine's version, so a new engine is fetched rather than an old copy kept.
     const ocr = `/ocr/${import.meta.env.VITE_OCR_VERSION}`;
     ocrRef.current ??= ocrProp
       ? Promise.resolve(ocrProp)
@@ -411,7 +411,7 @@ export function ScannerView({
     ocrRef.current.catch(() => (ocrRef.current = null));
     return ocrRef.current;
   }, [ocrProp]);
-  /** The text reader (Tesseract plus every card name), started on first use. */
+  /** The text reader (OCR plus every card name), started on first use. */
   const textReader = useCallback(() => {
     textRef.current ??= (async () => {
       const catalog = catalogProp ?? (await createServerCatalog({ setCodes: await api<string[]>("/api/sets").catch(() => undefined) }));

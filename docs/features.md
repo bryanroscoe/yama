@@ -152,7 +152,7 @@ Card Kingdom retail and buylist plus Mana Pool listing history via MTGJSON (90-d
 
 ### Scanner
 
-Camera OCR in Collection; swap checks from Plans, Prints, Swap sheet or a plan deck: scan either card for its replacement, reasons and destination, or check a photo or typed name. Uses card identity across printings and either face; scans change nothing. How recognition works, and what is left, is in [scanner.md](scanner.md).
+Camera scanning in Collection: the card is found by its art, and its printing and title are read in the browser with PaddleOCR's PP-OCRv5 models (Tesseract as the fallback; since 13 Nov 2026). Swap checks from Plans, Prints, Swap sheet or a plan deck: scan either card for its replacement, reasons and destination, or check a photo or typed name. Uses card identity across printings and either face; scans change nothing. How recognition works, and what is left, is in [scanner.md](scanner.md).
 
 ## Collection
 
