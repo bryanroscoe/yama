@@ -1932,7 +1932,7 @@ async fn create_game(st: &AppState, user: &User, body: &CreateRequest,
     // With no friends to wait for, start right away.
     if auto_start
         && !seats.iter().any(|s| s.kind == "human" && s.user_id.is_none()) {
-        start_game(st, &id, &user.id).await?;
+        start_detached(st, &id, &user.id).await?;
     }
     Ok(id)
 }
@@ -1997,7 +1997,24 @@ async fn join(
 }
 
 async fn start(State(st): State<AppState>, Player(user): Player, Path(id): Path<String>) -> AppResult<()> {
-    start_game(&st, &id, &user.id).await
+    start_detached(&st, &id, &user.id).await
+}
+
+/// `start_game` in a task of its own, so a request that disconnects doesn't throw the setup away.
+/// On 13 Nov 2026 a phone gave up on a start that took over 28 s (the engine paging back in from
+/// disk swap) and the table was left in its lobby; now the game goes live anyway and the player
+/// finds it under Continue.
+async fn start_detached(st: &AppState, id: &str, user: &str) -> AppResult<()> {
+    let (st, id, user) = (st.clone(), id.to_string(), user.to_string());
+    tokio::spawn(async move {
+        let result = start_game(&st, &id, &user).await;
+        if let Err(error) = &result {
+            tracing::info!(game_id = id.as_str(), %error, "online game didn't start");
+        }
+        result
+    })
+    .await
+    .map_err(|error| AppError::Other(error.into()))?
 }
 
 async fn start_game(st: &AppState, id: &str, user: &str) -> AppResult<()> {
@@ -2006,6 +2023,8 @@ async fn start_game(st: &AppState, id: &str, user: &str) -> AppResult<()> {
     let permit = tokio::time::timeout(std::time::Duration::from_secs(10), st.play.setup_gate.clone().acquire_owned())
         .await.map_err(|_| AppError::Unavailable("A game is still starting. Try again in a moment.".into()))?
         .map_err(|e| AppError::Other(e.into()))?;
+    // Timed from the slot: reading the decks below touches engine card data as much as setup does.
+    let began = std::time::Instant::now();
     let r = load_row(&st.pool, id).await?;
     if r.host_id != user {
         return Err(AppError::Forbidden("only the host starts the game".into()));
@@ -2041,6 +2060,10 @@ async fn start_game(st: &AppState, id: &str, user: &str) -> AppResult<()> {
         let replay = m.replay_json();
         Ok((m, replay, permit))
     }).await?;
+    let secs = began.elapsed().as_secs_f32();
+    if secs > 3.0 {
+        tracing::warn!(game_id = id, secs, "online game setup was slow");
+    }
     // Claim and save atomically after preparation. A concurrent start or join can
     // invalidate this candidate; only the request still owning these seats publishes it.
     let mut tx = st.pool.begin().await?;

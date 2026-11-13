@@ -1752,6 +1752,56 @@ async fn people_in_the_games_playgroup_are_seated_as_its_members() {
     st.play.stop("members");
 }
 
+/// 13 Nov 2026: a phone gave up on a slow start and the table was left in its lobby. A start whose
+/// request goes away still puts the game live.
+#[tokio::test]
+async fn a_start_whose_request_disconnects_still_goes_live() {
+    use crate::testutil::{deck as make_deck, user};
+    let mut st = crate::testutil::state().await;
+    st.play = ready_hub(None);
+    let pool = st.pool.clone();
+    let (host, _) = user(&pool, "gone-host@example.com").await;
+    let (friend, _) = user(&pool, "gone-friend@example.com").await;
+    let (host_deck, host_version) = make_deck(&pool, &host, "Host").await;
+    let (friend_deck, friend_version) = make_deck(&pool, &friend, "Friend").await;
+    let cards = vec![
+        crate::decks::DeckCard { oracle_id: "commander".into(), name: "Combat Celebrant".into(), qty: 1, board: crate::decks::Board::Commander },
+        crate::decks::DeckCard { oracle_id: "land".into(), name: "Island".into(), qty: 99, board: crate::decks::Board::Main },
+    ];
+    for version in [&host_version, &friend_version] {
+        sqlx::query("UPDATE deck_versions SET cards=? WHERE id=?").bind(serde_json::to_string(&cards).unwrap()).bind(version).execute(&pool).await.unwrap();
+    }
+    let seats: Vec<_> = [(&host, &host_deck, &host_version), (&friend, &friend_deck, &friend_version)]
+        .into_iter().enumerate().map(|(n, (user, deck, version))| {
+            let mut s = seat(n as u8, "Player");
+            s.user_id = Some(user.to_string());
+            s.deck_id = Some(deck.to_string());
+            s.deck_version_id = Some(version.to_string());
+            s
+        }).collect();
+    sqlx::query("INSERT INTO games(id,mode,created_by,status,started_at) VALUES('gone','online',?,'in_progress','2026-11-13T00:00:00Z')")
+        .bind(&host).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO online_games(game_id,code,host_id,stage,seats,created_at,updated_at) VALUES('gone','GONE00',?,'lobby',?,'t','t')")
+        .bind(&host).bind(serde_json::to_string(&seats).unwrap()).execute(&pool).await.unwrap();
+    // Another start holds the setup slot, so this one is certainly still waiting when its
+    // request goes away.
+    let busy = st.play.setup_gate.clone().acquire_owned().await.unwrap();
+    assert!(tokio::time::timeout(Duration::from_millis(50), start_detached(&st, "gone", &host)).await.is_err());
+    assert_eq!(load_row(&pool, "gone").await.unwrap().stage, "lobby");
+    drop(busy);
+    let live = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if load_row(&pool, "gone").await.unwrap().stage == "live" && st.play.live("gone").is_some() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(live.is_ok(), "the start went on after its request disconnected");
+    st.play.stop("gone");
+}
+
 #[tokio::test]
 async fn the_member_backfill_fills_only_online_seats_whose_account_is_in_the_games_group() {
     let pool = crate::db::test_pool().await;
