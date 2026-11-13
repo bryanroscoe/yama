@@ -13,7 +13,7 @@ export interface OwnedOcr extends OcrEngine {
 }
 
 export interface ScannerOcr extends OwnedOcr {
-  /** Which engine this is, for the scanner's diagnostics. */
+  /** The engine picked at the start, for the scanner's diagnostics ("paddle" may have fallen back to Tesseract since). */
   engine: "mlkit" | "paddle" | "tesseract";
 }
 
