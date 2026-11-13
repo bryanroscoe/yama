@@ -2479,6 +2479,7 @@ async fn a_computers_seat_is_given_the_combos_kept_for_the_list_it_plays() {
     // Once Spellbook's combos are imported (combos.rs), the list itself is looked up, whoever's
     // it is, and the stored answers are no longer read.
     for sql in [
+        "INSERT INTO import_runs (id, kind, started_at, finished_at) VALUES ('r', 'spellbook_variants', '2026-11-13T00:00:00Z', '2026-11-13T00:01:00Z')",
         "INSERT INTO spellbook_cards (n, oracle_id) VALUES (1, 'o-opt'), (2, 'o-preordain'), (3, 'o-blaze')",
         "INSERT INTO spellbook_combos (n, id, cards, popularity, run) VALUES (1, 'bulk', 2, 5, 'r'), (2, 'side', 2, 9, 'r')",
         "INSERT INTO spellbook_combo_cards (card, combo) VALUES (1, 1), (2, 1), (1, 2), (3, 2)",

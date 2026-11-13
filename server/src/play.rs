@@ -967,7 +967,8 @@ pub(crate) async fn seat_combos(st: &AppState, engine: &Engine, s: &SeatCfg, car
     if !st.cfg.ai_combos || s.kind != "ai" {
         return Vec::new();
     }
-    match crate::combos::in_list(&st.pool, cards, yama_play::MAX_SEAT_COMBOS).await {
+    // More than a seat is given: some may name a card the engine doesn't know.
+    match crate::combos::in_list(&st.pool, cards, yama_play::MAX_SEAT_COMBOS * 3).await {
         Ok(Some(found)) => {
             let listed: Vec<yama_play::ListedCombo> = found.iter().map(|c| yama_play::ListedCombo { id: &c.id, cards: &c.cards }).collect();
             return engine.resolve_combos(&deck_lines(cards), &listed);

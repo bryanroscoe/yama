@@ -11,7 +11,8 @@
 //!
 //! Kept: combos Spellbook marks OK and legal in Commander, made of named cards alone (none of
 //! its templates, such as "a creature that taps for mana": the named cards alone aren't the
-//! combo), one copy of each. What a combo does is not kept: the engine finds that out by
+//! combo), one copy of each, none of which has to be the commander (about one in a hundred
+//! does; Yama doesn't keep which card, so those are left out). What a combo does is not kept: the engine finds that out by
 //! playing it (`yama_play::SeatCombo`). Credit and a link to commanderspellbook.com are on the
 //! pages that show combos.
 
@@ -28,7 +29,7 @@ use tokio::io::AsyncWriteExt;
 use crate::decks::{Board, DeckCard};
 use crate::util::{new_id, now};
 
-/// Spellbook's whole set of combos, gzipped (about 30 MB; about 500 MB as JSON).
+/// Spellbook's whole set of combos, gzipped (33 MB on 13 Nov 2026; 742 MB as JSON).
 pub const VARIANTS_URL: &str = "https://json.commanderspellbook.com/variants.json.gz";
 /// `import_runs.kind` of these imports.
 const KIND: &str = "spellbook_variants";
@@ -71,27 +72,31 @@ struct Export {
     variants: KeptVariants,
 }
 
+// Every field but the ids may be missing or null: one variant of an unexpected shape is left
+// out, and doesn't fail the whole file.
 #[derive(Deserialize)]
 struct Variant {
     id: String,
     #[serde(default)]
-    status: String,
+    status: Option<String>,
     #[serde(default)]
-    uses: Vec<Use>,
+    uses: Option<Vec<Use>>,
     /// Templates: requirements that aren't a named card.
     #[serde(default)]
-    requires: Vec<serde::de::IgnoredAny>,
+    requires: Option<Vec<serde::de::IgnoredAny>>,
     #[serde(default)]
-    legalities: Legalities,
+    legalities: Option<Legalities>,
     #[serde(default)]
-    popularity: Option<i64>,
+    popularity: Option<f64>,
 }
 
 #[derive(Deserialize)]
 struct Use {
     card: UsedCard,
     #[serde(default)]
-    quantity: Option<i64>,
+    quantity: Option<f64>,
+    #[serde(rename = "mustBeCommander", default)]
+    must_be_commander: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -101,32 +106,34 @@ struct UsedCard {
     oracle_id: Option<String>,
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Deserialize)]
 struct Legalities {
     #[serde(default)]
-    commander: bool,
+    commander: Option<bool>,
 }
 
 impl KeptVariants {
     /// Keep `v` if a computer's seat could be told about it (the module's rules).
     fn take(&mut self, v: Variant) {
-        if v.status != "OK" || !v.legalities.commander || !v.requires.is_empty() || v.uses.is_empty() || v.uses.len() > MAX_CARDS {
+        let legal = v.legalities.is_some_and(|l| l.commander == Some(true));
+        let uses = v.uses.unwrap_or_default();
+        if v.status.as_deref() != Some("OK") || !legal || v.requires.is_some_and(|r| !r.is_empty()) || uses.is_empty() || uses.len() > MAX_CARDS {
             return;
         }
-        let mut cards: Vec<i64> = Vec::with_capacity(v.uses.len());
-        for u in &v.uses {
+        let mut cards: Vec<i64> = Vec::with_capacity(uses.len());
+        for u in &uses {
             let known = u.card.oracle_id.as_deref().is_some_and(|o| !o.is_empty());
-            if !known || u.quantity.unwrap_or(1) != 1 || cards.contains(&u.card.id) {
+            if !known || u.quantity.unwrap_or(1.0) != 1.0 || u.must_be_commander == Some(true) || cards.contains(&u.card.id) {
                 return;
             }
             cards.push(u.card.id);
         }
-        for u in v.uses {
+        for u in uses {
             if let Some(oracle) = u.card.oracle_id {
                 self.cards.entry(u.card.id).or_insert(oracle);
             }
         }
-        self.combos.push(Kept { id: v.id, popularity: v.popularity, cards });
+        self.combos.push(Kept { id: v.id, popularity: v.popularity.map(|p| p as i64), cards });
     }
 }
 
@@ -211,12 +218,26 @@ async fn import_file(pool: &SqlitePool, path: PathBuf, run: &str, at_least: usiz
     Ok((kept.combos.len(), export.timestamp))
 }
 
+/// The client the export is fetched with. Unlike the server's usual one it doesn't undo the
+/// file's gzip encoding on the way in, so what lands on disk is the 33 MB file, not its 742 MB
+/// of JSON.
+fn client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .user_agent(concat!("Yama/", env!("CARGO_PKG_VERSION"), " (private Magic app)"))
+        .no_gzip()
+        .connect_timeout(Duration::from_secs(10))
+        .build()
+        .expect("http client")
+}
+
 /// Download Spellbook's export to `data_dir`, import it and delete the file. Each try is a row
 /// in `import_runs`. Returns how many combos are stored.
 pub async fn refresh(pool: &SqlitePool, http: &reqwest::Client, url: &str, data_dir: &Path) -> anyhow::Result<usize> {
     let run = new_id();
     sqlx::query("INSERT INTO import_runs (id, kind, source_url, started_at) VALUES (?, ?, ?, ?)").bind(&run).bind(KIND).bind(url).bind(now()).execute(pool).await?;
     let path = data_dir.join("spellbook-variants.json.gz");
+    // A file a stopped server left behind.
+    let _ = tokio::fs::remove_file(&path).await;
     let result = async {
         download(http, url, &path).await?;
         import_file(pool, path.clone(), &run, MIN_COMBOS).await
@@ -268,8 +289,9 @@ async fn due(pool: &SqlitePool) -> bool {
 
 /// Background refresh for a running server (with `YAMA_AUTO_IMPORT=1`): wakes hourly and imports
 /// when one is [`due`].
-pub fn spawn_scheduler(pool: SqlitePool, http: reqwest::Client, data_dir: PathBuf) {
+pub fn spawn_scheduler(pool: SqlitePool, data_dir: PathBuf) {
     tokio::spawn(async move {
+        let http = client();
         loop {
             if due(&pool).await {
                 let job = crate::perf::Job::start("Spellbook combos", Duration::from_secs(600));
@@ -287,7 +309,7 @@ pub fn spawn_scheduler(pool: SqlitePool, http: reqwest::Client, data_dir: PathBu
 
 /// `yama-server import-combos`: the import once, now.
 pub async fn run_once(pool: &SqlitePool, data_dir: &Path) -> anyhow::Result<()> {
-    let n = refresh(pool, &crate::routes::http_client(), VARIANTS_URL, data_dir).await?;
+    let n = refresh(pool, &client(), VARIANTS_URL, data_dir).await?;
     println!("Commander Spellbook combos stored: {n}");
     Ok(())
 }
@@ -302,10 +324,14 @@ pub struct Found {
 }
 
 /// The stored combos made only of cards in `cards`' commander and main boards, at most `limit`:
-/// those of fewest cards first, then the most popular. `None` while nothing has been imported,
-/// so a caller can tell "no combos" from "not known yet".
+/// those of fewest cards first, then the most popular. `None` until an import has finished (a
+/// first one still running, or stopped part-way, doesn't count), so a caller can tell "no
+/// combos" from "not known yet".
 pub async fn in_list(pool: &SqlitePool, cards: &[DeckCard], limit: usize) -> sqlx::Result<Option<Vec<Found>>> {
-    let imported: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM spellbook_combos)").fetch_one(pool).await?;
+    let imported: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM import_runs WHERE kind = ? AND error IS NULL AND finished_at IS NOT NULL)")
+        .bind(KIND)
+        .fetch_one(pool)
+        .await?;
     if !imported {
         return Ok(None);
     }
@@ -362,6 +388,11 @@ mod tests {
         serde_json::json!({ "id": id, "status": "OK", "uses": uses, "requires": [], "produces": [{ "feature": { "name": "Infinite mana" } }], "legalities": { "commander": true, "vintage": true }, "popularity": popularity })
     }
 
+    /// Record a finished import, as [`refresh`] does around [`import_file`].
+    async fn finished(pool: &SqlitePool, run: &str) {
+        sqlx::query("INSERT INTO import_runs (id, kind, started_at, finished_at) VALUES (?, ?, ?, ?)").bind(run).bind(KIND).bind(now()).bind(now()).execute(pool).await.unwrap();
+    }
+
     /// Write an export of `variants` to a new gzipped file in `dir`.
     fn export(dir: &Path, variants: Vec<serde_json::Value>) -> PathBuf {
         use std::io::Write as _;
@@ -389,6 +420,12 @@ mod tests {
         two_copies["uses"][1]["quantity"] = serde_json::json!(2);
         let mut needs_review = variant("2-3-r", &[(2, "o-b"), (3, "o-c")], Some(600));
         needs_review["status"] = serde_json::json!("NR");
+        let mut as_commander = variant("3-1-c", &[(3, "o-c"), (1, "o-a")], Some(500));
+        as_commander["uses"][0]["mustBeCommander"] = serde_json::json!(true);
+        // A shape Spellbook doesn't send today: left out, and the rest still read.
+        let mut odd = variant("9-9", &[(1, "o-a"), (2, "o-b")], Some(400));
+        odd["legalities"] = serde_json::Value::Null;
+        odd["uses"] = serde_json::Value::Null;
         let first = export(
             dir.path(),
             vec![
@@ -402,10 +439,15 @@ mod tests {
                 not_legal,
                 two_copies,
                 needs_review,
+                as_commander,
+                odd,
             ],
         );
         let (stored, built) = import_file(&pool, first, "run-1", 1).await.unwrap();
         assert_eq!((stored, built.as_deref()), (5, Some("2026-11-13T09:00:00Z")));
+        // Stored but not finished (a first import still running): still "not known".
+        assert_eq!(in_list(&pool, &deck, 100).await.unwrap(), None);
+        finished(&pool, "run-1").await;
 
         // Fewest cards first, then the most popular; each card as the list names it.
         let found = in_list(&pool, &deck, 100).await.unwrap().unwrap();

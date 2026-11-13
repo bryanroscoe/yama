@@ -200,7 +200,7 @@ pub async fn serve(cfg: Config, pool: SqlitePool) -> anyhow::Result<()> {
         crate::deck_prices::spawn_scheduler(pool.clone(), http_client());
         // Commander Spellbook's combos for the computer's seats, weekly (combos.rs).
         if cfg.ai_combos {
-            crate::combos::spawn_scheduler(pool.clone(), http_client(), cfg.data_dir.clone());
+            crate::combos::spawn_scheduler(pool.clone(), cfg.data_dir.clone());
         }
         // Store stock for the cards sourcing pages want, reread slowly (plan/stock/live.rs).
         crate::plan::stock::live::spawn(pool.clone(), http_client());
