@@ -37,6 +37,11 @@ services:
     # The rules engine (about 0.7 GB) plus the lab's game threads and live games. At 3 GB the lab
     # filled it on 2026-10-23 and every game slowed to a crawl while the kernel reclaimed pages.
     mem_limit: 5g
+    # No swap (swap limit = memory limit). saget's only swap is the CI pool's file on an array
+    # disk; on 13 Nov 2026 about 450 MB of the idle engine had been swapped there, and starting a
+    # game took over 28 s while it paged back in. A host compose.override.yaml that raises
+    # mem_limit must raise memswap_limit with it (Docker refuses a swap limit below the memory one).
+    memswap_limit: 5g
   # "Ask Claude" (deploy/Dockerfile.advisor). No published port: only yama reaches it, on the
   # private advisor network. advisor.env (server-local, mode 0600) holds ADVISOR_SECRET, which
   # deploy.sh makes, Bryan's CLAUDE_CODE_OAUTH_TOKEN, which deploy/advisor-token.sh writes, and

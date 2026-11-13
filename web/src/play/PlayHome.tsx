@@ -316,7 +316,7 @@ function NewGame({ decks, guest }: { decks: DeckSummary[]; guest: boolean }) {
           )}
         </span>
         <Button variant="primary" className="ph-open" onClick={() => create.mutate()} disabled={create.isPending}>
-          {seats.some((s) => s.kind === "friend") ? "Open the table" : "Start the game"}
+          {seats.some((s) => s.kind === "friend") ? (create.isPending ? "Opening…" : "Open the table") : create.isPending ? "Starting…" : "Start the game"}
         </Button>
       </div>
     </section>
