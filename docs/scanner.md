@@ -31,7 +31,7 @@ Labels used below:
 
 ## Browser OCR: PP-OCRv5 (2026-11-13)
 
-Bryan (2026-11-13): "Tesseract.js was so-so but we need something better... it'd be great if we could do something even better just from the browser. I know other apps can." Decision: the browser's OCR is now PaddleOCR's PP-OCRv5 English recogniser with the PP-OCRv3 text detector, run by onnxruntime-web (already loaded for the art recognizer) in its own worker. Tesseract stays as the fallback: when the build has no models, when they fail to load, or when the worker dies or fails three reads in a row. The Android app's native OCR is chosen in the same place (`ocrEngine.ts`).
+Bryan (2026-11-13): "Tesseract.js was so-so but we need something better... it'd be great if we could do something even better just from the browser. I know other apps can." Decision: the browser's OCR is now PaddleOCR's PP-OCRv5 English recogniser with the PP-OCRv3 text detector, run by onnxruntime-web (already loaded for the art recognizer) in its own worker. Tesseract stays as the fallback: when the build has no models, when they fail to load, or when the worker dies or fails three reads in a row. The Android app's ML Kit is chosen in the same place (`ocrEngine.ts`), ahead of both; in the app without it, PaddleOCR reads from the models bundled in the APK.
 
 How it reads (`paddle.ts`): the detector (2.4 MB) finds the words in the crop as slightly turned boxes; boxes on one line are merged and the recogniser (7.8 MB) reads the line in one run, straightened and scaled to 48 px high, with greedy CTC decoding. A whitelist (the collector line's uppercase set) masks the classes that may win, like Tesseract's. A title read keeps the line with the most text; a collector block keeps its lowest six lines, top to bottom. A line's direction comes from its longest words (a short word's is mostly noise). When the detector finds nothing, the crop is split into lines by rows of ink. Confidence is the mean probability of the kept characters, on Tesseract's 0 to 100 scale. Only the title close-up reads it (to decide whether to try another crop); the printing is settled by the catalog lookup and the title check, as before.
 
@@ -252,7 +252,7 @@ const res = await scanFrame(imageData, { ocr, catalog, names, guide });
 // res.candidates (best first), res.quad, res.raw (OCR text), res.timings
 ```
 
-`OcrEngine` and `ScanCatalog` are injected: `createOcrEngine()` (`ocrEngine.ts`: PaddleOCR in the browser, Tesseract as the fallback) and `createServerCatalog()` for the app, `eval/dbCatalog.ts` (read-only SQLite) for tests.
+`OcrEngine` and `ScanCatalog` are injected: `createScannerOcr()` (`ocrEngine.ts`: ML Kit in the Android app, PaddleOCR in the browser, Tesseract as the fallback) and `createServerCatalog()` for the app, `eval/dbCatalog.ts` (read-only SQLite) for tests.
 
 Files, all under `web/src/scanner/`:
 
@@ -266,7 +266,7 @@ Files, all under `web/src/scanner/`:
 | `parse.ts` | collector-line parser, set-code lookalikes, name normalising |
 | `fuzzy.ts` | trigram plus fitting-edit-distance name index |
 | `pick.ts` | `pickPrinting`: printing from title plus partial collector read |
-| `ocrEngine.ts` | `createOcrEngine`: which OCR engine reads text, and the fallback to Tesseract |
+| `ocrEngine.ts` | `createScannerOcr`: which OCR engine reads text (ML Kit, PaddleOCR, Tesseract), and the fallback to Tesseract |
 | `paddle.ts` | `OcrEngine` on PaddleOCR (PP-OCRv5 recogniser, PP-OCRv3 detector; ONNX Runtime passed in) |
 | `ocr.worker.ts`, `paddleClient.ts` | PaddleOCR in a web worker |
 | `paddle.test.ts` | unit tests for its pure parts (detector boxes, line splitting, CTC decoding, fallback) |
