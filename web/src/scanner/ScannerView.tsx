@@ -1064,11 +1064,14 @@ export function ScannerView({
   usePinchZoom(cameraRef, cam.zoom, cam.zoomTo);
   const panelRef = useRef<HTMLDivElement>(null);
   const sheet = useSheetDrag(panelRef);
-  // A card that needs a tap brings a hidden sheet back.
+  // A hidden sheet comes back whenever the person has something to do in it: a card found that
+  // Keep adding won't file by itself, or the set picker opened.
   const { setHidden: showSheet } = sheet;
+  const filesItself = !!found && autoAdd && !!onAccept && (identityOnly ? addsByIdentity(found) : addsItself(found));
+  const needsSheet = (phase === "found" && !!found && !filesItself) || lockOpen;
   useEffect(() => {
-    if (tapNeeded) showSheet(false);
-  }, [tapNeeded, showSheet]);
+    if (needsSheet) showSheet(false);
+  }, [needsSheet, showSheet]);
   const settingsBox = (
     <ScanSettings summary={settingsSummary}>
       {settings}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Printing } from "../api";
-import { digitalRegion, readCaps, zoomLevels } from "./camera";
+import { digitalRegion, readCaps, zoomLevels, zoomSteps } from "./camera";
 import { halfToFloat, readGallery } from "./gallery";
 import { poolIndices, type Art, type ArtMatch } from "./recognizer";
 import { priceRange } from "./ScannerView";
@@ -196,5 +196,20 @@ describe("gallery search", () => {
 
   it("refuses a graph without the gallery", () => {
     expect(() => readGallery(new Uint8Array(field(7, [])))).toThrow();
+  });
+});
+
+describe("zoomSteps", () => {
+  it("steps from a pinched zoom between levels, up to the camera's top end", () => {
+    const cam = { torch: false, zoom: { min: 1, max: 8 } };
+    expect(zoomSteps(cam, 5)).toEqual({ above: 8, below: 4 });
+    expect(zoomSteps(cam, 8)).toEqual({ above: undefined, below: 4 });
+    expect(zoomSteps(cam, 1)).toEqual({ above: 1.5, below: undefined });
+  });
+
+  it("goes to the digital limit from just under it", () => {
+    const digital = { torch: false, zoom: null };
+    expect(zoomSteps(digital, 2.8)).toEqual({ above: 3, below: 2 });
+    expect(zoomSteps(digital, 3).above).toBeUndefined();
   });
 });
