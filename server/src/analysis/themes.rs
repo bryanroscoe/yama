@@ -51,6 +51,15 @@ const THEMES: &[(&str, &str, Test, &str)] = &[
     }, "Exiles and returns its own creatures to reuse their abilities."),
     ("energy", "Energy", |t, _| has(rx!(r"\{e\}|energy counter"), t), "Gets and spends energy."),
     ("draw", "Card draw matters", |t, _| has(rx!(r"whenever you draw (?:a|your second) card|for each card you've drawn"), t), "Rewards drawing extra cards."),
+    ("planeswalkers", "Planeswalkers", |t, ty| {
+        ty.contains("Planeswalker") || has(rx!(r"\bproliferate\b|\bloyalty (?:abilit|counter)|(?<!or )\bplaneswalkers? you control\b|\bplaneswalker (?:card|spell)s?\b"), t)
+    }, "Fields planeswalkers and the cards that grow and protect them."),
+    ("legends", "Legends matter", |t, _| {
+        has(rx!(r"\blegendary (?:creature|permanent|spell|card)s?\b|\bhistoric\b|\bfor each legendary\b|\banother legendary\b"), t)
+    }, "Rewards playing legendary cards."),
+    ("goad", "Goad and politics", |t, _| {
+        has(rx!(r"\bgoad(?:ed|s)?\b|\battacks? (?:a player other than you|one of your opponents)\b|\bcan't attack you\b|\bthe monarch\b|\bcouncil's dilemma\b|\bwill of the council\b|\btempting offer\b"), t)
+    }, "Turns opponents' creatures on each other and makes deals at the table."),
     ("attack", "Go wide and attack", |t, _| {
         has(rx!(r"whenever (?:one or more|a) creatures? you control attacks?|creatures you control get \+\d/\+\d|attacking creatures you control"), t)
     }, "Attacks with many creatures at once."),
