@@ -71,7 +71,7 @@ flowchart LR
 ```
 
 - **Clients.** One React and TypeScript app serves the browser, the installed web app and an
-  Android shell (built, not yet in a store). Writes made offline are queued as operations with client-made IDs and applied
+  Android app (sideloaded from GitHub, keeping itself up to date). Writes made offline are queued as operations with client-made IDs and applied
   once by the server, so a retry is always safe.
 - **Server.** `yama-server` is a single Rust binary: the JSON API, WebSockets for live games,
   the MCP endpoint with its OAuth server, server-rendered public pages, the built web app's

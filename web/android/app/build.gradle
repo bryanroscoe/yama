@@ -7,19 +7,30 @@ android {
         applicationId "ing.yama.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // Play needs a higher versionCode for every upload: CI passes its run number.
+        // Every release needs a higher versionCode: the release workflow passes one.
         versionCode((System.getenv("YAMA_ANDROID_VERSION_CODE") ?: "1") as int)
         versionName System.getenv("YAMA_ANDROID_VERSION_NAME") ?: "0.1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        // Which native code this is (scripts/android-native-hash.mjs): a downloaded web build runs
+        // only on the native code it was built against. "dev" for local builds, which never update.
+        buildConfigField "String", "YAMA_NATIVE_HASH", "\"${System.getenv("YAMA_NATIVE_HASH") ?: "dev"}\""
+        // Phones and the emulator; 32-bit x86 devices don't exist outside old emulators, and each
+        // ABI carries its own copy of ML Kit's text model.
+        ndk {
+            abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64'
+        }
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
-    // The upload key signs release bundles when CI has it (secrets, docs/mobile.md); Play App
-    // Signing re-signs them for devices. Without it the release bundle is left unsigned.
-    def uploadKeystore = System.getenv("YAMA_UPLOAD_KEYSTORE")
+    // The release key signs the release APK (the sideloaded app, which updates itself) and the
+    // bundle when CI has it (secrets, docs/mobile.md). Without it the release outputs are unsigned.
+    def releaseKeystore = System.getenv("YAMA_RELEASE_KEYSTORE")
+    buildFeatures {
+        buildConfig = true
+    }
     signingConfigs {
         // A debug key kept in the repo (not a secret) so debug builds from CI and from any
         // checkout share one SHA-1, registered once in the debug Android OAuth client.
@@ -29,12 +40,12 @@ android {
             keyAlias "androiddebugkey"
             keyPassword "android"
         }
-        if (uploadKeystore) {
-            upload {
-                storeFile file(uploadKeystore)
-                storePassword System.getenv("YAMA_UPLOAD_KEYSTORE_PASSWORD")
-                keyAlias System.getenv("YAMA_UPLOAD_KEY_ALIAS")
-                keyPassword System.getenv("YAMA_UPLOAD_KEY_PASSWORD")
+        if (releaseKeystore) {
+            release {
+                storeFile file(releaseKeystore)
+                storePassword System.getenv("YAMA_RELEASE_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("YAMA_RELEASE_KEY_ALIAS")
+                keyPassword System.getenv("YAMA_RELEASE_KEY_PASSWORD")
             }
         }
     }
@@ -43,7 +54,7 @@ android {
             signingConfig signingConfigs.debug
         }
         release {
-            if (uploadKeystore) signingConfig signingConfigs.upload
+            if (releaseKeystore) signingConfig signingConfigs.release
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
@@ -62,6 +73,8 @@ dependencies {
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')
+    // The scanner's text reader (TextReaderPlugin.java): ML Kit with its Latin model in the APK.
+    implementation "com.google.mlkit:text-recognition:16.0.1"
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"

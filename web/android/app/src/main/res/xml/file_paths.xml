@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Files the app hands to other apps: only exports written to its own cache (web/src/download.ts). -->
+<!-- Files the app hands to other apps from its own cache: exports (web/src/download.ts) and a
+     downloaded app update, for Android's installer (UpdaterPlugin.java). -->
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <cache-path name="exports" path="exports/" />
+    <cache-path name="updates" path="updates/" />
 </paths>

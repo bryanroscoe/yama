@@ -1,0 +1,181 @@
+name: Android release
+
+# Publishes the sideloaded Android app after every production deploy (docs/mobile.md, "Updates").
+# The rolling `android-app` release holds the latest signed APK (also as yama.apk, the install
+# link), the web build zipped for the app, and update.json, which installed apps read.
+# - The web build is rebuilt each time, against the commit that was just deployed, so the app's
+#   screens never run ahead of the server. Apps take it quietly (nativeUpdate.ts).
+# - A new APK is built only when the native code changed (web/scripts/android-native-hash.mjs) or
+#   a manual run asks for one. Apps then offer an Update button.
+# Signing uses the release key in the ANDROID_RELEASE_* secrets; without them nothing is published.
+on:
+  workflow_run:
+    workflows: [Deploy production]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      native:
+        description: Build and publish a new APK even if the native code is unchanged
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Publish the Android app
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: android-app
+      RELEASE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - name: Refuse a branch other than main
+        if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Android releases come from main only."
+          exit 1
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ env.RELEASE_SHA }}
+          persist-credentials: false
+      - name: Check main still holds this commit
+        run: |
+          git fetch --no-tags --depth=200 origin main
+          git merge-base --is-ancestor "$RELEASE_SHA" FETCH_HEAD
+      - name: Signing key present
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::ANDROID_RELEASE_KEYSTORE_BASE64 is not set; nothing can be published (docs/mobile.md)."
+            exit 1
+          fi
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: What to publish
+        id: plan
+        env:
+          FORCE_NATIVE: ${{ inputs.native == true }}
+        run: |
+          set -euo pipefail
+          hash=$(node web/scripts/android-native-hash.mjs)
+          build=$(git rev-parse --short=12 HEAD)
+          prev_code=0
+          prev_hash=
+          if gh release view "$TAG" >/dev/null 2>&1 &&
+             gh release download "$TAG" --pattern update.json --output "$RUNNER_TEMP/previous.json" --clobber 2>/dev/null; then
+            prev_code=$(jq -r '.native.versionCode // 0' "$RUNNER_TEMP/previous.json")
+            prev_hash=$(jq -r '.native.hash // ""' "$RUNNER_TEMP/previous.json")
+          fi
+          native=false
+          if [ "$hash" != "$prev_hash" ] || [ "$FORCE_NATIVE" = "true" ]; then native=true; fi
+          code=$prev_code
+          # Release version codes start at 100, above every debug build handed out before.
+          if [ "$native" = "true" ]; then code=$(( (prev_code < 99 ? 99 : prev_code) + 1 )); fi
+          {
+            echo "hash=$hash"
+            echo "build=$build"
+            echo "native=$native"
+            echo "code=$code"
+          } >> "$GITHUB_OUTPUT"
+          echo "Native code $hash (published: ${prev_hash:-none}); web build $build; new APK: $native (version $code)"
+      # The app's web build: calls the server at yama.ing and knows its own version.
+      - name: Web build for the app
+        env:
+          VITE_APP_BUILD: ${{ steps.plan.outputs.build }}
+        run: npm run android:sync -w web
+      - name: Zip the web build
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/out"
+          (cd web/dist && zip -qr -X "$RUNNER_TEMP/out/web-${{ steps.plan.outputs.build }}.zip" .)
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        if: steps.plan.outputs.native == 'true'
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - name: Build and sign the APK
+        if: steps.plan.outputs.native == 'true'
+        working-directory: web/android
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+          YAMA_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
+          YAMA_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          YAMA_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+          YAMA_ANDROID_VERSION_CODE: ${{ steps.plan.outputs.code }}
+          YAMA_ANDROID_VERSION_NAME: 0.2.${{ steps.plan.outputs.code }}
+          YAMA_NATIVE_HASH: ${{ steps.plan.outputs.hash }}
+        run: |
+          set -euo pipefail
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          export YAMA_RELEASE_KEYSTORE="$RUNNER_TEMP/release.jks"
+          ./gradlew --no-daemon assembleRelease
+          rm -f "$RUNNER_TEMP/release.jks"
+          apk=app/build/outputs/apk/release/app-release.apk
+          apksigner=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
+          "$apksigner" verify --print-certs "$apk" | grep -E 'SHA-256|SHA-1'
+          cp "$apk" "$RUNNER_TEMP/out/yama-${{ steps.plan.outputs.code }}.apk"
+          cp "$apk" "$RUNNER_TEMP/out/yama.apk"
+      - name: Write update.json
+        env:
+          NATIVE: ${{ steps.plan.outputs.native }}
+          HASH: ${{ steps.plan.outputs.hash }}
+          BUILD: ${{ steps.plan.outputs.build }}
+          CODE: ${{ steps.plan.outputs.code }}
+        run: |
+          set -euo pipefail
+          base="https://github.com/${{ github.repository }}/releases/download/$TAG"
+          out="$RUNNER_TEMP/out"
+          web_sha=$(sha256sum "$out/web-$BUILD.zip" | cut -d' ' -f1)
+          if [ "$NATIVE" = "true" ]; then
+            apk_sha=$(sha256sum "$out/yama-$CODE.apk" | cut -d' ' -f1)
+            native=$(jq -n --argjson code "$CODE" --arg name "0.2.$CODE" --arg hash "$HASH" \
+              --arg url "$base/yama-$CODE.apk" --arg sha "$apk_sha" \
+              '{versionCode: $code, versionName: $name, hash: $hash, url: $url, sha256: $sha}')
+          else
+            native=$(jq '.native' "$RUNNER_TEMP/previous.json")
+          fi
+          jq -n --argjson native "$native" --arg version "$BUILD" --arg hash "$HASH" \
+            --arg url "$base/web-$BUILD.zip" --arg sha "$web_sha" --arg commit "$RELEASE_SHA" \
+            '{native: $native, web: {version: $version, nativeHash: $hash, url: $url, sha256: $sha}, commit: $commit}' \
+            > "$out/update.json"
+          cat "$out/update.json"
+      - name: Publish
+        env:
+          NATIVE: ${{ steps.plan.outputs.native }}
+          BUILD: ${{ steps.plan.outputs.build }}
+          CODE: ${{ steps.plan.outputs.code }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/out"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --target "$RELEASE_SHA" --title "Yama for Android" \
+              --notes "The sideloaded Yama Android app. Install yama.apk; it keeps itself up to date (docs/mobile.md)."
+          fi
+          # The files update.json points at go up first, update.json last.
+          files=("$out/web-$BUILD.zip")
+          if [ "$NATIVE" = "true" ]; then files+=("$out/yama-$CODE.apk" "$out/yama.apk"); fi
+          gh release upload "$TAG" "${files[@]}" --clobber
+          gh release upload "$TAG" "$out/update.json" --clobber
+          # Keep the newest three web builds and APKs; installed apps only ever need the newest.
+          gh release view "$TAG" --json assets --jq '.assets[] | [.name, .createdAt] | @tsv' > "$RUNNER_TEMP/assets.tsv"
+          for prefix in web- yama-; do
+            { grep -P "^${prefix}[^\t]+\.(zip|apk)\t" "$RUNNER_TEMP/assets.tsv" || true; } | sort -t$'\t' -k2,2r | tail -n +4 | cut -f1 |
+              while read -r name; do gh release delete-asset "$TAG" "$name" --yes; done
+          done
