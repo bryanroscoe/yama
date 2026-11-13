@@ -134,6 +134,79 @@ fn counts_one_color_of_a_choice() {
 }
 
 #[test]
+fn lords_and_team_boosts_earn_points() {
+    let pts = |name: &str, cmc: f64, ty: &str, text: &str| card_points(&card(name, cmc, ty, text), false);
+    let payoff = |p: &Points| p.iter().find(|(c, _)| *c == Cat::Payoffs).map(|(_, v)| *v);
+    // A typed lord, old wording and new, and the size of the bonus.
+    assert_eq!(payoff(&pts("Predatory Sliver", 2.0, "Creature — Sliver", "Sliver creatures you control get +1/+1.")), Some(2.5));
+    assert_eq!(payoff(&pts("Bonesplitter Sliver", 4.0, "Creature — Sliver", "All Sliver creatures get +2/+0.")), Some(3.5));
+    assert_eq!(payoff(&pts("Crucible of Fire", 4.0, "Enchantment", "Dragon creatures you control get +3/+3.")), Some(4.5));
+    assert_eq!(payoff(&pts("Icon of Ancestry", 3.0, "Artifact", "As this artifact enters, choose a creature type.\nCreatures you control of the chosen type get +1/+1.")), Some(2.5));
+    assert_eq!(payoff(&pts("Skeleton Crew", 4.0, "Creature — Skeleton Pirate", "Each other creature you control that's a Skeleton or Pirate gets +1/+1.")), Some(2.5));
+    // Keywords handed to the team, and a bonus with a keyword.
+    assert_eq!(payoff(&pts("Galerider Sliver", 1.0, "Creature — Sliver", "Sliver creatures you control have flying.")), Some(2.5));
+    assert_eq!(payoff(&pts("Bonescythe Sliver", 4.0, "Creature — Sliver", "Sliver creatures you control have double strike.")), Some(4.0));
+    assert_eq!(payoff(&pts("Hofri Ghostforge", 5.0, "Legendary Creature — Dwarf Cleric", "Spirits you control get +1/+1 and have trample and haste.")), Some(3.0));
+    assert_eq!(payoff(&pts("Shifting Sliver", 4.0, "Creature — Sliver", "Slivers can't be blocked except by Slivers.")), Some(2.5));
+    // A creature type whose plural has no "s", and a keyword beside protection.
+    assert_eq!(payoff(&pts("Lord of Atlantis", 2.0, "Creature — Merfolk", "Other Merfolk get +1/+1 and have islandwalk.")), Some(3.0));
+    assert_eq!(payoff(&pts("Test Myr", 3.0, "Artifact Creature — Myr", "Myr you control get +1/+1.")), Some(2.5));
+    let shelob = pts("Test Spider", 6.0, "Legendary Creature — Spider Demon", "Other Spiders you control have deathtouch and ward {2}.");
+    assert_eq!(shelob, vec![(Cat::Protection, 3.5), (Cat::Payoffs, 2.5)], "{shelob:?}");
+    // The whole team taps for mana: a mana creature. The whole team is protected: protection.
+    assert_eq!(pts("Manaweft Sliver", 2.0, "Creature — Sliver", "Sliver creatures you control have \"{T}: Add one mana of any color.\""), vec![(Cat::Dorks, 4.0)]);
+    assert_eq!(pts("Crystalline Sliver", 2.0, "Creature — Sliver", "All Slivers have shroud."), vec![(Cat::Protection, 3.5)]);
+    // A kind of creature given haste is haste, as the whole team's is.
+    assert_eq!(pts("Test Warchief", 3.0, "Creature — Goblin", "Goblins you control have haste."), vec![(Cat::Haste, 2.0)]);
+    let shredder = pts("Test Shredder", 3.0, "Creature — Sliver", "Sliver creatures you control have flying and haste.");
+    assert_eq!(shredder, vec![(Cat::Haste, 2.0), (Cat::Payoffs, 2.5)], "{shredder:?}");
+    // What helps the opponents' creatures is no team boost.
+    assert_eq!(pts("Test Taunt", 3.0, "Enchantment", "Creatures your opponents control get +1/+0 and attack each combat if able."), vec![]);
+    assert_eq!(pts("Test Gift", 3.0, "Enchantment", "Creatures your opponents control have hexproof."), vec![]);
+    // A pump for one turn is a finisher's business, one creature's bonus is nobody's team, and
+    // things that aren't creatures aren't a team.
+    assert_eq!(payoff(&pts("Trumpet Blast", 3.0, "Instant", "Attacking creatures get +2/+0 until end of turn.")), None);
+    assert_eq!(payoff(&pts("Test Aura", 2.0, "Enchantment — Aura", "Enchant creature\nEnchanted creature gets +2/+2 and has flying.")), None);
+    assert_eq!(payoff(&pts("Test Hoard", 5.0, "Creature — Dragon", "Treasures you control have \"{T}, Sacrifice this artifact: Add two mana of any one color.\"")), None);
+    let lantern = pts("Test Lantern", 3.0, "Artifact", "Lands you control have \"{T}: Add one mana of any color.\"\n{T}: Add one mana of any color.");
+    assert_eq!(lantern.iter().map(|(c, _)| c.key()).collect::<Vec<_>>(), ["rocks"], "{lantern:?}");
+}
+
+#[test]
+fn proliferate_and_planeswalker_support_earn_points() {
+    let payoff = |name: &str, ty: &str, text: &str| card_points(&card(name, 3.0, ty, text), false).iter().find(|(c, _)| *c == Cat::Payoffs).map(|(_, v)| *v);
+    assert_eq!(payoff("Test Spell", "Instant", "Draw a card. Proliferate."), Some(2.0));
+    assert_eq!(payoff("Test Sage", "Creature — Elf Druid", "Landfall — Whenever a land you control enters, proliferate."), Some(3.0));
+    assert_eq!(payoff("Test Veil", "Legendary Artifact", "{4}, {T}: For each planeswalker you control, you may activate one of its loyalty abilities once this turn as though none of its loyalty abilities had been activated this turn."), Some(3.0));
+    assert_eq!(payoff("Test Summons", "Sorcery", "Look at the top seven cards of your library. Put up to two planeswalker cards from among them onto the battlefield."), Some(4.0));
+    // Shutting loyalty abilities off is no support for them.
+    assert_eq!(payoff("Test Sun", "Legendary Artifact", "Players can't activate planeswalkers' loyalty abilities."), None);
+}
+
+#[test]
+fn three_more_themes_are_named() {
+    let entry = |i: usize, f: &Facts| (DeckCard { oracle_id: format!("o{i}"), name: f.name.clone(), qty: 1, board: Board::Main }, f.clone());
+    let keys = |cards: Vec<Facts>| -> Vec<String> {
+        let list: Vec<(DeckCard, Facts)> = cards.iter().enumerate().map(|(i, f)| entry(i, f)).collect();
+        let entries: Vec<Entry> = list.iter().map(|(c, f)| Entry { card: c, facts: Some(f) }).collect();
+        analyze(&entries, None, &mut Cache::default()).themes.into_iter().map(|t| t.key).collect()
+    };
+    let many = |n: usize, ty: &str, text: &str| -> Vec<Facts> { (0..n).map(|i| card(&format!("Card {i}"), 3.0, ty, text)).collect() };
+    assert_eq!(keys(many(6, "Legendary Planeswalker — Test", "+1: Draw a card.")), ["planeswalkers"]);
+    assert_eq!(keys(many(6, "Enchantment", "Whenever you cast a legendary spell, draw a card.")), ["legends"]);
+    assert_eq!(keys(many(6, "Sorcery", "Goad target creature.")), ["goad"]);
+    // Proliferate on its own is a counters deck, or poison: no planeswalker theme.
+    assert_eq!(keys(many(6, "Instant", "Proliferate.")), Vec::<String>::new());
+    // Cards that only name planeswalkers or legends in passing make no theme.
+    assert_eq!(keys(many(6, "Instant", "Destroy target creature or planeswalker.")), Vec::<String>::new());
+    assert_eq!(keys(many(6, "Sorcery", "Return target creature or planeswalker card from your graveyard to your hand.")), ["graveyard"]);
+    assert_eq!(keys(many(6, "Instant", "This spell costs {2} less to cast if it targets a legendary creature. Destroy target creature.")), Vec::<String>::new());
+    // "You or planeswalkers you control" is how a card keeps attackers off you: table politics,
+    // not a planeswalker theme.
+    assert_eq!(keys(many(6, "Enchantment", "Creatures can't attack you or planeswalkers you control unless their controller pays {2}.")), ["goad"]);
+}
+
+#[test]
 fn the_commander_counts_half_again() {
     let engine = card("Tymna the Weaver", 3.0, "Legendary Creature — Human Cleric", "Lifelink\nAt the beginning of your postcombat main phase, you may pay X life, where X is the number of opponents that were dealt combat damage this turn. If you do, draw X cards.");
     let alone = card_points(&engine, false);

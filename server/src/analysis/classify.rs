@@ -152,6 +152,71 @@ pub(crate) fn repeatable(line: &str) -> bool {
     false
 }
 
+/// Things a "Xs you control have ..." sentence can be about that aren't the player's creatures.
+const NOT_A_TEAM: &[&str] = &[
+    "lands", "artifacts", "enchantments", "permanents", "spells", "cards", "players", "opponents", "planeswalkers", "abilities", "counters", "auras", "vehicles", "sagas",
+    "instants", "sorceries", "sources", "battles", "controls", "treasures", "foods", "clues", "gates", "forests", "islands", "mountains", "swamps", "plains",
+    "equipment", "they", "them", "that", "those", "these", "which", "who", "each", "and", "you", "player", "opponent",
+];
+
+/// What a card does for the player's whole team for as long as it stays: a lord or anthem's
+/// power bonus and the keywords it hands out ("Sliver creatures you control get +2/+0", "All
+/// Slivers have shroud", "Other Zombies you control get +1/+1", "Creatures you control of the
+/// chosen type get +1/+1"). Lowercased text in; (payoff points, gives protection, gives mana).
+/// One-turn pumps aren't counted here: the finisher rules read those.
+fn team_boost(tl: &str) -> (f64, bool, bool) {
+    let (mut pump, mut grant, mut protects, mut mana): (f64, f64, bool, bool) = (0.0, 0.0, false, false);
+    let team = |noun: &str| !NOT_A_TEAM.contains(&noun);
+    let size = |bonus: &str| match bonus {
+        "0" => 1.0,
+        "1" => 2.5,
+        "2" => 3.5,
+        _ => 4.5,
+    };
+    for s in split(rx!(r"(?<=[.])\s+|\n"), tl) {
+        if has(rx!(r"until end of turn|this turn|until your next turn"), s) {
+            continue;
+        }
+        // The team is a plural ("sliver creatures", "zombies you control"), or a creature type
+        // whose plural has no "s", which only reads as a team right after "other" or "all" or
+        // right before "you control" ("other merfolk", "myr you control").
+        let bonus = caps(rx!(r"\b(?:[a-z'-]+ )?(creatures|tokens|[a-z'-]{3,}s)(?: you control)?(?: of the chosen type)? get \+([\dx])/\+[\dx]"), s)
+            .or_else(|| caps(rx!(r"\b(?:other|all) ([a-z'-]{3,})(?: you control)? get \+([\dx])/\+[\dx]"), s))
+            .or_else(|| caps(rx!(r"\b([a-z'-]{3,}) you control get \+([\dx])/\+[\dx]"), s));
+        if let Some(m) = bonus
+            && team(&m[1])
+        {
+            pump = pump.max(size(&m[2]));
+        } else if let Some(m) = caps(rx!(r"\beach other (?:[a-z'-]+ )?creature you control[^.]*? gets \+([\dx])/\+[\dx]"), s) {
+            pump = pump.max(size(&m[1]));
+        }
+        let given = caps(rx!(r"\b(?:[a-z'-]+ )?(creatures|tokens|[a-z'-]{3,}s)(?: you control)?(?: of the chosen type)? (?:get \+[\dx]/\+[\dx] and )?have (.*)$"), s)
+            .or_else(|| caps(rx!(r"\b(?:other|all) ([a-z'-]{3,})(?: you control)? (?:get \+[\dx]/\+[\dx] and )?have (.*)$"), s))
+            .or_else(|| caps(rx!(r"\b([a-z'-]{3,}) you control (?:get \+[\dx]/\+[\dx] and )?have (.*)$"), s));
+        if let Some(m) = given
+            && team(&m[1])
+        {
+            let what = &m[2];
+            // Beside whatever else it hands out.
+            let protective = has(rx!(r"\b(?:hexproof|shroud|indestructible|ward|protection from)\b"), what);
+            protects |= protective;
+            if has(rx!(r#"^"\{t\}: add"#), what) {
+                mana = true;
+            } else if has(rx!(r"\bdouble strike\b"), what) {
+                grant = grant.max(4.0);
+            } else if has(rx!(r"\b(?:flying|trample|menace|deathtouch|first strike|intimidate|fear|shadow|skulk|[a-z]+walk)\b|can't be blocked"), what) {
+                grant = grant.max(2.5);
+            } else if has(rx!(r"\b(?:lifelink|vigilance|reach)\b"), what) || (what.starts_with('"') && !protective) {
+                grant = grant.max(1.5);
+            }
+        } else if has(rx!(r"\b[a-z'-]{3,}s can't be blocked\b"), s) && !has(rx!(r"\b(?:creatures|tokens) (?:your opponents|you don't) control"), s) {
+            grant = grant.max(2.5);
+        }
+    }
+    let both = if pump > 0.0 && grant > 0.0 { 0.5 } else { 0.0 };
+    ((pump.max(grant) + both).min(5.0), protects, mana)
+}
+
 /// Points for one nonland card. The commander's count half again: it's always available.
 pub fn card_points(c: &Facts, commander: bool) -> Points {
     let mut out = rule_points(c);
@@ -226,6 +291,10 @@ fn rule_points(c: &Facts) -> Points {
         }
         set(&mut out, Cat::Dorks, pts);
     }
+    // "Sliver creatures you control have '{T}: Add one mana of any color.'": every creature a dork.
+    if get(&out, Cat::Dorks).is_none() && team_boost(&tl).2 {
+        set(&mut out, Cat::Dorks, by_mv(&[(1, 5.0), (2, 4.0), (3, 3.0)], m, 2.0));
+    }
     if has(rx!(r"whenever enchanted land is tapped for mana, its controller adds an additional"), &tl) {
         set(&mut out, Cat::Rocks, by_mv(&[(1, 4.0), (2, 3.5), (3, 2.5)], m, 1.5));
     }
@@ -262,7 +331,10 @@ fn rule_points(c: &Facts) -> Points {
     if has(
         rx!(r"creatures you control (?:have|gain) haste|equipped creature has haste|(?:target creature|creatures) you control gains? haste|other creatures you control have haste"),
         &tl,
-    ) {
+    ) || has(rx!(r"\b(?:creatures|[a-z'-]{3,}s)(?: you control)? have (?:[a-z ,]+ )?haste\b"), &tl)
+    {
+        // The second form is a kind of creature's haste: "Goblins you control have haste",
+        // "Sliver creatures you control have flying and haste".
         set(&mut out, Cat::Haste, 2.0);
     }
 
@@ -555,6 +627,10 @@ fn rule_points(c: &Facts) -> Points {
     if has(rx!(r"if you control a commander, you may cast this spell without paying"), &tl) && prot != 0.0 {
         prot *= 1.3;
     }
+    let (boost, team_protection, _) = team_boost(&tl);
+    if team_protection {
+        prot = prot.max(3.5);
+    }
     if prot != 0.0 {
         set(&mut out, Cat::Protection, round2(prot));
     }
@@ -585,6 +661,20 @@ fn rule_points(c: &Facts) -> Points {
     }
     if has(rx!(r"(?m)^(?:other )?creatures you control get \+\d/\+\d"), &tl) && !has(rx!(r"until end of turn"), &tl) {
         pay = pay.max(2.5);
+    }
+    // Lords and anthems of every kind, and the keywords they hand out.
+    pay = pay.max(boost);
+    // Counters and planeswalkers: proliferate, and cards that work loyalty abilities harder.
+    if has(rx!(r"\bproliferate\b"), &tl) {
+        pay = pay.max(if ls.iter().any(|l| repeatable(l) && has(rx!(r"(?i)\bproliferate\b"), l)) { 3.0 } else { 2.0 });
+    }
+    if !ty.contains("Planeswalker") {
+        if has(rx!(r"planeswalker cards? [^.]*onto the battlefield"), &tl) {
+            pay = pay.max(4.0);
+        } else if has(rx!(r"loyalty abilit(?:y|ies)"), &tl) && !has(rx!(r"can't activate [^.]*loyalty abilit"), &tl) {
+            // Working them harder, not shutting them off.
+            pay = pay.max(3.0);
+        }
     }
     if has(rx!(r"whenever you cast (?:an? )?(?:instant or sorcery|noncreature|creature)? ?spell, (?:create|copy|draw|deal|put)"), &tl) && creature {
         pay = pay.max(3.0);

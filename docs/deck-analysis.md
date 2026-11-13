@@ -73,8 +73,9 @@ until the person pastes it and presses Analyze there.
    check that knew them all), medium up to 1.0, low beyond.
 7. **Themes** (`themes.rs`). A theme counts the cards whose text joins in: 15 or more is core,
    10 major, 6 minor. Themes include tokens, counters, graveyard, artifacts, enchantments,
-   spells, lands, equipment, sacrifice, life gain, flicker, energy, draw and go-wide. The two
-   biggest creature types are added when 10 or more cards share one.
+   spells, lands, equipment, sacrifice, life gain, flicker, energy, draw, go-wide and, since
+   2026-11-13, planeswalkers, legends matter, and goad and politics. The two biggest creature
+   types are added when 10 or more cards share one.
 8. **Bracket reading.** The score sits in a bracket's usual range: Bracket 2 up to 5, Bracket 3
    up to 7, Bracket 4 above. That reading never says 1 or 5, which depend on intent and the cEDH
    metagame. The owner's declared bracket stays theirs, and Spellbook's starting suggestion
@@ -278,3 +279,74 @@ This is descriptive evidence: the stock cohort already helped set the power scal
 engine results have model limitations, and real games involve different opponents and
 pilots. Neither chart nor score changes meta rankings. Changing vector weights needs
 held-out validation; more simulation games alone do not establish real-world accuracy.
+
+## Lords, team boosts and three more themes (2026-11-13)
+
+Bryan, 12 Nov 2026: "I think we should have the themes." Three things were tried against the
+measurements above, and one was kept.
+
+**Kept: the text rules now read what a card does for the whole team.** A lord or anthem
+("Sliver creatures you control get +2/+0", "Other Zombies you control get +1/+1", "Creatures
+you control of the chosen type get +1/+1") and a keyword handed to the team ("Sliver creatures
+you control have flying", "Slivers can't be blocked except by Slivers") earn Engines and
+payoffs points by the size of the bonus (`classify::team_boost`). A team that taps for mana
+is a mana creature, a kind of creature given haste is haste ("Goblins you control have
+haste"), a team given hexproof, shroud, ward or indestructible is protection,
+proliferate is a small engine, and cards that work planeswalkers' loyalty abilities harder
+or put planeswalkers onto the battlefield are payoffs. One-turn pumps stay with the finisher
+rules; one creature's bonus (an Aura, an Equipment) and things that aren't creatures (lands,
+Treasures, Foods) aren't a team. A creature type whose plural has no "s" counts when the text
+says "other", "all" or "you control" with it ("Other Merfolk get +1/+1"). A card that shuts
+loyalty abilities off earns nothing for mentioning them, and proliferate alone doesn't make
+a planeswalker theme. Before this, 38 of Sliver Swarm's 64 nonland cards earned
+nothing and it scored the lowest of the 178 precons. Across the card data 1,005 of 36,877
+cards changed, all by gaining these points. Themes gained planeswalkers, legends matter, and
+goad and politics: Planeswalker Party, Legends' Legacy and Blame Game, three of the precons
+with the best real records, are built on them and Yama named none of the three.
+
+Before and after, on the 178 stock precons and the 78 reference lists. The lists were scored
+without their combo checks here, so their coverage figures sit under the ones `power-eval`
+printed with the checks (76% and 91% at ±0.5 and ±0.7, in step 6 of "How it works"):
+
+| | Before | After |
+|---|---|---|
+| Power against stock win rate, 40+ games (85 precons) | +0.07 | +0.06 |
+| The same with each precon held out | −0.03 | −0.03 |
+| Power against stock win rate, 200+ games (47 precons) | +0.33 | +0.36 |
+| The same with each precon held out | +0.26 | +0.30 |
+| Power ± 0.5 reaches the bracket a list was built for | 74% | 82% |
+| Power ± 0.7 reaches it | 85% | 88% |
+| Same deck built one bracket up scores higher | 33 of 33 | 33 of 33 |
+| Sliver Swarm | 1.8, lowest of 178 | 2.6, 18th lowest |
+| Precon median, lowest, highest | 3.3, 1.8, 5.8 | 3.4, 1.9, 5.8 |
+
+No deck scores lower; 27 of the 256 move by 0.2 or more, Sliver Swarm the most (+0.8). The change does not make power track
+real precon results any better, and wasn't expected to: it is about cards that plainly do
+something earning nothing.
+
+The two ideas below were tried on the rules as they stood before this change, with the card
+points the analysis shows (rounded to one decimal), which is why their starting figures are
++0.07 and +0.34 and 85%.
+
+**Not kept: a credit for every card in the deck's theme.** Giving 1 to 3 Threats points to
+each card of a core or major theme that earns nothing left the correlations where they were
+or a little lower (+0.07 to +0.03 at 40+ games) and moved Sliver Swarm by 0.4 at most. How
+many cards share a theme has no relation to how a precon does (rank correlation +0.01).
+
+**Not kept: new weights.** Moving weight from Consistency and Interaction to Threats (0.12 to
+0.20 or 0.30) raised the correlation with precon results a little (+0.07 to +0.12 or +0.17 at
+40+ games, +0.34 to +0.41 or +0.42 at 200+), all inside the noise of 85 decks, and cost
+bracket separation: the gap between the same deck built for Bracket 3 and Bracket 4 fell from
+1.4 to 1.3 or 1.0 and ±0.7 coverage from 85% to 82% or 79%. What wins among precons isn't what
+moves a deck up a bracket. Among the 47 precons with 200 or more games, land ramp (+0.41), a
+higher average mana value (+0.38), finishers (+0.28) and big threats (+0.27) go with winning,
+while the scale rewards cheap, efficient cards because that is what separates Bracket 4 from
+Bracket 2. One number can't order both,
+and this one's job is the bracket. How strong a precon is among precons is read from its real
+games, its standing and its commander's record.
+
+How this was measured without the engine: `server/src/analysis` needs only three small types
+from the rest of the server, so its files compile on their own in seconds beside a stub of
+those types. The before and after ran that way over an export of the public catalog tables
+(cards, precons, precon checks). `power-eval` remains the command of record; run it on the
+server after a scoring change deploys.

@@ -25,7 +25,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 
 /// Bumped whenever a rule or number changes, so a stored or cached result says which it was.
-pub const METHOD: &str = "2026-11-11";
+pub const METHOD: &str = "2026-11-13";
 
 /// What the analysis reads of a card.
 #[derive(Debug, Clone, Default)]

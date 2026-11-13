@@ -51,6 +51,18 @@ const THEMES: &[(&str, &str, Test, &str)] = &[
     }, "Exiles and returns its own creatures to reuse their abilities."),
     ("energy", "Energy", |t, _| has(rx!(r"\{e\}|energy counter"), t), "Gets and spends energy."),
     ("draw", "Card draw matters", |t, _| has(rx!(r"whenever you draw (?:a|your second) card|for each card you've drawn"), t), "Rewards drawing extra cards."),
+    ("planeswalkers", "Planeswalkers", |t, ty| {
+        ty.contains("Planeswalker") || // "You or planeswalkers you control" and "creature or planeswalker card" name them in
+        // passing: pillow forts, removal and reanimation aren't a planeswalker deck.
+        has(rx!(r"\bloyalty abilit|(?<!or )(?<!and )(?<!, )\bplaneswalkers? you control\b|(?<!or )\bplaneswalker (?:card|spell)s?\b"), t)
+    }, "Fields planeswalkers and the cards that find them and work their loyalty."),
+    ("legends", "Legends matter", |t, _| {
+        // A spell that targets a legendary creature isn't rewarding them.
+        has(rx!(r"(?<!target )(?<!targets a )\blegendary (?:creature|permanent|spell|card)s?\b|\bhistoric\b|\bfor each legendary\b|\banother legendary\b"), t)
+    }, "Rewards playing legendary cards."),
+    ("goad", "Goad and politics", |t, _| {
+        has(rx!(r"\bgoad(?:ed|s)?\b|\battacks? (?:a player other than you|one of your opponents)\b|\bcan't attack you\b|\bthe monarch\b|\bcouncil's dilemma\b|\bwill of the council\b|\btempting offer\b"), t)
+    }, "Turns opponents' creatures on each other, keeps them off you and makes deals at the table."),
     ("attack", "Go wide and attack", |t, _| {
         has(rx!(r"whenever (?:one or more|a) creatures? you control attacks?|creatures you control get \+\d/\+\d|attacking creatures you control"), t)
     }, "Attacks with many creatures at once."),
