@@ -1,12 +1,12 @@
 import { safeUrl } from "../research/api";
 import { knownRestrictionsPass } from "./source-pricing";
-import { offerId, type SourceCard, type SourceOffer } from "./sourcing-model";
+import { offerId, type SourceCard, type SourceChoice, type SourceOffer } from "./sourcing-model";
 
 /** One in-stock listing as the store's site gave it (server/src/plan/stock/live.rs). */
 export interface LiveListing { title: string | null; set: string | null; finish: string | null; condition: string | null; language: string | null; price: number | null; variant: string | null; url: string | null }
 /** A store's newest answer for one card: every listing in stock then, or none. */
 export interface LiveAnswer { origin: string; card: string; checked_at: string; listings: LiveListing[] }
-export interface LiveStore { key: string; name: string; origin: string; wanted: number; read: number; fresh: number; hurrying: number; oldest: string | null; newest: string | null; failed: number; error: string | null }
+export interface LiveStore { key: string; name: string; origin: string; wanted: number; read: number; fresh: number; hurrying: number; oldest: string | null; newest: string | null; failed: number; error: string | null; /** Cards whose newest read gave no answer. */ failed_cards: string[] }
 /** The card's cheapest non-foil printing in Yama's price data. */
 export interface LiveMarket { usd: number; date: string; printing: string; source: string }
 export interface LiveStock { at: string; reread_hours: number; offline: boolean; stores: LiveStore[]; answers: LiveAnswer[]; markets: Record<string, LiveMarket>; unknown: string[]; hurried: number }
@@ -68,10 +68,46 @@ export function liveRows(cards: SourceCard[], live: LiveState): SourceCard[] {
           ...(foil && !foilOnly ? { foil_alternative: true } : {}),
         }];
       });
+      // A saved listing without a variant id gets a new selection id once the store names its
+      // variant. When exactly one live listing is that product, finish and condition, it stands
+      // in for the saved one, so a selection made earlier follows it instead of reading as sold out.
+      const ids = new Set(read.map(offerId));
+      for (const o of saved) {
+        if (ids.has(offerId(o))) continue;
+        const heirs = read.filter(l => pageOf(l.url) === pageOf(o.url) && foilWords(l.finish ?? "") === savedFoil(o) && l.condition.trim().toLowerCase() === o.condition.trim().toLowerCase());
+        if (heirs.length === 1) heirs[0]!.replaces = [...(heirs[0]!.replaces ?? []), offerId(o)];
+      }
       offers = [...offers.filter(o => !saved.includes(o)), ...read];
     }
     return { ...c, offers };
   });
+}
+
+/** A selection whose saved listing a live one now stands in for points at the live one. */
+export function migrateChoices(choices: Record<string, SourceChoice[]>, cards: SourceCard[]): Record<string, SourceChoice[]> {
+  const byName = new Map(cards.map(c => [c.name, c]));
+  let moved = false;
+  const next: Record<string, SourceChoice[]> = Object.create(null);
+  for (const name of Object.keys(choices)) {
+    const row = byName.get(name);
+    next[name] = (choices[name] ?? []).map(choice => {
+      if (!row || row.offers.some(o => offerId(o) === choice.offer || o.url === choice.offer)) return choice;
+      const heirs = row.offers.filter(o => o.replaces?.includes(choice.offer));
+      if (heirs.length !== 1) return choice;
+      moved = true;
+      return { ...choice, offer: offerId(heirs[0]!) };
+    });
+  }
+  return moved ? next : choices;
+}
+
+/** How long a read counts as having checked a cart's card. The server rereads a cart's card older than half that. */
+export const CART_CHECKED_MS = 60 * 60_000;
+/** A cart's listings at a store Yama rereads: how many still wait to be reread, and which could not be. */
+export function cartCheck(rows: { card: string; offer: SourceOffer }[], store: LiveStore, now: number): { waiting: number; failed: string[] } {
+  const stale = rows.filter(r => !(r.offer.live && now - Date.parse(r.offer.checked_at) <= CART_CHECKED_MS));
+  const failed = [...new Set(stale.filter(r => store.failed_cards.includes(r.card)).map(r => r.card))].sort((a, b) => a.localeCompare(b));
+  return { waiting: stale.filter(r => !failed.includes(r.card)).length, failed };
 }
 
 /** Cards in a selection whose chosen listing the stores no longer have. */

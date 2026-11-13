@@ -11,7 +11,7 @@ import { allChoices, cardListText, choicesFor, offerRows, offerId, optionalUse, 
 import { localBuyRule, rulesAt, MAX_RULE_USD, shoppingRulesProblems, type RuleSet } from "@yama/core/plan";
 import { fetchBundle, saveShoppingRules, storeCatalogs, checkStores, storeSnapshots } from "./api";
 import { capDraft, pricedRows, readCap } from "./source-pricing";
-import { liveRows, soldOut, storeProgress } from "./live-stock";
+import { cartCheck, liveRows, migrateChoices, soldOut, storeProgress } from "./live-stock";
 import { useLiveStock } from "./useLiveStock";
 import "./sourcing.css";
 
@@ -101,19 +101,21 @@ export function Portfolio({ bundle }: { bundle: ResearchBundle }) {
     if (read) cartTemplates.set(read.origin, s.cart_url_template);
     for (const o of cards.flatMap(c => c.offers).filter(o => o.store === s.name)) cartTemplates.set(new URL(o.url).origin, s.cart_url_template);
   }
-  const carts = sourceCarts(rows, choices, cartTemplates);
+  // A pick made on a saved listing follows the live listing that now stands in for it.
+  const picks = useMemo(() => migrateChoices(choices, portfolio), [choices, portfolio]);
+  const carts = sourceCarts(rows, picks, cartTemplates);
   const selectedCopies = carts.reduce((n,c) => n+c.rows.reduce((n,r) => n+r.qty,0),0);
   // Cards in a cart at a store Yama rereads are read first, so the cart is checked before it is opened.
   const liveOrigins = new Set(live.state.stores.map(s => s.origin));
   const cartCards = [...new Set(carts.flatMap(c => c.rows).filter(r => liveOrigins.has(new URL(r.offer.url).origin)).map(r => r.card))].sort().join("\n");
   useEffect(() => setHurry(cartCards ? cartCards.split("\n") : []), [cartCards]);
-  const gone = soldOut(portfolio, choices);
+  const gone = soldOut(portfolio, picks);
   // A listing without a count was in stock when checked: one copy is evidenced, any more are not.
   const extras = uncountedExtras(carts), unconfirmed = extras.total;
   const copies = visible.flatMap(c => c.uses), optional = copies.filter(optionalUse).length;
   // Every wanted card under the deck, bracket, scope and name filters, whatever any store has.
   const wantedList = cardListText(portfolio.filter(c => c.name.toLowerCase().includes(search.toLowerCase())));
-  const change = (name: string, url: string, qty: number) => setChoices(c => ({ ...c, [name]: [...choicesFor(c,name).filter(o => o.offer !== url), { offer: url, qty }] }));
+  const change = (name: string, url: string, qty: number) => setChoices({ ...picks, [name]: [...choicesFor(picks,name).filter(o => o.offer !== url), { offer: url, qty }] });
   const dates = [...new Set(cards.flatMap(c => c.offers.map(o => o.checked_at).filter(Boolean)))].sort();
   if (!cards.some(c => c.uses.length)) return <p>This report has no portfolio source rows. Ask your assistant for a <code>local_sources</code> snapshot, or use the active plan store trip.</p>;
   return <>
@@ -158,7 +160,15 @@ export function Portfolio({ bundle }: { bundle: ResearchBundle }) {
       <p><b>{plural(selectedCopies,"selected copy","selected copies")}. {usd(carts.reduce((n,c) => n+c.total,0))} before tax.</b>{unconfirmed > 0 && <span> {plural(unconfirmed,"copy needs","copies need")} stock confirmation.</span>}</p>
       {gone.length > 0 && <p role="status">{plural(gone.length,"selected card has","selected cards have")} sold out at the listing you chose and left the carts: {gone.join(", ")}. Add all matching cards again to pick what is in stock now.</p>}
       <p className="small dim">Adds matching copies up to the saved stock counts, using other eligible printings for any remainder. A listing without a count (some stores show only in stock or sold out) adds one copy, since in stock means at least one; request more on that row and the store may reduce the quantity. Stock was read when the quote was checked and may have changed.{hasFoil && " Prefer foil picks a foil copy first when it meets your rules and costs at most $0.25 or 10% more (whichever is larger) than the cheapest plain copy."} No purchase is made.</p>
-      {carts.length > 0 && <details open><summary>Store carts and listings</summary>{carts.map(cart => <div className="source-cart" key={cart.rows[0]!.offer.url}><h3>{cart.store}: {usd(cart.total)}</h3>{cart.url && <ButtonLink href={cart.url} target="_blank" rel="noreferrer">Open filled store cart</ButtonLink>}<ul>{cart.rows.map(r => <li key={`${r.card}:${offerId(r.offer)}`}>{r.qty} × <a href={r.offer.url} target="_blank" rel="noreferrer">{r.card}</a>{r.offer.qty == null && ((extras.skus.get(uncountedSku(r.offer)) ?? 0) > 1 ? " — only 1 copy confirmed in stock" : " — in stock, count not listed")}</li>)}</ul>{!cart.url && <p>Add these on their store listing pages; this store has no filled-cart link.</p>}</div>)}<p className="small dim">Filled Shopify links replace the existing store cart. Choose pickup at checkout. This is the selected subtotal, not the cost to complete every deck.</p></details>}
+      {carts.length > 0 && <details open><summary>Store carts and listings</summary>{carts.map(cart => {
+        // At a store Yama rereads, the filled cart is the main action once its cards were reread.
+        const reader = live.state.stores.find(s => s.origin === new URL(cart.rows[0]!.offer.url).origin);
+        const check = reader ? cartCheck(cart.rows, reader, Date.now()) : null;
+        return <div className="source-cart" key={cart.rows[0]!.offer.url}><h3>{cart.store}: {usd(cart.total)}</h3>
+        {check && check.waiting > 0 && <p role="status">Rechecking {plural(check.waiting,"listing")} with the store before you open the cart. This page updates as each is read.</p>}
+        {check && check.failed.length > 0 && <p role="alert">{plural(check.failed.length,"card")} could not be reread on the last try, so {check.failed.length === 1 ? "its listing is" : "their listings are"} as last read: {check.failed.join(", ")}.</p>}
+        {check && !check.waiting && !check.failed.length && <p className="small dim">Every listing here was in stock on the store’s site within the last hour.</p>}
+        {cart.url && (check && check.waiting > 0 ? <a href={cart.url} target="_blank" rel="noreferrer">Open the cart without waiting</a> : <ButtonLink href={cart.url} target="_blank" rel="noreferrer">Open filled store cart</ButtonLink>)}<ul>{cart.rows.map(r => <li key={`${r.card}:${offerId(r.offer)}`}>{r.qty} × <a href={r.offer.url} target="_blank" rel="noreferrer">{r.card}</a>{r.offer.qty == null && ((extras.skus.get(uncountedSku(r.offer)) ?? 0) > 1 ? " — only 1 copy confirmed in stock" : " — in stock, count not listed")}</li>)}</ul>{!cart.url && <p>Add these on their store listing pages; this store has no filled-cart link.</p>}</div>; })}<p className="small dim">Filled Shopify links replace the existing store cart. Choose pickup at checkout. This is the selected subtotal, not the cost to complete every deck.</p></details>}
     </section>
     <details className="source-list-export"><summary>Card list for other sites</summary><p className="small dim">Every wanted card for the selected decks, brackets and cards-for filter, as “quantity name” lines for deck-list searches such as instock.cards. Store, condition and buy-rule filters don’t apply.</p><div className="source-actions"><CopyButton text={wantedList} label="Copy card list" disabled={!wantedList} /></div><textarea readOnly rows={8} value={wantedList} aria-label="Card list" onFocus={e => e.currentTarget.select()} /></details>
     <p className="small dim">{plural(Math.max(0,copies.length-selectedCopies),"matching copy not selected","matching copies not selected")}. Missing stock counts and shortages stay unresolved; a cart is not proof that every copy is available.</p>
@@ -175,7 +185,7 @@ export function Portfolio({ bundle }: { bundle: ResearchBundle }) {
           return <div className="source-offer" key={offerId(o)}>
             <div><a href={o.url} target="_blank" rel="noreferrer">{o.store}</a><span className="small dim">{o.title || "Printing not recorded"}. {o.condition || "Condition unknown"}.</span>{o.live ? <span className="small dim">In stock on the store’s site {ago(o.checked_at)}, at this price. The site gives no count.</span> : <span className="small dim">{o.qty == null ? "Stock count unknown: available quantity not verified" : `${o.qty} listed`}. {o.qty != null && <>Stock checked: {o.quantity_checked_at || o.checked_at ? fmtDateTime(o.quantity_checked_at || o.checked_at) : "date unknown"}. </>}Price checked: {o.checked_at ? fmtDateTime(o.checked_at) : "date unknown"}.</span>}</div>
             <div className="source-prices"><b>{usd(o.price!)}</b>{!o.qualifies && <span className="small">{o.eligibility_unknown ? "Listing details need verification" : o.foil_block === "price" ? "Foil costs more than a plain copy" : o.foil_block === "no_plain" ? "No plain copy to compare the foil with" : "Outside buy rules"}</span>}{o.qualifies && o.foil_alternative && <span className="small">Foil at about the plain price</span>}<span className="small">{o.market != null ? <>{exact ? "Printing market" : "Market reference"}: {o.market_source ? <a href={o.market_source} target="_blank" rel="noreferrer">{usd(o.market)}</a> : usd(o.market)}</> : "Printing market unavailable"}</span><span className="small dim">{low != null ? `Lowest saved ${o.condition || "condition unknown"}: ${usd(low)}` : "Condition low unavailable"}</span>{o.market != null && <span className="small dim">Market is not condition-specific.{o.market_checked_at ? ` Checked: ${fmtDateTime(o.market_checked_at)}.` : ""}</span>}</div>
-            <Field className="source-qty" label="Copies"><input disabled={!o.qualifies} aria-label={`${c.name} copies from ${o.store}`} type="number" min={0} max={Math.min(c.uses.length,o.qty ?? Infinity)} step={1} value={choicesFor(choices,c.name).find(choice => choice.offer === offerId(o))?.qty ?? 0} onChange={e=>change(c.name,offerId(o),+e.target.value)} /></Field>
+            <Field className="source-qty" label="Copies"><input disabled={!o.qualifies} aria-label={`${c.name} copies from ${o.store}`} type="number" min={0} max={Math.min(c.uses.length,o.qty ?? Infinity)} step={1} value={choicesFor(picks,c.name).find(choice => choice.offer === offerId(o))?.qty ?? 0} onChange={e=>change(c.name,offerId(o),+e.target.value)} /></Field>
           </div>;
         })}
         {!offers.length && <p className="small dim">No saved offer matches these condition and store filters.</p>}

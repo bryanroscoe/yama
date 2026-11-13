@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { emptyLive, liveRows, mergeLive, soldOut, storeProgress, type LiveListing, type LiveStock, type LiveStore } from "./live-stock";
+import { cartCheck, emptyLive, liveRows, mergeLive, migrateChoices, soldOut, storeProgress, type LiveListing, type LiveStock, type LiveStore } from "./live-stock";
 import { allChoices, offerId, sourceCarts, type SourceCard, type SourceOffer } from "./sourcing-model";
 import { pricedRows } from "./source-pricing";
 
 const READ = "2026-11-13T12:00:00.000Z";
-const store: LiveStore = { key: "mothership", name: "Mothership", origin: "https://mothershipatx.com", wanted: 2, read: 2, fresh: 2, hurrying: 0, oldest: READ, newest: READ, failed: 0, error: null };
+const store: LiveStore = { key: "mothership", name: "Mothership", origin: "https://mothershipatx.com", wanted: 2, read: 2, fresh: 2, hurrying: 0, oldest: READ, newest: READ, failed: 0, error: null, failed_cards: [] };
 const saved = (over: Partial<SourceOffer> = {}): SourceOffer => ({ store: "Mothership", price: 1.5, qty: null, condition: "Near Mint", url: "https://mothershipatx.com/products/path-ac", variant_id: "111", checked_at: "2026-11-10", qualifies: true, title: "Path to Exile [Assassin's Creed]", finish: "nonfoil", language: "English", market: 2, market_source: "https://scryfall.com/card/acr/1", market_checked_at: "2026-11-10", market_match: "retailer image ID", printing_id: "print-ac", ...over });
 const elsewhere = saved({ store: "Multiverse Hobbies", url: "https://mversetcg.tcgplayerpro.com/p/1", variant_id: "", qty: 3, price: 1.25 });
 const card = (offers: SourceOffer[] = [saved(), elsewhere]): SourceCard => ({ name: "Path to Exile", status: "qualifying", uses: [{ id: "a", deck: "d", deck_name: "Deck", category: "unresolved" }], offers });
@@ -45,6 +45,35 @@ describe("live store stock on the sourcing page", () => {
     expect(soldOut(before, picked)).toEqual([]);
     expect(soldOut(after, picked)).toEqual(["Path to Exile"]);
     expect(sourceCarts(pricedRows(after, rule), picked, new Map())).toEqual([]);
+  });
+
+  it("moves a pick on a saved listing without a variant id to the one live listing that is it", () => {
+    const loose = saved({ variant_id: "" });
+    const before = [card([loose, elsewhere])];
+    const picked = { "Path to Exile": [{ offer: offerId(loose), qty: 1 }] };
+    const lightly = listing({ title: "Path to Exile [Assassin's Creed] - Lightly Played", condition: "Lightly Played", price: 1, variant: "222", url: "https://mothershipatx.com/products/path-ac?variant=222" });
+    const after = liveRows(before, held([listing(), lightly]));
+    const moved = migrateChoices(picked, after);
+    expect(moved["Path to Exile"]).toEqual([{ offer: "https://mothershipatx.com/products/path-ac?variant=111#variant=111", qty: 1 }]);
+    expect(soldOut(after, moved)).toEqual([]);
+    expect(sourceCarts(pricedRows(after, rule), moved, new Map())[0]!.rows.map(r => [r.offer.variant_id, r.qty])).toEqual([["111", 1]]);
+    expect(migrateChoices(moved, after)).toBe(moved);
+    // Sold out in that condition: the pick stays where it was and reads as sold out; it never moves to another condition.
+    const gone = liveRows(before, held([lightly]));
+    expect(migrateChoices(picked, gone)).toBe(picked);
+    expect(soldOut(gone, migrateChoices(picked, gone))).toEqual(["Path to Exile"]);
+    // Two live listings that could both be it: nothing is guessed.
+    const twins = liveRows(before, held([listing(), listing({ variant: "112", url: "https://mothershipatx.com/products/path-ac?variant=112" })]));
+    expect(migrateChoices(picked, twins)).toBe(picked);
+  });
+
+  it("offers a store's cart as checked only once its listings were reread, and names the ones that could not be", () => {
+    const now = Date.parse(READ) + 10 * 60_000;
+    const fresh = liveRows([card()], held([listing()]))[0]!.offers.find(o => o.live)!;
+    expect(cartCheck([{ card: "Path to Exile", offer: fresh }], store, now)).toEqual({ waiting: 0, failed: [] });
+    expect(cartCheck([{ card: "Path to Exile", offer: fresh }], store, now + 2 * 60 * 60_000)).toEqual({ waiting: 1, failed: [] });
+    expect(cartCheck([{ card: "Path to Exile", offer: saved() }], store, now)).toEqual({ waiting: 1, failed: [] });
+    expect(cartCheck([{ card: "Path to Exile", offer: saved() }], { ...store, failed_cards: ["Path to Exile"] }, now)).toEqual({ waiting: 0, failed: ["Path to Exile"] });
   });
 
   it("keeps the report where the store has no answer yet or the saved quote is newer", () => {

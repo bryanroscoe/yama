@@ -53,19 +53,23 @@ fn hurried() -> &'static std::sync::Mutex<HashMap<String, (String, u64)>> {
     HURRIED.get_or_init(Default::default)
 }
 
-fn hurry_left(owner: &str) -> u64 {
-    let today = Utc::now().format("%Y-%m-%d").to_string();
-    match hurried().lock().expect("hurried").get(owner) {
-        Some((day, used)) if *day == today => HURRIED_DAILY.saturating_sub(*used),
-        _ => HURRIED_DAILY,
-    }
-}
-
-fn hurry_spend(owner: &str, reads: u64) {
+/// Take up to `reads` from the account's allowance for today, in one step so two requests can't
+/// both spend what is left. Returns how many it got.
+fn hurry_reserve(owner: &str, reads: u64) -> u64 {
     let today = Utc::now().format("%Y-%m-%d").to_string();
     let mut map = hurried().lock().expect("hurried");
     map.retain(|_, (day, _)| *day == today);
-    map.entry(owner.to_string()).or_insert((today, 0)).1 += reads;
+    let used = map.entry(owner.to_string()).or_insert((today, 0));
+    let granted = reads.min(HURRIED_DAILY.saturating_sub(used.1));
+    used.1 += granted;
+    granted
+}
+
+/// Give back reserved reads that weren't needed (their answers were new, or already waiting).
+fn hurry_return(owner: &str, reads: u64) {
+    if let Some(used) = hurried().lock().expect("hurried").get_mut(owner) {
+        used.1 = used.1.saturating_sub(reads);
+    }
 }
 
 /// Remember that these cards (key, name) are wanted at these stores, and mark the `hurry` keys
@@ -300,16 +304,19 @@ pub async fn live(pool: &SqlitePool, owner: &str, body: &LiveBody, offline: bool
     let mut hurried_now = 0;
     if !offline && !bases.is_empty() && !known.is_empty() {
         let mut hurry: Vec<String> = Vec::new();
-        if hurry_left(owner) > 0 {
-            for card in &body.hurry {
-                let key = card_key(card);
-                if hurry.len() < MAX_HURRIED && known.iter().any(|(k, _)| *k == key) && !hurry.contains(&key) {
-                    hurry.push(key);
-                }
+        for card in &body.hurry {
+            let key = card_key(card);
+            if hurry.len() < MAX_HURRIED && known.iter().any(|(k, _)| *k == key) && !hurry.contains(&key) {
+                hurry.push(key);
             }
         }
-        hurried_now = want(pool, &bases, &known, &hurry).await?;
-        hurry_spend(owner, hurried_now);
+        // A hurried card is one read at every store: no more cards than today's allowance covers.
+        let stores_each = bases.len() as u64;
+        let reserved = hurry_reserve(owner, hurry.len() as u64 * stores_each);
+        hurry.truncate((reserved / stores_each) as usize);
+        let wanted = want(pool, &bases, &known, &hurry).await;
+        hurry_return(owner, reserved.saturating_sub(*wanted.as_ref().unwrap_or(&0)));
+        hurried_now = wanted?;
     }
     let keys: Vec<&String> = known.iter().map(|(key, _)| key).collect();
     let rows: Vec<LiveRow> = sqlx::query_as(
@@ -322,6 +329,7 @@ pub async fn live(pool: &SqlitePool, owner: &str, body: &LiveBody, offline: bool
     .fetch_all(pool)
     .await?;
     let fresh_from = ago(REREAD);
+    let name_of: HashMap<&str, &str> = known.iter().map(|(key, name)| (key.as_str(), name.as_str())).collect();
     let mut store_rows = Vec::new();
     for (key, name, base) in &stores {
         let mine: Vec<&LiveRow> = rows.iter().filter(|r| r.base == *base).collect();
@@ -329,15 +337,15 @@ pub async fn live(pool: &SqlitePool, owner: &str, body: &LiveBody, offline: bool
         // Asked to be read first and not read or tried since.
         let hurrying = mine.iter().filter(|r| r.rush_at.as_ref().is_some_and(|rush| r.checked_at.as_ref().is_none_or(|c| rush > c) && r.tried_at.as_ref().is_none_or(|t| t < rush))).count();
         // The newest try gave no answer.
-        let failed: Vec<&String> = mine.iter().filter(|r| r.tried_at.as_ref().is_some_and(|t| r.checked_at.as_ref().is_none_or(|c| t > c))).filter_map(|r| r.error.as_ref()).collect();
+        let failed: Vec<&LiveRow> = mine.iter().copied().filter(|r| r.tried_at.as_ref().is_some_and(|t| r.checked_at.as_ref().is_none_or(|c| t > c))).collect();
         store_rows.push(json!({
             "key": key, "name": name, "origin": base, "wanted": known.len(), "read": read.len(),
             "fresh": read.iter().filter(|c| ***c >= fresh_from).count(), "hurrying": hurrying,
             "oldest": read.iter().min(), "newest": read.iter().max(),
-            "failed": failed.len(), "error": failed.first(),
+            "failed": failed.len(), "error": failed.iter().find_map(|r| r.error.as_ref()),
+            "failed_cards": failed.iter().filter_map(|r| name_of.get(r.card_key.as_str())).collect::<Vec<_>>(),
         }));
     }
-    let name_of: HashMap<&str, &str> = known.iter().map(|(key, name)| (key.as_str(), name.as_str())).collect();
     let mut answers = Vec::new();
     let mut answered: Vec<&str> = Vec::new();
     for r in &rows {
@@ -373,4 +381,21 @@ pub async fn live(pool: &SqlitePool, owner: &str, body: &LiveBody, offline: bool
         "at": at, "reread_hours": REREAD.as_secs() / 3600, "offline": offline, "stores": store_rows, "answers": answers, "markets": markets,
         "unknown": unknown.iter().map(|(_, name)| name).collect::<Vec<_>>(), "hurried": hurried_now,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What is left of the day's allowance is taken in one step, never spent twice.
+    #[test]
+    fn the_hurried_allowance_is_reserved_whole() {
+        let owner = "allowance-test-account";
+        assert_eq!(hurry_reserve(owner, HURRIED_DAILY - 1), HURRIED_DAILY - 1);
+        assert_eq!(hurry_reserve(owner, 600), 1, "one read left, however many were asked for");
+        assert_eq!(hurry_reserve(owner, 600), 0);
+        hurry_return(owner, 10);
+        assert_eq!(hurry_reserve(owner, 600), 10);
+        assert_eq!(hurry_reserve("another-test-account", 5), 5);
+    }
 }

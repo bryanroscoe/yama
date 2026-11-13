@@ -1080,6 +1080,7 @@ async fn wanted_cards_are_read_in_the_background_and_served_with_their_dates() {
 
     let (_, second) = send(&app, Method::POST, "/api/plan/stock/live", Some(&token), Some(ask(None))).await;
     assert_eq!((second["stores"][0]["read"].as_i64(), second["stores"][0]["fresh"].as_i64(), second["stores"][0]["failed"].as_i64()), (Some(2), Some(2), Some(0)), "{second}");
+    assert_eq!(second["stores"][0]["failed_cards"], json!([]));
     let answers = second["answers"].as_array().unwrap();
     let path = answers.iter().find(|a| a["card"] == "Path to Exile").expect("the card's answer");
     assert_eq!(path["origin"], REAL);
