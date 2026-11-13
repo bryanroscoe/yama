@@ -65,7 +65,7 @@ describe("a saved sourcing list and the orders placed since", () => {
     expect(got.covered[0]!.by).toBe("Pat's Games order of Oct 1, 2026");
   });
 
-  it("takes a bought mark made since the list as a copy bought, once", () => {
+  it("takes a bought mark made after the list as a copy bought", () => {
     const swaps = [swap("a|sol", "a", "Sol Ring"), swap("a|path", "a", "Path to Exile"), swap("b|saga", "b", "Urza's Saga"), swap("b|sol", "b", "Sol Ring", { order_item: { order: "x", line: 1 } })];
     const marks = new Map<string, MarkPair>([
       ["a|sol", bought("2026-11-13T12:00:00.000Z", { store_label: "Mothership", qty: 1 })],
@@ -73,15 +73,45 @@ describe("a saved sourcing list and the orders placed since", () => {
       ["a|path", bought("2026-11-01T12:00:00.000Z")],
       // The plan has this swap's order: the order speaks for it.
       ["b|sol", bought("2026-11-13T12:00:00.000Z")],
-      // A newer order lists this card: the same purchase, not a second copy.
+      // A newer order lists this card without a deck: the same purchase, counted once.
       ["b|saga", bought("2026-11-13T12:00:00.000Z")],
     ]);
     const got = withoutOrdered(wanted(), LIST, [order("new", "2026-11-13", [item("Urza's Saga")])], swaps, marks);
     expect(got.covered).toEqual([
-      { card: "Urza's Saga", qty: 1, decks: ["Deck b"], by: "Pat's Games order of Nov 13, 2026" },
       { card: "Sol Ring", qty: 1, decks: ["Deck a"], by: "Marked bought at Mothership on Nov 13, 2026" },
+      { card: "Urza's Saga", qty: 1, decks: ["Deck b"], by: "Marked bought on Nov 13, 2026" },
     ]);
+    expect(got.copies).toBe(2);
     expect(got.cards[0]!.uses.map(u => u.id)).toEqual(["b-sol"]);
+  });
+
+  it("goes by the time of a mark, so one made later the same day counts", () => {
+    const swaps = [swap("a|sol", "a", "Sol Ring"), swap("a|path", "a", "Path to Exile")];
+    const marks = new Map<string, MarkPair>([["a|sol", bought("2026-11-12T20:00:00.000Z")], ["a|path", bought("2026-11-12T08:00:00.000Z")]]);
+    const got = withoutOrdered(wanted(), LIST, [], swaps, marks);
+    expect(got.covered.map(c => [c.card, c.qty])).toEqual([["Sol Ring", 1]]);
+    // A list that gives only its day can't tell: a mark that day is taken as known to it.
+    expect(withoutOrdered(wanted(), { generated_at: "2026-11-12" }, [], swaps, marks).copies).toBe(0);
+  });
+
+  it("counts a mark and an order line for the same deck once, and for different decks as two copies", () => {
+    const swaps = [swap("a|sol", "a", "Sol Ring"), swap("b|sol", "b", "Sol Ring")];
+    const later = bought("2026-11-13T12:00:00.000Z");
+    const same = withoutOrdered(wanted(), LIST, [order("new", "2026-11-13", [item("Sol Ring", 1, "a")])], swaps, new Map([["a|sol", later]]));
+    expect(same.copies).toBe(1);
+    expect(same.cards[0]!.uses.map(u => u.id)).toEqual(["b-sol"]);
+    const two = withoutOrdered(wanted(), LIST, [order("new", "2026-11-13", [item("Sol Ring", 1, "a")])], swaps, new Map([["b|sol", later]]));
+    expect(two.copies).toBe(2);
+    expect(two.cards[0]!.uses).toEqual([]);
+  });
+
+  it("finds a card's copies in every row the list gives it", () => {
+    const cards = [card("Sol Ring", [use("a-sol", "a")]), card("Path to Exile", [use("a-path", "a")]), card("Sol Ring", [use("b-sol", "b")]), card("Sol Ring", [])];
+    const got = withoutOrdered(cards, LIST, [order("new", "2026-11-13", [item("Sol Ring", 2)])]);
+    expect(got.cards.map(c => c.uses.map(u => u.id))).toEqual([[], ["a-path"], [], []]);
+    expect(got.covered).toEqual([{ card: "Sol Ring", qty: 2, decks: ["Deck a", "Deck b"], by: "Pat's Games order of Nov 13, 2026" }]);
+    // A row nothing was taken from is the same row.
+    expect(got.cards[1]).toBe(cards[1]);
   });
 
   it("drops a card with no copy left from the page's rows, and lists what was left out by order", () => {
