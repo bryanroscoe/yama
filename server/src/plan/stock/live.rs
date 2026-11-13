@@ -36,6 +36,8 @@ pub const MAX_HURRIED: usize = 300;
 const HURRIED_DAILY: u64 = 6000;
 /// How long a reader with nothing due waits before looking again.
 const IDLE: Duration = Duration::from_secs(60);
+/// A reader's log line covers at least this much work, unless it ends with cards read first.
+const LOGGED_EVERY: Duration = Duration::from_secs(15 * 60);
 
 fn ago(d: Duration) -> String {
     stamp(Utc::now() - Days::seconds(d.as_secs() as i64))
@@ -96,10 +98,10 @@ pub async fn want(pool: &SqlitePool, bases: &[String], cards: &[(String, String)
     let hurry_keys = serde_json::to_string(hurry).map_err(anyhow::Error::from)?;
     // A page asks again every time it looks; an hour-old mark is new enough.
     let (at, recent, old) = (now(), ago(Duration::from_secs(3600)), ago(HURRY_OLDER));
-    let mut hurried = 0;
+    let (mut marked, mut hurried) = (0, 0);
     let mut tx = pool.begin().await?;
     for base in bases {
-        sqlx::query(
+        marked += sqlx::query(
             "INSERT INTO store_live (base, card_key, card_name, wanted_at)
              SELECT ?1, json_extract(j.value, '$[0]'), json_extract(j.value, '$[1]'), ?3 FROM json_each(?2) j WHERE true
              ON CONFLICT (base, card_key) DO UPDATE SET wanted_at = excluded.wanted_at WHERE store_live.wanted_at < ?4",
@@ -109,7 +111,8 @@ pub async fn want(pool: &SqlitePool, bases: &[String], cards: &[(String, String)
         .bind(&at)
         .bind(&recent)
         .execute(&mut *tx)
-        .await?;
+        .await?
+        .rows_affected();
         if !hurry.is_empty() && hurry_each > 0 {
             // Not one already waiting to be read first. Cards whose answer is new take none of the
             // places, so a long cart is worked through over the page's next asks.
@@ -131,6 +134,11 @@ pub async fn want(pool: &SqlitePool, bases: &[String], cards: &[(String, String)
     }
     tx.commit().await?;
     wake().notify_waiters();
+    // A page asks every few seconds: only an ask that changed something, or one whose cards
+    // could not be read first because the day's allowance is used up, is worth a line.
+    if marked > 0 || hurried > 0 || (!hurry.is_empty() && hurry_each == 0) {
+        tracing::info!(stores = bases.len(), cards = cards.len(), marked, read_first_asked = hurry.len(), read_first = hurried, "live store stock wanted");
+    }
     Ok(hurried)
 }
 
@@ -148,16 +156,71 @@ pub(super) enum Step {
     Read,
     /// A card's read gave no answer; its last answer stays.
     Failed,
+    /// The store answered, but this card's listings couldn't all be read; its last answer stays.
+    Unreadable,
     /// Nothing is due.
     Idle,
     /// The store doesn't answer card searches.
     Unsupported,
 }
 
+/// One turn of a store's reader, for its pacing and its log.
+pub(super) struct Turn {
+    pub step: Step,
+    /// The card was read ahead of the queue.
+    pub hurried: bool,
+    /// The card whose read gave no answer, and why.
+    pub failed: Option<(String, String)>,
+}
+
+/// What a reader did since its last log line.
+#[derive(Default)]
+struct Tally {
+    since: Option<Instant>,
+    read: u32,
+    read_first: u32,
+    failed: u32,
+}
+
+impl Tally {
+    fn note(&mut self, turn: &Turn) {
+        match turn.step {
+            Step::Idle => return,
+            Step::Read => self.read += 1,
+            Step::Failed | Step::Unreadable | Step::Unsupported => self.failed += 1,
+        }
+        if turn.hurried {
+            self.read_first += 1;
+        }
+        if self.since.is_none() {
+            self.since = Some(Instant::now());
+        }
+    }
+
+    /// One line for the work since the last: once it covers [`LOGGED_EVERY`], or as soon as the
+    /// reader has nothing due after cards read first (a cart was waiting on those). Says whether
+    /// it logged.
+    fn report(&mut self, base: &str, idle: bool) -> bool {
+        let Some(since) = self.since else { return false };
+        if since.elapsed() < LOGGED_EVERY && !(idle && self.read_first > 0) {
+            return false;
+        }
+        tracing::info!(store = %base, read = self.read, read_first = self.read_first, failed = self.failed, secs = since.elapsed().as_secs(), "live store stock read");
+        *self = Self::default();
+        true
+    }
+}
+
+/// [`turn`]'s step alone.
+#[cfg(test)]
+pub(super) async fn step(pool: &SqlitePool, f: &mut Fetcher, base: &str, slow: Duration) -> AppResult<Step> {
+    Ok(turn(pool, f, base, slow).await?.step)
+}
+
 /// Read the store's next due card: a hurried one first, then one never read, then the one read
 /// longest ago. A card whose last read failed waits [`RETRY`]. `slow` is the pause before a
 /// background read; a hurried one waits only the store kind's own pause.
-pub(super) async fn step(pool: &SqlitePool, f: &mut Fetcher, base: &str, slow: Duration) -> AppResult<Step> {
+pub(super) async fn turn(pool: &SqlitePool, f: &mut Fetcher, base: &str, slow: Duration) -> AppResult<Turn> {
     let due: Option<(String, String, i64)> = sqlx::query_as(
         "SELECT card_key, card_name, (rush_at IS NOT NULL AND rush_at > IFNULL(checked_at, '')) AS hurried FROM store_live
          WHERE base = ?1 AND wanted_at >= ?2
@@ -171,15 +234,17 @@ pub(super) async fn step(pool: &SqlitePool, f: &mut Fetcher, base: &str, slow: D
     .bind(ago(RETRY))
     .fetch_optional(pool)
     .await?;
-    let Some((key, name, hurried)) = due else { return Ok(Step::Idle) };
+    let Some((key, name, hurried)) = due else { return Ok(Turn { step: Step::Idle, hurried: false, failed: None }) };
     f.pause = if hurried != 0 { slow.min(Duration::from_millis(1)) } else { slow };
     let mut raw = Raw::default();
     let (listings, error, step) = match storefront_card(f, base, &name, &mut raw).await {
         Storefront::Found(listings) => (Some(listings), None, Step::Read),
         Storefront::Unknown(e) => (None, Some(e), Step::Failed),
+        Storefront::Unreadable(e) => (None, Some(e), Step::Unreadable),
         Storefront::Unsupported => (None, Some(format!("{base}{STOREFRONT_PATH}: the store doesn't answer card searches")), Step::Unsupported),
     };
     let at = now();
+    let failed = error.map(|e| (name, e.chars().take(300).collect::<String>()));
     match listings {
         Some(listings) => {
             let text = Value::Array(listings.iter().map(listing_json).collect()).to_string();
@@ -194,55 +259,69 @@ pub(super) async fn step(pool: &SqlitePool, f: &mut Fetcher, base: &str, slow: D
         None => {
             sqlx::query("UPDATE store_live SET tried_at = ?1, error = ?2 WHERE base = ?3 AND card_key = ?4")
                 .bind(&at)
-                .bind(error.map(|e| e.chars().take(300).collect::<String>()))
+                .bind(failed.as_ref().map(|(_, e)| e.as_str()))
                 .bind(base)
                 .bind(&key)
                 .execute(pool)
                 .await?;
         }
     }
-    Ok(step)
+    Ok(Turn { step, hurried: hurried != 0, failed })
 }
 
 /// One store's reader, for as long as the server runs. A failed read backs off (a minute, doubling
 /// to sixteen); a 429 is never asked again within the attempt, since that only lengthens the hold
-/// the store puts on every other request from Yama.
+/// the store puts on every other request from Yama. A card the store answered for but Yama
+/// couldn't read is that card's trouble: the reader goes on to the next at its usual pace.
 async fn read_store(pool: SqlitePool, http: reqwest::Client, base: String, slow: Duration) {
     let mut f = Fetcher::new(http, Some(slow));
     // The store's answer now, not one another check fetched most of an hour ago.
     f.refresh = true;
     f.first_429 = true;
     let mut failures: u32 = 0;
+    let mut tally = Tally::default();
     loop {
-        let wait = match step(&pool, &mut f, &base, slow).await {
-            Ok(Step::Read) => {
-                failures = 0;
+        let done = match turn(&pool, &mut f, &base, slow).await {
+            Ok(done) => done,
+            Err(e) => {
+                tracing::warn!(error = %e, store = %base, "live store stock not saved");
+                tokio::time::sleep(Duration::from_secs(300)).await;
                 continue;
             }
-            Ok(Step::Idle) => {
+        };
+        tally.note(&done);
+        tally.report(&base, done.step == Step::Idle);
+        let wait = match done.step {
+            Step::Read | Step::Unreadable => {
+                failures = 0;
+                Duration::ZERO
+            }
+            Step::Idle => {
                 tokio::select! {
                     _ = tokio::time::sleep(IDLE) => {}
                     _ = wake().notified() => {}
                 }
                 continue;
             }
-            Ok(Step::Failed) => {
+            Step::Failed => {
                 failures = (failures + 1).min(5);
                 Duration::from_secs(60 << (failures - 1))
             }
-            Ok(Step::Unsupported) => Duration::from_secs(6 * 3600),
-            Err(e) => {
-                tracing::warn!(error = %e, store = %base, "live store stock not saved");
-                Duration::from_secs(300)
-            }
+            Step::Unsupported => Duration::from_secs(6 * 3600),
         };
-        tokio::time::sleep(wait).await;
+        if let Some((card, error)) = &done.failed {
+            tracing::warn!(store = %base, card = %card, error = %error, wait_secs = wait.as_secs(), "live store stock: a card was not read");
+        }
+        if !wait.is_zero() {
+            tokio::time::sleep(wait).await;
+        }
     }
 }
 
 /// Start a reader for each store Yama reads card by card.
 pub fn spawn(pool: SqlitePool, http: reqwest::Client) {
     READING.store(true, Ordering::Relaxed);
+    tracing::info!(stores = %SHOPIFY_HOSTS.join(", "), reread_hours = REREAD.as_secs() / 3600, pace_secs = SLOW.as_secs(), "live store stock readers started");
     for host in SHOPIFY_HOSTS {
         tokio::spawn(read_store(pool.clone(), http.clone(), format!("https://{host}"), SLOW));
     }
@@ -426,5 +505,24 @@ mod tests {
         hurry_return(owner, &day, 10);
         assert_eq!(hurry_reserve(owner, 600).1, 10);
         assert_eq!(hurry_reserve("another-test-account", 5).1, 5);
+    }
+
+    /// A reader's log line waits until there is enough to say, but never once cards a cart was
+    /// waiting on are done.
+    #[test]
+    fn a_readers_log_line_waits_for_enough_work() {
+        let did = |step: Step, hurried: bool| Turn { step, hurried, failed: None };
+        let mut tally = Tally::default();
+        assert!(!tally.report("https://shop.example", true), "nothing was done");
+        tally.note(&did(Step::Idle, false));
+        assert!(tally.since.is_none(), "a turn with nothing due is no work");
+        tally.note(&did(Step::Read, false));
+        tally.note(&did(Step::Unreadable, false));
+        assert!(!tally.report("https://shop.example", true), "a little background reading waits for a fuller line");
+        tally.note(&did(Step::Read, true));
+        assert!(!tally.report("https://shop.example", false), "more is still due");
+        assert_eq!((tally.read, tally.read_first, tally.failed), (2, 1, 1));
+        assert!(tally.report("https://shop.example", true), "cards read first are done");
+        assert!(!tally.report("https://shop.example", true), "and it starts over");
     }
 }

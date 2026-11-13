@@ -214,8 +214,14 @@ it before opening the order page. It can cache this aggressively too."
 - **Pace.** One reader per store, one request at a time, four seconds apart; it shares the
   per-host lock and the store's Retry-After hold with every check. More accounts or more cards
   make a longer queue, never a faster one. A 429 is not asked again within the attempt, a failed
-  read backs off (a minute, doubling to sixteen) and its card waits half an hour. Readers run
-  only with `YAMA_AUTO_IMPORT` (production), never offline or in `npm run local`.
+  read backs off (a minute, doubling to sixteen) and its card waits half an hour. A card the
+  store answered for but Yama couldn't read waits half an hour too, without holding up the
+  store's other cards: the store is fine, the card isn't. Readers run only with
+  `YAMA_AUTO_IMPORT` (production), never offline or in `npm run local`.
+- **A card named like a set.** Mothership's product titles end in the set's name, so a search
+  for "Urza's Saga" or "Aether Revolt" matches every card of that set it has in stock (178 and
+  159 products, 13 Nov 2026). A card is read through 40 pages of 25 products, enough for a whole
+  set; the first limit, 6 pages, left those two cards unknown on every try.
 - **Freshness.** A wanted card is reread every 8 hours for 14 days after a page last asked for
   it; after that its last answer stays and reading stops. About 860 cards take roughly an hour a
   store for a full pass.
@@ -240,6 +246,26 @@ it before opening the order page. It can cache this aggressively too."
   printing, as the trip does. Condition, language and finish come from the listing's own words.
   A foil of a card the report doesn't offer as foil-only is a foil alternative. The saved report
   itself is never rewritten.
+- **Finding out what happened.** The server log (`docker logs yama`) has a line for each of
+  these, all starting "live store stock", none naming an account:
+  - `readers started` (stores, reread_hours, pace_secs): once at startup. Missing means this
+    server rereads nothing.
+  - `wanted` (stores, cards, marked, read_first_asked, read_first): a page's ask that added or
+    renewed cards (`marked`, about hourly while a page is open), put cart cards first
+    (`read_first`), or asked to and couldn't because the day's allowance is used up
+    (`read_first_asked` above zero with `read_first` zero).
+  - `read` (store, read, read_first, failed, secs): what a reader did, every 15 minutes of work,
+    and at once when it has finished cards a cart was waiting on.
+  - `a card was not read` (store, card, error, wait_secs), a warning: each read that gave no
+    answer, with the store's reason and how long the reader now waits before its next request
+    (zero when only that card is in trouble).
+  - `not saved` (store, error), a warning: the database refused a write.
+
+  The request log has each `POST /api/plan/stock/live` with its status and time. The state
+  itself is in `store_live`: `SELECT base, COUNT(*), SUM(checked_at IS NOT NULL), SUM(error IS
+  NOT NULL), MAX(checked_at), MAX(tried_at), MAX(rush_at) FROM store_live GROUP BY base` shows
+  how far each reader has got, and a row's `error` with `tried_at` later than `checked_at` is a
+  card whose newest read failed.
 
 ## Sealed precons (slice 4)
 

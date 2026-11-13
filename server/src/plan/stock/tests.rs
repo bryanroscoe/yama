@@ -841,6 +841,19 @@ fn storefront_answer(q: &str, after: Option<&str>) -> Value {
         ("title:\"Path to Exile\"", Some("page-2")) => {
             page(None, vec![product("Path to Exile [MFP - 1]", "path-to-exile-magicfest-cards-207337", "MagicFest Cards", vec![variant(47754214310106, "Near Mint / English / Normal", "9.25", true)])])
         }
+        // A card named like a set: the store's titles end in the set's name, so every card of
+        // the set matches, and the card itself is on the last of eight pages.
+        ("title:\"Long Set\"", after) => {
+            let n: u64 = after.and_then(|a| a.strip_prefix("page-")).and_then(|n| n.parse().ok()).unwrap_or(1);
+            if n < 8 {
+                let next = format!("page-{}", n + 1);
+                page(Some(next.as_str()), vec![product("Other Card [Long Set]", "other-card-long-set", "Long Set", vec![variant(n, "Near Mint", "1", true)])])
+            } else {
+                page(None, vec![product("Long Set [Other Set]", "long-set-other-set", "Other Set", vec![variant(900, "Near Mint", "2.5", true)])])
+            }
+        }
+        // A search that never ends.
+        ("title:\"Endless Set\"", _) => page(Some("more"), vec![]),
         _ => page(None, vec![]),
     }
 }
@@ -1042,6 +1055,31 @@ async fn live_store() -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>
     let base = format!("http://{}", listener.local_addr().unwrap());
     let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     (base, calls, server)
+}
+
+/// A card named like a set ("Urza's Saga" at Mothership, 13 Nov 2026) matches every card of that
+/// set: all of the pages are read to find the card itself. A search with more pages than Yama
+/// reads leaves that card unknown, and is that card's trouble: the store answered every time, so
+/// its reader doesn't back off.
+#[tokio::test]
+async fn a_card_named_like_a_set_is_found_among_the_sets_cards() {
+    use std::sync::atomic::Ordering;
+    let (_app, pool) = app().await;
+    let (base, calls, server) = live_store().await;
+    let mut f = Fetcher::new(reqwest::Client::new(), None);
+    let found = fetch_shopify(&mut f, &base, &["Long Set".to_string()], &mut Raw::default()).await;
+    assert!(found.failed.is_empty() && found.errors.is_empty(), "{:?} {:?}", found.failed, found.errors);
+    assert_eq!(calls.load(Ordering::SeqCst), 8, "every page of the set");
+    let got: Vec<(&str, Option<f64>, String)> = found.listings.iter().map(|l| (l.card.as_str(), l.price, l.url.clone().unwrap_or_default())).collect();
+    assert_eq!(got, vec![("Long Set", Some(2.5), format!("{base}/products/long-set-other-set?variant=900"))], "the card, not the set's other cards");
+
+    live::want(&pool, std::slice::from_ref(&base), &[(card_key("Endless Set"), "Endless Set".to_string())], &[], 0).await.unwrap();
+    assert_eq!(live::step(&pool, &mut f, &base, Duration::ZERO).await.unwrap(), live::Step::Unreadable);
+    let (checked, error): (Option<String>, Option<String>) = sqlx::query_as("SELECT checked_at, error FROM store_live WHERE card_key = 'endless set'").fetch_one(&pool).await.unwrap();
+    assert!(checked.is_none(), "unknown, never \"not in stock\"");
+    assert!(error.is_some_and(|e| e.contains(&format!("more than {} in-stock printings", STOREFRONT_PAGES * 25))));
+    assert_eq!(live::step(&pool, &mut f, &base, Duration::ZERO).await.unwrap(), live::Step::Idle, "and not asked again straight away");
+    server.abort();
 }
 
 /// The sourcing page's cards are remembered for the person's Shopify stores, read one card at a
