@@ -997,3 +997,157 @@ async fn a_passing_storefront_failure_or_a_saved_catalog_never_reaches_the_refus
     assert_eq!(old.load(Ordering::SeqCst), 0, "neither suggest.json nor a product .js was asked");
     server.abort();
 }
+
+// ── live stock (live.rs) ────────────────────────────────────────────────────
+
+/// A card in Yama's card data, with one priced printing when `usd` is given.
+async fn known_card(pool: &SqlitePool, oracle: &str, name: &str, usd: Option<f64>) {
+    sqlx::query("INSERT INTO cards (oracle_id, name, type_line, color_identity, legalities, updated_at) VALUES (?, ?, 'Instant', 'W', '{}', 'now')")
+        .bind(oracle)
+        .bind(name)
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO card_names (name, oracle_id) VALUES (?, ?)").bind(name).bind(oracle).execute(pool).await.unwrap();
+    if let Some(usd) = usd {
+        sqlx::query("INSERT INTO printings (scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang, updated_at) VALUES (?, ?, ?, 'tst', 'Test Set', '7', 'en', 'now')")
+            .bind(format!("p-{oracle}"))
+            .bind(oracle)
+            .bind(name)
+            .execute(pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO price_latest (scryfall_id, date, usd) VALUES (?, '2026-11-12', ?)").bind(format!("p-{oracle}")).bind(usd).execute(pool).await.unwrap();
+    }
+}
+
+/// A storefront that answers like [`storefront_answer`], throttling "Busy Card". Returns its
+/// origin, how many requests it has had, and its task.
+async fn live_store() -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>, tokio::task::JoinHandle<()>) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let calls = std::sync::Arc::new(AtomicUsize::new(0));
+    let c = calls.clone();
+    let app = Router::new().route(
+        STOREFRONT_PATH,
+        post(move |Json(q): Json<Value>| {
+            let c = c.clone();
+            async move {
+                c.fetch_add(1, Ordering::SeqCst);
+                let asked = q["variables"]["q"].as_str().unwrap_or_default();
+                Json(if asked == "title:\"Busy Card\"" { json!({"errors": [{"message": "Throttled", "extensions": {"code": "THROTTLED"}}]}) } else { storefront_answer(asked, q["variables"]["after"].as_str()) })
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (base, calls, server)
+}
+
+/// The sourcing page's cards are remembered for the person's Shopify stores, read one card at a
+/// time, and served with the date of each answer and the card's cheapest market. A name that
+/// isn't a card is never asked of a store.
+#[tokio::test]
+async fn wanted_cards_are_read_in_the_background_and_served_with_their_dates() {
+    use std::sync::atomic::Ordering;
+    const REAL: &str = "https://mothershipatx.com";
+    let (app, pool) = app().await;
+    let (owner, token) = user(&pool, "live@example.com").await;
+    store_row(&pool, &owner, "mothership", "Mothership", REAL, 1).await;
+    store_row(&pool, &owner, "castle", "Black Castle", "https://blackcastlegamez.tcgplayerpro.com", 2).await;
+    known_card(&pool, "o-path", "Path to Exile", Some(1.4)).await;
+    known_card(&pool, "o-absent", "Absent Card", None).await;
+    let ask = |since: Option<&str>| json!({"cards": ["Path to Exile", "Absent Card", "Not A Card", "path to exile"], "since": since});
+    let (s, first) = send(&app, Method::POST, "/api/plan/stock/live", Some(&token), Some(ask(None))).await;
+    assert_eq!(s.as_u16(), 200, "{first}");
+    assert_eq!(first["stores"].as_array().unwrap().len(), 1, "only the store read card by card: {first}");
+    assert_eq!((first["stores"][0]["key"].as_str(), first["stores"][0]["origin"].as_str()), (Some("mothership"), Some(REAL)));
+    assert_eq!((first["stores"][0]["wanted"].as_i64(), first["stores"][0]["read"].as_i64()), (Some(2), Some(0)));
+    assert_eq!(first["unknown"], json!(["Not A Card"]));
+    assert_eq!(first["answers"], json!([]));
+    let wanted: Vec<(String, String)> = sqlx::query_as("SELECT base, card_name FROM store_live ORDER BY card_name").fetch_all(&pool).await.unwrap();
+    assert_eq!(wanted, vec![(REAL.to_string(), "Absent Card".to_string()), (REAL.to_string(), "Path to Exile".to_string())]);
+
+    // The reader, pointed at a storefront on this machine.
+    let (base, calls, server) = live_store().await;
+    sqlx::query("UPDATE store_live SET base = ?").bind(&base).execute(&pool).await.unwrap();
+    let mut f = Fetcher::new(reqwest::Client::new(), None);
+    assert_eq!(live::step(&pool, &mut f, &base, Duration::ZERO).await.unwrap(), live::Step::Read);
+    assert_eq!(live::step(&pool, &mut f, &base, Duration::ZERO).await.unwrap(), live::Step::Read);
+    assert_eq!(live::step(&pool, &mut f, &base, Duration::ZERO).await.unwrap(), live::Step::Idle, "both are fresh");
+    assert_eq!(calls.load(Ordering::SeqCst), 3, "two pages for one card, one for the card the store doesn't have");
+    sqlx::query("UPDATE store_live SET base = ?").bind(REAL).execute(&pool).await.unwrap();
+
+    let (_, second) = send(&app, Method::POST, "/api/plan/stock/live", Some(&token), Some(ask(None))).await;
+    assert_eq!((second["stores"][0]["read"].as_i64(), second["stores"][0]["fresh"].as_i64(), second["stores"][0]["failed"].as_i64()), (Some(2), Some(2), Some(0)), "{second}");
+    assert_eq!(second["stores"][0]["failed_cards"], json!([]));
+    assert_eq!(second["reading"], false, "this server started no readers");
+    assert!(second["hurry_left"].as_u64().is_some_and(|left| left > 0));
+    let answers = second["answers"].as_array().unwrap();
+    let path = answers.iter().find(|a| a["card"] == "Path to Exile").expect("the card's answer");
+    assert_eq!(path["origin"], REAL);
+    assert!(path["checked_at"].as_str().is_some_and(|at| at.starts_with("20")));
+    let prices: Vec<f64> = path["listings"].as_array().unwrap().iter().map(|l| l["price"].as_f64().unwrap()).collect();
+    assert_eq!(prices, vec![1.5, 1.75, 9.25], "in-stock variants only");
+    assert_eq!(path["listings"][1]["finish"], "foil");
+    assert_eq!(path["listings"][0]["variant"], "48711641858216");
+    let absent = answers.iter().find(|a| a["card"] == "Absent Card").expect("asked and not found");
+    assert_eq!(absent["listings"], json!([]), "not in stock, which is an answer");
+    assert_eq!(second["markets"]["Path to Exile"]["usd"], 1.4);
+    assert_eq!(second["markets"]["Path to Exile"]["date"], "2026-11-12");
+    assert!(second["markets"].get("Absent Card").is_none(), "a card without a price has no market, never zero");
+
+    // Only what changed since the page last asked.
+    let (_, later) = send(&app, Method::POST, "/api/plan/stock/live", Some(&token), Some(ask(second["at"].as_str()))).await;
+    assert_eq!(later["answers"], json!([]));
+    assert_eq!(later["stores"][0]["read"].as_i64(), Some(2));
+
+    // Another account without the store sees nothing, and too many cards are refused.
+    let (_, other) = user(&pool, "other@example.com").await;
+    let (_, none) = send(&app, Method::POST, "/api/plan/stock/live", Some(&other), Some(ask(None))).await;
+    assert_eq!((none["stores"].clone(), none["answers"].clone()), (json!([]), json!([])));
+    let many: Vec<String> = (0..=live::MAX_WANTED).map(|i| format!("Card {i}")).collect();
+    let (s, _) = send(&app, Method::POST, "/api/plan/stock/live", Some(&token), Some(json!({"cards": many}))).await;
+    assert_eq!(s.as_u16(), 400);
+    server.abort();
+}
+
+/// A read that fails keeps the last answer and waits before it is tried again; a card about to
+/// be ordered is read before the rest, and only when its answer isn't already new.
+#[tokio::test]
+async fn a_failed_read_waits_and_a_hurried_card_goes_first() {
+    let (_app, pool) = app().await;
+    let (base, _calls, server) = live_store().await;
+    let bases = vec![base.clone()];
+    let card = |name: &str| (card_key(name), name.to_string());
+    let mut f = Fetcher::new(reqwest::Client::new(), None);
+
+    live::want(&pool, &bases, &[card("Busy Card")], &[], 300).await.unwrap();
+    assert_eq!(live::step(&pool, &mut f, &base, Duration::ZERO).await.unwrap(), live::Step::Failed);
+    let (checked, error): (Option<String>, Option<String>) = sqlx::query_as("SELECT checked_at, error FROM store_live WHERE card_key = 'busy card'").fetch_one(&pool).await.unwrap();
+    assert!(checked.is_none() && error.is_some_and(|e| e.contains("Throttled")));
+    assert_eq!(live::step(&pool, &mut f, &base, Duration::ZERO).await.unwrap(), live::Step::Idle, "not asked again straight away");
+
+    // Two cards read yesterday: both are due, and the hurried one is read first.
+    live::want(&pool, &bases, &[card("Absent Card"), card("Path to Exile")], &[], 300).await.unwrap();
+    sqlx::query("UPDATE store_live SET checked_at = '2026-01-01T00:00:00.000Z', tried_at = '2026-01-01T00:00:00.000Z', listings = '[]' WHERE card_key != 'busy card'").execute(&pool).await.unwrap();
+    assert_eq!(live::want(&pool, &bases, &[card("Absent Card"), card("Path to Exile")], &[card_key("Path to Exile")], 300).await.unwrap(), 1);
+    assert_eq!(live::want(&pool, &bases, &[card("Path to Exile")], &[card_key("Path to Exile")], 300).await.unwrap(), 0, "already waiting to be read first");
+    assert_eq!(live::step(&pool, &mut f, &base, Duration::ZERO).await.unwrap(), live::Step::Read);
+    let read_first: Vec<String> = sqlx::query_scalar("SELECT card_key FROM store_live WHERE checked_at > '2026-06-01'").fetch_all(&pool).await.unwrap();
+    assert_eq!(read_first, vec!["path to exile".to_string()]);
+    assert_eq!(live::want(&pool, &bases, &[card("Path to Exile")], &[card_key("Path to Exile")], 300).await.unwrap(), 0, "its answer is new: nothing to hurry");
+    // A card whose answer is new takes none of the places: with one place, the stale card gets it.
+    sqlx::query("UPDATE store_live SET rush_at = NULL").execute(&pool).await.unwrap();
+    assert_eq!(live::want(&pool, &bases, &[], &[card_key("Path to Exile"), card_key("Absent Card")], 1).await.unwrap(), 1);
+    let hurried: Vec<String> = sqlx::query_scalar("SELECT card_key FROM store_live WHERE rush_at IS NOT NULL").fetch_all(&pool).await.unwrap();
+    assert_eq!(hurried, vec!["absent card".to_string()]);
+    assert_eq!(live::want(&pool, &bases, &[], &[card_key("Absent Card")], 0).await.unwrap(), 0, "no allowance, nothing hurried");
+
+    // A card nobody has asked about for weeks is left alone, with its last answer kept.
+    sqlx::query("UPDATE store_live SET wanted_at = '2026-01-01T00:00:00.000Z'").execute(&pool).await.unwrap();
+    assert_eq!(live::step(&pool, &mut f, &base, Duration::ZERO).await.unwrap(), live::Step::Idle);
+    let kept: Option<String> = sqlx::query_scalar("SELECT listings FROM store_live WHERE card_key = 'absent card'").fetch_one(&pool).await.unwrap();
+    assert_eq!(kept.as_deref(), Some("[]"));
+    server.abort();
+}

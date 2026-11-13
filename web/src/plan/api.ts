@@ -1,6 +1,7 @@
 // The planner's server calls. Types live in @yama/core/plan, next to the logic that reads them.
 import type { ImportReport, LocalBuyRule, PlanBundle, SealedItem, SealedView, ShoppingWant, StateName, StorePreference, StoreSnapshot } from "@yama/core/plan";
 import { api } from "../api";
+import type { LiveStock } from "./live-stock";
 
 export type BundleReply = PlanBundle | { unchanged: true; rev: string };
 
@@ -90,6 +91,13 @@ export const checkStores = (body: { stores: string[] | null; cards?: string[] | 
     method: "POST",
     json: body,
   });
+
+/**
+ * The newest answers Yama holds for these cards at your stores it reads in the background, and
+ * how far the readers have got. Asking keeps the cards being reread; `hurry` names cards to
+ * read first; `since` (an earlier answer's `at`) leaves out answers already held.
+ */
+export const liveStock = (body: { cards: string[]; hurry?: string[]; since?: string | null }) => api<LiveStock>("/api/plan/stock/live", { method: "POST", json: body });
 
 /** Your newest store snapshots, to follow a check. */
 export const storeSnapshots = () => api<{ snapshots: StoreSnapshot[] }>("/api/plan/stock");

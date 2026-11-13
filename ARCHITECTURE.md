@@ -23,7 +23,7 @@ layout is in the [README](README.md#repository-layout).
 
 ### Store sourcing data
 
-Explicit store refreshes cache complete public Shopify catalogs in SQLite. Card checks reuse the dated catalog and read variant-selected stock badges. Search-tile totals never become condition or finish quantities. Private saved source reports remain a separate snapshot, updated only through their normal read/save workflow.
+Explicit store refreshes cache complete public Shopify catalogs in SQLite. Card checks reuse the dated catalog and read variant-selected stock badges. Search-tile totals never become condition or finish quantities. Private saved source reports remain a separate snapshot, updated only through their normal read/save workflow. For Shopify stores read card by card, a background reader per store keeps the cards a sourcing page wants fresh (public listings shared by every account), and the page shows those answers in place of the report's quotes for that store ([Live store stock, 13 November 2026](#live-store-stock-13-november-2026)).
 
 ```mermaid
 flowchart LR
@@ -32,6 +32,9 @@ flowchart LR
   cache --> check["Card and variant stock checks"]
   check --> quotes[("Owner's dated store snapshots")]
   reports[("Owner's saved source report")] --> shop["All-decks sourcing page"]
+  shop -- "wanted cards" --> live[("Live stock per store and card")]
+  reader["One slow reader per store"] --> live
+  live -- "newest answers" --> shop
   quotes --> trip["Active plan store trip"]
 ```
 
@@ -379,6 +382,7 @@ section 4 is the first sketch; the current system is [above](#the-system-at-a-gl
 - **Repository, releases and operations:** [Repository and licence (11 November 2026)](#repository-and-licence-11-november-2026), [Open sign-up (2026-10-20)](#open-sign-up-2026-10-20), [Admin area (2026-10-22)](#admin-area-2026-10-22), [Bug reports (12 November 2026)](#bug-reports-12-november-2026), [View as (2026-10-22)](#view-as-2026-10-22), [Power users and the semi-public release (2026-10-31)](#power-users-and-the-semi-public-release-2026-10-31), [More for signed-in accounts (2026-11-12)](#more-for-signed-in-accounts-2026-11-12), [Polish runs (2026-10-31)](#polish-runs-2026-10-31), [Database backups (2026-11-02)](#database-backups-2026-11-02), [Faster first load, caching and cache busting (2026-11-02)](#faster-first-load-caching-and-cache-busting-2026-11-02), [Performance and operations (2026-11-02)](#performance-and-operations-2026-11-02).
 - **Online play and the engine:** [How online play ended up working](#how-online-play-ended-up-working), [Watch the AIs play (2026-10-22)](#watch-the-ais-play-2026-10-22), [Drag and drop on the online board (2026-10-22)](#drag-and-drop-on-the-online-board-2026-10-22), [Board motion (2026-10-22)](#board-motion-2026-10-22), [phase's own board (2026-10-29)](#phases-own-board-2026-10-29), [Engine choice and direct restoration (2026-10-30)](#engine-choice-and-direct-restoration-2026-10-30), [PR 29 historical runtime supervision and provenance follow-up (30 October 2026)](#pr-29-historical-runtime-supervision-and-provenance-follow-up-30-october-2026), [Phase board release integration (1 November 2026)](#phase-board-release-integration-1-november-2026), [Online game startup isolation (2026-11-10)](#online-game-startup-isolation-2026-11-10), [Playing mode recovery and presentation (2026-11-10)](#playing-mode-recovery-and-presentation-2026-11-10), [Games left on an old engine (2026-11-12)](#games-left-on-an-old-engine-2026-11-12).
 - **Lab and evidence:** [Simulation lab (2026-10-19)](#simulation-lab-2026-10-19), [Forge as a second Lab engine (2026-10-22)](#forge-as-a-second-lab-engine-2026-10-22), [Lab time-outs (2026-10-23)](#lab-time-outs-2026-10-23), [Referee: phase checked against Forge (2026-10-24)](#referee-phase-checked-against-forge-2026-10-24), [Shared-field tournaments (2026-10-26)](#shared-field-tournaments-2026-10-26), [Lab execution targets (2026-10-27)](#lab-execution-targets-2026-10-27), [Phase retry-tail progress (2026-10-28)](#phase-retry-tail-progress-2026-10-28), [Lab: off the write lock, and its cost (2026-11-02)](#lab-off-the-write-lock-and-its-cost-2026-11-02), [Historical evidence datasets (2026-10-28)](#historical-evidence-datasets-2026-10-28), [Precon evidence from datasets (2026-10-29)](#precon-evidence-from-datasets-2026-10-29), [Public precon reference (2026-10-27)](#public-precon-reference-2026-10-27), [Precon upgradeability (2026-10-27)](#precon-upgradeability-2026-10-27), [Public commander ranking (2026-11-01)](#public-commander-ranking-2026-11-01), [Precon power comparison (2026-11-09)](#precon-power-comparison-2026-11-09), [Star Trek stock catalog (2026-11-09)](#star-trek-stock-catalog-2026-11-09).
+- **Shopping:** [Live store stock (13 November 2026)](#live-store-stock-13-november-2026).
 - **Game night:** [Table and playgroup stats (2026-10-19)](#table-and-playgroup-stats-2026-10-19).
 - **Cards, collection and prices:** [Mana symbols (2026-11-12)](#mana-symbols-2026-11-12), [Release calendar and What's new (2026-10-19)](#release-calendar-and-whats-new-2026-10-19), [A deck's cards in the collection, and Mythic re-imports (2026-10-23)](#a-decks-cards-in-the-collection-and-mythic-re-imports-2026-10-23), [Deck market values (2026-10-27)](#deck-market-values-2026-10-27), [Scan this deck (2026-10-29)](#scan-this-deck-2026-10-29), [Mythic Tools bridge (2026-10-31, proposal)](#mythic-tools-bridge-2026-10-31-proposal), [Store trips (2026-11-01)](#store-trips-2026-11-01), [Deleting collection containers (2026-11-02)](#deleting-collection-containers-2026-11-02), [Sell lists for store buylists (2026-11-02)](#sell-lists-for-store-buylists-2026-11-02), [Local buylist offers (2026-11-02)](#local-buylist-offers-2026-11-02), [Price history (2026-11-02)](#price-history-2026-11-02), [Recording printed copies in a deck box (2026-11-02)](#recording-printed-copies-in-a-deck-box-2026-11-02).
 - **Decks, plans and sharing:** [Brackets, deck stats and exports (2026-10-19)](#brackets-deck-stats-and-exports-2026-10-19), [Deck import (2026-10-22)](#deck-import-2026-10-22), [Sharing and deck configurations (2026-10-28)](#sharing-and-deck-configurations-2026-10-28), [Review, installed decks and the Lab tab (2026-10-28)](#review-installed-decks-and-the-lab-tab-2026-10-28), [Check this deck (2026-11-01)](#check-this-deck-2026-11-01), [Deck configurations and quieter editing (2026-11-03)](#deck-configurations-and-quieter-editing-2026-11-03), [One plan page (2026-11-04)](#one-plan-page-2026-11-04), [Printing with MakePlayingCards (2026-11-05)](#printing-with-makeplayingcards-2026-11-05), [Plans: one plan per deck (2026-11-06)](#plans-one-plan-per-deck-2026-11-06), [Site design pass (2026-11-08)](#site-design-pass-2026-11-08), [Public by default and the navigation (2026-11-12)](#public-by-default-and-the-navigation-2026-11-12), [Check a deck without an account (2026-11-12)](#check-a-deck-without-an-account-2026-11-12).
@@ -452,6 +456,30 @@ on the public repository, because a fork's pull request could rewrite a workflow
 The move happened on 11 November 2026: old main `7950d7df` became new main `a7ef2db5` with the
 same tree. `runtime/historical.json` keeps pinning old SHAs; saget's deploy checkout keeps that
 history under `refs/archive/private-main`, and local clones get it from the `archive` remote.
+
+## Live store stock (13 November 2026)
+
+Bryan, comparing Yama's saved sourcing report with instock.cards: "it would be cool to have our
+own thing that slowly scrapes the sites without getting rate-limited and also refreshes it before
+opening the order page. It can cache this aggressively too."
+
+Until now the server read a store only when a person asked. This adds the one background read:
+`server/src/plan/stock/live.rs` rereads the cards a sourcing page wants at the Shopify stores
+Yama reads card by card, and the page shows those answers in place of the saved report's quotes
+for that store. The design is in docs/shopping-design.md, "Live stock". The decisions:
+
+- **Shared, public data.** `store_live` is keyed by store and card, not by account: a store's
+  listings are public, so one read serves everyone, and who wanted a card is never stored. It
+  holds no cart, plan or collection, so account deletion has nothing to remove.
+- **Load is bounded by pace, not by demand.** One request at a time per store, four seconds
+  apart, behind the same per-host lock and Retry-After hold as every store check. More accounts
+  lengthen the queue; they never speed it up. Only names in Yama's card data are sent to a store.
+- **It stops on its own.** A card is reread every 8 hours for 14 days after a page last asked.
+- **The cart is checked before it is opened.** Cards in the page's carts are read first.
+- **Only where the store's own site answers per card.** TCGplayer Pro catalogs (no conditions)
+  and YesTCG (an aggregator, asked only on request) are not read in the background.
+- **The saved report is not rewritten**, and assistants still read the report (a recorded MCP
+  gap in docs/ui-mcp-parity.md).
 
 ## Bug reports (12 November 2026)
 
