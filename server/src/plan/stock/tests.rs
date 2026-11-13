@@ -1115,6 +1115,9 @@ async fn wanted_cards_are_read_in_the_background_and_served_with_their_dates() {
     assert_eq!(live::step(&pool, &mut f, &base, Duration::ZERO).await.unwrap(), live::Step::Idle, "both are fresh");
     assert_eq!(calls.load(Ordering::SeqCst), 3, "two pages for one card, one for the card the store doesn't have");
     sqlx::query("UPDATE store_live SET base = ?").bind(REAL).execute(&pool).await.unwrap();
+    // `since` takes in an answer saved in the very millisecond the page asked, so none is ever
+    // missed: let the clock move on, or the last read above is rightly served again below.
+    tokio::time::sleep(Duration::from_millis(3)).await;
 
     let (_, second) = send(&app, Method::POST, "/api/plan/stock/live", Some(&token), Some(ask(None))).await;
     assert_eq!((second["stores"][0]["read"].as_i64(), second["stores"][0]["fresh"].as_i64(), second["stores"][0]["failed"].as_i64()), (Some(2), Some(2), Some(0)), "{second}");
@@ -1137,7 +1140,7 @@ async fn wanted_cards_are_read_in_the_background_and_served_with_their_dates() {
 
     // Only what changed since the page last asked.
     let (_, later) = send(&app, Method::POST, "/api/plan/stock/live", Some(&token), Some(ask(second["at"].as_str()))).await;
-    assert_eq!(later["answers"], json!([]));
+    assert_eq!(later["answers"], json!([]), "asked since {}", second["at"]);
     assert_eq!(later["stores"][0]["read"].as_i64(), Some(2));
 
     // Another account without the store sees nothing, and too many cards are refused.
