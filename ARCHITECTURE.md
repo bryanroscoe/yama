@@ -1870,7 +1870,8 @@ with at least 40 effective stock games gets a standing (`calibration::field`, `s
 `V2Estimate.standing`, `RatingV2.field`): its rate is pulled toward the field's games-weighted average by
 its own sampling variance against the field's spread (observed variance less mean sampling variance,
 never under one point), and it is `ahead` or `behind` only when the 90% interval of that shrunk rate
-clears the average; otherwise `pack`. Under 40 effective games it is `thin` and not placed; a precon
+clears the average; otherwise `pack`. Under 40 effective games (the recency-weighted games between
+snapshots, or every game when the all-time figure is the estimate) it is `thin` and not placed; a precon
 without stock games has no standing. The rank and estimate are unchanged by it. Wizards publishes no
 ranking or tier of its precons, and since Oct 2025 no longer ties them to Bracket 2.
 
