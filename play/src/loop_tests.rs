@@ -371,3 +371,111 @@ fn zaffais_endless_trigger_stops_the_ai_instead_of_running_for_ever() {
         assert_eq!(m.view(Some(1)).log.iter().filter(|l| l.text.starts_with("The game can't go on")).count(), 1, "said once");
     }
 }
+
+/// Ana's optional drain as a combo her AI is told about ([`crate::SeatCombo`]).
+fn drain_combo() -> crate::SeatCombo {
+    crate::SeatCombo { id: "drain".into(), cards: vec!["Marauding Blight-Priest".into(), "Bloodthirsty Conqueror".into(), "Chaplain's Blessing".into()] }
+}
+
+#[test]
+fn an_ai_told_about_its_combo_plays_the_line_that_wins() {
+    // Ana is the AI with the drain on her side and its Blessing in hand; Ben is a person holding a
+    // Bolt. Told about the combo, she finds the line on copies of the game (cast the Blessing,
+    // propose the loop it starts) and plays it: Ben lets it resolve and accepts, and she wins on
+    // her own turn 3. Left to itself the AI may decline the loop (the test above).
+    let (mut m, _) = optional_drain(&[0]);
+    m.set_seat_combos([(0, vec![drain_combo()])].into());
+    assert_eq!(m.seat_combos(0), [drain_combo()]);
+    let mut answered = 0;
+    for _ in 0..3_000 {
+        if m.is_over() || m.turn() > 3 {
+            break;
+        }
+        match m.state.waiting_for.clone() {
+            WaitingFor::RespondToShortcut { player: PlayerId(1), .. } => {
+                act_as(&mut m, 1, Act::RespondToShortcut { stop_at: None });
+                answered += 1;
+            }
+            WaitingFor::Priority { player: PlayerId(1) } => {
+                let d = m.decision(1).unwrap();
+                let pass = d.options.iter().find(|o| o.kind == OptionKind::Pass).unwrap();
+                m.choose(1, d.revision, pass.index).unwrap();
+            }
+            w if m.waiting_on().contains(&1) => panic!("Ben is asked something unexpected: {w:?}"),
+            w => assert_eq!(m.run_ai(1).unwrap(), 1, "the AI answers {w:?}"),
+        }
+    }
+    let log = || m.view(Some(0)).log.iter().map(|l| l.text.clone()).collect::<Vec<_>>().join(" | ");
+    assert_eq!(answered, 1, "she proposed the loop once, and Ben accepted: {:?}; {}", m.state.waiting_for, log());
+    assert_eq!((m.is_over(), m.winner()), (true, Some(0)), "{:?}; {}", m.state.waiting_for, log());
+}
+
+#[test]
+fn a_combo_line_opens_on_the_game_itself_and_other_decisions_on_the_copy() {
+    use std::borrow::Cow;
+    let on_the_game = |m: &Match, seat: u8| matches!(crate::ai_search_state(&m.state, &m.session, PlayerId(seat)), Cow::Borrowed(_));
+    let (mut m, _) = optional_drain(&[0]);
+    assert!(!on_the_game(&m, 0), "with no combo the AI searches a copy with loop detection off");
+    // Every card of the combo is hers to use, in her main phase with an empty stack.
+    m.set_seat_combos([(0, vec![drain_combo()])].into());
+    assert!(on_the_game(&m, 0));
+    assert!(!on_the_game(&m, 1), "Ben's seat was given none");
+    // A combo with a card she doesn't have (the Bolt is Ben's) opens nothing.
+    let hers_and_his = crate::SeatCombo { id: "bolt".into(), cards: vec!["Marauding Blight-Priest".into(), "Lightning Bolt".into()] };
+    m.set_seat_combos([(0, vec![hers_and_his])].into());
+    assert!(!on_the_game(&m, 0));
+    // Nor does her own combo outside her main phase.
+    m.set_seat_combos([(0, vec![drain_combo()])].into());
+    m.state.phase = Phase::End;
+    assert!(!on_the_game(&m, 0));
+}
+
+#[test]
+fn seat_combos_are_saved_with_the_game_and_a_game_without_any_writes_none() {
+    let e = engine();
+    let deck = || SeatDeck { commander: vec!["Combat Celebrant".into()], main: vec!["Plains".into(); 99], ..Default::default() };
+    let setup = Setup { first: Some(0), loops: LoopDetectionMode::Interactive };
+    let mut with = e.new_match_with(9, vec![deck(), deck()], &[(1, Difficulty::Easy)], setup).unwrap();
+    // A seat the game doesn't have and a seat given nothing are dropped.
+    with.set_seat_combos([(1, vec![drain_combo()]), (0, vec![]), (7, vec![drain_combo()])].into());
+    let saved = with.replay_json();
+    let resumed = e.resume(&saved, &[(1, Difficulty::Easy)]).unwrap();
+    assert_eq!(resumed.seat_combos(1), [drain_combo()]);
+    assert!(resumed.seat_combos(0).is_empty() && resumed.seat_combos(7).is_empty());
+    assert_eq!(resumed.session.combos[&PlayerId(1)].len(), 1, "the resumed game's AI has them again");
+    assert!(resumed.replay_json().contains("\"yama_combos\":{\"1\":"), "and saves them again");
+    // Without any, the saved game is what it always was.
+    let without = e.new_match_with(9, vec![deck(), deck()], &[(1, Difficulty::Easy)], setup).unwrap();
+    assert!(!without.replay_json().contains("yama_combos"));
+    // A saved game naming a seat it doesn't have is refused, not guessed at.
+    let bad = saved.replace("\"yama_combos\":{\"1\":", "\"yama_combos\":{\"5\":");
+    assert_ne!(bad, saved);
+    assert!(e.resume(&bad, &[(1, Difficulty::Easy)]).is_err());
+}
+
+#[test]
+fn a_decks_combos_are_named_as_the_engine_names_its_cards() {
+    use crate::{DeckLine, ListedCombo};
+    let e = engine();
+    let line = |name: &'static str, qty: u32| DeckLine { oracle_id: "", name, qty, commander: false };
+    let lines = [line("sanguine bond", 1), line("Exquisite Blood", 1), line("Plains", 30), line("Opt", 0), line("No Such Card", 1)];
+    let cards = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<Vec<String>>();
+    let (both, missing, unknown, none, cut) =
+        (cards(&["Sanguine Bond", "EXQUISITE BLOOD"]), cards(&["Sanguine Bond", "Lightning Bolt"]), cards(&["No Such Card"]), cards(&[]), cards(&["Opt"]));
+    let listed = [
+        ListedCombo { id: "a", cards: &both },
+        // Not on the list, not known to the engine, no cards, a card listed zero times, a repeat.
+        ListedCombo { id: "b", cards: &missing },
+        ListedCombo { id: "c", cards: &unknown },
+        ListedCombo { id: "d", cards: &none },
+        ListedCombo { id: "e", cards: &cut },
+        ListedCombo { id: "a", cards: &both },
+    ];
+    let found = e.resolve_combos(&lines, &listed);
+    assert_eq!(found, [crate::SeatCombo { id: "a".into(), cards: cards(&["Sanguine Bond", "Exquisite Blood"]) }]);
+    // No more than the cap, the first listed kept.
+    let ids: Vec<String> = (0..crate::MAX_SEAT_COMBOS + 5).map(|i| i.to_string()).collect();
+    let many: Vec<ListedCombo> = ids.iter().map(|id| ListedCombo { id, cards: &both }).collect();
+    let kept = e.resolve_combos(&lines, &many);
+    assert_eq!((kept.len(), kept[0].id.as_str()), (crate::MAX_SEAT_COMBOS, "0"));
+}

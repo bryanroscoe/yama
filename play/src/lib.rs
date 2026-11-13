@@ -41,9 +41,11 @@ use engine::types::events::GameEvent;
 use engine::types::game_state::{ActionResult, PriorityPassingMode, StackEntry, StackEntryKind};
 use engine::types::log::{LogImportance, LogSegment, LogVisibility};
 use engine::types::match_config::MatchConfig;
+use engine::types::phase::Phase;
 use engine::types::player::PlayerId;
 use engine::types::replay::{RecordedActionKind, ReplayHeader, ReplayLog};
 use phase_ai::auto_play::eligible_ai_decision;
+use phase_ai::combo::CatalogCombo;
 use phase_ai::config::{AiConfig, AiDifficulty, Platform, create_config_for_players};
 use phase_ai::search::choose_action_with_session;
 use phase_ai::session::AiSession;
@@ -100,6 +102,30 @@ pub struct SeatDeck {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub companion: Vec<String>,
 }
+
+/// A combination of cards in a seat's deck that an outside source lists as winning the game or
+/// as a loop (Commander Spellbook's variants, kept with the deck's check), each card named as
+/// the engine names it. A computer's seat given one ([`Match::set_seat_combos`]) looks, once it
+/// has every card somewhere it can use, for a line of play with them that wins, on copies of the
+/// game, and plays only a line the engine carried through to a won game (phase-ai's
+/// `combo::certify`). Nothing here says what the combo does.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SeatCombo {
+    /// The source's id for it (Spellbook's variant id), kept for reports.
+    pub id: String,
+    pub cards: Vec<String>,
+}
+
+/// A combo as its source lists it for a deck ([`Engine::resolve_combos`]): its cards are named as
+/// the deck's list names them, or by one face.
+pub struct ListedCombo<'a> {
+    pub id: &'a str,
+    pub cards: &'a [String],
+}
+
+/// The most combos one seat is given. A tuned list can hold hundreds; the first ones listed
+/// are kept (Yama's stored checks list two-card combos first).
+pub const MAX_SEAT_COMBOS: usize = 100;
 
 /// How a new game is set up, besides its seed, decks and AI seats.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -210,6 +236,33 @@ impl Engine {
             }
         }
         (deck, DeckReport { missing })
+    }
+
+    /// The combos of `listed` a seat playing `lines` can be given, each card named as the engine
+    /// names it ([`Engine::resolve_deck`]'s names). Left out: a combo naming a card that isn't
+    /// on `lines` or that the engine doesn't know (its line couldn't be played), one with no
+    /// cards, a repeated id, and any past [`MAX_SEAT_COMBOS`].
+    pub fn resolve_combos(&self, lines: &[DeckLine], listed: &[ListedCombo]) -> Vec<SeatCombo> {
+        let engine_name = |card: &str| {
+            lines
+                .iter()
+                .filter(|l| l.qty > 0)
+                .find(|l| l.name.eq_ignore_ascii_case(card) || l.name.split(" // ").any(|face| face.eq_ignore_ascii_case(card)))
+                .and_then(|l| self.face_name(l))
+                .map(str::to_string)
+        };
+        let mut out: Vec<SeatCombo> = Vec::new();
+        for combo in listed {
+            if out.len() == MAX_SEAT_COMBOS {
+                break;
+            }
+            if combo.cards.is_empty() || out.iter().any(|c| c.id == combo.id) {
+                continue;
+            }
+            let Some(cards) = combo.cards.iter().map(|card| engine_name(card.as_str())).collect::<Option<Vec<String>>>() else { continue };
+            out.push(SeatCombo { id: combo.id.to_string(), cards });
+        }
+        out
     }
 
     /// How well the engine can play one card: by oracle ID first, then by name (as
@@ -349,7 +402,10 @@ impl Engine {
             anyhow::ensure!(saved.version == 1, "unsupported turn-controls version {}", saved.version);
             anyhow::ensure!(saved.seats.keys().all(|seat| *seat < log.header.player_count), "saved turn controls name an invalid seat");
         }
+        anyhow::ensure!(metadata.yama_combos.is_empty() || metadata.yama_combos_version == 1, "unsupported seat-combos version {}", metadata.yama_combos_version);
+        anyhow::ensure!(metadata.yama_combos.keys().all(|seat| *seat < log.header.player_count), "saved combos name an invalid seat");
         let mut m = self.start(log.header.clone(), ai)?;
+        m.combos = metadata.yama_combos;
         let mut player = ReplayPlayer::load(log.clone(), Some(&self.db)).map_err(|e| anyhow::anyhow!("{e:?}"))?;
         let n = player.len();
         if log.resolve_all_boundaries.is_empty() {
@@ -382,7 +438,7 @@ impl Engine {
         m.state.debug_mode = false;
         m.state.all_card_names = self.db.card_names().into();
         engine::game::install_card_db(&mut m.state, Arc::clone(&self.db));
-        m.session = AiSession::arc_from_game(&m.state);
+        m.session = ai_session(&m.state, &m.combos);
         m.rng = StdRng::seed_from_u64(log.header.seed ^ u64::from(n));
         m.revision = u64::from(n);
         // Conceding leaves no mark in the engine's state; the log says who did.
@@ -424,6 +480,7 @@ impl Engine {
             log: ReplayLog::new(header),
             state,
             session,
+            combos: BTreeMap::new(),
             ai: ai_configs,
             revision: 0,
             lines: Vec::new(),
@@ -474,6 +531,10 @@ struct ReplayMetadata {
     yama_rewinds: Vec<serde_json::Value>,
     #[serde(default)]
     yama_rewind_version: u8,
+    #[serde(default)]
+    yama_combos: BTreeMap<u8, Vec<SeatCombo>>,
+    #[serde(default)]
+    yama_combos_version: u8,
 }
 
 #[derive(Serialize)]
@@ -486,6 +547,12 @@ struct SavedReplay<'a> {
     yama_revision: u64,
     yama_rewinds: &'a [serde_json::Value],
     yama_rewind_version: u8,
+    /// The combos each computer's seat was given, so a game rebuilt from its log plays on with
+    /// them. A game without any writes neither key, as before there were any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    yama_combos: Option<&'a BTreeMap<u8, Vec<SeatCombo>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    yama_combos_version: Option<u8>,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -507,6 +574,8 @@ pub struct Match {
     state: GameState,
     log: ReplayLog,
     session: Arc<AiSession>,
+    /// The combos each seat's AI was given ([`Match::set_seat_combos`]), saved with the game.
+    combos: BTreeMap<u8, Vec<SeatCombo>>,
     ai: HashMap<PlayerId, AiConfig>,
     /// Only for settling a physical contest among AI seats in games nobody replays
     /// ([`Match::settle_ai_contest`]); each AI decision gets its own ([`ai_rng`]).
@@ -892,6 +961,20 @@ impl Match {
             self.board_ready = true;
         }
         Ok(())
+    }
+
+    /// Give seats' AIs the combos known in their decks ([`SeatCombo`]), by seat, before the game
+    /// is first saved. They are kept with the game ([`Match::replay_json`]). A seat this game
+    /// doesn't have and a seat with none are left out.
+    pub fn set_seat_combos(&mut self, combos: BTreeMap<u8, Vec<SeatCombo>>) {
+        let seats = self.state.players.len();
+        self.combos = combos.into_iter().filter(|(seat, found)| usize::from(*seat) < seats && !found.is_empty()).collect();
+        self.session = ai_session(&self.state, &self.combos);
+    }
+
+    /// The combos `seat`'s AI was given.
+    pub fn seat_combos(&self, seat: u8) -> &[SeatCombo] {
+        self.combos.get(&seat).map_or(&[], Vec::as_slice)
     }
 
     /// Display names by seat, for option labels.
@@ -1868,7 +1951,7 @@ impl Match {
         saved.prepare_board().map_err(|_| {
             ChoiceError::DoesntFit("Could not refresh the restored game controls.".into())
         })?;
-        saved.session = AiSession::arc_from_game(&saved.state);
+        saved.session = ai_session(&saved.state, &saved.combos);
         saved.remark(None);
         saved.lines.push(LogLine::public(
             saved.turn(),
@@ -1963,7 +2046,7 @@ impl Match {
             let config = &self.ai[&actor];
             let mut rng = ai_rng(self.log.header.seed, self.log.actions.len());
             let thinking = Busy::start();
-            let searched = ai_search_state(&self.state);
+            let searched = ai_search_state(&self.state, &self.session, owner);
             let chosen = choose_action_with_session(searched.as_ref(), owner, config, &mut rng, &self.session)
                 .or_else(|| if self.fallback { phase_ai::search::fallback_action(&self.state, config, &contract) } else { None });
             self.ai_thinking += thinking.elapsed();
@@ -2161,7 +2244,7 @@ impl Match {
         let me = PlayerId(seat);
         let config = ai_config(level, self.log.header.player_count, self.log.header.seed, false);
         let mut rng = ai_rng(self.log.header.seed ^ 0x5eed, self.log.actions.len());
-        let searched = ai_search_state(&self.state);
+        let searched = ai_search_state(&self.state, &self.session, me);
         let fallback = || d.options.iter().find(|o| matches!(o.kind, OptionKind::Pass | OptionKind::Keep)).or(d.options.first()).map(|o| PersonMove::Option(d.revision, o.index));
         let Some(action) = choose_action_with_session(searched.as_ref(), me, &config, &mut rng, &self.session) else { return fallback() };
         let contract = AiDecisionContract::issue(&self.state, me);
@@ -2403,6 +2486,8 @@ impl Match {
             yama_revision: self.revision,
             yama_rewinds: &self.rewinds,
             yama_rewind_version: 1,
+            yama_combos: (!self.combos.is_empty()).then_some(&self.combos),
+            yama_combos_version: (!self.combos.is_empty()).then_some(1),
             yama_turn_controls: (!self.controls.is_empty()).then(|| SavedTurnControls {
                 version: 1,
                 seats: self.controls.iter().map(|(seat, controls)| (*seat, controls.clone())).collect(),
@@ -2701,12 +2786,13 @@ pub fn progress_mark(state: &GameState) -> u64 {
 }
 
 /// The position the AI searches from: the game itself, but with loop detection off unless the
-/// decision is about a loop. phase's search plays lines out on copies of the game, and with loop
+/// decision is about a loop or `seat` may open a combo line here ([`combo_line_may_open`]).
+/// phase's search plays lines out on copies of the game, and with loop
 /// detection on every resolution in those lines copies the position again for the detector: on
 /// Hard that made AI decisions take about 60% longer (docs/play-performance.md). The
 /// AI's choice is still checked and applied on the real game, where loops are found.
 #[doc(hidden)]
-pub fn ai_search_state(state: &GameState) -> std::borrow::Cow<'_, GameState> {
+pub fn ai_search_state<'a>(state: &'a GameState, session: &AiSession, seat: PlayerId) -> std::borrow::Cow<'a, GameState> {
     let about_a_loop = matches!(
         state.waiting_for,
         WaitingFor::LoopShortcut { .. }
@@ -2714,12 +2800,52 @@ pub fn ai_search_state(state: &GameState) -> std::borrow::Cow<'_, GameState> {
             | WaitingFor::PrecastCopyShortcutOffer { .. }
             | WaitingFor::RespondToPrecastCopyShortcut { .. }
     );
-    if state.loop_detection.is_off() || about_a_loop {
+    if state.loop_detection.is_off() || about_a_loop || combo_line_may_open(state, session, seat) {
         return std::borrow::Cow::Borrowed(state);
     }
     let mut copy = state.clone();
     copy.loop_detection = LoopDetectionMode::Off;
     std::borrow::Cow::Owned(copy)
+}
+
+/// Whether `seat`'s AI may start looking for a combo line at this decision: it was given a combo
+/// ([`SeatCombo`]) and has every card of one somewhere it can use, in its own main phase with
+/// priority and an empty stack. phase-ai starts that search only on a game that offers loop
+/// shortcuts (CR 732), so this one decision is made on the game as it is ([`ai_search_state`]).
+/// The test is phase-ai's own (`combo::certify`), or wider: a decision that passes it and holds no
+/// line costs only the slower ordinary search. Later steps of a line are found on the copy.
+fn combo_line_may_open(state: &GameState, session: &AiSession, seat: PlayerId) -> bool {
+    let Some(combos) = session.combos.get(&seat).filter(|combos| !combos.is_empty()) else { return false };
+    let opens = state.active_player == seat
+        && state.stack.is_empty()
+        && matches!(state.phase, Phase::PreCombatMain | Phase::PostCombatMain)
+        && matches!(state.waiting_for, WaitingFor::Priority { player } if player == seat);
+    if !opens {
+        return false;
+    }
+    // On the battlefield a card is the seat's to use while it controls it; elsewhere (but not
+    // in its library or on the stack), while it owns it.
+    let usable: HashSet<String> = state
+        .objects
+        .values()
+        .filter(|o| match o.zone {
+            Zone::Library | Zone::Stack => false,
+            Zone::Battlefield => o.controller == seat,
+            _ => o.owner == seat,
+        })
+        .map(|o| o.name.to_lowercase())
+        .collect();
+    combos.iter().any(|combo| combo.cards.iter().all(|card| usable.contains(&card.to_lowercase())))
+}
+
+/// The AI's memory for one game ([`AiSession`]), with the combos each seat was given.
+fn ai_session(state: &GameState, combos: &BTreeMap<u8, Vec<SeatCombo>>) -> Arc<AiSession> {
+    let mut session = AiSession::from_game(state);
+    for (seat, found) in combos {
+        let found = found.iter().map(|c| CatalogCombo { id: c.id.clone(), cards: c.cards.clone() }).collect();
+        session = session.with_combos(PlayerId(*seat), found);
+    }
+    Arc::new(session)
 }
 
 /// Whether AI seats in games people play search against phase's wall-clock budget (1.5 s a

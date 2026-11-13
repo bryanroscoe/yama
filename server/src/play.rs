@@ -952,6 +952,37 @@ async fn seat_cards(pool: &SqlitePool, s: &SeatCfg) -> AppResult<Vec<DeckCard>> 
     }
 }
 
+/// The combos Commander Spellbook found in the list a computer's seat plays, for its AI
+/// (`yama_play::SeatCombo`), from the answer Yama keeps for that list: the seat's own deck
+/// version's check, or the stock precon's (never one for the other). Nothing is asked of
+/// Spellbook here, and a list with no answer yet has none. A combo that also needs something
+/// that isn't a named card ("a creature that taps for mana") is left out: its named cards alone
+/// aren't the combo. A person's seat gets none, and a failed read gives none rather than
+/// keeping the game from starting.
+pub(crate) async fn seat_combos(st: &AppState, engine: &Engine, s: &SeatCfg, cards: &[DeckCard]) -> Vec<yama_play::SeatCombo> {
+    if !st.cfg.ai_combos || s.kind != "ai" {
+        return Vec::new();
+    }
+    let stored = match (precon_of(s), &s.deck_version_id) {
+        (Some(_), _) => crate::deck_checks::precons::result(&st.pool, &crate::deck_checks::list_hash(cards)).await,
+        (None, Some(version)) => {
+            crate::deck_checks::results(&st.pool, std::slice::from_ref(version)).await.map(|mut by_version| by_version.remove(version))
+        }
+        (None, None) => Ok(None),
+    };
+    let check = match stored {
+        Ok(Some(check)) => check,
+        Ok(None) => return Vec::new(),
+        Err(error) => {
+            tracing::warn!(seat = s.seat, %error, "couldn't read a seat's stored combos; its AI plays without them");
+            return Vec::new();
+        }
+    };
+    let listed: Vec<yama_play::ListedCombo> =
+        check.combos.iter().filter(|c| c.templates.is_empty()).map(|c| yama_play::ListedCombo { id: &c.id, cards: &c.cards }).collect();
+    engine.resolve_combos(&deck_lines(cards), &listed)
+}
+
 fn ai_seats(seats: &[SeatCfg]) -> Vec<(u8, Difficulty)> {
     seats
         .iter()
@@ -2047,8 +2078,11 @@ async fn start_game(st: &AppState, id: &str, user: &str) -> AppResult<()> {
     });
     let engine = st.play.engine()?;
     let mut decks = Vec::new();
+    let mut combos = BTreeMap::new();
     for s in &seats {
-        decks.push(resolve(&engine, &seat_cards(&st.pool, s).await?).0);
+        let cards = seat_cards(&st.pool, s).await?;
+        decks.push(resolve(&engine, &cards).0);
+        combos.insert(s.seat, seat_combos(st, &engine, s, &cards).await);
     }
     let prefs = seat_prefs(&st.pool, &seats).await;
     let seed: u64 = u64::from_le_bytes(uuid::Uuid::new_v4().as_bytes()[..8].try_into().unwrap());
@@ -2056,7 +2090,9 @@ async fn start_game(st: &AppState, id: &str, user: &str) -> AppResult<()> {
     // Setup can fault cold engine pages in from disk. It must neither block an async
     // worker nor hold SQLite's one writer while constructing the match and replay.
     let (m, replay, permit) = prepare_match(move || {
-        let m = engine.new_match_with(seed, decks, &ai, Setup { first, loops: yama_play::PLAY_LOOPS })?;
+        let mut m = engine.new_match_with(seed, decks, &ai, Setup { first, loops: yama_play::PLAY_LOOPS })?;
+        // Before the first save, so the game's record carries them.
+        m.set_seat_combos(combos);
         let replay = m.replay_json();
         Ok((m, replay, permit))
     }).await?;
