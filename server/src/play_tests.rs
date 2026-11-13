@@ -2475,4 +2475,18 @@ async fn a_computers_seat_is_given_the_combos_kept_for_the_list_it_plays() {
         .await
         .unwrap();
     assert_eq!(seat_combos(&st, &e, &precon, &cards).await, [yama_play::SeatCombo { id: "9".into(), cards: vec!["Preordain".into(), "Opt".into()] }]);
+
+    // Once Spellbook's combos are imported (combos.rs), the list itself is looked up, whoever's
+    // it is, and the stored answers are no longer read.
+    for sql in [
+        "INSERT INTO spellbook_cards (n, oracle_id) VALUES (1, 'o-opt'), (2, 'o-preordain'), (3, 'o-blaze')",
+        "INSERT INTO spellbook_combos (n, id, cards, popularity, run) VALUES (1, 'bulk', 2, 5, 'r'), (2, 'side', 2, 9, 'r')",
+        "INSERT INTO spellbook_combo_cards (card, combo) VALUES (1, 1), (2, 1), (1, 2), (3, 2)",
+    ] {
+        sqlx::query(sql).execute(&st.pool).await.unwrap();
+    }
+    let bulk = [yama_play::SeatCombo { id: "bulk".into(), cards: vec!["Opt".into(), "Preordain".into()] }];
+    assert_eq!(seat_combos(&st, &e, &computer, &cards).await, bulk);
+    assert_eq!(seat_combos(&st, &e, &precon, &cards).await, bulk);
+    assert!(seat_combos(&st, &e, &person, &cards).await.is_empty());
 }
