@@ -61,6 +61,14 @@ fn active() -> &'static std::sync::Mutex<HashSet<String>> {
 /// Storefront search pages read for one card when `suggest.json` is full, and products read for one card.
 const SHOP_PAGES: usize = 12;
 const SHOP_PRODUCTS: usize = 60;
+/// Shopify's public Storefront API, which answers without a token: a search for a card's in-stock
+/// products with every variant's options, price and availability. Storefronts now refuse
+/// `/products/<handle>.js` and `/products.json` to anything but a browser (HTTP 429 on the first
+/// request, 2026-11-12), so this is read first. Stock counts need the store's own token: unknown.
+const STOREFRONT_PATH: &str = "/api/2025-10/graphql.json";
+/// Pages read for one card, 25 in-stock products each; a card with more is unknown.
+const STOREFRONT_PAGES: usize = 6;
+const STOREFRONT_QUERY: &str = "query($q:String!,$after:String){search(query:$q,types:PRODUCT,first:25,after:$after,productFilters:[{available:true}]){pageInfo{hasNextPage endCursor} nodes{... on Product{title handle vendor variants(first:50){pageInfo{hasNextPage} nodes{id title availableForSale price{amount}}}}}}}";
 /// Pages of 5,000 products read from a TCGplayer Pro catalog.
 const PRO_PAGES: usize = 8;
 /// Listings in an imported file.
@@ -404,6 +412,49 @@ pub fn shopify_product(body: &Value, card: &str, base: &str, handle: &str) -> Ve
             }
         })
         .collect()
+}
+
+/// One page of a Storefront API search as the card's in-stock listings, with the next page's
+/// cursor. `None` when the page can't be read in full: no product list, a product of this card
+/// without a readable title, handle, variant id, option text, price or availability, or one with
+/// more variants than were asked for (an unread variant may be the cheapest in stock).
+pub fn storefront_page(body: &Value, card: &str, base: &str) -> Option<(Vec<Listing>, Option<String>)> {
+    let search = &body["data"]["search"];
+    let nodes = search["nodes"].as_array()?;
+    let next = if search["pageInfo"]["hasNextPage"].as_bool()? {
+        Some(search["pageInfo"]["endCursor"].as_str().filter(|c| !c.is_empty())?.to_string())
+    } else {
+        None
+    };
+    let mut listings = Vec::new();
+    for node in nodes {
+        // A search hit that isn't a product comes back empty.
+        if node.is_null() || node.as_object().is_some_and(|o| o.is_empty()) {
+            continue;
+        }
+        let title = node["title"].as_str().filter(|t| !t.trim().is_empty())?;
+        if !same_card(title_name(title), card) {
+            continue;
+        }
+        let handle = node["handle"].as_str().filter(|h| !h.is_empty() && h.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'))?;
+        if node["variants"]["pageInfo"]["hasNextPage"].as_bool()? {
+            return None;
+        }
+        let mut variants = Vec::new();
+        for v in node["variants"]["nodes"].as_array()? {
+            // "gid://shopify/ProductVariant/123": the number is what a cart link takes.
+            let id = v["id"].as_str()?.rsplit('/').next().filter(|i| !i.is_empty() && i.bytes().all(|c| c.is_ascii_digit()))?;
+            // Money comes as a decimal string ("1.5").
+            let amount = v["price"]["amount"].as_str().and_then(|a| a.trim().parse::<f64>().ok()).or_else(|| v["price"]["amount"].as_f64()).filter(|a| a.is_finite() && *a >= 0.0)?;
+            let options = v["title"].as_str().filter(|t| !t.trim().is_empty())?;
+            let available = v["availableForSale"].as_bool()?;
+            // The shape of `/products/<handle>.js`, which gives cents.
+            variants.push(json!({"id": id, "title": options, "price": (amount * 100.0).round(), "available": available}));
+        }
+        let product = json!({"title": title, "vendor": node["vendor"], "variants": variants});
+        listings.extend(shopify_product(&product, card, base, handle).into_iter().filter(|l| l.available == Some(true)));
+    }
+    Some((listings, next))
 }
 
 /// A TCGplayer Pro catalog answer: (total products, listings, one per product at its lowest price).
@@ -894,13 +945,86 @@ async fn enrich_shopify_quantities(f: &mut Fetcher, base: &str, handle: &str, li
     }
 }
 
-/// Every printing a Shopify store lists for each card: `suggest.json`, and when that's full (it
-/// stops at 10 products) the storefront's search pages, then each product's variants. A card any of
-/// whose reads failed, or with more printings than Yama reads, is unknown: a printing not read may
-/// be the cheapest in stock.
+/// What the Storefront API said about one card.
+enum Storefront {
+    Found(Vec<Listing>),
+    /// The card's answer is unknown, with why.
+    Unknown(String),
+    /// The store doesn't offer the API: the older reads may still work.
+    Unsupported,
+}
+
+/// A Storefront API request the store refused outright, or answered with a page.
+fn storefront_refused(e: &str) -> bool {
+    [": HTTP 400", ": HTTP 401", ": HTTP 402", ": HTTP 403", ": HTTP 404", ": HTTP 405", ": HTTP 410", ": the answer wasn't JSON"].iter().any(|end| e.ends_with(end))
+}
+
+/// A card's in-stock listings from the store's Storefront API, every page.
+async fn storefront_card(f: &mut Fetcher, base: &str, card: &str, raw: &mut Raw) -> Storefront {
+    let front = card.split(" // ").next().unwrap_or(card).trim();
+    let url = format!("{base}{STOREFRONT_PATH}");
+    // A phrase in Shopify's search syntax; the titles found are still checked against the card.
+    let phrase = front.replace('\\', "\\\\").replace('"', "\\\"");
+    let mut after: Option<String> = None;
+    let mut listings = Vec::new();
+    for page in 0..STOREFRONT_PAGES {
+        let body = json!({"query": STOREFRONT_QUERY, "variables": {"q": format!("title:\"{phrase}\""), "after": after}});
+        let answer = match f.send(Kind::Shopify, "POST", &url, Some(&body), raw).await {
+            Ok(answer) => answer,
+            Err(e) if page == 0 && storefront_refused(&e) => return Storefront::Unsupported,
+            Err(e) => return Storefront::Unknown(e),
+        };
+        match storefront_page(&answer, card, base) {
+            Some((found, next)) => {
+                listings.extend(found);
+                match next {
+                    Some(cursor) => after = Some(cursor),
+                    None => return Storefront::Found(listings),
+                }
+            }
+            None => {
+                f.forget("POST", &url, Some(&body));
+                // No search result at all (the API is off, or asks for a token) isn't a bad page.
+                if page == 0 && answer["data"]["search"].is_null() {
+                    return Storefront::Unsupported;
+                }
+                return Storefront::Unknown(format!("{url}: an answer without readable products for {card}"));
+            }
+        }
+    }
+    Storefront::Unknown(format!("{card}: more than {} in-stock printings listed; Yama didn't read them all", STOREFRONT_PAGES * 25))
+}
+
+/// Every in-stock printing a Shopify store lists for each card: the Storefront API, or for a store
+/// that doesn't offer it the older reads ([`legacy_card`]). A card any of whose reads failed, or
+/// with more printings than Yama reads, is unknown: a printing not read may be the cheapest in stock.
 async fn fetch_shopify(f: &mut Fetcher, base: &str, cards: &[String], raw: &mut Raw) -> Found {
     let mut out = Found::default();
+    let mut legacy = false;
     for card in cards {
+        if !legacy {
+            match storefront_card(f, base, card, raw).await {
+                Storefront::Found(listings) => {
+                    out.listings.extend(listings);
+                    continue;
+                }
+                Storefront::Unknown(e) => {
+                    out.errors.push(e);
+                    out.failed.push(card.clone());
+                    continue;
+                }
+                Storefront::Unsupported => legacy = true,
+            }
+        }
+        legacy_card(f, base, card, raw, &mut out).await;
+    }
+    out
+}
+
+/// One card the older way: `suggest.json`, and when that's full (it stops at 10 products) the
+/// storefront's search pages, then each product's variants (`/products/<handle>.js`).
+async fn legacy_card(f: &mut Fetcher, base: &str, card: &str, raw: &mut Raw, out: &mut Found) {
+    {
         let front = card.split(" // ").next().unwrap_or(card).trim();
         let mut u = url::Url::parse(&format!("{base}/search/suggest.json")).expect("base");
         u.query_pairs_mut().append_pair("q", &format!("\"{front}\"")).append_pair("resources[type]", "product").append_pair("resources[limit]", "10");
@@ -910,14 +1034,14 @@ async fn fetch_shopify(f: &mut Fetcher, base: &str, cards: &[String], raw: &mut 
                 None => {
                     f.forget("GET", u.as_str(), None);
                     out.errors.push(format!("{}: an answer without a product list", u.as_str()));
-                    out.failed.push(card.clone());
-                    continue;
+                    out.failed.push(card.to_string());
+                    return;
                 }
             },
             Err(e) => {
                 out.errors.push(e);
-                out.failed.push(card.clone());
-                continue;
+                out.failed.push(card.to_string());
+                return;
             }
         };
         let mut incomplete = false;
@@ -993,12 +1117,11 @@ async fn fetch_shopify(f: &mut Fetcher, base: &str, cards: &[String], raw: &mut 
             if handles.len() > SHOP_PRODUCTS {
                 out.errors.push(format!("{card}: more than {SHOP_PRODUCTS} printings listed; Yama didn't read them all"));
             }
-            out.failed.push(card.clone());
+            out.failed.push(card.to_string());
         } else {
             out.listings.extend(found);
         }
     }
-    out
 }
 
 /// A TCGplayer Pro storefront's whole in-stock Magic catalog, 5,000 products a page.
@@ -1458,7 +1581,7 @@ pub async fn start(st: &AppState, owner: &str, body: &CheckBody, via: &str, chan
         active().lock().expect("active").insert(id.clone());
         let query = match kind {
             Kind::Shopify if body.refresh_catalog => format!("Refresh full public catalog: GET {base}/products.json?limit=250&page=<page>; atomically cache after all pages"),
-            Kind::Shopify => format!("Use dated catalog cache when available; otherwise GET {base}/search/suggest.json?q=\"<card>\"&resources[type]=product&resources[limit]=10, then /products/<handle>.js"),
+            Kind::Shopify => format!("Use dated catalog cache when available; otherwise POST {base}{STOREFRONT_PATH} (Storefront API search for in-stock products titled \"<card>\", with variants); for a store without it, GET {base}/search/suggest.json?q=\"<card>\"&resources[type]=product&resources[limit]=10, then /products/<handle>.js"),
             Kind::Pro => format!("POST {base}/api/catalog/search {{\"query\":\"\",\"context\":{{\"productLineName\":\"Magic: The Gathering\"}},\"size\":5000}}"),
             Kind::YesTcg => format!("GET {base}/api/decksearch?q=<card>&market=austin&game=mtg (this store's part, {})", host.as_deref().unwrap_or("?")),
         };
