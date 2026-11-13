@@ -1871,14 +1871,21 @@ with at least 40 effective stock games gets a standing (`calibration::field`, `s
 its own sampling variance against the field's spread (observed variance less mean sampling variance,
 never under one point), and it is `ahead` or `behind` only when the 90% interval of that shrunk rate
 clears the average; otherwise `pack`. Under 40 effective games (the recency-weighted games between
-snapshots, or every game when the all-time figure is the estimate) it is `thin` and not placed; a precon
+snapshots, or the all-time figure's capped count) it is `thin` and not placed; a precon
 without stock games has no standing. The rank and estimate are unchanged by it. Wizards publishes no
 ranking or tier of its precons, and since Oct 2025 no longer ties them to Bracket 2.
 
 The same day the rating stopped reading a recent rate that rests on too few games: the recency-weighted
 rate counts only when the games between snapshots number at least 40 (`real_estimate`), else the
-source's all-time figure does. Before, two new games between snapshots stood in for a precon with 72 on
-record and gave it an estimate of 37.6% with an interval of 0 to 98%.
+source's all-time rate does, trusted as no more than 40 games. Before, two new games between snapshots
+stood in for a precon with 72 on record and gave it an estimate of 37.6% with an interval of 0 to 98%.
+The cap matters: counted in full, an old record outranks every fresh one, because recency-weighted
+precons rest on a median of 116 effective games out of 268 on record (a 184-game precon with 16 new
+games came out first in a dry run). On the data of 12 Nov 2026, 18 of the 88 precons with stock games
+switch to the all-time rate; the ten best-ranked precons stay the same, the 18 move by a median of 28
+places (Legends' Legacy from 157th to 22nd on its 29.2% all-time record), and no other precon moves
+more than 13. A precon with one snapshot keeps its all-time figure in full, as before. The time-split
+test picks its training figures by the same rule.
 
 ### Polish runs (2026-10-31)
 

@@ -41,7 +41,8 @@ impl Real {
 
 /// Fewest effective games before a precon is placed against the field: an interval's worth.
 /// Effective games are what the estimate rests on: the recency-weighted games between
-/// snapshots, or every game on record when the all-time figure is used.
+/// snapshots, or the all-time figure's count (at most 40 when it stands in for a thin recent
+/// rate; `precon_evidence::real_estimate`).
 pub const MIN_STANDING_GAMES: f64 = 40.0;
 /// The spread is never read as less than this many points, so a quiet sample can't make every
 /// small difference look real.

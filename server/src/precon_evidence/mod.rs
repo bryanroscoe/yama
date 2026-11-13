@@ -1143,11 +1143,8 @@ async fn calibrate_with(
             Some((h, t)) => (h, Some(t)),
             None => (&primary.history, None),
         };
-        // A history can have a recent rate and no snapshot of its own to fall back on.
-        let train = then.and_then(|t| match t.snapshots.last() {
-            Some(last) => Some(real_estimate(t.recent.as_ref(), last.rate, last.games)),
-            None => t.recent.as_ref().map(|r| calibration::Real { rate: r.rate, effective_games: r.effective_games }),
-        });
+        // Every history here has a snapshot (the cohorts are filtered to those that do).
+        let train = then.and_then(|t| t.snapshots.last().map(|last| real_estimate(t.recent.as_ref(), last.rate, last.games)));
         // Held out: the games after the split's newest snapshot, on the same unbroken chain.
         let holdout = then.and_then(|t| {
             let (first, last) = (t.snapshots.last()?, after_split(now, t)?);
@@ -1385,18 +1382,27 @@ impl Normal {
     }
 }
 
-/// Rating v2 for every catalog precon with evidence, from the newest global run and the datasets.
-/// What real games say about a precon, for the rating: the recency-weighted rate from the games
-/// between snapshots when those are at least an interval's worth, else the source's all-time
-/// figure. (Until 2026-11-13 any recent rate won, so two new games between snapshots could
-/// stand in for a precon with 72 on record and give it a 0 to 98% interval.)
+/// What real games say about a precon, for the rating and for the time-split test.
+/// - With at least an interval's worth of games between its snapshots: the recency-weighted
+///   rate from those games.
+/// - With fewer: the source's all-time rate, trusted no more than an interval's worth of games.
+///   Few new games say little about now, and most of the record is older than the first
+///   snapshot; counted in full, an old record would outrank every fresh one (a 184-game precon
+///   with 16 new games came out first). The cap also keeps precision the same on both sides of
+///   the 40-game line.
+/// - With no games between snapshots to read (one snapshot): the all-time figure as it is.
+///
+/// Until 2026-11-13 any recent rate won, so two new games between snapshots stood in for a
+/// precon with 72 on record and gave it 37.6% with a 0 to 98% interval.
 fn real_estimate(recent: Option<&history::Recent>, all_time_rate: f64, all_time_games: u64) -> calibration::Real {
     match recent {
         Some(r) if r.games >= history::MIN_INTERVAL_GAMES => calibration::Real { rate: r.rate, effective_games: r.effective_games },
-        _ => calibration::Real { rate: all_time_rate, effective_games: all_time_games as f64 },
+        Some(_) => calibration::Real { rate: all_time_rate, effective_games: (all_time_games as f64).min(history::MIN_INTERVAL_GAMES as f64) },
+        None => calibration::Real { rate: all_time_rate, effective_games: all_time_games as f64 },
     }
 }
 
+/// Rating v2 for every catalog precon with evidence, from the newest global run and the datasets.
 pub async fn rating_v2(pool: &SqlitePool, as_of: DateTime<Utc>) -> AppResult<RatingV2> {
     let loaded = load(pool, as_of).await?;
     rating_v2_with(pool, as_of, loaded).await
