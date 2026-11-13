@@ -23,6 +23,14 @@ The page defaults to Near Mint, with store, condition, deck, bracket and card-na
 TCGplayer Pro listings are added on the store pages. This preview does not activate
 plans or change inventory, orders, review answers or the active trip.
 
+For Shopify stores Yama reads card by card (Mothership, Pat's Games), the page shows live stock
+in place of the report's quotes for that store: Yama rereads each wanted card about every 8
+hours, slowly, for two weeks after the page was last opened, and rereads the cards in the carts
+first. Each such listing shows when the store's site was read; it has no stock count. A saved
+listing the store no longer lists has sold out and leaves the carts, and the page says which
+selected cards did. Live stock is on the page only: `get_research` still returns the saved
+report, and other stores (TCGplayer Pro, YesTCG results) show the report until it is updated.
+
 Refreshing live store snapshots does not regenerate this saved preview. When asked
 to refresh a portfolio source report, verify its current targets and allocations,
 refresh explicit card names through the staged store check, then save the updated

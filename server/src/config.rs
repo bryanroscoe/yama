@@ -35,7 +35,8 @@ pub struct Config {
     pub secure_cookies: bool,
     /// Extra origins allowed to call the API: the phone apps (`capacitor://localhost`, `https://localhost`).
     pub cors_origins: Vec<String>,
-    /// Refresh Scryfall data in the background (prices daily, rules weekly).
+    /// Refresh Scryfall data in the background (prices daily, rules weekly), and reread the store
+    /// stock sourcing pages want (`plan/stock/live.rs`).
     pub auto_import: bool,
     /// Check each saved deck version with Commander Spellbook in the background (bracket
     /// estimate, flagged cards, combos). On unless `YAMA_DECK_CHECKS=0`; sends deck lists there.

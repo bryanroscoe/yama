@@ -2,6 +2,8 @@
 //! reads of a store's listings, fetched by the server only when the person asks (the Trip page's
 //! "Check stores", or a `check_stores` change they apply), or imported as a `yama-store-snapshot/1`
 //! file. A listing is a dated quote, never a purchase or a promise the card is still there.
+//! The one read nobody starts by hand is `live.rs`: the cards a sourcing page wants, reread
+//! slowly in the background and shared by every account.
 //!
 //! Hosts come from a fixed connector per store, never from a URL a person types: a Shopify store on
 //! the list below, a `<name>.tcgplayerpro.com` storefront, or YesTCG's Austin search. One request
@@ -15,6 +17,7 @@
 //! is unknown, not absent. The trip (`trip.ts`, `trip.rs`) reads them beside `quotes`.
 
 pub mod catalog;
+pub mod live;
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};

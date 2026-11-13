@@ -99,6 +99,7 @@ force (its `local_buy`, else the rule read from its older fields).
 | Dated listings for plan cards | `plan_quotes` (`stock_check`: store, checked date, in stock, price, printing, cart variant, URL) | Exists |
 | Real-card wishlist | Research scenarios with `purpose: permanent_real_wishlist` (`research_reports`), one entry per card | Exists; the bundle now carries it as `wishlist` |
 | **Stock snapshots** | `store_snapshots (id, owner_id, store_key, source, cards, failed, query, requested_at, fetched_at, status, error, raw_gz, item_count, via, change_id, check_id)` and `store_listings (snapshot_id, owner_id, card_name, card_key, title, set_code, set_name, number, finish, condition, language, price, available, qty, price_kind, variant, url)`, migration 0055. One snapshot is one dated read of one store (a whole catalog when `cards` is null, or the answers for a card list; `failed` lists cards whose answer is unknown). Listings are never edited; for each card and store the newest answer counts (`stock.rs` `store_quotes`): a check's snapshots (one `check_id`) count from when the last of them finished, an import from when it was read, and within one check YesTCG's comes before the store's own. A whole catalog read only in part answers for nothing. The raw responses are kept gzipped (newest 10 per store, newest 20 snapshots kept) so a parse bug can be fixed without fetching again. | Built (slice 2) |
+| **Live stock** | `store_live (base, card_key, card_name, wanted_at, rush_at, tried_at, checked_at, error, listings)`, migration 0088: for each store Yama reads card by card and each card a sourcing page wants, the store's newest answer (see "Live stock"). Public storefront data shared by every account, like `store_catalog_cache`; it never records who wanted a card. | Built (13 Nov 2026) |
 | **Shopping list** | Derived from the bundle (the trip's wants), plus `shopping_wants (id, owner_id, kind: card/sealed, name, qty, priority: need/along, deck_id, deck_name, why, source: page/assistant, added_at, retired_at)`, migration 0055, for cards and sealed products added by hand on the Trip page or by an applied `add_wish`. A card is checked against Yama's cards (the canonical name is kept); a deck is one of theirs by id, or a label for a deck not in Yama. Removing one retires it. | Built (slice 3) |
 | Sealed products | The market and singles from `deck_prices.rs`; a store's price for one on the list is a `sealed_quotes` row (migration 0056), typed in Yama | Built (slice 4) |
 
@@ -166,7 +167,8 @@ real-card wishlist of 31 Oct 2026 uses the same tiers).
 
 The server would run these itself (slice 2), only when the person asks ("Check stores" on the Trip
 page, or a staged MCP change they apply), for their own stores, with the card names of their own
-list. Hosts come from a fixed connector per store kind, never from a URL the person types, so it
+list. The one exception is "Live stock" below: the cards a sourcing page wants, reread slowly in
+the background. Hosts come from a fixed connector per store kind, never from a URL the person types, so it
 isn't an open fetcher. One request at a time per host, a pause between requests, a daily cap per
 account, and each response kept as a snapshot.
 
@@ -192,6 +194,46 @@ file can also be imported, so commander-decks' scripts keep working and their ou
 
 `cards` null means the store's whole catalog (a card missing from it is not in stock); a list
 means only those cards were asked about. A missing price stays `null`.
+
+## Live stock (13 Nov 2026)
+
+Bryan, after instock.cards showed the stores' sites can be read on the spot: "it would be cool to
+have our own thing that slowly scrapes the sites without getting rate-limited and also refreshes
+it before opening the order page. It can cache this aggressively too."
+
+`server/src/plan/stock/live.rs` keeps store stock fresh for the cards a sourcing page wants.
+
+- **What is read.** Shopify stores on the connector list (Mothership, Pat's Games), one card at
+  a time through the public Storefront API, the same read a store check makes. A TCGplayer Pro
+  catalog gives no conditions and YesTCG is asked only on request, so those stores keep showing
+  the saved report.
+- **What is remembered.** `POST /api/plan/stock/live {cards, hurry, since}` (the sourcing page,
+  each time it looks) marks the cards as wanted at the account's Shopify stores it hasn't marked
+  never. Only names in Yama's card data are kept, so nothing but a card's name is ever sent to a
+  store. Rows are per store and card, not per account.
+- **Pace.** One reader per store, one request at a time, four seconds apart; it shares the
+  per-host lock and the store's Retry-After hold with every check. More accounts or more cards
+  make a longer queue, never a faster one. A 429 is not asked again within the attempt, a failed
+  read backs off (a minute, doubling to sixteen) and its card waits half an hour. Readers run
+  only with `YAMA_AUTO_IMPORT` (production), never offline or in `npm run local`.
+- **Freshness.** A wanted card is reread every 8 hours for 14 days after a page last asked for
+  it; after that its last answer stays and reading stops. About 860 cards take roughly an hour a
+  store for a full pass.
+- **Read first.** Cards in the page's carts are sent as `hurry`: one whose answer is older than
+  half an hour is read before the rest, at the pace of a check a person asks for (0.7 s). At
+  most 300 a request and 6,000 hurried reads an account a day.
+- **What the page gets.** Each store's newest answer per card with its time (every in-stock
+  variant: condition, finish, price, cart id; no stock count, which the stores don't publish),
+  the card's cheapest non-foil market from Yama's price data, and how far each reader has got.
+  `since` leaves out answers the page already holds. A read that failed is unknown and keeps
+  the last answer; "asked and nothing in stock" is an answer.
+- **On the sourcing page** (`web/src/plan/live-stock.ts`). A store's newer answer replaces the
+  saved report's quotes for that store and card: a saved listing the store no longer lists has
+  sold out. A listing keeps the saved link and printing market of the variant, or the same
+  product page and finish, it matches; any other is judged against the cheapest non-foil
+  printing, as the trip does. Condition, language and finish come from the listing's own words.
+  A foil of a card the report doesn't offer as foil-only is a foil alternative. The saved report
+  itself is never rewritten.
 
 ## Sealed precons (slice 4)
 

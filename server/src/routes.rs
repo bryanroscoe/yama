@@ -198,6 +198,8 @@ pub async fn serve(cfg: Config, pool: SqlitePool) -> anyhow::Result<()> {
         crate::cards::import::spawn_scheduler(pool.clone(), cfg.data_dir.clone());
         crate::calendar::spawn_scheduler(pool.clone(), http_client());
         crate::deck_prices::spawn_scheduler(pool.clone(), http_client());
+        // Store stock for the cards sourcing pages want, reread slowly (plan/stock/live.rs).
+        crate::plan::stock::live::spawn(pool.clone(), http_client());
         // The scanner's recognition bundle, so the first scan doesn't wait on the download.
         let (dir, http) = (cfg.data_dir.clone(), http_client());
         tokio::spawn(async move { crate::scan::ensure(dir, http).await });

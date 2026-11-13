@@ -17,12 +17,15 @@ export function capDraft(settings: RuleSet[], today: string, cap: number | null)
 }
 
 const priceOnlyReason = /^(over \$[\d.]+ ceiling|matched-printing market unknown|within market multiple|over market multiple|50 cents or less; market exception)$/;
-function knownRestrictionsPass(o: SourceOffer, card: string): boolean {
+const NOT_WANTED = /\b(damaged|heavily played|signed|altered|oversized|proxy|art card|art series|japanese|german|french|italian|spanish|portuguese|korean|chinese|russian)\b/i;
+/** Condition, language and kind of copy pass, from the listing's own words; `foilOk` leaves the finish out of it. */
+export function knownRestrictionsPass(o: Pick<SourceOffer, "title" | "condition" | "finish" | "language">, card: string, foilOk = false): boolean {
   const title = (o.title ?? "").toLowerCase(), name = card.split(" // ")[0]!.toLowerCase();
   const at = title.indexOf(name);
   const descriptors = at < 0 ? title : title.slice(0,at) + title.slice(at+name.length);
+  const words = `${o.condition} ${o.finish ?? ""} ${descriptors}`;
   return /^(nm|near\s?mint|lp|lightly\s?played|mp|moderately\s?played)(?:$|[\s/])/i.test(o.condition)
-    && !/\b(foil|etched|damaged|heavily played|signed|altered|oversized|proxy|art card|art series|japanese|german|french|italian|spanish|portuguese|korean|chinese|russian)\b/i.test(`${o.condition} ${o.finish ?? ""} ${descriptors}`)
+    && !NOT_WANTED.test(words) && (foilOk || !/\b(foil|etched)\b/i.test(words))
     && (!o.language || /^(en|english)$/i.test(o.language));
 }
 function mayReprice(o: SourceOffer, card: string): boolean {

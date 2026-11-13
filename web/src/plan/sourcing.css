@@ -3,6 +3,7 @@
 .source-nav{margin-bottom:1rem}.source-nav a{padding:.5rem 0}
 .source-report{display:grid;gap:.25rem}.source-report select{width:100%;max-width:100%;min-width:0}
 .source-freshness{display:flex;flex-wrap:wrap;gap:.25rem 1rem;margin:.75rem 0;color:var(--muted);font-size:var(--t-label)}.source-freshness details{width:100%}.source-freshness p{margin:.5rem 0}
+.source-live{display:grid;gap:.25rem;margin:.75rem 0;color:var(--muted);font-size:var(--t-label)}.source-live b{color:var(--text)}
 .source-filters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.75rem;margin:1rem 0}
 .source-filters>label{display:flex;flex-direction:column;gap:.25rem;font-size:var(--t-label);font-weight:600;min-width:0}
 .source-filters input,.source-filters select{width:100%;min-width:0;max-width:100%}
