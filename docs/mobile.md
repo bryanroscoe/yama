@@ -67,7 +67,7 @@ keystore" (the file) and "Yama Android release key" (password, alias `yama`); Gi
 `ANDROID_RELEASE_KEYSTORE_BASE64`, `ANDROID_RELEASE_KEYSTORE_PASSWORD`, `ANDROID_RELEASE_KEY_ALIAS`,
 `ANDROID_RELEASE_KEY_PASSWORD`. Certificate SHA-1 `C0:75:99:B9:1F:39:F9:AD:07:FC:DB:80:FC:C7:31:C1:BB:F4:B1:62`,
 SHA-256 `3D:FF:7B:08:CD:61:DF:61:6B:2B:72:29:89:9A:A7:F0:21:66:0F:6F:54:F9:74:0B:7E:23:A6:FB:36:26:CB:D8`.
-Google sign-in needs an Android OAuth client with this SHA-1 ("Sign-in", below). If the app goes to
+Its Android OAuth client ("Yama Android release", made 2026-11-13) lets Google sign-in work in the released app ("Sign-in", below). If the app goes to
 Google Play later, enrol this key in Play App Signing so installed copies carry over.
 
 For the remaining Google Cloud, signing, real-phone testing and Play Console steps, open
@@ -110,7 +110,7 @@ Anything about iOS is shelved.
 - **Server:** `YAMA_CORS_ORIGINS: https://localhost` in `deploy/compose.yaml`, so releases set it (the app sends a bearer token, never cookies, so no credentialed CORS).
 - **Sign-in:** `web/src/native.ts` signs in through Android's Credential Manager (`@capgo/capacitor-social-login`, Google only; the other providers' SDKs are switched off in `capacitor.config.ts`). It asks for an ID token for the server's Web client ID from `/api/auth/config`, which `/api/auth/google` already accepts. Google Cloud also needs an **Android** OAuth client per signing key, with package `ing.yama.app` and that key's SHA-1, in the same project as the Web client; those client IDs never go in `YAMA_GOOGLE_CLIENT_IDS`:
   - the debug key, `web/android/app/debug.keystore` (checked in, not a secret, so every debug build shares it): SHA-1 `6C:A1:81:95:06:8A:FA:72:F9:3F:FB:6F:52:0C:EB:F3:5F:0F:4F:F7`; client "Yama Android debug" in project yama-512101, made 2026-11-08 and checked on Bryan's Pixel 10 Pro on 2026-11-09 (sign-in, then Decks and Collection after a relaunch);
-  - the release key, which signs the sideloaded app ("Updates", above): SHA-1 `C0:75:99:B9:1F:39:F9:AD:07:FC:DB:80:FC:C7:31:C1:BB:F4:B1:62`;
+  - the release key, which signs the sideloaded app ("Updates", above): SHA-1 `C0:75:99:B9:1F:39:F9:AD:07:FC:DB:80:FC:C7:31:C1:BB:F4:B1:62`; client "Yama Android release" (`228285497505-lbj1j8kkdfp9nra0im5ss4qpsjd5n2f6`), made 2026-11-13 and checked (package and SHA-1) after saving;
   - Play's app signing key, from Play Console, Test and release, App integrity, after the first upload.
   - A missing client fails only on the phone: logcat shows `status=UNREGISTERED_ON_API_CONSOLE` (tag `Auth.Api.Credentials`). Recent Android hands the app "[16] Account reauth failed"; Android 12 hands it a plain cancellation just after the account is picked. The sign-in page says "Google won't sign in to this version of the app" or "Sign-in didn't finish"; the plugin's full text stays in logcat (`Capacitor/Console`).
 - **Status bar:** the app draws under a transparent status bar and Capacitor passes its height to the page as `env(safe-area-inset-top)`. The shell, the sign-in and consent pages, and the admin banner start below it, and a fixed strip of ground sits behind the clock (`body::before` in `styles.css`).
