@@ -805,6 +805,7 @@ async fn rating_v2_ranks_the_public_pages_once_a_real_game_source_is_enabled() {
     assert!(html.contains("Mythic Tools, any list: 7,984 games from 3,077 decks"));
     let (_, _, html) = request(&app, "/precons/methodology", &[]).await;
     assert!(html.contains("id=\"v2\""));
+    assert!(html.contains("id=\"standing\"") && html.contains("not a tier anyone assigned"), "the standing is explained");
     // Each count says what it counts, against the catalog: the pages showed 174, 175 and 178
     // side by side with nothing to say they were different things.
     assert!(html.contains(" of the catalog's ") && html.contains(" precons are ranked, as of "), "the ranked count is out of the catalog");
@@ -877,4 +878,22 @@ async fn a_precon_page_shows_the_full_power_breakdown() {
     assert!(html.contains("id=\"stats-head\"") && html.contains("<h3>Mana curve</h3>"), "curve and colors");
     assert!(html.contains("id=\"reserved-head\""), "the Reserve List line");
     assert!(!html.contains(PRIVATE));
+}
+
+#[test]
+fn a_standing_shows_as_a_label_in_the_table_and_a_sentence_on_the_page() {
+    use crate::precon_evidence::calibration::{Field, Standing};
+    let field = Field { mean: 20.8, spread: 2.8, precons: 61 };
+    let row = |standing| v2::Row { rank: 3, rank_lo: 1, rank_hi: 9, rate: 26.9, lo: 23.6, hi: 30.2, real_share: 1.0, commander_source: None, standing, real: None };
+    let table = html::rating_v2(&row(Some(Standing::Ahead)), Some(&field), false);
+    assert!(table.contains("<small class=\"standing\">Ahead of the pack</small>"), "{table}");
+    let page = html::rating_v2(&row(Some(Standing::Ahead)), Some(&field), true);
+    assert!(page.contains("<strong>Ahead of the pack.</strong> Its stock games put it above the precon average of 20.8%, by more than luck over that many games would explain."), "{page}");
+    for (standing, label) in [(Standing::Pack, "In the pack"), (Standing::Behind, "Behind the pack"), (Standing::Thin, "Too few games to place")] {
+        assert!(html::rating_v2(&row(Some(standing)), Some(&field), false).contains(label));
+    }
+    assert!(html::rating_v2(&row(Some(Standing::Thin)), Some(&field), true).contains("count as fewer than 40, so it isn’t placed"));
+    // No stock games, or no field to place it in: nothing is said.
+    assert!(!html::rating_v2(&row(None), Some(&field), true).contains("class=\"standing\""));
+    assert!(!html::rating_v2(&row(Some(Standing::Ahead)), None, false).contains("class=\"standing\""));
 }

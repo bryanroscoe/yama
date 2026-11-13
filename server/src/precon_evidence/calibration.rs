@@ -39,6 +39,77 @@ impl Real {
     }
 }
 
+/// Fewest effective games before a precon is placed against the field: an interval's worth.
+/// Effective games are what the estimate rests on: the recency-weighted games between
+/// snapshots, or the all-time figure's count (at most 40 when it stands in for a thin recent
+/// rate; `precon_evidence::real_estimate`).
+pub const MIN_STANDING_GAMES: f64 = 40.0;
+/// The spread is never read as less than this many points, so a quiet sample can't make every
+/// small difference look real.
+const MIN_SPREAD: f64 = 1.0;
+const Z90: f64 = 1.644_853_626_951_472_2;
+
+/// The precons with enough stock games to place: their average, and how far real strengths
+/// spread around it once each precon's own sampling noise is taken out of what was observed.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct Field {
+    /// Percent, weighted by games.
+    pub mean: f64,
+    /// One standard deviation of real strength, in points.
+    pub spread: f64,
+    pub precons: usize,
+}
+
+/// Where a precon's real games put it against the field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Standing {
+    /// Clearly above the average precon.
+    Ahead,
+    /// Not told apart from the average precon. Most are here: precons sit close together and
+    /// few have the games to show a difference.
+    Pack,
+    /// Clearly below the average precon.
+    Behind,
+    /// Under [`MIN_STANDING_GAMES`] effective games: not placed.
+    Thin,
+}
+
+/// The field of precons with at least [`MIN_STANDING_GAMES`] effective games, or None under
+/// [`MIN_CASES`] of them.
+pub fn field(reals: &[Real]) -> Option<Field> {
+    let known: Vec<&Real> = reals.iter().filter(|r| r.effective_games >= MIN_STANDING_GAMES).collect();
+    if known.len() < MIN_CASES {
+        return None;
+    }
+    let n = known.len() as f64;
+    let games: f64 = known.iter().map(|r| r.effective_games).sum();
+    let mean = known.iter().map(|r| r.rate * r.effective_games).sum::<f64>() / games;
+    let observed = known.iter().map(|r| (r.rate - mean).powi(2)).sum::<f64>() / (n - 1.0);
+    let noise = known.iter().map(|r| r.variance()).sum::<f64>() / n;
+    Some(Field { mean, spread: (observed - noise).max(MIN_SPREAD * MIN_SPREAD).sqrt(), precons: known.len() })
+}
+
+/// A precon's standing: its rate is pulled toward the field's average by how few games it has
+/// (few games say little, and the best-looking records are partly luck), and it stands ahead or
+/// behind only when the 90% interval of what is left clears the average.
+pub fn standing(real: Real, field: &Field) -> Standing {
+    if real.effective_games < MIN_STANDING_GAMES {
+        return Standing::Thin;
+    }
+    let (noise, spread) = (real.variance(), field.spread * field.spread);
+    let weight = spread / (spread + noise);
+    let rate = field.mean + weight * (real.rate - field.mean);
+    let sd = (weight * noise).sqrt();
+    if rate - Z90 * sd > field.mean {
+        Standing::Ahead
+    } else if rate + Z90 * sd < field.mean {
+        Standing::Behind
+    } else {
+        Standing::Pack
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Case {
     pub precon: String,
@@ -421,6 +492,31 @@ pub fn evaluate(all: &[Case]) -> Evaluation {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_precon_stands_ahead_or_behind_only_when_its_games_show_it() {
+        // Sixteen precons around 20%, well sampled, a few points apart.
+        let mut reals: Vec<Real> = (0..16).map(|i| Real { rate: 14.0 + 0.8 * i as f64, effective_games: 600.0 }).collect();
+        let f = field(&reals).unwrap();
+        assert!((f.mean - 20.0).abs() < 1e-9 && f.precons == 16);
+        // Observed variance 14.5, of which about 2.7 is each precon's own sampling noise.
+        assert!(f.spread > 3.0 && f.spread < 3.8, "noise comes out of the observed spread: {}", f.spread);
+        // Far above on many games: ahead. The same rate on a few games: not placed.
+        assert_eq!(standing(Real { rate: 30.0, effective_games: 600.0 }, &f), Standing::Ahead);
+        assert_eq!(standing(Real { rate: 30.0, effective_games: 20.0 }, &f), Standing::Thin);
+        // Ten points up on forty games is what luck alone often gives: still in the pack.
+        assert_eq!(standing(Real { rate: 30.0, effective_games: 40.0 }, &f), Standing::Pack);
+        assert_eq!(standing(Real { rate: 12.0, effective_games: 600.0 }, &f), Standing::Behind);
+        assert_eq!(standing(Real { rate: 20.5, effective_games: 600.0 }, &f), Standing::Pack, "a half point on 600 games is no difference");
+        // Thin precons don't move the field.
+        reals.push(Real { rate: 90.0, effective_games: 5.0 });
+        assert_eq!(field(&reals).unwrap(), f);
+        // Too few placed precons: no field, so nothing is placed.
+        assert!(field(&reals[..7]).is_none());
+        // A sample with no spread beyond noise still gets the floor.
+        let flat: Vec<Real> = (0..10).map(|_| Real { rate: 20.0, effective_games: 100.0 }).collect();
+        assert!((field(&flat).unwrap().spread - 1.0).abs() < 1e-9);
+    }
 
     fn case(i: usize, truth: f64, noise: f64, sim: f64) -> Case {
         Case {

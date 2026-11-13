@@ -320,6 +320,8 @@ with `publish-precons MANIFEST`; imports never publish automatically. See
 
 A precon's page shows what a shared deck's page shows, read from the stock list: the power level with its five scores, themes and every card's points, the commander's record, the bracket panel (Commander Spellbook's suggestion, Game Changers, mass land denial, extra turns and combos), deck stats with the mana curve and colors, and the Reserve List line.
 
+Each precon with enough stock games also has a standing beside its rank: ahead of the pack, in the pack, behind it, or too few games to place. Precons' real win rates sit only a few points apart, so the standing pulls each rate toward the average by how few games it rests on and names a precon ahead or behind only when its games show it. A precon with fewer than 40 new games between snapshots is rated on its all-time record, trusted as 40 games at most.
+
 A precon's page lists the public decks that started from it (the newest six, with a link to the
 rest in Browse): decks whose list still holds at least half of the precon's own cards.
 

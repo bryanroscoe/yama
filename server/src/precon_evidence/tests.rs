@@ -717,6 +717,31 @@ async fn a_commander_figure_that_predicts_stock_games_ranks_precons_without_them
     assert!(new.hi - new.lo < 10.0);
     let stocked = v2.precons.iter().find(|p| p.precon == "deck-11").unwrap();
     assert_eq!((stocked.real_share, stocked.commander_source.as_deref()), (1.0, None), "stock games stand alone");
+    // Standing: the twelve with stock games are the field (14% to 30.5% on 2,000 games each);
+    // its ends stand apart, and a precon rated from its commander's figure has no standing.
+    use calibration::Standing;
+    let field = v2.field.expect("twelve precons with stock games make a field");
+    assert_eq!(field.precons, 12);
+    assert!((field.mean - 22.25).abs() < 1e-6 && field.spread > 4.5 && field.spread < 6.0, "{field:?}");
+    let standing = |id: &str| v2.precons.iter().find(|p| p.precon == id).unwrap().standing;
+    assert_eq!(standing("deck-00"), Some(Standing::Behind));
+    assert_eq!(standing("deck-11"), Some(Standing::Ahead));
+    assert_eq!(standing("deck-06"), Some(Standing::Pack), "22.25% against a 23% precon is no difference");
+    assert_eq!(standing("deck-12"), None);
+}
+
+#[test]
+fn a_thin_recent_rate_gives_way_to_the_all_time_figure_at_no_more_than_forty_games() {
+    let recent = |games: u64, rate: f64| history::Recent { rate, games, effective_games: games as f64 * 0.8, from: at("2026-08-06"), to: at("2026-10-28"), half_life_days: 180 };
+    // Enough new games: the recent rate, at its own weight.
+    assert_eq!(real_estimate(Some(&recent(60, 30.0)), 20.0, 500), calibration::Real { rate: 30.0, effective_games: 48.0 });
+    // Two new games on top of 70: the all-time figure, trusted as 40 games, not 2 and not 72.
+    assert_eq!(real_estimate(Some(&recent(2, 100.0)), 24.3, 72), calibration::Real { rate: 24.3, effective_games: 40.0 });
+    // A long record with few new games isn't counted in full either, and a short one isn't padded.
+    assert_eq!(real_estimate(Some(&recent(16, 28.0)), 27.6, 184).effective_games, 40.0);
+    assert_eq!(real_estimate(Some(&recent(6, 20.0)), 17.1, 35).effective_games, 35.0);
+    // One snapshot, so nothing to say how new the games are: the all-time figure as it is.
+    assert_eq!(real_estimate(None, 21.0, 306), calibration::Real { rate: 21.0, effective_games: 306.0 });
 }
 
 #[tokio::test]

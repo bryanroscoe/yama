@@ -26,6 +26,8 @@ pub struct Info {
     pub sources: Vec<Source>,
     /// Whether a commander-only source (Mythic Tools) earned a place for precons without stock games.
     pub commander: Option<precon_evidence::CommanderTest>,
+    /// The precons with enough stock games to place, their average win rate and spread.
+    pub field: Option<precon_evidence::calibration::Field>,
     pub note: &'static str,
 }
 
@@ -79,6 +81,9 @@ pub struct Row {
     pub real_share: f64,
     /// The commander-only source whose figure the estimate used, for a precon without stock games.
     pub commander_source: Option<String>,
+    /// Where its stock games put it against the average precon (`Info::field`); None without
+    /// stock games.
+    pub standing: Option<precon_evidence::calibration::Standing>,
     pub real: Option<Real>,
 }
 
@@ -185,6 +190,7 @@ async fn derive(pool: &SqlitePool) -> AppResult<Table> {
             ranked: 0,
             sources,
             commander: None,
+            field: None,
             note: "",
         };
         return Ok(Arc::new((info, HashMap::new(), lists)));
@@ -210,6 +216,7 @@ async fn derive(pool: &SqlitePool) -> AppResult<Table> {
                     hi: e.hi,
                     real_share: e.real_share,
                     commander_source: e.commander_source.clone(),
+                    standing: e.standing,
                     real: real.get(&e.precon).cloned(),
                 },
             )
@@ -224,6 +231,7 @@ async fn derive(pool: &SqlitePool) -> AppResult<Table> {
         ranked: v2.ranked,
         sources,
         commander: v2.commander,
+        field: v2.field,
         note: v2.note,
     };
     Ok(Arc::new((info, table, lists)))
