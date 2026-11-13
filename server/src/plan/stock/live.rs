@@ -198,11 +198,11 @@ impl Tally {
     }
 
     /// One line for the work since the last: once it covers [`LOGGED_EVERY`], or as soon as the
-    /// reader has nothing due after cards read first (a cart was waiting on those). Says whether
-    /// it logged.
-    fn report(&mut self, base: &str, idle: bool) -> bool {
+    /// reader is `past_first`, done with cards read first (a cart was waiting on those) and back
+    /// to the queue or out of work. Says whether it logged.
+    fn report(&mut self, base: &str, past_first: bool) -> bool {
         let Some(since) = self.since else { return false };
-        if since.elapsed() < LOGGED_EVERY && !(idle && self.read_first > 0) {
+        if since.elapsed() < LOGGED_EVERY && !(past_first && self.read_first > 0) {
             return false;
         }
         tracing::info!(store = %base, read = self.read, read_first = self.read_first, failed = self.failed, secs = since.elapsed().as_secs(), "live store stock read");
@@ -290,7 +290,7 @@ async fn read_store(pool: SqlitePool, http: reqwest::Client, base: String, slow:
             }
         };
         tally.note(&done);
-        tally.report(&base, done.step == Step::Idle);
+        tally.report(&base, !done.hurried);
         let wait = match done.step {
             Step::Read | Step::Unreadable => {
                 failures = 0;
@@ -520,9 +520,9 @@ mod tests {
         tally.note(&did(Step::Unreadable, false));
         assert!(!tally.report("https://shop.example", true), "a little background reading waits for a fuller line");
         tally.note(&did(Step::Read, true));
-        assert!(!tally.report("https://shop.example", false), "more is still due");
+        assert!(!tally.report("https://shop.example", false), "still on cards read first");
         assert_eq!((tally.read, tally.read_first, tally.failed), (2, 1, 1));
-        assert!(tally.report("https://shop.example", true), "cards read first are done");
+        assert!(tally.report("https://shop.example", true), "cards read first are done: the next turn was an ordinary card, or none");
         assert!(!tally.report("https://shop.example", true), "and it starts over");
     }
 }

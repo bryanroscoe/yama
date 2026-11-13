@@ -255,7 +255,8 @@ it before opening the order page. It can cache this aggressively too."
     (`read_first`), or asked to and couldn't because the day's allowance is used up
     (`read_first_asked` above zero with `read_first` zero).
   - `read` (store, read, read_first, failed, secs): what a reader did, every 15 minutes of work,
-    and at once when it has finished cards a cart was waiting on.
+    and at once when it has finished cards a cart was waiting on (its next turn is an ordinary
+    card, or nothing is due).
   - `a card was not read` (store, card, error, wait_secs), a warning: each read that gave no
     answer, with the store's reason and how long the reader now waits before its next request
     (zero when only that card is in trouble).
