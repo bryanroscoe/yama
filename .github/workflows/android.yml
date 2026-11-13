@@ -1,9 +1,9 @@
 name: Android
 
-# Builds the Android app (web/android, Capacitor) on GitHub-hosted runners, which come with the
-# Android SDK; the Mac's disk is kept for other work. Every run uploads a debug APK to install
-# by hand and the release app bundle (.aab) for Google Play. The bundle is signed with the upload
-# key when the ANDROID_UPLOAD_* secrets are set (docs/mobile.md); otherwise it's unsigned.
+# Checks that the Android app (web/android, Capacitor) builds, on GitHub-hosted runners, which
+# come with the Android SDK; the Mac's disk is kept for other work. Every run uploads a debug APK
+# to install by hand and an unsigned release bundle. Signed releases come from android-release.yml
+# after each production deploy (docs/mobile.md, "Updates").
 # Automatic PR builds follow the CI_TESTS switch (docs/ci.md); a manual run always builds.
 on:
   pull_request:
@@ -41,24 +41,11 @@ jobs:
       - run: npm ci --no-audit --no-fund
       # The web build for https://yama.ing, copied into the Android project.
       - run: npm run android:sync -w web
-      - name: Upload key
-        env:
-          KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
-        run: |
-          if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
-            echo "YAMA_UPLOAD_KEYSTORE=$RUNNER_TEMP/upload.jks" >> "$GITHUB_ENV"
-          else
-            echo "No upload key in secrets: the release bundle stays unsigned."
-          fi
       - name: Build
         working-directory: web/android
         env:
           YAMA_ANDROID_VERSION_CODE: ${{ github.run_number }}
           YAMA_ANDROID_VERSION_NAME: 0.1.${{ github.run_number }}
-          YAMA_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
-          YAMA_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
-          YAMA_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
         run: ./gradlew --no-daemon assembleDebug bundleRelease
       - name: Signing certificates (for the Android OAuth clients)
         working-directory: web/android

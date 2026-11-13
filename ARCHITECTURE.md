@@ -1,7 +1,7 @@
 # Yama architecture
 
 Yama (Yet Another Magic App) is a free Magic: The Gathering app for Commander players. It runs
-in the browser and as an installable web app; an Android app is built but not yet released. It
+in the browser, as an installable web app, and as a sideloaded Android app that updates itself. It
 does two jobs on one account: a **companion** for game night (life
 counter, playgroups and stats, cards, collection, prices, decks) and **online play** against
 friends or AI, with every game stored as a replay. A new account's decks are public by default
@@ -112,7 +112,8 @@ back into the server's own MCP tools; and releases arrive by a separate path, sh
 ### Clients
 
 One React and TypeScript codebase serves the browser, the installable web app and the Android
-app (a Capacitor shell around the same build, in `web/android/`; built, and not yet in a store). Logic that needs no interface
+app (a Capacitor shell around the same build, in `web/android/`, installed from GitHub and
+keeping itself up to date; not in a store). Logic that needs no interface
 lives in `packages/core`, so it can be tested without a browser: the life counter's reducer,
 the offline card search, deck list parsing and stats, sample hands, and every derived view of a
 plan.
@@ -366,6 +367,10 @@ it. Details: [CI](docs/ci.md), [releasing](deploy/RELEASING.md),
 [the deploy runner and gate](deploy/RUNNER.md), [running on the host](deploy/README.md),
 [release trains](docs/release-trains.md).
 
+After each successful deploy, `android-release.yml` publishes the Android app's web build for the
+commit the deploy's receipt names (and a new signed APK when the native code changed) to the repository's `android-app` release on GitHub;
+installed apps fetch them from there ([The Android app, sideloaded (13 November 2026)](#the-android-app-sideloaded-13-november-2026)).
+
 ## Decision record
 
 Everything below is the plan of record. Sections 1 to 12 are the proposal of 17 October 2026
@@ -383,6 +388,7 @@ section 4 is the first sketch; the current system is [above](#the-system-at-a-gl
 - **Online play and the engine:** [How online play ended up working](#how-online-play-ended-up-working), [Watch the AIs play (2026-10-22)](#watch-the-ais-play-2026-10-22), [Drag and drop on the online board (2026-10-22)](#drag-and-drop-on-the-online-board-2026-10-22), [Board motion (2026-10-22)](#board-motion-2026-10-22), [phase's own board (2026-10-29)](#phases-own-board-2026-10-29), [Engine choice and direct restoration (2026-10-30)](#engine-choice-and-direct-restoration-2026-10-30), [PR 29 historical runtime supervision and provenance follow-up (30 October 2026)](#pr-29-historical-runtime-supervision-and-provenance-follow-up-30-october-2026), [Phase board release integration (1 November 2026)](#phase-board-release-integration-1-november-2026), [Online game startup isolation (2026-11-10)](#online-game-startup-isolation-2026-11-10), [Playing mode recovery and presentation (2026-11-10)](#playing-mode-recovery-and-presentation-2026-11-10), [Games left on an old engine (2026-11-12)](#games-left-on-an-old-engine-2026-11-12).
 - **Lab and evidence:** [Simulation lab (2026-10-19)](#simulation-lab-2026-10-19), [Forge as a second Lab engine (2026-10-22)](#forge-as-a-second-lab-engine-2026-10-22), [Lab time-outs (2026-10-23)](#lab-time-outs-2026-10-23), [Referee: phase checked against Forge (2026-10-24)](#referee-phase-checked-against-forge-2026-10-24), [Shared-field tournaments (2026-10-26)](#shared-field-tournaments-2026-10-26), [Lab execution targets (2026-10-27)](#lab-execution-targets-2026-10-27), [Phase retry-tail progress (2026-10-28)](#phase-retry-tail-progress-2026-10-28), [Lab: off the write lock, and its cost (2026-11-02)](#lab-off-the-write-lock-and-its-cost-2026-11-02), [Historical evidence datasets (2026-10-28)](#historical-evidence-datasets-2026-10-28), [Precon evidence from datasets (2026-10-29)](#precon-evidence-from-datasets-2026-10-29), [Public precon reference (2026-10-27)](#public-precon-reference-2026-10-27), [Precon upgradeability (2026-10-27)](#precon-upgradeability-2026-10-27), [Public commander ranking (2026-11-01)](#public-commander-ranking-2026-11-01), [Precon power comparison (2026-11-09)](#precon-power-comparison-2026-11-09), [Star Trek stock catalog (2026-11-09)](#star-trek-stock-catalog-2026-11-09).
 - **Shopping:** [Live store stock (13 November 2026)](#live-store-stock-13-november-2026).
+- **The Android app:** [The Android app, sideloaded (13 November 2026)](#the-android-app-sideloaded-13-november-2026).
 - **Game night:** [Table and playgroup stats (2026-10-19)](#table-and-playgroup-stats-2026-10-19).
 - **Cards, collection and prices:** [Mana symbols (2026-11-12)](#mana-symbols-2026-11-12), [Release calendar and What's new (2026-10-19)](#release-calendar-and-whats-new-2026-10-19), [A deck's cards in the collection, and Mythic re-imports (2026-10-23)](#a-decks-cards-in-the-collection-and-mythic-re-imports-2026-10-23), [Deck market values (2026-10-27)](#deck-market-values-2026-10-27), [Scan this deck (2026-10-29)](#scan-this-deck-2026-10-29), [Mythic Tools bridge (2026-10-31, proposal)](#mythic-tools-bridge-2026-10-31-proposal), [Store trips (2026-11-01)](#store-trips-2026-11-01), [Deleting collection containers (2026-11-02)](#deleting-collection-containers-2026-11-02), [Sell lists for store buylists (2026-11-02)](#sell-lists-for-store-buylists-2026-11-02), [Local buylist offers (2026-11-02)](#local-buylist-offers-2026-11-02), [Price history (2026-11-02)](#price-history-2026-11-02), [Recording printed copies in a deck box (2026-11-02)](#recording-printed-copies-in-a-deck-box-2026-11-02).
 - **Decks, plans and sharing:** [Brackets, deck stats and exports (2026-10-19)](#brackets-deck-stats-and-exports-2026-10-19), [Deck import (2026-10-22)](#deck-import-2026-10-22), [Sharing and deck configurations (2026-10-28)](#sharing-and-deck-configurations-2026-10-28), [Review, installed decks and the Lab tab (2026-10-28)](#review-installed-decks-and-the-lab-tab-2026-10-28), [Check this deck (2026-11-01)](#check-this-deck-2026-11-01), [Deck configurations and quieter editing (2026-11-03)](#deck-configurations-and-quieter-editing-2026-11-03), [One plan page (2026-11-04)](#one-plan-page-2026-11-04), [Printing with MakePlayingCards (2026-11-05)](#printing-with-makeplayingcards-2026-11-05), [Plans: one plan per deck (2026-11-06)](#plans-one-plan-per-deck-2026-11-06), [Site design pass (2026-11-08)](#site-design-pass-2026-11-08), [Public by default and the navigation (2026-11-12)](#public-by-default-and-the-navigation-2026-11-12), [Check a deck without an account (2026-11-12)](#check-a-deck-without-an-account-2026-11-12).
@@ -481,6 +487,38 @@ for that store. The design is in docs/shopping-design.md, "Live stock". The deci
 - **The saved report is not rewritten**, and assistants still read the report (a recorded MCP
   gap in docs/ui-mcp-parity.md).
 
+## The Android app, sideloaded (13 November 2026)
+
+Bryan: "there's no use in having it if we don't use the proper native OCR... this could honestly
+just be a sideloaded app as long as we can get it to auto-update. Don't need a Play listing right
+away. I would like the Android workflow to be automated." He wanted the full app, Play included.
+How it works is in docs/mobile.md, "Updates"; the decisions:
+
+- **Native OCR is the reason for the app.** Inside the app the scanner reads text with ML Kit
+  (`TextReaderPlugin.java`, model bundled in the APK) behind the same `OcrEngine` seam; Tesseract
+  stays the engine in browsers and the fallback in an APK without the plugin.
+- **Sideloaded, from GitHub.** The app is installed from the repository's `android-app` release
+  (`yama.apk`), not Google Play. The release key (`~/.config/yama/android`, 1Password, GitHub
+  secrets `ANDROID_RELEASE_*`) is the app's identity: Android installs an update only if it is
+  signed with the same key, so it is never the debug key that is checked into the repository. If
+  the app goes to Play later, Play App Signing can take this key so installs carry over.
+- **Two kinds of update.** The web build is published after every successful production deploy,
+  so the app's screens never run ahead of the server, and installed apps take it without asking:
+  it starts the next time the app opens, or at once on Reload. A web build carries the hash of the
+  native code it was built against (`web/scripts/android-native-hash.mjs`) and runs only on an app
+  with that hash, so new screens never call a native plugin the installed APK lacks. A new APK is
+  built only when that hash changes; the app offers it with an Update button and Android's
+  installer asks the person to confirm.
+- **Our own updater, not a library.** Capgo's live-update plugin is about 17,000 lines and reports
+  to Capgo's servers unless configured not to. `UpdaterPlugin.java` (a few hundred lines) uses
+  Capacitor's own server-path switch, checks every download's SHA-256 and the APK's package and
+  version, takes updates only over HTTPS from github.com or yama.ing, and rolls a web build back
+  if it doesn't report that it started within 30 seconds or before the next launch.
+- **Trust boundary.** Anyone who can write the repository's releases can change what installed
+  apps run. Only workflows on `main` (with `contents: write`) and the repository owner can; fork
+  pull requests can't reach the release key or the release. The APK holds nothing the public site
+  doesn't serve.
+
 ## Bug reports (12 November 2026)
 
 Bryan asked for "a bug report button for any logged-in player on any screen", with a way to
@@ -565,7 +603,7 @@ yama/
 **Distribution:**
 
 - **Install offer:** a dismissible banner above page content throughout the app, only in mobile browsers (including iPadOS). Desktop browsers keep manual installation in the Table menu. Installed and native apps show no install offer.
-- **Android:** the installable web app today. Plan (2026-10-31): a Capacitor app on Google Play, released through closed testing first (section 10, "Power users and the semi-public release"; steps in docs/mobile.md).
+- **Android:** the installable web app, and since 13 November 2026 a sideloaded Capacitor app that updates itself ("The Android app, sideloaded (13 November 2026)"). Google Play (planned 2026-10-31, steps in docs/mobile.md) is not needed for now.
 - **iOS:** shelved. TestFlight would need the Apple Developer Program, and there is no Apple account.
 - **Web:** everything works in the browser too.
 

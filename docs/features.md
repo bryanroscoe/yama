@@ -110,7 +110,9 @@ connectors need the new URL.
 
 ### Install
 
-Installable web app (home screen, offline shell); Capacitor config for native apps ([mobile.md](mobile.md)).
+Installable web app (home screen, offline shell). An Android app, installed from GitHub
+(`yama.apk` on the `android-app` release), that updates itself after every production deploy and
+reads the scanner's text with ML Kit on the phone ([mobile.md](mobile.md)).
 
 ### Bug reports
 

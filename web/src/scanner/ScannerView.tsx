@@ -25,7 +25,7 @@ import { SetLockPicker } from "./SetLockPicker";
 import { artInSets, inLockedSets, judgeLocked, lockedNames, lockedSet, poolKeys, savedLock, saveLock, suggestLock, type LockedSet } from "./setlock";
 import { CameraControls, digitalRegion, useCameraControls } from "./camera";
 import { createServerCatalog } from "./serverCatalog";
-import { createTesseractOcr, type TesseractOcr } from "./tesseract";
+import { createScannerOcr, type ScannerOcr } from "./ocrEngine";
 import type { OcrEngine, Quad, RgbaImage, ScanCandidate, ScanCatalog, ScanResult } from "./types";
 import "./scanner.css";
 import { shortDate, usd } from "@yama/core";
@@ -292,7 +292,7 @@ export function ScannerView({
   const hiCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const artRef = useRef<ArtRecognizer | null>(null);
   const textRef = useRef<Promise<{ ocr: OcrEngine; catalog: ScanCatalog; names: NameIndex }> | null>(null);
-  const ownedOcr = useRef<TesseractOcr | null>(null);
+  const ownedOcr = useRef<ScannerOcr | null>(null);
   const last = useRef<{ index: number; card?: ScanCandidate; at: number } | undefined>(undefined);
   /** The art just accepted: not found again until the card leaves or another one shows. */
   const blocked = useRef<ArtHold | null>(null);
@@ -393,7 +393,7 @@ export function ScannerView({
   const ocrRef = useRef<Promise<OcrEngine> | null>(null);
   /** False once the scanner closes: work finishing after that must clean up after itself. */
   const alive = useRef(true);
-  /** Tesseract, started on first use. */
+  /** The text reader (ML Kit in the Android app, Tesseract elsewhere; ocrEngine.ts), started on first use. */
   const ocrEngine = useCallback(() => {
     // Served by the app (scripts/copy-ocr.mjs), so it works offline and loads nothing from a CDN.
     // The folder and tesseract's own saved copy of the model are named by the engine's version, so
@@ -401,7 +401,7 @@ export function ScannerView({
     const ocr = `/ocr/${import.meta.env.VITE_OCR_VERSION}`;
     ocrRef.current ??= ocrProp
       ? Promise.resolve(ocrProp)
-      : createTesseractOcr({ workerPath: `${ocr}/worker.min.js`, corePath: `${ocr}/core`, langPath: `${ocr}/lang`, cachePath: `ocr-${import.meta.env.VITE_OCR_VERSION}` }).then((o) => {
+      : createScannerOcr({ workerPath: `${ocr}/worker.min.js`, corePath: `${ocr}/core`, langPath: `${ocr}/lang`, cachePath: `ocr-${import.meta.env.VITE_OCR_VERSION}` }).then((o) => {
           if (!alive.current) {
             void o.terminate();
             throw new Error("The scanner is closed");

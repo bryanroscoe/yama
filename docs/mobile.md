@@ -1,5 +1,75 @@
 # Phone apps
 
+Status (13 November 2026): the Android app is **sideloaded and keeps itself up to date**. Install
+it from <https://github.com/bryanroscoe/yama/releases/download/android-app/yama.apk>; after that
+every production deploy reaches it on its own ("Updates", below). Inside the app the scanner reads
+text with Google's ML Kit instead of Tesseract. Google Play is not needed for now (Bryan,
+13 November 2026: "this could honestly just be a sideloaded app as long as we can get it to
+auto-update"); the Play plan below is kept for later.
+
+## Install (sideloaded)
+
+1. On the phone, open the `yama.apk` link above and allow the browser to install apps when Android asks.
+2. An older copy of the app installed from a debug build (before 13 November 2026) is signed with a
+   different key: uninstall it first, or Android refuses the new one ("App not installed").
+3. Sign in with Google. The first time the app offers an app update, Android asks once to allow
+   Yama to install apps.
+
+## Updates (13 November 2026)
+
+`.github/workflows/android-release.yml` runs after every successful "Deploy production" (and by
+hand from the Actions tab). It builds the commit named in the deploy run's receipt (the
+`deploy-receipt` artifact, `{sha, result}`, which deploy.yml leaves only when production really
+runs that commit), so a superseded deploy publishes nothing, and it never publishes a commit older
+than the one already published. It publishes to the rolling `android-app` release:
+
+- `web-<commit>.zip` (the first 12 hex digits of the commit, which is also the build's id): the web build for the app (`npm run android:sync`, which builds for
+  `https://yama.ing`), made from the commit just deployed, so the app's screens never run ahead of
+  the server.
+- `yama-<versionCode>.apk` and `yama.apk`: a signed APK, built only when the native code changed.
+  "Native code" is `web/scripts/android-native-hash.mjs`: the tracked files under `web/android`,
+  `web/capacitor.config.ts` and the exact versions of the `@capacitor/*` and `@capgo/*` packages.
+  Version codes start at 100 and go up by one per APK; a manual run with "native" ticked forces one.
+- `update.json`, uploaded last: `{ native: { versionCode, versionName, hash, url, sha256 },
+  web: { version, nativeHash, url, sha256 }, commit }`. The newest three web builds and APKs are kept.
+
+The app (`web/src/nativeUpdate.ts`, `components/AppUpdate.tsx`, `UpdaterPlugin.java`) reads
+`update.json` on launch, on returning to the front and every 30 minutes:
+
+- **A newer APK** (higher version code): a banner with Update downloads it, checks its SHA-256,
+  package name and version, and hands it to Android's installer, which asks the person and refuses
+  an APK not signed with the app's key. The first time, Android sends the person to "Install
+  unknown apps" for Yama; the banner says to come back and tap Update again.
+- **A web build for this native code** (`nativeHash` equal to the app's): downloaded quietly,
+  checked against its SHA-256, unpacked into the app's files, and started the next time the app
+  opens, or at once from the banner's Reload. Capacitor serves it in place of the built-in copy
+  (its own server-path switch). A build made for different native code is never taken: the app
+  waits for the APK.
+- **Rollback:** a new web build must report that it started (`Updater.started`, on every launch)
+  within 30 seconds, and before the app next starts; otherwise the app goes back to the last build
+  that did (or the one inside the APK) and never tries that build again. Installing a new APK drops
+  every downloaded build.
+- **Only from us:** downloads are HTTPS only, from github.com (following GitHub's redirect to its
+  file host) or yama.ing, with size limits; local builds (`YAMA_NATIVE_HASH` unset, "dev") never update.
+
+Tested 13 November 2026 on the Android 16 emulator [ran], twice (the second time after the review
+fixes: one lock around every trial change, build ids limited to hex and kept inside the builds
+folder): a web build downloaded (12.6 MB zip, 4.3 s), started at the next launch and confirmed; a
+build that never confirmed was replaced after 30 s; a build running when the app was killed was
+replaced at the next launch; ".", ".." and non-hex ids, a wrong checksum and a foreign host were
+refused; a new APK version cleared the downloaded builds. The APK install
+path (Android's installer) is checked on the first release.
+
+**The release key.** It signs every released APK, and it is the app's identity: losing it means
+every phone has to uninstall and reinstall. Local copy `~/.config/yama/android/yama-release.jks`
+with `release.env` (directory 700, files 600); 1Password, vault Bryan Code: "Yama Android release
+keystore" (the file) and "Yama Android release key" (password, alias `yama`); GitHub secrets
+`ANDROID_RELEASE_KEYSTORE_BASE64`, `ANDROID_RELEASE_KEYSTORE_PASSWORD`, `ANDROID_RELEASE_KEY_ALIAS`,
+`ANDROID_RELEASE_KEY_PASSWORD`. Certificate SHA-1 `C0:75:99:B9:1F:39:F9:AD:07:FC:DB:80:FC:C7:31:C1:BB:F4:B1:62`,
+SHA-256 `3D:FF:7B:08:CD:61:DF:61:6B:2B:72:29:89:9A:A7:F0:21:66:0F:6F:54:F9:74:0B:7E:23:A6:FB:36:26:CB:D8`.
+Its Android OAuth client ("Yama Android release", made 2026-11-13) lets Google sign-in work in the released app ("Sign-in", below). If the app goes to
+Google Play later, enrol this key in Play App Signing so installed copies carry over.
+
 For the remaining Google Cloud, signing, real-phone testing and Play Console steps, open
 the [Google Play release walkthrough](play-release-guide.html) in a browser. It is a
 self-contained private operator guide with a saved checklist, exact field values,
@@ -17,8 +87,8 @@ Release ladder:
 1. **Server and web (done 2026-10-31):** power users. Starting simulations, watched AI games and Ask Claude were for admins and power users only, enforced by the server; results stay visible (ARCHITECTURE.md, "Power users and the semi-public release"). Since 12 Nov 2026 every account may watch 10 games a day and start one short simulation a day; Ask Claude and the full-size runs stay with power users ("More for signed-in accounts"). Grant friends in Admin, People.
 2. **Still to build before a Play submission:**
    - **Account deletion (done 2026-11-01):** Your profile, Account settings, Delete account in the app (`DELETE /api/me`), and the web link for the Play listing, `https://yama.ing/delete-account/`.
-   - **Native Google sign-in (built 2026-11-01):** the app's sign-in is done ("The Android app", below); Google Cloud still needs the Android OAuth clients.
-   - **The Android project and build (built 2026-11-01):** `web/android`, target API 36, built in GitHub Actions ("The Android app", below). Still to do: the upload key and its secrets.
+   - **Native Google sign-in (built 2026-11-01, working on Bryan's Pixel 10 Pro 2026-11-09):** the debug key's Android OAuth client was made 2026-11-08; the release key needs its own ("The Android app", below).
+   - **The Android project and build (built 2026-11-01):** `web/android`, target API 36, built in GitHub Actions ("The Android app", below). Signed releases since 2026-11-13 ("Updates", above).
    - **What goes in the Play build (Bryan's call, still open):** the full app, or the companion only (Table, Collection, Scanner, Decks, Lab results, Precons) with online Play left on the web. A full game client in a public listing is the bigger IP target (ARCHITECTURE.md §11); companion-only needs a build flag that drops the Play routes and navigation.
 3. **Closed testing track (the semi-public release):** friends opt in by email or Google Group; nobody else can find it. Data safety form, content rating, privacy policy link and listing assets first (below).
 4. **Open testing or production** later, if the beta goes well.
@@ -39,13 +109,14 @@ Anything about iOS is shelved.
 
 - **Server:** `YAMA_CORS_ORIGINS: https://localhost` in `deploy/compose.yaml`, so releases set it (the app sends a bearer token, never cookies, so no credentialed CORS).
 - **Sign-in:** `web/src/native.ts` signs in through Android's Credential Manager (`@capgo/capacitor-social-login`, Google only; the other providers' SDKs are switched off in `capacitor.config.ts`). It asks for an ID token for the server's Web client ID from `/api/auth/config`, which `/api/auth/google` already accepts. Google Cloud also needs an **Android** OAuth client per signing key, with package `ing.yama.app` and that key's SHA-1, in the same project as the Web client; those client IDs never go in `YAMA_GOOGLE_CLIENT_IDS`:
-  - the debug key, `web/android/app/debug.keystore` (checked in, not a secret, so every debug build shares it): SHA-1 `6C:A1:81:95:06:8A:FA:72:F9:3F:FB:6F:52:0C:EB:F3:5F:0F:4F:F7`;
-  - the upload key, only if directly installing a release APK signed with it (the current workflow emits a debug APK and AAB, so this client is optional);
+  - the debug key, `web/android/app/debug.keystore` (checked in, not a secret, so every debug build shares it): SHA-1 `6C:A1:81:95:06:8A:FA:72:F9:3F:FB:6F:52:0C:EB:F3:5F:0F:4F:F7`; client "Yama Android debug" in project yama-512101, made 2026-11-08 and checked on Bryan's Pixel 10 Pro on 2026-11-09 (sign-in, then Decks and Collection after a relaunch);
+  - the release key, which signs the sideloaded app ("Updates", above): SHA-1 `C0:75:99:B9:1F:39:F9:AD:07:FC:DB:80:FC:C7:31:C1:BB:F4:B1:62`; client "Yama Android release" (`228285497505-lbj1j8kkdfp9nra0im5ss4qpsjd5n2f6`), made 2026-11-13 and checked (package and SHA-1) after saving;
   - Play's app signing key, from Play Console, Test and release, App integrity, after the first upload.
   - A missing client fails only on the phone: logcat shows `status=UNREGISTERED_ON_API_CONSOLE` (tag `Auth.Api.Credentials`). Recent Android hands the app "[16] Account reauth failed"; Android 12 hands it a plain cancellation just after the account is picked. The sign-in page says "Google won't sign in to this version of the app" or "Sign-in didn't finish"; the plugin's full text stays in logcat (`Capacitor/Console`).
 - **Status bar:** the app draws under a transparent status bar and Capacitor passes its height to the page as `env(safe-area-inset-top)`. The shell, the sign-in and consent pages, and the admin banner start below it, and a fixed strip of ground sits behind the clock (`body::before` in `styles.css`).
 - **Inside the app:** links to server-rendered pages (`/precons`, `/commanders`, `/about/`, `/privacy/`, `/tos/`, `/delete-account/`, `/docs/`, shared `/u/`, `/d/`, `/r/`) open on yama.ing in the browser; shared links and the MCP address use `publicOrigin()` (the server), never the app's origin; Android's back button goes back through the app's pages; downloads and exports (deck lists, collection CSV, game history, datasets) go to Android's share sheet from the app's cache (`web/src/download.ts`), fetched with the app's token; requests carry no cookies (`FETCH_CREDENTIALS`), since the server allows the app's origin without credentials; no service worker; app backups are off, since local storage holds the session token. Permissions: internet, camera (asked when the scanner opens), vibrate.
-- **Builds:** `.github/workflows/android.yml` builds a debug APK and the release bundle on GitHub's runners and uploads both as an artifact for 14 days; the version code is the run number. Automatic PR builds follow `CI_TESTS`, on since the repository went public; a manual run still builds and uses Actions minutes, so start one only when Bryan asks (docs/ci.md). Start a new run for a new Play upload: rerunning an old run reuses its version code. Locally: JDK 21 (`brew install openjdk@21`; Capacitor 8 needs 21, and Gradle 8 can't run on Homebrew's default JDK 27) and the SDK at `~/Android/Sdk`:
+- **Scanner text:** `TextReaderPlugin.java` runs ML Kit text recognition (`com.google.mlkit:text-recognition`, Latin model bundled, about 11 MB per ABI; the APK carries arm64-v8a, armeabi-v7a and x86_64) on the grey crops the scanner makes, and `web/src/scanner/ocrEngine.ts` picks it inside the app.
+- **Builds:** `.github/workflows/android.yml` checks that pull requests touching the app build: a debug APK and an unsigned release bundle, kept as an artifact for 14 days. Signed releases come from `android-release.yml` ("Updates", above). Automatic PR builds follow `CI_TESTS`, on since the repository went public; a manual run still builds and uses Actions minutes, so start one only when Bryan asks (docs/ci.md). Start a new run for a new Play upload: rerunning an old run reuses its version code. Locally: JDK 21 (`brew install openjdk@21`; Capacitor 8 needs 21, and Gradle 8 can't run on Homebrew's default JDK 27) and the SDK at `~/Android/Sdk`:
 
 ```sh
 npm run android:sync -w web       # web build for https://yama.ing, copied into web/android
@@ -55,11 +126,12 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ./gradl
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-- **Upload key (Bryan's to make and keep):** keep the local copy at `~/.config/yama/android/yama-upload.jks` (directory 700, file 600), with a recoverable copy, alias and passwords in 1Password. The [walkthrough](play-release-guide.html) has the interactive creation command and exact secret setup. Set repository secrets `ANDROID_UPLOAD_KEYSTORE_BASE64`, `ANDROID_UPLOAD_KEYSTORE_PASSWORD`, `ANDROID_UPLOAD_KEY_ALIAS` and `ANDROID_UPLOAD_KEY_PASSWORD`; the workflow then signs the bundle. Do not put passwords on command lines or print the encoded keystore. The debug APK uses the debug certificate; the Play-installed app uses Google's app-signing certificate. An upload-key Android OAuth client is needed only for a directly installed release APK signed with that key, not merely for uploading an AAB. With Play App Signing a lost upload key can be reset through Play support; the app signing key stays with Google.
+- **Signing:** the release key ("Updates", above) replaced the planned upload key on 2026-11-13. For Google Play later, enrol it in Play App Signing (or keep it as the upload key); the [walkthrough](play-release-guide.html) still describes a separate upload key.
 
 ## Still to decide or build
 
-- **Distribution:** Android can be a direct APK, or Google Play (below). iOS stays shelved: no Apple account.
+- **Distribution:** sideloaded from GitHub (decided 2026-11-13); Google Play later if wanted (below). iOS stays shelved: no Apple account.
+- **Smaller web updates:** each web update downloads the whole build (about 13 MB zipped) even when a few files changed. The build's files are content-addressed, so a per-file manifest could fetch only the new ones.
 
 ## Google Play (Bryan can publish there, 2026-10-28)
 
