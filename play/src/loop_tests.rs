@@ -381,33 +381,37 @@ fn drain_combo() -> crate::SeatCombo {
 fn an_ai_told_about_its_combo_plays_the_line_that_wins() {
     // Ana is the AI with the drain on her side and its Blessing in hand; Ben is a person holding a
     // Bolt. Told about the combo, she finds the line on copies of the game (cast the Blessing,
-    // propose the loop it starts) and plays it: Ben lets it resolve and accepts, and she wins on
-    // her own turn 3. Left to itself the AI may decline the loop (the test above).
-    let (mut m, _) = optional_drain(&[0]);
-    m.set_seat_combos([(0, vec![drain_combo()])].into());
-    assert_eq!(m.seat_combos(0), [drain_combo()]);
-    let mut answered = 0;
-    for _ in 0..3_000 {
-        if m.is_over() || m.turn() > 3 {
-            break;
-        }
-        match m.state.waiting_for.clone() {
-            WaitingFor::RespondToShortcut { player: PlayerId(1), .. } => {
-                act_as(&mut m, 1, Act::RespondToShortcut { stop_at: None });
-                answered += 1;
+    // then the loop it starts) and plays it: Ben lets it resolve and accepts what she proposes,
+    // and she wins on her own turn 3. Left to itself the AI may decline the loop (the test above).
+    // On a game thread's stack, as live games run: the search plays the line out in depth.
+    crate::card_tests::big_stack(|| {
+        let (mut m, _) = optional_drain(&[0]);
+        m.set_seat_combos([(0, vec![drain_combo()])].into());
+        assert_eq!(m.seat_combos(0), [drain_combo()]);
+        let mut answered = 0;
+        for _ in 0..3_000 {
+            if m.is_over() || m.turn() > 3 {
+                break;
             }
-            WaitingFor::Priority { player: PlayerId(1) } => {
-                let d = m.decision(1).unwrap();
-                let pass = d.options.iter().find(|o| o.kind == OptionKind::Pass).unwrap();
-                m.choose(1, d.revision, pass.index).unwrap();
+            match m.state.waiting_for.clone() {
+                WaitingFor::RespondToShortcut { player: PlayerId(1), .. } => {
+                    act_as(&mut m, 1, Act::RespondToShortcut { stop_at: None });
+                    answered += 1;
+                }
+                WaitingFor::Priority { player: PlayerId(1) } => {
+                    let d = m.decision(1).unwrap();
+                    let pass = d.options.iter().find(|o| o.kind == OptionKind::Pass).unwrap();
+                    m.choose(1, d.revision, pass.index).unwrap();
+                }
+                w if m.waiting_on().contains(&1) => panic!("Ben is asked something unexpected: {w:?}"),
+                w => assert_eq!(m.run_ai(1).unwrap(), 1, "the AI answers {w:?}"),
             }
-            w if m.waiting_on().contains(&1) => panic!("Ben is asked something unexpected: {w:?}"),
-            w => assert_eq!(m.run_ai(1).unwrap(), 1, "the AI answers {w:?}"),
         }
-    }
-    let log = || m.view(Some(0)).log.iter().map(|l| l.text.clone()).collect::<Vec<_>>().join(" | ");
-    assert_eq!(answered, 1, "she proposed the loop once, and Ben accepted: {:?}; {}", m.state.waiting_for, log());
-    assert_eq!((m.is_over(), m.winner()), (true, Some(0)), "{:?}; {}", m.state.waiting_for, log());
+        let log = || m.view(Some(0)).log.iter().map(|l| l.text.clone()).collect::<Vec<_>>().join(" | ");
+        assert_eq!((m.is_over(), m.winner(), m.turn()), (true, Some(0), 3), "{:?}; {}", m.state.waiting_for, log());
+        // She wins by the loop: proposed once and accepted, or run to its end without an offer.
+        assert!(answered <= 1, "{answered} proposals; {}", log());
+    });
 }
 
 #[test]
