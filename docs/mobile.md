@@ -18,9 +18,12 @@ auto-update"); the Play plan below is kept for later.
 ## Updates (13 November 2026)
 
 `.github/workflows/android-release.yml` runs after every successful "Deploy production" (and by
-hand from the Actions tab). It publishes to the rolling `android-app` release:
+hand from the Actions tab). It builds the commit named in the deploy run's receipt (the
+`deploy-receipt` artifact, `{sha, result}`, which deploy.yml leaves only when production really
+runs that commit), so a superseded deploy publishes nothing, and it never publishes a commit older
+than the one already published. It publishes to the rolling `android-app` release:
 
-- `web-<commit>.zip`: the web build for the app (`npm run android:sync`, which builds for
+- `web-<commit>.zip` (the first 12 hex digits of the commit, which is also the build's id): the web build for the app (`npm run android:sync`, which builds for
   `https://yama.ing`), made from the commit just deployed, so the app's screens never run ahead of
   the server.
 - `yama-<versionCode>.apk` and `yama.apk`: a signed APK, built only when the native code changed.
@@ -49,10 +52,12 @@ The app (`web/src/nativeUpdate.ts`, `components/AppUpdate.tsx`, `UpdaterPlugin.j
 - **Only from us:** downloads are HTTPS only, from github.com (following GitHub's redirect to its
   file host) or yama.ing, with size limits; local builds (`YAMA_NATIVE_HASH` unset, "dev") never update.
 
-Tested 13 November 2026 on the Android 16 emulator [ran]: a web build downloaded (12.6 MB zip,
-4.3 s), started at the next launch and confirmed; a build that never confirmed was replaced after
-30 s; a build running when the app was killed was replaced at the next launch; a wrong checksum
-and a foreign host were refused; a new APK version cleared the downloaded builds. The APK install
+Tested 13 November 2026 on the Android 16 emulator [ran], twice (the second time after the review
+fixes: one lock around every trial change, build ids limited to hex and kept inside the builds
+folder): a web build downloaded (12.6 MB zip, 4.3 s), started at the next launch and confirmed; a
+build that never confirmed was replaced after 30 s; a build running when the app was killed was
+replaced at the next launch; ".", ".." and non-hex ids, a wrong checksum and a foreign host were
+refused; a new APK version cleared the downloaded builds. The APK install
 path (Android's installer) is checked on the first release.
 
 **The release key.** It signs every released APK, and it is the app's identity: losing it means

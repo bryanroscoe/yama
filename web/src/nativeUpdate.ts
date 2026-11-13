@@ -38,7 +38,8 @@ export interface UpdateManifest {
 }
 
 const SHA = /^[0-9a-f]{64}$/;
-const VERSION = /^[A-Za-z0-9._-]{1,64}$/;
+/** A web build is named by its commit: plain hex (UpdaterPlugin.java checks the same). */
+const VERSION = /^[0-9a-f]{7,40}$/;
 const HASH = /^[0-9a-f]{16}$/;
 const URL_OK = (u: unknown): u is string => typeof u === "string" && /^https:\/\/(github\.com|yama\.ing)\//.test(u);
 

@@ -31,26 +31,39 @@ export function greyToBase64(img: Gray): string {
 }
 
 /**
- * ML Kit's lines as one result. Lines are put in reading order (top to bottom, then left to
- * right within a row), joined with a newline for a block and a space for a single line. As
+ * ML Kit's lines as one result, in reading order: pieces on one printed row are joined with a
+ * space, left to right, and rows with a newline for a block or a space for a single line. As
  * Tesseract's whitelist would, characters outside `whitelist` are dropped (after raising lower
  * case if the whitelist has none). Confidence is the
  * length-weighted mean, on Tesseract's 0 to 100 scale.
  */
 export function combineLines(lines: readonly MlKitLine[], opts: { mode: "line" | "block"; whitelist?: string }): OcrResult {
-  const sorted = [...lines].sort((a, b) => {
-    const ah = (a.bottom ?? 0) - (a.top ?? 0);
-    const bh = (b.bottom ?? 0) - (b.top ?? 0);
-    const sameRow = Math.abs((a.top ?? 0) - (b.top ?? 0)) < Math.max(ah, bh, 1) / 2;
-    return sameRow ? (a.left ?? 0) - (b.left ?? 0) : (a.top ?? 0) - (b.top ?? 0);
-  });
   const allowed = opts.whitelist ? new Set(opts.whitelist) : null;
   // ML Kit reads case as printed ("WOC•EN DAN ScoTT"); Tesseract held to a capitals-only
   // whitelist reads capitals, so lower case is raised rather than dropped.
   const upper = !!opts.whitelist && opts.whitelist === opts.whitelist.toUpperCase();
   const clean = (t: string) => (allowed ? [...(upper ? t.toUpperCase() : t)].filter((c) => allowed.has(c) || c === " ").join("") : t).replace(/\s+/g, " ").trim();
-  const kept = sorted.map((l) => ({ text: clean(l.text), confidence: l.confidence })).filter((l) => l.text);
-  const text = kept.map((l) => l.text).join(opts.mode === "block" ? "\n" : " ");
+  // Physical rows, top to bottom; pieces ML Kit split on one printed line ("MOM" and "• EN") stay
+  // on one row, left to right, so the set code keeps its language beside it.
+  const rows: MlKitLine[][] = [];
+  for (const l of [...lines].sort((a, b) => (a.top ?? 0) - (b.top ?? 0))) {
+    const mid = ((l.top ?? 0) + (l.bottom ?? 0)) / 2;
+    const row = rows.find((r) => r.some((o) => mid > (o.top ?? 0) && mid < (o.bottom ?? 0)));
+    if (row) row.push(l);
+    else rows.push([l]);
+  }
+  const kept: { text: string; confidence: number }[] = [];
+  const rowTexts: string[] = [];
+  for (const row of rows) {
+    const parts = row
+      .sort((a, b) => (a.left ?? 0) - (b.left ?? 0))
+      .map((l) => ({ text: clean(l.text), confidence: l.confidence }))
+      .filter((l) => l.text);
+    if (!parts.length) continue;
+    kept.push(...parts);
+    rowTexts.push(parts.map((p) => p.text).join(" "));
+  }
+  const text = rowTexts.join(opts.mode === "block" ? "\n" : " ");
   const weight = kept.reduce((n, l) => n + l.text.length, 0);
   const confidence = weight ? (100 * kept.reduce((n, l) => n + l.confidence * l.text.length, 0)) / weight : 0;
   return { text, confidence };

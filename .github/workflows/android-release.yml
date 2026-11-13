@@ -3,8 +3,10 @@ name: Android release
 # Publishes the sideloaded Android app after every production deploy (docs/mobile.md, "Updates").
 # The rolling `android-app` release holds the latest signed APK (also as yama.apk, the install
 # link), the web build zipped for the app, and update.json, which installed apps read.
-# - The web build is rebuilt each time, against the commit that was just deployed, so the app's
-#   screens never run ahead of the server. Apps take it quietly (nativeUpdate.ts).
+# - The web build is rebuilt each time, from the commit production now runs: the one named in the
+#   deploy run's receipt (deploy.yml), not the deploy run's own head, which can be a newer commit
+#   that hasn't deployed. A superseded deploy leaves no receipt and publishes nothing. So the
+#   app's screens never run ahead of the server. Apps take it quietly (nativeUpdate.ts).
 # - A new APK is built only when the native code changed (web/scripts/android-native-hash.mjs) or
 #   a manual run asks for one. Apps then offer an Update button.
 # Signing uses the release key in the ANDROID_RELEASE_* secrets; without them nothing is published.
@@ -22,37 +24,72 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 concurrency:
   group: android-release
   cancel-in-progress: false
 
 jobs:
-  release:
-    name: Publish the Android app
+  deployed:
+    name: Find the commit production runs
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      GH_TOKEN: ${{ github.token }}
-      TAG: android-app
-      RELEASE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.receipt.outputs.sha }}
     steps:
       - name: Refuse a branch other than main
         if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main'
         run: |
           echo "::error::Android releases come from main only."
           exit 1
+      # After a deploy: that run's receipt only. By hand: the newest deploy that left one.
+      - name: Read the deploy receipt
+        id: receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          if [ -n "$RUN_ID" ]; then
+            runs="$RUN_ID"
+          else
+            runs=$(gh run list -R "$GITHUB_REPOSITORY" --workflow "Deploy production" --branch main --status success -L 10 --json databaseId --jq '.[].databaseId')
+          fi
+          for run in $runs; do
+            rm -rf "$RUNNER_TEMP/receipt"
+            if gh run download "$run" -R "$GITHUB_REPOSITORY" -n deploy-receipt -D "$RUNNER_TEMP/receipt" 2>/dev/null; then
+              sha=$(jq -r '.sha' "$RUNNER_TEMP/receipt/receipt.json")
+              [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Deploy run $run has a malformed receipt."; exit 1; }
+              echo "Deploy run $run activated $sha."
+              echo "sha=$sha" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "::notice::No deploy receipt (superseded, or a deploy from before receipts): nothing to publish."
+
+  release:
+    name: Publish the Android app
+    needs: deployed
+    if: needs.deployed.outputs.sha != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: android-app
+      RELEASE_SHA: ${{ needs.deployed.outputs.sha }}
+    steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ env.RELEASE_SHA }}
           persist-credentials: false
       - name: Check main still holds this commit
         run: |
-          git fetch --no-tags --depth=200 origin main
+          git fetch --no-tags --depth=500 origin main
           git merge-base --is-ancestor "$RELEASE_SHA" FETCH_HEAD
       - name: Signing key present
         env:
@@ -81,6 +118,16 @@ jobs:
              gh release download "$TAG" --pattern update.json --output "$RUNNER_TEMP/previous.json" --clobber 2>/dev/null; then
             prev_code=$(jq -r '.native.versionCode // 0' "$RUNNER_TEMP/previous.json")
             prev_hash=$(jq -r '.native.hash // ""' "$RUNNER_TEMP/previous.json")
+            prev_commit=$(jq -r '.commit // ""' "$RUNNER_TEMP/previous.json")
+            # Never go back: a commit already published, or older than the one that is, stays out
+            # (a manual run asking for a new APK still goes ahead on the same commit).
+            if [ -n "$prev_commit" ] && git cat-file -e "$prev_commit^{commit}" 2>/dev/null &&
+               git merge-base --is-ancestor "$RELEASE_SHA" "$prev_commit" &&
+               { [ "$prev_commit" != "$RELEASE_SHA" ] || [ "$FORCE_NATIVE" != "true" ]; }; then
+              echo "::notice::$RELEASE_SHA is already published or older than $prev_commit: nothing to do."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
           fi
           native=false
           if [ "$hash" != "$prev_hash" ] || [ "$FORCE_NATIVE" = "true" ]; then native=true; fi
@@ -96,22 +143,24 @@ jobs:
           echo "Native code $hash (published: ${prev_hash:-none}); web build $build; new APK: $native (version $code)"
       # The app's web build: calls the server at yama.ing and knows its own version.
       - name: Web build for the app
+        if: steps.plan.outputs.skip != 'true'
         env:
           VITE_APP_BUILD: ${{ steps.plan.outputs.build }}
         run: npm run android:sync -w web
       - name: Zip the web build
+        if: steps.plan.outputs.skip != 'true'
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/out"
           (cd web/dist && zip -qr -X "$RUNNER_TEMP/out/web-${{ steps.plan.outputs.build }}.zip" .)
       - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
-        if: steps.plan.outputs.native == 'true'
+        if: steps.plan.outputs.skip != 'true' && steps.plan.outputs.native == 'true'
         with:
           distribution: temurin
           java-version: '21'
           cache: gradle
       - name: Build and sign the APK
-        if: steps.plan.outputs.native == 'true'
+        if: steps.plan.outputs.skip != 'true' && steps.plan.outputs.native == 'true'
         working-directory: web/android
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
@@ -133,6 +182,7 @@ jobs:
           cp "$apk" "$RUNNER_TEMP/out/yama-${{ steps.plan.outputs.code }}.apk"
           cp "$apk" "$RUNNER_TEMP/out/yama.apk"
       - name: Write update.json
+        if: steps.plan.outputs.skip != 'true'
         env:
           NATIVE: ${{ steps.plan.outputs.native }}
           HASH: ${{ steps.plan.outputs.hash }}
@@ -157,6 +207,7 @@ jobs:
             > "$out/update.json"
           cat "$out/update.json"
       - name: Publish
+        if: steps.plan.outputs.skip != 'true'
         env:
           NATIVE: ${{ steps.plan.outputs.native }}
           BUILD: ${{ steps.plan.outputs.build }}

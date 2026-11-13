@@ -367,8 +367,8 @@ it. Details: [CI](docs/ci.md), [releasing](deploy/RELEASING.md),
 [the deploy runner and gate](deploy/RUNNER.md), [running on the host](deploy/README.md),
 [release trains](docs/release-trains.md).
 
-After each successful deploy, `android-release.yml` publishes the Android app's web build (and a
-new signed APK when the native code changed) to the repository's `android-app` release on GitHub;
+After each successful deploy, `android-release.yml` publishes the Android app's web build for the
+commit the deploy's receipt names (and a new signed APK when the native code changed) to the repository's `android-app` release on GitHub;
 installed apps fetch them from there ([The Android app, sideloaded (13 November 2026)](#the-android-app-sideloaded-13-november-2026)).
 
 ## Decision record

@@ -62,7 +62,10 @@ public class UpdaterPlugin extends Plugin {
     private static final String FAILED = "failed";
     private static final String BINARY = "binary";
     private static final long TRIAL_MS = 30_000;
-    private static final Pattern VERSION = Pattern.compile("^[A-Za-z0-9._-]{1,64}$");
+    /** A web build is named by its commit (android-release.yml): plain hex, so never "." or "..". */
+    private static final Pattern VERSION = Pattern.compile("^[0-9a-f]{7,40}$");
+    /** Trial state changes (start, confirm, fail, cleanup) happen one at a time across threads. */
+    private static final Object LOCK = new Object();
     private static final Pattern SHA256 = Pattern.compile("^[0-9a-f]{64}$");
     private static final long MAX_MANIFEST = 256 * 1024;
     private static final long MAX_BUNDLE = 96L * 1024 * 1024;
@@ -79,6 +82,12 @@ public class UpdaterPlugin extends Plugin {
      * app crashed or was closed during its trial).
      */
     static void recoverOnLaunch(Context context) {
+        synchronized (LOCK) {
+            recoverLocked(context);
+        }
+    }
+
+    private static void recoverLocked(Context context) {
         SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         String binary = binaryId(context);
         if (!binary.equals(prefs.getString(BINARY, ""))) {
@@ -95,10 +104,10 @@ public class UpdaterPlugin extends Plugin {
         // A build downloaded last time starts now, on trial.
         String next = prefs.getString(NEXT, "");
         if (!next.isEmpty()) {
-            File dir = new File(bundlesDir(context), next);
+            File dir = buildDir(context, next);
             boolean failedBefore = prefs.getStringSet(FAILED, new HashSet<>()).contains(next);
             SharedPreferences.Editor edit = prefs.edit().putString(NEXT, "");
-            if (!failedBefore && new File(dir, "index.html").exists()) {
+            if (!failedBefore && dir != null && new File(dir, "index.html").exists()) {
                 edit.putString(TRYING, next);
                 setServerPath(context, dir.getAbsolutePath());
             }
@@ -118,9 +127,12 @@ public class UpdaterPlugin extends Plugin {
         SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         main.postDelayed(
             () -> {
-                if (!version.equals(prefs.getString(TRYING, ""))) return;
-                Logger.warn("Updater", "Web build " + version + " didn't start in time; going back");
-                String back = fail(context, version);
+                String back;
+                synchronized (LOCK) {
+                    if (!version.equals(prefs.getString(TRYING, ""))) return;
+                    Logger.warn("Updater", "Web build " + version + " didn't start in time; going back");
+                    back = fail(context, version);
+                }
                 if (back.isEmpty()) getBridge().setServerAssetPath("public");
                 else getBridge().setServerBasePath(back);
             },
@@ -141,6 +153,22 @@ public class UpdaterPlugin extends Plugin {
         return new File(context.getFilesDir(), "web-builds");
     }
 
+    /** `<files>/web-builds/<version><suffix>`, or null unless the version is a build id and the path stays inside. */
+    static File buildDir(Context context, String version, String suffix) {
+        if (version == null || !VERSION.matcher(version).matches()) return null;
+        try {
+            File root = bundlesDir(context).getCanonicalFile();
+            File dir = new File(root, version + suffix);
+            return dir.getCanonicalFile().getParentFile().equals(root) ? dir : null;
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    static File buildDir(Context context, String version) {
+        return buildDir(context, version, "");
+    }
+
     private static void setServerPath(Context context, String path) {
         context
             .getSharedPreferences(WebView.WEBVIEW_PREFS_NAME, Activity.MODE_PRIVATE)
@@ -155,14 +183,12 @@ public class UpdaterPlugin extends Plugin {
         Set<String> failed = new HashSet<>(prefs.getStringSet(FAILED, new HashSet<>()));
         failed.add(version);
         String good = prefs.getString(GOOD, "");
-        String path = good.isEmpty() ? "" : new File(bundlesDir(context), good).getAbsolutePath();
-        if (!good.isEmpty() && !new File(path, "index.html").exists()) {
-            good = "";
-            path = "";
-        }
+        File goodDir = good.equals(version) ? null : buildDir(context, good);
+        String path = goodDir != null && new File(goodDir, "index.html").exists() ? goodDir.getAbsolutePath() : "";
+        if (path.isEmpty()) good = "";
         prefs.edit().putStringSet(FAILED, failed).putString(TRYING, "").putString(GOOD, good).commit();
         setServerPath(context, path);
-        deleteTree(new File(bundlesDir(context), version));
+        deleteTree(buildDir(context, version));
         return path;
     }
 
@@ -216,11 +242,13 @@ public class UpdaterPlugin extends Plugin {
         String url = call.getString("url");
         String sha = lower(call.getString("sha256"));
         String version = call.getString("version");
-        if (!allowed(url) || sha == null || !SHA256.matcher(sha).matches() || version == null || !VERSION.matcher(version).matches()) {
-            call.reject("A build needs an update address, its SHA-256 and a version", "bad-request");
+        Context context = getContext();
+        File target = buildDir(context, version);
+        File staging = buildDir(context, version, ".partial");
+        if (!allowed(url) || sha == null || !SHA256.matcher(sha).matches() || target == null || staging == null) {
+            call.reject("A build needs an update address, its SHA-256 and a build id", "bad-request");
             return;
         }
-        Context context = getContext();
         SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         if (prefs.getStringSet(FAILED, new HashSet<>()).contains(version)) {
             call.reject("This build failed to start before", "failed-before");
@@ -229,11 +257,11 @@ public class UpdaterPlugin extends Plugin {
         io.execute(() -> {
             File dir = bundlesDir(context);
             File zip = new File(context.getCacheDir(), "web-build.zip");
-            File staging = new File(dir, version + ".partial");
-            File target = new File(dir, version);
             try {
                 if (new File(target, "index.html").exists()) {
-                    prefs.edit().putString(NEXT, version).commit();
+                    synchronized (LOCK) {
+                        if (!version.equals(prefs.getString(GOOD, ""))) prefs.edit().putString(NEXT, version).commit();
+                    }
                     resolveVersion(call, version);
                     return;
                 }
@@ -244,10 +272,12 @@ public class UpdaterPlugin extends Plugin {
                 deleteTree(staging);
                 unzip(zip, staging);
                 if (!new File(staging, "index.html").exists()) throw new IOException("the build has no index.html");
-                deleteTree(target);
-                if (!staging.renameTo(target)) throw new IOException("couldn't move the build into place");
-                // Starts with the app next time, unless the person reloads first.
-                prefs.edit().putString(NEXT, version).commit();
+                synchronized (LOCK) {
+                    deleteTree(target);
+                    if (!staging.renameTo(target)) throw new IOException("couldn't move the build into place");
+                    // Starts with the app next time, unless the person reloads first.
+                    prefs.edit().putString(NEXT, version).commit();
+                }
                 resolveVersion(call, version);
             } catch (Exception e) {
                 deleteTree(staging);
@@ -269,14 +299,16 @@ public class UpdaterPlugin extends Plugin {
     public void apply(PluginCall call) {
         String version = call.getString("version");
         Context context = getContext();
-        File target = version != null && VERSION.matcher(version).matches() ? new File(bundlesDir(context), version) : null;
-        if (target == null || !new File(target, "index.html").exists()) {
-            call.reject("That build isn't downloaded", "missing");
-            return;
-        }
+        File target = buildDir(context, version);
         SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        prefs.edit().putString(TRYING, version).putString(NEXT, "").commit();
-        setServerPath(context, target.getAbsolutePath());
+        synchronized (LOCK) {
+            if (target == null || !new File(target, "index.html").exists()) {
+                call.reject("That build isn't downloaded", "missing");
+                return;
+            }
+            prefs.edit().putString(TRYING, version).putString(NEXT, "").commit();
+            setServerPath(context, target.getAbsolutePath());
+        }
         call.resolve();
         main.post(() -> getBridge().setServerBasePath(target.getAbsolutePath()));
         watch(version);
@@ -288,12 +320,14 @@ public class UpdaterPlugin extends Plugin {
         String version = call.getString("version", "");
         Context context = getContext();
         SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        String trying = prefs.getString(TRYING, "");
-        if (!trying.isEmpty() && trying.equals(version)) {
-            prefs.edit().putString(GOOD, trying).putString(TRYING, "").commit();
-            String next = prefs.getString(NEXT, "");
-            File[] builds = bundlesDir(context).listFiles();
-            if (builds != null) for (File b : builds) if (!b.getName().equals(trying) && !b.getName().equals(next)) deleteTree(b);
+        synchronized (LOCK) {
+            String trying = prefs.getString(TRYING, "");
+            if (!trying.isEmpty() && trying.equals(version)) {
+                prefs.edit().putString(GOOD, trying).putString(TRYING, "").commit();
+                String next = prefs.getString(NEXT, "");
+                File[] builds = bundlesDir(context).listFiles();
+                if (builds != null) for (File b : builds) if (!b.getName().equals(trying) && !b.getName().equals(next) && !b.getName().endsWith(".partial")) deleteTree(b);
+            }
         }
         call.resolve();
     }

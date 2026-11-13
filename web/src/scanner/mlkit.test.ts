@@ -44,6 +44,19 @@ describe("combineLines", () => {
     expect(parseCollector(r.text, (code) => code === "woc")).toMatchObject({ sets: ["woc"], numbers: expect.arrayContaining(["145"]) });
   });
 
+  it("keeps pieces of one printed row on one line, so the set keeps its language", () => {
+    const r = combineLines(
+      [
+        { text: "DE", confidence: 0.9, left: 50, top: 31, right: 70, bottom: 50 },
+        { text: "R 0214", confidence: 0.9, left: 0, top: 0, right: 60, bottom: 20 },
+        { text: "MOM •", confidence: 0.9, left: 0, top: 30, right: 45, bottom: 50 },
+      ],
+      { mode: "block", whitelist: "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ/•*-+ " },
+    );
+    expect(r.text).toBe("R 0214\nMOM • DE");
+    expect(parseCollector(r.text, (code) => code === "mom")).toMatchObject({ sets: ["mom"], lang: "de", anchored: true });
+  });
+
   it("reads nothing as empty with no confidence", () => {
     expect(combineLines([], { mode: "line" })).toEqual({ text: "", confidence: 0 });
   });
