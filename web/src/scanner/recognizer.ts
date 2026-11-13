@@ -87,6 +87,14 @@ const EMPTY = 0.25;
 /** A card is in view at this vote and at least this short side in frame pixels. */
 const IN_VIEW = 0.5;
 const MIN_SHORT = 60;
+/**
+ * Below this, the found "card" is a plain surface: no frame, title or rules text. Mean brightness
+ * step between neighbouring samples of a 32 × 44 grid over the card (0 to 255; `cardDetail`). Scryfall scans and
+ * photographed cards measure well above it; a white sheet, a wall or a sleeve back well below.
+ * Without it a blank white view matched Mystery Booster 2's Whiteout, whose art box is printed
+ * blank (Bryan, 13 Nov 2026).
+ */
+export const MIN_DETAIL = 4;
 /** Re-run the whole-scene pass at least this often while tracking, so tracking can't stick. */
 const RETRACK_EVERY = 8;
 
@@ -142,6 +150,50 @@ const toFrame = (p: Point, w: Window, size: number): Point => {
   const k = size / w.side;
   return [(p[0] - size / 2) / k + w.cx, (p[1] - size / 2) / k + w.cy];
 };
+
+/**
+ * How much is printed inside `quad`: the mean absolute brightness step between neighbouring
+ * points of a grid laid across it (5% in from each edge, so the table around doesn't count),
+ * each point a small average so sensor noise doesn't count either.
+ */
+export function cardDetail(frame: RgbaImage, quad: Quad): number {
+  const [a, b, c, d] = quad;
+  const cols = 32;
+  const rows = 44;
+  const lum = new Float32Array(cols * rows);
+  for (let j = 0; j < rows; j++) {
+    const v = 0.05 + (0.9 * j) / (rows - 1);
+    for (let i = 0; i < cols; i++) {
+      const u = 0.05 + (0.9 * i) / (cols - 1);
+      // Bilinear across the four corners (top-left, top-right, bottom-right, bottom-left).
+      const x = (1 - v) * ((1 - u) * a[0] + u * b[0]) + v * ((1 - u) * d[0] + u * c[0]);
+      const y = (1 - v) * ((1 - u) * a[1] + u * b[1]) + v * ((1 - u) * d[1] + u * c[1]);
+      // A 5 × 5 average at each point, so camera noise on a blank surface doesn't read as print.
+      let total = 0;
+      let count = 0;
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          const px = Math.min(frame.width - 1, Math.max(0, Math.round(x) + dx));
+          const py = Math.min(frame.height - 1, Math.max(0, Math.round(y) + dy));
+          const k = (py * frame.width + px) * 4;
+          total += 0.299 * frame.data[k]! + 0.587 * frame.data[k + 1]! + 0.114 * frame.data[k + 2]!;
+          count++;
+        }
+      }
+      lum[j * cols + i] = total / count;
+    }
+  }
+  let sum = 0;
+  let n = 0;
+  for (let j = 0; j < rows; j++) {
+    for (let i = 0; i < cols; i++) {
+      const here = lum[j * cols + i]!;
+      if (i + 1 < cols) (sum += Math.abs(here - lum[j * cols + i + 1]!)), n++;
+      if (j + 1 < rows) (sum += Math.abs(here - lum[(j + 1) * cols + i]!)), n++;
+    }
+  }
+  return n ? sum / n : 0;
+}
 
 const shortSide = (q: Quad) => Math.min(...q.map((p, i) => Math.hypot(q[(i + 1) % 4]![0] - p[0], q[(i + 1) % 4]![1] - p[1])));
 
@@ -225,7 +277,7 @@ export async function createRecognizer(ort: OrtLike, graphs: { detector: Uint8Ar
       fine = coarse.vote >= EMPTY ? await detect(frame, around(coarse)) : coarse;
     }
     const t1 = now();
-    const inView = fine.vote >= IN_VIEW && shortSide(fine.quad) >= MIN_SHORT;
+    const inView = fine.vote >= IN_VIEW && shortSide(fine.quad) >= MIN_SHORT && cardDetail(frame, fine.quad) >= MIN_DETAIL;
     tracked = inView ? around(fine) : null;
     trackedFor = inView && wasTracking ? trackedFor + 1 : 0;
     const found = inView ? await match(frame, fine.quad) : { matches: [], pool: pool && gallery ? [] : undefined };
