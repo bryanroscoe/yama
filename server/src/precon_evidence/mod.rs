@@ -1143,18 +1143,10 @@ async fn calibrate_with(
             Some((h, t)) => (h, Some(t)),
             None => (&primary.history, None),
         };
-        let train = then.map(|t| match &t.recent {
-            Some(r) => calibration::Real {
-                rate: r.rate,
-                effective_games: r.effective_games,
-            },
-            None => {
-                let last = t.snapshots.last().unwrap();
-                calibration::Real {
-                    rate: last.rate,
-                    effective_games: last.games as f64,
-                }
-            }
+        // A history can have a recent rate and no snapshot of its own to fall back on.
+        let train = then.and_then(|t| match t.snapshots.last() {
+            Some(last) => Some(real_estimate(t.recent.as_ref(), last.rate, last.games)),
+            None => t.recent.as_ref().map(|r| calibration::Real { rate: r.rate, effective_games: r.effective_games }),
         });
         // Held out: the games after the split's newest snapshot, on the same unbroken chain.
         let holdout = then.and_then(|t| {
@@ -1259,6 +1251,10 @@ pub struct V2Estimate {
     /// 90% range of the rank, by simulation from each estimate's uncertainty.
     pub rank_lo: usize,
     pub rank_hi: usize,
+    /// Where its stock games put it against the average precon; None without stock games or
+    /// without a field to place it in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub standing: Option<calibration::Standing>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1275,6 +1271,8 @@ pub struct RatingV2 {
     pub commander: Option<CommanderTest>,
     pub split: DateTime<Utc>,
     pub ranked: usize,
+    /// The precons with enough stock games to place, their average and spread.
+    pub field: Option<calibration::Field>,
     pub precons: Vec<V2Estimate>,
     pub note: &'static str,
 }
@@ -1388,6 +1386,17 @@ impl Normal {
 }
 
 /// Rating v2 for every catalog precon with evidence, from the newest global run and the datasets.
+/// What real games say about a precon, for the rating: the recency-weighted rate from the games
+/// between snapshots when those are at least an interval's worth, else the source's all-time
+/// figure. (Until 2026-11-13 any recent rate won, so two new games between snapshots could
+/// stand in for a precon with 72 on record and give it a 0 to 98% interval.)
+fn real_estimate(recent: Option<&history::Recent>, all_time_rate: f64, all_time_games: u64) -> calibration::Real {
+    match recent {
+        Some(r) if r.games >= history::MIN_INTERVAL_GAMES => calibration::Real { rate: r.rate, effective_games: r.effective_games },
+        _ => calibration::Real { rate: all_time_rate, effective_games: all_time_games as f64 },
+    }
+}
+
 pub async fn rating_v2(pool: &SqlitePool, as_of: DateTime<Utc>) -> AppResult<RatingV2> {
     let loaded = load(pool, as_of).await?;
     rating_v2_with(pool, as_of, loaded).await
@@ -1433,16 +1442,7 @@ pub async fn rating_v2_from(
         .iter()
         .filter_map(|(id, ev)| {
             let real = ev.real.as_ref()?;
-            let train = Some(match &real.history.recent {
-                Some(r) => calibration::Real {
-                    rate: r.rate,
-                    effective_games: r.effective_games,
-                },
-                None => calibration::Real {
-                    rate: real.latest.rate,
-                    effective_games: real.latest.games as f64,
-                },
-            });
+            let train = Some(real_estimate(real.history.recent.as_ref(), real.latest.rate, real.latest.games));
             Some(calibration::Case {
                 precon: id.clone(),
                 train,
@@ -1453,6 +1453,7 @@ pub async fn rating_v2_from(
         .collect();
     let mapping = calibration::mapping(&current);
     let reals: HashMap<&str, calibration::Real> = current.iter().filter_map(|c| Some((c.precon.as_str(), c.train?))).collect();
+    let field = calibration::field(&reals.values().copied().collect::<Vec<_>>());
     let commander = commander_model(&evidence, &reals, simulation.as_ref());
     let mut ids: Vec<&str> = reals.keys().copied().collect();
     if let Some(s) = &simulation {
@@ -1515,6 +1516,7 @@ pub async fn rating_v2_from(
                 rank: 1 + rows.iter().filter(|r| low(r.1, r.2) > low(*rate, *var) + 1e-9).count(),
                 rank_lo: d[d.len() / 20],
                 rank_hi: d[d.len() - 1 - d.len() / 20],
+                standing: field.as_ref().zip(reals.get(id.as_str())).map(|(f, r)| calibration::standing(*r, f)),
             }
         })
         .collect();
@@ -1529,6 +1531,7 @@ pub async fn rating_v2_from(
         commander: commander.map(|c| c.test),
         split,
         ranked: precons.len(),
+        field,
         precons,
         note: V2_NOTE,
     })

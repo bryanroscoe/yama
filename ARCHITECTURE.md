@@ -1861,6 +1861,24 @@ public JSON carries it as `commander_games`; the Lab precon page, Ask Claude and
 evidence's `all_lists`. The ranking's sources each say whether they rate stock lists, so only those are
 named as the rank's inputs; every source is still credited with its attribution and licence.
 
+**Standing: ahead of, in or behind the pack (2026-11-13).** Bryan, 12 Nov: "We need to understand how
+strong these are versus each other. We need to understand generally what tier they are." Measured that
+day on the 85 precons with 40 or more stock games: their rates spread SD 4.2 points, of which sampling
+noise is 3.1, so real strengths spread about 2.8 points around 21%. Letter tiers cut from raw rates
+(as Playgroup.gg's S to D) are mostly noise, and a rank alone overstates the differences. So each precon
+with at least 40 effective stock games gets a standing (`calibration::field`, `standing`,
+`V2Estimate.standing`, `RatingV2.field`): its rate is pulled toward the field's games-weighted average by
+its own sampling variance against the field's spread (observed variance less mean sampling variance,
+never under one point), and it is `ahead` or `behind` only when the 90% interval of that shrunk rate
+clears the average; otherwise `pack`. Under 40 effective games it is `thin` and not placed; a precon
+without stock games has no standing. The rank and estimate are unchanged by it. Wizards publishes no
+ranking or tier of its precons, and since Oct 2025 no longer ties them to Bracket 2.
+
+The same day the rating stopped reading a recent rate that rests on too few games: the recency-weighted
+rate counts only when the games between snapshots number at least 40 (`real_estimate`), else the
+source's all-time figure does. Before, two new games between snapshots stood in for a precon with 72 on
+record and gave it an estimate of 37.6% with an interval of 0 to 98%.
+
 ### Polish runs (2026-10-31)
 
 `npm run polish` (`web/scripts/polish/`, docs/polish.md) screenshots every page at laptop, tablet and phone sizes, scrolling down each one and opening its menus, sheets, tabs and disclosures, and checks layout and copy as it goes (overflow, clipped or overlapping text, small targets, the Night table rules, copy slips, off-scale spacing). It's for Claude's polish passes and for Bryan to page through. A run is read-only: writes are blocked at the browser, so it can run on production as Bryan with a short session minted on the server (`yama-server user session`).
