@@ -69,8 +69,11 @@ const SHOP_PRODUCTS: usize = 60;
 /// `/products/<handle>.js` and `/products.json` to anything but a browser (HTTP 429 on the first
 /// request, 2026-11-12), so this is read first. Stock counts need the store's own token: unknown.
 const STOREFRONT_PATH: &str = "/api/2025-10/graphql.json";
-/// Pages read for one card, 25 in-stock products each; a card with more is unknown.
-const STOREFRONT_PAGES: usize = 6;
+/// Pages read for one card, 25 in-stock products each; a card with more is unknown. A card named
+/// like a set matches every card of that set at a store whose titles end in the set's name
+/// ("Urza's Saga" at Mothership: 178 products in stock, "Aether Revolt": 159, 13 Nov 2026), so
+/// the limit has to hold a whole set.
+const STOREFRONT_PAGES: usize = 40;
 const STOREFRONT_QUERY: &str = "query($q:String!,$after:String){search(query:$q,types:PRODUCT,first:25,after:$after,productFilters:[{available:true}]){pageInfo{hasNextPage endCursor} nodes{... on Product{title handle vendor variants(first:50){pageInfo{hasNextPage} nodes{id title availableForSale price{amount}}}}}}}";
 /// Pages of 5,000 products read from a TCGplayer Pro catalog.
 const PRO_PAGES: usize = 8;
@@ -956,8 +959,12 @@ async fn enrich_shopify_quantities(f: &mut Fetcher, base: &str, handle: &str, li
 /// What the Storefront API said about one card.
 enum Storefront {
     Found(Vec<Listing>),
-    /// The card's answer is unknown, with why.
+    /// The card's answer is unknown, with why: the request failed or the store refused it, so
+    /// its other cards may fail the same way.
     Unknown(String),
+    /// The store answered, but this card's listings couldn't all be read (a product in a shape
+    /// Yama doesn't know, or more pages than it reads). Unknown too, and only this card's trouble.
+    Unreadable(String),
     /// The store doesn't offer the API: the older reads may still work.
     Unsupported,
 }
@@ -1006,11 +1013,13 @@ async fn storefront_card(f: &mut Fetcher, base: &str, card: &str, raw: &mut Raw)
                     return Storefront::Unsupported;
                 }
                 let said = answer["errors"][0]["message"].as_str().map(|m| format!(" ({})", m.chars().take(120).collect::<String>())).unwrap_or_default();
-                return Storefront::Unknown(format!("{url}: an answer without readable products for {card}{said}"));
+                let why = format!("{url}: an answer without readable products for {card}{said}");
+                // A search that answered with no error has a product Yama can't read.
+                return if answer["errors"].is_null() && answer["data"]["search"]["nodes"].is_array() { Storefront::Unreadable(why) } else { Storefront::Unknown(why) };
             }
         }
     }
-    Storefront::Unknown(format!("{card}: more than {} in-stock printings listed; Yama didn't read them all", STOREFRONT_PAGES * 25))
+    Storefront::Unreadable(format!("{card}: more than {} in-stock printings listed; Yama didn't read them all", STOREFRONT_PAGES * 25))
 }
 
 /// The cards read through the store's Storefront API, or `None` for a store that doesn't offer it.
@@ -1030,7 +1039,7 @@ async fn fetch_storefront(f: &mut Fetcher, base: &str, cards: &[String], raw: &m
                 out.errors.push(format!("{base}{STOREFRONT_PATH}: refused for {card}"));
                 out.failed.push(card.clone());
             }
-            Storefront::Unknown(e) => {
+            Storefront::Unknown(e) | Storefront::Unreadable(e) => {
                 out.errors.push(e);
                 out.failed.push(card.clone());
             }
