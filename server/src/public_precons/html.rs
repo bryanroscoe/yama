@@ -995,10 +995,18 @@ pub(super) async fn detail(
         body.push_str(&simulation_panel(source, r, &p.rating_status));
     }
     body.push_str("</div>");
-    // Computed here, not in detail_data: the JSON and decklist.txt don't show it.
-    if let Some(a) = power::full(&st.pool, p).await? {
-        body.push_str(&crate::public_page::analysis_panel(&a));
+    // The deck page's panels, for the stock list. Computed here, not in detail_data: the JSON
+    // and decklist.txt don't show them. The bracket panel leaves the power level out: the
+    // panel above it and the evidence row already give it.
+    let x = power::full(&st.pool, p).await?;
+    body.push_str("<div class=\"share-more\">");
+    if let Some(a) = &x.analysis {
+        body.push_str(&crate::public_page::analysis_panel(a));
     }
+    body.push_str(&crate::public_page::bracket_panel(crate::public_page::Declared::Stock, x.check.as_ref(), x.game_changers.as_deref(), None));
+    body.push_str(&crate::public_page::stats_panel(&x.stats));
+    body.push_str(&crate::public_page::reserved_panel(x.reserved.as_deref()));
+    body.push_str("</div>");
     body.push_str("<section class=\"public-panel\"><h3>Upgradeability</h3>");
     body.push_str(&upgradeability(p, true));
     body.push_str("</section>");

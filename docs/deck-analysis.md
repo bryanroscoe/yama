@@ -240,6 +240,12 @@ assignment. Each stock list reads its own stored Spellbook check once the worker
 (since 2026-11-11); until then the estimate uses no combo bonus and widens its margin. No
 person's checks or saved versions are read. Completely missing card data stays unassessed.
 
+A stock detail page also carries the panels a shared deck's page has, built from the stock
+list alone: the power breakdown (five scores, themes, every card's points), the bracket panel
+(the Spellbook suggestion, Game Changers, mass land denial, extra turns and combos, with no
+"declared" cell because nobody declares a stock list's bracket), deck stats (lands, average
+mana value, curve, pips and land access) and the Reserve List line (since 2026-11-13).
+
 The page compares power with each published engine's model win rate and with stock-list
 real games separately. Charts use the full catalog before filtering/pagination,
 exclude incomplete card data, and require at least 20 appearances/games per source.

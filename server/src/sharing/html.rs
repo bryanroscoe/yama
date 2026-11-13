@@ -202,7 +202,7 @@ pub(super) async fn deck(State(st): State<AppState>, address: ClientAddress, hea
 
     // Everything else about the deck, under the cards, as on the deck page.
     body.push_str("<div class=\"share-more\">");
-    body.push_str(&crate::public_page::bracket_panel(d.bracket, x.check.as_ref(), x.game_changers.as_deref(), x.analysis.as_ref()));
+    body.push_str(&crate::public_page::bracket_panel(crate::public_page::Declared::Owner(d.bracket), x.check.as_ref(), x.game_changers.as_deref(), x.analysis.as_ref()));
     if let Some(a) = &x.analysis {
         body.push_str(&crate::public_page::analysis_panel(a));
     }
