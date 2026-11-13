@@ -887,6 +887,11 @@ async fn fetch_shopify_catalog(pool: &SqlitePool, f: &mut Fetcher, base: &str, c
             found
         }
         Ok(Some((at,products))) => {
+            // The Storefront API is live for every printing: a store that offers it is read
+            // there, not through the catalog's `.js` availability reads, which storefronts refuse.
+            if !cards.is_empty() && let Some(found) = fetch_storefront(f,base,cards,raw).await {
+                return found;
+            }
             let mut found = Found { cached_at: Some(at), ..Default::default() };
             let wanted: HashMap<String,&String> = cards.iter().map(|c|(card_key(c),c)).collect();
             for product in products {
@@ -954,9 +959,19 @@ enum Storefront {
     Unsupported,
 }
 
-/// A Storefront API request the store refused outright, or answered with a page.
+/// A Storefront API request the store refused outright: it doesn't offer the API. A 429, a
+/// server error or a page that isn't JSON may pass, so those leave the card unknown instead.
 fn storefront_refused(e: &str) -> bool {
-    [": HTTP 400", ": HTTP 401", ": HTTP 402", ": HTTP 403", ": HTTP 404", ": HTTP 405", ": HTTP 410", ": the answer wasn't JSON"].iter().any(|end| e.ends_with(end))
+    [": HTTP 401", ": HTTP 402", ": HTTP 403", ": HTTP 404", ": HTTP 405", ": HTTP 410"].iter().any(|end| e.ends_with(end))
+}
+
+/// An answer without a search result that says the store keeps the API from the public, or
+/// isn't a GraphQL answer at all. `THROTTLED` and server errors are passing failures, not this.
+fn storefront_denied(answer: &Value) -> bool {
+    match answer["errors"].as_array() {
+        Some(errors) => errors.iter().any(|e| matches!(e["extensions"]["code"].as_str(), Some("ACCESS_DENIED" | "SHOP_INACTIVE" | "UNAUTHORIZED" | "FORBIDDEN"))),
+        None => answer.get("data").is_none(),
+    }
 }
 
 /// A card's in-stock listings from the store's Storefront API, every page.
@@ -984,38 +999,52 @@ async fn storefront_card(f: &mut Fetcher, base: &str, card: &str, raw: &mut Raw)
             }
             None => {
                 f.forget("POST", &url, Some(&body));
-                // No search result at all (the API is off, or asks for a token) isn't a bad page.
-                if page == 0 && answer["data"]["search"].is_null() {
+                if page == 0 && answer["data"]["search"].is_null() && storefront_denied(&answer) {
                     return Storefront::Unsupported;
                 }
-                return Storefront::Unknown(format!("{url}: an answer without readable products for {card}"));
+                let said = answer["errors"][0]["message"].as_str().map(|m| format!(" ({})", m.chars().take(120).collect::<String>())).unwrap_or_default();
+                return Storefront::Unknown(format!("{url}: an answer without readable products for {card}{said}"));
             }
         }
     }
     Storefront::Unknown(format!("{card}: more than {} in-stock printings listed; Yama didn't read them all", STOREFRONT_PAGES * 25))
 }
 
+/// The cards read through the store's Storefront API, or `None` for a store that doesn't offer it.
+/// That is settled before any card is answered: once one is, a later refusal only leaves its
+/// card unknown, so a check never mixes the two ways of reading a store.
+async fn fetch_storefront(f: &mut Fetcher, base: &str, cards: &[String], raw: &mut Raw) -> Option<Found> {
+    let mut out = Found::default();
+    let mut answered = false;
+    for card in cards {
+        match storefront_card(f, base, card, raw).await {
+            Storefront::Found(listings) => {
+                answered = true;
+                out.listings.extend(listings);
+            }
+            Storefront::Unsupported if !answered => return None,
+            Storefront::Unsupported => {
+                out.errors.push(format!("{base}{STOREFRONT_PATH}: refused for {card}"));
+                out.failed.push(card.clone());
+            }
+            Storefront::Unknown(e) => {
+                out.errors.push(e);
+                out.failed.push(card.clone());
+            }
+        }
+    }
+    Some(out)
+}
+
 /// Every in-stock printing a Shopify store lists for each card: the Storefront API, or for a store
 /// that doesn't offer it the older reads ([`legacy_card`]). A card any of whose reads failed, or
 /// with more printings than Yama reads, is unknown: a printing not read may be the cheapest in stock.
 async fn fetch_shopify(f: &mut Fetcher, base: &str, cards: &[String], raw: &mut Raw) -> Found {
+    if let Some(found) = fetch_storefront(f, base, cards, raw).await {
+        return found;
+    }
     let mut out = Found::default();
-    let mut legacy = false;
     for card in cards {
-        if !legacy {
-            match storefront_card(f, base, card, raw).await {
-                Storefront::Found(listings) => {
-                    out.listings.extend(listings);
-                    continue;
-                }
-                Storefront::Unknown(e) => {
-                    out.errors.push(e);
-                    out.failed.push(card.clone());
-                    continue;
-                }
-                Storefront::Unsupported => legacy = true,
-            }
-        }
         legacy_card(f, base, card, raw, &mut out).await;
     }
     out

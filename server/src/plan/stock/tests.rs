@@ -922,4 +922,78 @@ fn a_storefront_page_that_cant_be_read_in_full_is_unknown() {
     other[0]["handle"] = json!("bad/handle");
     assert!(storefront_page(&page(other), "Sol Ring", "https://shop.example").unwrap().0.is_empty());
     assert!(storefront_refused("https://shop.example/api/2025-10/graphql.json: HTTP 404") && !storefront_refused("https://shop.example/api/2025-10/graphql.json: HTTP 429"));
+    assert!(!storefront_refused("https://shop.example/api/2025-10/graphql.json: the answer wasn't JSON"), "a challenge page may pass");
+    // Only a store that keeps the API from the public counts as not offering it.
+    assert!(storefront_denied(&json!({"errors": [{"message": "Access denied", "extensions": {"code": "ACCESS_DENIED"}}]})));
+    assert!(storefront_denied(&json!({"products": []})), "not a GraphQL answer");
+    assert!(!storefront_denied(&json!({"errors": [{"message": "Throttled", "extensions": {"code": "THROTTLED"}}]})));
+    assert!(!storefront_denied(&json!({"errors": [{"message": "Internal error", "extensions": {"code": "INTERNAL_SERVER_ERROR"}}], "data": null})));
+}
+
+/// A throttled answer leaves its card unknown; it doesn't send the rest of the check to the
+/// `.js` reads storefronts refuse. Nor does a saved catalog, for a store that offers the API.
+#[tokio::test]
+async fn a_passing_storefront_failure_or_a_saved_catalog_never_reaches_the_refused_reads() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let (_, pool) = app().await;
+    let old = std::sync::Arc::new(AtomicUsize::new(0));
+    let (o1, o2) = (old.clone(), old.clone());
+    let app = Router::new()
+        .route(
+            "/products.json",
+            get(|Query(q): Query<HashMap<String, String>>| async move {
+                Json(if q.get("page").map(String::as_str) == Some("1") {
+                    json!({"products": [{"handle": "path-to-exile-assassins-creed", "title": "Path to Exile [Assassin's Creed]", "variants": [{"id": 48711641858216u64, "title": "Near Mint", "price": "1.50", "available": true}]}]})
+                } else {
+                    json!({"products": []})
+                })
+            }),
+        )
+        .route(
+            "/products/{h}",
+            get(move || {
+                let o = o1.clone();
+                async move {
+                    o.fetch_add(1, Ordering::SeqCst);
+                    axum::http::StatusCode::TOO_MANY_REQUESTS
+                }
+            }),
+        )
+        .route(
+            "/search/suggest.json",
+            get(move || {
+                let o = o2.clone();
+                async move {
+                    o.fetch_add(1, Ordering::SeqCst);
+                    Json(json!({"resources": {"results": {"products": []}}}))
+                }
+            }),
+        )
+        .route(
+            STOREFRONT_PATH,
+            post(|Json(q): Json<Value>| async move {
+                let asked = q["variables"]["q"].as_str().unwrap_or_default();
+                Json(if asked == "title:\"Busy Card\"" { json!({"errors": [{"message": "Throttled", "extensions": {"code": "THROTTLED"}}]}) } else { storefront_answer(asked, q["variables"]["after"].as_str()) })
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let mut f = Fetcher::new(reqwest::Client::new(), None);
+    // Throttled on the very first card, before anything is answered.
+    let cards = vec!["Busy Card".to_string(), "Path to Exile".to_string()];
+    let found = fetch_shopify(&mut f, &base, &cards, &mut Raw::default()).await;
+    assert_eq!(found.failed, vec!["Busy Card".to_string()]);
+    assert!(found.errors[0].contains("Throttled"), "{:?}", found.errors);
+    assert_eq!(found.listings.len(), 3, "the next card is still read through the API");
+    // With a catalog saved, and again reusing it.
+    let wanted = vec!["Path to Exile".to_string()];
+    for refresh in [true, false] {
+        let found = fetch_shopify_catalog(&pool, &mut f, &base, &wanted, refresh, "9999", &mut Raw::default()).await;
+        assert!(found.failed.is_empty() && found.errors.is_empty(), "{:?} {:?}", found.failed, found.errors);
+        assert_eq!(found.listings.len(), 3);
+        assert!(found.cached_at.is_none(), "live prices, not the catalog's date");
+    }
+    assert_eq!(old.load(Ordering::SeqCst), 0, "neither suggest.json nor a product .js was asked");
+    server.abort();
 }
