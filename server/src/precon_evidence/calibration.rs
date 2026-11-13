@@ -39,10 +39,9 @@ impl Real {
     }
 }
 
-/// Fewest effective games before a precon is placed against the field: an interval's worth.
-/// Effective games are what the estimate rests on: the recency-weighted games between
-/// snapshots, or the all-time figure's count (at most 40 when it stands in for a thin recent
-/// rate; `precon_evidence::real_estimate`).
+/// Fewest recorded stock games before a precon is placed against the field: an interval's
+/// worth. A standing is read from the source's all-time record, every game at full weight
+/// (`precon_evidence::rating_v2_from`).
 pub const MIN_STANDING_GAMES: f64 = 40.0;
 /// The spread is never read as less than this many points, so a quiet sample can't make every
 /// small difference look real.
@@ -71,11 +70,11 @@ pub enum Standing {
     Pack,
     /// Clearly below the average precon.
     Behind,
-    /// Under [`MIN_STANDING_GAMES`] effective games: not placed.
+    /// Under [`MIN_STANDING_GAMES`] games: not placed.
     Thin,
 }
 
-/// The field of precons with at least [`MIN_STANDING_GAMES`] effective games, or None under
+/// The field of precons with at least [`MIN_STANDING_GAMES`] games (`effective_games` here), or None under
 /// [`MIN_CASES`] of them.
 pub fn field(reals: &[Real]) -> Option<Field> {
     let known: Vec<&Real> = reals.iter().filter(|r| r.effective_games >= MIN_STANDING_GAMES).collect();

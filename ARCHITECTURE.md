@@ -1867,12 +1867,12 @@ strong these are versus each other. We need to understand generally what tier th
 day on the 85 precons with 40 or more stock games: their rates spread SD 4.2 points, of which sampling
 noise is 3.1, so real strengths spread about 2.8 points around 21%. Letter tiers cut from raw rates
 (as Playgroup.gg's S to D) are mostly noise, and a rank alone overstates the differences. So each precon
-with at least 40 effective stock games gets a standing (`calibration::field`, `standing`,
-`V2Estimate.standing`, `RatingV2.field`): its rate is pulled toward the field's games-weighted average by
+with at least 40 recorded stock games gets a standing (`calibration::field`, `standing`,
+`V2Estimate.standing`, `RatingV2.field`), read from its all-time record with every game at full weight
+(see the correction below): its rate is pulled toward the field's games-weighted average by
 its own sampling variance against the field's spread (observed variance less mean sampling variance,
 never under one point), and it is `ahead` or `behind` only when the 90% interval of that shrunk rate
-clears the average; otherwise `pack`. Under 40 effective games (the recency-weighted games between
-snapshots, or the all-time figure's capped count) it is `thin` and not placed; a precon
+clears the average; otherwise `pack`. Under 40 games it is `thin` and not placed; a precon
 without stock games has no standing. The rank and estimate are unchanged by it. Wizards publishes no
 ranking or tier of its precons, and since Oct 2025 no longer ties them to Bracket 2.
 
@@ -1887,6 +1887,18 @@ switch to the all-time rate; the ten best-ranked precons stay the same, the 18 m
 places (Legends' Legacy from 157th to 22nd on its 29.2% all-time record), and no other precon moves
 more than 13. A precon with one snapshot keeps its all-time figure in full, as before. The time-split
 test picks its training figures by the same rule.
+
+**Standing reads the whole record (corrected the same day).** As first shipped, a standing was read
+from the rating's own estimate, which is recency-weighted. Live, that placed nobody: 78 precons in the
+pack, none ahead or behind. The recency-weighted rates rest on a median of 116 effective games, and
+across the 60 precons with 40 or more their variance was 14.6 against 14.3 of sampling noise, so the
+spread fell to its one-point floor and every rate was pulled almost all the way to the average. The
+all-time records have the games: variance 17.6 against 10.0 of noise over 85 precons, a spread of 2.8
+points. A standing is therefore read from the source's all-time record, every game at full weight
+(`rating_v2_from`, `records`), and says so on the page; the rank and estimate beside it stay
+recency-weighted, so a precon can rank low on recent games and stand ahead on its record. On the data
+of 13 Nov 2026 that gives 5 ahead (Planeswalker Party, Tricky Terrain, Multiverse Reforged, Lorehold
+Spirit, Veloci-Ramp-Tor), 9 behind, 71 in the pack and 3 with too few games.
 
 ### Polish runs (2026-10-31)
 

@@ -1248,8 +1248,8 @@ pub struct V2Estimate {
     /// 90% range of the rank, by simulation from each estimate's uncertainty.
     pub rank_lo: usize,
     pub rank_hi: usize,
-    /// Where its stock games put it against the average precon; None without stock games or
-    /// without a field to place it in.
+    /// Where its whole record of stock games puts it against the average precon; None without
+    /// stock games or without a field to place it in.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub standing: Option<calibration::Standing>,
 }
@@ -1268,7 +1268,7 @@ pub struct RatingV2 {
     pub commander: Option<CommanderTest>,
     pub split: DateTime<Utc>,
     pub ranked: usize,
-    /// The precons with enough stock games to place, their average and spread.
+    /// The precons with enough recorded stock games to place, their average and spread.
     pub field: Option<calibration::Field>,
     pub precons: Vec<V2Estimate>,
     pub note: &'static str,
@@ -1459,7 +1459,19 @@ pub async fn rating_v2_from(
         .collect();
     let mapping = calibration::mapping(&current);
     let reals: HashMap<&str, calibration::Real> = current.iter().filter_map(|c| Some((c.precon.as_str(), c.train?))).collect();
-    let field = calibration::field(&reals.values().copied().collect::<Vec<_>>());
+    // A standing reads every recorded stock game at full weight, not the recency-weighted
+    // estimate the rank uses. Precons sit a few points apart and only the whole record has the
+    // games to show it: on the live data of 13 Nov 2026 the recency-weighted rates spread no
+    // wider than their own sampling noise (variance 14.6 against 14.3), so nothing stood apart,
+    // while the all-time records spread 2.8 points beyond theirs.
+    let records: std::collections::BTreeMap<&str, calibration::Real> = evidence
+        .iter()
+        .filter_map(|(id, ev)| {
+            let real = ev.real.as_ref()?;
+            Some((id.as_str(), calibration::Real { rate: real.latest.rate, effective_games: real.latest.games as f64 }))
+        })
+        .collect();
+    let field = calibration::field(&records.values().copied().collect::<Vec<_>>());
     let commander = commander_model(&evidence, &reals, simulation.as_ref());
     let mut ids: Vec<&str> = reals.keys().copied().collect();
     if let Some(s) = &simulation {
@@ -1522,7 +1534,7 @@ pub async fn rating_v2_from(
                 rank: 1 + rows.iter().filter(|r| low(r.1, r.2) > low(*rate, *var) + 1e-9).count(),
                 rank_lo: d[d.len() / 20],
                 rank_hi: d[d.len() - 1 - d.len() / 20],
-                standing: field.as_ref().zip(reals.get(id.as_str())).map(|(f, r)| calibration::standing(*r, f)),
+                standing: field.as_ref().zip(records.get(id.as_str())).map(|(f, r)| calibration::standing(*r, f)),
             }
         })
         .collect();
