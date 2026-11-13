@@ -290,7 +290,8 @@ measurements above, and one was kept.
 you control of the chosen type get +1/+1") and a keyword handed to the team ("Sliver creatures
 you control have flying", "Slivers can't be blocked except by Slivers") earn Engines and
 payoffs points by the size of the bonus (`classify::team_boost`). A team that taps for mana
-is a mana creature, a team given hexproof, shroud, ward or indestructible is protection,
+is a mana creature, a kind of creature given haste is haste ("Goblins you control have
+haste"), a team given hexproof, shroud, ward or indestructible is protection,
 proliferate is a small engine, and cards that work planeswalkers' loyalty abilities harder
 or put planeswalkers onto the battlefield are payoffs. One-turn pumps stay with the finisher
 rules; one creature's bonus (an Aura, an Equipment) and things that aren't creatures (lands,
@@ -298,28 +299,34 @@ Treasures, Foods) aren't a team. A creature type whose plural has no "s" counts 
 says "other", "all" or "you control" with it ("Other Merfolk get +1/+1"). A card that shuts
 loyalty abilities off earns nothing for mentioning them, and proliferate alone doesn't make
 a planeswalker theme. Before this, 38 of Sliver Swarm's 64 nonland cards earned
-nothing and it scored the lowest of the 178 precons. Across the card data 975 of 36,877
-cards changed, nearly all by gaining these points. Themes gained planeswalkers, legends
-matter, and goad and politics, which the best-performing precons run and Yama didn't name.
+nothing and it scored the lowest of the 178 precons. Across the card data 1,005 of 36,877
+cards changed, all by gaining these points. Themes gained planeswalkers, legends matter, and
+goad and politics: Planeswalker Party, Legends' Legacy and Blame Game, three of the precons
+with the best real records, are built on them and Yama named none of the three.
 
-Before and after, on the 178 stock precons and the 78 reference lists (the lists scored
-without their combo checks, so their figures sit a little under `power-eval`'s):
+Before and after, on the 178 stock precons and the 78 reference lists. The lists were scored
+without their combo checks here, so their coverage figures sit under the ones `power-eval`
+printed with the checks (76% and 91% at ±0.5 and ±0.7, in step 6 of "How it works"):
 
 | | Before | After |
 |---|---|---|
 | Power against stock win rate, 40+ games (85 precons) | +0.07 | +0.06 |
 | The same with each precon held out | −0.03 | −0.03 |
 | Power against stock win rate, 200+ games (47 precons) | +0.33 | +0.36 |
-| The same with each precon held out | +0.26 | +0.29 |
+| The same with each precon held out | +0.26 | +0.30 |
 | Power ± 0.5 reaches the bracket a list was built for | 74% | 82% |
 | Power ± 0.7 reaches it | 85% | 88% |
 | Same deck built one bracket up scores higher | 33 of 33 | 33 of 33 |
-| Sliver Swarm | 1.8, lowest of 178 | 2.5, 12th lowest |
-| Precon median, lowest, highest | 3.3, 1.8, 5.8 | 3.3, 1.9, 5.8 |
+| Sliver Swarm | 1.8, lowest of 178 | 2.6, 18th lowest |
+| Precon median, lowest, highest | 3.3, 1.8, 5.8 | 3.4, 1.9, 5.8 |
 
-No deck scores lower; 23 of the 256 move by 0.2 or more. The change does not make power track
+No deck scores lower; 27 of the 256 move by 0.2 or more, Sliver Swarm the most (+0.8). The change does not make power track
 real precon results any better, and wasn't expected to: it is about cards that plainly do
 something earning nothing.
+
+The two ideas below were tried on the rules as they stood before this change, with the card
+points the analysis shows (rounded to one decimal), which is why their starting figures are
++0.07 and +0.34 and 85%.
 
 **Not kept: a credit for every card in the deck's theme.** Giving 1 to 3 Threats points to
 each card of a core or major theme that earns nothing left the correlations where they were

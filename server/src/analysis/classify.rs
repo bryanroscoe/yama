@@ -331,7 +331,10 @@ fn rule_points(c: &Facts) -> Points {
     if has(
         rx!(r"creatures you control (?:have|gain) haste|equipped creature has haste|(?:target creature|creatures) you control gains? haste|other creatures you control have haste"),
         &tl,
-    ) {
+    ) || has(rx!(r"\b(?:creatures|[a-z'-]{3,}s)(?: you control)? have (?:[a-z ,]+ )?haste\b"), &tl)
+    {
+        // The second form is a kind of creature's haste: "Goblins you control have haste",
+        // "Sliver creatures you control have flying and haste".
         set(&mut out, Cat::Haste, 2.0);
     }
 

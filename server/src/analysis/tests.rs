@@ -156,6 +156,13 @@ fn lords_and_team_boosts_earn_points() {
     // The whole team taps for mana: a mana creature. The whole team is protected: protection.
     assert_eq!(pts("Manaweft Sliver", 2.0, "Creature — Sliver", "Sliver creatures you control have \"{T}: Add one mana of any color.\""), vec![(Cat::Dorks, 4.0)]);
     assert_eq!(pts("Crystalline Sliver", 2.0, "Creature — Sliver", "All Slivers have shroud."), vec![(Cat::Protection, 3.5)]);
+    // A kind of creature given haste is haste, as the whole team's is.
+    assert_eq!(pts("Test Warchief", 3.0, "Creature — Goblin", "Goblins you control have haste."), vec![(Cat::Haste, 2.0)]);
+    let shredder = pts("Test Shredder", 3.0, "Creature — Sliver", "Sliver creatures you control have flying and haste.");
+    assert_eq!(shredder, vec![(Cat::Haste, 2.0), (Cat::Payoffs, 2.5)], "{shredder:?}");
+    // What helps the opponents' creatures is no team boost.
+    assert_eq!(pts("Test Taunt", 3.0, "Enchantment", "Creatures your opponents control get +1/+0 and attack each combat if able."), vec![]);
+    assert_eq!(pts("Test Gift", 3.0, "Enchantment", "Creatures your opponents control have hexproof."), vec![]);
     // A pump for one turn is a finisher's business, one creature's bonus is nobody's team, and
     // things that aren't creatures aren't a team.
     assert_eq!(payoff(&pts("Trumpet Blast", 3.0, "Instant", "Attacking creatures get +2/+0 until end of turn.")), None);
@@ -190,6 +197,10 @@ fn three_more_themes_are_named() {
     assert_eq!(keys(many(6, "Sorcery", "Goad target creature.")), ["goad"]);
     // Proliferate on its own is a counters deck, or poison: no planeswalker theme.
     assert_eq!(keys(many(6, "Instant", "Proliferate.")), Vec::<String>::new());
+    // Cards that only name planeswalkers or legends in passing make no theme.
+    assert_eq!(keys(many(6, "Instant", "Destroy target creature or planeswalker.")), Vec::<String>::new());
+    assert_eq!(keys(many(6, "Sorcery", "Return target creature or planeswalker card from your graveyard to your hand.")), ["graveyard"]);
+    assert_eq!(keys(many(6, "Instant", "This spell costs {2} less to cast if it targets a legendary creature. Destroy target creature.")), Vec::<String>::new());
     // "You or planeswalkers you control" is how a card keeps attackers off you: table politics,
     // not a planeswalker theme.
     assert_eq!(keys(many(6, "Enchantment", "Creatures can't attack you or planeswalkers you control unless their controller pays {2}.")), ["goad"]);
