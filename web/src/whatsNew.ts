@@ -15,6 +15,18 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-13-commander-record-standing",
+    date: "2026-11-13",
+    title: "Your commander's record, and where each precon stands",
+    items: [
+      "A deck's Stats tab shows its commander's record: the share of recorded games won under that commander across every list, and its place among commanders. It tells you about the commander, not your list, so it sits beside the power level and isn't part of it.",
+      "Each precon with enough games has a standing: ahead of the pack, in the pack or behind it. Precons win within a few points of each other, so only a handful stand apart, and a precon with too few games isn't placed.",
+      "A precon's page shows what a deck's page shows: the bracket panel with its combos, the mana curve and colors, and the Reserve List.",
+      "The power level counts lords and anthems, and keywords, mana or protection given to a whole team. A tribal deck's lords used to earn nothing. Themes can now name planeswalkers, legends matter, and goad and politics.",
+    ],
+    link: { to: "/precons", label: "Compare precons" },
+  },
+  {
     id: "2026-11-12-public-by-default",
     date: "2026-11-12",
     title: "Yama opens up: Home, Browse, and checking a deck without an account",
