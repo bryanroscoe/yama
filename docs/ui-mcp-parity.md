@@ -113,6 +113,7 @@ part of it). "Gap" rows are the backlog, in rough priority order inside each are
 | Store order; remove a dated rule set | Trip, Plan settings | — | Gap (MCP), small |
 | Check stores' stock, read it | Get cards | `check_stores`, `get_store_stock` | Both |
 | Live store stock for a sourcing report (reread in the background) | Shop across your decks | — | **Gap (MCP).** `get_research` returns the saved report only; a tool would call `stock::live::live` |
+| Copies ordered since a sourcing report was saved are left out | Shop across your decks | — | **Gap (MCP).** `get_research` returns the report as saved; the workflow resource tells a client to take the plan's newer orders off itself |
 | Sealed product quotes: add, remove | Trip (sealed) | `get_shopping_list` shows them | Partial: **Gap (MCP)** for recording a quote |
 | Print proxies (MPC sheet), swap sheet, swap cards | Get cards (mpc, swap-sheet, swap-cards) | `get_shopping_trip` names what to print | Partial. The sheets are printable pages: UI only by nature |
 | Import a plan file | Plans (Import, with a dry run) | — | UI only: a file; the MCP equivalent is `save_research` + `track_build` |

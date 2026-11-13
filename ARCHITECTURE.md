@@ -2676,6 +2676,8 @@ Local sourcing shopping rows default to Near Mint and expose deck/bracket recipi
 
 Sourcing exposes a per-card dollar ceiling initialized from the current account rule. Changing it recalculates row/manual/bulk-cart eligibility against retained quotes and the remaining market limits, without rewriting research. Explicit Save persists a dated account rule through the existing settings API, preserving market tiers and sealed limits (an always-okay threshold above a lowered ceiling is narrowed to that ceiling). Generic or non-price rejections remain excluded.
 
+Sourcing leaves out copies already ordered (13 November 2026; Bryan: "make sure that they don't show up as being bought again or buyable again"). A saved report is a snapshot and knows nothing of an order placed after it. `web/src/plan/sourcing-orders.ts` takes one use off a card for each copy in a real plan order, placed or received, that the report doesn't count (`orders_counted` when the report has it, otherwise an order dated after the day in `generated_at`), and for each "bought it" mark made since on a swap with no order. The order line's deck goes first, then the report's own order of uses. The page names what was left out and why; the report itself is never rewritten, and a card with no use left is no longer asked of stores.
+
 Sourcing has one bulk-add action. Exclude unknown stock counts is a filter on offers and all cart calculations, rather than a second Add button with different hidden eligibility. Missing count is distinct from no stock; quantities and quote dates remain visible.
 
 ### Navigation frame (2026-11-12)

@@ -206,6 +206,8 @@ Every plan in one place (Decks, Plans): notes agents save, copies of plans other
 
 Local sourcing shows all filtered cards and allocates recorded quantities across acceptable printings. A listing without a count supplies one copy (in stock means at least one); more need an explicit request and remain unconfirmed. A selected product variant's stock count is separate from a search badge that combines conditions or finishes. For Shopify stores Yama reads card by card, the page shows live stock: each wanted card is reread in the background about every 8 hours (cards in the carts first), the store's newer answer replaces the report's quotes for that store, and a selected listing that sold out leaves the carts with a notice. The sourcing page shows dated public Shopify catalog caches and can refresh them (some stores refuse full-catalog reads; a check then searches each card instead); assistants can request the same refresh with `check_stores(refresh_catalog: true)`. Complete catalogs persist across restarts; failed crawls preserve the last complete cache. A catalog refresh does not rewrite a private saved source report or alter a retailer cart. See the [local shopping workflow](local-shopping-workflow.md).
 
+Local sourcing leaves out copies already ordered: a saved report is a snapshot, so a copy in a real order placed since it was made (or marked bought since) comes off the cards, totals, carts and store rereads, and the page names the order that covers it.
+
 ### Deck planner
 
 The planner is in progress ([design](planner-design.md), [plan file format](plan-format.md)).

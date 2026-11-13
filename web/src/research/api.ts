@@ -51,6 +51,8 @@ export interface Scenario {
 export interface ResearchDocument {
   /** Optional private portfolio sourcing extension; validate before rendering. */
   local_sources?: unknown;
+  /** With `local_sources`: the keys of the plan's orders its wanted copies already take into account. */
+  orders_counted?: unknown;
   schema: "yama-research/1"; id: string; title: string; generated_at: string; summary?: string;
   method?: string[]; scenarios?: Scenario[]; decks: ResearchDeck[];
   default_scenario_id?: string; planned_purchases?: Item[];

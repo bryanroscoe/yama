@@ -13,6 +13,7 @@ import { fetchBundle, saveShoppingRules, storeCatalogs, checkStores, storeSnapsh
 import { capDraft, pricedRows, readCap } from "./source-pricing";
 import { cartCheck, liveRows, migrateChoices, soldOut, storeProgress, waitingText } from "./live-stock";
 import { useLiveStock } from "./useLiveStock";
+import { coveredLines, withoutOrdered } from "./sourcing-orders";
 import "./sourcing.css";
 
 export function Sourcing() {
@@ -67,7 +68,9 @@ export function Portfolio({ bundle }: { bundle: ResearchBundle }) {
   useEffect(()=>{if(catalogProgress.data && !catalogRunning) void qc.invalidateQueries({queryKey:["store-catalogs",userId]});},[catalogProgress.data,catalogRunning,qc,userId]);
   const doc = bundle.document;
   const parsed = useMemo(() => sourceSnapshot(doc.local_sources), [doc]);
-  const cards = parsed.cards;
+  // The saved list is a snapshot: a copy ordered since it was made is no longer wanted.
+  const ordered = useMemo(() => withoutOrdered(parsed.cards, doc, view.b.orders, view.b.swaps, view.markBy), [parsed, doc, view.b.orders, view.b.swaps, view.markBy]);
+  const cards = ordered.cards;
   // Stores Yama rereads in the background answer for themselves; the report covers the rest.
   const wantedNames = useMemo(() => cards.filter(c => c.uses.length).map(c => c.name), [cards]);
   const [hurry, setHurry] = useState<string[]>([]);
@@ -117,9 +120,14 @@ export function Portfolio({ bundle }: { bundle: ResearchBundle }) {
   const wantedList = cardListText(portfolio.filter(c => c.name.toLowerCase().includes(search.toLowerCase())));
   const change = (name: string, url: string, qty: number) => setChoices({ ...picks, [name]: [...choicesFor(picks,name).filter(o => o.offer !== url), { offer: url, qty }] });
   const dates = [...new Set(cards.flatMap(c => c.offers.map(o => o.checked_at).filter(Boolean)))].sort();
-  if (!cards.some(c => c.uses.length)) return <p>This report has no portfolio source rows. Ask your assistant for a <code>local_sources</code> snapshot, or use the active plan store trip.</p>;
+  if (!parsed.cards.some(c => c.uses.length)) return <p>This report has no portfolio source rows. Ask your assistant for a <code>local_sources</code> snapshot, or use the active plan store trip.</p>;
   return <>
     {parsed.conflicts.length > 0 && <p role="alert">{parsed.conflicts.length} conflicting copy identities excluded; these need reconciliation.</p>}
+    {ordered.copies > 0 && <section className="source-live" aria-label="Already ordered">
+      <b>{plural(ordered.copies, "copy", "copies")} already ordered or marked bought {ordered.copies === 1 ? "is" : "are"} left out</b>
+      <span>This list was saved before that, so it still asks for {ordered.copies === 1 ? "it" : "them"}. Yama leaves {ordered.copies === 1 ? "it" : "them"} out of the cards, totals and carts below; the saved list itself is unchanged.</span>
+      <details><summary>What was left out</summary>{coveredLines(ordered.covered).map(l => <p key={l.by}>{l.by}: {l.cards}.</p>)}</details>
+    </section>}
     <div className="source-freshness"><b>Saved quotes{dates.at(-1) ? ` through ${fmtDateTime(dates.at(-1))}` : ": date unknown"}</b><span>Search links open a store; they do not run a stock check.</span><details><summary>List version and evidence</summary><p>{doc.summary}</p><p>Report revision {bundle.revision}. Quote dates: {dates.length ? `${fmtDateTime(dates[0])} to ${fmtDateTime(dates.at(-1))}` : "unknown"}. Owned cards and print reservations have not been rechecked. This list does not approve a plan or place an order.</p><Link to={`/decks/plans/archived/${encodeURIComponent(doc.id)}`}>Source report and methods</Link> and <Link to="/decks/plans/settings#shopping-rules">Your buying rules</Link></details></div>
     {live.state.stores.length > 0 && <section className="source-live" aria-label="Live store stock">
       <b>Live stock from {live.state.stores.map(s => s.name).join(" and ")}</b>
