@@ -41,6 +41,11 @@ pub struct Config {
     /// Check each saved deck version with Commander Spellbook in the background (bracket
     /// estimate, flagged cards, combos). On unless `YAMA_DECK_CHECKS=0`; sends deck lists there.
     pub deck_checks: bool,
+    /// Tell a computer's seat about the combos Commander Spellbook found in the list it plays
+    /// (`play::seat_combos`), so its AI can look for a winning line with them. Read from the
+    /// answers the deck checks keep; nothing is sent anywhere. On unless `YAMA_AI_COMBOS=0`,
+    /// which stops it for games started from then on.
+    pub ai_combos: bool,
     /// The Mythic Tools bridge (`bridges/mythic`): import games from Mythic Tools. Off unless
     /// `YAMA_MYTHIC_BRIDGE=1`; Mythic's API is private and can change, and the bridge may go.
     pub mythic_bridge: bool,
@@ -342,6 +347,7 @@ impl Config {
             cors_origins: list("YAMA_CORS_ORIGINS"),
             auto_import: flag("YAMA_AUTO_IMPORT") && !flag("YAMA_OFFLINE"),
             deck_checks: !off("YAMA_DECK_CHECKS") && !flag("YAMA_OFFLINE"),
+            ai_combos: !off("YAMA_AI_COMBOS"),
             mythic_bridge: flag("YAMA_MYTHIC_BRIDGE"),
             engine_card_data: Some(engine_card_data),
             cf_access_team: std::env::var("YAMA_CF_ACCESS_TEAM").ok().filter(|s| !s.is_empty()),

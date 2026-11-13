@@ -2413,3 +2413,66 @@ fn a_replayed_log_must_match_the_saved_one_from_the_end() {
     assert!(yama_play::check_replayed_log(&[line(2, "Ana conceded.")], &replayed).is_err(), "only Yama's own lines saved");
     assert_eq!(yama_play::check_replayed_log(&[], &[]), Ok(()), "a game with no lines yet");
 }
+
+#[tokio::test]
+async fn a_computers_seat_is_given_the_combos_kept_for_the_list_it_plays() {
+    let st = crate::testutil::state().await;
+    let e = engine();
+    let (host, _) = crate::testutil::user(&st.pool, "ana@example.com").await;
+    let (deck_id, version) = crate::testutil::deck(&st.pool, &host, "Ana's deck").await;
+    let card = |name: &str, board: Board| DeckCard { oracle_id: format!("o-{}", name.to_lowercase()), name: name.into(), qty: 1, board };
+    let cards = vec![card("Combat Celebrant", Board::Commander), card("Opt", Board::Main), card("Preordain", Board::Main), card("Blaze", Board::Side)];
+    let combo = |id: &str, cards: &[&str], templates: &[&str]| serde_json::json!({ "id": id, "cards": cards, "templates": templates, "results": ["Infinite card draw"] });
+    let kept = serde_json::json!([
+        combo("1-2", &["opt", "Preordain"], &[]),
+        // Left out: one that needs something that isn't a named card, one naming a sideboard
+        // card, and one naming a card that isn't on the list.
+        combo("3", &["Opt", "Preordain"], &["A creature that taps for mana"]),
+        combo("4", &["Opt", "Blaze"], &[]),
+        combo("5", &["Opt", "Rampant Growth"], &[]),
+    ])
+    .to_string();
+    sqlx::query("INSERT OR REPLACE INTO deck_version_checks (version_id, source, requested_at, checked_at, bracket_tag, combos) VALUES (?, 'commander_spellbook', '2026-11-01T00:00:00Z', '2026-11-01T00:00:05Z', 'C', ?)")
+        .bind(&version)
+        .bind(&kept)
+        .execute(&st.pool)
+        .await
+        .unwrap();
+    let mut computer = seat(1, "Computer");
+    computer.kind = "ai".into();
+    computer.user_id = None;
+    computer.deck_id = Some(deck_id);
+    computer.deck_version_id = Some(version);
+    // Named as the engine names its cards, whatever the stored answer's spelling.
+    let found = seat_combos(&st, &e, &computer, &cards).await;
+    assert_eq!(found, [yama_play::SeatCombo { id: "1-2".into(), cards: vec!["Opt".into(), "Preordain".into()] }]);
+
+    // A person's seat is given none, and nobody is once the setting is off.
+    let mut person = computer.clone();
+    person.kind = "human".into();
+    person.user_id = Some(host);
+    assert!(seat_combos(&st, &e, &person, &cards).await.is_empty());
+    let mut off = crate::testutil::config();
+    off.ai_combos = false;
+    let st_off = crate::testutil::state_with(off, st.pool.clone()).await;
+    assert!(seat_combos(&st_off, &e, &computer, &cards).await.is_empty());
+
+    // A stock precon's seat reads the precon's own answer, by its list: never a person's check,
+    // and none until there is one.
+    let mut precon = computer.clone();
+    precon.deck_id = Some("precon:p1".into());
+    precon.deck_version_id = None;
+    assert!(seat_combos(&st, &e, &precon, &cards).await.is_empty());
+    let stored = serde_json::json!({
+        "bracket_tag": "C", "game_changers": [], "mld": [], "extra_turns": [], "unrecognized": [],
+        "combos": [combo("9", &["Preordain", "Opt"], &[])],
+    })
+    .to_string();
+    sqlx::query("INSERT INTO precon_checks (list_hash, source, precon_id, checked_at, result) VALUES (?, 'commander_spellbook', 'p1', '2026-11-01T00:00:05Z', ?)")
+        .bind(crate::deck_checks::list_hash(&cards))
+        .bind(&stored)
+        .execute(&st.pool)
+        .await
+        .unwrap();
+    assert_eq!(seat_combos(&st, &e, &precon, &cards).await, [yama_play::SeatCombo { id: "9".into(), cards: vec!["Preordain".into(), "Opt".into()] }]);
+}

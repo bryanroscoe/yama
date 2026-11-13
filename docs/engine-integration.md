@@ -2,6 +2,36 @@
 
 The original research spike below describes phase **v0.113.0** (tag commit `0571ee32f08c`, released 2026-10-18). Its file references are into that tag of <https://github.com/phase-rs/phase>. Current source composition is recorded first; dated evidence below remains historical.
 
+## Re-pin for the AI's combos, 13 November 2026
+
+`deploy/phase-rev` pins the fork's main `558135aa325bd97bd216433ca5e757a52771a176`: the
+11 November pin (`273ad56c`) plus three fork pull requests (bryanroscoe/yama-phase#13, #14, #15).
+They add to phase-ai a combo catalog a host supplies and a search for a line that wins with a
+catalogued combo, and to the engine's `ai_support/context.rs` two more actions the AI's decision
+contract admits (a permanent's mana ability at priority, and a count within a loop shortcut's
+deliverable range). No reducer, parser or generator source changed, so the card data is the same
+export (`card-data-19b30ee31fc29d11.json`) and `deploy/engine-data.json` is unchanged.
+
+What was checked, and what was not:
+
+- The fork's hosted checks passed: on that commit, all five Rust test shards, Clippy and the
+  parser gate, card-data generation and the WASM build; and on the last pull request's head
+  (`d5f4f986`, the same tree), the paired-seed AI gate with its baselines unchanged (an AI
+  given no catalog plays as it did) and the decision-cost performance gate.
+- Yama's `candidate_v0122_*` seeded scenarios were **not** run at this pin: this Mac has neither
+  the current card data nor room for the build. `candidate-v0122.json` still names `273ad56c`,
+  so those tests refuse to run until someone runs them at the new pin and records the result.
+  They are expected to play as before, since a seat with no combos never enters the new code.
+- Runtime identity is `phase-v0.122.0+558135aa…-yama/cards-19b30ee3`. A live game saved at
+  `273ad56c` is replayed on this engine at startup and moves over if its actions and log check
+  out (Bryan, 12 Nov 2026); the final board of a game finished at `273ad56c` can no longer be
+  rebuilt, as with every retired identity. Results, logs and stats are unaffected.
+- The lab's label becomes `phase-rs v0.122.0+yama-558135aa…`, so its results are not pooled
+  with the earlier pin's. Lab games do not use combos yet.
+
+How Yama uses it is in [ARCHITECTURE.md](../ARCHITECTURE.md#how-online-play-ended-up-working)
+("The computer knows its deck's combos").
+
 ## Engine v0.122.0 upgrade, 11 November 2026
 
 `deploy/phase-rev` pins the rebased Yama stack on upstream

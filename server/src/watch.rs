@@ -37,7 +37,7 @@
 //! "llm" seat is refused.
 
 use crate::auth::{CurrentUser, User};
-use crate::decks::Board;
+use crate::decks::DeckCard;
 use crate::error::{AppError, AppResult};
 use crate::limits::RateLimiter;
 use crate::play::{SeatCfg, card_meta, commander_arts, deck_for_seat, seat_infos, view_names};
@@ -60,7 +60,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::watch;
 use yama_play::lab::{MAX_TURN_ACTIONS, thread_cpu_secs};
-use yama_play::{CardView, DeckLine, Decision, Difficulty, Match, PlayerView, StackView, View};
+use yama_play::{CardView, Decision, Difficulty, Match, PlayerView, StackView, View};
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -849,10 +849,10 @@ struct CreateRequest {
     speed: Option<Speed>,
 }
 
-/// A seat's deck, ready for the engine: its seat config and deck lines.
+/// A seat's deck, ready for the engine: its seat config and its list.
 struct SeatDeck {
     cfg: SeatCfg,
-    lines: Vec<(String, String, u32, bool)>,
+    cards: Vec<DeckCard>,
 }
 
 async fn precon_seat(pool: &SqlitePool, seat: u8, id: &str, level: &str) -> AppResult<SeatDeck> {
@@ -865,11 +865,7 @@ async fn precon_seat(pool: &SqlitePool, seat: u8, id: &str, level: &str) -> AppR
     let commanders: Vec<String> = serde_json::from_str(&commanders).unwrap_or_default();
     let cards: Vec<crate::lab::PreconCard> = serde_json::from_str(&cards).map_err(anyhow::Error::from)?;
     let commander = (!commanders.is_empty()).then(|| commanders.join(" and "));
-    let lines = cards
-        .into_iter()
-        .filter(|c| c.board != Board::Side)
-        .map(|c| (c.oracle_id.unwrap_or_default(), c.name, c.qty, c.board == Board::Commander))
-        .collect();
+    let cards = cards.into_iter().map(|c| DeckCard { oracle_id: c.oracle_id.unwrap_or_default(), name: c.name, qty: i64::from(c.qty), board: c.board }).collect();
     Ok(SeatDeck {
         cfg: SeatCfg {
             seat,
@@ -884,18 +880,13 @@ async fn precon_seat(pool: &SqlitePool, seat: u8, id: &str, level: &str) -> AppR
             difficulty: Some(level.into()),
             bracket: None,
         },
-        lines,
+        cards,
     })
 }
 
 async fn own_seat(pool: &SqlitePool, user: &str, seat: u8, id: &str, level: &str) -> AppResult<SeatDeck> {
     let d = deck_for_seat(pool, user, id).await?;
     let cards = crate::decks::load_version_cards(pool, &d.version).await?;
-    let lines = cards
-        .into_iter()
-        .filter(|c| c.board != Board::Side && c.qty > 0)
-        .map(|c| (c.oracle_id, c.name, c.qty as u32, c.board == Board::Commander))
-        .collect();
     Ok(SeatDeck {
         cfg: SeatCfg {
             seat,
@@ -910,7 +901,7 @@ async fn own_seat(pool: &SqlitePool, user: &str, seat: u8, id: &str, level: &str
             difficulty: Some(level.into()),
             bracket: d.bracket,
         },
-        lines,
+        cards,
     })
 }
 
@@ -954,19 +945,21 @@ async fn start(st: &AppState, user: &User, body: CreateRequest) -> AppResult<Arc
     let engine = st.play.engine()?;
     let mut decks = Vec::new();
     let mut missing = HashMap::new();
+    let mut combos = BTreeMap::new();
     for s in &seats {
-        let lines: Vec<DeckLine> = s.lines.iter().map(|(o, n, q, c)| DeckLine { oracle_id: o, name: n, qty: *q, commander: *c }).collect();
-        let (deck, report) = engine.resolve_deck(&lines);
+        let (deck, report) = engine.resolve_deck(&crate::play::deck_lines(&s.cards));
         if !report.missing.is_empty() {
             missing.insert(s.cfg.deck_name.clone().unwrap_or_default(), report.missing);
         }
         decks.push(deck);
+        combos.insert(s.cfg.seat, crate::play::seat_combos(st, &engine, &s.cfg, &s.cards).await);
     }
     let ai: Vec<(u8, Difficulty)> = seats.iter().map(|s| (s.cfg.seat, Difficulty::from_label(s.cfg.difficulty.as_deref().unwrap_or("Medium")))).collect();
     let seed: u64 = u64::from_le_bytes(uuid::Uuid::new_v4().as_bytes()[..8].try_into().unwrap());
     // Loops follow the rules as in online games (CR 732), not the lab's way.
     let mut m = engine.new_match_with(seed, decks, &ai, yama_play::Setup { first, loops: yama_play::PLAY_LOOPS }).map_err(AppError::Other)?;
     m.set_names(seats.iter().map(|s| s.cfg.name.clone()).collect());
+    m.set_seat_combos(combos);
     // Nobody is playing, so a prompt the AI can't answer gets phase's fallback (as in the lab)
     // instead of stopping the game.
     m.set_ai_fallback(true);

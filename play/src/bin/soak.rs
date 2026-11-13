@@ -320,7 +320,7 @@ fn play(db: &Arc<CardDatabase>, seats: &[PlayerDeckList], seed: u64, difficulty:
         // Server-side check a human submission would get: is the AI's choice in the seat's legal list?
         let contract = AiDecisionContract::issue(&state, owner);
         // The AI searches as in live games: a copy with loop detection off (`ai_search_state`).
-        let searched = yama_play::ai_search_state(&state);
+        let searched = yama_play::ai_search_state(&state, &session, owner);
         let thinking = yama_play::Busy::start();
         let chosen = choose_action_with_session(searched.as_ref(), owner, &configs[&actor], &mut rng, &session);
         let thought = thinking.elapsed().as_secs_f64();
