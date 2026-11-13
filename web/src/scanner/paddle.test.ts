@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { withFallback, type OwnedOcr } from "./ocrEngine";
-import { allowedClasses, boxesFromMap, boxTensor, classesFromDict, ctcDecode, detTensor, findLines, groupLines, joinLines, mergeLine, REC_HEIGHT, type TextBox } from "./paddle";
+import { allowedClasses, boxesFromMap, createPaddleOcr, type OrtLike, boxTensor, classesFromDict, ctcDecode, detTensor, findLines, groupLines, joinLines, mergeLine, REC_HEIGHT, type TextBox } from "./paddle";
 import type { Gray } from "./types";
 
 const classes = classesFromDict("A\nB\nC\n0\n1\n•\n");
@@ -140,6 +140,21 @@ describe("detector boxes", () => {
     expect(mergeLine([at(0)])).toEqual(at(0));
   });
 
+  it("keeps the corners of boxes turned differently from the merged line", () => {
+    const a: TextBox = { cx: 0, cy: 0, angle: 0, halfW: 50, halfH: 10, score: 1 };
+    const b: TextBox = { cx: 100, cy: 0, angle: 0.2, halfW: 50, halfH: 10, score: 1 };
+    const m = mergeLine([a, b]);
+    const cos = Math.cos(m.angle);
+    const sin = Math.sin(m.angle);
+    for (const box of [a, b])
+      for (const [su, sv] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) {
+        const x = box.cx + su * box.halfW * Math.cos(box.angle) - sv * box.halfH * Math.sin(box.angle) - m.cx;
+        const y = box.cy + su * box.halfW * Math.sin(box.angle) + sv * box.halfH * Math.cos(box.angle) - m.cy;
+        expect(Math.abs(x * cos + y * sin)).toBeLessThanOrEqual(m.halfW + 1e-9);
+        expect(Math.abs(-x * sin + y * cos)).toBeLessThanOrEqual(m.halfH + 1e-9);
+      }
+  });
+
   it("groups boxes into lines, each left to right", () => {
     const b = (cx: number, cy: number): TextBox => ({ cx, cy, angle: 0, halfW: 20, halfH: 8, score: 0.9 });
     const lines = groupLines([b(150, 41), b(30, 10), b(40, 40), b(100, 12)]);
@@ -167,6 +182,23 @@ describe("tensors", () => {
   });
 });
 
+describe("withFallback, engine still running", () => {
+  const img: Gray = { width: 1, height: 1, data: new Uint8ClampedArray(1) };
+  it("fails one read without switching, and switches after three in a row", async () => {
+    const read = vi.fn().mockRejectedValueOnce(new Error("odd crop")).mockResolvedValueOnce({ text: "a", confidence: 90 }).mockRejectedValue(new Error("broken"));
+    const primary = { read, terminate: vi.fn(async () => undefined), dead: () => false };
+    const make = vi.fn(async (): Promise<OwnedOcr> => ({ read: async () => ({ text: "b", confidence: 50 }), terminate: async () => undefined }));
+    const ocr = withFallback(primary, make);
+    await expect(ocr.read(img, { mode: "line" })).rejects.toThrow("odd crop");
+    expect((await ocr.read(img, { mode: "line" })).text).toBe("a");
+    await expect(ocr.read(img, { mode: "line" })).rejects.toThrow("broken");
+    await expect(ocr.read(img, { mode: "line" })).rejects.toThrow("broken");
+    expect(make).not.toHaveBeenCalled();
+    expect((await ocr.read(img, { mode: "line" })).text).toBe("b");
+    expect(make).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("withFallback", () => {
   const engine = (read: OwnedOcr["read"]): OwnedOcr => ({ read, terminate: vi.fn(async () => undefined) });
   const img: Gray = { width: 1, height: 1, data: new Uint8ClampedArray(1) };
@@ -184,5 +216,64 @@ describe("withFallback", () => {
     await ocr.terminate();
     expect(primary.terminate).toHaveBeenCalled();
     expect(backup.terminate).toHaveBeenCalled();
+  });
+
+  it("tries a fallback that failed to start again on the next read", async () => {
+    const primary = engine(vi.fn().mockRejectedValue(new Error("worker died")));
+    const backup = engine(vi.fn(async () => ({ text: "b", confidence: 50 })));
+    const make = vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValue(backup);
+    const ocr = withFallback(primary, make);
+    await expect(ocr.read(img, { mode: "line" })).rejects.toThrow("offline");
+    expect((await ocr.read(img, { mode: "line" })).text).toBe("b");
+    expect(make).toHaveBeenCalledTimes(2);
+    expect(primary.read).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("createPaddleOcr", () => {
+  /**
+   * A fake ONNX Runtime: the detector sees nothing; the recogniser reads a line by its width, so
+   * the test can tell which lines were read (each test line is 20 px longer than the one above).
+   */
+  function fakeOrt(classes: number) {
+    const ort: OrtLike = {
+      InferenceSession: {
+        async create(model: Uint8Array) {
+          const isDet = model[0] === 1;
+          return {
+            inputNames: ["x"],
+            outputNames: ["y"],
+            async run(feeds: Record<string, unknown>) {
+              const dims = (feeds.x as { dims: number[] }).dims;
+              if (isDet) return { y: { data: new Float32Array(dims[2]! * dims[3]!), dims: [1, 1, dims[2]!, dims[3]!] } };
+              const probs = new Float32Array(classes);
+              probs[1 + Math.floor((dims[3]! - 60) / 53.3)] = 1;
+              return { y: { data: probs, dims: [1, 1, classes] } };
+            },
+          };
+        },
+      },
+      Tensor: class {
+        constructor(
+          public type: string,
+          public data: Float32Array,
+          public dims: readonly number[],
+        ) {}
+      } as unknown as OrtLike["Tensor"],
+    };
+    return ort;
+  }
+
+  it("falls back to rows when the detector finds nothing, and keeps a block's lowest lines", async () => {
+    const dict = "A\nB\nC\nD\nE\nF\nG\nH\n";
+    const ocr = await createPaddleOcr(fakeOrt(classesFromDict(dict).length), { rec: new Uint8Array([0]), det: new Uint8Array([1]), dict });
+    // Eight lines of print, each longer than the last; only the lowest six are read, top to bottom.
+    const g = bars(200, 170, Array.from({ length: 8 }, (_, i) => [10, 5 + i * 20, 30 + i * 20, 17 + i * 20] as [number, number, number, number]));
+    // A gap through each line, as print has (a solid column of ink reads as the card's edge).
+    for (let i = 0; i < 8; i += 1) g.data.fill(240, (11 + i * 20) * 200, (12 + i * 20) * 200);
+    const r = await ocr.read(g, { mode: "block" });
+    expect(r.text).toBe("C\nD\nE\nF\nG\nH");
+    expect(r.confidence).toBe(100);
+    expect(findLines(g)).toHaveLength(8);
   });
 });

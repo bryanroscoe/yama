@@ -3,8 +3,10 @@
 // tesseract.js-core Apache-2.0; @tesseract.js-data/eng MIT.
 // The files go under a versioned folder (ocr-version.mjs), which is all public/ocr holds.
 // Then the PaddleOCR models (paddle-models.mjs, Apache-2.0), the browser's main OCR engine, go
-// into their own folder named by their checksums. A build fails if they can't be fetched; `npm run
-// dev` carries on without them (the scanner then reads with Tesseract).
+// into their own folder named by their checksums. In CI (`CI` set) a build fails if they can't be
+// fetched or don't match, so a pull request finds out. Elsewhere (the deploy's Docker build, `npm run
+// dev`) the build carries on without them and the scanner reads with Tesseract: a Hugging Face
+// outage shouldn't block a release. A checksum mismatch always fails.
 import { copyFileSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
@@ -42,6 +44,6 @@ try {
   console.log(`OCR models copied to ${paddleOut}`);
 } catch (e) {
   rmSync(paddleOut, { recursive: true, force: true });
-  if (process.env.npm_lifecycle_event !== "predev") throw e;
-  console.warn(`OCR models unavailable, the scanner will read with Tesseract: ${e.message}`);
+  if (process.env.CI || e.mismatch) throw e;
+  console.warn(`\n*** OCR models unavailable; this build's scanner will read with Tesseract: ${e.message}\n`);
 }

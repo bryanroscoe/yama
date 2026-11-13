@@ -14,6 +14,8 @@ export type OcrWorkerReply =
   | { type: "failed"; id: number; message: string };
 
 export interface WorkerOcr extends OcrEngine {
+  /** True once the worker has died or been closed: no read will succeed again. */
+  dead(): boolean;
   terminate(): Promise<void>;
 }
 
@@ -56,6 +58,7 @@ export function createPaddleWorkerOcr(dir: string): Promise<WorkerOcr> {
               worker.postMessage({ type: "read", id, width: img.width, height: img.height, data: img.data, mode: opts.mode, whitelist: opts.whitelist } satisfies OcrWorkerRequest);
             });
           },
+          dead: () => dead !== null,
           async terminate() {
             worker.terminate();
             fail(new Error("The OCR engine was closed"));

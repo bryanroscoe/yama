@@ -393,23 +393,29 @@ export function ScannerView({
   const ocrRef = useRef<Promise<OcrEngine> | null>(null);
   /** False once the scanner closes: work finishing after that must clean up after itself. */
   const alive = useRef(true);
+  /** Bumped when the scanner closes or remounts: an OCR engine started before then isn't kept. */
+  const ocrSession = useRef(0);
   /** The text reader (ML Kit in the Android app, PaddleOCR or Tesseract in the browser; ocrEngine.ts), started on first use. */
   const ocrEngine = useCallback(() => {
     // Tesseract's files are served by the app (scripts/copy-ocr.mjs), so it works offline and loads
     // nothing from a CDN. The folder and tesseract's own saved copy of the model are named by the
     // engine's version, so a new engine is fetched rather than an old copy kept.
     const ocr = `/ocr/${import.meta.env.VITE_OCR_VERSION}`;
+    const session = ocrSession.current;
     ocrRef.current ??= ocrProp
       ? Promise.resolve(ocrProp)
       : createScannerOcr({ workerPath: `${ocr}/worker.min.js`, corePath: `${ocr}/core`, langPath: `${ocr}/lang`, cachePath: `ocr-${import.meta.env.VITE_OCR_VERSION}` }).then((o) => {
-          if (!alive.current) {
+          if (!alive.current || ocrSession.current !== session) {
             void o.terminate();
             throw new Error("The scanner is closed");
           }
           return (ownedOcr.current = o);
         });
-    ocrRef.current.catch(() => (ocrRef.current = null));
-    return ocrRef.current;
+    const started = ocrRef.current;
+    started.catch(() => {
+      if (ocrRef.current === started) ocrRef.current = null;
+    });
+    return started;
   }, [ocrProp]);
   /** The text reader (OCR plus every card name), started on first use. */
   const textReader = useCallback(() => {
@@ -448,6 +454,7 @@ export function ScannerView({
     return () => {
       cancelled = true;
       alive.current = false;
+      ocrSession.current += 1;
       artRef.current = null;
       art?.dispose();
       void ownedOcr.current?.terminate();

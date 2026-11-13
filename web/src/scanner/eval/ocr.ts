@@ -40,7 +40,7 @@ export async function createEvalOcr(): Promise<EvalOcr> {
       for (const b of findLines(img)) for (const y of [b.top, b.bottom - 1]) for (let x = 0; x < img.width; x += 2) d[y * img.width + x] = 128;
       const head = Buffer.from(`P5\n${img.width} ${img.height}\n255\n`);
       writeFileSync(join(dir, `${opts.mode}-${String(n++).padStart(4, "0")}.pgm`), Buffer.concat([head, Buffer.from(d)]));
-      writeFileSync(join(dir, `${opts.mode}-${String(n - 1).padStart(4, "0")}.txt`), r.text);
+      writeFileSync(join(dir, `${opts.mode}-${String(n - 1).padStart(4, "0")}.txt`), `${r.confidence}\t${r.text}`);
       return r;
     },
     terminate: () => ocr.terminate(),

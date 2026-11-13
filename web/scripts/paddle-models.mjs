@@ -38,7 +38,8 @@ export async function ensurePaddleModels(cacheDir) {
       if (!res.ok) throw new Error(`OCR model ${name}: HTTP ${res.status} from ${REPO}/${f.path}`);
       const buf = Buffer.from(await res.arrayBuffer());
       const got = sha256(buf);
-      if (buf.length !== f.size || got !== f.sha256) throw new Error(`OCR model ${name}: ${buf.length} bytes, SHA-256 ${got}; expected ${f.size} bytes, ${f.sha256}`);
+      if (buf.length !== f.size || got !== f.sha256)
+        throw Object.assign(new Error(`OCR model ${name}: ${buf.length} bytes, SHA-256 ${got}; expected ${f.size} bytes, ${f.sha256}`), { mismatch: true });
       writeFileSync(`${local}.part`, buf);
       renameSync(`${local}.part`, local);
     }

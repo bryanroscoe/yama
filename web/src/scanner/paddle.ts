@@ -286,6 +286,12 @@ const NEIGHBOURS: [number, number][] = [
   [0, 1],
   [0, -1],
 ];
+const CORNER_SIGNS: [number, number][] = [
+  [-1, -1],
+  [1, -1],
+  [1, 1],
+  [-1, 1],
+];
 const CORNERS: [number, number][] = [
   [0, 0],
   [1, 0],
@@ -302,7 +308,8 @@ export function groupLines(boxes: TextBox[]): TextBox[][] {
   const lines: TextBox[][] = [];
   for (const b of sorted) {
     const line = lines.find((l) => {
-      const a = l[0]!;
+      // The widest box so far: a short word's direction is mostly noise.
+      const a = l.reduce((w, x) => (x.halfW > w.halfW ? x : w));
       // Where the line's centre line is at this box's x.
       const yAt = a.cy + Math.tan(a.angle) * (b.cx - a.cx);
       return Math.abs(b.cy - yAt) < Math.max(a.halfH, b.halfH) * 0.6;
@@ -320,7 +327,9 @@ export function groupLines(boxes: TextBox[]): TextBox[][] {
  */
 export function mergeLine(line: TextBox[]): TextBox {
   if (line.length === 1) return line[0]!;
-  const angle = line.reduce((a, b) => a + b.angle, 0) / line.length;
+  // Weighted by length: a short word's ("C", "EN") direction is mostly noise.
+  const weight = line.reduce((a, b) => a + b.halfW * b.halfW, 0);
+  const angle = line.reduce((a, b) => a + b.angle * b.halfW * b.halfW, 0) / weight;
   const cos = Math.cos(angle);
   const sin = Math.sin(angle);
   const o = line[0]!;
@@ -328,13 +337,20 @@ export function mergeLine(line: TextBox[]): TextBox {
   let u1 = -Infinity;
   let v0 = Infinity;
   let v1 = -Infinity;
+  // Each box's corners in the merged box's frame, so a box turned differently still fits.
   for (const b of line) {
-    const du = (b.cx - o.cx) * cos + (b.cy - o.cy) * sin;
-    const dv = -(b.cx - o.cx) * sin + (b.cy - o.cy) * cos;
-    u0 = Math.min(u0, du - b.halfW);
-    u1 = Math.max(u1, du + b.halfW);
-    v0 = Math.min(v0, dv - b.halfH);
-    v1 = Math.max(v1, dv + b.halfH);
+    const bc = Math.cos(b.angle);
+    const bs = Math.sin(b.angle);
+    for (const [su, sv] of CORNER_SIGNS) {
+      const x = b.cx + su * b.halfW * bc - sv * b.halfH * bs - o.cx;
+      const y = b.cy + su * b.halfW * bs + sv * b.halfH * bc - o.cy;
+      const u = x * cos + y * sin;
+      const v = -x * sin + y * cos;
+      u0 = Math.min(u0, u);
+      u1 = Math.max(u1, u);
+      v0 = Math.min(v0, v);
+      v1 = Math.max(v1, v);
+    }
   }
   const cu = (u0 + u1) / 2;
   const cv = (v0 + v1) / 2;
@@ -437,7 +453,10 @@ export function joinLines(lines: { text: string; confidence: number }[]): OcrRes
   return { text: kept.map((l) => l.text).join("\n"), confidence: Math.round(conf * 1000) / 10 };
 }
 
-/** At most this many lines are read from a block: the collector info has two, and flavour text or the art can sit above. */
+/**
+ * At most this many lines are read from a block, the lowest: the collector info has two at the
+ * bottom of its crop, and flavour text or the art can sit above.
+ */
 const MAX_BLOCK_LINES = 6;
 
 export interface PaddleOcr extends OcrEngine {
@@ -487,7 +506,7 @@ export async function createPaddleOcr(ort: OrtLike, models: PaddleModels, option
         // A line read: the line with the most text (the title, not a stray mark from the art or
         // frame). A block: every line, top to bottom.
         const size = (l: TextBox[]) => l.reduce((a, b) => a + b.halfW * b.halfH, 0);
-        const chosen = opts.mode === "line" ? [lines.reduce((a, b) => (size(b) > size(a) ? b : a))] : lines.slice(0, MAX_BLOCK_LINES);
+        const chosen = opts.mode === "line" ? [lines.reduce((a, b) => (size(b) > size(a) ? b : a))] : lines.slice(-MAX_BLOCK_LINES);
         const out = [];
         for (const line of chosen) out.push(await recognise(boxTensor(img, mergeLine(line)), allowed));
         return joinLines(out);
@@ -502,7 +521,7 @@ export async function createPaddleOcr(ort: OrtLike, models: PaddleModels, option
       return joinLines([await recognise(lineTensor(img, main.top, main.bottom), allowed)]);
     }
     const lines = [];
-    for (const b of bands.slice(0, MAX_BLOCK_LINES)) lines.push(await recognise(lineTensor(img, b.top, b.bottom), allowed));
+    for (const b of bands.slice(-MAX_BLOCK_LINES)) lines.push(await recognise(lineTensor(img, b.top, b.bottom), allowed));
     return joinLines(lines);
   };
 
