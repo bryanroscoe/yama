@@ -104,6 +104,28 @@ export function useCameraControls() {
     },
     [caps.zoom],
   );
+  /** Any zoom in the camera's range (or 1× to the digital limit), for a pinch. Camera calls are queued, newest wins. */
+  const pending = useRef<{ busy: boolean; next: number | null }>({ busy: false, next: null });
+  const zoomTo = useCallback(
+    (z: number) => {
+      const lo = caps.zoom ? caps.zoom.min : 1;
+      const hi = caps.zoom ? caps.zoom.max : DIGITAL_MAX;
+      const want = Math.round(Math.min(hi, Math.max(lo, z)) * 100) / 100;
+      const p = pending.current;
+      p.next = want;
+      if (p.busy) return;
+      p.busy = true;
+      void (async () => {
+        while (p.next != null) {
+          const v = p.next;
+          p.next = null;
+          await setZoom(v);
+        }
+        p.busy = false;
+      })();
+    },
+    [caps.zoom, setZoom],
+  );
   const levels = zoomLevels(caps);
   const at = levels.findIndex((z) => z >= zoom - 1e-6);
   const step = (d: 1 | -1) => {
@@ -118,6 +140,7 @@ export function useCameraControls() {
     zoom,
     zoomIn: () => step(1),
     zoomOut: () => step(-1),
+    zoomTo,
     canZoomIn: at < levels.length - 1,
     canZoomOut: at > 0,
     /** The zoom the scanner applies itself (1 when the camera zooms). */

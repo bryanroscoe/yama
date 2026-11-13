@@ -226,6 +226,10 @@ function Camera({ deck, draft, setDraft, onClose }: { deck: DeckView; draft: Sca
         <b>{p.count} of {DECK_SIZE}</b> scanned.{" "}
         {p.missingCommanders.length > 0 ? `Commander ${p.missingCommanders.join(" and ")} not scanned yet.` : draft.commanders.length ? "Commander scanned." : ""}
       </p>
+    </div>
+  );
+  const settings = (
+    <>
       <label className="scan-keep">
         <input
           type="checkbox"
@@ -252,8 +256,9 @@ function Camera({ deck, draft, setDraft, onClose }: { deck: DeckView; draft: Sca
           <strong>Close-ups.</strong> When the scanner can't tell which card it is, ask to bring the camera close to the name. Turn off for a camera that stays put, such as a stand or card feeder.
         </span>
       </label>
-    </div>
+    </>
   );
+  const settingsSummary = `${keepAdding ? "Keep adding" : "Ask about each card"}${closeups ? "" : ", no close-ups"}`;
   return (
     <div ref={root} className="scan-overlay" role="dialog" aria-modal="true" aria-label={`Scan ${deck.name}`} tabIndex={-1} {...layer}>
       {catalog ? (
@@ -270,6 +275,8 @@ function Camera({ deck, draft, setDraft, onClose }: { deck: DeckView; draft: Sca
             onShowAdded={() => setReviewing(true)}
             recent={recent}
             controls={controls}
+            settings={settings}
+            settingsSummary={settingsSummary}
             acceptLabel="Add and scan next"
           />
           {reviewing && (

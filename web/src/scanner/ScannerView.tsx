@@ -26,6 +26,7 @@ import { artInSets, inLockedSets, judgeLocked, lockedNames, lockedSet, poolKeys,
 import { CameraControls, digitalRegion, useCameraControls } from "./camera";
 import { createServerCatalog } from "./serverCatalog";
 import { createScannerOcr, type ScannerOcr } from "./ocrEngine";
+import { ScanSettings, usePinchZoom, useSheetDrag } from "./sheet";
 import type { OcrEngine, Quad, RgbaImage, ScanCandidate, ScanCatalog, ScanResult } from "./types";
 import "./scanner.css";
 import { shortDate, usd } from "@yama/core";
@@ -70,6 +71,13 @@ export interface ScannerViewProps {
   finish?: "nonfoil" | "foil";
   /** Choices shown in the panel (finish, where to put the card). */
   controls?: ReactNode;
+  /**
+   * Choices that rarely change (finish, where cards go, Keep adding, Close-ups): folded into one
+   * "Scan settings" row with `settingsSummary` beside it, opened with a tap (Bryan, 13 Nov 2026).
+   */
+  settings?: ReactNode;
+  /** The settings' current values in a few words, shown while they're folded. */
+  settingsSummary?: string;
   /** The accept button's words. */
   acceptLabel?: string;
   /** Context for the recognized card, shown immediately without accepting or adding it. */
@@ -269,6 +277,8 @@ export function ScannerView({
   recent = [],
   finish = "nonfoil",
   controls,
+  settings,
+  settingsSummary,
   acceptLabel = "Add",
   renderResult,
   identityOnly = false,
@@ -1050,6 +1060,21 @@ export function ScannerView({
     // again() is a plain function of this render; only these decide whether to add.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoAdd, onAccept, paused, identityOnly, phase, found]);
+  const cameraRef = useRef<HTMLDivElement>(null);
+  usePinchZoom(cameraRef, cam.zoom, cam.zoomTo);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const sheet = useSheetDrag(panelRef);
+  // A card that needs a tap brings a hidden sheet back.
+  const { setHidden: showSheet } = sheet;
+  useEffect(() => {
+    if (tapNeeded) showSheet(false);
+  }, [tapNeeded, showSheet]);
+  const settingsBox = (
+    <ScanSettings summary={settingsSummary}>
+      {settings}
+      <SavePhotosSwitch />
+    </ScanSettings>
+  );
   const price = chosen ? (finish === "foil" ? chosen.usd_foil : chosen.usd) : null;
   const isFound = phase === "found" && !!found;
   const options = found?.options ?? null;
@@ -1066,7 +1091,7 @@ export function ScannerView({
 
   return (
     <div className="scan">
-      <div className="scan-camera">
+      <div ref={cameraRef} className="scan-camera">
         <div className="scan-zoom" style={cam.digital > 1 ? { transform: `scale(${cam.digital})` } : undefined}>
           <video ref={videoRef} className="scan-video" playsInline muted autoPlay aria-hidden="true" />
           {outline && phase === "scanning" && !closeup && (
@@ -1119,7 +1144,15 @@ export function ScannerView({
         </span>
       </div>
 
-      <div className="scan-panel" aria-live="polite">
+      <div ref={panelRef} className={`scan-panel${sheet.hidden ? " is-hidden" : ""}`} aria-live="polite">
+        <Button
+          className="scan-handle"
+          aria-label={sheet.hidden ? "Show the panel" : "Hide the panel to see the whole camera"}
+          aria-expanded={!sheet.hidden}
+          {...sheet.handle}
+        >
+          <span aria-hidden="true" />
+        </Button>
         {!isFound && closeup === "title" && (
           <div className="scan-step">
             <p>
@@ -1132,6 +1165,7 @@ export function ScannerView({
             </div>
             {/* The Close-ups switch among them: a fixed camera can't do this step. */}
             {controls}
+            {settingsBox}
           </div>
         )}
         {lockOpen && (
@@ -1160,7 +1194,7 @@ export function ScannerView({
               </div>
             )}
             {controls}
-            <SavePhotosSwitch />
+            {settingsBox}
             <div className="scan-other-ways">
               <label className="scan-photo button">
                 Use a photo
@@ -1301,6 +1335,7 @@ export function ScannerView({
             )}
             {renderResult?.(candidateOf(found, chosen))}
             {controls}
+            {settingsBox}
             <div className="scan-buttons">
               {onAccept && (
                 <div className="scan-accept">

@@ -741,8 +741,11 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
     for (const a of listRef.current) if (a.pending?.error) void send(a.key);
   };
 
-  const controls = (
-    <div className="scan-choices">
+  const finishLabel = finish === "foil" ? "Foil" : finish === "proxy" ? "Proxy" : "Regular";
+  const filedIn = containers.find((c) => c.id === container)?.name;
+  const settingsSummary = [finishLabel, filedIn ? `into ${filedIn}` : "not filed", keepAdding && "keep adding", !closeups && "no close-ups"].filter(Boolean).join(", ");
+  const settings = (
+    <>
       <Field label="Finish">
         <select value={finish} onChange={(e) => setFinish(e.target.value as Finish)}>
           <option value="nonfoil">Regular</option>
@@ -782,9 +785,9 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
           <strong>Close-ups.</strong> When several printings share the art, ask to bring the camera close to the set code and number. Turn off for a camera that stays put, such as a stand or card feeder: you tap the printing instead.
         </span>
       </label>
-      <ErrorText error={error} />
-    </div>
+    </>
   );
+  const controls = error ? <ErrorText error={error} /> : null;
   return (
     <div className="scan-overlay">
       <Suspense fallback={<Loading padded>Starting the scanner…</Loading>}>
@@ -800,6 +803,8 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
           recent={[...new Set(added.map((a) => (a.set ? `${a.name} (${a.set.toUpperCase()})` : a.name)))]}
           finish={finish === "proxy" ? "nonfoil" : finish}
           controls={controls}
+          settings={settings}
+          settingsSummary={settingsSummary}
           acceptLabel="Add and scan next"
         />
         {reviewing && (
