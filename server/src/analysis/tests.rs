@@ -148,6 +148,11 @@ fn lords_and_team_boosts_earn_points() {
     assert_eq!(payoff(&pts("Bonescythe Sliver", 4.0, "Creature — Sliver", "Sliver creatures you control have double strike.")), Some(4.0));
     assert_eq!(payoff(&pts("Hofri Ghostforge", 5.0, "Legendary Creature — Dwarf Cleric", "Spirits you control get +1/+1 and have trample and haste.")), Some(3.0));
     assert_eq!(payoff(&pts("Shifting Sliver", 4.0, "Creature — Sliver", "Slivers can't be blocked except by Slivers.")), Some(2.5));
+    // A creature type whose plural has no "s", and a keyword beside protection.
+    assert_eq!(payoff(&pts("Lord of Atlantis", 2.0, "Creature — Merfolk", "Other Merfolk get +1/+1 and have islandwalk.")), Some(3.0));
+    assert_eq!(payoff(&pts("Test Myr", 3.0, "Artifact Creature — Myr", "Myr you control get +1/+1.")), Some(2.5));
+    let shelob = pts("Test Spider", 6.0, "Legendary Creature — Spider Demon", "Other Spiders you control have deathtouch and ward {2}.");
+    assert_eq!(shelob, vec![(Cat::Protection, 3.5), (Cat::Payoffs, 2.5)], "{shelob:?}");
     // The whole team taps for mana: a mana creature. The whole team is protected: protection.
     assert_eq!(pts("Manaweft Sliver", 2.0, "Creature — Sliver", "Sliver creatures you control have \"{T}: Add one mana of any color.\""), vec![(Cat::Dorks, 4.0)]);
     assert_eq!(pts("Crystalline Sliver", 2.0, "Creature — Sliver", "All Slivers have shroud."), vec![(Cat::Protection, 3.5)]);
@@ -167,6 +172,8 @@ fn proliferate_and_planeswalker_support_earn_points() {
     assert_eq!(payoff("Test Sage", "Creature — Elf Druid", "Landfall — Whenever a land you control enters, proliferate."), Some(3.0));
     assert_eq!(payoff("Test Veil", "Legendary Artifact", "{4}, {T}: For each planeswalker you control, you may activate one of its loyalty abilities once this turn as though none of its loyalty abilities had been activated this turn."), Some(3.0));
     assert_eq!(payoff("Test Summons", "Sorcery", "Look at the top seven cards of your library. Put up to two planeswalker cards from among them onto the battlefield."), Some(4.0));
+    // Shutting loyalty abilities off is no support for them.
+    assert_eq!(payoff("Test Sun", "Legendary Artifact", "Players can't activate planeswalkers' loyalty abilities."), None);
 }
 
 #[test]
@@ -181,6 +188,8 @@ fn three_more_themes_are_named() {
     assert_eq!(keys(many(6, "Legendary Planeswalker — Test", "+1: Draw a card.")), ["planeswalkers"]);
     assert_eq!(keys(many(6, "Enchantment", "Whenever you cast a legendary spell, draw a card.")), ["legends"]);
     assert_eq!(keys(many(6, "Sorcery", "Goad target creature.")), ["goad"]);
+    // Proliferate on its own is a counters deck, or poison: no planeswalker theme.
+    assert_eq!(keys(many(6, "Instant", "Proliferate.")), Vec::<String>::new());
     // "You or planeswalkers you control" is how a card keeps attackers off you: table politics,
     // not a planeswalker theme.
     assert_eq!(keys(many(6, "Enchantment", "Creatures can't attack you or planeswalkers you control unless their controller pays {2}.")), ["goad"]);

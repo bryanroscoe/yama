@@ -52,8 +52,8 @@ const THEMES: &[(&str, &str, Test, &str)] = &[
     ("energy", "Energy", |t, _| has(rx!(r"\{e\}|energy counter"), t), "Gets and spends energy."),
     ("draw", "Card draw matters", |t, _| has(rx!(r"whenever you draw (?:a|your second) card|for each card you've drawn"), t), "Rewards drawing extra cards."),
     ("planeswalkers", "Planeswalkers", |t, ty| {
-        ty.contains("Planeswalker") || has(rx!(r"\bproliferate\b|\bloyalty (?:abilit|counter)|(?<!or )\bplaneswalkers? you control\b|\bplaneswalker (?:card|spell)s?\b"), t)
-    }, "Fields planeswalkers and the cards that grow and protect them."),
+        ty.contains("Planeswalker") || has(rx!(r"\bloyalty (?:abilit|counter)|(?<!or )\bplaneswalkers? you control\b|\bplaneswalker (?:card|spell)s?\b"), t)
+    }, "Fields planeswalkers and the cards that find them and work their loyalty."),
     ("legends", "Legends matter", |t, _| {
         has(rx!(r"\blegendary (?:creature|permanent|spell|card)s?\b|\bhistoric\b|\bfor each legendary\b|\banother legendary\b"), t)
     }, "Rewards playing legendary cards."),

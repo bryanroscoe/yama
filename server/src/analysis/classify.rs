@@ -156,6 +156,7 @@ pub(crate) fn repeatable(line: &str) -> bool {
 const NOT_A_TEAM: &[&str] = &[
     "lands", "artifacts", "enchantments", "permanents", "spells", "cards", "players", "opponents", "planeswalkers", "abilities", "counters", "auras", "vehicles", "sagas",
     "instants", "sorceries", "sources", "battles", "controls", "treasures", "foods", "clues", "gates", "forests", "islands", "mountains", "swamps", "plains",
+    "equipment", "they", "them", "that", "those", "these", "which", "who", "each", "and", "you", "player", "opponent",
 ];
 
 /// What a card does for the player's whole team for as long as it stays: a lord or anthem's
@@ -165,41 +166,47 @@ const NOT_A_TEAM: &[&str] = &[
 /// One-turn pumps aren't counted here: the finisher rules read those.
 fn team_boost(tl: &str) -> (f64, bool, bool) {
     let (mut pump, mut grant, mut protects, mut mana): (f64, f64, bool, bool) = (0.0, 0.0, false, false);
+    let team = |noun: &str| !NOT_A_TEAM.contains(&noun);
+    let size = |bonus: &str| match bonus {
+        "0" => 1.0,
+        "1" => 2.5,
+        "2" => 3.5,
+        _ => 4.5,
+    };
     for s in split(rx!(r"(?<=[.])\s+|\n"), tl) {
         if has(rx!(r"until end of turn|this turn|until your next turn"), s) {
             continue;
         }
-        let team = |noun: &str| !NOT_A_TEAM.contains(&noun);
-        if let Some(m) = caps(rx!(r"\b(?:[a-z'-]+ )?(creatures|tokens|[a-z'-]{3,}s)(?: you control)?(?: of the chosen type)? get \+([\dx])/\+[\dx]"), s)
+        // The team is a plural ("sliver creatures", "zombies you control"), or a creature type
+        // whose plural has no "s", which only reads as a team right after "other" or "all" or
+        // right before "you control" ("other merfolk", "myr you control").
+        let bonus = caps(rx!(r"\b(?:[a-z'-]+ )?(creatures|tokens|[a-z'-]{3,}s)(?: you control)?(?: of the chosen type)? get \+([\dx])/\+[\dx]"), s)
+            .or_else(|| caps(rx!(r"\b(?:other|all) ([a-z'-]{3,})(?: you control)? get \+([\dx])/\+[\dx]"), s))
+            .or_else(|| caps(rx!(r"\b([a-z'-]{3,}) you control get \+([\dx])/\+[\dx]"), s));
+        if let Some(m) = bonus
             && team(&m[1])
         {
-            pump = pump.max(match &m[2] {
-                "0" => 1.0,
-                "1" => 2.5,
-                "2" => 3.5,
-                _ => 4.5,
-            });
+            pump = pump.max(size(&m[2]));
         } else if let Some(m) = caps(rx!(r"\beach other (?:[a-z'-]+ )?creature you control[^.]*? gets \+([\dx])/\+[\dx]"), s) {
-            pump = pump.max(match &m[1] {
-                "0" => 1.0,
-                "1" => 2.5,
-                "2" => 3.5,
-                _ => 4.5,
-            });
+            pump = pump.max(size(&m[1]));
         }
-        if let Some(m) = caps(rx!(r"\b(?:[a-z'-]+ )?(creatures|tokens|[a-z'-]{3,}s)(?: you control)?(?: of the chosen type)? (?:get \+[\dx]/\+[\dx] and )?have (.*)$"), s)
+        let given = caps(rx!(r"\b(?:[a-z'-]+ )?(creatures|tokens|[a-z'-]{3,}s)(?: you control)?(?: of the chosen type)? (?:get \+[\dx]/\+[\dx] and )?have (.*)$"), s)
+            .or_else(|| caps(rx!(r"\b(?:other|all) ([a-z'-]{3,})(?: you control)? (?:get \+[\dx]/\+[\dx] and )?have (.*)$"), s))
+            .or_else(|| caps(rx!(r"\b([a-z'-]{3,}) you control (?:get \+[\dx]/\+[\dx] and )?have (.*)$"), s));
+        if let Some(m) = given
             && team(&m[1])
         {
             let what = &m[2];
+            // Beside whatever else it hands out.
+            let protective = has(rx!(r"\b(?:hexproof|shroud|indestructible|ward|protection from)\b"), what);
+            protects |= protective;
             if has(rx!(r#"^"\{t\}: add"#), what) {
                 mana = true;
             } else if has(rx!(r"\bdouble strike\b"), what) {
                 grant = grant.max(4.0);
-            } else if has(rx!(r"\b(?:flying|trample|menace|deathtouch|first strike|intimidate|fear|shadow|skulk)\b|can't be blocked"), what) {
+            } else if has(rx!(r"\b(?:flying|trample|menace|deathtouch|first strike|intimidate|fear|shadow|skulk|[a-z]+walk)\b|can't be blocked"), what) {
                 grant = grant.max(2.5);
-            } else if has(rx!(r"\b(?:hexproof|shroud|indestructible|ward|protection from)\b"), what) {
-                protects = true;
-            } else if has(rx!(r#"\b(?:lifelink|vigilance|reach)\b|^""#), what) {
+            } else if has(rx!(r"\b(?:lifelink|vigilance|reach)\b"), what) || (what.starts_with('"') && !protective) {
                 grant = grant.max(1.5);
             }
         } else if has(rx!(r"\b[a-z'-]{3,}s can't be blocked\b"), s) && !has(rx!(r"\b(?:creatures|tokens) (?:your opponents|you don't) control"), s) {
@@ -661,7 +668,8 @@ fn rule_points(c: &Facts) -> Points {
     if !ty.contains("Planeswalker") {
         if has(rx!(r"planeswalker cards? [^.]*onto the battlefield"), &tl) {
             pay = pay.max(4.0);
-        } else if has(rx!(r"loyalty abilit(?:y|ies)"), &tl) {
+        } else if has(rx!(r"loyalty abilit(?:y|ies)"), &tl) && !has(rx!(r"can't activate [^.]*loyalty abilit"), &tl) {
+            // Working them harder, not shutting them off.
             pay = pay.max(3.0);
         }
     }

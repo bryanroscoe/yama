@@ -294,8 +294,11 @@ is a mana creature, a team given hexproof, shroud, ward or indestructible is pro
 proliferate is a small engine, and cards that work planeswalkers' loyalty abilities harder
 or put planeswalkers onto the battlefield are payoffs. One-turn pumps stay with the finisher
 rules; one creature's bonus (an Aura, an Equipment) and things that aren't creatures (lands,
-Treasures, Foods) aren't a team. Before this, 38 of Sliver Swarm's 64 nonland cards earned
-nothing and it scored the lowest of the 178 precons. Across the card data 961 of 36,877
+Treasures, Foods) aren't a team. A creature type whose plural has no "s" counts when the text
+says "other", "all" or "you control" with it ("Other Merfolk get +1/+1"). A card that shuts
+loyalty abilities off earns nothing for mentioning them, and proliferate alone doesn't make
+a planeswalker theme. Before this, 38 of Sliver Swarm's 64 nonland cards earned
+nothing and it scored the lowest of the 178 precons. Across the card data 975 of 36,877
 cards changed, nearly all by gaining these points. Themes gained planeswalkers, legends
 matter, and goad and politics, which the best-performing precons run and Yama didn't name.
 
@@ -305,16 +308,16 @@ without their combo checks, so their figures sit a little under `power-eval`'s):
 | | Before | After |
 |---|---|---|
 | Power against stock win rate, 40+ games (85 precons) | +0.07 | +0.06 |
-| The same with each precon held out | −0.03 | −0.04 |
-| Power against stock win rate, 200+ games (47 precons) | +0.33 | +0.35 |
-| The same with each precon held out | +0.26 | +0.28 |
+| The same with each precon held out | −0.03 | −0.03 |
+| Power against stock win rate, 200+ games (47 precons) | +0.33 | +0.36 |
+| The same with each precon held out | +0.26 | +0.29 |
 | Power ± 0.5 reaches the bracket a list was built for | 74% | 82% |
 | Power ± 0.7 reaches it | 85% | 88% |
 | Same deck built one bracket up scores higher | 33 of 33 | 33 of 33 |
 | Sliver Swarm | 1.8, lowest of 178 | 2.5, 12th lowest |
 | Precon median, lowest, highest | 3.3, 1.8, 5.8 | 3.3, 1.9, 5.8 |
 
-No deck scores lower; 18 of the 256 move by 0.2 or more. The change does not make power track
+No deck scores lower; 23 of the 256 move by 0.2 or more. The change does not make power track
 real precon results any better, and wasn't expected to: it is about cards that plainly do
 something earning nothing.
 
