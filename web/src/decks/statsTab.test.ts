@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bandOf, commanderPlace, isStockConfiguration, landFaceCopies, colorShares, curveColumns, curveSpread, DIAL, dialAngle, dialArc, dialPoint, groupTotal, marginSpan, playsLike, inputsNote, pctWidth, points, POWER_BANDS, referenceOf, comparisonOf, earlierVersions, powerChange, stockListOf, comparisonOfDeck, otherDecks } from "./statsTab";
+import { bandOf, commanderPlace, listAnd, isStockConfiguration, landFaceCopies, colorShares, curveColumns, curveSpread, DIAL, dialAngle, dialArc, dialPoint, groupTotal, marginSpan, playsLike, inputsNote, pctWidth, points, POWER_BANDS, referenceOf, comparisonOf, earlierVersions, powerChange, stockListOf, comparisonOfDeck, otherDecks } from "./statsTab";
 import { analysis, analysisView } from "./analysisFixture";
 import type { DeckSummary } from "../api";
 
@@ -167,6 +167,10 @@ describe("the commander's record", () => {
   });
 
   it("says why a commander with few games has no place", () => {
-    expect(commanderPlace({ place: null, placed: 1640, typical: 0.351, min_games: 100 })).toBe("Too few games to place it among commanders: that takes 100.");
+    expect(commanderPlace({ place: null, placed: 1640, typical: 0.351, min_games: 100 })).toBe("Too few games to place it among commanders: that takes 100 games. A rate from this few can be far off.");
+    expect(listAnd([])).toBe("");
+    expect(listAnd(["A"])).toBe("A");
+    expect(listAnd(["A", "B"])).toBe("A and B");
+    expect(listAnd(["A", "B", "C"])).toBe("A, B and C");
   });
 });

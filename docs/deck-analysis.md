@@ -240,10 +240,13 @@ nobody has recorded games under, shows nothing.
 It is a separate reading and never part of the 1 to 10. It describes the commander across
 everyone's lists, stock and tuned, in pods of any size, so 25% isn't the even share and it
 can't tell this list from another under the same commander. It is there because it is the
-best single signal Yama holds: on 12 Nov 2026 it tracked stock precons' real win rates at
-+0.44 (85 precons with 40 or more games; +0.41 with each precon left out of the fit), where
-the power number managed +0.07 and the best any signal could score was about 0.66, the win
-rates being noisy themselves.
+best single signal Yama has measured: on 12 Nov 2026 Mythic Tools' figure for each precon's
+commander tracked Playgroup.gg's stock-list win rates at +0.44 (85 precons with 40 or more
+games; +0.41 with each precon left out of the fit), where the power number managed +0.07 and
+the best any signal could score was about 0.66, the win rates being noisy themselves. Those
+are two services' records, so the stock games weren't counted on both sides. The figure a
+deck shows combines every enabled source, Playgroup.gg's commander games among them, and
+that combined figure hasn't been measured the same way.
 
 Shown on the deck's Stats tab (`GET /api/decks/{id}/analysis`, `commander`), the shared deck
 page, a stock precon's page, and the MCP `get_deck_analysis` answer (`commander_record`).

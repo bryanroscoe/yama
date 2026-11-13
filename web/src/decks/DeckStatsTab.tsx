@@ -16,7 +16,7 @@ import { NameList, useOnlineSupport } from "../components/OnlineSupport";
 import { Button, CardImage, ErrorText, Loading, Segmented, ShowMore } from "../components/ui";
 import { BuyDeck } from "./BuyDeck";
 import { PowerLine, ScoreTable, ScryCheckButton, useDeckAnalysis } from "./DeckAnalysis";
-import { colorShares, commanderPlace, curveColumns, isStockConfiguration, landFaceCopies, curveSpread, DIAL, dialArc, dialPoint, groupTotal, inputsNote, marginSpan, pctWidth, playsLike, points, POWER_BANDS, REFERENCES, comparisonOf, earlierVersions, powerChange, stockListOf, comparisonOfDeck, otherDecks, type Reference } from "./statsTab";
+import { colorShares, commanderPlace, listAnd, curveColumns, isStockConfiguration, landFaceCopies, curveSpread, DIAL, dialArc, dialPoint, groupTotal, inputsNote, marginSpan, pctWidth, playsLike, points, POWER_BANDS, REFERENCES, comparisonOf, earlierVersions, powerChange, stockListOf, comparisonOfDeck, otherDecks, type Reference } from "./statsTab";
 import "./deckStatsTab.css";
 
 type OnCard = (name: string) => void;
@@ -299,21 +299,22 @@ function PowerHelp({ analysis: a, unsaved = false }: { analysis: DeckAnalysis; u
 /** How the commander has done over every list recorded under it. Beside the power level, never
  *  part of it: it says how the commander does, not how this list does. */
 export function CommanderRecordSection({ record: r }: { record: CommanderRecord }) {
+  const sources = r.sources.length ? listAnd(r.sources) : "the public sources Yama reads";
   return (
     <section className="stats-panel stats-commander" aria-labelledby="stats-commander-h">
       <span className="stats-title">
         <h2 id="stats-commander-h" className="stats-h">Commander's record</h2>
         <HelpPopover label="the commander's record">
-          <p>Every game recorded under {r.name} on {r.sources.length ? r.sources.join(" and ") : "the public sources Yama reads"}, whatever the list: stock or tuned, in pods of any size. That mix is why 25% isn't the even share here; compare it with the middle commander.</p>
-          <p>It says how the commander does, not how this list does, so it isn't part of the power level. Among stock precons it has tracked real results better than any score read from the cards.</p>
+          <p>Every game recorded under {r.name} on {sources}, whatever the list: stock or tuned, in pods of any size. That mix is why 25% isn't the even share here; compare it with the middle commander.</p>
+          <p>It says how the commander does, not how this list does, so it isn't part of the power level. Among stock precons it has tracked real results better than the power level does.</p>
         </HelpPopover>
       </span>
       <p className="commander-rate">
-        <b>{percent(r.win_rate, 1)}</b>
+        <b>{percent(r.win_rate, 1)}</b>{" "}
         <span className="dim">of {count(r.games)} recorded {r.games === 1 ? "game" : "games"} won, any list</span>
       </p>
       <p>{r.name}: {commanderPlace(r)}</p>
-      <p className="dim small"><a href="/commanders">All commanders</a></p>
+      <p className="dim small">From {sources}. <a href="/commanders">All commanders</a></p>
     </section>
   );
 }

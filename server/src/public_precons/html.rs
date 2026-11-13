@@ -1004,7 +1004,9 @@ pub(super) async fn detail(
         body.push_str(&crate::public_page::analysis_panel(a));
     }
     if let Some(r) = &x.commander {
-        body.push_str(&crate::public_page::commander_panel(r));
+        // The page also has each source's own figure (Real games) and a dated one under
+        // Upgradeability: say why this one can differ.
+        body.push_str(&crate::public_page::commander_panel(r, "It combines every source the commander ranking uses, so it can differ from the single-source figures elsewhere on this page."));
     }
     body.push_str(&crate::public_page::bracket_panel(crate::public_page::Declared::Stock, x.check.as_ref(), x.game_changers.as_deref(), None));
     body.push_str(&crate::public_page::stats_panel(&x.stats));

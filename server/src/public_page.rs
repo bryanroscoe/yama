@@ -406,8 +406,9 @@ pub(crate) fn bracket_panel(declared: Declared, result: Option<&CheckResult>, ga
 }
 
 /// How the commander has done over every list recorded under it (public_commanders::Record),
-/// beside the deck's own analysis. It is the commander's record, not this list's.
-pub(crate) fn commander_panel(r: &crate::public_commanders::Record) -> String {
+/// beside the deck's own analysis. It is the commander's record, not this list's. `also` is a
+/// sentence a page adds when it shows other commander figures too; empty for none.
+pub(crate) fn commander_panel(r: &crate::public_commanders::Record, also: &str) -> String {
     let place = match (r.place, r.typical) {
         (Some(n), typical) => format!(
             "#{} of {} {} with {} or more games.{}",
@@ -417,10 +418,11 @@ pub(crate) fn commander_panel(r: &crate::public_commanders::Record) -> String {
             r.min_games,
             typical.map(|t| format!(" The middle one wins {}.", pct(Some(t)))).unwrap_or_default()
         ),
-        (None, _) => format!("Too few games to place it among commanders: that takes {}.", r.min_games),
+        // /commanders leaves these out by default for the same reason.
+        (None, _) => format!("Too few games to place it among commanders: that takes {} games. A rate from this few can be far off.", r.min_games),
     };
     format!(
-        "<section class=\"public-panel public-commander-record\" aria-labelledby=\"commander-record-head\"><h2 id=\"commander-record-head\">Commander's record</h2><p class=\"analysis-power\"><span class=\"result-value\">{}</span> <span class=\"dim\">of {} recorded {} won, any list</span></p><p>{}: {}</p><p class=\"dim\">Every list played under {}, stock or tuned, in pods of any size, as {} {} it. It says how the commander does, not how this list does, and 25% isn't the even share here. <a href=\"/commanders\">All commanders ↗</a></p></section>",
+        "<section class=\"public-panel public-commander-record\" aria-labelledby=\"commander-record-head\"><h2 id=\"commander-record-head\">Commander's record</h2><p class=\"analysis-power\"><span class=\"result-value\">{}</span> <span class=\"dim\">of {} recorded {} won, any list</span></p><p>{}: {}</p><p class=\"dim\">It counts every game recorded under {} on {}: stock and tuned lists, pods of any size. It says how the commander does, not how this list does, and 25% isn't the even share here.{} <a href=\"/commanders\">All commanders ↗</a></p></section>",
         pct(Some(r.win_rate)),
         count(i64::try_from(r.games).unwrap_or(i64::MAX)),
         if r.games == 1 { "game" } else { "games" },
@@ -428,14 +430,14 @@ pub(crate) fn commander_panel(r: &crate::public_commanders::Record) -> String {
         e(&place),
         e(&r.name),
         e(&list_and(&r.sources)),
-        if r.sources.len() == 1 { "reports" } else { "report" },
+        if also.is_empty() { String::new() } else { format!(" {}", e(also)) },
     )
 }
 
 /// "A", "A and B", "A, B and C".
 fn list_and(items: &[String]) -> String {
     match items {
-        [] => "its sources".into(),
+        [] => "the public sources Yama reads".into(),
         [one] => one.clone(),
         [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
     }
@@ -701,20 +703,22 @@ mod format_tests {
             typical: Some(0.351),
             min_games: 100,
         };
-        let html = commander_panel(&r);
+        let html = commander_panel(&r, "");
         assert!(html.contains("<span class=\"result-value\">41.4%</span>"), "{html}");
         assert!(html.contains("of 12,480 recorded games won, any list"), "{html}");
         assert!(html.contains("Atraxa, Praetors&#39; Voice: #12 of 1,640 commanders with 100 or more games. The middle one wins 35.1%."), "{html}");
-        assert!(html.contains("as Playgroup.gg and Mythic Tools report it"), "{html}");
-        assert!(html.contains("not how this list does"), "{html}");
+        assert!(html.contains("every game recorded under Atraxa, Praetors&#39; Voice on Playgroup.gg and Mythic Tools: stock and tuned lists"), "{html}");
+        assert!(html.contains("not how this list does, and 25% isn't the even share here. <a href"), "{html}");
+        assert!(!html.contains("far off"), "{html}");
         // Too few games: the rate still shows, without a place.
         r.place = None;
         r.games = 1;
         r.sources.truncate(1);
-        let html = commander_panel(&r);
+        let html = commander_panel(&r, "Another sentence.");
         assert!(html.contains("of 1 recorded game won"), "{html}");
-        assert!(html.contains("Too few games to place it among commanders: that takes 100."), "{html}");
-        assert!(html.contains("as Playgroup.gg reports it"), "{html}");
+        assert!(html.contains("Too few games to place it among commanders: that takes 100 games. A rate from this few can be far off."), "{html}");
+        assert!(html.contains("on Playgroup.gg: stock"), "{html}");
+        assert!(html.contains("even share here. Another sentence. <a href"), "{html}");
     }
 
     #[test]

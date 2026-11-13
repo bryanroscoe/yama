@@ -82,7 +82,15 @@ describe("DeckStatsTab", () => {
     expect(html).toContain("<b>33.1%</b>");
     expect(html).toContain("of 4,210 recorded games won, any list");
     expect(html).toContain("Quintorius, History Chaser: #310 of 1,640 commanders with 100 or more games. The middle one wins 35.1%.");
+    expect(html).toContain("From Mythic Tools.");
     expect(html).toContain('href="/commanders"');
+    // Too few games: the rate shows with the warning and no place; null hides the section.
+    v.commander = { ...v.commander, games: 1, place: null };
+    const few = render(v);
+    expect(few).toContain("of 1 recorded game won, any list");
+    expect(few).toContain("that takes 100 games. A rate from this few can be far off.");
+    v.commander = null;
+    expect(render(v)).not.toContain("Commander&#x27;s record");
   });
 
   it("draws the five scores as bars with the stock, Bracket 4 and cEDH marks, and Compare with", () => {

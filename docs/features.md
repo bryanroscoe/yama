@@ -190,6 +190,8 @@ A declared bracket per deck (chips on the deck list, table setup and online lobb
 
 ### Deck stats and export
 
+The Stats tab also shows the commander's record: the share of recorded games won under that commander on the public sources (every list, stock or tuned), its place among commanders with 100 or more games and the middle commander's rate, with a link to `/commanders`. It describes the commander, not the list, and is not part of the power level. The shared deck page, precon pages and the MCP deck analysis carry the same figure.
+
 Mana curve (creatures and other spells), average mana value with and without lands, land count, colored pips and potential land access per color, without unsupported shortage verdicts ([method and research](deck-stats.md)). Export as names only (EDHbots), Moxfield (set and number of your copy) or MTG Arena; copy or download.
 
 ### Suggested changes
@@ -315,6 +317,8 @@ explicitly published Phase/Forge simulation evidence, attributed real-game resul
 market references without sign-in. The personal Lab still requires sign-in. Results are published
 with `publish-precons MANIFEST`; imports never publish automatically. See
 [public precons and publication](public-precons.md).
+
+A precon's page shows what a shared deck's page shows, read from the stock list: the power level with its five scores, themes and every card's points, the commander's record, the bracket panel (Commander Spellbook's suggestion, Game Changers, mass land denial, extra turns and combos), deck stats with the mana curve and colors, and the Reserve List line.
 
 A precon's page lists the public decks that started from it (the newest six, with a link to the
 rest in Browse): decks whose list still holds at least half of the precon's own cards.
