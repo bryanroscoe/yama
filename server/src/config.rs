@@ -41,10 +41,10 @@ pub struct Config {
     /// Check each saved deck version with Commander Spellbook in the background (bracket
     /// estimate, flagged cards, combos). On unless `YAMA_DECK_CHECKS=0`; sends deck lists there.
     pub deck_checks: bool,
-    /// Tell a computer's seat about the combos Commander Spellbook found in the list it plays
-    /// (`play::seat_combos`), so its AI can look for a winning line with them. Read from the
-    /// answers the deck checks keep; nothing is sent anywhere. On unless `YAMA_AI_COMBOS=0`,
-    /// which stops it for games started from then on.
+    /// Tell a computer's seat about the combos Commander Spellbook lists in the list it plays
+    /// (`play::seat_combos`), so its AI can look for a winning line with them, and with
+    /// `auto_import` keep Yama's copy of Spellbook's combos fresh (`combos.rs`). No list is sent
+    /// anywhere. On unless `YAMA_AI_COMBOS=0`, which stops both for games started from then on.
     pub ai_combos: bool,
     /// The Mythic Tools bridge (`bridges/mythic`): import games from Mythic Tools. Off unless
     /// `YAMA_MYTHIC_BRIDGE=1`; Mythic's API is private and can change, and the bridge may go.

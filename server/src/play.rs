@@ -952,16 +952,30 @@ async fn seat_cards(pool: &SqlitePool, s: &SeatCfg) -> AppResult<Vec<DeckCard>> 
     }
 }
 
-/// The combos Commander Spellbook found in the list a computer's seat plays, for its AI
-/// (`yama_play::SeatCombo`), from the answer Yama keeps for that list: the seat's own deck
-/// version's check, or the stock precon's (never one for the other). Nothing is asked of
-/// Spellbook here, and a list with no answer yet has none. A combo that also needs something
-/// that isn't a named card ("a creature that taps for mana") is left out: its named cards alone
-/// aren't the combo. A person's seat gets none, and a failed read gives none rather than
-/// keeping the game from starting.
+/// The combos known in the list a computer's seat plays, for its AI (`yama_play::SeatCombo`).
+/// Nothing is asked of Spellbook here.
+///
+/// - Once Spellbook's combos have been imported (`combos.rs`), they are looked up for the list
+///   itself, whatever it is: a saved deck, a stock precon, a guest's list.
+/// - Until then, from the answer Yama keeps for that list: the seat's own deck version's check,
+///   or the stock precon's (never one for the other). A list with no answer yet has none.
+///
+/// Either way a combo that also needs something that isn't a named card ("a creature that taps
+/// for mana") is left out: its named cards alone aren't the combo. A person's seat gets none,
+/// and a failed read gives none rather than keeping the game from starting.
 pub(crate) async fn seat_combos(st: &AppState, engine: &Engine, s: &SeatCfg, cards: &[DeckCard]) -> Vec<yama_play::SeatCombo> {
     if !st.cfg.ai_combos || s.kind != "ai" {
         return Vec::new();
+    }
+    // More than a seat is given: some may name a card the engine doesn't know.
+    match crate::combos::in_list(&st.pool, cards, yama_play::MAX_SEAT_COMBOS * 3).await {
+        Ok(Some(found)) => {
+            let listed: Vec<yama_play::ListedCombo> = found.iter().map(|c| yama_play::ListedCombo { id: &c.id, cards: &c.cards }).collect();
+            return engine.resolve_combos(&deck_lines(cards), &listed);
+        }
+        // Nothing imported yet: the stored answer below.
+        Ok(None) => {}
+        Err(error) => tracing::warn!(seat = s.seat, %error, "couldn't look up a seat's combos; trying its stored check"),
     }
     let stored = match (precon_of(s), &s.deck_version_id) {
         (Some(_), _) => crate::deck_checks::precons::result(&st.pool, &crate::deck_checks::list_hash(cards)).await,

@@ -7,6 +7,7 @@ mod bug_reports;
 mod calendar;
 mod cards;
 mod collection;
+mod combos;
 mod config;
 mod db;
 mod datasets;
@@ -88,6 +89,8 @@ USAGE:
   yama-server import-deck-prices             Refresh sealed precon market prices once
   yama-server import-calendar                Refresh upcoming sets (Scryfall) and Commander
                                              precon lists (MTGJSON) once
+  yama-server import-combos                  Download Commander Spellbook's combos once, for
+                                             the computer's seats (weekly with YAMA_AUTO_IMPORT=1)
   yama-server import-decks DIR --owner EMAIL [--update]
                                              Import every .txt deck list in DIR, each named
                                              after its file (Riders_of_Rohan.txt is Riders
@@ -247,6 +250,7 @@ async fn main() -> anyhow::Result<()> {
         }
         Some("import-deck-prices") => deck_prices::refresh(&pool, &routes::http_client()).await,
         Some("import-calendar") => calendar::run_once(&pool).await,
+        Some("import-combos") => combos::run_once(&pool, &cfg.data_dir).await,
         Some("import-decks") => {
             let dir = args.get(1).filter(|a| !a.starts_with("--")).context("usage: yama-server import-decks DIR --owner EMAIL [--update]")?;
             let owner = flag_value(&args, "--owner").context("--owner EMAIL is required")?;
