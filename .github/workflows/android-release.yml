@@ -87,9 +87,12 @@ jobs:
         with:
           ref: ${{ env.RELEASE_SHA }}
           persist-credentials: false
+          # Every commit (no file contents beyond this one's), so ancestry checks are exact.
+          fetch-depth: 0
+          filter: blob:none
       - name: Check main still holds this commit
         run: |
-          git fetch --no-tags --depth=500 origin main
+          git fetch --no-tags --filter=blob:none origin main
           git merge-base --is-ancestor "$RELEASE_SHA" FETCH_HEAD
       - name: Signing key present
         env:
@@ -119,14 +122,22 @@ jobs:
             prev_code=$(jq -r '.native.versionCode // 0' "$RUNNER_TEMP/previous.json")
             prev_hash=$(jq -r '.native.hash // ""' "$RUNNER_TEMP/previous.json")
             prev_commit=$(jq -r '.commit // ""' "$RUNNER_TEMP/previous.json")
-            # Never go back: a commit already published, or older than the one that is, stays out
-            # (a manual run asking for a new APK still goes ahead on the same commit).
-            if [ -n "$prev_commit" ] && git cat-file -e "$prev_commit^{commit}" 2>/dev/null &&
-               git merge-base --is-ancestor "$RELEASE_SHA" "$prev_commit" &&
-               { [ "$prev_commit" != "$RELEASE_SHA" ] || [ "$FORCE_NATIVE" != "true" ]; }; then
-              echo "::notice::$RELEASE_SHA is already published or older than $prev_commit: nothing to do."
-              echo "skip=true" >> "$GITHUB_OUTPUT"
-              exit 0
+            # Only forward: publish a commit strictly after the one already published (or the same
+            # one, for a manual run asking for a new APK). With the full history fetched, a
+            # published commit that can't be found is an error, never a pass.
+            if [ -n "$prev_commit" ]; then
+              git cat-file -e "$prev_commit^{commit}" || { echo "::error::Published commit $prev_commit isn't in main's history."; exit 1; }
+              if [ "$prev_commit" = "$RELEASE_SHA" ]; then
+                if [ "$FORCE_NATIVE" != "true" ]; then
+                  echo "::notice::$RELEASE_SHA is already published: nothing to do."
+                  echo "skip=true" >> "$GITHUB_OUTPUT"
+                  exit 0
+                fi
+              elif ! git merge-base --is-ancestor "$prev_commit" "$RELEASE_SHA"; then
+                echo "::notice::$RELEASE_SHA doesn't come after the published $prev_commit: nothing to do."
+                echo "skip=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
             fi
           fi
           native=false
