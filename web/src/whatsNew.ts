@@ -15,6 +15,17 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-13-computer-plays-combos",
+    date: "2026-11-13",
+    title: "The computer knows its deck's combos",
+    items: [
+      "A computer seat is told the combos in the list it plays, from Commander Spellbook. Once it has every card of one, it looks for a way to win with them and plays it only if it works; otherwise it plays as before. Until now it never started a loop on purpose.",
+      "This covers any list: your decks, stock precons and a guest's list. Combos that also need something other than named cards (a creature that taps for mana, say) aren't included yet, and some long or unusual combos are still missed.",
+      "Simulations play with loop detection now, and their computer seats know their combos too. New results aren't mixed with earlier ones, so run a finished simulation again to compare.",
+    ],
+    link: { to: "/play/watch", label: "Watch the computer play" },
+  },
+  {
     id: "2026-11-13-commander-record-standing",
     date: "2026-11-13",
     title: "Your commander's record, and where each precon stands",
