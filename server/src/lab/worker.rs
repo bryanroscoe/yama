@@ -202,18 +202,24 @@ impl Simulator for EngineSim {
             return failed(End::Error, format!("{DECK_ERRORS} {} decks for {} seats", decks.len(), spec.decks.len()));
         }
         let mut seats = Vec::with_capacity(decks.len());
+        // What each seat's AI is told about its list: the combos frozen with it (`LabList::combos`).
+        let mut combos = Vec::with_capacity(decks.len());
         let mut problems = Vec::new();
         for (id, list) in spec.decks.iter().zip(decks) {
-            let (deck, report) = self.engine.resolve_deck(&deck_lines(&list.cards));
+            let lines = deck_lines(&list.cards);
+            let (deck, report) = self.engine.resolve_deck(&lines);
             if !report.missing.is_empty() {
                 problems.push(format!("{id}: unknown cards: {}", report.missing.join("; ")));
             }
+            let listed: Vec<yama_play::ListedCombo> = list.combos.iter().map(|c| yama_play::ListedCombo { id: &c.id, cards: &c.cards }).collect();
+            combos.push(self.engine.resolve_combos(&lines, &listed));
             seats.push(deck);
         }
         if !problems.is_empty() {
             return failed(End::Error, format!("{DECK_ERRORS} {}", problems.join(" | ")));
         }
-        let opts = GameOptions { turn_action_cap: limits.turn_action_cap, ..GameOptions::default() };
+        // With loop detection, as lab games play since 13 Nov 2026 (`GameOptions::default`).
+        let opts = GameOptions { turn_action_cap: limits.turn_action_cap, combos, ..GameOptions::default() };
         let live = Arc::new(Mutex::new(Live::new()));
         let state = Arc::new(AtomicU8::new(RUNNING));
         let (tx, rx) = std::sync::mpsc::channel();

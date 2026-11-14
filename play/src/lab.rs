@@ -28,9 +28,9 @@
 //! d20), so a schedule's seat rotation is a rotation of turn order; when the AI returns no
 //! action, phase's own `fallback_action` answers from the engine-issued options; a turn with
 //! more than MAX_TURN_ACTIONS AI actions is treated as a loop and ends the game as an action cap;
-//! and the engine's loop detection (CR 732) stays off, as it was for every result so far, unless
-//! [`GameOptions::loops`] turns it on for an experiment (label "+loops"). The second and third
-//! happen only where a live game would stop or loop, and are reported in the game's notes with
+//! and the engine's loop detection (CR 732) is on, as in games people play, since 13 Nov 2026
+//! (label "+loops"; [`GameOptions::loops`] turns it off, for results comparable with the ones
+//! from before). The second and third happen only where a live game would stop or loop, and are reported in the game's notes with
 //! what caused them.
 
 use std::cell::RefCell;
@@ -53,7 +53,6 @@ use engine::types::replay::ReplayHeader;
 use phase_ai::auto_play::eligible_ai_decision;
 use phase_ai::config::{ACCEPTED_DIFFICULTY_LABELS, AiConfig, AiDifficulty, Platform, create_config_for_players};
 use phase_ai::search::choose_action_with_issued_contract;
-use phase_ai::session::AiSession;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use serde::{Deserialize, Serialize};
@@ -68,15 +67,20 @@ use crate::{DeckLine, Engine, SeatDeck};
 /// deploy/phase-rev). Use the full source revision verified by build.rs, so every pin
 /// gets a distinct label. Earlier labels remain on their original results and must
 /// not be pooled with these.
-pub const ENGINE: &str = concat!("phase-rs v0.122.0+yama-", env!("YAMA_PLAY_PHASE_REV"));
-/// Added to [`ENGINE`] on result lines of games played with the engine's loop detection on
-/// ([`GameOptions::loops`]), so they're never pooled with the usual results.
+///
+/// Since 13 Nov 2026 lab games play with the engine's loop detection ([`GameOptions::loops`]),
+/// and this label ends in [`LOOPS_SUFFIX`]. A game played without it carries
+/// [`ENGINE_WITHOUT_LOOPS`], as every result of this pin did before, so the two are never pooled.
+pub const ENGINE: &str = concat!("phase-rs v0.122.0+yama-", env!("YAMA_PLAY_PHASE_REV"), "+loops");
+/// The label of games played with loop detection off ([`GameOptions::loops`] false).
+pub const ENGINE_WITHOUT_LOOPS: &str = concat!("phase-rs v0.122.0+yama-", env!("YAMA_PLAY_PHASE_REV"));
+/// What [`ENGINE`] adds to [`ENGINE_WITHOUT_LOOPS`].
 pub const LOOPS_SUFFIX: &str = "+loops";
 
-/// The engine label a result line carries: [`ENGINE`], plus [`LOOPS_SUFFIX`] when the games ran
-/// with loop detection.
+/// The engine label a result line carries: [`ENGINE`] for games played with loop detection,
+/// [`ENGINE_WITHOUT_LOOPS`] for games without.
 pub fn engine_label(loops: bool) -> String {
-    if loops { format!("{ENGINE}{LOOPS_SUFFIX}") } else { ENGINE.to_string() }
+    if loops { ENGINE.to_string() } else { ENGINE_WITHOUT_LOOPS.to_string() }
 }
 
 /// The source this crate was built from (see build.rs): a short SHA, or
@@ -93,6 +97,10 @@ const MAX_SETTLEMENTS: usize = 1_000;
 /// Real 4-player games average under 60 actions per turn and under 5,000 per game (pilots,
 /// 2026-10-18). The batch runner's YAMA_LAB_MAX_TURN_ACTIONS overrides it; 0 turns the guard off.
 pub const MAX_TURN_ACTIONS: usize = 3_000;
+/// With loop detection every pass is an engine action of its own, so a turn takes more of them:
+/// a game played with it gets this many times its per-turn cap (live games allow 12,000 for the
+/// same reason, `TURN_ACTION_LIMIT`).
+pub const LOOPS_TURN_ACTIONS: usize = 4;
 /// Result-file error text of games whose decks didn't load (older runners wrote such lines).
 pub const DECK_ERRORS: &str = "deck errors:";
 /// Labels for the last actions before the action cap, so a stall names the loop it was in.
@@ -648,15 +656,19 @@ pub struct GameOptions {
     /// How LLM seats reach their model. A game with an LLM pilot and no setup is an error.
     pub llm: Option<Arc<LlmSetup>>,
     /// Play with phase's interactive loop detection (CR 732), as games people play do
-    /// (`crate::PLAY_LOOPS`), passes included (every pass an ordinary engine pass), for an
-    /// experiment. Off by default, so results stay comparable; with it on, result lines carry
-    /// [`engine_label`]'s "+loops".
+    /// (`crate::PLAY_LOOPS`), passes included (every pass an ordinary engine pass). On by
+    /// default since 13 Nov 2026 (Bryan: "We should definitely have loop detection on"); result
+    /// lines carry [`engine_label`]'s label for it, so games with and without are never pooled.
     pub loops: bool,
+    /// The combos each seat's AI is told about, by seat ([`crate::SeatCombo`]); a seat past the
+    /// end, or with an empty list, has none. They only matter with `loops` on: the AI looks for
+    /// a combo's winning line on a game that offers loop shortcuts.
+    pub combos: Vec<Vec<crate::SeatCombo>>,
 }
 
 impl Default for GameOptions {
     fn default() -> Self {
-        Self { turn_action_cap: MAX_TURN_ACTIONS, panic_after: None, hang_after: None, llm: None, loops: false }
+        Self { turn_action_cap: MAX_TURN_ACTIONS, panic_after: None, hang_after: None, llm: None, loops: true, combos: Vec::new() }
     }
 }
 
@@ -892,6 +904,8 @@ struct Limits {
     hang_after: Option<usize>,
     /// Loop detection on ([`GameOptions::loops`]).
     loops: bool,
+    /// Each seat's combos ([`GameOptions::combos`]).
+    combos: Vec<Vec<crate::SeatCombo>>,
 }
 
 /// Build the game as `Engine::new_match` does (except that seat 0 goes first) and let the AI
@@ -978,7 +992,9 @@ fn play(
     let mut history: Vec<GameLogEntry> = Vec::new();
     // Set when the engine refused a model's choice: the next decision goes to the heuristic AI.
     let mut skip_llm_once = false;
-    let session = AiSession::arc_from_game(&state);
+    let combos: std::collections::BTreeMap<u8, Vec<crate::SeatCombo>> =
+        lim.combos.iter().enumerate().filter(|(_, found)| !found.is_empty()).map(|(seat, found)| (seat as u8, found.clone())).collect();
+    let session = crate::ai_session(&state, &combos);
     // One stream for the whole game, as the play crate's matches had before they took one per
     // decision (`ai_rng`); kept, so a schedule line still plays the game it always did.
     let mut rng = StdRng::seed_from_u64(job.seed ^ 0x9e37_79b9_7f4a_7c15);
@@ -1063,7 +1079,14 @@ fn play(
                 // through to "a worse decision, never a stopped game"; a few prompts don't yet.
                 // Live Yama games stop here instead. Games that never hit this are unchanged.
                 let from_llm = asked.is_some();
-                let chosen = asked.or_else(|| choose_action_with_issued_contract(&state, &configs[&actor], &mut rng, &session, &contract)).or_else(|| {
+                let chosen = asked
+                    .or_else(|| {
+                        // As live games do: the AI looks ahead on a copy with loop detection off,
+                        // except where it is asked about a loop or may open a combo line.
+                        let searched = crate::ai_search_state(&state, &session, owner);
+                        choose_action_with_issued_contract(searched.as_ref(), &configs[&actor], &mut rng, &session, &contract)
+                    })
+                    .or_else(|| {
                     let fallback = phase_ai::search::fallback_action(&state, &configs[&actor], &contract);
                     if fallback.is_some() {
                         p.fallbacks += 1;
@@ -1211,10 +1234,11 @@ pub fn play_game(
         cpu_start,
         started,
         wall: Duration::from_secs(spec.max_seconds.saturating_mul(WALL_FACTOR)),
-        turn_action_cap: opts.turn_action_cap,
+        turn_action_cap: if opts.loops { opts.turn_action_cap.saturating_mul(LOOPS_TURN_ACTIONS) } else { opts.turn_action_cap },
         panic_after: opts.panic_after,
         hang_after: opts.hang_after,
         loops: opts.loops,
+        combos: opts.combos.clone(),
     };
     let mut progress = Progress::new(players);
     let llm = opts.llm.as_deref();
@@ -1319,9 +1343,15 @@ pub fn play_game_isolated(
             .name(format!("game {}", spec.game))
             .stack_size(STACK)
             .spawn_scoped(s, || play_game(engine, spec, difficulty, decks, card_data, opts, live));
+        // A failure outside the game still says how it was to be played.
+        let failed = |end: End, why: String| {
+            let mut report = GameReport::failed(spec, card_data, end, why);
+            report.result.engine = engine_label(opts.loops);
+            report
+        };
         match game {
-            Ok(h) => h.join().unwrap_or_else(|payload| GameReport::failed(spec, card_data, End::Panic, payload_text(&*payload))),
-            Err(e) => GameReport::failed(spec, card_data, End::Error, format!("could not start the game's thread: {e}")),
+            Ok(h) => h.join().unwrap_or_else(|payload| failed(End::Panic, payload_text(&*payload))),
+            Err(e) => failed(End::Error, format!("could not start the game's thread: {e}")),
         }
     })
 }
@@ -1570,14 +1600,16 @@ mod tests {
     }
 
     #[test]
-    fn loop_detection_is_off_unless_asked_for_and_labels_its_results() {
-        assert!(!GameOptions::default().loops, "the lab stays without loop detection");
+    fn loop_detection_is_on_unless_turned_off_and_labels_its_results() {
+        assert!(GameOptions::default().loops, "lab games play with loop detection, as games people play do");
+        assert!(GameOptions::default().combos.is_empty());
         // The independently versioned release pin must identify both CLI results
         // and server experiment builds, including pins changed after this test.
         let pinned = include_str!("../../deploy/phase-rev").trim();
-        assert_eq!(ENGINE.strip_prefix("phase-rs v0.122.0+yama-"), Some(pinned));
-        assert_eq!(engine_label(false), ENGINE);
-        assert_eq!(engine_label(true), format!("{ENGINE}+loops"));
+        assert_eq!(ENGINE_WITHOUT_LOOPS.strip_prefix("phase-rs v0.122.0+yama-"), Some(pinned));
+        assert_eq!(ENGINE, format!("{ENGINE_WITHOUT_LOOPS}{LOOPS_SUFFIX}"));
+        assert_eq!(engine_label(true), ENGINE);
+        assert_eq!(engine_label(false), ENGINE_WITHOUT_LOOPS);
     }
 
     #[test]

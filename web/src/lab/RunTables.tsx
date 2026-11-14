@@ -408,7 +408,7 @@ function GameCard({ g, n, of, decks, label }: { g: TableGame; n: number; of: num
             {g.error ? ` ${g.error}.` : ""}
           </p>
           <p className="small dim">
-            Game id <code>{g.game}</code>. It replays move for move from its schedule line on the same engine build (the yama MCP's lab_games gives the line).
+            Game id <code>{g.game}</code>. It replays move for move from its schedule line on the same engine build (the yama MCP's lab_games gives the line), unless a seat was told its list's combos: the runner can't be given those yet.
           </p>
         </Details>
       )}

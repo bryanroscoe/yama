@@ -95,7 +95,8 @@ pub(crate) fn check_current(fixture: &str, configuration: &str) {
             deck
         })
         .collect();
-    let opts = GameOptions { turn_action_cap: case.turn_action_cap, ..Default::default() };
+    // These scenarios were recorded without loop detection.
+    let opts = GameOptions { turn_action_cap: case.turn_action_cap, loops: false, ..Default::default() };
     let result = lab::play_game_isolated(
         engine,
         &case.spec,

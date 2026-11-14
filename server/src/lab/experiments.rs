@@ -248,6 +248,52 @@ pub struct LabList {
     /// sha256 of the list's text (commander lines first), to tell lists apart.
     pub sha256: String,
     pub cards: Vec<LabCard>,
+    /// The combos known in the list when the run was made ([`attach_combos`]), for the computer
+    /// seats that play it: frozen with the list, so every game of the run is told the same.
+    /// Missing on runs from before 13 Nov 2026 and on lists with none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub combos: Vec<LabCombo>,
+}
+
+/// A combo known in a frozen list: Commander Spellbook's id for it, and its cards as the list
+/// names them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LabCombo {
+    pub id: String,
+    pub cards: Vec<String>,
+}
+
+/// Freeze into each of `spec`'s lists the combos known in it, from Yama's copy of Commander
+/// Spellbook's combos (`crate::combos`): none until that has been imported. A lookup that fails
+/// leaves the list without combos; the run still plays.
+async fn attach_combos(pool: &SqlitePool, spec: &mut ExperimentSpec) {
+    // Only Phase's AI is told about combos.
+    if !spec.engines.mode.phase() {
+        return;
+    }
+    // The same list often sits in a run more than once (an entrant that is also the base).
+    let mut known: HashMap<String, Vec<LabCombo>> = HashMap::new();
+    let lists = std::iter::once(&mut spec.base).chain(spec.variant.iter_mut()).chain(spec.entrants.iter_mut()).chain(spec.opponents.iter_mut().map(|o| &mut o.list));
+    for list in lists {
+        if let Some(found) = known.get(&list.sha256) {
+            list.combos = found.clone();
+            continue;
+        }
+        let deck: Vec<DeckCard> = list
+            .cards
+            .iter()
+            .map(|c| DeckCard { oracle_id: c.oracle_id.clone().unwrap_or_default(), name: c.name.clone(), qty: i64::from(c.qty), board: if c.commander { Board::Commander } else { Board::Main } })
+            .collect();
+        list.combos = match crate::combos::in_list(pool, &deck, yama_play::MAX_SEAT_COMBOS).await {
+            Ok(Some(found)) => found.into_iter().map(|f| LabCombo { id: f.id, cards: f.cards }).collect(),
+            Ok(None) => Vec::new(),
+            Err(error) => {
+                tracing::warn!(list = %list.id, %error, "couldn't look up a lab list's combos; it plays without them");
+                Vec::new()
+            }
+        };
+        known.insert(list.sha256.clone(), list.combos.clone());
+    }
 }
 
 /// An opponent and how many pods it sits in.
@@ -368,7 +414,7 @@ pub fn precon_list_sha(cards: Vec<PreconCard>) -> String {
 
 fn make_list(id: &str, label: &str, source: Value, cards: Vec<LabCard>) -> LabList {
     let cards = normalize(cards);
-    LabList { id: id.into(), label: label.into(), source, sha256: sha256_hex(&list_text(&cards)), cards }
+    LabList { id: id.into(), label: label.into(), source, sha256: sha256_hex(&list_text(&cards)), cards, combos: Vec::new() }
 }
 
 /// Lines the changed list has more of (added) and fewer of (cut) than the base.
@@ -1451,6 +1497,7 @@ pub async fn create_with(
     let mode = built.spec.engines.mode;
     let cost = mode.cost(built.games.len() as u32);
     let games = for_engines(built.games, mode);
+    attach_combos(pool, &mut built.spec).await;
     store_new(pool, user, &id, op_id.as_deref(), &name, &built.spec, &games, cost, &chk, quota, fa.engine.as_deref()).await
 }
 
@@ -2015,6 +2062,8 @@ pub async fn again_with(
     let stem = without_games_suffix(&old_name);
     let name = format!("{}{suffix}", stem.chars().take(MAX_NAME.saturating_sub(suffix.chars().count())).collect::<String>());
     let games = for_engines(scheduled, engines.mode);
+    // Played again on this engine: with the combos known now, whatever the earlier run had.
+    attach_combos(pool, &mut spec).await;
     store_new(pool, user, &new_id, op_id, &name, &spec, &games, cost, sim, quota, fa.engine.as_deref()).await
 }
 

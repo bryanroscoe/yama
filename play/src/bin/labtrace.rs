@@ -17,11 +17,13 @@
 //! Usage:
 //!   labtrace --card-data <file> --decks-root <dir> --schedule <file.jsonl> --game <id>
 //!            [--focus <deck id substring>] [--difficulty Easy|Medium|Hard] [--all-log]
-//!            [--expect <results.jsonl>] [--loops]
+//!            [--expect <results.jsonl>] [--no-loops]
 //!
 //! --difficulty overrides the schedule line's level (the replay is then a different game).
-//! --loops plays with the engine's loop detection on, as `lab --loops` and live games do (a
-//! different game too, once a loop is found).
+//! The game plays with the engine's loop detection, as `lab` and live games do since 13 Nov 2026;
+//! --no-loops plays without it, as `lab --no-loops` and every earlier run did (a different game,
+//! once a loop is found). Like `lab`, it gives no seat any combos, so a server game in which a
+//! seat was told its list's combos need not trace the same.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write as _;
@@ -76,7 +78,7 @@ fn parse_args() -> Result<Args, String> {
         difficulty: None,
         all_log: false,
         expect: None,
-        loops: false,
+        loops: true,
     };
     let mut it = argv.iter().skip(1);
     while let Some(flag) = it.next() {
@@ -91,6 +93,7 @@ fn parse_args() -> Result<Args, String> {
             "--expect" => a.expect = Some(PathBuf::from(v()?)),
             "--all-log" => a.all_log = true,
             "--loops" => a.loops = true,
+            "--no-loops" => a.loops = false,
             other => return Err(format!("unknown argument {other}")),
         }
     }
@@ -358,13 +361,19 @@ fn run() -> i32 {
             break "action cap".into();
         }
         // The batch runner's per-turn loop guard (MAX_TURN_ACTIONS).
-        if actions - turn_start_actions >= yama_play::lab::MAX_TURN_ACTIONS {
+        let turn_cap = yama_play::lab::MAX_TURN_ACTIONS * if args.loops { yama_play::lab::LOOPS_TURN_ACTIONS } else { 1 };
+        if actions - turn_start_actions >= turn_cap {
             break "action cap (loop guard)".into();
         }
         match eligible_ai_decision(&state, &seats) {
             Some((owner, actor)) => {
                 let contract = AiDecisionContract::issue(&state, owner);
-                let chosen = choose_action_with_issued_contract(&state, &configs[&actor], &mut rng, &session, &contract).or_else(|| {
+                // As `lab` does: the AI looks ahead on a copy with loop detection off (`ai_search_state`).
+                let found = {
+                    let searched = yama_play::ai_search_state(&state, &session, owner);
+                    choose_action_with_issued_contract(searched.as_ref(), &configs[&actor], &mut rng, &session, &contract)
+                };
+                let chosen = found.or_else(|| {
                     let f = phase_ai::search::fallback_action(&state, &configs[&actor], &contract);
                     if f.is_some() {
                         println!("  [fallback_action used for seat {}]", actor.0);
@@ -398,7 +407,7 @@ fn run() -> i32 {
                         _ => {}
                     }
                 }
-                // With --loops, ordinary passes, as live games and `lab --loops` have them.
+                // With loop detection, ordinary passes, as live games and `lab` have them.
                 let stack_pass = !args.loops && verified_ai_stack_pass_player(&state, &action).is_some();
                 let applied = if stack_pass {
                     apply_verified_ai_priority_pass(&mut state, actor, &contract, action)
