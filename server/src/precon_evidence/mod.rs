@@ -910,11 +910,11 @@ pub const CHOSEN_SIMULATION_ID: &str = "chosen-simulation";
 /// The chosen simulation from the games finished by `cutoff`, or all of them.
 pub(crate) async fn chosen_simulation_at(pool: &SqlitePool, cutoff: Option<DateTime<Utc>>) -> AppResult<Option<SimSource>> {
     let cutoff = cutoff.map(|c| c.to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
-    let chosen: Vec<(String, String, String, String, String, String)> =
-        sqlx::query_as("SELECT experiment_id, owner_id, engine, build, card_data, chosen_at FROM precon_evidence_simulation ORDER BY experiment_id")
+    let chosen: Vec<(String, String, String, String, String, String, bool)> =
+        sqlx::query_as("SELECT experiment_id, owner_id, engine, build, card_data, chosen_at, loops FROM precon_evidence_simulation ORDER BY experiment_id")
             .fetch_all(pool)
             .await?;
-    let Some((_, owner, engine, build, card_data, chosen_at)) = chosen.first().cloned() else { return Ok(None) };
+    let Some((_, owner, engine, build, card_data, chosen_at, loops)) = chosen.first().cloned() else { return Ok(None) };
     let (all, allowed) = catalog_by_sha(pool).await?;
     let mut labels: BTreeMap<String, String> = BTreeMap::new();
     let mut rows: Vec<(String, Option<String>)> = Vec::new();
@@ -935,6 +935,7 @@ pub(crate) async fn chosen_simulation_at(pool: &SqlitePool, cutoff: Option<DateT
              WHERE experiment_id = ? AND result IS NOT NULL AND engine = ? AND substr(IFNULL(json_extract(result, '$.engine'), ''), 1, length(?)) = ?
                AND substr(IFNULL(json_extract(result, '$.card_data'), ''), 1, length(?)) = ?
                AND (? IS NULL OR finished_at <= ?)
+               AND (instr(IFNULL(json_extract(result, '$.engine'), ''), '+loops') > 0) = ?
              ORDER BY ord",
         )
         .bind(id)
@@ -945,6 +946,8 @@ pub(crate) async fn chosen_simulation_at(pool: &SqlitePool, cutoff: Option<DateT
         .bind(&card_data)
         .bind(&cutoff)
         .bind(&cutoff)
+        // Games played with and without loop detection share an engine version, and never pool.
+        .bind(loops)
         .fetch_all(pool)
         .await?;
         for (g, r) in games {
@@ -1047,6 +1050,9 @@ pub async fn choose_simulation(
     }
     let (_, label, card_data) = newest.ok_or_else(|| AppError::bad("no games from that engine and build yet"))?;
     let stem = |s: &str| s.split('+').next().unwrap_or(s).trim().to_string();
+    // Whether that game played with loop detection (the lab's label for it, `lab::LOOPS_SUFFIX`):
+    // only games that played the same way pool with it.
+    let loops = label.contains(yama_play::lab::LOOPS_SUFFIX);
     let build = given.unwrap_or_else(|| stem(&label));
     // Card data likewise without a harness suffix: Forge's names its version, Phase's is a hash.
     let card_data = stem(&card_data);
@@ -1058,7 +1064,7 @@ pub async fn choose_simulation(
     let at = now();
     for id in experiments {
         sqlx::query(
-            "INSERT INTO precon_evidence_simulation(experiment_id, owner_id, engine, build, card_data, chosen_at) VALUES (?,?,?,?,?,?)",
+            "INSERT INTO precon_evidence_simulation(experiment_id, owner_id, engine, build, card_data, chosen_at, loops) VALUES (?,?,?,?,?,?,?)",
         )
         .bind(id)
         .bind(owner)
@@ -1066,6 +1072,7 @@ pub async fn choose_simulation(
         .bind(&build)
         .bind(&card_data)
         .bind(&at)
+        .bind(loops)
         .execute(&mut *tx)
         .await?;
     }

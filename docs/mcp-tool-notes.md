@@ -37,7 +37,8 @@ once. `list_changes` with an `id` shows one change whole; check it before `apply
   Forge has its own queue. Admins also see how many earlier Phase games are ahead in the
   shared queue. Other accounts' runs and decks are never shown.
 - A game replays move for move from its schedule line on the same engine build
-  (`list_lab_games` with `game`).
+  (`list_lab_games` with `game`), unless a seat was told its list's combos (the server
+  freezes them with the run; the command-line runner can't be given them yet).
 
 ## Shopping (`get_shopping_trip`, `set_shopping_rules`, `set_store_preference`, `check_stores`)
 

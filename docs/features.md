@@ -282,7 +282,7 @@ Commander on the [Phase](https://github.com/bryanroscoe/yama-phase) rules engine
 
 ### Simulation lab
 
-Since 13 Nov 2026 lab games play with the engine's loop detection, as online games do, and each list in a run is frozen with the combos known in it, so the computer seats can play them ([how](../ARCHITECTURE.md#how-online-play-ended-up-working)). Results carry an engine label ending in "+loops" and are never pooled with earlier ones; a run with earlier games is run again, not added to.
+Since 13 Nov 2026 lab games play with the engine's loop detection, and each list in a run is frozen with the combos known in it, so the computer seats can play them ([how](../ARCHITECTURE.md#how-online-play-ended-up-working)). Results carry an engine label ending in "+loops": a finished run with earlier games is run again, not added to, and the operator's chosen simulation pools only one kind. A run that was still playing across the change holds both kinds.
 
 One shared-field tournament with 4–256 distinct deck lists, randomized four-player pods, games-per-deck targets, optional precon benchmarks and per-engine rankings/matchups. Batch runner for all-AI games (`play/src/bin/lab.rs`, core in `play/src/lab.rs`); the Commander precon catalog and analysed rating runs imported from commander-decks, with read APIs; "Try a change" experiments played by the server (`/api/lab/experiments`, YAMA_LAB_THREADS isolated game processes, default 1). Pages under Decks, Lab: the precon table and pages (with links to EDHREC's corresponding precon guide and related articles), "Try a change", and your runs, including your imported batch runs. Needs the engine card data ([engine integration](engine-integration.md)).
 

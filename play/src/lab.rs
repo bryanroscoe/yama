@@ -53,7 +53,6 @@ use engine::types::replay::ReplayHeader;
 use phase_ai::auto_play::eligible_ai_decision;
 use phase_ai::config::{ACCEPTED_DIFFICULTY_LABELS, AiConfig, AiDifficulty, Platform, create_config_for_players};
 use phase_ai::search::choose_action_with_issued_contract;
-use phase_ai::session::AiSession;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use serde::{Deserialize, Serialize};
@@ -98,6 +97,10 @@ const MAX_SETTLEMENTS: usize = 1_000;
 /// Real 4-player games average under 60 actions per turn and under 5,000 per game (pilots,
 /// 2026-10-18). The batch runner's YAMA_LAB_MAX_TURN_ACTIONS overrides it; 0 turns the guard off.
 pub const MAX_TURN_ACTIONS: usize = 3_000;
+/// With loop detection every pass is an engine action of its own, so a turn takes more of them:
+/// a game played with it gets this many times its per-turn cap (live games allow 12,000 for the
+/// same reason, `TURN_ACTION_LIMIT`).
+pub const LOOPS_TURN_ACTIONS: usize = 4;
 /// Result-file error text of games whose decks didn't load (older runners wrote such lines).
 pub const DECK_ERRORS: &str = "deck errors:";
 /// Labels for the last actions before the action cap, so a stall names the loop it was in.
@@ -1076,7 +1079,14 @@ fn play(
                 // through to "a worse decision, never a stopped game"; a few prompts don't yet.
                 // Live Yama games stop here instead. Games that never hit this are unchanged.
                 let from_llm = asked.is_some();
-                let chosen = asked.or_else(|| choose_action_with_issued_contract(&state, &configs[&actor], &mut rng, &session, &contract)).or_else(|| {
+                let chosen = asked
+                    .or_else(|| {
+                        // As live games do: the AI looks ahead on a copy with loop detection off,
+                        // except where it is asked about a loop or may open a combo line.
+                        let searched = crate::ai_search_state(&state, &session, owner);
+                        choose_action_with_issued_contract(searched.as_ref(), &configs[&actor], &mut rng, &session, &contract)
+                    })
+                    .or_else(|| {
                     let fallback = phase_ai::search::fallback_action(&state, &configs[&actor], &contract);
                     if fallback.is_some() {
                         p.fallbacks += 1;
@@ -1224,7 +1234,7 @@ pub fn play_game(
         cpu_start,
         started,
         wall: Duration::from_secs(spec.max_seconds.saturating_mul(WALL_FACTOR)),
-        turn_action_cap: opts.turn_action_cap,
+        turn_action_cap: if opts.loops { opts.turn_action_cap.saturating_mul(LOOPS_TURN_ACTIONS) } else { opts.turn_action_cap },
         panic_after: opts.panic_after,
         hang_after: opts.hang_after,
         loops: opts.loops,
@@ -1333,9 +1343,15 @@ pub fn play_game_isolated(
             .name(format!("game {}", spec.game))
             .stack_size(STACK)
             .spawn_scoped(s, || play_game(engine, spec, difficulty, decks, card_data, opts, live));
+        // A failure outside the game still says how it was to be played.
+        let failed = |end: End, why: String| {
+            let mut report = GameReport::failed(spec, card_data, end, why);
+            report.result.engine = engine_label(opts.loops);
+            report
+        };
         match game {
-            Ok(h) => h.join().unwrap_or_else(|payload| GameReport::failed(spec, card_data, End::Panic, payload_text(&*payload))),
-            Err(e) => GameReport::failed(spec, card_data, End::Error, format!("could not start the game's thread: {e}")),
+            Ok(h) => h.join().unwrap_or_else(|payload| failed(End::Panic, payload_text(&*payload))),
+            Err(e) => failed(End::Error, format!("could not start the game's thread: {e}")),
         }
     })
 }

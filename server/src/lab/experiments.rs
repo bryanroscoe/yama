@@ -267,6 +267,10 @@ pub struct LabCombo {
 /// Spellbook's combos (`crate::combos`): none until that has been imported. A lookup that fails
 /// leaves the list without combos; the run still plays.
 async fn attach_combos(pool: &SqlitePool, spec: &mut ExperimentSpec) {
+    // Only Phase's AI is told about combos.
+    if !spec.engines.mode.phase() {
+        return;
+    }
     // The same list often sits in a run more than once (an entrant that is also the base).
     let mut known: HashMap<String, Vec<LabCombo>> = HashMap::new();
     let lists = std::iter::once(&mut spec.base).chain(spec.variant.iter_mut()).chain(spec.entrants.iter_mut()).chain(spec.opponents.iter_mut().map(|o| &mut o.list));

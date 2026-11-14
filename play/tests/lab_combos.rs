@@ -18,14 +18,14 @@ fn deck(cards: &[(&str, usize)]) -> SeatDeck {
 }
 
 fn spec() -> GameSpec {
-    GameSpec { game: "lab-combos".into(), seed: 11, decks: vec!["drain".into(), "lands".into()], difficulty: "Easy".into(), max_turns: 40, max_actions: 20_000, max_seconds: 120, pilots: None }
+    GameSpec { game: "lab-combos".into(), seed: 11, decks: vec!["drain".into(), "lands".into()], difficulty: "Easy".into(), max_turns: 200, max_actions: 50_000, max_seconds: 600, pilots: None }
 }
 
 /// A deck of the drain (Marauding Blight-Priest, Bloodthirsty Conqueror, Chaplain's Blessing)
 /// against a deck of nothing but Plains.
 fn decks() -> Vec<SeatDeck> {
     vec![
-        deck(&[("Swamp", 22), ("Plains", 12), ("Marauding Blight-Priest", 22), ("Bloodthirsty Conqueror", 21), ("Chaplain's Blessing", 22)]),
+        deck(&[("Swamp", 26), ("Plains", 14), ("Marauding Blight-Priest", 20), ("Bloodthirsty Conqueror", 19), ("Chaplain's Blessing", 20)]),
         deck(&[("Plains", 99)]),
     ]
 }
