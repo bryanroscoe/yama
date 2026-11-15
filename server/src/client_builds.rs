@@ -104,22 +104,26 @@ fn device_key(token: &str) -> String {
 /// more often than every [`WRITE_EVERY`].
 static RECENT: LazyLock<Mutex<HashMap<String, (String, Instant)>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// Whether this report needs writing now, and if so mark it written.
-fn due(key: &str, client: &str, device: &str) -> bool {
+/// Held across checking, writing and remembering a report, so two requests from one device can't
+/// interleave: without it an older build's write could land after a newer one's while the cache
+/// said the newer was written, and the row would stay wrong until the cache expired. Writes are
+/// rare (one per device every [`WRITE_EVERY`], or on a change), so one lock for all is enough.
+static WRITING: LazyLock<tokio::sync::Mutex<()>> = LazyLock::new(|| tokio::sync::Mutex::new(()));
+
+/// Whether this report needs writing now: not when the same report was written lately.
+fn due(key: &str, seen: &str) -> bool {
+    let recent = RECENT.lock().unwrap_or_else(|e| e.into_inner());
+    !matches!(recent.get(key), Some((last, at)) if last == seen && at.elapsed() < WRITE_EVERY)
+}
+
+/// Remember a report that was written.
+fn written(key: &str, seen: String) {
     let mut recent = RECENT.lock().unwrap_or_else(|e| e.into_inner());
-    let seen = format!("{client}|{device}");
-    if let Some((last, at)) = recent.get(key)
-        && *last == seen
-        && at.elapsed() < WRITE_EVERY
-    {
-        return false;
-    }
     // Bounded: one entry per live session, cleared wholesale if it ever grows past that.
     if recent.len() >= 10_000 {
         recent.clear();
     }
     recent.insert(key.to_string(), (seen, Instant::now()));
-    true
 }
 
 /// Note the client a signed-in request reports, if it reports one. Never fails the request: a
@@ -129,12 +133,19 @@ pub async fn note(pool: &SqlitePool, user_id: &str, token: &str, headers: &Heade
     let agent = headers.get(axum::http::header::USER_AGENT).and_then(|v| v.to_str().ok()).unwrap_or("");
     let device = device_label(agent);
     let key = device_key(token);
-    if !due(&format!("{user_id}|{key}"), &client, &device) {
+    let slot = format!("{user_id}|{key}");
+    let seen = format!("{client}|{device}");
+    // Checked once without the lock, so the usual unchanged report costs nothing more.
+    if !due(&slot, &seen) {
         return;
     }
-    if let Err(err) = record(pool, user_id, &key, &client, &device, &crate::util::now()).await {
-        tracing::warn!(error = %err, "couldn't record a device's Yama build");
-        RECENT.lock().unwrap_or_else(|e| e.into_inner()).remove(&format!("{user_id}|{key}"));
+    let _writing = WRITING.lock().await;
+    if !due(&slot, &seen) {
+        return;
+    }
+    match record(pool, user_id, &key, &client, &device, &crate::util::now()).await {
+        Ok(()) => written(&slot, seen),
+        Err(err) => tracing::warn!(error = %err, "couldn't record a device's Yama build"),
     }
 }
 
