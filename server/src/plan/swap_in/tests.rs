@@ -290,3 +290,82 @@ async fn a_plan_linked_to_a_configuration_swaps_into_its_main_deck() {
     assert_eq!(status, StatusCode::OK, "{preview}");
     assert_eq!(preview["deck"]["deck_id"], alpha.as_str());
 }
+
+#[tokio::test]
+async fn a_deck_with_its_own_spares_box_sends_its_cuts_there() {
+    let (app, pool) = app().await;
+    seed(&pool).await;
+    let (a_id, a) = user(&pool, "a@example.com").await;
+    let (status, report) = send(&app, Method::POST, "/api/plan/import", Some(&a), Some(doc())).await;
+    assert_eq!(status, StatusCode::OK, "{report}");
+    // The shared box and the deck's own (its case as the person typed it): the deck's own wins;
+    // another deck's is left alone.
+    for (id, name) in [("box-shared", "Spares"), ("box-alpha", "ALPHA DECK Spares"), ("box-beta", "Beta Deck spares")] {
+        sqlx::query("INSERT INTO containers (id, owner_id, kind, name, created_at) VALUES (?, ?, 'box', ?, 'now')").bind(id).bind(&a_id).bind(name).execute(&pool).await.unwrap();
+    }
+    yama_deck(
+        &app,
+        &pool,
+        &a_id,
+        &a,
+        "alpha",
+        "Alpha Deck",
+        vec![
+            dc("o-acmd", "Alpha Commander", 1, Board::Commander),
+            dc("o-stand", "Stand In", 1, Board::Main),
+            dc("o-cut", "Cut Card", 1, Board::Main),
+            dc("o-bag", "Bag Card", 1, Board::Main),
+            dc("o-gift", "Gift Card", 1, Board::Main),
+            dc("o-forest", "Forest", 5, Board::Main),
+        ],
+    )
+    .await;
+    let (status, p) = send(&app, Method::GET, "/api/plan/decks/alpha/swap-in", Some(&a), None).await;
+    assert_eq!(status, StatusCode::OK, "{p}");
+    let to: Vec<(String, String)> = p["takes_out"].as_array().unwrap().iter().map(|t| (t["name"].as_str().unwrap().into(), t["to_name"].as_str().unwrap().into())).collect();
+    assert!(to.contains(&("Stand In".into(), "ALPHA DECK Spares".into())), "{to:?}");
+    assert!(to.contains(&("Cut Card".into(), "ALPHA DECK Spares".into())), "{to:?}");
+    assert!(to.contains(&("Bag Card".into(), "Alpha Deck swap bag".into())), "the swap bag still comes first: {to:?}");
+    // Beta has no Yama deck, so it has no box: Gift Card falls back to Alpha's spares.
+    assert!(to.contains(&("Gift Card".into(), "ALPHA DECK Spares".into())), "{to:?}");
+    let (status, done) = send(&app, Method::POST, "/api/plan/decks/alpha/swap-in", Some(&a), None).await;
+    assert_eq!(status, StatusCode::OK, "{done}");
+    assert_eq!(in_box(&pool, &a_id, "ALPHA DECK Spares", "Stand In").await, (1, 0));
+    assert_eq!(in_box(&pool, &a_id, "ALPHA DECK Spares", "Cut Card").await, (1, 0));
+    assert_eq!(in_box(&pool, &a_id, "ALPHA DECK Spares", "Gift Card").await, (1, 0));
+    assert_eq!(in_box(&pool, &a_id, "Alpha Deck swap bag", "Bag Card").await, (1, 0));
+    let shared: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM collection_items WHERE container_id IN ('box-shared', 'box-beta')").fetch_one(&pool).await.unwrap();
+    assert_eq!(shared, 0, "nothing went to the shared Spares or another deck's");
+}
+
+#[tokio::test]
+async fn a_renamed_deck_finds_its_spares_box_by_its_new_name() {
+    let (app, pool) = app().await;
+    seed(&pool).await;
+    let (a_id, a) = user(&pool, "a@example.com").await;
+    let (status, report) = send(&app, Method::POST, "/api/plan/import", Some(&a), Some(doc())).await;
+    assert_eq!(status, StatusCode::OK, "{report}");
+    for (id, name) in [("box-old", "Alpha Deck spares"), ("box-new", "New Alpha spares")] {
+        sqlx::query("INSERT INTO containers (id, owner_id, kind, name, created_at) VALUES (?, ?, 'box', ?, 'now')").bind(id).bind(&a_id).bind(name).execute(&pool).await.unwrap();
+    }
+    let alpha = yama_deck(
+        &app,
+        &pool,
+        &a_id,
+        &a,
+        "alpha",
+        "Alpha Deck",
+        vec![dc("o-acmd", "Alpha Commander", 1, Board::Commander), dc("o-cut", "Cut Card", 1, Board::Main), dc("o-forest", "Forest", 5, Board::Main)],
+    )
+    .await;
+    sqlx::query("UPDATE decks SET name = 'New Alpha' WHERE id = ?").bind(&alpha).execute(&pool).await.unwrap();
+    let (status, p) = send(&app, Method::GET, "/api/plan/decks/alpha/swap-in", Some(&a), None).await;
+    assert_eq!(status, StatusCode::OK, "{p}");
+    let cut = p["takes_out"].as_array().unwrap().iter().find(|t| t["name"] == "Cut Card").cloned().unwrap();
+    assert_eq!(cut["to_name"], "New Alpha spares", "{p}");
+    // With no box under the new name, the plan's name still finds one.
+    sqlx::query("DELETE FROM containers WHERE id = 'box-new'").execute(&pool).await.unwrap();
+    let (_, p) = send(&app, Method::GET, "/api/plan/decks/alpha/swap-in", Some(&a), None).await;
+    let cut = p["takes_out"].as_array().unwrap().iter().find(|t| t["name"] == "Cut Card").cloned().unwrap();
+    assert_eq!(cut["to_name"], "Alpha Deck spares", "{p}");
+}

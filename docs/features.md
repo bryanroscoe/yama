@@ -218,7 +218,7 @@ The planner is in progress ([design](planner-design.md), [plan file format](plan
 - Settings with script keys for commander-decks' `publish.py` and `pull.py`
 - A Buy page (cards by store with cart links, dated prices and rule flags, "Mark bought", each order A to Z for sorting a delivery), Prints (each print order and the next one, with tiers and double-faced backs; Print with MakePlayingCards picks print-ready images from MPC Autofill and the Yama print helper for Chrome, `extension/mpc`, fills them into an MPC project, or writes MPC Autofill's order.xml; and a printable swap sheet: sort the prints into decks, then each deck's card in, card out and where the cut card goes) and Spares
 - "I've put this in the deck" ticks
-- "Swap in the prints" per deck, which gives the linked Yama deck its after-prints list, puts the prints in its box as proxies, moves cut cards to the deck that takes them next, the deck's swap bag box or Spares, and ticks the swaps installed
+- "Swap in the prints" per deck, which gives the linked Yama deck its after-prints list, puts the prints in its box as proxies, moves cut cards to the deck that takes them next, the deck's swap bag box, the deck's own spares box ("<deck> spares" under the deck's current or plan name, any case, when there is one; 2026-11-15) or Spares, and ticks the swaps installed
 
 ### Swap cards and deck-box inserts
 
@@ -346,7 +346,10 @@ Yama exposes its own MCP server at `/mcp` for Ask Claude and outside clients: pr
 collection and planner tools; staged edits; full online card search, community recommendations,
 combos, public deck imports and current rules; deck/budget analysis and bounded mana checks. No
 other Magic MCP installation is needed for those workflows. Write tools stage a change that waits
-in Yama for its owner to apply or discard. See the public
+in Yama for its owner to apply or discard. `move_cards` takes `proxy` to move only proxies or
+only real copies (real copies go first otherwise), and collection tools treat every card with one
+exact name as that card, so a token named like others (Soldier, tmsh 3) is found by set and
+number (2026-11-15). See the public
 [MCP feature and setup guide](https://yama.ing/docs/mcp/), [capabilities and use](mcp-parity.md)
 and [connection design](mcp-design.md). The private [Codex and ChatGPT plugin](codex-plugin.md)
 packages this connection with deck-building, collection-planning and research skills; it is not a

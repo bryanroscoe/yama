@@ -1212,6 +1212,7 @@ pub(super) const TOOLS: &[Tool] = &[
                     "qty": {"type": "integer", "minimum": 1, "maximum": 100},
                     "from": {"type": "string", "description": "Where the copies are: a binder, deck box or list by name, or \"Loose\" for copies in none."},
                     "to": {"type": "string", "description": "Where they go: a binder, deck box or list by name, or \"Loose\" for none."},
+                    "proxy": {"type": "boolean", "description": "true moves only proxies, false only real copies. Left out, real copies go first."},
                 },
                 "required": ["card", "from", "to"],
                 "additionalProperties": false,

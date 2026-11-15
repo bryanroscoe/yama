@@ -2209,6 +2209,10 @@
             "pattern": "^[A-Za-z0-9_-]+$",
             "type": "string"
           },
+          "proxy": {
+            "description": "true moves only proxies, false only real copies. Left out, real copies go first.",
+            "type": "boolean"
+          },
           "qty": {
             "maximum": 100,
             "minimum": 1,
