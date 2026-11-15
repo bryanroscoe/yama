@@ -1002,11 +1002,33 @@ export function ScannerView({
         const locked = lockRef.current;
         const judged = locked && r.quad ? judgeLocked(r.matches, r.pool, locked.inSets, ART_UNKNOWN) : null;
         const top = judged && judged.kind !== "none" ? judged.match : r.matches[0];
+        // The same decision as the camera: a sure, unrivalled art match decides; otherwise the
+        // title is read and settles or overrules the art (fuse.ts). A lone fair match (0.62) used
+        // to decide here, so a foil Westvale Abbey photo was Wei Night Raiders at 0.658 (review
+        // of #138). With a set lock whose art is mostly unknown, only its own matches count.
         if (r.quad && top && top.score >= LOCK_TWICE) {
-          const read = identityOnly && !savingPhotos() ? null : around(bmp, bmp.width, bmp.height, scaleQuad(r.quad, 1 / k), hiCanvasRef.current);
-          bmp.close();
-          if (current()) showArt(r, top, read);
-          return;
+          const artUnknown = !!locked && judged?.kind !== "in-set" && poolShare.current < KNOWN_ART;
+          const ranked = artUnknown ? [] : [...r.matches, ...(r.pool ?? [])].sort((a, b) => b.score - a.score);
+          const hi = around(bmp, bmp.width, bmp.height, scaleQuad(r.quad, 1 / k), hiCanvasRef.current);
+          const read = identityOnly && !savingPhotos() ? null : hi;
+          if (!artUnknown && top.score >= LOCK_ONCE && !needsTitle(ranked)) {
+            bmp.close();
+            if (current()) showArt(r, top, read);
+            return;
+          }
+          const reader = await textReader();
+          const fused = fuseTitle(ranked, titleRead(await readTitles(hi.image, hi.quad, reader.ocr), reader));
+          if (fused.kind === "art") {
+            bmp.close();
+            if (current()) showArt(r, fused.match, read);
+            return;
+          }
+          if (fused.kind === "title") {
+            bmp.close();
+            if (current()) fromName(fused.name, "name", { shot: hi });
+            return;
+          }
+          // No clear title: read the rest of the card's text below, as for unknown art.
         }
         // A card whose art isn't known: read its text where the recognizer found it.
         if (r.quad) {
