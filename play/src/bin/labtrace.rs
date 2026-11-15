@@ -370,7 +370,7 @@ fn run() -> i32 {
                 let contract = AiDecisionContract::issue(&state, owner);
                 // As `lab` does: the AI looks ahead on a copy with loop detection off (`ai_search_state`).
                 let found = {
-                    let searched = yama_play::ai_search_state(&state, &session, owner);
+                    let searched = yama_play::ai_search_state(&state, &session, owner, &configs[&actor]);
                     choose_action_with_issued_contract(searched.as_ref(), &configs[&actor], &mut rng, &session, &contract)
                 };
                 let chosen = found.or_else(|| {

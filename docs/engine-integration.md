@@ -2,6 +2,19 @@
 
 The original research spike below describes phase **v0.113.0** (tag commit `0571ee32f08c`, released 2026-10-18). Its file references are into that tag of <https://github.com/phase-rs/phase>. Current source composition is recorded first; dated evidence below remains historical.
 
+## Re-pin for the deck plan, 15 November 2026
+
+`deploy/phase-rev` moves to `6277c3925ac42c43ff385653d4c35364f6cffba4` (fork PR 16): a seat rehearses its combos on a copy of
+the game and its tutors fetch the cards of the ones it can win with. One engine addition,
+`ai_support::practice_position`, builds that copy; it never touches the game it is given.
+
+- Checked on the fork: the combo gates (`combo_execution.rs`, ten tests), the paired-seed AI
+  gate and the decision-cost performance gate. A seat with no combos has no plan, so it plays
+  as before.
+- As with the 13 November pin, Yama's `candidate_v0122_*` seeded scenarios were not rerun.
+- The runtime identity and the lab's label change with the pin, as they did on 13 November:
+  live games are replay-checked and moved over, and lab results are not pooled across pins.
+
 ## Re-pin for the AI's combos, 13 November 2026
 
 `deploy/phase-rev` pins the fork's main `558135aa325bd97bd216433ca5e757a52771a176`: the
