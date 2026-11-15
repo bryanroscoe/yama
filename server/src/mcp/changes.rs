@@ -1702,12 +1702,13 @@ const CONDITIONS: [(&str, &str); 5] =
 async fn rows_to_grade(conn: &mut sqlx::SqliteConnection, owner: &str, container_id: &str, oracle_id: Option<&str>, condition: &str) -> AppResult<Vec<(String, String, i64)>> {
     Ok(sqlx::query_as(
         "SELECT i.id, p.name, i.qty FROM collection_items i JOIN printings p ON p.scryfall_id = i.scryfall_id
-         WHERE i.owner_id = ? AND COALESCE(i.container_id, '') = ? AND (? IS NULL OR p.oracle_id = ?) AND i.condition != ? AND i.qty > 0
+         WHERE i.owner_id = ?1 AND COALESCE(i.container_id, '') = ?2
+           AND (?3 IS NULL OR p.oracle_id IN (SELECT o.oracle_id FROM cards o WHERE o.name = (SELECT n.name FROM cards n WHERE n.oracle_id = ?3) COLLATE NOCASE))
+           AND i.condition != ?4 AND i.qty > 0
          ORDER BY p.name, i.id",
     )
     .bind(owner)
     .bind(container_id)
-    .bind(oracle_id)
     .bind(oracle_id)
     .bind(condition)
     .fetch_all(&mut *conn)

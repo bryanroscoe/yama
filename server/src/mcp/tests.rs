@@ -1537,6 +1537,8 @@ async fn proxies_move_on_their_own_and_tokens_that_share_a_name_are_found() {
     assert!(!err && text.contains("from Loose (in no binder or box) to Deck Box"), "{text}");
     apply(text).await;
     assert_eq!(held("Soldier").await, [(Some("deck-box".to_string()), false, 1)]);
+    let (err, text) = call(&app, &mcp, "set_condition", json!({"container": "Deck Box", "card": "Soldier", "condition": "LP"})).await;
+    assert!(!err && text.contains("Mark 1 Soldier in Deck Box lightly played"), "{text}");
 
     // A loose real Sol Ring and a loose proxy: real copies go first, unless proxy picks.
     for proxy in [false, true] {
