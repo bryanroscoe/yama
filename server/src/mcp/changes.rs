@@ -1554,8 +1554,9 @@ pub async fn add_to_collection(st: &AppState, user: &User, via: &Via, args: &Val
     let printing: Option<(String, String, String)> = match &set {
         Some(set) => {
             sqlx::query_as(
-                // Tokens share names (Scryfall has many cards called Soldier): a printing of any card
-                // with this exact name counts, the one the name resolved to first.
+                // Tokens share names (Scryfall has many cards called Soldier, and a Tarmogoyf token): a
+                // set and number name one printing, so one of any card with this exact name counts,
+                // the one the name resolved to first.
                 "SELECT p.scryfall_id, p.set_name, p.collector_number FROM printings p
                  WHERE p.oracle_id IN (SELECT o.oracle_id FROM cards o WHERE o.name = (SELECT n.name FROM cards n WHERE n.oracle_id = ?1) COLLATE NOCASE)
                    AND lower(p.set_code) = lower(?2) AND (?3 IS NULL OR p.collector_number = ?3)
@@ -1638,8 +1639,9 @@ impl CopyRow {
 }
 
 /// The caller's copies of a card in one container (`LOOSE` for none), real copies first. With
-/// `same_name`, a card is every card with its exact name, so a token named like others (Soldier)
-/// finds all of theirs. Changes staged before 2026-11-15 carry no `same_name` and still apply to
+/// `same_name`, a card is every card with its exact name and the same kind (a token is never a
+/// playable card's namesake: Tarmogoyf and the Tarmogoyf token stay apart), so a token named like
+/// other tokens (Soldier) finds all of theirs. Changes staged before 2026-11-15 carry no `same_name` and still apply to
 /// the one card they were staged for ([`same_name`]).
 async fn copies_in(conn: &mut sqlx::SqliteConnection, owner: &str, oracle_id: &str, container_id: &str, same_name: bool) -> AppResult<Vec<CopyRow>> {
     Ok(sqlx::query_as(
@@ -1647,7 +1649,7 @@ async fn copies_in(conn: &mut sqlx::SqliteConnection, owner: &str, oracle_id: &s
                 p.set_code, p.collector_number
          FROM collection_items i JOIN printings p ON p.scryfall_id = i.scryfall_id
          WHERE i.owner_id = ?1
-           AND (p.oracle_id = ?2 OR (?4 AND p.oracle_id IN (SELECT o.oracle_id FROM cards o WHERE o.name = (SELECT n.name FROM cards n WHERE n.oracle_id = ?2) COLLATE NOCASE)))
+           AND (p.oracle_id = ?2 OR (?4 AND p.oracle_id IN (SELECT o.oracle_id FROM cards o JOIN cards n ON n.oracle_id = ?2 WHERE o.name = n.name COLLATE NOCASE AND (IFNULL(o.layout, '') IN ('token', 'double_faced_token', 'emblem')) = (IFNULL(n.layout, '') IN ('token', 'double_faced_token', 'emblem')))))
            AND COALESCE(i.container_id, '') = ?3 AND i.qty > 0
          ORDER BY i.proxy, i.qty DESC, i.id",
     )
@@ -1712,7 +1714,7 @@ async fn rows_to_grade(conn: &mut sqlx::SqliteConnection, owner: &str, container
     Ok(sqlx::query_as(
         "SELECT i.id, p.name, i.qty FROM collection_items i JOIN printings p ON p.scryfall_id = i.scryfall_id
          WHERE i.owner_id = ?1 AND COALESCE(i.container_id, '') = ?2
-           AND (?3 IS NULL OR p.oracle_id = ?3 OR (?5 AND p.oracle_id IN (SELECT o.oracle_id FROM cards o WHERE o.name = (SELECT n.name FROM cards n WHERE n.oracle_id = ?3) COLLATE NOCASE)))
+           AND (?3 IS NULL OR p.oracle_id = ?3 OR (?5 AND p.oracle_id IN (SELECT o.oracle_id FROM cards o JOIN cards n ON n.oracle_id = ?3 WHERE o.name = n.name COLLATE NOCASE AND (IFNULL(o.layout, '') IN ('token', 'double_faced_token', 'emblem')) = (IFNULL(n.layout, '') IN ('token', 'double_faced_token', 'emblem')))))
            AND i.condition != ?4 AND i.qty > 0
          ORDER BY p.name, i.id",
     )

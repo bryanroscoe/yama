@@ -654,15 +654,17 @@ async fn printings(st: &AppState, user: &User, args: &Value) -> AppResult<Value>
     let card: Value = card.and_then(|c| serde_json::from_str(&c).ok()).unwrap_or(Value::Null);
     // Tokens share names (Scryfall has a dozen different Soldier tokens): every card with this
     // exact name, the one the name resolved to first. Each printing says which card it is.
-    let same_name: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
-        "SELECT oracle_id, type_line, oracle_text FROM cards
+    let same_name: Vec<(String, Option<String>, Option<String>, bool)> = sqlx::query_as(
+        "SELECT oracle_id, type_line, oracle_text,
+                (IFNULL(layout, '') IN ('token', 'double_faced_token', 'emblem')) = (SELECT IFNULL(layout, '') IN ('token', 'double_faced_token', 'emblem') FROM cards WHERE oracle_id = ?1)
+           FROM cards
           WHERE name = (SELECT name FROM cards WHERE oracle_id = ?1) COLLATE NOCASE
           ORDER BY oracle_id = ?1 DESC, oracle_id",
     )
     .bind(&oracle_id)
     .fetch_all(&st.pool)
     .await?;
-    let ids: Vec<String> = if same_name.is_empty() { vec![oracle_id.clone()] } else { same_name.iter().map(|(id, _, _)| id.clone()).collect() };
+    let ids: Vec<String> = if same_name.is_empty() { vec![oracle_id.clone()] } else { same_name.iter().map(|(id, _, _, _)| id.clone()).collect() };
     let rows: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT json_object('id', p.scryfall_id, 'oracle_id', p.oracle_id, 'set', p.set_code, 'set_name', p.set_name, 'set_type', p.set_type,
                 'collector_number', p.collector_number, 'lang', p.lang, 'rarity', p.rarity, 'finishes', json(p.finishes),
@@ -695,7 +697,9 @@ async fn printings(st: &AppState, user: &User, args: &Value) -> AppResult<Value>
         .filter_map(|(id, column)| labels.iter().find(|(l, _)| l == id).map(|(_, label)| (column.to_string(), Value::from(label.as_str()))))
         .collect();
     let owned = ownership(st, user).await?;
-    let (real, proxies) = ids.iter().filter_map(|id| owned.get(id)).fold((0, 0), |(r, p), (a, b)| (r + a, p + b));
+    // Owned copies of this card and its namesakes of the same kind: a Tarmogoyf token isn't a Tarmogoyf.
+    let kin: Vec<&String> = if same_name.is_empty() { vec![&oracle_id] } else { same_name.iter().filter(|(_, _, _, kin)| *kin).map(|(id, _, _, _)| id).collect() };
+    let (real, proxies) = kin.into_iter().filter_map(|id| owned.get(id)).fold((0, 0), |(r, p), (a, b)| (r + a, p + b));
     let cards_at = crate::cards::import::cards_changed_at(&st.pool).await?;
     let prices_at = crate::cards::import::latest_price_date(&st.pool).await?;
     let mut out = json!({
@@ -708,7 +712,7 @@ async fn printings(st: &AppState, user: &User, args: &Value) -> AppResult<Value>
     });
     // Only when other cards share the name: each printing's oracle_id says which it is.
     if same_name.len() > 1 {
-        out["same_name_cards"] = same_name.iter().map(|(id, t, o)| json!({"oracle_id": id, "type_line": t, "oracle_text": o})).collect();
+        out["same_name_cards"] = same_name.iter().map(|(id, t, o, _)| json!({"oracle_id": id, "type_line": t, "oracle_text": o})).collect();
     }
     Ok(out)
 }

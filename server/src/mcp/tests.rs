@@ -1588,4 +1588,34 @@ async fn proxies_move_on_their_own_and_tokens_that_share_a_name_are_found() {
     let loose: Vec<(String, i64)> =
         sqlx::query_as("SELECT scryfall_id, qty FROM collection_items WHERE owner_id = ? AND container_id IS NULL AND scryfall_id LIKE 'p-t%'").bind(&a).fetch_all(&pool).await.unwrap();
     assert_eq!(loose, [("p-twar-3".to_string(), 1)], "the vigilance Soldier it was staged for");
+
+    // A playable card and a token with its name stay apart (Tarmogoyf and the Tarmogoyf token):
+    // the token is added by its set and number, but taking "Goyf" out never touches the token.
+    for (oid, layout, pid, set) in [("o-goyf", "normal", "p-goyf", "fra"), ("o-goyf-token", "token", "p-goyf-token", "tm3c")] {
+        sqlx::query("INSERT INTO cards (oracle_id, name, type_line, layout, default_printing, updated_at) VALUES (?, 'Goyf', 'Creature — Lhurgoyf', ?, ?, 'now')")
+            .bind(oid)
+            .bind(layout)
+            .bind(pid)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO card_names (name, oracle_id) VALUES ('Goyf', ?)").bind(oid).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO printings (scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang, updated_at) VALUES (?, ?, 'Goyf', ?, 'Set', '22', 'en', 'now')")
+            .bind(pid)
+            .bind(oid)
+            .bind(set)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    let (err, text) = call(&app, &mcp, "add_to_collection", json!({"card": "Goyf", "set": "tm3c", "number": "22", "container": "Deck Box"})).await;
+    assert!(!err, "{text}");
+    apply(text).await;
+    let (err, text) = call(&app, &mcp, "remove_from_collection", json!({"card": "Goyf", "from": "Deck Box"})).await;
+    assert!(err && text.contains("holds no Goyf"), "{text}");
+    let (err, text) = call(&app, &mcp, "move_cards", json!({"card": "Goyf", "from": "Deck Box", "to": "Loose"})).await;
+    assert!(err && text.contains("holds 0 Goyf"), "{text}");
+    let (_, text) = call(&app, &mcp, "list_card_printings", json!({"card": "Goyf"})).await;
+    let listed: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!((listed["total_printings"].as_i64(), listed["owned_real"].as_i64()), (Some(2), Some(0)), "the token isn't a Goyf owned: {listed}");
 }
