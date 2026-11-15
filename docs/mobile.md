@@ -43,16 +43,24 @@ than the one already published. It publishes to the rolling `android-app` releas
   "Native code" is `web/scripts/android-native-hash.mjs`: the tracked files under `web/android`,
   `web/capacitor.config.ts` and the exact versions of the `@capacitor/*` and `@capgo/*` packages.
   Version codes start at 100 and go up by one per APK; a manual run with "native" ticked forces one.
-- `update.json`, uploaded last: `{ native: { versionCode, versionName, hash, url, sha256 },
-  web: { version, nativeHash, url, sha256 }, commit }`. The newest three web builds and APKs are kept.
+- `update.json`, uploaded last: `{ native: { versionCode, versionName, hash, url, sha256, notes,
+  commit }, web: { version, nativeHash, url, sha256 }, commit }`. The newest three web builds and APKs are kept.
+  `native.notes` (since 15 Nov 2026) is the APK's one-line what's new: the titles of the changes
+  to the native code since the previous APK's `native.commit`, or of every change since then if
+  none touched it (`web/scripts/android-release-notes.mjs`). Older manifests lack both; the app
+  treats missing or malformed notes as none and never refuses a manifest over them.
 
-The app (`web/src/nativeUpdate.ts`, `components/AppUpdate.tsx`, `UpdaterPlugin.java`) reads
-`update.json` on launch, on returning to the front and every 30 minutes:
+The app (`web/src/nativeUpdate.ts`, `appUpdate.ts`, `components/AppUpdate.tsx`,
+`UpdaterPlugin.java`) reads `update.json` on launch, on returning to the front, every 30 minutes
+and from Check for updates in Settings, only while it is open (Bryan, 15 Nov 2026: no background
+check or system notification). The banner and Settings' "Yama app" row share that one check:
 
-- **A newer APK** (higher version code): a banner with Update downloads it, checks its SHA-256,
+- **A newer APK** (higher version code): a banner naming the version, with its what's new, and
+  Update (also Update app in Settings) downloads it, checks its SHA-256,
   package name and version, and hands it to Android's installer, which asks the person and refuses
   an APK not signed with the app's key. The first time, Android sends the person to "Install
-  unknown apps" for Yama; the banner says to come back and tap Update again.
+  unknown apps" for Yama; coming back with it allowed carries the install on by itself, and coming
+  back without it says so.
 - **A web build for this native code** (`nativeHash` equal to the app's): downloaded quietly,
   checked against its SHA-256, unpacked into the app's files, and started the next time the app
   opens, or at once from the banner's Reload. Capacitor serves it in place of the built-in copy

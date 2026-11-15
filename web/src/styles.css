@@ -2748,6 +2748,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
 }
 .app-update { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; padding: 12px var(--page-pad); border-bottom: 1px solid var(--line); background: var(--raised); font-size: var(--t-sm); }
 .app-update button { min-height: var(--target); }
+.app-update-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 16rem; }
 
 /* ── More: a floating menu (components/MoreMenu.tsx; design/tokens.md, rule 2) ─────────────── */
 .more-menu {

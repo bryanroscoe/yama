@@ -206,9 +206,18 @@ jobs:
           web_sha=$(sha256sum "$out/web-$BUILD.zip" | cut -d' ' -f1)
           if [ "$NATIVE" = "true" ]; then
             apk_sha=$(sha256sum "$out/yama-$CODE.apk" | cut -d' ' -f1)
+            # What's new since the previous APK, one line (web/scripts/android-release-notes.mjs).
+            # Older manifests don't name the APK's own commit; the last published commit stands in.
+            since=
+            if [ -f "$RUNNER_TEMP/previous.json" ]; then
+              since=$(jq -r '.native.commit // .commit // ""' "$RUNNER_TEMP/previous.json")
+              if [ -n "$since" ] && ! git merge-base --is-ancestor "$since" HEAD 2>/dev/null; then since=; fi
+            fi
+            notes=$(node web/scripts/android-release-notes.mjs $since)
+            echo "What's new: $notes"
             native=$(jq -n --argjson code "$CODE" --arg name "0.2.$CODE" --arg hash "$HASH" \
-              --arg url "$base/yama-$CODE.apk" --arg sha "$apk_sha" \
-              '{versionCode: $code, versionName: $name, hash: $hash, url: $url, sha256: $sha}')
+              --arg url "$base/yama-$CODE.apk" --arg sha "$apk_sha" --arg notes "$notes" --arg commit "$RELEASE_SHA" \
+              '{versionCode: $code, versionName: $name, hash: $hash, url: $url, sha256: $sha, notes: $notes, commit: $commit}')
           else
             native=$(jq '.native' "$RUNNER_TEMP/previous.json")
           fi

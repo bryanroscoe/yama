@@ -8,6 +8,8 @@ import { keepStorage } from "../storage";
 import { AdvisorSettings } from "../advisor/AdvisorSettings";
 import { DeleteAccount } from "./DeleteAccount";
 import { VersionLine } from "../version";
+import { AppUpdateSetting } from "../components/AppUpdate";
+import { isNative } from "../native";
 import "./group.css";
 import { count, shortDate } from "@yama/core";
 
@@ -22,6 +24,7 @@ export function AccountSettings() {
       <div className="grp-you">
         {me.data && <YourName me={me.data} />}
         <OfflineCardsSetting />
+        {isNative() && <AppUpdateSetting />}
         {me.data && !me.data.viewing && <AdvancedSetting me={me.data} />}
         {/* Ask Claude stays private while an admin views as you (server/src/view_as.rs). */}
         {!me.data?.viewing && me.data?.power && <AdvisorSettings />}
@@ -33,7 +36,8 @@ export function AccountSettings() {
         {me.data && !me.data.viewing && !me.data.is_admin && !authConfig.data?.cf_access && <DeleteAccount email={me.data.email} />}
       </div>
       <p className="small dim" style={{ margin: 0 }}>Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizards of the Coast.</p>
-      <VersionLine className="small dim" />
+      {/* In the Android app the "Yama app" row above names the versions. */}
+      {!isNative() && <VersionLine className="small dim" />}
     </section>
   );
 }

@@ -15,6 +15,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-15-update-the-app",
+    date: "2026-11-15",
+    title: "Update the Android app from Settings",
+    items: [
+      "In the Android app, Settings now has a Yama app row: which version you have, whether it's up to date, and Check for updates. When a new version is out it says so with a line on what changed, and Update app installs it right there.",
+      "The banner for a new version names it and says what changed too. The first time, Android asks you to let Yama install apps; once you allow it and come back, the update carries on by itself.",
+    ],
+    link: { to: "/profile", label: "Open Settings" },
+  },
+  {
     id: "2026-11-15-scan-title-first",
     date: "2026-11-15",
     title: "Cards the scanner isn't sure of are read by name",

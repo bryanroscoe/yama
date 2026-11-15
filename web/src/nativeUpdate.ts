@@ -33,7 +33,8 @@ interface Updater {
 export const Updater = registerPlugin<Updater>("Updater");
 
 export interface UpdateManifest {
-  native: { versionCode: number; versionName: string; hash: string; url: string; sha256: string };
+  /** `notes`: one line on what this APK changed, written by the release workflow; "" if none. */
+  native: { versionCode: number; versionName: string; hash: string; url: string; sha256: string; notes: string };
   web: { version: string; nativeHash: string; url: string; sha256: string } | null;
 }
 
@@ -41,6 +42,19 @@ const SHA = /^[0-9a-f]{64}$/;
 /** A web build is named by its commit: plain hex (UpdaterPlugin.java checks the same). */
 const VERSION = /^[0-9a-f]{7,40}$/;
 const HASH = /^[0-9a-f]{16}$/;
+/** The longest what's-new line shown; longer ones are cut at a word. */
+export const NOTES_MAX = 200;
+
+/** A manifest's notes as one plain line: optional, so anything off gives "" rather than refusing the manifest. */
+export function cleanNotes(v: unknown): string {
+  if (typeof v !== "string") return "";
+  const line = v.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim();
+  if (line.length <= NOTES_MAX) return line;
+  const cut = line.slice(0, NOTES_MAX - 1);
+  const space = cut.lastIndexOf(" ");
+  return `${(space > NOTES_MAX / 2 ? cut.slice(0, space) : cut).replace(/[\s,;:.]+$/, "")}…`;
+}
+
 const URL_OK = (u: unknown): u is string => typeof u === "string" && /^https:\/\/(github\.com|yama\.ing)\//.test(u);
 
 /** The manifest, checked field by field; null if anything is off. */
@@ -54,7 +68,7 @@ export function parseManifest(text: string): UpdateManifest | null {
   const m = raw as { native?: Record<string, unknown>; web?: Record<string, unknown> | null };
   const n = m?.native;
   if (!n || !Number.isInteger(n.versionCode) || (n.versionCode as number) < 1 || typeof n.versionName !== "string" || typeof n.hash !== "string" || !HASH.test(n.hash) || !URL_OK(n.url) || typeof n.sha256 !== "string" || !SHA.test(n.sha256)) return null;
-  const native = { versionCode: n.versionCode as number, versionName: n.versionName, hash: n.hash, url: n.url, sha256: n.sha256 };
+  const native = { versionCode: n.versionCode as number, versionName: n.versionName, hash: n.hash, url: n.url, sha256: n.sha256, notes: cleanNotes(n.notes) };
   const w = m.web;
   if (w == null) return { native, web: null };
   if (typeof w.version !== "string" || !VERSION.test(w.version) || typeof w.nativeHash !== "string" || !HASH.test(w.nativeHash) || !URL_OK(w.url) || typeof w.sha256 !== "string" || !SHA.test(w.sha256)) return null;
@@ -63,7 +77,7 @@ export function parseManifest(text: string): UpdateManifest | null {
 
 export type UpdatePlan =
   | { kind: "none" }
-  | { kind: "app"; versionCode: number; versionName: string; url: string; sha256: string }
+  | { kind: "app"; versionCode: number; versionName: string; url: string; sha256: string; notes: string }
   | { kind: "web"; version: string; url: string; sha256: string };
 
 /**
@@ -74,7 +88,7 @@ export type UpdatePlan =
 export function planUpdate(info: UpdaterInfo, manifest: UpdateManifest, running: string): UpdatePlan {
   if (info.nativeHash === "dev") return { kind: "none" };
   const n = manifest.native;
-  if (n.versionCode > info.versionCode) return { kind: "app", versionCode: n.versionCode, versionName: n.versionName, url: n.url, sha256: n.sha256 };
+  if (n.versionCode > info.versionCode) return { kind: "app", versionCode: n.versionCode, versionName: n.versionName, url: n.url, sha256: n.sha256, notes: n.notes };
   const w = manifest.web;
   if (w && w.nativeHash === info.nativeHash && w.version !== running && w.version !== info.next && !info.failed.includes(w.version)) {
     return { kind: "web", version: w.version, url: w.url, sha256: w.sha256 };
