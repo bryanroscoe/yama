@@ -1325,6 +1325,38 @@ async fn wishes_containers_and_copies_change_only_when_applied() {
     assert!(err && text.contains("changed after this was suggested, so nothing was removed"), "{text}");
     sqlx::query("UPDATE collection_items SET qty = 1 WHERE owner_id = ? AND proxy = 1").bind(&a).execute(&pool).await.unwrap();
 
+    // Copies in no binder or box are "Loose": a loose copy can be moved and removed like any other.
+    let loose = || async {
+        sqlx::query_scalar::<_, i64>("SELECT COALESCE(SUM(qty), 0) FROM collection_items WHERE owner_id = ? AND container_id IS NULL").bind(&a).fetch_one(&pool).await.unwrap()
+    };
+    let (err, text) = call(&app, &mcp, "add_to_collection", json!({"card": "Sol Ring", "qty": 2, "container": "Loose"})).await;
+    assert!(!err && text.contains("the collection (not in a binder or box)"), "{text}");
+    apply(text).await;
+    assert_eq!(loose().await, 2);
+    let (err, text) = call(&app, &mcp, "move_cards", json!({"card": "Sol Ring", "qty": 1, "from": "loose", "to": "Trade Binder"})).await;
+    assert!(!err && text.contains("Move 1 Sol Ring from Loose (in no binder or box) to Trade Binder"), "{text}");
+    apply(text).await;
+    assert_eq!(loose().await, 1);
+    let (err, text) = call(&app, &mcp, "remove_from_collection", json!({"card": "Sol Ring", "qty": 2, "from": "Loose"})).await;
+    assert!(err && text.contains("holds 1 Sol Ring like that, not 2"), "{text}");
+    let (err, text) = call(&app, &mcp, "remove_from_collection", json!({"card": "Sol Ring", "qty": 1, "from": "Loose"})).await;
+    assert!(!err && text.contains("Remove 1 Sol Ring from Loose (in no binder or box)"), "{text}");
+    apply(text).await;
+    assert_eq!(loose().await, 0);
+    // Moving into Loose takes copies out of their box; the box's other copies stay.
+    let in_box = || async {
+        sqlx::query_scalar::<_, i64>("SELECT COALESCE(SUM(qty), 0) FROM collection_items WHERE owner_id = ? AND container_id IS NOT NULL").bind(&a).fetch_one(&pool).await.unwrap()
+    };
+    let boxed = in_box().await;
+    let (err, text) = call(&app, &mcp, "move_cards", json!({"card": "Sol Ring", "qty": 1, "from": "Trade Binder", "to": "Loose"})).await;
+    assert!(!err, "{text}");
+    apply(text).await;
+    assert_eq!((loose().await, in_box().await), (1, boxed - 1));
+    let (err, text) = call(&app, &mcp, "move_cards", json!({"card": "Sol Ring", "qty": 1, "from": "Loose", "to": "Trade Binder"})).await;
+    assert!(!err, "{text}");
+    apply(text).await;
+    assert_eq!((loose().await, in_box().await), (0, boxed));
+
     // Two wishes with one name: the name alone is refused, the id takes one off.
     let wish = crate::plan::wants::NewWant { name: "Sol Ring".into(), ..Default::default() };
     let first = crate::plan::wants::add(&pool, &a, &wish, "page", None).await.unwrap();

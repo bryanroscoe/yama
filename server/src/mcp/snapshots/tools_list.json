@@ -2136,7 +2136,7 @@
             "type": "string"
           },
           "container": {
-            "description": "Their binder, deck box or list, by name.",
+            "description": "Their binder, deck box or list, by name, or \"Loose\" for copies in none.",
             "maxLength": 300,
             "type": "string"
           },
@@ -2198,6 +2198,7 @@
             "type": "string"
           },
           "from": {
+            "description": "Where the copies are: a binder, deck box or list by name, or \"Loose\" for copies in none.",
             "maxLength": 300,
             "type": "string"
           },
@@ -2214,6 +2215,7 @@
             "type": "integer"
           },
           "to": {
+            "description": "Where they go: a binder, deck box or list by name, or \"Loose\" for none.",
             "maxLength": 300,
             "type": "string"
           }
@@ -2255,7 +2257,7 @@
             "type": "string"
           },
           "container": {
-            "description": "Their binder, deck box or list, by name.",
+            "description": "Their binder, deck box or list, by name, or \"Loose\" for copies in none.",
             "maxLength": 300,
             "type": "string"
           },
@@ -2421,7 +2423,7 @@
             "type": "string"
           },
           "from": {
-            "description": "Their binder, deck box or list, by name.",
+            "description": "Their binder, deck box or list, by name, or \"Loose\" for copies in none.",
             "maxLength": 300,
             "type": "string"
           },
@@ -2478,7 +2480,7 @@
             "type": "string"
           },
           "container": {
-            "description": "Their binder, deck box or list, by name.",
+            "description": "Their binder, deck box or list, by name, or \"Loose\" for copies in none.",
             "maxLength": 300,
             "type": "string"
           },
