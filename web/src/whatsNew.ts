@@ -15,6 +15,15 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-15-scan-title-first",
+    date: "2026-11-15",
+    title: "Cards the scanner isn't sure of are read by name",
+    items: [
+      "When the art doesn't clearly match one card (a foil, glare, or a set newer than the recognizer), the scanner now reads the card's name first instead of guessing from a lookalike or waiting on \"Hold still\". In a test on Star Trek cards it went from 52% right to 97%, with no wrong cards.",
+    ],
+    link: { to: "/collection", label: "Scan cards" },
+  },
+  {
     id: "2026-11-15-scan-star-trek",
     date: "2026-11-15",
     title: "The scanner knows Star Trek cards by their art",
