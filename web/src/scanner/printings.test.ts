@@ -1,9 +1,9 @@
 // The printing a scan files: settled only when the art or the collector line settles it.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Printing } from "../api";
 import { choosePrinting } from "./printings";
-import { parseArts, sampleWindow } from "./recognizer";
+import { createRecognizer, parseArts, sampleWindow, type OrtLike } from "./recognizer";
 
 const p = (set: string, number: string, lang = "en"): Printing => ({
   scryfall_id: `${set}-${number}-${lang}`,
@@ -106,5 +106,64 @@ describe("sampleWindow", () => {
     expect(out[(2 * 4 + 2) * 4]).toBe(50);
     expect(out[0]).toBe(0);
     expect(out[3]).toBe(255);
+  });
+});
+
+describe("createRecognizer's search graph", () => {
+  // A stand-in ONNX Runtime: the detector sees nothing, and the search graph records what it's fed.
+  class Tensor {
+    constructor(
+      readonly type: string,
+      readonly data: Uint8Array | Float32Array,
+      readonly dims: readonly number[],
+    ) {}
+  }
+  const fake = (searchInputs: string[]) => {
+    const fed: Record<string, unknown>[] = [];
+    const ort: OrtLike = {
+      Tensor: Tensor as unknown as OrtLike["Tensor"],
+      InferenceSession: {
+        async create(model) {
+          const kind = model[0];
+          return {
+            inputNames: kind === 3 ? searchInputs : ["x"],
+            async run(feeds: Record<string, unknown>): Promise<Record<string, { data: unknown }>> {
+              if (kind === 1) return { quad: { data: new Float32Array(8) }, up: { data: new Float32Array(2) }, centre: { data: new Float32Array(2) }, short: { data: new Float32Array(1) } };
+              if (kind === 2) return { embeddings: { data: new Float32Array(17 * 4) } };
+              fed.push(feeds);
+              return { indices: { data: BigInt64Array.from([1n, 0n]) }, scores: { data: Float32Array.from([0.9, -3]) } };
+            },
+          };
+        },
+      },
+    };
+    return { ort, fed };
+  };
+  const constants = { scene: 640, det_input: 256, rotations: 4, refine_fill: 0.6, refine_min_side: 64, card_aspect: 88 / 63 };
+  const arts = parseArts([
+    { id: "a", name: "Gorn Captain", set: "trc", collector_number: "172" },
+    { id: "b", name: "Talarian Hook Spider", set: "trc", collector_number: "175" },
+    { id: "c", name: "Island", set: "trk", collector_number: "319" },
+  ]);
+  const graphs = { detector: Uint8Array.of(1), embed: Uint8Array.of(2), search: Uint8Array.of(3) };
+
+  it("feeds a mask of ones, one per artwork, when the graph takes one", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined); // the stand-in graph has no gallery to read
+    const { ort, fed } = fake(["embeddings", "mask"]);
+    await createRecognizer(ort, graphs, constants, arts);
+    expect(fed.length).toBeGreaterThan(0);
+    const mask = fed[0]!.mask as Tensor;
+    expect(mask.type).toBe("float32");
+    expect(mask.dims).toEqual([3]);
+    expect(Array.from(mask.data)).toEqual([1, 1, 1]);
+    vi.restoreAllMocks();
+  });
+
+  it("feeds only the embeddings to an older graph", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const { ort, fed } = fake(["embeddings"]);
+    await createRecognizer(ort, graphs, constants, arts);
+    expect(Object.keys(fed[0]!)).toEqual(["embeddings"]);
+    vi.restoreAllMocks();
   });
 });

@@ -15,6 +15,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-15-scan-star-trek",
+    date: "2026-11-15",
+    title: "The scanner knows Star Trek cards by their art",
+    items: [
+      "The scanner's card recognizer has been updated to include sets up to early November, among them Star Trek and the Star Trek Commander decks. Those cards are now recognised from their art, like older ones, instead of by reading their name.",
+      "The first time you open the scanner after this, it downloads the updated recognizer again (about 35 MB), so you may want to be on Wi-Fi.",
+    ],
+    link: { to: "/collection", label: "Scan cards" },
+  },
+  {
     id: "2026-11-15-scan-anyway",
     date: "2026-11-15",
     title: "Scan a second copy, and a tidier scanner",
