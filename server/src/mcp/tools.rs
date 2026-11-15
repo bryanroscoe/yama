@@ -2779,7 +2779,7 @@ async fn lab_game(pool: &SqlitePool, user: &User, id: &str, game: &str) -> AppRe
              `lab --card-data <card-data-HASH.json> --decks-root <dir> --schedule <file> --out <results.jsonl>`, or \
              `labtrace ... --game <id>` for a turn-by-turn trace. It replays move for move on the build the result line names \
              (engine and card_data), unless a seat was told its list's combos: the server freezes those with the run and \
-             the runner can't be given them yet, so such a game can part ways once a seat holds a whole combo. An engine \
+             the runner can't be given them yet, so such a game can part ways from its first turns, when the seat rehearses them. An engine \
              label ending in \"+loops\" is the runner's default; one without needs `--no-loops`.\n",
         );
     }
