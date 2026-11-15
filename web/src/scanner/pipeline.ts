@@ -9,6 +9,7 @@ import { cropToTextBand, prepareText, toGray, warpRegion, type CardRegion } from
 import { refineQuad } from "./locate";
 import { normaliseName, parseCollector } from "./parse";
 import { pickPrinting } from "./pick";
+import { stripQuality, type StripQuality } from "./quality";
 import type { CatalogPrinting, Gray, OcrEngine, OcrResult, Quad, RgbaImage, ScanCandidate, ScanCatalog, ScanResult } from "./types";
 
 /** Bottom-left collector block (two lines) on 2015+ frames, with room for a misaligned card. */
@@ -18,6 +19,13 @@ export const COLLECTOR_REGION: CardRegion = { x0: 0.03, y0: 0.91, x1: 0.5, y1: 0
  * inside the card, and on borderless and older frames the line runs lower or further right.
  */
 export const WIDE_COLLECTOR_REGION: CardRegion = { x0: 0.01, y0: 0.88, x1: 0.62, y1: 1 };
+/**
+ * The bottom right of the card, read too (Bryan, 15 Nov 2026: on some frames, showcase and
+ * borderless ones, two-faced cards' backs and some promos, the set code and number sit there or
+ * spill right; and the right is where a back face's power and toughness is, which evidence.ts
+ * knows isn't a number).
+ */
+export const RIGHT_COLLECTOR_REGION: CardRegion = { x0: 0.38, y0: 0.88, x1: 0.99, y1: 1 };
 /** Title bar, stopping before most mana costs. The text band inside is found per crop. */
 export const NAME_REGION: CardRegion = { x0: 0.05, y0: 0.03, x1: 0.8, y1: 0.125 };
 /** Tighter title crop, tried when the first read matched nothing (busy old frames). */
@@ -141,17 +149,32 @@ export async function readCollectorLine(frame: RgbaImage, quad: Quad, ocr: OcrEn
  * Reads of the collector line, one crop at a time, for a caller that stops at the first read that
  * settles the printing: the usual corner at the card's snapped edges, then at the detector's own
  * corners (when snapping moved them), then the corner cut wider, to the card's edge, with no band
- * clean-up (a line at the very edge, or a frame that puts it lower).
+ * clean-up (a line at the very edge, or a frame that puts it lower), then the bottom right.
  */
-export async function* readCollectorLines(frame: RgbaImage, quad: Quad, ocr: OcrEngine): AsyncGenerator<string> {
+export async function* readCollectorLines(frame: RgbaImage, quad: Quad, ocr: OcrEngine, opts: { gate?: (q: StripQuality) => boolean } = {}): AsyncGenerator<string> {
   const gray = toGray(frame);
   const refined = refineQuad(gray, quad);
   const q = refined ?? quad;
+  // A blurred or glare-clipped strip isn't worth the reader's time (quality.ts).
+  if (opts.gate && !opts.gate(stripQuality(gray, q))) return;
   const read = async (at: Quad, region: CardRegion, pad: number) =>
     (await ocr.read(prepareText(warpRegion(gray, at, region, Math.round(((region.x1 - region.x0) * COLLECTOR_DENSITY * 63) / 88), Math.round((region.y1 - region.y0) * COLLECTOR_DENSITY)), pad), { mode: "block", whitelist: COLLECTOR_WHITELIST })).text;
   yield await read(q, COLLECTOR_REGION, 12);
   if (refined) yield await read(quad, COLLECTOR_REGION, 12);
   yield await read(q, WIDE_COLLECTOR_REGION, 16);
+  yield await read(q, RIGHT_COLLECTOR_REGION, 16);
+}
+
+/**
+ * The title of a card whose quad is known: the usual title cut, then the tighter one, each read as
+ * one line. For telling cards apart when the art isn't sure (fuse.ts).
+ */
+export async function readTitles(frame: RgbaImage, quad: Quad, ocr: OcrEngine): Promise<string[]> {
+  const gray = toGray(frame);
+  const q = refineQuad(gray, quad) ?? quad;
+  const out: string[] = [];
+  for (const r of [NAME_REGION, ALT_NAME_REGION]) out.push((await ocr.read(crop(gray, q, r, NAME_DENSITY, true), { mode: "line" })).text);
+  return out;
 }
 
 /**

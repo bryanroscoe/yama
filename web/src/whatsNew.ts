@@ -15,6 +15,17 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-15-scan-wrong-printing",
+    date: "2026-11-15",
+    title: "The scanner tries harder for the printing, and Wrong printing fixes it",
+    items: [
+      "Holding a card, the scanner now adds up what it reads across frames (the set code from one, the number from another), skips blurry frames, keeps going for several seconds (much longer with Close-ups off) and says what it has read so far. If it gives up, \"Keep reading\" starts a whole new try.",
+      "If it read the wrong printing, tap \"Wrong printing?\". The list opens with the misread marked and it reads again. Already added? \"Wrong printing\" on the camera changes that copy rather than adding another.",
+      "After you type a card's name, or when a card is read from its text, the printing is read from the camera too, without the close-up box.",
+    ],
+    link: { to: "/collection", label: "Scan cards" },
+  },
+  {
     id: "2026-11-15-scan-photos-on",
     date: "2026-11-15",
     title: "Scan photos are saved unless you turn them off",

@@ -16,7 +16,7 @@ import { loadArtRecognizer, RECOGNIZER_SHORT_SIDE, type ArtRecognizer, type Load
 import { NameIndex } from "./fuzzy";
 import { normaliseName } from "./parse";
 import { rectQuad } from "./image";
-import { readCloseup, readCollectorLines, scanFrame, SURE } from "./pipeline";
+import { readCloseup, readCollectorLines, readTitles, scanFrame, SURE } from "./pipeline";
 import { artHoldFrame, AWAY_FRAMES, hold, holdRead, type ArtHold, type Hold } from "./hold";
 import { NameEntry } from "./NameEntry";
 import { CollectorPeek } from "./peek";
@@ -29,6 +29,10 @@ import { CameraControls, digitalRegion, useCameraControls } from "./camera";
 import { createServerCatalog } from "./serverCatalog";
 import { createScannerOcr, ENGINE_LABEL, plannedEngine, type ScannerOcr } from "./ocrEngine";
 import { HeldRead, type HeldVerdict } from "./heldRead";
+import { Evidence, progressLine, proofOf } from "./evidence";
+import { fuseTitle, needsTitle, titleRead, type Fused } from "./fuse";
+import { worthReading } from "./quality";
+import { pickHeldQuad, sameHeldCard } from "./heldCard";
 import { VersionLine } from "../version";
 import { ScanSettings, usePinchZoom, useSheetDrag } from "./sheet";
 import type { OcrEngine, Quad, RgbaImage, ScanCandidate, ScanCatalog, ScanResult } from "./types";
@@ -49,6 +53,15 @@ export interface ScannerViewProps {
    * camera's "Added …" chip. Without it the chip offers none.
    */
   onUndo?: (card: ScanCandidate) => Promise<void>;
+  /**
+   * Change the printing of a card `onAccept` already saved (`filed`, the same object it was given)
+   * to `to`, updating that copy rather than adding another: "Wrong printing" after filing. The
+   * host says what is filed now: "kept" when the copy already was `to`'s printing. The object `to`
+   * then stands for the copy (a later Undo or correction is given it). A rejection means the host
+   * couldn't confirm the change (it may still finish it: its Added list shows that copy). Without
+   * it, Wrong printing is offered only before filing.
+   */
+  onCorrect?: (filed: ScanCandidate, to: ScanCandidate) => Promise<"changed" | "kept">;
   /** For reading text: defaults to the server lookup plus the offline card names. */
   catalog?: ScanCatalog;
   /** For reading text: defaults to `createScannerOcr` (ML Kit in the app, PaddleOCR in the browser, else tesseract.js). */
@@ -135,13 +148,20 @@ interface Found {
   /** The printing the scanner settled by itself, before any change by the person. */
   settledId?: string;
   /** A printing the text reader already read from the collector line, for settling it again. */
-  known?: { set?: string; number?: string; proven?: boolean };
+  known?: Known;
   /** The part of the frame around the card, for Save scan photos. */
   shot?: Shot | null;
   /** What the scanner first said, when the person corrected it (Wrong card). */
   guess?: Pick<SampleLabel, "guess_name" | "guess_scryfall_id" | "guess_illustration_id" | "method" | "score">;
   /** The scanner settled the printing itself, with proof (not a guess, not a tap). */
   sure?: boolean;
+  /**
+   * The printing the scanner settled and the person said was wrong ("Wrong printing"): marked
+   * "Read as" in the list, and never filed again by itself.
+   */
+  misread?: Printing;
+  /** Correcting a card already filed: the card `onAccept` was given. Filing then changes that copy. */
+  correcting?: ScanCandidate;
   /** The person asked to see the other printings. */
   picking: boolean;
   /** Reading the collector line to tell printings apart. */
@@ -152,9 +172,24 @@ interface Found {
   error?: string;
 }
 
+/**
+ * A printing the text reader already read from the collector line (a card found by its text): its
+ * set and number, and the line's text, which proves the printing only through evidence.ts.
+ */
+interface Known {
+  set?: string;
+  number?: string;
+  text?: string;
+}
+
 /** Lock at this art score on one frame, or at LOCK_TWICE on two agreeing frames. */
 const LOCK_ONCE = 0.82;
 const LOCK_TWICE = 0.62;
+/**
+ * A fairly sure art match (LOCK_TWICE on two frames) decides only after this many frames in a row
+ * whose title couldn't be read: the title has to have had its chance [inferred].
+ */
+const UNTITLED_FRAMES = 4;
 /** Below this the art is probably not in the bundle; after a few such frames, read text instead. */
 const ART_UNKNOWN = 0.5;
 /** For reading text: extra frame kept around the on-screen guide, and the longest side read. */
@@ -170,6 +205,9 @@ interface JustAdded {
   text: string;
   card?: ScanCandidate;
   label?: string;
+  /** The card as found and the printing filed, for "Wrong printing" after filing (when the host can correct it). */
+  found?: Found;
+  printing?: Printing | null;
   /** Undo is under way: the chip stays until it's done. */
   busy?: boolean;
 }
@@ -252,13 +290,23 @@ async function readAt(image: RgbaImage, quad: Quad, reader: { ocr: OcrEngine; ca
 }
 
 /**
- * Whether two card names are the same card: the same name, or one is the other's front face
- * ("Westvale Abbey" and "Westvale Abbey // Ormendahl, Profane Prince").
+ * Whether two card names are the same card: the same name, or a face in common ("Westvale Abbey",
+ * or the back face "Ormendahl, Profane Prince", and "Westvale Abbey // Ormendahl, Profane Prince":
+ * the art index can match either face's illustration).
  */
 export function sameCardName(a: string, b: string): boolean {
   const faces = (n: string) => n.split(" // ").map(normaliseName);
   const [fa, fb] = [faces(a), faces(b)];
-  return normaliseName(a) === normaliseName(b) || fa[0] === fb[0];
+  return normaliseName(a) === normaliseName(b) || fa.some((f) => fb.includes(f));
+}
+
+/**
+ * The name the title-and-art decision would file the card under, when that's the card just filed
+ * by its name and still held (`blockedName`): it isn't filed again.
+ */
+export function fusedHeld(fused: Fused<{ name: string }>, heldName: string | undefined): boolean {
+  if (!heldName || fused.kind === "none") return false;
+  return sameCardName(fused.kind === "art" ? fused.match.name : fused.name, heldName);
 }
 
 /** What the scanner said, for a kept photo. */
@@ -302,6 +350,7 @@ const candidateOf = (f: Found, p: Printing | null): ScanCandidate => ({
 export function ScannerView({
   onAccept,
   onUndo,
+  onCorrect,
   catalog: catalogProp,
   ocr: ocrProp,
   onClose,
@@ -366,6 +415,14 @@ export function ScannerView({
   /** The close-up step: the person holds the camera close to the collector line or the title. */
   const [closeup, setCloseup] = useState<"collector" | "title" | null>(null);
   const [closeupRead, setCloseupRead] = useState("");
+  /** The first read's evidence for a card, picked up (once) by the hold-and-read loop that follows it. */
+  const firstEvidence = useRef<{ seq: number; ev: Evidence } | null>(null);
+  /** What the hold-and-read loop has read so far, for the sheet ("Read the set code (WOC), not the number yet"). */
+  const [readProgress, setReadProgress] = useState<string | null>(null);
+  /** Bumped to start a new, full attempt at reading the held card's printing (Keep reading, Wrong printing). */
+  const [holdRun, setHoldRun] = useState(0);
+  /** The last attempt at reading the held card ended without settling it (Keep reading is offered). */
+  const [gaveUp, setGaveUp] = useState(false);
   /** Reading the printing from whole-card frames while the card is held (heldRead.ts). */
   const [holding, setHolding] = useState(false);
   /** The text reader in use, once started (ocrEngine.ts); shown in Scan settings. */
@@ -601,7 +658,7 @@ export function ScannerView({
 
   /** Settle the printing of what was found (not needed when only the card's identity matters). */
   const settle = useCallback(
-    async (seq: number, f: Found, query: { art?: string | null; id?: string; name?: string }, read?: { image: RgbaImage; quad: Quad } | null, known?: { set?: string; number?: string; proven?: boolean }) => {
+    async (seq: number, f: Found, query: { art?: string | null; id?: string; name?: string }, read?: { image: RgbaImage; quad: Quad } | null, known?: Known) => {
       const update = (patch: Partial<Found>) => {
         if (foundSeq.current === seq) setFound((cur) => (cur ? { ...cur, ...patch } : cur));
       };
@@ -624,10 +681,18 @@ export function ScannerView({
           }
         }
         let choice: Choice = choosePrinting(opts);
-        // Read from the collector line by the text reader already: proof when the read was.
+        // Read from the collector line by the text reader already. Proof only as evidence.ts would
+        // settle it (a field read exactly, the twin guards), never from the reader's confidence;
+        // otherwise its printing goes first in the list and the held card is read on, with that
+        // read as the first frame.
         if (!choice.chosen && known?.set && known.number) {
           const hit = opts.printings.find((p) => p.set_code === known.set && p.collector_number === known.number);
-          if (hit) choice = { chosen: hit, how: "collector", options: [hit, ...choice.options.filter((p) => p !== hit)], certain: !!known.proven };
+          const { proven, ev } = proofOf(opts.printings, known.text ?? "");
+          if (hit && proven === hit.scryfall_id) choice = { chosen: hit, how: "collector", options: [hit, ...choice.options.filter((p) => p !== hit)], certain: true };
+          else {
+            if (hit) choice = { ...choice, options: [hit, ...choice.options.filter((p) => p !== hit)] };
+            firstEvidence.current = { seq, ev };
+          }
         }
         const how: Found["how"] = bySet && choice.how === "only" ? "set" : choice.how;
         const reading = !choice.chosen && !!read;
@@ -636,20 +701,24 @@ export function ScannerView({
         if (!reading) return;
         // Several printings share the art: read the collector line to tell them apart, trying a
         // few cuts of the corner until one settles it.
-        let first: string | null = null;
-        let best: Choice | null = null;
+        // The crops' reads are one frame of evidence (evidence.ts); it carries on into hold and read.
+        const ev = new Evidence(opts.printings);
+        const reads: string[] = [];
         for await (const text of readCollectorLines(read!.image, read!.quad, await ocrEngine())) {
           if (foundSeq.current !== seq) return;
-          first ??= text;
-          const c = choosePrinting(opts, text);
-          if (c.certain) {
-            update({ options: c.options, chosen: c.chosen, how: c.how, sure: true, settledId: c.chosen?.scryfall_id, raw: text, reading: false });
-            return;
-          }
-          best ??= c.chosen ? c : null;
+          reads.push(text);
         }
-        // No read was proof: the best guess goes first in the picker and the close-up step confirms it.
-        update({ options: (best ?? choosePrinting(opts, first ?? "")).options, chosen: null, how: null, sure: false, raw: first ?? "", reading: false });
+        ev.add(reads);
+        const v = ev.verdict();
+        const raw = reads.join("\n");
+        if (v.kind === "settled") {
+          const hit = opts.printings.find((p) => p.scryfall_id === v.id)!;
+          update({ options: [hit, ...choice.options.filter((p) => p !== hit)], chosen: hit, how: "collector", sure: true, settledId: hit.scryfall_id, raw, reading: false });
+          return;
+        }
+        firstEvidence.current = { seq, ev };
+        // Not settled: the best guesses go first in the picker, and the held card is read on.
+        update({ options: choosePrinting(opts, raw).options, chosen: null, how: null, sure: false, raw, reading: false });
       } catch (e) {
         update({ options: [], reading: false, error: e instanceof Error ? e.message : String(e) });
       }
@@ -693,12 +762,11 @@ export function ScannerView({
     (res: ScanResult, shot: Shot | null = null) => {
       const best = res.candidates[0]!;
       const seq = ++foundSeq.current;
-      // The text reader's proof of a printing: set code and number found together with a matching
-      // title (0.97), or an exact, anchored collector line on its own (0.85). See pipeline.ts decide.
-      const proven = best.confidence >= 0.95 || (best.method === "collector" && best.confidence >= 0.85);
+      // What the text reader read from the collector line: settle() weighs it as evidence (the
+      // reader's confidence is about the card, not proof of the printing).
       const f: Found = {
         shot,
-        known: { set: best.set, number: best.number, proven },
+        known: { set: best.set, number: best.number, text: res.raw.collector },
         name: best.name,
         method: best.method,
         confidence: best.confidence,
@@ -759,6 +827,8 @@ export function ScannerView({
     let timer: ReturnType<typeof setTimeout> | undefined;
     let unknownFrames = 0;
     let textFrame = 0;
+    /** Frames in a row this art match's title couldn't be read (see UNTITLED_FRAMES). */
+    let untitled = 0;
     setStatus(mode === "art" ? "Hold a card in view" : "Line the card up with the frame");
     const next = (ms: number) => {
       if (!stop) timer = setTimeout(tick, ms);
@@ -809,26 +879,26 @@ export function ScannerView({
           }
           const prev = last.current && last.current.index === top.index && Date.now() - last.current.at < 1500;
           last.current = { index: top.index, at: Date.now() };
-          const artLocks = top.score >= LOCK_ONCE || (top.score >= LOCK_TWICE && prev);
+          const ranked = [...r.matches, ...(r.pool ?? [])].sort((a, b) => b.score - a.score);
           // Locked to sets the art index only partly knows (a set newer than the bundle), and this
           // match isn't one of theirs: its art says nothing about which card this is.
           const artUnknown = !!locked && judged?.kind !== "in-set" && poolShare.current < KNOWN_ART;
-          const showIt = () => {
-            unknownFrames = 0;
-            const read = identityOnly && !savingPhotos() ? null : around(v, v.videoWidth, v.videoHeight, toVideo(r.quad!), hiCanvasRef.current!);
-            showArt(r, top, read);
-          };
-          // A strong match decides by art. Otherwise the title is read first (Bryan, 15 Nov 2026:
-          // no Star Trek card scanned; their art isn't in the bundle, so lookalikes scored 0.5 to
-          // 0.8 and the scanner named them, or waited on "Hold still" for ever).
-          // A card just filed by its name stays held (hold.ts): its art mustn't file it again.
+          const read = (at?: { image: RgbaImage; quad: Quad }) => (identityOnly && !savingPhotos() ? null : (at ?? around(v, v.videoWidth, v.videoHeight, toVideo(r.quad!), hiCanvasRef.current!)));
+          // A card just filed by its name stays held (hold.ts): its art mustn't file it again, by
+          // art, by a title read or by the two-frame fallback below.
           const heldName = blockedName.current?.name;
-          if (heldName && sameCardName(top.name, heldName)) {
+          const isHeld = (name: string) => !!heldName && sameCardName(name, heldName);
+          if (isHeld(top.name)) {
             setStatus("Ready for the next card");
             return next(60);
           }
-          if (!readTitleFirst({ score: top.score, lockOnce: LOCK_ONCE, locked: !!locked, inSet: judged?.kind === "in-set", share: poolShare.current })) {
-            showIt();
+          // A strong match decides by art, unless another card scores close to it. Otherwise the
+          // title is read first (Bryan, 15 Nov 2026: no Star Trek card scanned; their art isn't in
+          // the bundle, so lookalikes scored 0.5 to 0.8 and the scanner named them, or waited on
+          // "Hold still" for ever).
+          if (!readTitleFirst({ score: top.score, lockOnce: LOCK_ONCE, locked: !!locked, inSet: judged?.kind === "in-set", share: poolShare.current }) && !needsTitle(ranked)) {
+            unknownFrames = 0;
+            showArt(r, top, read());
             return;
           }
           setStatus("Hold still, reading the name");
@@ -843,12 +913,38 @@ export function ScannerView({
             const reader = lockRef.current?.names ? { ...full, names: lockRef.current.names } : full;
             const quad = toVideo(r.quad);
             const hi = around(v, v.videoWidth, v.videoHeight, quad, hiCanvasRef.current);
-            // One orientation per attempt, so the camera stays responsive.
+            // The card from title and art together (fuse.ts): a clear title settles the card when
+            // the art has it among its matches, and overrules the art when it doesn't. Matches from
+            // art the index doesn't know for the locked sets count for nothing.
+            const fused = fuseTitle(artUnknown ? [] : ranked, titleRead(await readTitles(hi.image, hi.quad, reader.ocr), reader));
+            if (stop) return;
+            // The card just filed, by its art or its title: still held.
+            if (fusedHeld(fused, heldName)) {
+              setStatus("Ready for the next card");
+              return next(60);
+            }
+            if (fused.kind === "art") {
+              showArt(r, fused.match, read(hi));
+              return;
+            }
+            if (fused.kind === "title") {
+              fromName(fused.name, "name", { shot: hi });
+              return;
+            }
+            // No clear title upright: the whole card's text, one orientation per attempt (sideways
+            // battles, upside down), so the camera stays responsive.
             const res = await readAt(hi.image, hi.quad, reader, [quarterTurns(hi.quad)[textFrame++ % 3]!]);
             if (!stop && handleText(res, false, false, hi)) return;
-            // No title: art agreeing on two frames still decides, as before, unless its art is unknown.
+            // No title at all. Art sure on its own (0.82) still decides. Fairly sure on two frames
+            // (0.62) only once the title has had its chance (Bryan's phone, 15 Nov 2026: right cards
+            // scored 0.64 to 0.70, and a foil Westvale Abbey locked as Wei Night Raiders at 0.658 on
+            // two frames with its title plainly readable): UNTITLED_FRAMES frames of this match whose
+            // title couldn't be read. Never when its art is unknown, nor while a card filed by its
+            // name is held.
+            untitled = prev ? untitled + 1 : 1;
+            const artLocks = top.score >= LOCK_ONCE || (top.score >= LOCK_TWICE && prev && untitled >= UNTITLED_FRAMES);
             if (!stop && artLocks && !artUnknown && !res.candidates[0] && !blockedName.current) {
-              showIt();
+              showArt(r, top, read(hi));
               return;
             }
             // Still nothing: ask for a close-up of the name.
@@ -894,8 +990,10 @@ export function ScannerView({
     // Anything shown meanwhile (a typed name, Not this) makes this photo's answer stale.
     const start = foundSeq.current;
     const current = () => foundSeq.current === start && alive.current;
+    // Released in `finally` whatever happens (closing twice does nothing).
+    let bmp: ImageBitmap | null = null;
     try {
-      const bmp = await createImageBitmap(file);
+      bmp = await createImageBitmap(file);
       canvasRef.current ??= document.createElement("canvas");
       hiCanvasRef.current ??= document.createElement("canvas");
       const art = artRef.current;
@@ -906,11 +1004,33 @@ export function ScannerView({
         const locked = lockRef.current;
         const judged = locked && r.quad ? judgeLocked(r.matches, r.pool, locked.inSets, ART_UNKNOWN) : null;
         const top = judged && judged.kind !== "none" ? judged.match : r.matches[0];
+        // The same decision as the camera: a sure, unrivalled art match decides; otherwise the
+        // title is read and settles or overrules the art (fuse.ts). A lone fair match (0.62) used
+        // to decide here, so a foil Westvale Abbey photo was Wei Night Raiders at 0.658 (review
+        // of #138). With a set lock whose art is mostly unknown, only its own matches count.
         if (r.quad && top && top.score >= LOCK_TWICE) {
-          const read = identityOnly && !savingPhotos() ? null : around(bmp, bmp.width, bmp.height, scaleQuad(r.quad, 1 / k), hiCanvasRef.current);
-          bmp.close();
-          if (current()) showArt(r, top, read);
-          return;
+          const artUnknown = !!locked && judged?.kind !== "in-set" && poolShare.current < KNOWN_ART;
+          const ranked = artUnknown ? [] : [...r.matches, ...(r.pool ?? [])].sort((a, b) => b.score - a.score);
+          const hi = around(bmp, bmp.width, bmp.height, scaleQuad(r.quad, 1 / k), hiCanvasRef.current);
+          const read = identityOnly && !savingPhotos() ? null : hi;
+          if (!artUnknown && top.score >= LOCK_ONCE && !needsTitle(ranked)) {
+            bmp.close();
+            if (current()) showArt(r, top, read);
+            return;
+          }
+          const reader = await textReader();
+          const fused = fuseTitle(ranked, titleRead(await readTitles(hi.image, hi.quad, reader.ocr), reader));
+          if (fused.kind === "art") {
+            bmp.close();
+            if (current()) showArt(r, fused.match, read);
+            return;
+          }
+          if (fused.kind === "title") {
+            bmp.close();
+            if (current()) fromName(fused.name, "name", { shot: hi });
+            return;
+          }
+          // No clear title: read the rest of the card's text below, as for unknown art.
         }
         // A card whose art isn't known: read its text where the recognizer found it.
         if (r.quad) {
@@ -945,6 +1065,7 @@ export function ScannerView({
     } catch (err) {
       if (current()) setStatus(err instanceof Error ? err.message : String(err));
     } finally {
+      bmp?.close();
       setPhotoBusy(false);
     }
   };
@@ -964,6 +1085,7 @@ export function ScannerView({
   /** Back to scanning. The card just shown isn't found again until it leaves the view. */
   const again = (held: Found | null = found) => {
     foundSeq.current += 1;
+    setReadProgress(null);
     setWrongOpen(false);
     setDupe(null);
     blocked.current = held?.art ? { index: held.art.index, away: 0 } : null;
@@ -992,10 +1114,9 @@ export function ScannerView({
   /** Keep the photo of this card, if Save scan photos is on, with what the person said it was. */
   const keep = (f: Found, kind: SampleLabel["kind"], label?: ScanCandidate) => {
     if (!f.shot) return;
-    const changedPrinting = !!f.settledId && !!label?.scryfall_id && label.scryfall_id !== f.settledId;
     void keepSample(f.shot, {
       ...(f.guess ?? guessOf(f)),
-      kind: kind === "added" && (f.guess || changedPrinting) ? "corrected" : kind,
+      kind: sampleKind(f, kind, label),
       label_name: label?.name,
       label_scryfall_id: label?.scryfall_id,
       camera: camera ?? undefined,
@@ -1017,18 +1138,15 @@ export function ScannerView({
     void settle(seq, f, f.art ? { art: f.art.illustrationId, id: f.art.id } : { name: f.name }, f.method === "art" ? (f.shot ?? null) : null, f.known);
   };
 
-  // Several printings share the art and the first read of the collector line didn't settle it.
-  // A card found by its art: keep reading the line from whole-card frames while it's held (below),
-  // and only then, with close-ups on, ask for the close-up box. A card found by its text: the
-  // close-up box at once. Without close-ups, the picker asks.
+  // Several printings fit and the first read of the collector line didn't settle it: keep reading
+  // the line from whole-card frames while the card is held (below), whether it was found by its
+  // art, read from its text or typed by name (Bryan, 15 Nov 2026), and only then, with close-ups
+  // on, ask for the close-up box. Without close-ups, the picker asks.
   const unsettled = live && phase === "found" && !identityOnly && !!found?.options && found.options.length > 1 && !found.chosen && !found.reading && !found.outside;
-  const needsCollector = closeups && unsettled && found?.method !== "art";
   // Not while "Wrong card" is open: the person is saying it isn't this card.
-  const readWhileHeld = unsettled && !closeup && !paused && !wrongOpen && found?.method === "art" && !!found.art;
-  const heldArt = readWhileHeld ? found!.art!.index : null;
-  useEffect(() => {
-    if (needsCollector) setCloseup("collector");
-  }, [needsCollector]);
+  const readWhileHeld = unsettled && !closeup && !paused && !wrongOpen;
+  /** The card being read. A new card, any change to it, or a retry (holdRun) starts a fresh attempt. */
+  const heldFound = readWhileHeld ? found : null;
   // Turning close-ups off ends one in progress.
   useEffect(() => {
     if (!closeups) setCloseup(null);
@@ -1037,23 +1155,42 @@ export function ScannerView({
     if (phase !== "found" && closeup === "collector") setCloseup(null);
     if (phase === "found" && closeup === "title") setCloseup(null);
   }, [phase, closeup]);
+  // A new card hasn't been given up on.
+  useEffect(() => {
+    if (phase !== "found") setGaveUp(false);
+  }, [phase]);
 
   // Hold and read (Bryan, 15 Nov 2026): find the card again in each new frame and read its
   // collector line at the camera's full resolution, until a read proves the printing or AGREE
-  // frames agree (heldRead.ts). The person needn't move the card.
+  // frames agree (heldRead.ts), within time budgets. The person needn't move the card. A card
+  // found by its art is found again by its art: it must stay the best match in view. Any other
+  // card is found by where it is: the detector's outline (the card's, even when its art isn't
+  // known), which may drift but not jump (heldCard.ts); with no recognizer, the on-screen guide.
+  // Only this card's printings are read against, so another card can't settle it.
   useEffect(() => {
-    if (heldArt == null) return;
+    const start = heldFound;
+    if (!start?.options) return;
     let stop = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const held = new HeldRead(closeups);
-    const start = foundRef.current;
+    const clock = () => performance.now();
+    const held = new HeldRead(closeups, clock());
+    // The first read's evidence carries on into the first attempt; a retry starts afresh.
+    const first = firstEvidence.current;
+    firstEvidence.current = null;
+    const ev = first && first.seq === foundSeq.current ? first.ev : new Evidence(start.options);
+    setReadProgress(null);
+    const heldArt = start.art?.index ?? null;
+    /** Where the card was last seen, in video pixels (not by art). */
+    let lastQuad: Quad | null = null;
     setHolding(true);
+    setGaveUp(false);
     const next = (ms: number) => {
       if (!stop) timer = setTimeout(tick, ms);
     };
-    const done = () => {
+    const done = (gaveUpNow = false) => {
       stop = true;
       setHolding(false);
+      if (gaveUpNow) setGaveUp(true);
     };
     const settleOn = (c: Choice, text: string) => {
       const chosenNow = c.chosen!;
@@ -1061,62 +1198,98 @@ export function ScannerView({
       setFound((cur) => (cur && cur === start ? { ...cur, chosen: chosenNow, how: "collector", sure: true, settledId: chosenNow.scryfall_id, options: c.options, raw: text } : cur));
       buzz(30);
     };
-    const tick = async () => {
-      if (stop) return;
-      const v = videoRef.current;
+    /** The card's quad in video pixels this frame, or null when it isn't seen (or another card is). */
+    const locate = async (v: HTMLVideoElement): Promise<Quad | null> => {
       const art = artRef.current;
-      const f = foundRef.current;
-      if (f !== start || !f?.options) return done();
-      if (!v || !art || v.videoWidth === 0 || document.visibilityState !== "visible") return next(200);
-      try {
-        canvasRef.current ??= document.createElement("canvas");
-        hiCanvasRef.current ??= document.createElement("canvas");
+      canvasRef.current ??= document.createElement("canvas");
+      if (art) {
         const box = v.closest(".scan-camera")?.getBoundingClientRect();
         const zone = digitalRegion(v.videoWidth, v.videoHeight, digitalRef.current, box);
         const { image, k } = smallRegion(v, zone, canvasRef.current);
         const r = await art.identify(image);
+        if (!r.quad) return null;
+        const quad = r.quad.map(([x, y]) => [x / k + zone.x, y / k + zone.y]) as Quad;
+        const all = [...r.matches, ...(r.pool ?? [])];
+        if (heldArt != null) {
+          // The held card must still be the best match in view (or as good as it): another card that
+          // only looks a bit like it would have its collector line read against this card's printings.
+          const heldScore = Math.max(-1, ...all.filter((m) => m.index === heldArt).map((m) => m.score));
+          const bestScore = Math.max(-1, ...all.map((m) => m.score));
+          return heldScore >= ART_UNKNOWN && heldScore >= bestScore - (lockRef.current ? POOL_MARGIN : SAME_CARD_MARGIN) ? quad : null;
+        }
+        // Not known by its art: a card clearly recognised as another card isn't this one.
+        const top = all.reduce<ArtMatch | null>((b, m) => (!b || m.score > b.score ? m : b), null);
+        if (top && top.score >= LOCK_ONCE && top.name !== start.name && !start.name.split(" // ").includes(top.name)) return null;
+        const picked = pickHeldQuad([quad], v.videoWidth, v.videoHeight);
+        if (!picked || (lastQuad && !sameHeldCard(lastQuad, picked))) return null;
+        return picked;
+      }
+      // No recognizer: the card is where the on-screen guide is, as when reading text.
+      const g = guideRef.current;
+      if (!g) return null;
+      const { gx, gy, gw, gh } = boxInVideo(v, g, 0);
+      return rectQuad(gx, gy, gw, gh);
+    };
+    /** What every verdict does, from a frame, a skipped frame or a miss alike. */
+    const act = (verdict: HeldVerdict, wait: number) => {
+      switch (verdict) {
+        case "closeup":
+          done();
+          setCloseup("collector");
+          return;
+        case "stop":
+          return done(true);
+        default:
+          return next(wait);
+      }
+    };
+    const tick = async () => {
+      if (stop) return;
+      // The outer cap, whatever happened on the frames (HeldRead.capped).
+      const capped = held.capped(clock());
+      if (capped) return act(capped, 0);
+      const v = videoRef.current;
+      const f = foundRef.current;
+      if (f !== start || !f?.options) return done();
+      if (!v || v.videoWidth === 0 || document.visibilityState !== "visible") return next(200);
+      try {
+        hiCanvasRef.current ??= document.createElement("canvas");
+        const quad = await locate(v);
         if (stop) return;
-        // The held card must still be the best match in view (or as good as it): another card that
-        // only looks a bit like it would have its collector line read against this card's printings.
-        const all = r.quad ? [...r.matches, ...(r.pool ?? [])] : [];
-        const heldScore = Math.max(-1, ...all.filter((m) => m.index === heldArt).map((m) => m.score));
-        const bestScore = Math.max(-1, ...all.map((m) => m.score));
-        const seen = heldScore >= ART_UNKNOWN && heldScore >= bestScore - (lockRef.current ? POOL_MARGIN : SAME_CARD_MARGIN);
-        let guess: { c: Choice; text: string } | null = null;
         let verdict: HeldVerdict;
-        if (!seen) verdict = held.missed();
+        if (!quad) verdict = held.missed(clock());
         else {
-          const quad = r.quad!.map(([x, y]) => [x / k + zone.x, y / k + zone.y]) as Quad;
+          lastQuad = quad;
           const read = around(v, v.videoWidth, v.videoHeight, quad, hiCanvasRef.current);
           setLiveShot(read);
-          const opts = { sameArt: f.sameArt, printings: f.options };
           const ocr = await ocrEngine();
-          for await (const text of readCollectorLines(read.image, read.quad, ocr)) {
+          // A blurred or washed-out strip is skipped before the reader sees it (quality.ts).
+          let sharp = true;
+          const reads: string[] = [];
+          for await (const text of readCollectorLines(read.image, read.quad, ocr, { gate: (q) => (sharp = worthReading(q)) })) {
             if (stop) return;
-            const c = choosePrinting(opts, text);
-            if (c.chosen && c.certain) return settleOn(c, text);
-            if (!guess && c.chosen) guess = { c, text };
+            reads.push(text);
           }
-          verdict = held.frame(guess?.c.chosen?.scryfall_id ?? null);
+          if (!sharp) verdict = held.skipped(clock());
+          else {
+            // Every frame adds to the evidence (evidence.ts): settled on weight, not on a run.
+            ev.add(reads);
+            const weighed = ev.verdict();
+            if (weighed.kind === "settled") {
+              const c = choosePrinting({ sameArt: f.sameArt, printings: f.options }, reads.join("\n"));
+              const hit = f.options.find((p) => p.scryfall_id === weighed.id)!;
+              return settleOn({ chosen: hit, how: "collector", options: [hit, ...c.options.filter((p) => p !== hit)], certain: true }, reads.join("\n"));
+            }
+            setReadProgress(progressLine(weighed, f.options.length));
+            verdict = held.frame(clock());
+          }
         }
-        switch (verdict) {
-          case "settled":
-            return settleOn(guess!.c, guess!.text);
-          case "closeup":
-            done();
-            setCloseup("collector");
-            return;
-          case "stop":
-            return done();
-          default:
-            return next(60);
-        }
+        return act(verdict, 60);
       } catch (e) {
-        // A failed read counts as a frame without the card: a few in a row end the loop, and the
-        // picker takes over.
+        // A failed read: a few in a row (or the card gone long enough) end the attempt, and the
+        // picker and Keep reading take over.
         console.warn("Reading the held card failed", e);
-        if (held.missed() === "stop") return done();
-        next(500);
+        return act(held.missed(clock(), true), 500);
       }
     };
     void tick();
@@ -1128,7 +1301,7 @@ export function ScannerView({
     };
     // buzz and the setters are stable for this purpose; the loop reads the card through foundRef.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [heldArt, closeups, ocrEngine]);
+  }, [heldFound, holdRun, closeups, ocrEngine]);
 
   // The close-up loop: read the box as text until it settles the printing or the name.
   useEffect(() => {
@@ -1136,7 +1309,10 @@ export function ScannerView({
     let stop = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let previous: string | null = null;
+    /** The close-up's own evidence for the printing (evidence.ts), from its first frame. */
+    let closeEv: { options: Printing[]; ev: Evidence } | null = null;
     setCloseupRead("");
+    setReadProgress(null);
     const next = (ms: number) => {
       if (!stop) timer = setTimeout(tick, ms);
     };
@@ -1157,16 +1333,20 @@ export function ScannerView({
         if (closeup === "collector") {
           const f = foundRef.current;
           if (!f?.options) return next(200);
-          const c = choosePrinting({ sameArt: f.sameArt, printings: f.options }, text);
-          // Set code and number both read: done. One of them: the same answer twice.
-          if (c.chosen && (c.certain || previous === c.chosen.scryfall_id)) {
-            const chosenNow = c.chosen;
-            setFound((cur) => (cur && cur === f ? { ...cur, chosen: chosenNow, how: "collector", sure: true, settledId: chosenNow.scryfall_id, options: c.options, raw: text } : cur));
+          // Weighed as the held card's reads are: set code and number adding up across frames, and
+          // never proof against a twin (The List, a promo suffix).
+          if (closeEv?.options !== f.options) closeEv = { options: f.options, ev: new Evidence(f.options) };
+          closeEv.ev.add([text]);
+          const weighed = closeEv.ev.verdict();
+          if (weighed.kind === "settled") {
+            const chosenNow = f.options.find((p) => p.scryfall_id === weighed.id)!;
+            const c = choosePrinting({ sameArt: f.sameArt, printings: f.options }, text);
+            setFound((cur) => (cur && cur === f ? { ...cur, chosen: chosenNow, how: "collector", sure: true, settledId: chosenNow.scryfall_id, options: [chosenNow, ...c.options.filter((p) => p !== chosenNow)], raw: text } : cur));
             setCloseup(null);
             buzz(30);
             return;
           }
-          previous = c.chosen?.scryfall_id ?? null;
+          setReadProgress(progressLine(weighed, f.options.length));
         } else {
           const { names, catalog } = await textReader();
           if (stop) return;
@@ -1222,6 +1402,32 @@ export function ScannerView({
     const label = c ? `${c.name} (${c.set_code.toUpperCase()} ${c.collector_number})` : f.name;
     const card = candidateOf(f, c);
     keep(f, "added", card);
+    // Wrong printing after filing: change the copy already filed, never add another.
+    if (f.correcting) {
+      const from = f.correcting;
+      again(f);
+      // Still held: Scan anyway is one more of the printing it is now, with the same settings.
+      const held = (printing: Printing | null, text: string) => {
+        // A new copy, not another correction.
+        if (!single) setDupe({ found: { ...f, chosen: printing, correcting: undefined, misread: undefined }, printing, label: text, settings: fileSettings });
+      };
+      if (!onCorrect || !c) return;
+      // The host says what is filed now; the scanner assumes nothing about it.
+      setJustAdded({ text: `Changing it to ${label}…`, busy: true });
+      return onCorrect(from, card).then(
+        (now) => {
+          buzz(40);
+          held(c, label);
+          setJustAdded({ text: now === "kept" ? `Kept ${label}` : `Changed to ${label}`, card, label, found: f, printing: c });
+        },
+        (e: unknown) => {
+          // Not confirmed: the host may still be sending the change (its Added list has that copy,
+          // and tries it again). Which printing is filed isn't known here, so no Undo, Wrong
+          // printing or Scan anyway on it.
+          setJustAdded({ text: `Couldn't confirm the change to ${label}: ${e instanceof Error ? e.message : String(e)}. The Added list shows that card.` });
+        },
+      );
+    }
     if (c) {
       filedSetNames.current.set(c.set_code, c.set_name);
       setFiledSets((s) => [c.set_code, ...s].slice(0, 10));
@@ -1236,8 +1442,35 @@ export function ScannerView({
     return Promise.resolve(saved).then((ok) => {
       if (ok === false) return failed();
       buzz(40);
-      setJustAdded({ text: `${addedWord} ${label}`, card: onUndo ? card : undefined, label });
+      setJustAdded({ text: `${addedWord} ${label}`, card: onUndo || onCorrect ? card : undefined, label, found: f, printing: c });
     }, failed);
+  };
+  /** The scanner settled this printing itself (read, or the only one), and so could have it wrong. */
+  const settledByScanner = (f: Found) => !identityOnly && !!f.chosen && (f.how === "collector" || f.how === "only" || f.how === "set");
+  /**
+   * Wrong printing (Bryan, 15 Nov 2026): the card is right, the printing isn't. The list opens with
+   * the misread marked "Read as", and the printing is read again from the held card, a fresh
+   * attempt; tapping one files it. With `filed`, the card was already filed: the choice then
+   * changes that copy. A scan photo is kept as a correction of the misread.
+   */
+  const wrongPrinting = (f: Found, misread: Printing, filed?: ScanCandidate) => {
+    const base: Found = { ...f, guess: f.guess ?? guessOf(f), misread, correcting: filed, chosen: null, how: null, sure: false, picking: false, error: undefined };
+    setJustAdded(null);
+    setWrongOpen(false);
+    setCloseup(null);
+    setPhase("found");
+    // Read from the list it came from, unless that was only this printing (or only the locked
+    // sets'): then every printing of the card.
+    if (f.options && f.options.length > 1 && f.how !== "set") {
+      ++foundSeq.current;
+      setFound(base);
+      setHoldRun((n) => n + 1);
+      return;
+    }
+    const seq = ++foundSeq.current;
+    const wide: Found = { ...base, options: null, unlocked: true };
+    setFound(wide);
+    void settle(seq, wide, { name: f.name }, null);
   };
   const undo = (j: JustAdded) => {
     if (!j.card || !onUndo) return;
@@ -1266,7 +1499,8 @@ export function ScannerView({
     setDupe((d) => (d && d.settings !== fileSettings ? null : d));
   }, [fileSettings]);
   useEffect(() => {
-    if (!autoAdd || !onAccept || paused || phase !== "found" || !found || !(identityOnly ? addsByIdentity(found) : addsItself(found))) return;
+    // A printing the person said was misread, or a correction, waits for a tap.
+    if (!autoAdd || !onAccept || paused || phase !== "found" || !found || found.misread || found.correcting || !(identityOnly ? addsByIdentity(found) : addsItself(found))) return;
     file(found, identityOnly ? null : found.chosen!, 1, true);
     // file() is a plain function of this render; only these decide whether to add.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1278,7 +1512,7 @@ export function ScannerView({
   // A hidden sheet comes back whenever the person has something to do in it: a card found that
   // Keep adding won't file by itself, or the set picker opened.
   const { setHidden: showSheet } = sheet;
-  const filesItself = !!found && autoAdd && !!onAccept && (identityOnly ? addsByIdentity(found) : addsItself(found));
+  const filesItself = !!found && autoAdd && !!onAccept && !found.misread && !found.correcting && (identityOnly ? addsByIdentity(found) : addsItself(found));
   const needsSheet = (phase === "found" && !!found && !filesItself) || lockOpen;
   useEffect(() => {
     if (needsSheet) showSheet(false);
@@ -1350,12 +1584,19 @@ export function ScannerView({
         )}
         <CameraControls c={cam} live={live} />
         {typeof overlay === "function" ? overlay(isFound && found ? candidateOf(found, chosen) : null) : overlay}
-        {!tapNeeded && !isFound && !lockOpen && justAdded?.card && onUndo ? (
+        {!tapNeeded && !isFound && !lockOpen && justAdded?.card && (onUndo || (onCorrect && justAdded.printing)) ? (
           <div className="scan-chip found has-action">
             <span role="status">{justAdded.text}</span>
-            <Button className="scan-chip-action" onClick={() => undo(justAdded)}>
-              Undo
-            </Button>
+            {onUndo && (
+              <Button className="scan-chip-action" onClick={() => undo(justAdded)}>
+                Undo
+              </Button>
+            )}
+            {onCorrect && justAdded.found && justAdded.printing && (
+              <Button className="scan-chip-action" onClick={() => wrongPrinting({ ...justAdded.found!, chosen: justAdded.printing! }, justAdded.printing!, justAdded.card)}>
+                Wrong printing
+              </Button>
+            )}
           </div>
         ) : (
         <span className={`scan-chip${tapNeeded ? " is-tap" : isFound ? " found" : justAdded ? " found" : ""}`} role="status">
@@ -1469,7 +1710,7 @@ export function ScannerView({
         {isFound && found && !lockOpen && (
           <>
             <div className="scan-result">
-              <CardThumb className="scan-thumb" src={chosen?.image_normal} name={chosen?.name} eager fallback={<div className="scan-thumb card-fallback">{found.name}</div>} />
+              <CardThumb className="scan-thumb" src={chosen?.image_normal} name={chosen?.name} eager fallback={<div className="scan-thumb card-fallback" aria-hidden="true" />} />
               <div className="scan-info">
                 <h3>{found.name}</h3>
                 {!identityOnly && chosen && (
@@ -1492,10 +1733,20 @@ export function ScannerView({
                   </span>
                 )}
                 <span className="scan-method">{explain(found, identityOnly, lock.map((l) => l.name).join(" or "))}</span>
-                {!identityOnly && chosen && options && options.length > 1 && !found.picking && (
-                  <Button className="scan-alt" onClick={() => setFound({ ...found, picking: true })}>
-                    Change printing ({options.length})
+                {settledByScanner(found) && !found.picking ? (
+                  <Button className="scan-alt" onClick={() => wrongPrinting(found, chosen!, found.correcting)}>
+                    Wrong printing?
                   </Button>
+                ) : (
+                  !identityOnly &&
+                  chosen &&
+                  options &&
+                  options.length > 1 &&
+                  !found.picking && (
+                    <Button className="scan-alt" onClick={() => setFound({ ...found, picking: true })}>
+                      Change printing ({options.length})
+                    </Button>
+                  )
                 )}
               </div>
             </div>
@@ -1521,6 +1772,10 @@ export function ScannerView({
                   <strong>Step 2: the printing.</strong> Hold the phone close to the card's bottom-left corner, so the set code and number fill the box. Or tap the printing below.
                 </p>
                 {closeupRead && <p className="scan-note">Reading: {closeupRead}</p>}
+                {readProgress && <p className="scan-note">{readProgress}.</p>}
+                <div className="scan-other-ways">
+                  <Button onClick={() => setCloseup(null)}>Back to reading the whole card</Button>
+                </div>
               </div>
             )}
             {showPicker && options && (!chosen || found.picking) && !closeup && (
@@ -1528,12 +1783,18 @@ export function ScannerView({
                 {peekShot && <CollectorPeek shot={peekShot} />}
                 {holding ? (
                   <p>
-                    <strong>Reading the printing.</strong> Keep the card in view while the set code and number are read, or tap the printing below.
+                    <strong>Reading the printing.</strong> {readProgress ? `${readProgress}.` : "Keep the card in view while the set code and number are read."} Or tap the printing below.
                   </p>
                 ) : (
                   <p>
                     <strong>Your turn:</strong> tap the printing that matches your card{peekShot ? ": its set code and number are above." : ". Its set code and number are in the bottom-left corner."}{onAccept ? (single ? " Tapping it uses it." : " Tapping it adds it.") : ""}
                   </p>
+                )}
+                {/* A fresh, full attempt at reading it from the held card: after one gave up, or for a typed name. */}
+                {!holding && live && !chosen && !wrongOpen && (
+                  <div className="scan-other-ways">
+                    <Button onClick={() => setHoldRun((n) => n + 1)}>{gaveUp ? "Keep reading" : "Read printing"}</Button>
+                  </div>
                 )}
               </div>
             )}
@@ -1554,8 +1815,9 @@ export function ScannerView({
                       else setFound(picked);
                     }}
                   >
-                    <CardThumb src={p.image_small} fallback={<span className="card-fallback">{p.name}</span>} />
+                    <CardThumb src={p.image_small} fallback={<span className="card-fallback" aria-hidden="true" />} />
                     <span className="scan-printing-set">{p.set_name}</span>
+                    {found.misread?.scryfall_id === p.scryfall_id && <span className="scan-misread">{found.correcting ? "Added as this" : "Read as this"}</span>}
                     <span className="dim">
                       #{p.collector_number}
                       {p.released_at ? `, ${p.released_at.slice(0, 4)}` : ""}
@@ -1577,7 +1839,7 @@ export function ScannerView({
             <div className="scan-buttons">
               {onAccept && (
                 <div className="scan-accept">
-                  {!identityOnly && !single && (
+                  {!identityOnly && !single && !found.correcting && (
                     <Field className="scan-copies" label="Copies">
                       <select value={copies} onChange={(e) => setCopies(Number(e.target.value))}>
                         {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
@@ -1593,11 +1855,11 @@ export function ScannerView({
                     disabled={!ready}
                     onClick={() => file(found, chosen, copies, false)}
                   >
-                    {!ready ? (options && !found.reading ? "Pick the printing" : "Finding the printing…") : acceptLabel}
+                    {!ready ? (options && !found.reading ? "Pick the printing" : "Finding the printing…") : found.correcting ? "Change to this printing" : acceptLabel}
                   </Button>
                 </div>
               )}
-              <Button onClick={() => again()}>{onAccept ? "Skip" : "Scan next"}</Button>
+              <Button onClick={() => again()}>{found.correcting ? "Keep it as it was" : onAccept ? "Skip" : "Scan next"}</Button>
               <div className="scan-secondary">
                 {!wrongOpen && (
                   <Button className="scan-alt" onClick={() => setWrongOpen(true)}>
@@ -1669,6 +1931,16 @@ export function ScannerView({
       </div>
     </div>
   );
+}
+
+/**
+ * What a kept scan photo says the person did: "added" as the scanner had it, or "corrected" when
+ * they named another card (Wrong card) or printing (Wrong printing, or a printing other than the
+ * one the scanner settled), whose `guess` then keeps what the scanner said.
+ */
+export function sampleKind(f: { settledId?: string; guess?: unknown }, kind: SampleLabel["kind"], label?: Pick<ScanCandidate, "scryfall_id">): SampleLabel["kind"] {
+  const changedPrinting = !!f.settledId && !!label?.scryfall_id && label.scryfall_id !== f.settledId;
+  return kind === "added" && (f.guess || changedPrinting) ? "corrected" : kind;
 }
 
 /**

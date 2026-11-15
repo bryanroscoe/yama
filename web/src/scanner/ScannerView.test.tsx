@@ -18,7 +18,10 @@ const printing = (set: string, n: string): Printing => ({
 vi.mock("../api", async (original) => ({
   ...(await original<typeof import("../api")>()),
   api: (path: string) => {
-    if (path.startsWith("/api/cards/autocomplete")) return Promise.resolve(["Arcane Signet"]);
+    if (path.startsWith("/api/cards/autocomplete")) return Promise.resolve(path.includes("Sol") ? ["Sol Ring"] : ["Arcane Signet"]);
+    // One English printing (so it's settled as "the only one") and two in other languages.
+    if (path.startsWith("/api/scan/printings") && path.includes("Sol"))
+      return Promise.resolve({ same_art: false, printings: [{ ...printing("ecc", "57"), name: "Sol Ring", scryfall_id: "sol-en" }, { ...printing("cmm", "410"), name: "Sol Ring", lang: "ja", scryfall_id: "sol-ja" }, { ...printing("cmm", "411"), name: "Sol Ring", lang: "de", scryfall_id: "sol-de" }] });
     if (path.startsWith("/api/scan/printings")) return Promise.resolve({ same_art: false, printings: [printing("woc", "145"), printing("cmm", "390"), printing("c21", "236")] });
     return Promise.reject(new Error(`offline: ${path}`));
   },
@@ -65,14 +68,14 @@ async function until<T>(get: () => T | null | undefined, what: string): Promise<
 }
 const click = (el: HTMLElement) => act(() => el.click());
 
-async function typeName() {
+async function typeName(name = "Arcane Signet") {
   const input = await until(() => document.querySelector<HTMLInputElement>('input[aria-label="Card name"]'), "the name box");
   await act(() => {
     const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
-    set.call(input, "Arcane");
+    set.call(input, name.split(" ")[0]!);
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
-  await click(await until(() => button("Arcane Signet"), "the suggestion"));
+  await click(await until(() => button(name), "the suggestion"));
 }
 
 describe("ScannerView after a printing is chosen", () => {
@@ -184,5 +187,142 @@ describe("ScannerView after a printing is chosen", () => {
     expect(accepted).toHaveLength(1);
     await wait(50);
     expect(button("Scan anyway")).toBeUndefined();
+  });
+
+  it("Wrong printing before filing reopens the list with the misread marked, and a tap files the right one, once", async () => {
+    const accepted: ScanCandidate[] = [];
+    act(() =>
+      root.render(
+        <ScannerView
+          onAccept={async (c) => {
+            accepted.push(c);
+            return true;
+          }}
+        />,
+      ),
+    );
+    await typeName("Sol Ring");
+    // No placeholder text: the picture's stand-in is an empty card shape, the name is the heading.
+    await until(() => document.querySelector("h3"), "the card's name");
+    expect(document.querySelector("h3")?.textContent).toBe("Sol Ring");
+    expect(document.querySelector(".scan-thumb.card-fallback")?.textContent ?? "").toBe("");
+    // Settled by the scanner (the only English printing): Wrong printing is offered.
+    await click(await until(() => button("Wrong printing?"), "Wrong printing?"));
+    const marked = await until(() => document.querySelector(".scan-misread"), "the misread mark");
+    expect(marked.textContent).toBe("Read as this");
+    expect(marked.closest('[role="option"]')?.textContent).toContain("ECC");
+    expect(accepted).toHaveLength(0);
+    const options = document.querySelectorAll<HTMLElement>('[role="option"]');
+    await click([...options].find((o) => o.textContent?.includes("#411"))!);
+    expect(accepted).toHaveLength(1);
+    expect(accepted[0]).toMatchObject({ scryfall_id: "sol-de" });
+  });
+
+  it("Wrong printing after filing changes that copy rather than adding one, and Undo then takes back the changed copy", async () => {
+    const accepted: ScanCandidate[] = [];
+    const corrected: [ScanCandidate, ScanCandidate][] = [];
+    const undone: ScanCandidate[] = [];
+    act(() =>
+      root.render(
+        <ScannerView
+          onAccept={async (c) => {
+            accepted.push(c);
+            return true;
+          }}
+          onCorrect={async (from, to) => {
+            corrected.push([from, to]);
+            return "changed";
+          }}
+          onUndo={async (c) => {
+            undone.push(c);
+          }}
+        />,
+      ),
+    );
+    await typeName("Sol Ring");
+    await click(await until(() => button("Add"), "Add"));
+    expect(accepted).toHaveLength(1);
+    expect(accepted[0]).toMatchObject({ scryfall_id: "sol-en" });
+
+    // On the camera after it's saved: Wrong printing reopens its list, marked as added.
+    await click(await until(() => button("Wrong printing"), "Wrong printing on the chip"));
+    const marked = await until(() => document.querySelector(".scan-misread"), "the filed printing's mark");
+    expect(marked.textContent).toBe("Added as this");
+    expect(button("Keep it as it was")).toBeDefined();
+    const options = document.querySelectorAll<HTMLElement>('[role="option"]');
+    await click([...options].find((o) => o.textContent?.includes("#410"))!);
+    // The filed copy is changed: no second add.
+    expect(accepted).toHaveLength(1);
+    await until(() => (corrected.length ? corrected : null), "the correction");
+    expect(corrected[0]![0]).toBe(accepted[0]);
+    expect(corrected[0]![1]).toMatchObject({ scryfall_id: "sol-ja" });
+    await until(() => (document.querySelector(".scan-chip")?.textContent?.includes("Changed to Sol Ring (CMM 410)") ? true : null), "Changed to");
+
+    // Undo now stands for the changed copy.
+    await click(await until(() => button("Undo"), "Undo"));
+    await until(() => (undone.length ? undone : null), "the undo");
+    expect(undone[0]).toBe(corrected[0]![1]);
+  });
+});
+
+describe("Wrong printing after filing, when the host can't confirm it (review of #138)", () => {
+  async function fileThenCorrect(onCorrect: (from: ScanCandidate, to: ScanCandidate) => Promise<"changed" | "kept">) {
+    act(() =>
+      root.render(
+        <ScannerView onAccept={async () => true} onCorrect={onCorrect} onUndo={async () => undefined} />,
+      ),
+    );
+    await typeName("Sol Ring");
+    await click(await until(() => button("Add"), "Add"));
+    await click(await until(() => button("Wrong printing"), "Wrong printing on the chip"));
+    await until(() => document.querySelector(".scan-misread"), "the list");
+    const options = document.querySelectorAll<HTMLElement>('[role="option"]');
+    await click([...options].find((o) => o.textContent?.includes("#410"))!);
+  }
+
+  it("shows no Undo, Wrong printing or Scan anyway on a printing it can't vouch for", async () => {
+    await fileThenCorrect(async () => {
+      throw new Error("Still saving the last change");
+    });
+    const chip = await until(() => (document.querySelector(".scan-chip")?.textContent?.includes("Couldn't confirm") ? document.querySelector(".scan-chip") : null), "the failure");
+    expect(chip.textContent).toContain("The Added list shows that card");
+    expect(button("Undo")).toBeUndefined();
+    expect(button("Wrong printing")).toBeUndefined();
+    expect(button("Scan anyway")).toBeUndefined();
+  });
+
+  it("says Kept only when the host says the copy already was that printing", async () => {
+    await fileThenCorrect(async () => "kept");
+    await until(() => (document.querySelector(".scan-chip")?.textContent?.includes("Kept Sol Ring (CMM 410)") ? true : null), "Kept");
+  });
+});
+
+describe("scan photos of corrections", () => {
+  it("keeps a Wrong printing correction as corrected, with the scanner's guess", async () => {
+    const { sampleKind } = await import("./ScannerView");
+    // Wrong printing keeps what the scanner said in `guess`.
+    expect(sampleKind({ settledId: "sol-en", guess: { guess_scryfall_id: "sol-en" } }, "added", { scryfall_id: "sol-ja" })).toBe("corrected");
+    // A tapped printing other than the one settled is a correction too; the same one isn't.
+    expect(sampleKind({ settledId: "sol-en" }, "added", { scryfall_id: "sol-ja" })).toBe("corrected");
+    expect(sampleKind({ settledId: "sol-en" }, "added", { scryfall_id: "sol-en" })).toBe("added");
+    expect(sampleKind({}, "wrong")).toBe("wrong");
+  });
+});
+
+describe("the card just filed by its name stays held (with the title-first change)", () => {
+  it("knows a two-faced card by either face, from art or a title read", async () => {
+    const { fusedHeld, sameCardName } = await import("./ScannerView");
+    const { fuseTitle, titleRead } = await import("./fuse");
+    const { NameIndex } = await import("./fuzzy");
+    const full = "Westvale Abbey // Ormendahl, Profane Prince";
+    expect(sameCardName("Ormendahl, Profane Prince", full)).toBe(true);
+    expect(sameCardName("Wei Night Raiders", full)).toBe(false);
+    const reader = { names: new NameIndex(["Westvale Abbey", "Ormendahl, Profane Prince", "Wei Night Raiders"]), catalog: { fullName: (n: string) => (n === "Wei Night Raiders" ? n : full) } };
+    // The held card's title read again, or its back face's art: held, not filed again.
+    expect(fusedHeld(fuseTitle([{ name: "Wei Night Raiders", score: 0.66 }], titleRead(["Westvale Abbey"], reader)), full)).toBe(true);
+    expect(fusedHeld(fuseTitle([{ name: "Ormendahl, Profane Prince", score: 0.6 }], titleRead(["Westvale Abbey"], reader)), full)).toBe(true);
+    // Another card: not held. Nothing held: nothing to hold.
+    expect(fusedHeld(fuseTitle([{ name: "Wei Night Raiders", score: 0.66 }], titleRead(["Wei Night Raiders"], reader)), full)).toBe(false);
+    expect(fusedHeld(fuseTitle([], titleRead(["Westvale Abbey"], reader)), undefined)).toBe(false);
   });
 });
