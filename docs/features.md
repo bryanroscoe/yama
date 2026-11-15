@@ -120,6 +120,16 @@ built Nov 15, 2026". The app part is the installed APK's version; the web part i
 web build was made from (`VITE_APP_BUILD` for the app, `YAMA_GIT_SHA` from the deploy for the
 site, Git for a local build) and the build date.
 
+Updating the Android app from inside it (15 Nov 2026, Bryan: there's no Play Store release soon,
+so know about a new APK while the app is open and install it there; nothing checks while Yama is
+closed, and there are no system notifications). A new APK brings the banner "A new version of the
+Yama app is ready: 0.2.N." with a one-line what's new and Update. In the Android app, Settings has
+a "Yama app" row in place of the foot line: the installed app and web build, "Up to date" (with
+when it checked), "Update available: 0.2.N" and its what's new, and Update app or Check for
+updates. Both share one check and one install (`web/src/appUpdate.ts`). The first update sends the
+person to Android's "Install unknown apps" for Yama; coming back with it allowed carries the
+install on without another tap.
+
 ### Bug reports
 
 Anyone signed in can report a bug from the little bug on every page head and dialog head (and

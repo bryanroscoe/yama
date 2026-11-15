@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import { isNative } from "../native";
-import { parseManifest, planUpdate, Updater, UPDATE_MANIFEST_URL, WEB_BUILD } from "../nativeUpdate";
+import { Updater, WEB_BUILD } from "../nativeUpdate";
+import { checkForUpdates, installApp, NATIVE_CHECK_MS, resumed, useAppUpdate, type AppUpdateState } from "../appUpdate";
 import { Button } from "./Button";
+import { fmtTime } from "@yama/core";
+import { BUILD_COMMIT, BUILD_TIME, versionLine } from "../version";
 
 export function shellBuild(html: string): string | null {
   return html.match(/<meta name="yama-precache" content="(\/assets\/precache-[\w-]+\.json)"/)?.[1] ?? null;
@@ -47,80 +50,91 @@ function WebAppUpdate() {
   return available ? <aside className="app-update" role="status"><span>A Yama update is ready. Save open edits before reloading.</span><Button onClick={() => window.location.reload()}>Reload</Button></aside> : null;
 }
 
-/** How often the app asks for update.json while it's open or comes back to the front. */
-const NATIVE_CHECK_MS = 30 * 60_000;
-
 /**
- * The Android app (nativeUpdate.ts): a web build downloads quietly and starts with the app next
- * time, with a Reload offer meanwhile; a newer APK gets an Update button.
+ * The Android app (appUpdate.ts): a web build downloads quietly and starts with the app next
+ * time, with a Reload offer meanwhile; a newer APK gets an Update button and its what's new.
+ * Settings has the same Update, and Check for updates, in its "Yama app" row.
  */
 function NativeAppUpdate() {
-  const [web, setWeb] = useState<string | null>(null);
-  const [app, setApp] = useState<{ versionCode: number; url: string; sha256: string } | null>(null);
-  const [note, setNote] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const s = useAppUpdate();
   useEffect(() => {
-    let live = true;
-    let checking = false;
-    let last = 0;
     // This build started: keep it (the updater goes back to the previous one otherwise).
     void Updater.started({ version: WEB_BUILD }).catch(() => {});
-    const check = async (force = false) => {
-      if (checking || (!force && Date.now() - last < NATIVE_CHECK_MS) || !navigator.onLine) return;
-      checking = true;
-      last = Date.now();
-      try {
-        const info = await Updater.info();
-        if (info.nativeHash === "dev") return;
-        if (info.next && info.next !== WEB_BUILD && live) setWeb(info.next);
-        const manifest = parseManifest((await Updater.fetchText({ url: `${UPDATE_MANIFEST_URL}?t=${Date.now()}` })).text);
-        if (!manifest || !live) return;
-        const plan = planUpdate(info, manifest, WEB_BUILD);
-        if (plan.kind === "app") setApp(plan);
-        else if (plan.kind === "web") {
-          const { version } = await Updater.downloadBuild(plan);
-          if (live) setWeb(version);
-        }
-      } catch { /* Offline or GitHub unreachable: try again later. */ }
-      finally { checking = false; }
-    };
-    void check(true);
-    const interval = window.setInterval(() => void check(), NATIVE_CHECK_MS);
-    const resumed = import("@capacitor/app").then(({ App }) => App.addListener("resume", () => void check()));
+    void checkForUpdates(true);
+    const interval = window.setInterval(() => void checkForUpdates(), NATIVE_CHECK_MS);
+    const onResume = import("@capacitor/app").then(({ App }) => App.addListener("resume", () => void resumed()));
     return () => {
-      live = false;
       window.clearInterval(interval);
-      void resumed.then((h) => h.remove());
+      void onResume.then((h) => h.remove());
     };
   }, []);
-  const install = async () => {
-    if (!app) return;
-    setBusy(true);
-    setNote(null);
-    try {
-      const { status } = await Updater.installApk(app);
-      setNote(status === "permission" ? "Allow Yama to install updates, then come back and tap Update again." : null);
-    } catch {
-      setNote("The update didn't download. Try again in a moment.");
-    } finally {
-      setBusy(false);
-    }
-  };
-  if (app) {
+  if (s.app) {
     return (
       <aside className="app-update" role="status">
-        <span>{note ?? "A new version of the Yama app is ready."}</span>
-        <Button onClick={() => void install()} disabled={busy}>{busy ? "Downloading…" : "Update"}</Button>
+        <span className="app-update-text">
+          <span>{appUpdateMessage(s)}</span>
+          {s.app.notes && !s.awaitingPermission && !s.installError && <span className="dim">{s.app.notes}</span>}
+        </span>
+        <Button onClick={() => void installApp()} disabled={s.installing}>{s.installing ? "Downloading…" : "Update"}</Button>
       </aside>
     );
   }
-  if (web) {
+  if (s.web) {
     return (
       <aside className="app-update" role="status">
         <span>A Yama update is ready. It starts next time you open the app, or reload now after saving open edits.</span>
-        <Button onClick={() => void Updater.apply({ version: web })}>Reload</Button>
+        <Button onClick={() => void Updater.apply({ version: s.web! })}>Reload</Button>
       </aside>
     );
   }
   return null;
+}
+
+/** The banner's line for a newer APK, also used in Settings. */
+export function appUpdateMessage(s: Pick<AppUpdateState, "app" | "awaitingPermission" | "installError">): string {
+  if (s.installError) return s.installError;
+  if (s.awaitingPermission) return "Allow Yama to install apps, then come back to Yama. The update carries on by itself.";
+  return s.app ? `A new version of the Yama app is ready: ${s.app.versionName}.` : "";
+}
+
+/** The status line in Settings' "Yama app" row. */
+export function appStatus(s: AppUpdateState): string {
+  if (s.info?.nativeHash === "dev") return "A local build: it doesn't update itself.";
+  if (s.app) return `Update available: ${s.app.versionName}`;
+  if (s.web) return "Up to date. A web update is ready and starts next time you open the app.";
+  if (s.checking) return "Checking for updates…";
+  if (s.checkFailed) return "Couldn't check for updates. Try again when you have signal.";
+  if (s.checkedAt) return `Up to date (checked ${fmtTime(new Date(s.checkedAt).toISOString())})`;
+  return "";
+}
+
+/**
+ * Settings' "Yama app" row, in the Android app only: the installed app and web build, whether an
+ * update is out, and Update (the same install as the banner) or Check for updates.
+ */
+export function AppUpdateSetting() {
+  const s = useAppUpdate();
+  const native = s.info ? { versionName: s.info.versionName, versionCode: s.info.versionCode } : null;
+  const status = appStatus(s);
+  const message = s.app ? appUpdateMessage({ ...s, app: null }) : "";
+  return (
+    <div className="grp-you-row grp-you-stack">
+      <div className="grp-you-line">
+        <span className="grp-you-text">
+          <b>Yama app</b>
+          <span>{versionLine(native, BUILD_COMMIT, BUILD_TIME)}</span>
+          {status && <span>{status}</span>}
+          {s.app?.notes && <span className="dim">{s.app.notes}</span>}
+        </span>
+        {s.app ? (
+          <Button onClick={() => void installApp()} disabled={s.installing}>{s.installing ? "Downloading…" : "Update app"}</Button>
+        ) : s.web ? (
+          <Button onClick={() => void Updater.apply({ version: s.web! })}>Reload</Button>
+        ) : s.info?.nativeHash !== "dev" ? (
+          <Button variant="outline" onClick={() => void checkForUpdates(true)} disabled={s.checking}>{s.checking ? "Checking…" : "Check for updates"}</Button>
+        ) : null}
+      </div>
+      {message && <p className="small" role="status">{message}</p>}
+    </div>
+  );
 }

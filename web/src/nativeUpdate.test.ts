@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseManifest, planUpdate, type UpdaterInfo } from "./nativeUpdate";
+import { cleanNotes, NOTES_MAX, parseManifest, planUpdate, type UpdaterInfo } from "./nativeUpdate";
 
 const sha = "a".repeat(64);
 const manifest = {
@@ -10,7 +10,7 @@ const info: UpdaterInfo = { versionCode: 12, nativeHash: "0123456789abcdef", fai
 
 describe("parseManifest", () => {
   it("accepts a well-formed manifest", () => {
-    expect(parseManifest(JSON.stringify(manifest))).toEqual(manifest);
+    expect(parseManifest(JSON.stringify(manifest))).toEqual({ ...manifest, native: { ...manifest.native, notes: "" } });
     expect(parseManifest(JSON.stringify({ ...manifest, web: null }))?.web).toBeNull();
   });
 
@@ -25,11 +25,28 @@ describe("parseManifest", () => {
   });
 });
 
+describe("notes", () => {
+  it("carries the APK's what's new, as one plain line", () => {
+    const m = parseManifest(JSON.stringify({ ...manifest, native: { ...manifest.native, notes: "  Settings can update the app;\n\tscanner fixes " } }));
+    expect(m?.native.notes).toBe("Settings can update the app; scanner fixes");
+  });
+
+  it("never refuses a manifest over its notes", () => {
+    for (const notes of [7, null, { a: 1 }, ["x"]]) expect(parseManifest(JSON.stringify({ ...manifest, native: { ...manifest.native, notes } }))?.native.notes).toBe("");
+  });
+
+  it("cuts long notes at a word", () => {
+    const long = cleanNotes("word ".repeat(100));
+    expect(long.length).toBeLessThanOrEqual(NOTES_MAX);
+    expect(long.endsWith("word…")).toBe(true);
+  });
+});
+
 describe("planUpdate", () => {
   const m = parseManifest(JSON.stringify(manifest))!;
 
   it("offers a newer APK first", () => {
-    expect(planUpdate({ ...info, versionCode: 11, nativeHash: "ffffffffffffffff" }, m, "old").kind).toBe("app");
+    expect(planUpdate({ ...info, versionCode: 11, nativeHash: "ffffffffffffffff" }, m, "old")).toMatchObject({ kind: "app", versionName: "0.2.12", notes: "" });
   });
 
   it("downloads a web build made for this native code", () => {
