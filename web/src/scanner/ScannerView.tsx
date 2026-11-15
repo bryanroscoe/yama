@@ -369,13 +369,19 @@ export function ScannerView({
    * The card just filed, while the scanner holds it back as the same card (hold.ts): "Scan anyway"
    * files one more copy of it (Bryan, 15 Nov 2026: real duplicates, two of a card from two orders).
    */
-  const [dupe, setDupe] = useState<{ found: Found; printing: Printing | null; label: string } | null>(null);
+  /** The card just filed, still held: what "Scan anyway" files again, under the settings it was filed with. */
+  const [dupe, setDupe] = useState<{ found: Found; printing: Printing | null; label: string; settings: string } | null>(null);
+  /** "Scan anyway" is saving: one press, one copy, even on a double tap. */
+  const dupeBusy = useRef(false);
+  const [dupeSaving, setDupeSaving] = useState(false);
   const photoInput = useRef<HTMLInputElement>(null);
   /** The latest view of the held card, from the hold-and-read loop, for "From your card". */
   const [liveShot, setLiveShot] = useState<Shot | null>(null);
   /** Wrong card was tapped: the other cards it might be, a name box, or just scan again. */
   const [wrongOpen, setWrongOpen] = useState(false);
   const cam = useCameraControls();
+  /** What the host files a card with (finish, where it goes), as far as the scanner is told. */
+  const fileSettings = `${finish ?? ""}|${settingsSummary ?? ""}`;
   const digitalRef = useRef(1);
   digitalRef.current = cam.digital;
 
@@ -1168,7 +1174,7 @@ export function ScannerView({
    * confirmation) or Keep adding. Keeps its scan photo, hands it to `onAccept` and goes on to the
    * next card; "Added …" shows on the camera once it's saved, with Undo where the host offers it.
    */
-  const file = (f: Found, c: Printing | null, n: number, auto: boolean) => {
+  const file = (f: Found, c: Printing | null, n: number, auto: boolean): Promise<unknown> | undefined => {
     if (!onAccept) return;
     const label = c ? `${c.name} (${c.set_code.toUpperCase()} ${c.collector_number})` : f.name;
     const card = candidateOf(f, c);
@@ -1182,9 +1188,9 @@ export function ScannerView({
     // scanning goes on; "Added" waits for the save.
     again(f);
     // While the camera still holds this card it isn't found again; "Scan anyway" files another.
-    if (!single) setDupe({ found: f, printing: c, label });
+    if (!single) setDupe({ found: f, printing: c, label, settings: fileSettings });
     const failed = () => setJustAdded({ text: `Couldn't save ${label}. Tap ${addedWord} to try again` });
-    void Promise.resolve(saved).then((ok) => {
+    return Promise.resolve(saved).then((ok) => {
       if (ok === false) return failed();
       buzz(40);
       setJustAdded({ text: `${addedWord} ${label}`, card: onUndo ? card : undefined, label });
@@ -1203,9 +1209,19 @@ export function ScannerView({
   };
   /** One more copy of the card just filed, same printing and finish, by the same path as Add. */
   const scanAnyway = () => {
-    if (!dupe) return;
-    file(dupe.found, dupe.printing, 1, false);
+    if (!dupe || dupeBusy.current || dupe.settings !== fileSettings) return;
+    dupeBusy.current = true;
+    setDupeSaving(true);
+    void Promise.resolve(file(dupe.found, dupe.printing, 1, false)).finally(() => {
+      dupeBusy.current = false;
+      setDupeSaving(false);
+    });
   };
+  // A changed finish or destination isn't "the same again": the offer goes rather than file a
+  // copy the person didn't scan (the host files with its current settings).
+  useEffect(() => {
+    setDupe((d) => (d && d.settings !== fileSettings ? null : d));
+  }, [fileSettings]);
   useEffect(() => {
     if (!autoAdd || !onAccept || paused || phase !== "found" || !found || !(identityOnly ? addsByIdentity(found) : addsItself(found))) return;
     file(found, identityOnly ? null : found.chosen!, 1, true);
@@ -1372,8 +1388,8 @@ export function ScannerView({
                   <strong>{dupe.label} is still in view.</strong> The scanner waits for a different card. Got another copy of it?
                 </p>
                 <div className="scan-other-ways">
-                  <Button variant="primary" onClick={scanAnyway}>
-                    Scan anyway
+                  <Button variant="primary" onClick={scanAnyway} disabled={dupeSaving}>
+                    {dupeSaving ? "Adding…" : "Scan anyway"}
                   </Button>
                 </div>
               </div>

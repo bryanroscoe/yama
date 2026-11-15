@@ -119,6 +119,40 @@ describe("ScannerView after a printing is chosen", () => {
     expect(undone[0]).toBe(accepted[1]![0]);
   });
 
+  it("files one copy for a double tap on Scan anyway, and drops the offer when the finish changes", async () => {
+    const accepted: ScanCandidate[] = [];
+    let release: (ok: boolean) => void = () => undefined;
+    const view = (finish: "nonfoil" | "foil") => (
+      <ScannerView
+        finish={finish}
+        onAccept={(c) => {
+          accepted.push(c);
+          // The first save goes through; Scan anyway's waits until released.
+          return accepted.length === 1 ? Promise.resolve(true) : new Promise<boolean>((r) => (release = r));
+        }}
+      />
+    );
+    act(() => root.render(view("nonfoil")));
+    await typeName();
+    const options = await until(() => (document.querySelectorAll('[role="option"]').length === 3 ? document.querySelectorAll<HTMLElement>('[role="option"]') : null), "the printings");
+    await click(options[1]!);
+    const again = await until(() => button("Scan anyway"), "Scan anyway");
+    await act(() => {
+      again.click();
+      again.click();
+    });
+    expect(accepted).toHaveLength(2);
+    expect(button("Adding…")?.disabled).toBe(true);
+    await act(async () => release(true));
+    await until(() => button("Scan anyway"), "Scan anyway after the save");
+    expect(accepted).toHaveLength(2);
+
+    // Foil now: another copy wouldn't be the same as the one filed, so the offer goes.
+    act(() => root.render(view("foil")));
+    await wait(20);
+    expect(button("Scan anyway")).toBeUndefined();
+  });
+
   it("keeps Use a photo and Read the name up close, in More", async () => {
     act(() => root.render(<ScannerView onAccept={async () => true} />));
     await until(() => document.querySelector('input[aria-label="Card name"]'), "the name box");
