@@ -18,6 +18,7 @@ import { rectQuad } from "./image";
 import { readCloseup, readCollectorLines, scanFrame, SURE } from "./pipeline";
 import { artHoldFrame, AWAY_FRAMES, hold, holdRead, type ArtHold, type Hold } from "./hold";
 import { NameEntry } from "./NameEntry";
+import { CollectorPeek } from "./peek";
 import { choosePrinting, printingOptions, type Choice } from "./printings";
 import type { ArtMatch, Recognition } from "./recognizer";
 import { deleteSamples, keepSample, sampleSummary, savingPhotos, setSavingPhotos, type SampleLabel, type SampleSummary, type Shot } from "./samples";
@@ -41,6 +42,11 @@ export interface ScannerViewProps {
    * says "Added" once it was.
    */
   onAccept?: (card: ScanCandidate, copies: number, auto: boolean) => void | Promise<boolean>;
+  /**
+   * Take back a card `onAccept` just saved (the same object it was given): the "Undo" on the
+   * camera's "Added …" chip. Without it the chip offers none.
+   */
+  onUndo?: (card: ScanCandidate) => Promise<void>;
   /** For reading text: defaults to the server lookup plus the offline card names. */
   catalog?: ScanCatalog;
   /** For reading text: defaults to `createScannerOcr` (ML Kit in the app, PaddleOCR in the browser, else tesseract.js). */
@@ -154,6 +160,17 @@ const MARGIN = 0.12;
 const MAX_SIDE = 1500;
 const CARD_ASPECT = 88 / 63;
 const PICKER_FIRST = 24;
+/** How long "Added …" stays on the camera when it offers Undo. */
+const UNDO_MS = 6000;
+
+/** What was just added, on the camera's chip. `card` (the object `onAccept` was given) once saved, for Undo. */
+interface JustAdded {
+  text: string;
+  card?: ScanCandidate;
+  label?: string;
+  /** Undo is under way: the chip stays until it's done. */
+  busy?: boolean;
+}
 /**
  * While reading a held card: how far below the best match in view the held card's art may score.
  * With the set lock, as far as judgeLocked lets an in-set match trail the best one anywhere.
@@ -272,6 +289,7 @@ const candidateOf = (f: Found, p: Printing | null): ScanCandidate => ({
 
 export function ScannerView({
   onAccept,
+  onUndo,
   catalog: catalogProp,
   ocr: ocrProp,
   onClose,
@@ -344,10 +362,10 @@ export function ScannerView({
   /** The camera is running (a close-up needs it). */
   const [live, setLive] = useState(false);
   const [showAll, setShowAll] = useState(false);
-  /** Add was tapped on a printing picked by eye: asking to check it first. */
-  const [confirming, setConfirming] = useState(false);
-  /** What Keep adding just added, shown on the camera for a moment. */
-  const [justAdded, setJustAdded] = useState<string | null>(null);
+  /** What was just added (by Add, a tapped printing or Keep adding), shown on the camera for a moment, with Undo once saved. */
+  const [justAdded, setJustAdded] = useState<JustAdded | null>(null);
+  /** The latest view of the held card, from the hold-and-read loop, for "From your card". */
+  const [liveShot, setLiveShot] = useState<Shot | null>(null);
   /** Wrong card was tapped: the other cards it might be, a name box, or just scan again. */
   const [wrongOpen, setWrongOpen] = useState(false);
   const cam = useCameraControls();
@@ -406,8 +424,8 @@ export function ScannerView({
     lockRef.current = { codes: new Set(lock.map((s) => s.code)), names: new NameIndex(lockedNames(lock)), inSets: artInSets(keys), label: lock.map((s) => s.name).join(" or ") };
   }, [lock, lockOn]);
   useEffect(() => {
-    if (!justAdded) return;
-    const t = setTimeout(() => setJustAdded(null), 2500);
+    if (!justAdded || justAdded.busy) return;
+    const t = setTimeout(() => setJustAdded(null), justAdded.card ? UNDO_MS : 2500);
     return () => clearTimeout(t);
   }, [justAdded]);
 
@@ -1010,6 +1028,7 @@ export function ScannerView({
         else {
           const quad = r.quad!.map(([x, y]) => [x / k + zone.x, y / k + zone.y]) as Quad;
           const read = around(v, v.videoWidth, v.videoHeight, quad, hiCanvasRef.current);
+          setLiveShot(read);
           const opts = { sameArt: f.sameArt, printings: f.options };
           const ocr = await ocrEngine();
           for await (const text of readCollectorLines(read.image, read.quad, ocr)) {
@@ -1045,6 +1064,7 @@ export function ScannerView({
       stop = true;
       clearTimeout(timer);
       setHolding(false);
+      setLiveShot(null);
     };
     // buzz and the setters are stable for this purpose; the loop reads the card through foundRef.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1118,21 +1138,12 @@ export function ScannerView({
 
   const chosen = found?.chosen ?? null;
   const ready = identityOnly || !!chosen;
-  // A printing tapped in the picker, among several, wasn't read from the card: the pictures of
-  // reprints often look alike (or are the same art). Adding it asks for a check first.
-  const unread = !identityOnly && found?.how === "picked" && !!found.options && found.options.length > 1;
-  // Any change to the card, its printing or the step (including reopening the picker) asks again.
-  useEffect(() => {
-    setConfirming(false);
-  }, [chosen, phase, closeup, found?.picking]);
   // When the next step is a tap, not the camera, say so on the camera view, buzz, and bring it into view.
   const tapNeeded: string | null =
     phase !== "found" || !found || closeup || holding
       ? null
       : found.outside
         ? `Not in ${lockLabel}: another set?`
-      : confirming
-        ? "Check the printing below"
         : (!chosen || found.picking) && !found.reading && !!found.options && found.options.length > 1
           ? "Tap your printing below"
           : null;
@@ -1141,31 +1152,46 @@ export function ScannerView({
     buzz([20, 60, 20]);
     tapRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [tapNeeded]);
-  useEffect(() => {
-    if (!autoAdd || !onAccept || paused || phase !== "found" || !found || !(identityOnly ? addsByIdentity(found) : addsItself(found))) return;
-    const c = identityOnly ? null : found.chosen!;
-    const label = c ? `${c.name} (${c.set_code.toUpperCase()} ${c.collector_number})` : found.name;
-    const card = candidateOf(found, c);
-    keep(found, "added", card);
+  /**
+   * File the card: Add, a tapped printing (Bryan, 15 Nov 2026: tapping a printing is the
+   * confirmation) or Keep adding. Keeps its scan photo, hands it to `onAccept` and goes on to the
+   * next card; "Added …" shows on the camera once it's saved, with Undo where the host offers it.
+   */
+  const file = (f: Found, c: Printing | null, n: number, auto: boolean) => {
+    if (!onAccept) return;
+    const label = c ? `${c.name} (${c.set_code.toUpperCase()} ${c.collector_number})` : f.name;
+    const card = candidateOf(f, c);
+    keep(f, "added", card);
     if (c) {
       filedSetNames.current.set(c.set_code, c.set_name);
       setFiledSets((s) => [c.set_code, ...s].slice(0, 10));
     }
-    const saved = onAccept(card, 1, true);
+    const saved = onAccept(card, n, auto);
     // The card stays in the session list either way (a failed save can be tried again there), so
     // scanning goes on; "Added" waits for the save.
     again();
-    void Promise.resolve(saved).then(
-      (ok) => {
-        if (ok === false) setJustAdded(`Couldn't save ${label}. Tap ${addedWord} to try again`);
-        else {
-          buzz(40);
-          setJustAdded(`${addedWord} ${label}`);
-        }
-      },
-      () => setJustAdded(`Couldn't save ${label}. Tap ${addedWord} to try again`),
+    const failed = () => setJustAdded({ text: `Couldn't save ${label}. Tap ${addedWord} to try again` });
+    void Promise.resolve(saved).then((ok) => {
+      if (ok === false) return failed();
+      buzz(40);
+      setJustAdded({ text: `${addedWord} ${label}`, card: onUndo ? card : undefined, label });
+    }, failed);
+  };
+  const undo = (j: JustAdded) => {
+    if (!j.card || !onUndo) return;
+    const taking: JustAdded = { text: `Taking out ${j.label}…`, busy: true };
+    setJustAdded(taking);
+    onUndo(j.card).then(
+      // Only if the chip is still this Undo's: a card filed meanwhile shows its own "Added" with
+      // its own Undo, which this must not take away. A failure is always shown.
+      () => setJustAdded((cur) => (cur === taking ? { text: `Took out ${j.label}` } : cur)),
+      (e: unknown) => setJustAdded({ text: `Couldn't take out ${j.label}: ${e instanceof Error ? e.message : String(e)}` }),
     );
-    // again() is a plain function of this render; only these decide whether to add.
+  };
+  useEffect(() => {
+    if (!autoAdd || !onAccept || paused || phase !== "found" || !found || !(identityOnly ? addsByIdentity(found) : addsItself(found))) return;
+    file(found, identityOnly ? null : found.chosen!, 1, true);
+    // file() is a plain function of this render; only these decide whether to add.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoAdd, onAccept, paused, identityOnly, phase, found]);
   const cameraRef = useRef<HTMLDivElement>(null);
@@ -1191,6 +1217,8 @@ export function ScannerView({
   const price = chosen ? (finish === "foil" ? chosen.usd_foil : chosen.usd) : null;
   const isFound = phase === "found" && !!found;
   const options = found?.options ?? null;
+  // The latest frame of the held card, else the one it was found in.
+  const peekShot = liveShot ?? found?.shot ?? null;
   const showPicker = !identityOnly && !!found && !found.outside && !!options && options.length > 1 && !found.reading && (found.picking || !chosen);
   const range = !identityOnly && found && !chosen && options && options.length > 1 ? priceRange(options, finish) : null;
   const suggested = lockOffered && !lockOpen && lockCodes.length === 0 ? suggestLock(filedSets, new Set(lockCodes)) : null;
@@ -1243,6 +1271,14 @@ export function ScannerView({
         )}
         <CameraControls c={cam} live={live} />
         {typeof overlay === "function" ? overlay(isFound && found ? candidateOf(found, chosen) : null) : overlay}
+        {!tapNeeded && !isFound && !lockOpen && justAdded?.card && onUndo ? (
+          <div className="scan-chip found has-action">
+            <span role="status">{justAdded.text}</span>
+            <Button className="scan-chip-action" onClick={() => undo(justAdded)}>
+              Undo
+            </Button>
+          </div>
+        ) : (
         <span className={`scan-chip${tapNeeded ? " is-tap" : isFound ? " found" : justAdded ? " found" : ""}`} role="status">
           {tapNeeded ??
             (isFound && found?.outside
@@ -1255,8 +1291,9 @@ export function ScannerView({
                   ? "Found it"
                   : lockOpen
                     ? "Choose the sets"
-                    : (justAdded ?? (mode ? status : loadingText)))}
+                    : (justAdded?.text ?? (mode ? status : loadingText)))}
         </span>
+        )}
       </div>
 
       <div ref={panelRef} className={`scan-panel${sheet.hidden ? " is-hidden" : ""}`} aria-live="polite">
@@ -1399,13 +1436,14 @@ export function ScannerView({
             )}
             {showPicker && options && (!chosen || found.picking) && !closeup && (
               <div ref={tapRef} className="scan-step is-tap">
+                {peekShot && <CollectorPeek shot={peekShot} />}
                 {holding ? (
                   <p>
                     <strong>Reading the printing.</strong> Keep the card in view while the set code and number are read, or tap the printing below.
                   </p>
                 ) : (
                   <p>
-                    <strong>Your turn:</strong> tap the printing that matches your card. Its set code and number are in the bottom-left corner.
+                    <strong>Your turn:</strong> tap the printing that matches your card{peekShot ? ": its set code and number are above." : ". Its set code and number are in the bottom-left corner."}{onAccept ? (single ? " Tapping it uses it." : " Tapping it adds it.") : ""}
                   </p>
                 )}
               </div>
@@ -1420,7 +1458,11 @@ export function ScannerView({
                     className={`scan-printing${p === chosen ? " is-chosen" : ""}`}
                     onClick={() => {
                       setCloseup(null);
-                      setFound({ ...found, chosen: p, how: "picked", sure: false, picking: false });
+                      const picked: Found = { ...found, chosen: p, how: "picked", sure: false, picking: false };
+                      // Tapping the printing is the confirmation (Bryan, 15 Nov 2026): it's filed at
+                      // once, with Undo on the camera (or Wrong card before tapping) as the way back.
+                      if (onAccept && !identityOnly) file(picked, p, copies, false);
+                      else setFound(picked);
                     }}
                   >
                     <CardThumb src={p.image_small} fallback={<span className="card-fallback">{p.name}</span>} />
@@ -1440,20 +1482,6 @@ export function ScannerView({
               </div>
             )}
             <ErrorText error={found.error} />
-            {confirming && chosen && options && (
-              <div ref={tapRef} className="scan-step is-tap" role="alert">
-                <p>
-                  <strong>This printing wasn't read from the card.</strong>{" "}
-                  {found.sameArt ? `${options.length} printings share this art, so the pictures can't tell them apart.` : "It was picked by its picture, and reprints often look alike."} Check that the
-                  card's bottom-left corner shows {chosen.set_code.toUpperCase()} {chosen.collector_number}.
-                </p>
-                {live && (
-                  <Button className="scan-alt" onClick={() => setCloseup("collector")}>
-                    Read the collector number up close
-                  </Button>
-                )}
-              </div>
-            )}
             {renderResult?.(candidateOf(found, chosen))}
             {controls}
             {settingsBox}
@@ -1474,19 +1502,9 @@ export function ScannerView({
                   <Button
                     variant="primary"
                     disabled={!ready}
-                    onClick={() => {
-                      if (unread && !confirming) return setConfirming(true);
-                      const card = candidateOf(found, chosen);
-                      keep(found, "added", card);
-                      if (chosen) {
-                        filedSetNames.current.set(chosen.set_code, chosen.set_name);
-                        setFiledSets((s) => [chosen.set_code, ...s].slice(0, 10));
-                      }
-                      void onAccept(card, copies, false);
-                      again();
-                    }}
+                    onClick={() => file(found, chosen, copies, false)}
                   >
-                    {!ready ? (options && !found.reading ? "Pick the printing" : "Finding the printing…") : confirming ? `${acceptLabel} anyway` : acceptLabel}
+                    {!ready ? (options && !found.reading ? "Pick the printing" : "Finding the printing…") : acceptLabel}
                   </Button>
                 </div>
               )}

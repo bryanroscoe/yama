@@ -6,7 +6,7 @@
 export { ScannerView, addsByIdentity, type ScannerViewProps } from "./ScannerView";
 export { AddedList, type AddedListProps } from "./AddedList";
 export { NameEntry } from "./NameEntry";
-export { addOp, changedElsewhere, findRow, identity, noteWrite, planFix, settled, touched, type Added, type CollectionOp, type Finish, type Fix, type Pending } from "./session";
+export { addOp, changedElsewhere, findRow, identity, noteWrite, planFix, removeFix, settled, touched, type Added, type CollectionOp, type Finish, type Fix, type Pending } from "./session";
 export { scanFrame, decide, nameAgreement, SURE, COLLECTOR_REGION, NAME_REGION, type ScanOptions } from "./pipeline";
 export { pickPrinting } from "./pick";
 export { NameIndex } from "./fuzzy";

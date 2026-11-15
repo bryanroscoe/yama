@@ -22,6 +22,8 @@ function Dev() {
     <>
       <ScannerView
         onAccept={(c) => setAdded((a) => [c, ...a])}
+        onUndo={async (c) => setAdded((a) => a.filter((x) => x !== c))}
+        closeups={new URLSearchParams(location.search).get("closeups") !== "0"}
         controls={<p className="scan-note">The dev page: nothing is saved.</p>}
         settings={
           <label className="scan-keep">

@@ -15,6 +15,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-15-scan-tap-to-file",
+    date: "2026-11-15",
+    title: "Tap a printing and it's added",
+    items: [
+      "When the scanner asks which printing you have, tapping it now adds the card straight away and moves on to the next one. No more \"Add\" and \"Add anyway\" after it. If you tapped the wrong one, Undo is on the camera for a few seconds, and the Added list fixes anything later.",
+      "The top of the printing list shows the bottom-left corner of your own card, as the camera sees it, so you can read its set code and number while you choose even when the panel covers the picture.",
+    ],
+    link: { to: "/collection", label: "Scan cards" },
+  },
+  {
     id: "2026-11-15-which-version",
     date: "2026-11-15",
     title: "See which version you're running",

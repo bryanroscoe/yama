@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addOp, changedElsewhere, findRow, identity, noteWrite, planFix, settled, touched, type Added, type Fix } from "./session";
+import { addOp, changedElsewhere, findRow, identity, noteWrite, planFix, removeFix, settled, touched, type Added, type Fix } from "./session";
 
 const entry: Added = { key: "k", name: "Sol Ring", scryfall_id: "ecc-57", set: "ecc", number: "57", image: null, finish: "nonfoil", container: "box", copies: 2, auto: true };
 const row = (over: Partial<Parameters<typeof findRow>[0][number]> = {}) => ({ id: "r1", scryfall_id: "ecc-57", qty: 5, condition: "NM", finish: "nonfoil", lang: "en", proxy: false, container_id: "box", ...over });
@@ -90,5 +90,14 @@ describe("rows a write touches", () => {
     expect(touched({ ...entry, pending: { ops: [], fix: fix({ copies: 3 }) } })).toEqual([identity(entry)]);
     expect(touched({ ...entry, pending: { ops: [], fix: fix({ finish: "foil" }) } })).toEqual([identity(entry), identity({ ...entry, finish: "foil" })]);
     expect(touched({ ...entry, pending: { ops: [], fix: fix({ scryfall_id: "x", copies: 0 }) } })).toEqual([identity(entry)]);
+  });
+
+  it("Undo after a tapped printing takes back exactly the copies just filed, from their own row", () => {
+    // A tapped printing is filed at once (Bryan, 15 Nov 2026); Undo on the camera is Remove.
+    const tapped: Added = { ...entry, copies: 1, auto: false };
+    expect(removeFix(tapped)).toEqual(fix({ copies: 0 }));
+    expect(planFix(tapped, removeFix(tapped), row({ qty: 4 }), ids())).toEqual([{ op_id: "op1", kind: "adjust", item_id: "r1", delta: -1 }]);
+    // Never more than the row still holds, and never an add.
+    expect(planFix({ ...tapped, copies: 3 }, removeFix({ ...tapped, copies: 3 }), row({ qty: 2 }), ids())).toEqual([{ op_id: "op1", kind: "adjust", item_id: "r1", delta: -2 }]);
   });
 });
