@@ -1203,15 +1203,15 @@ pub(super) const TOOLS: &[Tool] = &[
         name: "move_cards",
         aliases: &[],
         title: "Move cards between binders and boxes",
-        description: staged!("Move copies of a card from one of their binders, deck boxes or lists to another. \"Loose\" names their copies in none."),
+        description: staged!("Move copies of a card from one of their binders, deck boxes or lists to another."),
         schema: || {
             json!({
                 "type": "object",
                 "properties": {
                     "card": {"type": "string"},
                     "qty": {"type": "integer", "minimum": 1, "maximum": 100},
-                    "from": {"type": "string"},
-                    "to": {"type": "string"},
+                    "from": {"type": "string", "description": "Where the copies are: a binder, deck box or list by name, or \"Loose\" for copies in none."},
+                    "to": {"type": "string", "description": "Where they go: a binder, deck box or list by name, or \"Loose\" for none."},
                 },
                 "required": ["card", "from", "to"],
                 "additionalProperties": false,
