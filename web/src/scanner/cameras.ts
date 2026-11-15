@@ -95,6 +95,20 @@ export function findSaved(cameras: readonly NamedCamera[], saved: SavedCamera | 
   return cameras.find((c) => c.deviceId === saved.id) ?? (saved.label ? cameras.find((c) => c.label === saved.label) : undefined) ?? null;
 }
 
+/**
+ * The saved camera among these, and what to remember now (review of #145: a device id that had
+ * changed erased the choice before its label could find it). By id; else by label, remembered
+ * again under its new id; else forgotten. `save` is "keep" when nothing changes.
+ */
+export function resolveSaved(cameras: readonly NamedCamera[], saved: SavedCamera | null): { camera: NamedCamera | null; save: SavedCamera | null | "keep" } {
+  if (!saved) return { camera: null, save: "keep" };
+  const byId = cameras.find((c) => c.deviceId === saved.id);
+  if (byId) return { camera: byId, save: "keep" };
+  const byLabel = saved.label ? cameras.find((c) => c.label === saved.label) : undefined;
+  if (byLabel) return { camera: byLabel, save: { id: byLabel.deviceId, label: saved.label } };
+  return { camera: null, save: null };
+}
+
 /** The camera to open: the one chosen if it's still there, quietly falling back to the default. */
 export function pickCamera(cameras: readonly NamedCamera[], saved: SavedCamera | null): NamedCamera | null {
   return findSaved(cameras, saved) ?? defaultCamera(cameras);

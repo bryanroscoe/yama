@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultCamera, findSaved, idHash, nameCameras, pickCamera } from "./cameras";
+import { defaultCamera, findSaved, idHash, nameCameras, pickCamera, resolveSaved } from "./cameras";
 
 const dev = (deviceId: string, label: string) => ({ deviceId, label });
 
@@ -51,5 +51,13 @@ describe("camera names and the default", () => {
     expect(idHash("abc")).toBe(idHash("abc"));
     expect(idHash("abc")).not.toBe(idHash("abd"));
     expect(idHash("abc")).toMatch(/^[0-9a-f]{8}$/);
+  });
+
+  it("keeps a saved camera whose id changed, by its label, and forgets it only when nothing matches (review of #145)", () => {
+    const cams = nameCameras([dev("new-b", "camera2 0, facing back"), dev("new-f", "camera2 1, facing front")]);
+    expect(resolveSaved(cams, { id: "new-f", label: "camera2 1, facing front" })).toEqual({ camera: cams[1], save: "keep" });
+    expect(resolveSaved(cams, { id: "old-f", label: "camera2 1, facing front" })).toEqual({ camera: cams[1], save: { id: "new-f", label: "camera2 1, facing front" } });
+    expect(resolveSaved(cams, { id: "gone", label: "USB camera" })).toEqual({ camera: null, save: null });
+    expect(resolveSaved(cams, null)).toEqual({ camera: null, save: "keep" });
   });
 });

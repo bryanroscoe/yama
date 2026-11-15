@@ -17,6 +17,36 @@ const NO_CAPS: CameraCaps = { torch: false, zoom: null };
 const LEVELS = [1, 1.5, 2, 3, 4];
 /** Digital zoom stops here: past it the frame is too few pixels to be worth it. */
 const DIGITAL_MAX = 3;
+/** + and a pinch stop here with the camera's own zoom: under a phone's switch to its telephoto at 5× (zoomPolicy.ts) [inferred]. */
+export const HAND_MAX = 4;
+
+/**
+ * Constraint changes for one track, one at a time (review of #145: focus and zoom snapshotted the
+ * settings before awaiting, so one overwrote the other). Each change is merged with whatever was
+ * applied last, when it runs; a change for a track that is no longer current is dropped.
+ */
+export function serialApplier(apply: (t: MediaStreamTrack, all: Record<string, unknown>) => Promise<void>, current: () => MediaStreamTrack | null) {
+  let applied: Record<string, unknown> = {};
+  let chain: Promise<unknown> = Promise.resolve();
+  return {
+    /** Start over for a new track, with these settings as the base (sent with the next change). */
+    reset(base: Record<string, unknown>) {
+      applied = { ...base };
+    },
+    applied: () => applied,
+    set(t: MediaStreamTrack, patch: Record<string, unknown>): Promise<void> {
+      const run = async () => {
+        if (current() !== t) throw new Error("The camera changed");
+        const next = { ...applied, ...patch };
+        await apply(t, next);
+        if (current() === t) applied = next;
+      };
+      const p = chain.then(run, run);
+      chain = p.catch(() => undefined);
+      return p;
+    },
+  };
+}
 
 export function readCaps(track: MediaStreamTrack): CameraCaps {
   const caps = (track.getCapabilities?.() ?? {}) as { torch?: boolean; zoom?: { min?: number; max?: number } };
@@ -30,8 +60,16 @@ export function readCaps(track: MediaStreamTrack): CameraCaps {
  * level too.
  */
 export function zoomSteps(caps: CameraCaps, zoom: number): { above?: number; below?: number } {
-  const levels = [...new Set([...zoomLevels(caps), caps.zoom ? caps.zoom.max : DIGITAL_MAX])].sort((a, b) => a - b);
+  const levels = [...new Set([...zoomLevels(caps), zoomTop(caps)])].sort((a, b) => a - b);
   return { above: levels.find((z) => z > zoom + 1e-6), below: [...levels].reverse().find((z) => z < zoom - 1e-6) };
+}
+
+/**
+ * The most + and a pinch zoom to: the camera's own top end, but never past HAND_MAX, below where a
+ * phone switches to its telephoto (zoomPolicy.ts, LENS_SWITCH); or the digital limit.
+ */
+export function zoomTop(caps: CameraCaps): number {
+  return caps.zoom ? Math.max(caps.zoom.min, Math.min(caps.zoom.max, HAND_MAX)) : DIGITAL_MAX;
 }
 
 /** The zoom levels to step through. */
@@ -130,21 +168,18 @@ export function useCameraControls() {
   const [torch, setTorchState] = useState(false);
   const [zoom, setZoomState] = useState(1);
   const [error, setError] = useState<string | null>(null);
-  /** Every setting applied so far, sent together: one applyConstraints can replace the last. */
-  const applied = useRef<Record<string, unknown>>({});
-  const apply = async (t: MediaStreamTrack, patch: Record<string, unknown>) => {
-    const next = { ...applied.current, ...patch };
-    await t.applyConstraints({ advanced: [next as MediaTrackConstraintSet] });
-    applied.current = next;
-  };
+  /** Every setting applied so far, sent together (one applyConstraints can replace the last), one change at a time. */
+  const applier = useRef(serialApplier((t, all) => t.applyConstraints({ advanced: [all as MediaTrackConstraintSet] }), () => track.current));
+  const apply = (t: MediaStreamTrack, patch: Record<string, unknown>) => applier.current.set(t, patch);
   /** The person zoomed (+, − or a pinch): auto-zoom leaves it to them for the session. */
   const userZoomed = useRef(false);
   const attach = useCallback((t: MediaStreamTrack | null) => {
     track.current = t;
     const caps = (t?.getCapabilities?.() ?? {}) as { focusMode?: string[] };
     // Continuous focus, where offered, goes with every later setting too, and is applied now.
-    applied.current = caps.focusMode?.includes("continuous") ? { focusMode: "continuous" } : {};
-    if (t && applied.current.focusMode) void t.applyConstraints({ advanced: [applied.current as MediaTrackConstraintSet] }).catch(() => undefined);
+    const focus = caps.focusMode?.includes("continuous") ? { focusMode: "continuous" } : {};
+    applier.current.reset({});
+    if (t && focus.focusMode) void apply(t, focus).catch(() => undefined);
     setCaps(t ? readCaps(t) : NO_CAPS);
     setTorchState(false);
     setZoomState(1);
@@ -183,7 +218,7 @@ export function useCameraControls() {
     (z: number) => {
       userZoomed.current = true;
       const lo = caps.zoom ? caps.zoom.min : 1;
-      const hi = caps.zoom ? caps.zoom.max : DIGITAL_MAX;
+      const hi = zoomTop(caps);
       const want = Math.round(Math.min(hi, Math.max(lo, z)) * 100) / 100;
       const p = pending.current;
       p.next = want;

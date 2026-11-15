@@ -30,7 +30,7 @@ import { deleteSamples, keepSample, sampleSummary, savingPhotos, setSavingPhotos
 import { SetLockPicker } from "./SetLockPicker";
 import { artInSets, inLockedSets, KNOWN_ART, knownArtShare, POOL_MARGIN, judgeLocked, lockedNames, lockedSet, poolKeys, readTitleFirst, savedLock, saveLock, suggestLock, type LockedSet } from "./setlock";
 import { CameraControls, cameraInfo, digitalRegion, useCameraControls, type CameraInfo } from "./camera";
-import { nameCameras, pickCamera, saveCamera, savedCamera, type NamedCamera } from "./cameras";
+import { defaultCamera, nameCameras, resolveSaved, saveCamera, savedCamera, type NamedCamera } from "./cameras";
 import { AUTO_MAX, AutoZoom, LENS_SWITCH, maySwitchLens } from "./zoomPolicy";
 import { cardHeight, tooFar } from "./closer";
 import { createServerCatalog } from "./serverCatalog";
@@ -197,6 +197,39 @@ interface Known {
   text?: string;
 }
 
+/** Resolves once the video has a frame to read (or after a few seconds, whatever it has). */
+function firstFrame(v: HTMLVideoElement): Promise<void> {
+  return new Promise((resolve) => {
+    if (v.readyState >= 2 && v.videoWidth > 0) return resolve();
+    const done = () => {
+      v.removeEventListener("loadeddata", done);
+      clearTimeout(timer);
+      resolve();
+    };
+    v.addEventListener("loadeddata", done);
+    const timer = setTimeout(done, 3000);
+  });
+}
+
+/** A promise that gives up after `ms` (review of #145: a camera's still capture could hang for good). */
+export function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`No answer in ${ms} ms`)), ms);
+    p.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e: unknown) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+    );
+  });
+}
+
+/** How long a still photo may take before it's given up. */
+const STILL_TIMEOUT_MS = 2000;
 /** Frames read without settling before one still photo is tried (ImageCapture.takePhoto). */
 const STILL_AFTER = 5;
 /** Lock at this art score on one frame, or at LOCK_TWICE on two agreeing frames. */
@@ -493,6 +526,16 @@ export function ScannerView({
   useEffect(() => holdSound(), []);
   const camRef = useRef(cam);
   camRef.current = cam;
+  /**
+   * The loops reading the camera (scanning, hold and read, the close-up): each registers how to
+   * stop it, and a camera switch stops them all at once, synchronously, so nothing from the old
+   * camera is used after it (review of #145).
+   */
+  const readers = useRef(new Set<() => void>());
+  const haltReaders = () => {
+    for (const halt of readers.current) halt();
+    firstEvidence.current = null;
+  };
   /** Auto-zoom (zoomPolicy.ts), for a camera that zooms itself. */
   const autoZoomRef = useRef<AutoZoom | null>(null);
   useEffect(() => {
@@ -683,17 +726,28 @@ export function ScannerView({
     // As sharp as the camera allows: the collector line is tiny. Frames are scaled down for
     // recognition anyway; only the crops read as text use the full resolution.
     const size = { width: { ideal: 3840 }, height: { ideal: 2160 } };
-    const open = (id: string | null) =>
-      navigator.mediaDevices.getUserMedia({ video: id ? { deviceId: { exact: id }, ...size } : { facingMode: { ideal: "environment" }, ...size }, audio: false });
-    // A camera chosen before that has gone (or won't open): quietly the back camera.
-    open(cameraId)
-      .catch((e: unknown) => {
-        if (!cameraId) throw e;
-        saveCamera(null);
-        return open(null);
-      })
-      .then(async (s) => {
-        if (stopped) return s.getTracks().forEach((t) => t.stop());
+    /** Ask for a camera, unless this effect is already done with; a stream that arrives too late is stopped. */
+    const open = async (id: string | null): Promise<MediaStream | null> => {
+      if (stopped) return null;
+      const s = await navigator.mediaDevices.getUserMedia({ video: id ? { deviceId: { exact: id }, ...size } : { facingMode: { ideal: "environment" }, ...size }, audio: false });
+      if (stopped) {
+        s.getTracks().forEach((t) => t.stop());
+        return null;
+      }
+      return s;
+    };
+    void (async () => {
+      try {
+        let s: MediaStream | null;
+        try {
+          s = await open(cameraId);
+        } catch (e) {
+          // A camera chosen before that won't open (its id may have changed): the back camera for
+          // now. The choice is kept: its label may find it again below, under its new id.
+          if (!cameraId || stopped) throw e;
+          s = await open(null);
+        }
+        if (!s) return;
         stream = s;
         const track = s.getVideoTracks()[0];
         cam.attach(track ?? null);
@@ -708,7 +762,9 @@ export function ScannerView({
           if (stopped) return;
           const named = nameCameras(devices.filter((d) => d.kind === "videoinput").map((d) => ({ deviceId: d.deviceId, label: d.label })));
           setCameras(named);
-          const want = pickCamera(named, savedCamera());
+          const saved = resolveSaved(named, savedCamera());
+          if (saved.save !== "keep") saveCamera(saved.save);
+          const want = saved.camera ?? defaultCamera(named);
           const current = (track.getSettings?.().deviceId as string | undefined) ?? null;
           if (want && current && want.deviceId !== current && want.deviceId !== cameraId) {
             setCameraId(want.deviceId);
@@ -716,23 +772,32 @@ export function ScannerView({
           }
         }
         const v = videoRef.current;
-        if (!v) return;
+        if (!v || stopped) return;
         v.srcObject = s;
         await v.play().catch(() => undefined);
+        // Nothing reads until the camera delivers frames.
+        await firstFrame(v);
+        if (stopped) return;
         setLive(true);
         setPhase((p) => (p === "loading" ? "scanning" : p));
-      })
-      .catch((e: unknown) => {
+      } catch (e) {
         if (stopped) return;
         setPhase("no-camera");
         setError(e instanceof Error ? `No camera: ${e.message}` : "No camera");
-      });
+      }
+    })();
     return () => {
       stopped = true;
+      // Every loop reading this camera stops now, before any result from it is used, and what an
+      // attempt had read is dropped (review of #145): a switch starts reading afresh.
+      haltReaders();
+      setLive(false);
+      const v = videoRef.current;
+      if (v && stream && v.srcObject === stream) v.srcObject = null;
       cam.attach(null);
       stream?.getTracks().forEach((t) => t.stop());
     };
-    // cam.attach is stable (useCallback with no inputs).
+    // cam.attach and haltReaders are stable for this purpose.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cameraId]);
 
@@ -901,10 +966,16 @@ export function ScannerView({
 
   // Read loop: one frame at a time.
   useEffect(() => {
-    if (phase !== "scanning" || !mode || closeup || photoBusy || paused || lockOpen) return;
+    if (phase !== "scanning" || !mode || !live || closeup || photoBusy || paused || lockOpen) return;
     let stop = false;
     let failedReads = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // A camera switch stops this at once (haltReaders).
+    const halt = () => {
+      stop = true;
+      clearTimeout(timer);
+    };
+    readers.current.add(halt);
     let unknownFrames = 0;
     let textFrame = 0;
     /** Frames in a row this art match's title couldn't be read (see UNTITLED_FRAMES). */
@@ -1060,10 +1131,11 @@ export function ScannerView({
     };
     void tick();
     return () => {
+      readers.current.delete(halt);
       stop = true;
       clearTimeout(timer);
     };
-  }, [phase, mode, closeup, photoBusy, paused, lockOpen, identityOnly, closeups, showArt, handleText, textReader]);
+  }, [phase, mode, live, closeup, photoBusy, paused, lockOpen, identityOnly, closeups, showArt, handleText, textReader]);
 
   const fromPhoto = async (file: File) => {
     setStatus("Reading the photo");
@@ -1253,6 +1325,12 @@ export function ScannerView({
     if (!start?.options) return;
     let stop = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // A camera switch stops this at once (haltReaders).
+    const halt = () => {
+      stop = true;
+      clearTimeout(timer);
+    };
+    readers.current.add(halt);
     const clock = () => performance.now();
     const held = new HeldRead(closeups, clock());
     // The first read's evidence carries on into the first attempt; a retry starts afresh.
@@ -1329,6 +1407,8 @@ export function ScannerView({
         reads.push(text);
       }
       if (!sharp) return "blurred";
+      // Finished after the attempt ended (a still, or a camera switch): it counts for nothing.
+      if (stop) return "read";
       // Every read adds to the evidence (evidence.ts): settled on weight, not on a run.
       ev.add(reads);
       const weighed = ev.verdict();
@@ -1356,7 +1436,8 @@ export function ScannerView({
       stillTaken = true;
       let bmp: ImageBitmap | null = null;
       try {
-        bmp = await createImageBitmap(await new IC(track).takePhoto());
+        // A camera that never answers mustn't hold anything up (review of #145).
+        bmp = await createImageBitmap(await withTimeout(new IC(track).takePhoto(), STILL_TIMEOUT_MS));
         if (stop) return false;
         const quad = await locate(bmp, bmp.width, bmp.height, null);
         if (!quad || stop) return false;
@@ -1409,8 +1490,9 @@ export function ScannerView({
           const got = await readInto(v, v.videoWidth, v.videoHeight, quad, f);
           if (got === "settled" || stop) return;
           verdict = got === "blurred" ? held.skipped(clock()) : held.frame(clock());
-          // Stalled (several frames read, not settled): one still photo, read the same way.
-          if (verdict === "again" && held.summary().frames >= STILL_AFTER && (await tryStill(f))) return;
+          // Stalled (several frames read, not settled): one still photo, read the same way, alongside
+          // the frames (never holding them up); a still that settles it ends the attempt.
+          if (verdict === "again" && held.summary().frames >= STILL_AFTER) void tryStill(f);
         }
         return act(verdict, 60);
       } catch (e) {
@@ -1422,6 +1504,7 @@ export function ScannerView({
     };
     void tick();
     return () => {
+      readers.current.delete(halt);
       stop = true;
       clearTimeout(timer);
       setHolding(false);
@@ -1433,9 +1516,15 @@ export function ScannerView({
 
   // The close-up loop: read the box as text until it settles the printing or the name.
   useEffect(() => {
-    if (!closeup || paused) return;
+    if (!closeup || paused || !live) return;
     let stop = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // A camera switch stops this at once (haltReaders).
+    const halt = () => {
+      stop = true;
+      clearTimeout(timer);
+    };
+    readers.current.add(halt);
     let previous: string | null = null;
     /** The close-up's own evidence for the printing (evidence.ts), from its first frame. */
     let closeEv: { options: Printing[]; ev: Evidence } | null = null;
@@ -1497,12 +1586,13 @@ export function ScannerView({
     };
     void tick();
     return () => {
+      readers.current.delete(halt);
       stop = true;
       clearTimeout(timer);
     };
     // fromName is a plain function of this render; the loop only needs the latest at call time.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [closeup, paused, ocrEngine, textReader]);
+  }, [closeup, paused, live, ocrEngine, textReader]);
 
   const chosen = found?.chosen ?? null;
   const ready = identityOnly || !!chosen;

@@ -379,3 +379,69 @@ describe("sounds (Bryan, 15 Nov 2026)", () => {
   });
 });
 
+
+describe("the camera (review of #145)", () => {
+  const deferred = <T,>() => {
+    let resolve!: (v: T) => void;
+    let reject!: (e: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  };
+  const fakeStream = () => {
+    const track = { stop: vi.fn(), getSettings: () => ({ deviceId: "x" }), getCapabilities: () => ({}), applyConstraints: async () => undefined, label: "fake" };
+    return { stream: { getTracks: () => [track], getVideoTracks: () => [track] } as unknown as MediaStream, track };
+  };
+  afterEach(() => {
+    localStorage.removeItem("yama.scan.camera");
+    Reflect.deleteProperty(navigator, "mediaDevices");
+  });
+
+  it("asks for no other camera after the scanner has closed, and stops a stream that arrives late", async () => {
+    localStorage.setItem("yama.scan.camera", JSON.stringify({ id: "old-id", label: "camera2 1, facing front" }));
+    const first = deferred<MediaStream>();
+    const getUserMedia = vi.fn(() => first.promise);
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia, enumerateDevices: async () => [] } });
+    act(() => root.render(<ScannerView onAccept={async () => true} />));
+    await wait(10);
+    expect(getUserMedia).toHaveBeenCalledTimes(1);
+    // Closed while the saved camera is still being asked for, and then it fails: no fallback request.
+    act(() => root.unmount());
+    root = createRoot(host);
+    await act(async () => first.reject(new Error("OverconstrainedError")));
+    await wait(10);
+    expect(getUserMedia).toHaveBeenCalledTimes(1);
+    // Kept: its label may find it again under a new id.
+    expect(localStorage.getItem("yama.scan.camera")).toContain("camera2 1, facing front");
+
+    // And a stream that arrives after closing is stopped.
+    const late = deferred<MediaStream>();
+    getUserMedia.mockImplementation(() => late.promise);
+    act(() => root.render(<ScannerView onAccept={async () => true} />));
+    await wait(10);
+    act(() => root.unmount());
+    root = createRoot(host);
+    const { stream, track } = fakeStream();
+    await act(async () => late.resolve(stream));
+    await wait(10);
+    expect(track.stop).toHaveBeenCalled();
+  });
+});
+
+describe("withTimeout", () => {
+  it("gives up on a promise that never answers, and passes through one that does", async () => {
+    const { withTimeout } = await import("./ScannerView");
+    vi.useFakeTimers();
+    try {
+      const hung = withTimeout(new Promise<never>(() => undefined), 2000);
+      const settled = expect(hung).rejects.toThrow("No answer in 2000 ms");
+      vi.advanceTimersByTime(2000);
+      await settled;
+      await expect(withTimeout(Promise.resolve(5), 2000)).resolves.toBe(5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
