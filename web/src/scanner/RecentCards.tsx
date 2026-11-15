@@ -21,9 +21,16 @@ export function RecentCards({ cards }: { cards: readonly RecentCard[] }) {
       </p>
       {older.length > 0 && (
         <ul className="scan-recent-older">
-          {older.slice(0, OLDER).map((c) => (
-            <li key={c.key}>{cardLine(c)}</li>
-          ))}
+          {older.slice(0, OLDER).map((c) => {
+            // Every price shown says where it's from and when (AGENTS.md, prices).
+            const at = priceDateLine(c);
+            return (
+              <li key={c.key}>
+                {cardLine(c)}
+                {at && <span className="dim">, {at}</span>}
+              </li>
+            );
+          })}
         </ul>
       )}
       {total && <p className="scan-note">{total}.</p>}

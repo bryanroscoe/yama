@@ -22,6 +22,7 @@ import { NameEntry } from "./NameEntry";
 import { CollectorPeek } from "./peek";
 import { priceFor, pricesOf, type RecentCard } from "./price";
 import { RecentCards } from "./RecentCards";
+import { holdSound } from "../sound";
 import { filedSound, playScanSound, setSoundsOn, setWorthThreshold, soundsOn, unlockSound, worthThreshold, type ScanSound } from "./sounds";
 import { choosePrinting, printingOptions, type Choice } from "./printings";
 import type { ArtMatch, Recognition } from "./recognizer";
@@ -477,6 +478,8 @@ export function ScannerView({
   /** Wrong card was tapped: the other cards it might be, a name box, or just scan again. */
   const [wrongOpen, setWrongOpen] = useState(false);
   const cam = useCameraControls();
+  // Audio is paused once no scanner (or deck check) is open, rather than left running (sound.ts).
+  useEffect(() => holdSound(), []);
   /** What the host files a card with (finish, where it goes), as far as the scanner is told. */
   const fileSettings = `${finish ?? ""}|${settingsSummary ?? ""}`;
   const digitalRef = useRef(1);

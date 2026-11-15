@@ -18,7 +18,7 @@ describe("Recent, in the scanner's sheet", () => {
     );
     const doc = new DOMParser().parseFromString(html, "text/html");
     expect(doc.querySelector(".scan-recent-last")?.textContent).toBe("Last added: Westvale Abbey, SOI 281, Foil, $3.20, market price, Nov 14");
-    expect([...doc.querySelectorAll(".scan-recent-older li")].map((li) => li.textContent)).toEqual(["Sol Ring, ECC 57, Regular, $1.50 each, 2 copies", "Arcane Signet, WOC 145, Regular, price unknown"]);
+    expect([...doc.querySelectorAll(".scan-recent-older li")].map((li) => li.textContent)).toEqual(["Sol Ring, ECC 57, Regular, $1.50 each, 2 copies, market price, Nov 14", "Arcane Signet, WOC 145, Regular, price unknown"]);
     expect(doc.querySelector(".scan-recent .scan-note")?.textContent).toBe("Total $6.20 for 3 cards, 1 without a price left out.");
     expect(html).not.toContain("$0.00");
     expect(html).not.toContain("·");

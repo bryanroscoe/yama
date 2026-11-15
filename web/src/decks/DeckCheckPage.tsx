@@ -19,6 +19,7 @@ import type { ScanCatalog } from "../scanner";
 import { buildFamilies, resolveBuildFamily } from "./buildCatalog";
 import { CURRENT, cardsTarget, listTarget, swapPool, targetOptions, type TargetOption } from "./checkTargets";
 import { playVerdict, unlockSound } from "./checkSound";
+import { holdSound } from "../sound";
 import {
   classify, loadCheck, newCheck, shownVerdict, stillMissing, storeCheck, takeOut, tally, toScanDraft, verdictText,
   type CheckDraft, type CheckTarget, type SwapPair, type Verdict,
@@ -87,9 +88,11 @@ export function DeckCheckPage() {
   useEffect(() => {
     // Kept for the page's life: iOS can suspend audio again when the page goes to the background.
     const unlock = () => void unlockSound();
+    const release = holdSound();
     window.addEventListener("pointerdown", unlock, true);
     window.addEventListener("touchend", unlock, true);
     return () => {
+      release();
       window.removeEventListener("pointerdown", unlock, true);
       window.removeEventListener("touchend", unlock, true);
     };

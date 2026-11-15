@@ -70,3 +70,22 @@ export function playTone(t: Tone): void {
     osc.stop(now + start + length + 0.02);
   }
 }
+
+/** Pages using sound now (the scanner, the deck check): audio is paused when the last one goes. */
+let users = 0;
+
+/**
+ * Hold audio while a page that plays sounds is open; returns the release. When nothing holds it,
+ * the context is suspended, so it isn't left running through the rest of the app (it resumes on
+ * the next page's tap through `unlockSound`).
+ */
+export function holdSound(): () => void {
+  users += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    users = Math.max(0, users - 1);
+    if (users === 0 && ctx && ctx.state === "running") void ctx.suspend().catch(() => undefined);
+  };
+}
