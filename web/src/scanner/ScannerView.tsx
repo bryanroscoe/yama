@@ -22,7 +22,7 @@ import { choosePrinting, printingOptions, type Choice } from "./printings";
 import type { ArtMatch, Recognition } from "./recognizer";
 import { deleteSamples, keepSample, sampleSummary, savingPhotos, setSavingPhotos, type SampleLabel, type SampleSummary, type Shot } from "./samples";
 import { SetLockPicker } from "./SetLockPicker";
-import { artInSets, inLockedSets, judgeLocked, lockedNames, lockedSet, poolKeys, savedLock, saveLock, suggestLock, type LockedSet } from "./setlock";
+import { artInSets, inLockedSets, POOL_MARGIN, judgeLocked, lockedNames, lockedSet, poolKeys, savedLock, saveLock, suggestLock, type LockedSet } from "./setlock";
 import { CameraControls, digitalRegion, useCameraControls } from "./camera";
 import { createServerCatalog } from "./serverCatalog";
 import { createScannerOcr, ENGINE_LABEL, plannedEngine, type ScannerOcr } from "./ocrEngine";
@@ -153,6 +153,11 @@ const MARGIN = 0.12;
 const MAX_SIDE = 1500;
 const CARD_ASPECT = 88 / 63;
 const PICKER_FIRST = 24;
+/**
+ * While reading a held card: how far below the best match in view the held card's art may score.
+ * With the set lock, as far as judgeLocked lets an in-set match trail the best one anywhere.
+ */
+const SAME_CARD_MARGIN = 0.02;
 
 const sameCard = (a: ScanCandidate | undefined, b: ScanCandidate | undefined) => !!a && !!b && a.name === b.name && a.set === b.set && a.number === b.number;
 
@@ -939,7 +944,8 @@ export function ScannerView({
   // close-up box at once. Without close-ups, the picker asks.
   const unsettled = live && phase === "found" && !identityOnly && !!found?.options && found.options.length > 1 && !found.chosen && !found.reading && !found.outside;
   const needsCollector = closeups && unsettled && found?.method !== "art";
-  const readWhileHeld = unsettled && !closeup && !paused && found?.method === "art" && !!found.art;
+  // Not while "Wrong card" is open: the person is saying it isn't this card.
+  const readWhileHeld = unsettled && !closeup && !paused && !wrongOpen && found?.method === "art" && !!found.art;
   const heldArt = readWhileHeld ? found!.art!.index : null;
   useEffect(() => {
     if (needsCollector) setCloseup("collector");
@@ -991,7 +997,12 @@ export function ScannerView({
         const { image, k } = smallRegion(v, zone, canvasRef.current);
         const r = await art.identify(image);
         if (stop) return;
-        const seen = !!r.quad && [...r.matches, ...(r.pool ?? [])].some((m) => m.index === heldArt && m.score >= ART_UNKNOWN);
+        // The held card must still be the best match in view (or as good as it): another card that
+        // only looks a bit like it would have its collector line read against this card's printings.
+        const all = r.quad ? [...r.matches, ...(r.pool ?? [])] : [];
+        const heldScore = Math.max(-1, ...all.filter((m) => m.index === heldArt).map((m) => m.score));
+        const bestScore = Math.max(-1, ...all.map((m) => m.score));
+        const seen = heldScore >= ART_UNKNOWN && heldScore >= bestScore - (lockRef.current ? POOL_MARGIN : SAME_CARD_MARGIN);
         let guess: { c: Choice; text: string } | null = null;
         let verdict: HeldVerdict;
         if (!seen) verdict = held.missed();
@@ -1020,7 +1031,11 @@ export function ScannerView({
           default:
             return next(60);
         }
-      } catch {
+      } catch (e) {
+        // A failed read counts as a frame without the card: a few in a row end the loop, and the
+        // picker takes over.
+        console.warn("Reading the held card failed", e);
+        if (held.missed() === "stop") return done();
         next(500);
       }
     };
