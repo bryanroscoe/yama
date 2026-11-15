@@ -60,24 +60,95 @@ class Decision(unittest.TestCase):
                    'GH_TOKEN': 'x', 'GITHUB_API_URL': 'http://127.0.0.1:9',
                    'GITHUB_OUTPUT': str(out), 'GITHUB_STEP_SUMMARY': str(summary)}
             result = subprocess.run([sys.executable, str(HERE / 'gate.py')], env={**os.environ, **env},
-                                    capture_output=True, text=True, timeout=60)
+                                    cwd=ROOT, capture_output=True, text=True, timeout=120)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(out.read_text(), 'rust=true\nskip=false\n')
+            self.assertEqual(out.read_text(), 'web=true\nrust=true\npython=true\nskip=false\n')
             self.assertIn('CI runs', summary.read_text())
 
 
-class RustScope(unittest.TestCase):
-    def test_web_only_changes_skip_rust(self):
-        self.assertFalse(gate.rust_needed(['web/src/App.tsx', 'packages/core/src/a.ts',
-                                           'package-lock.json']))
+# A small tree for the scan: each area's code names files in the others.
+SOURCES = {
+    'server/src/page.rs': 'const CSS: &str = include_str!("../../web/src/styles.css");\n'
+                          'fn a<\'a>(x: &\'a str) { std::fs::read_to_string("../docs/notes.md"); }\n'
+                          'fn card(id: &str) -> String { format!("../data/engine/card-data-{id}.json") }\n'
+                          'const WORD: &str = "web"; const URL: &str = "/docs/mcp/";\n',
+    'play/build.rs': 'println!("cargo:rerun-if-changed=../runtime/historical.json");\n',
+    'web/src/nav.test.tsx': 'readFileSync(new URL("../../server/src/public_page.rs", import.meta.url));\n'
+                            "readFileSync(join(ROOT, 'LICENSE')); readFileSync('../../deploy/Dockerfile');\n",
+    'forge-worker/common.py': 'LAB_DOCS = ROOT / "docs/lab"\n',
+    'scripts/ci/test_gate.py': "files = ['web/src/App.tsx']\n",
+}
+OTHER_FILES = ['web/src/styles.css', 'web/src/App.tsx', 'web/src/pages/list.css', 'docs/notes.md',
+               'docs/lab/run.md', 'docs/other.md', 'data/engine/card-data-1.json',
+               'runtime/historical.json', 'server/src/public_page.rs', 'LICENSE', 'deploy/Dockerfile',
+               'deploy/deploy.sh', 'README.md']
 
-    def test_anything_rust_can_see_runs_rust(self):
-        for files in ([], ['server/src/main.rs'], ['web/src/App.tsx', 'README.md'],
-                      ['web/public/sw.js'], ['web/src/styles.css'], ['web/src/x.html'],
-                      ['.github/workflows/ci.yml'], ['docs/research-format.md'],
-                      ['web/src/a.ts'] * gate.MAX_FILES):
-            with self.subTest(files=files[:3]):
-                self.assertTrue(gate.rust_needed(files))
+
+class Areas(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.TemporaryDirectory(prefix='yama-gate-scan-')
+        root = Path(cls.temp.name)
+        for path in [*SOURCES, *OTHER_FILES]:
+            (root / path).parent.mkdir(parents=True, exist_ok=True)
+            (root / path).write_text(SOURCES.get(path, 'x\n'))
+        cls.reads = gate.cross_reads(root, [*SOURCES, *OTHER_FILES])
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.temp.cleanup()
+
+    def needs(self, *files):
+        return gate.areas_needed(list(files), self.reads)
+
+    def test_each_area_needs_its_own_files(self):
+        self.assertEqual(self.needs('web/src/App.tsx', 'packages/core/src/a.ts', 'package-lock.json'),
+                         {'web'})
+        self.assertEqual(self.needs('relay/src/room.ts', 'extension/mpc/order.mjs'), {'web'})
+        self.assertEqual(self.needs('server/src/main.rs'), {'rust', 'python'})
+        self.assertEqual(self.needs('Cargo.lock'), {'rust', 'python'})
+        self.assertEqual(self.needs('deploy/phase-rev'), {'rust', 'python'})
+        self.assertEqual(self.needs('deploy/deploy.sh', 'tools/lab.py'), {'python'})
+
+    def test_documentation_nothing_reads_needs_no_job(self):
+        self.assertEqual(self.needs('README.md', 'docs/other.md', 'design/tokens.md'), set())
+
+    def test_a_file_another_area_reads_needs_that_area(self):
+        # The server compiles in this stylesheet, but not every stylesheet.
+        self.assertEqual(self.needs('web/src/styles.css'), {'web', 'rust'})
+        self.assertEqual(self.needs('web/src/pages/list.css'), {'web'})
+        self.assertEqual(self.needs('docs/notes.md'), {'rust'})
+        self.assertEqual(self.needs('docs/lab/run.md'), {'python'})
+        self.assertEqual(self.needs('data/engine/card-data-1.json'), {'rust', 'python'})
+        self.assertEqual(self.needs('runtime/historical.json'), {'rust', 'python'})
+        self.assertEqual(self.needs('server/src/public_page.rs'), {'web', 'rust', 'python'})
+        self.assertEqual(self.needs('LICENSE'), {'web'})
+        self.assertEqual(self.needs('deploy/Dockerfile'), {'web', 'python'})
+
+    def test_words_urls_and_test_data_are_not_reads(self):
+        # "web" in Rust, "/docs/mcp/" (a URL) and the gate's own test data name nothing.
+        self.assertEqual(self.needs('web/src/App.tsx'), {'web'})
+        self.assertEqual(self.needs('docs/other.md'), set())
+
+    def test_unknown_changes_need_everything(self):
+        for files, reads in (([], self.reads), (['web/src/a.ts'] * gate.MAX_FILES, self.reads),
+                             (['README.md'], None), (['.github/workflows/ci.yml'], self.reads)):
+            with self.subTest(files=files[:2], reads=reads is not None):
+                self.assertEqual(gate.areas_needed(files, reads), set(gate.AREAS))
+
+    def test_a_deleted_file_still_named_by_code_needs_that_area(self):
+        # The tree after the change no longer has the file, but the server still embeds it.
+        files = [f for f in [*SOURCES, *OTHER_FILES] if f != 'web/src/styles.css']
+        reads = gate.cross_reads(Path(self.temp.name), files)
+        self.assertEqual(gate.areas_needed(['web/src/styles.css'], reads), {'web'})
+        reads = gate.cross_reads(Path(self.temp.name), files, gone=['web/src/styles.css'])
+        self.assertEqual(gate.areas_needed(['web/src/styles.css'], reads), {'web', 'rust'})
+
+    def test_the_real_tree_scans(self):
+        # Only that the scan works here: which files it finds depends on every area's code,
+        # and a web-only change mustn't be able to fail a Python test it doesn't run.
+        reads = gate.cross_reads(ROOT)
+        self.assertTrue(any('rust' in by for by in reads.values()))
 
 
 class PushReuse(unittest.TestCase):
@@ -86,26 +157,76 @@ class PushReuse(unittest.TestCase):
            'head_repository': {'full_name': 'o/r'}}
     JOBS = [{'name': 'Local CI gate', 'conclusion': 'success'},
             {'name': 'Web checks', 'conclusion': 'success'},
-            {'name': 'Rust and Python tests', 'conclusion': 'success'}]
+            {'name': 'Rust tests', 'conclusion': 'success'},
+            {'name': 'Python tests', 'conclusion': 'success'}]
+    GREEN = {'id': 9, 'head_sha': 'g', 'conclusion': 'success', 'path': '.github/workflows/ci.yml',
+             'head_repository': {'full_name': 'o/r'}, 'html_url': 'https://example.invalid/9'}
+    RUNS = ('/repos/o/r/actions/workflows/ci.yml/runs?branch=main&event=push&status=success'
+            f'&per_page={gate.GREEN_RUNS}')
 
-    def test_pr_run_that_passed_both_jobs_counts(self):
-        self.assertTrue(gate.passed_run(self.RUN, self.JOBS, self.REPO))
+    def test_a_pr_run_passes_the_areas_whose_jobs_succeeded(self):
+        self.assertEqual(gate.passed_areas(self.RUN, self.JOBS, self.REPO), {'web', 'rust', 'python'})
+        skipped = [dict(job, conclusion='skipped') if job['name'] == 'Rust tests' else job for job in self.JOBS]
+        self.assertEqual(gate.passed_areas(self.RUN, skipped, self.REPO), {'web', 'python'})
+        # Runs from before the Rust and Python jobs were split.
+        old = [{'name': 'Web checks', 'conclusion': 'success'},
+               {'name': 'Rust and Python tests', 'conclusion': 'success'}]
+        self.assertEqual(gate.passed_areas(self.RUN, old, self.REPO), {'web', 'rust', 'python'})
 
-    def test_anything_less_does_not(self):
-        skipped_web = [dict(job, conclusion='skipped') if job['name'] == 'Web checks' else job
-                       for job in self.JOBS]
-        for run, jobs in ((self.RUN, skipped_web), (self.RUN, self.JOBS[:2]),
-                          ({**self.RUN, 'event': 'push'}, self.JOBS),
-                          ({**self.RUN, 'path': '.github/workflows/other.yml'}, self.JOBS),
-                          ({**self.RUN, 'head_repository': {'full_name': 'fork/r'}}, self.JOBS)):
-            with self.subTest(run=run, jobs=jobs):
-                self.assertFalse(gate.passed_run(run, jobs, self.REPO))
+    def test_other_runs_pass_nothing(self):
+        for run in ({**self.RUN, 'event': 'push'}, {**self.RUN, 'path': '.github/workflows/other.yml'},
+                    {**self.RUN, 'head_repository': {'full_name': 'fork/r'}}):
+            with self.subTest(run=run):
+                self.assertEqual(gate.passed_areas(run, self.JOBS, self.REPO), set())
 
-    def test_push_reuses_only_a_passed_run_on_the_same_tree(self):
-        calls = []
+    def push(self, files, extra=None, runs=None):
         responses = {
-            '/repos/o/r/git/commits/' + TREE: {'tree': {'sha': OTHER}, 'parents': [{'sha': 'p'}]},
-            f'/repos/o/r/compare/p...{TREE}': {'files': [{'filename': 'web/src/App.tsx'}]},
+            self.RUNS: {'workflow_runs': runs if runs is not None else [self.GREEN]},
+            '/repos/o/r/actions/runs/9/jobs?filter=latest&per_page=100': {'jobs': self.JOBS},
+            f'/repos/o/r/compare/g...{TREE}': {'status': 'ahead', 'files': [{'filename': f} for f in files]},
+            '/repos/o/r/git/commits/' + TREE: {'tree': {'sha': OTHER}},
+            f'/repos/o/r/actions/artifacts?per_page=30&name=ci-passed-tree-{OTHER}': {'artifacts': []},
+            **(extra or {})}
+        calls = []
+
+        def api(path):
+            calls.append(path)
+            return responses[path]
+
+        scans = []
+
+        def scan(gone):
+            scans.append(sorted(gone))
+            return {}
+
+        original, gate.api = gate.api, api
+        try:
+            needed, reason = gate.decide_push('o/r', TREE, scan)
+        finally:
+            gate.api = original
+        self.scans = scans
+        return needed, reason, calls
+
+    def test_push_needs_only_what_changed_since_the_last_green_main(self):
+        needed, reason, _ = self.push(['web/src/App.tsx'])
+        self.assertEqual(needed, {'web'})
+        self.assertIn('`g`', reason)
+        self.assertEqual(self.push(['docs/x.md'])[0], set())
+        self.assertEqual(self.push(['server/src/main.rs', 'web/src/a.ts'])[0], {'web', 'rust', 'python'})
+
+    def test_push_counts_deleted_and_renamed_away_paths(self):
+        extra = {f'/repos/o/r/compare/g...{TREE}': {'status': 'ahead', 'files': [
+            {'filename': 'docs/a.md', 'status': 'removed'},
+            {'filename': 'docs/new.md', 'status': 'renamed', 'previous_filename': 'server/old.rs'},
+            {'filename': 'docs/kept.md', 'status': 'modified'}]}}
+        needed, _, _ = self.push([], extra)
+        self.assertEqual(self.scans, [['docs/a.md', 'server/old.rs']])
+        self.assertEqual(needed, {'rust', 'python'})  # the old path was the server's
+
+    def test_push_reuses_only_the_jobs_a_pr_run_passed_on_the_same_tree(self):
+        skipped_rust = [dict(job, conclusion='skipped') if job['name'] == 'Rust tests' else job
+                        for job in self.JOBS]
+        extra = {
             f'/repos/o/r/actions/artifacts?per_page=30&name=ci-passed-tree-{OTHER}': {'artifacts': [
                 {'name': f'ci-passed-tree-{OTHER}', 'expired': True, 'workflow_run': {'id': 1}},
                 {'name': f'ci-passed-tree-{OTHER}', 'expired': False, 'workflow_run': {'id': 2}},
@@ -113,52 +234,47 @@ class PushReuse(unittest.TestCase):
             '/repos/o/r/actions/runs/2': {**self.RUN, 'event': 'push'},
             '/repos/o/r/actions/runs/2/jobs?filter=latest&per_page=100': {'jobs': self.JOBS},
             '/repos/o/r/actions/runs/3': {**self.RUN, 'html_url': 'https://example.invalid/3'},
-            '/repos/o/r/actions/runs/3/jobs?filter=latest&per_page=100': {'jobs': self.JOBS},
+            '/repos/o/r/actions/runs/3/jobs?filter=latest&per_page=100': {'jobs': skipped_rust},
         }
-
-        def api(path):
-            calls.append(path)
-            return responses[path]
-
-        original, gate.api = gate.api, api
-        try:
-            skip, reason = gate.decide_push('o/r', TREE)
-        finally:
-            gate.api = original
-        self.assertTrue(skip)
+        needed, reason, calls = self.push(['server/src/main.rs', 'web/src/a.ts'], extra)
+        self.assertEqual(needed, {'rust'})
         self.assertIn('[3]', reason)
         self.assertNotIn('/repos/o/r/actions/runs/1', calls)
 
-    def test_push_without_a_passed_tree_runs(self):
-        responses = {'/repos/o/r/git/commits/' + TREE: {'tree': {'sha': OTHER}, 'parents': [{'sha': 'p'}]},
-                     f'/repos/o/r/compare/p...{TREE}': {'files': [{'filename': 'server/src/main.rs'}]},
-                     f'/repos/o/r/actions/artifacts?per_page=30&name=ci-passed-tree-{OTHER}':
-                         {'artifacts': []}}
-        original, gate.api = gate.api, responses.__getitem__
-        try:
-            self.assertFalse(gate.decide_push('o/r', TREE)[0])
-        finally:
-            gate.api = original
+    def test_push_changing_a_cache_key_runs_without_looking_for_artifacts(self):
+        needed, reason, calls = self.push(['deploy/phase-rev'])
+        self.assertEqual(needed, {'rust', 'python'})
+        self.assertIn('cache key', reason)
+        self.assertFalse(any('artifacts' in call for call in calls))
+
+    def test_tests_off_runs_and_unrelated_commits_are_no_base(self):
+        off = {**self.GREEN, 'id': 7, 'head_sha': 'off'}
+        diverged = {**self.GREEN, 'id': 8, 'head_sha': 'old'}
+        extra = {
+            '/repos/o/r/actions/runs/7/jobs?filter=latest&per_page=100': {'jobs': [
+                {'name': gate.TESTS_OFF_JOB, 'conclusion': 'success'}]},
+            '/repos/o/r/actions/runs/8/jobs?filter=latest&per_page=100': {'jobs': self.JOBS},
+            f'/repos/o/r/compare/old...{TREE}': {'status': 'diverged'},
+        }
+        needed, _, calls = self.push(['web/src/a.ts'], extra, runs=[off, diverged, self.GREEN])
+        self.assertEqual(needed, {'web'})
+        self.assertNotIn(f'/repos/o/r/compare/off...{TREE}', calls)
+        needed, reason, _ = self.push(['web/src/a.ts'], extra, runs=[off, diverged])
+        self.assertEqual(needed, set(gate.AREAS))
+        self.assertIn('No earlier main commit', reason)
+
+    def test_unreadable_or_huge_push_runs_everything(self):
+        self.assertEqual(self.push([])[0], set(gate.AREAS))
+        self.assertEqual(self.push(['web/src/a.ts'] * 300)[0], set(gate.AREAS))
 
 
 class CacheKeys(unittest.TestCase):
-    def test_cache_key_changes_force_a_full_main_run(self):
+    def test_cache_key_changes_are_recognised(self):
         for path in ('Cargo.lock', 'play/Cargo.toml', 'deploy/phase-rev', 'package-lock.json',
                      'rust-toolchain.toml', '.github/workflows/ci.yml'):
             with self.subTest(path=path):
                 self.assertTrue(gate.changes_cache_key(['web/src/a.ts', path]))
         self.assertFalse(gate.changes_cache_key(['server/src/main.rs', 'web/package.json']))
-
-    def test_push_changing_a_cache_key_runs_without_looking_for_artifacts(self):
-        responses = {'/repos/o/r/git/commits/' + TREE: {'tree': {'sha': OTHER}, 'parents': [{'sha': 'p'}]},
-                     f'/repos/o/r/compare/p...{TREE}': {'files': [{'filename': 'deploy/phase-rev'}]}}
-        original, gate.api = gate.api, responses.__getitem__
-        try:
-            skip, reason = gate.decide_push('o/r', TREE)
-        finally:
-            gate.api = original
-        self.assertFalse(skip)
-        self.assertIn('cache key', reason)
 
 
 class Workflow(unittest.TestCase):
@@ -168,7 +284,7 @@ class Workflow(unittest.TestCase):
         self.assertIn('types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]',
                       self.workflow)
         self.assertIn('!github.event.pull_request.draft', job(self.workflow, 'gate'))
-        for name in ('web', 'rust'):
+        for name in ('web', 'rust', 'python'):
             self.assertIn('!github.event.pull_request.draft', job(self.workflow, name))
 
     def test_gate_only_runs_for_trusted_pull_requests(self):
@@ -176,7 +292,9 @@ class Workflow(unittest.TestCase):
         self.assertIn("github.event_name == 'pull_request' &&", gate_job)
         self.assertIn('github.event.pull_request.head.repo.full_name == github.repository', gate_job)
         self.assertNotIn('secrets.', gate_job)
-        self.assertIn('sparse-checkout: scripts/ci/gate.py', gate_job)
+        self.assertIn('sparse-checkout: |\n            scripts/ci/gate.py\n', gate_job)
+        for pattern in ('*.rs', '*.py', '*.ts', '*.tsx', '*.mjs'):
+            self.assertIn(f'\n            {pattern}\n', gate_job)
         # main's copy of the gate decides, not the PR's.
         self.assertIn('ref: ${{ github.event.pull_request.base.sha || github.sha }}', gate_job)
         self.assertIn('continue-on-error: true', gate_job)
@@ -191,24 +309,26 @@ class Workflow(unittest.TestCase):
         self.assertIn('actions: read', job(self.workflow, 'gate'))
 
     def test_only_an_explicit_gate_skip_skips_a_job(self):
-        # A failed or skipped gate (manual run) leaves no output, so both jobs run.
-        for name in ('web', 'rust'):
+        # A failed or skipped gate (manual run) leaves no output, so every job runs.
+        for name in ('web', 'rust', 'python'):
             with self.subTest(job=name):
                 text = job(self.workflow, name)
                 self.assertIn('needs: gate', text)
+                self.assertIn(f'      {name}: ${{{{ steps.decide.outputs.{name} }}}}', job(self.workflow, 'gate'))
                 condition = re.search(r'if: >-\n(.*?)\n    runs-on', text, re.S).group(1)
                 self.assertRegex(condition, r"^\s*!cancelled\(\) &&\n"
                                             r"\s*\(vars\.CI_TESTS == 'on' \|\| github\.event_name == 'workflow_dispatch'\) &&\n"
                                             r"\s*needs\.gate\.outputs\.skip != 'true' &&\n"
+                                            rf"\s*needs\.gate\.outputs\.{name} != 'false' &&\n"
                                             r"\s*\(github\.event_name != 'pull_request' \|\|")
-                self.assertNotIn("outputs.rust == 'true'", condition)
+                self.assertNotIn(f"outputs.{name} == 'true'", condition)
                 self.assertNotIn("outputs.skip == 'false'", condition)
                 self.assertIn('github.event.pull_request.head.repo.full_name == github.repository', condition)
 
     def test_tests_run_only_when_switched_on_or_started_by_hand(self):
         gate_if = re.search(r'if: >-\n(.*?)\n    # ', job(self.workflow, 'gate'), re.S).group(1)
         self.assertRegex(gate_if, r"^\s*vars\.CI_TESTS == 'on' &&\n")
-        for name in ('web', 'rust'):
+        for name in ('web', 'rust', 'python'):
             with self.subTest(job=name):
                 self.assertIn("(vars.CI_TESTS == 'on' || github.event_name == 'workflow_dispatch') &&",
                               job(self.workflow, name))
@@ -217,7 +337,7 @@ class Workflow(unittest.TestCase):
 
     def test_every_job_defaults_to_hosted_and_refuses_self_hosted_when_public(self):
         # The repository is public: a self-hosted runner must never take its jobs (AGENTS.md).
-        for name in ('gate', 'tests-off', 'web', 'rust'):
+        for name in ('gate', 'tests-off', 'web', 'rust', 'python', 'passed'):
             with self.subTest(job=name):
                 text = job(self.workflow, name)
                 self.assertIn("runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '[\"ubuntu-latest\"]') }}", text)
@@ -248,13 +368,20 @@ class Workflow(unittest.TestCase):
         self.assertNotIn('uses:', marker)
         self.assertNotIn('secrets.', marker)
 
-    def test_rust_job_publishes_its_tree_only_after_every_check(self):
-        rust = job(self.workflow, 'rust')
-        publish = rust.index('Publish the passed tree')
-        self.assertGreater(publish, rust.index('Test list validation with Python optimization'))
-        self.assertIn('name: ci-passed-tree-${{ steps.tested.outputs.tree }}', rust)
-        self.assertIn('overwrite: true', rust)  # a re-run uploads the same name again
-        self.assertEqual(rust.count("if: github.event_name == 'pull_request'"), 2)
+    def test_the_passed_tree_is_published_only_when_every_job_passed_or_was_not_needed(self):
+        passed = job(self.workflow, 'passed')
+        self.assertIn('needs: [web, rust, python]', passed)
+        condition = re.search(r'if: >-\n(.*?)\n    runs-on', passed, re.S).group(1)
+        self.assertIn("!cancelled() && github.event_name == 'pull_request' &&", condition)
+        for name in ('web', 'rust', 'python'):
+            self.assertIn('contains(fromJSON(\'["success","skipped"]\'), needs.' + name + '.result)', condition)
+        self.assertIn('name: ci-passed-tree-${{ steps.tested.outputs.tree }}', passed)
+        self.assertIn('overwrite: true', passed)  # a re-run uploads the same name again
+        for name in ('web', 'rust', 'python'):
+            self.assertNotIn('upload-artifact', job(self.workflow, name))
+        # The Python suites left the Rust job.
+        self.assertNotIn('python3 deploy', job(self.workflow, 'rust'))
+        self.assertIn('Test list validation with Python optimization', job(self.workflow, 'python'))
 
     def test_the_rust_cache_can_keep_the_engine_build(self):
         rust = job(self.workflow, 'rust')
@@ -423,11 +550,32 @@ class LocalScript(unittest.TestCase):
         self.web_only_branch('web/src/App.tsx')
         result = self.run_script('--no-amend')
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('skipped, every change since main is web-only', result.stdout)
+        self.assertIn('Rust tests: skipped, nothing changed since main needs them', result.stdout)
+        self.assertIn('Python tests: skipped', result.stdout)
         calls = self.log.read_text()
         self.assertIn('npm test', calls)
         self.assertNotIn('cargo', calls)
         self.assertNotIn('python3 deploy/test_release.py', calls)
+
+    def test_python_only_change_skips_web_and_rust(self):
+        self.web_only_branch('deploy/notes.py')
+        result = self.run_script('--no-amend')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('Web checks: skipped', result.stdout)
+        calls = self.log.read_text()
+        self.assertNotIn('npm', calls)
+        self.assertNotIn('cargo', calls)
+        self.assertIn('python3 deploy/test_release.py', calls)
+
+    def test_documentation_only_change_runs_nothing_but_full_runs_everything(self):
+        self.web_only_branch('docs/notes.md')
+        self.assertEqual(self.run_script('--no-amend').returncode, 0)
+        self.assertNotIn('npm', self.log.read_text())
+        self.assertNotIn('cargo', self.log.read_text())
+        self.log.unlink()
+        self.assertEqual(self.run_script('--no-amend', '--full').returncode, 0)
+        for check in ('npm test', 'cargo test --locked', 'python3 deploy/test_release.py'):
+            self.assertIn(check, self.log.read_text())
 
     def test_full_or_a_server_change_runs_rust(self):
         self.web_only_branch('web/src/App.tsx')
@@ -461,11 +609,23 @@ class LocalScript(unittest.TestCase):
         self.assertEqual(self.run_script('--no-amend').returncode, 0)
         self.assertIn('cargo test --locked', self.log.read_text())
 
-    def test_a_silent_detector_means_the_full_run(self):
-        self.web_only_branch('web/src/App.tsx')
-        self.stub('python3', 0)
+    def test_deleting_a_file_the_server_embeds_runs_rust(self):
+        (self.repo / 'server').mkdir()
+        (self.repo / 'server/page.rs').write_text('const N: &str = include_str!("../docs/notes.md");\n')
+        (self.repo / 'docs').mkdir()
+        (self.repo / 'docs/notes.md').write_text('notes\n')
+        self.web_only_branch('docs/other.md')
+        self.git(self.repo, 'rm', '-q', 'docs/notes.md')
+        self.git(self.repo, 'commit', '-q', '-m', 'Delete the notes')
         self.assertEqual(self.run_script('--no-amend').returncode, 0)
         self.assertIn('cargo test --locked', self.log.read_text())
+
+    def test_a_silent_detector_means_the_full_run(self):
+        self.web_only_branch('docs/notes.md')
+        self.stub('python3', 0)
+        self.assertEqual(self.run_script('--no-amend').returncode, 0)
+        for check in ('npm test', 'cargo test --locked', 'python3 deploy/test_release.py'):
+            self.assertIn(check, self.log.read_text())
 
     def test_no_amend_leaves_head(self):
         head = self.git(self.repo, 'rev-parse', 'HEAD')

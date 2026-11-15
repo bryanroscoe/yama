@@ -117,11 +117,11 @@ Everything lives in `~/Developer/.agent-tasks/yama-release-trains/`: `admit/` fo
    did in the merge commit; otherwise eject the member. Renumber colliding migrations on the train
    branch, with every reference to the old name. Check that every commit is authored and committed
    as `bryanroscoe@gmail.com`. The receipt listing a member is the acknowledgment that it was cut.
-2. **Test.** Wait for any `trains/*-WINDOW` file to go. The one exception is a web-only train,
-   which `scripts/local-ci.sh` runs without Rust. The script skips Rust only on a positive answer
-   and falls back to the full run if its fetch, diff or classification fails, so during a window
-   confirm the answer first (`git diff --name-only origin/main...HEAD` classified by
-   `scripts/ci/gate.py`'s `rust_needed`, as the script does) and stop the run if its log reaches
+2. **Test.** Wait for any `trains/*-WINDOW` file to go. The one exception is a train that
+   doesn't need Rust, which `scripts/local-ci.sh` runs without it. The script skips Rust only on
+   a positive answer and falls back to the full run if its fetch, diff or classification fails,
+   so during a window confirm the answer first (`git diff --name-only origin/main...HEAD`
+   classified by `scripts/ci/gate.py`'s `areas_needed`, as the script does) and stop the run if its log reaches
    "== Rust tests". Write the
    receipt with `status: testing`, then run
    `CARGO_BUILD_JOBS=1 scripts/local-ci.sh --no-amend` once on the train head, and the Android

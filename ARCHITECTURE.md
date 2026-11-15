@@ -341,7 +341,7 @@ flowchart TB
     direction LR
     branch["Branch in a worktree"] --> pr["Pull request"]
     pr --> review["Review, then fixes"]
-    pr --> ci["CI on GitHub-hosted runners<br/>web checks, Rust and Python tests"]
+    pr --> ci["CI on GitHub-hosted runners<br/>web, Rust and Python jobs, only those a change needs"]
     review --> merge["Merge to main"]
     ci --> merge
   end
@@ -384,7 +384,7 @@ was the plan; what was built is in the [README](README.md#repository-layout). Th
 section 4 is the first sketch; the current system is [above](#the-system-at-a-glance).
 
 - **The proposal, section by section:** [1. What we're building](#1-what-were-building), [2. Apps and code layout](#2-apps-and-code-layout), [3. Rules engine (Play)](#3-rules-engine-play), [4. Backend](#4-backend), [5. Offline-first data (Table, Collection, Cards)](#5-offline-first-data-table-collection-cards), [6. Scanner](#6-scanner), [7. AI opponents (Play)](#7-ai-opponents-play), [8. Table mode (life counter)](#8-table-mode-life-counter), [9. Data model (first cut)](#9-data-model-first-cut), [10. Milestones](#10-milestones), [Progress (2026-10-18)](#progress-2026-10-18), [11. Risks](#11-risks), [12. Questions for Bryan](#12-questions-for-bryan), [Sources](#sources).
-- **Repository, releases and operations:** [Repository and licence (11 November 2026)](#repository-and-licence-11-november-2026), [Open sign-up (2026-10-20)](#open-sign-up-2026-10-20), [Admin area (2026-10-22)](#admin-area-2026-10-22), [Bug reports (12 November 2026)](#bug-reports-12-november-2026), [View as (2026-10-22)](#view-as-2026-10-22), [Power users and the semi-public release (2026-10-31)](#power-users-and-the-semi-public-release-2026-10-31), [More for signed-in accounts (2026-11-12)](#more-for-signed-in-accounts-2026-11-12), [Polish runs (2026-10-31)](#polish-runs-2026-10-31), [Database backups (2026-11-02)](#database-backups-2026-11-02), [Faster first load, caching and cache busting (2026-11-02)](#faster-first-load-caching-and-cache-busting-2026-11-02), [Performance and operations (2026-11-02)](#performance-and-operations-2026-11-02).
+- **Repository, releases and operations:** [Repository and licence (11 November 2026)](#repository-and-licence-11-november-2026), [Open sign-up (2026-10-20)](#open-sign-up-2026-10-20), [Admin area (2026-10-22)](#admin-area-2026-10-22), [Bug reports (12 November 2026)](#bug-reports-12-november-2026), [View as (2026-10-22)](#view-as-2026-10-22), [Power users and the semi-public release (2026-10-31)](#power-users-and-the-semi-public-release-2026-10-31), [More for signed-in accounts (2026-11-12)](#more-for-signed-in-accounts-2026-11-12), [Polish runs (2026-10-31)](#polish-runs-2026-10-31), [Database backups (2026-11-02)](#database-backups-2026-11-02), [Faster first load, caching and cache busting (2026-11-02)](#faster-first-load-caching-and-cache-busting-2026-11-02), [Performance and operations (2026-11-02)](#performance-and-operations-2026-11-02), [CI runs only what a change needs (15 November 2026)](#ci-runs-only-what-a-change-needs-15-november-2026).
 - **Online play and the engine:** [How online play ended up working](#how-online-play-ended-up-working), [Watch the AIs play (2026-10-22)](#watch-the-ais-play-2026-10-22), [Drag and drop on the online board (2026-10-22)](#drag-and-drop-on-the-online-board-2026-10-22), [Board motion (2026-10-22)](#board-motion-2026-10-22), [phase's own board (2026-10-29)](#phases-own-board-2026-10-29), [Engine choice and direct restoration (2026-10-30)](#engine-choice-and-direct-restoration-2026-10-30), [PR 29 historical runtime supervision and provenance follow-up (30 October 2026)](#pr-29-historical-runtime-supervision-and-provenance-follow-up-30-october-2026), [Phase board release integration (1 November 2026)](#phase-board-release-integration-1-november-2026), [Online game startup isolation (2026-11-10)](#online-game-startup-isolation-2026-11-10), [Playing mode recovery and presentation (2026-11-10)](#playing-mode-recovery-and-presentation-2026-11-10), [Games left on an old engine (2026-11-12)](#games-left-on-an-old-engine-2026-11-12).
 - **Lab and evidence:** [Simulation lab (2026-10-19)](#simulation-lab-2026-10-19), [Forge as a second Lab engine (2026-10-22)](#forge-as-a-second-lab-engine-2026-10-22), [Lab time-outs (2026-10-23)](#lab-time-outs-2026-10-23), [Referee: phase checked against Forge (2026-10-24)](#referee-phase-checked-against-forge-2026-10-24), [Shared-field tournaments (2026-10-26)](#shared-field-tournaments-2026-10-26), [Lab execution targets (2026-10-27)](#lab-execution-targets-2026-10-27), [Phase retry-tail progress (2026-10-28)](#phase-retry-tail-progress-2026-10-28), [Lab: off the write lock, and its cost (2026-11-02)](#lab-off-the-write-lock-and-its-cost-2026-11-02), [Historical evidence datasets (2026-10-28)](#historical-evidence-datasets-2026-10-28), [Precon evidence from datasets (2026-10-29)](#precon-evidence-from-datasets-2026-10-29), [Public precon reference (2026-10-27)](#public-precon-reference-2026-10-27), [Precon upgradeability (2026-10-27)](#precon-upgradeability-2026-10-27), [Public commander ranking (2026-11-01)](#public-commander-ranking-2026-11-01), [Precon power comparison (2026-11-09)](#precon-power-comparison-2026-11-09), [Star Trek stock catalog (2026-11-09)](#star-trek-stock-catalog-2026-11-09).
 - **Shopping:** [Live store stock (13 November 2026)](#live-store-stock-13-november-2026).
@@ -2808,3 +2808,20 @@ isn't available at startup the game waits; until then it is stranded (takes no p
 open games, and its host may delete it), as since PR #69. Games on the v0.113 runtime and
 games that fail on their own current engine are unchanged. The log check is conservative: a
 change only in how the engine words a line closes the game.
+
+### CI runs only what a change needs (15 November 2026)
+
+Bryan, 15 Nov 2026: "If we didn't change Rust in a particular release, can we make it so that
+we don't run all the Rust tests… We should make it smarter so that we only run the correct set
+of tests." CI ran the 7 to 20 minute Rust job for every PR not entirely under `web/` or
+`packages/`, counted any `.css` or `.html` as Rust, and re-ran everything on main whenever a
+merge's tree differed from its PR run's.
+
+CI now has three test jobs (web, Rust, Python, the last split out of the Rust job since it needs
+no build), and the gate (`scripts/ci/gate.py`) runs only those a change needs: the area that
+owns each file plus every area whose code names the file, found by scanning the sources rather
+than by a list, so a web stylesheet the server embeds still runs Rust and one it doesn't, doesn't.
+Main's push CI compares with the last main commit whose push CI passed, so a red main stays red
+until fixed. Anything the gate can't read runs everything. Details:
+[docs/ci.md](docs/ci.md#only-what-changed). No process, service or trust boundary changed: the
+gate still runs main's own copy, reading main's sources as data.
