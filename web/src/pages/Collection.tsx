@@ -708,11 +708,22 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
       pending: { ops: [addOp(c.scryfall_id, copies, finish, box, crypto.randomUUID())], fix: null },
     };
     put([entry, ...listRef.current]);
+    filedAs.current.set(c, entry.key);
     const ok = await send(entry.key);
     setError(ok ? null : new Error(`Couldn't save ${c.name}. It's kept in the Added list to try again.`));
     return ok;
   };
 
+  /** The session entry each card the scanner filed went into, for its Undo. */
+  const filedAs = useRef(new WeakMap<ScanCandidate, string>());
+  /** Undo on the scanner's "Added …": take this session's copies of that card back out (the same fix as Remove in the Added list). */
+  const undo = async (c: ScanCandidate) => {
+    const key = filedAs.current.get(c);
+    const a = key ? listRef.current.find((x) => x.key === key) : undefined;
+    if (!a) throw new Error("It's no longer in the Added list");
+    const { removeFix } = await scanner();
+    await fix(a, removeFix(a));
+  };
   const busyMessage = (a: Added) => (a.pending?.error ? "Try the last change again first." : "Still saving the last change.");
   const fix = async (a: Added, f: Fix) => {
     const before = listRef.current.find((x) => x.key === a.key);
@@ -820,6 +831,7 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
       <Suspense fallback={<Loading padded>Starting the scanner…</Loading>}>
         <ScannerView
           onAccept={accept}
+          onUndo={undo}
           onClose={close}
           addedCount={added.reduce((n, a) => n + a.copies, 0)}
           onShowAdded={() => setReviewing(true)}

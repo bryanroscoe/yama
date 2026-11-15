@@ -624,3 +624,41 @@ button.scan-count {
 .scan-settings > .scan-choices {
   margin-top: 10px;
 }
+
+/* The sheet scrolls when it holds more than fits: its rows keep their own height rather than
+   shrinking into each other (a min-height 0 link button over the tap prompt, 15 Nov 2026). */
+.scan-panel > * {
+  flex-shrink: 0;
+}
+
+/* "From your card": the collector-line corner of the card, as the camera saw it, across the sheet. */
+.scan-peek {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.scan-peek canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 6px;
+  background: #000;
+}
+
+/* "Added …" with Undo, on the camera. */
+.scan-chip.has-action {
+  width: max-content;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.scan .scan-chip-action {
+  min-height: 32px;
+  padding: 2px 12px;
+  border: 1px solid #fff;
+  border-radius: var(--r-pill);
+  background: none;
+  color: #fff;
+  font-weight: 700;
+}

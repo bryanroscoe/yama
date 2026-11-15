@@ -120,6 +120,9 @@ type Row = Pick<CollectionItem, "id" | "scryfall_id" | "qty" | "condition" | "fi
   misprint?: boolean;
 };
 
+/** The fix that takes an entry's copies back out: Remove in the Added list, and Undo on the scanner. */
+export const removeFix = (a: Added): Fix => ({ scryfall_id: a.scryfall_id, set: a.set, number: a.number, name: a.name, image: a.image, finish: a.finish, copies: 0 });
+
 /** The op that adds `copies` of a printing the way the scanner does (Near Mint, English). */
 export function addOp(scryfall_id: string, copies: number, finish: Finish, container: string | null, opId: string): CollectionOp {
   return { op_id: opId, kind: "add", scryfall_id, qty: copies, finish: finish === "proxy" ? "nonfoil" : finish, proxy: finish === "proxy", container_id: container };

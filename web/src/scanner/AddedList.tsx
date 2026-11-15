@@ -4,7 +4,7 @@
 import { useState } from "react";
 import type { Printing } from "../api";
 import { printingOptions } from "./printings";
-import type { Added, Finish, Fix } from "./session";
+import { removeFix, type Added, type Finish, type Fix } from "./session";
 import { Button, CardThumb, DialogHead, ErrorText, Field, Loading } from "../components/ui";
 
 const FINISH_LABEL: Record<Finish, string> = { nonfoil: "regular", foil: "foil", proxy: "proxy" };
@@ -98,7 +98,7 @@ function AddedRow({ a, onFix, onRetry }: { a: Added; onFix: AddedListProps["onFi
             <Button className="scan-alt" disabled={busy} onClick={() => void openPrintings()}>
               {printings ? "Keep this printing" : "Change printing"}
             </Button>
-            <Button className="scan-alt" disabled={busy} onClick={() => void run({ ...base, copies: 0 })}>
+            <Button className="scan-alt" disabled={busy} onClick={() => void run(removeFix(a))}>
               Remove
             </Button>
           </div>
