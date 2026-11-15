@@ -41,7 +41,6 @@ use engine::types::events::GameEvent;
 use engine::types::game_state::{ActionResult, PriorityPassingMode, StackEntry, StackEntryKind};
 use engine::types::log::{LogImportance, LogSegment, LogVisibility};
 use engine::types::match_config::MatchConfig;
-use engine::types::phase::Phase;
 use engine::types::player::PlayerId;
 use engine::types::replay::{RecordedActionKind, ReplayHeader, ReplayLog};
 use phase_ai::auto_play::eligible_ai_decision;
@@ -2046,7 +2045,7 @@ impl Match {
             let config = &self.ai[&actor];
             let mut rng = ai_rng(self.log.header.seed, self.log.actions.len());
             let thinking = Busy::start();
-            let searched = ai_search_state(&self.state, &self.session, owner);
+            let searched = ai_search_state(&self.state, &self.session, owner, config);
             let chosen = choose_action_with_session(searched.as_ref(), owner, config, &mut rng, &self.session)
                 .or_else(|| if self.fallback { phase_ai::search::fallback_action(&self.state, config, &contract) } else { None });
             self.ai_thinking += thinking.elapsed();
@@ -2244,7 +2243,7 @@ impl Match {
         let me = PlayerId(seat);
         let config = ai_config(level, self.log.header.player_count, self.log.header.seed, false);
         let mut rng = ai_rng(self.log.header.seed ^ 0x5eed, self.log.actions.len());
-        let searched = ai_search_state(&self.state, &self.session, me);
+        let searched = ai_search_state(&self.state, &self.session, me, &config);
         let fallback = || d.options.iter().find(|o| matches!(o.kind, OptionKind::Pass | OptionKind::Keep)).or(d.options.first()).map(|o| PersonMove::Option(d.revision, o.index));
         let Some(action) = choose_action_with_session(searched.as_ref(), me, &config, &mut rng, &self.session) else { return fallback() };
         let contract = AiDecisionContract::issue(&self.state, me);
@@ -2786,13 +2785,15 @@ pub fn progress_mark(state: &GameState) -> u64 {
 }
 
 /// The position the AI searches from: the game itself, but with loop detection off unless the
-/// decision is about a loop or `seat` may open a combo line here ([`combo_line_may_open`]).
+/// decision is about a loop or `seat` has combo work to do here: rehearsing one of its combos, or
+/// looking for the line of one it holds (`phase_ai::combo::combo_work_due`, phase-ai's own test
+/// of when it would do either). Both happen only on a game that offers loop shortcuts (CR 732).
 /// phase's search plays lines out on copies of the game, and with loop
 /// detection on every resolution in those lines copies the position again for the detector: on
 /// Hard that made AI decisions take about 60% longer (docs/play-performance.md). The
 /// AI's choice is still checked and applied on the real game, where loops are found.
 #[doc(hidden)]
-pub fn ai_search_state<'a>(state: &'a GameState, session: &AiSession, seat: PlayerId) -> std::borrow::Cow<'a, GameState> {
+pub fn ai_search_state<'a>(state: &'a GameState, session: &AiSession, seat: PlayerId, config: &AiConfig) -> std::borrow::Cow<'a, GameState> {
     let about_a_loop = matches!(
         state.waiting_for,
         WaitingFor::LoopShortcut { .. }
@@ -2800,42 +2801,12 @@ pub fn ai_search_state<'a>(state: &'a GameState, session: &AiSession, seat: Play
             | WaitingFor::PrecastCopyShortcutOffer { .. }
             | WaitingFor::RespondToPrecastCopyShortcut { .. }
     );
-    if state.loop_detection.is_off() || about_a_loop || combo_line_may_open(state, session, seat) {
+    if state.loop_detection.is_off() || about_a_loop || phase_ai::combo::combo_work_due(state, session, seat, config) {
         return std::borrow::Cow::Borrowed(state);
     }
     let mut copy = state.clone();
     copy.loop_detection = LoopDetectionMode::Off;
     std::borrow::Cow::Owned(copy)
-}
-
-/// Whether `seat`'s AI may start looking for a combo line at this decision: it was given a combo
-/// ([`SeatCombo`]) and has every card of one somewhere it can use, in its own main phase with
-/// priority and an empty stack. phase-ai starts that search only on a game that offers loop
-/// shortcuts (CR 732), so this one decision is made on the game as it is ([`ai_search_state`]).
-/// The test is phase-ai's own (`combo::certify`), or wider: a decision that passes it and holds no
-/// line costs only the slower ordinary search. Later steps of a line are found on the copy.
-fn combo_line_may_open(state: &GameState, session: &AiSession, seat: PlayerId) -> bool {
-    let Some(combos) = session.combos.get(&seat).filter(|combos| !combos.is_empty()) else { return false };
-    let opens = state.active_player == seat
-        && state.stack.is_empty()
-        && matches!(state.phase, Phase::PreCombatMain | Phase::PostCombatMain)
-        && matches!(state.waiting_for, WaitingFor::Priority { player } if player == seat);
-    if !opens {
-        return false;
-    }
-    // On the battlefield a card is the seat's to use while it controls it; elsewhere (but not
-    // in its library or on the stack), while it owns it.
-    let usable: HashSet<String> = state
-        .objects
-        .values()
-        .filter(|o| match o.zone {
-            Zone::Library | Zone::Stack => false,
-            Zone::Battlefield => o.controller == seat,
-            _ => o.owner == seat,
-        })
-        .map(|o| o.name.to_lowercase())
-        .collect();
-    combos.iter().any(|combo| combo.cards.iter().all(|card| usable.contains(&card.to_lowercase())))
 }
 
 /// The AI's memory for one game ([`AiSession`]), with the combos each seat was given.

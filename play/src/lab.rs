@@ -1082,8 +1082,8 @@ fn play(
                 let chosen = asked
                     .or_else(|| {
                         // As live games do: the AI looks ahead on a copy with loop detection off,
-                        // except where it is asked about a loop or may open a combo line.
-                        let searched = crate::ai_search_state(&state, &session, owner);
+                        // except where it is asked about a loop or has combo work to do.
+                        let searched = crate::ai_search_state(&state, &session, owner, &configs[&actor]);
                         choose_action_with_issued_contract(searched.as_ref(), &configs[&actor], &mut rng, &session, &contract)
                     })
                     .or_else(|| {

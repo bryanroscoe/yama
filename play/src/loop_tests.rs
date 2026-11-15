@@ -417,17 +417,21 @@ fn an_ai_told_about_its_combo_plays_the_line_that_wins() {
 #[test]
 fn a_combo_line_opens_on_the_game_itself_and_other_decisions_on_the_copy() {
     use std::borrow::Cow;
-    let on_the_game = |m: &Match, seat: u8| matches!(crate::ai_search_state(&m.state, &m.session, PlayerId(seat)), Cow::Borrowed(_));
+    let config = crate::ai_config(Difficulty::Medium, 2, 7, false);
+    let on_the_game = |m: &Match, seat: u8| matches!(crate::ai_search_state(&m.state, &m.session, PlayerId(seat), &config), Cow::Borrowed(_));
     let (mut m, _) = optional_drain(&[0]);
     assert!(!on_the_game(&m, 0), "with no combo the AI searches a copy with loop detection off");
     // Every card of the combo is hers to use, in her main phase with an empty stack.
     m.set_seat_combos([(0, vec![drain_combo()])].into());
     assert!(on_the_game(&m, 0));
     assert!(!on_the_game(&m, 1), "Ben's seat was given none");
-    // A combo with a card she doesn't have (the Bolt is Ben's) opens nothing.
+    // A combo she doesn't hold all of yet is still hers to rehearse, once, on the game itself.
     let hers_and_his = crate::SeatCombo { id: "bolt".into(), cards: vec!["Marauding Blight-Priest".into(), "Lightning Bolt".into()] };
     m.set_seat_combos([(0, vec![hers_and_his])].into());
-    assert!(!on_the_game(&m, 0));
+    assert!(on_the_game(&m, 0));
+    // A level that never looks ahead does neither.
+    let no_lookahead = crate::ai_config(Difficulty::VeryEasy, 2, 7, false);
+    assert!(matches!(crate::ai_search_state(&m.state, &m.session, PlayerId(0), &no_lookahead), Cow::Owned(_)));
     // Nor does her own combo outside her main phase.
     m.set_seat_combos([(0, vec![drain_combo()])].into());
     m.state.phase = Phase::End;
