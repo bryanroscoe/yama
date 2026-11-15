@@ -31,3 +31,15 @@ describe("readTitleFirst", () => {
     expect(readTitleFirst({ ...base, locked: true, inSet: false, share: 1, score: 0.9 })).toBe(false);
   });
 });
+
+describe("sameCardName", async () => {
+  const { sameCardName } = await import("./ScannerView");
+  it("matches a name and its double-faced card's full name", () => {
+    expect(sameCardName("Westvale Abbey", "Westvale Abbey // Ormendahl, Profane Prince")).toBe(true);
+    expect(sameCardName("Westvale Abbey // Ormendahl, Profane Prince", "westvale abbey")).toBe(true);
+    expect(sameCardName("Sol Ring", "Sol Ring")).toBe(true);
+  });
+  it("doesn't match different cards", () => {
+    expect(sameCardName("Wei Night Raiders", "Westvale Abbey // Ormendahl, Profane Prince")).toBe(false);
+  });
+});
