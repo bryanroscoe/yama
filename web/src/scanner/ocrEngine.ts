@@ -17,6 +17,19 @@ export interface ScannerOcr extends OwnedOcr {
   engine: "mlkit" | "paddle" | "tesseract";
 }
 
+/** What each engine is called in Scan settings. */
+export const ENGINE_LABEL: Record<ScannerOcr["engine"], string> = {
+  mlkit: "Google ML Kit, on this device",
+  paddle: "PaddleOCR (PP-OCRv5), in the browser",
+  tesseract: "Tesseract, in the browser",
+};
+
+/** The engine createScannerOcr will most likely pick, before it has started (ML Kit or PaddleOCR can still fall through). */
+export function plannedEngine(): ScannerOcr["engine"] {
+  if (Capacitor.isNativePlatform()) return "mlkit";
+  return import.meta.env.VITE_PADDLE_DIR ? "paddle" : "tesseract";
+}
+
 /** Reads in a row that may fail before the fallback takes over from an engine still running. */
 const FAILURES_BEFORE_FALLBACK = 3;
 
