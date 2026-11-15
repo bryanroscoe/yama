@@ -4,11 +4,12 @@
 
 import { useEffect, useState } from "react";
 import { fmtDate } from "@yama/core";
+import { BUILD_COMMIT } from "./clientBuild";
 import { isNative } from "./native";
 import { Updater } from "./nativeUpdate";
 
-/** The commit this web build was made from (vite.config.ts), or "" when the build didn't know it. */
-export const BUILD_COMMIT: string = import.meta.env.VITE_BUILD_COMMIT ?? "";
+/** The commit this web build was made from (vite.config.ts), or "" when the build didn't know it. One definition, also sent to the server. */
+export { BUILD_COMMIT };
 /** When this web build was made, as an ISO moment (vite.config.ts). */
 export const BUILD_TIME: string = import.meta.env.VITE_BUILD_TIME ?? "";
 

@@ -15,6 +15,16 @@ auto-update"); the Play plan below is kept for later.
 3. Sign in with Google. The first time the app offers an app update, Android asks once to allow
    Yama to install apps.
 
+## Which build a phone runs (15 November 2026)
+
+Without the phone: ask an assistant connected as that account to run `list_devices` (MCP). The
+app sends `X-Yama-Client: android/<versionName> (<versionCode>) web/<commit> native/<hash>` on
+its signed-in API requests, once `Updater.info()` has answered (`web/src/clientBuild.ts`,
+`components/AppUpdate.tsx`), and the server keeps the last one per sign-in with a device name read
+from the WebView's User-Agent (`server/src/client_builds.rs`). The server log has a line, "a device
+reports a new Yama build", each time one changes. The header is in the server's CORS allow list;
+the app sends it only with its bearer token, so it adds no preflight.
+
 ## Updates (13 November 2026)
 
 To see which builds a phone runs, open Settings (the profile page) or Scan settings: the last line

@@ -210,6 +210,8 @@ async fn signed_in(parts: &mut Parts, state: &AppState) -> Result<User, AppError
     if let Some(token) = token
         && let Some(user) = user_for_token(state, &token).await?
     {
+        // Which Yama build the device runs, when it says (client_builds.rs).
+        crate::client_builds::note(&state.pool, &user.id, &token, &parts.headers).await;
         return Ok(user);
     }
     access_user(parts, state).await?.ok_or(AppError::Unauthorized)
@@ -1047,6 +1049,11 @@ struct AccountInfo {
     last_sign_in: Option<String>,
     /// When the account last used Yama (to the hour).
     last_seen_at: Option<String>,
+    /// The Yama build its most recently seen device reported, that device's name and when
+    /// (client_builds.rs); none before any did.
+    last_client: Option<String>,
+    last_client_device: Option<String>,
+    last_client_at: Option<String>,
 }
 
 /// Newest accounts first, at most 500.
@@ -1057,8 +1064,12 @@ async fn admin_list_users(State(st): State<AppState>, AdminUser(_): AdminUser) -
             limited_sql!(),
             " AS limited, EXISTS (SELECT 1 FROM invites i WHERE i.email = u.email) AS invited, u.power_user = 1 AS power_user,
                u.google_sub IS NOT NULL AS google, u.password_hash IS NOT NULL AS password, u.disabled_at, u.created_at,
-               (SELECT MAX(s.created_at) FROM sessions s WHERE s.user_id = u.id) AS last_sign_in, u.last_seen_at
-             FROM users u WHERE u.guest = 0 ORDER BY u.created_at DESC, u.email LIMIT 500"
+               (SELECT MAX(s.created_at) FROM sessions s WHERE s.user_id = u.id) AS last_sign_in, u.last_seen_at,
+               c.client AS last_client, c.device AS last_client_device, c.last_seen_at AS last_client_at
+             FROM users u
+             LEFT JOIN client_builds c ON c.user_id = u.id AND c.device_key =
+               (SELECT c2.device_key FROM client_builds c2 WHERE c2.user_id = u.id ORDER BY c2.last_seen_at DESC, c2.device_key LIMIT 1)
+             WHERE u.guest = 0 ORDER BY u.created_at DESC, u.email LIMIT 500"
         ))
         .fetch_all(&st.pool)
         .await?,

@@ -116,7 +116,14 @@ pub fn app(state: AppState) -> Router {
         let cors = CorsLayer::new()
             .allow_origin(origins)
             .allow_methods([Method::GET, Method::POST, Method::PUT, Method::PATCH, Method::DELETE])
-            .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, header::IF_NONE_MATCH, header::IF_MODIFIED_SINCE])
+            .allow_headers([
+                header::AUTHORIZATION,
+                header::CONTENT_TYPE,
+                header::IF_NONE_MATCH,
+                header::IF_MODIFIED_SINCE,
+                // The app's build (client_builds.rs).
+                header::HeaderName::from_static(crate::client_builds::HEADER),
+            ])
             .expose_headers([header::ETAG, header::LAST_MODIFIED]);
         router = router.layer(axum::middleware::from_fn_with_state(cors, api_cors));
     }
@@ -401,12 +408,13 @@ mod tests {
             .uri("/api/cards/offline")
             .header(header::ORIGIN, "https://localhost")
             .header(header::ACCESS_CONTROL_REQUEST_METHOD, "GET")
-            .header(header::ACCESS_CONTROL_REQUEST_HEADERS, "authorization,if-none-match")
+            .header(header::ACCESS_CONTROL_REQUEST_HEADERS, "authorization,if-none-match,x-yama-client")
             .body(Body::empty())
             .unwrap();
         let res = app.clone().oneshot(preflight).await.unwrap();
         assert!(res.status().is_success(), "{}", res.status());
-        assert!(res.headers()[header::ACCESS_CONTROL_ALLOW_HEADERS].to_str().unwrap().to_lowercase().contains("if-none-match"));
+        let allowed = res.headers()[header::ACCESS_CONTROL_ALLOW_HEADERS].to_str().unwrap().to_lowercase();
+        assert!(allowed.contains("if-none-match") && allowed.contains("x-yama-client"), "{allowed}");
         // So does the scanner's files' folder, which the phone app's worker downloads from.
         let res = get(&format!("/scan-bundle/{}/detector.onnx", crate::scan::BUNDLE_VERSION)).await.unwrap();
         assert_eq!(res.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN], "https://localhost");
