@@ -15,6 +15,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-15-scan-anyway",
+    date: "2026-11-15",
+    title: "Scan a second copy, and a tidier scanner",
+    items: [
+      "Got two of the same card? After one is added the scanner waits for a different card, so it never adds the same one twice by itself. Now, while it's waiting, \"Scan anyway\" adds one more copy of it, with Undo as usual.",
+      "Using a photo, and reading the name or the collector number up close, are now under More, so the scanner shows only what you use on every card.",
+    ],
+    link: { to: "/collection", label: "Scan cards" },
+  },
+  {
     id: "2026-11-15-scan-tap-to-file",
     date: "2026-11-15",
     title: "Tap a printing and it's added",

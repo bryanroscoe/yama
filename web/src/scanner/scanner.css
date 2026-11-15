@@ -662,3 +662,25 @@ button.scan-count {
   color: #fff;
   font-weight: 700;
 }
+
+/* Under Add and Skip: Wrong card, and More for what's used now and then (15 Nov 2026). */
+.scan-secondary {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.scan .scan-secondary .scan-alt {
+  min-height: 0;
+}
+.scan .scan-buttons .scan-secondary .more-menu > button {
+  min-height: var(--target);
+}
+/* "Same card": the card just added is still in view. */
+.scan-dupe {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-tile);
+}
