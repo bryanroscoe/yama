@@ -157,7 +157,7 @@ Camera scanning in Collection: the card is found by its art, and its printing an
 ## Collection
 
 - Mothership cash/credit offer checks with private dated history from the Sell list
-- Binders, boxes, decks and lists
+- Binders, boxes, decks and lists, as small art tiles; one opens on its own (in the address, so Back closes it and it can be linked) with its cards under it
 - Add from card search (a real copy or a proxy)
 - Move, condition, proxy
 - A copy's language and whether it is signed or altered, for the whole row or one copy split off, shown as tags on the copy

@@ -100,6 +100,36 @@
 .coll-page .ct-kind {
   display: none;
 }
+/* One box, opened: its art across the top, the way back above it. */
+.coll-open .coll-open-art {
+  height: 120px;
+  display: grid;
+  border-radius: 16px;
+}
+.coll-open .coll-open-art > .art-body {
+  align-self: end;
+  display: grid;
+  line-height: 1.2;
+  padding: 12px 14px;
+}
+.coll-open .coll-open-art.art-empty {
+  border-width: 1px;
+  background: var(--surface);
+}
+.coll-open .wash-bottom > .art-wash {
+  background: linear-gradient(180deg, rgb(11 12 14 / 0.1) 20%, rgb(11 12 14 / 0.9) 100%);
+}
+.coll-open .art-empty .ct-kind,
+.coll-open .art-empty .ct-meta {
+  color: var(--dim);
+}
+.coll-open .ct-name {
+  margin: 0;
+  font-size: var(--t-xl);
+}
+.coll-open .back-inline {
+  align-self: start;
+}
 .coll-page .coll-note {
   margin: 0;
 }
@@ -360,6 +390,10 @@
   }
   .coll-page .ct-kind {
     display: block;
+  }
+  .coll-open .coll-open-art {
+    height: 168px;
+    border-radius: 18px;
   }
   .coll-page .coll-filter {
     flex: 0 1 320px;

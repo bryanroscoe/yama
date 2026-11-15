@@ -9,10 +9,11 @@ import { closeQuestion, unsavedScans } from "./scanClose";
 import { SellSheet } from "./SellSheet";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router";
 import { exportLink } from "../download";
 import { api, API_BASE, ApiError, type CollectionItem, type CollectionSummary, type Container, type DeckSummary } from "../api";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
-import { Button, ButtonLink, CardImage, CardThumb, Details, Dialog, EmptyState, ErrorText, Field, Loading, Segmented, Tag } from "../components/ui";
+import { BackLink, Button, ButtonLink, CardImage, CardThumb, Details, Dialog, EmptyState, ErrorText, Field, Loading, Segmented, Tag } from "../components/ui";
 import "./collection.css";
 import "../decks/collect.css";
 import { changeText, keptText, missingLabel, missingText, previewLines, resultLines, type MythicReport } from "./mythicImport";
@@ -68,7 +69,17 @@ function byValue(a: Item, b: Item): number {
 }
 
 export function CollectionPage() {
-  const [container, setContainer] = useState("");
+  // The open box is in the address, so the phone's Back closes it and a box can be linked to.
+  const [params, setParams] = useSearchParams();
+  const container = params.get("box") ?? "";
+  const setContainer = (id: string) => {
+    const next = new URLSearchParams(params);
+    if (id) next.set("box", id);
+    else next.delete("box");
+    // Opening a box is going somewhere (Back returns); closing one replaces it.
+    setParams(next, { replace: !id });
+    if (typeof window !== "undefined") window.scrollTo({ top: 0 });
+  };
   const [filter, setFilter] = useState("");
   // The import that is open: a list or another app's file, or a Mythic Tools export.
   const [importing, setImporting] = useState<"cards" | "mythic" | null>(null);
@@ -145,7 +156,7 @@ export function CollectionPage() {
   }
   const shown = sorted.slice(0, limit);
   const left = sorted.length - shown.length;
-  const heading = chosen ? chosen.name : container === "none" ? "Loose cards" : sort === "value" ? "Most valuable" : "Every card";
+  const heading = container ? "Cards" : sort === "value" ? "Most valuable" : "Every card";
   // The list shows art crops (credited under it); the pictures are whole cards, which name their artist.
   const thumbArtists = show === "list" ? shown.filter((i) => i.image_art_crop).map((i) => i.artist) : [];
   return (
@@ -187,7 +198,24 @@ export function CollectionPage() {
         </div>
       </div>
 
-      {(tiles.length > 0 || loose > 0) && (
+      {container && (
+        <section className="containers coll-open" aria-label={chosen ? chosen.name : "Loose cards"}>
+          <BackLink inline to="/collection" text="Every binder, box and deck" label="Back to every binder, box and deck" />
+          {(() => {
+            const t = tiles.find((x) => x.c.id === container);
+            // An id that names no box (deleted, or a stale link) says so rather than passing for loose cards.
+            const name = t ? t.c.name : container === "none" ? "Loose cards" : containers.data ? "No such binder or box" : "";
+            return (
+              <ArtPanel art={t?.art ?? null} artist={t?.artist ?? null} wash="bottom" empty={!t?.art} className="coll-open-art">
+                <span className="ct-kind">{t ? (KIND_LABEL[t.c.kind] ?? t.c.kind) : container === "none" ? "Not filed" : ""}</span>
+                <h2 className="ct-name">{name}</h2>
+                <span className="ct-meta num">{t ? tileMeta(t.c.copies, t.c.market_value_usd, t.c.copies_without_price) : container === "none" && s ? tileMeta(loose, undefined, undefined) : ""}</span>
+              </ArtPanel>
+            );
+          })()}
+        </section>
+      )}
+      {!container && (tiles.length > 0 || loose > 0) && (
         <section className="containers" aria-labelledby="where">
           <div className="section-head">
             <h2 id="where">
@@ -200,7 +228,7 @@ export function CollectionPage() {
           <ul className="container-tiles">
             {tiles.map(({ c, art, artist }) => (
               <li key={c.id}>
-                <Button className="container-tile" aria-pressed={container === c.id} onClick={() => setContainer(container === c.id ? "" : c.id)}>
+                <Button className="container-tile" onClick={() => setContainer(c.id)}>
                   <ArtPanel as="span" art={art} artist={artist} wash="bottom" credit={false}>
                     <span className="ct-kind">{KIND_LABEL[c.kind] ?? c.kind}</span>
                     <span className="ct-name">{c.name}</span>
@@ -211,7 +239,7 @@ export function CollectionPage() {
             ))}
             {loose > 0 && (
               <li>
-                <Button className="container-tile" aria-pressed={container === "none"} onClick={() => setContainer(container === "none" ? "" : "none")}>
+                <Button className="container-tile" onClick={() => setContainer("none")}>
                   <ArtPanel as="span" art={null} wash="bottom" empty>
                     <span className="ct-kind">Not filed</span>
                     <span className="ct-name">
@@ -236,7 +264,6 @@ export function CollectionPage() {
         <div className="coll-cards-head">
           <h2 id="coll-cards-h">{heading}</h2>
           {chosen && <Button variant="outline" size="small" onClick={() => setDeleting(chosen)}>Delete {(KIND_LABEL[chosen.kind] ?? "container").toLowerCase()}</Button>}
-          {container && <Button variant="quiet" size="small" onClick={() => setContainer("")}>Show everything</Button>}
           <Segmented className="coll-sort" label="Order" value={sort} onChange={setSort} options={[["value", "By value"], ["name", "By name"]]} />
           {(proxies > 0 || kind !== "all") && (
             <Segmented className="coll-kind" label="Real cards or proxies" value={kind} onChange={setKind} options={[["all", "All"], ["real", "Real"], ["proxy", "Proxies"]]} />
