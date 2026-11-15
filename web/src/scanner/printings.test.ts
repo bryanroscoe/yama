@@ -127,7 +127,7 @@ describe("createRecognizer's search graph", () => {
           const kind = model[0];
           return {
             inputNames: kind === 3 ? searchInputs : ["x"],
-            async run(feeds: Record<string, unknown>) {
+            async run(feeds: Record<string, unknown>): Promise<Record<string, { data: unknown }>> {
               if (kind === 1) return { quad: { data: new Float32Array(8) }, up: { data: new Float32Array(2) }, centre: { data: new Float32Array(2) }, short: { data: new Float32Array(1) } };
               if (kind === 2) return { embeddings: { data: new Float32Array(17 * 4) } };
               fed.push(feeds);
