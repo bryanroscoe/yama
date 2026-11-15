@@ -1554,12 +1554,15 @@ pub async fn add_to_collection(st: &AppState, user: &User, via: &Via, args: &Val
     let printing: Option<(String, String, String)> = match &set {
         Some(set) => {
             sqlx::query_as(
-                "SELECT scryfall_id, set_name, collector_number FROM printings WHERE oracle_id = ? AND lower(set_code) = lower(?) AND (? IS NULL OR collector_number = ?)
-                 ORDER BY lang = 'en' DESC, collector_number LIMIT 1",
+                // Tokens share names (Scryfall has many cards called Soldier): a printing of any card
+                // with this exact name counts, the one the name resolved to first.
+                "SELECT p.scryfall_id, p.set_name, p.collector_number FROM printings p
+                 WHERE p.oracle_id IN (SELECT o.oracle_id FROM cards o WHERE o.name = (SELECT n.name FROM cards n WHERE n.oracle_id = ?1) COLLATE NOCASE)
+                   AND lower(p.set_code) = lower(?2) AND (?3 IS NULL OR p.collector_number = ?3)
+                 ORDER BY p.oracle_id = ?1 DESC, p.lang = 'en' DESC, p.collector_number LIMIT 1",
             )
             .bind(&oracle_id)
             .bind(set)
-            .bind(&number)
             .bind(&number)
             .fetch_optional(pool)
             .await?
@@ -1634,12 +1637,16 @@ impl CopyRow {
     }
 }
 
+/// The caller's copies of a card in one container (`LOOSE` for none), real copies first. A card
+/// is every card with its exact name, so a token named like others (Soldier) finds all of theirs.
 async fn copies_in(conn: &mut sqlx::SqliteConnection, owner: &str, oracle_id: &str, container_id: &str) -> AppResult<Vec<CopyRow>> {
     Ok(sqlx::query_as(
         "SELECT i.id, i.qty, i.scryfall_id, i.condition, i.finish, i.lang, i.altered, i.signed, i.misprint, i.proxy, i.purchase_price,
                 p.set_code, p.collector_number
          FROM collection_items i JOIN printings p ON p.scryfall_id = i.scryfall_id
-         WHERE i.owner_id = ? AND p.oracle_id = ? AND COALESCE(i.container_id, '') = ? AND i.qty > 0
+         WHERE i.owner_id = ?
+           AND p.oracle_id IN (SELECT o.oracle_id FROM cards o WHERE o.name = (SELECT n.name FROM cards n WHERE n.oracle_id = ?) COLLATE NOCASE)
+           AND COALESCE(i.container_id, '') = ? AND i.qty > 0
          ORDER BY i.proxy, i.qty DESC, i.id",
     )
     .bind(owner)
@@ -1663,12 +1670,27 @@ pub async fn move_cards(st: &AppState, user: &User, via: &Via, args: &Value) -> 
     if from.0 == to.0 {
         return Err(AppError::bad("from and to are the same place"));
     }
-    let have: i64 = copies_in(&mut *pool.acquire().await?, &user.id, &oracle_id, &from.0).await?.iter().map(|c| c.qty).sum();
+    // Real copies move first; proxy picks only proxies (true) or only real copies (false).
+    let proxy = match args.get("proxy") {
+        None | Some(Value::Null) => None,
+        Some(Value::Bool(b)) => Some(*b),
+        Some(_) => return Err(AppError::bad("proxy must be true (only proxies) or false (only real copies)")),
+    };
+    let rows = copies_in(&mut *pool.acquire().await?, &user.id, &oracle_id, &from.0).await?;
+    let have: i64 = rows.iter().filter(|r| proxy.is_none_or(|p| p == r.proxy)).map(|c| c.qty).sum();
+    let kind = match (proxy, qty) {
+        (Some(true), 1) => " proxy",
+        (Some(true), _) => " proxies",
+        (Some(false), 1) => " real copy",
+        (Some(false), _) => " real copies",
+        (None, _) => "",
+    };
     if have < qty {
-        return Err(AppError::bad(format!("{} holds {have} {name}, not {qty}. Nothing was staged.", from.1)));
+        let there = if rows.is_empty() { String::new() } else { format!(" It holds: {}.", rows.iter().map(|r| format!("{} × {}", r.qty, r.kind())).collect::<Vec<_>>().join("; ")) };
+        return Err(AppError::bad(format!("{} holds {have} {name}{}, not {qty}.{there} Nothing was staged.", from.1, if proxy.is_some() { " like that" } else { "" })));
     }
-    let summary = format!("Move {qty} {name} from {} to {}", from.1, to.1);
-    let payload = json!({"oracle_id": oracle_id, "name": name, "qty": qty, "from_id": from.0, "from": from.1, "to_id": to.0, "to": to.1});
+    let summary = format!("Move {qty} {name}{kind} from {} to {}", from.1, to.1);
+    let payload = json!({"oracle_id": oracle_id, "name": name, "qty": qty, "proxy": proxy, "from_id": from.0, "from": from.1, "to_id": to.0, "to": to.1});
     stage(st, user, via, args, Staged { kind: "move_cards", summary, detail: String::new(), payload }).await
 }
 
@@ -1777,7 +1799,10 @@ async fn apply_collection(st: &AppState, user: &User, kind: &str, id: &str, p: &
     } else {
         let (oracle_id, to) = (p["oracle_id"].as_str().unwrap_or_default(), p["to_id"].as_str().unwrap_or_default());
         let mut left = p["qty"].as_i64().unwrap_or(1);
-        let rows = copies_in(&mut tx, &user.id, oracle_id, p["from_id"].as_str().unwrap_or_default()).await?;
+        let mut rows = copies_in(&mut tx, &user.id, oracle_id, p["from_id"].as_str().unwrap_or_default()).await?;
+        if let Some(proxy) = p["proxy"].as_bool() {
+            rows.retain(|r| r.proxy == proxy);
+        }
         if rows.iter().map(|r| r.qty).sum::<i64>() < left {
             return Err(AppError::Conflict(format!("{} no longer holds {left} {}.", p["from"].as_str().unwrap_or("That place"), p["name"].as_str().unwrap_or("copies"))));
         }

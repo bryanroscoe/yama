@@ -9,7 +9,9 @@
 //!   copy outside a deck box).
 //! - **Each card leaving** goes to the deck that takes it next (a plan move), else the deck's swap
 //!   bag box ("<deck> swap bag", for the bracket bags' cards that go back in at a lower bracket),
-//!   else a box called "Spares". Boxes that don't exist yet are made.
+//!   else the deck's own spares box ("<deck> spares") if the person has one, else a box called
+//!   "Spares". Boxes that don't exist yet are made (a deck's spares box never is: without one,
+//!   cards go to "Spares").
 //! - **Each swap that put a card in** is ticked installed, with the same op a tap makes, so
 //!   `pull.py` sees it like any other tick.
 //!
@@ -35,8 +37,14 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use super::model::Slot;
 
-/// The box cards leave to when no deck takes them and they aren't in a swap bag.
+/// The box cards leave to when no deck takes them, they aren't in a swap bag and the deck has no
+/// spares box of its own ([`deck_spares`]).
 pub const SPARES: &str = "Spares";
+
+/// The name of a deck's own spares box, which takes its cards ahead of [`SPARES`] when it exists.
+pub fn deck_spares(plan_name: &str) -> String {
+    format!("{plan_name} spares")
+}
 
 /// One card going into the deck.
 #[derive(Serialize, Debug, Clone)]
@@ -343,7 +351,12 @@ pub async fn run(pool: &SqlitePool, owner: &str, key: &str, dry_run: bool) -> Ap
 
     // Out first, so a card leaving and a copy of it coming back (basics) don't cancel out.
     let mut takes_out = Vec::new();
-    let spares = named_box(&mut tx, owner, SPARES, false).await?;
+    // The deck's own spares box when the person keeps one, else the shared one.
+    let own_spares = deck_spares(&plan_name);
+    let (spares_name, spares) = match named_box(&mut tx, owner, &own_spares, false).await? {
+        Some(id) => (own_spares, Some(id)),
+        None => (SPARES.to_string(), named_box(&mut tx, owner, SPARES, false).await?),
+    };
     let bag_name = format!("{plan_name} swap bag");
     let bag_box = named_box(&mut tx, owner, &bag_name, false).await?;
     let (mut spares_new, mut bag_new) = (spares.is_none(), bag_box.is_none());
@@ -354,15 +367,15 @@ pub async fn run(pool: &SqlitePool, owner: &str, key: &str, dry_run: bool) -> Ap
         let (to, to_name, to_box, replaces) = if let Some((k, replaces)) = taken_by.get(name) {
             let (n, b) = other_box.get(k).cloned().unwrap_or_default();
             if b.is_none() {
-                warnings.push(format!("{n} has no box yet, so {name} goes to {SPARES} instead."));
-                ("spares", SPARES.to_string(), None, None)
+                warnings.push(format!("{n} has no box yet, so {name} goes to {spares_name} instead."));
+                ("spares", spares_name.clone(), None, None)
             } else {
                 ("deck", n, b, replaces.clone())
             }
         } else if bag.contains(name) {
             ("swap_bag", bag_name.clone(), None, None)
         } else {
-            ("spares", SPARES.to_string(), None, None)
+            ("spares", spares_name.clone(), None, None)
         };
         let to_box = match to {
             "deck" => to_box,
@@ -532,7 +545,7 @@ pub async fn run(pool: &SqlitePool, owner: &str, key: &str, dry_run: bool) -> Ap
     let (ticked_already, ticks): (Vec<String>, Vec<String>) = keys.into_iter().partition(|k| ticked.contains(k));
 
     if spares_new && dry_run {
-        warnings.push(format!("A box called {SPARES} will be made for the cards leaving."));
+        warnings.push(format!("A box called {spares_name} will be made for the cards leaving."));
     }
     if bag_new && dry_run {
         warnings.push(format!("A box called {bag_name} will be made for the cards that go back in at a lower bracket."));

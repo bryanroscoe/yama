@@ -652,8 +652,19 @@ async fn printings(st: &AppState, user: &User, args: &Value) -> AppResult<Value>
     .fetch_optional(&st.pool)
     .await?;
     let card: Value = card.and_then(|c| serde_json::from_str(&c).ok()).unwrap_or(Value::Null);
+    // Tokens share names (Scryfall has a dozen different Soldier tokens): every card with this
+    // exact name, the one the name resolved to first. Each printing says which card it is.
+    let same_name: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT oracle_id, type_line, oracle_text FROM cards
+          WHERE name = (SELECT name FROM cards WHERE oracle_id = ?1) COLLATE NOCASE
+          ORDER BY oracle_id = ?1 DESC, oracle_id",
+    )
+    .bind(&oracle_id)
+    .fetch_all(&st.pool)
+    .await?;
+    let ids: Vec<String> = if same_name.is_empty() { vec![oracle_id.clone()] } else { same_name.iter().map(|(id, _, _)| id.clone()).collect() };
     let rows: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "SELECT json_object('id', p.scryfall_id, 'set', p.set_code, 'set_name', p.set_name, 'set_type', p.set_type,
+        "SELECT json_object('id', p.scryfall_id, 'oracle_id', p.oracle_id, 'set', p.set_code, 'set_name', p.set_name, 'set_type', p.set_type,
                 'collector_number', p.collector_number, 'lang', p.lang, 'rarity', p.rarity, 'finishes', json(p.finishes),
                 'released_at', p.released_at, 'artist', p.artist,
                 'scryfall_uri', 'https://scryfall.com/card/' || p.set_code || '/' || p.collector_number,
@@ -663,10 +674,10 @@ async fn printings(st: &AppState, user: &User, args: &Value) -> AppResult<Value>
                                       'eur_foil', ps.eur_foil, 'eur_etched', ps.eur_etched, 'tix', ps.tix),
                 'price_date', ps.date)
            FROM printings p LEFT JOIN price_latest ps ON ps.scryfall_id = p.scryfall_id
-          WHERE p.oracle_id = ? AND IFNULL(p.digital, 0) = 0
+          WHERE p.oracle_id IN (SELECT value FROM json_each(?)) AND IFNULL(p.digital, 0) = 0
           ORDER BY {order}"
     )))
-    .bind(&oracle_id)
+    .bind(serde_json::to_string(&ids).map_err(anyhow::Error::from)?)
     .fetch_all(&st.pool)
     .await?;
     let total = rows.len();
@@ -683,17 +694,23 @@ async fn printings(st: &AppState, user: &User, args: &Value) -> AppResult<Value>
         .iter()
         .filter_map(|(id, column)| labels.iter().find(|(l, _)| l == id).map(|(_, label)| (column.to_string(), Value::from(label.as_str()))))
         .collect();
-    let (real, proxies) = ownership(st, user).await?.get(&oracle_id).copied().unwrap_or_default();
+    let owned = ownership(st, user).await?;
+    let (real, proxies) = ids.iter().filter_map(|id| owned.get(id)).fold((0, 0), |(r, p), (a, b)| (r + a, p + b));
     let cards_at = crate::cards::import::cards_changed_at(&st.pool).await?;
     let prices_at = crate::cards::import::latest_price_date(&st.pool).await?;
-    Ok(json!({
+    let mut out = json!({
         "provenance": {"provider": "Yama", "source": "Yama's copy of Scryfall's default cards (English, or a card's only language)", "retrieved_at": cards_at, "cached": true},
         "card": card, "owned_real": real, "owned_proxies": proxies,
         "total_printings": total, "offset": offset, "next": if end < total { json!({"offset": end}) } else { Value::Null },
         "next_cursor": (end < total).then(|| super::page::cursor(&scope, end)),
         "printings": shown, "price_sources": sources, "prices_as_of": prices_at,
         "note": "Paper printings only. Each printing's prices are market references dated by its price_date (the newest Scryfall file Yama read that listed it, or found it missing), not store quotes or proof of stock; a missing price is unknown, never zero. Card images load from their original URLs; retain artist and copyright credits."
-    }))
+    });
+    // Only when other cards share the name: each printing's oracle_id says which it is.
+    if same_name.len() > 1 {
+        out["same_name_cards"] = same_name.iter().map(|(id, t, o)| json!({"oracle_id": id, "type_line": t, "oracle_text": o})).collect();
+    }
+    Ok(out)
 }
 
 fn slug(s: &str) -> String {

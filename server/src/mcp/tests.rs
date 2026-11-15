@@ -1468,3 +1468,97 @@ async fn a_change_naming_another_accounts_rows_changes_nothing_when_applied() {
     let wishes: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM shopping_wants WHERE owner_id = ? AND retired_at IS NULL").bind(&a).fetch_one(&pool).await.unwrap();
     assert_eq!(wishes, 1);
 }
+
+#[tokio::test]
+async fn proxies_move_on_their_own_and_tokens_that_share_a_name_are_found() {
+    let (app, pool) = app().await;
+    seed_cards(&pool).await;
+    // Two different Soldier tokens: the name resolves to the vigilance one, but the vanilla one's
+    // printing (tmsh 3) is still a Soldier.
+    for (oid, text, rank, pid, set) in [("o-soldier-v", "Vigilance", 1, "p-twar-3", "twar"), ("o-soldier", "", 50, "p-tmsh-3", "tmsh")] {
+        sqlx::query("INSERT INTO cards (oracle_id, name, type_line, oracle_text, layout, edhrec_rank, default_printing, updated_at) VALUES (?, 'Soldier', 'Token Creature — Soldier', ?, 'token', ?, ?, 'now')")
+            .bind(oid)
+            .bind(text)
+            .bind(rank)
+            .bind(pid)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO card_names (name, oracle_id) VALUES ('Soldier', ?)").bind(oid).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO printings (scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang, updated_at) VALUES (?, ?, 'Soldier', ?, 'Tokens', '3', 'en', 'now')")
+            .bind(pid)
+            .bind(oid)
+            .bind(set)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    let (a, a_session) = user(&pool, "bryan@example.com").await;
+    let mcp = key(&app, &a_session, Some("mcp")).await;
+    sqlx::query("INSERT INTO containers (id, owner_id, kind, name, created_at) VALUES ('deck-box', ?, 'box', 'Deck Box', 'now')").bind(&a).execute(&pool).await.unwrap();
+    let apply = |text: String| {
+        let (app, mcp) = (app.clone(), mcp.clone());
+        async move {
+            let (err, text) = call(&app, &mcp, "apply_change", json!({"id": change_id(&text)})).await;
+            assert!(!err, "{text}");
+        }
+    };
+    let held = |card: &'static str| {
+        let (pool, a) = (pool.clone(), a.clone());
+        async move {
+            sqlx::query_as::<_, (Option<String>, bool, i64)>(
+                "SELECT i.container_id, i.proxy, SUM(i.qty) FROM collection_items i JOIN printings p ON p.scryfall_id = i.scryfall_id
+                 WHERE i.owner_id = ? AND p.name = ? GROUP BY 1, 2 ORDER BY 1, 2",
+            )
+            .bind(a)
+            .bind(card)
+            .fetch_all(&pool)
+            .await
+            .unwrap()
+        }
+    };
+
+    // The vanilla Soldier's printing, by set and number, though the name means the other one.
+    let (err, text) = call(&app, &mcp, "add_to_collection", json!({"card": "Soldier", "set": "tmsh", "number": "3"})).await;
+    assert!(!err && text.contains("Tokens #3"), "{text}");
+    apply(text).await;
+    let soldier: String = sqlx::query_scalar("SELECT scryfall_id FROM collection_items WHERE owner_id = ?").bind(&a).fetch_one(&pool).await.unwrap();
+    assert_eq!(soldier, "p-tmsh-3");
+    let (err, text) = call(&app, &mcp, "list_card_printings", json!({"card": "Soldier"})).await;
+    assert!(!err, "{text}");
+    let listed: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(listed["total_printings"], 2, "{listed}");
+    assert_eq!(listed["same_name_cards"].as_array().unwrap().len(), 2, "{listed}");
+    assert_eq!(listed["owned_real"], 1, "{listed}");
+    let (_, text) = call(&app, &mcp, "list_card_printings", json!({"card": "Sol Ring"})).await;
+    assert!(!text.contains("same_name_cards"), "only when a name is shared: {text}");
+    // And moved by name out of Loose.
+    let (err, text) = call(&app, &mcp, "move_cards", json!({"card": "Soldier", "from": "Loose", "to": "Deck Box"})).await;
+    assert!(!err && text.contains("from Loose (in no binder or box) to Deck Box"), "{text}");
+    apply(text).await;
+    assert_eq!(held("Soldier").await, [(Some("deck-box".to_string()), false, 1)]);
+
+    // A loose real Sol Ring and a loose proxy: real copies go first, unless proxy picks.
+    for proxy in [false, true] {
+        let (err, text) = call(&app, &mcp, "add_to_collection", json!({"card": "Sol Ring", "proxy": proxy})).await;
+        assert!(!err, "{text}");
+        apply(text).await;
+    }
+    let (err, text) = call(&app, &mcp, "move_cards", json!({"card": "Sol Ring", "qty": 2, "proxy": false, "from": "Loose", "to": "Deck Box"})).await;
+    assert!(err && text.contains("holds 1 Sol Ring like that, not 2. It holds: 1 × TST #1, nonfoil, NM; 1 × TST #1, nonfoil, NM, proxy."), "{text}");
+    let (err, text) = call(&app, &mcp, "move_cards", json!({"card": "Sol Ring", "proxy": "yes", "from": "Loose", "to": "Deck Box"})).await;
+    assert!(err && text.contains("proxy must be true"), "{text}");
+    let (err, text) = call(&app, &mcp, "move_cards", json!({"card": "Sol Ring", "proxy": true, "from": "Loose", "to": "Deck Box"})).await;
+    assert!(!err && text.contains("Move 1 Sol Ring proxy from Loose"), "{text}");
+    let staged_proxy = text;
+    // Without proxy, the real copy goes first (staged now, applied after the proxy's move).
+    let (err, text) = call(&app, &mcp, "move_cards", json!({"card": "Sol Ring", "from": "Loose", "to": "Deck Box"})).await;
+    assert!(!err && text.contains("Move 1 Sol Ring from Loose"), "{text}");
+    let staged_any = text;
+    apply(staged_proxy).await;
+    assert_eq!(held("Sol Ring").await, [(None, false, 1), (Some("deck-box".to_string()), true, 1)], "the proxy moved, the real copy stayed");
+    let (err, text) = call(&app, &mcp, "move_cards", json!({"card": "Sol Ring", "proxy": true, "from": "Loose", "to": "Deck Box"})).await;
+    assert!(err && text.contains("holds 0 Sol Ring like that, not 1. It holds: 1 × TST #1, nonfoil, NM."), "{text}");
+    apply(staged_any).await;
+    assert_eq!(held("Sol Ring").await, [(Some("deck-box".to_string()), false, 1), (Some("deck-box".to_string()), true, 1)]);
+}
