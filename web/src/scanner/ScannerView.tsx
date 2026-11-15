@@ -27,6 +27,7 @@ import { CameraControls, digitalRegion, useCameraControls } from "./camera";
 import { createServerCatalog } from "./serverCatalog";
 import { createScannerOcr, ENGINE_LABEL, plannedEngine, type ScannerOcr } from "./ocrEngine";
 import { HeldRead, type HeldVerdict } from "./heldRead";
+import { VersionLine } from "../version";
 import { ScanSettings, usePinchZoom, useSheetDrag } from "./sheet";
 import type { OcrEngine, Quad, RgbaImage, ScanCandidate, ScanCatalog, ScanResult } from "./types";
 import "./scanner.css";
@@ -1184,6 +1185,7 @@ export function ScannerView({
       {settings}
       <SavePhotosSwitch />
       <p className="scan-note">Reads text with {ENGINE_LABEL[ocrName ?? plannedEngine()]}{ocrName ? "" : " (starts with the first read)"}.</p>
+      <VersionLine className="scan-note" />
     </ScanSettings>
   );
   const price = chosen ? (finish === "foil" ? chosen.usd_foil : chosen.usd) : null;

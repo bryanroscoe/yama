@@ -1,4 +1,5 @@
 import react from "@vitejs/plugin-react";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -8,6 +9,18 @@ import { ocrVersion } from "./scripts/ocr-version.mjs";
 import { paddleVersion } from "./scripts/paddle-models.mjs";
 
 const OCR_VERSION = ocrVersion();
+// Which build this is (src/version.tsx): the commit (the Android release sets VITE_APP_BUILD, the
+// production image YAMA_GIT_SHA; otherwise Git, when there is one) and when it was built.
+function buildCommit(): string {
+  const given = process.env.VITE_APP_BUILD || process.env.YAMA_GIT_SHA;
+  if (given) return given;
+  try {
+    return execFileSync("git", ["rev-parse", "HEAD"], { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+  } catch {
+    return "";
+  }
+}
+const BUILD_COMMIT = /^[0-9a-f]{7,40}$/.test(buildCommit()) ? buildCommit().slice(0, 12) : "";
 // The PaddleOCR models' folder under /ocr/ (scripts/copy-ocr.mjs), or "" when they weren't fetched.
 const PADDLE_DIR = existsSync(new URL(`./public/ocr/${paddleVersion()}/rec.onnx`, import.meta.url)) ? `/ocr/${paddleVersion()}` : "";
 
@@ -112,6 +125,9 @@ export default defineConfig({
     "import.meta.env.VITE_OCR_VERSION": JSON.stringify(OCR_VERSION),
     // The PaddleOCR models' folder, or "" (scripts/copy-ocr.mjs).
     "import.meta.env.VITE_PADDLE_DIR": JSON.stringify(PADDLE_DIR),
+    // Which build this is, shown in Settings and Scan settings (src/version.tsx).
+    "import.meta.env.VITE_BUILD_COMMIT": JSON.stringify(BUILD_COMMIT),
+    "import.meta.env.VITE_BUILD_TIME": JSON.stringify(new Date().toISOString()),
   },
   // The scanner's art recognizer runs in a module worker (src/scanner/art.worker.ts).
   worker: { format: "es" },

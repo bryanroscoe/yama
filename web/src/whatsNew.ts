@@ -15,6 +15,15 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-15-which-version",
+    date: "2026-11-15",
+    title: "See which version you're running",
+    items: [
+      "The bottom of Settings and of Scan settings now names the build you're running: in the Android app, the app's version, then the web build and the day it was built. Handy when checking whether an update has reached your phone.",
+    ],
+    link: { to: "/profile", label: "Open Settings" },
+  },
+  {
     id: "2026-11-15-scan-hold-and-read",
     date: "2026-11-15",
     title: "Hold the card and the scanner reads its printing",

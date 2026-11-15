@@ -7,6 +7,7 @@ import { downloadOfflineCards, useOfflineCards } from "../offline/cards";
 import { keepStorage } from "../storage";
 import { AdvisorSettings } from "../advisor/AdvisorSettings";
 import { DeleteAccount } from "./DeleteAccount";
+import { VersionLine } from "../version";
 import "./group.css";
 import { count, shortDate } from "@yama/core";
 
@@ -32,6 +33,7 @@ export function AccountSettings() {
         {me.data && !me.data.viewing && !me.data.is_admin && !authConfig.data?.cf_access && <DeleteAccount email={me.data.email} />}
       </div>
       <p className="small dim" style={{ margin: 0 }}>Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizards of the Coast.</p>
+      <VersionLine className="small dim" />
     </section>
   );
 }

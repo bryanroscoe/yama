@@ -114,6 +114,12 @@ Installable web app (home screen, offline shell). An Android app, installed from
 (`yama.apk` on the `android-app` release), that updates itself after every production deploy and
 reads the scanner's text with ML Kit on the phone ([mobile.md](mobile.md)).
 
+Which build is running (since 15 Nov 2026, `web/src/version.tsx`): one line at the foot of
+Settings on the profile page and in Scan settings, such as "Yama app 0.2.100 (100), web 6389543,
+built Nov 15, 2026". The app part is the installed APK's version; the web part is the commit the
+web build was made from (`VITE_APP_BUILD` for the app, `YAMA_GIT_SHA` from the deploy for the
+site, Git for a local build) and the build date.
+
 ### Bug reports
 
 Anyone signed in can report a bug from the little bug on every page head and dialog head (and

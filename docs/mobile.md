@@ -17,6 +17,9 @@ auto-update"); the Play plan below is kept for later.
 
 ## Updates (13 November 2026)
 
+To see which builds a phone runs, open Settings (the profile page) or Scan settings: the last line
+gives the app's version and the web build's commit and date (`web/src/version.tsx`).
+
 `.github/workflows/android-release.yml` runs after every successful "Deploy production" (and by
 hand from the Actions tab). It builds the commit named in the deploy run's receipt (the
 `deploy-receipt` artifact, `{sha, result}`, which deploy.yml leaves only when production really
