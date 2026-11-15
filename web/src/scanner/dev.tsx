@@ -28,6 +28,8 @@ function Dev() {
           return from.scryfall_id === to.scryfall_id ? "kept" : "changed";
         }}
         closeups={new URLSearchParams(location.search).get("closeups") !== "0"}
+        finish={new URLSearchParams(location.search).get("finish") === "foil" ? "foil" : "nonfoil"}
+        recentCards={added.map((c, i) => ({ key: String(added.length - i), name: c.name, set: c.set, number: c.number, finish: new URLSearchParams(location.search).get("finish") === "foil" ? "foil" : "nonfoil", copies: 1, prices: c.prices }))}
         controls={<p className="scan-note">The dev page: nothing is saved.</p>}
         settings={
           <label className="scan-keep">

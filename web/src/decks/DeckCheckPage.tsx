@@ -440,6 +440,8 @@ function Camera({ deck, target, draft, verdicts, setDraft, muted, onMute, onClos
         <Suspense fallback={<Loading padded>Starting the scanner…</Loading>}>
           <ScannerView
             catalog={catalog}
+            // The check plays its own sounds for each verdict (checkSound.ts).
+            sounds={false}
             identityOnly
             autoAdd={keepAdding}
             closeups={closeups}

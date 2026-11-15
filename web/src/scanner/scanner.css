@@ -696,3 +696,34 @@ button.scan-count {
   flex-wrap: wrap;
   justify-content: center;
 }
+
+/* Recent (RecentCards.tsx): the last card added, large; older ones smaller; the session total. */
+.scan-recent {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.scan-recent-last {
+  font-size: var(--t-label);
+}
+.scan-recent-older {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--t-sm);
+  color: var(--dim);
+}
+/* The "worth it" amount, under the Sounds switch. */
+.scan-worth {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  font-weight: 400;
+}
+.scan-worth input {
+  width: 5rem;
+}

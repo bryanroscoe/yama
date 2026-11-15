@@ -1,3 +1,5 @@
+import type { Prices } from "./price";
+
 // Public types for the scanner. The pipeline is pure: an image goes in, ranked candidates come
 // out. OCR and the card catalog are injected, so the same code runs in the browser, in a
 // Capacitor web view, and in Node for the eval harness.
@@ -81,6 +83,8 @@ export interface ScanCandidate {
   /** 0..1. Above ~0.8 is safe to accept without a tap; see docs/scanner.md. */
   confidence: number;
   method: ScanMethod;
+  /** The printing's dated market prices by finish, once the printing is settled (price.ts). */
+  prices?: Prices | null;
 }
 
 export interface ScanTimings {

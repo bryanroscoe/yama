@@ -15,6 +15,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-15-scan-sounds-prices",
+    date: "2026-11-15",
+    title: "The scanner chimes, and shows what each card is worth",
+    items: [
+      "A short chime when a card is added, a brighter one when it's worth $5 or more (change the amount in Scan settings), and a low tone when the scanner needs you to tap something. Turn Sounds off in Scan settings; your phone's silent mode doesn't silence them in the app.",
+      "At the bottom of the scanner, the last card you added shows its set, number, finish and market price, with the ones before it underneath and the total so far. A card with no price says \"price unknown\" and isn't counted in the total.",
+    ],
+    link: { to: "/collection", label: "Scan cards" },
+  },
+  {
     id: "2026-11-15-scan-wrong-printing",
     date: "2026-11-15",
     title: "The scanner tries harder for the printing, and Wrong printing fixes it",

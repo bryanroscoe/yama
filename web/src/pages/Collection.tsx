@@ -705,6 +705,7 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
       container: box,
       copies,
       auto,
+      prices: c.prices ?? null,
       pending: { ops: [addOp(c.scryfall_id, copies, finish, box, crypto.randomUUID())], fix: null },
     };
     put([entry, ...listRef.current]);
@@ -736,7 +737,7 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
     filedAs.current.set(to, key);
     if (a.scryfall_id === to.scryfall_id && !a.pending) return "kept";
     const { printingFix } = await scanner();
-    await fix(a, printingFix(a, { scryfall_id: to.scryfall_id, set: to.set, number: to.number, name: to.name, image: to.thumb ?? to.image ?? null }));
+    await fix(a, printingFix(a, { scryfall_id: to.scryfall_id, set: to.set, number: to.number, name: to.name, image: to.thumb ?? to.image ?? null, prices: to.prices }));
     return "changed";
   };
   const busyMessage = (a: Added) => (a.pending?.error ? "Try the last change again first." : "Still saving the last change.");
@@ -855,8 +856,8 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
           autoAdd={keepAdding}
           closeups={closeups}
           paused={reviewing || closing}
-          recent={[...new Set(added.map((a) => (a.set ? `${a.name} (${a.set.toUpperCase()})` : a.name)))]}
-          finish={finish === "proxy" ? "nonfoil" : finish}
+          recentCards={added.map((a) => ({ key: a.key, name: a.name, set: a.set, number: a.number, finish: a.finish, copies: a.copies, prices: a.prices }))}
+          finish={finish}
           controls={controls}
           settings={settings}
           settingsSummary={settingsSummary}

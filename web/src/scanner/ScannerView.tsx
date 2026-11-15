@@ -20,6 +20,9 @@ import { readCloseup, readCollectorLines, readTitles, scanFrame, SURE } from "./
 import { artHoldFrame, AWAY_FRAMES, hold, holdRead, type ArtHold, type Hold } from "./hold";
 import { NameEntry } from "./NameEntry";
 import { CollectorPeek } from "./peek";
+import { priceFor, pricesOf, type RecentCard } from "./price";
+import { RecentCards } from "./RecentCards";
+import { filedSound, playScanSound, setSoundsOn, setWorthThreshold, soundsOn, unlockSound, worthThreshold, type ScanSound } from "./sounds";
 import { choosePrinting, printingOptions, type Choice } from "./printings";
 import type { ArtMatch, Recognition } from "./recognizer";
 import { deleteSamples, keepSample, sampleSummary, savingPhotos, setSavingPhotos, type SampleLabel, type SampleSummary, type Shot } from "./samples";
@@ -90,8 +93,16 @@ export interface ScannerViewProps {
   paused?: boolean;
   /** The last few cards added, newest first. */
   recent?: string[];
-  /** The finish being added, so the found card shows that finish's price. */
-  finish?: "nonfoil" | "foil";
+  /** The finish being added, so the found card shows that finish's price (a proxy has none). */
+  finish?: "nonfoil" | "foil" | "proxy";
+  /**
+   * The cards filed this session, newest first, with their prices (Collection): the last one shown
+   * large at the bottom of the sheet, the rest under it, and the session's total. Hosts without
+   * prices give `recent` (names) instead.
+   */
+  recentCards?: RecentCard[];
+  /** The scanner's own sounds (sounds.ts), as well as vibration. Default on; off where the host plays its own (the deck check). */
+  sounds?: boolean;
   /** Choices shown in the panel (finish, where to put the card). */
   controls?: ReactNode;
   /**
@@ -320,7 +331,8 @@ const guessOf = (f: Found): NonNullable<Found["guess"]> => ({
 });
 
 /** The lowest and highest market price among printings, for a card whose printing isn't settled. */
-export function priceRange(printings: Printing[], finish: "nonfoil" | "foil"): { low: number; high: number; date: string | null } | null {
+export function priceRange(printings: Printing[], finish: "nonfoil" | "foil" | "proxy"): { low: number; high: number; date: string | null } | null {
+  if (finish === "proxy") return null;
   const english = printings.filter((p) => p.lang === "en");
   let low = Infinity;
   let high = -Infinity;
@@ -345,6 +357,7 @@ const candidateOf = (f: Found, p: Printing | null): ScanCandidate => ({
   thumb: p?.image_small,
   confidence: f.confidence,
   method: f.method,
+  prices: p ? pricesOf(p) : undefined,
 });
 
 export function ScannerView({
@@ -362,6 +375,8 @@ export function ScannerView({
   paused = false,
   recent = [],
   finish = "nonfoil",
+  recentCards,
+  sounds: soundsProp = true,
   controls,
   settings,
   settingsSummary,
@@ -379,6 +394,14 @@ export function ScannerView({
   hapticsRef.current = haptics;
   const buzz = (pattern: number | number[]) => {
     if (hapticsRef.current) navigator.vibrate?.(pattern);
+  };
+  // Sounds (sounds.ts): the host's say, then the switch in Scan settings (per device, on by default).
+  const [soundsSwitch, setSoundsSwitch] = useState(soundsOn);
+  const [worth, setWorth] = useState(worthThreshold);
+  const soundRef = useRef(false);
+  soundRef.current = soundsProp && soundsSwitch;
+  const sound = (kind: ScanSound) => {
+    if (soundRef.current) playScanSound(kind);
   };
   const videoRef = useRef<HTMLVideoElement>(null);
   const guideRef = useRef<HTMLDivElement>(null);
@@ -1390,6 +1413,7 @@ export function ScannerView({
   useEffect(() => {
     if (!tapNeeded) return;
     buzz([20, 60, 20]);
+    sound("needs-you");
     tapRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [tapNeeded]);
   /**
@@ -1442,6 +1466,8 @@ export function ScannerView({
     return Promise.resolve(saved).then((ok) => {
       if (ok === false) return failed();
       buzz(40);
+      // A brighter sound for a card worth the threshold (its market price in the finish filed).
+      sound(filedSound(identityOnly ? null : priceFor(card.prices, finish), worth));
       setJustAdded({ text: `${addedWord} ${label}`, card: onUndo || onCorrect ? card : undefined, label, found: f, printing: c });
     }, failed);
   };
@@ -1521,11 +1547,28 @@ export function ScannerView({
     <ScanSettings summary={settingsSummary}>
       {settings}
       <SavePhotosSwitch />
+      {soundsProp && (
+        <SoundsSetting
+          on={soundsSwitch}
+          worth={worth}
+          prices={!identityOnly}
+          onChange={(on) => {
+            setSoundsOn(on);
+            setSoundsSwitch(on);
+            // This tap is the gesture that lets sound play.
+            if (on) unlockSound();
+          }}
+          onWorth={(v) => {
+            setWorthThreshold(v);
+            setWorth(v);
+          }}
+        />
+      )}
       <p className="scan-note">Reads text with {ENGINE_LABEL[ocrName ?? plannedEngine()]}{ocrName ? "" : " (starts with the first read)"}.</p>
       <VersionLine className="scan-note" />
     </ScanSettings>
   );
-  const price = chosen ? (finish === "foil" ? chosen.usd_foil : chosen.usd) : null;
+  const price = chosen ? priceFor(pricesOf(chosen), finish) : null;
   const isFound = phase === "found" && !!found;
   const options = found?.options ?? null;
   // The latest frame of the held card, else the one it was found in.
@@ -1544,7 +1587,8 @@ export function ScannerView({
         : "Getting the scanner ready";
 
   return (
-    <div className="scan">
+    // Any tap in the scanner lets sound play from then on (browsers and the app's web view start audio silent).
+    <div className="scan" onPointerDown={soundsProp && soundsSwitch ? () => void unlockSound() : undefined}>
       <div ref={cameraRef} className="scan-camera">
         <div className="scan-zoom" style={cam.digital > 1 ? { transform: `scale(${cam.digital})` } : undefined}>
           <video ref={videoRef} className="scan-video" playsInline muted autoPlay aria-hidden="true" />
@@ -1704,7 +1748,7 @@ export function ScannerView({
               </MoreMenu>
             </div>
             {mode === "text" && <p className="scan-note">Card recognition isn't available right now, so the scanner is reading text. Line the card up with the frame.</p>}
-            {recent.length > 0 && <p className="scan-note">Recent: {recent.slice(0, 3).join(", ")}.</p>}
+            {recentCards ? <RecentCards cards={recentCards} /> : recent.length > 0 && <p className="scan-note">Recent: {recent.slice(0, 3).join(", ")}.</p>}
           </>
         )}
         {isFound && found && !lockOpen && (
@@ -1717,10 +1761,10 @@ export function ScannerView({
                   <span className="dim">
                     {`${chosen.set_name} #${chosen.collector_number}`}
                     {chosen.lang !== "en" ? `, ${chosen.lang}` : ""}
-                    {`, ${finish === "foil" ? "foil" : "regular"}`}
+                    {`, ${finish === "foil" ? "foil" : finish === "proxy" ? "proxy" : "regular"}`}
                   </span>
                 )}
-                {!identityOnly && chosen && (
+                {!identityOnly && chosen && finish !== "proxy" && (
                   <span>
                     {usd(price)}
                     {price != null && <span className="dim"> market, {shortDate(chosen.price_date) ?? "date unknown"}</span>}
@@ -1894,7 +1938,7 @@ export function ScannerView({
                 </div>
               </div>
             )}
-            {(found.others.length > 0 || recent.length > 0) && (
+            {(found.others.length > 0 || (!recentCards && recent.length > 0)) && (
               <p className="scan-note">
                 {found.others.length > 0 && (
                   <>
@@ -1910,9 +1954,10 @@ export function ScannerView({
                     .{" "}
                   </>
                 )}
-                {recent.length > 0 && `Recent: ${recent.slice(0, 3).join(", ")}.`}
+                {!recentCards && recent.length > 0 && `Recent: ${recent.slice(0, 3).join(", ")}.`}
               </p>
             )}
+            {recentCards && <RecentCards cards={recentCards} />}
             <details className="small dim">
               <summary>What the scanner saw</summary>
               <pre className="scan-raw">
@@ -2040,3 +2085,37 @@ function SavePhotosSwitch() {
     </div>
   );
 }
+
+/** Sounds (sounds.ts): on by default, per device; and the price that makes the brighter sound. */
+function SoundsSetting({ on, worth, prices, onChange, onWorth }: { on: boolean; worth: number; prices: boolean; onChange: (on: boolean) => void; onWorth: (v: number) => void }) {
+  const [text, setText] = useState(String(worth));
+  return (
+    <div className="scan-keep">
+      <input id="scan-sounds" type="checkbox" checked={on} onChange={(e) => onChange(e.target.checked)} />
+      <span>
+        <label htmlFor="scan-sounds">
+          <strong>Sounds.</strong> A chime when a card is added{prices ? ", a brighter one when it's worth the amount below or more" : ""}, and a low tone when the scanner needs you. On this device; the phone's silent mode doesn't turn them off, this does.
+        </label>
+        {on && prices && (
+          <label className="scan-worth">
+            <span className="dim">Brighter sound at $</span>
+            <input
+              type="number"
+              inputMode="decimal"
+              min={0}
+              step="any"
+              value={text}
+              onChange={(e) => {
+                setText(e.target.value);
+                const v = Number(e.target.value);
+                if (e.target.value.trim() !== "" && Number.isFinite(v) && v >= 0) onWorth(v);
+              }}
+            />
+            <span className="dim"> or more, by the card's market price in the finish added</span>
+          </label>
+        )}
+      </span>
+    </div>
+  );
+}
+
