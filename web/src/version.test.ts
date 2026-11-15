@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { fmtDate } from "@yama/core";
 import { versionLine } from "./version";
 
 const TIME = "2026-11-15T15:30:00Z";
@@ -6,7 +7,8 @@ const TIME = "2026-11-15T15:30:00Z";
 describe("versionLine", () => {
   it("names the app, the web build's commit and the build date inside the Android app", () => {
     const line = versionLine({ versionName: "0.2.100", versionCode: 100 }, "638954329799", TIME);
-    expect(line).toMatch(/^Yama app 0\.2\.100 \(100\), web 6389543, built Nov 1[45], 2026$/);
+    // A moment is shown on the reader's calendar, which depends on the machine's time zone.
+    expect(line).toBe(`Yama app 0.2.100 (100), web 6389543, built ${fmtDate(TIME)}`);
   });
 
   it("leaves the app out in a browser", () => {
