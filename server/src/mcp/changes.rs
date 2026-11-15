@@ -1506,17 +1506,35 @@ async fn apply_cancel(st: &AppState, user: &User, p: &Value) -> AppResult<Value>
 
 // ── collection ──────────────────────────────────────────────────────────────
 
-/// The caller's binder, deck box or list by name: (id, name). Unknown names list theirs.
+/// The id `container` gives copies in no binder, box or list ("Loose" on the collection page).
+/// Queries match it with `COALESCE(i.container_id, '') = ?`; writes turn it back into no container.
+const LOOSE: &str = "";
+
+/// Names that mean the copies in no binder, box or list, unless they have a container of that name.
+fn means_loose(wanted: &str) -> bool {
+    matches!(wanted.trim().to_lowercase().as_str(), "loose" | "unfiled" | "no container" | "not in a container" | "none")
+}
+
+/// A container id as stored: `LOOSE` is none.
+fn stored(id: &str) -> Option<String> {
+    (id != LOOSE).then(|| id.to_string())
+}
+
+/// The caller's binder, deck box or list by name: (id, name). "Loose" is their copies in none
+/// (id `LOOSE`). Unknown names list theirs.
 async fn container(pool: &SqlitePool, owner: &str, wanted: &str) -> AppResult<(String, String)> {
     let all: Vec<(String, String)> = sqlx::query_as("SELECT id, name FROM containers WHERE owner_id = ? ORDER BY name").bind(owner).fetch_all(pool).await?;
     if let Some(c) = all.iter().find(|(id, n)| id == wanted || n.eq_ignore_ascii_case(wanted)) {
         return Ok(c.clone());
     }
+    if means_loose(wanted) {
+        return Ok((LOOSE.to_string(), "Loose (in no binder or box)".to_string()));
+    }
     let near: Vec<&(String, String)> = all.iter().filter(|(_, n)| n.to_lowercase().contains(&wanted.to_lowercase())).collect();
     match near.as_slice() {
         [one] => Ok((*one).clone()),
         _ => Err(AppError::bad(format!(
-            "They have no binder, deck box or list called \"{wanted}\". Theirs: {}.",
+            "They have no binder, deck box or list called \"{wanted}\". Theirs: {}. \"Loose\" names their copies in none.",
             if all.is_empty() { "none yet".into() } else { all.iter().take(40).map(|(_, n)| n.as_str()).collect::<Vec<_>>().join(", ") }
         ))),
     }
@@ -1562,7 +1580,7 @@ pub async fn add_to_collection(st: &AppState, user: &User, via: &Via, args: &Val
         })
     })?;
     let place = match arg::opt_string(args, "container", 200)? {
-        Some(c) => Some(container(pool, &user.id, &c).await?),
+        Some(c) => Some(container(pool, &user.id, &c).await?).filter(|(id, _)| id != LOOSE),
         None => None,
     };
     let proxy = args.get("proxy").and_then(Value::as_bool).unwrap_or(false);
@@ -1621,7 +1639,7 @@ async fn copies_in(conn: &mut sqlx::SqliteConnection, owner: &str, oracle_id: &s
         "SELECT i.id, i.qty, i.scryfall_id, i.condition, i.finish, i.lang, i.altered, i.signed, i.misprint, i.proxy, i.purchase_price,
                 p.set_code, p.collector_number
          FROM collection_items i JOIN printings p ON p.scryfall_id = i.scryfall_id
-         WHERE i.owner_id = ? AND p.oracle_id = ? AND i.container_id = ? AND i.qty > 0
+         WHERE i.owner_id = ? AND p.oracle_id = ? AND COALESCE(i.container_id, '') = ? AND i.qty > 0
          ORDER BY i.proxy, i.qty DESC, i.id",
     )
     .bind(owner)
@@ -1662,7 +1680,7 @@ const CONDITIONS: [(&str, &str); 5] =
 async fn rows_to_grade(conn: &mut sqlx::SqliteConnection, owner: &str, container_id: &str, oracle_id: Option<&str>, condition: &str) -> AppResult<Vec<(String, String, i64)>> {
     Ok(sqlx::query_as(
         "SELECT i.id, p.name, i.qty FROM collection_items i JOIN printings p ON p.scryfall_id = i.scryfall_id
-         WHERE i.owner_id = ? AND i.container_id = ? AND (? IS NULL OR p.oracle_id = ?) AND i.condition != ? AND i.qty > 0
+         WHERE i.owner_id = ? AND COALESCE(i.container_id, '') = ? AND (? IS NULL OR p.oracle_id = ?) AND i.condition != ? AND i.qty > 0
          ORDER BY p.name, i.id",
     )
     .bind(owner)
@@ -1776,7 +1794,7 @@ async fn apply_collection(st: &AppState, user: &User, kind: &str, id: &str, p: &
                     condition: None,
                     finish: None,
                     lang: None,
-                    container_id: Some(Some(to.into())),
+                    container_id: Some(stored(to)),
                     purchase_price: None,
                     note: None,
                     proxy: None,
@@ -1790,7 +1808,7 @@ async fn apply_collection(st: &AppState, user: &User, kind: &str, id: &str, p: &
             } else {
                 apply_op(&mut tx, &user.id, &op(n, OpKind::Adjust { item_id: r.id.clone(), delta: -take })).await?;
                 let copy = CopyKind { condition: r.condition, finish: r.finish, lang: r.lang, altered: r.altered, signed: r.signed, misprint: r.misprint, proxy: r.proxy };
-                let add = OpKind::Add { scryfall_id: r.scryfall_id, qty: take, copy, container_id: Some(to.into()), purchase_price: r.purchase_price, purchase_currency: None };
+                let add = OpKind::Add { scryfall_id: r.scryfall_id, qty: take, copy, container_id: stored(to), purchase_price: r.purchase_price, purchase_currency: None };
                 apply_op(&mut tx, &user.id, &op(n + 1, add)).await?;
                 n += 2;
             }
@@ -2350,7 +2368,7 @@ async fn apply_remove_copies(st: &AppState, user: &User, id: &str, p: &Value) ->
     }
     for (n, row) in p["rows"].as_array().into_iter().flatten().enumerate() {
         let (item, take) = (row["id"].as_str().unwrap_or_default(), row["qty"].as_i64().unwrap_or(0));
-        let held: Option<i64> = sqlx::query_scalar("SELECT qty FROM collection_items WHERE id = ? AND owner_id = ? AND container_id = ?")
+        let held: Option<i64> = sqlx::query_scalar("SELECT qty FROM collection_items WHERE id = ? AND owner_id = ? AND COALESCE(container_id, '') = ?")
             .bind(item)
             .bind(&user.id)
             .bind(p["from_id"].as_str().unwrap_or_default())

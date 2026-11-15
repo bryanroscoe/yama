@@ -1181,7 +1181,7 @@ pub(super) const TOOLS: &[Tool] = &[
                     "qty": {"type": "integer", "minimum": 1, "maximum": 100},
                     "set": {"type": "string", "description": "Set code, such as \"cmm\"."},
                     "number": {"type": "string", "description": "Collector number in that set."},
-                    "container": {"type": "string", "description": "Their binder, deck box or list, by name."},
+                    "container": {"type": "string", "description": "Their binder, deck box or list, by name, or \"Loose\" for copies in none."},
                     "proxy": {"type": "boolean"},
                     "finish": {"type": "string", "enum": ["nonfoil", "foil", "etched"]},
                 },
@@ -1203,7 +1203,7 @@ pub(super) const TOOLS: &[Tool] = &[
         name: "move_cards",
         aliases: &[],
         title: "Move cards between binders and boxes",
-        description: staged!("Move copies of a card from one of their binders, deck boxes or lists to another."),
+        description: staged!("Move copies of a card from one of their binders, deck boxes or lists to another. \"Loose\" names their copies in none."),
         schema: || {
             json!({
                 "type": "object",
@@ -1239,7 +1239,7 @@ pub(super) const TOOLS: &[Tool] = &[
             json!({
                 "type": "object",
                 "properties": {
-                    "container": {"type": "string", "description": "Their binder, deck box or list, by name."},
+                    "container": {"type": "string", "description": "Their binder, deck box or list, by name, or \"Loose\" for copies in none."},
                     "card": {"type": "string", "description": "Only this card's copies; every card there if left out."},
                     "condition": {"type": "string", "enum": ["NM", "LP", "MP", "HP", "DMG"]},
                 },
@@ -1346,7 +1346,7 @@ pub(super) const TOOLS: &[Tool] = &[
                 "properties": {
                     "card": {"type": "string"},
                     "qty": {"type": "integer", "minimum": 1, "maximum": 100, "description": "How many copies (default 1)."},
-                    "from": {"type": "string", "description": "Their binder, deck box or list, by name."},
+                    "from": {"type": "string", "description": "Their binder, deck box or list, by name, or \"Loose\" for copies in none."},
                     "set": {"type": "string", "maxLength": 10, "description": "Only copies of this printing: its set code, such as \"cmm\"."},
                     "number": {"type": "string", "maxLength": 20, "description": "Collector number in that set."},
                     "finish": {"type": "string", "enum": ["nonfoil", "foil", "etched"], "description": "Only copies with this finish."},
@@ -1376,7 +1376,7 @@ pub(super) const TOOLS: &[Tool] = &[
                 "type": "object",
                 "properties": {
                     "card": {"type": "string"},
-                    "container": {"type": "string", "description": "Their binder, deck box or list, by name."},
+                    "container": {"type": "string", "description": "Their binder, deck box or list, by name, or \"Loose\" for copies in none."},
                     "qty": {"type": "integer", "minimum": 1, "maximum": 100, "description": "How many copies get a new finish or proxy mark; every copy that would change if left out. A note or price is for all of them: leave it out."},
                     "finish": {"type": "string", "enum": ["nonfoil", "foil", "etched"]},
                     "proxy": {"type": "boolean"},

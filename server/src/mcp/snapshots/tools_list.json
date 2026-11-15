@@ -2136,7 +2136,7 @@
             "type": "string"
           },
           "container": {
-            "description": "Their binder, deck box or list, by name.",
+            "description": "Their binder, deck box or list, by name, or \"Loose\" for copies in none.",
             "maxLength": 300,
             "type": "string"
           },
@@ -2189,7 +2189,7 @@
         "openWorldHint": false,
         "readOnlyHint": false
       },
-      "description": "Move copies of a card from one of their binders, deck boxes or lists to another. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
+      "description": "Move copies of a card from one of their binders, deck boxes or lists to another. \"Loose\" names their copies in none. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2255,7 +2255,7 @@
             "type": "string"
           },
           "container": {
-            "description": "Their binder, deck box or list, by name.",
+            "description": "Their binder, deck box or list, by name, or \"Loose\" for copies in none.",
             "maxLength": 300,
             "type": "string"
           },
@@ -2421,7 +2421,7 @@
             "type": "string"
           },
           "from": {
-            "description": "Their binder, deck box or list, by name.",
+            "description": "Their binder, deck box or list, by name, or \"Loose\" for copies in none.",
             "maxLength": 300,
             "type": "string"
           },
@@ -2478,7 +2478,7 @@
             "type": "string"
           },
           "container": {
-            "description": "Their binder, deck box or list, by name.",
+            "description": "Their binder, deck box or list, by name, or \"Loose\" for copies in none.",
             "maxLength": 300,
             "type": "string"
           },
