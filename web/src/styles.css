@@ -2036,7 +2036,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
 .containers {
   margin-bottom: 32px;
 }
-/* Binders, boxes and decks: art tiles that filter the list below. */
+/* Binders, boxes and decks: art tiles; one opens its cards. */
 .container-tiles {
   list-style: none;
   margin: 0 0 8px;
@@ -2047,8 +2047,8 @@ fieldset.seat > legend:not(.visually-hidden) + * {
 }
 @media (min-width: 900px) {
   .container-tiles {
-    grid-template-columns: repeat(auto-fill, minmax(min(200px, 100%), 1fr));
-    gap: 12px;
+    grid-template-columns: repeat(auto-fill, minmax(min(168px, 100%), 1fr));
+    gap: 10px;
   }
 }
 .container-tile {
@@ -2066,7 +2066,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   background: none;
 }
 .container-tile .art-panel {
-  height: 108px;
+  height: 76px;
   display: grid;
   border-radius: var(--r-panel);
 }
@@ -2074,7 +2074,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   align-self: end;
   display: grid;
   line-height: 1.2;
-  padding: 10px 12px;
+  padding: 8px 10px;
 }
 .container-tile:hover .art-panel,
 .container-tile[aria-pressed="true"] .art-panel {
@@ -2103,13 +2103,10 @@ fieldset.seat > legend:not(.visually-hidden) + * {
 }
 @media (min-width: 900px) {
   .container-tile .art-panel {
-    height: 130px;
+    height: 96px;
   }
   .container-tile .art-body {
-    padding: 14px;
-  }
-  .ct-name {
-    font-size: 1.0625rem;
+    padding: 10px 12px;
   }
   .ct-meta {
     font-size: var(--t-sm);

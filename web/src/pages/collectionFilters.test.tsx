@@ -113,4 +113,37 @@ describe("the Collection page", () => {
     expect(html).not.toContain("cards match");
     client.clear();
   });
+
+  it("opens a box on its own, with the way back, instead of only filtering under the tiles", () => {
+    const boxes = [
+      { id: "b1", kind: "binder", name: "Trade binder", copies: 4, market_value_usd: 20, copies_without_price: 0 },
+      { id: "b2", kind: "box", name: "Bulk box", copies: 2, market_value_usd: 1, copies_without_price: 0 },
+    ];
+    const render = (path: string) => {
+      const client = new QueryClient();
+      client.setQueryData(["me"], { id: "u1", email: "me@example.com", display_name: "Me", power: false });
+      client.setQueryData(["collection-summary"], { copies: 6, proxies: 0, distinct_printings: 5, market_value_usd: 21, copies_without_price: 0, price_date: "2026-11-10", purchase_total_usd: 0, copies_without_purchase_price: 6, copies_paid_in_other_currency: 0 });
+      client.setQueryData(["containers"], boxes);
+      client.setQueryData(["decks"], []);
+      client.setQueryData(["collection", "", "", "all"], all);
+      client.setQueryData(["collection", "b1", "", "all"], all.slice(0, 2));
+      const html = renderToStaticMarkup(
+        <QueryClientProvider client={client}>
+          <MemoryRouter initialEntries={[path]}><CollectionPage /></MemoryRouter>
+        </QueryClientProvider>,
+      );
+      client.clear();
+      return html;
+    };
+    const every = render("/collection");
+    expect(every).toContain("container-tiles");
+    expect(every).toContain("Bulk box");
+    const open = render("/collection?box=b1");
+    expect(open).not.toContain("container-tiles");
+    expect(open).not.toContain("Bulk box");
+    expect(open).toMatch(/<h2 class="ct-name">Trade binder<\/h2>/);
+    expect(open).toContain('aria-label="Back to every binder, box and deck"');
+    expect(open).toContain("Delete binder");
+    expect(render("/collection?box=gone")).toContain("No such binder or box");
+  });
 });
