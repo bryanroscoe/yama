@@ -34,6 +34,7 @@ import type { OcrEngine, Quad, RgbaImage, ScanCandidate, ScanCatalog, ScanResult
 import "./scanner.css";
 import { shortDate, usd } from "@yama/core";
 import { Button, CardThumb, ErrorText, Field } from "../components/ui";
+import { MoreMenu } from "../components/MoreMenu";
 
 export interface ScannerViewProps {
   /**
@@ -364,11 +365,23 @@ export function ScannerView({
   const [showAll, setShowAll] = useState(false);
   /** What was just added (by Add, a tapped printing or Keep adding), shown on the camera for a moment, with Undo once saved. */
   const [justAdded, setJustAdded] = useState<JustAdded | null>(null);
+  /**
+   * The card just filed, while the scanner holds it back as the same card (hold.ts): "Scan anyway"
+   * files one more copy of it (Bryan, 15 Nov 2026: real duplicates, two of a card from two orders).
+   */
+  /** The card just filed, still held: what "Scan anyway" files again, under the settings it was filed with. */
+  const [dupe, setDupe] = useState<{ found: Found; printing: Printing | null; label: string; settings: string } | null>(null);
+  /** "Scan anyway" is saving: one press, one copy, even on a double tap. */
+  const dupeBusy = useRef(false);
+  const [dupeSaving, setDupeSaving] = useState(false);
+  const photoInput = useRef<HTMLInputElement>(null);
   /** The latest view of the held card, from the hold-and-read loop, for "From your card". */
   const [liveShot, setLiveShot] = useState<Shot | null>(null);
   /** Wrong card was tapped: the other cards it might be, a name box, or just scan again. */
   const [wrongOpen, setWrongOpen] = useState(false);
   const cam = useCameraControls();
+  /** What the host files a card with (finish, where it goes), as far as the scanner is told. */
+  const fileSettings = `${finish ?? ""}|${settingsSummary ?? ""}`;
   const digitalRef = useRef(1);
   digitalRef.current = cam.digital;
 
@@ -702,6 +715,7 @@ export function ScannerView({
           return false;
         }
         blockedName.current = null;
+        if (!blocked.current) setDupe(null);
       }
       if (!best) return false;
       const seen = last.current && Date.now() - last.current.at < 2500 ? last.current.card : undefined;
@@ -757,12 +771,14 @@ export function ScannerView({
           if (blocked.current && artHoldFrame(blocked.current, r.quad ? (stillHeld ?? top ?? null) : null, ART_UNKNOWN, LOCK_TWICE) === "free") blocked.current = null;
           if (!r.quad || !top) {
             if (++noCard.current >= AWAY_FRAMES) blockedName.current = null;
+            if (!blocked.current && !blockedName.current) setDupe(null);
             last.current = undefined;
             unknownFrames = 0;
             setStatus(blocked.current || blockedName.current ? "Ready for the next card" : "Hold a card in view");
             return next(60);
           }
           noCard.current = 0;
+          if (!blocked.current && !blockedName.current) setDupe(null);
           if (blocked.current) {
             setStatus("Ready for the next card");
             return next(60);
@@ -904,12 +920,13 @@ export function ScannerView({
   };
 
   /** Back to scanning. The card just shown isn't found again until it leaves the view. */
-  const again = () => {
+  const again = (held: Found | null = found) => {
     foundSeq.current += 1;
     setWrongOpen(false);
-    blocked.current = found?.art ? { index: found.art.index, away: 0 } : null;
+    setDupe(null);
+    blocked.current = held?.art ? { index: held.art.index, away: 0 } : null;
     noCard.current = 0;
-    blockedName.current = found && !found.art ? hold(found.name, Date.now()) : null;
+    blockedName.current = held && !held.art ? hold(held.name, Date.now()) : null;
     last.current = undefined;
     setFound(null);
     setOutline(null);
@@ -1157,7 +1174,7 @@ export function ScannerView({
    * confirmation) or Keep adding. Keeps its scan photo, hands it to `onAccept` and goes on to the
    * next card; "Added …" shows on the camera once it's saved, with Undo where the host offers it.
    */
-  const file = (f: Found, c: Printing | null, n: number, auto: boolean) => {
+  const file = (f: Found, c: Printing | null, n: number, auto: boolean): Promise<unknown> | undefined => {
     if (!onAccept) return;
     const label = c ? `${c.name} (${c.set_code.toUpperCase()} ${c.collector_number})` : f.name;
     const card = candidateOf(f, c);
@@ -1169,9 +1186,11 @@ export function ScannerView({
     const saved = onAccept(card, n, auto);
     // The card stays in the session list either way (a failed save can be tried again there), so
     // scanning goes on; "Added" waits for the save.
-    again();
+    again(f);
+    // While the camera still holds this card it isn't found again; "Scan anyway" files another.
+    if (!single) setDupe({ found: f, printing: c, label, settings: fileSettings });
     const failed = () => setJustAdded({ text: `Couldn't save ${label}. Tap ${addedWord} to try again` });
-    void Promise.resolve(saved).then((ok) => {
+    return Promise.resolve(saved).then((ok) => {
       if (ok === false) return failed();
       buzz(40);
       setJustAdded({ text: `${addedWord} ${label}`, card: onUndo ? card : undefined, label });
@@ -1188,6 +1207,21 @@ export function ScannerView({
       (e: unknown) => setJustAdded({ text: `Couldn't take out ${j.label}: ${e instanceof Error ? e.message : String(e)}` }),
     );
   };
+  /** One more copy of the card just filed, same printing and finish, by the same path as Add. */
+  const scanAnyway = () => {
+    if (!dupe || dupeBusy.current || dupe.settings !== fileSettings) return;
+    dupeBusy.current = true;
+    setDupeSaving(true);
+    void Promise.resolve(file(dupe.found, dupe.printing, 1, false)).finally(() => {
+      dupeBusy.current = false;
+      setDupeSaving(false);
+    });
+  };
+  // A changed finish or destination isn't "the same again": the offer goes rather than file a
+  // copy the person didn't scan (the host files with its current settings).
+  useEffect(() => {
+    setDupe((d) => (d && d.settings !== fileSettings ? null : d));
+  }, [fileSettings]);
   useEffect(() => {
     if (!autoAdd || !onAccept || paused || phase !== "found" || !found || !(identityOnly ? addsByIdentity(found) : addsItself(found))) return;
     file(found, identityOnly ? null : found.chosen!, 1, true);
@@ -1219,6 +1253,8 @@ export function ScannerView({
   const options = found?.options ?? null;
   // The latest frame of the held card, else the one it was found in.
   const peekShot = liveShot ?? found?.shot ?? null;
+  // "Read the collector number up close", in the found card's More.
+  const upClose = live && !identityOnly && !closeup && !chosen && !!found && !found.outside && !!options && options.length > 1 && !found.reading;
   const showPicker = !identityOnly && !!found && !found.outside && !!options && options.length > 1 && !found.reading && (found.picking || !chosen);
   const range = !identityOnly && found && !chosen && options && options.length > 1 ? priceRange(options, finish) : null;
   const suggested = lockOffered && !lockOpen && lockCodes.length === 0 ? suggestLock(filedSets, new Set(lockCodes)) : null;
@@ -1297,6 +1333,22 @@ export function ScannerView({
       </div>
 
       <div ref={panelRef} className={`scan-panel${sheet.hidden ? " is-hidden" : ""}`} aria-live="polite">
+        {/* "Use a photo" in More opens this: it stays mounted when the menu closes. */}
+        <input
+          ref={photoInput}
+          className="scan-photo-input"
+          type="file"
+          accept="image/*"
+          capture="environment"
+          hidden
+          aria-hidden="true"
+          tabIndex={-1}
+          onChange={(ev) => {
+            const file = ev.target.files?.[0];
+            ev.target.value = "";
+            if (file) void fromPhoto(file);
+          }}
+        />
         <Button
           className="scan-handle"
           aria-label={sheet.hidden ? "Show the panel" : "Hide the panel to see the whole camera"}
@@ -1330,6 +1382,18 @@ export function ScannerView({
         )}
         {!isFound && closeup !== "title" && !lockOpen && (
           <>
+            {dupe && onAccept && (
+              <div className="scan-step scan-dupe">
+                <p>
+                  <strong>{dupe.label} is still in view.</strong> The scanner waits for a different card. Got another copy of it?
+                </p>
+                <div className="scan-other-ways">
+                  <Button variant="primary" onClick={scanAnyway} disabled={dupeSaving}>
+                    {dupeSaving ? "Adding…" : "Scan anyway"}
+                  </Button>
+                </div>
+              </div>
+            )}
             <ErrorText error={error} />
             {lockError && <p className="error">Couldn't lock to {lockCodes.map((c) => c.toUpperCase()).join(", ")}: {lockError}</p>}
             {suggested && suggestedName && suggestDismissed !== suggested && (
@@ -1348,25 +1412,12 @@ export function ScannerView({
             {controls}
             {settingsBox}
             <div className="scan-other-ways">
-              <label className="scan-photo button">
-                Use a photo
-                <input
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  onChange={(ev) => {
-                    const file = ev.target.files?.[0];
-                    ev.target.value = "";
-                    if (file) void fromPhoto(file);
-                  }}
-                />
-              </label>
               <NameEntry onPick={(n) => fromName(n)} />
-              {live && phase === "scanning" && (
-                <Button className="scan-photo" onClick={() => setCloseup("title")}>
-                  Read the name up close
-                </Button>
-              )}
+              {/* Ways in used now and then, not on every card (Bryan, 15 Nov 2026: declutter). */}
+              <MoreMenu label="More" title="More ways to scan" className="scan-more">
+                <Button onClick={() => photoInput.current?.click()}>Use a photo</Button>
+                {live && phase === "scanning" && <Button onClick={() => setCloseup("title")}>Read the name up close</Button>}
+              </MoreMenu>
             </div>
             {mode === "text" && <p className="scan-note">Card recognition isn't available right now, so the scanner is reading text. Line the card up with the frame.</p>}
             {recent.length > 0 && <p className="scan-note">Recent: {recent.slice(0, 3).join(", ")}.</p>}
@@ -1428,11 +1479,6 @@ export function ScannerView({
                 </p>
                 {closeupRead && <p className="scan-note">Reading: {closeupRead}</p>}
               </div>
-            )}
-            {live && !identityOnly && !closeup && !chosen && !found.outside && options && options.length > 1 && !found.reading && (
-              <Button className="scan-alt" onClick={() => setCloseup("collector")}>
-                Read the collector number up close
-              </Button>
             )}
             {showPicker && options && (!chosen || found.picking) && !closeup && (
               <div ref={tapRef} className="scan-step is-tap">
@@ -1508,12 +1554,19 @@ export function ScannerView({
                   </Button>
                 </div>
               )}
-              <Button onClick={again}>{onAccept ? "Skip" : "Scan next"}</Button>
-              {!wrongOpen && (
-                <Button className="scan-alt" onClick={() => setWrongOpen(true)}>
-                  Wrong card?
-                </Button>
-              )}
+              <Button onClick={() => again()}>{onAccept ? "Skip" : "Scan next"}</Button>
+              <div className="scan-secondary">
+                {!wrongOpen && (
+                  <Button className="scan-alt" onClick={() => setWrongOpen(true)}>
+                    Wrong card?
+                  </Button>
+                )}
+                {upClose && (
+                  <MoreMenu label="More" title="More ways to read it" className="scan-more" variant="quiet" size="small">
+                    <Button onClick={() => setCloseup("collector")}>Read the collector number up close</Button>
+                  </MoreMenu>
+                )}
+              </div>
             </div>
             {wrongOpen && (
               <div className="scan-step scan-wrong">
