@@ -71,7 +71,7 @@ function AddedRow({ a, onFix, onRetry }: { a: Added; onFix: AddedListProps["onFi
   return (
     <li className="scan-added-row">
       <div className="scan-added-card">
-        <CardThumb className="scan-added-thumb" src={a.image} fallback={<span className="scan-added-thumb card-fallback">{a.name}</span>} />
+        <CardThumb className="scan-added-thumb" src={a.image} fallback={<span className="scan-added-thumb card-fallback" aria-hidden="true" />} />
         <div className="scan-added-info">
           <strong>{a.name}</strong>
           <span className="dim small">
@@ -96,7 +96,7 @@ function AddedRow({ a, onFix, onRetry }: { a: Added; onFix: AddedListProps["onFi
               </select>
             </Field>
             <Button className="scan-alt" disabled={busy} onClick={() => void openPrintings()}>
-              {printings ? "Keep this printing" : "Change printing"}
+              {printings ? "Keep this printing" : "Wrong printing?"}
             </Button>
             <Button className="scan-alt" disabled={busy} onClick={() => void run(removeFix(a))}>
               Remove
@@ -128,8 +128,9 @@ function AddedRow({ a, onFix, onRetry }: { a: Added; onFix: AddedListProps["onFi
               disabled={busy}
               onClick={() => void run({ ...base, scryfall_id: p.scryfall_id, set: p.set_code, number: p.collector_number, name: p.name, image: p.image_small })}
             >
-              <CardThumb src={p.image_small} fallback={<span className="card-fallback">{p.name}</span>} />
+              <CardThumb src={p.image_small} fallback={<span className="card-fallback" aria-hidden="true" />} />
               <span className="scan-printing-set">{p.set_name}</span>
+              {p.scryfall_id === a.scryfall_id && <span className="scan-misread">Added as this</span>}
               <span className="dim">
                 #{p.collector_number}
                 {p.released_at ? `, ${p.released_at.slice(0, 4)}` : ""}

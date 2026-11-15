@@ -1,55 +1,155 @@
 // Reading the printing while the card is held (Bryan, 15 Nov 2026: "I want to just hold and scan
 // the card and get all the details of the card... I don't want to have to move the card"). When
-// several printings share the art and the first read of the collector line didn't settle it, the
-// scanner keeps reading the line from new full-resolution frames of the whole card, rather than
-// asking for the close-up box at once. This decides, frame by frame, when that is done.
+// several printings fit and the first read of the collector line didn't settle it, the scanner
+// keeps reading the line from new full-resolution frames of the whole card, rather than asking
+// for the close-up box at once. Which printing the reads point to is weighed in evidence.ts; this
+// is the outer cap: when to hand over to the close-up box or the picker, and when the card has gone.
+//
+// The budgets are time, not frames (Bryan, 15 Nov 2026: "the printing read gives up too early";
+// frame rate differs by phone and by text reader). The first numbers (6 frames to the close-up,
+// 40 to give up, 4 missed frames to stop) came to one to two seconds, ten at most, and under a
+// second without the card on a phone reading three crops a frame. These are guesses too
+// [inferred], to retune from real attempts (docs/scanner.md).
 
-/** Frames read before the close-up box takes over, when Close-ups is on. */
-export const CLOSEUP_AFTER = 6;
-/** Frames read before giving up, when Close-ups is off (the picker is shown all along). */
-export const GIVE_UP_AFTER = 40;
-/**
- * Frames that must name the same printing when none was proof (set code or number alone). The
- * close-up asks for two; a whole-card frame gives the line several times fewer pixels, so three.
- */
-export const AGREE = 3;
-/** Frames in a row without the card before it counts as gone. */
-export const AWAY = 4;
+export interface HoldBudget {
+  /** With Close-ups on: read this long (and at least `closeupFrames`) before the close-up box takes over. */
+  closeupAfterMs: number;
+  closeupFrames: number;
+  /** With Close-ups off: read this long (and at least `giveUpFrames`) before leaving it to the picker. */
+  giveUpAfterMs: number;
+  giveUpFrames: number;
+  /** Without the card in view (or with another card) this long, the attempt stops. */
+  awayMs: number;
+  /**
+   * At the start, how long to wait for the card to come into view at all (a typed name: the card
+   * may not be held up yet). The away time counts only once it has been seen.
+   */
+  findMs: number;
+  /** Reads that fail (an error, not an empty read) this many times in a row stop it too. */
+  failures: number;
+}
 
-export type HeldVerdict = "settled" | "again" | "closeup" | "stop";
+/** Every hold-and-read time and count, in one place. */
+export const HOLD_BUDGET: HoldBudget = {
+  closeupAfterMs: 8_000,
+  closeupFrames: 6,
+  giveUpAfterMs: 25_000,
+  giveUpFrames: 12,
+  awayMs: 2_500,
+  findMs: 10_000,
+  failures: 8,
+};
+
+export type HeldVerdict = "again" | "closeup" | "stop";
+
+/** How an attempt ended. */
+export interface HeldSummary {
+  /** Frames read. */
+  frames: number;
+  /** Frames skipped before reading: too blurred or washed out (quality.ts). */
+  skipped: number;
+  misses: number;
+  failures: number;
+  ms: number;
+  ended: HeldVerdict | null;
+  why?: "away" | "failures" | "time" | "never-seen";
+}
 
 export class HeldRead {
   private frames = 0;
+  private skips = 0;
   private misses = 0;
-  private last: string | null = null;
-  private agree = 0;
+  private failedInARow = 0;
+  private failures = 0;
+  private lastSeen: number;
+  private ended: HeldVerdict | null = null;
+  private why: HeldSummary["why"];
+  private latest: number;
+  private seen = false;
 
-  constructor(private readonly closeups: boolean) {}
+  /** `start`: when the attempt began, in ms (performance.now or Date.now; the same clock for every call). */
+  constructor(
+    private readonly closeups: boolean,
+    private readonly start: number,
+    private readonly budget: HoldBudget = HOLD_BUDGET,
+  ) {
+    this.lastSeen = start;
+    this.latest = start;
+  }
+
+  private end(v: HeldVerdict, why?: HeldSummary["why"]): HeldVerdict {
+    if (v !== "again") {
+      this.ended = v;
+      this.why = why;
+    }
+    return v;
+  }
 
   /**
-   * One frame of the card read. `id` is the printing the frame's reads point to, or null when they
-   * point nowhere. (A read that proves the printing settles it without asking this.) A frame that
-   * reads nothing doesn't break a run; one that names another printing starts a new one.
+   * The time budget, checked on every frame, seen or not. The frame counts keep a slow phone
+   * reading long enough; at twice the time it's over whatever the count (every frame skipped as
+   * blurred, say).
    */
-  frame(id: string | null): HeldVerdict {
-    this.misses = 0;
-    this.frames += 1;
-    if (id) {
-      if (id === this.last) this.agree += 1;
-      else {
-        this.last = id;
-        this.agree = 1;
-      }
-      if (this.agree >= AGREE) return "settled";
-    }
-    if (this.closeups && this.frames >= CLOSEUP_AFTER) return "closeup";
-    if (this.frames >= GIVE_UP_AFTER) return "stop";
+  private timeUp(now: number): HeldVerdict {
+    const ms = now - this.start;
+    const b = this.budget;
+    if (this.closeups && ms >= b.closeupAfterMs && (this.frames >= b.closeupFrames || ms >= 2 * b.closeupAfterMs)) return this.end("closeup", "time");
+    if (ms >= b.giveUpAfterMs && (this.frames >= b.giveUpFrames || ms >= 2 * b.giveUpAfterMs)) return this.end("stop", "time");
     return "again";
   }
 
-  /** A frame where the card wasn't seen (or another card was). */
-  missed(): HeldVerdict {
+  /** One frame of the card read (its reads go to evidence.ts, which settles the printing). */
+  frame(now: number): HeldVerdict {
+    if (this.ended) return this.ended;
+    this.latest = now;
+    this.lastSeen = now;
+    this.seen = true;
+    this.failedInARow = 0;
+    this.frames += 1;
+    return this.timeUp(now);
+  }
+
+  /**
+   * A frame with the card in view but too blurred or washed out to read: the card is still there,
+   * but the frame doesn't count toward the frames the close-up and the picker wait for.
+   */
+  skipped(now: number): HeldVerdict {
+    if (this.ended) return this.ended;
+    this.latest = now;
+    this.lastSeen = now;
+    this.seen = true;
+    this.skips += 1;
+    return this.timeUp(now);
+  }
+
+  /** A frame where the card wasn't seen (or another card was), or, with `failed`, a read that failed. */
+  missed(now: number, failed = false): HeldVerdict {
+    if (this.ended) return this.ended;
+    this.latest = now;
     this.misses += 1;
-    return this.misses >= AWAY ? "stop" : "again";
+    if (failed) {
+      this.failures += 1;
+      this.failedInARow += 1;
+      if (this.failedInARow >= this.budget.failures) return this.end("stop", "failures");
+    }
+    if (!this.seen) return now - this.start >= this.budget.findMs ? this.end("stop", "never-seen") : "again";
+    if (now - this.lastSeen >= this.budget.awayMs) return this.end("stop", "away");
+    return this.timeUp(now);
+  }
+
+  /**
+   * Past twice the attempt's time: over, whatever the frames said (an attempt whose every read
+   * failed, or every frame skipped). The verdict to act on, or null while there's time.
+   */
+  capped(now: number): Exclude<HeldVerdict, "again"> | null {
+    if (this.ended) return this.ended === "again" ? null : this.ended;
+    const ms = now - this.start;
+    if (this.closeups && ms >= 2 * this.budget.closeupAfterMs) return this.end("closeup", "time") as "closeup";
+    if (ms >= 2 * this.budget.giveUpAfterMs) return this.end("stop", "time") as "stop";
+    return null;
+  }
+
+  summary(): HeldSummary {
+    return { frames: this.frames, skipped: this.skips, misses: this.misses, failures: this.failures, ms: Math.round(this.latest - this.start), ended: this.ended, why: this.why };
   }
 }

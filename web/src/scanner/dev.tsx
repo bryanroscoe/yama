@@ -23,6 +23,10 @@ function Dev() {
       <ScannerView
         onAccept={(c) => setAdded((a) => [c, ...a])}
         onUndo={async (c) => setAdded((a) => a.filter((x) => x !== c))}
+        onCorrect={async (from, to) => {
+          setAdded((a) => a.map((x) => (x === from ? to : x)));
+          return from.scryfall_id === to.scryfall_id ? "kept" : "changed";
+        }}
         closeups={new URLSearchParams(location.search).get("closeups") !== "0"}
         controls={<p className="scan-note">The dev page: nothing is saved.</p>}
         settings={

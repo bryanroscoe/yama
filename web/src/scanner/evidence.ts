@@ -1,0 +1,309 @@
+// Settling the printing from the collector line by weight of evidence (Bryan, 15 Nov 2026, from
+// the scanner consult: "accumulate evidence instead of three in a row"). Each candidate printing
+// says what its collector line should show: number (with any promo suffix), set code, rarity
+// letter, language. Every read of every crop is scored against that, with OCR's lookalikes
+// (0/O, 1/I/L, 5/S, 8/B…) counting as near misses, and the scores are summed over frames. So one
+// stray frame no longer resets anything, and a set code read in one frame adds up with a number
+// read in another. The printing is settled when its evidence is well ahead of every other
+// printing's (posterior and margin) and both its fields were read; otherwise the picker asks.
+//
+// Two traps it guards against (the consult's risks): a card from The List prints its original
+// set code and number, so it and the original read the same; and a promo suffix (107p, 107s) is
+// easily dropped by OCR. When the leader has such a twin, the set code and number are no proof:
+// it's left to the picker, unless the leader's own suffix was read.
+//
+// The weights and thresholds below are first guesses [inferred], to be tuned on real reads.
+
+import type { Printing } from "../api";
+import { LANGS } from "./parse";
+
+/** What a printing's collector line should show, upper case. */
+export interface Expected {
+  id: string;
+  /** Set code as printed (The List: the original set's code). */
+  set: string;
+  /** Number as printed, leading zeros dropped, with its suffix ("107P"). */
+  number: string;
+  /** The number without its suffix ("107"). */
+  base: string;
+  /** Has a letter suffix (a promo or variant: 107p, 107s). */
+  suffix: boolean;
+  /** A reprint that prints another printing's set and number (The List). */
+  list: boolean;
+  /**
+   * Its printed line isn't known: a reprint set that prints the original card's set and number
+   * without saying which (Mystery Booster). It can look like any other candidate.
+   */
+  unknownLine: boolean;
+  rarity: string | null;
+  lang: string;
+  /** Frames from 2014's M15 on print the set code; older ones print only the number. */
+  printsSet: boolean;
+}
+
+/** Per-field weights of one frame's evidence. */
+export const WEIGHTS = { number: 1.5, set: 1, rarity: 0.25, lang: 0.25 };
+/**
+ * Settling: the leader's summed evidence at least MIN_TOTAL, MARGIN ahead of the next printing,
+ * its share of the posterior (softmax at TEMPERATURE) at least POSTERIOR, and each field it prints
+ * read at least FIELD_MIN in some frame. One clean read of set and number (1.5 + 1 plus language)
+ * meets these against a printing that shares only its set; a number or set code alone never does.
+ */
+export const SETTLE = { minTotal: 2.4, margin: 1.5, posterior: 0.9, temperature: 3, fieldMin: 0.6 };
+/** A token read as printed scores 1; one that matches only through OCR lookalikes 0.7; one lookalike-edit away 0.3. */
+const EXACT = 1;
+const LOOKALIKE = 0.7;
+const NEAR = 0.3;
+/** A number read without the candidate's suffix ("107" for 107p) still counts, for less. */
+const BASE_ONLY = 0.6;
+
+/** The first frame with a set code in the collector line (Magic 2015). */
+const M15 = "2014-07-18";
+
+/** Characters OCR mixes up, mapped to one shape. */
+const SHAPE: Record<string, string> = { O: "0", D: "0", Q: "0", I: "1", L: "1", T: "1", S: "5", B: "8", Z: "2", G: "6", A: "4", V: "U" };
+const shape = (s: string) => [...s].map((c) => SHAPE[c] ?? c).join("");
+const stripZeros = (s: string) => s.replace(/^0+(?=.)/, "");
+
+function editDistance(a: string, b: string): number {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array<number>(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j += 1) d[0]![j] = j;
+  for (let i = 1; i <= a.length; i += 1)
+    for (let j = 1; j <= b.length; j += 1) d[i]![j] = Math.min(d[i - 1]![j]! + 1, d[i]![j - 1]! + 1, d[i - 1]![j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[a.length]![b.length]!;
+}
+
+/** How well a read token matches an expected field: 1, 0.7, 0.3 or 0. */
+export function tokenMatch(token: string, expected: string, number = false): number {
+  const t = number ? stripZeros(token) : token;
+  if (t === expected) return EXACT;
+  const ts = number ? stripZeros(shape(t)) : shape(t);
+  const es = number ? stripZeros(shape(expected)) : shape(expected);
+  if (ts === es) return LOOKALIKE;
+  if (expected.length >= 3 && Math.abs(ts.length - es.length) <= 1 && editDistance(ts, es) === 1) return NEAR;
+  return 0;
+}
+
+/**
+ * Reprint sets whose cards print the original printing's set code and number (The List's numbers
+ * say which: "MOM-214"; Mystery Booster's don't) [inferred from the review of 15 Nov 2026].
+ */
+export const PRINTS_ORIGINAL = new Set(["plst", "plist", "mb1", "fmb1", "mb2"]);
+
+/** A printing as evidence.ts reads it. `parent_set_code`, when the API gives it, ties a promo set to its set. */
+export type PrintingLine = Pick<Printing, "scryfall_id" | "set_code" | "collector_number" | "rarity" | "lang" | "released_at"> & { parent_set_code?: string | null };
+
+export function expectedOf(p: PrintingLine): Expected {
+  // The List: "MOM-214" is MOM 214 as printed on the card.
+  const list = /^([A-Za-z0-9]{2,5})-([A-Za-z0-9★]+)$/.exec(p.collector_number);
+  // A set's promos ("psoi" for SOI, "pwoe" for WOE: prerelease, promo pack) print the set's own
+  // code; so does any set whose parent is the set, when the API says so.
+  const promoOf = /^p([a-z0-9]{3})$/i.exec(p.set_code);
+  const parent = p.parent_set_code && /^p/i.test(p.set_code) ? p.parent_set_code : null;
+  const set = (list ? list[1]! : parent ? parent : promoOf ? promoOf[1]! : p.set_code).toUpperCase();
+  const unknownLine = !list && PRINTS_ORIGINAL.has(p.set_code.toLowerCase());
+  const raw = (list ? list[2]! : p.collector_number).toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const number = stripZeros(raw);
+  const base = number.replace(/[A-Z]+$/, "") || number;
+  return {
+    id: p.scryfall_id,
+    set,
+    number,
+    base,
+    suffix: base !== number,
+    list: !!list,
+    unknownLine,
+    rarity: p.rarity ? p.rarity[0]!.toUpperCase() : null,
+    lang: p.lang,
+    printsSet: !p.released_at || p.released_at >= M15,
+  };
+}
+
+/**
+ * Whether another of these printings shows the same set code and number as `id` (The List's
+ * reprint of it, or a suffix variant): then reading that set and number proves nothing.
+ */
+export function hasTwin(printings: readonly PrintingLine[], id: string): boolean {
+  const all = printings.map(expectedOf);
+  const me = all.find((e) => e.id === id);
+  return !!me && all.some((e) => e.id !== id && (e.unknownLine || (e.set === me.set && e.base === me.base)));
+}
+
+/**
+ * A "number/total" counts as a collector number only when the total is a plausible set size: at
+ * least 20 and at least the number ("281/297", "030/280"). The total itself is dropped. Anything
+ * else with a slash is power and toughness ("9/7" on a two-faced card's back) and is dropped whole.
+ */
+export function withoutTotals(text: string): string {
+  return text.replace(/(\d{1,4})\s*\/\s*(\d{1,4})/g, (_, n: string, t: string) => (Number(t) >= 20 && Number(t) >= Number(n) ? n : " "));
+}
+
+/** The upper-case letter and digit runs of one read ("0145 C", "WOC • EN"), totals and P/T taken out. */
+export const tokens = (text: string) => withoutTotals(text).toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean);
+
+export interface FieldScores {
+  number: number;
+  set: number;
+  rarity: number;
+  lang: number;
+  /** The number was read with this printing's own suffix. */
+  suffixRead: boolean;
+  /** The number, or the set code, was read exactly as printed (not only through lookalikes). */
+  exactNumber: boolean;
+  exactSet: boolean;
+}
+
+/** Characters OCR reads for digits. A number is digits, or digits and these, with at most a suffix letter at the end. */
+const NUMBERLIKE = /^[0-9ODQILTSBZGAU]*[A-Z]?$/;
+/** Whether a token can be a collector number: at least one real digit, and otherwise digit lookalikes ("O14S", "281S"). */
+export const looksLikeNumber = (t: string) => /\d/.test(t) && NUMBERLIKE.test(t);
+/** Whether a token can be a set code: two to five characters with a letter in it ("W0C", "M19"). */
+export const looksLikeSet = (t: string) => t.length >= 2 && t.length <= 5 && /[A-Z]/.test(t);
+
+/**
+ * One frame's evidence for one printing: the best each field was read, over the frame's crops.
+ * A token counts for one field only: the number comes from a token that looks like a number, the
+ * set code from one that looks like a set code, and never the same token for both ("SLD" is not
+ * SLD #510's number through lookalikes).
+ */
+export function scoreFrame(e: Expected, reads: readonly string[]): FieldScores {
+  const s: FieldScores = { number: 0, set: 0, rarity: 0, lang: 0, suffixRead: false, exactNumber: false, exactSet: false };
+  const toks = reads.flatMap(tokens);
+  const numberOf = (t: string) => {
+    if (!looksLikeNumber(t)) return 0;
+    const n = tokenMatch(t, e.number, true);
+    if (n === 0 && e.suffix) return BASE_ONLY * tokenMatch(t, e.base, true);
+    return n;
+  };
+  const setOf = (t: string) => (looksLikeSet(t) ? tokenMatch(t, e.set) : 0);
+  const nums = toks.map(numberOf);
+  const sets = toks.map(setOf);
+  // The best pair of different tokens (or one field alone).
+  let best = { n: -1, s: -1, score: 0 };
+  for (let i = -1; i < toks.length; i += 1)
+    for (let j = -1; j < toks.length; j += 1) {
+      if (i >= 0 && i === j) continue;
+      const score = WEIGHTS.number * (i >= 0 ? nums[i]! : 0) + WEIGHTS.set * (j >= 0 ? sets[j]! : 0);
+      if (score > best.score) best = { n: i, s: j, score };
+    }
+  if (best.n >= 0) {
+    s.number = nums[best.n]!;
+    const t = stripZeros(toks[best.n]!);
+    s.exactNumber = t === e.number || (!e.suffix && t === e.base);
+    s.suffixRead = e.suffix && t === e.number;
+  }
+  if (best.s >= 0) {
+    s.set = sets[best.s]!;
+    s.exactSet = toks[best.s] === e.set;
+  }
+  for (const t of toks) {
+    if (t.length === 1 && e.rarity && t === e.rarity) s.rarity = 1;
+    if (LANGS[t] === e.lang) s.lang = 1;
+  }
+  return s;
+}
+
+interface Tally {
+  e: Expected;
+  total: number;
+  /** The best each field was read in any frame. */
+  number: number;
+  set: number;
+  suffixRead: boolean;
+  exactNumber: boolean;
+  exactSet: boolean;
+}
+
+export type Verdict =
+  | { kind: "settled"; id: string; margin: number; posterior: number }
+  | { kind: "unsure"; leader: string | null; setRead: string | null; numberRead: string | null; twin: boolean; frames: number };
+
+/** Evidence for one card's printings over one attempt (first read, hold and read, or the close-up). */
+export class Evidence {
+  private readonly tallies: Tally[];
+  private frames = 0;
+
+  constructor(printings: readonly PrintingLine[]) {
+    this.tallies = printings.map((p) => ({ e: expectedOf(p), total: 0, number: 0, set: 0, suffixRead: false, exactNumber: false, exactSet: false }));
+  }
+
+  /** Add one frame: the text read from each of its crops. */
+  add(reads: readonly string[]) {
+    if (!reads.some((r) => r.trim())) return;
+    this.frames += 1;
+    for (const t of this.tallies) {
+      const s = scoreFrame(t.e, reads);
+      t.total += WEIGHTS.number * s.number + WEIGHTS.set * s.set + WEIGHTS.rarity * s.rarity + WEIGHTS.lang * s.lang;
+      t.number = Math.max(t.number, s.number);
+      t.set = Math.max(t.set, s.set);
+      t.suffixRead ||= s.suffixRead;
+      t.exactNumber ||= s.exactNumber;
+      t.exactSet ||= s.exactSet;
+    }
+  }
+
+  /**
+   * Printings whose line can't be told from the leader's by its set and number: The List's, a
+   * promo set's suffix variant, or one whose line could be anything (Mystery Booster).
+   */
+  private twins(lead: Tally): Tally[] {
+    return this.tallies.filter((t) => t !== lead && (t.e.unknownLine || (t.e.set === lead.e.set && t.e.base === lead.e.base)));
+  }
+
+  verdict(): Verdict {
+    const ranked = [...this.tallies].sort((a, b) => b.total - a.total);
+    const lead = ranked[0];
+    if (!lead || lead.total <= 0) return { kind: "unsure", leader: null, setRead: null, numberRead: null, twin: false, frames: this.frames };
+    const second = ranked[1]?.total ?? 0;
+    const margin = lead.total - second;
+    const k = SETTLE.temperature;
+    const sum = ranked.reduce((n, t) => n + Math.exp(k * (t.total - lead.total)), 0);
+    const posterior = 1 / sum;
+    const numberOk = lead.number >= SETTLE.fieldMin;
+    const setOk = !lead.e.printsSet || lead.set >= SETTLE.fieldMin;
+    // Settling needs a field read exactly as printed, and the other at least through lookalikes:
+    // lookalike-only reads ("O14S W0C") order the picker and show progress, and never settle.
+    const exactOk = lead.e.printsSet ? (lead.exactNumber || lead.exactSet) && lead.number >= LOOKALIKE && lead.set >= LOOKALIKE : lead.exactNumber;
+    const twins = this.twins(lead);
+    // A twin: proof only when what tells them apart was read exactly: the leader's own suffix
+    // (and no List twin prints the same suffixed number). A Mystery Booster twin could be any of
+    // them, unless the leader is one and its own code was read.
+    const twinBlocks =
+      twins.length > 0 &&
+      !(lead.e.suffix && lead.suffixRead && !twins.some((t) => t.e.unknownLine || t.e.number === lead.e.number)) &&
+      !(lead.e.unknownLine && lead.exactSet);
+    if (lead.total >= SETTLE.minTotal && margin >= SETTLE.margin && posterior >= SETTLE.posterior && numberOk && setOk && exactOk && !twinBlocks) return { kind: "settled", id: lead.e.id, margin, posterior };
+    return {
+      kind: "unsure",
+      leader: lead.e.id,
+      setRead: lead.e.printsSet && lead.set >= SETTLE.fieldMin ? lead.e.set : null,
+      numberRead: numberOk ? lead.e.number : null,
+      twin: numberOk && setOk && twinBlocks,
+      frames: this.frames,
+    };
+  }
+}
+
+/**
+ * A collector line read some other way (a card found by its text: `decide()` in pipeline.ts) weighed
+ * as one frame of evidence: the printing it proves, if any, under the same rules as hold and read
+ * (one field exact, the other at least a lookalike, the twin guards). A confident title with a
+ * lookalike-only line ("O14S W0C • EN" under "Arcane Signet": 0.97 from decide) proves nothing.
+ * The evidence carries on into hold and read.
+ */
+export function proofOf(printings: readonly PrintingLine[], text: string): { proven: string | null; ev: Evidence } {
+  const ev = new Evidence(printings);
+  ev.add([text]);
+  const v = ev.verdict();
+  return { proven: v.kind === "settled" ? v.id : null, ev };
+}
+
+/** What the sheet says while the printing is being read. */
+export function progressLine(v: Verdict, printings: number): string {
+  if (v.kind === "settled") return "Read the set code and number";
+  if (v.twin) return "Read the set code and number, but another printing shows the same (The List, or a promo)";
+  if (v.setRead && v.numberRead) return `Read ${v.setRead} ${v.numberRead}; checking it against the other ${printings - 1} printings`;
+  if (v.setRead) return `Read the set code (${v.setRead}), not the number yet`;
+  if (v.numberRead) return `Read the number (${v.numberRead}), not the set code yet`;
+  return "Reading the set code and number";
+}

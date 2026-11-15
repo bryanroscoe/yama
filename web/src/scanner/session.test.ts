@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addOp, changedElsewhere, findRow, identity, noteWrite, planFix, removeFix, settled, touched, type Added, type Fix } from "./session";
+import { addOp, changedElsewhere, findRow, identity, noteWrite, planFix, printingFix, removeFix, settled, touched, type Added, type Fix } from "./session";
 
 const entry: Added = { key: "k", name: "Sol Ring", scryfall_id: "ecc-57", set: "ecc", number: "57", image: null, finish: "nonfoil", container: "box", copies: 2, auto: true };
 const row = (over: Partial<Parameters<typeof findRow>[0][number]> = {}) => ({ id: "r1", scryfall_id: "ecc-57", qty: 5, condition: "NM", finish: "nonfoil", lang: "en", proxy: false, container_id: "box", ...over });
@@ -99,5 +99,15 @@ describe("rows a write touches", () => {
     expect(planFix(tapped, removeFix(tapped), row({ qty: 4 }), ids())).toEqual([{ op_id: "op1", kind: "adjust", item_id: "r1", delta: -1 }]);
     // Never more than the row still holds, and never an add.
     expect(planFix({ ...tapped, copies: 3 }, removeFix({ ...tapped, copies: 3 }), row({ qty: 2 }), ids())).toEqual([{ op_id: "op1", kind: "adjust", item_id: "r1", delta: -2 }]);
+  });
+
+  it("Wrong printing after filing moves the copies filed to the right printing: the wrong one goes, none is added twice", () => {
+    const filed: Added = { ...entry, copies: 1, auto: true };
+    const f = printingFix(filed, { scryfall_id: "cmm-410", set: "cmm", number: "410", name: "Sol Ring", image: null });
+    expect(f).toEqual(fix({ scryfall_id: "cmm-410", set: "cmm", number: "410", copies: 1 }));
+    expect(planFix(filed, f, row({ qty: 3 }), ids())).toEqual([
+      { op_id: "op1", kind: "adjust", item_id: "r1", delta: -1 },
+      { op_id: "op2", kind: "add", scryfall_id: "cmm-410", qty: 1, finish: "nonfoil", proxy: false, container_id: "box" },
+    ]);
   });
 });

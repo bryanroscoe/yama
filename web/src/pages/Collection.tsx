@@ -724,6 +724,21 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
     const { removeFix } = await scanner();
     await fix(a, removeFix(a));
   };
+  /**
+   * Wrong printing after filing: move that entry's copies to the right printing (a fix, as in the
+   * Added list), and let `to` stand for them. Says what is filed now: "kept" when the entry was
+   * already that printing (it may have been changed in the Added list since).
+   */
+  const correct = async (from: ScanCandidate, to: ScanCandidate): Promise<"changed" | "kept"> => {
+    const key = filedAs.current.get(from);
+    const a = key ? listRef.current.find((x) => x.key === key) : undefined;
+    if (!key || !a || !to.scryfall_id) throw new Error("It's no longer in the Added list");
+    filedAs.current.set(to, key);
+    if (a.scryfall_id === to.scryfall_id && !a.pending) return "kept";
+    const { printingFix } = await scanner();
+    await fix(a, printingFix(a, { scryfall_id: to.scryfall_id, set: to.set, number: to.number, name: to.name, image: to.thumb ?? to.image ?? null }));
+    return "changed";
+  };
   const busyMessage = (a: Added) => (a.pending?.error ? "Try the last change again first." : "Still saving the last change.");
   const fix = async (a: Added, f: Fix) => {
     const before = listRef.current.find((x) => x.key === a.key);
@@ -832,6 +847,7 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
         <ScannerView
           onAccept={accept}
           onUndo={undo}
+          onCorrect={correct}
           onClose={close}
           addedCount={added.reduce((n, a) => n + a.copies, 0)}
           onShowAdded={() => setReviewing(true)}

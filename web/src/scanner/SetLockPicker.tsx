@@ -60,7 +60,7 @@ export function SetLockPicker({ codes, loading, onChange, onClose }: { codes: st
       {!full && (
         <label className="scan-lock-search">
           <span className="dim">{codes.length ? "Add another set" : "Set name or code"}</span>
-          <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Edge of Eternities, ECC…" autoComplete="off" enterKeyHint="search" />
+          <input type="search" value={q} onChange={(e) => setQ(e.target.value)} autoComplete="off" enterKeyHint="search" />
         </label>
       )}
       {!full && sets === null && !error && <Loading className="scan-note">Loading sets…</Loading>}

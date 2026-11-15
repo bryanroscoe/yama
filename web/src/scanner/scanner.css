@@ -684,3 +684,15 @@ button.scan-count {
   border: 1px solid var(--line);
   border-radius: var(--r-tile);
 }
+
+/* "Read as this": the printing the scanner settled and the person said was wrong. */
+.scan-misread {
+  font-size: var(--t-sm);
+  font-weight: 700;
+  color: var(--bad);
+}
+/* Undo and Wrong printing on the "Added …" chip wrap under the words when they don't fit. */
+.scan-chip.has-action {
+  flex-wrap: wrap;
+  justify-content: center;
+}

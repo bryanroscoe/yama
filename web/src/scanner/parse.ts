@@ -24,7 +24,7 @@ export interface CollectorRead {
 }
 
 /** Language codes as printed on cards, mapped to Scryfall's codes. */
-const LANGS: Record<string, string> = {
+export const LANGS: Record<string, string> = {
   EN: "en",
   DE: "de",
   FR: "fr",
