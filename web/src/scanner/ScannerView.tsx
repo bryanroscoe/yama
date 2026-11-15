@@ -990,8 +990,10 @@ export function ScannerView({
     // Anything shown meanwhile (a typed name, Not this) makes this photo's answer stale.
     const start = foundSeq.current;
     const current = () => foundSeq.current === start && alive.current;
+    // Released in `finally` whatever happens (closing twice does nothing).
+    let bmp: ImageBitmap | null = null;
     try {
-      const bmp = await createImageBitmap(file);
+      bmp = await createImageBitmap(file);
       canvasRef.current ??= document.createElement("canvas");
       hiCanvasRef.current ??= document.createElement("canvas");
       const art = artRef.current;
@@ -1063,6 +1065,7 @@ export function ScannerView({
     } catch (err) {
       if (current()) setStatus(err instanceof Error ? err.message : String(err));
     } finally {
+      bmp?.close();
       setPhotoBusy(false);
     }
   };
