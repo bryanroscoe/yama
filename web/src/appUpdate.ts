@@ -57,16 +57,21 @@ export function useAppUpdate(): AppUpdateState {
 /** How often the app asks for update.json while it's open or comes back to the front. */
 export const NATIVE_CHECK_MS = 30 * 60_000;
 
+/** After a failed check (offline, GitHub unreachable), the next one may come this soon. */
+export const RETRY_MS = 60_000;
+
 let lastTry = 0;
 let running: Promise<void> | null = null;
 
 /**
- * Ask update.json what's new. `force` skips the 30-minute spacing (launch, Check for updates).
- * A check already running is joined rather than repeated.
+ * Ask update.json what's new. `force` skips the spacing (launch, Check for updates): 30 minutes
+ * after a check that worked, a minute after one that failed. A check already running is joined
+ * rather than repeated.
  */
 export function checkForUpdates(force = false): Promise<void> {
   if (running) return running;
-  if (!force && Date.now() - lastTry < NATIVE_CHECK_MS) return Promise.resolve();
+  const wait = state.checkFailed ? RETRY_MS : NATIVE_CHECK_MS;
+  if (!force && Date.now() - lastTry < wait) return Promise.resolve();
   lastTry = Date.now();
   running = runCheck().finally(() => {
     running = null;

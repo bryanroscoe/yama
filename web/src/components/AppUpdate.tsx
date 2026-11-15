@@ -63,7 +63,11 @@ function NativeAppUpdate() {
     void checkForUpdates(true);
     const interval = window.setInterval(() => void checkForUpdates(), NATIVE_CHECK_MS);
     const onResume = import("@capacitor/app").then(({ App }) => App.addListener("resume", () => void resumed()));
+    // Signal back after a failed check: try again (spaced by checkForUpdates).
+    const online = () => void checkForUpdates();
+    window.addEventListener("online", online);
     return () => {
+      window.removeEventListener("online", online);
       window.clearInterval(interval);
       void onResume.then((h) => h.remove());
     };

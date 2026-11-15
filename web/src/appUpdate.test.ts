@@ -8,7 +8,7 @@ const updater = vi.hoisted(() => ({
 }));
 vi.mock("./nativeUpdate", async (orig) => ({ ...(await orig<typeof import("./nativeUpdate")>()), Updater: updater }));
 
-import { checkForUpdates, getAppUpdate, installApp, resetAppUpdate, resumed } from "./appUpdate";
+import { checkForUpdates, getAppUpdate, installApp, resetAppUpdate, resumed, RETRY_MS } from "./appUpdate";
 import { appStatus } from "./components/AppUpdate";
 
 const sha = "a".repeat(64);
@@ -70,6 +70,26 @@ describe("the shared update state", () => {
     await resumed();
     expect(updater.installApk).toHaveBeenCalledTimes(1);
     expect(getAppUpdate().installError).toMatch(/isn't allowed to install apps yet/);
+  });
+
+  it("tries again soon after a failed check, but spaces checks that worked", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal("navigator", { onLine: false });
+      await checkForUpdates(true);
+      expect(updater.fetchText).not.toHaveBeenCalled();
+      vi.stubGlobal("navigator", { onLine: true });
+      await checkForUpdates();
+      expect(updater.fetchText).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(RETRY_MS);
+      await resumed();
+      expect(updater.fetchText).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(RETRY_MS);
+      await checkForUpdates();
+      expect(updater.fetchText).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("never offers updates to a local build", async () => {
