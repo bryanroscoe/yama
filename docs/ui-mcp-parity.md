@@ -172,6 +172,7 @@ part of it). "Gap" rows are the backlog, in rough priority order inside each are
 | Script keys, connected apps, Ask Claude settings and conversations | Plans settings, You > Settings | — | UI only on purpose (credentials) |
 | Advanced (whether the app shows the Workshop) | You > Settings | — | UI only on purpose (it changes the app's navigation, nothing a tool reads or writes) |
 | Delete account | Settings | — | UI only on purpose |
+| Which Yama build each signed-in device runs | Admin, People (admins, latest device only) | `list_devices` | MCP for the account's own devices (added 2026-11-15) |
 | Admin pages | Admin | — | UI only on purpose |
 
 ## No good design yet

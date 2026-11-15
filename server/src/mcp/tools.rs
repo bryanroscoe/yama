@@ -690,6 +690,22 @@ pub(super) const TOOLS: &[Tool] = &[
         needs: Needs::Nothing,
     },
     Tool {
+        name: "list_devices",
+        aliases: &[],
+        title: "Your devices and the Yama build each runs",
+        description: "Their signed-in devices, most recent first: each device's name and the Yama app version, web build and native hash it last reported, with when. Use it to tell which build is on their phone.",
+        schema: no_args,
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_devices),
+        stages: None,
+        output: Some(registry::object),
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
+    },
+    Tool {
         name: "list_lab_runs",
         aliases: &["lab_runs"],
         title: "Your lab experiments",
@@ -1805,6 +1821,13 @@ async fn run_playgroups(c: Ctx<'_>, args: &Value) -> AppResult<String> {
     let pool = &st.pool;
     let _ = via;
     playgroups(pool, user, args).await
+}
+
+/// `list_devices`: the caller's own devices and their builds (`client_builds.rs`), never anyone else's.
+async fn run_devices(c: Ctx<'_>, _args: &Value) -> AppResult<String> {
+    let devices = crate::client_builds::list(&c.st.pool, &c.user.id).await?;
+    let note = if devices.is_empty() { "No device has reported its build yet. Apps and browsers report it from 15 Nov 2026, the next time they use Yama signed in." } else { "Times are UTC." };
+    Ok(serde_json::to_string(&json!({"devices": devices, "note": note})).map_err(anyhow::Error::from)?)
 }
 
 /// `browse_public_decks`: the Browse page's listing (`sharing::browse::listed`), so the tool and

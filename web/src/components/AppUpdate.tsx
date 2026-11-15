@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { setClientBuild } from "../api";
 import { isNative } from "../native";
 import { parseManifest, planUpdate, Updater, UPDATE_MANIFEST_URL, WEB_BUILD } from "../nativeUpdate";
 import { Button } from "./Button";
@@ -65,6 +66,8 @@ function NativeAppUpdate() {
     let last = 0;
     // This build started: keep it (the updater goes back to the previous one otherwise).
     void Updater.started({ version: WEB_BUILD }).catch(() => {});
+    // Tell the server which build this device runs (clientBuild.ts).
+    void Updater.info().then(setClientBuild, () => {});
     const check = async (force = false) => {
       if (checking || (!force && Date.now() - last < NATIVE_CHECK_MS) || !navigator.onLine) return;
       checking = true;

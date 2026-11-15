@@ -321,6 +321,9 @@ into `/mcp` with a token scoped to that one question. Details:
   and playgroups, games and stats are never public
   ([Public by default and the navigation](#public-by-default-and-the-navigation-2026-11-12)). They never show account details, prices paid, notes, containers, proxies or games,
   and a shared plan never shows its owner's answers, ownership or shopping evidence.
+- **Which build a device runs is the account's own.** The app's `X-Yama-Client` header is kept
+  per account and sign-in for its assistant (`list_devices`) and admins, never shown publicly
+  ([Which build each device runs](#which-build-each-device-runs-15-november-2026)).
 - **A list checked without an account belongs to nobody.** `POST /api/public/deck-check` takes
   no session, reads card data and market prices only, stores nothing and sends the list to no
   other service ([Check a deck without an account](#check-a-deck-without-an-account-2026-11-12)).
@@ -388,7 +391,7 @@ section 4 is the first sketch; the current system is [above](#the-system-at-a-gl
 - **Online play and the engine:** [How online play ended up working](#how-online-play-ended-up-working), [Watch the AIs play (2026-10-22)](#watch-the-ais-play-2026-10-22), [Drag and drop on the online board (2026-10-22)](#drag-and-drop-on-the-online-board-2026-10-22), [Board motion (2026-10-22)](#board-motion-2026-10-22), [phase's own board (2026-10-29)](#phases-own-board-2026-10-29), [Engine choice and direct restoration (2026-10-30)](#engine-choice-and-direct-restoration-2026-10-30), [PR 29 historical runtime supervision and provenance follow-up (30 October 2026)](#pr-29-historical-runtime-supervision-and-provenance-follow-up-30-october-2026), [Phase board release integration (1 November 2026)](#phase-board-release-integration-1-november-2026), [Online game startup isolation (2026-11-10)](#online-game-startup-isolation-2026-11-10), [Playing mode recovery and presentation (2026-11-10)](#playing-mode-recovery-and-presentation-2026-11-10), [Games left on an old engine (2026-11-12)](#games-left-on-an-old-engine-2026-11-12).
 - **Lab and evidence:** [Simulation lab (2026-10-19)](#simulation-lab-2026-10-19), [Forge as a second Lab engine (2026-10-22)](#forge-as-a-second-lab-engine-2026-10-22), [Lab time-outs (2026-10-23)](#lab-time-outs-2026-10-23), [Referee: phase checked against Forge (2026-10-24)](#referee-phase-checked-against-forge-2026-10-24), [Shared-field tournaments (2026-10-26)](#shared-field-tournaments-2026-10-26), [Lab execution targets (2026-10-27)](#lab-execution-targets-2026-10-27), [Phase retry-tail progress (2026-10-28)](#phase-retry-tail-progress-2026-10-28), [Lab: off the write lock, and its cost (2026-11-02)](#lab-off-the-write-lock-and-its-cost-2026-11-02), [Historical evidence datasets (2026-10-28)](#historical-evidence-datasets-2026-10-28), [Precon evidence from datasets (2026-10-29)](#precon-evidence-from-datasets-2026-10-29), [Public precon reference (2026-10-27)](#public-precon-reference-2026-10-27), [Precon upgradeability (2026-10-27)](#precon-upgradeability-2026-10-27), [Public commander ranking (2026-11-01)](#public-commander-ranking-2026-11-01), [Precon power comparison (2026-11-09)](#precon-power-comparison-2026-11-09), [Star Trek stock catalog (2026-11-09)](#star-trek-stock-catalog-2026-11-09).
 - **Shopping:** [Live store stock (13 November 2026)](#live-store-stock-13-november-2026).
-- **The Android app:** [The Android app, sideloaded (13 November 2026)](#the-android-app-sideloaded-13-november-2026).
+- **The Android app:** [The Android app, sideloaded (13 November 2026)](#the-android-app-sideloaded-13-november-2026), [Which build each device runs (15 November 2026)](#which-build-each-device-runs-15-november-2026).
 - **Game night:** [Table and playgroup stats (2026-10-19)](#table-and-playgroup-stats-2026-10-19).
 - **Cards, collection and prices:** [Mana symbols (2026-11-12)](#mana-symbols-2026-11-12), [Release calendar and What's new (2026-10-19)](#release-calendar-and-whats-new-2026-10-19), [A deck's cards in the collection, and Mythic re-imports (2026-10-23)](#a-decks-cards-in-the-collection-and-mythic-re-imports-2026-10-23), [Deck market values (2026-10-27)](#deck-market-values-2026-10-27), [Scan this deck (2026-10-29)](#scan-this-deck-2026-10-29), [Mythic Tools bridge (2026-10-31, proposal)](#mythic-tools-bridge-2026-10-31-proposal), [Store trips (2026-11-01)](#store-trips-2026-11-01), [Deleting collection containers (2026-11-02)](#deleting-collection-containers-2026-11-02), [Sell lists for store buylists (2026-11-02)](#sell-lists-for-store-buylists-2026-11-02), [Local buylist offers (2026-11-02)](#local-buylist-offers-2026-11-02), [Price history (2026-11-02)](#price-history-2026-11-02), [Recording printed copies in a deck box (2026-11-02)](#recording-printed-copies-in-a-deck-box-2026-11-02).
 - **Decks, plans and sharing:** [Brackets, deck stats and exports (2026-10-19)](#brackets-deck-stats-and-exports-2026-10-19), [Deck import (2026-10-22)](#deck-import-2026-10-22), [Sharing and deck configurations (2026-10-28)](#sharing-and-deck-configurations-2026-10-28), [Review, installed decks and the Lab tab (2026-10-28)](#review-installed-decks-and-the-lab-tab-2026-10-28), [Check this deck (2026-11-01)](#check-this-deck-2026-11-01), [Deck configurations and quieter editing (2026-11-03)](#deck-configurations-and-quieter-editing-2026-11-03), [One plan page (2026-11-04)](#one-plan-page-2026-11-04), [Printing with MakePlayingCards (2026-11-05)](#printing-with-makeplayingcards-2026-11-05), [Plans: one plan per deck (2026-11-06)](#plans-one-plan-per-deck-2026-11-06), [Site design pass (2026-11-08)](#site-design-pass-2026-11-08), [Public by default and the navigation (2026-11-12)](#public-by-default-and-the-navigation-2026-11-12), [Check a deck without an account (2026-11-12)](#check-a-deck-without-an-account-2026-11-12).
@@ -518,6 +521,28 @@ How it works is in docs/mobile.md, "Updates"; the decisions:
   apps run. Only workflows on `main` (with `contents: write`) and the repository owner can; fork
   pull requests can't reach the release key or the release. The APK holds nothing the public site
   doesn't serve.
+
+## Which build each device runs (15 November 2026)
+
+Bryan: agents must be able to tell which build is on his Pixel 10 Pro without the phone; the
+server logged nothing about app versions. The decisions:
+
+- **The client says its build in a header.** `X-Yama-Client` on API requests
+  (`web/src/clientBuild.ts`): `android/0.2.100 (100) web/638954329799 native/<hash>` in the app,
+  `web/<commit>` in a browser. The app sends nothing until `Updater.info()` answers, so one start
+  never reports two builds, and sends it only with its bearer token: those requests are already
+  preflighted, so the header (added to the CORS allow list in `routes.rs`) costs no round trip.
+  Cloudflare's bot rule is unaffected: the app's requests already pass on `Authorization`.
+- **The server treats it as data.** At most 160 bytes of letters, digits, spaces and `._/()+-`,
+  else ignored (`client_builds.rs`). Only a request signed in with a session records it (the
+  sign-in extractor), keyed by account and a key derived from the session token's hash, so each
+  sign-in is a device. The User-Agent is reduced to a short device name and not kept.
+- **Cheap writes.** One upsert per device at most every five minutes, or at once when the build
+  changes (an in-memory note of the last write); a change, or a new device, is logged. At most 20
+  devices per account are kept, the most recently seen.
+- **Who sees it.** The account itself, through its assistant (`list_devices`, read only, bound to
+  the caller), and admins on People. Nothing public shows it; rows go with the account
+  (`admin/delete.rs`), and the privacy policy says it is kept.
 
 ## Bug reports (12 November 2026)
 

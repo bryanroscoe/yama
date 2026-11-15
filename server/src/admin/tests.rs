@@ -646,6 +646,9 @@ async fn deleting_an_account_leaves_nothing_of_it() {
     fill(&pool, "oauth_tokens", &[("grant_id", t(&grant))]).await;
     fill(&pool, "oauth_codes", &[("user_id", t(&v)), ("client_id", t(&client)), ("grant_id", t(&grant))]).await;
     fill(&pool, "calendar_watches", &[("user_id", t(&v))]).await;
+    for owner in [&v, &b] {
+        fill(&pool, "client_builds", &[("user_id", t(owner)), ("client", t("android/0.2.100 (100) web/abc"))]).await;
+    }
     fill(&pool, "deleted_games", &[("deleted_by", t(&v))]).await;
     fill(&pool, "deleted_games", &[("deleted_by", t(&b))]).await;
     let run = fill(&pool, "lab_runs", &[("owner_id", t(&v))]).await;

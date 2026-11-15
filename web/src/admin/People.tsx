@@ -18,6 +18,10 @@ const signInWays = (a: AccountInfo) => {
 const seenLine = (a: AccountInfo) =>
   a.last_seen_at ? `Last seen ${ago(a.last_seen_at)}.` : a.last_sign_in ? `Last signed in ${ago(a.last_sign_in)}.` : "Not seen yet.";
 
+/** The Yama build the account's most recently seen device reported (server/src/client_builds.rs). */
+const buildLine = (a: Pick<AccountInfo, "last_client" | "last_client_device" | "last_client_at">) =>
+  a.last_client ? `Runs ${a.last_client}${a.last_client_device ? ` on ${a.last_client_device}` : ""}${a.last_client_at ? `, ${ago(a.last_client_at)}` : ""}.` : "";
+
 export function PeoplePage() {
   const me = useMe();
   const qc = useQueryClient();
@@ -90,6 +94,7 @@ export function PeoplePage() {
                 <span>
                   {signInWays(a)} {seenLine(a)}
                 </span>
+                {a.last_client && <span>{buildLine(a)}</span>}
               </div>
               {!a.is_admin && a.id !== me.data?.id && (
                 <ActionBar className="admin-actions">

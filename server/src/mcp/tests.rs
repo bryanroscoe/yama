@@ -1621,3 +1621,50 @@ async fn proxies_move_on_their_own_and_tokens_that_share_a_name_are_found() {
     let listed: Value = serde_json::from_str(&text).unwrap();
     assert_eq!((listed["total_printings"].as_i64(), listed["owned_real"].as_i64()), (Some(2), Some(0)), "the token isn't a Goyf owned: {listed}");
 }
+
+#[tokio::test]
+async fn a_device_reports_its_build_and_only_its_owner_reads_it() {
+    let (app, pool) = app().await;
+    let (_, phone) = user(&pool, "bryan@example.com").await;
+    let (other_id, other) = user(&pool, "other@example.com").await;
+    let pixel = "Mozilla/5.0 (Linux; Android 16; Pixel 10 Pro Build/BD1A.250805.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/141.0.0.0 Mobile Safari/537.36";
+    let req = Request::builder()
+        .uri("/api/me")
+        .header(header::AUTHORIZATION, format!("Bearer {phone}"))
+        .header(header::USER_AGENT, pixel)
+        .header(crate::client_builds::HEADER, "android/0.2.100 (100) web/638954329799 native/0123456789abcdef")
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(app.clone().oneshot(req).await.unwrap().status(), StatusCode::OK);
+    // A request with no session reports nothing, whatever it sends.
+    let req = Request::builder().uri("/api/health").header(crate::client_builds::HEADER, "web/abc").body(Body::empty()).unwrap();
+    app.clone().oneshot(req).await.unwrap();
+    let rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM client_builds").fetch_one(&pool).await.unwrap();
+    assert_eq!(rows, 1);
+
+    let mcp = key(&app, &phone, Some("mcp")).await;
+    let (err, text) = call(&app, &mcp, "list_devices", json!({})).await;
+    assert!(!err, "{text}");
+    let got: Value = serde_json::from_str(&text).unwrap();
+    let d = &got["devices"][0];
+    assert_eq!(
+        (d["device"].as_str(), d["app"].as_str(), d["app_version"].as_str(), d["version_code"].as_i64(), d["web_build"].as_str(), d["native"].as_str()),
+        (Some("Pixel 10 Pro (Android 16)"), Some("android"), Some("0.2.100"), Some(100), Some("638954329799"), Some("0123456789abcdef")),
+        "{got}"
+    );
+    assert!(d["last_seen"].is_string() && d["build_since"].is_string(), "{got}");
+
+    // Another account sees none of it.
+    let theirs = key(&app, &other, Some("mcp")).await;
+    let (err, text) = call(&app, &theirs, "list_devices", json!({})).await;
+    assert!(!err && !text.contains("Pixel") && !text.contains("0.2.100"), "{text}");
+
+    // An admin sees each account's latest on People.
+    sqlx::query("UPDATE users SET is_admin = 1 WHERE id = ?").bind(&other_id).execute(&pool).await.unwrap();
+    let (status, list) = send(&app, Method::GET, "/api/admin/users", Some(&other), None).await;
+    assert_eq!(status, StatusCode::OK, "{list}");
+    let row = list.as_array().unwrap().iter().find(|u| u["email"] == "bryan@example.com").unwrap();
+    assert_eq!((row["last_client"].as_str(), row["last_client_device"].as_str()), (Some("android/0.2.100 (100) web/638954329799 native/0123456789abcdef"), Some("Pixel 10 Pro (Android 16)")), "{row}");
+    let mine = list.as_array().unwrap().iter().find(|u| u["email"] == "other@example.com").unwrap();
+    assert!(mine["last_client"].is_null(), "{mine}");
+}
