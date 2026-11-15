@@ -22,10 +22,11 @@ import { choosePrinting, printingOptions, type Choice } from "./printings";
 import type { ArtMatch, Recognition } from "./recognizer";
 import { deleteSamples, keepSample, sampleSummary, savingPhotos, setSavingPhotos, type SampleLabel, type SampleSummary, type Shot } from "./samples";
 import { SetLockPicker } from "./SetLockPicker";
-import { artInSets, inLockedSets, judgeLocked, lockedNames, lockedSet, poolKeys, savedLock, saveLock, suggestLock, type LockedSet } from "./setlock";
+import { artInSets, inLockedSets, POOL_MARGIN, judgeLocked, lockedNames, lockedSet, poolKeys, savedLock, saveLock, suggestLock, type LockedSet } from "./setlock";
 import { CameraControls, digitalRegion, useCameraControls } from "./camera";
 import { createServerCatalog } from "./serverCatalog";
-import { createScannerOcr, type ScannerOcr } from "./ocrEngine";
+import { createScannerOcr, ENGINE_LABEL, plannedEngine, type ScannerOcr } from "./ocrEngine";
+import { HeldRead, type HeldVerdict } from "./heldRead";
 import { ScanSettings, usePinchZoom, useSheetDrag } from "./sheet";
 import type { OcrEngine, Quad, RgbaImage, ScanCandidate, ScanCatalog, ScanResult } from "./types";
 import "./scanner.css";
@@ -152,6 +153,11 @@ const MARGIN = 0.12;
 const MAX_SIDE = 1500;
 const CARD_ASPECT = 88 / 63;
 const PICKER_FIRST = 24;
+/**
+ * While reading a held card: how far below the best match in view the held card's art may score.
+ * With the set lock, as far as judgeLocked lets an in-set match trail the best one anywhere.
+ */
+const SAME_CARD_MARGIN = 0.02;
 
 const sameCard = (a: ScanCandidate | undefined, b: ScanCandidate | undefined) => !!a && !!b && a.name === b.name && a.set === b.set && a.number === b.number;
 
@@ -323,6 +329,10 @@ export function ScannerView({
   /** The close-up step: the person holds the camera close to the collector line or the title. */
   const [closeup, setCloseup] = useState<"collector" | "title" | null>(null);
   const [closeupRead, setCloseupRead] = useState("");
+  /** Reading the printing from whole-card frames while the card is held (heldRead.ts). */
+  const [holding, setHolding] = useState(false);
+  /** The text reader in use, once started (ocrEngine.ts); shown in Scan settings. */
+  const [ocrName, setOcrName] = useState<ScannerOcr["engine"] | null>(null);
   const closeRef = useRef<HTMLDivElement>(null);
   const foundRef = useRef<Found | null>(null);
   foundRef.current = found;
@@ -419,6 +429,7 @@ export function ScannerView({
             void o.terminate();
             throw new Error("The scanner is closed");
           }
+          setOcrName(o.engine);
           return (ownedOcr.current = o);
         });
     const started = ocrRef.current;
@@ -927,9 +938,15 @@ export function ScannerView({
     void settle(seq, f, f.art ? { art: f.art.illustrationId, id: f.art.id } : { name: f.name }, f.method === "art" ? (f.shot ?? null) : null, f.known);
   };
 
-  // Step 2 starts by itself when the printing isn't settled: several share the art and the
-  // collector line couldn't be read from the whole-card view. Without close-ups, the picker asks.
-  const needsCollector = closeups && live && phase === "found" && !identityOnly && !!found?.options && found.options.length > 1 && !found.chosen && !found.reading && !found.outside;
+  // Several printings share the art and the first read of the collector line didn't settle it.
+  // A card found by its art: keep reading the line from whole-card frames while it's held (below),
+  // and only then, with close-ups on, ask for the close-up box. A card found by its text: the
+  // close-up box at once. Without close-ups, the picker asks.
+  const unsettled = live && phase === "found" && !identityOnly && !!found?.options && found.options.length > 1 && !found.chosen && !found.reading && !found.outside;
+  const needsCollector = closeups && unsettled && found?.method !== "art";
+  // Not while "Wrong card" is open: the person is saying it isn't this card.
+  const readWhileHeld = unsettled && !closeup && !paused && !wrongOpen && found?.method === "art" && !!found.art;
+  const heldArt = readWhileHeld ? found!.art!.index : null;
   useEffect(() => {
     if (needsCollector) setCloseup("collector");
   }, [needsCollector]);
@@ -941,6 +958,96 @@ export function ScannerView({
     if (phase !== "found" && closeup === "collector") setCloseup(null);
     if (phase === "found" && closeup === "title") setCloseup(null);
   }, [phase, closeup]);
+
+  // Hold and read (Bryan, 15 Nov 2026): find the card again in each new frame and read its
+  // collector line at the camera's full resolution, until a read proves the printing or AGREE
+  // frames agree (heldRead.ts). The person needn't move the card.
+  useEffect(() => {
+    if (heldArt == null) return;
+    let stop = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const held = new HeldRead(closeups);
+    const start = foundRef.current;
+    setHolding(true);
+    const next = (ms: number) => {
+      if (!stop) timer = setTimeout(tick, ms);
+    };
+    const done = () => {
+      stop = true;
+      setHolding(false);
+    };
+    const settleOn = (c: Choice, text: string) => {
+      const chosenNow = c.chosen!;
+      done();
+      setFound((cur) => (cur && cur === start ? { ...cur, chosen: chosenNow, how: "collector", sure: true, settledId: chosenNow.scryfall_id, options: c.options, raw: text } : cur));
+      buzz(30);
+    };
+    const tick = async () => {
+      if (stop) return;
+      const v = videoRef.current;
+      const art = artRef.current;
+      const f = foundRef.current;
+      if (f !== start || !f?.options) return done();
+      if (!v || !art || v.videoWidth === 0 || document.visibilityState !== "visible") return next(200);
+      try {
+        canvasRef.current ??= document.createElement("canvas");
+        hiCanvasRef.current ??= document.createElement("canvas");
+        const box = v.closest(".scan-camera")?.getBoundingClientRect();
+        const zone = digitalRegion(v.videoWidth, v.videoHeight, digitalRef.current, box);
+        const { image, k } = smallRegion(v, zone, canvasRef.current);
+        const r = await art.identify(image);
+        if (stop) return;
+        // The held card must still be the best match in view (or as good as it): another card that
+        // only looks a bit like it would have its collector line read against this card's printings.
+        const all = r.quad ? [...r.matches, ...(r.pool ?? [])] : [];
+        const heldScore = Math.max(-1, ...all.filter((m) => m.index === heldArt).map((m) => m.score));
+        const bestScore = Math.max(-1, ...all.map((m) => m.score));
+        const seen = heldScore >= ART_UNKNOWN && heldScore >= bestScore - (lockRef.current ? POOL_MARGIN : SAME_CARD_MARGIN);
+        let guess: { c: Choice; text: string } | null = null;
+        let verdict: HeldVerdict;
+        if (!seen) verdict = held.missed();
+        else {
+          const quad = r.quad!.map(([x, y]) => [x / k + zone.x, y / k + zone.y]) as Quad;
+          const read = around(v, v.videoWidth, v.videoHeight, quad, hiCanvasRef.current);
+          const opts = { sameArt: f.sameArt, printings: f.options };
+          const ocr = await ocrEngine();
+          for await (const text of readCollectorLines(read.image, read.quad, ocr)) {
+            if (stop) return;
+            const c = choosePrinting(opts, text);
+            if (c.chosen && c.certain) return settleOn(c, text);
+            if (!guess && c.chosen) guess = { c, text };
+          }
+          verdict = held.frame(guess?.c.chosen?.scryfall_id ?? null);
+        }
+        switch (verdict) {
+          case "settled":
+            return settleOn(guess!.c, guess!.text);
+          case "closeup":
+            done();
+            setCloseup("collector");
+            return;
+          case "stop":
+            return done();
+          default:
+            return next(60);
+        }
+      } catch (e) {
+        // A failed read counts as a frame without the card: a few in a row end the loop, and the
+        // picker takes over.
+        console.warn("Reading the held card failed", e);
+        if (held.missed() === "stop") return done();
+        next(500);
+      }
+    };
+    void tick();
+    return () => {
+      stop = true;
+      clearTimeout(timer);
+      setHolding(false);
+    };
+    // buzz and the setters are stable for this purpose; the loop reads the card through foundRef.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [heldArt, closeups, ocrEngine]);
 
   // The close-up loop: read the box as text until it settles the printing or the name.
   useEffect(() => {
@@ -1019,7 +1126,7 @@ export function ScannerView({
   }, [chosen, phase, closeup, found?.picking]);
   // When the next step is a tap, not the camera, say so on the camera view, buzz, and bring it into view.
   const tapNeeded: string | null =
-    phase !== "found" || !found || closeup
+    phase !== "found" || !found || closeup || holding
       ? null
       : found.outside
         ? `Not in ${lockLabel}: another set?`
@@ -1076,6 +1183,7 @@ export function ScannerView({
     <ScanSettings summary={settingsSummary}>
       {settings}
       <SavePhotosSwitch />
+      <p className="scan-note">Reads text with {ENGINE_LABEL[ocrName ?? plannedEngine()]}{ocrName ? "" : " (starts with the first read)"}.</p>
     </ScanSettings>
   );
   const price = chosen ? (finish === "foil" ? chosen.usd_foil : chosen.usd) : null;
@@ -1137,8 +1245,10 @@ export function ScannerView({
           {tapNeeded ??
             (isFound && found?.outside
               ? `Not in ${lockLabel}`
-              : isFound && closeup === "collector"
-                ? "Found it. Now the printing"
+              : isFound && (closeup === "collector" || holding)
+                ? holding
+                  ? "Found it. Hold still for the printing"
+                  : "Found it. Now the printing"
                 : isFound
                   ? "Found it"
                   : lockOpen
@@ -1287,9 +1397,15 @@ export function ScannerView({
             )}
             {showPicker && options && (!chosen || found.picking) && !closeup && (
               <div ref={tapRef} className="scan-step is-tap">
-                <p>
-                  <strong>Your turn:</strong> tap the printing that matches your card. Its set code and number are in the bottom-left corner.
-                </p>
+                {holding ? (
+                  <p>
+                    <strong>Reading the printing.</strong> Keep the card in view while the set code and number are read, or tap the printing below.
+                  </p>
+                ) : (
+                  <p>
+                    <strong>Your turn:</strong> tap the printing that matches your card. Its set code and number are in the bottom-left corner.
+                  </p>
+                )}
               </div>
             )}
             {showPicker && options && (

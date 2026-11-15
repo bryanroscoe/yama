@@ -15,6 +15,17 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-15-scan-hold-and-read",
+    date: "2026-11-15",
+    title: "Hold the card and the scanner reads its printing",
+    items: [
+      "When several printings share a card's art, the scanner now keeps reading the set code and number from the whole card while you hold it. You no longer have to bring the phone close to the corner first.",
+      "With Close-ups on, the close-up box only appears if a few tries don't work. With it off, you're never asked. Either way, \"Read the collector number up close\" is still there when you want it.",
+      "Scan settings shows which text reader your device uses: Google ML Kit in the Android app, PaddleOCR in a browser.",
+    ],
+    link: { to: "/collection", label: "Scan cards" },
+  },
+  {
     id: "2026-11-13-computer-plays-combos",
     date: "2026-11-13",
     title: "The computer knows its deck's combos",

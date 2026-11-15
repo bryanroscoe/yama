@@ -809,7 +809,7 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
           }}
         />
         <span>
-          <strong>Close-ups.</strong> When several printings share the art, ask to bring the camera close to the set code and number. Turn off for a camera that stays put, such as a stand or card feeder: you tap the printing instead.
+          <strong>Close-ups.</strong> When several printings share the art, the scanner reads the set code and number while you hold the card. If that doesn't work within a few tries, it asks you to bring the camera close to them. Turn it off to never be asked, for example with a stand or card feeder. The scanner then keeps reading the whole card, and you tap the printing if it can't tell.
         </span>
       </label>
     </>
