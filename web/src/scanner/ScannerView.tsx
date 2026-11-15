@@ -1713,7 +1713,7 @@ function explain(f: Found, identityOnly: boolean, lockName = ""): string {
   }
 }
 
-/** Save scan photos (samples.ts): off unless turned on, per device. */
+/** Save scan photos (samples.ts): on unless turned off, per device. */
 function SavePhotosSwitch() {
   const [on, setOn] = useState(savingPhotos);
   const [summary, setSummary] = useState<SampleSummary | null>(null);
@@ -1742,7 +1742,7 @@ function SavePhotosSwitch() {
       />
       <span>
         <label htmlFor="scan-save-photos">
-          <strong>Save scan photos.</strong> Keep a small photo of each card you add or correct, with what it was, so the scanner can be tested and trained on real cards. They stay in your account, used for nothing else and shown to no one.
+          <strong>Save scan photos.</strong> Keep a small photo of each card you add or correct, with what it was, and share it with Yama's developer to test and improve the scanner. Only the card is kept, not the rest of the camera's view, and it's shown to no one else. On unless you turn it off; turning it off stops it.
         </label>{" "}
         {on && summary && summary.count > 0 && (
           <>

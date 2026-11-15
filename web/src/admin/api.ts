@@ -240,7 +240,34 @@ export interface BugReportList {
   resolved: number;
 }
 
+/** A scan photo shared with Yama's developer (server/src/scan_samples.rs, SharedSample). */
+export interface SharedScanSample {
+  id: string;
+  owner_id: string;
+  owner_name: string;
+  created_at: string;
+  kind: "added" | "corrected" | "wrong";
+  label_scryfall_id: string | null;
+  label_name: string | null;
+  guess_name: string | null;
+  guess_scryfall_id: string | null;
+  guess_illustration_id: string | null;
+  method: string | null;
+  score: number | null;
+  quad: string | null;
+  camera: string | null;
+  bundle: string | null;
+  bytes: number;
+}
+
+export interface SharedScanPage {
+  samples: SharedScanSample[];
+  total: number;
+  next: string | null;
+}
+
 export const adminApi = {
+  scanSamples: (before: string | null) => api<SharedScanPage>(`/api/admin/scan-samples${before ? `?before=${encodeURIComponent(before)}` : ""}`),
   bugReports: (show: "open" | "resolved") => api<BugReportList>(`/api/admin/bug-reports?show=${show}`),
   resolveBug: (id: string, resolved: boolean) => api(`/api/admin/bug-reports/${encodeURIComponent(id)}`, { method: "PATCH", json: { resolved } }),
   deleteBug: (id: string) => api(`/api/admin/bug-reports/${encodeURIComponent(id)}`, { method: "DELETE" }),

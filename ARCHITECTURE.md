@@ -393,6 +393,7 @@ section 4 is the first sketch; the current system is [above](#the-system-at-a-gl
 - **Shopping:** [Live store stock (13 November 2026)](#live-store-stock-13-november-2026).
 - **The Android app:** [The Android app, sideloaded (13 November 2026)](#the-android-app-sideloaded-13-november-2026), [Which build each device runs (15 November 2026)](#which-build-each-device-runs-15-november-2026).
 - **Game night:** [Table and playgroup stats (2026-10-19)](#table-and-playgroup-stats-2026-10-19).
+- **The scanner:** [Scan photos shared with the developer (15 November 2026)](#scan-photos-shared-with-the-developer-15-november-2026).
 - **Cards, collection and prices:** [Mana symbols (2026-11-12)](#mana-symbols-2026-11-12), [Release calendar and What's new (2026-10-19)](#release-calendar-and-whats-new-2026-10-19), [A deck's cards in the collection, and Mythic re-imports (2026-10-23)](#a-decks-cards-in-the-collection-and-mythic-re-imports-2026-10-23), [Deck market values (2026-10-27)](#deck-market-values-2026-10-27), [Scan this deck (2026-10-29)](#scan-this-deck-2026-10-29), [Mythic Tools bridge (2026-10-31, proposal)](#mythic-tools-bridge-2026-10-31-proposal), [Store trips (2026-11-01)](#store-trips-2026-11-01), [Deleting collection containers (2026-11-02)](#deleting-collection-containers-2026-11-02), [Sell lists for store buylists (2026-11-02)](#sell-lists-for-store-buylists-2026-11-02), [Local buylist offers (2026-11-02)](#local-buylist-offers-2026-11-02), [Price history (2026-11-02)](#price-history-2026-11-02), [Recording printed copies in a deck box (2026-11-02)](#recording-printed-copies-in-a-deck-box-2026-11-02).
 - **Decks, plans and sharing:** [Brackets, deck stats and exports (2026-10-19)](#brackets-deck-stats-and-exports-2026-10-19), [Deck import (2026-10-22)](#deck-import-2026-10-22), [Sharing and deck configurations (2026-10-28)](#sharing-and-deck-configurations-2026-10-28), [Review, installed decks and the Lab tab (2026-10-28)](#review-installed-decks-and-the-lab-tab-2026-10-28), [Check this deck (2026-11-01)](#check-this-deck-2026-11-01), [Deck configurations and quieter editing (2026-11-03)](#deck-configurations-and-quieter-editing-2026-11-03), [One plan page (2026-11-04)](#one-plan-page-2026-11-04), [Printing with MakePlayingCards (2026-11-05)](#printing-with-makeplayingcards-2026-11-05), [Plans: one plan per deck (2026-11-06)](#plans-one-plan-per-deck-2026-11-06), [Site design pass (2026-11-08)](#site-design-pass-2026-11-08), [Public by default and the navigation (2026-11-12)](#public-by-default-and-the-navigation-2026-11-12), [Check a deck without an account (2026-11-12)](#check-a-deck-without-an-account-2026-11-12).
 - **Assistants:** [Ask Claude, the advisor (2026-10-22)](#ask-claude-the-advisor-2026-10-22), [Yama's tools for Claude (MCP, 2026-10-22)](#yamas-tools-for-claude-mcp-2026-10-22).
@@ -2851,3 +2852,23 @@ Main's push CI compares with the last main commit whose push CI passed, so a red
 until fixed. Anything the gate can't read runs everything. Details:
 [docs/ci.md](docs/ci.md#only-what-changed). No process, service or trust boundary changed: the
 gate still runs main's own copy, reading main's sources as data.
+
+## Scan photos shared with the developer (15 November 2026)
+
+Bryan, 15 Nov 2026: make "Save scan photos" on by default, then "Yeah that's fine. I want them
+to send it to me." The scanner's misreads can only be tuned on real photos, and his own are too
+few. So:
+
+- The switch is on unless a device turned it off (a device that had turned it off keeps it off).
+- The photos it saves are shared with Yama's developer. The switch, What's new and the privacy
+  page say so plainly, and turning the switch off stops it.
+- Only the card photo is shared (at most 640 px, cut from the frame around the card), with what
+  the person said it was and what the scanner guessed. Full camera frames are never collected from
+  other people; the scanner diagnostics that keep them are opt-in and readable by their owner only.
+- A photo is shared only when the scanner that saved it showed the new text (it sends
+  `shared: true`; migration 0092). Photos saved before, when the switch promised they would be
+  shown to no one, stay private: no admin route or export returns them.
+- This is a new trust boundary: an admin reads other accounts' shared scan photos through
+  `/api/admin/scan-samples` (the admin area's Scan photos page) or `yama-server
+  scan-samples-export` on the server. Nothing else about the account comes with them beyond its id
+  and display name. They are still capped per account and deleted with it or on request.

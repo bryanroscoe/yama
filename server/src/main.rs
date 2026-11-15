@@ -299,6 +299,8 @@ async fn main() -> anyhow::Result<()> {
             datasets::cli(&pool,file,&email,args.iter().any(|a|a=="--dry-run")).await
         }
         Some("precon-evidence") => precon_evidence::cli(&pool, &args[1..]).await,
+        // Every scan photo shared with Yama's developer, as JPEGs and a manifest (scan_samples.rs).
+        Some("scan-samples-export") => scan_samples::export_cli(&pool, &args[1..]).await,
         Some("commander-evidence") => public_commanders::cli(&pool, &args[1..]).await,
         // Scores the precon catalog and a folder of lists; changes no data (docs/deck-analysis.md).
         Some("power-eval") => analysis::eval::cli(&pool, &args[1..]).await,
