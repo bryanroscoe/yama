@@ -1,6 +1,7 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import { ago, count } from "@yama/core";
-import { API_BASE } from "../api";
+import { apiBlob } from "../api";
 import { Button, ErrorText, Loading } from "../components/ui";
 import { adminApi, type SharedScanSample } from "./api";
 
@@ -51,9 +52,7 @@ function SampleRow({ s }: { s: SharedScanSample }) {
   const said = s.label_name ?? (s.kind === "wrong" ? "not said" : "unknown");
   return (
     <li className="scan-sample-row">
-      <a href={`${API_BASE}/api/admin/scan-samples/${encodeURIComponent(s.id)}/image`} target="_blank" rel="noreferrer">
-        <img src={`${API_BASE}/api/admin/scan-samples/${encodeURIComponent(s.id)}/image`} alt={`Scan photo of ${said}`} loading="lazy" width={120} />
-      </a>
+      <SamplePhoto id={s.id} alt={`Scan photo of ${said}`} />
       <div className="admin-text">
         <b>
           {KIND[s.kind]}: {said}
@@ -69,5 +68,37 @@ function SampleRow({ s }: { s: SharedScanSample }) {
         </span>
       </div>
     </li>
+  );
+}
+
+/**
+ * The photo, fetched with the same sign-in as the rest of the API (a bearer token in the Android
+ * app, where a plain image URL would carry none), shown from a blob URL that's released after.
+ */
+function SamplePhoto({ id, alt }: { id: string; alt: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let live = true;
+    let made: string | null = null;
+    apiBlob(`/api/admin/scan-samples/${encodeURIComponent(id)}/image`).then(
+      (b) => {
+        if (!live) return;
+        made = URL.createObjectURL(b);
+        setUrl(made);
+      },
+      () => live && setFailed(true),
+    );
+    return () => {
+      live = false;
+      if (made) URL.revokeObjectURL(made);
+    };
+  }, [id]);
+  if (failed) return <span className="dim small">Photo didn't load</span>;
+  if (!url) return <span className="scan-sample-blank" aria-hidden="true" />;
+  return (
+    <a href={url} target="_blank" rel="noreferrer">
+      <img src={url} alt={alt} width={120} />
+    </a>
   );
 }

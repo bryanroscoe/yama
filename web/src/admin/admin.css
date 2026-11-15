@@ -389,3 +389,10 @@
   height: auto;
   border-radius: 6px;
 }
+.scan-sample-blank {
+  display: block;
+  width: 120px;
+  aspect-ratio: 63 / 88;
+  border-radius: 6px;
+  background: var(--surface-2, rgba(255, 255, 255, 0.06));
+}
