@@ -136,18 +136,19 @@ class Areas(unittest.TestCase):
             with self.subTest(files=files[:2], reads=reads is not None):
                 self.assertEqual(gate.areas_needed(files, reads), set(gate.AREAS))
 
-    def test_the_real_tree_finds_the_known_cross_reads(self):
+    def test_a_deleted_file_still_named_by_code_needs_that_area(self):
+        # The tree after the change no longer has the file, but the server still embeds it.
+        files = [f for f in [*SOURCES, *OTHER_FILES] if f != 'web/src/styles.css']
+        reads = gate.cross_reads(Path(self.temp.name), files)
+        self.assertEqual(gate.areas_needed(['web/src/styles.css'], reads), {'web'})
+        reads = gate.cross_reads(Path(self.temp.name), files, gone=['web/src/styles.css'])
+        self.assertEqual(gate.areas_needed(['web/src/styles.css'], reads), {'web', 'rust'})
+
+    def test_the_real_tree_scans(self):
+        # Only that the scan works here: which files it finds depends on every area's code,
+        # and a web-only change mustn't be able to fail a Python test it doesn't run.
         reads = gate.cross_reads(ROOT)
-        need = lambda path: gate.areas_needed([path], reads)  # noqa: E731
-        self.assertIn('rust', need('web/public/site-notice.html'))
-        self.assertIn('rust', need('web/src/styles.css'))
-        self.assertIn('rust', need('docs/mcp-tool-notes.md'))
-        self.assertIn('rust', need('runtime/historical.json'))
-        self.assertIn('web', need('server/src/public_page.rs'))
-        self.assertIn('web', need('deploy/Dockerfile'))
-        self.assertIn('rust', need('deploy/Dockerfile'))
-        self.assertEqual(need('web/src/pages/Collection.tsx'), {'web'})
-        self.assertEqual(need('ARCHITECTURE.md'), set())
+        self.assertTrue(any('rust' in by for by in reads.values()))
 
 
 class PushReuse(unittest.TestCase):
@@ -192,11 +193,18 @@ class PushReuse(unittest.TestCase):
             calls.append(path)
             return responses[path]
 
+        scans = []
+
+        def scan(gone):
+            scans.append(sorted(gone))
+            return {}
+
         original, gate.api = gate.api, api
         try:
-            needed, reason = gate.decide_push('o/r', TREE, {})
+            needed, reason = gate.decide_push('o/r', TREE, scan)
         finally:
             gate.api = original
+        self.scans = scans
         return needed, reason, calls
 
     def test_push_needs_only_what_changed_since_the_last_green_main(self):
@@ -205,6 +213,15 @@ class PushReuse(unittest.TestCase):
         self.assertIn('`g`', reason)
         self.assertEqual(self.push(['docs/x.md'])[0], set())
         self.assertEqual(self.push(['server/src/main.rs', 'web/src/a.ts'])[0], {'web', 'rust', 'python'})
+
+    def test_push_counts_deleted_and_renamed_away_paths(self):
+        extra = {f'/repos/o/r/compare/g...{TREE}': {'status': 'ahead', 'files': [
+            {'filename': 'docs/a.md', 'status': 'removed'},
+            {'filename': 'docs/new.md', 'status': 'renamed', 'previous_filename': 'server/old.rs'},
+            {'filename': 'docs/kept.md', 'status': 'modified'}]}}
+        needed, _, _ = self.push([], extra)
+        self.assertEqual(self.scans, [['docs/a.md', 'server/old.rs']])
+        self.assertEqual(needed, {'rust', 'python'})  # the old path was the server's
 
     def test_push_reuses_only_the_jobs_a_pr_run_passed_on_the_same_tree(self):
         skipped_rust = [dict(job, conclusion='skipped') if job['name'] == 'Rust tests' else job
@@ -589,6 +606,17 @@ class LocalScript(unittest.TestCase):
         self.web_only_branch('web/src/App.tsx')
         self.git(self.repo, 'mv', 'server/notes.txt', 'web/notes.txt')
         self.git(self.repo, 'commit', '-q', '-m', 'Move it into web')
+        self.assertEqual(self.run_script('--no-amend').returncode, 0)
+        self.assertIn('cargo test --locked', self.log.read_text())
+
+    def test_deleting_a_file_the_server_embeds_runs_rust(self):
+        (self.repo / 'server').mkdir()
+        (self.repo / 'server/page.rs').write_text('const N: &str = include_str!("../docs/notes.md");\n')
+        (self.repo / 'docs').mkdir()
+        (self.repo / 'docs/notes.md').write_text('notes\n')
+        self.web_only_branch('docs/other.md')
+        self.git(self.repo, 'rm', '-q', 'docs/notes.md')
+        self.git(self.repo, 'commit', '-q', '-m', 'Delete the notes')
         self.assertEqual(self.run_script('--no-amend').returncode, 0)
         self.assertIn('cargo test --locked', self.log.read_text())
 

@@ -72,9 +72,11 @@ if git fetch --quiet origin main 2>/dev/null; then
       verdict="$(python3 -I -B -c '
 import sys
 sys.path.insert(0, sys.argv[1])
-from gate import areas_needed, cross_reads
+from gate import areas_needed, cross_reads, tracked_files
 files = [f for f in sys.stdin.buffer.read().decode().split("\0") if f]
-print("needs:" + ",".join(sorted(areas_needed(files, cross_reads()))))' "$root/scripts/ci" < "$changed" 2>/dev/null || true)"
+# Paths the branch deleted or renamed away still count: code naming one needs its area.
+gone = sorted(set(files) - set(tracked_files()))
+print("needs:" + ",".join(sorted(areas_needed(files, cross_reads(gone=gone)))))' "$root/scripts/ci" < "$changed" 2>/dev/null || true)"
       case "$verdict" in
         needs:*)
           needs=",${verdict#needs:},"

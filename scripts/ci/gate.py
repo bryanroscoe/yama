@@ -146,18 +146,21 @@ def resolve(literal, source):
     return found
 
 
-def cross_reads(root='.', files=None):
+def cross_reads(root='.', files=None, gone=()):
     """{(path, kind): areas} for repository paths each area's sources name.
 
     kind is 'file', 'dir' or 'prefix' (a format string cut short). Only paths that exist
     in the tree count, and never a whole top-level directory: `"web"` in Rust is a word.
+    `gone` are paths the change deleted or renamed away: they count as existing, so code
+    that still names one (and now fails) needs its area.
     """
-    files = tracked_files(root) if files is None else files
+    sources = tracked_files(root) if files is None else files
+    files = [*sources, *gone]
     tracked = set(files)
     folders = {'/'.join(f.split('/')[:i]) for f in files for i in range(2, f.count('/') + 1)}
     reads = {}
     for area, (prefixes, suffixes) in READERS.items():
-        for source in files:
+        for source in sources:
             if not source.startswith(prefixes) or not source.endswith(suffixes) or source in NOT_READERS:
                 continue
             try:
@@ -247,16 +250,24 @@ def green_base(repo, sha):
     return None, None
 
 
-def decide_push(repo, sha, reads):
-    """Return (areas still needed, reason) for a push to main."""
+def decide_push(repo, sha, scan):
+    """Return (areas still needed, reason) for a push to main.
+
+    `scan(gone)` returns `cross_reads` of the pushed tree (None if it failed), counting the
+    paths the push deleted or renamed away, which that tree no longer has.
+    """
     base, base_run = green_base(repo, sha)
     if base is None:
         return set(AREAS), 'No earlier main commit passed push CI with tests on, so main tests in full.'
-    files = [entry['filename'] for entry in api(f'/repos/{repo}/compare/{base}...{sha}').get('files', [])]
+    entries = api(f'/repos/{repo}/compare/{base}...{sha}').get('files', [])
+    files = [entry['filename'] for entry in entries]
+    gone = [entry['previous_filename'] for entry in entries if entry.get('previous_filename')]
+    files += gone
+    gone += [entry['filename'] for entry in entries if entry.get('status') == 'removed']
     link = f'[`{base[:12]}`]({base_run.get("html_url", "")})'
     if not files or len(files) >= 300:
         return set(AREAS), f'The change since {link} has no readable file list, so main tests in full.'
-    needed = areas_needed(files, reads)
+    needed = areas_needed(files, scan(gone))
     reason = f'Compared with {link}, the last main commit whose push CI passed: '
     if not needed:
         return needed, reason + 'nothing any check reads changed.'
@@ -326,22 +337,28 @@ def main():
     base_ref = os.environ.get('BASE_REF', 'main')
     push = os.environ.get('EVENT_NAME') == 'push'
     repo = os.environ.get('GITHUB_REPOSITORY', '')
-    try:
-        reads = cross_reads()
-    except Exception as error:  # Fail safe: without the scan nothing is known to be unread.
-        print(f'::warning::CI gate could not scan the sources ({error}); every job runs.')
-        reads = None
+    scan_failed = []
+
+    def scan(gone=()):
+        try:
+            return cross_reads(gone=gone)
+        except Exception as error:  # Fail safe: without the scan nothing is known to be unread.
+            print(f'::warning::CI gate could not scan the sources ({error}); every job runs.')
+            scan_failed.append(error)
+            return None
+
     try:
         if not re.fullmatch(r'[0-9a-f]{40}(?:[0-9a-f]{24})?', head_sha):
             raise ValueError('HEAD_SHA is not a full commit SHA')
         if push:
-            needed, reason = decide_push(repo, head_sha, reads)
+            needed, reason = decide_push(repo, head_sha, scan)
             skip = False
         else:
             number = int(os.environ['PR_NUMBER'])
             labels, message, tree, behind_by = gather(repo, number, head_sha, base_ref)
             skip, reason = decide(labels, message, tree, behind_by, base_ref)
-            needed = set() if skip else areas_needed(changed_files(repo, number), reads)
+            # The scan reads main, which still has every file the PR deletes or renames.
+            needed = set() if skip else areas_needed(changed_files(repo, number), scan())
             if not skip:
                 reason += (f' The changed files need {", ".join(sorted(needed))}.' if needed
                            else ' Nothing any check reads changed.')
@@ -349,7 +366,7 @@ def main():
         print(f'::warning::CI gate could not read GitHub ({error}); running CI.')
         skip, reason = False, f'The gate could not read GitHub ({type(error).__name__}), so CI runs.'
         needed = set(AREAS)
-    if reads is None and not skip:
+    if scan_failed and not skip:
         needed = set(AREAS)
         reason += ' The source scan failed, so every job runs.'
     return finish(head_sha, skip, needed, reason, push)
