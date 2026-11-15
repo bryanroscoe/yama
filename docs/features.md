@@ -218,7 +218,7 @@ The planner is in progress ([design](planner-design.md), [plan file format](plan
 - Settings with script keys for commander-decks' `publish.py` and `pull.py`
 - A Buy page (cards by store with cart links, dated prices and rule flags, "Mark bought", each order A to Z for sorting a delivery), Prints (each print order and the next one, with tiers and double-faced backs; Print with MakePlayingCards picks print-ready images from MPC Autofill and the Yama print helper for Chrome, `extension/mpc`, fills them into an MPC project, or writes MPC Autofill's order.xml; and a printable swap sheet: sort the prints into decks, then each deck's card in, card out and where the cut card goes) and Spares
 - "I've put this in the deck" ticks
-- "Swap in the prints" per deck, which gives the linked Yama deck its after-prints list, puts the prints in its box as proxies, moves cut cards to the deck that takes them next, the deck's swap bag box, the deck's own spares box ("<deck> spares", when there is one; 2026-11-15) or Spares, and ticks the swaps installed
+- "Swap in the prints" per deck, which gives the linked Yama deck its after-prints list, puts the prints in its box as proxies, moves cut cards to the deck that takes them next, the deck's swap bag box, the deck's own spares box ("<deck> spares" under the deck's current or plan name, any case, when there is one; 2026-11-15) or Spares, and ticks the swaps installed
 
 ### Swap cards and deck-box inserts
 

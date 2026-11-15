@@ -1563,4 +1563,29 @@ async fn proxies_move_on_their_own_and_tokens_that_share_a_name_are_found() {
     assert!(err && text.contains("holds 0 Sol Ring like that, not 1. It holds: 1 × TST #1, nonfoil, NM."), "{text}");
     apply(staged_any).await;
     assert_eq!(held("Sol Ring").await, [(Some("deck-box".to_string()), false, 1), (Some("deck-box".to_string()), true, 1)]);
+
+    // A move staged before same-named cards counted together still moves only its own card,
+    // though the box holds more of another Soldier.
+    for (id, pid, qty) in [("item-vigilance", "p-twar-3", 1), ("item-vanilla", "p-tmsh-3", 10)] {
+        sqlx::query("INSERT INTO collection_items (id, owner_id, scryfall_id, qty, container_id, created_at, updated_at) VALUES (?, ?, ?, ?, 'deck-box', 't', 't')")
+            .bind(id)
+            .bind(&a)
+            .bind(pid)
+            .bind(qty)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    let old = json!({"oracle_id": "o-soldier-v", "name": "Soldier", "qty": 1, "from_id": "deck-box", "from": "Deck Box", "to_id": "", "to": "Loose (in no binder or box)"});
+    sqlx::query("INSERT INTO assistant_changes (id, owner_id, kind, summary, payload, via, created_at) VALUES ('old-move', ?, 'move_cards', 'Move 1 Soldier', ?, 'key', 'now')")
+        .bind(&a)
+        .bind(old.to_string())
+        .execute(&pool)
+        .await
+        .unwrap();
+    let (err, text) = call(&app, &mcp, "apply_change", json!({"id": "old-move"})).await;
+    assert!(!err, "{text}");
+    let loose: Vec<(String, i64)> =
+        sqlx::query_as("SELECT scryfall_id, qty FROM collection_items WHERE owner_id = ? AND container_id IS NULL AND scryfall_id LIKE 'p-t%'").bind(&a).fetch_all(&pool).await.unwrap();
+    assert_eq!(loose, [("p-twar-3".to_string(), 1)], "the vigilance Soldier it was staged for");
 }

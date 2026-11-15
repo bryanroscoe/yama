@@ -205,6 +205,24 @@ async fn yama_deck(tx: &mut Transaction<'_, Sqlite>, owner: &str, linked: Option
     Ok(if rows.len() == 1 { rows.into_iter().next() } else { None })
 }
 
+/// The deck's own spares box ([`deck_spares`]) under the first of `deck_names` that has one,
+/// matched ignoring case: (id, its name as the person wrote it).
+async fn own_spares_box(tx: &mut Transaction<'_, Sqlite>, owner: &str, deck_names: &[&str]) -> AppResult<Option<(String, String)>> {
+    for deck in deck_names {
+        let found: Option<(String, String)> =
+            sqlx::query_as("SELECT id, name FROM containers WHERE owner_id = ? AND lower(name) = lower(?) AND kind != 'deck' ORDER BY name = ? DESC, created_at LIMIT 1")
+                .bind(owner)
+                .bind(deck_spares(deck.trim()))
+                .bind(deck_spares(deck.trim()))
+                .fetch_optional(&mut **tx)
+                .await?;
+        if found.is_some() {
+            return Ok(found);
+        }
+    }
+    Ok(None)
+}
+
 /// A box by name (not a deck's box), made when `make` and it doesn't exist. `None` in a dry run.
 async fn named_box(tx: &mut Transaction<'_, Sqlite>, owner: &str, name: &str, make: bool) -> AppResult<Option<String>> {
     let found: Option<String> = sqlx::query_scalar("SELECT id FROM containers WHERE owner_id = ? AND name = ? AND kind != 'deck' ORDER BY created_at LIMIT 1")
@@ -351,10 +369,10 @@ pub async fn run(pool: &SqlitePool, owner: &str, key: &str, dry_run: bool) -> Ap
 
     // Out first, so a card leaving and a copy of it coming back (basics) don't cancel out.
     let mut takes_out = Vec::new();
-    // The deck's own spares box when the person keeps one, else the shared one.
-    let own_spares = deck_spares(&plan_name);
-    let (spares_name, spares) = match named_box(&mut tx, owner, &own_spares, false).await? {
-        Some(id) => (own_spares, Some(id)),
+    // The deck's own spares box when the person keeps one, else the shared one. It goes by the
+    // Yama deck's name as it is now, then the plan's (they differ after a rename).
+    let (spares_name, spares) = match own_spares_box(&mut tx, owner, &[deck_name.as_str(), plan_name.as_str()]).await? {
+        Some((id, name)) => (name, Some(id)),
         None => (SPARES.to_string(), named_box(&mut tx, owner, SPARES, false).await?),
     };
     let bag_name = format!("{plan_name} swap bag");
