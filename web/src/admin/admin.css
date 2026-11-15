@@ -381,3 +381,11 @@
   border-left: 2px solid var(--line);
   margin: 4px 0;
 }
+
+/* Scan photos (ScanPhotos.tsx): the photo beside what was said about it. */
+.scan-sample-row img {
+  display: block;
+  width: 120px;
+  height: auto;
+  border-radius: 6px;
+}

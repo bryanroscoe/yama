@@ -11,6 +11,7 @@ const ADMIN_PAGES = [
   { to: "/admin/server", label: "Server" },
   { to: "/admin/lab", label: "Lab runs" },
   { to: "/admin/bugs", label: "Bug reports" },
+  { to: "/admin/scan-photos", label: "Scan photos" },
   { to: "/admin/moderation", label: "Moderation" },
 ];
 

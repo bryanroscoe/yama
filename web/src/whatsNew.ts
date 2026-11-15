@@ -15,6 +15,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-15-scan-photos-on",
+    date: "2026-11-15",
+    title: "Scan photos are saved unless you turn them off",
+    items: [
+      "Save scan photos is now on by default. Each card you add or correct keeps a small photo of the card, with what it was, and that photo is shared with Yama's developer to see where the scanner misreads and make it better.",
+      "Only the card is kept, not the rest of the camera's view, and it's shown to no one else. Turning the switch off in the scanner's Scan settings stops it, and Delete them removes the ones kept. If you had turned it off before, it stays off. Photos saved before today stay private to your account.",
+    ],
+    link: { to: "/collection", label: "Scan cards" },
+  },
+  {
     id: "2026-11-15-update-the-app",
     date: "2026-11-15",
     title: "Update the Android app from Settings",

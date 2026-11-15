@@ -1,20 +1,27 @@
 // Scan photos (Bryan, 2026-11-06): with "Save scan photos" on, the part of the frame around a card
 // the scanner found is kept in the person's account with what they said it was, so the scanner
-// can be measured on, and later trained with, real photos. Best effort: a photo that can't be
+// can be measured on, and later trained with, real photos. Since 15 Nov 2026 the switch is on by
+// default and the photos it saves are shared with Yama's developer (Bryan: "I want them to send it
+// to me"); the switch says so. Best effort: a photo that can't be
 // sent is dropped, and nothing is kept while the switch is off. Server: server/src/scan_samples.rs.
 
 import { api } from "../api";
 import type { Quad, RgbaImage } from "./types";
 
-/** On this device, "1" when the person turned Save scan photos on. Off by default. */
+/**
+ * On this device, "0" when the person turned Save scan photos off. On by default (Bryan, 15 Nov
+ * 2026: the kept photos are the evidence the scanner's misread work needs); a device that turned
+ * it off keeps it off.
+ */
 export const SAVE_PHOTOS_KEY = "yama.scan.savePhotos";
 /** Longest side of a kept photo. */
 const LONG_SIDE = 640;
 
 export function savingPhotos(): boolean {
   try {
-    return localStorage.getItem(SAVE_PHOTOS_KEY) === "1";
+    return localStorage.getItem(SAVE_PHOTOS_KEY) !== "0";
   } catch {
+    // Without storage the choice can't be remembered, so a switch turned off couldn't stay off.
     return false;
   }
 }
@@ -73,7 +80,9 @@ export async function keepSample(shot: Shot | null | undefined, label: SampleLab
   try {
     const encoded = await encodeShot(shot);
     if (!encoded) return;
-    await api("/api/scan/samples", { method: "POST", json: { ...label, ...encoded } });
+    // `shared`: this scanner tells the person, next to the switch, that saved photos are shared
+    // with Yama's developer (server/src/scan_samples.rs keeps older photos out of that).
+    await api("/api/scan/samples", { method: "POST", json: { ...label, ...encoded, shared: true } });
   } catch (e) {
     console.warn("Couldn't keep the scan photo", e);
   }

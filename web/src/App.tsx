@@ -87,6 +87,7 @@ const UsagePage = admin.page("UsagePage");
 const ServerPage = admin.page("ServerPage");
 const LabRunsPage = admin.page("LabRunsPage");
 const BugReportsPage = admin.page("BugReportsPage");
+const ScanPhotosPage = admin.page("ScanPhotosPage");
 const ModerationPage = admin.page("ModerationPage");
 const BrowsePage = browse.page("BrowsePage");
 const DecksPage = decks.page("DecksPage");
@@ -349,6 +350,7 @@ export function App() {
             <Route path="server" element={<ServerPage />} />
             <Route path="lab" element={<LabRunsPage />} />
             <Route path="bugs" element={<BugReportsPage />} />
+            <Route path="scan-photos" element={<ScanPhotosPage />} />
             <Route path="moderation" element={<ModerationPage />} />
           </Route>
         </Route>
