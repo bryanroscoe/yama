@@ -13,13 +13,13 @@
 # ($YAMA_CARGO_TARGET_DIR, default ~/Library/Caches/yama/cargo-target), so the
 # Phase engine, the slowest and largest compile, is built once for every
 # worktree instead of once each. A CARGO_TARGET_DIR you set yourself wins.
-# When everything the branch changes since main is web-only (CI's own rule,
-# scripts/ci/gate.py rust_needed), the Rust and Python suites are skipped, as
-# PR CI skips them; --full runs them anyway.
+# Only the areas (web, Rust, Python) that what the branch changes since main needs
+# are checked, by CI's own rule (scripts/ci/gate.py areas_needed), as PR CI skips
+# the others; --full runs every check anyway.
 #
 # Usage: scripts/local-ci.sh [--no-amend] [--full]
 #   --no-amend  run the checks only; leave HEAD unchanged.
-#   --full      run the Rust and Python suites even for a web-only change.
+#   --full      run every check, whatever changed.
 set -euo pipefail
 export PYTHONDONTWRITEBYTECODE=1
 
@@ -60,7 +60,7 @@ YAMA_PHASE_DIR="$phase_dir" deploy/check-phase.sh >/dev/null \
 
 # Local checks only stand in for CI when the branch already contains main.
 # Unknown changes (no fetch, no merge base, nothing changed) mean the full run.
-rust=1
+web=1 rust=1 python=1
 if git fetch --quiet origin main 2>/dev/null; then
   git merge-base --is-ancestor FETCH_HEAD HEAD \
     || echo 'local-ci: warning: HEAD does not contain origin/main; PR CI will still run until you rebase or merge and run this again.' >&2
@@ -72,12 +72,17 @@ if git fetch --quiet origin main 2>/dev/null; then
       verdict="$(python3 -I -B -c '
 import sys
 sys.path.insert(0, sys.argv[1])
-from gate import rust_needed
+from gate import areas_needed, cross_reads
 files = [f for f in sys.stdin.buffer.read().decode().split("\0") if f]
-print("rust" if rust_needed(files) else "web-only")' "$root/scripts/ci" < "$changed" 2>/dev/null || true)"
-      if [ "$verdict" = web-only ]; then
-        rust=0
-      fi
+print("needs:" + ",".join(sorted(areas_needed(files, cross_reads()))))' "$root/scripts/ci" < "$changed" 2>/dev/null || true)"
+      case "$verdict" in
+        needs:*)
+          needs=",${verdict#needs:},"
+          [[ "$needs" == *,web,* ]] || web=0
+          [[ "$needs" == *,rust,* ]] || rust=0
+          [[ "$needs" == *,python,* ]] || python=0
+          ;;
+      esac
     fi
     rm -f "$changed"
   fi
@@ -101,14 +106,20 @@ esac
 node_major="$(node -p 'process.versions.node.split(".")[0]')"
 [ "$node_major" = 22 ] || echo "local-ci: warning: CI uses Node 22; this is Node $node_major." >&2
 
-step 'Web checks'
-npm ci --no-audit --no-fund
-npm test
-npm run typecheck
-npm run build
+skipped() { step "$1: skipped, nothing changed since main needs them (--full runs them)"; }
+
+if [ "$web" = 0 ]; then
+  skipped 'Web checks'
+else
+  step 'Web checks'
+  npm ci --no-audit --no-fund
+  npm test
+  npm run typecheck
+  npm run build
+fi
 
 if [ "$rust" = 0 ]; then
-  step 'Rust and Python tests: skipped, every change since main is web-only (--full runs them)'
+  skipped 'Rust tests'
 else
   step 'Rust tests'
   echo "Cargo target: $CARGO_TARGET_DIR"
@@ -127,7 +138,11 @@ else
     exit($status == -1 ? 127 : ($status & 127) ? 128 + ($status & 127) : $status >> 8);
   ' "$CARGO_TARGET_DIR/.yama-local-ci.lock" \
     bash -c 'cargo clean --quiet -p yama-server -p yama-play && cargo test --locked'
+fi
 
+if [ "$python" = 0 ]; then
+  skipped 'Python tests'
+else
   step 'Python tests'
   python3 deploy/test_release.py
   python3 deploy/test_host.py

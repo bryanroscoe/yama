@@ -57,8 +57,10 @@ stop when tests are switched on again.
 ## How it runs
 
 `.github/workflows/ci.yml` runs on ready pull requests into `main`, pushes to `main`, and manual
-dispatch. There are no path filters: documentation and workflow changes also receive checks.
-Draft PRs skip every job. Ready PRs skip the web and Rust jobs when their head commit passed
+dispatch. The workflow has no path filters, so every run starts; its **Local CI gate** job
+then decides which of the three test jobs the change needs (see
+[Only what changed](#only-what-changed)), and the rest show as skipped.
+Draft PRs skip every job. Ready PRs skip every test job when their head commit passed
 the same checks locally on its exact tree and contains `main`, or when they carry the
 `skip-ci` label; see [Skip CI on a PR](#skip-ci-on-a-pr).
 A newer push to a PR cancels its superseded run. Push CI on main is never cancelled: one main run finishes while only the newest push waits behind it, so main CI completes, deploys and saves the Rust cache. Manual diagnostic CI uses
@@ -77,13 +79,21 @@ Deploys use the Cloudflare backend in
 
 - **Web checks:** preinstalled Node 22 (the production web build's major), `npm ci`,
   `npm test`, `npm run typecheck`, and `npm run build`.
-- **Rust and Python tests:** preinstalled Rust 1.98.1, `cargo test --locked` with four build
-  jobs and low debug information, release/host guards, portable worker/build identity,
-  commander evidence/list validation (also under Python optimization), and dataset recovery.
-  Resource usage, process timing and tested Yama/Phase revisions are recorded. Each saget
-  runner has four CPUs and a 12 GiB memory limit inside the shared CI pool (eight CPUs, 20 GiB;
-  Bryan, 2026-11-02), so both Yama listeners can run a Rust job at once; jobs cannot change
-  host swap or use sudo. The pool lives in sagetserver's `ci/` fleet controller.
+- **Rust tests:** preinstalled Rust 1.98.1, `cargo test --locked` with four build
+  jobs and low debug information.
+  Resource usage, process timing and tested Yama/Phase revisions are recorded.
+- **Python tests:** release/host guards, portable worker/build identity, the Forge worker, the
+  CI gate and local scripts, commander evidence/list validation (also under Python
+  optimization), and dataset recovery. They need no Rust build, so they run on their own in
+  about a minute (until November 2026 they ran after `cargo test` in one "Rust and Python
+  tests" job).
+- **Record the passed tree:** a PR run whose needed jobs all passed names an artifact after the
+  tree it tested ([Don't test a merge twice](#dont-test-a-merge-twice)).
+
+While the repository was private and CI ran on saget, each saget runner had four CPUs and a
+12 GiB memory limit inside the shared CI pool (eight CPUs, 20 GiB; Bryan, 2026-11-02), so both
+Yama listeners could run a Rust job at once; jobs could not change host swap or use sudo. The
+pool lives in sagetserver's `ci/` fleet controller.
 
 `deploy/ci-runner/` defines the pinned official runner/toolchain image, startup, Compose
 limits and a completion hook. Its server directory is `/mnt/user/appdata/yama-ci-runner`.
@@ -176,8 +186,9 @@ refuse fork PRs before scheduling on the persistent runner. Copy reviewed fork w
 trusted branch in this repository before running CI; skipped fork jobs are not passing
 acceptance evidence.
 
-Before merge, inspect the checks on the actual PR head and require both jobs to pass, or a
-**Local CI gate** summary saying they were skipped for that head commit. Keep
+Before merge, inspect the checks on the actual PR head and require every job the gate ran to
+pass; its **Local CI gate** summary says which ran and why the others were skipped for that
+head commit. Keep
 local validation, GitHub CI, source review, merge and deployment as distinct evidence. The repository
 was private on a plan without protected-branch required checks until it went public in
 November 2026; the completion workflow enforces this gate either way.
@@ -236,23 +247,19 @@ than 30 minutes, don't wait for it. Run the checks locally, treat that as good e
   `agent-clean <worktree> --target-dir ~/Library/Caches/yama/cargo-target` (workspace
   artifacts only, keeping the shared dependency builds) when nothing is running there; add
   `--all` only when the engine pin or toolchain changed and the old builds are useless.
-- **Web-only changes skip Rust locally too.** When every file the branch changes since its
-  merge base with `main` is web-only by the gate's rule above (`rust_needed`), `local-ci.sh`
-  runs the web checks and skips the Rust and Python suites, as PR CI would. `--full` runs
-  them anyway. Unknown changes (no fetch, no merge base) run everything.
-- **Web-only PRs skip Rust.** When every changed file is under `web/` or `packages/` (or is
-  the root `package.json`/`package-lock.json`), the gate skips the Rust and Python job. Files
-  the server compiles in (`web/public/`, any `.css` or `.html`) still run it, as does any
-  failure to list the PR's files.
+- **Local runs check only what changed too.** `local-ci.sh` classifies every file the branch
+  changes since its merge base with `main` by the gate's rule (`areas_needed`, below) and runs
+  only the web, Rust and Python checks those need, as PR CI would. `--full` runs them all.
+  Unknown changes (no fetch, no merge base, a failed scan) run everything.
 - **Queued or slow CI: `scripts/ci/skip.sh <pr> "<what you ran>"`.** After running the
   checks locally (`cargo test`, `npm test` and `npm run typecheck` at least for what your change
   touches; `scripts/local-ci.sh` for all of them),
   this labels the PR `skip-ci`, cancels its unfinished run, re-runs it so the gate skips the
   jobs within seconds, and records what you ran on the PR. Report it as local evidence, not
   GitHub CI.
-- **`skip-ci` label.** A PR labelled `skip-ci` skips both jobs at its next push, ready
-  transition or re-run (labels are read when the gate runs; adding a label starts no run). Use it
-  for documentation-only PRs. To get CI, remove the label and use **Re-run all jobs** (re-running
+- **`skip-ci` label.** A PR labelled `skip-ci` skips every test job at its next push, ready
+  transition or re-run (labels are read when the gate runs; adding a label starts no run).
+  Documentation-only PRs no longer need it: the gate skips every job for them on its own. To get CI, remove the label and use **Re-run all jobs** (re-running
   only failed jobs doesn't start skipped ones).
 - **`[skip ci]` in a commit message** keeps GitHub's built-in behaviour: no CI run starts at all.
   Don't let it reach `main`: a push whose head commit (or a squash merge body) contains it
@@ -262,21 +269,61 @@ than 30 minutes, don't wait for it. Run the checks locally, treat that as good e
 To force full CI on a PR that would skip, run it manually:
 `gh workflow run CI --ref <branch>`. The run tests that branch's head and appears on the commit.
 
+## Only what changed
+
+(Bryan, 15 Nov 2026: "If we didn't change Rust… we should make it smarter so that we only run
+the correct set of tests.") CI has three test jobs, one per area: **Web checks** (`web`),
+**Rust tests** (`rust`) and **Python tests** (`python`). `scripts/ci/gate.py` decides which a
+change needs:
+
+- **Each file needs the area that owns it** (`owners`). `server/`, `play/`, the Cargo files,
+  `deploy/phase-rev`/`phase-repo` and toolchain files are Rust (and Python, which is cheap and
+  reads build stamps and pins). `web/`, `packages/`, `relay/`, `extension/`, the root
+  `package*.json` and any TypeScript/JavaScript file are web (`npm test` runs vitest from the
+  root, so it finds tests anywhere). `.py` files are Python. Documentation (`docs/`, `design/`,
+  `.claude/`, root `*.md`, `LICENSE`, `COPYRIGHT`) needs nothing. Anything else (`deploy/`,
+  `scripts/`, `tools/`, `runtime/`, other workflows, a new top-level folder) needs Python.
+  `.github/workflows/ci.yml` needs everything.
+- **…and every area whose code reads it** (`cross_reads`). The gate scans the Rust,
+  TypeScript/JavaScript and Python sources for string literals that name a file or folder in
+  the tree (relative to the source, its crate or package, or the root) and adds the reader's
+  area. That is how the server's `include_str!` of `web/src/styles.css` or
+  `web/public/site-notice.html`, its embedded `docs/mcp-tool-notes.md`, a web test reading
+  `server/src/public_page.rs` or `deploy/Dockerfile`, and `forge-worker` reading `docs/lab`
+  are found without a list to keep up to date. A format string counts up to its first `{`.
+  Bare top-level names (`"web"`), URLs and absolute paths don't count, nor do the gate's own
+  test fixtures. A new read always arrives with a change to its reader's own code, so the
+  reader's area runs for that PR anyway.
+- **Unknown means everything.** No file list, more files than GitHub lists, or a failed scan
+  runs every job, as does a failed or skipped gate (manual runs).
+
+On a PR the gate classifies the PR's own changed files (main is green). On a push to main it
+classifies the difference from the newest earlier main commit whose push CI succeeded with tests
+on (`green_base`; a tests-off marker run vouches for nothing), so a commit after a failed or
+cancelled run still checks everything since the last good one. On the last 100 merges before
+this change, 25 would have skipped the Rust job (7 to 20 minutes each; scanner, deck and
+collection UI and deploy-script PRs among them), 45 the Python job and 14 the web job.
+
+The gate checks out main's copy of itself and main's sources (a sparse checkout of the scanned
+file types) as data, never the PR's, so a PR can't change the rule that judges it.
+
 ## Don't test a merge twice
 
-After every check passes on a PR, the Rust job uploads a small artifact named
-`ci-passed-tree-<tree>`: the tree of the merge it tested (PR CI tests the PR merged into main,
-not the bare head). When the merge lands, the gate on main's push CI looks up the new commit's
-tree. If a PR run with that artifact passed both the **Web checks** and **Rust and Python tests**
-jobs (same repository, this workflow), both jobs are skipped, the push run succeeds and the
-deploy proceeds. The gate's summary links the run it reused.
+After every needed job passes on a PR, the **Record the passed tree** job uploads a small
+artifact named `ci-passed-tree-<tree>`: the tree of the merge it tested (PR CI tests the PR
+merged into main, not the bare head). When the merge lands, the gate on main's push CI looks up
+the new commit's tree. Each area the push needs is skipped when a PR run with that artifact
+(same repository, this workflow) passed that area's job; a job the PR skipped covers nothing.
+Older runs' combined **Rust and Python tests** job covers both areas. The gate's summary links
+the run it reused.
 
 The trees match when nothing reached main between the PR's last CI run and its merge (a merge
 commit of an up-to-date PR, or a squash with nothing new on main). Otherwise, or when the PR
-skipped CI on local checks or skipped the Rust job, main tests in full. Main also tests in
-full when the push changes what keys the Rust cache (`Cargo.lock`, a `Cargo.toml`,
-`deploy/phase-rev`, `rust-toolchain*`, the CI workflow itself) or `package-lock.json`, because only main's push CI saves
-the caches every PR restores. Artifacts are kept for
+skipped CI on local checks, main runs every job the change since the last green main needs. A push that
+changes what keys the Rust cache (`Cargo.lock`, a `Cargo.toml`, `deploy/phase-rev`,
+`rust-toolchain*`, the CI workflow itself) or `package-lock.json` never reuses a PR run, so the
+jobs it needs run on main and save fresh caches: only main's push CI saves the caches every PR
+restores. Artifacts are kept for
 14 days. Any error reading GitHub runs the jobs.
 
 What a local pass doesn't cover: it usually runs on macOS, not CI's Linux (case-insensitive
