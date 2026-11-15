@@ -1179,9 +1179,12 @@ export function ScannerView({
   };
   const undo = (j: JustAdded) => {
     if (!j.card || !onUndo) return;
-    setJustAdded({ text: `Taking out ${j.label}…`, busy: true });
+    const taking: JustAdded = { text: `Taking out ${j.label}…`, busy: true };
+    setJustAdded(taking);
     onUndo(j.card).then(
-      () => setJustAdded({ text: `Took out ${j.label}` }),
+      // Only if the chip is still this Undo's: a card filed meanwhile shows its own "Added" with
+      // its own Undo, which this must not take away. A failure is always shown.
+      () => setJustAdded((cur) => (cur === taking ? { text: `Took out ${j.label}` } : cur)),
       (e: unknown) => setJustAdded({ text: `Couldn't take out ${j.label}: ${e instanceof Error ? e.message : String(e)}` }),
     );
   };
