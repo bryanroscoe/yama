@@ -1,7 +1,7 @@
 //! Deleting an account and everything it owns (admin area, People). The public privacy policy
 //! (`web/public/privacy/index.html`) promises this on request.
 //!
-//! **What goes.** Every row the account owns: sessions, script keys, OAuth connections (grants,
+//! **What goes.** Every row the account owns: sessions and the Yama builds its devices reported, script keys, OAuth connections (grants,
 //! their tokens and codes), its invite, decks and their
 //! versions and checks, the collection and containers, synced ops, plans (every `plan_*` table),
 //! lab runs, experiments and usage, scan photos, advisor keys, settings, conversations, usage and its shared-key grant, online-play settings, calendar
@@ -53,6 +53,7 @@ pub const USER_COLUMNS: &[(&str, &str)] = &[
     ("bug_reports", "owner_id"),
     ("history_corrections", "owner_id"),
     ("calendar_watches", "user_id"),
+    ("client_builds", "user_id"),
     ("collection_items", "owner_id"),
     ("commander_evidence_sources", "owner_id"),
     ("containers", "owner_id"),
@@ -129,6 +130,8 @@ const OWNED_DELETES: &[(&str, &str)] = &[
     ("research_review_ops", "owner_id"),
     ("research_reports", "owner_id"),
     ("sessions", "user_id"),
+    // Which Yama build its devices ran (client_builds.rs).
+    ("client_builds", "user_id"),
     // "View as" sessions it started or that viewed it, and so their audit rows.
     ("view_sessions", "admin_id"),
     ("view_sessions", "target_id"),

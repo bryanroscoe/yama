@@ -142,3 +142,30 @@ export function suggestLock(recentSets: string[], locked: ReadonlySet<string>, r
   if (locked.has(first)) return null;
   return recentSets.slice(0, run).every((s) => s === first) ? first : null;
 }
+
+/**
+ * Share of the locked sets' artworks the art index knows (`arts`: how many the recognizer found for
+ * the pool; `keys`: the artworks asked for). 1 when there's nothing to know. A set released after
+ * the pinned bundle (Star Trek, 13 Nov 2026, against a bundle of 26 Oct) is near 0; a Commander
+ * set full of reprints with their old art is in between.
+ */
+export function knownArtShare(arts: number, keys: PoolKeys): number {
+  const wanted = keys.illustrations.length + keys.ids.length;
+  if (wanted === 0 || arts < 0) return 1;
+  return Math.min(1, arts / wanted);
+}
+
+/** Below this share of the locked sets' art known, the title decides unless the art matched in the set. */
+export const KNOWN_ART = 0.9;
+
+/**
+ * Whether to read the card's title before trusting its art (Bryan, 15 Nov 2026: no Star Trek
+ * card scanned; their art isn't in the bundle, so the recognizer named lookalikes or waited on
+ * "Hold still" for ever). The title is read first when the art match isn't strong (under
+ * `lockOnce`), or when locked to sets whose art is partly unknown and the match isn't one of
+ * theirs. A strong match among the locked sets', or a strong one with no lock, still decides.
+ */
+export function readTitleFirst(o: { score: number; lockOnce: number; locked: boolean; inSet: boolean; share: number }): boolean {
+  if (o.locked && !o.inSet && o.share < KNOWN_ART) return true;
+  return o.score < o.lockOnce;
+}

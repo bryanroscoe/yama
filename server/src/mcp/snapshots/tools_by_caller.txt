@@ -1,4 +1,4 @@
-## script key, power user: 70 tools
+## script key, power user: 71 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -26,6 +26,7 @@ list_games	read
 get_game	read
 get_collection_summary	read
 list_playgroups	read
+list_devices	read
 list_lab_runs	read
 get_lab_run	read
 list_lab_games	read
@@ -70,7 +71,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## OAuth sign-in, power user: 70 tools
+## OAuth sign-in, power user: 71 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -98,6 +99,7 @@ list_games	read
 get_game	read
 get_collection_summary	read
 list_playgroups	read
+list_devices	read
 list_lab_runs	read
 get_lab_run	read
 list_lab_games	read
@@ -142,7 +144,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## script key: 70 tools
+## script key: 71 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -170,6 +172,7 @@ list_games	read
 get_game	read
 get_collection_summary	read
 list_playgroups	read
+list_devices	read
 list_lab_runs	read
 get_lab_run	read
 list_lab_games	read
@@ -214,7 +217,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## OAuth sign-in: 70 tools
+## OAuth sign-in: 71 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -242,6 +245,7 @@ list_games	read
 get_game	read
 get_collection_summary	read
 list_playgroups	read
+list_devices	read
 list_lab_runs	read
 get_lab_run	read
 list_lab_games	read
@@ -286,7 +290,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## Ask Claude, power user: 68 tools
+## Ask Claude, power user: 69 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -314,6 +318,7 @@ list_games	read
 get_game	read
 get_collection_summary	read
 list_playgroups	read
+list_devices	read
 list_lab_runs	read
 get_lab_run	read
 list_lab_games	read
@@ -356,7 +361,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## OAuth sign-in limited to reading and staging, power user: 68 tools
+## OAuth sign-in limited to reading and staging, power user: 69 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -384,6 +389,7 @@ list_games	read
 get_game	read
 get_collection_summary	read
 list_playgroups	read
+list_devices	read
 list_lab_runs	read
 get_lab_run	read
 list_lab_games	read
@@ -426,7 +432,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## OAuth sign-in limited to reading, power user: 40 tools
+## OAuth sign-in limited to reading, power user: 41 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -448,6 +454,7 @@ list_games	read
 get_game	read
 get_collection_summary	read
 list_playgroups	read
+list_devices	read
 list_lab_runs	read
 get_lab_run	read
 list_lab_games	read
@@ -468,7 +475,7 @@ list_deck_versions	read
 list_collection_cards	read
 get_research_sources	read
 
-## script key, an account with no stores, datasets or lab runs: 55 tools
+## script key, an account with no stores, datasets or lab runs: 56 tools
 get_research
 save_research
 review_research
@@ -488,6 +495,7 @@ list_games
 get_game
 get_collection_summary
 list_playgroups
+list_devices
 get_precon
 list_changes
 edit_deck

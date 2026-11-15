@@ -130,6 +130,17 @@ updates. Both share one check and one install (`web/src/appUpdate.ts`). The firs
 person to Android's "Install unknown apps" for Yama; coming back with it allowed carries the
 install on without another tap.
 
+### Which build each device runs
+
+The app sends its build on API requests (`X-Yama-Client`, 15 Nov 2026): the Android app its
+version name and code, the web build's commit and its native code hash; a browser its web build.
+For a signed-in request the server keeps the last build per account and sign-in, with a device
+name from the browser ("Pixel 10 Pro (Android 16)", "Chrome on Mac"), when that device first
+reported that build and when it was last seen, and logs a line when a device reports a new build.
+The account's assistant reads its own devices with the MCP tool `list_devices`; Admin, People
+shows each account's most recently seen device and build. At most 20 are kept per account, and
+they go with it ([ARCHITECTURE.md](../ARCHITECTURE.md#which-build-each-device-runs-15-november-2026)).
+
 ### Bug reports
 
 Anyone signed in can report a bug from the little bug on every page head and dialog head (and

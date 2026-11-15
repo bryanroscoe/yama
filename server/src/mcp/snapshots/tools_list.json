@@ -1224,6 +1224,29 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
+      "description": "Their signed-in devices, most recent first: each device's name and the Yama app version, web build and native hash it last reported, with when. Use it to tell which build is on their phone.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "list_devices",
+      "outputSchema": {
+        "type": "object"
+      },
+      "title": "Your devices and the Yama build each runs"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
       "description": "Their simulation experiments (\"Try a change\"), newest first, with ids for `get_lab_run`.",
       "inputSchema": {
         "additionalProperties": false,

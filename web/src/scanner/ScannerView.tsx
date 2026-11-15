@@ -14,6 +14,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { api, type Printing } from "../api";
 import { loadArtRecognizer, RECOGNIZER_SHORT_SIDE, type ArtRecognizer, type LoadState } from "./artClient";
 import { NameIndex } from "./fuzzy";
+import { normaliseName } from "./parse";
 import { rectQuad } from "./image";
 import { readCloseup, readCollectorLines, scanFrame, SURE } from "./pipeline";
 import { artHoldFrame, AWAY_FRAMES, hold, holdRead, type ArtHold, type Hold } from "./hold";
@@ -23,7 +24,7 @@ import { choosePrinting, printingOptions, type Choice } from "./printings";
 import type { ArtMatch, Recognition } from "./recognizer";
 import { deleteSamples, keepSample, sampleSummary, savingPhotos, setSavingPhotos, type SampleLabel, type SampleSummary, type Shot } from "./samples";
 import { SetLockPicker } from "./SetLockPicker";
-import { artInSets, inLockedSets, POOL_MARGIN, judgeLocked, lockedNames, lockedSet, poolKeys, savedLock, saveLock, suggestLock, type LockedSet } from "./setlock";
+import { artInSets, inLockedSets, KNOWN_ART, knownArtShare, POOL_MARGIN, judgeLocked, lockedNames, lockedSet, poolKeys, readTitleFirst, savedLock, saveLock, suggestLock, type LockedSet } from "./setlock";
 import { CameraControls, digitalRegion, useCameraControls } from "./camera";
 import { createServerCatalog } from "./serverCatalog";
 import { createScannerOcr, ENGINE_LABEL, plannedEngine, type ScannerOcr } from "./ocrEngine";
@@ -250,6 +251,16 @@ async function readAt(image: RgbaImage, quad: Quad, reader: { ocr: OcrEngine; ca
   return best!;
 }
 
+/**
+ * Whether two card names are the same card: the same name, or one is the other's front face
+ * ("Westvale Abbey" and "Westvale Abbey // Ormendahl, Profane Prince").
+ */
+export function sameCardName(a: string, b: string): boolean {
+  const faces = (n: string) => n.split(" // ").map(normaliseName);
+  const [fa, fb] = [faces(a), faces(b)];
+  return normaliseName(a) === normaliseName(b) || fa[0] === fb[0];
+}
+
 /** What the scanner said, for a kept photo. */
 const guessOf = (f: Found): NonNullable<Found["guess"]> => ({
   guess_name: f.name,
@@ -330,6 +341,12 @@ export function ScannerView({
   const textRef = useRef<Promise<{ ocr: OcrEngine; catalog: ScanCatalog; names: NameIndex }> | null>(null);
   const ownedOcr = useRef<ScannerOcr | null>(null);
   const last = useRef<{ index: number; card?: ScanCandidate; at: number } | undefined>(undefined);
+  /**
+   * The last title read, for the two-frame rule on text. Apart from `last` (the art's), which
+   * every art frame replaces: a title read between two art frames would otherwise never be seen
+   * again, and two agreeing reads at 0.9 would never lock (review of #143).
+   */
+  const lastText = useRef<{ card: ScanCandidate; at: number } | undefined>(undefined);
   /** The art just accepted: not found again until the card leaves or another one shows. */
   const blocked = useRef<ArtHold | null>(null);
   /** Frames in a row the detector saw no card, for ending a text hold. */
@@ -397,6 +414,8 @@ export function ScannerView({
   const [suggestDismissed, setSuggestDismissed] = useState<string | null>(null);
   const filedSetNames = useRef(new Map<string, string>());
   const lockRef = useRef<{ codes: Set<string>; names: NameIndex | null; inSets: (m: ArtMatch) => boolean; label: string } | null>(null);
+  /** Share of the locked sets' artworks the art index knows (setlock.ts, knownArtShare); 1 unlocked. */
+  const poolShare = useRef(1);
   useEffect(() => {
     if (!lockOffered) return;
     let live = true;
@@ -526,7 +545,11 @@ export function ScannerView({
   useEffect(() => {
     const art = artRef.current;
     if (mode !== "art" || !art) return;
-    void art.setPool(lockOn ? poolKeys(lock) : null);
+    const keys = lockOn ? poolKeys(lock) : null;
+    poolShare.current = 1;
+    void art.setPool(keys).then((n) => {
+      if (keys) poolShare.current = knownArtShare(n, keys);
+    });
   }, [mode, lock, lockOn]);
 
   // Camera.
@@ -711,18 +734,18 @@ export function ScannerView({
         if (holdRead(held, best, Date.now(), emptyFrees) === "held") {
           if (best?.name === held.name) setStatus("Ready for the next card");
           // Another card seen while held counts toward locking on it once the hold ends.
-          else if (best) last.current = { index: -1, card: best, at: Date.now() };
+          else if (best) lastText.current = { card: best, at: Date.now() };
           return false;
         }
         blockedName.current = null;
         if (!blocked.current) setDupe(null);
       }
       if (!best) return false;
-      const seen = last.current && Date.now() - last.current.at < 2500 ? last.current.card : undefined;
+      const seen = lastText.current && Date.now() - lastText.current.at < 2500 ? lastText.current.card : undefined;
       const lock = single || best.confidence >= 0.95 || (best.confidence >= 0.6 && sameCard(best, seen));
-      last.current = { index: -1, card: best, at: Date.now() };
+      lastText.current = { card: best, at: Date.now() };
       if (lock) showText(res, shot);
-      else setStatus(`Hold still: ${best.name}?`);
+      else setStatus("Hold still, reading the name");
       return lock;
     },
     [showText],
@@ -773,6 +796,7 @@ export function ScannerView({
             if (++noCard.current >= AWAY_FRAMES) blockedName.current = null;
             if (!blocked.current && !blockedName.current) setDupe(null);
             last.current = undefined;
+            lastText.current = undefined;
             unknownFrames = 0;
             setStatus(blocked.current || blockedName.current ? "Ready for the next card" : "Hold a card in view");
             return next(60);
@@ -785,19 +809,32 @@ export function ScannerView({
           }
           const prev = last.current && last.current.index === top.index && Date.now() - last.current.at < 1500;
           last.current = { index: top.index, at: Date.now() };
-          if (top.score >= LOCK_ONCE || (top.score >= LOCK_TWICE && prev)) {
+          const artLocks = top.score >= LOCK_ONCE || (top.score >= LOCK_TWICE && prev);
+          // Locked to sets the art index only partly knows (a set newer than the bundle), and this
+          // match isn't one of theirs: its art says nothing about which card this is.
+          const artUnknown = !!locked && judged?.kind !== "in-set" && poolShare.current < KNOWN_ART;
+          const showIt = () => {
             unknownFrames = 0;
-            const read = identityOnly && !savingPhotos() ? null : around(v, v.videoWidth, v.videoHeight, toVideo(r.quad), hiCanvasRef.current);
+            const read = identityOnly && !savingPhotos() ? null : around(v, v.videoWidth, v.videoHeight, toVideo(r.quad!), hiCanvasRef.current!);
             showArt(r, top, read);
+          };
+          // A strong match decides by art. Otherwise the title is read first (Bryan, 15 Nov 2026:
+          // no Star Trek card scanned; their art isn't in the bundle, so lookalikes scored 0.5 to
+          // 0.8 and the scanner named them, or waited on "Hold still" for ever).
+          // A card just filed by its name stays held (hold.ts): its art mustn't file it again.
+          const heldName = blockedName.current?.name;
+          if (heldName && sameCardName(top.name, heldName)) {
+            setStatus("Ready for the next card");
+            return next(60);
+          }
+          if (!readTitleFirst({ score: top.score, lockOnce: LOCK_ONCE, locked: !!locked, inSet: judged?.kind === "in-set", share: poolShare.current })) {
+            showIt();
             return;
           }
-          if (top.score >= ART_UNKNOWN) {
-            setStatus(`Hold still: ${top.name}?`);
-            return next(30);
-          }
-          // A card the artwork index doesn't know (a new set, a battle): read its text.
-          setStatus("Hold still");
-          if (++unknownFrames >= 3) {
+          setStatus("Hold still, reading the name");
+          // A match that is at least fair is read on every frame; a card the art index plainly
+          // doesn't know (a battle, a weak match) after a few frames, as before.
+          if (top.score >= ART_UNKNOWN || artUnknown || ++unknownFrames >= 3) {
             unknownFrames = 0;
             const full = await textReader();
             if (stop) return;
@@ -809,6 +846,11 @@ export function ScannerView({
             // One orientation per attempt, so the camera stays responsive.
             const res = await readAt(hi.image, hi.quad, reader, [quarterTurns(hi.quad)[textFrame++ % 3]!]);
             if (!stop && handleText(res, false, false, hi)) return;
+            // No title: art agreeing on two frames still decides, as before, unless its art is unknown.
+            if (!stop && artLocks && !artUnknown && !res.candidates[0] && !blockedName.current) {
+              showIt();
+              return;
+            }
             // Still nothing: ask for a close-up of the name.
             // (Not while the card just added is held: that would read it again.)
             if (!stop && closeups && !res.candidates[0] && !blockedName.current && ++failedReads >= TITLE_AFTER) {
@@ -928,6 +970,7 @@ export function ScannerView({
     noCard.current = 0;
     blockedName.current = held && !held.art ? hold(held.name, Date.now()) : null;
     last.current = undefined;
+    lastText.current = undefined;
     setFound(null);
     setOutline(null);
     setCloseup(null);

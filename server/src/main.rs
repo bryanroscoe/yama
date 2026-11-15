@@ -6,6 +6,7 @@ mod bridges;
 mod bug_reports;
 mod calendar;
 mod cards;
+mod client_builds;
 mod collection;
 mod combos;
 mod config;

@@ -1,3 +1,5 @@
+import { BUILD_COMMIT, clientString, type NativeBuild } from "./clientBuild";
+
 export interface SinglesValue {
   usd: number | null;
   priced_copies: number;
@@ -16,6 +18,7 @@ export interface SealedPrice {
 }
 
 // Thin client for the Rust server. Types mirror the server's JSON.
+
 
 export class ApiError extends Error {
   /** The JSON error body, when there was one: some 400s add details beside `error`. */
@@ -125,10 +128,24 @@ function either(a: AbortSignal, b: AbortSignal | null | undefined): AbortSignal 
   return both.signal;
 }
 
+/**
+ * Which build this is, sent as `X-Yama-Client` (clientBuild.ts). A browser says its web build from
+ * the start. The Android app says nothing until it knows its own version (`setClientBuild`, from
+ * AppUpdate), so one start never reports two builds; and it sends it only with its bearer token,
+ * on requests that are already cross-origin preflighted, so it costs no extra round trip.
+ */
+let clientBuild: string | null = API_BASE ? null : clientString(BUILD_COMMIT, null);
+
+/** The Android app's own version is known: say it from now on. */
+export function setClientBuild(native: NativeBuild) {
+  clientBuild = clientString(BUILD_COMMIT, native);
+}
+
 async function apiResponse(path: string, init: RequestInit & { json?: unknown } = {}): Promise<Response> {
   const headers = new Headers(init.headers);
   const token = currentToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (clientBuild && (token || !API_BASE)) headers.set("X-Yama-Client", clientBuild);
   let body = init.body;
   if (init.json !== undefined) {
     headers.set("Content-Type", "application/json");
@@ -224,6 +241,10 @@ export interface AccountInfo {
   last_sign_in: string | null;
   /** When the account last used Yama, to the hour. Null before the admin area existed. */
   last_seen_at?: string | null;
+  /** The Yama build its most recently seen device reported ("android/0.2.100 (100) web/…"), that device and when. */
+  last_client?: string | null;
+  last_client_device?: string | null;
+  last_client_at?: string | null;
 }
 
 export interface Card {

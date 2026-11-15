@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { setClientBuild } from "../api";
 import { isNative } from "../native";
 import { Updater, WEB_BUILD } from "../nativeUpdate";
 import { checkForUpdates, installApp, NATIVE_CHECK_MS, resumed, useAppUpdate, type AppUpdateState } from "../appUpdate";
@@ -60,6 +61,8 @@ function NativeAppUpdate() {
   useEffect(() => {
     // This build started: keep it (the updater goes back to the previous one otherwise).
     void Updater.started({ version: WEB_BUILD }).catch(() => {});
+    // Tell the server which build this device runs (clientBuild.ts).
+    void Updater.info().then(setClientBuild, () => {});
     void checkForUpdates(true);
     const interval = window.setInterval(() => void checkForUpdates(), NATIVE_CHECK_MS);
     const onResume = import("@capacitor/app").then(({ App }) => App.addListener("resume", () => void resumed()));
