@@ -79,6 +79,7 @@ export interface OrtLike {
   Tensor: new (type: "uint8" | "float32", data: Uint8Array | Float32Array, dims: readonly number[]) => unknown;
 }
 interface Session {
+  readonly inputNames: readonly string[];
   run(feeds: Record<string, unknown>): Promise<Record<string, { data: unknown }>>;
 }
 
@@ -203,6 +204,10 @@ export async function createRecognizer(ort: OrtLike, graphs: { detector: Uint8Ar
   const detector = await ort.InferenceSession.create(graphs.detector, options);
   const embed = await ort.InferenceSession.create(graphs.embed, options);
   const search = await ort.InferenceSession.create(graphs.search, options);
+  // Bundles since gallery-20261106 (manifest `search_mask`) also take `mask`, one value per
+  // artwork in arts.json order: above 0 competes, 0 scores -3. Ones search the whole gallery,
+  // exactly as the graph without the input does. Older bundles take only `embeddings`.
+  const everyArt = search.inputNames.includes("mask") ? new ort.Tensor("float32", new Float32Array(arts.length).fill(1), [arts.length]) : null;
   let gallery: Gallery | null = null;
   try {
     gallery = readGallery(graphs.search);
@@ -236,7 +241,7 @@ export async function createRecognizer(ort: OrtLike, graphs: { detector: Uint8Ar
     const scene = new ort.Tensor("uint8", new Uint8Array(frame.data.buffer, frame.data.byteOffset, frame.data.byteLength), [frame.height, frame.width, 4]);
     const vectors = await embed.run({ scene, quad: new ort.Tensor("float32", Float32Array.from(quad.flat()), [4, 2]) });
     const embedding = Object.values(vectors)[0]!;
-    const ranked = await search.run({ embeddings: embedding });
+    const ranked = await search.run(everyArt ? { embeddings: embedding, mask: everyArt } : { embeddings: embedding });
     const indices = ranked.indices!.data as BigInt64Array | Int32Array;
     const scores = ranked.scores!.data as Float32Array;
     const out: ArtMatch[] = [];

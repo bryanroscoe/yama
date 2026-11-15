@@ -30,16 +30,17 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use tower_http::services::ServeDir;
 
-/// The pinned bundle. To move to a newer one, change the tag and the four sums (from the
-/// release's SHA256SUMS), run the recognizer eval (docs/scanner.md) and note the result.
-pub const BUNDLE_VERSION: &str = "retrain-20261026T052522727512Z";
+/// The pinned bundle. To move to a newer one, change the tag, sizes and sums (from the release's
+/// SHA256SUMS and manifest.json), check the search graph's inputs still match `recognizer.ts`
+/// (this one added `mask`), run the recognizer eval (docs/scanner.md) and note the result.
+pub const BUNDLE_VERSION: &str = "gallery-20261106T183001884398Z";
 const RELEASE_URL: &str = "https://github.com/cfbender/manavault/releases/download/scanner-bundle-";
 const FILES: [(&str, u64, &str); 5] = [
-    ("manifest.json", 2_147, "1f07721c519c4abb306fbbf77c2be9c7a5354c2ed27280ad29be6bf320138fe1"),
+    ("manifest.json", 2_146, "cee5b38ede2100bb05fed174988bb296fb1a7944b41d8393547d499ecd0610ca"),
     ("detector.onnx", 12_576_317, "1e8cdd520dce3570ca2f24c270ac39cc7ac0639d0504c3032b7850fbf8c0c771"),
     ("embed.onnx", 5_118_408, "f71739bbe6804cd442ddb0a40ec1f22f62c47991fc9cf7a4f445257e8081fb7c"),
-    ("search.onnx", 13_895_006, "51d6089d13a318e74630d71fdc35c70f6b3c5f86a1ce1d9758064a9cda764285"),
-    ("arts.json", 17_907_030, "c9714add18668fba04bcca187a7743b24196dc88fcff92bbe6886a3c9ff0a542"),
+    ("search.onnx", 14_240_610, "02a7352f2479c40beb6d463a11eba4c3bf3a26e87d2730afeed87dd29d32d938"),
+    ("arts.json", 18_083_400, "df8164150343bb5dc85b39b5d1ba3893c124105eef1d6af9f393bb038d7d977f"),
 ];
 /// The artwork index reduced to what the scanner reads (about a third of arts.json), gzipped.
 const ARTS: &str = "arts.slim.json";
@@ -152,7 +153,25 @@ async fn download(http: &reqwest::Client, dir: &Path) -> anyhow::Result<()> {
     tokio::fs::write(dir.join(ARTS), &slim).await?;
     tokio::fs::rename(&part, &gz).await?;
     let _ = tokio::fs::remove_file(dir.join("arts.json")).await;
+    if let Some(root) = dir.parent() {
+        remove_other_bundles(root).await;
+    }
     Ok(())
+}
+
+/// Once this version is ready, drop the folders of earlier pinned bundles (about 45 MB each). They
+/// are this module's own downloads; a server rolled back to one fetches it again.
+async fn remove_other_bundles(root: &Path) {
+    let Ok(mut entries) = tokio::fs::read_dir(root).await else { return };
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let is_dir = entry.file_type().await.is_ok_and(|t| t.is_dir());
+        if is_dir && entry.file_name() != BUNDLE_VERSION {
+            match tokio::fs::remove_dir_all(entry.path()).await {
+                Ok(()) => tracing::info!(path = %entry.path().display(), "removed an older scanner bundle"),
+                Err(e) => tracing::warn!(path = %entry.path().display(), error = %e, "couldn't remove an older scanner bundle"),
+            }
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -362,6 +381,20 @@ mod tests {
     use super::*;
     use crate::testutil;
     use axum::http::{Method, StatusCode};
+
+    #[tokio::test]
+    async fn a_ready_bundle_removes_older_ones_only() {
+        let root = tempfile::tempdir().unwrap();
+        for dir in [BUNDLE_VERSION, "retrain-20261026T052522727512Z"] {
+            std::fs::create_dir_all(root.path().join(dir)).unwrap();
+            std::fs::write(root.path().join(dir).join("search.onnx"), b"x").unwrap();
+        }
+        std::fs::write(root.path().join("note.txt"), b"not a bundle").unwrap();
+        remove_other_bundles(root.path()).await;
+        assert!(root.path().join(BUNDLE_VERSION).join("search.onnx").exists());
+        assert!(!root.path().join("retrain-20261026T052522727512Z").exists());
+        assert!(root.path().join("note.txt").exists());
+    }
 
     #[tokio::test]
     async fn printings_that_share_the_art_or_else_the_whole_card() {
