@@ -293,7 +293,10 @@ change needs:
   are found without a list to keep up to date. A format string counts up to its first `{`.
   Bare top-level names (`"web"`), URLs and absolute paths don't count, nor do the gate's own
   test fixtures. A new read always arrives with a change to its reader's own code, so the
-  reader's area runs for that PR anyway.
+  reader's area runs for that PR anyway. A file the change deletes or renames away still
+  counts as existing during the scan (a PR scans main, which still has it; a push and
+  `local-ci.sh` add the removed paths), so code that still names it runs its area and fails
+  there.
 - **Unknown means everything.** No file list, more files than GitHub lists, or a failed scan
   runs every job, as does a failed or skipped gate (manual runs).
 
