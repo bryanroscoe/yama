@@ -1566,12 +1566,14 @@ async fn proxies_move_on_their_own_and_tokens_that_share_a_name_are_found() {
 
     // A move staged before same-named cards counted together still moves only its own card,
     // though the box holds more of another Soldier.
-    for (id, pid, qty) in [("item-vigilance", "p-twar-3", 1), ("item-vanilla", "p-tmsh-3", 10)] {
-        sqlx::query("INSERT INTO collection_items (id, owner_id, scryfall_id, qty, container_id, created_at, updated_at) VALUES (?, ?, ?, ?, 'deck-box', 't', 't')")
+    // (The box already holds one near-mint vanilla Soldier; these ten are played.)
+    for (id, pid, qty, condition) in [("item-vigilance", "p-twar-3", 1, "NM"), ("item-vanilla", "p-tmsh-3", 10, "MP")] {
+        sqlx::query("INSERT INTO collection_items (id, owner_id, scryfall_id, qty, condition, container_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'deck-box', 't', 't')")
             .bind(id)
             .bind(&a)
             .bind(pid)
             .bind(qty)
+            .bind(condition)
             .execute(&pool)
             .await
             .unwrap();
