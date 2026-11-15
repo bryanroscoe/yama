@@ -21,7 +21,7 @@ vi.mock("../api", async (original) => ({
     if (path.startsWith("/api/cards/autocomplete")) return Promise.resolve(path.includes("Sol") ? ["Sol Ring"] : ["Arcane Signet"]);
     // One English printing (so it's settled as "the only one") and two in other languages.
     if (path.startsWith("/api/scan/printings") && path.includes("Sol"))
-      return Promise.resolve({ same_art: false, printings: [{ ...printing("ecc", "57"), name: "Sol Ring", scryfall_id: "sol-en" }, { ...printing("cmm", "410"), name: "Sol Ring", lang: "ja", scryfall_id: "sol-ja" }, { ...printing("cmm", "411"), name: "Sol Ring", lang: "de", scryfall_id: "sol-de" }] });
+      return Promise.resolve({ same_art: false, printings: [{ ...printing("ecc", "57"), name: "Sol Ring", scryfall_id: "sol-en", usd: 12 }, { ...printing("cmm", "410"), name: "Sol Ring", lang: "ja", scryfall_id: "sol-ja" }, { ...printing("cmm", "411"), name: "Sol Ring", lang: "de", scryfall_id: "sol-de" }] });
     if (path.startsWith("/api/scan/printings")) return Promise.resolve({ same_art: false, printings: [printing("woc", "145"), printing("cmm", "390"), printing("c21", "236")] });
     return Promise.reject(new Error(`offline: ${path}`));
   },
@@ -36,6 +36,12 @@ vi.mock("./serverCatalog", () => ({
 vi.mock("./ocrEngine", async (original) => ({
   ...(await original<typeof import("./ocrEngine")>()),
   createScannerOcr: async () => ({ engine: "tesseract", read: async () => ({ text: "", confidence: 0 }), terminate: async () => undefined }),
+}));
+
+const sounds = vi.hoisted(() => ({ played: [] as string[] }));
+vi.mock("./sounds", async (original) => ({
+  ...(await original<typeof import("./sounds")>()),
+  playScanSound: (kind: string) => sounds.played.push(kind),
 }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -326,3 +332,50 @@ describe("the card just filed by its name stays held (with the title-first chang
     expect(fusedHeld(fuseTitle([], titleRead(["Westvale Abbey"], reader)), undefined)).toBe(false);
   });
 });
+
+describe("sounds (Bryan, 15 Nov 2026)", () => {
+  beforeEach(() => {
+    sounds.played.length = 0;
+    localStorage.removeItem("yama.scan.sounds");
+    localStorage.removeItem("yama.scan.worthIt");
+  });
+
+  it("plays the brighter sound for a card worth $5 or more in the finish filed, and the plain one otherwise", async () => {
+    act(() => root.render(<ScannerView onAccept={async () => true} />));
+    await typeName("Sol Ring");
+    await click(await until(() => button("Add"), "Add"));
+    await until(() => (sounds.played.length ? true : null), "a sound");
+    expect(sounds.played).toEqual(["valuable"]);
+  });
+
+  it("plays the plain chime for a card with no price in the finish filed (a missing price is never worth it)", async () => {
+    act(() => root.render(<ScannerView onAccept={async () => true} finish="foil" />));
+    await typeName("Sol Ring");
+    await click(await until(() => button("Add"), "Add"));
+    await until(() => (sounds.played.length ? true : null), "a sound");
+    expect(sounds.played).toEqual(["filed"]);
+  });
+
+  it("plays the low tone when the picker needs a tap, and nothing with Sounds off", async () => {
+    act(() => root.render(<ScannerView onAccept={async () => true} />));
+    await typeName();
+    await until(() => (sounds.played.includes("needs-you") ? true : null), "the needs-you tone");
+    act(() => root.unmount());
+    root = createRoot(host);
+    sounds.played.length = 0;
+    localStorage.setItem("yama.scan.sounds", "0");
+    act(() => root.render(<ScannerView onAccept={async () => true} />));
+    await typeName();
+    await until(() => document.querySelectorAll('[role="option"]').length === 3 || null, "the printings");
+    await wait(50);
+    expect(sounds.played).toEqual([]);
+  });
+
+  it("offers the Sounds switch and its amount in Scan settings, on and $5 by default", async () => {
+    act(() => root.render(<ScannerView onAccept={async () => true} />));
+    const box = await until(() => document.querySelector<HTMLInputElement>("#scan-sounds"), "the Sounds switch");
+    expect(box.checked).toBe(true);
+    expect(document.querySelector<HTMLInputElement>(".scan-worth input")?.value).toBe("5");
+  });
+});
+

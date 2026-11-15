@@ -8,6 +8,7 @@
 // takes no other change meanwhile.
 
 import type { CollectionItem } from "../api";
+import type { Prices } from "./price";
 
 export type Finish = "nonfoil" | "foil" | "proxy";
 
@@ -25,6 +26,8 @@ export interface Added {
   copies: number;
   /** Added by Keep adding, without a tap. */
   auto: boolean;
+  /** The printing's dated market prices by finish, for "Recent" in the scanner (price.ts). */
+  prices?: Prices | null;
   /** A write not yet confirmed: the add itself (`fix` null) or a fix. */
   pending?: Pending;
   /** A fix is finding the entry's row (a token for that lookup); the entry is locked meanwhile. */
@@ -108,6 +111,8 @@ export interface Fix {
   image: string | null;
   finish: Finish;
   copies: number;
+  /** The new printing's prices, when the printing changes. */
+  prices?: Prices | null;
 }
 
 export type CollectionOp =
@@ -127,7 +132,7 @@ export const removeFix = (a: Added): Fix => ({ scryfall_id: a.scryfall_id, set: 
  * The fix that moves an entry's copies to another printing (Wrong printing, after filing): the same
  * copies, finish and box, so the copy filed is changed, never a second one added.
  */
-export const printingFix = (a: Added, to: { scryfall_id: string; set?: string; number?: string; name: string; image?: string | null }): Fix => ({
+export const printingFix = (a: Added, to: { scryfall_id: string; set?: string; number?: string; name: string; image?: string | null; prices?: Prices | null }): Fix => ({
   scryfall_id: to.scryfall_id,
   set: to.set ?? "",
   number: to.number ?? "",
@@ -135,6 +140,7 @@ export const printingFix = (a: Added, to: { scryfall_id: string; set?: string; n
   image: to.image ?? null,
   finish: a.finish,
   copies: a.copies,
+  prices: to.prices ?? null,
 });
 
 /** The op that adds `copies` of a printing the way the scanner does (Near Mint, English). */

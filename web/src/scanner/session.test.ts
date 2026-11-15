@@ -104,10 +104,18 @@ describe("rows a write touches", () => {
   it("Wrong printing after filing moves the copies filed to the right printing: the wrong one goes, none is added twice", () => {
     const filed: Added = { ...entry, copies: 1, auto: true };
     const f = printingFix(filed, { scryfall_id: "cmm-410", set: "cmm", number: "410", name: "Sol Ring", image: null });
-    expect(f).toEqual(fix({ scryfall_id: "cmm-410", set: "cmm", number: "410", copies: 1 }));
+    expect(f).toEqual({ ...fix({ scryfall_id: "cmm-410", set: "cmm", number: "410", copies: 1 }), prices: null });
     expect(planFix(filed, f, row({ qty: 3 }), ids())).toEqual([
       { op_id: "op1", kind: "adjust", item_id: "r1", delta: -1 },
       { op_id: "op2", kind: "add", scryfall_id: "cmm-410", qty: 1, finish: "nonfoil", proxy: false, container_id: "box" },
     ]);
+  });
+
+  it("carries the new printing's prices through a correction, so Recent shows what is filed now", () => {
+    const filed: Added = { ...entry, copies: 1, prices: { usd: 0.3, usd_foil: null, usd_etched: null, date: "2026-11-14" } };
+    const right = { usd: 4.5, usd_foil: 9, usd_etched: null, date: "2026-11-14" };
+    const f = printingFix(filed, { scryfall_id: "cmm-410", set: "cmm", number: "410", name: "Sol Ring", prices: right });
+    const after = settled({ ...filed, pending: { ops: [], fix: f } });
+    expect(after).toMatchObject({ scryfall_id: "cmm-410", set: "cmm", prices: right });
   });
 });

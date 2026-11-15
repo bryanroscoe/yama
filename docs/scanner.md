@@ -81,6 +81,20 @@ Bryan's Westvale photo, through the same steps (`eval/sample.test.ts`): the titl
   - The set lock's search box placeholder "Edge of Eternities, ECC…" (sample data): → no placeholder; the label above it says "Set name or code".
   - Kept: "Or type the name" (real instruction), "Wrong card?" and "Wrong printing?" (actions), "What the scanner saw" (collapsed, the raw reads, for checking a misread).
 
+**Sounds, and prices in Recent (2026-11-15).** Bryan wanted to hear a scan go in, to hear when a card is worth looking at, and to see what each card he's added is worth.
+- **Sounds** (`sounds.ts`, on the shared Web Audio tones of `sound.ts`, also used by the deck check). They play alongside vibration, which is unchanged. There are three short tones made on the device, with no sound files:
+  - a two-note chime when a card is filed;
+  - a brighter three-note one when that card's market price, for that printing in the finish filed, is at least the amount in Scan settings ($5 by default, per device). A missing price is never "worth it" and is never taken as $0, and a proxy has no market price;
+  - a low two-note tone when the scanner needs a tap (a printing to pick, a card that isn't in the locked sets).
+
+  The "Sounds" switch is in Scan settings, per device (`yama.scan.sounds`, `yama.scan.worthIt`), and on by default. Audio starts silent in browsers and in the app's web view until a tap, so any tap in the scanner (and turning the switch on) starts it. Android's silent mode isn't visible to the web view: none of the app's plugins reads the ringer, so the switch decides there. iOS Safari's silent switch silences these by itself. The deck check keeps its own verdict sounds and has the scanner's off (`sounds={false}`).
+- **Recent, with prices** (`RecentCards.tsx`, `price.ts`). The "Recent: a, b, c." names line in Collection's scanner is now:
+  - the last card added in full at the bottom of the sheet, with commas and no middle dots: "Westvale Abbey, SOI 281, Foil, $3.20, market price, Nov 14";
+  - the few before it, smaller, with their prices;
+  - the session's total of the prices it knows, saying how many were left out without one.
+
+  A missing price reads "price unknown", never $0. Proxies show no price and aren't in the total. The prices come with the printing the scanner filed (`ScanCandidate.prices`) and stay on Collection's session entries (`Added.prices`). A correction (Wrong printing, or the Added list's printing change) carries the new printing's prices, and a finish change picks that finish's price. So Recent always shows what is filed now, and Undo or Remove takes the card out of it. Deck scans and checks still show the names line.
+
 **The sheet (2026-11-13).** Bryan, on the Pixel 3: "All this extra question stuff should be a tapable expandable thing. There should be a pinch-to-zoom on the picture too. I should be able to drag away this huge bottom drawer if I want as well." So (`sheet.tsx`): the choices that rarely change (finish, where cards go, Keep adding, Close-ups, Mute, Save scan photos) sit in one "Scan settings" row that shows what's set and opens with a tap, remembered per device (`yama.scan.settingsOpen`); progress notes and errors stay in view (`ScannerView`'s `controls` against `settings`). Two fingers on the camera pinch its zoom, within the camera's own range or 1× to 3× digital, alongside the + and − buttons. The sheet has a handle: drag it down to hide the sheet and see the whole camera, drag it up or tap it (or Enter) to bring it back; a card that needs a tap brings it back by itself.
 ## Set lock, Skip, flashlight and zoom, scan photos (2026-11-06)
 

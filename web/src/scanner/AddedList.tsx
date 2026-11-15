@@ -3,6 +3,7 @@
 
 import { useState } from "react";
 import type { Printing } from "../api";
+import { pricesOf } from "./price";
 import { printingOptions } from "./printings";
 import { removeFix, type Added, type Finish, type Fix } from "./session";
 import { Button, CardThumb, DialogHead, ErrorText, Field, Loading } from "../components/ui";
@@ -44,7 +45,7 @@ function AddedRow({ a, onFix, onRetry }: { a: Added; onFix: AddedListProps["onFi
   const [error, setError] = useState<string | null>(null);
   const [printings, setPrintings] = useState<Printing[] | null>(null);
   const [showAll, setShowAll] = useState(false);
-  const base: Fix = { scryfall_id: a.scryfall_id, set: a.set, number: a.number, name: a.name, image: a.image, finish: a.finish, copies: a.copies };
+  const base: Fix = { scryfall_id: a.scryfall_id, set: a.set, number: a.number, name: a.name, image: a.image, finish: a.finish, copies: a.copies, prices: a.prices };
 
   const attempt = async (write: () => Promise<void>) => {
     setWorking(true);
@@ -126,7 +127,7 @@ function AddedRow({ a, onFix, onRetry }: { a: Added; onFix: AddedListProps["onFi
               aria-selected={p.scryfall_id === a.scryfall_id}
               className={`scan-printing${p.scryfall_id === a.scryfall_id ? " is-chosen" : ""}`}
               disabled={busy}
-              onClick={() => void run({ ...base, scryfall_id: p.scryfall_id, set: p.set_code, number: p.collector_number, name: p.name, image: p.image_small })}
+              onClick={() => void run({ ...base, scryfall_id: p.scryfall_id, set: p.set_code, number: p.collector_number, name: p.name, image: p.image_small, prices: pricesOf(p) })}
             >
               <CardThumb src={p.image_small} fallback={<span className="card-fallback" aria-hidden="true" />} />
               <span className="scan-printing-set">{p.set_name}</span>
