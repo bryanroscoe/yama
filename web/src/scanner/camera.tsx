@@ -64,6 +64,66 @@ export function digitalRegion(w: number, h: number, z: number, view?: { width: n
   return { x: (w - rw) / 2, y: (h - rh) / 2, w: rw, h: rh };
 }
 
+/** What the camera delivers and can do, for Scan settings and (later) Scanner diagnostics. */
+export interface CameraInfo {
+  label?: string;
+  deviceId?: string;
+  width?: number;
+  height?: number;
+  frameRate?: number;
+  zoom?: number;
+  zoomRange?: [number, number];
+  facing?: string;
+  focusMode?: string;
+  focusModes?: string[];
+  focusDistance?: number;
+  focusDistanceRange?: [number, number];
+  resizeMode?: string;
+  maxWidth?: number;
+  maxHeight?: number;
+  torch?: boolean;
+  pointsOfInterest?: boolean;
+}
+
+/** The track's settings and capabilities, in one plain object. */
+export function cameraInfo(track: MediaStreamTrack): CameraInfo {
+  const st = (track.getSettings?.() ?? {}) as MediaTrackSettings & { zoom?: number; focusMode?: string; focusDistance?: number; resizeMode?: string };
+  const caps = (track.getCapabilities?.() ?? {}) as MediaTrackCapabilities & {
+    zoom?: { min?: number; max?: number };
+    focusMode?: string[];
+    focusDistance?: { min?: number; max?: number };
+    torch?: boolean;
+  };
+  const range = (r?: { min?: number; max?: number }): [number, number] | undefined => (r && typeof r.min === "number" && typeof r.max === "number" ? [r.min, r.max] : undefined);
+  return {
+    label: track.label || undefined,
+    deviceId: st.deviceId,
+    width: st.width,
+    height: st.height,
+    frameRate: st.frameRate,
+    zoom: st.zoom,
+    zoomRange: range(caps.zoom),
+    facing: st.facingMode,
+    focusMode: st.focusMode,
+    focusModes: caps.focusMode,
+    focusDistance: st.focusDistance,
+    focusDistanceRange: range(caps.focusDistance),
+    resizeMode: st.resizeMode,
+    maxWidth: caps.width?.max,
+    maxHeight: caps.height?.max,
+    torch: caps.torch,
+    pointsOfInterest: pointsOfInterestSupported(),
+  };
+}
+
+const pointsOfInterestSupported = () => {
+  try {
+    return !!(navigator.mediaDevices?.getSupportedConstraints?.() as Record<string, boolean> | undefined)?.pointsOfInterest;
+  } catch {
+    return false;
+  }
+};
+
 export function useCameraControls() {
   const track = useRef<MediaStreamTrack | null>(null);
   const [caps, setCaps] = useState<CameraCaps>(NO_CAPS);
@@ -77,11 +137,14 @@ export function useCameraControls() {
     await t.applyConstraints({ advanced: [next as MediaTrackConstraintSet] });
     applied.current = next;
   };
+  /** The person zoomed (+, − or a pinch): auto-zoom leaves it to them for the session. */
+  const userZoomed = useRef(false);
   const attach = useCallback((t: MediaStreamTrack | null) => {
     track.current = t;
     const caps = (t?.getCapabilities?.() ?? {}) as { focusMode?: string[] };
-    // Continuous focus, where offered, goes with every later setting too.
+    // Continuous focus, where offered, goes with every later setting too, and is applied now.
     applied.current = caps.focusMode?.includes("continuous") ? { focusMode: "continuous" } : {};
+    if (t && applied.current.focusMode) void t.applyConstraints({ advanced: [applied.current as MediaTrackConstraintSet] }).catch(() => undefined);
     setCaps(t ? readCaps(t) : NO_CAPS);
     setTorchState(false);
     setZoomState(1);
@@ -118,6 +181,7 @@ export function useCameraControls() {
   const pending = useRef<{ busy: boolean; next: number | null }>({ busy: false, next: null });
   const zoomTo = useCallback(
     (z: number) => {
+      userZoomed.current = true;
       const lo = caps.zoom ? caps.zoom.min : 1;
       const hi = caps.zoom ? caps.zoom.max : DIGITAL_MAX;
       const want = Math.round(Math.min(hi, Math.max(lo, z)) * 100) / 100;
@@ -139,14 +203,35 @@ export function useCameraControls() {
   const { above, below } = zoomSteps(caps, zoom);
   const step = (d: 1 | -1) => {
     const next = d > 0 ? above : below;
+    userZoomed.current = true;
     if (next != null) void setZoom(next);
   };
+  /** Auto-zoom's step (zoomPolicy.ts): the camera's own zoom only, and never once the person has zoomed. */
+  const autoZoom = useCallback(
+    (z: number) => {
+      if (!caps.zoom || userZoomed.current) return;
+      void setZoom(z);
+    },
+    [caps.zoom, setZoom],
+  );
+  /** Focus on a point of the frame (0 to 1 across and down), where the browser lets it; else nothing. */
+  const focusAt = useCallback((x: number, y: number) => {
+    const t = track.current;
+    if (!t || !pointsOfInterestSupported()) return;
+    void apply(t, { pointsOfInterest: [{ x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)) }] }).catch(() => undefined);
+  }, []);
   return {
     attach,
     caps,
     torch,
     setTorch,
     zoom,
+    autoZoom,
+    focusAt,
+    /** The camera's track, for a still photo (ImageCapture). */
+    track: () => track.current,
+    /** Whether the person has zoomed by hand this session. */
+    userZoomed: () => userZoomed.current,
     zoomIn: () => step(1),
     zoomOut: () => step(-1),
     zoomTo,

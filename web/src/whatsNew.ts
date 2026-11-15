@@ -15,6 +15,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-15-scan-camera",
+    date: "2026-11-15",
+    title: "Choose the scanner's camera, and it zooms in for you",
+    items: [
+      "If your phone lists more than one camera, Scan settings lets you pick one (it starts on the main lens) and remembers it. It also says which camera is in use and what it delivers.",
+      "The scanner gently zooms the camera in until the card fills the view. Pinch or use + and − and it leaves the zoom to you. While it reads the set code and number, it asks you to move closer if they're too small.",
+    ],
+    link: { to: "/collection", label: "Scan cards" },
+  },
+  {
     id: "2026-11-15-scan-sounds-prices",
     date: "2026-11-15",
     title: "The scanner chimes, and shows what each card is worth",
