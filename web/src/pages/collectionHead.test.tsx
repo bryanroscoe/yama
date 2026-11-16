@@ -38,6 +38,7 @@ describe("the collection's head keeps the search near the top", () => {
     expect(html).toContain('class="container-tiles"');
     expect(html).not.toContain("coll-place");
     expect(html).toContain("Hide tiles");
+    expect(html).toContain('aria-controls="coll-tiles"');
   });
 
   it("folds many boxes into a dropdown, with the tiles a tap away", () => {
@@ -47,6 +48,23 @@ describe("the collection's head keeps the search near the top", () => {
     expect(html).toContain("Open one of 12");
     expect(html).toContain('<option value="b12">Box 12 (box)</option>');
     expect(html).toMatch(/aria-expanded="false"[^>]*>Show tiles</);
+    // The toggle names the tiles only while they are on the page.
+    expect(html).not.toContain('aria-controls="coll-tiles"');
+  });
+
+  it("waits for the containers before drawing any tiles", () => {
+    const client = new QueryClient();
+    client.setQueryData(["me"], { id: "u1", email: "a@example.com", display_name: "A", power: false });
+    client.setQueryData(["collection-summary"], summary);
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={["/collection"]}>
+          <CollectionPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    expect(html).not.toContain("Binders, boxes and decks");
+    expect(html).toContain("Search your collection by name");
   });
 
   it("says the total in one line, with its date and unpriced cards", () => {

@@ -111,6 +111,9 @@ export function CollectionPage() {
   const [withSections, setWithSections] = useState(false);
   const [show, setShow] = useState(storedView);
   const [placesChoice, setPlacesChoice] = useState(storedPlaces);
+  /** The dropdown's choice while picking with the keyboard (Enter opens it). */
+  const [placePick, setPlacePick] = useState("");
+  const pickByKey = useRef(false);
   const choosePlaces = (v: "tiles" | "folded") => {
     setPlacesChoice(v);
     try {
@@ -203,6 +206,8 @@ export function CollectionPage() {
   // The list shows art crops (credited under it); the pictures are whole cards, which name their artist.
   const thumbArtists = show === "list" ? shown.filter((i) => i.image_art_crop).map((i) => i.artist) : [];
   const places = tiles.length + (loose > 0 ? 1 : 0);
+  /** Everything the dropdown offers: every container, sections included, and the loose cards. */
+  const choices = all.length + (loose > 0 ? 1 : 0);
   const showTiles = (placesChoice ?? (places > FEW_PLACES ? "folded" : "tiles")) === "tiles";
   const searchLabel = chosen ? `Search ${chosen.name}` : container === "none" ? "Search loose cards" : "Search your collection";
   return (
@@ -270,7 +275,8 @@ export function CollectionPage() {
           {chosen && <ContainerSections key={chosen.id} container={chosen} all={all} onOpen={setContainer} onDone={setDone} />}
         </section>
       )}
-      {!container && (tiles.length > 0 || loose > 0) && (
+      {/* Only once the containers are in: before, every card counts as loose and a lone tile flashes. */}
+      {!container && containers.data && (tiles.length > 0 || loose > 0) && (
         <section className={showTiles ? "containers" : "containers coll-folded"} aria-labelledby="where">
           <div className="section-head">
             <h2 id="where">
@@ -281,15 +287,28 @@ export function CollectionPage() {
               <select
                 className="coll-place"
                 aria-label="Open a binder, box or deck"
-                value=""
-                onChange={(e) => e.target.value && setContainer(e.target.value)}
+                value={placePick}
+                onKeyDown={(e) => {
+                  // Arrow keys and letters change a closed select on some systems: with the
+                  // keyboard, the choice waits for Enter rather than leaving the page at once.
+                  if (e.key === "Enter" && placePick) {
+                    e.preventDefault();
+                    setContainer(placePick);
+                  } else if (e.key !== "Tab") pickByKey.current = true;
+                }}
+                onPointerDown={() => (pickByKey.current = false)}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  if (pickByKey.current) setPlacePick(id);
+                  else if (id) setContainer(id);
+                }}
               >
-                <option value="">Open one of {count(places)}</option>
+                <option value="">Open one of {count(choices)}</option>
                 {treeOrder(all).map((c) => <option key={c.id} value={c.id}>{optionLabel(c, all)}</option>)}
                 {loose > 0 && <option value="none">Loose cards</option>}
               </select>
             )}
-            <Button variant="quiet" size="small" className="coll-tiles-toggle" aria-expanded={showTiles} aria-controls="coll-tiles" onClick={() => choosePlaces(showTiles ? "folded" : "tiles")}>
+            <Button variant="quiet" size="small" className="coll-tiles-toggle" aria-expanded={showTiles} aria-controls={showTiles ? "coll-tiles" : undefined} onClick={() => choosePlaces(showTiles ? "folded" : "tiles")}>
               {showTiles ? "Hide tiles" : "Show tiles"}
             </Button>
             <Button className="coll-new" onClick={() => setNewContainer(true)}>New</Button>
