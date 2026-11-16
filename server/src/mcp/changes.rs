@@ -2751,6 +2751,82 @@ async fn apply_update_container(st: &AppState, user: &User, p: &Value) -> AppRes
     Ok(json!({"label": format!("Done: {} {}", p["was"].as_str().unwrap_or("the container"), p["done"].as_str().unwrap_or("changed")), "link": "/collection"}))
 }
 
+/// `delete_container`: delete one of their binders, boxes, lists or sections that is empty: no
+/// cards and no sections. A deck box is refused, and so is a name that only nearly matches. The
+/// change is checked again when applied (`collection::Contents::MustBeEmpty`, in the delete's own
+/// transaction), so it never unfiles a card.
+pub async fn delete_container(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
+    let mut conn = st.pool.acquire().await?;
+    let tree = Tree::load(&mut conn, &user.id).await?;
+    let wanted = arg::text(args, "container")?;
+    let (id, shown) = container_in(&tree, wanted)?;
+    if id == LOOSE {
+        return Err(AppError::bad("Loose copies aren't a container; name a binder, box or list. Nothing was staged."));
+    }
+    // A name that only nearly matches ("Bulk" for "Bulk Basic") is fine for a move, not for a delete.
+    if sections::find(&tree, wanted).is_empty() {
+        return Err(AppError::bad(format!(
+            "They have no container called \"{wanted}\"; the nearest is {shown}. To delete it, name it exactly: its name, path or id. Nothing was staged."
+        )));
+    }
+    let me = tree.get(&id).cloned().ok_or(AppError::NotFound("container"))?;
+    if me.kind == "deck" {
+        return Err(AppError::bad(format!("{shown} is a deck box. delete_container leaves deck boxes alone; they can delete one on Yama's Collection page. Nothing was staged.")));
+    }
+    let inside: Vec<String> = tree.children(Some(&id)).map(|n| n.name.clone()).collect();
+    if !inside.is_empty() {
+        return Err(AppError::bad(format!(
+            "{shown} still has {} ({}). Move or delete {} first. Nothing was staged.",
+            if inside.len() == 1 { "a section".to_string() } else { format!("{} sections", inside.len()) },
+            inside.join(", "),
+            if inside.len() == 1 { "it" } else { "them" }
+        )));
+    }
+    let (rows, copies): (i64, i64) = sqlx::query_as("SELECT COUNT(*), COALESCE(SUM(qty), 0) FROM collection_items WHERE container_id = ? AND owner_id = ?")
+        .bind(&id)
+        .bind(&user.id)
+        .fetch_one(&mut *conn)
+        .await?;
+    if rows > 0 {
+        return Err(AppError::bad(format!(
+            "{shown} still holds {}. Move {} out first (move_cards), then delete it. Nothing was staged.",
+            if copies == 1 { "a card".to_string() } else { format!("{copies} cards") },
+            if copies == 1 { "it" } else { "them" }
+        )));
+    }
+    // A deck can point to a box as its own or as its swappable spares; the delete clears that.
+    let decks: Vec<String> = sqlx::query_scalar(
+        "SELECT name FROM decks WHERE owner_id = ? AND archived = 0 AND (container_id = ? OR spares_container_id = ?) ORDER BY name",
+    )
+    .bind(&user.id)
+    .bind(&id)
+    .bind(&id)
+    .fetch_all(&mut *conn)
+    .await?;
+    drop(conn);
+    let said = CONTAINER_KINDS.iter().find(|(k, _)| *k == me.kind).map_or("container", |(_, s)| *s);
+    let summary = format!("Delete the empty {said} {shown}");
+    let mut detail = "It holds no cards and no sections, so nothing is unfiled.".to_string();
+    if !decks.is_empty() {
+        detail.push_str(&format!(" It stops being the box of {}.", decks.join(", ")));
+    }
+    stage(st, user, via, args, Staged { kind: "delete_container", summary, detail, payload: json!({"id": id, "was": shown, "said": said}) }).await
+}
+
+async fn apply_delete_container(st: &AppState, user: &User, p: &Value) -> AppResult<Value> {
+    st.limits.collection_writes.check_user(user)?;
+    let id = p["id"].as_str().unwrap_or_default();
+    let was = p["was"].as_str().unwrap_or("That container");
+    let gone = crate::collection::delete_container_for_owner(&st.pool, &user.id, id, crate::collection::Contents::MustBeEmpty).await.map_err(|e| match e {
+        AppError::Conflict(why) => AppError::Conflict(format!("{was} wasn't deleted. {why}")),
+        other => other,
+    })?;
+    if !gone {
+        return Err(AppError::Conflict(format!("{was} isn't there any more. Nothing changed.")));
+    }
+    Ok(json!({"label": format!("Done: {was} deleted"), "link": "/collection"}))
+}
+
 /// `remove_from_collection`: copies of a card leave one of their binders, boxes or lists for
 /// good. The change names the exact rows and how many go from each: when the copies there are
 /// not all alike (another printing, finish, condition, a proxy), the call has to say which.
@@ -3112,6 +3188,7 @@ pub(super) mod staging {
     pub const REMOVE_WISH: Staging = Staging { kind: "remove_wish", apply: |st, user, _, p| Box::pin(apply_remove_wish(st, user, p)) };
     pub const CREATE_CONTAINER: Staging = Staging { kind: "create_container", apply: |st, user, _, p| Box::pin(apply_create_container(st, user, p)) };
     pub const UPDATE_CONTAINER: Staging = Staging { kind: "update_container", apply: |st, user, _, p| Box::pin(apply_update_container(st, user, p)) };
+    pub const DELETE_CONTAINER: Staging = Staging { kind: "delete_container", apply: |st, user, _, p| Box::pin(apply_delete_container(st, user, p)) };
     pub const REMOVE_FROM_COLLECTION: Staging = Staging { kind: "remove_from_collection", apply: |st, user, change, p| Box::pin(apply_remove_copies(st, user, change.id, p)) };
     pub const EDIT_COPIES: Staging = Staging { kind: "edit_copies", apply: |st, user, change, p| Box::pin(apply_edit_copies(st, user, change.id, p)) };
 }
