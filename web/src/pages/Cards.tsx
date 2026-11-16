@@ -6,7 +6,7 @@ import { useSearchParams } from "react-router";
 import { api, type Card, type SearchResult } from "../api";
 import { isNetworkError } from "../cardDetail";
 import { isGuest } from "../guest";
-import { Button, CardImage, Dialog, ErrorText, Pager } from "../components/ui";
+import { Button, ButtonLink, CardImage, Dialog, ErrorText, Pager } from "../components/ui";
 import { offlineSearch } from "../offline/cards";
 import { ReleaseCalendar } from "../components/Upcoming";
 import { cardNamed, exactNameQuery, nameQuery, queryChips, withoutTerm } from "./cardQuery";
@@ -127,6 +127,8 @@ export function CardsPage() {
             <p>Search works like Scryfall: <code>o:</code> rules text, <code>t:</code> type, <code>id&lt;=</code> fits a commander, <code>mv</code>, <code>pow</code>, <code>f:commander</code>, <code>is:gamechanger</code>, <code>-</code> to exclude, <code>or</code> and parentheses.</p>
             <p>Also <code>set:cmm</code>, <code>a:</code> artist, <code>year&gt;=2020</code>, <code>usd&lt;5</code> (a card with no price never matches a price; <code>set:</code>, <code>a:</code> and <code>year</code> side by side are about the same printing) and <code>is:reserved</code>, <code>is:partner</code>, <code>is:mdfc</code>.</p>
           </HelpPopover>
+          {/* Cards in hand go straight to the collection's scanner. */}
+          {!guest && <ButtonLink variant="outline" size="small" className="cards-scan" to="/collection?scan=1">Scan my cards</ButtonLink>}
         </div>
         <form
           className="cards-search"

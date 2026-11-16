@@ -15,6 +15,18 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-16-collection-search-up",
+    date: "2026-11-16",
+    title: "Collection: search at the top",
+    items: [
+      "The collection's search sits right under the total, above your binders and boxes, so you can start typing as soon as the page opens.",
+      "With more than six binders, boxes and decks, they fold into one dropdown; Show tiles brings the art tiles back, and the page remembers which you chose.",
+      "The total takes one line now; what it counts and what you paid are behind the ?.",
+      "Scan my cards on the Cards tab opens the collection's scanner.",
+    ],
+    link: { to: "/collection", label: "Open your collection" },
+  },
+  {
     id: "2026-11-16-scanner-strip",
     date: "2026-11-16",
     title: "The scanner shows each card you add, with its price",
