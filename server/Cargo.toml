@@ -48,3 +48,10 @@ libc = "0.2"
 tempfile = "3.27.0"
 unicode-normalization = "0.1.26"
 fancy-regex = "0.20.0"
+# The scanner's art supplement (scan_art.rs): runs the embedding half of the pinned ManaVault
+# embed.onnx on Scryfall art crops of illustrations the bundle doesn't know. Pure Rust, so the
+# image needs no ONNX runtime or Node. Pinned exactly: a model runtime's numerics are part of
+# the embeddings' meaning.
+tract-onnx = "=0.23.9"
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "webp"] }
+half = "2.7"

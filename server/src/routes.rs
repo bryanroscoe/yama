@@ -214,6 +214,10 @@ pub async fn serve(cfg: Config, pool: SqlitePool) -> anyhow::Result<()> {
         // The scanner's recognition bundle, so the first scan doesn't wait on the download.
         let (dir, http) = (cfg.data_dir.clone(), http_client());
         tokio::spawn(async move { crate::scan::ensure(dir, http).await });
+        // Artworks the bundle doesn't know yet, embedded here after each card import (scan_art.rs).
+        if cfg.scan_supplement {
+            crate::scan_art::spawn(pool.clone(), cfg.data_dir.clone(), http_client());
+        }
     }
     // Research answers are kept in the database (research_cache) so restarts reuse them; the deck
     // checks pace their Spellbook requests with it.

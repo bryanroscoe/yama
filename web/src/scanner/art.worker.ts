@@ -5,7 +5,7 @@
 
 import * as ort from "onnxruntime-web/wasm";
 import wasmUrl from "onnxruntime-web/ort-wasm-simd-threaded.wasm?url";
-import { createRecognizer, parseArts, poolIndices, type Art, type BundleConstants, type OrtLike, type Recognizer } from "./recognizer";
+import { createRecognizer, parseArts, parseSupplement, poolIndices, type Art, type BundleConstants, type OrtLike, type Recognizer, type Supplement } from "./recognizer";
 import type { ArtWorkerReply, ArtWorkerRequest, BundleInfo } from "./artClient";
 
 /** Also listed in public/sw.js, so the service worker's clean-up keeps it. */
@@ -56,12 +56,16 @@ async function file(url: string, size: number, onBytes: (n: number, total: numbe
 async function load(info: BundleInfo, base: string) {
   const t0 = performance.now();
   const urls = { detector: info.files.detector, embed: info.files.embed, search: info.files.search, arts: info.files.arts, runtime: wasmUrl };
-  // Drop files of older bundles.
+  // Drop files of older bundles, and supplements other than this one.
+  const supplementUrl = info.files.supplement ?? null;
+  const supplementPath = supplementUrl ? new URL(supplementUrl, base || self.location.origin).pathname : null;
   const cache = await caches.open(CACHE).catch(() => null);
   if (cache) {
     for (const req of await cache.keys()) {
       const path = new URL(req.url).pathname;
-      if (path.startsWith("/scan-bundle/") && !path.startsWith(`/scan-bundle/${info.version}/`)) await cache.delete(req);
+      const otherBundle = path.startsWith("/scan-bundle/") && !path.startsWith(`/scan-bundle/${info.version}/`);
+      const otherSupplement = /\/supplement-[^/]*\.json$/.test(path) && path !== supplementPath;
+      if (otherBundle || otherSupplement) await cache.delete(req);
     }
   }
   const progress = new Map<string, [number, number]>();
@@ -87,12 +91,32 @@ async function load(info: BundleInfo, base: string) {
       report();
     });
   };
-  const [runtime, detector, embed, search, artsFile] = await Promise.all([get("runtime"), get("detector"), get("embed"), get("search"), get("arts")]);
+  // Artworks newer than the bundle, embedded by the server. Optional: without it the scanner
+  // still knows every artwork in the bundle.
+  const extra = supplementUrl
+    ? file(new URL(supplementUrl, base || self.location.origin).href, info.bytes?.supplement ?? 0, (l, t) => {
+        progress.set("supplement", [l, t]);
+        report();
+      }).catch((e) => {
+        console.warn("The scanner's artwork supplement didn't load", e);
+        return null;
+      })
+    : Promise.resolve(null);
+  const [runtime, detector, embed, search, artsFile, supplementFile] = await Promise.all([get("runtime"), get("detector"), get("embed"), get("search"), get("arts"), extra]);
   ort.env.wasm.wasmBinary = runtime;
   const gallery = parseArts(JSON.parse(new TextDecoder().decode(artsFile)));
-  recognizer = await createRecognizer(ort as unknown as OrtLike, { detector, embed, search }, info.constants as unknown as BundleConstants, gallery);
-  arts = gallery;
-  reply({ type: "ready", ms: performance.now() - t0, arts: gallery.length });
+  let supplement: Supplement | null = null;
+  if (supplementFile) {
+    try {
+      supplement = parseSupplement(JSON.parse(new TextDecoder().decode(supplementFile)), info.version);
+    } catch (e) {
+      console.warn("The scanner's artwork supplement can't be read", e);
+    }
+  }
+  recognizer = await createRecognizer(ort as unknown as OrtLike, { detector, embed, search }, info.constants as unknown as BundleConstants, gallery, supplement);
+  // Gallery order, then the supplement's rows: the indices the recognizer reports.
+  arts = supplement ? gallery.concat(supplement.arts) : gallery;
+  reply({ type: "ready", ms: performance.now() - t0, arts: arts.length });
 }
 
 self.onmessage = async (event: MessageEvent<ArtWorkerRequest>) => {

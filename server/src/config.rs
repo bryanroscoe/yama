@@ -46,6 +46,9 @@ pub struct Config {
     /// `auto_import` keep Yama's copy of Spellbook's combos fresh (`combos.rs`). No list is sent
     /// anywhere. On unless `YAMA_AI_COMBOS=0`, which stops both for games started from then on.
     pub ai_combos: bool,
+    /// The scanner's art supplement (scan_art.rs): embed artworks the pinned bundle doesn't know
+    /// from Scryfall's art crops, and offer them to the scanner. On unless `YAMA_SCAN_SUPPLEMENT=0`.
+    pub scan_supplement: bool,
     /// The Mythic Tools bridge (`bridges/mythic`): import games from Mythic Tools. Off unless
     /// `YAMA_MYTHIC_BRIDGE=1`; Mythic's API is private and can change, and the bridge may go.
     pub mythic_bridge: bool,
@@ -348,6 +351,7 @@ impl Config {
             auto_import: flag("YAMA_AUTO_IMPORT") && !flag("YAMA_OFFLINE"),
             deck_checks: !off("YAMA_DECK_CHECKS") && !flag("YAMA_OFFLINE"),
             ai_combos: !off("YAMA_AI_COMBOS"),
+            scan_supplement: !off("YAMA_SCAN_SUPPLEMENT"),
             mythic_bridge: flag("YAMA_MYTHIC_BRIDGE"),
             engine_card_data: Some(engine_card_data),
             cf_access_team: std::env::var("YAMA_CF_ACCESS_TEAM").ok().filter(|s| !s.is_empty()),

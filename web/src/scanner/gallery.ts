@@ -17,6 +17,8 @@ export interface Gallery {
   dim: number;
   /** Score these artworks (gallery indices) against an embed output, best first, at most `k`. */
   search(embeddings: Float32Array, indices: Iterable<number>, k: number): { index: number; score: number }[];
+  /** One row's vector, as floats. */
+  row(index: number): Float32Array;
 }
 
 interface Tensor {
@@ -135,6 +137,17 @@ export function readGallery(searchGraph: Uint8Array): Gallery {
   const frame = Int32Array.from(frame64, (x) => Number(x));
   const penalty = new Float32Array(aligned(penalties.raw));
   if (vectors.length !== count * dim || frame.length !== count || penalty.length !== count) throw new Error("The search graph isn't in a form the scanner reads");
+  return galleryOf(vectors, frame, penalty, dim);
+}
+
+/**
+ * A gallery from its three arrays: `vectors` (float16 bits, rows × dim), each row's frame index
+ * and penalty. The search graph's own, or the server's supplement (artworks the bundle doesn't
+ * know, embedded by Yama with the bundle's graph: server/src/scan_art.rs), scored the same way.
+ */
+export function galleryOf(vectors: Uint16Array, frame: Int32Array, penalty: Float32Array, dim: number): Gallery {
+  const count = frame.length;
+  if (dim <= 0 || vectors.length !== count * dim || penalty.length !== count) throw new Error("The gallery's arrays don't agree");
   return {
     count,
     dim,
@@ -158,5 +171,21 @@ export function readGallery(searchGraph: Uint8Array): Gallery {
       }
       return best;
     },
+    row(index) {
+      return Float32Array.from(vectors.subarray(index * dim, (index + 1) * dim), (h) => HALF[h]!);
+    },
   };
+}
+
+/** Every index from 0 to n − 1. */
+export function* upTo(n: number): Generator<number> {
+  for (let i = 0; i < n; i += 1) yield i;
+}
+
+/** Base64 to bytes (the supplement's vectors). */
+export function fromBase64(text: string): Uint8Array {
+  const bin = atob(text);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i);
+  return out;
 }
