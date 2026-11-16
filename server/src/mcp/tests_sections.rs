@@ -154,3 +154,127 @@ async fn sections_by_path_and_many_moves_as_one_change() {
     let (err, text) = call(&app, &mcp, "update_container", json!({"container": "Spares"})).await;
     assert!(err && text.contains("Say what changes"), "{text}");
 }
+
+/// `delete_container` only ever deletes an empty binder, box, list or section of the caller's:
+/// one with cards or sections, a deck box, a near name, Loose or someone else's is refused, when
+/// staged and again when applied, so a delete never unfiles a card.
+#[tokio::test]
+async fn delete_container_only_deletes_an_empty_one_of_theirs() {
+    let (app, pool) = app().await;
+    seed_cards(&pool).await;
+    let (a, session) = user(&pool, "bryan@example.com").await;
+    let (_, other_session) = user(&pool, "someone@example.com").await;
+    let mcp = key(&app, &session, Some("mcp")).await;
+    let other = key(&app, &other_session, Some("mcp")).await;
+    let stage = |args: Value| {
+        let (app, mcp) = (app.clone(), mcp.clone());
+        async move {
+            let (err, text) = call(&app, &mcp, "delete_container", args).await;
+            assert!(!err, "{text}");
+            change_id(&text)
+        }
+    };
+    let apply = |id: String| {
+        let (app, mcp) = (app.clone(), mcp.clone());
+        async move { call(&app, &mcp, "apply_change", json!({"id": id})).await }
+    };
+    let made = |args: Value| {
+        let (app, mcp) = (app.clone(), mcp.clone());
+        async move {
+            let (err, text) = call(&app, &mcp, "create_container", args).await;
+            assert!(!err, "{text}");
+            let (err, done) = call(&app, &mcp, "apply_change", json!({"id": change_id(&text)})).await;
+            assert!(!err, "{done}");
+        }
+    };
+    let id_of = |name: &'static str| {
+        let (pool, a) = (pool.clone(), a.clone());
+        async move { sqlx::query_scalar::<_, String>("SELECT id FROM containers WHERE owner_id = ? AND name = ?").bind(&a).bind(name).fetch_optional(&pool).await.unwrap() }
+    };
+    let filed = || {
+        let (pool, a) = (pool.clone(), a.clone());
+        async move {
+            sqlx::query_as::<_, (String, i64)>(
+                "SELECT ct.name, i.qty FROM collection_items i JOIN containers ct ON ct.id = i.container_id WHERE i.owner_id = ? ORDER BY ct.name",
+            )
+            .bind(&a)
+            .fetch_all(&pool)
+            .await
+            .unwrap()
+        }
+    };
+
+    made(json!({"name": "Big box", "kind": "box"})).await;
+    made(json!({"name": "Bulk Basic", "parent": "Big box"})).await;
+    made(json!({"name": "Spares", "kind": "box"})).await;
+    made(json!({"name": "Elf deck box", "kind": "deck"})).await;
+    let (err, text) = call(&app, &mcp, "add_to_collection", json!({"card": "Forest", "qty": 3, "container": "Spares"})).await;
+    assert!(!err, "{text}");
+    let (err, done) = apply(change_id(&text)).await;
+    assert!(!err, "{done}");
+
+    // An empty section: staged, nothing gone until applied, then gone.
+    let (err, text) = call(&app, &mcp, "delete_container", json!({"container": "Big box/Bulk Basic"})).await;
+    assert!(!err && text.contains("Delete the empty box Big box › Bulk Basic") && text.contains("nothing is unfiled"), "{text}");
+    assert!(id_of("Bulk Basic").await.is_some(), "staged only");
+    let (err, done) = apply(change_id(&text)).await;
+    assert!(!err && done.contains("Done: Big box › Bulk Basic deleted"), "{done}");
+    assert!(id_of("Bulk Basic").await.is_none());
+    assert!(id_of("Big box").await.is_some(), "its parent stays");
+
+    // Cards in it: refused when staged.
+    let (err, text) = call(&app, &mcp, "delete_container", json!({"container": "Spares"})).await;
+    assert!(err && text.contains("Spares still holds 3 cards") && text.contains("Nothing was staged"), "{text}");
+    // Empty when staged, with cards by the time it is applied: refused, and nothing changes.
+    let change = stage(json!({"container": "Big box"})).await;
+    let (err, text) = call(&app, &mcp, "move_cards", json!({"card": "Forest", "qty": 1, "from": "Spares", "to": "Big box"})).await;
+    assert!(!err, "{text}");
+    let (err, done) = apply(change_id(&text)).await;
+    assert!(!err, "{done}");
+    let (err, done) = apply(change).await;
+    assert!(err && done.contains("Big box wasn't deleted. It still holds a card. Move it out first."), "{done}");
+    assert!(id_of("Big box").await.is_some());
+    assert_eq!(filed().await, [("Big box".to_string(), 1), ("Spares".to_string(), 2)], "nothing unfiled");
+
+    // Sections in it: refused when staged, and when one is made after staging.
+    made(json!({"name": "Holder", "kind": "box"})).await;
+    let change = stage(json!({"container": "Holder"})).await;
+    made(json!({"name": "Plains", "parent": "Holder"})).await;
+    let (err, text) = call(&app, &mcp, "delete_container", json!({"container": "Holder"})).await;
+    assert!(err && text.contains("Holder still has a section (Plains)"), "{text}");
+    let (err, done) = apply(change).await;
+    assert!(err && done.contains("Holder wasn't deleted. It still has a section (Plains)"), "{done}");
+    assert!(id_of("Holder").await.is_some() && id_of("Plains").await.is_some());
+
+    // A deck box: refused when staged, and when applied (were its kind to change after staging).
+    let (err, text) = call(&app, &mcp, "delete_container", json!({"container": "Elf deck box"})).await;
+    assert!(err && text.contains("is a deck box"), "{text}");
+    made(json!({"name": "Soon a deck box", "kind": "box"})).await;
+    let change = stage(json!({"container": "Soon a deck box"})).await;
+    sqlx::query("UPDATE containers SET kind = 'deck' WHERE owner_id = ? AND name = 'Soon a deck box'").bind(&a).execute(&pool).await.unwrap();
+    let (err, done) = apply(change).await;
+    assert!(err && done.contains("It's a deck box"), "{done}");
+    assert!(id_of("Elf deck box").await.is_some() && id_of("Soon a deck box").await.is_some());
+
+    // Not a near name, not Loose.
+    made(json!({"name": "Empty binder", "kind": "binder"})).await;
+    let (err, text) = call(&app, &mcp, "delete_container", json!({"container": "binder"})).await;
+    assert!(err && text.contains("name it exactly"), "{text}");
+    let (err, text) = call(&app, &mcp, "delete_container", json!({"container": "Loose"})).await;
+    assert!(err && text.contains("aren't a container"), "{text}");
+
+    // Someone else can't stage it, by name or id, or apply theirs.
+    let binder = id_of("Empty binder").await.unwrap();
+    for wanted in ["Empty binder", binder.as_str()] {
+        let (err, text) = call(&app, &other, "delete_container", json!({"container": wanted})).await;
+        assert!(err && text.contains("no binder, deck box or list called"), "someone else's box: {text}");
+    }
+    let change = stage(json!({"container": "Empty binder"})).await;
+    let (err, done) = call(&app, &other, "apply_change", json!({"id": change.clone()})).await;
+    assert!(err, "someone else applied it: {done}");
+    assert!(id_of("Empty binder").await.is_some());
+    // Gone before it is applied: says so.
+    sqlx::query("DELETE FROM containers WHERE id = ?").bind(&binder).execute(&pool).await.unwrap();
+    let (err, done) = apply(change).await;
+    assert!(err && done.contains("Empty binder isn't there any more"), "{done}");
+}

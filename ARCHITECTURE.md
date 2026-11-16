@@ -541,6 +541,12 @@ dividers have sub sections as well."
   Basic/Plains") or a name only one container has; an ambiguous name is refused with the paths.
   `update_container` reparents and renames; `move_cards` takes up to 500 moves as one change,
   applied in one transaction (the per-card form cost about a thousand calls on 15 November).
+- **Deleting a container over MCP only deletes an empty one (16 November 2026).**
+  `delete_container` is refused for a container with any card row or section, for a deck box
+  and for a name that only nearly matches; the apply checks again inside the delete's own
+  transaction (`collection::Contents::MustBeEmpty`), so a staged delete never unfiles a card even
+  if cards arrive after staging. The page's Delete still unfiles a box's cards. A deck that used
+  the box (as its box or its swappable spares) loses the link, and the change says so.
 - **Scanning a box is like Check this deck**: identity first, worked out on the device, nothing
   saved but the moves, adds and "missing" marks tapped, which are ordinary collection ops. A
   missing card moves to a top-level "Missing" box rather than leaving the collection.

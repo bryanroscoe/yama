@@ -356,6 +356,7 @@ async fn one_of_everything(app: &axum::Router, pool: &SqlitePool, owner: &str, t
     sqlx::query("INSERT INTO playgroups (id, name, owner_id, join_code, created_at) VALUES ('group-a', 'SECRET night', ?, 'JOINA', 't')").bind(owner).execute(pool).await.unwrap();
     sqlx::query("INSERT INTO playgroup_members (id, playgroup_id, user_id, guest_name, created_at) VALUES ('member-a', 'group-a', ?, NULL, 't')").bind(owner).execute(pool).await.unwrap();
     sqlx::query("INSERT INTO containers (id, owner_id, kind, name, created_at) VALUES ('box-a', ?, 'binder', 'Box A', 't')").bind(owner).execute(pool).await.unwrap();
+    sqlx::query("INSERT INTO containers (id, owner_id, kind, name, created_at) VALUES ('box-e', ?, 'box', 'Empty box', 't')").bind(owner).execute(pool).await.unwrap();
     sqlx::query("INSERT INTO collection_items (id, owner_id, scryfall_id, qty, container_id, note, created_at, updated_at) VALUES ('item-a', ?, 'p-o-sol', 3, 'box-a', 'SECRET copy', 't', 't')")
         .bind(owner)
         .execute(pool)
@@ -437,6 +438,8 @@ fn isolation_cases(f: &Fixture) -> Vec<(&'static str, Value, ForOwner)> {
         ("add_to_collection", json!({"card": "Sol Ring", "container": "Box A"}), Works),
         ("move_cards", json!({"card": "Sol Ring", "from": "Box A", "to": "Box A"}), Unchecked),
         ("update_container", json!({"container": "Box A", "name": "Box B"}), Works),
+        ("delete_container", json!({"container": "box-e"}), Works),
+        ("delete_container", json!({"container": "Empty box"}), Works),
         ("collection_cards", json!({"container": "Box A"}), Works),
         ("set_condition", json!({"container": "Box A", "condition": "LP"}), Works),
         ("update_deck", json!({"deck": deck, "bracket": 3}), Works),
@@ -717,8 +720,8 @@ fn descriptions_are_short_and_written_for_anyone() {
     // list_devices (15 Nov 2026) took it to about 25,450; the two scanner diagnostics tools
     // (15 Nov 2026) to 25,921; a deck's swappable spares (move_cards, get_deck and
     // list_collection_cards, 15 Nov 2026) to about 26,320; sections (update_container, paths and
-    // batch moves, 16 Nov 2026) to about 26,800.
-    assert!(total <= 26_850, "the descriptions are {total} characters in all");
+    // batch moves, 16 Nov 2026) to about 26,800; delete_container (16 Nov 2026) to about 26,950.
+    assert!(total <= 27_000, "the descriptions are {total} characters in all");
     let instructions = super::SERVER_INSTRUCTIONS;
     assert!(instructions.chars().count() <= 2_600, "the instructions are {} characters", instructions.chars().count());
     for word in his {

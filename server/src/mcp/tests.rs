@@ -1031,7 +1031,7 @@ async fn a_staging_call_repeated_with_its_op_id_stages_once() {
     let with_lab = [
         "add_wish", "edit_deck", "delete_deck", "track_build", "approve_plan", "propose_swap", "answer_review", "mark_bought", "swap_in_prints",
         "mark_installed", "start_lab_run", "add_lab_games", "rerun_lab_run", "cancel_lab_run", "add_to_collection", "move_cards", "set_condition",
-        "update_deck", "remove_wish", "create_container", "update_container", "remove_from_collection", "edit_copies", "save_deck",
+        "update_deck", "remove_wish", "create_container", "update_container", "delete_container", "remove_from_collection", "edit_copies", "save_deck",
     ];
     assert_eq!(staging_names(&r), with_lab, "staging tools listed for an account with no stores or runs");
     // A power user is listed the same tools: the difference is the allowance, not the catalog.
@@ -1439,6 +1439,7 @@ async fn a_change_naming_another_accounts_rows_changes_nothing_when_applied() {
     let (deck_id, _) = deck(&pool, &a, "Elf Ball").await;
     sqlx::query("INSERT INTO containers (id, owner_id, kind, name, created_at) VALUES ('box-a', ?, 'binder', 'Box A', 't')").bind(&a).execute(&pool).await.unwrap();
     sqlx::query("INSERT INTO collection_items (id, owner_id, scryfall_id, qty, container_id, created_at, updated_at) VALUES ('item-a', ?, 'p-o-sol', 3, 'box-a', 't', 't')").bind(&a).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO containers (id, owner_id, kind, name, created_at) VALUES ('box-empty', ?, 'box', 'Empty', 't')").bind(&a).execute(&pool).await.unwrap();
     let wish = crate::plan::wants::add(&pool, &a, &crate::plan::wants::NewWant { name: "Sol Ring".into(), ..Default::default() }, "page", None).await.unwrap();
     let other = key(&app, &b_session, Some("mcp")).await;
     let forged = [
@@ -1447,6 +1448,7 @@ async fn a_change_naming_another_accounts_rows_changes_nothing_when_applied() {
         ("remove_from_collection", json!({"name": "Sol Ring", "qty": 1, "from_id": "box-a", "from": "Box A", "rows": [{"id": "item-a", "qty": 1}]})),
         ("edit_copies", json!({"oracle_id": "o-sol", "name": "Sol Ring", "qty": 3, "container_id": "box-a", "container": "Box A", "proxy": true, "set_note": false, "set_price": false})),
         ("move_cards", json!({"oracle_id": "o-sol", "name": "Sol Ring", "qty": 1, "from_id": "box-a", "from": "Box A", "to_id": "box-a", "to": "Box A"})),
+        ("delete_container", json!({"id": "box-empty", "was": "Empty", "said": "box"})),
     ];
     for (n, (kind, payload)) in forged.iter().enumerate() {
         let id = format!("forged-{n}");
@@ -1465,6 +1467,8 @@ async fn a_change_naming_another_accounts_rows_changes_nothing_when_applied() {
     assert_eq!(deck_now, ("Elf Ball".to_string(), None));
     let copies: Vec<(i64, bool, Option<String>)> = sqlx::query_as("SELECT qty, proxy, container_id FROM collection_items WHERE owner_id = ?").bind(&a).fetch_all(&pool).await.unwrap();
     assert_eq!(copies, [(3, false, Some("box-a".to_string()))]);
+    let boxes: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM containers WHERE owner_id = ?").bind(&a).fetch_one(&pool).await.unwrap();
+    assert_eq!(boxes, 2, "an empty box of theirs stays");
     let wishes: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM shopping_wants WHERE owner_id = ? AND retired_at IS NULL").bind(&a).fetch_one(&pool).await.unwrap();
     assert_eq!(wishes, 1);
 }
