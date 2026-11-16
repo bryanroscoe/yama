@@ -13,15 +13,22 @@ import { cardDetailQuery } from "../cardDetail";
 import { isGuest } from "../guest";
 import { PriceHistory } from "../components/PriceHistory";
 import { Rulings } from "../components/Rulings";
-import { Button, CardImage, CardThumb, ErrorText, Loading, ManaCost, Pips, ShowMore, StatusPill, Tag } from "../components/ui";
+import { Button, CardThumb, ErrorText, Loading, ManaCost, Pips, ShowMore, StatusPill, Tag, ZoomableCard } from "../components/ui";
 import { CardInDecks } from "./CardInDecks";
 import { opIds, ownedFinishes } from "./collectionEdit";
 import "./cards.css";
-import { priceSource, shortDate, treatmentLabel, usd } from "@yama/core";
+import { foilKind, priceSource, shortDate, treatmentLabel, usd } from "@yama/core";
 
 type Finish = "nonfoil" | "foil" | "etched";
 const CONDITIONS: Record<string, string> = { NM: "near mint", LP: "lightly played", MP: "moderately played", HP: "heavily played", DMG: "damaged" };
 const listWords = (xs: string[]) => (xs.length <= 1 ? (xs[0] ?? "") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
+
+/** "Regular", "Foil", "Surge foil", "Etched": a button's word for adding a copy of `p` in `finish`. */
+function finishWord(p: Printing, finish: string): string {
+  return finish === "nonfoil" ? "Regular" : finish === "foil" ? (foilKind(p) ?? "Foil") : finish === "etched" ? "Etched" : finish;
+}
+
+const article = (word: string) => (/^[aeiou]/i.test(word) ? "an" : "a");
 
 /** A legendary creature, or a card that says it can be your commander. */
 export function canBeCommander(c: Pick<Card, "type_line" | "oracle_text">): boolean {
@@ -92,7 +99,8 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
   const detail = useQuery({ ...cardDetailQuery(oracleId), enabled: !guest });
   const card = detail.data?.card ?? (guest ? hit : undefined);
   const [flipped, setFlipped] = useState(false);
-  const [added, setAdded] = useState<string | null>(null);
+  // What the last add did, and where it was tapped, so the line shows beside that button.
+  const [added, setAdded] = useState<{ text: string; where: "top" | "printings" } | null>(null);
   const [allPrintings, setAllPrintings] = useState(false);
   const [chart, setChart] = useState<{ id: string; finish: Finish; set: string } | null>(null);
   const qc = useQueryClient();
@@ -108,18 +116,20 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
   const [ids] = useState(() => opIds());
   const addKey = (v: { p: Printing; finish: string; proxy?: boolean }) => `${v.p.scryfall_id}:${v.finish}:${v.proxy ? "proxy" : "real"}`;
   const add = useMutation({
-    mutationFn: (v: { p: Printing; finish: string; proxy?: boolean }) =>
+    mutationFn: (v: { p: Printing; finish: string; proxy?: boolean; where?: "top" | "printings" }) =>
       api("/api/collection/ops", {
         method: "POST",
         json: [{ op_id: ids.idFor(addKey(v)), kind: "add", scryfall_id: v.p.scryfall_id, qty: 1, finish: v.finish, proxy: !!v.proxy }],
       }),
     onSuccess: (_, v) => {
       ids.saved(addKey(v));
-      setAdded(
-        v.proxy
-          ? `Added a proxy of ${card!.name} (${v.p.set_name} art) to your collection.`
-          : `Added ${v.finish === "nonfoil" ? "a" : `a ${v.finish}`} ${v.p.set_name} copy to your collection.`,
-      );
+      const kind = v.finish === "foil" ? (foilKind(v.p)?.toLowerCase() ?? "foil") : v.finish;
+      setAdded({
+        text: v.proxy
+          ? `Added a proxy of ${card!.name} (${v.p.set_name} #${v.p.collector_number} art) to your collection.`
+          : `Added ${v.finish === "nonfoil" ? "a" : `${article(kind)} ${kind}`} ${v.p.set_name} #${v.p.collector_number} copy to your collection.`,
+        where: v.where ?? "top",
+      });
       void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("collection") || q.queryKey[0] === "search" });
     },
   });
@@ -181,7 +191,7 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
         <div className="cp-body">
           {/* The full card shows here, so it carries the art's credit. */}
           <figure className="cp-figure">
-            <CardImage src={flipped && card.back_image_normal ? card.back_image_normal : card.image_normal} name={card.name} />
+            <ZoomableCard src={flipped && card.back_image_normal ? card.back_image_normal : card.image_normal} name={card.name} />
             <figcaption>
               {card.artist ? `Art by ${card.artist}. ` : ""}™ &amp; © Wizards of the Coast. Image from Scryfall.
             </figcaption>
@@ -256,8 +266,8 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
                 </Button>
               </div>
             )}
-            {added && <p className="small" role="status" style={{ margin: 0 }}>{added}</p>}
-            <ErrorText error={add.error} />
+            {added?.where === "top" && <p className="small" role="status" style={{ margin: 0 }}>{added.text}</p>}
+            {add.variables?.where !== "printings" && <ErrorText error={add.error} />}
 
             {!guest && <CardInDecks oracleId={oracleId} />}
 
@@ -270,6 +280,7 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
                 <table className="cp-table">
                   <thead>
                     <tr>
+                      <th className="cp-pic"><span className="visually-hidden">Picture</span></th>
                       <th>Set</th>
                       <th className="r">Normal</th>
                       <th className="r">Foil</th>
@@ -285,9 +296,18 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
                       const yours = yourFinishes ? ownedFinishes(yourFinishes) : null;
                       // "Surge foil", "Showcase, Borderless": what sets this printing apart.
                       const special = treatmentLabel(p);
+                      const label = `${card.name}, ${p.set_name} #${p.collector_number}${special ? `, ${special}` : ""}`;
                       return (
                         <tr key={p.scryfall_id}>
-                          <td>
+                          {/* Each printing's own picture; tapping it shows the card full size. */}
+                          <td className="cp-pic">
+                            {p.image_small || p.image_normal ? (
+                              <ZoomableCard src={p.image_small ?? p.image_normal} zoomSrc={p.image_normal} name={label} className="cp-pic-img" />
+                            ) : (
+                              <span className="cp-pic-none">No picture</span>
+                            )}
+                          </td>
+                          <td className="cp-what">
                             <Button className="cp-set" onClick={() => setChart({ id: p.scryfall_id, finish, set: p.set_name })} aria-label={`${p.set_name} #${p.collector_number}: show its price history`}>
                               <span className="cp-set-name">{p.set_name}</span> <span className="cp-set-num">#{p.collector_number}</span>
                               {special && <span className="cp-set-num">, {special}</span>}
@@ -301,18 +321,24 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
                               {hasFoil && p.finishes.includes("nonfoil") ? `. Foil market ${usd(foil)}` : ""}
                             </span>
                           </td>
-                          <td className={`r num${p.finishes.includes("nonfoil") && p.usd == null ? " dim" : ""}`}>
+                          <td className={`r num cp-normal${p.finishes.includes("nonfoil") && p.usd == null ? " dim" : ""}`}>
                             {p.finishes.includes("nonfoil") ? usd(p.usd) : <span className="cp-only-foil">{usd(foil)}</span>}
                           </td>
                           <td className={`r num cp-foil${hasFoil && foil == null ? " dim" : ""}`}>{hasFoil ? usd(foil) : ""}</td>
                           {!readOnly && (
                             <td className="r cp-add">
                               <span className="cp-add-row">
-                                {p.finishes.map((f) => (
-                                  <Button key={f} disabled={add.isPending} onClick={() => add.mutate({ p, finish: f })} aria-label={`Add a ${f === "nonfoil" ? "regular" : f} ${p.set_name} copy to your collection`}>
-                                    {f === "nonfoil" ? "+1" : f === "foil" ? "+F" : "+E"}
-                                  </Button>
-                                ))}
+                                {p.finishes.map((f) => {
+                                  const word = finishWord(p, f);
+                                  return (
+                                    <Button key={f} size="small" disabled={add.isPending} onClick={() => add.mutate({ p, finish: f, where: "printings" })} aria-label={`Add ${article(word)} ${word.toLowerCase()} ${p.set_name} #${p.collector_number} copy to your collection`}>
+                                      {word}
+                                    </Button>
+                                  );
+                                })}
+                                <Button size="small" variant="outline" disabled={add.isPending} onClick={() => add.mutate({ p, finish: "nonfoil", proxy: true, where: "printings" })} aria-label={`Add a proxy with the ${p.set_name} #${p.collector_number} art to your collection`}>
+                                  Proxy
+                                </Button>
                               </span>
                             </td>
                           )}
@@ -324,8 +350,10 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
                 {printings.length > 12 && !allPrintings && (
                   <ShowMore total={printings.length} noun="printings" onToggle={() => setAllPrintings(true)} />
                 )}
+                {added?.where === "printings" && <p className="small" role="status" style={{ margin: 0 }}>{added.text}</p>}
+                {add.variables?.where === "printings" && <ErrorText error={add.error} />}
                 <p className="cp-note">
-                  Tap a set to see its price history.{readOnly ? "" : " +1 adds a regular copy, +F a foil, +E an etched foil."} Prices are {priceSource(priceDate)}. Market prices aren't a quote from any store. A missing price says so.
+                  Tap a picture to see it full size, or a set for its price history.{readOnly ? "" : " Regular, Foil and Etched add a copy of that printing to your collection; Proxy adds a proxy with its art."} Prices are {priceSource(priceDate)}. Market prices aren't a quote from any store. A missing price says so.
                 </p>
               </section>
             )}
