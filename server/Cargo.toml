@@ -55,3 +55,5 @@ fancy-regex = "0.20.0"
 tract-onnx = "=0.23.9"
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "webp"] }
 half = "2.7"
+# Retry-After as an HTTP date (scan_art.rs); already in the tree through hyper.
+httpdate = "1.0.3"

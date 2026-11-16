@@ -4609,6 +4609,7 @@ dependencies = [
  "futures-util",
  "half",
  "hex",
+ "httpdate",
  "image",
  "jsonwebtoken",
  "libc",

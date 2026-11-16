@@ -23,8 +23,8 @@
 //!   `YAMA_SCAN_SUPPLEMENT=0`.
 //! - **Scryfall:** one image request at a time, 100 ms apart, with Yama's User-Agent. Images are
 //!   decoded in memory and dropped; only the 128 numbers are kept. A 429, a 5xx or a network
-//!   failure says nothing about the artwork: the run backs off (Retry-After, else doubling up to a
-//!   minute) and stops after four in a row, charging nothing; the next run resumes. Only a missing
+//!   failure says nothing about the artwork: the run backs off (Retry-After in seconds or as a
+//!   date, else doubling up to a minute) and stops after four in a row, charging nothing; the next run resumes. Only a missing
 //!   image (404, 410), a refused one (other 4xx) or one that won't decode counts against it.
 //! - **One run at a time** across processes (the server's job, `scan-arts`, `import-cards`): an
 //!   advisory lock on `data/scan-bundle/scan-arts.lock`; a second runner skips with a log line.
@@ -313,14 +313,28 @@ pub enum Fetched {
 /// against the artwork; a host or network problem is `Fetched::Unavailable`.
 pub type Fetch = Arc<dyn Fn(String) -> futures_util::future::BoxFuture<'static, anyhow::Result<Fetched>> + Send + Sync>;
 
+/// A Retry-After header (RFC 9110 §10.2.3), delta-seconds or an HTTP date, as the wait from
+/// `now`: a date already past is no wait; anything unreadable is None.
+pub fn parse_retry_after(value: &str, now: std::time::SystemTime) -> Option<Duration> {
+    let value = value.trim();
+    if let Ok(seconds) = value.parse::<u64>() {
+        return Some(Duration::from_secs(seconds));
+    }
+    let at = httpdate::parse_http_date(value).ok()?;
+    Some(at.duration_since(now).unwrap_or(Duration::ZERO))
+}
+
 /// How an HTTP status reads for one image: None for success.
 pub fn classify(status: u16, retry_after: Option<&str>) -> Option<anyhow::Result<Fetched>> {
+    classify_at(status, retry_after, std::time::SystemTime::now())
+}
+
+fn classify_at(status: u16, retry_after: Option<&str>, now: std::time::SystemTime) -> Option<anyhow::Result<Fetched>> {
     match status {
         200..=299 => None,
         404 | 410 => Some(Ok(Fetched::Missing)),
         408 | 429 | 500..=599 => Some(Ok(Fetched::Unavailable {
-            // Seconds only; an HTTP date falls back to the run's own backoff.
-            retry_after: retry_after.and_then(|v| v.trim().parse::<u64>().ok()).map(Duration::from_secs),
+            retry_after: retry_after.and_then(|v| parse_retry_after(v, now)),
             why: format!("HTTP {status}"),
         })),
         _ => Some(Err(anyhow::anyhow!("refused: HTTP {status}"))),

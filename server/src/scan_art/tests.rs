@@ -144,10 +144,66 @@ fn statuses_say_whose_problem_it_is() {
     assert!(matches!(classify(404, None), Some(Ok(Fetched::Missing))));
     assert!(matches!(classify(410, None), Some(Ok(Fetched::Missing))));
     assert!(matches!(classify(429, Some("7")), Some(Ok(Fetched::Unavailable { retry_after: Some(d), .. })) if d == Duration::from_secs(7)));
-    assert!(matches!(classify(429, Some("Wed, 21 Oct 2026 07:28:00 GMT")), Some(Ok(Fetched::Unavailable { retry_after: None, .. }))));
+    // A date already past: no wait beyond the run's own backoff.
+    assert!(matches!(classify(429, Some("Wed, 21 Oct 2026 07:28:00 GMT")), Some(Ok(Fetched::Unavailable { retry_after: Some(Duration::ZERO), .. }))));
+    assert!(matches!(classify(429, Some("soon")), Some(Ok(Fetched::Unavailable { retry_after: None, .. }))));
     assert!(matches!(classify(503, None), Some(Ok(Fetched::Unavailable { retry_after: None, .. }))));
     assert!(matches!(classify(408, None), Some(Ok(Fetched::Unavailable { .. }))));
     assert!(matches!(classify(403, None), Some(Err(_))));
+}
+
+#[test]
+fn retry_after_reads_seconds_and_http_dates() {
+    // Sun, 15 Nov 2026 12:00:00 GMT
+    let now = std::time::UNIX_EPOCH + Duration::from_secs(1_794_744_000);
+    assert_eq!(httpdate::fmt_http_date(now), "Sun, 15 Nov 2026 12:00:00 GMT");
+    let base = Duration::from_secs(2);
+    let at = |value: &str| match classify_at(503, Some(value), now) {
+        Some(Ok(Fetched::Unavailable { retry_after, .. })) => retry_after,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(parse_retry_after("120", now), Some(Duration::from_secs(120)));
+    // Ten minutes ahead: past the five-minute rule, so the run stops instead of waiting.
+    let ten = at("Sun, 15 Nov 2026 12:10:00 GMT");
+    assert_eq!(ten, Some(Duration::from_secs(600)));
+    assert_eq!(backoff(1, ten, base), None);
+    // Thirty seconds ahead: wait that long.
+    let thirty = at("Sun, 15 Nov 2026 12:00:30 GMT");
+    assert_eq!(thirty, Some(Duration::from_secs(30)));
+    assert_eq!(backoff(1, thirty, base), Some(Duration::from_secs(30)));
+    // The two obsolete forms RFC 9110 still asks recipients to accept.
+    assert_eq!(at("Sunday, 15-Nov-26 12:00:30 GMT"), Some(Duration::from_secs(30)));
+    assert_eq!(at("Sun Nov 15 12:00:30 2026"), Some(Duration::from_secs(30)));
+    // A date already past: no wait of its own, the doubling backoff applies.
+    let past = at("Sun, 15 Nov 2026 11:00:00 GMT");
+    assert_eq!(past, Some(Duration::ZERO));
+    assert_eq!(backoff(2, past, base), Some(Duration::from_secs(4)));
+    // Garbage: as if there were no header.
+    for garbage in ["soon", "", "-5", "1.5", "Sun, 32 Nov 2026 12:00:00 GMT"] {
+        assert_eq!(at(garbage), None, "{garbage:?}");
+    }
+    assert_eq!(backoff(1, at("soon"), base), Some(base));
+}
+
+#[tokio::test]
+async fn a_retry_after_date_ten_minutes_ahead_ends_the_run_at_once() {
+    let pool = crate::db::test_pool().await;
+    let data = tempfile::tempdir().unwrap();
+    fake_bundle(data.path());
+    seed(&pool).await;
+    let calls = Arc::new(StdMutex::new(0usize));
+    let counted = calls.clone();
+    let later = httpdate::fmt_http_date(std::time::SystemTime::now() + Duration::from_secs(600));
+    let busy: Fetch = Arc::new(move |_url: String| {
+        *counted.lock().unwrap() += 1;
+        let outcome = classify(429, Some(&later)).expect("not a success");
+        Box::pin(async move { outcome })
+    });
+    let r = run(&pool, data.path(), busy, Some(Arc::new(MeanColour)), &fast()).await.unwrap();
+    assert_eq!(*calls.lock().unwrap(), 1, "one request, then the run stops");
+    assert_eq!((r.embedded, r.failed, r.stopped.as_deref()), (0, 0, Some("HTTP 429")));
+    let charged: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM scan_arts").fetch_one(&pool).await.unwrap();
+    assert_eq!(charged, 0);
 }
 
 #[test]
