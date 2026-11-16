@@ -234,8 +234,8 @@ async fn plan_bags(conn: &mut SqliteConnection, owner: &str, main_id: &str) -> A
            AND (pd.deck_id = ?2 OR d.parent_id = ?2
                 -- An unlinked plan deck goes by name, as the plan's installed check and Swap in the
                 -- prints read it: the one live main deck with its name.
-                OR (pd.deck_id IS NULL AND lower(pd.name) = (SELECT lower(m.name) FROM decks m WHERE m.id = ?2 AND m.owner_id = ?1)
-                    AND (SELECT COUNT(*) FROM decks x WHERE x.owner_id = ?1 AND x.archived = 0 AND x.parent_id IS NULL AND lower(x.name) = lower(pd.name)) = 1))
+                OR (pd.deck_id IS NULL AND lower(trim(pd.name)) = (SELECT lower(m.name) FROM decks m WHERE m.id = ?2 AND m.owner_id = ?1)
+                    AND (SELECT COUNT(*) FROM decks x WHERE x.owner_id = ?1 AND x.archived = 0 AND x.parent_id IS NULL AND lower(x.name) = lower(trim(pd.name))) = 1))
          ORDER BY pd.deck_id = ?2 DESC, pd.sort, pd.key",
     )
     .bind(owner)

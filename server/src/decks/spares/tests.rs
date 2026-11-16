@@ -114,7 +114,7 @@ async fn a_deck_keeps_swappable_spares_apart_from_its_list() {
     assert_eq!(card(&set, "Vanquisher's Banner")["swaps"], json!([{"out": "The One Ring", "bracket": 2, "note": null, "from": "plan"}]));
     assert_eq!(set["planned_missing"], json!([{"name": "Heirloom Blade", "swaps": [{"out": "Smothering Tithe", "bracket": 2, "note": null, "from": "plan"}]}]));
     // A plan not linked to the deck goes by the deck's name.
-    sqlx::query("UPDATE plan_decks SET deck_id = NULL WHERE id = 'pd'").execute(&pool).await.unwrap();
+    sqlx::query("UPDATE plan_decks SET deck_id = NULL, name = ' riders of rohan ' WHERE id = 'pd'").execute(&pool).await.unwrap();
     let (_, by_name) = send(&app, Method::GET, &path, Some(&token), None).await;
     assert_eq!(card(&by_name, "Vanquisher's Banner")["swaps"], json!([{"out": "The One Ring", "bracket": 2, "note": null, "from": "plan"}]), "{by_name}");
     sqlx::query("UPDATE plan_decks SET name = 'Someone Else' WHERE id = 'pd'").execute(&pool).await.unwrap();
