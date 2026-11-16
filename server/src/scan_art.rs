@@ -22,7 +22,15 @@
 //!   starts, and every six hours; `yama-server scan-arts` runs it by hand. Off with
 //!   `YAMA_SCAN_SUPPLEMENT=0`.
 //! - **Scryfall:** one image request at a time, 100 ms apart, with Yama's User-Agent. Images are
-//!   decoded in memory and dropped; only the 128 numbers are kept.
+//!   decoded in memory and dropped; only the 128 numbers are kept. A 429, a 5xx or a network
+//!   failure says nothing about the artwork: the run backs off (Retry-After, else doubling up to a
+//!   minute) and stops after four in a row, charging nothing; the next run resumes. Only a missing
+//!   image (404, 410), a refused one (other 4xx) or one that won't decode counts against it.
+//! - **One run at a time** across processes (the server's job, `scan-arts`, `import-cards`): an
+//!   advisory lock on `data/scan-bundle/scan-arts.lock`; a second runner skips with a log line.
+//! - **Publication is atomic:** each file is written to a unique temporary name in the same folder,
+//!   synced and renamed; an existing file of the same content-addressed name is checked byte for
+//!   byte (and its `.gz` unzipped) and rewritten if damaged; the pointer is written last.
 
 use crate::scan::{BUNDLE_VERSION, bundle_dir, is_ready};
 use crate::util::now;
@@ -33,7 +41,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
-use tokio::sync::{Mutex, Notify};
+use tokio::sync::Notify;
 
 /// Side of the embedder's square input.
 pub const INPUT: usize = 128;
@@ -47,6 +55,15 @@ const STD: [f32; 3] = [0.229, 0.224, 0.225];
 const CURRENT: &str = "supplement.current";
 /// Gap between Scryfall image requests (their API asks for 50 to 100 ms).
 const PAUSE: Duration = Duration::from_millis(100);
+/// After Scryfall is unavailable: wait this long, doubling each time in a row, up to `BACKOFF_CAP`.
+const BACKOFF: Duration = Duration::from_secs(2);
+const BACKOFF_CAP: Duration = Duration::from_secs(60);
+/// A Retry-After longer than this ends the run instead of waiting it out.
+const RETRY_AFTER_CAP: Duration = Duration::from_secs(5 * 60);
+/// This many unavailable answers in a row end the run (nothing charged; the next run resumes).
+const UNAVAILABLE_IN_A_ROW: u32 = 4;
+/// The advisory lock that keeps runs one at a time across processes, in `data/scan-bundle/`.
+const LOCK: &str = "scan-arts.lock";
 /// At most this many new artworks per run; the next run goes on.
 const PER_RUN: usize = 3000;
 /// A failed artwork is tried again after a day, up to this many times.
@@ -282,8 +299,33 @@ fn face_url(scryfall_id: &str, back: bool, kind: &str, ext: &str) -> Option<Stri
     Some(format!("https://cards.scryfall.io/{kind}/{}/{a}/{b}/{id}.{ext}", if back { "back" } else { "front" }))
 }
 
-/// Fetches an image by URL: the bytes, or None when the server has no such image (404).
-pub type Fetch = Arc<dyn Fn(String) -> futures_util::future::BoxFuture<'static, anyhow::Result<Option<Vec<u8>>>> + Send + Sync>;
+/// What fetching one image found.
+#[derive(Debug)]
+pub enum Fetched {
+    Image(Vec<u8>),
+    /// The host has no such image (404, 410): try the next URL, then it counts against the artwork.
+    Missing,
+    /// Rate-limited (429), the host failing (5xx, 408) or the network: nothing about this artwork.
+    Unavailable { retry_after: Option<Duration>, why: String },
+}
+
+/// Fetches an image by URL. An error is about this image (refused, too large) and counts
+/// against the artwork; a host or network problem is `Fetched::Unavailable`.
+pub type Fetch = Arc<dyn Fn(String) -> futures_util::future::BoxFuture<'static, anyhow::Result<Fetched>> + Send + Sync>;
+
+/// How an HTTP status reads for one image: None for success.
+pub fn classify(status: u16, retry_after: Option<&str>) -> Option<anyhow::Result<Fetched>> {
+    match status {
+        200..=299 => None,
+        404 | 410 => Some(Ok(Fetched::Missing)),
+        408 | 429 | 500..=599 => Some(Ok(Fetched::Unavailable {
+            // Seconds only; an HTTP date falls back to the run's own backoff.
+            retry_after: retry_after.and_then(|v| v.trim().parse::<u64>().ok()).map(Duration::from_secs),
+            why: format!("HTTP {status}"),
+        })),
+        _ => Some(Err(anyhow::anyhow!("refused: HTTP {status}"))),
+    }
+}
 
 /// Fetches from Scryfall's image host only.
 pub fn scryfall_fetch(http: reqwest::Client) -> Fetch {
@@ -294,16 +336,59 @@ pub fn scryfall_fetch(http: reqwest::Client) -> Fetch {
             if parsed.scheme() != "https" || parsed.host_str() != Some("cards.scryfall.io") {
                 bail!("not a Scryfall image: {url}");
             }
-            let res = http.get(&url).timeout(Duration::from_secs(30)).send().await?;
-            if res.status() == reqwest::StatusCode::NOT_FOUND {
-                return Ok(None);
+            let unavailable = |e: reqwest::Error| Fetched::Unavailable { retry_after: None, why: format!("{e}") };
+            let res = match http.get(&url).timeout(Duration::from_secs(30)).send().await {
+                Ok(res) => res,
+                Err(e) => return Ok(unavailable(e)),
+            };
+            let retry_after = res.headers().get(reqwest::header::RETRY_AFTER).and_then(|v| v.to_str().ok()).map(String::from);
+            if let Some(outcome) = classify(res.status().as_u16(), retry_after.as_deref()) {
+                return outcome;
             }
-            let res = res.error_for_status()?;
-            let bytes = res.bytes().await?;
+            let bytes = match res.bytes().await {
+                Ok(b) => b,
+                Err(e) => return Ok(unavailable(e)),
+            };
             anyhow::ensure!(bytes.len() < 10_000_000, "{url} is too large");
-            Ok(Some(bytes.to_vec()))
+            Ok(Fetched::Image(bytes.to_vec()))
         })
     })
+}
+
+/// Why an artwork wasn't embedded.
+enum Problem {
+    /// Scryfall can't be asked right now; the artwork isn't charged.
+    Unavailable { retry_after: Option<Duration>, why: String },
+    /// Something about this artwork (no image, refused, won't decode).
+    Content(anyhow::Error),
+}
+
+impl From<anyhow::Error> for Problem {
+    fn from(e: anyhow::Error) -> Self {
+        Problem::Content(e)
+    }
+}
+
+/// The wait before trying again after `streak` unavailable answers in a row, or None to end the run.
+fn backoff(streak: u32, retry_after: Option<Duration>, base: Duration) -> Option<Duration> {
+    if streak >= UNAVAILABLE_IN_A_ROW || retry_after.is_some_and(|r| r > RETRY_AFTER_CAP) {
+        return None;
+    }
+    let doubling = base.saturating_mul(1 << streak.saturating_sub(1).min(16)).min(BACKOFF_CAP);
+    Some(retry_after.map_or(doubling, |r| r.max(doubling)))
+}
+
+/// The cross-process lock for one run (`flock`, released when the file closes), or None while
+/// another run holds it.
+pub(crate) fn lock_runs(data_dir: &Path) -> anyhow::Result<Option<std::fs::File>> {
+    let root = data_dir.join("scan-bundle");
+    std::fs::create_dir_all(&root)?;
+    let file = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(root.join(LOCK))?;
+    match file.try_lock() {
+        Ok(()) => Ok(Some(file)),
+        Err(std::fs::TryLockError::WouldBlock) => Ok(None),
+        Err(std::fs::TryLockError::Error(e)) => Err(e.into()),
+    }
 }
 
 #[derive(sqlx::FromRow, Clone)]
@@ -333,6 +418,9 @@ pub struct Options {
     pub out: Option<PathBuf>,
     /// Skip the parity check (tests with a stand-in embedder).
     pub skip_parity: bool,
+    /// Gap between image requests (default 100 ms) and the first backoff (default 2 s); tests shorten them.
+    pub pause: Option<Duration>,
+    pub backoff: Option<Duration>,
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -343,16 +431,28 @@ pub struct Report {
     pub rows: usize,
     /// The supplement's file name, when there is one.
     pub file: Option<String>,
+    /// Another run held the lock, so this one did nothing.
+    pub busy: bool,
+    /// Scryfall was unavailable and the run stopped early (why); the next run resumes.
+    pub stopped: Option<String>,
 }
 
-/// One run: embed what's new, then rewrite the supplement. One at a time per process.
+/// One run: embed what's new, then rewrite the supplement. One at a time across processes.
 pub async fn run(pool: &SqlitePool, data_dir: &Path, fetch: Fetch, embedder: Option<Arc<dyn Embed>>, opts: &Options) -> anyhow::Result<Report> {
-    static RUNNING: OnceLock<Mutex<()>> = OnceLock::new();
-    let _one = RUNNING.get_or_init(|| Mutex::new(())).lock().await;
     let dir = bundle_dir(data_dir);
     if !is_ready(&dir) {
         bail!("the scanner bundle {BUNDLE_VERSION} isn't downloaded yet");
     }
+    let lock = {
+        let data_dir = data_dir.to_path_buf();
+        tokio::task::spawn_blocking(move || lock_runs(&data_dir)).await??
+    };
+    let Some(_lock) = lock else {
+        tracing::info!("scanner art supplement: another run (this process or another) is going; skipping");
+        return Ok(Report { busy: true, ..Report::default() });
+    };
+    let pause = opts.pause.unwrap_or(PAUSE);
+    let base = opts.backoff.unwrap_or(BACKOFF);
     anyhow::ensure!(!opts.include_known || opts.out.is_some(), "--include-known needs --out");
     let bundle = tokio::task::spawn_blocking({
         let dir = dir.clone();
@@ -372,11 +472,35 @@ pub async fn run(pool: &SqlitePool, data_dir: &Path, fetch: Fetch, embedder: Opt
             }
         };
         if !opts.skip_parity {
-            parity(&dir, &bundle, &fetch, &embedder).await?;
+            parity(&dir, &bundle, &fetch, &embedder, pause).await?;
         }
         tracing::info!(arts = todo.len(), "scanner art supplement: embedding new artworks");
-        for c in todo {
-            match embed_one(&c, &fetch, &embedder).await {
+        let mut streak = 0u32;
+        'artworks: for c in todo {
+            let outcome = loop {
+                match embed_one(&c, &fetch, &embedder, pause).await {
+                    Err(Problem::Unavailable { retry_after, why }) => {
+                        streak += 1;
+                        match backoff(streak, retry_after, base) {
+                            Some(wait) => {
+                                tracing::debug!(why, ?wait, "scanner art supplement: Scryfall unavailable; waiting");
+                                tokio::time::sleep(wait).await;
+                            }
+                            None => {
+                                tracing::warn!(why, "scanner art supplement: Scryfall unavailable; stopping until the next run");
+                                report.stopped = Some(why);
+                                break 'artworks;
+                            }
+                        }
+                    }
+                    other => {
+                        streak = 0;
+                        break other;
+                    }
+                }
+            };
+            match outcome {
+                Err(Problem::Unavailable { .. }) => unreachable!("handled above"),
                 Ok((aspect, vector)) => {
                     let frame = frame_of(aspect, &c.layout);
                     let Some(index) = bundle.frame_names.iter().position(|f| f == frame) else {
@@ -408,7 +532,7 @@ pub async fn run(pool: &SqlitePool, data_dir: &Path, fetch: Fetch, embedder: Opt
                     .await?;
                     report.embedded += 1;
                 }
-                Err(e) => {
+                Err(Problem::Content(e)) => {
                     tracing::debug!(art = %c.art, error = %format!("{e:#}"), "couldn't embed an artwork");
                     store_failure(pool, &c, &format!("{e:#}")).await?;
                     report.failed += 1;
@@ -421,8 +545,8 @@ pub async fn run(pool: &SqlitePool, data_dir: &Path, fetch: Fetch, embedder: Opt
     let (rows, file) = write_supplement(pool, &target, &bundle, opts.include_known, only.as_ref()).await?;
     report.rows = rows;
     report.file = file;
-    if report.embedded + report.failed > 0 {
-        tracing::info!(embedded = report.embedded, failed = report.failed, rows = report.rows, "scanner art supplement updated");
+    if report.embedded + report.failed > 0 || report.stopped.is_some() {
+        tracing::info!(embedded = report.embedded, failed = report.failed, rows = report.rows, stopped = ?report.stopped, "scanner art supplement updated");
     }
     Ok(report)
 }
@@ -505,7 +629,7 @@ async fn candidates(pool: &SqlitePool, bundle: &Bundle, opts: &Options) -> anyho
 }
 
 /// Download, decode, resize and embed one artwork, pausing first so requests stay 100 ms apart.
-async fn embed_one(c: &Candidate, fetch: &Fetch, embedder: &Arc<dyn Embed>) -> anyhow::Result<(f64, Vec<f32>)> {
+async fn embed_one(c: &Candidate, fetch: &Fetch, embedder: &Arc<dyn Embed>, pause: Duration) -> Result<(f64, Vec<f32>), Problem> {
     // The JPEG ManaVault embeds; once Scryfall drops those (2027), the WebP of the same crop, and
     // last the URL the card data stored. The parity check refuses vectors that stop matching.
     let back = c.face == 1;
@@ -513,26 +637,32 @@ async fn embed_one(c: &Candidate, fetch: &Fetch, embedder: &Arc<dyn Embed>) -> a
     urls.extend(c.url.clone().filter(|u| !urls.contains(u)));
     let mut bytes = None;
     for url in urls {
-        tokio::time::sleep(PAUSE).await;
-        if let Some(b) = fetch(url).await? {
-            bytes = Some(b);
-            break;
+        tokio::time::sleep(pause).await;
+        match fetch(url).await? {
+            Fetched::Image(b) => {
+                bytes = Some(b);
+                break;
+            }
+            Fetched::Missing => {}
+            Fetched::Unavailable { retry_after, why } => return Err(Problem::Unavailable { retry_after, why }),
         }
     }
     let bytes = bytes.context("Scryfall has no art crop for it")?;
     let embedder = embedder.clone();
-    tokio::task::spawn_blocking(move || {
+    let done = tokio::task::spawn_blocking(move || {
         let (rgb, aspect) = prepare(&bytes)?;
         let v = embedder.embed(&rgb)?;
         anyhow::ensure!(v.len() == 128 && v.iter().all(|x| x.is_finite()), "the embedding isn't 128 numbers");
         Ok((aspect, v))
     })
-    .await?
+    .await
+    .map_err(anyhow::Error::from)??;
+    Ok(done)
 }
 
 /// Re-embed three artworks the bundle has and compare them with the bundle's own rows: if this
 /// embedder doesn't reproduce the bundle (a new graph, a changed crop), nothing new is served.
-async fn parity(dir: &Path, bundle: &Bundle, fetch: &Fetch, embedder: &Arc<dyn Embed>) -> anyhow::Result<()> {
+async fn parity(dir: &Path, bundle: &Bundle, fetch: &Fetch, embedder: &Arc<dyn Embed>, pause: Duration) -> anyhow::Result<()> {
     let search = dir.join("search.onnx");
     let (dim, vectors) = tokio::task::spawn_blocking(move || bundle_vectors(&search)).await??;
     let n = bundle.rows.len();
@@ -552,7 +682,12 @@ async fn parity(dir: &Path, bundle: &Bundle, fetch: &Fetch, embedder: &Arc<dyn E
             type_line: None,
             url: None,
         };
-        let Ok((_, v)) = embed_one(&c, fetch, embedder).await else { continue };
+        let v = match embed_one(&c, fetch, embedder, pause).await {
+            Ok((_, v)) => v,
+            // Nothing is charged: the run ends and the next one tries again.
+            Err(Problem::Unavailable { why, .. }) => bail!("Scryfall is unavailable ({why}); trying again next run"),
+            Err(Problem::Content(_)) => continue,
+        };
         tried += 1;
         let cos: f32 = vectors[row * dim..(row + 1) * dim].iter().zip(&v).map(|(g, q)| half::f16::from_bits(*g).to_f32() * q).sum();
         worst = worst.min(cos);
@@ -629,15 +764,23 @@ async fn write_supplement(pool: &SqlitePool, dir: &Path, bundle: &Bundle, includ
     };
     let name = format!("supplement-{hash}.json");
     let previous = tokio::fs::read_to_string(dir.join(CURRENT)).await.ok();
-    if !dir.join(&name).exists() {
-        let gz = crate::scan::gzip(&body)?;
-        tokio::fs::write(dir.join(format!("{name}.gz.part")), gz).await?;
-        tokio::fs::write(dir.join(&name), &body).await?;
-        tokio::fs::rename(dir.join(format!("{name}.gz.part")), dir.join(format!("{name}.gz"))).await?;
-    }
-    let part = dir.join(format!("{CURRENT}.part"));
-    tokio::fs::write(&part, &name).await?;
-    tokio::fs::rename(&part, dir.join(CURRENT)).await?;
+    let (folder, file, body) = (dir.to_path_buf(), name.clone(), body);
+    tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+        // Temporary files a crashed run left (the lock says no other run is writing).
+        remove_temporaries(&folder);
+        // The name is the content's hash, so a file already there must hold exactly this; a run
+        // cut short before this fix could have left one truncated.
+        if std::fs::read(folder.join(&file)).ok().as_deref() != Some(&body[..]) {
+            write_atomic(&folder, &file, &body)?;
+        }
+        let gz = format!("{file}.gz");
+        if !gzip_holds(&folder.join(&gz), &body) {
+            write_atomic(&folder, &gz, &crate::scan::gzip(&body)?)?;
+        }
+        // The pointer last, once both files are whole.
+        write_atomic(&folder, CURRENT, file.as_bytes())
+    })
+    .await??;
     // Older supplements: all but this one and the one it replaced.
     let keep: HashSet<String> = [Some(name.clone()), previous.map(|p| p.trim().to_string())].into_iter().flatten().collect();
     if let Ok(mut entries) = tokio::fs::read_dir(dir).await {
@@ -650,6 +793,49 @@ async fn write_supplement(pool: &SqlitePool, dir: &Path, bundle: &Bundle, includ
         }
     }
     Ok((done.len(), Some(name)))
+}
+
+/// Write `bytes` to `dir/name` whole or not at all: a unique temporary file in the same folder,
+/// synced, then renamed over the name (and the folder synced, so the rename survives a crash).
+fn write_atomic(dir: &Path, name: &str, bytes: &[u8]) -> anyhow::Result<()> {
+    use std::io::Write;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static N: AtomicU64 = AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+    let tmp = dir.join(format!(".{name}.{}-{nanos}-{}.tmp", std::process::id(), N.fetch_add(1, Ordering::Relaxed)));
+    let written = (|| -> std::io::Result<()> {
+        let mut f = std::fs::File::create_new(&tmp)?;
+        f.write_all(bytes)?;
+        f.sync_all()?;
+        std::fs::rename(&tmp, dir.join(name))
+    })();
+    if let Err(e) = written {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(anyhow::Error::from(e).context(format!("writing {}", dir.join(name).display())));
+    }
+    if let Ok(folder) = std::fs::File::open(dir) {
+        let _ = folder.sync_all();
+    }
+    Ok(())
+}
+
+/// Whether `path` is a gzip of exactly `body`.
+fn gzip_holds(path: &Path, body: &[u8]) -> bool {
+    use std::io::Read;
+    let Ok(file) = std::fs::File::open(path) else { return false };
+    let mut out = Vec::with_capacity(body.len());
+    flate2::read::GzDecoder::new(file).take(body.len() as u64 + 1).read_to_end(&mut out).is_ok() && out == body
+}
+
+/// Delete temporary files `write_atomic` left behind in a run that didn't finish.
+fn remove_temporaries(dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for e in entries.flatten() {
+        let name = e.file_name().to_string_lossy().to_string();
+        if name.starts_with(".supplement") && name.ends_with(".tmp") {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
 }
 
 /// The current supplement's file name in the bundle folder, if there is one.
@@ -701,7 +887,7 @@ pub async fn cli(pool: &SqlitePool, data_dir: &Path, args: &[String]) -> anyhow:
         limit: value("--limit").map(|n| n.parse()).transpose().context("--limit takes a number")?,
         include_known: args.iter().any(|a| a == "--include-known"),
         out: value("--out").map(PathBuf::from),
-        skip_parity: false,
+        ..Options::default()
     };
     let http = crate::routes::http_client();
     let dir = bundle_dir(data_dir);
@@ -710,6 +896,13 @@ pub async fn cli(pool: &SqlitePool, data_dir: &Path, args: &[String]) -> anyhow:
         crate::scan::download(&http, &dir).await?;
     }
     let report = run(pool, data_dir, scryfall_fetch(http), None, &opts).await?;
+    if report.busy {
+        println!("another scan-arts run is going (the server's, or another command); nothing done");
+        return Ok(());
+    }
+    if let Some(why) = &report.stopped {
+        println!("stopped early: Scryfall is unavailable ({why}); the next run picks up where this one left off");
+    }
     println!(
         "embedded {}, failed {}; supplement: {} rows{}",
         report.embedded,

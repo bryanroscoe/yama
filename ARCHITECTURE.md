@@ -481,7 +481,7 @@ set from waiting. Yama now extends the gallery itself (docs/scanner.md, "Extendi
   import (the scheduler's nudge, and `import-cards`), at start and every six hours. It finds English
   paper illustrations in `printings` that the bundle's `arts.json` lacks, downloads each one's
   Scryfall art crop (one request at a time, 100 ms apart, Yama's User-Agent), embeds it, and keeps
-  128 numbers per artwork in `scan_arts` (migration 0093), keyed by bundle version. No image is
+  128 numbers per artwork in `scan_arts` (migration 0095), keyed by bundle version. No image is
   stored or served: Scryfall's images still load on the device straight from Scryfall.
 - **The bundle's own model, run by tract.** The vectors come from the embedding half of the
   pinned `embed.onnx`, cut at its normalised input and run by `tract-onnx` (pure Rust, pinned
@@ -500,6 +500,10 @@ set from waiting. Yama now extends the gallery itself (docs/scanner.md, "Extendi
   rare-frame penalty, but no hub penalty (that needs ManaVault's 3,000 background scans).
 - **Versioned per bundle.** Rows embedded with one bundle's weights are deleted when the pin
   moves, and the job re-embeds whatever the new bundle still lacks.
+- **Safe to run anywhere, once.** Runs are one at a time across processes (an advisory lock in
+  `data/scan-bundle/`), files are published by unique temporary file, sync and rename (pointer
+  last, damaged content-addressed files rewritten), and Scryfall being rate-limited or down stops
+  a run without charging any artwork (review of #147).
 - **Switch:** `YAMA_SCAN_SUPPLEMENT=0` stops the job and the scanner stops loading it. On by
   default, after the held-out eval in docs/scanner.md.
 

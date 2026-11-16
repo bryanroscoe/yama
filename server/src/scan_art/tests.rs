@@ -119,18 +119,152 @@ fn fake_fetch(asked: Arc<StdMutex<Vec<String>>>) -> Fetch {
         asked.lock().unwrap().push(url.clone());
         Box::pin(async move {
             Ok(if url.contains("/back/") {
-                Some(jpeg(626, 457, 200))
+                Fetched::Image(jpeg(626, 457, 200))
             } else if url.contains("ab000000") {
-                Some(jpeg(300, 720, 50))
+                Fetched::Image(jpeg(300, 720, 50))
             } else if url.contains("art_crop/front/a/a/aa000000-0000-0000-0000-000000000004") {
-                None
+                Fetched::Missing
             } else if url.ends_with(".webp") {
-                Some(jpeg(626, 457, 120))
+                Fetched::Image(jpeg(626, 457, 120))
             } else {
-                Some(jpeg(626, 457, 10))
+                Fetched::Image(jpeg(626, 457, 10))
             })
         })
     })
+}
+
+/// Options for tests: no parity check (stand-in embedder), no pause, millisecond backoff.
+fn fast() -> Options {
+    Options { skip_parity: true, pause: Some(Duration::ZERO), backoff: Some(Duration::from_millis(1)), ..Options::default() }
+}
+
+#[test]
+fn statuses_say_whose_problem_it_is() {
+    assert!(classify(200, None).is_none());
+    assert!(matches!(classify(404, None), Some(Ok(Fetched::Missing))));
+    assert!(matches!(classify(410, None), Some(Ok(Fetched::Missing))));
+    assert!(matches!(classify(429, Some("7")), Some(Ok(Fetched::Unavailable { retry_after: Some(d), .. })) if d == Duration::from_secs(7)));
+    assert!(matches!(classify(429, Some("Wed, 21 Oct 2026 07:28:00 GMT")), Some(Ok(Fetched::Unavailable { retry_after: None, .. }))));
+    assert!(matches!(classify(503, None), Some(Ok(Fetched::Unavailable { retry_after: None, .. }))));
+    assert!(matches!(classify(408, None), Some(Ok(Fetched::Unavailable { .. }))));
+    assert!(matches!(classify(403, None), Some(Err(_))));
+}
+
+#[test]
+fn backoff_doubles_honours_retry_after_and_gives_up() {
+    let base = Duration::from_secs(2);
+    assert_eq!(backoff(1, None, base), Some(Duration::from_secs(2)));
+    assert_eq!(backoff(2, None, base), Some(Duration::from_secs(4)));
+    assert_eq!(backoff(3, None, base), Some(Duration::from_secs(8)));
+    assert_eq!(backoff(3, Some(Duration::from_secs(30)), base), Some(Duration::from_secs(30)));
+    assert_eq!(backoff(1, None, Duration::from_secs(50)), Some(Duration::from_secs(50)));
+    assert_eq!(backoff(2, None, Duration::from_secs(50)), Some(BACKOFF_CAP));
+    assert_eq!(backoff(UNAVAILABLE_IN_A_ROW, None, base), None);
+    assert_eq!(backoff(1, Some(Duration::from_secs(3600)), base), None);
+}
+
+#[tokio::test]
+async fn an_unavailable_scryfall_stops_the_run_without_charging_anything() {
+    let pool = crate::db::test_pool().await;
+    let data = tempfile::tempdir().unwrap();
+    fake_bundle(data.path());
+    seed(&pool).await;
+    let calls = Arc::new(StdMutex::new(0usize));
+    let counted = calls.clone();
+    let rate_limited: Fetch = Arc::new(move |_url: String| {
+        *counted.lock().unwrap() += 1;
+        Box::pin(async { Ok(Fetched::Unavailable { retry_after: Some(Duration::from_millis(5)), why: "HTTP 429".into() }) })
+    });
+    let r = run(&pool, data.path(), rate_limited, Some(Arc::new(MeanColour)), &fast()).await.unwrap();
+    assert_eq!((r.embedded, r.failed), (0, 0));
+    assert_eq!(r.stopped.as_deref(), Some("HTTP 429"));
+    // One artwork asked four times, then the run gave up: not every artwork at 100 ms.
+    assert_eq!(*calls.lock().unwrap(), UNAVAILABLE_IN_A_ROW as usize);
+    let charged: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM scan_arts").fetch_one(&pool).await.unwrap();
+    assert_eq!(charged, 0);
+
+    // Unavailable twice, then fine: the same artwork is retried, and all four are embedded.
+    let calls = Arc::new(StdMutex::new(0usize));
+    let counted = calls.clone();
+    let inner = fake_fetch(Arc::default());
+    let flaky: Fetch = Arc::new(move |url: String| {
+        let n = {
+            let mut c = counted.lock().unwrap();
+            *c += 1;
+            *c
+        };
+        if n <= 2 {
+            Box::pin(async { Ok(Fetched::Unavailable { retry_after: None, why: "HTTP 503".into() }) })
+        } else {
+            inner(url)
+        }
+    });
+    // Straight after: the stopped run charged nothing, so nothing waits a day.
+    let r = run(&pool, data.path(), flaky, Some(Arc::new(MeanColour)), &fast()).await.unwrap();
+    assert_eq!((r.embedded, r.failed, r.stopped), (4, 0, None));
+
+    // No image at any URL is about the artwork: it is charged, and the run goes on.
+    let pool = crate::db::test_pool().await;
+    seed(&pool).await;
+    let missing: Fetch = Arc::new(|_url: String| Box::pin(async { Ok(Fetched::Missing) }));
+    let r = run(&pool, data.path(), missing, Some(Arc::new(MeanColour)), &fast()).await.unwrap();
+    assert_eq!((r.embedded, r.failed, r.stopped), (0, 4, None));
+}
+
+#[tokio::test]
+async fn a_second_runner_skips_while_another_holds_the_lock() {
+    let pool = crate::db::test_pool().await;
+    let data = tempfile::tempdir().unwrap();
+    fake_bundle(data.path());
+    seed(&pool).await;
+    // Another process (or task) is mid-run.
+    let held = lock_runs(data.path()).unwrap().expect("the lock is free");
+    assert!(lock_runs(data.path()).unwrap().is_none(), "a second open of the lock file is refused");
+    let asked = Arc::new(StdMutex::new(Vec::new()));
+    let r = run(&pool, data.path(), fake_fetch(asked.clone()), Some(Arc::new(MeanColour)), &fast()).await.unwrap();
+    assert!(r.busy);
+    assert_eq!((r.embedded, r.rows, r.file), (0, 0, None));
+    assert!(asked.lock().unwrap().is_empty());
+    let rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM scan_arts").fetch_one(&pool).await.unwrap();
+    assert_eq!(rows, 0);
+    drop(held);
+    let r = run(&pool, data.path(), fake_fetch(asked), Some(Arc::new(MeanColour)), &fast()).await.unwrap();
+    assert!(!r.busy);
+    assert_eq!(r.embedded, 4);
+}
+
+#[tokio::test]
+async fn a_damaged_supplement_is_rewritten_and_leftovers_cleared() {
+    let pool = crate::db::test_pool().await;
+    let data = tempfile::tempdir().unwrap();
+    fake_bundle(data.path());
+    seed(&pool).await;
+    let first = run(&pool, data.path(), fake_fetch(Arc::default()), Some(Arc::new(MeanColour)), &fast()).await.unwrap();
+    let name = first.file.unwrap();
+    let dir = bundle_dir(data.path());
+    let good = std::fs::read(dir.join(&name)).unwrap();
+    // A run cut short: the content-addressed file truncated, its .gz garbage, temporaries left.
+    std::fs::write(dir.join(&name), &good[..good.len() / 2]).unwrap();
+    std::fs::write(dir.join(format!("{name}.gz")), b"not gzip").unwrap();
+    std::fs::write(dir.join(format!(".{name}.123-456-0.tmp")), b"partial").unwrap();
+    std::fs::write(dir.join(".supplement.current.123-456-1.tmp"), b"supplement-").unwrap();
+
+    let again = run(&pool, data.path(), fake_fetch(Arc::default()), Some(Arc::new(MeanColour)), &fast()).await.unwrap();
+    assert_eq!((again.embedded, again.file.as_deref()), (0, Some(name.as_str())));
+    assert_eq!(std::fs::read(dir.join(&name)).unwrap(), good);
+    assert!(gzip_holds(&dir.join(format!("{name}.gz")), &good));
+    assert_eq!(std::fs::read_to_string(dir.join(CURRENT)).unwrap(), name);
+    let leftovers: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().to_string()).filter(|n| n.ends_with(".tmp")).collect();
+    assert!(leftovers.is_empty(), "{leftovers:?}");
+}
+
+#[test]
+fn atomic_writes_replace_whole_files() {
+    let dir = tempfile::tempdir().unwrap();
+    write_atomic(dir.path(), "a.json", b"first").unwrap();
+    write_atomic(dir.path(), "a.json", b"second, longer").unwrap();
+    assert_eq!(std::fs::read(dir.path().join("a.json")).unwrap(), b"second, longer");
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
 }
 
 #[tokio::test]
@@ -140,7 +274,7 @@ async fn embeds_only_new_artworks_once_and_writes_a_content_addressed_supplement
     fake_bundle(data.path());
     seed(&pool).await;
     let asked = Arc::new(StdMutex::new(Vec::new()));
-    let opts = Options { skip_parity: true, ..Options::default() };
+    let opts = fast();
     let embedder: Arc<dyn Embed> = Arc::new(MeanColour);
 
     let report = run(&pool, data.path(), fake_fetch(asked.clone()), Some(embedder.clone()), &opts).await.unwrap();
@@ -196,7 +330,7 @@ async fn embeds_only_new_artworks_once_and_writes_a_content_addressed_supplement
 
     // Only some sets, written elsewhere, including art the bundle has: what the evals use.
     let out = tempfile::tempdir().unwrap();
-    let eval = Options { sets: vec!["trc".into()], include_known: true, out: Some(out.path().to_path_buf()), skip_parity: true, ..Options::default() };
+    let eval = Options { sets: vec!["trc".into()], include_known: true, out: Some(out.path().to_path_buf()), ..fast() };
     let r = run(&pool, data.path(), fake_fetch(asked.clone()), Some(Arc::new(MeanColour)), &eval).await.unwrap();
     assert_eq!((r.embedded, r.rows), (1, 1));
     let s: serde_json::Value = serde_json::from_slice(&std::fs::read(out.path().join(r.file.unwrap())).unwrap()).unwrap();
@@ -214,8 +348,8 @@ async fn a_failed_artwork_waits_a_day_and_rows_of_other_bundles_go() {
     seed(&pool).await;
     sqlx::query("INSERT INTO scan_arts (illustration_id, bundle, scryfall_id, name, set_code, collector_number, layout, frame, penalty, vector, updated_at) VALUES ('new1', 'retrain-old', 'x', 'X', 'trk', '1', 'normal', 0, 0, x'00', '2026-11-01')")
         .execute(&pool).await.unwrap();
-    let broken: Fetch = Arc::new(|_url: String| Box::pin(async { Ok(Some(b"not an image".to_vec())) }));
-    let opts = Options { skip_parity: true, ..Options::default() };
+    let broken: Fetch = Arc::new(|_url: String| Box::pin(async { Ok(Fetched::Image(b"not an image".to_vec())) }));
+    let opts = fast();
     let r = run(&pool, data.path(), broken.clone(), Some(Arc::new(MeanColour)), &opts).await.unwrap();
     assert_eq!((r.embedded, r.failed, r.rows, r.file), (0, 4, 0, None));
     let old: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM scan_arts WHERE bundle <> ?").bind(BUNDLE_VERSION).fetch_one(&pool).await.unwrap();
@@ -240,7 +374,7 @@ async fn the_bundle_route_names_the_supplement_and_serves_it_immutable() {
     let data = tempfile::tempdir().unwrap();
     fake_bundle(data.path());
     seed(&pool).await;
-    let opts = Options { skip_parity: true, ..Options::default() };
+    let opts = fast();
     let file = run(&pool, data.path(), fake_fetch(Arc::default()), Some(Arc::new(MeanColour)), &opts).await.unwrap().file.unwrap();
     let mut cfg = testutil::config();
     cfg.data_dir = data.path().to_path_buf();

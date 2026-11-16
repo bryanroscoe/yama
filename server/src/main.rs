@@ -252,7 +252,14 @@ async fn main() -> anyhow::Result<()> {
             // New artworks for the scanner, once its bundle is here (scan_art.rs).
             if cfg.scan_supplement && !cfg.offline && scan::is_ready(&scan::bundle_dir(&cfg.data_dir)) {
                 match scan_art::run(&pool, &cfg.data_dir, scan_art::scryfall_fetch(routes::http_client()), None, &Default::default()).await {
-                    Ok(r) => println!("scanner art supplement: embedded {}, failed {}, {} rows", r.embedded, r.failed, r.rows),
+                    Ok(r) if r.busy => println!("scanner art supplement: another run is going (the server's); it picks up the new cards"),
+                    Ok(r) => println!(
+                        "scanner art supplement: embedded {}, failed {}, {} rows{}",
+                        r.embedded,
+                        r.failed,
+                        r.rows,
+                        r.stopped.map(|why| format!("; stopped early, Scryfall unavailable ({why})")).unwrap_or_default()
+                    ),
                     Err(e) => eprintln!("scanner art supplement: {e:#}"),
                 }
             }
