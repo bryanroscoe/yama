@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cardLine, priceDateLine, priceFor, sessionTotal, totalLine, worthIt, type RecentCard } from "./price";
+import { priceFor, sessionTotal, worthIt, type RecentCard } from "./price";
 import { DEFAULT_WORTH, filedSound } from "./sounds";
 
 const prices = { usd: 1.1, usd_foil: 3.2, usd_etched: null, date: "2026-11-14" };
@@ -22,27 +22,15 @@ describe("scanner prices", () => {
   });
 
   it("chooses the louder sound only for a card worth the threshold", () => {
-    expect(DEFAULT_WORTH).toBe(5);
+    expect(DEFAULT_WORTH).toBe(2);
     expect(filedSound(12, DEFAULT_WORTH)).toBe("valuable");
-    expect(filedSound(3.2, DEFAULT_WORTH)).toBe("filed");
+    expect(filedSound(3.2, DEFAULT_WORTH)).toBe("valuable");
+    expect(filedSound(1.5, DEFAULT_WORTH)).toBe("filed");
     expect(filedSound(null, 0)).toBe("filed");
-  });
-
-  it("writes a card with commas: name, set and number, finish, price", () => {
-    expect(cardLine(card())).toBe("Westvale Abbey, SOI 281, Foil, $3.20");
-    expect(cardLine(card({ finish: "nonfoil", copies: 2 }))).toBe("Westvale Abbey, SOI 281, Regular, $1.10 each, 2 copies");
-    expect(cardLine(card({ finish: "etched" }))).toBe("Westvale Abbey, SOI 281, Etched, price unknown");
-    expect(cardLine(card({ finish: "proxy" }))).toBe("Westvale Abbey, SOI 281, Proxy");
-    expect(cardLine(card())).not.toContain("·");
-    expect(priceDateLine(card())).toBe("market price, Nov 14");
-    expect(priceDateLine(card({ finish: "etched" }))).toBeNull();
   });
 
   it("totals priced copies only, and says how many had no price", () => {
     const t = sessionTotal([card(), card({ finish: "nonfoil", copies: 2 }), card({ finish: "etched" }), card({ finish: "proxy" })]);
     expect(t).toEqual({ total: 5.4, priced: 3, missing: 1 });
-    expect(totalLine(t)).toBe("Total $5.40 for 3 cards, 1 without a price left out");
-    expect(totalLine(sessionTotal([card()]))).toBe("Total $3.20 for 1 card");
-    expect(totalLine(sessionTotal([card({ finish: "proxy" })]))).toBeNull();
   });
 });

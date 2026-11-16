@@ -22,8 +22,9 @@ import { readCloseup, readCollectorLines, readTitles, scanFrame, SURE } from "./
 import { artHoldFrame, AWAY_FRAMES, hold, holdRead, type ArtHold, type Hold } from "./hold";
 import { NameEntry } from "./NameEntry";
 import { CollectorPeek } from "./peek";
-import { filedFinish, priceFor, pricesOf, type RecentCard, type ScanFinish } from "./price";
-import { RecentCards } from "./RecentCards";
+import { filedFinish, priceFor, pricesOf, worthIt, type RecentCard, type ScanFinish } from "./price";
+import { ScanTray } from "./ScanTray";
+import { PLAY_WORD, playTag, usePlayability } from "./playable";
 import { holdSound } from "../sound";
 import { filedSound, playScanSound, setSoundsOn, setWorthThreshold, soundsOn, unlockSound, worthThreshold, type ScanSound } from "./sounds";
 import { choosePrinting, printingOptions, type Choice } from "./printings";
@@ -44,7 +45,7 @@ import { fuseTitle, needsTitle, titleRead, type Fused } from "./fuse";
 import { worthReading } from "./quality";
 import { pickHeldQuad, sameHeldCard } from "./heldCard";
 import { VersionLine } from "../version";
-import { ScanSettings, usePinchZoom, useSheetDrag } from "./sheet";
+import { ScanSettings, SettingsIcon, usePinchZoom, useSheetDrag } from "./sheet";
 import type { OcrEngine, Quad, RgbaImage, ScanCandidate, ScanCatalog, ScanResult } from "./types";
 import "./scanner.css";
 import { copyWords, shortDate, treatmentLabel, usd } from "@yama/core";
@@ -109,21 +110,24 @@ export interface ScannerViewProps {
   /** Told the printing the found card is settled on (null while none), so the host can offer its finishes. */
   onPrinting?: (p: Printing | null) => void;
   /**
-   * The cards filed this session, newest first, with their prices (Collection): the last one shown
-   * large at the bottom of the sheet, the rest under it, and the session's total. Hosts without
-   * prices give `recent` (names) instead.
+   * The cards filed this session, newest first, with their pictures and prices (Collection): shown
+   * in the strip between the camera and the sheet (ScanTray.tsx), with the session's total. Hosts
+   * without prices give `recent` (names) instead.
    */
   recentCards?: RecentCard[];
+  /** Open one card of the strip large, by its key (the host's ScannedCard). Without it the tiles are pictures only. */
+  onOpenCard?: (key: string) => void;
   /** The scanner's own sounds (sounds.ts), as well as vibration. Default on; off where the host plays its own (the deck check). */
   sounds?: boolean;
   /** Choices shown in the panel (finish, where to put the card). */
   controls?: ReactNode;
   /**
-   * Choices that rarely change (finish, where cards go, Keep adding, Close-ups): folded into one
-   * "Scan settings" row with `settingsSummary` beside it, opened with a tap (Bryan, 13 Nov 2026).
+   * Choices that rarely change (finish, where cards go, Keep adding, Close-ups): in Scan settings,
+   * opened from the gear on the camera (Bryan, 16 Nov 2026: "move a lot of the options into a
+   * little settings pane"), with `settingsSummary` on the sheet as a button that opens them too.
    */
   settings?: ReactNode;
-  /** The settings' current values in a few words, shown while they're folded. */
+  /** The settings' current values in a few words ("Regular, into Binder 2"), shown on the sheet. */
   settingsSummary?: string;
   /** The accept button's words. */
   acceptLabel?: string;
@@ -417,6 +421,7 @@ const candidateOf = (f: Found, p: Printing | null): ScanCandidate => ({
   number: p?.collector_number,
   lang: p?.lang,
   scryfall_id: p?.scryfall_id,
+  oracle_id: p?.oracle_id,
   image: p?.image_normal,
   thumb: p?.image_small,
   finishes: p?.finishes,
@@ -438,10 +443,11 @@ export function ScannerView({
   unsavedCount = 0,
   autoAdd = false,
   closeups = true,
-  paused = false,
+  paused: pausedProp = false,
   recent = [],
   finish = "nonfoil",
   recentCards,
+  onOpenCard,
   sounds: soundsProp = true,
   onPrinting,
   controls,
@@ -550,6 +556,9 @@ export function ScannerView({
   /** Wrong card was tapped: the other cards it might be, a name box, or just scan again. */
   const [wrongOpen, setWrongOpen] = useState(false);
   const cam = useCameraControls();
+  /** Scan settings are open over the scanner: it stops reading, as for anything else shown over it. */
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const paused = pausedProp || settingsOpen;
   // Audio is paused once no scanner (or deck check) is open, rather than left running (sound.ts).
   useEffect(() => holdSound(), []);
   const camRef = useRef(cam);
@@ -1803,7 +1812,8 @@ export function ScannerView({
       buzz(40);
       // A brighter sound for a card worth the threshold (its market price in the finish filed).
       sound(filedSound(identityOnly ? null : priceFor(card.prices, filedFinish(card.finishes, finish)), worth));
-      setJustAdded({ text: `${addedWord} ${label}`, card: onUndo || onCorrect ? card : undefined, label, found: f, printing: c });
+      const at = identityOnly ? null : priceFor(card.prices, filedFinish(card.finishes, finish));
+      setJustAdded({ text: `${addedWord} ${label}${at != null ? `, ${usd(at)}` : ""}`, card: onUndo || onCorrect ? card : undefined, label, found: f, printing: c });
     }, failed);
   };
   /** The scanner settled this printing itself (read, or the only one), and so could have it wrong. */
@@ -1879,8 +1889,8 @@ export function ScannerView({
   useEffect(() => {
     if (needsSheet) showSheet(false);
   }, [needsSheet, showSheet]);
-  const settingsBox = (
-    <ScanSettings summary={settingsSummary}>
+  const settingsBox = settingsOpen && (
+    <ScanSettings onClose={() => setSettingsOpen(false)}>
       {settings}
       <CameraSetting
         cameras={cameras}
@@ -1922,9 +1932,19 @@ export function ScannerView({
       <VersionLine className="scan-note" />
     </ScanSettings>
   );
+  // What cards are filed as, on the sheet: a tap opens Scan settings.
+  const filing = settingsSummary ? (
+    <Button className="scan-filing" onClick={() => setSettingsOpen(true)} aria-label={`Scan settings: ${settingsSummary}`}>
+      <span className="scan-filing-what">{settingsSummary}</span>
+      <span className="scan-filing-change">Change</span>
+    </Button>
+  ) : null;
   const chosenFinish = chosen ? filedFinish(chosen.finishes, finish) : finish;
   const price = chosen ? priceFor(pricesOf(chosen), chosenFinish) : null;
   const isFound = phase === "found" && !!found;
+  // Whether the card found sees play in Commander (playable.ts), from its printing's oracle id.
+  const foundOracle = isFound ? (chosen?.oracle_id ?? found?.options?.[0]?.oracle_id) : undefined;
+  const foundTag = playTag(usePlayability([foundOracle]).get(foundOracle ?? ""));
   const options = found?.options ?? null;
   // The latest frame of the held card, else the one it was found in.
   const peekShot = liveShot ?? found?.shot ?? null;
@@ -1967,7 +1987,11 @@ export function ScannerView({
             </svg>
           </Button>
         )}
+        <Button className="scan-gear" onClick={() => setSettingsOpen(true)} aria-label="Scan settings" aria-haspopup="dialog">
+          <SettingsIcon />
+        </Button>
         {addedCount > 0 &&
+          !recentCards?.length &&
           (onShowAdded ? (
             <Button className="scan-count" onClick={onShowAdded}>
               {addedWord} {addedCount}
@@ -2017,6 +2041,7 @@ export function ScannerView({
         )}
       </div>
 
+      {recentCards && recentCards.length > 0 && <ScanTray cards={recentCards} worth={identityOnly ? Infinity : worth} onOpen={onOpenCard} onReview={onShowAdded} />}
       <div ref={panelRef} className={`scan-panel${sheet.hidden ? " is-hidden" : ""}`} aria-live="polite">
         {/* "Use a photo" in More opens this: it stays mounted when the menu closes. */}
         <input
@@ -2054,7 +2079,6 @@ export function ScannerView({
             </div>
             {/* The Close-ups switch among them: a fixed camera can't do this step. */}
             {controls}
-            {settingsBox}
           </div>
         )}
         {lockOpen && (
@@ -2095,7 +2119,7 @@ export function ScannerView({
               </div>
             )}
             {controls}
-            {settingsBox}
+            {filing}
             <div className="scan-other-ways">
               <NameEntry onPick={(n) => fromName(n)} />
               {/* Ways in used now and then, not on every card (Bryan, 15 Nov 2026: declutter). */}
@@ -2105,7 +2129,7 @@ export function ScannerView({
               </MoreMenu>
             </div>
             {mode === "text" && <p className="scan-note">Card recognition isn't available right now, so the scanner is reading text. Line the card up with the frame.</p>}
-            {recentCards ? <RecentCards cards={recentCards} /> : recent.length > 0 && <p className="scan-note">Recent: {recent.slice(0, 3).join(", ")}.</p>}
+            {!recentCards && recent.length > 0 && <p className="scan-note">Recent: {recent.slice(0, 3).join(", ")}.</p>}
           </>
         )}
         {isFound && found && !lockOpen && (
@@ -2122,11 +2146,12 @@ export function ScannerView({
                   </span>
                 )}
                 {!identityOnly && chosen && finish !== "proxy" && (
-                  <span>
-                    {usd(price)}
+                  <span className={`scan-price${worthIt(price, worth) ? " is-worth" : ""}`}>
+                    <strong>{usd(price)}</strong>
                     {price != null && <span className="dim"> market, {shortDate(chosen.price_date) ?? "date unknown"}</span>}
                   </span>
                 )}
+                {foundTag && <span className={`scan-play-tag is-${foundTag}`}>{PLAY_WORD[foundTag]}</span>}
                 {range && (
                   <span>
                     {range.low === range.high ? usd(range.low) : `${usd(range.low)} to ${usd(range.high)}`}
@@ -2239,7 +2264,7 @@ export function ScannerView({
             <ErrorText error={found.error} />
             {renderResult?.(candidateOf(found, chosen))}
             {controls}
-            {settingsBox}
+            {filing}
             <div className="scan-buttons">
               {onAccept && (
                 <div className="scan-accept">
@@ -2317,7 +2342,6 @@ export function ScannerView({
                 {!recentCards && recent.length > 0 && `Recent: ${recent.slice(0, 3).join(", ")}.`}
               </p>
             )}
-            {recentCards && <RecentCards cards={recentCards} />}
             <details className="small dim">
               <summary>What the scanner saw</summary>
               <pre className="scan-raw">
@@ -2334,6 +2358,7 @@ export function ScannerView({
           </>
         )}
       </div>
+      {settingsBox}
     </div>
   );
 }

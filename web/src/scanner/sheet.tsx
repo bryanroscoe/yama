@@ -3,44 +3,28 @@
 // should be able to drag away this huge bottom drawer if I want as well").
 
 import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { Dialog } from "../components/ui";
 
-const SETTINGS_OPEN = "yama.scan.settingsOpen";
-
-function readFlag(key: string): boolean {
-  try {
-    return localStorage.getItem(key) === "1";
-  } catch {
-    return false;
-  }
-}
-
-function writeFlag(key: string, on: boolean) {
-  try {
-    localStorage.setItem(key, on ? "1" : "0");
-  } catch {
-    /* Private mode: the choice lasts until the scanner closes. */
-  }
-}
-
-/** Settings folded into one row; open or shut is remembered per device. */
-export function ScanSettings({ summary, children }: { summary?: string; children: ReactNode }) {
-  const [open, setOpen] = useState(() => readFlag(SETTINGS_OPEN));
+/**
+ * Scan settings, over the scanner (Bryan, 16 Nov 2026: "move a lot of the options into a little
+ * settings pane, like a little settings icon"): opened from the gear on the camera, or from what
+ * the sheet says cards are filed as. The scanner stops reading while it's open.
+ */
+export function ScanSettings({ onClose, children }: { onClose: () => void; children: ReactNode }) {
   return (
-    <details
-      className="scan-settings"
-      open={open}
-      onToggle={(e) => {
-        const now = (e.currentTarget as HTMLDetailsElement).open;
-        setOpen(now);
-        writeFlag(SETTINGS_OPEN, now);
-      }}
-    >
-      <summary>
-        <span className="scan-settings-title">Scan settings</span>
-        {summary && <span className="scan-settings-summary">{summary}</span>}
-      </summary>
+    <Dialog title="Scan settings" onClose={onClose} className="scan-settings">
       <div className="scan-choices">{children}</div>
-    </details>
+    </Dialog>
+  );
+}
+
+/** The gear on the camera that opens Scan settings. */
+export function SettingsIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
   );
 }
 

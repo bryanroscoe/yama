@@ -15,6 +15,18 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-16-scanner-strip",
+    date: "2026-11-16",
+    title: "The scanner shows each card you add, with its price",
+    items: [
+      "The cards you add sit in a strip above the scanner's panel, newest first: each one's picture, its price in the finish you added, and a white ring when it's worth $2 or more (the amount the brighter sound uses, in Scan settings).",
+      "Cards that see play in Commander are tagged: Staple for EDHREC's top 1,000, Played for the top 5,000, GC for the Game Changer list.",
+      "Tap a card in the strip to see it large and check the printing, then change its finish, copies or printing, or remove it.",
+      "Scan settings open from the gear on the camera, so the panel keeps to the card in hand.",
+    ],
+    link: { to: "/collection", label: "Scan cards" },
+  },
+  {
     id: "2026-11-16-box-sections",
     date: "2026-11-16",
     title: "Sections inside boxes, and scanning a box",

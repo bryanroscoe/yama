@@ -121,7 +121,7 @@
 }
 .scan-count {
   top: calc(max(14px, env(safe-area-inset-top)) + 8px);
-  right: 14px;
+  right: 66px;
 }
 .scan-chip {
   left: 50%;
@@ -313,16 +313,23 @@
   font-size: var(--t-sm);
   color: var(--dim);
 }
+/* The sheet's lesser choices (Wrong printing?, Wrong card?, another card it might be): small
+   outlined pills that read as buttons, not underlined words (Bryan, 16 Nov 2026). */
 .scan .scan-alt {
-  display: inline;
-  min-height: 0;
-  padding: 0;
-  border: none;
-  background: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 4px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: var(--raised);
   color: var(--text);
+  font-size: var(--t-label);
   font-weight: 700;
-  text-decoration: underline;
-  text-underline-offset: 0.2em;
+  line-height: 1.2;
+}
+.scan .scan-alt:hover {
+  border-color: var(--dim);
 }
 .scan .scan-photo {
   background: var(--raised);
@@ -603,28 +610,6 @@ button.scan-count {
   min-height: 32px;
 }
 
-/* Scan settings: one row, opened with a tap; closed it says what's set. */
-.scan-settings > summary {
-  gap: 10px;
-}
-.scan-settings-title {
-  font-weight: 700;
-}
-.scan-settings-summary {
-  color: var(--dim);
-  font-size: var(--t-sm);
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.scan-settings[open] .scan-settings-summary {
-  display: none;
-}
-.scan-settings > .scan-choices {
-  margin-top: 10px;
-}
-
 /* The sheet scrolls when it holds more than fits: its rows keep their own height rather than
    shrinking into each other (a min-height 0 link button over the tap prompt, 15 Nov 2026). */
 .scan-panel > * {
@@ -697,24 +682,6 @@ button.scan-count {
   justify-content: center;
 }
 
-/* Recent (RecentCards.tsx): the last card added, large; older ones smaller; the session total. */
-.scan-recent {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding-top: 10px;
-  border-top: 1px solid var(--line);
-}
-.scan-recent-last {
-  font-size: var(--t-label);
-}
-.scan-recent-older {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  font-size: var(--t-sm);
-  color: var(--dim);
-}
 /* The "worth it" amount, under the Sounds switch. */
 .scan-worth {
   display: flex;
@@ -734,4 +701,366 @@ button.scan-count {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+/* The gear for Scan settings, top right on the camera, above the flashlight and zoom. */
+.scan .scan-gear {
+  position: absolute;
+  top: max(14px, env(safe-area-inset-top));
+  right: 14px;
+  width: 44px;
+  height: 44px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 0.6);
+  color: #fff;
+}
+.scan .scan-gear:hover {
+  background: rgb(0 0 0 / 0.8);
+}
+.scan .scan-tools {
+  top: calc(max(14px, env(safe-area-inset-top)) + 58px);
+}
+.scan-settings .scan-choices {
+  margin-top: 4px;
+}
+.scan-settings .scan-choices > .scan-note {
+  grid-column: 1 / -1;
+}
+
+/* What cards are filed as, on the sheet; a tap opens Scan settings. */
+.scan .scan-filing {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-tile);
+  background: none;
+  color: var(--text);
+  font-weight: 400;
+  text-align: left;
+}
+.scan-filing-what {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--t-label);
+}
+.scan-filing-change {
+  flex: 0 0 auto;
+  font-size: var(--t-sm);
+  font-weight: 700;
+  color: var(--dim);
+}
+
+/* The strip of cards scanned (ScanTray.tsx): between the camera and the sheet, never scrolled
+   away. The newest card is the largest; each says its price, and a card worth the "worth it"
+   amount is ringed in white. The sheet's rounded top sits over the strip's last 20 px. */
+.scan-tray {
+  position: relative;
+  flex: 0 0 auto;
+  padding: 6px 0 26px;
+  background: #000;
+}
+.scan-tray-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px 6px;
+  font-size: var(--t-sm);
+  color: #fff;
+}
+.scan-tray-total {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.scan-tray-note {
+  color: var(--on-art-dim);
+}
+.scan-tray-failed {
+  flex: 0 0 auto;
+  font-weight: 700;
+  color: var(--bad);
+  white-space: nowrap;
+}
+.scan .scan-tray-review {
+  flex: 0 0 auto;
+  margin-left: auto;
+  min-height: 32px;
+  padding: 2px 12px;
+  border: 1px solid rgb(255 255 255 / 0.35);
+  border-radius: var(--r-pill);
+  color: #fff;
+  font-size: var(--t-sm);
+  white-space: nowrap;
+}
+.scan-tray-list {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin: 0;
+  padding: 2px 16px 2px;
+  list-style: none;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  touch-action: pan-x;
+}
+.scan-tray-list::-webkit-scrollbar {
+  display: none;
+}
+.scan-tray-list > li {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+}
+.scan .scan-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  width: 50px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #fff;
+  font-weight: 400;
+  text-align: center;
+}
+.scan .scan-tile.is-newest {
+  width: 72px;
+}
+.scan-tile-card {
+  position: relative;
+  display: block;
+  aspect-ratio: 488 / 680;
+  border-radius: var(--card-radius);
+  overflow: hidden;
+  background: var(--raised);
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.12);
+}
+.scan-tile-card img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.scan-tile-fallback {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  padding: 4px;
+  font-size: var(--t-xs);
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+.scan-tile.is-worth .scan-tile-card {
+  box-shadow: 0 0 0 2px #fff;
+}
+.scan-tile.is-saving .scan-tile-card {
+  box-shadow: 0 0 0 1px var(--dim);
+}
+.scan-tile.is-failed .scan-tile-card {
+  box-shadow: 0 0 0 2px var(--bad);
+}
+.scan-tile-copies,
+.scan-tile-finish,
+.scan-tile-alert {
+  position: absolute;
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  background: var(--art-chip);
+  color: #fff;
+  font-size: var(--t-xs);
+  font-weight: 700;
+  line-height: 1.35;
+}
+.scan-tile-copies {
+  top: 3px;
+  right: 3px;
+}
+.scan-tile-finish {
+  top: 3px;
+  left: 3px;
+}
+.scan-tile-alert {
+  left: 3px;
+  right: 3px;
+  top: 40%;
+  background: var(--bad);
+  color: #000;
+}
+.scan-tile-price {
+  font-size: var(--t-sm);
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.scan-tile.is-newest .scan-tile-price {
+  font-size: var(--t-15);
+}
+.scan-tile.is-worth .scan-tile-price {
+  align-self: center;
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  background: #fff;
+  color: #000;
+}
+/* The play tag sits on the card's text box, where a thumbnail has nothing readable anyway. */
+.scan-tile-tag {
+  position: absolute;
+  left: 50%;
+  bottom: 4px;
+  transform: translateX(-50%);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.6);
+}
+.scan-tile-tag.is-played {
+  background: var(--art-chip);
+}
+/* The newest card arrives with a small lift, so a scan is seen landing in the strip. */
+@media (prefers-reduced-motion: no-preference) {
+  .scan-tile.is-newest .scan-tile-card {
+    animation: scan-tile-in 0.28s ease-out;
+  }
+}
+@keyframes scan-tile-in {
+  from {
+    transform: translateY(12px) scale(0.92);
+    opacity: 0.4;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+@media (min-width: 900px) {
+  .scan-tray-head,
+  .scan-tray-list {
+    width: min(560px, 100%);
+    margin-inline: auto;
+  }
+}
+
+/* Whether a card sees play in Commander (playable.ts): Played, Staple, Game Changer. */
+.scan-tile-tag,
+.scan-play-tag {
+  display: inline-block;
+  padding: 0 7px;
+  border: 1px solid var(--good);
+  border-radius: var(--r-pill);
+  color: var(--good);
+  font-size: var(--t-xs);
+  font-weight: 700;
+  line-height: 1.45;
+  white-space: nowrap;
+}
+.scan-tile-tag.is-staple,
+.scan-play-tag.is-staple {
+  background: var(--good);
+  color: #000;
+}
+.scan-tile-tag.is-game-changer,
+.scan-play-tag.is-game-changer {
+  border-color: #fff;
+  background: #fff;
+  color: #000;
+}
+.scan-play-tag {
+  align-self: flex-start;
+  margin-top: 4px;
+  font-size: var(--t-sm);
+  padding: 1px 10px;
+}
+
+/* The found card's price, large, ringed when it's worth the "worth it" amount. */
+.scan-price {
+  margin-top: 2px;
+}
+.scan-price strong {
+  font-size: var(--t-22);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.scan-price.is-worth strong {
+  padding: 0 8px;
+  border-radius: var(--r-pill);
+  background: #fff;
+  color: #000;
+}
+
+/* One scanned card large (AddedList.tsx, ScannedCard). */
+.scan-big {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.scan-big-body {
+  display: grid;
+  grid-template-columns: minmax(0, 11fr) minmax(0, 9fr);
+  gap: 14px;
+  align-items: start;
+}
+.scan-big-card .card-img,
+.scan-big-card .card-fallback {
+  width: 100%;
+  aspect-ratio: 488 / 680;
+  border-radius: var(--card-radius);
+  object-fit: cover;
+}
+.scan-big-card .card-zoom-open {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.scan-big-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.scan-big-info p {
+  margin: 0;
+}
+.scan-big-printing {
+  font-size: var(--t-label);
+  color: var(--dim);
+}
+.scan-big-price strong {
+  display: block;
+  font-size: var(--t-xl);
+  font-weight: 800;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.scan-big-price .dim {
+  font-size: var(--t-sm);
+}
+.scan-big-fixes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+}
+
+/* A row's picture in the Added list opens the card large. */
+.scan .scan-added-open,
+.scan-added-open {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
 }
