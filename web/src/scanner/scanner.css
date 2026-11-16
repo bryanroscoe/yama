@@ -727,3 +727,11 @@ button.scan-count {
 .scan-worth input {
   width: 5rem;
 }
+
+/* Which camera, and what it delivers (Scan settings): the whole row. */
+.scan-camera-setting {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}

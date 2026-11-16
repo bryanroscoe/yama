@@ -200,9 +200,11 @@ describe("gallery search", () => {
 });
 
 describe("zoomSteps", () => {
-  it("steps from a pinched zoom between levels, up to the camera's top end", () => {
+  it("steps from a pinched zoom between levels, up to 4× (under a phone's switch to its telephoto), whatever the camera's top end", () => {
     const cam = { torch: false, zoom: { min: 1, max: 8 } };
-    expect(zoomSteps(cam, 5)).toEqual({ above: 8, below: 4 });
+    expect(zoomSteps(cam, 2.5)).toEqual({ above: 3, below: 2 });
+    expect(zoomSteps(cam, 4)).toEqual({ above: undefined, below: 3 });
+    // A zoom left above the cap (from before it): only down.
     expect(zoomSteps(cam, 8)).toEqual({ above: undefined, below: 4 });
     expect(zoomSteps(cam, 1)).toEqual({ above: 1.5, below: undefined });
   });

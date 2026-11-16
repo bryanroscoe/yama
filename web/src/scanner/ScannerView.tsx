@@ -15,7 +15,7 @@ import { api, type Printing } from "../api";
 import { loadArtRecognizer, RECOGNIZER_SHORT_SIDE, type ArtRecognizer, type LoadState } from "./artClient";
 import { NameIndex } from "./fuzzy";
 import { normaliseName } from "./parse";
-import { rectQuad } from "./image";
+import { applyH, rectQuad, squareToQuad } from "./image";
 import { readCloseup, readCollectorLines, readTitles, scanFrame, SURE } from "./pipeline";
 import { artHoldFrame, AWAY_FRAMES, hold, holdRead, type ArtHold, type Hold } from "./hold";
 import { NameEntry } from "./NameEntry";
@@ -29,7 +29,10 @@ import type { ArtMatch, Recognition } from "./recognizer";
 import { deleteSamples, keepSample, sampleSummary, savingPhotos, setSavingPhotos, type SampleLabel, type SampleSummary, type Shot } from "./samples";
 import { SetLockPicker } from "./SetLockPicker";
 import { artInSets, inLockedSets, KNOWN_ART, knownArtShare, POOL_MARGIN, judgeLocked, lockedNames, lockedSet, poolKeys, readTitleFirst, savedLock, saveLock, suggestLock, type LockedSet } from "./setlock";
-import { CameraControls, digitalRegion, useCameraControls } from "./camera";
+import { CameraControls, cameraInfo, digitalRegion, useCameraControls, type CameraInfo } from "./camera";
+import { defaultCamera, nameCameras, resolveSaved, saveCamera, savedCamera, type NamedCamera } from "./cameras";
+import { AUTO_MAX, AutoZoom, LENS_SWITCH, maySwitchLens } from "./zoomPolicy";
+import { cardHeight, tooFar } from "./closer";
 import { createServerCatalog } from "./serverCatalog";
 import { createScannerOcr, ENGINE_LABEL, plannedEngine, type ScannerOcr } from "./ocrEngine";
 import { HeldRead, type HeldVerdict } from "./heldRead";
@@ -194,6 +197,41 @@ interface Known {
   text?: string;
 }
 
+/** Resolves once the video has a frame to read (or after a few seconds, whatever it has). */
+function firstFrame(v: HTMLVideoElement): Promise<void> {
+  return new Promise((resolve) => {
+    if (v.readyState >= 2 && v.videoWidth > 0) return resolve();
+    const done = () => {
+      v.removeEventListener("loadeddata", done);
+      clearTimeout(timer);
+      resolve();
+    };
+    v.addEventListener("loadeddata", done);
+    const timer = setTimeout(done, 3000);
+  });
+}
+
+/** A promise that gives up after `ms` (review of #145: a camera's still capture could hang for good). */
+export function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`No answer in ${ms} ms`)), ms);
+    p.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e: unknown) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+    );
+  });
+}
+
+/** How long a still photo may take before it's given up. */
+const STILL_TIMEOUT_MS = 2000;
+/** Frames read without settling before one still photo is tried (ImageCapture.takePhoto). */
+const STILL_AFTER = 5;
 /** Lock at this art score on one frame, or at LOCK_TWICE on two agreeing frames. */
 const LOCK_ONCE = 0.82;
 const LOCK_TWICE = 0.62;
@@ -456,6 +494,12 @@ export function ScannerView({
   foundRef.current = found;
   /** What the camera actually delivers, e.g. "3840×2160". */
   const [camera, setCamera] = useState<string | null>(null);
+  /** The cameras on this device, named (cameras.ts); empty until the camera is allowed (labels are blank before). */
+  const [cameras, setCameras] = useState<NamedCamera[]>([]);
+  /** The camera chosen to open: a device id, or null for the browser's back camera. */
+  const [cameraId, setCameraId] = useState<string | null>(() => savedCamera()?.id ?? null);
+  /** What the camera in use delivers and can do (camera.tsx), kept for the diagnostics to come. */
+  const [cameraNow, setCameraNow] = useState<CameraInfo | null>(null);
   /** A photo is being read: the camera loop waits, so the two can't both report a card. */
   const [photoBusy, setPhotoBusy] = useState(false);
   /** The camera is running (a close-up needs it). */
@@ -480,6 +524,45 @@ export function ScannerView({
   const cam = useCameraControls();
   // Audio is paused once no scanner (or deck check) is open, rather than left running (sound.ts).
   useEffect(() => holdSound(), []);
+  const camRef = useRef(cam);
+  camRef.current = cam;
+  /**
+   * The loops reading the camera (scanning, hold and read, the close-up): each registers how to
+   * stop it, and a camera switch stops them all at once, synchronously, so nothing from the old
+   * camera is used after it (review of #145).
+   */
+  const readers = useRef(new Set<() => void>());
+  /** Bumped by every camera switch: work begun before it checks this after each await (`settle`). */
+  const camGen = useRef(0);
+  const haltReaders = () => {
+    camGen.current += 1;
+    for (const halt of readers.current) halt();
+    firstEvidence.current = null;
+    // A first read of the collector line under way is dropped; the held card is read again on the new camera.
+    setFound((cur) => (cur?.reading ? { ...cur, reading: false } : cur));
+  };
+  /** Auto-zoom (zoomPolicy.ts), for a camera that zooms itself. */
+  const autoZoomRef = useRef<AutoZoom | null>(null);
+  useEffect(() => {
+    autoZoomRef.current = cam.caps.zoom ? new AutoZoom(cam.caps.zoom) : null;
+  }, [cam.caps.zoom]);
+  /** The collector line's letters are too small to read where the card is (closer.ts). */
+  const [far, setFar] = useState(false);
+  /**
+   * Each frame's card, in video pixels (null when none): the "Move closer" hint, and auto-zoom's
+   * step toward the card filling the view (the view the camera box shows, at the camera's zoom).
+   */
+  const seeCard = (quad: Quad | null, v: HTMLVideoElement) => {
+    setFar(!!quad && tooFar(quad));
+    const az = autoZoomRef.current;
+    const c = camRef.current;
+    if (!az || c.userZoomed()) return;
+    const box = v.closest(".scan-camera")?.getBoundingClientRect();
+    const k = box && box.width > 0 && box.height > 0 ? Math.max(box.width / v.videoWidth, box.height / v.videoHeight) : 1;
+    const visibleH = box && box.height > 0 ? Math.min(v.videoHeight, box.height / k) : v.videoHeight;
+    const z = az.frame(quad ? cardHeight(quad) / visibleH : null, c.zoom, performance.now());
+    if (z != null) c.autoZoom(z);
+  };
   /** What the host files a card with (finish, where it goes), as far as the scanner is told. */
   const fileSettings = `${finish ?? ""}|${settingsSummary ?? ""}`;
   const digitalRef = useRef(1);
@@ -635,7 +718,8 @@ export function ScannerView({
     });
   }, [mode, lock, lockOn]);
 
-  // Camera.
+  // Camera: the one chosen in Scan settings, else the main back camera (cameras.ts), else the
+  // browser's back camera. The list of cameras is only named once the camera is allowed.
   useEffect(() => {
     let stream: MediaStream | null = null;
     let stopped = false;
@@ -644,43 +728,83 @@ export function ScannerView({
       setError("This browser can't open the camera here (it needs https). Use a photo instead.");
       return;
     }
-    navigator.mediaDevices
-      // As sharp as the camera allows: the collector line is tiny. Frames are scaled down for
-      // recognition anyway; only the crops read as text use the full resolution.
-      .getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 3840 }, height: { ideal: 2160 } }, audio: false })
-      .then(async (s) => {
-        if (stopped) return s.getTracks().forEach((t) => t.stop());
+    // As sharp as the camera allows: the collector line is tiny. Frames are scaled down for
+    // recognition anyway; only the crops read as text use the full resolution.
+    const size = { width: { ideal: 3840 }, height: { ideal: 2160 } };
+    /** Ask for a camera, unless this effect is already done with; a stream that arrives too late is stopped. */
+    const open = async (id: string | null): Promise<MediaStream | null> => {
+      if (stopped) return null;
+      const s = await navigator.mediaDevices.getUserMedia({ video: id ? { deviceId: { exact: id }, ...size } : { facingMode: { ideal: "environment" }, ...size }, audio: false });
+      if (stopped) {
+        s.getTracks().forEach((t) => t.stop());
+        return null;
+      }
+      return s;
+    };
+    void (async () => {
+      try {
+        let s: MediaStream | null;
+        try {
+          s = await open(cameraId);
+        } catch (e) {
+          // A camera chosen before that won't open (its id may have changed): the back camera for
+          // now. The choice is kept: its label may find it again below, under its new id.
+          if (!cameraId || stopped) throw e;
+          s = await open(null);
+        }
+        if (!s) return;
         stream = s;
         const track = s.getVideoTracks()[0];
         cam.attach(track ?? null);
         if (track) {
-          const caps = (track.getCapabilities?.() ?? {}) as { focusMode?: string[] };
-          if (caps.focusMode?.includes("continuous")) {
-            await track.applyConstraints({ advanced: [{ focusMode: "continuous" } as MediaTrackConstraintSet] }).catch(() => undefined);
+          const info = cameraInfo(track);
+          // For checking a phone by hand (and the diagnostics to come): what it delivers and can do.
+          console.info("Scanner camera", info, track.getCapabilities?.());
+          setCameraNow(info);
+          if (info.width && info.height) setCamera(`${info.width}×${info.height}`);
+          // Now the cameras have names: list them, and open the best one for close cards if this isn't it.
+          const devices = (await navigator.mediaDevices.enumerateDevices?.().catch(() => [])) ?? [];
+          if (stopped) return;
+          const named = nameCameras(devices.filter((d) => d.kind === "videoinput").map((d) => ({ deviceId: d.deviceId, label: d.label })));
+          setCameras(named);
+          const saved = resolveSaved(named, savedCamera());
+          if (saved.save !== "keep") saveCamera(saved.save);
+          const want = saved.camera ?? defaultCamera(named);
+          const current = (track.getSettings?.().deviceId as string | undefined) ?? null;
+          if (want && current && want.deviceId !== current && want.deviceId !== cameraId) {
+            setCameraId(want.deviceId);
+            return;
           }
-          const st = track.getSettings();
-          if (st.width && st.height) setCamera(`${st.width}×${st.height}`);
         }
         const v = videoRef.current;
-        if (!v) return;
+        if (!v || stopped) return;
         v.srcObject = s;
         await v.play().catch(() => undefined);
+        // Nothing reads until the camera delivers frames.
+        await firstFrame(v);
+        if (stopped) return;
         setLive(true);
         setPhase((p) => (p === "loading" ? "scanning" : p));
-      })
-      .catch((e: unknown) => {
+      } catch (e) {
         if (stopped) return;
         setPhase("no-camera");
         setError(e instanceof Error ? `No camera: ${e.message}` : "No camera");
-      });
+      }
+    })();
     return () => {
       stopped = true;
+      // Every loop reading this camera stops now, before any result from it is used, and what an
+      // attempt had read is dropped (review of #145): a switch starts reading afresh.
+      haltReaders();
+      setLive(false);
+      const v = videoRef.current;
+      if (v && stream && v.srcObject === stream) v.srcObject = null;
       cam.attach(null);
       stream?.getTracks().forEach((t) => t.stop());
     };
-    // cam.attach is stable (useCallback with no inputs).
+    // cam.attach and haltReaders are stable for this purpose.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [cameraId]);
 
   /** Settle the printing of what was found (not needed when only the card's identity matters). */
   const settle = useCallback(
@@ -688,6 +812,11 @@ export function ScannerView({
       const update = (patch: Partial<Found>) => {
         if (foundSeq.current === seq) setFound((cur) => (cur ? { ...cur, ...patch } : cur));
       };
+      // What the camera saw (the read, a text read's line) counts only while it's the same camera
+      // (review of #145): after a switch the printings still load, but nothing read before it
+      // chooses one or carries on as evidence, and the held card is read again on the new camera.
+      const gen = camGen.current;
+      const sameCamera = () => camGen.current === gen;
       try {
         let opts = await printingOptions(query);
         // Locked to sets: choose among the printings in them. None there: ask (outside).
@@ -714,14 +843,14 @@ export function ScannerView({
         if (!choice.chosen && known?.set && known.number) {
           const hit = opts.printings.find((p) => p.set_code === known.set && p.collector_number === known.number);
           const { proven, ev } = proofOf(opts.printings, known.text ?? "");
-          if (hit && proven === hit.scryfall_id) choice = { chosen: hit, how: "collector", options: [hit, ...choice.options.filter((p) => p !== hit)], certain: true };
+          if (sameCamera() && hit && proven === hit.scryfall_id) choice = { chosen: hit, how: "collector", options: [hit, ...choice.options.filter((p) => p !== hit)], certain: true };
           else {
             if (hit) choice = { ...choice, options: [hit, ...choice.options.filter((p) => p !== hit)] };
-            firstEvidence.current = { seq, ev };
+            if (sameCamera()) firstEvidence.current = { seq, ev };
           }
         }
         const how: Found["how"] = bySet && choice.how === "only" ? "set" : choice.how;
-        const reading = !choice.chosen && !!read;
+        const reading = !choice.chosen && !!read && sameCamera();
         const sure = choice.how === "only" || !!choice.certain;
         update({ options: choice.options, sameArt: opts.sameArt, outside: false, chosen: choice.chosen, how, sure, settledId: sure ? choice.chosen?.scryfall_id : undefined, reading });
         if (!reading) return;
@@ -731,8 +860,13 @@ export function ScannerView({
         const ev = new Evidence(opts.printings);
         const reads: string[] = [];
         for await (const text of readCollectorLines(read!.image, read!.quad, await ocrEngine())) {
-          if (foundSeq.current !== seq) return;
+          if (foundSeq.current !== seq || !sameCamera()) break;
           reads.push(text);
+        }
+        if (foundSeq.current !== seq) return;
+        if (!sameCamera()) {
+          update({ reading: false });
+          return;
         }
         ev.add(reads);
         const v = ev.verdict();
@@ -847,10 +981,16 @@ export function ScannerView({
 
   // Read loop: one frame at a time.
   useEffect(() => {
-    if (phase !== "scanning" || !mode || closeup || photoBusy || paused || lockOpen) return;
+    if (phase !== "scanning" || !mode || !live || closeup || photoBusy || paused || lockOpen) return;
     let stop = false;
     let failedReads = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // A camera switch stops this at once (haltReaders).
+    const halt = () => {
+      stop = true;
+      clearTimeout(timer);
+    };
+    readers.current.add(halt);
     let unknownFrames = 0;
     let textFrame = 0;
     /** Frames in a row this art match's title couldn't be read (see UNTITLED_FRAMES). */
@@ -876,6 +1016,7 @@ export function ScannerView({
           if (stop) return;
           const toVideo = (q: Quad) => q.map(([x, y]) => [x / k + zone.x, y / k + zone.y]) as Quad;
           setOutline(r.quad ? { quad: toVideo(r.quad), w: v.videoWidth, h: v.videoHeight } : null);
+          seeCard(r.quad ? toVideo(r.quad) : null, v);
           // Locked to sets: go on the best match among their art while it's about as good as the
           // best anywhere; otherwise on the best anywhere, which settling then shows as outside.
           const locked = lockRef.current;
@@ -1005,10 +1146,11 @@ export function ScannerView({
     };
     void tick();
     return () => {
+      readers.current.delete(halt);
       stop = true;
       clearTimeout(timer);
     };
-  }, [phase, mode, closeup, photoBusy, paused, lockOpen, identityOnly, closeups, showArt, handleText, textReader]);
+  }, [phase, mode, live, closeup, photoBusy, paused, lockOpen, identityOnly, closeups, showArt, handleText, textReader]);
 
   const fromPhoto = async (file: File) => {
     setStatus("Reading the photo");
@@ -1198,6 +1340,12 @@ export function ScannerView({
     if (!start?.options) return;
     let stop = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // A camera switch stops this at once (haltReaders).
+    const halt = () => {
+      stop = true;
+      clearTimeout(timer);
+    };
+    readers.current.add(halt);
     const clock = () => performance.now();
     const held = new HeldRead(closeups, clock());
     // The first read's evidence carries on into the first attempt; a retry starts afresh.
@@ -1225,13 +1373,17 @@ export function ScannerView({
       buzz(30);
     };
     /** The card's quad in video pixels this frame, or null when it isn't seen (or another card is). */
-    const locate = async (v: HTMLVideoElement): Promise<Quad | null> => {
+    /**
+     * The card in a camera frame (`video`) or a still photo of it: its quad in that image's
+     * pixels, or null when it isn't seen there (or another card is).
+     */
+    const locate = async (src: CanvasImageSource, w: number, h: number, video: HTMLVideoElement | null): Promise<Quad | null> => {
       const art = artRef.current;
       canvasRef.current ??= document.createElement("canvas");
       if (art) {
-        const box = v.closest(".scan-camera")?.getBoundingClientRect();
-        const zone = digitalRegion(v.videoWidth, v.videoHeight, digitalRef.current, box);
-        const { image, k } = smallRegion(v, zone, canvasRef.current);
+        const box = video?.closest(".scan-camera")?.getBoundingClientRect();
+        const zone = video ? digitalRegion(w, h, digitalRef.current, box) : { x: 0, y: 0, w, h };
+        const { image, k } = smallRegion(src, zone, canvasRef.current);
         const r = await art.identify(image);
         if (!r.quad) return null;
         const quad = r.quad.map(([x, y]) => [x / k + zone.x, y / k + zone.y]) as Quad;
@@ -1246,16 +1398,73 @@ export function ScannerView({
         // Not known by its art: a card clearly recognised as another card isn't this one.
         const top = all.reduce<ArtMatch | null>((b, m) => (!b || m.score > b.score ? m : b), null);
         if (top && top.score >= LOCK_ONCE && top.name !== start.name && !start.name.split(" // ").includes(top.name)) return null;
-        const picked = pickHeldQuad([quad], v.videoWidth, v.videoHeight);
-        if (!picked || (lastQuad && !sameHeldCard(lastQuad, picked))) return null;
+        const picked = pickHeldQuad([quad], w, h);
+        // From frame to frame it may drift, not jump (a still is in its own pixels).
+        if (!picked || (video && lastQuad && !sameHeldCard(lastQuad, picked))) return null;
         return picked;
       }
       // No recognizer: the card is where the on-screen guide is, as when reading text.
       const g = guideRef.current;
-      if (!g) return null;
-      const { gx, gy, gw, gh } = boxInVideo(v, g, 0);
+      if (!g || !video) return null;
+      const { gx, gy, gw, gh } = boxInVideo(video, g, 0);
       return rectQuad(gx, gy, gw, gh);
     };
+    /** Read one image of the card into the evidence; true when that settled it. */
+    const readInto = async (src: CanvasImageSource, w: number, h: number, quad: Quad, f: Found): Promise<"settled" | "read" | "blurred"> => {
+      const read = around(src, w, h, quad, hiCanvasRef.current!);
+      setLiveShot(read);
+      const ocr = await ocrEngine();
+      // A blurred or washed-out strip is skipped before the reader sees it (quality.ts).
+      let sharp = true;
+      const reads: string[] = [];
+      for await (const text of readCollectorLines(read.image, read.quad, ocr, { gate: (q) => (sharp = worthReading(q)) })) {
+        if (stop) return "read";
+        reads.push(text);
+      }
+      if (!sharp) return "blurred";
+      // Finished after the attempt ended (a still, or a camera switch): it counts for nothing.
+      if (stop) return "read";
+      // Every read adds to the evidence (evidence.ts): settled on weight, not on a run.
+      ev.add(reads);
+      const weighed = ev.verdict();
+      if (weighed.kind === "settled") {
+        const c = choosePrinting({ sameArt: f.sameArt, printings: f.options! }, reads.join("\n"));
+        const hit = f.options!.find((p) => p.scryfall_id === weighed.id)!;
+        settleOn({ chosen: hit, how: "collector", options: [hit, ...c.options.filter((p) => p !== hit)], certain: true }, reads.join("\n"));
+        return "settled";
+      }
+      setReadProgress(progressLine(weighed, f.options!.length));
+      return "read";
+    };
+    /**
+     * One still photo when the reads stall (the scanner consult): a camera still can be sharper
+     * and larger than a video frame. Only where the browser has ImageCapture.takePhoto (Chrome on
+     * Android; the app's web view may not [inferred]), only with the art recognizer to find the
+     * card in it, and once per attempt.
+     */
+    let stillTaken = false;
+    const tryStill = async (f: Found): Promise<boolean> => {
+      if (stillTaken || !artRef.current) return false;
+      const track = cam.track();
+      const IC = (window as unknown as { ImageCapture?: new (t: MediaStreamTrack) => { takePhoto(): Promise<Blob> } }).ImageCapture;
+      if (!IC || !track) return false;
+      stillTaken = true;
+      let bmp: ImageBitmap | null = null;
+      try {
+        // A camera that never answers mustn't hold anything up (review of #145).
+        bmp = await createImageBitmap(await withTimeout(new IC(track).takePhoto(), STILL_TIMEOUT_MS));
+        if (stop) return false;
+        const quad = await locate(bmp, bmp.width, bmp.height, null);
+        if (!quad || stop) return false;
+        return (await readInto(bmp, bmp.width, bmp.height, quad, f)) === "settled";
+      } catch (e) {
+        console.info("No still from the camera", e);
+        return false;
+      } finally {
+        bmp?.close();
+      }
+    };
+    let focused = false;
     /** What every verdict does, from a frame, a skipped frame or a miss alike. */
     const act = (verdict: HeldVerdict, wait: number) => {
       switch (verdict) {
@@ -1280,35 +1489,25 @@ export function ScannerView({
       if (!v || v.videoWidth === 0 || document.visibilityState !== "visible") return next(200);
       try {
         hiCanvasRef.current ??= document.createElement("canvas");
-        const quad = await locate(v);
+        const quad = await locate(v, v.videoWidth, v.videoHeight, v);
         if (stop) return;
+        seeCard(quad, v);
         let verdict: HeldVerdict;
         if (!quad) verdict = held.missed(clock());
         else {
           lastQuad = quad;
-          const read = around(v, v.videoWidth, v.videoHeight, quad, hiCanvasRef.current);
-          setLiveShot(read);
-          const ocr = await ocrEngine();
-          // A blurred or washed-out strip is skipped before the reader sees it (quality.ts).
-          let sharp = true;
-          const reads: string[] = [];
-          for await (const text of readCollectorLines(read.image, read.quad, ocr, { gate: (q) => (sharp = worthReading(q)) })) {
-            if (stop) return;
-            reads.push(text);
+          // Focus on the collector corner, once, where the browser lets it point focus.
+          if (!focused) {
+            focused = true;
+            const [x, y] = applyH(squareToQuad(quad), 0.25, 0.95);
+            cam.focusAt(x / v.videoWidth, y / v.videoHeight);
           }
-          if (!sharp) verdict = held.skipped(clock());
-          else {
-            // Every frame adds to the evidence (evidence.ts): settled on weight, not on a run.
-            ev.add(reads);
-            const weighed = ev.verdict();
-            if (weighed.kind === "settled") {
-              const c = choosePrinting({ sameArt: f.sameArt, printings: f.options }, reads.join("\n"));
-              const hit = f.options.find((p) => p.scryfall_id === weighed.id)!;
-              return settleOn({ chosen: hit, how: "collector", options: [hit, ...c.options.filter((p) => p !== hit)], certain: true }, reads.join("\n"));
-            }
-            setReadProgress(progressLine(weighed, f.options.length));
-            verdict = held.frame(clock());
-          }
+          const got = await readInto(v, v.videoWidth, v.videoHeight, quad, f);
+          if (got === "settled" || stop) return;
+          verdict = got === "blurred" ? held.skipped(clock()) : held.frame(clock());
+          // Stalled (several frames read, not settled): one still photo, read the same way, alongside
+          // the frames (never holding them up); a still that settles it ends the attempt.
+          if (verdict === "again" && held.summary().frames >= STILL_AFTER) void tryStill(f);
         }
         return act(verdict, 60);
       } catch (e) {
@@ -1320,6 +1519,7 @@ export function ScannerView({
     };
     void tick();
     return () => {
+      readers.current.delete(halt);
       stop = true;
       clearTimeout(timer);
       setHolding(false);
@@ -1331,9 +1531,15 @@ export function ScannerView({
 
   // The close-up loop: read the box as text until it settles the printing or the name.
   useEffect(() => {
-    if (!closeup || paused) return;
+    if (!closeup || paused || !live) return;
     let stop = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // A camera switch stops this at once (haltReaders).
+    const halt = () => {
+      stop = true;
+      clearTimeout(timer);
+    };
+    readers.current.add(halt);
     let previous: string | null = null;
     /** The close-up's own evidence for the printing (evidence.ts), from its first frame. */
     let closeEv: { options: Printing[]; ev: Evidence } | null = null;
@@ -1395,12 +1601,13 @@ export function ScannerView({
     };
     void tick();
     return () => {
+      readers.current.delete(halt);
       stop = true;
       clearTimeout(timer);
     };
     // fromName is a plain function of this render; the loop only needs the latest at call time.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [closeup, paused, ocrEngine, textReader]);
+  }, [closeup, paused, live, ocrEngine, textReader]);
 
   const chosen = found?.chosen ?? null;
   const ready = identityOnly || !!chosen;
@@ -1549,6 +1756,15 @@ export function ScannerView({
   const settingsBox = (
     <ScanSettings summary={settingsSummary}>
       {settings}
+      <CameraSetting
+        cameras={cameras}
+        current={cameraNow}
+        chosen={cameraId}
+        onChoose={(c) => {
+          saveCamera({ id: c.deviceId, label: c.label });
+          setCameraId(c.deviceId);
+        }}
+      />
       <SavePhotosSwitch />
       {soundsProp && (
         <SoundsSetting
@@ -1652,7 +1868,9 @@ export function ScannerView({
               ? `Not in ${lockLabel}`
               : isFound && (closeup === "collector" || holding)
                 ? holding
-                  ? "Found it. Hold still for the printing"
+                  ? far
+                    ? "Move closer, so the set code and number can be read"
+                    : "Found it. Hold still for the printing"
                   : "Found it. Now the printing"
                 : isFound
                   ? "Found it"
@@ -2121,4 +2339,47 @@ function SoundsSetting({ on, worth, prices, onChange, onWorth }: { on: boolean; 
     </div>
   );
 }
+
+/**
+ * Which camera (cameras.ts): a choice only where there's more than one, and a line saying which is
+ * in use and what it delivers. On a phone whose one back camera switches lens as it zooms, a note
+ * that zooming far may switch to a lens that can't focus close.
+ */
+function CameraSetting({ cameras, current, chosen, onChoose }: { cameras: NamedCamera[]; current: CameraInfo | null; chosen: string | null; onChoose: (c: NamedCamera) => void }) {
+  const inUse = cameras.find((c) => !!current?.deviceId && c.deviceId === current.deviceId) ?? cameras.find((c) => c.label && c.label === current?.label) ?? cameras.find((c) => c.deviceId === chosen) ?? null;
+  const zoom = current?.zoomRange;
+  const parts = [
+    inUse?.name ?? current?.label ?? null,
+    current?.width && current.height ? `${current.width} × ${current.height}` : null,
+    zoom ? `zoom ${fmtZoom(zoom[0])} to ${fmtZoom(zoom[1])}` : null,
+  ].filter(Boolean);
+  return (
+    <div className="scan-camera-setting">
+      {cameras.length > 1 && (
+        <Field label="Camera">
+          <select
+            value={inUse?.deviceId ?? ""}
+            onChange={(e) => {
+              const c = cameras.find((x) => x.deviceId === e.target.value);
+              if (c) onChoose(c);
+            }}
+          >
+            {!inUse && <option value="">Back camera</option>}
+            {cameras.map((c) => (
+              <option key={c.deviceId} value={c.deviceId}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
+      {parts.length > 0 && <p className="scan-note">Camera in use: {parts.join(", ")}.</p>}
+      {zoom && maySwitchLens({ min: zoom[0], max: zoom[1] }) && (
+        <p className="scan-note">Zooming in past about {LENS_SWITCH}× may switch to the telephoto lens, which can't focus on a card this close. The scanner's own zoom stops at {AUTO_MAX}×.</p>
+      )}
+    </div>
+  );
+}
+
+const fmtZoom = (z: number) => `${Number.isInteger(z) ? z : z.toFixed(1)}×`;
 
