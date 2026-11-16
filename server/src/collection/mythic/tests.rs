@@ -408,10 +408,55 @@ async fn a_file_imported_before_the_finish_fix_corrects_the_copy_and_never_loses
     assert_eq!((r.refinished, r.added, r.removed, r.missing), (2, 0, 0, 0));
     // Same number of copies, now foil as the file says.
     assert_eq!(holdings(&pool).await, vec![h("p-bolt", "foil", "box: bulk", 1), h("p-sol", "foil", "box: bulk", 2)]);
+    // The receipt now says this importer read it, keeping its first date.
+    let (version, at): (i64, String) = sqlx::query_as("SELECT parser_version, imported_at FROM mythic_imports").fetch_one(&pool).await.unwrap();
+    assert_eq!((version, at.as_str()), (PARSER_VERSION, "2026-11-01T00:00:00Z"));
     // A third time changes nothing.
     let again = import_mythic_csv(&pool, "u1", &text, remove).await.unwrap();
     assert_eq!((again.refinished, again.added, again.removed), (0, 0, 0));
     assert_eq!(holdings(&pool).await, vec![h("p-bolt", "foil", "box: bulk", 1), h("p-sol", "foil", "box: bulk", 2)]);
+    // Corrected once only: a copy changed to regular by hand since stays regular when the same
+    // file comes back (Codex round-3 review of #146).
+    set_finish(&pool, "p-sol", "nonfoil").await;
+    for opts in [IMPORT, remove] {
+        let r = import_mythic_csv(&pool, "u1", &text, opts).await.unwrap();
+        assert_eq!((r.refinished, r.added, r.removed), (0, 0, 0));
+    }
+    assert_eq!(holdings(&pool).await, vec![h("p-bolt", "foil", "box: bulk", 1), h("p-sol", "nonfoil", "box: bulk", 2)]);
+}
+
+/// A file this importer read leaves a finish changed by hand alone: the Surge Foil it filed as
+/// foil, made regular since, stays regular when the same file is imported again (as on main).
+#[tokio::test]
+async fn a_finish_changed_by_hand_after_import_survives_the_same_file_again() {
+    let pool = crate::db::test_pool().await;
+    seed(&pool).await;
+    let text = csv(&[("Sol Ring", "p-sol", 1, "Surge Foil", "NM", "box", "bulk")]);
+    let first = import_mythic_csv(&pool, "u1", &text, IMPORT).await.unwrap();
+    assert_eq!((first.added, first.refinished), (1, 0));
+    assert_eq!(holdings(&pool).await, vec![h("p-sol", "foil", "box: bulk", 1)]);
+    set_finish(&pool, "p-sol", "nonfoil").await;
+    for opts in [IMPORT, ImportOptions { dry_run: false, remove_missing: true }] {
+        let r = import_mythic_csv(&pool, "u1", &text, opts).await.unwrap();
+        assert!(r.already_imported.is_some());
+        assert_eq!((r.refinished, r.added, r.removed), (0, 0, 0));
+    }
+    assert_eq!(holdings(&pool).await, vec![h("p-sol", "nonfoil", "box: bulk", 1)]);
+}
+
+/// Change every copy of a printing to `finish`, as an edit on the Collection page does.
+async fn set_finish(pool: &SqlitePool, sid: &str, finish: &str) {
+    let ids: Vec<String> = sqlx::query_scalar("SELECT id FROM collection_items WHERE scryfall_id = ?").bind(sid).fetch_all(pool).await.unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    for (n, id) in ids.into_iter().enumerate() {
+        let op = Op {
+            op_id: format!("hand-{sid}-{finish}-{n}"),
+            device_id: None,
+            op: OpKind::Update { item_id: id, condition: None, finish: Some(finish.into()), lang: None, container_id: None, purchase_price: None, note: None, proxy: None, altered: None, signed: None, scryfall_id: None, split: None },
+        };
+        apply_op(&mut tx, "u1", &op).await.unwrap();
+    }
+    tx.commit().await.unwrap();
 }
 
 /// Only as many copies as the file lists are corrected; a regular copy the file doesn't list stays

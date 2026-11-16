@@ -141,6 +141,13 @@ pub struct MythicReport {
     pub decks_kept: Vec<String>,
 }
 
+/// Version of the Mythic Tools importer, kept on each import receipt (migration 0094). Raise it
+/// when the importer starts reading a column differently.
+pub const PARSER_VERSION: i64 = 1;
+/// The version that first read special foils ("Surge Foil") as foil and "Etched Foil" as etched;
+/// earlier ones read both as regular (`legacy_finish`).
+const FINISH_WORDS_VERSION: i64 = 1;
+
 /// Largest Mythic Tools CSV: about 20,000 rows (an export runs about 210 bytes a row). Larger
 /// bodies get 413.
 pub const MYTHIC_MAX_BYTES: usize = 4 << 20;
@@ -213,6 +220,17 @@ pub async fn import_mythic_csv(pool: &SqlitePool, owner: &str, text: &str, opts:
     }
     report.rows = rows.len();
 
+    // Which importer read this file before, if one did: a receipt's version, or 0 for a file
+    // recognised only by its old op ids. `None`: never imported.
+    let read_by: Option<i64> = sqlx::query_scalar(
+        "SELECT MAX(v) FROM (SELECT parser_version AS v FROM mythic_imports WHERE owner_id = ?1 AND file_hash = ?2
+         UNION ALL SELECT 0 FROM applied_ops WHERE owner_id = ?1 AND op_id LIKE 'mythic:' || ?3 || ':%')",
+    )
+    .bind(owner)
+    .bind(&file_hash)
+    .bind(short)
+    .fetch_one(pool)
+    .await?;
     report.already_imported = sqlx::query_scalar(
         "SELECT MIN(at) FROM (SELECT imported_at AS at FROM mythic_imports WHERE owner_id = ?1 AND file_hash = ?2
          UNION ALL SELECT applied_at FROM applied_ops WHERE owner_id = ?1 AND op_id LIKE 'mythic:' || ?3 || ':%')",
@@ -361,11 +379,12 @@ pub async fn import_mythic_csv(pool: &SqlitePool, owner: &str, text: &str, opts:
     }
     // A finish an earlier import of this same file read another way (`legacy_finish`): the copies
     // it filed are this row's copies, so their finish is corrected in place, never removed and
-    // added again. Only with this file's receipt (rows keep no record of the import that made
-    // them): a file never imported adds its foil beside a regular copy someone already owns.
-    // And only where the file is short of its own finish there and has more of the old one than
-    // it lists.
-    if report.already_imported.is_some() {
+    // added again. Only when this file was read before by the importer that read it that way
+    // (rows keep no record of the import that made them): a file never imported adds its foil
+    // beside a regular copy someone already owns, and a file read by this importer leaves a
+    // finish changed by hand since alone. Once: the receipt then moves to this version. And only
+    // where the file is short of its own finish there and has more of the old one than it lists.
+    if read_by.is_some_and(|v| v < FINISH_WORDS_VERSION) {
         refinish(&mut copies, &file, &file_at, &loc_of, &mut report, &mut ops, short, stamp);
     }
     let mut copies_of: HashMap<Key, Vec<usize>> = HashMap::new();
@@ -556,13 +575,18 @@ pub async fn import_mythic_csv(pool: &SqlitePool, owner: &str, text: &str, opts:
         apply_op(&mut tx, owner, &Op { op_id, device_id: Some("mythic-import".into()), op }).await?;
     }
     let summary = serde_json::json!({ "rows": report.rows, "copies": report.copies, "added": report.added, "removed": report.removed, "refinished": report.refinished });
-    sqlx::query("INSERT INTO mythic_imports (owner_id, file_hash, imported_at, report) VALUES (?,?,?,?) ON CONFLICT DO NOTHING")
-        .bind(owner)
-        .bind(&file_hash)
-        .bind(now())
-        .bind(summary.to_string())
-        .execute(&mut *tx)
-        .await?;
+    // The receipt says which importer read the file; a file read again keeps its first date.
+    sqlx::query(
+        "INSERT INTO mythic_imports (owner_id, file_hash, imported_at, report, parser_version) VALUES (?,?,?,?,?)
+         ON CONFLICT (owner_id, file_hash) DO UPDATE SET parser_version = MAX(parser_version, excluded.parser_version)",
+    )
+    .bind(owner)
+    .bind(&file_hash)
+    .bind(now())
+    .bind(summary.to_string())
+    .bind(PARSER_VERSION)
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
     // Mythic Tools keeps decks as containers of kind "deck": make each one a real Yama deck too.
     for (i, (kind, name)) in places.iter().enumerate() {
