@@ -532,9 +532,14 @@ export function ScannerView({
    * camera is used after it (review of #145).
    */
   const readers = useRef(new Set<() => void>());
+  /** Bumped by every camera switch: work begun before it checks this after each await (`settle`). */
+  const camGen = useRef(0);
   const haltReaders = () => {
+    camGen.current += 1;
     for (const halt of readers.current) halt();
     firstEvidence.current = null;
+    // A first read of the collector line under way is dropped; the held card is read again on the new camera.
+    setFound((cur) => (cur?.reading ? { ...cur, reading: false } : cur));
   };
   /** Auto-zoom (zoomPolicy.ts), for a camera that zooms itself. */
   const autoZoomRef = useRef<AutoZoom | null>(null);
@@ -807,6 +812,11 @@ export function ScannerView({
       const update = (patch: Partial<Found>) => {
         if (foundSeq.current === seq) setFound((cur) => (cur ? { ...cur, ...patch } : cur));
       };
+      // What the camera saw (the read, a text read's line) counts only while it's the same camera
+      // (review of #145): after a switch the printings still load, but nothing read before it
+      // chooses one or carries on as evidence, and the held card is read again on the new camera.
+      const gen = camGen.current;
+      const sameCamera = () => camGen.current === gen;
       try {
         let opts = await printingOptions(query);
         // Locked to sets: choose among the printings in them. None there: ask (outside).
@@ -833,14 +843,14 @@ export function ScannerView({
         if (!choice.chosen && known?.set && known.number) {
           const hit = opts.printings.find((p) => p.set_code === known.set && p.collector_number === known.number);
           const { proven, ev } = proofOf(opts.printings, known.text ?? "");
-          if (hit && proven === hit.scryfall_id) choice = { chosen: hit, how: "collector", options: [hit, ...choice.options.filter((p) => p !== hit)], certain: true };
+          if (sameCamera() && hit && proven === hit.scryfall_id) choice = { chosen: hit, how: "collector", options: [hit, ...choice.options.filter((p) => p !== hit)], certain: true };
           else {
             if (hit) choice = { ...choice, options: [hit, ...choice.options.filter((p) => p !== hit)] };
-            firstEvidence.current = { seq, ev };
+            if (sameCamera()) firstEvidence.current = { seq, ev };
           }
         }
         const how: Found["how"] = bySet && choice.how === "only" ? "set" : choice.how;
-        const reading = !choice.chosen && !!read;
+        const reading = !choice.chosen && !!read && sameCamera();
         const sure = choice.how === "only" || !!choice.certain;
         update({ options: choice.options, sameArt: opts.sameArt, outside: false, chosen: choice.chosen, how, sure, settledId: sure ? choice.chosen?.scryfall_id : undefined, reading });
         if (!reading) return;
@@ -850,8 +860,13 @@ export function ScannerView({
         const ev = new Evidence(opts.printings);
         const reads: string[] = [];
         for await (const text of readCollectorLines(read!.image, read!.quad, await ocrEngine())) {
-          if (foundSeq.current !== seq) return;
+          if (foundSeq.current !== seq || !sameCamera()) break;
           reads.push(text);
+        }
+        if (foundSeq.current !== seq) return;
+        if (!sameCamera()) {
+          update({ reading: false });
+          return;
         }
         ev.add(reads);
         const v = ev.verdict();

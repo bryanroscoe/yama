@@ -23,7 +23,8 @@ export const HAND_MAX = 4;
 /**
  * Constraint changes for one track, one at a time (review of #145: focus and zoom snapshotted the
  * settings before awaiting, so one overwrote the other). Each change is merged with whatever was
- * applied last, when it runs; a change for a track that is no longer current is dropped.
+ * applied last, when it runs. A change for a track that is no longer current, before or after it
+ * runs, resolves false: its caller mustn't publish that state for whichever camera is current now.
  */
 export function serialApplier(apply: (t: MediaStreamTrack, all: Record<string, unknown>) => Promise<void>, current: () => MediaStreamTrack | null) {
   let applied: Record<string, unknown> = {};
@@ -34,12 +35,14 @@ export function serialApplier(apply: (t: MediaStreamTrack, all: Record<string, u
       applied = { ...base };
     },
     applied: () => applied,
-    set(t: MediaStreamTrack, patch: Record<string, unknown>): Promise<void> {
+    set(t: MediaStreamTrack, patch: Record<string, unknown>): Promise<boolean> {
       const run = async () => {
-        if (current() !== t) throw new Error("The camera changed");
+        if (current() !== t) return false;
         const next = { ...applied, ...patch };
         await apply(t, next);
-        if (current() === t) applied = next;
+        if (current() !== t) return false;
+        applied = next;
+        return true;
       };
       const p = chain.then(run, run);
       chain = p.catch(() => undefined);
@@ -171,6 +174,8 @@ export function useCameraControls() {
   /** Every setting applied so far, sent together (one applyConstraints can replace the last), one change at a time. */
   const applier = useRef(serialApplier((t, all) => t.applyConstraints({ advanced: [all as MediaTrackConstraintSet] }), () => track.current));
   const apply = (t: MediaStreamTrack, patch: Record<string, unknown>) => applier.current.set(t, patch);
+  /** The capabilities of the camera open now (the state above is for rendering). */
+  const capsRef = useRef<CameraCaps>(NO_CAPS);
   /** The person zoomed (+, − or a pinch): auto-zoom leaves it to them for the session. */
   const userZoomed = useRef(false);
   const attach = useCallback((t: MediaStreamTrack | null) => {
@@ -180,7 +185,8 @@ export function useCameraControls() {
     const focus = caps.focusMode?.includes("continuous") ? { focusMode: "continuous" } : {};
     applier.current.reset({});
     if (t && focus.focusMode) void apply(t, focus).catch(() => undefined);
-    setCaps(t ? readCaps(t) : NO_CAPS);
+    capsRef.current = t ? readCaps(t) : NO_CAPS;
+    setCaps(capsRef.current);
     setTorchState(false);
     setZoomState(1);
     setError(null);
@@ -189,29 +195,34 @@ export function useCameraControls() {
     const t = track.current;
     if (!t) return;
     try {
-      await apply(t, { torch: on });
+      // Only for the camera it was meant for (another may be open by the time it's done).
+      if (!(await apply(t, { torch: on }))) return;
       setTorchState(on);
       setError(null);
     } catch {
-      setError("The flashlight didn't turn on");
+      if (track.current === t) setError("The flashlight didn't turn on");
     }
   }, []);
-  const setZoom = useCallback(
-    async (z: number) => {
-      const t = track.current;
-      if (caps.zoom && t) {
-        try {
-          await apply(t, { zoom: z });
-        } catch {
-          setError("The camera didn't zoom");
-          return;
-        }
+  /**
+   * Zoom the camera in use: its own zoom where it has one, else digitally. Read from the camera
+   * open when it's called, and published only if that camera is still the one in use (review of
+   * #145: a 4× meant for a camera with its own zoom landed on one without, past its 3× limit).
+   */
+  const setZoom = useCallback(async (z: number) => {
+    const t = track.current;
+    const c = capsRef.current;
+    if (c.zoom && t) {
+      try {
+        if (!(await apply(t, { zoom: z }))) return;
+      } catch {
+        if (track.current === t) setError("The camera didn't zoom");
+        return;
       }
-      setZoomState(z);
-      setError(null);
-    },
-    [caps.zoom],
-  );
+    }
+    if (track.current !== t) return;
+    setZoomState(c.zoom ? z : Math.min(z, DIGITAL_MAX));
+    setError(null);
+  }, []);
   /** Any zoom in the camera's range (or 1× to the digital limit), for a pinch. Camera calls are queued, newest wins. */
   const pending = useRef<{ busy: boolean; next: number | null }>({ busy: false, next: null });
   const zoomTo = useCallback(
