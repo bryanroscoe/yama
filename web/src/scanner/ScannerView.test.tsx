@@ -3,7 +3,7 @@
 // at once with Undo on the camera; the card is then held back as the same card, and "Scan anyway"
 // files one more copy of it; the ways in used now and then sit in More. No camera here, so the
 // card comes from a typed name.
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Printing } from "../api";
@@ -244,7 +244,7 @@ describe("ScannerView after a printing is chosen", () => {
     expect(document.querySelector("h3")?.textContent).toBe("Sol Ring");
     expect(document.querySelector(".scan-thumb.card-fallback")?.textContent ?? "").toBe("");
     // Settled by the scanner (the only English printing): Wrong printing is offered.
-    await click(await until(() => button("Wrong printing?"), "Wrong printing?"));
+    await click(await until(() => button("Wrong printing"), "Wrong printing"));
     const marked = await until(() => document.querySelector(".scan-misread"), "the misread mark");
     expect(marked.textContent).toBe("Read as this");
     expect(marked.closest('[role="option"]')?.textContent).toContain("ECC");
@@ -299,6 +299,55 @@ describe("ScannerView after a printing is chosen", () => {
     await click(await until(() => button("Undo"), "Undo"));
     await until(() => (undone.length ? undone : null), "the undo");
     expect(undone[0]).toBe(corrected[0]![1]);
+  });
+});
+
+describe("with the strip, what just happened is said beside the card (design pass, 16 Nov 2026)", () => {
+  it("puts Undo, Wrong printing and +1 copy in the strip's head, not on the camera, and the chip says only what the scanner is doing", async () => {
+    const accepted: ScanCandidate[] = [];
+    const undone: ScanCandidate[] = [];
+    function Host() {
+      const [cards, setCards] = useState<ScanCandidate[]>([]);
+      return (
+        <ScannerView
+          onAccept={async (c) => {
+            accepted.push(c);
+            setCards((a) => [c, ...a]);
+            return true;
+          }}
+          onUndo={async (c) => {
+            undone.push(c);
+            setCards((a) => a.filter((x) => x !== c));
+          }}
+          onCorrect={async () => "changed"}
+          recentCards={cards.map((c, i) => ({ key: `k${cards.length - i}`, name: c.name, set: c.set, number: c.number, finish: "nonfoil", copies: 1, prices: c.prices, image: null, oracleId: c.oracle_id }))}
+        />
+      );
+    }
+    act(() => root.render(<Host />));
+    await typeName();
+    const options = await until(() => (document.querySelectorAll('[role="option"]').length === 3 ? document.querySelectorAll<HTMLElement>('[role="option"]') : null), "the printings");
+    await click(options[1]!);
+    const tray = await until(() => document.querySelector(".scan-tray"), "the strip");
+    const head = () => tray.querySelector(".scan-tray-head")!;
+    await until(() => (head().querySelector(".scan-tray-do") ? true : null), "the receipt's actions");
+    expect(head().textContent).toContain("Arcane Signet");
+    expect([...head().querySelectorAll("button")].map((b) => b.textContent)).toEqual(expect.arrayContaining(["Undo", "Wrong printing", "+1 copy"]));
+    // The camera says what the scanner is doing now, not what it did.
+    expect(document.querySelector(".scan-chip")?.textContent).not.toContain("Added");
+    expect(document.querySelector(".scan-chip")?.querySelector("button")).toBeNull();
+    // No "still in view" box in the sheet: +1 copy beside the card is that offer.
+    expect(document.querySelector(".scan-dupe")).toBeNull();
+
+    await click([...head().querySelectorAll("button")].find((b) => b.textContent === "+1 copy")!);
+    expect(accepted).toHaveLength(2);
+    expect(accepted[1]).toMatchObject({ set: "cmm", number: "390" });
+    // Undo takes back the newest copy.
+    await click(await until(() => [...head().querySelectorAll("button")].find((b) => b.textContent === "Undo"), "Undo for the extra copy"));
+    await until(() => (undone.length === 1 ? true : null), "the undo");
+    expect(undone[0]).toBe(accepted[1]);
+    // What Undo did is said where the card was named.
+    await until(() => (document.querySelector(".scan-tray-last.is-event")?.textContent?.includes("Took out") ? true : null), "Took out");
   });
 });
 

@@ -50,6 +50,7 @@ import type { OcrEngine, Quad, RgbaImage, ScanCandidate, ScanCatalog, ScanResult
 import "./scanner.css";
 import { copyWords, shortDate, treatmentLabel, usd } from "@yama/core";
 import { Button, CardThumb, ErrorText, Field } from "../components/ui";
+import { HelpPopover } from "../components/HelpPopover";
 import { MoreMenu } from "../components/MoreMenu";
 
 export interface ScannerViewProps {
@@ -1929,13 +1930,14 @@ export function ScannerView({
           }}
         />
       )}
+      {mode === "text" && <p className="scan-note">Card recognition isn't available right now, so the scanner reads the card's text: line the card up with the frame.</p>}
       <p className="scan-note">Reads text with {ENGINE_LABEL[ocrName ?? plannedEngine()]}{ocrName ? "" : " (starts with the first read)"}.</p>
       <VersionLine className="scan-note" />
     </ScanSettings>
   );
   // What cards are filed as, on the sheet: a tap opens Scan settings.
   const filing = settingsSummary ? (
-    <Button className="scan-filing" onClick={() => setSettingsOpen(true)}>
+    <Button className="scan-filing" onClick={() => setSettingsOpen(true)} aria-label={`Filing as ${settingsSummary}. Change`}>
       <span className="scan-filing-what">{settingsSummary}</span>
       <span className="scan-filing-change">Change</span>
     </Button>
@@ -1955,6 +1957,35 @@ export function ScannerView({
   const range = !identityOnly && found && !chosen && options && options.length > 1 ? priceRange(options, finish) : null;
   const suggested = lockOffered && !lockOpen && lockCodes.length === 0 ? suggestLock(filedSets, new Set(lockCodes)) : null;
   const suggestedName = suggested ? (filedSetNames.current.get(suggested) ?? suggested.toUpperCase()) : null;
+  // With the strip, what just happened is said there, beside the card (ScanTray's head), and the
+  // camera's chip says only what the scanner is doing now (Bryan, 16 Nov 2026: the options popped up
+  // in your face, not what happened). Without it (deck and swap scans) the chip says both, as before.
+  const newest = recentCards?.[0];
+  const receipt = !!newest;
+  const undoable = !!justAdded?.card && !justAdded.busy && (!!onUndo || (!!onCorrect && !!justAdded.printing));
+  const dupeHere = !!dupe && !!onAccept && !!newest && dupe.found.name === newest.name;
+  const receiptActions =
+    receipt && (undoable || dupeHere) ? (
+      <>
+        {undoable && onUndo && (
+          <Button className="scan-act" onClick={() => undo(justAdded!)}>
+            Undo
+          </Button>
+        )}
+        {undoable && onCorrect && justAdded!.found && justAdded!.printing && (
+          <Button className="scan-act" onClick={() => wrongPrinting({ ...justAdded!.found!, chosen: justAdded!.printing! }, justAdded!.printing!, justAdded!.card)}>
+            Wrong printing
+          </Button>
+        )}
+        {/* "Scan anyway": the card just added is still in view, and this is another copy of it. */}
+        {dupeHere && (
+          <Button className="scan-act" onClick={scanAnyway} disabled={dupeSaving} aria-label={`Add another ${dupe!.label}`}>
+            {dupeSaving ? "Adding…" : "+1 copy"}
+          </Button>
+        )}
+      </>
+    ) : null;
+  const receiptEvent = receipt && justAdded && !justAdded.card ? justAdded.text : null;
   const loadingText =
     loadState?.kind === "downloading"
       ? `Getting card recognition ready (${Math.round(loadState.loaded / 1e6)} of ${Math.round(loadState.total / 1e6)} MB, once)`
@@ -1964,7 +1995,7 @@ export function ScannerView({
 
   return (
     // Any tap in the scanner lets sound play from then on (browsers and the app's web view start audio silent).
-    <div className="scan" onPointerDown={soundsProp && soundsSwitch ? () => void unlockSound() : undefined}>
+    <div className={`scan${needsSheet ? " is-deciding" : ""}`} onPointerDown={soundsProp && soundsSwitch ? () => void unlockSound() : undefined}>
       <div ref={cameraRef} className="scan-camera">
         <div className="scan-zoom" style={cam.digital > 1 ? { transform: `scale(${cam.digital})` } : undefined}>
           <video ref={videoRef} className="scan-video" playsInline muted autoPlay aria-hidden="true" />
@@ -2001,14 +2032,15 @@ export function ScannerView({
           ) : (
             <span className="scan-count">{addedWord} {addedCount} so far</span>
           ))}
-        {lockOffered && (
+        {/* Scanning only some sets is a mode worth seeing while it's on; choosing it is under More. */}
+        {lockOffered && (lockCodes.length > 0 || lockOpen) && (
           <Button className={`scan-lock${lockOn ? " is-on" : ""}`} onClick={() => setLockOpen((o) => !o)} aria-expanded={lockOpen}>
             {lockCodes.length === 0 ? "Any set" : lockOn ? `Only ${lockLabel}` : lockError ? "Set lock failed" : "Getting the set…"}
           </Button>
         )}
         <CameraControls c={cam} live={live} />
         {typeof overlay === "function" ? overlay(isFound && found ? candidateOf(found, chosen) : null) : overlay}
-        {!tapNeeded && !isFound && !lockOpen && justAdded?.card && (onUndo || (onCorrect && justAdded.printing)) ? (
+        {!receipt && !tapNeeded && !isFound && !lockOpen && justAdded?.card && (onUndo || (onCorrect && justAdded.printing)) ? (
           <div className="scan-chip found has-action">
             <span role="status">{justAdded.text}</span>
             {onUndo && (
@@ -2023,7 +2055,7 @@ export function ScannerView({
             )}
           </div>
         ) : (
-        <span className={`scan-chip${tapNeeded ? " is-tap" : isFound ? " found" : justAdded ? " found" : ""}`} role="status">
+        <span className={`scan-chip${tapNeeded ? " is-tap" : isFound ? " found" : justAdded && !receipt ? " found" : ""}`} role="status">
           {tapNeeded ??
             (isFound && found?.outside
               ? `Not in ${lockLabel}`
@@ -2037,12 +2069,12 @@ export function ScannerView({
                   ? "Found it"
                   : lockOpen
                     ? "Choose the sets"
-                    : (justAdded?.text ?? (mode ? status : loadingText)))}
+                    : ((receipt ? null : justAdded?.text) ?? (mode ? status : loadingText)))}
         </span>
         )}
       </div>
 
-      {recentCards && recentCards.length > 0 && <ScanTray cards={recentCards} worth={identityOnly ? Infinity : worth} onOpen={onOpenCard} onReview={onShowAdded} />}
+      {recentCards && recentCards.length > 0 && <ScanTray cards={recentCards} worth={identityOnly ? Infinity : worth} onOpen={onOpenCard} onReview={onShowAdded} event={receiptEvent} actions={receiptActions} />}
       <div ref={panelRef} className={`scan-panel${sheet.hidden ? " is-hidden" : ""}`} aria-live="polite">
         {/* "Use a photo" in More opens this: it stays mounted when the menu closes. */}
         <input
@@ -2092,7 +2124,7 @@ export function ScannerView({
         )}
         {!isFound && closeup !== "title" && !lockOpen && (
           <>
-            {dupe && onAccept && (
+            {dupe && onAccept && !dupeHere && (
               <div className="scan-step scan-dupe">
                 <p>
                   <strong>{dupe.label} is still in view.</strong> The scanner waits for a different card. Got another copy of it?
@@ -2107,19 +2139,23 @@ export function ScannerView({
             <ErrorText error={error} />
             {lockError && <p className="error">Couldn't lock to {lockCodes.map((c) => c.toUpperCase()).join(", ")}: {lockError}</p>}
             {suggested && suggestedName && suggestDismissed !== suggested && (
-              <div className="scan-step scan-suggest">
+              <div className="scan-suggest">
                 <p>
-                  The last few cards were all from <strong>{suggestedName}</strong>. Scan only that set? Its printings are then filed without reading the corner.
+                  All <strong>{suggestedName}</strong> lately
                 </p>
-                <div className="scan-other-ways">
-                  <Button variant="primary" onClick={() => setLockCodes([suggested])}>
-                    Only {suggested.toUpperCase()}
-                  </Button>
-                  <Button onClick={() => setSuggestDismissed(suggested)}>No thanks</Button>
-                </div>
+                <HelpPopover label="scanning one set">Scanning only that set files its printings without reading the corner of each card.</HelpPopover>
+                <Button className="scan-act" onClick={() => setLockCodes([suggested])}>
+                  Only {suggested.toUpperCase()}
+                </Button>
+                <Button className="scan-act is-quiet" onClick={() => setSuggestDismissed(suggested)} aria-label="No thanks">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
+                    <path d="M6 6l12 12M18 6 6 18" />
+                  </svg>
+                </Button>
               </div>
             )}
             {controls}
+            {/* The name box stays last: its suggestions open upward, over the sheet. */}
             {filing}
             <div className="scan-other-ways">
               <NameEntry onPick={(n) => fromName(n)} />
@@ -2127,18 +2163,23 @@ export function ScannerView({
               <MoreMenu label="More" title="More ways to scan" className="scan-more">
                 <Button onClick={() => photoInput.current?.click()}>Use a photo</Button>
                 {live && phase === "scanning" && <Button onClick={() => setCloseup("title")}>Read the name up close</Button>}
+                {lockOffered && lockCodes.length === 0 && <Button onClick={() => setLockOpen(true)}>Scan only some sets</Button>}
               </MoreMenu>
             </div>
-            {mode === "text" && <p className="scan-note">Card recognition isn't available right now, so the scanner is reading text. Line the card up with the frame.</p>}
             {!recentCards && recent.length > 0 && <p className="scan-note">Recent: {recent.slice(0, 3).join(", ")}.</p>}
           </>
         )}
         {isFound && found && !lockOpen && (
           <>
+            {/* What was found, in one compact block: the card, then its price (Bryan, 16 Nov 2026:
+                what happened first, the options out of the way). */}
             <div className="scan-result">
               <CardThumb className="scan-thumb" src={chosen?.image_normal} name={chosen?.name} eager fallback={<div className="scan-thumb card-fallback" aria-hidden="true" />} />
               <div className="scan-info">
-                <h3>{found.name}</h3>
+                <h3>
+                  {found.name}
+                  {foundTag && <span className={`scan-play-tag is-${foundTag}`}>{PLAY_WORD[foundTag]}</span>}
+                </h3>
                 {!identityOnly && chosen && (
                   <span className="dim">
                     {`${chosen.set_name} #${chosen.collector_number}`}
@@ -2152,29 +2193,13 @@ export function ScannerView({
                     {price != null && <span className="dim"> market, {shortDate(chosen.price_date) ?? "date unknown"}</span>}
                   </span>
                 )}
-                {foundTag && <span className={`scan-play-tag is-${foundTag}`}>{PLAY_WORD[foundTag]}</span>}
                 {range && (
-                  <span>
-                    {range.low === range.high ? usd(range.low) : `${usd(range.low)} to ${usd(range.high)}`}
+                  <span className="scan-price">
+                    <strong>{range.low === range.high ? usd(range.low) : `${usd(range.low)} to ${usd(range.high)}`}</strong>
                     <span className="dim"> market, by printing, {shortDate(range.date) ?? "date unknown"}</span>
                   </span>
                 )}
                 <span className="scan-method">{explain(found, identityOnly, lock.map((l) => l.name).join(" or "))}</span>
-                {settledByScanner(found) && !found.picking ? (
-                  <Button className="scan-alt" onClick={() => wrongPrinting(found, chosen!, found.correcting)}>
-                    Wrong printing?
-                  </Button>
-                ) : (
-                  !identityOnly &&
-                  chosen &&
-                  options &&
-                  options.length > 1 &&
-                  !found.picking && (
-                    <Button className="scan-alt" onClick={() => setFound({ ...found, picking: true })}>
-                      Change printing ({options.length})
-                    </Button>
-                  )
-                )}
               </div>
             </div>
             {found.outside && (
@@ -2206,22 +2231,23 @@ export function ScannerView({
               </div>
             )}
             {showPicker && options && (!chosen || found.picking) && !closeup && (
-              <div ref={tapRef} className="scan-step is-tap">
+              <div ref={tapRef} className="scan-pick">
                 {peekShot && <CollectorPeek shot={peekShot} />}
-                {holding ? (
-                  <p>
-                    <strong>Reading the printing.</strong> {readProgress ? `${readProgress}.` : "Keep the card in view while the set code and number are read."} Or tap the printing below.
-                  </p>
-                ) : (
-                  <p>
-                    <strong>Your turn:</strong> tap the printing that matches your card{peekShot ? ": its set code and number are above." : ". Its set code and number are in the bottom-left corner."}{onAccept ? (single ? " Tapping it uses it." : " Tapping it adds it.") : ""}
-                  </p>
-                )}
+                <p className="scan-pick-say">
+                  {holding ? (
+                    <>
+                      <strong>Reading the printing</strong>
+                      {readProgress && <span className="dim"> {readProgress}</span>}
+                    </>
+                  ) : (
+                    <strong>{onAccept ? (single ? "Tap your printing to use it" : "Tap your printing to add it") : "Tap your printing"}</strong>
+                  )}
+                </p>
                 {/* A fresh, full attempt at reading it from the held card: after one gave up, or for a typed name. */}
                 {!holding && live && !chosen && !wrongOpen && (
-                  <div className="scan-other-ways">
-                    <Button onClick={() => setHoldRun((n) => n + 1)}>{gaveUp ? "Keep reading" : "Read printing"}</Button>
-                  </div>
+                  <Button className="scan-act" onClick={() => setHoldRun((n) => n + 1)}>
+                    {gaveUp ? "Keep reading" : "Read printing"}
+                  </Button>
                 )}
               </div>
             )}
@@ -2239,16 +2265,18 @@ export function ScannerView({
                       if (options.length > 1) found.rec?.reasons.add("picked");
                       const picked: Found = { ...found, chosen: p, how: "picked", sure: false, picking: false };
                       // Tapping the printing is the confirmation (Bryan, 15 Nov 2026): it's filed at
-                      // once, with Undo on the camera (or Wrong card before tapping) as the way back.
+                      // once, with Undo beside it in the strip (or Wrong card before tapping) as the way back.
                       if (onAccept && !identityOnly) file(picked, p, copies, false);
                       else setFound(picked);
                     }}
                   >
                     <CardThumb src={p.image_small} fallback={<span className="card-fallback" aria-hidden="true" />} />
-                    <span className="scan-printing-set">{p.set_name}</span>
+                    <span className="scan-printing-set">
+                      {p.set_code.toUpperCase()} #{p.collector_number}
+                    </span>
                     {found.misread?.scryfall_id === p.scryfall_id && <span className="scan-misread">{found.correcting ? "Added as this" : "Read as this"}</span>}
                     <span className="dim">
-                      #{p.collector_number}
+                      {p.set_name}
                       {p.released_at ? `, ${p.released_at.slice(0, 4)}` : ""}
                       {p.lang !== "en" ? `, ${p.lang}` : ""}
                       {treatmentLabel(p) ? `, ${treatmentLabel(p)}` : ""}
@@ -2256,8 +2284,8 @@ export function ScannerView({
                   </Button>
                 ))}
                 {!showAll && options.length > PICKER_FIRST && (
-                  <Button className="scan-alt" onClick={() => setShowAll(true)}>
-                    Show all {options.length}
+                  <Button className="scan-printing scan-printing-more" onClick={() => setShowAll(true)}>
+                    All {options.length}
                   </Button>
                 )}
               </div>
@@ -2265,44 +2293,6 @@ export function ScannerView({
             <ErrorText error={found.error} />
             {renderResult?.(candidateOf(found, chosen))}
             {controls}
-            {filing}
-            <div className="scan-buttons">
-              {onAccept && (
-                <div className="scan-accept">
-                  {!identityOnly && !single && !found.correcting && (
-                    <Field className="scan-copies" label="Copies">
-                      <select value={copies} onChange={(e) => setCopies(Number(e.target.value))}>
-                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
-                          <option key={n} value={n}>
-                            {n}
-                          </option>
-                        ))}
-                      </select>
-                    </Field>
-                  )}
-                  <Button
-                    variant="primary"
-                    disabled={!ready}
-                    onClick={() => file(found, chosen, copies, false)}
-                  >
-                    {!ready ? (options && !found.reading ? "Pick the printing" : "Finding the printing…") : found.correcting ? "Change to this printing" : acceptLabel}
-                  </Button>
-                </div>
-              )}
-              <Button onClick={() => again()}>{found.correcting ? "Keep it as it was" : onAccept ? "Skip" : "Scan next"}</Button>
-              <div className="scan-secondary">
-                {!wrongOpen && (
-                  <Button className="scan-alt" onClick={() => setWrongOpen(true)}>
-                    Wrong card?
-                  </Button>
-                )}
-                {upClose && (
-                  <MoreMenu label="More" title="More ways to read it" className="scan-more" variant="quiet" size="small">
-                    <Button onClick={() => setCloseup("collector")}>Read the collector number up close</Button>
-                  </MoreMenu>
-                )}
-              </div>
-            </div>
             {wrongOpen && (
               <div className="scan-step scan-wrong">
                 <p>
@@ -2324,38 +2314,75 @@ export function ScannerView({
                 </div>
               </div>
             )}
-            {(found.others.length > 0 || (!recentCards && recent.length > 0)) && (
-              <p className="scan-note">
-                {found.others.length > 0 && (
-                  <>
-                    Not this card? It might be{" "}
-                    {found.others.map((m, i) => (
-                      <span key={m.index}>
-                        {i > 0 && " or "}
-                        <Button className="scan-alt" onClick={() => pickOther(m)}>
-                          {m.name}
-                        </Button>
-                      </span>
-                    ))}
-                    .{" "}
-                  </>
-                )}
-                {!recentCards && recent.length > 0 && `Recent: ${recent.slice(0, 3).join(", ")}.`}
-              </p>
+            {/* The decision, on one row; everything lesser on one quiet row under it. */}
+            <div className="scan-buttons">
+              {onAccept && (ready || !showPicker) && (
+                <div className="scan-accept">
+                  {!identityOnly && !single && !found.correcting && (
+                    <Field className="scan-copies" label="Copies">
+                      <select value={copies} onChange={(e) => setCopies(Number(e.target.value))}>
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
+                          <option key={n} value={n}>
+                            {n}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                  )}
+                  <Button variant="primary" disabled={!ready} onClick={() => file(found, chosen, copies, false)}>
+                    {!ready ? "Finding the printing…" : found.correcting ? "Change to this printing" : acceptLabel}
+                  </Button>
+                </div>
+              )}
+              <Button className="scan-skip" onClick={() => again()}>
+                {found.correcting ? "Keep it as it was" : onAccept ? "Skip" : "Scan next"}
+              </Button>
+            </div>
+            <div className="scan-secondary">
+              {!wrongOpen && (
+                <Button className="scan-act" onClick={() => setWrongOpen(true)}>
+                  Wrong card
+                </Button>
+              )}
+              {settledByScanner(found) && !found.picking ? (
+                <Button className="scan-act" onClick={() => wrongPrinting(found, chosen!, found.correcting)}>
+                  Wrong printing
+                </Button>
+              ) : (
+                !identityOnly &&
+                chosen &&
+                options &&
+                options.length > 1 &&
+                !found.picking && (
+                  <Button className="scan-act" onClick={() => setFound({ ...found, picking: true })}>
+                    Change printing ({options.length})
+                  </Button>
+                )
+              )}
+              {upClose && (
+                <MoreMenu label="More" title="More ways to read it" className="scan-more" variant="quiet" size="small">
+                  <Button onClick={() => setCloseup("collector")}>Read the collector number up close</Button>
+                </MoreMenu>
+              )}
+            </div>
+            {!recentCards && recent.length > 0 && <p className="scan-note">Recent: {recent.slice(0, 3).join(", ")}.</p>}
+            {filing}
+            {/* What the scanner saw: for checking a scan, so only with Scanner diagnostics on. */}
+            {diag && (
+              <details className="small dim">
+                <summary>What the scanner saw</summary>
+                <pre className="scan-raw">
+                  {[
+                    found.art ? `Art: ${found.art.name} (${found.art.set.toUpperCase()} ${found.art.number}), score ${found.art.score.toFixed(2)}` : null,
+                    found.raw ? `Read: ${found.raw}` : null,
+                    found.ms != null ? `${Math.round(found.ms)} ms` : null,
+                    camera ? `Camera: ${camera}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join("\n")}
+                </pre>
+              </details>
             )}
-            <details className="small dim">
-              <summary>What the scanner saw</summary>
-              <pre className="scan-raw">
-                {[
-                  found.art ? `Art: ${found.art.name} (${found.art.set.toUpperCase()} ${found.art.number}), score ${found.art.score.toFixed(2)}` : null,
-                  found.raw ? `Read: ${found.raw}` : null,
-                  found.ms != null ? `${Math.round(found.ms)} ms` : null,
-                  camera ? `Camera: ${camera}` : null,
-                ]
-                  .filter(Boolean)
-                  .join("\n")}
-              </pre>
-            </details>
           </>
         )}
       </div>

@@ -124,15 +124,17 @@
   top: calc(max(14px, env(safe-area-inset-top)) + 8px);
   right: 66px;
 }
+/* What the scanner is doing now, under the frame. What it did is said in the strip (ScanTray). */
 .scan-chip {
   left: 50%;
-  bottom: 36px;
+  bottom: 30px;
   transform: translateX(-50%);
   width: max-content;
   max-width: calc(100% - 32px);
-  padding: 6px 14px;
+  padding: 5px 14px;
   background: rgb(0 0 0 / 0.65);
-  font-size: var(--t-label);
+  font-size: var(--t-sm);
+  line-height: 1.3;
   text-align: center;
 }
 .scan-chip.found {
@@ -148,12 +150,12 @@
   max-height: 62dvh;
   overflow-y: auto;
   margin-top: -20px;
-  padding: 16px 16px calc(20px + env(safe-area-inset-bottom));
+  padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
   border-radius: var(--r-sheet) var(--r-sheet) 0 0;
   background: var(--surface);
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
 }
 .scan-panel .error,
 .scan-panel p {
@@ -161,9 +163,15 @@
 }
 .scan-result {
   display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
-  gap: 14px;
-  align-items: center;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+.scan-result:has(> .scan-thumb.card-fallback) {
+  grid-template-columns: minmax(0, 1fr);
+}
+.scan-result > .scan-thumb.card-fallback {
+  display: none;
 }
 .scan-thumb {
   width: 100%;
@@ -180,10 +188,14 @@
   min-width: 0;
 }
 .scan-info h3 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
   margin: 0;
   font-weight: 800;
-  font-size: var(--t-28);
-  line-height: 1.1;
+  font-size: var(--t-22);
+  line-height: 1.15;
 }
 .scan-method {
   margin-top: 2px;
@@ -208,13 +220,22 @@
 .scan-choices .error {
   grid-column: 1 / -1;
 }
+/* The decision on one row: copies and Add, with Skip beside them. */
 .scan-buttons {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
   gap: 8px;
+  align-items: end;
+}
+.scan-buttons > .scan-accept {
+  flex: 1 1 auto;
+}
+.scan .scan-buttons > .scan-skip {
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 .scan-accept {
   display: flex;
+  align-items: end;
   gap: 8px;
   min-width: 0;
 }
@@ -232,27 +253,40 @@
   background-color: var(--ground);
   color: var(--text);
 }
-/* Printings that share the art: pick the one in hand. */
+/* Printings to pick from: one row of small cards you swipe along, so the choice doesn't push the
+   camera off the screen (design pass, 16 Nov 2026). */
 .scan-printings {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
-  gap: 10px;
+  display: flex;
+  gap: 8px;
+  margin: 0 -16px;
+  padding: 2px 16px 4px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scroll-padding-inline: 16px;
+  scrollbar-width: none;
+}
+.scan-printings::-webkit-scrollbar {
+  display: none;
 }
 .scan .scan-printing {
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: 2px;
+  width: 88px;
   min-height: 0;
-  padding: 6px;
+  padding: 4px;
   border: 2px solid transparent;
   border-radius: 8px;
   background: var(--raised);
   color: var(--text);
-  font-size: var(--t-sm);
+  font-size: var(--t-12);
   font-weight: 400;
   line-height: 1.2;
   text-align: left;
+  scroll-snap-align: start;
 }
 .scan .scan-printing.is-chosen {
   border-color: #fff;
@@ -266,7 +300,20 @@
 }
 .scan-printing-set {
   font-weight: 700;
-  overflow-wrap: anywhere;
+  font-size: var(--t-sm);
+  white-space: nowrap;
+}
+.scan-printing .dim {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.scan .scan-printing-more {
+  justify-content: center;
+  align-items: center;
+  font-size: var(--t-sm);
+  font-weight: 700;
 }
 .scan-other-ways {
   display: flex;
@@ -306,7 +353,7 @@
   text-align: left;
 }
 .scan-buttons button {
-  min-height: 54px;
+  min-height: 48px;
 }
 .scan-buttons .primary {
   font-size: 1.0625rem;
@@ -315,8 +362,44 @@
   font-size: var(--t-sm);
   color: var(--dim);
 }
-/* The sheet's lesser choices (Wrong printing?, Wrong card?, another card it might be): small
-   outlined pills that read as buttons, not underlined words (Bryan, 16 Nov 2026). */
+/* The sheet's lesser choices: small outlined pills that read as buttons, not underlined words
+   (Bryan, 16 Nov 2026). `.scan-act` is the smaller kind, for the strip's Undo and the sheet's
+   quiet row. */
+.scan .scan-act {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 2px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: var(--raised);
+  color: var(--text);
+  font-size: var(--t-sm);
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.scan .scan-act:hover:not(:disabled) {
+  border-color: var(--dim);
+}
+.scan .scan-act.is-quiet {
+  width: 32px;
+  padding: 0;
+  border-color: transparent;
+  background: none;
+  color: var(--dim);
+}
+/* On the black strip, the pills are outlined in white. */
+.scan .scan-tray .scan-act {
+  border-color: rgb(255 255 255 / 0.4);
+  background: rgb(255 255 255 / 0.08);
+  color: #fff;
+}
+.scan .scan-tray .scan-act:hover:not(:disabled) {
+  border-color: #fff;
+}
 .scan .scan-alt {
   display: inline-flex;
   align-items: center;
@@ -652,12 +735,13 @@ button.scan-count {
 
 /* Under Add and Skip: Wrong card, and More for what's used now and then (15 Nov 2026). */
 .scan-secondary {
-  grid-column: 1 / -1;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
+}
+.scan-secondary .more-menu {
+  margin-left: auto;
 }
 .scan .scan-secondary .scan-alt {
   min-height: 0;
@@ -739,26 +823,29 @@ button.scan-count {
 }
 
 /* What cards are filed as, on the sheet; a tap opens Scan settings. */
+/* A quiet line at the foot of the sheet: it's a setting, not news. */
 .scan .scan-filing {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  min-height: 44px;
-  padding: 8px 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-tile);
+  min-height: 32px;
+  padding: 0 2px;
+  border: 0;
   background: none;
-  color: var(--text);
+  color: var(--dim);
   font-weight: 400;
   text-align: left;
+}
+.scan .scan-filing:hover {
+  color: var(--text);
 }
 .scan-filing-what {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--t-label);
+  font-size: var(--t-sm);
 }
 .scan-filing-change {
   flex: 0 0 auto;
@@ -776,17 +863,24 @@ button.scan-count {
   padding: 4px 0 24px;
   background: #000;
 }
-/* The card just added on the first line, the session's dated total under it, Review all beside. */
+/* The receipt: the card just added and what can be done about it on the first line, the
+   session's dated total and Review all under it. */
 .scan-tray-head {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  column-gap: 10px;
-  padding: 0 16px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 16px 4px;
   font-size: var(--t-sm);
   color: #fff;
 }
+.scan-tray-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+}
 .scan-tray-head p {
+  flex: 1 1 auto;
   margin: 0;
   min-width: 0;
 }
@@ -796,13 +890,39 @@ button.scan-count {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.scan-tray-total {
-  grid-column: 1;
-  font-size: var(--t-12);
+.scan-tray-last.is-event {
+  font-weight: 700;
 }
-.scan-tray-head > :last-child:not(p) {
-  grid-column: 2;
-  grid-row: 1 / span 2;
+/* On a narrow phone the card's name keeps room to be read, and its actions go under it. */
+.scan-tray-row:first-child {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+.scan-tray-row:first-child > .scan-tray-last {
+  flex: 1 1 9rem;
+}
+.scan-tray-do.action-bar {
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+.scan-tray-total {
+  font-size: var(--t-12);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .scan-tray-do,
+  .scan-tray-last.is-event {
+    animation: scan-receipt-in 0.2s ease-out;
+  }
+}
+@keyframes scan-receipt-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
 }
 .scan-tray-note {
   color: var(--on-art-dim);
@@ -814,7 +934,7 @@ button.scan-count {
   white-space: nowrap;
 }
 .scan .scan-tray-review {
-  min-height: var(--target);
+  min-height: 32px;
   padding: 2px 14px;
   border: 1px solid rgb(255 255 255 / 0.35);
   border-radius: var(--r-pill);
@@ -1123,5 +1243,150 @@ button.scan-count {
 @container (max-height: 300px) {
   .scan-frame {
     inset: 0 0 20px;
+  }
+}
+/* Design pass (16 Nov 2026, Bryan: "the options pop up a little too much in the user's face, as
+   opposed to what happened or recently happened"). The camera says what the scanner is doing, the
+   strip says what it did, and the sheet asks only for what it needs. */
+
+/* Tapping a printing: the corner of your card, then one line of what to do. */
+.scan-pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  scroll-margin: 12px;
+}
+.scan-pick .scan-peek {
+  flex: 1 0 100%;
+}
+.scan-pick .scan-peek canvas {
+  width: auto;
+  max-width: 100%;
+  max-height: 72px;
+}
+.scan-pick .scan-peek figcaption {
+  display: none;
+}
+.scan-pick-say {
+  flex: 1 1 10rem;
+  font-size: var(--t-label);
+}
+.scan-pick-say .dim {
+  font-size: var(--t-sm);
+}
+/* "All Duskmourn lately": the set lock offered in one quiet line. */
+.scan-suggest {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--t-sm);
+  color: var(--dim);
+}
+.scan-suggest p {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.scan-suggest strong {
+  color: var(--text);
+}
+.scan-suggest .scan-act:first-of-type {
+  margin-left: auto;
+}
+/* The found card's price: a size down from the card's name. */
+.scan .scan-price strong {
+  font-size: var(--t-18);
+}
+.scan-info .scan-play-tag {
+  font-size: var(--t-xs);
+  padding: 0 7px;
+}
+/* Zoom and flashlight: smaller, so the frame has the camera to itself. */
+.scan .scan-tool {
+  width: 40px;
+  height: 40px;
+  font-size: var(--t-md);
+}
+.scan-zoom-buttons {
+  gap: 2px;
+  padding: 2px;
+}
+
+/* While the sheet needs a decision, the strip folds to its receipt line, so the camera keeps its
+   room on a phone. */
+.scan.is-deciding .scan-tray-list {
+  display: none;
+}
+.scan.is-deciding .scan-tray {
+  padding-bottom: 22px;
+}
+.scan:has(> .scan-tray) .scan-panel {
+  max-height: min(58dvh, calc(100dvh - 320px));
+}
+.scan .scan-printing {
+  width: 76px;
+}
+
+/* A laptop or a tablet on its side: the camera on the left, the strip and the sheet in a column
+   on the right, so a card found never squeezes the camera into a letterbox. */
+@media (min-width: 900px) and (orientation: landscape) {
+  .scan {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) clamp(360px, 32vw, 440px);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .scan-camera {
+    grid-column: 1;
+    grid-row: 1 / -1;
+  }
+  .scan-tray {
+    grid-column: 2;
+    grid-row: 1;
+    padding: max(14px, env(safe-area-inset-top)) 0 12px;
+    border-left: 1px solid var(--line);
+  }
+  .scan .scan-tray-head,
+  .scan .scan-tray-list {
+    width: auto;
+    margin-inline: 0;
+  }
+  .scan .scan-panel,
+  .scan:has(> .scan-tray) .scan-panel {
+    grid-column: 2;
+    grid-row: 2;
+    width: auto;
+    max-height: none;
+    margin: 0;
+    padding-top: 16px;
+    border-left: 1px solid var(--line);
+    border-radius: 0;
+  }
+  .scan:not(:has(> .scan-tray)) .scan-panel {
+    grid-row: 1 / -1;
+  }
+  .scan .scan-handle {
+    display: none;
+  }
+  .scan.is-deciding .scan-tray-list {
+    display: flex;
+  }
+  .scan.is-deciding .scan-tray {
+    padding-bottom: 12px;
+  }
+  .scan .scan-printing {
+    width: 88px;
+  }
+  /* No oversized buttons on a desktop. */
+  .scan .scan-buttons button {
+    min-height: 40px;
+  }
+  .scan .scan-buttons .primary {
+    font-size: var(--t-base);
+  }
+  .scan-pick .scan-peek canvas {
+    max-height: 64px;
   }
 }

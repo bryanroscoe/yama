@@ -97,3 +97,17 @@ describe("playability", () => {
     expect(playLine({ rank: null, gameChanger: null })).toBeNull();
   });
 });
+
+describe("the strip's head is the receipt (design pass, 16 Nov 2026)", () => {
+  it("names the card just added with what can be done about it, and says an event in its place", async () => {
+    act(() => root.render(<ScanTray cards={cards} worth={2} actions={<button>Undo</button>} />));
+    await settle();
+    const head = host.querySelector(".scan-tray-head")!;
+    expect(head.querySelector(".scan-tray-last")?.textContent).toContain("Westvale Abbey");
+    expect(head.querySelector(".scan-tray-do")?.textContent).toBe("Undo");
+    act(() => root.render(<ScanTray cards={cards} worth={2} event="Took out Sol Ring (ECC 57)" />));
+    await settle();
+    expect(head.querySelector(".scan-tray-last")?.textContent).toBe("Took out Sol Ring (ECC 57)");
+    expect(head.querySelector(".scan-tray-do")).toBeNull();
+  });
+});
