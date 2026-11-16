@@ -10,7 +10,8 @@
 //! - **Which container:** any box, binder or list of the owner's that isn't a deck box and holds no
 //!   other live deck's spares. Linking one moves no copy. [`ensure`] links the box called
 //!   "<deck> swap bag" when there is one (the plan's swap-in makes those), else makes it.
-//! - **What each swaps for:** the plan's bracket bags (read live: the card that comes back in at
+//! - **What each swaps for:** the plan's bracket bags (the plan linked to the deck, or an unlinked
+//!   plan with the deck's name; read live: the card that comes back in at
 //!   that bracket, and the card it replaces), and the owner's own note per card
 //!   (`deck_spare_swaps`), for swaps a plan doesn't hold.
 //!
@@ -229,7 +230,12 @@ pub struct Spares {
 async fn plan_bags(conn: &mut SqliteConnection, owner: &str, main_id: &str) -> AppResult<BTreeMap<String, (String, Vec<SpareSwap>)>> {
     let brackets: Vec<Option<String>> = sqlx::query_scalar(
         "SELECT pd.bracket FROM plan_decks pd LEFT JOIN decks d ON d.id = pd.deck_id AND d.owner_id = pd.owner_id
-         WHERE pd.owner_id = ?1 AND pd.status != 'archived' AND (pd.deck_id = ?2 OR d.parent_id = ?2)
+         WHERE pd.owner_id = ?1 AND pd.status != 'archived'
+           AND (pd.deck_id = ?2 OR d.parent_id = ?2
+                -- An unlinked plan deck goes by name, as the plan's installed check and Swap in the
+                -- prints read it: the one live main deck with its name.
+                OR (pd.deck_id IS NULL AND lower(trim(pd.name)) = (SELECT lower(m.name) FROM decks m WHERE m.id = ?2 AND m.owner_id = ?1)
+                    AND (SELECT COUNT(*) FROM decks x WHERE x.owner_id = ?1 AND x.archived = 0 AND x.parent_id IS NULL AND lower(x.name) = lower(trim(pd.name))) = 1))
          ORDER BY pd.deck_id = ?2 DESC, pd.sort, pd.key",
     )
     .bind(owner)
