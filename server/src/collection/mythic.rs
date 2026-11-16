@@ -220,26 +220,6 @@ pub async fn import_mythic_csv(pool: &SqlitePool, owner: &str, text: &str, opts:
     }
     report.rows = rows.len();
 
-    // Which importer read this file before, if one did: a receipt's version, or 0 for a file
-    // recognised only by its old op ids. `None`: never imported.
-    let read_by: Option<i64> = sqlx::query_scalar(
-        "SELECT MAX(v) FROM (SELECT parser_version AS v FROM mythic_imports WHERE owner_id = ?1 AND file_hash = ?2
-         UNION ALL SELECT 0 FROM applied_ops WHERE owner_id = ?1 AND op_id LIKE 'mythic:' || ?3 || ':%')",
-    )
-    .bind(owner)
-    .bind(&file_hash)
-    .bind(short)
-    .fetch_one(pool)
-    .await?;
-    report.already_imported = sqlx::query_scalar(
-        "SELECT MIN(at) FROM (SELECT imported_at AS at FROM mythic_imports WHERE owner_id = ?1 AND file_hash = ?2
-         UNION ALL SELECT applied_at FROM applied_ops WHERE owner_id = ?1 AND op_id LIKE 'mythic:' || ?3 || ':%')",
-    )
-    .bind(owner)
-    .bind(&file_hash)
-    .bind(short)
-    .fetch_one(pool)
-    .await?;
 
     // The file's containers, in file order. A preview makes none: one Yama doesn't have yet gets a
     // stand-in id that matches nothing.
@@ -360,6 +340,29 @@ pub async fn import_mythic_csv(pool: &SqlitePool, owner: &str, text: &str, opts:
     // From here it reads the collection and then writes it: immediate, so a commit landing in
     // between can't fail it. A preview only reads, and never takes the write lock.
     let mut tx = if opts.dry_run { pool.begin().await? } else { pool.begin_with("BEGIN IMMEDIATE").await? };
+    // Whether this file was imported before, and by which importer: a receipt's version, or 0 for
+    // a file recognised only by its old op ids (`None`: never imported). Read here, inside the
+    // transaction (immediate, for an import), so another import of the same file committing
+    // meanwhile can't leave this one deciding on a receipt it has since changed: a finish
+    // corrected there and changed by hand since is never corrected again here.
+    let read_by: Option<i64> = sqlx::query_scalar(
+        "SELECT MAX(v) FROM (SELECT parser_version AS v FROM mythic_imports WHERE owner_id = ?1 AND file_hash = ?2
+         UNION ALL SELECT 0 FROM applied_ops WHERE owner_id = ?1 AND op_id LIKE 'mythic:' || ?3 || ':%')",
+    )
+    .bind(owner)
+    .bind(&file_hash)
+    .bind(short)
+    .fetch_one(&mut *tx)
+    .await?;
+    report.already_imported = sqlx::query_scalar(
+        "SELECT MIN(at) FROM (SELECT imported_at AS at FROM mythic_imports WHERE owner_id = ?1 AND file_hash = ?2
+         UNION ALL SELECT applied_at FROM applied_ops WHERE owner_id = ?1 AND op_id LIKE 'mythic:' || ?3 || ':%')",
+    )
+    .bind(owner)
+    .bind(&file_hash)
+    .bind(short)
+    .fetch_one(&mut *tx)
+    .await?;
     let mut copies = owned_copies(&mut tx, owner).await?;
     let key_of = |c: &OwnedCopy| (c.scryfall_id.clone(), c.finish.clone(), c.lang.clone(), c.proxy);
     let stamp = op_stamp(&mut tx, owner).await?;

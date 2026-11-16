@@ -519,3 +519,33 @@ async fn a_file_imported_before_never_removes_what_it_would_have_added_back() {
     assert_eq!((r.added, r.missing, r.removed, r.refinished), (0, 1, 0, 0));
     assert_eq!(holdings(&pool).await, vec![h("p-sol", "nonfoil", "box: bulk", 1)]);
 }
+
+/// Two imports of the same old file at once (Codex round-4 review of #146): B corrects the
+/// finish and moves the receipt to this importer's version, and the copy is changed back to
+/// regular by hand, all while A waits for the write lock. A must decide on the receipt as it is
+/// once it holds the lock, never on what it read before, so it doesn't correct the copy again.
+/// A real database file (several connections, WAL, busy timeout), as the server runs.
+#[tokio::test]
+async fn an_import_waiting_for_the_lock_decides_on_the_receipt_as_it_is_then() {
+    let dir = tempfile::tempdir().unwrap();
+    let pool = crate::db::connect(&format!("sqlite://{}", dir.path().join("t.db").display()), std::time::Duration::from_secs(5)).await.unwrap();
+    seed(&pool).await;
+    let bulk = container(&pool, "box", "bulk").await;
+    add(&pool, "old-sol", "p-sol", 2, Some(&bulk)).await;
+    let text = csv(&[("Sol Ring", "p-sol", 2, "Surge Foil", "NM", "box", "bulk")]);
+    receipt(&pool, &text).await;
+    // B holds the write lock: its correction is done, the receipt moved on, and the copies were
+    // changed back to regular by hand (they're regular again, so only the receipt shows it).
+    let mut b = pool.begin_with("BEGIN IMMEDIATE").await.unwrap();
+    sqlx::query("UPDATE mythic_imports SET parser_version = ?").bind(PARSER_VERSION).execute(&mut *b).await.unwrap();
+    // A starts now and gets as far as the lock.
+    let a = tokio::spawn({
+        let (pool, text) = (pool.clone(), text.clone());
+        async move { import_mythic_csv(&pool, "u1", &text, ImportOptions { dry_run: false, remove_missing: true }).await.unwrap() }
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    b.commit().await.unwrap();
+    let r = a.await.unwrap();
+    assert_eq!((r.refinished, r.added, r.removed), (0, 0, 0));
+    assert_eq!(holdings(&pool).await, vec![h("p-sol", "nonfoil", "box: bulk", 2)]);
+}
