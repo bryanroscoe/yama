@@ -310,7 +310,7 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
-      "description": "One of their Yama decks: the current list, the bracket they declared, Commander legality problems (size, singleton, color identity, banned cards), Game Changers and real game results. Give the deck's name (as `get_overview` lists it) or its id.",
+      "description": "One of their Yama decks: the current list, the bracket they declared, Commander legality problems (size, singleton, color identity, banned cards), Game Changers, real game results and its swappable spares (kept in its box outside the 100). Give the deck's name (as `get_overview` lists it) or its id.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2213,10 +2213,16 @@
         "openWorldHint": false,
         "readOnlyHint": false
       },
-      "description": "Move copies of a card from one of their containers to another; moves (up to 500) stages many as one all-or-nothing change. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
+      "description": "Move copies of a card between their containers; moves (up to 500) stages many as one all-or-nothing change. A deck's swappable spares are cards kept in its box outside the 100: to_deck_spares puts copies there (swaps_for and bracket say what each comes in for), from_deck_spares takes them out. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
+          "bracket": {
+            "description": "With to_deck_spares: the Commander bracket that swap is for.",
+            "maximum": 5,
+            "minimum": 1,
+            "type": "integer"
+          },
           "card": {
             "maxLength": 300,
             "type": "string"
@@ -2231,7 +2237,12 @@
             "type": "string"
           },
           "from": {
-            "description": "Where the copies are: a container by name or path (\"Big box/Bulk Basic\"), or \"Loose\" for copies in none.",
+            "description": "Where the copies are: a container by name or path (\"Big box/Bulk Basic\"), or \"Loose\" for copies in none. Give this or from_deck_spares.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "from_deck_spares": {
+            "description": "A deck's name or id: take the copies out of that deck's swappable spares.",
             "maxLength": 300,
             "type": "string"
           },
@@ -2240,6 +2251,12 @@
             "items": {
               "additionalProperties": false,
               "properties": {
+                "bracket": {
+                  "description": "With to_deck_spares: the Commander bracket that swap is for.",
+                  "maximum": 5,
+                  "minimum": 1,
+                  "type": "integer"
+                },
                 "card": {
                   "maxLength": 300,
                   "type": "string"
@@ -2254,7 +2271,12 @@
                   "type": "string"
                 },
                 "from": {
-                  "description": "Where the copies are: a container by name or path (\"Big box/Bulk Basic\"), or \"Loose\" for copies in none.",
+                  "description": "Where the copies are: a container by name or path (\"Big box/Bulk Basic\"), or \"Loose\" for copies in none. Give this or from_deck_spares.",
+                  "maxLength": 300,
+                  "type": "string"
+                },
+                "from_deck_spares": {
+                  "description": "A deck's name or id: take the copies out of that deck's swappable spares.",
                   "maxLength": 300,
                   "type": "string"
                 },
@@ -2277,16 +2299,24 @@
                   "maxLength": 10,
                   "type": "string"
                 },
+                "swaps_for": {
+                  "description": "With to_deck_spares: the card in the deck this spare comes in for.",
+                  "maxLength": 300,
+                  "type": "string"
+                },
                 "to": {
-                  "description": "Where they go, the same way.",
+                  "description": "Where they go, the same way. Give this or to_deck_spares. A deck box by name means the deck's 100.",
+                  "maxLength": 300,
+                  "type": "string"
+                },
+                "to_deck_spares": {
+                  "description": "A deck's name or id: put the copies in that deck's swappable spares (in its box, outside the 100). A configuration means its main deck.",
                   "maxLength": 300,
                   "type": "string"
                 }
               },
               "required": [
-                "card",
-                "from",
-                "to"
+                "card"
               ],
               "type": "object"
             },
@@ -2320,8 +2350,18 @@
             "maxLength": 10,
             "type": "string"
           },
+          "swaps_for": {
+            "description": "With to_deck_spares: the card in the deck this spare comes in for.",
+            "maxLength": 300,
+            "type": "string"
+          },
           "to": {
-            "description": "Where they go, the same way.",
+            "description": "Where they go, the same way. Give this or to_deck_spares. A deck box by name means the deck's 100.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "to_deck_spares": {
+            "description": "A deck's name or id: put the copies in that deck's swappable spares (in its box, outside the 100). A configuration means its main deck.",
             "maxLength": 300,
             "type": "string"
           }
@@ -2685,6 +2725,90 @@
       },
       "name": "edit_copies",
       "title": "Correct copies in their collection"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "The scanner diagnostics this account kept (Scan settings, off by default): one per card the scanner struggled with, newest first, with how it ended, why it was kept and its images. Read one with get_scan_diagnostic.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "cursor": {
+            "description": "next_cursor from the answer before.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "limit": {
+            "description": "Records per page, default 20.",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "name": "list_scan_diagnostics",
+      "outputSchema": {
+        "properties": {
+          "next_cursor": {
+            "description": "Pass as cursor, with the same other arguments, for the next page. Absent or null on the last page.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "title": "Your scanner diagnostics"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "One scanner diagnostic by id: the camera, every frame's reads with the evidence, the art and title reads, and how it ended. With image (a name it lists, such as \"strip\" or \"card\"), that JPEG as an image, or as base64 text with encoding \"base64\".",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "encoding": {
+            "description": "With image: as MCP image content (default) or base64 text, for saving it.",
+            "enum": [
+              "image",
+              "base64"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "description": "The diagnostic id from list_scan_diagnostics.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "image": {
+            "description": "Optional: one image name from the record, to see that image.",
+            "maxLength": 300,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "name": "get_scan_diagnostic",
+      "title": "One scanner diagnostic, or one of its images"
     },
     {
       "annotations": {
@@ -3451,7 +3575,7 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
-      "description": "Read your collection, including quantities, proxies and containers (container_path for a section). Filter by card-name text, one container or copies outside deck containers. Outside a deck box does not establish that a copy is unreserved in an upgrade plan.",
+      "description": "Read your collection, including quantities, proxies and containers (container_path for a section). Filter by card-name text, one container or copies outside deck containers. spares_of_deck names the deck whose swappable spares a copy is (in its box, outside the 100); outside_decks leaves those out. Outside a deck box does not establish that a copy is unreserved in an upgrade plan.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {

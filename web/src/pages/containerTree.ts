@@ -7,7 +7,7 @@ import type { Container } from "../api";
 /** How a path is shown: "Big box › Bulk Basic › Plains". */
 export const PATH_SEP = " › ";
 
-type Node = Pick<Container, "id" | "name"> & { parent_id?: string | null; path?: string[]; kind?: string };
+type Node = Pick<Container, "id" | "name"> & { parent_id?: string | null; path?: string[]; kind?: string; spares_of_deck?: string | null };
 
 /** The names from the top-level container down to this one. Falls back to walking parents
  *  when the server's path is missing (an older answer cached on the device). */
@@ -93,6 +93,8 @@ export function treeOrder<T extends Node>(all: T[]): T[] {
 
 /** What a picker option says: the path, and what kind of place it is. */
 export function optionLabel(c: Node, all: Node[]): string {
+  // A deck's swappable spares, by their deck (as `containerOption` says it).
+  if (c.spares_of_deck) return `${c.spares_of_deck}'s box (swappable): ${pathLabel(c, all)}`;
   const kind = c.kind === "deck" ? "deck box" : c.kind;
   return kind ? `${pathLabel(c, all)} (${kind})` : pathLabel(c, all);
 }

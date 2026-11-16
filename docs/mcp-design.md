@@ -143,7 +143,7 @@ Write (staged):
 | `mark_bought`, `mark_installed` | The existing `bought` and `installed` ops |
 | `start_lab_run` | An experiment in any mode (change, compare, solo, versus) on phase, Forge or both, under the lab's usual allowance |
 | `add_lab_games`, `rerun_lab_run`, `cancel_lab_run` | More pods on a finished run, a fresh run of the same experiment, or a cancel |
-| `add_to_collection`, `move_cards`, `set_condition` | Collection ops (by name and printing; a move takes real copies first, or only proxies or only real copies with `proxy` (2026-11-15); a condition for every copy in a container, or one card's) |
+| `add_to_collection`, `move_cards`, `set_condition` | Collection ops (by name and printing; a move takes real copies first, or only proxies or only real copies with `proxy` (2026-11-15); a move into or out of a deck's swappable spares with `to_deck_spares`/`from_deck_spares`, with `swaps_for` and `bracket` (2026-11-15); a condition for every copy in a container, or one card's) |
 | `edit_copies`, `remove_from_collection`, `create_container` | The copies of a card in one container: a finish or proxy mark for some or all of them (the ones it would change), a note or price paid for all of them; copies that leave the collection, pinned row by row when staged and told apart by set and number, finish or proxy when they are not all alike; a new binder, deck box, box or list (2026-11-11) |
 | `update_deck` | A deck's name, its declared bracket (1 to 5, or cleared), or both (2026-11-11) |
 | `remove_wish` | One want they added, off their shopping list, by name or id; two with one name are refused until the id says which (2026-11-11) |

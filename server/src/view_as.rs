@@ -10,7 +10,7 @@
 //!   out), so the API and `/mcp` alike; every WebSocket (online games, watched games and shared
 //!   tables send actions over them); and the GETs that would show secrets or reach the person's
 //!   Claude ([`HIDDEN`]: Ask Claude's one-question tokens are minted only by asking, which is a
-//!   POST under it). The refusal comes before routing, so a route added later is covered without
+//!   POST under it; and scanner diagnostics, which are owner-only and never shown to an admin). The refusal comes before routing, so a route added later is covered without
 //!   being listed.
 //! - **Who the request is:** a GET the guard lets through carries [`ViewAs`]; `CurrentUser` then
 //!   answers as the viewed person, so every page shows exactly their data. The viewed person's
@@ -47,7 +47,7 @@ const ALLOWED_WRITES: [&str; 2] = ["/api/view/stop", "/api/auth/logout"];
 /// GETs refused while viewing: script keys, connected apps (`oauth/`), and Ask Claude (its status
 /// shows the person's stored key; asking would spend it, and conversations are theirs to keep
 /// private). The OAuth consent page's own check refuses a view by itself, with its own reason.
-const HIDDEN: [&str; 3] = ["/api/me/tokens", "/api/me/connected-apps", "/api/advisor"];
+const HIDDEN: [&str; 4] = ["/api/me/tokens", "/api/me/connected-apps", "/api/advisor", "/api/scan/diagnostics"];
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -166,7 +166,7 @@ pub async fn guard(State(st): State<AppState>, mut req: Request, next: Next) -> 
         return refuse(StatusCode::FORBIDDEN, format!("Viewing as {who}: read only. Stop viewing to make changes."), false);
     }
     if is_hidden(&path) {
-        return refuse(StatusCode::FORBIDDEN, format!("Viewing as {who}: their script keys, connected apps and Ask Claude stay private."), false);
+        return refuse(StatusCode::FORBIDDEN, format!("Viewing as {who}: their script keys, connected apps, Ask Claude and scanner diagnostics stay private."), false);
     }
     req.extensions_mut().insert(view);
     next.run(req).await

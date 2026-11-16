@@ -506,6 +506,28 @@
   padding: 2px;
   overflow: hidden;
 }
+/* Swappable spares: the Considering list's look, with a line for what each swaps for. */
+.deck-spare {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--line);
+}
+.deck-spare .deck-considering-card {
+  border-bottom: none;
+}
+.deck-spare-edit {
+  align-self: flex-start;
+  margin: 0 0 8px 52px;
+}
+.deck-spare-form {
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 8px 52px;
+}
+.deck-spare-form input {
+  flex: 1 1 160px;
+  min-width: 0;
+}
 .deck-considering-text {
   display: flex;
   flex-direction: column;

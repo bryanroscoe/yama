@@ -60,6 +60,7 @@ pub const USER_COLUMNS: &[(&str, &str)] = &[
     ("content_reports", "owner_id"),
     ("content_reports", "resolved_by"),
     ("deck_takedowns", "admin_id"),
+    ("deck_spare_swaps", "owner_id"),
     ("deck_takedowns", "owner_id"),
     ("decks", "owner_id"),
     ("deleted_games", "deleted_by"),
@@ -104,6 +105,7 @@ pub const USER_COLUMNS: &[(&str, &str)] = &[
     ("research_reports", "owner_id"),
     ("research_review_ops", "owner_id"),
     ("research_reviews", "owner_id"),
+    ("scan_diagnostics", "owner_id"),
     ("scan_samples", "owner_id"),
     ("sealed_quote_ids", "owner_id"),
     ("sealed_quotes", "owner_id"),
@@ -147,6 +149,7 @@ const OWNED_DELETES: &[(&str, &str)] = &[
     // Bug reports it sent.
     ("bug_reports", "owner_id"),
     // Scan photos it kept for improving the scanner.
+    ("scan_diagnostics", "owner_id"),
     ("scan_samples", "owner_id"),
     // Online play: saved stops and full control.
     ("play_prefs", "user_id"),
@@ -192,6 +195,7 @@ const OWNED_DELETES: &[(&str, &str)] = &[
     ("containers", "owner_id"),
     ("item_aliases", "owner_id"),
     ("applied_ops", "owner_id"),
+    ("deck_spare_swaps", "owner_id"),
     // The Mythic Tools bridge: its links, and Mythic's notes kept for this account alone.
     ("mythic_game_notes", "owner_id"),
     ("mythic_links", "owner_id"),
@@ -241,6 +245,8 @@ pub async fn delete_account(st: &AppState, id: &str) -> AppResult<DeleteReport> 
     // After the commit, so a table socket that subscribes too late to hear this finds the account
     // gone instead (`table_rooms::connect`).
     st.rooms.end_for(id);
+    // Scanner diagnostics keep their images as files (scan_diagnostics.rs): they go too.
+    crate::scan_diagnostics::remove_owner_files(&st.cfg.data_dir, id);
     report.email = email;
     Ok(report)
 }

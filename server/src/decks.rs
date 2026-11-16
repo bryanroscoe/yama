@@ -13,6 +13,7 @@ use sqlx::{AssertSqlSafe, SqliteConnection, SqlitePool};
 use std::collections::{BTreeMap, HashMap};
 
 pub mod cli;
+pub mod spares;
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -26,6 +27,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/decks/{id}/share-link", post(reset_share_link))
         .route("/api/decks/{id}/configurations", post(new_configuration))
         .route("/api/decks/{id}/use", post(use_list))
+        .merge(spares::router())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1206,8 +1208,9 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
             .sum();
         let mut locations = BTreeMap::new();
         for i in &mine {
-            let place = match (&i.container_kind, &i.container_name) {
-                (Some(k), Some(n)) => format!("{k}: {n}"),
+            let place = match (&i.spares_of_deck, &i.container_kind, &i.container_name) {
+                (Some(deck), _, _) => spares::place(deck),
+                (None, Some(k), Some(n)) => format!("{k}: {n}"),
                 _ => "unfiled".to_string(),
             };
             let label = if i.proxy { format!("{place} (proxy)") } else { place };
@@ -1451,6 +1454,25 @@ async fn update_deck(
             .bind(&user.id)
             .fetch_one(&mut *tx)
             .await?;
+    // A main deck with swappable spares stays a main deck until they're let go: a configuration
+    // uses its main deck's.
+    if body.parent_id.as_ref().is_some_and(|p| p.is_some()) {
+        let has: Option<String> = sqlx::query_scalar("SELECT spares_container_id FROM decks WHERE id = ? AND owner_id = ?").bind(&id).bind(&user.id).fetch_one(&mut *tx).await?;
+        if has.is_some() {
+            return Err(AppError::bad("This deck keeps swappable spares. Stop keeping them on its page first; a configuration uses its main deck's."));
+        }
+    }
+    // A deck's swappable spares (`spares`) are never another deck's box for its 100.
+    if let Some(Some(c)) = &body.container_id {
+        let spares_of: Option<String> = sqlx::query_scalar("SELECT name FROM decks WHERE owner_id = ? AND archived = 0 AND spares_container_id = ?")
+            .bind(&user.id)
+            .bind(c)
+            .fetch_optional(&mut *tx)
+            .await?;
+        if let Some(deck) = spares_of {
+            return Err(AppError::bad(format!("That box holds {deck}'s swappable spares, so it can't be a deck's box for its cards. Pick another, or stop keeping the spares there first.")));
+        }
+    }
     // The settings page sends the name with every save. Only a changed name is checked, so a
     // deck named another way (a configuration's built name, an import) can still change its box.
     let name = match sent_name {
@@ -2748,6 +2770,8 @@ mod tests {
             container_id: container.map(str::to_string),
             container_name: None,
             container_kind: None,
+            spares_of_deck_id: None,
+            spares_of_deck: None,
             purchase_price: None,
             purchase_currency: None,
             note: None,

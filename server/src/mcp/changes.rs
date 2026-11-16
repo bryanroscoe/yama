@@ -1650,7 +1650,7 @@ pub async fn add_to_collection(st: &AppState, user: &User, via: &Via, args: &Val
 }
 
 /// One row of the caller's collection that a move can take copies from.
-#[derive(sqlx::FromRow)]
+#[derive(sqlx::FromRow, Clone)]
 struct CopyRow {
     id: String,
     qty: i64,
@@ -1786,6 +1786,32 @@ impl MoveFilter {
     }
 }
 
+/// One end of a move: a container by name or path (`from`/`to`), or a deck's swappable spares
+/// (`from_deck_spares`/`to_deck_spares`, `decks::spares`): (container id, how to say it, the main
+/// deck when it's a deck's spares). A deck that has no spares container yet has none here: going
+/// to it, the apply links or makes one ("<deck> swap bag").
+async fn move_end(pool: &SqlitePool, tree: &Tree, owner: &str, args: &Value, field: &str, deck_field: &str) -> AppResult<(Option<String>, String, Option<(String, String)>)> {
+    match (arg::opt_string(args, field, 300)?, arg::opt_string(args, deck_field, 200)?) {
+        (Some(c), None) => {
+            let (id, name) = container_in(tree, &c)?;
+            Ok((Some(id), name, None))
+        }
+        (None, Some(d)) => {
+            let id = deck_id(pool, owner, &d).await?;
+            let mut conn = pool.acquire().await?;
+            let (main, deck) = crate::decks::spares::main_deck(&mut conn, owner, &id).await?;
+            let linked = crate::decks::spares::linked(&mut conn, owner, &main).await?;
+            let said = match &linked {
+                Some((_, box_name)) => format!("{deck}'s swappable spares ({box_name}, in its deck box)"),
+                None => format!("{deck}'s swappable spares (a new box, {}, linked to the deck)", crate::decks::spares::default_name(&deck)),
+            };
+            Ok((linked.map(|l| l.0), said, Some((main, deck))))
+        }
+        (Some(_), Some(_)) => Err(AppError::bad(format!("Give {field} or {deck_field}, not both. Nothing was staged."))),
+        (None, None) => Err(AppError::bad(format!("Give {field} (a container by name or path, or \"Loose\") or {deck_field} (a deck's name, for its swappable spares). Nothing was staged."))),
+    }
+}
+
 /// `move_cards`: copies of a card from one container to another, or up to [`MAX_MOVES`] such moves
 /// at once (`moves`), staged as one change and applied in one transaction: all of them or none.
 pub async fn move_cards(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
@@ -1793,7 +1819,7 @@ pub async fn move_cards(st: &AppState, user: &User, via: &Via, args: &Value) -> 
     let batch = match args.get("moves") {
         None | Some(Value::Null) => None,
         Some(Value::Array(a)) => {
-            if args.get("card").is_some_and(|c| !c.is_null()) || args.get("from").is_some_and(|c| !c.is_null()) || args.get("to").is_some_and(|c| !c.is_null()) {
+            if ["card", "from", "to", "from_deck_spares", "to_deck_spares"].iter().any(|k| args.get(*k).is_some_and(|c| !c.is_null())) {
                 return Err(AppError::bad("Give either one move (card, from, to) or moves, not both. Nothing was staged."));
             }
             if a.is_empty() || a.len() > MAX_MOVES {
@@ -1815,11 +1841,11 @@ pub async fn move_cards(st: &AppState, user: &User, via: &Via, args: &Value) -> 
     names.sort();
     names.dedup();
     let known = known_cards(pool, &names).await?;
-    let mut conn = pool.acquire().await?;
-    let tree = Tree::load(&mut conn, &user.id).await?;
-    // Copies each move takes from a place, and puts in one, by card: a later move in the same
-    // call can take what an earlier one brought.
-    let mut flow: HashMap<(String, String), i64> = HashMap::new();
+    let tree = Tree::load(&mut *pool.acquire().await?, &user.id).await?;
+    // Each place's copies of each card as the moves before this one leave them, taken in the
+    // order the apply takes them (`apply_move`), so a later move can take what an earlier one
+    // brought and never what an earlier one took. A deck's spares not made yet are "spares:<deck>".
+    let mut held: HashMap<(String, String), Vec<CopyRow>> = HashMap::new();
     let mut moves = Vec::new();
     let mut lines = Vec::new();
     for (n, m) in entries.iter().enumerate() {
@@ -1829,28 +1855,80 @@ pub async fn move_cards(st: &AppState, user: &User, via: &Via, args: &Value) -> 
         if !(1..=MAX_MOVE_QTY).contains(&qty) {
             return Err(fail(format!("qty must be from 1 to {MAX_MOVE_QTY}")));
         }
-        let from = container_in(&tree, arg::text(m, "from").map_err(|e| fail(e.to_string()))?).map_err(|e| fail(e.to_string()))?;
-        let to = container_in(&tree, arg::text(m, "to").map_err(|e| fail(e.to_string()))?).map_err(|e| fail(e.to_string()))?;
-        if from.0 == to.0 {
+        let (from_id, from_said, from_deck) = move_end(pool, &tree, &user.id, m, "from", "from_deck_spares").await.map_err(|e| fail(e.to_string()))?;
+        let Some(from_id) = from_id else {
+            let deck = from_deck.map(|d| d.1).unwrap_or_default();
+            return Err(fail(format!("{deck} has no swappable spares yet. Nothing was staged.")));
+        };
+        let (to_id, to_said, to_deck) = move_end(pool, &tree, &user.id, m, "to", "to_deck_spares").await.map_err(|e| fail(e.to_string()))?;
+        if to_id.as_deref() == Some(from_id.as_str()) {
             return Err(fail("from and to are the same place".into()));
         }
-        let filter = MoveFilter::read(m).map_err(|e| fail(e.to_string()))?;
-        let rows = copies_in(&mut conn, &user.id, &oracle_id, &from.0, true).await?;
-        let there: i64 = rows.iter().filter(|r| filter.keeps(r)).map(|c| c.qty).sum();
-        let have = there + flow.get(&(from.0.clone(), oracle_id.clone())).copied().unwrap_or(0);
-        if have < qty {
-            let held = if rows.is_empty() { String::new() } else { format!(" It holds: {}.", rows.iter().map(|r| format!("{} × {}", r.qty, r.kind())).collect::<Vec<_>>().join("; ")) };
-            let like = if filter.proxy.is_some() || filter.set.is_some() || filter.finish.is_some() { " like that" } else { "" };
-            return Err(fail(format!("{} holds {have} {name}{like}, not {qty}.{held} Nothing was staged.", from.1)));
+        // What the spare swaps for, kept with the deck's spares (only when moving into them).
+        let swaps_for = match arg::opt_string(m, "swaps_for", 200)? {
+            Some(out) => {
+                let k = known_cards(pool, std::slice::from_ref(&out)).await?;
+                Some(k[&out].1.clone())
+            }
+            None => None,
+        };
+        let bracket = match m.get("bracket") {
+            None | Some(Value::Null) => None,
+            Some(v) => Some(v.as_i64().filter(|b| (1..=5).contains(b)).ok_or_else(|| fail("bracket must be a Commander bracket from 1 to 5".into()))?),
+        };
+        if (swaps_for.is_some() || bracket.is_some()) && to_deck.is_none() {
+            return Err(fail("swaps_for and bracket go with to_deck_spares: they say what a deck's swappable spare comes in for. Nothing was staged.".into()));
         }
-        *flow.entry((from.0.clone(), oracle_id.clone())).or_default() -= qty;
-        *flow.entry((to.0.clone(), oracle_id.clone())).or_default() += qty;
-        lines.push(format!("{qty} {name}{} from {} to {}", filter.words(qty), from.1, to.1));
-        let mut one = json!({"oracle_id": oracle_id, "name": name, "qty": qty, "from_id": from.0, "from": from.1, "to_id": to.0, "to": to.1});
+        let filter = MoveFilter::read(m).map_err(|e| fail(e.to_string()))?;
+        let from_key = (from_id.clone(), oracle_id.clone());
+        if !held.contains_key(&from_key) {
+            let rows = copies_in(&mut *pool.acquire().await?, &user.id, &oracle_id, &from_id, true).await?;
+            held.insert(from_key.clone(), rows);
+        }
+        let rows = held.get_mut(&from_key).expect("loaded above");
+        let have: i64 = rows.iter().filter(|r| filter.keeps(r)).map(|c| c.qty).sum();
+        if have < qty {
+            let there = if rows.is_empty() { String::new() } else { format!(" It holds: {}.", rows.iter().map(|r| format!("{} × {}", r.qty, r.kind())).collect::<Vec<_>>().join("; ")) };
+            let like = if filter.proxy.is_some() || filter.set.is_some() || filter.finish.is_some() { " like that" } else { "" };
+            return Err(fail(format!("{from_said} holds {have} {name}{like}, not {qty}.{there} Nothing was staged.")));
+        }
+        // Take them as the apply will: the rows in order, whole rows first.
+        let mut left = qty;
+        let mut taken = Vec::new();
+        for r in rows.iter_mut().filter(|r| filter.keeps(r)) {
+            if left == 0 {
+                break;
+            }
+            let take = left.min(r.qty);
+            left -= take;
+            r.qty -= take;
+            taken.push(CopyRow { qty: take, ..r.clone() });
+        }
+        rows.retain(|r| r.qty > 0);
+        let to_key = (to_id.clone().unwrap_or_else(|| format!("spares:{}", to_deck.as_ref().map(|d| d.0.as_str()).unwrap_or_default())), oracle_id.clone());
+        if !held.contains_key(&to_key) {
+            let rows = match &to_id {
+                Some(id) => copies_in(&mut *pool.acquire().await?, &user.id, &oracle_id, id, true).await?,
+                None => Vec::new(),
+            };
+            held.insert(to_key.clone(), rows);
+        }
+        let there = held.get_mut(&to_key).expect("loaded above");
+        there.extend(taken);
+        // The apply reads a place's rows real copies first, then the biggest.
+        there.sort_by(|a, b| a.proxy.cmp(&b.proxy).then(b.qty.cmp(&a.qty)).then(a.id.cmp(&b.id)));
+        let swap_said = match (&swaps_for, bracket) {
+            (Some(out), Some(b)) => format!(", to come in for {out} at Bracket {b}"),
+            (Some(out), None) => format!(", to come in for {out}"),
+            (None, Some(b)) => format!(", for Bracket {b}"),
+            (None, None) => String::new(),
+        };
+        lines.push(format!("{qty} {name}{} from {from_said} to {to_said}{swap_said}", filter.words(qty)));
+        let mut one = json!({"oracle_id": oracle_id, "name": name, "qty": qty, "from_id": from_id, "from": from_said, "to_id": to_id, "to": to_said,
+            "from_deck_spares": from_deck.as_ref().map(|d| &d.0), "to_deck_spares": to_deck.as_ref().map(|d| &d.0), "deck": to_deck.as_ref().map(|d| &d.1), "swaps_for": swaps_for, "bracket": bracket});
         filter.payload(&mut one);
         moves.push(one);
     }
-    drop(conn);
     let (summary, detail, payload) = match batch {
         None => {
             let mut one = moves.pop().unwrap_or_default();
@@ -1884,7 +1962,28 @@ async fn apply_move(
 ) -> AppResult<()> {
     use crate::collection::{CopyKind, Op, OpKind, apply_op};
     let op = |n: usize, op: OpKind| Op { op_id: format!("{DEVICE}-{change}-{n}"), device_id: Some(DEVICE.into()), op };
-    let (oracle_id, to) = (m["oracle_id"].as_str().unwrap_or_default(), m["to_id"].as_str().unwrap_or_default());
+    let oracle_id = m["oracle_id"].as_str().unwrap_or_default();
+    // Into a deck's swappable spares: its container as it is now, linked or made.
+    let to_deck = m["to_deck_spares"].as_str();
+    let to: String = match to_deck {
+        Some(deck) => {
+            let (main, name) = crate::decks::spares::main_deck(tx, owner, deck).await?;
+            crate::decks::spares::ensure(tx, owner, &main, &name).await?.0
+        }
+        None => m["to_id"].as_str().unwrap_or_default().to_string(),
+    };
+    let to = to.as_str();
+    // Out of a deck's spares: still that deck's, and still the container staged.
+    if let Some(deck) = m["from_deck_spares"].as_str() {
+        let (main, name) = crate::decks::spares::main_deck(tx, owner, deck).await?;
+        let now = crate::decks::spares::linked(tx, owner, &main).await?.map(|l| l.0);
+        if now.as_deref() != m["from_id"].as_str() {
+            return Err(AppError::Conflict(format!("{name}'s swappable spares are kept somewhere else now, so nothing was moved.")));
+        }
+    }
+    if to == m["from_id"].as_str().unwrap_or_default() {
+        return Err(AppError::Conflict("Those copies are already there.".into()));
+    }
     let mut left = m["qty"].as_i64().unwrap_or(1);
     let filter = MoveFilter::from_payload(m);
     let mut rows = copies_in(tx, owner, oracle_id, m["from_id"].as_str().unwrap_or_default(), same).await?;
@@ -1922,6 +2021,10 @@ async fn apply_move(
             apply_op(tx, owner, &op(*n + 1, add)).await?;
             *n += 2;
         }
+    }
+    if let Some(deck) = to_deck.filter(|_| !m["swaps_for"].is_null() || !m["bracket"].is_null()) {
+        let (main, _) = crate::decks::spares::main_deck(tx, owner, deck).await?;
+        crate::decks::spares::set_swap(tx, owner, &main, oracle_id, m["swaps_for"].as_str(), m["bracket"].as_i64(), None).await?;
     }
     Ok(())
 }
@@ -2521,7 +2624,7 @@ pub async fn create_container(st: &AppState, user: &User, via: &Via, args: &Valu
     };
     let kind = match (arg::opt_text(args, "kind", 20)?, &parent) {
         (Some(k), _) => k.to_lowercase(),
-        (None, Some((id, _))) => tree.get(id).map(|n| n.kind.clone()).unwrap_or_default(),
+        (None, Some((id, _))) => tree.get(id).map(|n| crate::collection::section_kind(&n.kind).to_string()).unwrap_or_default(),
         (None, None) => return Err(AppError::bad("kind is binder, deck, box or list (it can be left out for a section, which takes its parent's)")),
     };
     let Some(&(kind, said)) = CONTAINER_KINDS.iter().find(|(k, _)| *k == kind) else {

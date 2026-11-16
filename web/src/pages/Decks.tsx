@@ -40,6 +40,7 @@ import { CLEARED, DeckIndexTools } from "../decks/DeckIndexTools";
 import { DeckSettings } from "../decks/DeckSettings";
 import { DeckAbout, EditDescription } from "../decks/DeckDescription";
 import { Considering } from "../decks/Considering";
+import { SwappableSpares } from "../decks/SwappableSpares";
 import { DeckTiles, deckStatus, ListPicker, SavedListBar } from "../decks/DeckHeader";
 import { DeckCardsTab, useCardControls } from "../decks/DeckCardsTab";
 import { WhyBracket } from "../decks/WhyBracket";
@@ -405,6 +406,7 @@ export function DeckPage() {
           </div>
         )}
         {tab === "cards" && <Considering cards={d.maybe ?? []} deckId={d.id} onOpen={setOpen} />}
+        {tab === "cards" && <SwappableSpares deckId={d.id} onOpen={setOpen} />}
 
         {/* Stats: everything about the deck that isn't the list (design: the deck's Stats tab). */}
         {tab === "stats" && <DeckStatsTab deck={d} onCard={openByName} />}

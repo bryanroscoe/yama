@@ -259,7 +259,8 @@ async fn add_deck_with_proxies(
     let copies = owned_copies(&mut tx, owner).await?;
     let deck_boxes: HashSet<String> = sqlx::query_scalar(
         "SELECT id FROM containers WHERE owner_id = ?1 AND kind = 'deck'
-         UNION SELECT container_id FROM decks WHERE owner_id = ?1 AND archived = 0 AND container_id IS NOT NULL",
+         UNION SELECT container_id FROM decks WHERE owner_id = ?1 AND archived = 0 AND container_id IS NOT NULL
+         UNION SELECT spares_container_id FROM decks WHERE owner_id = ?1 AND archived = 0 AND spares_container_id IS NOT NULL",
     )
     .bind(owner)
     .fetch_all(&mut *tx)
@@ -454,7 +455,7 @@ async fn find_box(tx: &mut Transaction<'_, Sqlite>, owner: &str, deck_id: &str, 
     }
     for n in 1.. {
         let name = if n == 1 { deck_name.trim().to_string() } else { format!("{} ({n})", deck_name.trim()) };
-        let existing: Option<String> = sqlx::query_scalar("SELECT id FROM containers WHERE owner_id = ? AND kind = 'deck' AND name = ?")
+        let existing: Option<String> = sqlx::query_scalar("SELECT id FROM containers WHERE owner_id = ? AND kind = 'deck' AND name = ? ORDER BY parent_id IS NOT NULL, created_at, id LIMIT 1")
             .bind(owner)
             .bind(&name)
             .fetch_optional(&mut **tx)

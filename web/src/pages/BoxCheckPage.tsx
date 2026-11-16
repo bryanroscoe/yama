@@ -26,6 +26,8 @@ import "../decks/deckScan.css";
 import "../decks/deckCheck.css";
 import "./collection.css";
 
+/** Ops in one request: the server's MAX_OPS. */
+const OPS_PER_REQUEST = 500;
 const scanner = () => import("../scanner");
 const ScannerView = lazy(() => scanner().then((m) => ({ default: m.ScannerView })));
 /** The same switches as the deck check's, so the camera behaves the same on both pages. */
@@ -66,7 +68,9 @@ export function BoxCheckPage() {
   const [ids] = useState(() => opIds());
   const send = useMutation({
     mutationFn: async ({ ops }: { ops: Op[]; said: string }) => {
-      if (ops.length) await api("/api/collection/ops", { method: "POST", json: ops });
+      // The server takes at most 500 ops a request (collection.rs, MAX_OPS); each op keeps its
+      // id, so a retry after a part went through applies nothing twice.
+      for (let i = 0; i < ops.length; i += OPS_PER_REQUEST) await api("/api/collection/ops", { method: "POST", json: ops.slice(i, i + OPS_PER_REQUEST) });
     },
     onSuccess: (_, { said }) => {
       ids.saved();

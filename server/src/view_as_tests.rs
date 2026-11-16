@@ -207,7 +207,16 @@ async fn secrets_stay_hidden_while_viewing() {
     assert!(status.is_success(), "{status}");
     let view = start(&w.app, &w.admin, &w.pat_id).await;
     let cookies = [("yama_view", view.as_str())];
-    for path in ["/api/me/tokens", "/api/advisor/status", "/api/advisor/conversations", "/api/advisor/conversations/x"] {
+    for path in [
+        "/api/me/tokens",
+        "/api/advisor/status",
+        "/api/advisor/conversations",
+        "/api/advisor/conversations/x",
+        // Scanner diagnostics are owner-only: no list, record or image while viewing.
+        "/api/scan/diagnostics",
+        "/api/scan/diagnostics/00000000-0000-0000-0000-000000000000",
+        "/api/scan/diagnostics/00000000-0000-0000-0000-000000000000/images/strip",
+    ] {
         let (status, answer, _) = call(&w.app, Method::GET, path, Some(&w.admin), &cookies, None, false).await;
         assert_eq!(status, StatusCode::FORBIDDEN, "{path}: {answer}");
         assert!(answer.to_string().contains("stay private"), "{path}: {answer}");

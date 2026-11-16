@@ -707,6 +707,12 @@ pub struct Item {
     pub container_id: Option<String>,
     pub container_name: Option<String>,
     pub container_kind: Option<String>,
+    /// The live deck whose swappable spares this container holds: copies in that deck's box on
+    /// top of its 100 (`decks::spares`). Its id, and the collection's name for the place.
+    #[sqlx(default)]
+    pub spares_of_deck_id: Option<String>,
+    #[sqlx(default)]
+    pub spares_of_deck: Option<String>,
     pub purchase_price: Option<f64>,
     pub purchase_currency: Option<String>,
     pub note: Option<String>,
@@ -743,7 +749,8 @@ pub struct ListedItem {
 }
 
 const ITEM_SELECT: &str = "SELECT i.id, i.scryfall_id, i.qty, i.condition, i.finish, i.lang, i.altered, i.signed,
-    i.misprint, i.proxy, i.container_id, ct.name AS container_name, ct.kind AS container_kind, i.purchase_price,
+    i.misprint, i.proxy, i.container_id, ct.name AS container_name, ct.kind AS container_kind,
+    sd.id AS spares_of_deck_id, sd.name AS spares_of_deck, i.purchase_price,
     i.purchase_currency, i.note, i.updated_at, p.oracle_id, p.name, p.set_code, p.set_name, p.collector_number,
     p.rarity, p.image_small, p.image_normal, p.image_art_crop, p.artist, c.type_line, c.color_identity,
     p.promo_types, p.frame_effects, p.border_color, p.full_art,
@@ -751,6 +758,7 @@ const ITEM_SELECT: &str = "SELECT i.id, i.scryfall_id, i.qty, i.condition, i.fin
     ps.date AS price_date
     FROM collection_items i
     LEFT JOIN containers ct ON ct.id = i.container_id
+    LEFT JOIN decks sd ON sd.spares_container_id = i.container_id AND sd.owner_id = i.owner_id AND sd.archived = 0
     LEFT JOIN printings p ON p.scryfall_id = i.scryfall_id
     LEFT JOIN cards c ON c.oracle_id = p.oracle_id
     LEFT JOIN price_latest ps ON ps.scryfall_id = i.scryfall_id";
@@ -916,6 +924,9 @@ pub(crate) struct Container {
     pub(crate) name: String,
     /// Copies filed in this container itself, not counting its sections.
     pub(crate) copies: i64,
+    /// The live deck whose swappable spares it holds (`decks::spares`): its id and name.
+    pub(crate) spares_of_deck_id: Option<String>,
+    pub(crate) spares_of_deck: Option<String>,
     /// The container this one is a section of; None at the top level.
     #[sqlx(skip)]
     pub(crate) parent_id: Option<String>,
@@ -959,8 +970,9 @@ pub(crate) async fn containers_for(pool: &SqlitePool, owner: &str) -> AppResult<
     let mut conn = pool.acquire().await?;
     let tree = sections::Tree::load(&mut conn, owner).await?;
     let mut own: std::collections::HashMap<String, Container> = sqlx::query_as::<_, Container>(
-        "SELECT ct.id, ct.kind, ct.name, IFNULL(SUM(i.qty), 0) AS copies FROM containers ct
+        "SELECT ct.id, ct.kind, ct.name, IFNULL(SUM(i.qty), 0) AS copies, sd.id AS spares_of_deck_id, sd.name AS spares_of_deck FROM containers ct
          LEFT JOIN collection_items i ON i.container_id = ct.id
+         LEFT JOIN decks sd ON sd.spares_container_id = ct.id AND sd.owner_id = ct.owner_id AND sd.archived = 0
          WHERE ct.owner_id = ? GROUP BY ct.id",
     )
     .bind(owner)
@@ -1060,6 +1072,12 @@ async fn create_container(
     Ok(Json(serde_json::json!({ "id": id })))
 }
 
+/// The kind a section takes when none is said: its parent's, except that a section of a deck box
+/// is a box (a "deck" container is a deck's box, and its cards count as in a deck).
+pub(crate) fn section_kind(parent: &str) -> &str {
+    if parent == "deck" { "box" } else { parent }
+}
+
 /// Make a container of a checked kind and name, in `parent` (None: top level), or answer with the
 /// one of that kind and name already there. Without a kind, a section takes its parent's. Shared
 /// with the MCP's `create_container`.
@@ -1070,12 +1088,15 @@ pub(crate) async fn insert_container(pool: &SqlitePool, owner: &str, kind: Optio
     let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
     let kind = match (kind, parent) {
         (Some(k), _) => k.to_string(),
-        (None, Some(p)) => sqlx::query_scalar("SELECT kind FROM containers WHERE id = ? AND owner_id = ?")
-            .bind(p)
-            .bind(owner)
-            .fetch_optional(&mut *tx)
-            .await?
-            .ok_or(AppError::NotFound("container"))?,
+        (None, Some(p)) => {
+            let parent: String = sqlx::query_scalar("SELECT kind FROM containers WHERE id = ? AND owner_id = ?")
+                .bind(p)
+                .bind(owner)
+                .fetch_optional(&mut *tx)
+                .await?
+                .ok_or(AppError::NotFound("container"))?;
+            section_kind(&parent).to_string()
+        }
         (None, None) => return Err(AppError::bad(format!("container kind must be one of {}", KINDS.join(", ")))),
     };
     let existing: Option<String> =
@@ -1205,8 +1226,8 @@ pub(crate) async fn update_container(pool: &SqlitePool, owner: &str, id: &str, n
     Ok(())
 }
 
-/// Deleting a container keeps its cards; they become unfiled. One that still has sections is
-/// refused (409) and changes nothing. A container that isn't the caller's (someone else's, already deleted, never there) is a 404 and changes nothing.
+/// Deleting a container keeps its cards: a section's go into the container it was in, a top-level
+/// one's become unfiled. One that still has sections is refused (409) and changes nothing. A container that isn't the caller's (someone else's, already deleted, never there) is a 404 and changes nothing.
 async fn delete_container(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<()> {
     st.limits.collection_writes.check_user(&user)?;
     if delete_container_for_owner(&st.pool, &user.id, &id).await? { Ok(()) } else { Err(AppError::NotFound("container")) }
@@ -1216,14 +1237,14 @@ async fn delete_container(State(st): State<AppState>, CurrentUser(user): Current
 async fn delete_container_for_owner(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<bool> {
     // Immediate: it reads the container's cards and then rewrites them.
     let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
-    let mine: Option<String> = sqlx::query_scalar("SELECT id FROM containers WHERE id = ? AND owner_id = ?")
+    let mine: Option<(String, Option<String>)> = sqlx::query_as("SELECT id, parent_id FROM containers WHERE id = ? AND owner_id = ?")
         .bind(id)
         .bind(owner)
         .fetch_optional(&mut *tx)
         .await?;
-    if mine.is_none() {
+    let Some((_, parent)) = mine else {
         return Ok(false);
-    }
+    };
     // Its sections would have nowhere to go: move or delete them first.
     let sections: Vec<String> = sqlx::query_scalar("SELECT name FROM containers WHERE parent_id = ? AND owner_id = ? ORDER BY name")
         .bind(id)
@@ -1238,7 +1259,9 @@ async fn delete_container_for_owner(pool: &SqlitePool, owner: &str, id: &str) ->
             if sections.len() == 1 { "it" } else { "them" }
         )));
     }
-    // Unfiling can collide with an identical unfiled row, so re-add rather than update.
+    // Its cards go where it was: into the container it was a section of (they are still in that
+    // box), or loose for a top-level one. Unfiling can collide with an identical row there, so it
+    // goes through the op, which merges.
     let ids: Vec<String> = sqlx::query_scalar("SELECT id FROM collection_items WHERE container_id = ? AND owner_id = ?")
         .bind(id)
         .bind(owner)
@@ -1253,7 +1276,7 @@ async fn delete_container_for_owner(pool: &SqlitePool, owner: &str, id: &str) ->
                 condition: None,
                 finish: None,
                 lang: None,
-                container_id: Some(None),
+                container_id: Some(parent.clone()),
                 purchase_price: None,
                 note: None,
                 proxy: None,
@@ -1266,6 +1289,8 @@ async fn delete_container_for_owner(pool: &SqlitePool, owner: &str, id: &str) ->
         apply_op(&mut tx, owner, &op).await?;
     }
     sqlx::query("UPDATE decks SET container_id = NULL WHERE container_id = ? AND owner_id = ?")
+        .bind(id).bind(owner).execute(&mut *tx).await?;
+    sqlx::query("UPDATE decks SET spares_container_id = NULL WHERE spares_container_id = ? AND owner_id = ?")
         .bind(id).bind(owner).execute(&mut *tx).await?;
     sqlx::query("DELETE FROM containers WHERE id = ? AND owner_id = ?").bind(id).bind(owner).execute(&mut *tx).await?;
     tx.commit().await?;

@@ -83,6 +83,7 @@ part of it). "Gap" rows are the backlog, in rough priority order inside each are
 | Totals, market value, paid, per-container values | Collection | `get_collection_summary` | Both (added 2026-11-09) |
 | Add copies | Collection, Scanner | `add_to_collection` (staged) | Both |
 | Move copies between containers | Collection | `move_cards` (staged; `proxy` moves only proxies or only real copies, 2026-11-15) | Both |
+| A deck's swappable spares (in its box, outside the 100) | Deck page, Swappable spares; Collection, Move | `move_cards` with `to_deck_spares`/`from_deck_spares` (staged), `get_deck`, `list_collection_cards` (`spares_of_deck`) | Both (linking another box or stopping: web only) |
 | Set condition | Collection item sheet | `set_condition` (staged) | Both |
 | Edit one copy: finish, printing, price paid, proxy, remove | Collection item sheet | `edit_copies`, `remove_from_collection` (staged), by card and container | Both (2026-11-11) for copies in a binder, box or list; **Gap (MCP)** for changing the printing and for copies not in a container |
 | Mark a copy signed or altered, or set its language | Collection item sheet | — | **Gap (MCP)**: `edit_copies` doesn't set them |

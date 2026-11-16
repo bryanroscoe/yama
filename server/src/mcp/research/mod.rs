@@ -320,7 +320,7 @@ pub(super) const TOOLS: &[Tool] = &[
         name: "list_collection_cards",
         aliases: &["collection_cards"],
         title: "Owned cards and locations",
-        description: "Read your collection, including quantities, proxies and containers (container_path for a section). Filter by card-name text, one container or copies outside deck containers. Outside a deck box does not establish that a copy is unreserved in an upgrade plan.",
+        description: "Read your collection, including quantities, proxies and containers (container_path for a section). Filter by card-name text, one container or copies outside deck containers. spares_of_deck names the deck whose swappable spares a copy is (in its box, outside the 100); outside_decks leaves those out. Outside a deck box does not establish that a copy is unreserved in an upgrade plan.",
         kind: Kind::Read,
         offer: Offer::Everyone,
         search: true,
@@ -1177,7 +1177,7 @@ async fn collection(st: &AppState, user: &User, args: &Value) -> AppResult<Value
             .unwrap_or("")
             .to_lowercase()
             .contains(&query)
-            && (!outside || i.container_kind.as_deref() != Some("deck"))
+            && (!outside || (i.container_kind.as_deref() != Some("deck") && i.spares_of_deck.is_none()))
             && place.as_ref().is_none_or(|(ids, _)| ids.contains(i.container_id.as_deref().unwrap_or("")))
     });
     rows.sort_by(|a, b| a.name.cmp(&b.name).then(a.id.cmp(&b.id)));
@@ -1200,7 +1200,7 @@ async fn collection(st: &AppState, user: &User, args: &Value) -> AppResult<Value
             }
             if summary {
                 // A missing price stays null, beside the date it was read and found missing.
-                o.retain(|k, _| ["name", "set_code", "collector_number", "qty", "finish", "condition", "proxy", "container_name", "container_path", "container_kind", "unit_price_usd", "price_date"].contains(&k.as_str()));
+                o.retain(|k, _| ["name", "set_code", "collector_number", "qty", "finish", "condition", "proxy", "container_name", "container_path", "container_kind", "spares_of_deck", "unit_price_usd", "price_date"].contains(&k.as_str()));
             }
         }
     }

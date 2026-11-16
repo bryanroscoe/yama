@@ -7,7 +7,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { SymbolText } from "../components/ManaSymbols";
 import { useState } from "react";
 import { Link, useLocation } from "react-router";
-import { api, type Card, type CollectionItem, type Printing } from "../api";
+import { api, placeName, type Card, type CollectionItem, type Printing } from "../api";
 import { signInPath } from "../auth";
 import { cardDetailQuery } from "../cardDetail";
 import { isGuest } from "../guest";
@@ -152,10 +152,10 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
   // Your copies' finishes by printing, so a printing's line says whether yours is foil.
   const myPrintings = new Map<string, string[]>();
   for (const i of mine) myPrintings.set(i.scryfall_id, [...(myPrintings.get(i.scryfall_id) ?? []), i.finish]);
-  const places = [...new Set(mine.map((i) => i.container_name ?? "Not filed"))];
+  const places = [...new Set(mine.map((i) => placeName(i)))];
   const ownedLong =
     mine.length === 1
-      ? `In ${mine[0]!.container_name ?? "no binder or box"}, ${mine[0]!.set_name ?? "unknown set"} #${mine[0]!.collector_number}, ${CONDITIONS[mine[0]!.condition] ?? mine[0]!.condition}${mine[0]!.finish !== "nonfoil" ? `, ${mine[0]!.finish}` : ""}`
+      ? `In ${placeName(mine[0]!, "no binder or box")}, ${mine[0]!.set_name ?? "unknown set"} #${mine[0]!.collector_number}, ${CONDITIONS[mine[0]!.condition] ?? mine[0]!.condition}${mine[0]!.finish !== "nonfoil" ? `, ${mine[0]!.finish}` : ""}`
       : `In ${listWords(places)}`;
   const ownedShort = places.length === 1 ? (places[0] === "Not filed" ? "Not filed" : `In ${places[0]}`) : `In ${places.length} places`;
   const pt = card.power ? `${card.power}/${card.toughness}` : card.loyalty ? `Loyalty ${card.loyalty}` : "";

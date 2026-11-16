@@ -99,6 +99,21 @@ async fn sections_by_path_and_many_moves_as_one_change() {
     stage_apply("move_cards", moves).await;
     assert_eq!(held().await, [(None, 5), (Some("Plains".into()), 1), (Some("Spares".into()), 2)], "Big box › Bulk Basic › Plains keeps 0 of 4, Spares › Plains 1");
 
+    // Staging follows the copies each move takes: two foils brought into Loose can't be taken
+    // out again as regular copies, but they can as foils.
+    sqlx::query("UPDATE collection_items SET finish = 'foil' WHERE owner_id = ? AND container_id = (SELECT id FROM containers WHERE name = 'Spares')").bind(&a).execute(&pool).await.unwrap();
+    let (err, text) = call(&app, &mcp, "move_cards", json!({"moves": [
+        {"card": "Forest", "qty": 2, "from": "Spares", "to": "Loose"},
+        {"card": "Forest", "qty": 6, "from": "Loose", "to": "Spares", "finish": "nonfoil"},
+    ]})).await;
+    assert!(err && text.contains("Move 2: Loose (in no binder or box) holds 5 Forest like that, not 6"), "{text}");
+    let (err, text) = call(&app, &mcp, "move_cards", json!({"moves": [
+        {"card": "Forest", "qty": 2, "from": "Spares", "to": "Loose"},
+        {"card": "Forest", "qty": 2, "from": "Loose", "to": "Spares", "finish": "foil"},
+    ]})).await;
+    assert!(!err, "{text}");
+    sqlx::query("UPDATE collection_items SET finish = 'nonfoil' WHERE owner_id = ?").bind(&a).execute(&pool).await.unwrap();
+
     // A batch that can't happen is refused whole, naming the move.
     let (err, text) = call(&app, &mcp, "move_cards", json!({"moves": [
         {"card": "Forest", "from": "Loose", "to": "Spares"},

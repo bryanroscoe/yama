@@ -343,6 +343,9 @@ export interface CollectionItem {
   container_id: string | null;
   container_name: string | null;
   container_kind: string | null;
+  /** The deck whose swappable spares this copy is: in that deck's box, on top of its 100. */
+  spares_of_deck_id?: string | null;
+  spares_of_deck?: string | null;
   purchase_price: number | null;
   oracle_id: string | null;
   name: string | null;
@@ -368,6 +371,9 @@ export interface Container {
   kind: string;
   name: string;
   copies: number;
+  /** The deck whose swappable spares it holds (in that deck's box, outside its 100). */
+  spares_of_deck_id?: string | null;
+  spares_of_deck?: string | null;
   /** Market value of the copies that have a price; the others are counted separately. */
   market_value_usd?: number;
   copies_without_price?: number;
@@ -1049,3 +1055,35 @@ export interface PreconList {
   unknown: string[];
 }
 
+
+/** What one of a deck's swappable spares comes in for. */
+export interface SpareSwap {
+  out: string | null;
+  bracket: number | null;
+  note: string | null;
+  /** "plan": the plan's bracket bag; "owner": their own note. */
+  from: "plan" | "owner";
+}
+
+/** A deck's swappable spares (server/src/decks/spares.rs): copies kept in its box on top of the 100. */
+export interface DeckSpares {
+  deck_id: string;
+  deck_name: string;
+  container_id: string | null;
+  container_name: string | null;
+  place: string;
+  copies: number;
+  cards: { oracle_id: string; name: string; qty: number; proxies: number; image_small: string | null; swaps: SpareSwap[] }[];
+  planned_missing: { name: string; swaps: SpareSwap[] }[];
+}
+
+/** Where a copy is, as the collection says it: a deck's swappable spares by their deck. */
+export function placeName(c: { container_name: string | null; spares_of_deck?: string | null }, none = "Not filed"): string {
+  if (c.spares_of_deck) return `${c.spares_of_deck}'s box (swappable)`;
+  return c.container_name ?? none;
+}
+
+/** A container in a picker: its name and kind, or which deck's swappable spares it holds. */
+export function containerOption(c: Pick<Container, "name" | "kind" | "spares_of_deck">): string {
+  return c.spares_of_deck ? `${c.spares_of_deck}'s box (swappable): ${c.name}` : `${c.name} (${c.kind})`;
+}

@@ -160,7 +160,16 @@ pub fn find<'a>(tree: &'a Tree, wanted: &str) -> Vec<&'a Node> {
     if let Some(n) = tree.get(wanted) {
         return vec![n];
     }
-    let whole: Vec<&Node> = tree.nodes.iter().filter(|n| n.name.eq_ignore_ascii_case(wanted)).collect();
+    let mut whole: Vec<&Node> = tree.nodes.iter().filter(|n| n.name.eq_ignore_ascii_case(wanted)).collect();
+    // Several with that name: the one written exactly so ("Plains", not "plains"), then the one at
+    // the top level (a section is named by its path).
+    let rules: [fn(&&Node, &str) -> bool; 2] = [|n, w| n.name == w, |n, _| n.parent_id.is_none()];
+    for narrower in rules {
+        let fewer: Vec<&Node> = whole.iter().copied().filter(|n| narrower(n, wanted)).collect();
+        if whole.len() > 1 && !fewer.is_empty() {
+            whole = fewer;
+        }
+    }
     if !whole.is_empty() {
         return whole;
     }
@@ -269,6 +278,14 @@ mod tests {
         assert_eq!(ids("Bulk Basic/Plains"), ["pl"], "a path can start lower down");
         assert_eq!(ids("Island"), ["is"]);
         assert_eq!(ids("Plains").len(), 2, "a name two sections share is ambiguous");
+        let mut more = tree().nodes;
+        more.push(node("top-bb", "Bulk Basic", None));
+        more.push(node("lower", "plains", Some("other")));
+        let t2 = Tree::new(more);
+        let ids2 = |w: &str| find(&t2, w).iter().map(|n| n.id.clone()).collect::<Vec<_>>();
+        assert_eq!(ids2("Bulk Basic"), ["top-bb"], "the top-level one; the section has a path");
+        assert_eq!(ids2("Big box/Bulk Basic"), ["bb"]);
+        assert_eq!(ids2("plains"), ["lower"], "written exactly so");
         assert_eq!(ids("Deck spares/Plains"), ["pl2"]);
         // A name with a slash in it: whole, or as a step.
         assert_eq!(ids("W/U"), ["wu"]);
@@ -333,6 +350,13 @@ mod tests {
         assert_eq!(make(json!({"name": "No kind"})).await.0, StatusCode::BAD_REQUEST);
         let kind: String = sqlx::query_scalar("SELECT kind FROM containers WHERE id = ?").bind(&plains).fetch_one(&pool).await.unwrap();
         assert_eq!(kind, "box", "a section takes its parent's kind");
+        let deck_box = id(make(json!({"kind": "deck", "name": "Riders"})).await);
+        let bag = id(make(json!({"name": "Swap bag", "parent_id": deck_box})).await);
+        let kind: String = sqlx::query_scalar("SELECT kind FROM containers WHERE id = ?").bind(&bag).fetch_one(&pool).await.unwrap();
+        assert_eq!(kind, "box", "a section of a deck box is a box, not another deck");
+        for gone in [bag, deck_box] {
+            assert_eq!(send(&app, Method::DELETE, &format!("/api/containers/{gone}"), Some(&token), None).await.0, StatusCode::OK);
+        }
 
         // Cards in a section count in it and roll up to every box above it.
         printing(&pool, "p1", "Plains", 0.10).await;
@@ -392,10 +416,12 @@ mod tests {
         let (status, body) = delete(&spares).await;
         assert_eq!(status, StatusCode::CONFLICT, "{body:?}");
         assert_eq!(delete(&plains).await.0, StatusCode::OK);
+        let in_spares: i64 = sqlx::query_scalar("SELECT SUM(qty) FROM collection_items WHERE owner_id = ? AND container_id = ?").bind(&owner).bind(&spares).fetch_one(&pool).await.unwrap();
+        assert_eq!(in_spares, 10, "a deleted section's cards go into the box it was in");
         assert_eq!(delete(&plains2).await.0, StatusCode::OK);
         assert_eq!(delete(&spares).await.0, StatusCode::OK);
         let loose: i64 = sqlx::query_scalar("SELECT SUM(qty) FROM collection_items WHERE owner_id = ? AND container_id IS NULL").bind(&owner).fetch_one(&pool).await.unwrap();
-        assert_eq!(loose, 10, "the deleted section's cards are unfiled, not lost");
+        assert_eq!(loose, 10, "a deleted top-level box's cards are unfiled, not lost");
 
         // An import naming a box that was moved into another finds it there.
         let (_, list) = send(&app, Method::GET, "/api/containers", Some(&token), None).await;

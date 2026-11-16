@@ -183,6 +183,8 @@ pub struct Limits {
     pub collection_writes: RateLimiter,
     /// Scan photos kept for improving the scanner (scan_samples.rs), per account.
     pub scan_samples: RateLimiter,
+    /// Scanner diagnostics (scan_diagnostics.rs), per account: one per card the scanner struggled with.
+    pub scan_diagnostics: RateLimiter,
     /// Mythic Tools bridge game previews and imports, per account (bridges/mythic). The page
     /// previews again on each change, so this allows more than `imports`.
     pub mythic_bridge: RateLimiter,
@@ -261,6 +263,7 @@ impl Default for Limits {
             collection_previews: RateLimiter::new("import previews", 200, 60 * MINUTE),
             collection_writes: RateLimiter::new("collection changes", 600, 10 * MINUTE),
             scan_samples: RateLimiter::new("scan photos", 600, 60 * MINUTE),
+            scan_diagnostics: RateLimiter::new("scanner diagnostics", 200, 60 * MINUTE),
             mythic_bridge: RateLimiter::new("Mythic Tools imports", 200, 60 * MINUTE),
             deck_writes: RateLimiter::new("deck saves", 120, 10 * MINUTE),
             game_saves: RateLimiter::new("game saves", 1200, 10 * MINUTE),

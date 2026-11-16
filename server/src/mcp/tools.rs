@@ -164,8 +164,8 @@ pub(super) const TOOLS: &[Tool] = &[
         aliases: &["deck"],
         title: "One deck",
         description: "One of their Yama decks: the current list, the bracket they declared, Commander legality problems \
-                      (size, singleton, color identity, banned cards), Game Changers and real game results. \
-                      Give the deck's name (as `get_overview` lists it) or its id.",
+                      (size, singleton, color identity, banned cards), Game Changers, real game results and its swappable \
+                      spares (kept in its box outside the 100). Give the deck's name (as `get_overview` lists it) or its id.",
         schema: || obj(&[("deck", "string", "The deck's name or id.")], &["deck"]),
         kind: Kind::Read,
         offer: Offer::Everyone,
@@ -1220,9 +1220,9 @@ pub(super) const TOOLS: &[Tool] = &[
         name: "move_cards",
         aliases: &[],
         title: "Move cards between binders and boxes",
-        description: staged!(
-            "Move copies of a card from one of their containers to another; moves (up to 500) stages many as one all-or-nothing change."
-        ),
+        description: staged!("Move copies of a card between their containers; moves (up to 500) stages many as one all-or-nothing \
+                      change. A deck's swappable spares are cards kept in its box outside the 100: to_deck_spares puts copies \
+                      there (swaps_for and bracket say what each comes in for), from_deck_spares takes them out."),
         schema: || {
             let one = |required: bool| {
                 let mut o = json!({
@@ -1230,8 +1230,12 @@ pub(super) const TOOLS: &[Tool] = &[
                     "properties": {
                         "card": {"type": "string"},
                         "qty": {"type": "integer", "minimum": 1, "maximum": 1000},
-                        "from": {"type": "string", "description": "Where the copies are: a container by name or path (\"Big box/Bulk Basic\"), or \"Loose\" for copies in none."},
-                        "to": {"type": "string", "description": "Where they go, the same way."},
+                        "from": {"type": "string", "description": "Where the copies are: a container by name or path (\"Big box/Bulk Basic\"), or \"Loose\" for copies in none. Give this or from_deck_spares."},
+                        "to": {"type": "string", "description": "Where they go, the same way. Give this or to_deck_spares. A deck box by name means the deck's 100."},
+                        "from_deck_spares": {"type": "string", "description": "A deck's name or id: take the copies out of that deck's swappable spares."},
+                        "to_deck_spares": {"type": "string", "description": "A deck's name or id: put the copies in that deck's swappable spares (in its box, outside the 100). A configuration means its main deck."},
+                        "swaps_for": {"type": "string", "description": "With to_deck_spares: the card in the deck this spare comes in for."},
+                        "bracket": {"type": "integer", "minimum": 1, "maximum": 5, "description": "With to_deck_spares: the Commander bracket that swap is for."},
                         "proxy": {"type": "boolean", "description": "true moves only proxies, false only real copies. Left out, real copies go first."},
                         "set": {"type": "string", "maxLength": 10, "description": "Only copies of this printing: its set code."},
                         "number": {"type": "string", "maxLength": 20, "description": "Collector number in that set."},
@@ -1240,7 +1244,7 @@ pub(super) const TOOLS: &[Tool] = &[
                     "additionalProperties": false,
                 });
                 if required {
-                    o["required"] = json!(["card", "from", "to"]);
+                    o["required"] = json!(["card"]);
                 }
                 o
             };
@@ -1460,6 +1464,44 @@ pub(super) const TOOLS: &[Tool] = &[
         needs: Needs::Nothing,
     },
     Tool {
+        name: "list_scan_diagnostics",
+        aliases: &[],
+        title: "Your scanner diagnostics",
+        description: "The scanner diagnostics this account kept (Scan settings, off by default): one per card the scanner struggled with, newest first, with how it ended, why it was kept and its images. Read one with get_scan_diagnostic.",
+        schema: || json!({"type": "object", "properties": {
+            "limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Records per page, default 20."},
+            "cursor": {"type": "string", "maxLength": 200, "description": "next_cursor from the answer before."}}, "additionalProperties": false}),
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_scan_diagnostics),
+        stages: None,
+        output: Some(registry::paged),
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
+    },
+    Tool {
+        name: "get_scan_diagnostic",
+        aliases: &[],
+        title: "One scanner diagnostic, or one of its images",
+        description: "One scanner diagnostic by id: the camera, every frame's reads with the evidence, the art and title reads, and how it ended. With image (a name it lists, such as \"strip\" or \"card\"), that JPEG as an image, or as base64 text with encoding \"base64\".",
+        schema: || json!({"type": "object", "properties": {
+            "id": {"type": "string", "description": "The diagnostic id from list_scan_diagnostics."},
+            "image": {"type": "string", "description": "Optional: one image name from the record, to see that image."},
+            "encoding": {"type": "string", "enum": ["image", "base64"], "description": "With image: as MCP image content (default) or base64 text, for saving it."}},
+            "required": ["id"], "additionalProperties": false}),
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_scan_diagnostic),
+        stages: None,
+        output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
+    },
+    Tool {
         name: "apply_change",
         aliases: &[],
         title: "Apply a staged change",
@@ -1522,6 +1564,31 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
 }
 
 // ── handlers: one per tool that isn't a staged write (those are in `changes.rs`) ─────────────
+
+async fn run_scan_diagnostics(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let page = super::page::page(args, "scan_diagnostics", 20, 100)?;
+    let mut out = crate::scan_diagnostics::list(&c.st.pool, &c.user.id, page.offset as i64, page.limit as i64).await?;
+    let total = out["count"].as_u64().unwrap_or(0) as usize;
+    out["next_cursor"] = json!(page.next("scan_diagnostics", total));
+    Ok(out.to_string())
+}
+
+async fn run_scan_diagnostic(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let id = args.get("id").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).ok_or_else(|| AppError::bad("id is required"))?;
+    let pool = &c.st.pool;
+    if let Some(name) = args.get("image").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()) {
+        let bytes = crate::scan_diagnostics::image(pool, &c.st.cfg.data_dir, &c.user.id, id, name)
+            .await?
+            .ok_or_else(|| AppError::bad(format!("No image \"{name}\" on scan diagnostic {id}. get_scan_diagnostic with the id alone lists its images.")))?;
+        if args.get("encoding").and_then(Value::as_str) == Some("base64") {
+            use base64::Engine as _;
+            return Ok(json!({"id": id, "image": name, "mime": "image/jpeg", "base64": base64::engine::general_purpose::STANDARD.encode(&bytes)}).to_string());
+        }
+        return Ok(registry::image_answer("image/jpeg", &format!("Scan diagnostic {id}, image {name} ({} bytes).", bytes.len()), &bytes));
+    }
+    let one = crate::scan_diagnostics::one(pool, &c.user.id, id).await?.ok_or_else(|| AppError::bad(format!("No scan diagnostic {id} on this account. list_scan_diagnostics lists them.")))?;
+    Ok(serde_json::to_string_pretty(&one).map_err(anyhow::Error::from)?)
+}
 
 #[allow(unused_variables)]
 async fn run_datasets(c: Ctx<'_>, args: &Value) -> AppResult<String> {
@@ -2151,8 +2218,55 @@ async fn deck(pool: &SqlitePool, user: &User, wanted: &str) -> AppResult<String>
         out.push('\n');
         out.push_str(&checks(&cards, &info));
     }
+    out.push_str(&spares_text(&crate::decks::spares::view(pool, &user.id, &id).await?));
     let _ = writeln!(out, "Deck id: {id}");
     Ok(out)
+}
+
+/// A deck's swappable spares as lines for `get_deck`.
+fn spares_text(s: &crate::decks::spares::Spares) -> String {
+    let mut out = String::new();
+    let swap_line = |w: &crate::decks::spares::SpareSwap| {
+        let mut said = match (&w.out, w.bracket) {
+            (Some(o), Some(b)) => format!("for {o} at Bracket {b}"),
+            (Some(o), None) => format!("for {o}"),
+            (None, Some(b)) => format!("at Bracket {b}"),
+            (None, None) => String::new(),
+        };
+        if let Some(n) = &w.note {
+            said = if said.is_empty() { n.clone() } else { format!("{said} ({n})") };
+        }
+        format!("{said} [{}]", if w.from == "plan" { "plan's bracket bag" } else { "their note" })
+    };
+    match &s.container_name {
+        None => {
+            let _ = writeln!(out, "Swappable spares (in the deck box, outside the 100): none set up. move_cards with to_deck_spares puts a card there.");
+        }
+        Some(box_name) => {
+            let _ = writeln!(
+                out,
+                "Swappable spares (in the deck box, outside the 100; not counted in the list or its checks): {} copies, kept as \"{box_name}\"{}",
+                s.copies,
+                if s.cards.is_empty() { ", empty" } else { ":" }
+            );
+            for c in &s.cards {
+                let swaps: Vec<String> = c.swaps.iter().map(swap_line).collect();
+                let _ = writeln!(
+                    out,
+                    "- {} {}{}{}",
+                    c.qty,
+                    c.name,
+                    if c.proxies > 0 { format!(" ({} proxy)", c.proxies) } else { String::new() },
+                    if swaps.is_empty() { String::new() } else { format!(": {}", swaps.join("; ")) }
+                );
+            }
+        }
+    }
+    if !s.planned_missing.is_empty() {
+        let names: Vec<String> = s.planned_missing.iter().map(|m| format!("{} ({})", m.name, m.swaps.iter().map(swap_line).collect::<Vec<_>>().join("; "))).collect();
+        let _ = writeln!(out, "The plan's bracket bags name these, not in the swappable spares: {}", names.join(", "));
+    }
+    out
 }
 
 async fn check_list(pool: &SqlitePool, args: &Value) -> AppResult<String> {

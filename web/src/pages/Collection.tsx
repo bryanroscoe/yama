@@ -13,7 +13,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { exportLink } from "../download";
-import { api, API_BASE, ApiError, type CollectionItem, type CollectionSummary, type Container, type DeckSummary, type Printing } from "../api";
+import { api, API_BASE, ApiError, placeName, type CollectionItem, type CollectionSummary, type Container, type DeckSummary, type Printing } from "../api";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { BackLink, Button, ButtonLink, CardImage, CardThumb, Details, Dialog, EmptyState, ErrorText, Field, Loading, Segmented, Tag } from "../components/ui";
 import "./collection.css";
@@ -218,7 +218,7 @@ export function CollectionPage() {
             const name = c ? c.name : container === "none" ? "Loose cards" : containers.data ? "No such binder or box" : "";
             return (
               <ArtPanel art={t?.art ?? c?.art ?? null} artist={t?.artist ?? c?.artist ?? null} wash="bottom" empty={!(t?.art ?? c?.art)} className="coll-open-art">
-                <span className="ct-kind">{c ? (c.parent_id ? "Section" : (KIND_LABEL[c.kind] ?? c.kind)) : container === "none" ? "Not filed" : ""}</span>
+                <span className="ct-kind">{c ? (c.spares_of_deck ? `${c.spares_of_deck}'s box (swappable)` : c.parent_id ? "Section" : (KIND_LABEL[c.kind] ?? c.kind)) : container === "none" ? "Not filed" : ""}</span>
                 <h2 className="ct-name">{name}</h2>
                 <span className="ct-meta num">{c ? tileMeta(c.total_copies ?? c.copies, c.total_market_value_usd ?? c.market_value_usd, c.total_copies_without_price ?? c.copies_without_price) : container === "none" && s ? tileMeta(loose, undefined, undefined) : ""}</span>
               </ArtPanel>
@@ -243,7 +243,7 @@ export function CollectionPage() {
               <li key={c.id}>
                 <Button className="container-tile" onClick={() => setContainer(c.id)}>
                   <ArtPanel as="span" art={art} artist={artist} wash="bottom" credit={false}>
-                    <span className="ct-kind">{KIND_LABEL[c.kind] ?? c.kind}</span>
+                    <span className="ct-kind">{c.spares_of_deck ? `${c.spares_of_deck}'s box (swappable)` : (KIND_LABEL[c.kind] ?? c.kind)}</span>
                     <span className="ct-name">{c.name}</span>
                     <span className="ct-meta num">
                       {tileMeta(c.total_copies ?? c.copies, c.total_market_value_usd ?? c.market_value_usd, c.total_copies_without_price ?? c.copies_without_price)}
@@ -363,7 +363,7 @@ export function CollectionPage() {
         {show === "list" && (
         <ul className="coll-list">
           {shown.map((i) => {
-            const place = placeLabel(i.container_id, all) ?? i.container_name ?? "Not filed";
+            const place = i.spares_of_deck ? placeName(i) : (placeLabel(i.container_id, all) ?? placeName(i));
             const cond = CONDITIONS[i.condition] ?? i.condition;
             // "Surge foil", "Showcase": what makes this copy's printing special.
             const special = treatmentLabel(i, i.finish);
@@ -435,10 +435,11 @@ export function CollectionPage() {
           onClose={() => setSelling(false)}
         />
       )}
-      {deleting && <DeleteContainer container={deleting} onClose={() => setDeleting(null)} onDeleted={() => {
+      {deleting && <DeleteContainer container={deleting} parent={placeLabel(deleting.parent_id, all)} onClose={() => setDeleting(null)} onDeleted={() => {
         setContainer("");
         setDeleting(null);
-        setDone(`Deleted “${pathLabel(deleting, all)}”. Its cards are still in your collection as loose cards.`);
+        const parent = placeLabel(deleting.parent_id, all);
+        setDone(`Deleted “${pathLabel(deleting, all)}”. ${parent ? `Its cards are now in ${parent}.` : "Its cards are still in your collection as loose cards."}`);
       }} />}
       {importing === "cards" && <ImportCollectionSheet containers={containers.data ?? []} onClose={() => setImporting(null)} onMythic={() => setImporting("mythic")} />}
       {importing === "mythic" && <MythicImportSheet onClose={() => setImporting(null)} />}
@@ -547,7 +548,7 @@ function MythicImportSheet({ onClose }: { onClose: () => void }) {
   );
 }
 
-export function DeleteContainer({ container, onClose, onDeleted }: { container: Container; onClose: () => void; onDeleted: () => void }) {
+export function DeleteContainer({ container, parent, onClose, onDeleted }: { container: Container; parent?: string | null; onClose: () => void; onDeleted: () => void }) {
   const qc = useQueryClient();
   const label = (KIND_LABEL[container.kind] ?? "container").toLowerCase();
   const remove = useMutation({
@@ -562,7 +563,7 @@ export function DeleteContainer({ container, onClose, onDeleted }: { container: 
     <Dialog label={`Delete ${label}`} onClose={() => { if (!remove.isPending) onClose(); }}>
       <div className="stack">
         <h2>Delete “{container.name}”?</h2>
-        <p>Any cards inside will stay in your collection as loose cards. Saved decks and their lists will stay too.</p>
+        <p>{parent ? `Any cards inside go into ${parent}, the box it's in.` : "Any cards inside will stay in your collection as loose cards."} Saved decks and their lists will stay too.</p>
         <div className="row">
           <Button variant="destructive" disabled={remove.isPending} onClick={() => remove.mutate()}>{remove.isPending ? "Deleting…" : `Delete ${label}`}</Button>
           <Button variant="quiet" disabled={remove.isPending} onClick={onClose}>Cancel</Button>

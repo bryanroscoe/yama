@@ -12,7 +12,7 @@ import { placeLabel, subtreeIds } from "./containerTree";
 export { addCard, fixCard, removeCard, cardKey };
 
 /** What the check needs of a collection row. */
-export type Row = Pick<CollectionItem, "id" | "qty" | "name" | "proxy" | "container_id" | "container_kind" | "scryfall_id" | "set_code" | "collector_number" | "finish">;
+export type Row = Pick<CollectionItem, "id" | "qty" | "name" | "proxy" | "container_id" | "container_kind" | "spares_of_deck" | "scryfall_id" | "set_code" | "collector_number" | "finish">;
 
 /** A check in progress for one container. `sections`: its sections count as inside it. */
 export interface BoxCheckDraft {
@@ -64,9 +64,10 @@ export interface BoxResult {
 }
 
 /** Where copies come from first: real copies before proxies; loose, then boxes and binders, deck
- *  boxes last (a deck's copy is more likely where Yama says); then the row with the most. */
+ *  boxes and a deck's swappable spares last (a deck's copy is more likely where Yama says); then the row with the most. */
 function sourceOrder(a: Row, b: Row): number {
-  const tier = (r: Row) => (r.container_id == null ? 0 : r.container_kind === "deck" ? 2 : 1);
+  // A deck's swappable spares are kept with its deck, like the deck box itself.
+  const tier = (r: Row) => (r.container_id == null ? 0 : r.container_kind === "deck" || r.spares_of_deck ? 2 : 1);
   return Number(a.proxy) - Number(b.proxy) || tier(a) - tier(b) || b.qty - a.qty || a.id.localeCompare(b.id);
 }
 

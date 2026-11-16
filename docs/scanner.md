@@ -119,6 +119,31 @@ Bryan's Westvale photo, through the same steps (`eval/sample.test.ts`): the titl
 - **The still photo** is given 2 s (`withTimeout`) and runs alongside the frames rather than holding them up; the attempt's time cap ends the attempt whatever the still is doing.
 - **Native code**: none needed for this. A native camera (CameraX, with a fixed physical lens, focus metering and full-resolution stills) is still the consult's item 6, only if the web view's numbers fall short; it would need an APK update.
 
+**Scanner diagnostics, and replaying real scans (2026-11-15).** Bryan wanted to see what the scanner saw when it read a printing wrong, and the scanner consult's first item was a replayable record of it. The kept scan photos are 640 px, which puts the collector line at about 7 px, too small to replay a printing read. ARCHITECTURE.md, "Scanner diagnostics", has the data flow and the limits.
+- **Turning it on.** "Scanner diagnostics" in Scan settings, per device, off by default. Records are kept in the account and readable by their owner only; unlike Save scan photos, they're never shared. "Delete them" (shown while it's on) deletes them all. Turning it off stops the card in hand at once (its record keeps nothing more and is never sent); a record is sent only while the switch is on and the account that started it is still signed in (it carries that account's request signal, api.ts); its card photo is the card alone, warped upright from its corners, never the frame or photo around it; and an admin's View as can't read them (`view_as.rs`, `HIDDEN`).
+- **When a record is kept** (`diagnostics.ts`, `ScanRecord`):
+  - the printing was picked from the list;
+  - Wrong card, or Wrong printing (before or after filing; after filing it's a second record);
+  - hold and read gave up, or the close-up box took over;
+  - a title overruled the art.
+
+  A card that went smoothly sends nothing. The record goes when the card is filed, skipped, called wrong, or the scanner closes.
+- **What it holds:**
+  - Images:
+    - `strip`: the card's bottom edge, corner to corner (card y from 0.86 to 1: both collector corners), warped upright at the card's own resolution in the frame (`stripOf`, at most 2,400 px wide);
+    - `strip-last`: the same from the last frame read while the card was held;
+    - `card`: a 640 px photo.
+  - JSON:
+    - every frame's reads per crop (`first`, `hold`, `still`, `closeup`), with the strip's sharpness and glare, the card's height in pixels, the zoom, and the evidence after it;
+    - frames skipped as blurred;
+    - each attempt's budget summary;
+    - the art's top matches and scores, and the title reads with what they decided (`scan`);
+    - the candidate printings (`options`);
+    - the camera's name, settings and capabilities, its zoom and torch, and the text reader;
+    - what was misread, and how it ended (`final`).
+- **Reading them.** As the owner: `GET /api/scan/diagnostics` (a page, newest first), `GET /api/scan/diagnostics/<id>`, `GET /api/scan/diagnostics/<id>/images/<name>`, `DELETE` one or all. An agent connected as the owner uses the MCP tools `list_scan_diagnostics` and `get_scan_diagnostic` (with `image`, the JPEG as image content; with `encoding: "base64"`, as text).
+- **Replay** (`eval/real.test.ts`, with `SCANNER_REAL_DIR`; pure parts in `replay.ts`). Kept photos with their art scores from the phone (`eval/real-cases.json`; the photos stay out of the repository) go through today's title read and title/art fusion. Diagnostic records (a folder per record: `record.json` from `get_scan_diagnostic`, `strip.jpg` beside it) are replayed three ways: the recorded frames through the evidence and the hold budgets; the strip read again through today's crops and reader (`stripQuad` maps the strip back onto the card's corners); and the recorded art and title through the fusion. It reports right, wrong and filed, unsettled, and frames to settle. The first case is Bryan's Westvale Abbey (scan photo 9288fda7, title-only, since it's a 640 px photo) [ran]: the title reads "Westvale Abbey // Ormendahl, Profane Prince" at 1.00, 0.27 ahead of the next name. With the phone's art scores (Wei Night Raiders 0.668, Westvale Abbey 0.634), the fusion names Westvale Abbey: right. `eval/sample.test.ts` (one photo through the art bundle) is kept for when the bundle is at hand.
+
 **The sheet (2026-11-13).** Bryan, on the Pixel 3: "All this extra question stuff should be a tapable expandable thing. There should be a pinch-to-zoom on the picture too. I should be able to drag away this huge bottom drawer if I want as well." So (`sheet.tsx`): the choices that rarely change (finish, where cards go, Keep adding, Close-ups, Mute, Save scan photos) sit in one "Scan settings" row that shows what's set and opens with a tap, remembered per device (`yama.scan.settingsOpen`); progress notes and errors stay in view (`ScannerView`'s `controls` against `settings`). Two fingers on the camera pinch its zoom, within the camera's own range or 1× to 3× digital, alongside the + and − buttons. The sheet has a handle: drag it down to hide the sheet and see the whole camera, drag it up or tap it (or Enter) to bring it back; a card that needs a tap brings it back by itself.
 ## Set lock, Skip, flashlight and zoom, scan photos (2026-11-06)
 
