@@ -310,6 +310,9 @@ export type CameraControlState = ReturnType<typeof useCameraControls>;
 const fmt = (z: number) => `${Number.isInteger(z) ? z : z.toFixed(1)}×`;
 
 export function CameraControls({ c, live }: { c: CameraControlState; live: boolean }) {
+  // The scanner zooms by itself and a pinch zooms too, so zoom is one small button showing the
+  // level; a tap opens + and − (Bryan, 16 Nov 2026: too busy).
+  const [zoomOpen, setZoomOpen] = useState(false);
   if (!live) return null;
   return (
     <div className="scan-tools">
@@ -321,17 +324,23 @@ export function CameraControls({ c, live }: { c: CameraControlState; live: boole
           </svg>
         </Button>
       )}
-      <div className="scan-zoom-buttons" role="group" aria-label="Zoom">
-        <Button className="scan-tool" onClick={c.zoomIn} disabled={!c.canZoomIn} aria-label="Zoom in">
-          +
-        </Button>
-        <span className="scan-zoom-level" aria-live="polite">
-          {fmt(c.zoom)}
-        </span>
-        <Button className="scan-tool" onClick={c.zoomOut} disabled={!c.canZoomOut} aria-label="Zoom out">
-          −
-        </Button>
-      </div>
+      {(c.canZoomIn || c.canZoomOut) && (
+        <div className={`scan-zoom-buttons${zoomOpen ? " is-open" : ""}`} role="group" aria-label="Zoom">
+          {zoomOpen && (
+            <Button className="scan-tool" onClick={c.zoomIn} disabled={!c.canZoomIn} aria-label="Zoom in">
+              +
+            </Button>
+          )}
+          <Button className="scan-tool scan-zoom-level" onClick={() => setZoomOpen((o) => !o)} aria-expanded={zoomOpen} aria-label={`Zoom ${fmt(c.zoom)}${zoomOpen ? "" : ", change it"}`}>
+            <span aria-live="polite">{fmt(c.zoom)}</span>
+          </Button>
+          {zoomOpen && (
+            <Button className="scan-tool" onClick={c.zoomOut} disabled={!c.canZoomOut} aria-label="Zoom out">
+              −
+            </Button>
+          )}
+        </div>
+      )}
       {c.error && <span className="scan-tool-error">{c.error}</span>}
     </div>
   );

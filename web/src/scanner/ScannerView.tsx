@@ -1964,27 +1964,29 @@ export function ScannerView({
   const receipt = !!newest;
   const undoable = !!justAdded?.card && !justAdded.busy && (!!onUndo || (!!onCorrect && !!justAdded.printing));
   const dupeHere = !!dupe && !!onAccept && !!newest && dupe.found.name === newest.name;
+  // Wrong printing beside Undo only when the scanner read the printing itself: one you tapped is
+  // rarely wrong, and the card's own sheet (tap it in the strip) has Wrong printing anyway.
+  const readByScanner = !!justAdded?.found && (justAdded.found.how === "collector" || justAdded.found.how === "set");
   const receiptActions =
-    receipt && (undoable || dupeHere) ? (
+    receipt && undoable ? (
       <>
-        {undoable && onUndo && (
+        {onUndo && (
           <Button className="scan-act" onClick={() => undo(justAdded!)}>
             Undo
           </Button>
         )}
-        {undoable && onCorrect && justAdded!.found && justAdded!.printing && (
+        {onCorrect && readByScanner && justAdded!.found && justAdded!.printing && (
           <Button className="scan-act" onClick={() => wrongPrinting({ ...justAdded!.found!, chosen: justAdded!.printing! }, justAdded!.printing!, justAdded!.card)}>
             Wrong printing
           </Button>
         )}
-        {/* "Scan anyway": the card just added is still in view, and this is another copy of it. */}
-        {dupeHere && (
-          <Button className="scan-act" onClick={scanAnyway} disabled={dupeSaving} aria-label={`Add another ${dupe!.label}`}>
-            {dupeSaving ? "Adding…" : "+1 copy"}
-          </Button>
-        )}
       </>
     ) : null;
+  // "Scan anyway", in the picture (Bryan, 16 Nov 2026): the card just added is still in view, so
+  // the camera says so, with +1 copy for when you really have another.
+  const stillInView = receipt && dupeHere && !isFound && !lockOpen && !closeup;
+  // Once the strip has cards, "Hold a card in view" is known: the chip only speaks when it has news.
+  const idleStatus = mode === "art" && !justAdded && (status === "Hold a card in view" || status === "Ready for the next card");
   const receiptEvent = receipt && justAdded && !justAdded.card ? justAdded.text : null;
   const loadingText =
     loadState?.kind === "downloading"
@@ -2040,7 +2042,14 @@ export function ScannerView({
         )}
         <CameraControls c={cam} live={live} />
         {typeof overlay === "function" ? overlay(isFound && found ? candidateOf(found, chosen) : null) : overlay}
-        {!receipt && !tapNeeded && !isFound && !lockOpen && justAdded?.card && (onUndo || (onCorrect && justAdded.printing)) ? (
+        {stillInView && !tapNeeded ? (
+          <div className="scan-chip has-action">
+            <span role="status">{dupe!.found.name} still in view</span>
+            <Button className="scan-chip-action" onClick={scanAnyway} disabled={dupeSaving} aria-label={`Scan anyway: add another ${dupe!.label}`}>
+              {dupeSaving ? "Adding…" : "+1 copy"}
+            </Button>
+          </div>
+        ) : receipt && !tapNeeded && !isFound && !lockOpen && idleStatus ? null : !receipt && !tapNeeded && !isFound && !lockOpen && justAdded?.card && (onUndo || (onCorrect && justAdded.printing)) ? (
           <div className="scan-chip found has-action">
             <span role="status">{justAdded.text}</span>
             {onUndo && (
@@ -2179,6 +2188,8 @@ export function ScannerView({
                 <h3>
                   {found.name}
                   {foundTag && <span className={`scan-play-tag is-${foundTag}`}>{PLAY_WORD[foundTag]}</span>}
+                  {/* How it was found: behind a "?", kept but out of the way (Bryan, 16 Nov 2026). */}
+                  <HelpPopover label="how it was found">{explain(found, identityOnly, lock.map((l) => l.name).join(" or "))}</HelpPopover>
                 </h3>
                 {!identityOnly && chosen && (
                   <span className="dim">
@@ -2199,7 +2210,6 @@ export function ScannerView({
                     <span className="dim"> market, by printing, {shortDate(range.date) ?? "date unknown"}</span>
                   </span>
                 )}
-                <span className="scan-method">{explain(found, identityOnly, lock.map((l) => l.name).join(" or "))}</span>
               </div>
             </div>
             {found.outside && (
@@ -2258,6 +2268,7 @@ export function ScannerView({
                     key={p.scryfall_id}
                     role="option"
                     aria-selected={p === chosen}
+                    title={`${p.set_name} #${p.collector_number}${p.released_at ? `, ${p.released_at.slice(0, 4)}` : ""}${treatmentLabel(p) ? `, ${treatmentLabel(p)}` : ""}`}
                     className={`scan-printing${p === chosen ? " is-chosen" : ""}`}
                     onClick={() => {
                       setCloseup(null);
@@ -2337,36 +2348,22 @@ export function ScannerView({
               <Button className="scan-skip" onClick={() => again()}>
                 {found.correcting ? "Keep it as it was" : onAccept ? "Skip" : "Scan next"}
               </Button>
-            </div>
-            <div className="scan-secondary">
-              {!wrongOpen && (
-                <Button className="scan-act" onClick={() => setWrongOpen(true)}>
-                  Wrong card
-                </Button>
-              )}
-              {settledByScanner(found) && !found.picking ? (
-                <Button className="scan-act" onClick={() => wrongPrinting(found, chosen!, found.correcting)}>
-                  Wrong printing
-                </Button>
-              ) : (
-                !identityOnly &&
-                chosen &&
-                options &&
-                options.length > 1 &&
-                !found.picking && (
-                  <Button className="scan-act" onClick={() => setFound({ ...found, picking: true })}>
-                    Change printing ({options.length})
-                  </Button>
-                )
-              )}
-              {upClose && (
-                <MoreMenu label="More" title="More ways to read it" className="scan-more" variant="quiet" size="small">
-                  <Button onClick={() => setCloseup("collector")}>Read the collector number up close</Button>
-                </MoreMenu>
-              )}
+              {/* Everything lesser, one tap away: the wrong card, the wrong printing, a close-up. */}
+              <MoreMenu label="More" title="If it's wrong" className="scan-more" variant="quiet">
+                {!wrongOpen && <Button onClick={() => setWrongOpen(true)}>Wrong card</Button>}
+                {settledByScanner(found) && !found.picking ? (
+                  <Button onClick={() => wrongPrinting(found, chosen!, found.correcting)}>Wrong printing</Button>
+                ) : (
+                  !identityOnly &&
+                  chosen &&
+                  options &&
+                  options.length > 1 &&
+                  !found.picking && <Button onClick={() => setFound({ ...found, picking: true })}>Change printing ({options.length})</Button>
+                )}
+                {upClose && <Button onClick={() => setCloseup("collector")}>Read the collector number up close</Button>}
+              </MoreMenu>
             </div>
             {!recentCards && recent.length > 0 && <p className="scan-note">Recent: {recent.slice(0, 3).join(", ")}.</p>}
-            {filing}
             {/* What the scanner saw: for checking a scan, so only with Scanner diagnostics on. */}
             {diag && (
               <details className="small dim">

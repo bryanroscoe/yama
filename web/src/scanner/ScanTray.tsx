@@ -120,7 +120,9 @@ export function ScanTray({ cards, worth, onOpen, onReview, event, actions }: { c
                 <CardThumb src={c.image} eager={i < 6} fallback={<span className="scan-tile-fallback">{c.name}</span>} />
                 {c.copies > 1 && <span className="scan-tile-copies">×{c.copies}</span>}
                 {c.finish !== "nonfoil" && <span className={`scan-tile-finish is-${c.finish}`}>{FINISH_SHORT[c.finish]}</span>}
-                {word && c.state !== "failed" && <span className={`scan-tile-tag is-${tag}`}>{tag === "game-changer" ? "GC" : word}</span>}
+                {/* The tag on the card just added; an older card's is in its own sheet (tap it), so the
+                    strip stays quiet (Bryan, 16 Nov 2026: too busy). */}
+                {word && i === 0 && c.state !== "failed" && <span className={`scan-tile-tag is-${tag}`}>{tag === "game-changer" ? "GC" : word}</span>}
               </span>
               {/* A failed save says so where the price goes: the red ring alone is easy to miss. */}
               <span className={`scan-tile-price${c.state === "failed" ? " is-failed" : price == null ? " is-none" : ""}`}>

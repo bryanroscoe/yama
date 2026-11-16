@@ -241,9 +241,10 @@ describe("ScannerView after a printing is chosen", () => {
     await typeName("Sol Ring");
     // No placeholder text: the picture's stand-in is an empty card shape, the name is the heading.
     await until(() => document.querySelector("h3"), "the card's name");
-    expect(document.querySelector("h3")?.textContent).toBe("Sol Ring");
+    expect(document.querySelector("h3")?.firstChild?.textContent).toBe("Sol Ring");
     expect(document.querySelector(".scan-thumb.card-fallback")?.textContent ?? "").toBe("");
-    // Settled by the scanner (the only English printing): Wrong printing is offered.
+    // Settled by the scanner (the only English printing): Wrong printing is offered, under More.
+    await click(await until(() => button("More"), "More"));
     await click(await until(() => button("Wrong printing"), "Wrong printing"));
     const marked = await until(() => document.querySelector(".scan-misread"), "the misread mark");
     expect(marked.textContent).toBe("Read as this");
@@ -303,7 +304,7 @@ describe("ScannerView after a printing is chosen", () => {
 });
 
 describe("with the strip, what just happened is said beside the card (design pass, 16 Nov 2026)", () => {
-  it("puts Undo, Wrong printing and +1 copy in the strip's head, not on the camera, and the chip says only what the scanner is doing", async () => {
+  it("puts Undo in the strip's head, and +1 copy (Scan anyway) on the camera while the card is still in view", async () => {
     const accepted: ScanCandidate[] = [];
     const undone: ScanCandidate[] = [];
     function Host() {
@@ -332,14 +333,16 @@ describe("with the strip, what just happened is said beside the card (design pas
     const head = () => tray.querySelector(".scan-tray-head")!;
     await until(() => (head().querySelector(".scan-tray-do") ? true : null), "the receipt's actions");
     expect(head().textContent).toContain("Arcane Signet");
-    expect([...head().querySelectorAll("button")].map((b) => b.textContent)).toEqual(expect.arrayContaining(["Undo", "Wrong printing", "+1 copy"]));
-    // The camera says what the scanner is doing now, not what it did.
-    expect(document.querySelector(".scan-chip")?.textContent).not.toContain("Added");
-    expect(document.querySelector(".scan-chip")?.querySelector("button")).toBeNull();
-    // No "still in view" box in the sheet: +1 copy beside the card is that offer.
+    // A printing you tapped yourself is rarely wrong: Undo alone (Wrong printing is in the card's sheet).
+    expect([...head().querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Undo"]);
+    // The camera says what's in front of it: the card just added, still in view, with +1 copy.
+    const chip = document.querySelector(".scan-chip")!;
+    expect(chip.textContent).toContain("Arcane Signet still in view");
+    expect(chip.textContent).not.toContain("Added");
+    // No "still in view" box in the sheet.
     expect(document.querySelector(".scan-dupe")).toBeNull();
 
-    await click([...head().querySelectorAll("button")].find((b) => b.textContent === "+1 copy")!);
+    await click([...chip.querySelectorAll("button")].find((b) => b.textContent === "+1 copy")!);
     expect(accepted).toHaveLength(2);
     expect(accepted[1]).toMatchObject({ set: "cmm", number: "390" });
     // Undo takes back the newest copy.

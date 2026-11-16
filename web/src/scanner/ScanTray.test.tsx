@@ -60,10 +60,14 @@ describe("the strip of cards scanned (Bryan, 16 Nov 2026)", () => {
     expect(open).toHaveBeenCalledWith("c");
   });
 
-  it("tags the cards that see play in Commander, and not the bulk", async () => {
+  it("tags the cards that see play in Commander, and not the bulk: on the card just added, and in every card's label", async () => {
     act(() => root.render(<ScanTray cards={cards} worth={2} />));
     await settle();
-    expect([...host.querySelectorAll(".scan-tile")].map((t) => t.querySelector(".scan-tile-tag")?.textContent ?? null)).toEqual(["Played", "Staple", null, "GC"]);
+    // Only the newest shows its tag (16 Nov 2026: the strip was too busy); every tile still says it.
+    expect([...host.querySelectorAll(".scan-tile")].map((t) => t.querySelector(".scan-tile-tag")?.textContent ?? null)).toEqual(["Played", null, null, null]);
+    const labels = [...host.querySelectorAll(".scan-tile")].map((t) => t.getAttribute("aria-label") ?? "");
+    expect(labels[1]).toContain("Staple");
+    expect(labels[3]).toMatch(/Game Changer|GC/);
     // Without onOpen the tiles are pictures, not buttons.
     expect(host.querySelector("button.scan-tile")).toBeNull();
   });

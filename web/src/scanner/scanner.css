@@ -43,9 +43,28 @@
     0 0 0 100vmax rgb(0 0 0 / 0.45);
   transition: box-shadow 0.15s;
 }
-/* With art recognition the card can be anywhere: the frame is only a hint, with no veil. */
+/* With art recognition the card is found anywhere in view: no frame to line up with, only four
+   faint corners saying where the camera looks first (Bryan, 16 Nov 2026: "do we really need to
+   line the card up with the frame?"). The card's own outline is drawn once it's seen. */
 .scan-guide.is-hint {
-  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.35);
+  --c: rgb(255 255 255 / 0.5);
+  --l: 22px;
+  border-radius: 0;
+  box-shadow: none;
+  background:
+    linear-gradient(var(--c), var(--c)) top left / var(--l) 2px,
+    linear-gradient(var(--c), var(--c)) top left / 2px var(--l),
+    linear-gradient(var(--c), var(--c)) top right / var(--l) 2px,
+    linear-gradient(var(--c), var(--c)) top right / 2px var(--l),
+    linear-gradient(var(--c), var(--c)) bottom left / var(--l) 2px,
+    linear-gradient(var(--c), var(--c)) bottom left / 2px var(--l),
+    linear-gradient(var(--c), var(--c)) bottom right / var(--l) 2px,
+    linear-gradient(var(--c), var(--c)) bottom right / 2px var(--l);
+  background-repeat: no-repeat;
+}
+.scan-guide.is-hint.is-locked {
+  --c: var(--good);
+  box-shadow: none;
 }
 .scan-guide.is-locked {
   box-shadow:
@@ -197,11 +216,6 @@
   font-size: var(--t-22);
   line-height: 1.15;
 }
-.scan-method {
-  margin-top: 2px;
-  font-size: var(--t-sm);
-  color: var(--dim);
-}
 /* Finish and where it goes, side by side. Fields on the sheet drop to the ground color. */
 .scan-choices {
   display: grid;
@@ -303,11 +317,11 @@
   font-size: var(--t-sm);
   white-space: nowrap;
 }
+/* One line of the set's name under its code; the rest is in the tile's label. */
 .scan-printing .dim {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .scan .scan-printing-more {
   justify-content: center;
@@ -731,23 +745,6 @@ button.scan-count {
   background: none;
   color: #fff;
   font-weight: 700;
-}
-
-/* Under Add and Skip: Wrong card, and More for what's used now and then (15 Nov 2026). */
-.scan-secondary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-}
-.scan-secondary .more-menu {
-  margin-left: auto;
-}
-.scan .scan-secondary .scan-alt {
-  min-height: 0;
-}
-.scan .scan-buttons .scan-secondary .more-menu > button {
-  min-height: var(--target);
 }
 /* "Same card": the card just added is still in view. */
 .scan-dupe {
@@ -1263,7 +1260,7 @@ button.scan-count {
 .scan-pick .scan-peek canvas {
   width: auto;
   max-width: 100%;
-  max-height: 72px;
+  max-height: 60px;
 }
 .scan-pick .scan-peek figcaption {
   display: none;
@@ -1315,13 +1312,10 @@ button.scan-count {
   padding: 2px;
 }
 
-/* While the sheet needs a decision, the strip folds to its receipt line, so the camera keeps its
-   room on a phone. */
-.scan.is-deciding .scan-tray-list {
-  display: none;
-}
+/* While the sheet needs a decision the strip steps aside on a phone, so the camera keeps its room;
+   it's back the moment the card is filed or skipped (round 2, 16 Nov 2026). */
 .scan.is-deciding .scan-tray {
-  padding-bottom: 22px;
+  display: none;
 }
 .scan:has(> .scan-tray) .scan-panel {
   max-height: min(58dvh, calc(100dvh - 320px));
@@ -1370,11 +1364,8 @@ button.scan-count {
   .scan .scan-handle {
     display: none;
   }
-  .scan.is-deciding .scan-tray-list {
-    display: flex;
-  }
   .scan.is-deciding .scan-tray {
-    padding-bottom: 12px;
+    display: block;
   }
   .scan .scan-printing {
     width: 88px;
@@ -1389,4 +1380,24 @@ button.scan-count {
   .scan-pick .scan-peek canvas {
     max-height: 64px;
   }
+}
+
+/* Round 2 (16 Nov 2026, Bryan: "a teeny bit more compact … too busy"). */
+/* Zoom: one small button with the level; + and − open from it. */
+.scan .scan-zoom-level {
+  width: 40px;
+  font-size: var(--t-sm);
+  font-weight: 700;
+}
+.scan-zoom-buttons:not(.is-open) {
+  padding: 0;
+  background: none;
+}
+/* The found card: the name, its "?" (how it was found) and its tag on one line. */
+.scan-info h3 .help-pop {
+  font-size: var(--t-base);
+  font-weight: 400;
+}
+.scan-buttons > .more-menu {
+  flex: 0 0 auto;
 }
