@@ -9,9 +9,10 @@ export interface BundleInfo {
   version: string;
   ready: boolean;
   error: string | null;
-  files: { detector: string; embed: string; search: string; arts: string };
+  /** `supplement`: artworks the bundle doesn't know, embedded by Yama (server/src/scan_art.rs); null or absent when there are none. */
+  files: { detector: string; embed: string; search: string; arts: string; supplement?: string | null };
   /** Unzipped sizes, for progress. */
-  bytes: { detector: number; embed: number; search: number; arts: number };
+  bytes: { detector: number; embed: number; search: number; arts: number; supplement?: number };
   constants: Record<string, unknown> | null;
 }
 

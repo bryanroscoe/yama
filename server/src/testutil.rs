@@ -28,6 +28,7 @@ pub fn config() -> Config {
         // No Commander Spellbook calls from tests.
         deck_checks: false,
         ai_combos: true,
+        scan_supplement: true,
         // The Mythic Tools bridge is on in tests, so its routes are covered (bridges/mythic).
         mythic_bridge: true,
         engine_card_data: None,

@@ -8,7 +8,7 @@
 //
 // The onnxruntime namespace is passed in, so the web worker and the Node eval share this file.
 
-import { readGallery, type Gallery } from "./gallery";
+import { fromBase64, galleryOf, readGallery, upTo, type Gallery } from "./gallery";
 import type { Point, Quad, RgbaImage } from "./types";
 
 /** `manifest.constants` of the bundle. */
@@ -198,7 +198,47 @@ export function cardDetail(frame: RgbaImage, quad: Quad): number {
 
 const shortSide = (q: Quad) => Math.min(...q.map((p, i) => Math.hypot(q[(i + 1) % 4]![0] - p[0], q[(i + 1) % 4]![1] - p[1])));
 
-export async function createRecognizer(ort: OrtLike, graphs: { detector: Uint8Array; embed: Uint8Array; search: Uint8Array }, constants: BundleConstants, arts: Art[]): Promise<Recognizer> {
+/**
+ * Artworks the bundle doesn't know, embedded by Yama's server with the bundle's own embedding
+ * graph (server/src/scan_art.rs): their index rows and a gallery scored like the graph's.
+ */
+export interface Supplement {
+  arts: Art[];
+  gallery: Gallery;
+}
+
+/** The server's supplement file. Throws when it isn't for this bundle or doesn't add up. */
+export function parseSupplement(json: unknown, bundleVersion?: string): Supplement {
+  const s = json as { bundle?: string; dim?: number; frames?: number[]; penalties?: number[]; vectors?: string };
+  if (!s || typeof s !== "object" || !Array.isArray(s.frames) || !Array.isArray(s.penalties) || typeof s.vectors !== "string" || typeof s.dim !== "number") {
+    throw new Error("The artwork supplement isn't in a form the scanner reads");
+  }
+  if (bundleVersion && s.bundle !== bundleVersion) throw new Error(`The artwork supplement is for bundle ${s.bundle}, not ${bundleVersion}`);
+  const arts = parseArts(json);
+  const bytes = fromBase64(s.vectors);
+  const vectors = new Uint16Array(bytes.buffer, bytes.byteOffset, Math.floor(bytes.byteLength / 2));
+  const gallery = galleryOf(vectors, Int32Array.from(s.frames), Float32Array.from(s.penalties), s.dim);
+  if (gallery.count !== arts.length) throw new Error("The artwork supplement's rows don't match its vectors");
+  return { arts, gallery };
+}
+
+/** Best first, at most `k`, from lists that are each best first. */
+const mergeTop = (k: number, ...lists: ArtMatch[][]): ArtMatch[] => lists.flat().sort((a, b) => b.score - a.score).slice(0, k);
+
+/**
+ * `arts` is the bundle's index (the search graph's rows). A supplement's artworks follow it,
+ * numbered from `arts.length` up, so `ArtMatch.index` and the set lock's pool cover both
+ * (`poolIndices` over `arts` then `supplement.arts`). `hidden` (evals only) takes bundle rows out
+ * of the search, to test the supplement on artworks the bundle has.
+ */
+export async function createRecognizer(
+  ort: OrtLike,
+  graphs: { detector: Uint8Array; embed: Uint8Array; search: Uint8Array },
+  constants: BundleConstants,
+  arts: Art[],
+  supplement?: Supplement | null,
+  extras: { hidden?: number[] } = {},
+): Promise<Recognizer> {
   const options = { executionProviders: ["wasm"], graphOptimizationLevel: "all" };
   // One at a time: three parallel compiles peak higher in memory, which phones notice.
   const detector = await ort.InferenceSession.create(graphs.detector, options);
@@ -207,7 +247,14 @@ export async function createRecognizer(ort: OrtLike, graphs: { detector: Uint8Ar
   // Bundles since gallery-20261106 (manifest `search_mask`) also take `mask`, one value per
   // artwork in arts.json order: above 0 competes, 0 scores -3. Ones search the whole gallery,
   // exactly as the graph without the input does. Older bundles take only `embeddings`.
-  const everyArt = search.inputNames.includes("mask") ? new ort.Tensor("float32", new Float32Array(arts.length).fill(1), [arts.length]) : null;
+  const masked = search.inputNames.includes("mask");
+  const hidden = new Set(extras.hidden ?? []);
+  if (hidden.size && !masked) throw new Error("This bundle's search graph can't hide artworks");
+  const maskValues = new Float32Array(arts.length).fill(1);
+  for (const i of hidden) if (i >= 0 && i < arts.length) maskValues[i] = 0;
+  const everyArt = masked ? new ort.Tensor("float32", maskValues, [arts.length]) : null;
+  const extra = supplement ?? null;
+  const bundleCount = arts.length;
   let gallery: Gallery | null = null;
   try {
     gallery = readGallery(graphs.search);
@@ -244,17 +291,26 @@ export async function createRecognizer(ort: OrtLike, graphs: { detector: Uint8Ar
     const ranked = await search.run(everyArt ? { embeddings: embedding, mask: everyArt } : { embeddings: embedding });
     const indices = ranked.indices!.data as BigInt64Array | Int32Array;
     const scores = ranked.scores!.data as Float32Array;
-    const out: ArtMatch[] = [];
+    const graphTop: ArtMatch[] = [];
     for (let i = 0; i < indices.length; i += 1) {
       const index = Number(indices[i]);
       const art = arts[index];
       // A masked or padded row scores below -1; real scores are cosines.
-      if (art && scores[i]! >= -1) out.push({ ...art, index, score: scores[i]! });
+      if (art && scores[i]! >= -1) graphTop.push({ ...art, index, score: scores[i]! });
     }
+    const vector = embedding.data as Float32Array;
+    const fromExtra = (local: Iterable<number>, k: number): ArtMatch[] =>
+      extra ? extra.gallery.search(vector, local, k).flatMap(({ index, score }) => (extra.arts[index] ? [{ ...extra.arts[index]!, index: bundleCount + index, score }] : [])) : [];
+    // The supplement is scored exactly as the graph scores its rows, so the two merge by score.
+    const out = extra ? mergeTop(Math.max(indices.length, 1), graphTop, fromExtra(upTo(extra.gallery.count), indices.length)) : graphTop;
     if (!pool || !gallery) return { matches: out };
-    const pooled = gallery
-      .search(embedding.data as Float32Array, pool, POOL_TOP)
-      .flatMap(({ index, score }) => (arts[index] ? [{ ...arts[index]!, index, score }] : []));
+    const main = pool.filter((i) => i < bundleCount && !hidden.has(i));
+    const local = pool.filter((i) => i >= bundleCount).map((i) => i - bundleCount);
+    const pooled = mergeTop(
+      POOL_TOP,
+      gallery.search(vector, main, POOL_TOP).flatMap(({ index, score }) => (arts[index] ? [{ ...arts[index]!, index, score }] : [])),
+      fromExtra(local, POOL_TOP),
+    );
     return { matches: out, pool: pooled };
   };
 

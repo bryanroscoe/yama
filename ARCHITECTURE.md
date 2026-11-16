@@ -125,6 +125,7 @@ Three things run on the device so that game night needs no connection:
   and lookups in a web worker. It is refreshed with a conditional request about once a day.
 - **The scanner** recognises a card by its art with ONNX models in a web worker
   (`onnxruntime-web`), and reads the collector line with Tesseract when the art is not enough.
+  Besides the pinned art bundle it loads the server's small supplement of newer artworks.
 
 Card images load from Scryfall's CDN straight to the device, where the service worker may keep
 a bounded cache of them. Yama's server never stores, proxies or alters them.
@@ -152,7 +153,9 @@ command-line tool for imports, invites and account management. As a server it ha
 - **Static files.** The built web app, with content-addressed assets.
 - **Background jobs.** Scheduled card, price and release-calendar imports from Scryfall, MTGJSON
   and TCGCSV (with `YAMA_AUTO_IMPORT=1`), bracket checks against Commander Spellbook after a
-  deck is saved, and the Lab's scheduler.
+  deck is saved, the Lab's scheduler, and the scanner's art supplement: after each card import
+  it downloads Scryfall's art crops of artworks the scanner's bundle lacks, embeds them with the
+  bundle's own model (tract, in process) and keeps only the vectors (`server/src/scan_art.rs`).
 
 Sign-in, searches, imports, new games and the other costly routes are rate-limited per account
 or per client address (`server/src/limits.rs`). With `YAMA_LOG_DIR` set, as in production, every
@@ -393,7 +396,7 @@ section 4 is the first sketch; the current system is [above](#the-system-at-a-gl
 - **Shopping:** [Live store stock (13 November 2026)](#live-store-stock-13-november-2026).
 - **The Android app:** [The Android app, sideloaded (13 November 2026)](#the-android-app-sideloaded-13-november-2026), [Which build each device runs (15 November 2026)](#which-build-each-device-runs-15-november-2026).
 - **Game night:** [Table and playgroup stats (2026-10-19)](#table-and-playgroup-stats-2026-10-19).
-- **The scanner:** [Scan photos shared with the developer (15 November 2026)](#scan-photos-shared-with-the-developer-15-november-2026).
+- **The scanner:** [Scan photos shared with the developer (15 November 2026)](#scan-photos-shared-with-the-developer-15-november-2026), [The scanner's own art supplement (15 November 2026)](#the-scanners-own-art-supplement-15-november-2026).
 - **Cards, collection and prices:** [Mana symbols (2026-11-12)](#mana-symbols-2026-11-12), [Release calendar and What's new (2026-10-19)](#release-calendar-and-whats-new-2026-10-19), [A deck's cards in the collection, and Mythic re-imports (2026-10-23)](#a-decks-cards-in-the-collection-and-mythic-re-imports-2026-10-23), [Deck market values (2026-10-27)](#deck-market-values-2026-10-27), [Scan this deck (2026-10-29)](#scan-this-deck-2026-10-29), [Mythic Tools bridge (2026-10-31, proposal)](#mythic-tools-bridge-2026-10-31-proposal), [Store trips (2026-11-01)](#store-trips-2026-11-01), [Deleting collection containers (2026-11-02)](#deleting-collection-containers-2026-11-02), [Sell lists for store buylists (2026-11-02)](#sell-lists-for-store-buylists-2026-11-02), [Local buylist offers (2026-11-02)](#local-buylist-offers-2026-11-02), [Price history (2026-11-02)](#price-history-2026-11-02), [Recording printed copies in a deck box (2026-11-02)](#recording-printed-copies-in-a-deck-box-2026-11-02).
 - **Decks, plans and sharing:** [Brackets, deck stats and exports (2026-10-19)](#brackets-deck-stats-and-exports-2026-10-19), [Deck import (2026-10-22)](#deck-import-2026-10-22), [Sharing and deck configurations (2026-10-28)](#sharing-and-deck-configurations-2026-10-28), [Review, installed decks and the Lab tab (2026-10-28)](#review-installed-decks-and-the-lab-tab-2026-10-28), [Check this deck (2026-11-01)](#check-this-deck-2026-11-01), [Deck configurations and quieter editing (2026-11-03)](#deck-configurations-and-quieter-editing-2026-11-03), [One plan page (2026-11-04)](#one-plan-page-2026-11-04), [Printing with MakePlayingCards (2026-11-05)](#printing-with-makeplayingcards-2026-11-05), [Plans: one plan per deck (2026-11-06)](#plans-one-plan-per-deck-2026-11-06), [Site design pass (2026-11-08)](#site-design-pass-2026-11-08), [Public by default and the navigation (2026-11-12)](#public-by-default-and-the-navigation-2026-11-12), [Check a deck without an account (2026-11-12)](#check-a-deck-without-an-account-2026-11-12).
 - **Assistants:** [Ask Claude, the advisor (2026-10-22)](#ask-claude-the-advisor-2026-10-22), [Yama's tools for Claude (MCP, 2026-10-22)](#yamas-tools-for-claude-mcp-2026-10-22).
@@ -466,6 +469,43 @@ on the public repository, because a fork's pull request could rewrite a workflow
 The move happened on 11 November 2026: old main `7950d7df` became new main `a7ef2db5` with the
 same tree. `runtime/historical.json` keeps pinning old SHAs; saget's deploy checkout keeps that
 history under `refs/archive/private-main`, and local clones get it from the `archive` remote.
+
+## The scanner's own art supplement (15 November 2026)
+
+Bryan, 15 November: "none of the Star Trek cards scan by art". The pinned ManaVault bundle
+(scan.rs) knows only artworks published before it, so every new set fell back to reading names
+until someone moved the pin. The 6 November bundle (PR #141) fixed Star Trek; this keeps the next
+set from waiting. Yama now extends the gallery itself (docs/scanner.md, "Extending the gallery").
+
+- **A new server job, in process.** `server/src/scan_art.rs` runs after each `default_cards`
+  import (the scheduler's nudge, and `import-cards`), at start and every six hours. It finds English
+  paper illustrations in `printings` that the bundle's `arts.json` lacks, downloads each one's
+  Scryfall art crop (one request at a time, 100 ms apart, Yama's User-Agent), embeds it, and keeps
+  128 numbers per artwork in `scan_arts` (migration 0095), keyed by bundle version. No image is
+  stored or served: Scryfall's images still load on the device straight from Scryfall.
+- **The bundle's own model, run by tract.** The vectors come from the embedding half of the
+  pinned `embed.onnx`, cut at its normalised input and run by `tract-onnx` (pure Rust, pinned
+  exactly), on the art crop prepared as ManaVault prepares a gallery row (OpenCV `INTER_AREA` to
+  128 × 128, ImageNet normalisation). Chosen over a Node job (the production image has no Node
+  binary or `node_modules`; adding them is about 150 MB and a second runtime to keep in step)
+  and over the `ort` crate (a native ONNX Runtime library to download at build time and ship in
+  the image). Each run re-embeds three artworks the bundle has and serves nothing new unless
+  they match the bundle's rows (cosine 0.97 or more), so a future bundle whose model changes
+  can't silently produce vectors that don't compare.
+- **Served next to the bundle, content-addressed.** `supplement-<hash>.json` in
+  `data/scan-bundle/<version>/`, immutable like the bundle; `GET /api/scan/bundle` names it. The
+  art worker scores its rows with the same formula the search graph uses (dot product with the
+  embedding for the row's frame, less its penalty) and merges them into the top matches by score;
+  the set lock's pool includes them. Rows have the frame from oracle's `frame_of` and the 0.02
+  rare-frame penalty, but no hub penalty (that needs ManaVault's 3,000 background scans).
+- **Versioned per bundle.** Rows embedded with one bundle's weights are deleted when the pin
+  moves, and the job re-embeds whatever the new bundle still lacks.
+- **Safe to run anywhere, once.** Runs are one at a time across processes (an advisory lock in
+  `data/scan-bundle/`), files are published by unique temporary file, sync and rename (pointer
+  last, damaged content-addressed files rewritten), and Scryfall being rate-limited or down stops
+  a run without charging any artwork (review of #147).
+- **Switch:** `YAMA_SCAN_SUPPLEMENT=0` stops the job and the scanner stops loading it. On by
+  default, after the held-out eval in docs/scanner.md.
 
 ## Live store stock (13 November 2026)
 

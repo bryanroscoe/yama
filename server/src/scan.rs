@@ -43,7 +43,7 @@ const FILES: [(&str, u64, &str); 5] = [
     ("arts.json", 18_083_400, "df8164150343bb5dc85b39b5d1ba3893c124105eef1d6af9f393bb038d7d977f"),
 ];
 /// The artwork index reduced to what the scanner reads (about a third of arts.json), gzipped.
-const ARTS: &str = "arts.slim.json";
+pub(crate) const ARTS: &str = "arts.slim.json";
 /// After a failed download, wait this long before trying again.
 const RETRY_AFTER: Duration = Duration::from_secs(10 * 60);
 
@@ -65,7 +65,7 @@ pub fn router(data_dir: &Path) -> Router<AppState> {
         .merge(files)
 }
 
-fn bundle_dir(data_dir: &Path) -> PathBuf {
+pub(crate) fn bundle_dir(data_dir: &Path) -> PathBuf {
     data_dir.join("scan-bundle").join(BUNDLE_VERSION)
 }
 
@@ -80,7 +80,7 @@ fn fetch_state() -> &'static Mutex<Fetch> {
     STATE.get_or_init(|| Mutex::new(Fetch::Idle))
 }
 
-fn is_ready(dir: &Path) -> bool {
+pub(crate) fn is_ready(dir: &Path) -> bool {
     FILES.iter().all(|(name, _, _)| *name == "arts.json" || dir.join(name).exists()) && dir.join(format!("{ARTS}.gz")).exists()
 }
 
@@ -115,7 +115,7 @@ pub async fn ensure(data_dir: PathBuf, http: reqwest::Client) -> Option<String> 
     None
 }
 
-async fn download(http: &reqwest::Client, dir: &Path) -> anyhow::Result<()> {
+pub(crate) async fn download(http: &reqwest::Client, dir: &Path) -> anyhow::Result<()> {
     tokio::fs::create_dir_all(dir).await?;
     for (name, bytes, sha) in FILES {
         let path = dir.join(name);
@@ -206,7 +206,7 @@ fn slim_arts(raw: &[u8]) -> anyhow::Result<Vec<u8>> {
     }))?)
 }
 
-fn gzip(data: &[u8]) -> anyhow::Result<Vec<u8>> {
+pub(crate) fn gzip(data: &[u8]) -> anyhow::Result<Vec<u8>> {
     let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
     std::io::Write::write_all(&mut enc, data)?;
     Ok(enc.finish()?)
@@ -231,6 +231,7 @@ struct BundleBytes {
     embed: u64,
     search: u64,
     arts: u64,
+    supplement: u64,
 }
 
 #[derive(Serialize)]
@@ -239,6 +240,8 @@ struct BundleFiles {
     embed: String,
     search: String,
     arts: String,
+    /// Artworks Yama embedded itself that the bundle doesn't know (scan_art.rs), or null.
+    supplement: Option<String>,
 }
 
 async fn bundle_info(State(st): State<AppState>, _user: CurrentUser) -> AppResult<Json<BundleInfo>> {
@@ -258,12 +261,25 @@ async fn bundle_info(State(st): State<AppState>, _user: CurrentUser) -> AppResul
     let url = |f: &str| format!("/scan-bundle/{BUNDLE_VERSION}/{f}");
     let size = |f: &str| FILES.iter().find(|(name, _, _)| *name == f).map_or(0, |(_, bytes, _)| *bytes);
     let arts = if ready { tokio::fs::metadata(dir.join(ARTS)).await.map_or(0, |m| m.len()) } else { 0 };
+    let supplement = if ready && st.cfg.scan_supplement { crate::scan_art::current(&st.cfg.data_dir).await } else { None };
     Ok(Json(BundleInfo {
         version: BUNDLE_VERSION,
         ready,
         error,
-        files: BundleFiles { detector: url("detector.onnx"), embed: url("embed.onnx"), search: url("search.onnx"), arts: url(ARTS) },
-        bytes: BundleBytes { detector: size("detector.onnx"), embed: size("embed.onnx"), search: size("search.onnx"), arts },
+        files: BundleFiles {
+            detector: url("detector.onnx"),
+            embed: url("embed.onnx"),
+            search: url("search.onnx"),
+            arts: url(ARTS),
+            supplement: supplement.as_ref().map(|(name, _)| url(name)),
+        },
+        bytes: BundleBytes {
+            detector: size("detector.onnx"),
+            embed: size("embed.onnx"),
+            search: size("search.onnx"),
+            arts,
+            supplement: supplement.map_or(0, |(_, bytes)| bytes),
+        },
         constants,
     }))
 }

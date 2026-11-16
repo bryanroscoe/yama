@@ -15,6 +15,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-15-scan-new-art",
+    date: "2026-11-15",
+    title: "New cards are recognised by their art within a day",
+    items: [
+      "The scanner's art recognizer used to know only cards from before its last update, so a brand-new set was read by name until the next one. Yama now adds the art of new cards itself, from the card data it loads every day, so a new set is recognised by its art about a day after it appears on Scryfall.",
+      "It's a small extra download for the scanner (a few hundred KB), fetched once with the rest.",
+    ],
+    link: { to: "/collection", label: "Scan cards" },
+  },
+  {
     id: "2026-11-15-special-printings",
     date: "2026-11-15",
     title: "Etched, surge foils and other special printings",
