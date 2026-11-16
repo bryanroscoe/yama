@@ -1,4 +1,4 @@
-## script key, power user: 71 tools
+## script key, power user: 73 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -53,6 +53,8 @@ remove_wish	write
 create_container	write
 remove_from_collection	write
 edit_copies	write
+list_scan_diagnostics	read
+get_scan_diagnostic	read
 apply_change	destructive
 discard_change	destructive
 search_scryfall	read, reaches outside Yama
@@ -71,7 +73,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## OAuth sign-in, power user: 71 tools
+## OAuth sign-in, power user: 73 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -126,6 +128,8 @@ remove_wish	write
 create_container	write
 remove_from_collection	write
 edit_copies	write
+list_scan_diagnostics	read
+get_scan_diagnostic	read
 apply_change	destructive
 discard_change	destructive
 search_scryfall	read, reaches outside Yama
@@ -144,7 +148,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## script key: 71 tools
+## script key: 73 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -199,6 +203,8 @@ remove_wish	write
 create_container	write
 remove_from_collection	write
 edit_copies	write
+list_scan_diagnostics	read
+get_scan_diagnostic	read
 apply_change	destructive
 discard_change	destructive
 search_scryfall	read, reaches outside Yama
@@ -217,7 +223,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## OAuth sign-in: 71 tools
+## OAuth sign-in: 73 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -272,6 +278,8 @@ remove_wish	write
 create_container	write
 remove_from_collection	write
 edit_copies	write
+list_scan_diagnostics	read
+get_scan_diagnostic	read
 apply_change	destructive
 discard_change	destructive
 search_scryfall	read, reaches outside Yama
@@ -290,7 +298,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## Ask Claude, power user: 69 tools
+## Ask Claude, power user: 71 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -345,6 +353,8 @@ remove_wish	write
 create_container	write
 remove_from_collection	write
 edit_copies	write
+list_scan_diagnostics	read
+get_scan_diagnostic	read
 search_scryfall	read, reaches outside Yama
 list_card_printings	read
 get_commander_recommendations	read, reaches outside Yama
@@ -361,7 +371,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## OAuth sign-in limited to reading and staging, power user: 69 tools
+## OAuth sign-in limited to reading and staging, power user: 71 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -416,6 +426,8 @@ remove_wish	write
 create_container	write
 remove_from_collection	write
 edit_copies	write
+list_scan_diagnostics	read
+get_scan_diagnostic	read
 search_scryfall	read, reaches outside Yama
 list_card_printings	read
 get_commander_recommendations	read, reaches outside Yama
@@ -432,7 +444,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## OAuth sign-in limited to reading, power user: 41 tools
+## OAuth sign-in limited to reading, power user: 43 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -460,6 +472,8 @@ get_lab_run	read
 list_lab_games	read
 get_precon	read
 list_changes	read
+list_scan_diagnostics	read
+get_scan_diagnostic	read
 search_scryfall	read, reaches outside Yama
 list_card_printings	read
 get_commander_recommendations	read, reaches outside Yama
@@ -475,7 +489,7 @@ list_deck_versions	read
 list_collection_cards	read
 get_research_sources	read
 
-## script key, an account with no stores, datasets or lab runs: 56 tools
+## script key, an account with no stores, datasets or lab runs: 58 tools
 get_research
 save_research
 review_research
@@ -515,6 +529,8 @@ remove_wish
 create_container
 remove_from_collection
 edit_copies
+list_scan_diagnostics
+get_scan_diagnostic
 apply_change
 discard_change
 search_scryfall
