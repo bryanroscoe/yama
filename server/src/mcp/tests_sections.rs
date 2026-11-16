@@ -113,6 +113,18 @@ async fn sections_by_path_and_many_moves_as_one_change() {
     ]})).await;
     assert!(!err, "{text}");
     sqlx::query("UPDATE collection_items SET finish = 'nonfoil' WHERE owner_id = ?").bind(&a).execute(&pool).await.unwrap();
+    // A row partly taken is read again in the apply's order (the biggest first): after the first
+    // move Loose holds 4 regular and 3 foil, so the second takes 3 regular and leaves 1.
+    sqlx::query("UPDATE collection_items SET finish = 'foil' WHERE owner_id = ? AND container_id IS NULL").bind(&a).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO collection_items (id, owner_id, scryfall_id, qty, finish, created_at, updated_at) VALUES ('loose-reg', ?, 'p-o-forest', 4, 'nonfoil', 'now', 'now')").bind(&a).execute(&pool).await.unwrap();
+    let (err, text) = call(&app, &mcp, "move_cards", json!({"moves": [
+        {"card": "Forest", "qty": 2, "from": "Loose", "to": "Spares"},
+        {"card": "Forest", "qty": 3, "from": "Loose", "to": "Spares"},
+        {"card": "Forest", "qty": 2, "from": "Loose", "to": "Spares", "finish": "nonfoil"},
+    ]})).await;
+    assert!(err && text.contains("Move 3: Loose (in no binder or box) holds 1 Forest like that, not 2"), "{text}");
+    sqlx::query("DELETE FROM collection_items WHERE id = 'loose-reg'").execute(&pool).await.unwrap();
+    sqlx::query("UPDATE collection_items SET finish = 'nonfoil' WHERE owner_id = ?").bind(&a).execute(&pool).await.unwrap();
 
     // A batch that can't happen is refused whole, naming the move.
     let (err, text) = call(&app, &mcp, "move_cards", json!({"moves": [

@@ -1667,7 +1667,19 @@ struct CopyRow {
     collector_number: Option<String>,
 }
 
+/// The order [`copies_in`] reads a place's rows in, and so the order a move takes them: real
+/// copies first, then the biggest row.
+fn sort_like_copies_in(rows: &mut [CopyRow]) {
+    rows.sort_by(|a, b| a.proxy.cmp(&b.proxy).then(b.qty.cmp(&a.qty)).then(a.id.cmp(&b.id)));
+}
+
 impl CopyRow {
+    /// The same printing and kind of copy: two such rows in one place are one row.
+    fn same_copy(&self, o: &CopyRow) -> bool {
+        (&self.scryfall_id, &self.condition, &self.finish, &self.lang, self.altered, self.signed, self.misprint, self.proxy)
+            == (&o.scryfall_id, &o.condition, &o.finish, &o.lang, o.altered, o.signed, o.misprint, o.proxy)
+    }
+
     /// "TST #12, foil, LP, proxy": what tells this row's copies from the card's other copies.
     fn kind(&self) -> String {
         let mut said = format!("{} #{}", self.set_code.as_deref().unwrap_or("?").to_uppercase(), self.collector_number.as_deref().unwrap_or("?"));
@@ -1905,6 +1917,7 @@ pub async fn move_cards(st: &AppState, user: &User, via: &Via, args: &Value) -> 
             taken.push(CopyRow { qty: take, ..r.clone() });
         }
         rows.retain(|r| r.qty > 0);
+        sort_like_copies_in(rows);
         let to_key = (to_id.clone().unwrap_or_else(|| format!("spares:{}", to_deck.as_ref().map(|d| d.0.as_str()).unwrap_or_default())), oracle_id.clone());
         if !held.contains_key(&to_key) {
             let rows = match &to_id {
@@ -1914,9 +1927,14 @@ pub async fn move_cards(st: &AppState, user: &User, via: &Via, args: &Value) -> 
             held.insert(to_key.clone(), rows);
         }
         let there = held.get_mut(&to_key).expect("loaded above");
-        there.extend(taken);
-        // The apply reads a place's rows real copies first, then the biggest.
-        there.sort_by(|a, b| a.proxy.cmp(&b.proxy).then(b.qty.cmp(&a.qty)).then(a.id.cmp(&b.id)));
+        // Copies that arrive merge into an identical row there, as `apply_op` merges them.
+        for t in taken {
+            match there.iter_mut().find(|r| r.same_copy(&t)) {
+                Some(r) => r.qty += t.qty,
+                None => there.push(t),
+            }
+        }
+        sort_like_copies_in(there);
         let swap_said = match (&swaps_for, bracket) {
             (Some(out), Some(b)) => format!(", to come in for {out} at Bracket {b}"),
             (Some(out), None) => format!(", to come in for {out}"),
