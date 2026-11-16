@@ -26,7 +26,7 @@
 //! (`decks::sync_deck_from_container`). A deck made another way whose box the file names keeps
 //! its list.
 
-use super::{CopyKind, KINDS, Op, OpKind, OwnedCopy, apply_op, en, ensure_container, nm, nonfoil, op_stamp, owned_copies};
+use super::{CopyKind, KINDS, Op, OpKind, OwnedCopy, apply_op, en, ensure_container, nm, op_stamp, owned_copies};
 use crate::auth::CurrentUser;
 use crate::decks::ContainerSync;
 use crate::error::{AppError, AppResult};
@@ -124,6 +124,11 @@ pub struct MythicReport {
     pub missing_cards: Vec<Change>,
     /// Of those, copies removed (only with `remove_missing`).
     pub removed: i64,
+    /// Copies whose finish was corrected in place: an earlier import read the row's finish
+    /// another way ("Surge Foil" as regular, before 15 Nov 2026), so the copy is the file's row,
+    /// not a copy to remove and add again.
+    pub refinished: i64,
+    pub refinished_cards: Vec<Change>,
     /// Rows whose Scryfall ID isn't in Yama's card data (yet). They're imported anyway.
     pub unknown_printings: Vec<String>,
     pub errors: Vec<String>,
@@ -183,6 +188,9 @@ struct FileCopy {
     set_code: String,
     collector_number: String,
     copy: CopyKind,
+    /// The finish the importer before 15 Nov 2026 read from this row: "foil" and "etched"
+    /// exactly, anything else regular. A special foil ("Surge Foil") was filed as regular then.
+    legacy_finish: String,
     /// Index into the file's containers; `None` for unfiled.
     place: Option<usize>,
     qty: i64,
@@ -303,11 +311,8 @@ pub async fn import_mythic_csv(pool: &SqlitePool, owner: &str, text: &str, opts:
         }
         let copy = CopyKind {
             condition: if r.condition.is_empty() { nm() } else { r.condition.to_uppercase() },
-            finish: match r.finish.to_lowercase().as_str() {
-                "foil" => "foil".into(),
-                "etched" => "etched".into(),
-                _ => nonfoil(),
-            },
+            // "Etched", and a special foil such as "Surge Foil", survive as etched and foil.
+            finish: super::import::finish_of(Some(&r.finish)).to_string(),
             lang: if r.lang.is_empty() { en() } else { r.lang.to_lowercase() },
             altered: r.altered.unwrap_or(false),
             signed: r.signed.unwrap_or(false),
@@ -322,6 +327,7 @@ pub async fn import_mythic_csv(pool: &SqlitePool, owner: &str, text: &str, opts:
             name: r.name,
             set_code: r.set_code.to_lowercase(),
             collector_number: r.collector_number,
+            legacy_finish: legacy_finish(&r.finish).to_string(),
             copy,
             place,
             qty: r.qty,
@@ -336,8 +342,10 @@ pub async fn import_mythic_csv(pool: &SqlitePool, owner: &str, text: &str, opts:
     // From here it reads the collection and then writes it: immediate, so a commit landing in
     // between can't fail it. A preview only reads, and never takes the write lock.
     let mut tx = if opts.dry_run { pool.begin().await? } else { pool.begin_with("BEGIN IMMEDIATE").await? };
-    let copies = owned_copies(&mut tx, owner).await?;
+    let mut copies = owned_copies(&mut tx, owner).await?;
     let key_of = |c: &OwnedCopy| (c.scryfall_id.clone(), c.finish.clone(), c.lang.clone(), c.proxy);
+    let stamp = op_stamp(&mut tx, owner).await?;
+    let mut ops: Vec<(String, OpKind)> = Vec::new();
     let mut file_total: HashMap<Key, i64> = HashMap::new();
     let mut file_at: HashMap<(Key, Option<String>), i64> = HashMap::new();
     // Rows and copies by kind, so a 20,000-row file isn't searched once per card.
@@ -351,14 +359,33 @@ pub async fn import_mythic_csv(pool: &SqlitePool, owner: &str, text: &str, opts:
         *file_at.entry((f.key.clone(), loc_of(f.place))).or_insert(0) += f.qty;
         rows_of.entry(f.key.clone()).or_default().push(i);
     }
+    // A finish an earlier import read another way (`legacy_finish`): the copies it filed are this
+    // row's copies, so their finish is corrected in place, never removed and added again. Only
+    // where the file is short of its own finish there and has more of the old one than it lists.
+    refinish(&mut copies, &file, &file_at, &loc_of, &mut report, &mut ops, short, stamp);
     let mut copies_of: HashMap<Key, Vec<usize>> = HashMap::new();
     for (i, c) in copies.iter().enumerate() {
         copies_of.entry(key_of(c)).or_default().push(i);
     }
     // Yama's rows, with what's left of each after removals.
     let mut left: Vec<i64> = copies.iter().map(|c| c.qty).collect();
-    let mut ops: Vec<(String, OpKind)> = Vec::new();
-    let stamp = op_stamp(&mut tx, owner).await?;
+    // A file imported before adds nothing again. Its removals then hold back from a card (same
+    // printing, language and proxy) it still lists more of in that place, in any finish, than
+    // Yama has: removing there without the add would lose a copy the file still lists.
+    let mut held: std::collections::HashSet<(String, String, bool, String)> = std::collections::HashSet::new();
+    if report.already_imported.is_some() {
+        let mut have_at: HashMap<(Key, Option<String>), i64> = HashMap::new();
+        for c in &copies {
+            *have_at.entry((key_of(c), c.container_id.clone())).or_insert(0) += c.qty;
+        }
+        for ((key, loc), n) in &file_at {
+            if let Some(loc) = loc
+                && *n > have_at.get(&(key.clone(), Some(loc.clone()))).copied().unwrap_or(0)
+            {
+                held.insert((key.0.clone(), key.2.clone(), key.3, loc.clone()));
+            }
+        }
+    }
 
     // No longer in this export: in a container the file names, more copies than the file lists
     // there. Row by row, so the list can say which.
@@ -376,6 +403,10 @@ pub async fn import_mythic_csv(pool: &SqlitePool, owner: &str, text: &str, opts:
     }
     for (i, c) in copies.iter().enumerate() {
         let Some(id) = &c.container_id else { continue };
+        // A copy split off by `refinish`, not yet a row of its own: the file lists it.
+        if c.id.is_empty() {
+            continue;
+        }
         let Some(surplus) = surplus_at.get_mut(&(key_of(c), id.clone())) else { continue };
         if *surplus <= 0 {
             continue;
@@ -394,7 +425,7 @@ pub async fn import_mythic_csv(pool: &SqlitePool, owner: &str, text: &str, opts:
             qty: take,
             now_in: vec![],
         });
-        if opts.remove_missing {
+        if opts.remove_missing && !held.contains(&(c.scryfall_id.clone(), c.lang.clone(), c.proxy, id.clone())) {
             left[i] -= take;
             report.removed += take;
             ops.push((format!("mythic:{short}:remove:{stamp}:{}", ops.len()), OpKind::Adjust { item_id: c.id.clone(), delta: -take }));
@@ -519,7 +550,7 @@ pub async fn import_mythic_csv(pool: &SqlitePool, owner: &str, text: &str, opts:
     for (op_id, op) in ops {
         apply_op(&mut tx, owner, &Op { op_id, device_id: Some("mythic-import".into()), op }).await?;
     }
-    let summary = serde_json::json!({ "rows": report.rows, "copies": report.copies, "added": report.added, "removed": report.removed });
+    let summary = serde_json::json!({ "rows": report.rows, "copies": report.copies, "added": report.added, "removed": report.removed, "refinished": report.refinished });
     sqlx::query("INSERT INTO mythic_imports (owner_id, file_hash, imported_at, report) VALUES (?,?,?,?) ON CONFLICT DO NOTHING")
         .bind(owner)
         .bind(&file_hash)
@@ -540,6 +571,103 @@ pub async fn import_mythic_csv(pool: &SqlitePool, owner: &str, text: &str, opts:
         }
     }
     Ok(report)
+}
+
+/// The finish the Mythic Tools importer read before 15 Nov 2026: "foil" and "etched" exactly,
+/// anything else (a special foil such as "Surge Foil" too) regular.
+fn legacy_finish(raw: &str) -> &'static str {
+    match raw.to_lowercase().as_str() {
+        "foil" => "foil",
+        "etched" => "etched",
+        _ => "nonfoil",
+    }
+}
+
+/// Correct, in place, the finish of copies an earlier import filed from rows this import reads
+/// another way (`FileCopy::legacy_finish`). For each such row's card and place: as many copies as
+/// the file is short of in its own finish there, and no more than Yama has of the old finish
+/// beyond what the file lists of that. Each becomes an update of that row (split off when only
+/// some of its copies), and `copies` is changed to match, so what follows counts them as the
+/// file's. A split-off part has no id yet: it is never picked for removal.
+#[allow(clippy::too_many_arguments)]
+fn refinish(
+    copies: &mut Vec<OwnedCopy>,
+    file: &[FileCopy],
+    file_at: &HashMap<(Key, Option<String>), i64>,
+    loc_of: &dyn Fn(Option<usize>) -> Option<String>,
+    report: &mut MythicReport,
+    ops: &mut Vec<(String, OpKind)>,
+    short: &str,
+    stamp: i64,
+) {
+    let key_of = |c: &OwnedCopy| (c.scryfall_id.clone(), c.finish.clone(), c.lang.clone(), c.proxy);
+    // (the file's key, place, the old finish) -> copies the file lists that way.
+    let mut changed: Vec<((Key, Option<String>, String), i64)> = Vec::new();
+    for f in file.iter().filter(|f| f.legacy_finish != f.copy.finish) {
+        let k = (f.key.clone(), loc_of(f.place), f.legacy_finish.clone());
+        match changed.iter_mut().find(|(x, _)| *x == k) {
+            Some((_, n)) => *n += f.qty,
+            None => changed.push((k, f.qty)),
+        }
+    }
+    for ((key, loc, old), want) in changed {
+        let have = |copies: &[OwnedCopy], k: &Key| copies.iter().filter(|c| key_of(c) == *k && c.container_id == loc).map(|c| c.qty).sum::<i64>();
+        let old_key: Key = (key.0.clone(), old.clone(), key.2.clone(), key.3);
+        let short_of = file_at.get(&(key.clone(), loc.clone())).copied().unwrap_or(0) - have(copies, &key);
+        let spare = have(copies, &old_key) - file_at.get(&(old_key.clone(), loc.clone())).copied().unwrap_or(0);
+        let mut n = short_of.min(spare).min(want);
+        let sample = file.iter().find(|f| f.key == key && loc_of(f.place) == loc).expect("a row of it");
+        let mut i = 0;
+        while n > 0 && i < copies.len() {
+            if key_of(&copies[i]) != old_key || copies[i].container_id != loc || copies[i].id.is_empty() {
+                i += 1;
+                continue;
+            }
+            let take = n.min(copies[i].qty);
+            n -= take;
+            let c = &mut copies[i];
+            ops.push((
+                format!("mythic:{short}:finish:{stamp}:{}", ops.len()),
+                OpKind::Update {
+                    item_id: c.id.clone(),
+                    condition: None,
+                    finish: Some(key.1.clone()),
+                    lang: None,
+                    container_id: None,
+                    purchase_price: None,
+                    note: None,
+                    proxy: None,
+                    altered: None,
+                    signed: None,
+                    scryfall_id: None,
+                    split: (take < c.qty).then_some(take),
+                },
+            ));
+            report.refinished += take;
+            report.refinished_cards.push(Change {
+                name: sample.name.clone(),
+                set_code: sample.set_code.clone(),
+                collector_number: sample.collector_number.clone(),
+                finish: key.1.clone(),
+                lang: key.2.clone(),
+                proxy: key.3,
+                place: c.place(),
+                qty: take,
+                now_in: vec![],
+            });
+            if take == c.qty {
+                c.finish = key.1.clone();
+            } else {
+                c.qty -= take;
+                let mut part = c.clone();
+                part.id = String::new();
+                part.qty = take;
+                part.finish = key.1.clone();
+                copies.push(part);
+            }
+            i += 1;
+        }
+    }
 }
 
 /// The report as the command line prints it.

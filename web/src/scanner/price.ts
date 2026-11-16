@@ -3,7 +3,7 @@
 // one for its finish, dated. A missing price stays missing: never $0, never "worth it", and left
 // out of a total, which says how many were (AGENTS.md: a missing price stays missing).
 
-import { shortDate, usd } from "@yama/core";
+import { pickFinish, shortDate, usd } from "@yama/core";
 import type { Printing } from "../api";
 
 /** One printing's market prices by finish, and their date. */
@@ -15,6 +15,14 @@ export interface Prices {
 }
 
 export type ScanFinish = "nonfoil" | "foil" | "etched" | "proxy";
+
+/**
+ * The finish a copy of a printing is filed in, given the one chosen last: a proxy stays a proxy;
+ * otherwise its only finish, else the chosen one if it comes that way, else regular (`pickFinish`).
+ */
+export function filedFinish(finishes: string[] | null | undefined, chosen: ScanFinish): ScanFinish {
+  return chosen === "proxy" ? "proxy" : (pickFinish({ finishes }, chosen) as ScanFinish);
+}
 
 export const pricesOf = (p: Pick<Printing, "usd" | "usd_foil" | "usd_etched" | "price_date">): Prices => ({ usd: p.usd, usd_foil: p.usd_foil, usd_etched: p.usd_etched, date: p.price_date });
 

@@ -52,6 +52,13 @@ describe("Mythic Tools import", () => {
     expect(lines[1]).toBe("You imported this exact file on day 2026-10-18, so nothing is added from it again.");
   });
 
+  it("says when a re-import corrects a finish an earlier import read as regular", () => {
+    const wce: MythicChange = { name: "West Coast Expansion", set_code: "msc", collector_number: "40", finish: "foil", lang: "en", proxy: false, place: "box: bulk", qty: 1 };
+    const r = report({ already_imported: "2026-11-01T00:00:00Z", added: 0, refinished: 1, refinished_cards: [wce] });
+    expect(previewLines(r, (d) => d)).toContain("1 card was imported before as regular and becomes foil, as the file says.");
+    expect(resultLines(r)).toEqual(["Corrected the finish of 1 card, as the file says."]);
+  });
+
   it("names cards and where they are", () => {
     expect(changeText(sol)).toBe("2 Sol Ring, CMM 410, foil, in box: bulk");
     expect(changeText({ ...sol, qty: 1, finish: "nonfoil", lang: "ja", proxy: true })).toBe("Sol Ring, CMM 410, ja, proxy, in box: bulk");

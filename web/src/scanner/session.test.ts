@@ -12,6 +12,9 @@ const fix = (over: Partial<Fix> = {}): Fix => ({ scryfall_id: "ecc-57", set: "ec
 describe("scan session fixes", () => {
   it("adds proxies as nonfoil proxy copies", () => {
     expect(addOp("x", 1, "proxy", null, "o")).toEqual({ op_id: "o", kind: "add", scryfall_id: "x", qty: 1, finish: "nonfoil", proxy: true, container_id: null });
+    // Etched is filed as etched, in its own row.
+    expect(addOp("x", 1, "etched", null, "o")).toEqual({ op_id: "o", kind: "add", scryfall_id: "x", qty: 1, finish: "etched", proxy: false, container_id: null });
+    expect(identity({ scryfall_id: "x", finish: "etched", container: null })).not.toBe(identity({ scryfall_id: "x", finish: "foil", container: null }));
   });
 
   it("finds the row the scanner's add merged into, not another copy kind", () => {
@@ -109,6 +112,14 @@ describe("rows a write touches", () => {
       { op_id: "op1", kind: "adjust", item_id: "r1", delta: -1 },
       { op_id: "op2", kind: "add", scryfall_id: "cmm-410", qty: 1, finish: "nonfoil", proxy: false, container_id: "box" },
     ]);
+  });
+
+  it("Wrong printing to a printing that doesn't come in the finish filed takes its own (a surge-foil-only TRK card: foil)", () => {
+    const filed: Added = { ...entry, copies: 1, finish: "nonfoil" };
+    const surge = { scryfall_id: "trk-489", set: "trk", number: "489", name: "Blood Crypt", finishes: ["foil"], treatment: { promo_types: ["surgefoil"] } };
+    expect(printingFix(filed, surge)).toMatchObject({ finish: "foil", finishes: ["foil"], treatment: { promo_types: ["surgefoil"] } });
+    // A proxy stays a proxy.
+    expect(printingFix({ ...filed, finish: "proxy" }, surge).finish).toBe("proxy");
   });
 
   it("carries the new printing's prices through a correction, so Recent shows what is filed now", () => {

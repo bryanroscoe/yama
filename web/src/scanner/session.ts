@@ -7,10 +7,11 @@
 // only ever sent again as it was (same op ids, so the server applies it once), and the entry
 // takes no other change meanwhile.
 
+import { pickFinish, type Treated } from "@yama/core";
 import type { CollectionItem } from "../api";
 import type { Prices } from "./price";
 
-export type Finish = "nonfoil" | "foil" | "proxy";
+export type Finish = "nonfoil" | "foil" | "etched" | "proxy";
 
 export interface Added {
   /** This entry's own id (one per Add). */
@@ -21,6 +22,10 @@ export interface Added {
   number: string;
   image: string | null;
   finish: Finish;
+  /** The finishes its printing comes in (Scryfall's), for the Finish choice; absent: unknown. */
+  finishes?: string[];
+  /** What makes its printing special (surge foil, showcase), to name it. */
+  treatment?: Treated;
   /** The box it went in; null for "not filed anywhere". */
   container: string | null;
   copies: number;
@@ -110,13 +115,15 @@ export interface Fix {
   name: string;
   image: string | null;
   finish: Finish;
+  finishes?: string[];
+  treatment?: Treated;
   copies: number;
   /** The new printing's prices, when the printing changes. */
   prices?: Prices | null;
 }
 
 export type CollectionOp =
-  | { op_id: string; kind: "add"; scryfall_id: string; qty: number; finish: "nonfoil" | "foil"; proxy: boolean; container_id: string | null }
+  | { op_id: string; kind: "add"; scryfall_id: string; qty: number; finish: "nonfoil" | "foil" | "etched"; proxy: boolean; container_id: string | null }
   | { op_id: string; kind: "adjust"; item_id: string; delta: number };
 
 type Row = Pick<CollectionItem, "id" | "scryfall_id" | "qty" | "condition" | "finish" | "lang" | "proxy" | "container_id"> & {
@@ -125,20 +132,29 @@ type Row = Pick<CollectionItem, "id" | "scryfall_id" | "qty" | "condition" | "fi
   misprint?: boolean;
 };
 
+/** A printing's treatment fields alone, to carry on an entry (or a scanned card). */
+export const treatmentOf = (p: Treated): Treated => ({ promo_types: p.promo_types, frame_effects: p.frame_effects, border_color: p.border_color, full_art: p.full_art });
+
 /** The fix that takes an entry's copies back out: Remove in the Added list, and Undo on the scanner. */
-export const removeFix = (a: Added): Fix => ({ scryfall_id: a.scryfall_id, set: a.set, number: a.number, name: a.name, image: a.image, finish: a.finish, copies: 0 });
+export const removeFix = (a: Added): Fix => ({ scryfall_id: a.scryfall_id, set: a.set, number: a.number, name: a.name, image: a.image, finish: a.finish, finishes: a.finishes, treatment: a.treatment, copies: 0 });
 
 /**
  * The fix that moves an entry's copies to another printing (Wrong printing, after filing): the same
- * copies, finish and box, so the copy filed is changed, never a second one added.
+ * copies and box, so the copy filed is changed, never a second one added. The finish stays unless
+ * the new printing doesn't come that way (a surge-foil-only printing: foil); a proxy stays a proxy.
  */
-export const printingFix = (a: Added, to: { scryfall_id: string; set?: string; number?: string; name: string; image?: string | null; prices?: Prices | null }): Fix => ({
+export const printingFix = (
+  a: Added,
+  to: { scryfall_id: string; set?: string; number?: string; name: string; image?: string | null; prices?: Prices | null; finishes?: string[]; treatment?: Treated },
+): Fix => ({
   scryfall_id: to.scryfall_id,
   set: to.set ?? "",
   number: to.number ?? "",
   name: to.name,
   image: to.image ?? null,
-  finish: a.finish,
+  finish: a.finish === "proxy" ? "proxy" : (pickFinish({ finishes: to.finishes }, a.finish) as Finish),
+  finishes: to.finishes,
+  treatment: to.treatment,
   copies: a.copies,
   prices: to.prices ?? null,
 });

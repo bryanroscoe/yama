@@ -1668,3 +1668,37 @@ async fn a_device_reports_its_build_and_only_its_owner_reads_it() {
     let mine = list.as_array().unwrap().iter().find(|u| u["email"] == "other@example.com").unwrap();
     assert!(mine["last_client"].is_null(), "{mine}");
 }
+
+/// Special printings through `add_to_collection` (Codex review of #146): a surge-foil-only
+/// printing is foil unless said, a real regular copy of it is refused, and a proxy of it may be
+/// regular, as the scanner files a regular proxy.
+#[tokio::test]
+async fn add_to_collection_follows_a_printings_finishes_but_not_for_proxies() {
+    let (app, pool) = app().await;
+    sqlx::query("INSERT INTO cards (oracle_id, name, type_line, default_printing, updated_at) VALUES ('o-crypt', 'Blood Crypt', 'Land', 'p-trk-489', 'now')").execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO card_names (name, oracle_id) VALUES ('Blood Crypt', 'o-crypt')").execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO printings (scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang, finishes, promo_types, frame_effects, border_color, full_art, updated_at)
+         VALUES ('p-trk-489', 'o-crypt', 'Blood Crypt', 'trk', 'Star Trek', '489', 'en', '[\"foil\"]', '[\"surgefoil\",\"universesbeyond\"]', '[\"showcase\"]', 'black', 1, 'now')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let (a, a_session) = user(&pool, "bryan@example.com").await;
+    let mcp = key(&app, &a_session, Some("mcp")).await;
+    // No finish: its only one, foil, named as the special printing it is.
+    let (err, text) = call(&app, &mcp, "add_to_collection", json!({"card": "Blood Crypt", "set": "trk", "number": "489"})).await;
+    assert!(!err && text.contains("Star Trek #489, foil, Surge foil, Showcase, Full art"), "{text}");
+    // A real regular copy of a foil-only printing doesn't exist.
+    let (err, text) = call(&app, &mcp, "add_to_collection", json!({"card": "Blood Crypt", "set": "trk", "number": "489", "finish": "nonfoil"})).await;
+    assert!(err && text.contains("doesn't come in nonfoil; it comes in foil"), "{text}");
+    // A proxy of it can be regular, said or not.
+    for args in [json!({"card": "Blood Crypt", "set": "trk", "number": "489", "proxy": true, "finish": "nonfoil"}), json!({"card": "Blood Crypt", "set": "trk", "number": "489", "proxy": true})] {
+        let (err, text) = call(&app, &mcp, "add_to_collection", args).await;
+        assert!(!err && text.contains("Add 1 Blood Crypt proxy (Star Trek #489"), "{text}");
+        let (err, text) = call(&app, &mcp, "apply_change", json!({"id": change_id(&text)})).await;
+        assert!(!err, "{text}");
+    }
+    let rows: Vec<(String, bool, i64)> = sqlx::query_as("SELECT finish, proxy, qty FROM collection_items WHERE owner_id = ?").bind(&a).fetch_all(&pool).await.unwrap();
+    assert_eq!(rows, vec![("nonfoil".to_string(), true, 2)]);
+}

@@ -2762,6 +2762,7 @@ mod tests {
             image_normal: None,
             type_line: None,
             color_identity: None,
+            treatment: Default::default(),
             unit_price_usd: None,
             price_date: None,
         }

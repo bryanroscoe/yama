@@ -1,0 +1,17 @@
+{
+  "about": "Special-printing labels both labelers must give: packages/core printingTreatment.test.ts and server/src/cards/treatment.rs read this file. Words follow the table's order, never the order Scryfall lists promo types in.",
+  "cases": [
+    { "promo_types": ["surgefoil", "universesbeyond"], "finish": "foil", "label": "Surge foil" },
+    { "promo_types": ["surgefoil", "universesbeyond"], "finish": "nonfoil", "label": null },
+    { "promo_types": ["surgefoil", "universesbeyond"], "frame_effects": ["showcase"], "border_color": "black", "full_art": true, "finish": "foil", "label": "Surge foil, Showcase, Full art" },
+    { "promo_types": ["serialized", "doublerainbow"], "label": "Double rainbow, Serialized" },
+    { "promo_types": ["doublerainbow", "serialized"], "label": "Double rainbow, Serialized" },
+    { "promo_types": ["oilslick", "raisedfoil"], "finish": "foil", "label": "Oil slick, Raised foil" },
+    { "promo_types": ["raisedfoil", "oilslick"], "finish": "foil", "label": "Oil slick, Raised foil" },
+    { "promo_types": ["raisedfoil", "boosterfun", "galaxyfoil", "surgefoil"], "finish": "foil", "label": "Surge foil, Galaxy foil, Raised foil" },
+    { "promo_types": ["galaxyfoil"], "frame_effects": ["extendedart", "inverted"], "border_color": "borderless", "finish": "foil", "label": "Galaxy foil, Extended art, Borderless" },
+    { "frame_effects": ["extendedart", "showcase"], "label": "Showcase, Extended art" },
+    { "promo_types": ["boosterfun", "somethingnew"], "frame_effects": ["inverted", "legendary", "etched"], "finish": "etched", "label": null },
+    { "label": null }
+  ]
+}

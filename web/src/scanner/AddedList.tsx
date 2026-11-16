@@ -2,13 +2,13 @@
 // printing, or take it back out. See session.ts for how a fix leaves earlier copies alone.
 
 import { useState } from "react";
+import { copyWords, finishesOf, finishName, pickFinish, treatmentLabel } from "@yama/core";
 import type { Printing } from "../api";
 import { pricesOf } from "./price";
 import { printingOptions } from "./printings";
-import { removeFix, type Added, type Finish, type Fix } from "./session";
+import { removeFix, treatmentOf, type Added, type Finish, type Fix } from "./session";
 import { Button, CardThumb, DialogHead, ErrorText, Field, Loading } from "../components/ui";
 
-const FINISH_LABEL: Record<Finish, string> = { nonfoil: "regular", foil: "foil", proxy: "proxy" };
 const PRINTINGS_FIRST = 12;
 
 export interface AddedListProps {
@@ -45,7 +45,9 @@ function AddedRow({ a, onFix, onRetry }: { a: Added; onFix: AddedListProps["onFi
   const [error, setError] = useState<string | null>(null);
   const [printings, setPrintings] = useState<Printing[] | null>(null);
   const [showAll, setShowAll] = useState(false);
-  const base: Fix = { scryfall_id: a.scryfall_id, set: a.set, number: a.number, name: a.name, image: a.image, finish: a.finish, copies: a.copies, prices: a.prices };
+  const base: Fix = { scryfall_id: a.scryfall_id, set: a.set, number: a.number, name: a.name, image: a.image, finish: a.finish, finishes: a.finishes, treatment: a.treatment, copies: a.copies, prices: a.prices };
+  // The finishes its printing comes in, plus Proxy, and always its own.
+  const finishChoices = [...new Set([...finishesOf({ finishes: a.finishes }), "proxy", a.finish])] as Finish[];
 
   const attempt = async (write: () => Promise<void>) => {
     setWorking(true);
@@ -76,7 +78,7 @@ function AddedRow({ a, onFix, onRetry }: { a: Added; onFix: AddedListProps["onFi
         <div className="scan-added-info">
           <strong>{a.name}</strong>
           <span className="dim small">
-            {a.set.toUpperCase()} #{a.number}, {FINISH_LABEL[a.finish]}
+            {a.set.toUpperCase()} #{a.number}, {a.finish === "proxy" ? "proxy" : copyWords(a.treatment ?? {}, a.finish)}
             {a.auto ? ", added by Keep adding" : ""}
           </span>
           <div className="scan-added-actions">
@@ -91,9 +93,11 @@ function AddedRow({ a, onFix, onRetry }: { a: Added; onFix: AddedListProps["onFi
             </Field>
             <Field className="scan-copies" label="Finish">
               <select value={a.finish} disabled={busy} onChange={(e) => void run({ ...base, finish: e.target.value as Finish })}>
-                <option value="nonfoil">Regular</option>
-                <option value="foil">Foil</option>
-                <option value="proxy">Proxy</option>
+                {finishChoices.map((f) => (
+                  <option key={f} value={f}>
+                    {finishName(f)}
+                  </option>
+                ))}
               </select>
             </Field>
             <Button className="scan-alt" disabled={busy} onClick={() => void openPrintings()}>
@@ -127,7 +131,10 @@ function AddedRow({ a, onFix, onRetry }: { a: Added; onFix: AddedListProps["onFi
               aria-selected={p.scryfall_id === a.scryfall_id}
               className={`scan-printing${p.scryfall_id === a.scryfall_id ? " is-chosen" : ""}`}
               disabled={busy}
-              onClick={() => void run({ ...base, scryfall_id: p.scryfall_id, set: p.set_code, number: p.collector_number, name: p.name, image: p.image_small, prices: pricesOf(p) })}
+              onClick={() =>
+                // Another printing keeps the finish if it comes that way (a proxy stays a proxy), else takes its own.
+                void run({ ...base, scryfall_id: p.scryfall_id, set: p.set_code, number: p.collector_number, name: p.name, image: p.image_small, prices: pricesOf(p), finishes: p.finishes, treatment: treatmentOf(p), finish: a.finish === "proxy" ? "proxy" : (pickFinish(p, a.finish) as Finish) })
+              }
             >
               <CardThumb src={p.image_small} fallback={<span className="card-fallback" aria-hidden="true" />} />
               <span className="scan-printing-set">{p.set_name}</span>
@@ -136,6 +143,7 @@ function AddedRow({ a, onFix, onRetry }: { a: Added; onFix: AddedListProps["onFi
                 #{p.collector_number}
                 {p.released_at ? `, ${p.released_at.slice(0, 4)}` : ""}
                 {p.lang !== "en" ? `, ${p.lang}` : ""}
+                {treatmentLabel(p) ? `, ${treatmentLabel(p)}` : ""}
               </span>
             </Button>
           ))}

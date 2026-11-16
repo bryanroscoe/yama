@@ -7,7 +7,7 @@ import type { ScanCandidate } from "../scanner";
 import { finishChoices, finishFor, finishWord, languageChoices, markDone, markOps, markWords, opIds, printingLabel, reprintOps, type Mark, type Op, type Scope } from "./collectionEdit";
 // The scan choices and their notes, shown here outside the scanner too.
 import "../scanner/scanner.css";
-import { shortDate, usd } from "@yama/core";
+import { shortDate, treatmentLabel, usd } from "@yama/core";
 
 // The scanner pulls in OCR; load it only when someone rescans.
 const ScannerView = lazy(() => import("../scanner").then((m) => ({ default: m.ScannerView })));
@@ -57,7 +57,7 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
   const adjust = (delta: number) => save([{ op_id: ids.idFor(`adjust:${delta}`), kind: "adjust", item_id: item.id, delta }]);
   const reprintId = (p: Printing) => () => ids.idFor(`reprint:${p.scryfall_id}:${scope}`);
   const name = item.name ?? "The card";
-  const nowIs = (p: Printing) => `${scope === "one" && item.qty > 1 ? `One ${name}` : name} is now ${printingLabel(p)}.`;
+  const nowIs = (p: Printing) => `${scope === "one" && item.qty > 1 ? `One ${name}` : name} is now ${printingLabel(p, finishFor(item, p))}.`;
   // Every printing of this card, newest first: the picker's list, the check on a rescan, and the
   // finishes this row's printing comes in.
   const printings = useQuery({
@@ -92,7 +92,7 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
         const p = known.printings.find((x) => x.scryfall_id === c.scryfall_id);
         if (!p) throw new Error(`Couldn't find that printing of ${c.name}. Nothing was changed.`);
         await send.mutateAsync(reprintOps(item, p, scope, reprintId(p)));
-        if (alive.current) onClose(`${c.name} is now ${printingLabel(p)}.`);
+        if (alive.current) onClose(`${c.name} is now ${printingLabel(p, finishFor(item, p))}.`);
         return true;
       }
       if (r.error) throw new Error(`Couldn't load the printings of ${item.name ?? "this card"} to check the scan. Nothing was changed; try again.`);
@@ -102,7 +102,7 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
     if (!p) throw new Error(`That's ${c.name}, not ${item.name ?? "this card"}. Nothing was changed.`);
     if (p.scryfall_id === item.scryfall_id) {
       setRescanning(false);
-      setScanNote(`It's the printing you have: ${printingLabel(p)}.`);
+      setScanNote(`It's the printing you have: ${printingLabel(p, finishFor(item, p))}.`);
       return true;
     }
     await send.mutateAsync(reprintOps(item, p, scope, reprintId(p)));
@@ -148,7 +148,7 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
           <CardImage src={item.image_normal} name={item.name ?? ""} />
         </div>
         <p className="dim">
-          {[`${item.set_name} #${item.collector_number}`, finishWord(item.finish), item.condition, ...markWords(item)].join(", ")}
+          {[`${item.set_name} #${item.collector_number}`, treatmentLabel(item, item.finish), finishWord(item.finish), item.condition, ...markWords(item)].filter(Boolean).join(", ")}
           {item.purchase_price != null ? `. Paid ${usd(item.purchase_price)}` : ""}
         </p>
         <div className="row">
@@ -194,7 +194,7 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
                       <Button className="coll-printing-choice" aria-current={current} disabled={busy} onClick={() => reprint(p)}>
                         <CardImage src={p.image_small} name={p.name} className="coll-printing-img" />
                         <span className="coll-printing-text">
-                          <span>{printingLabel(p)}</span>
+                          <span>{printingLabel(p, finish)}</span>
                           <span className="small dim">
                             {[
                               p.released_at?.slice(0, 4),

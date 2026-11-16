@@ -20,7 +20,7 @@ import { readCloseup, readCollectorLines, readTitles, scanFrame, SURE } from "./
 import { artHoldFrame, AWAY_FRAMES, hold, holdRead, type ArtHold, type Hold } from "./hold";
 import { NameEntry } from "./NameEntry";
 import { CollectorPeek } from "./peek";
-import { priceFor, pricesOf, type RecentCard } from "./price";
+import { filedFinish, priceFor, pricesOf, type RecentCard, type ScanFinish } from "./price";
 import { RecentCards } from "./RecentCards";
 import { holdSound } from "../sound";
 import { filedSound, playScanSound, setSoundsOn, setWorthThreshold, soundsOn, unlockSound, worthThreshold, type ScanSound } from "./sounds";
@@ -28,6 +28,7 @@ import { choosePrinting, printingOptions, type Choice } from "./printings";
 import type { ArtMatch, Recognition } from "./recognizer";
 import { deleteSamples, keepSample, sampleSummary, savingPhotos, setSavingPhotos, type SampleLabel, type SampleSummary, type Shot } from "./samples";
 import { SetLockPicker } from "./SetLockPicker";
+import { treatmentOf } from "./session";
 import { artInSets, inLockedSets, KNOWN_ART, knownArtShare, POOL_MARGIN, judgeLocked, lockedNames, lockedSet, poolKeys, readTitleFirst, savedLock, saveLock, suggestLock, type LockedSet } from "./setlock";
 import { CameraControls, cameraInfo, digitalRegion, useCameraControls, type CameraInfo } from "./camera";
 import { defaultCamera, nameCameras, resolveSaved, saveCamera, savedCamera, type NamedCamera } from "./cameras";
@@ -44,7 +45,7 @@ import { VersionLine } from "../version";
 import { ScanSettings, usePinchZoom, useSheetDrag } from "./sheet";
 import type { OcrEngine, Quad, RgbaImage, ScanCandidate, ScanCatalog, ScanResult } from "./types";
 import "./scanner.css";
-import { shortDate, usd } from "@yama/core";
+import { copyWords, shortDate, treatmentLabel, usd } from "@yama/core";
 import { Button, CardThumb, ErrorText, Field } from "../components/ui";
 import { MoreMenu } from "../components/MoreMenu";
 
@@ -97,8 +98,14 @@ export interface ScannerViewProps {
   paused?: boolean;
   /** The last few cards added, newest first. */
   recent?: string[];
-  /** The finish being added, so the found card shows that finish's price (a proxy has none). */
-  finish?: "nonfoil" | "foil" | "proxy";
+  /**
+   * The finish chosen last (nonfoil, foil, etched, or proxy, which has no price). The found card
+   * shows the finish its printing would be added in (`pickFinish`: its only one, else this, else
+   * regular) and that finish's price.
+   */
+  finish?: ScanFinish;
+  /** Told the printing the found card is settled on (null while none), so the host can offer its finishes. */
+  onPrinting?: (p: Printing | null) => void;
   /**
    * The cards filed this session, newest first, with their prices (Collection): the last one shown
    * large at the bottom of the sheet, the rest under it, and the session's total. Hosts without
@@ -370,14 +377,14 @@ const guessOf = (f: Found): NonNullable<Found["guess"]> => ({
 });
 
 /** The lowest and highest market price among printings, for a card whose printing isn't settled. */
-export function priceRange(printings: Printing[], finish: "nonfoil" | "foil" | "proxy"): { low: number; high: number; date: string | null } | null {
+export function priceRange(printings: Printing[], finish: ScanFinish): { low: number; high: number; date: string | null } | null {
   if (finish === "proxy") return null;
   const english = printings.filter((p) => p.lang === "en");
   let low = Infinity;
   let high = -Infinity;
   let date: string | null = null;
   for (const p of english.length ? english : printings) {
-    const v = finish === "foil" ? p.usd_foil : p.usd;
+    const v = priceFor(pricesOf(p), filedFinish(p.finishes, finish));
     if (v == null) continue;
     low = Math.min(low, v);
     high = Math.max(high, v);
@@ -394,6 +401,8 @@ const candidateOf = (f: Found, p: Printing | null): ScanCandidate => ({
   scryfall_id: p?.scryfall_id,
   image: p?.image_normal,
   thumb: p?.image_small,
+  finishes: p?.finishes,
+  treatment: p ? treatmentOf(p) : undefined,
   confidence: f.confidence,
   method: f.method,
   prices: p ? pricesOf(p) : undefined,
@@ -416,6 +425,7 @@ export function ScannerView({
   finish = "nonfoil",
   recentCards,
   sounds: soundsProp = true,
+  onPrinting,
   controls,
   settings,
   settingsSummary,
@@ -1610,6 +1620,12 @@ export function ScannerView({
   }, [closeup, paused, live, ocrEngine, textReader]);
 
   const chosen = found?.chosen ?? null;
+  // The host offers the chosen printing's finishes (a surge-foil-only printing: Foil alone).
+  const onPrintingRef = useRef(onPrinting);
+  onPrintingRef.current = onPrinting;
+  useEffect(() => {
+    onPrintingRef.current?.(chosen);
+  }, [chosen]);
   const ready = identityOnly || !!chosen;
   // When the next step is a tap, not the camera, say so on the camera view, buzz, and bring it into view.
   const tapNeeded: string | null =
@@ -1677,7 +1693,7 @@ export function ScannerView({
       if (ok === false) return failed();
       buzz(40);
       // A brighter sound for a card worth the threshold (its market price in the finish filed).
-      sound(filedSound(identityOnly ? null : priceFor(card.prices, finish), worth));
+      sound(filedSound(identityOnly ? null : priceFor(card.prices, filedFinish(card.finishes, finish)), worth));
       setJustAdded({ text: `${addedWord} ${label}`, card: onUndo || onCorrect ? card : undefined, label, found: f, printing: c });
     }, failed);
   };
@@ -1787,7 +1803,8 @@ export function ScannerView({
       <VersionLine className="scan-note" />
     </ScanSettings>
   );
-  const price = chosen ? priceFor(pricesOf(chosen), finish) : null;
+  const chosenFinish = chosen ? filedFinish(chosen.finishes, finish) : finish;
+  const price = chosen ? priceFor(pricesOf(chosen), chosenFinish) : null;
   const isFound = phase === "found" && !!found;
   const options = found?.options ?? null;
   // The latest frame of the held card, else the one it was found in.
@@ -1982,7 +1999,7 @@ export function ScannerView({
                   <span className="dim">
                     {`${chosen.set_name} #${chosen.collector_number}`}
                     {chosen.lang !== "en" ? `, ${chosen.lang}` : ""}
-                    {`, ${finish === "foil" ? "foil" : finish === "proxy" ? "proxy" : "regular"}`}
+                    {`, ${chosenFinish === "proxy" ? "proxy" : copyWords(chosen, chosenFinish)}`}
                   </span>
                 )}
                 {!identityOnly && chosen && finish !== "proxy" && (
@@ -2087,6 +2104,7 @@ export function ScannerView({
                       #{p.collector_number}
                       {p.released_at ? `, ${p.released_at.slice(0, 4)}` : ""}
                       {p.lang !== "en" ? `, ${p.lang}` : ""}
+                      {treatmentLabel(p) ? `, ${treatmentLabel(p)}` : ""}
                     </span>
                   </Button>
                 ))}

@@ -1199,7 +1199,7 @@ pub(super) const TOOLS: &[Tool] = &[
                     "number": {"type": "string", "description": "Collector number in that set."},
                     "container": {"type": "string", "description": "Their binder, deck box or list, by name, or \"Loose\" for copies in none."},
                     "proxy": {"type": "boolean"},
-                    "finish": {"type": "string", "enum": ["nonfoil", "foil", "etched"]},
+                    "finish": {"type": "string", "enum": ["nonfoil", "foil", "etched"], "description": "Regular unless said, or the printing's only finish. A special foil (surge, galaxy, textured...) is its own printing: give its set and number, with foil."},
                 },
                 "required": ["card"],
                 "additionalProperties": false,

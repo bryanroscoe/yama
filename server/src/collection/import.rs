@@ -412,9 +412,9 @@ fn read_csv(start: &CsvStart<'_>) -> Source {
                 Some(c) => row.condition = c,
                 None => note_once(&mut src.odd_conditions, raw),
             }
-            // TCGplayer writes the finish into the condition: "Near Mint Foil".
+            // TCGplayer writes the finish into the condition: "Near Mint Foil", "Near Mint Etched Foil".
             if row.finish == "nonfoil" && raw.to_lowercase().ends_with("foil") {
-                row.finish = "foil";
+                row.finish = if raw.to_lowercase().contains("etch") { "etched" } else { "foil" };
             }
         }
         if let Some(raw) = get(lang_c) {
@@ -481,8 +481,10 @@ fn is_set_code(s: &str) -> bool {
     (2..=6).contains(&s.len()) && s.chars().all(|c| c.is_ascii_alphanumeric()) && s.chars().any(|c| c.is_ascii_alphabetic())
 }
 
-/// A finish column: "foil", "etched", "Normal", or a foil flag ("true", "1").
-fn finish_of(raw: Option<&str>) -> &'static str {
+/// A finish column: "foil", "etched", "Normal", or a foil flag ("true", "1"). A special foil
+/// ("Surge Foil", "Galaxy Foil") is a foil copy: the printing itself (its own collector number)
+/// says which kind, so it is never dropped to nonfoil.
+pub(crate) fn finish_of(raw: Option<&str>) -> &'static str {
     let f = raw.unwrap_or("").trim().to_lowercase();
     if f.contains("etch") {
         "etched"

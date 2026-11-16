@@ -4,6 +4,8 @@ import type { Prices } from "./price";
 // out. OCR and the card catalog are injected, so the same code runs in the browser, in a
 // Capacitor web view, and in Node for the eval harness.
 
+import type { Treated } from "@yama/core";
+
 export type Point = [number, number];
 /** Card corners in image pixels, printed order: top-left, top-right, bottom-right, bottom-left. */
 export type Quad = [Point, Point, Point, Point];
@@ -80,6 +82,10 @@ export interface ScanCandidate {
   image?: string | null;
   /** The small picture, for lists. */
   thumb?: string | null;
+  /** The finishes the settled printing comes in (Scryfall's), for the finish it's filed in. */
+  finishes?: string[];
+  /** What makes the settled printing special (surge foil, showcase), to name it. */
+  treatment?: Treated;
   /** 0..1. Above ~0.8 is safe to accept without a tap; see docs/scanner.md. */
   confidence: number;
   method: ScanMethod;

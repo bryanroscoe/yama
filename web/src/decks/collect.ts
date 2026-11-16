@@ -22,6 +22,8 @@ export interface CollectPrinting {
   /** "deck": the printing the deck names (from an import); "default": Yama's pick. */
   from: "deck" | "default";
   image_small: string | null;
+  /** What makes the printing special for a copy in this finish, in words ("Surge foil"). */
+  special?: string | null;
 }
 
 export interface CollectElsewhere {
@@ -113,12 +115,14 @@ export function buttonText(o: CollectOutcome): string {
   return `Add ${plural(total, "card")}${o.moved ? ` (${o.moved} moved)` : ""}`;
 }
 
-/** "C21 263, foil, proxy. The deck's printing" for a card's line. */
+/** "C21 263, foil, proxy. The deck's printing", "Surge foil, MSC 40. The deck's printing" for a card's line. */
 export function printingText(l: Pick<CollectLine, "printing" | "proxy">): string {
   const p = l.printing;
   if (!p) return "No printing in Yama's card data";
   const bits = [`${p.set_code.toUpperCase()} ${p.collector_number}`];
-  if (p.finish !== "nonfoil") bits.push(p.finish);
+  if (p.special) bits.unshift(p.special);
+  // A special foil already says foil.
+  if (p.finish !== "nonfoil" && !(p.finish === "foil" && p.special && /\bfoil\b/i.test(p.special))) bits.push(p.finish);
   if (l.proxy) bits.push("proxy");
   return `${bits.join(", ")}. ${p.from === "deck" ? "The deck's printing" : "Default printing"}`;
 }

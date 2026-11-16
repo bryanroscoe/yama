@@ -1,5 +1,6 @@
 pub mod import;
 pub mod search;
+pub mod treatment;
 mod preview;
 
 use crate::auth::CurrentUser;
@@ -381,6 +382,10 @@ pub struct Printing {
     pub image_small: Option<String>,
     pub back_image_normal: Option<String>,
     pub artist: Option<String>,
+    /// Promo types, frame effects, border and full art: what makes the printing special.
+    #[serde(flatten)]
+    #[sqlx(flatten)]
+    pub treatment: treatment::Treatment,
     /// Latest snapshot. `None` means Scryfall had no price; it is never 0 for "unknown".
     pub price_date: Option<String>,
     pub usd: Option<f64>,
@@ -392,6 +397,7 @@ pub struct Printing {
 
 pub const PRINTING_SELECT: &str = "SELECT p.scryfall_id, p.oracle_id, p.name, p.set_code, p.set_name, p.collector_number,
     p.lang, p.rarity, p.finishes, p.released_at, p.image_normal, p.image_small, p.back_image_normal, p.artist,
+    p.promo_types, p.frame_effects, p.border_color, p.full_art,
     ps.date AS price_date, ps.usd, ps.usd_foil, ps.usd_etched, ps.eur, ps.eur_foil
     FROM printings p
     LEFT JOIN price_latest ps ON ps.scryfall_id = p.scryfall_id";
