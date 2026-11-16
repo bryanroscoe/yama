@@ -38,6 +38,11 @@ COMMAND_DEADLINE = None
 MAX_TOKEN_LENGTH = 16_384
 BACKUP_RETENTION_SECONDS = 48 * 60 * 60
 BACKUP_KEEP_NEWEST = 3
+# Every release tags its three images with the commit (yama:<sha>), and nothing else ever
+# removed them: by November 2026 saget held 750 of them. Keep the newest few per service.
+RELEASE_IMAGES_KEEP_NEWEST = 5
+RELEASE_IMAGES_REMOVE_MAX = 60  # per service per release, so a backlog never stalls one
+RELEASE_TAG = re.compile(r'[0-9a-f]{40}')
 
 
 class Refused(Exception):
@@ -748,6 +753,72 @@ def prune_backups(release_backup, now=None):
         log('Backup retention freed ' + str(freed) + ' bytes; ' + str(len(copies) - removed) + ' copies kept')
 
 
+def release_record_images(name):
+    """The image IDs that BASE/<name> records (a missing file records none)."""
+    try:
+        value = json.loads((BASE / name).read_text()).get('images') or {}
+    except FileNotFoundError:
+        return set()
+    if not isinstance(value, dict) or not all(isinstance(image, str) for image in value.values()):
+        raise Refused(name + ' names invalid images')
+    return set(value.values())
+
+
+def prune_release_images(revision, keep_newest=RELEASE_IMAGES_KEEP_NEWEST, remove_max=RELEASE_IMAGES_REMOVE_MAX):
+    """Untag old per-commit release images. Call only after a healthy activation.
+
+    Candidates are tags that are a full commit SHA on the three release repositories; latest
+    and every other repository (lab, CI, runner images) are never touched. Kept: this
+    revision, every tag of the newest few distinct images per service, and any tag whose
+    image the rollback inputs or a container name. `docker image rm` is never forced, so an image a container still uses
+    stays; removing a tag frees the image only once nothing else refers to it.
+    """
+    kept = release_record_images('previous.json') | release_record_images('current.json')
+    kept |= {image for image in existing_images().values() if image}
+    removed = skipped = 0
+    for service in SERVICES:
+        rows = []
+        listing = run(['docker', 'image', 'ls', '--no-trunc', '--format',
+                       '{{.Tag}}\t{{.ID}}\t{{.CreatedAt}}', service])
+        for row in listing.splitlines():
+            tag, image, created = (row.split('\t') + ['', ''])[:3]
+            if RELEASE_TAG.fullmatch(tag):
+                # "2026-11-16 16:47:18 +0000 UTC": the zone name after the offset is dropped.
+                rows.append((datetime.strptime(created[:25], '%Y-%m-%d %H:%M:%S %z'), tag, image))
+        rows.sort(reverse=True)
+        # Unchanged sidecars carry many tags on one image: keep the newest distinct images.
+        newest = []
+        for _, _, image in rows:
+            if image not in newest:
+                newest.append(image)
+        keep = kept | set(newest[:keep_newest])
+        this_service = 0
+        for _, tag, image in reversed(rows):  # oldest first
+            if tag == revision or image in keep:
+                continue
+            if this_service >= remove_max:
+                skipped += 1
+                continue
+            try:
+                run(['docker', 'image', 'rm', service + ':' + tag], timeout=120)
+                this_service += 1
+            except Refused:
+                skipped += 1
+        removed += this_service
+    log('Image retention removed ' + str(removed) + ' old release tags; ' + str(skipped) + ' left for later')
+    return removed
+
+
+def retain_images(revision):
+    # Housekeeping after a verified release, like retain_backups: it never fails the release.
+    try:
+        prune_release_images(revision)
+    except Refused as error:
+        log('Image retention skipped: ' + str(error))
+    except Exception as error:
+        log('Image retention failed: ' + type(error).__name__)
+
+
 def retain_backups(release_backup):
     # Housekeeping after a verified release: a failure is logged, never recorded as a failed release.
     try:
@@ -862,6 +933,7 @@ def release(revision, token, check_only=False):
                 write_json(BASE / 'current.json', record)
                 log('Production verified at ' + revision + '; HTTP health ok, all image IDs match.')
                 retain_backups(record.get('backup'))
+                retain_images(revision)
                 return 'success'
         except Exception as error:
             record['status'] = 'failed'

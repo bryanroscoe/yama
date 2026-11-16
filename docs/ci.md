@@ -242,11 +242,16 @@ than 30 minutes, don't wait for it. Run the checks locally, treat that as good e
   For an ad hoc Rust test in a worktree, use `scripts/local-ci.sh --no-amend`, or keep the
   worktree's own `target/` and clean it when done; pointing a bare `cargo test` at the shared
   target can run another worktree's server build. The shared target is a machine cache owned
-  by Yama local CI, not by any one task, so retiring a worktree leaves it in place. To reclaim
-  space, preview and apply
-  `agent-clean <worktree> --target-dir ~/Library/Caches/yama/cargo-target` (workspace
-  artifacts only, keeping the shared dependency builds) when nothing is running there; add
-  `--all` only when the engine pin or toolchain changed and the old builds are useless.
+  by Yama local CI, not by any one task, so retiring a worktree leaves it in place. It keeps
+  a whole engine build (about 8 GiB) for every engine pin and toolchain it has seen, and it
+  reached 44 GiB before anyone noticed (Bryan, 16 Nov 2026: clean it up every time). So it
+  trims itself: once it passes 25 GiB (`YAMA_CARGO_TARGET_CAP_GIB`), the next `local-ci.sh`
+  Rust step clears it under its lock, unless a Cargo run outside local-ci is building in it
+  (it holds `debug/.cargo-lock`); that run rebuilds the engine once. To reclaim space sooner,
+  preview and apply `agent-clean <worktree> --target-dir ~/Library/Caches/yama/cargo-target`
+  (workspace artifacts only, keeping the shared dependency builds) when nothing is running
+  there; add `--all` only when the engine pin or toolchain changed and the old builds are
+  useless.
 - **Local runs check only what changed too.** `local-ci.sh` classifies every file the branch
   changes since its merge base with `main` by the gate's rule (`areas_needed`, below) and runs
   only the web, Rust and Python checks those need, as PR CI would. `--full` runs them all.

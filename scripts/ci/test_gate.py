@@ -3,6 +3,7 @@
 Run from any directory: python3 -m unittest discover -s scripts/ci -p 'test_*.py'
 """
 
+import fcntl
 import os
 from pathlib import Path
 import re
@@ -518,6 +519,34 @@ class LocalScript(unittest.TestCase):
         clean = calls.index('cargo clean --quiet -p yama-server -p yama-play')
         self.assertEqual(calls[clean + 1], 'cargo test --locked')
         self.assertTrue((self.repo.parent / 'cargo-target/.yama-local-ci.lock').exists())
+
+    def test_a_shared_target_over_its_cap_is_cleared_under_the_lock(self):
+        target = self.repo.parent / 'cargo-target'
+        (target / 'debug').mkdir(parents=True)
+        (target / 'debug/old-engine').write_bytes(b'x' * 4096)
+        self.assertEqual(self.run_script('--no-amend').returncode, 0)  # under the default cap
+        self.assertNotIn('cargo clean --quiet\n', self.log.read_text())
+        self.log.unlink()
+        self.env['YAMA_CARGO_TARGET_CAP_GIB'] = '0'
+        result = self.run_script('--no-amend')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('over its 0 GiB cap; clearing it', result.stdout)
+        calls = self.log.read_text().splitlines()
+        self.assertEqual(calls[calls.index('cargo clean --quiet') + 1],
+                         'cargo clean --quiet -p yama-server -p yama-play')
+
+    def test_a_shared_target_another_build_holds_is_left_alone(self):
+        target = self.repo.parent / 'cargo-target'
+        (target / 'debug').mkdir(parents=True)
+        (target / 'debug/old-engine').write_bytes(b'x' * 4096)
+        self.env['YAMA_CARGO_TARGET_CAP_GIB'] = '0'
+        with open(target / 'debug/.cargo-lock', 'a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)  # a direct `cargo test` building in it
+            result = self.run_script('--no-amend')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('another build is using it', result.stdout)
+        self.assertNotIn('cargo clean --quiet\n', self.log.read_text())
+        self.assertIn('cargo test --locked', self.log.read_text())
 
     def test_shared_target_is_the_default(self):
         target = self.repo.parent / 'shared-target'

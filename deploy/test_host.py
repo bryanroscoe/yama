@@ -319,7 +319,8 @@ class HostGate(unittest.TestCase):
         patches = {'log': {}, 'verify_ci': {'return_value': True}, 'checkout': {'return_value': repo},
                    'phase_checkout': {'return_value': (repo, OTHER)}, 'bootstrap_sidecars': {},
                    'export': {}, 'run': {'return_value': 'image-id'},
-                   'activate': {'side_effect': activate}, 'prune_backups': {}}
+                   'activate': {'side_effect': activate}, 'prune_backups': {},
+                   'prune_release_images': {}}
         mocks = {}
         for name, options in patches.items():
             p = patch.object(host, name, **options)
@@ -336,17 +337,20 @@ class HostGate(unittest.TestCase):
         prune = self.release_steps(activated)
         self.assertEqual(host.release(SHA, 'token'), 'success')
         prune.assert_called_once_with(release_copy)
+        host.prune_release_images.assert_called_once_with(SHA)
 
     def test_superseded_activation_never_prunes(self):
         prune = self.release_steps(lambda *args: False)
         self.assertEqual(host.release(SHA, 'token'), 'superseded')
         prune.assert_not_called()
+        host.prune_release_images.assert_not_called()
 
     def test_refused_activation_never_prunes(self):
         prune = self.release_steps(host.Refused('Release health failed'))
         with self.assertRaisesRegex(host.Refused, 'Release health failed'):
             host.release(SHA, 'token')
         prune.assert_not_called()
+        host.prune_release_images.assert_not_called()
 
     def test_retention_failure_never_fails_a_verified_release(self):
         def activated(source, revision, images, record, record_path, token):
@@ -357,6 +361,15 @@ class HostGate(unittest.TestCase):
         self.assertEqual(host.release(SHA, 'token'), 'success')
         self.assertEqual(json.loads((self.base / 'current.json').read_text())['status'], 'success')
         host.log.assert_any_call('Backup retention failed: ValueError')
+
+    def test_image_retention_failure_never_fails_a_verified_release(self):
+        def activated(source, revision, images, record, record_path, token):
+            record['backup'] = None
+            return True
+        self.release_steps(activated)
+        host.prune_release_images.side_effect = ValueError('daemon gone')
+        self.assertEqual(host.release(SHA, 'token'), 'success')
+        host.log.assert_any_call('Image retention failed: ValueError')
 
     def test_leaving_main_during_build_preserves_running_service_and_cleans_exports(self):
         repo = self.root / 'repo'
@@ -969,6 +982,92 @@ with host.release_lock():
              patch.object(host, 'release', side_effect=host.Refused('CI pending')), patch.object(host, 'log') as log:
             self.assertEqual(host.main(), 1)
             log.assert_called_once_with('Release refused: CI pending')
+
+
+class ImageRetention(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='yama-image-retention-test-')
+        self.addCleanup(self.temp.cleanup)
+        self.base = Path(self.temp.name)
+        for target, value in ((host, 'BASE'),):
+            p = patch.object(target, value, self.base)
+            p.start()
+            self.addCleanup(p.stop)
+        for name, options in (('log', {}), ('existing_images', {'return_value': {
+                'yama': 'sha256:running', 'yama-advisor': 'sha256:adv-running', 'yama-forge': None}})):
+            p = patch.object(host, name, **options)
+            p.start()
+            self.addCleanup(p.stop)
+        self.removed, self.refuse = [], set()
+        # Newest first is NOT assumed: the listing order is shuffled on purpose.
+        self.images = {s: [] for s in host.SERVICES}
+        for day in (3, 9, 1, 7, 5, 2, 8, 4, 6):
+            self.images['yama'].append(('%040x' % day, 'sha256:y%d' % day, '2026-11-%02d 10:00:00 +0000 UTC' % day))
+        self.images['yama'] += [('latest', 'sha256:y9', '2026-11-09 10:00:00 +0000 UTC'),
+                                ('a952dcd', 'sha256:short', '2026-01-01 10:00:00 +0000 UTC'),
+                                ('%040x' % 99, 'sha256:running', '2026-10-01 10:00:00 -0500 CDT')]
+
+        def run(args, **kwargs):
+            if args[:3] == ['docker', 'image', 'ls']:
+                return '\n'.join('\t'.join(row) for row in self.images[args[-1]])
+            if args[:3] == ['docker', 'image', 'rm']:
+                if args[3] in self.refuse:
+                    raise host.Refused('Command failed: docker (exit 1)')
+                self.removed.append(args[3])
+                return ''
+            raise AssertionError(args)
+        p = patch.object(host, 'run', side_effect=run)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def write(self, name, images):
+        (self.base / name).write_text(json.dumps({'images': images}))
+
+    def test_keeps_the_newest_this_release_rollback_and_running_images(self):
+        self.write('previous.json', {'yama': 'sha256:y2'})
+        self.write('current.json', {'yama': 'sha256:y9'})
+        removed = host.prune_release_images('%040x' % 1, keep_newest=3)
+        # Newest three are days 9, 8, 7; day 1 is this release, day 2 is the rollback.
+        self.assertEqual(sorted(self.removed), ['yama:%040x' % day for day in (3, 4, 5, 6)])
+        self.assertEqual(removed, 4)
+
+    def test_latest_short_tags_and_other_repositories_are_never_candidates(self):
+        host.prune_release_images('f' * 40, keep_newest=0)
+        self.assertNotIn('yama:latest', self.removed)
+        self.assertNotIn('yama:a952dcd', self.removed)
+        self.assertNotIn('yama:' + '%040x' % 99, self.removed)  # a container runs it
+        self.assertTrue(all(tag.startswith('yama:') for tag in self.removed))
+
+    def test_a_refused_removal_is_left_for_later_and_the_rest_continue(self):
+        self.refuse = {'yama:%040x' % 3}
+        host.prune_release_images('f' * 40, keep_newest=5)
+        self.assertEqual(sorted(self.removed), ['yama:%040x' % day for day in (1, 2, 4)])
+        host.log.assert_called_with('Image retention removed 3 old release tags; 1 left for later')
+
+    def test_the_newest_distinct_images_are_kept_with_all_their_tags(self):
+        # An unchanged sidecar: three newer commits share one image, so the second-newest
+        # image (day 5) is kept too.
+        self.images['yama-advisor'] = [
+            ('%040x' % day, 'sha256:a-same' if day > 6 else 'sha256:a%d' % day,
+             '2026-11-%02d 10:00:00 +0000 UTC' % day) for day in (9, 8, 7, 5, 3)]
+        host.prune_release_images('f' * 40, keep_newest=2)
+        self.assertEqual([tag for tag in self.removed if tag.startswith('yama-advisor:')],
+                         ['yama-advisor:%040x' % 3])
+
+    def test_removals_per_release_are_capped(self):
+        host.prune_release_images('f' * 40, keep_newest=0, remove_max=2)
+        self.assertEqual(len(self.removed), 2)
+        # Oldest first; the 'running' tag (1 October) is kept, so days 1 and 2 go.
+        self.assertEqual(self.removed, ['yama:%040x' % 1, 'yama:%040x' % 2])
+
+    def test_unreadable_rollback_inputs_remove_nothing(self):
+        (self.base / 'previous.json').write_text(json.dumps({'images': ['not', 'a', 'map']}))
+        with self.assertRaisesRegex(host.Refused, 'previous.json names invalid images'):
+            host.prune_release_images('f' * 40)
+        self.assertEqual(self.removed, [])
+        host.retain_images('f' * 40)
+        host.log.assert_called_with('Image retention skipped: previous.json names invalid images')
+        self.assertEqual(self.removed, [])
 
 
 class BackupRetention(unittest.TestCase):
