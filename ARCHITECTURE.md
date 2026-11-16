@@ -514,14 +514,14 @@ section for each land color btw, let's also make a feature to scan boxes or sect
 Also a side note is that I have most of these in one box with lots of dividers and some of those
 dividers have sub sections as well."
 
-- **A container can sit in another.** `containers.parent_id` (migration 0096) is the container a
+- **A container can sit in another.** `containers.parent_id` (migration 0098) is the container a
   section is in; NULL is the top level. Cards stay filed in exactly one container; counts and
   values roll up to the parents in `GET /api/containers` (`total_*`), which lists the tree depth
   first (`collection/sections.rs`). Nesting stops at eight levels; a container can't go into
   itself or one of its own sections; one that still has sections can't be deleted (409), so no
   section is ever left without a parent.
 - **Names are unique among siblings**, not across the account: two boxes can each have a
-  "Plains". SQLite can't drop the old `UNIQUE(owner_id, kind, name)`, so 0096 rebuilds the
+  "Plains". SQLite can't drop the old `UNIQUE(owner_id, kind, name)`, so 0098 rebuilds the
   table with foreign keys off (`-- no-transaction`, its own `BEGIN`/`COMMIT`): dropping the old
   table with them on would have unfiled every card through `ON DELETE SET NULL`. Every existing
   container became top level, so none could clash. Lookups by name that imports, deck boxes and

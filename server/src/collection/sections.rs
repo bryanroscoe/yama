@@ -411,7 +411,7 @@ mod tests {
         let opts = SqliteConnectOptions::from_str("sqlite::memory:").unwrap().foreign_keys(true);
         let pool = SqlitePoolOptions::new().max_connections(1).connect_with(opts).await.unwrap();
         let mut before = sqlx::migrate!("./migrations");
-        before.migrations = std::borrow::Cow::Owned(before.migrations.iter().filter(|m| m.version < 96).cloned().collect());
+        before.migrations = std::borrow::Cow::Owned(before.migrations.iter().filter(|m| m.version < 98).cloned().collect());
         before.run(&pool).await.unwrap();
         sqlx::query("INSERT INTO users (id, email, display_name, created_at) VALUES ('u1', 'a@b.c', 'A', 'now')").execute(&pool).await.unwrap();
         for (id, kind, name) in [("c1", "box", "Bulk"), ("c2", "binder", "Bulk"), ("c3", "deck", "Riders")] {
