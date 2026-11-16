@@ -29,7 +29,8 @@ function tileMeta(copies: number, value: number | undefined, unpriced: number | 
   if (value === undefined) return cards;
   return `${cards}, ${usdWhole(value)}${unpriced ? `, ${unpriced} with no price` : ""}`;
 }
-import type { Added, Finish, Fix, ScanCandidate } from "../scanner";
+import type { Added, Finish, Fix, RecentCard, ScanCandidate } from "../scanner";
+import { useOpenedEntry } from "../scanner/opened";
 import { useDebounced } from "../useDebounced";
 // The scan choices and their notes, shown here outside the scanner too.
 import "../scanner/scanner.css";
@@ -39,6 +40,7 @@ import { priceSource, shortDate, usd, count, plural, usdWhole, treatmentLabel, f
 const scanner = () => import("../scanner");
 const ScannerView = lazy(() => scanner().then((m) => ({ default: m.ScannerView })));
 const AddedList = lazy(() => scanner().then((m) => ({ default: m.AddedList })));
+const ScannedCard = lazy(() => scanner().then((m) => ({ default: m.ScannedCard })));
 
 /** Keep adding is remembered on this device. */
 const KEEP_ADDING = "yama.scan.keepAdding";
@@ -729,6 +731,7 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
       key: crypto.randomUUID(),
       name: c.name,
       scryfall_id: c.scryfall_id,
+      oracle_id: c.oracle_id,
       set: c.set ?? "",
       number: c.number ?? "",
       image: c.thumb ?? c.image ?? null,
@@ -880,6 +883,9 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
     </>
   );
   const controls = error ? <ErrorText error={error} /> : null;
+  // Removed (its copies taken back out): the large view has nothing left to show.
+  // The card opened large from the scanner's strip (or the Added list); gone once removed.
+  const { entry: openedEntry, open: setOpened, close: closeOpened } = useOpenedEntry(added);
   return (
     <div className="scan-overlay">
       <Suspense fallback={<Loading padded>Starting the scanner…</Loading>}>
@@ -893,8 +899,9 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
           unsavedCount={added.filter((a) => a.pending?.error && a.pending.fix === null).length}
           autoAdd={keepAdding}
           closeups={closeups}
-          paused={reviewing || closing}
-          recentCards={added.map((a) => ({ key: a.key, name: a.name, set: a.set, number: a.number, finish: a.finish, copies: a.copies, prices: a.prices }))}
+          paused={reviewing || closing || openedEntry != null}
+          recentCards={added.map((a) => ({ key: a.key, name: a.name, set: a.set, number: a.number, finish: a.finish, copies: a.copies, prices: a.prices, image: a.image, oracleId: a.oracle_id, state: entryState(a) }))}
+          onOpenCard={setOpened}
           finish={finish}
           onPrinting={setPrinting}
           controls={controls}
@@ -904,7 +911,12 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
         />
         {reviewing && (
           <Dialog onClose={() => setReviewing(false)} label="Added while scanning">
-            <AddedList added={added} onFix={fix} onRetry={retry} onClose={() => setReviewing(false)} />
+            <AddedList added={added} onFix={fix} onRetry={retry} onClose={() => setReviewing(false)} onOpen={(a) => setOpened(a.key)} />
+          </Dialog>
+        )}
+        {openedEntry && (
+          <Dialog onClose={closeOpened} label={openedEntry.name} className="scan-big-sheet">
+            <ScannedCard a={openedEntry} onFix={fix} onRetry={retry} onClose={closeOpened} />
           </Dialog>
         )}
         <UnsavedPrompt guard={guard} what="the scans that aren't saved yet" />
@@ -923,4 +935,11 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
       </Suspense>
     </div>
   );
+}
+
+/** An entry's state for its tile in the scanner's strip: its add not saved, a change to it not saved, or on its way. */
+function entryState(a: Added): RecentCard["state"] {
+  if (!a.pending) return undefined;
+  if (!a.pending.error) return "saving";
+  return a.pending.fix ? "change-failed" : "failed";
 }
