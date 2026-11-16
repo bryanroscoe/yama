@@ -44,7 +44,7 @@ use engine::types::match_config::MatchConfig;
 use engine::types::player::PlayerId;
 use engine::types::replay::{RecordedActionKind, ReplayHeader, ReplayLog};
 use phase_ai::auto_play::eligible_ai_decision;
-use phase_ai::combo::CatalogCombo;
+use phase_ai::combo::{CatalogCombo, Rehearsal};
 use phase_ai::config::{AiConfig, AiDifficulty, Platform, create_config_for_players};
 use phase_ai::search::choose_action_with_session;
 use phase_ai::session::AiSession;
@@ -113,7 +113,58 @@ pub struct SeatCombo {
     /// The source's id for it (Spellbook's variant id), kept for reports.
     pub id: String,
     pub cards: Vec<String>,
+    /// What rehearsing it before the game showed ([`Engine::learn_combos`]). A seat told this
+    /// does not rehearse the combo in the game; one told nothing rehearses up to four of its
+    /// combos itself, in its first turns.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan: Option<ComboPlan>,
 }
+
+/// What a computer's seat learned by rehearsing one of its deck's combos before playing the deck
+/// (phase-ai's `combo::rehearse`): the combo's cards are set out on a copy of a game of the deck,
+/// as though earlier turns had played them, and the AI looks for a line that wins there.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "outcome", rename_all = "snake_case")]
+pub enum ComboPlan {
+    /// It won the practice game. `with` names the cards outside the combo the win needed (the
+    /// spell that spent what the combo made); `cast`, the combo's own cards the winning line cast
+    /// from hand. In a game the seat looks for the combo's missing cards with its tutors and
+    /// doesn't cast any of those for what it does alone: the winning line casts them.
+    Wins {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        with: Vec<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        cast: Vec<String>,
+    },
+    /// It found no win: the seat does not look for this combo, though it still plays it if it
+    /// happens to hold every card.
+    NoWin,
+}
+
+impl From<Rehearsal> for ComboPlan {
+    fn from(rehearsal: Rehearsal) -> Self {
+        match rehearsal {
+            Rehearsal::Wins { with, cast } => ComboPlan::Wins { with, cast },
+            Rehearsal::NoWin => ComboPlan::NoWin,
+        }
+    }
+}
+
+impl From<&ComboPlan> for Rehearsal {
+    fn from(plan: &ComboPlan) -> Self {
+        match plan {
+            ComboPlan::Wins { with, cast } => Rehearsal::Wins { with: with.clone(), cast: cast.clone() },
+            ComboPlan::NoWin => Rehearsal::NoWin,
+        }
+    }
+}
+
+/// The most combos [`Engine::learn_combos`] rehearses for one deck; the rest are rehearsed in
+/// games as before. Yama lists a deck's two-card combos first, then the more popular.
+pub const MAX_LEARNED_COMBOS: usize = 40;
+
+/// AI decisions a practice game may take to reach its first main phase (mulligans and the like).
+const LEARN_STEPS: usize = 200;
 
 /// A combo as its source lists it for a deck ([`Engine::resolve_combos`]): its cards are named as
 /// the deck's list names them, or by one face.
@@ -259,7 +310,7 @@ impl Engine {
                 continue;
             }
             let Some(cards) = combo.cards.iter().map(|card| engine_name(card.as_str())).collect::<Option<Vec<String>>>() else { continue };
-            out.push(SeatCombo { id: combo.id.to_string(), cards });
+            out.push(SeatCombo { id: combo.id.to_string(), cards, plan: None });
         }
         out
     }
@@ -374,6 +425,37 @@ impl Engine {
             deck_data: Some(deck_list),
         };
         self.start(header, ai)
+    }
+
+    /// Rehearse `combos` (the first [`MAX_LEARNED_COMBOS`]) in `deck` before any game, so its
+    /// computer seats know which of them they can win with ([`ComboPlan`]). A game of the deck
+    /// against itself is played by the AI, with loop shortcuts on, to the first seat's first main
+    /// phase; there each combo is set out on copies of the game and the AI looks for a win
+    /// (phase-ai's `combo::rehearse`). The same deck, combos and seed give the same answer. A
+    /// combo with a card the deck doesn't hold gets no plan. Takes up to a few seconds a combo:
+    /// call it off the request path, on a thread with the engine's stack.
+    pub fn learn_combos(&self, deck: &SeatDeck, combos: &[SeatCombo], seed: u64) -> anyhow::Result<Vec<(String, ComboPlan)>> {
+        let ai = [(0, AiDifficulty::Medium), (1, AiDifficulty::Medium)];
+        let mut m = self.new_match_with(seed, vec![deck.clone(), deck.clone()], &ai, Setup { first: Some(0), loops: PLAY_LOOPS })?;
+        let me = PlayerId(0);
+        let mut steps = 0;
+        while !at_open_main(&m.state, me) {
+            if m.is_over() || steps >= LEARN_STEPS {
+                bail!("the practice game didn't reach its first main phase");
+            }
+            if m.run_ai(1)? == 0 {
+                bail!("the practice game stopped before its first main phase");
+            }
+            steps += 1;
+        }
+        Ok(combos
+            .iter()
+            .take(MAX_LEARNED_COMBOS)
+            .filter_map(|c| {
+                let entry = CatalogCombo { id: c.id.clone(), cards: c.cards.clone() };
+                phase_ai::combo::rehearse(&m.state, me, &entry).map(|r| (c.id.clone(), ComboPlan::from(r)))
+            })
+            .collect())
     }
 
     /// Rebuild a live game from its saved replay log (after a server restart).
@@ -2813,10 +2895,22 @@ pub fn ai_search_state<'a>(state: &'a GameState, session: &AiSession, seat: Play
 fn ai_session(state: &GameState, combos: &BTreeMap<u8, Vec<SeatCombo>>) -> Arc<AiSession> {
     let mut session = AiSession::from_game(state);
     for (seat, found) in combos {
-        let found = found.iter().map(|c| CatalogCombo { id: c.id.clone(), cards: c.cards.clone() }).collect();
-        session = session.with_combos(PlayerId(*seat), found);
+        let player = PlayerId(*seat);
+        let catalog = found.iter().map(|c| CatalogCombo { id: c.id.clone(), cards: c.cards.clone() }).collect();
+        // What rehearsals before the game showed: the seat does not rehearse these again.
+        let known: Vec<(String, Rehearsal)> = found.iter().filter_map(|c| c.plan.as_ref().map(|plan| (c.id.clone(), Rehearsal::from(plan)))).collect();
+        session = session.with_combos(player, catalog).with_rehearsals(player, known);
     }
     Arc::new(session)
+}
+
+/// Whether `seat` is to act in its own main phase with an empty stack (CR 117.1a), where a
+/// combo can be rehearsed.
+fn at_open_main(state: &GameState, seat: PlayerId) -> bool {
+    state.active_player == seat
+        && state.stack.is_empty()
+        && matches!(state.phase, engine::types::phase::Phase::PreCombatMain)
+        && matches!(state.waiting_for, WaitingFor::Priority { player } if player == seat)
 }
 
 /// Whether AI seats in games people play search against phase's wall-clock budget (1.5 s a

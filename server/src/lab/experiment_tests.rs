@@ -2864,7 +2864,7 @@ async fn a_runs_lists_are_frozen_with_the_combos_known_in_them() {
     let d = create(&pool, &user("bryan", false), swap_req(100), sim.as_ref()).await.unwrap();
     let spec: String = sqlx::query_scalar("SELECT spec FROM lab_experiments WHERE id = ?").bind(&d.item.id).fetch_one(&pool).await.unwrap();
     let spec: ExperimentSpec = serde_json::from_str(&spec).unwrap();
-    let combo = |id: &str, cards: &[&str]| LabCombo { id: id.into(), cards: cards.iter().map(|c| c.to_string()).collect() };
+    let combo = |id: &str, cards: &[&str]| LabCombo { id: id.into(), cards: cards.iter().map(|c| c.to_string()).collect(), plan: None };
     let ring_forest = combo("ring-forest", &["Forest", "Sol Ring"]);
     assert_eq!(spec.base.combos, [ring_forest.clone()]);
     // The more popular first, each card as the list names it.

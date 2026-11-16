@@ -374,7 +374,7 @@ fn zaffais_endless_trigger_stops_the_ai_instead_of_running_for_ever() {
 
 /// Ana's optional drain as a combo her AI is told about ([`crate::SeatCombo`]).
 fn drain_combo() -> crate::SeatCombo {
-    crate::SeatCombo { id: "drain".into(), cards: vec!["Marauding Blight-Priest".into(), "Bloodthirsty Conqueror".into(), "Chaplain's Blessing".into()] }
+    crate::SeatCombo { id: "drain".into(), cards: vec!["Marauding Blight-Priest".into(), "Bloodthirsty Conqueror".into(), "Chaplain's Blessing".into()], plan: None }
 }
 
 #[test]
@@ -426,7 +426,7 @@ fn a_combo_line_opens_on_the_game_itself_and_other_decisions_on_the_copy() {
     assert!(on_the_game(&m, 0));
     assert!(!on_the_game(&m, 1), "Ben's seat was given none");
     // A combo she doesn't hold all of yet is still hers to rehearse, once, on the game itself.
-    let hers_and_his = crate::SeatCombo { id: "bolt".into(), cards: vec!["Marauding Blight-Priest".into(), "Lightning Bolt".into()] };
+    let hers_and_his = crate::SeatCombo { id: "bolt".into(), cards: vec!["Marauding Blight-Priest".into(), "Lightning Bolt".into()], plan: None };
     m.set_seat_combos([(0, vec![hers_and_his])].into());
     assert!(on_the_game(&m, 0));
     // A level that never looks ahead does neither.
@@ -436,6 +436,43 @@ fn a_combo_line_opens_on_the_game_itself_and_other_decisions_on_the_copy() {
     m.set_seat_combos([(0, vec![drain_combo()])].into());
     m.state.phase = Phase::End;
     assert!(!on_the_game(&m, 0));
+}
+
+/// A deck's combos are rehearsed before any game: a practice game of the deck is played to its
+/// first main phase, and each combo is set out there. Ana's drain wins; Lightning Bolt beside a
+/// Plains does nothing. The same deck and seed give the same answer.
+#[test]
+fn a_decks_combos_are_rehearsed_before_any_game() {
+    crate::card_tests::big_stack(|| {
+        let e = engine();
+        let mut main: Vec<String> = ["Marauding Blight-Priest", "Bloodthirsty Conqueror", "Chaplain's Blessing", "Lightning Bolt"].map(String::from).to_vec();
+        main.extend(std::iter::repeat_n("Plains".to_string(), 48));
+        main.extend(std::iter::repeat_n("Mountain".to_string(), 47));
+        let deck = SeatDeck { commander: vec!["Combat Celebrant".into()], main, ..Default::default() };
+        let bolt = crate::SeatCombo { id: "bolt".into(), cards: vec!["Lightning Bolt".into(), "Plains".into()], plan: None };
+        let combos = vec![drain_combo(), bolt];
+        let learned = e.learn_combos(&deck, &combos, 7).unwrap();
+        let drain = crate::ComboPlan::Wins { with: vec![], cast: vec!["Chaplain's Blessing".into()] };
+        assert_eq!(learned, vec![("drain".to_string(), drain), ("bolt".to_string(), crate::ComboPlan::NoWin)]);
+        assert_eq!(e.learn_combos(&deck, &combos, 7).unwrap(), learned);
+    });
+}
+
+/// A seat given a combo with what rehearsing it showed starts the game knowing it: its AI does
+/// not rehearse it again, and a resumed game knows it too.
+#[test]
+fn a_seat_given_its_combos_plans_starts_the_game_knowing_them() {
+    let e = engine();
+    let deck = || SeatDeck { commander: vec!["Combat Celebrant".into()], main: vec!["Plains".into(); 99], ..Default::default() };
+    let setup = Setup { first: Some(0), loops: LoopDetectionMode::Interactive };
+    let mut m = e.new_match_with(9, vec![deck(), deck()], &[(1, Difficulty::Easy)], setup).unwrap();
+    let planned = crate::SeatCombo { plan: Some(crate::ComboPlan::Wins { with: vec!["Fireball".into()], cast: vec![] }), ..drain_combo() };
+    m.set_seat_combos([(1, vec![planned.clone()])].into());
+    let known = vec![("drain".to_string(), phase_ai::combo::Rehearsal::Wins { with: vec!["Fireball".into()], cast: vec![] })];
+    assert_eq!(m.session.rehearsals(PlayerId(1)), known);
+    let resumed = e.resume(&m.replay_json(), &[(1, Difficulty::Easy)]).unwrap();
+    assert_eq!(resumed.seat_combos(1), [planned]);
+    assert_eq!(resumed.session.rehearsals(PlayerId(1)), known);
 }
 
 #[test]
@@ -480,7 +517,7 @@ fn a_decks_combos_are_named_as_the_engine_names_its_cards() {
         ListedCombo { id: "a", cards: &both },
     ];
     let found = e.resolve_combos(&lines, &listed);
-    assert_eq!(found, [crate::SeatCombo { id: "a".into(), cards: cards(&["Sanguine Bond", "Exquisite Blood"]) }]);
+    assert_eq!(found, [crate::SeatCombo { id: "a".into(), cards: cards(&["Sanguine Bond", "Exquisite Blood"]), plan: None }]);
     // No more than the cap, the first listed kept.
     let ids: Vec<String> = (0..crate::MAX_SEAT_COMBOS + 5).map(|i| i.to_string()).collect();
     let many: Vec<ListedCombo> = ids.iter().map(|id| ListedCombo { id, cards: &both }).collect();

@@ -33,7 +33,7 @@ fn decks() -> Vec<SeatDeck> {
 #[test]
 fn a_lab_game_plays_with_loop_detection_and_seat_combos() {
     let e = engine();
-    let drain = SeatCombo { id: "drain".into(), cards: vec!["Marauding Blight-Priest".into(), "Bloodthirsty Conqueror".into(), "Chaplain's Blessing".into()] };
+    let drain = SeatCombo { id: "drain".into(), cards: vec!["Marauding Blight-Priest".into(), "Bloodthirsty Conqueror".into(), "Chaplain's Blessing".into()], plan: None };
     let opts = GameOptions { combos: vec![vec![drain], vec![]], ..GameOptions::default() };
     assert!(opts.loops, "the default");
     let live = Mutex::new(Live::new());

@@ -212,7 +212,12 @@ impl Simulator for EngineSim {
                 problems.push(format!("{id}: unknown cards: {}", report.missing.join("; ")));
             }
             let listed: Vec<yama_play::ListedCombo> = list.combos.iter().map(|c| yama_play::ListedCombo { id: &c.id, cards: &c.cards }).collect();
-            combos.push(self.engine.resolve_combos(&lines, &listed));
+            let mut seat = self.engine.resolve_combos(&lines, &listed);
+            // With what rehearsing each one before the run showed, when that was frozen too.
+            for combo in seat.iter_mut() {
+                combo.plan = list.combos.iter().find(|c| c.id == combo.id).and_then(|c| c.plan.clone());
+            }
+            combos.push(seat);
             seats.push(deck);
         }
         if !problems.is_empty() {

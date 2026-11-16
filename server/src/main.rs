@@ -8,6 +8,7 @@ mod calendar;
 mod cards;
 mod client_builds;
 mod collection;
+mod combo_plans;
 mod combos;
 mod config;
 mod db;
