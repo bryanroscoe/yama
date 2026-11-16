@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { api, ApiError, type CollectionItem, type Container, type Printing } from "../api";
+import { api, ApiError, containerOption, placeName, type CollectionItem, type Container, type Printing } from "../api";
 import { CardRef } from "../components/CardRef";
 import { Button, CardImage, Dialog, ErrorText, Field, Loading, Segmented } from "../components/ui";
 import type { ScanCandidate } from "../scanner";
@@ -223,7 +223,7 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
         <Field label="Kept in">
           <select value={item.container_id ?? ""} disabled={busy} onChange={(e) => one({ container_id: e.target.value || null })}>
             <option value="">Not filed anywhere</option>
-            {containers.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.kind})</option>)}
+            {containers.map((c) => <option key={c.id} value={c.id}>{containerOption(c)}</option>)}
           </select>
         </Field>
         <Field label="Condition">
@@ -265,13 +265,13 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
         {deleting ? (
           <div className="coll-delete stack" role="alert">
             <p>
-              Delete {item.qty === 1 ? "this copy" : `all ${item.qty} copies`} of {item.name ?? "this card"} from {item.container_name ?? "your collection"}?
+              Delete {item.qty === 1 ? "this copy" : `all ${item.qty} copies`} of {item.name ?? "this card"} from {placeName(item, "your collection")}?
             </p>
             <div className="row">
               <Button
                 variant="destructive"
                 disabled={busy}
-                onClick={() => save([{ op_id: ids.idFor("remove"), kind: "remove", item_id: item.id }], `Deleted ${item.qty === 1 ? name : `${item.qty} copies of ${name}`} from ${item.container_name ?? "your collection"}.`)}
+                onClick={() => save([{ op_id: ids.idFor("remove"), kind: "remove", item_id: item.id }], `Deleted ${item.qty === 1 ? name : `${item.qty} copies of ${name}`} from ${placeName(item, "your collection")}.`)}
               >
                 Delete
               </Button>

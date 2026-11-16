@@ -11,7 +11,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { exportLink } from "../download";
-import { api, API_BASE, ApiError, type CollectionItem, type CollectionSummary, type Container, type DeckSummary, type Printing } from "../api";
+import { api, API_BASE, ApiError, containerOption, placeName, type CollectionItem, type CollectionSummary, type Container, type DeckSummary, type Printing } from "../api";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { BackLink, Button, ButtonLink, CardImage, CardThumb, Details, Dialog, EmptyState, ErrorText, Field, Loading, Segmented, Tag } from "../components/ui";
 import "./collection.css";
@@ -207,7 +207,7 @@ export function CollectionPage() {
             const name = t ? t.c.name : container === "none" ? "Loose cards" : containers.data ? "No such binder or box" : "";
             return (
               <ArtPanel art={t?.art ?? null} artist={t?.artist ?? null} wash="bottom" empty={!t?.art} className="coll-open-art">
-                <span className="ct-kind">{t ? (KIND_LABEL[t.c.kind] ?? t.c.kind) : container === "none" ? "Not filed" : ""}</span>
+                <span className="ct-kind">{t ? (t.c.spares_of_deck ? `${t.c.spares_of_deck}'s box (swappable)` : (KIND_LABEL[t.c.kind] ?? t.c.kind)) : container === "none" ? "Not filed" : ""}</span>
                 <h2 className="ct-name">{name}</h2>
                 <span className="ct-meta num">{t ? tileMeta(t.c.copies, t.c.market_value_usd, t.c.copies_without_price) : container === "none" && s ? tileMeta(loose, undefined, undefined) : ""}</span>
               </ArtPanel>
@@ -230,7 +230,7 @@ export function CollectionPage() {
               <li key={c.id}>
                 <Button className="container-tile" onClick={() => setContainer(c.id)}>
                   <ArtPanel as="span" art={art} artist={artist} wash="bottom" credit={false}>
-                    <span className="ct-kind">{KIND_LABEL[c.kind] ?? c.kind}</span>
+                    <span className="ct-kind">{c.spares_of_deck ? `${c.spares_of_deck}'s box (swappable)` : (KIND_LABEL[c.kind] ?? c.kind)}</span>
                     <span className="ct-name">{c.name}</span>
                     <span className="ct-meta num">{tileMeta(c.copies, c.market_value_usd, c.copies_without_price)}</span>
                   </ArtPanel>
@@ -341,7 +341,7 @@ export function CollectionPage() {
         {show === "list" && (
         <ul className="coll-list">
           {shown.map((i) => {
-            const place = i.container_name ?? "Not filed";
+            const place = placeName(i);
             const cond = CONDITIONS[i.condition] ?? i.condition;
             // "Surge foil", "Showcase": what makes this copy's printing special.
             const special = treatmentLabel(i, i.finish);
@@ -825,7 +825,7 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
       <Field label="Put in">
         <select value={container} onChange={(e) => setContainer(e.target.value)}>
           <option value="">Not filed anywhere</option>
-          {containers.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.kind})</option>)}
+          {containers.map((c) => <option key={c.id} value={c.id}>{containerOption(c)}</option>)}
         </select>
       </Field>
       <label className="scan-keep">

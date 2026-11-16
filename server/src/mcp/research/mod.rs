@@ -320,7 +320,7 @@ pub(super) const TOOLS: &[Tool] = &[
         name: "list_collection_cards",
         aliases: &["collection_cards"],
         title: "Owned cards and locations",
-        description: "Read your collection, including quantities, proxies and containers. Filter by card-name text or to copies outside deck containers. Outside a deck box does not establish that a copy is unreserved in an upgrade plan.",
+        description: "Read your collection, including quantities, proxies and containers. Filter by card-name text or to copies outside deck containers. A copy with spares_of_deck set is one of that deck's swappable spares: in its deck box on top of the 100, kept for its bracket swaps (move_cards with to_deck_spares puts one there); outside_decks leaves those out too. Outside a deck box does not establish that a copy is unreserved in an upgrade plan.",
         kind: Kind::Read,
         offer: Offer::Everyone,
         search: true,
@@ -1163,7 +1163,7 @@ async fn collection(st: &AppState, user: &User, args: &Value) -> AppResult<Value
             .unwrap_or("")
             .to_lowercase()
             .contains(&query)
-            && (!outside || i.container_kind.as_deref() != Some("deck"))
+            && (!outside || (i.container_kind.as_deref() != Some("deck") && i.spares_of_deck.is_none()))
     });
     rows.sort_by(|a, b| a.name.cmp(&b.name).then(a.id.cmp(&b.id)));
     let total = rows.len();
@@ -1179,7 +1179,7 @@ async fn collection(st: &AppState, user: &User, args: &Value) -> AppResult<Value
             o.remove("image_normal");
             if summary {
                 // A missing price stays null, beside the date it was read and found missing.
-                o.retain(|k, _| ["name", "set_code", "collector_number", "qty", "finish", "condition", "proxy", "container_name", "container_kind", "unit_price_usd", "price_date"].contains(&k.as_str()));
+                o.retain(|k, _| ["name", "set_code", "collector_number", "qty", "finish", "condition", "proxy", "container_name", "container_kind", "spares_of_deck", "unit_price_usd", "price_date"].contains(&k.as_str()));
             }
         }
     }

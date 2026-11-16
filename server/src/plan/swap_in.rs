@@ -8,7 +8,8 @@
 //!   moving in from another deck comes out of that deck's box (or, if it isn't there, from any
 //!   copy outside a deck box).
 //! - **Each card leaving** goes to the deck that takes it next (a plan move), else the deck's swap
-//!   bag box ("<deck> swap bag", for the bracket bags' cards that go back in at a lower bracket),
+//!   bag: the deck's swappable spares (`decks::spares`, the bracket bags' cards that go back in at
+//!   a lower bracket), else a box "<deck> swap bag", made when missing and kept as those spares,
 //!   else the deck's own spares box ("<deck> spares") if the person has one, else a box called
 //!   "Spares". Boxes that don't exist yet are made (a deck's spares box never is: without one,
 //!   cards go to "Spares").
@@ -353,7 +354,8 @@ pub async fn run(pool: &SqlitePool, owner: &str, key: &str, dry_run: bool) -> Ap
         .unwrap_or_default();
     let deck_boxes: HashSet<String> = sqlx::query_scalar(
         "SELECT id FROM containers WHERE owner_id = ?1 AND kind = 'deck'
-         UNION SELECT container_id FROM decks WHERE owner_id = ?1 AND archived = 0 AND container_id IS NOT NULL",
+         UNION SELECT container_id FROM decks WHERE owner_id = ?1 AND archived = 0 AND container_id IS NOT NULL
+         UNION SELECT spares_container_id FROM decks WHERE owner_id = ?1 AND archived = 0 AND spares_container_id IS NOT NULL",
     )
     .bind(owner)
     .fetch_all(&mut *tx)
@@ -375,8 +377,17 @@ pub async fn run(pool: &SqlitePool, owner: &str, key: &str, dry_run: bool) -> Ap
         Some((id, name)) => (name, Some(id)),
         None => (SPARES.to_string(), named_box(&mut tx, owner, SPARES, false).await?),
     };
-    let bag_name = format!("{plan_name} swap bag");
-    let bag_box = named_box(&mut tx, owner, &bag_name, false).await?;
+    // The deck's swappable spares (`decks::spares`) when it has them, else the box by the bag's name,
+    // which then becomes them.
+    let linked_bag = crate::decks::spares::linked(&mut tx, owner, &deck_id).await?;
+    let (bag_name, bag_box) = match &linked_bag {
+        Some((id, name)) => (name.clone(), Some(id.clone())),
+        None => {
+            let name = crate::decks::spares::default_name(&plan_name);
+            let found = named_box(&mut tx, owner, &name, false).await?;
+            (name, found)
+        }
+    };
     let (mut spares_new, mut bag_new) = (spares.is_none(), bag_box.is_none());
     let mut spares = spares;
     let mut bag_box = bag_box;
@@ -422,6 +433,11 @@ pub async fn run(pool: &SqlitePool, owner: &str, key: &str, dry_run: bool) -> Ap
     }
     spares_new &= takes_out.iter().any(|t| t.to == "spares" && t.action == "move");
     bag_new &= takes_out.iter().any(|t| t.to == "swap_bag" && t.action == "move");
+    if !dry_run && linked_bag.is_none() && takes_out.iter().any(|t| t.to == "swap_bag" && t.action == "move") {
+        if let Some(b) = &bag_box {
+            crate::decks::spares::adopt(&mut tx, owner, &deck_id, b).await?;
+        }
+    }
 
     let mut puts_in = Vec::new();
     let after_slot = |name: &str| after_list.iter().find(|s| s.name.trim() == name).cloned();

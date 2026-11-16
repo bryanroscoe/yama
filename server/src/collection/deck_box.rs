@@ -259,7 +259,8 @@ async fn add_deck_with_proxies(
     let copies = owned_copies(&mut tx, owner).await?;
     let deck_boxes: HashSet<String> = sqlx::query_scalar(
         "SELECT id FROM containers WHERE owner_id = ?1 AND kind = 'deck'
-         UNION SELECT container_id FROM decks WHERE owner_id = ?1 AND archived = 0 AND container_id IS NOT NULL",
+         UNION SELECT container_id FROM decks WHERE owner_id = ?1 AND archived = 0 AND container_id IS NOT NULL
+         UNION SELECT spares_container_id FROM decks WHERE owner_id = ?1 AND archived = 0 AND spares_container_id IS NOT NULL",
     )
     .bind(owner)
     .fetch_all(&mut *tx)

@@ -13,6 +13,7 @@ use sqlx::{AssertSqlSafe, SqliteConnection, SqlitePool};
 use std::collections::{BTreeMap, HashMap};
 
 pub mod cli;
+pub mod spares;
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -26,6 +27,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/decks/{id}/share-link", post(reset_share_link))
         .route("/api/decks/{id}/configurations", post(new_configuration))
         .route("/api/decks/{id}/use", post(use_list))
+        .merge(spares::router())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1206,8 +1208,9 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
             .sum();
         let mut locations = BTreeMap::new();
         for i in &mine {
-            let place = match (&i.container_kind, &i.container_name) {
-                (Some(k), Some(n)) => format!("{k}: {n}"),
+            let place = match (&i.spares_of_deck, &i.container_kind, &i.container_name) {
+                (Some(deck), _, _) => spares::place(deck),
+                (None, Some(k), Some(n)) => format!("{k}: {n}"),
                 _ => "unfiled".to_string(),
             };
             let label = if i.proxy { format!("{place} (proxy)") } else { place };
