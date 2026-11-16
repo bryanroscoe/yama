@@ -50,8 +50,8 @@ export interface RecentCard {
   image?: string | null;
   /** The card's oracle id, for its playability tag (playable.ts). */
   oracleId?: string;
-  /** Its write isn't confirmed yet ("saving"), or the last send failed ("failed"). */
-  state?: "saving" | "failed";
+  /** Its write isn't confirmed yet ("saving"); the add failed ("failed", it may not be in the collection); a change to it failed ("change-failed"). */
+  state?: "saving" | "failed" | "change-failed";
 }
 
 /** The session's total market value: priced copies only, and how many cards (not proxies) had no price. */

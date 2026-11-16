@@ -1935,7 +1935,7 @@ export function ScannerView({
   );
   // What cards are filed as, on the sheet: a tap opens Scan settings.
   const filing = settingsSummary ? (
-    <Button className="scan-filing" onClick={() => setSettingsOpen(true)} aria-label={`Scan settings: ${settingsSummary}`}>
+    <Button className="scan-filing" onClick={() => setSettingsOpen(true)}>
       <span className="scan-filing-what">{settingsSummary}</span>
       <span className="scan-filing-change">Change</span>
     </Button>

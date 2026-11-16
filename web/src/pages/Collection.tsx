@@ -29,7 +29,8 @@ function tileMeta(copies: number, value: number | undefined, unpriced: number | 
   if (value === undefined) return cards;
   return `${cards}, ${usdWhole(value)}${unpriced ? `, ${unpriced} with no price` : ""}`;
 }
-import type { Added, Finish, Fix, ScanCandidate } from "../scanner";
+import type { Added, Finish, Fix, RecentCard, ScanCandidate } from "../scanner";
+import { useOpenedEntry } from "../scanner/opened";
 import { useDebounced } from "../useDebounced";
 // The scan choices and their notes, shown here outside the scanner too.
 import "../scanner/scanner.css";
@@ -675,8 +676,6 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
     unsure.current.add(k);
   };
   const [reviewing, setReviewing] = useState(false);
-  /** The card opened large from the scanner's strip (or the Added list), by its entry's key. */
-  const [opened, setOpened] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
   const refresh = () => void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("collection") || q.queryKey[0] === "containers" });
 
@@ -885,7 +884,8 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
   );
   const controls = error ? <ErrorText error={error} /> : null;
   // Removed (its copies taken back out): the large view has nothing left to show.
-  const openedEntry = opened ? added.find((a) => a.key === opened) : undefined;
+  // The card opened large from the scanner's strip (or the Added list); gone once removed.
+  const { entry: openedEntry, open: setOpened, close: closeOpened } = useOpenedEntry(added);
   return (
     <div className="scan-overlay">
       <Suspense fallback={<Loading padded>Starting the scanner…</Loading>}>
@@ -899,8 +899,8 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
           unsavedCount={added.filter((a) => a.pending?.error && a.pending.fix === null).length}
           autoAdd={keepAdding}
           closeups={closeups}
-          paused={reviewing || closing || opened != null}
-          recentCards={added.map((a) => ({ key: a.key, name: a.name, set: a.set, number: a.number, finish: a.finish, copies: a.copies, prices: a.prices, image: a.image, oracleId: a.oracle_id, state: a.pending ? (a.pending.error ? "failed" : "saving") : undefined }))}
+          paused={reviewing || closing || openedEntry != null}
+          recentCards={added.map((a) => ({ key: a.key, name: a.name, set: a.set, number: a.number, finish: a.finish, copies: a.copies, prices: a.prices, image: a.image, oracleId: a.oracle_id, state: entryState(a) }))}
           onOpenCard={setOpened}
           finish={finish}
           onPrinting={setPrinting}
@@ -915,8 +915,8 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
           </Dialog>
         )}
         {openedEntry && (
-          <Dialog onClose={() => setOpened(null)} label={openedEntry.name} className="scan-big-sheet">
-            <ScannedCard a={openedEntry} onFix={fix} onRetry={retry} onClose={() => setOpened(null)} />
+          <Dialog onClose={closeOpened} label={openedEntry.name} className="scan-big-sheet">
+            <ScannedCard a={openedEntry} onFix={fix} onRetry={retry} onClose={closeOpened} />
           </Dialog>
         )}
         <UnsavedPrompt guard={guard} what="the scans that aren't saved yet" />
@@ -935,4 +935,11 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
       </Suspense>
     </div>
   );
+}
+
+/** An entry's state for its tile in the scanner's strip: its add not saved, a change to it not saved, or on its way. */
+function entryState(a: Added): RecentCard["state"] {
+  if (!a.pending) return undefined;
+  if (!a.pending.error) return "saving";
+  return a.pending.fix ? "change-failed" : "failed";
 }

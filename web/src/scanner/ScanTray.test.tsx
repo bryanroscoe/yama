@@ -52,9 +52,9 @@ describe("the strip of cards scanned (Bryan, 16 Nov 2026)", () => {
     expect(tiles[1]!.className).toContain("is-saving");
     expect(tiles[2]!.className).toContain("is-failed");
     expect(host.querySelector(".scan-tray-last")?.textContent).toBe("Westvale Abbey SOI #281");
-    expect(host.querySelector(".scan-tray-total")?.textContent).toBe("5 cards, $6.20 market, Nov 15, 1 unpriced");
+    expect(host.querySelector(".scan-tray-total")?.textContent).toBe("5 cards, $6.20 market, Nov 14 to Nov 15, 1 unpriced");
     // A failed save turns Review all into how many weren't saved, which opens the same list.
-    expect(host.querySelector(".scan-tray-review")?.textContent).toBe("1 not saved");
+    expect(host.querySelector(".scan-tray-review")?.textContent).toBe("1 to try again");
     expect(tiles[1]!.getAttribute("aria-label")).toBe("Sol Ring, ECC 57, $1.50, 2 copies, Staple, saving. Show it larger");
     act(() => tiles[2]!.click());
     expect(open).toHaveBeenCalledWith("c");

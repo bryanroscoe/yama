@@ -25,6 +25,7 @@ export function tileLabel(c: RecentCard, tag: string | null): string {
   if (tag) parts.push(tag);
   if (c.state === "saving") parts.push("saving");
   if (c.state === "failed") parts.push("not saved");
+  if (c.state === "change-failed") parts.push("change not saved");
   return parts.join(", ");
 }
 
@@ -38,14 +39,18 @@ export function trayTotal(cards: readonly RecentCard[]): { head: string; note: s
   const count = `${copies} ${copies === 1 ? "card" : "cards"}`;
   if (t.priced === 0) return { head: count, note: t.missing ? "no prices" : null };
   const dates = cards.flatMap((c) => (priceFor(c.prices, c.finish) != null && c.prices?.date ? [c.prices.date] : [])).sort();
-  const when = shortDate(dates.at(-1) ?? null);
-  return { head: `${count}, ${usd(t.total)}`, note: `market${when ? `, ${when}` : ""}${t.missing ? `, ${t.missing} unpriced` : ""}` };
+  const first = shortDate(dates[0] ?? null);
+  const last = shortDate(dates.at(-1) ?? null);
+  // Every price says when: one date, the span when they differ, or that it isn't known.
+  const when = !last ? "date unknown" : first && first !== last ? `${first} to ${last}` : last;
+  return { head: `${count}, ${usd(t.total)}`, note: `market, ${when}${t.missing ? `, ${t.missing} unpriced` : ""}` };
 }
 
 export function ScanTray({ cards, worth, onOpen, onReview }: { cards: readonly RecentCard[]; worth: number; onOpen?: (key: string) => void; onReview?: () => void }) {
   const play = usePlayability(cards.map((c) => c.oracleId));
   if (cards.length === 0) return null;
-  const failed = cards.filter((c) => c.state === "failed").length;
+  // Anything to try again: an add, or a change to one.
+  const failed = cards.filter((c) => c.state === "failed" || c.state === "change-failed").length;
   const total = trayTotal(cards);
   const last = cards[0]!;
   return (
@@ -62,7 +67,7 @@ export function ScanTray({ cards, worth, onOpen, onReview }: { cards: readonly R
         </p>
         {onReview ? (
           <Button className={`scan-tray-review${failed ? " is-failed" : ""}`} size="small" variant="outline" onClick={onReview}>
-            {failed ? `${failed} not saved` : "Review all"}
+            {failed ? `${failed} to try again` : "Review all"}
           </Button>
         ) : (
           failed > 0 && <span className="scan-tray-failed">{failed} not saved</span>
@@ -73,7 +78,7 @@ export function ScanTray({ cards, worth, onOpen, onReview }: { cards: readonly R
           const price = c.finish === "proxy" ? null : priceFor(c.prices, c.finish);
           const tag = playTag(play.get(c.oracleId ?? ""));
           const word = tag ? PLAY_WORD[tag] : null;
-          const cls = ["scan-tile", i === 0 && "is-newest", worthIt(price, worth) && "is-worth", c.state && `is-${c.state}`].filter(Boolean).join(" ");
+          const cls = ["scan-tile", i === 0 && "is-newest", worthIt(price, worth) && "is-worth", c.state && `is-${c.state === "change-failed" ? "failed" : c.state}`].filter(Boolean).join(" ");
           const body = (
             <>
               <span className="scan-tile-card">

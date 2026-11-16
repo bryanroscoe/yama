@@ -174,7 +174,7 @@ function AddedRow({ a, onFix, onRetry, onOpen }: { a: Added; onFix: AddedListPro
           <strong>{a.name}</strong>
           <span className="dim small">
             {a.set.toUpperCase()} #{a.number}, {a.finish === "proxy" ? "proxy" : copyWords(a.treatment ?? {}, a.finish)}
-            {a.finish !== "proxy" ? `, ${usd(priceFor(a.prices, a.finish))}` : ""}
+            {a.finish !== "proxy" ? `, ${usd(priceFor(a.prices, a.finish))}${a.copies > 1 && priceFor(a.prices, a.finish) != null ? " each" : ""}` : ""}
             {a.auto ? ", added by Keep adding" : ""}
           </span>
           <div className="scan-added-actions">
@@ -216,7 +216,8 @@ export function ScannedCard({ a, onFix, onRetry, onClose }: { a: Added; onFix: A
   const tag = playTag(play);
   const line = playLine(play);
   const price = priceFor(a.prices, a.finish);
-  const others = (finishesOf({ finishes: a.finishes }) as Finish[]).filter((x) => x !== a.finish && x !== "proxy");
+  // Only when its finishes are known: otherwise every finish would read "no price".
+  const others = a.finishes?.length ? (finishesOf({ finishes: a.finishes }) as Finish[]).filter((x) => x !== a.finish && x !== "proxy") : [];
   const date = shortDate(a.prices?.date ?? null);
   return (
     <div className="scan-big">

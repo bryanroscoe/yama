@@ -60,7 +60,7 @@ function Dev() {
         onOpenCard={(k) => setOpened(k)}
         onShowAdded={() => undefined}
         addedCount={added.length + demo.reduce((n, a) => n + a.copies, 0)}
-        paused={opened != null}
+        paused={openedEntry != null}
         controls={<p className="scan-note">The dev page: nothing is saved.</p>}
         settings={
           <label className="scan-keep">
