@@ -5,7 +5,7 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it } from "vitest";
-import { clampZoom, useCameraControls, type CameraControlState } from "./camera";
+import { CameraControls, clampZoom, useCameraControls, type CameraControlState } from "./camera";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -114,3 +114,21 @@ describe("useCameraControls across a camera switch", () => {
   });
 });
 
+
+describe("CameraControls: zoom is one button (16 Nov 2026)", () => {
+  it("shows the level, opens + and − on a tap, and is gone where the camera can't zoom", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const c = { zoom: 1, canZoomIn: true, canZoomOut: false, zoomIn: () => {}, zoomOut: () => {}, caps: { torch: false }, torch: false, setTorch: () => {}, error: null } as unknown as CameraControlState;
+    act(() => root.render(<CameraControls c={c} live />));
+    const labels = () => [...host.querySelectorAll("button")].map((b) => b.getAttribute("aria-label"));
+    expect(labels()).toEqual(["Zoom 1×, change it"]);
+    act(() => host.querySelector<HTMLButtonElement>(".scan-zoom-level")!.click());
+    expect(labels()).toEqual(["Zoom in", "Zoom 1×", "Zoom out"]);
+    act(() => root.render(<CameraControls c={{ ...c, canZoomIn: false } as CameraControlState} live />));
+    expect(host.querySelector(".scan-zoom-buttons")).toBeNull();
+    act(() => root.unmount());
+    host.remove();
+  });
+});

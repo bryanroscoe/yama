@@ -344,6 +344,11 @@
   background: var(--ground);
   color: var(--text);
 }
+/* While the suggestions are open the sheet lets them out, over the strip above it. */
+.scan-panel:has(.scan-name-list) {
+  overflow: visible;
+  z-index: 3;
+}
 .scan-name-list {
   position: absolute;
   z-index: 2;
@@ -695,18 +700,21 @@ button.scan-count {
 .scan-handle:hover span {
   background: var(--dim);
 }
-.scan-panel.is-hidden {
-  max-height: none;
-  overflow: hidden;
-  padding-top: 8px;
-  padding-bottom: calc(8px + env(safe-area-inset-bottom));
-}
-.scan-panel.is-hidden > :not(.scan-handle) {
-  display: none;
-}
-.scan .scan-panel.is-hidden .scan-handle {
-  margin: 0 -16px;
-  min-height: 32px;
+/* Off the side-column layout only: there the sheet has no handle, so it can't stay hidden. */
+@media not all and (min-width: 900px) and (orientation: landscape) and (min-height: 600px) {
+  .scan-panel.is-hidden {
+    max-height: none;
+    overflow: hidden;
+    padding-top: 8px;
+    padding-bottom: calc(8px + env(safe-area-inset-bottom));
+  }
+  .scan-panel.is-hidden > :not(.scan-handle) {
+    display: none;
+  }
+  .scan .scan-panel.is-hidden .scan-handle {
+    margin: 0 -16px;
+    min-height: 32px;
+  }
 }
 
 /* The sheet scrolls when it holds more than fits: its rows keep their own height rather than
@@ -889,6 +897,7 @@ button.scan-count {
 }
 .scan-tray-last.is-event {
   font-weight: 700;
+  white-space: normal;
 }
 /* On a narrow phone the card's name keeps room to be read, and its actions go under it. */
 .scan-tray-row:first-child {
@@ -1314,7 +1323,11 @@ button.scan-count {
 
 /* While the sheet needs a decision the strip steps aside on a phone, so the camera keeps its room;
    it's back the moment the card is filed or skipped (round 2, 16 Nov 2026). */
-.scan.is-deciding .scan-tray {
+.scan.is-deciding .scan-tray:not(:has(.is-event)) {
+  display: none;
+}
+/* …but an event (Couldn't save …) that lands meanwhile is said, on its own line. */
+.scan.is-deciding .scan-tray:has(.is-event) :is(.scan-tray-row + .scan-tray-row, .scan-tray-list) {
   display: none;
 }
 .scan:has(> .scan-tray) .scan-panel {
@@ -1326,7 +1339,7 @@ button.scan-count {
 
 /* A laptop or a tablet on its side: the camera on the left, the strip and the sheet in a column
    on the right, so a card found never squeezes the camera into a letterbox. */
-@media (min-width: 900px) and (orientation: landscape) {
+@media (min-width: 900px) and (orientation: landscape) and (min-height: 600px) {
   .scan {
     display: grid;
     grid-template-columns: minmax(0, 1fr) clamp(360px, 32vw, 440px);
@@ -1400,4 +1413,61 @@ button.scan-count {
 }
 .scan-buttons > .more-menu {
   flex: 0 0 auto;
+}
+
+/* Review fixes (16 Nov 2026). */
+/* The difference between printings, visible on the tile. */
+.scan-printing-what {
+  font-size: var(--t-12);
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Small pills look compact but answer a thumb: on a touch screen their hit area is a full target. */
+@media (pointer: coarse) {
+  .scan .scan-act,
+  .scan .scan-tray-review,
+  .scan .scan-filing,
+  .scan .scan-tool,
+  .scan .scan-chip-action {
+    position: relative;
+  }
+  .scan .scan-act::after,
+  .scan .scan-tray-review::after,
+  .scan .scan-filing::after,
+  .scan .scan-chip-action::after {
+    content: "";
+    position: absolute;
+    inset: calc((32px - var(--target)) / 2) -2px;
+  }
+  .scan .scan-act.is-quiet::after {
+    inset: calc((32px - var(--target)) / 2);
+  }
+  .scan .scan-tool::after {
+    content: "";
+    position: absolute;
+    inset: -2px;
+  }
+}
+@media (min-width: 900px) and (orientation: landscape) and (min-height: 600px) {
+  /* The side column has the room: printings wrap into rows, no sideways scroll for a mouse. */
+  .scan-printings {
+    flex-wrap: wrap;
+    overflow-x: visible;
+    margin: 0;
+    padding: 0;
+  }
+  /* The column clears a notch or home indicator on the right. */
+  .scan .scan-panel {
+    padding-right: max(16px, env(safe-area-inset-right));
+  }
+  .scan .scan-tray {
+    padding-right: env(safe-area-inset-right);
+  }
+}
+@media (min-width: 900px) and (orientation: landscape) and (min-height: 600px) and (pointer: coarse) {
+  .scan .scan-buttons button {
+    min-height: var(--target);
+  }
 }

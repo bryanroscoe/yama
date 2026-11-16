@@ -352,6 +352,59 @@ describe("with the strip, what just happened is said beside the card (design pas
     // What Undo did is said where the card was named.
     await until(() => (document.querySelector(".scan-tray-last.is-event")?.textContent?.includes("Took out") ? true : null), "Took out");
   });
+
+  function stripHost(accept: (c: ScanCandidate, n: number) => Promise<boolean>, undone: ScanCandidate[], props: Partial<Parameters<typeof ScannerView>[0]> = {}) {
+    let n = 0;
+    function Host() {
+      const [cards, setCards] = useState<ScanCandidate[]>([]);
+      return (
+        <ScannerView
+          // Like Collection: the entry goes into the strip at once, before its save comes back.
+          onAccept={(c) => {
+            setCards((a) => [c, ...a]);
+            return accept(c, n++);
+          }}
+          onUndo={async (c) => {
+            undone.push(c);
+          }}
+          onCorrect={async () => "changed"}
+          recentCards={cards.map((c, i) => ({ key: `k${cards.length - i}`, name: c.name, set: c.set, number: c.number, finish: "nonfoil", copies: 1, prices: c.prices, image: null, oracleId: c.oracle_id }))}
+          {...props}
+        />
+      );
+    }
+    act(() => root.render(<Host />));
+  }
+
+  it("never puts an Undo beside a card it wouldn't take out: a second card filed inside the Undo window has none (review, 16 Nov 2026)", async () => {
+    const undone: ScanCandidate[] = [];
+    // The first save comes back; the second never does.
+    stripHost((_, n) => (n === 0 ? Promise.resolve(true) : new Promise<boolean>(() => {})), undone);
+    await typeName();
+    let options = await until(() => (document.querySelectorAll('[role="option"]').length === 3 ? document.querySelectorAll<HTMLElement>('[role="option"]') : null), "the printings");
+    await click(options[1]!);
+    const head = () => document.querySelector(".scan-tray-head")!;
+    await until(() => (head().querySelector(".scan-tray-do") ? true : null), "Undo for the first card");
+    // Every add is said to a screen reader, in the strip's status line.
+    expect(head().querySelector('.visually-hidden[role="status"]')?.textContent).toContain("Added Arcane Signet");
+
+    await typeName();
+    options = await until(() => (document.querySelectorAll('[role="option"]').length === 3 ? document.querySelectorAll<HTMLElement>('[role="option"]') : null), "the printings again");
+    await click(options[2]!);
+    await until(() => (document.querySelectorAll(".scan-tile").length === 2 ? true : null), "the second card in the strip");
+    // The head no longer offers Undo: it would have taken out the first card, not the one named.
+    expect(head().querySelector(".scan-tray-do")).toBeNull();
+    expect(undone).toHaveLength(0);
+  });
+
+  it("has no More when there is nothing in it (a deck check, after Wrong card)", async () => {
+    act(() => root.render(<ScannerView identityOnly onAccept={async () => true} />));
+    await typeName();
+    await click(await until(() => button("More"), "More"));
+    await click(await until(() => button("Wrong card"), "Wrong card"));
+    await until(() => (document.querySelector(".scan-wrong") ? true : null), "the Wrong card panel");
+    expect(button("More")).toBeUndefined();
+  });
 });
 
 describe("Wrong printing after filing, when the host can't confirm it (review of #138)", () => {

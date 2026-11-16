@@ -276,7 +276,12 @@ interface JustAdded {
   printing?: Printing | null;
   /** Undo is under way: the chip stays until it's done. */
   busy?: boolean;
+  /** Say `text` even beside the card itself (with the strip): "Kept …" is news, "Added …" isn't. */
+  say?: boolean;
 }
+/** What the scanner says while it simply waits for a card: once the strip has cards, the camera keeps quiet. */
+const WAITING = "Hold a card in view";
+const NEXT = "Ready for the next card";
 /**
  * While reading a held card: how far below the best match in view the held card's art may score.
  * With the set lock, as far as judgeLocked lets an in-set match trail the best one anywhere.
@@ -501,7 +506,7 @@ export function ScannerView({
   const blockedName = useRef<Hold | null>(null);
   const foundSeq = useRef(0);
   const [phase, setPhase] = useState<Phase>("loading");
-  const [status, setStatus] = useState("Hold a card in view");
+  const [status, setStatus] = useState(WAITING);
   const [found, setFound] = useState<Found | null>(null);
   const [outline, setOutline] = useState<{ quad: Quad; w: number; h: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1052,7 +1057,7 @@ export function ScannerView({
       if (single) blockedName.current = null;
       else if (held) {
         if (holdRead(held, best, Date.now(), emptyFrees) === "held") {
-          if (best?.name === held.name) setStatus("Ready for the next card");
+          if (best?.name === held.name) setStatus(NEXT);
           // Another card seen while held counts toward locking on it once the hold ends.
           else if (best) lastText.current = { card: best, at: Date.now() };
           return false;
@@ -1087,7 +1092,7 @@ export function ScannerView({
     let textFrame = 0;
     /** Frames in a row this art match's title couldn't be read (see UNTITLED_FRAMES). */
     let untitled = 0;
-    setStatus(mode === "art" ? "Hold a card in view" : "Line the card up with the frame");
+    setStatus(mode === "art" ? WAITING : "Line the card up with the frame");
     const next = (ms: number) => {
       if (!stop) timer = setTimeout(tick, ms);
     };
@@ -1129,13 +1134,13 @@ export function ScannerView({
             last.current = undefined;
             lastText.current = undefined;
             unknownFrames = 0;
-            setStatus(blocked.current || blockedName.current ? "Ready for the next card" : "Hold a card in view");
+            setStatus(blocked.current || blockedName.current ? NEXT : WAITING);
             return next(60);
           }
           noCard.current = 0;
           if (!blocked.current && !blockedName.current) setDupe(null);
           if (blocked.current) {
-            setStatus("Ready for the next card");
+            setStatus(NEXT);
             return next(60);
           }
           const prev = last.current && last.current.index === top.index && Date.now() - last.current.at < 1500;
@@ -1150,7 +1155,7 @@ export function ScannerView({
           const heldName = blockedName.current?.name;
           const isHeld = (name: string) => !!heldName && sameCardName(name, heldName);
           if (isHeld(top.name)) {
-            setStatus("Ready for the next card");
+            setStatus(NEXT);
             return next(60);
           }
           // A strong match decides by art, unless another card scores close to it. Otherwise the
@@ -1188,7 +1193,7 @@ export function ScannerView({
             scanCtx.current = { ...artNote, titles, title, fused: fused.kind, artUnknown, overruled: fused.kind === "title" && !!top && !sameCardName(top.name, fused.name) };
             // The card just filed, by its art or its title: still held.
             if (fusedHeld(fused, heldName)) {
-              setStatus("Ready for the next card");
+              setStatus(NEXT);
               return next(60);
             }
             if (fused.kind === "art") {
@@ -1374,7 +1379,7 @@ export function ScannerView({
     setOutline(null);
     setCloseup(null);
     artRef.current?.reset();
-    setStatus(mode === "text" ? "Line the card up with the frame" : "Hold a card in view");
+    setStatus(mode === "text" ? "Line the card up with the frame" : WAITING);
     setPhase(videoRef.current?.srcObject ? "scanning" : "no-camera");
   };
 
@@ -1787,7 +1792,7 @@ export function ScannerView({
         (now) => {
           buzz(40);
           held(c, label);
-          setJustAdded({ text: now === "kept" ? `Kept ${label}` : `Changed to ${label}`, card, label, found: f, printing: c });
+          setJustAdded({ text: now === "kept" ? `Kept ${label}` : `Changed to ${label}`, card, label, found: f, printing: c, say: now === "kept" });
         },
         (e: unknown) => {
           // Not confirmed: the host may still be sending the change (its Added list has that copy,
@@ -1960,9 +1965,50 @@ export function ScannerView({
   // With the strip, what just happened is said there, beside the card (ScanTray's head), and the
   // camera's chip says only what the scanner is doing now (Bryan, 16 Nov 2026: the options popped up
   // in your face, not what happened). Without it (deck and swap scans) the chip says both, as before.
+  const moreItems =
+    isFound && found
+      ? [
+          !wrongOpen && (
+            <Button key="wrong" onClick={() => setWrongOpen(true)}>
+              Wrong card
+            </Button>
+          ),
+          settledByScanner(found) && !found.picking ? (
+            <Button key="printing" onClick={() => wrongPrinting(found, chosen!, found.correcting)}>
+              Wrong printing
+            </Button>
+          ) : (
+            !identityOnly &&
+            chosen &&
+            options &&
+            options.length > 1 &&
+            !found.picking && (
+              <Button key="printing" onClick={() => setFound({ ...found, picking: true })}>
+                Change printing ({options.length})
+              </Button>
+            )
+          ),
+          upClose && (
+            <Button key="closeup" onClick={() => setCloseup("collector")}>
+              Read the collector number up close
+            </Button>
+          ),
+          // Choosing sets is for the cards to come, so it's here too, not only when idle (review).
+          lockOffered && lockCodes.length === 0 && (
+            <Button key="lock" onClick={() => setLockOpen(true)}>
+              Scan only some sets
+            </Button>
+          ),
+        ].filter(Boolean)
+      : [];
   const newest = recentCards?.[0];
   const receipt = !!newest;
-  const undoable = !!justAdded?.card && !justAdded.busy && (!!onUndo || (!!onCorrect && !!justAdded.printing));
+  // The receipt's buttons act on `justAdded.card`, so they stand beside the newest card only when it
+  // is that card: a second card filed inside the Undo window (or saved out of order) is named there
+  // without them, rather than with an Undo that would take out the other one (review, 16 Nov 2026).
+  const jc = justAdded?.card;
+  const sameAsNewest = !!jc && !!newest && jc.name === newest.name && (jc.set ?? "") === (newest.set ?? "") && (jc.number ?? "") === (newest.number ?? "");
+  const undoable = !!jc && !justAdded!.busy && sameAsNewest && (!!onUndo || (!!onCorrect && !!justAdded!.printing));
   const dupeHere = !!dupe && !!onAccept && !!newest && dupe.found.name === newest.name;
   // Wrong printing beside Undo only when the scanner read the printing itself: one you tapped is
   // rarely wrong, and the card's own sheet (tap it in the strip) has Wrong printing anyway.
@@ -1985,9 +2031,13 @@ export function ScannerView({
   // "Scan anyway", in the picture (Bryan, 16 Nov 2026): the card just added is still in view, so
   // the camera says so, with +1 copy for when you really have another.
   const stillInView = receipt && dupeHere && !isFound && !lockOpen && !closeup;
-  // Once the strip has cards, "Hold a card in view" is known: the chip only speaks when it has news.
-  const idleStatus = mode === "art" && !justAdded && (status === "Hold a card in view" || status === "Ready for the next card");
-  const receiptEvent = receipt && justAdded && !justAdded.card ? justAdded.text : null;
+  // Once the strip has cards, waiting for one is known: the chip only speaks when it has news.
+  const idleStatus = mode === "art" && (status === WAITING || status === NEXT);
+  // Said in the head in place of the card's name: an event with no card (Took out …, Couldn't …),
+  // news about the card ("Kept …"), or an add the newest entry isn't (its save came back late).
+  const receiptEvent = receipt && justAdded && (!jc || justAdded.say || !sameAsNewest) ? justAdded.text : null;
+  // For screen readers, every add and event, said once in the strip's always-there status line.
+  const receiptAnnounce = receipt && justAdded ? justAdded.text : "";
   const loadingText =
     loadState?.kind === "downloading"
       ? `Getting card recognition ready (${Math.round(loadState.loaded / 1e6)} of ${Math.round(loadState.total / 1e6)} MB, once)`
@@ -2083,7 +2133,7 @@ export function ScannerView({
         )}
       </div>
 
-      {recentCards && recentCards.length > 0 && <ScanTray cards={recentCards} worth={identityOnly ? Infinity : worth} onOpen={onOpenCard} onReview={onShowAdded} event={receiptEvent} actions={receiptActions} />}
+      {recentCards && recentCards.length > 0 && <ScanTray cards={recentCards} worth={identityOnly ? Infinity : worth} onOpen={onOpenCard} onReview={onShowAdded} event={receiptEvent} actions={receiptActions} announce={receiptAnnounce} />}
       <div ref={panelRef} className={`scan-panel${sheet.hidden ? " is-hidden" : ""}`} aria-live="polite">
         {/* "Use a photo" in More opens this: it stays mounted when the menu closes. */}
         <input
@@ -2286,11 +2336,11 @@ export function ScannerView({
                       {p.set_code.toUpperCase()} #{p.collector_number}
                     </span>
                     {found.misread?.scryfall_id === p.scryfall_id && <span className="scan-misread">{found.correcting ? "Added as this" : "Read as this"}</span>}
+                    {/* What tells printings apart stays visible; the set's name is what gets cut short. */}
+                    {(treatmentLabel(p) || p.lang !== "en") && <span className="scan-printing-what">{[treatmentLabel(p), p.lang !== "en" ? p.lang : null].filter(Boolean).join(", ")}</span>}
                     <span className="dim">
                       {p.set_name}
                       {p.released_at ? `, ${p.released_at.slice(0, 4)}` : ""}
-                      {p.lang !== "en" ? `, ${p.lang}` : ""}
-                      {treatmentLabel(p) ? `, ${treatmentLabel(p)}` : ""}
                     </span>
                   </Button>
                 ))}
@@ -2327,7 +2377,8 @@ export function ScannerView({
             )}
             {/* The decision, on one row; everything lesser on one quiet row under it. */}
             <div className="scan-buttons">
-              {onAccept && (ready || !showPicker) && (
+              {/* No Add while the printings are there to tap, or when there's no printing to add. */}
+              {onAccept && (ready || (!showPicker && !found.outside && !(options && options.length === 0))) && (
                 <div className="scan-accept">
                   {!identityOnly && !single && !found.correcting && (
                     <Field className="scan-copies" label="Copies">
@@ -2348,20 +2399,13 @@ export function ScannerView({
               <Button className="scan-skip" onClick={() => again()}>
                 {found.correcting ? "Keep it as it was" : onAccept ? "Skip" : "Scan next"}
               </Button>
-              {/* Everything lesser, one tap away: the wrong card, the wrong printing, a close-up. */}
-              <MoreMenu label="More" title="If it's wrong" className="scan-more" variant="quiet">
-                {!wrongOpen && <Button onClick={() => setWrongOpen(true)}>Wrong card</Button>}
-                {settledByScanner(found) && !found.picking ? (
-                  <Button onClick={() => wrongPrinting(found, chosen!, found.correcting)}>Wrong printing</Button>
-                ) : (
-                  !identityOnly &&
-                  chosen &&
-                  options &&
-                  options.length > 1 &&
-                  !found.picking && <Button onClick={() => setFound({ ...found, picking: true })}>Change printing ({options.length})</Button>
-                )}
-                {upClose && <Button onClick={() => setCloseup("collector")}>Read the collector number up close</Button>}
-              </MoreMenu>
+              {/* Everything lesser, one tap away: the wrong card, the wrong printing, a close-up. With
+                  nothing in it (Wrong card already open, a deck check), there's no More. */}
+              {moreItems.length > 0 && (
+                <MoreMenu label="More" title="If it's wrong" className="scan-more" variant="quiet">
+                  {moreItems}
+                </MoreMenu>
+              )}
             </div>
             {!recentCards && recent.length > 0 && <p className="scan-note">Recent: {recent.slice(0, 3).join(", ")}.</p>}
             {/* What the scanner saw: for checking a scan, so only with Scanner diagnostics on. */}

@@ -57,7 +57,7 @@ export function trayTotal(cards: readonly RecentCard[]): { head: string; note: s
  * out …, Couldn't save …) in its place for a moment. The camera's chip says only what the scanner
  * is doing now.
  */
-export function ScanTray({ cards, worth, onOpen, onReview, event, actions }: { cards: readonly RecentCard[]; worth: number; onOpen?: (key: string) => void; onReview?: () => void; event?: string | null; actions?: ReactNode }) {
+export function ScanTray({ cards, worth, onOpen, onReview, event, actions, announce = "" }: { cards: readonly RecentCard[]; worth: number; onOpen?: (key: string) => void; onReview?: () => void; event?: string | null; actions?: ReactNode; announce?: string }) {
   const play = usePlayability(cards.map((c) => c.oracleId));
   const list = useRef<HTMLOListElement>(null);
   const newestKey = cards[0]?.key;
@@ -75,12 +75,14 @@ export function ScanTray({ cards, worth, onOpen, onReview, event, actions }: { c
   return (
     <section className="scan-tray" aria-label="Scanned this session">
       <div className="scan-tray-head">
+        {/* Always there, so a screen reader hears each add and event as its text changes. */}
+        <p className="visually-hidden" role="status">
+          {announce}
+        </p>
         {/* What just happened, and what can be done about it now. */}
         <div className="scan-tray-row">
           {event ? (
-            <p className="scan-tray-last is-event" role="status">
-              {event}
-            </p>
+            <p className="scan-tray-last is-event">{event}</p>
           ) : (
             // The card just added, named: a 72 px picture alone doesn't say it was the right one.
             <p className="scan-tray-last">

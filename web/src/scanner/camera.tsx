@@ -3,7 +3,7 @@
 // zoom where the browser exposes it, else a digital zoom: the view is enlarged and the recognizer
 // is given the middle of the frame, so a small or far card is seen with more of the camera's pixels.
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../components/ui";
 
 export interface CameraCaps {
@@ -313,6 +313,12 @@ export function CameraControls({ c, live }: { c: CameraControlState; live: boole
   // The scanner zooms by itself and a pinch zooms too, so zoom is one small button showing the
   // level; a tap opens + and − (Bryan, 16 Nov 2026: too busy).
   const [zoomOpen, setZoomOpen] = useState(false);
+  // + and − fold away again a few seconds after the last zoom.
+  useEffect(() => {
+    if (!zoomOpen) return;
+    const t = window.setTimeout(() => setZoomOpen(false), 4000);
+    return () => window.clearTimeout(t);
+  }, [zoomOpen, c.zoom]);
   if (!live) return null;
   return (
     <div className="scan-tools">
@@ -332,8 +338,12 @@ export function CameraControls({ c, live }: { c: CameraControlState; live: boole
             </Button>
           )}
           <Button className="scan-tool scan-zoom-level" onClick={() => setZoomOpen((o) => !o)} aria-expanded={zoomOpen} aria-label={`Zoom ${fmt(c.zoom)}${zoomOpen ? "" : ", change it"}`}>
-            <span aria-live="polite">{fmt(c.zoom)}</span>
+            {fmt(c.zoom)}
           </Button>
+          {/* A pinch or the scanner's own zoom, said too: the button's label alone isn't announced. */}
+          <span className="visually-hidden" aria-live="polite">
+            {fmt(c.zoom)}
+          </span>
           {zoomOpen && (
             <Button className="scan-tool" onClick={c.zoomOut} disabled={!c.canZoomOut} aria-label="Zoom out">
               −
