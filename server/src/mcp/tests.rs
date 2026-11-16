@@ -1702,3 +1702,58 @@ async fn add_to_collection_follows_a_printings_finishes_but_not_for_proxies() {
     let rows: Vec<(String, bool, i64)> = sqlx::query_as("SELECT finish, proxy, qty FROM collection_items WHERE owner_id = ?").bind(&a).fetch_all(&pool).await.unwrap();
     assert_eq!(rows, vec![("nonfoil".to_string(), true, 2)]);
 }
+
+#[tokio::test]
+async fn scan_diagnostics_are_read_by_their_owner_with_images() {
+    use base64::Engine as _;
+    let (app, pool) = app().await;
+    let (me, session) = user(&pool, "bryan@example.com").await;
+    let (_, other) = user(&pool, "other@example.com").await;
+    let jpeg: &[u8] = &[0xFF, 0xD8, 0xFF, 0xE0, 0, 16, b'J', b'F', b'I', b'F', 0, 1, 2, 3, 0xFF, 0xD9];
+    let b64 = base64::engine::general_purpose::STANDARD.encode(jpeg);
+    let body = json!({"outcome": "picked", "card_name": "Arcane Signet", "engine": "mlkit",
+        "camera": {"label": "camera2 0, facing back", "width": 2160, "height": 3840},
+        "detail": {"reasons": ["picked"]},
+        "images": [{"name": "strip", "image": b64, "width": 9, "height": 2}]});
+    let (status, made) = send(&app, Method::POST, "/api/scan/diagnostics", Some(&session), Some(body)).await;
+    assert_eq!(status, StatusCode::OK, "{made}");
+    let id = made["id"].as_str().unwrap();
+
+    let mine = key(&app, &session, Some("mcp")).await;
+    let (err, listed) = call(&app, &mine, "list_scan_diagnostics", json!({})).await;
+    assert!(!err, "{listed}");
+    let listed: Value = serde_json::from_str(&listed).unwrap();
+    assert_eq!(listed["count"], 1);
+    assert_eq!(listed["items"][0]["id"], id);
+    assert_eq!(listed["items"][0]["images"], json!(["strip"]));
+
+    let (err, one) = call(&app, &mine, "get_scan_diagnostic", json!({"id": id})).await;
+    assert!(!err, "{one}");
+    let one: Value = serde_json::from_str(&one).unwrap();
+    assert_eq!(one["camera"]["label"], "camera2 0, facing back");
+    assert_eq!(one["images"][0]["name"], "strip");
+
+    // The image comes back as MCP image content, or as base64 text.
+    let (status, r) = send(&app, Method::POST, "/mcp", Some(&mine), Some(rpc("tools/call", json!({"name": "get_scan_diagnostic", "arguments": {"id": id, "image": "strip"}})))).await;
+    assert_eq!(status, StatusCode::OK, "{r}");
+    assert_eq!(r["result"]["isError"], false);
+    assert_eq!(r["result"]["content"][1]["type"], "image");
+    assert_eq!(r["result"]["content"][1]["mimeType"], "image/jpeg");
+    assert_eq!(base64::engine::general_purpose::STANDARD.decode(r["result"]["content"][1]["data"].as_str().unwrap()).unwrap(), jpeg);
+    let (err, text) = call(&app, &mine, "get_scan_diagnostic", json!({"id": id, "image": "strip", "encoding": "base64"})).await;
+    assert!(!err, "{text}");
+    let text: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(base64::engine::general_purpose::STANDARD.decode(text["base64"].as_str().unwrap()).unwrap(), jpeg);
+    let (err, _) = call(&app, &mine, "get_scan_diagnostic", json!({"id": id, "image": "card"})).await;
+    assert!(err, "an image the record doesn't have");
+
+    // Someone else's tools see none of it.
+    let theirs = key(&app, &other, Some("mcp")).await;
+    let (_, listed) = call(&app, &theirs, "list_scan_diagnostics", json!({})).await;
+    assert_eq!(serde_json::from_str::<Value>(&listed).unwrap()["count"], 0);
+    let (err, _) = call(&app, &theirs, "get_scan_diagnostic", json!({"id": id})).await;
+    assert!(err);
+    let (err, _) = call(&app, &theirs, "get_scan_diagnostic", json!({"id": id, "image": "strip"})).await;
+    assert!(err);
+    crate::scan_diagnostics::remove_owner_files(&std::env::temp_dir(), &me);
+}

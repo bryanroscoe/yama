@@ -1415,6 +1415,44 @@ pub(super) const TOOLS: &[Tool] = &[
         needs: Needs::Nothing,
     },
     Tool {
+        name: "list_scan_diagnostics",
+        aliases: &[],
+        title: "Your scanner diagnostics",
+        description: "The scanner diagnostics this account kept (Scan settings, off by default): one per card the scanner struggled with, newest first, with how it ended, why it was kept and its images. Read one with get_scan_diagnostic.",
+        schema: || json!({"type": "object", "properties": {
+            "limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Records per page, default 20."},
+            "cursor": {"type": "string", "maxLength": 200, "description": "next_cursor from the answer before."}}, "additionalProperties": false}),
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_scan_diagnostics),
+        stages: None,
+        output: Some(registry::paged),
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
+    },
+    Tool {
+        name: "get_scan_diagnostic",
+        aliases: &[],
+        title: "One scanner diagnostic, or one of its images",
+        description: "One scanner diagnostic by id: the camera, every frame's reads with the evidence, the art and title reads, and how it ended. With image (a name it lists, such as \"strip\" or \"card\"), that JPEG as an image, or as base64 text with encoding \"base64\".",
+        schema: || json!({"type": "object", "properties": {
+            "id": {"type": "string", "description": "The diagnostic id from list_scan_diagnostics."},
+            "image": {"type": "string", "description": "Optional: one image name from the record, to see that image."},
+            "encoding": {"type": "string", "enum": ["image", "base64"], "description": "With image: as MCP image content (default) or base64 text, for saving it."}},
+            "required": ["id"], "additionalProperties": false}),
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_scan_diagnostic),
+        stages: None,
+        output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
+    },
+    Tool {
         name: "apply_change",
         aliases: &[],
         title: "Apply a staged change",
@@ -1477,6 +1515,31 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
 }
 
 // ── handlers: one per tool that isn't a staged write (those are in `changes.rs`) ─────────────
+
+async fn run_scan_diagnostics(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let page = super::page::page(args, "scan_diagnostics", 20, 100)?;
+    let mut out = crate::scan_diagnostics::list(&c.st.pool, &c.user.id, page.offset as i64, page.limit as i64).await?;
+    let total = out["count"].as_u64().unwrap_or(0) as usize;
+    out["next_cursor"] = json!(page.next("scan_diagnostics", total));
+    Ok(out.to_string())
+}
+
+async fn run_scan_diagnostic(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let id = args.get("id").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).ok_or_else(|| AppError::bad("id is required"))?;
+    let pool = &c.st.pool;
+    if let Some(name) = args.get("image").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()) {
+        let bytes = crate::scan_diagnostics::image(pool, &c.st.cfg.data_dir, &c.user.id, id, name)
+            .await?
+            .ok_or_else(|| AppError::bad(format!("No image \"{name}\" on scan diagnostic {id}. get_scan_diagnostic with the id alone lists its images.")))?;
+        if args.get("encoding").and_then(Value::as_str) == Some("base64") {
+            use base64::Engine as _;
+            return Ok(json!({"id": id, "image": name, "mime": "image/jpeg", "base64": base64::engine::general_purpose::STANDARD.encode(&bytes)}).to_string());
+        }
+        return Ok(registry::image_answer("image/jpeg", &format!("Scan diagnostic {id}, image {name} ({} bytes).", bytes.len()), &bytes));
+    }
+    let one = crate::scan_diagnostics::one(pool, &c.user.id, id).await?.ok_or_else(|| AppError::bad(format!("No scan diagnostic {id} on this account. list_scan_diagnostics lists them.")))?;
+    Ok(serde_json::to_string_pretty(&one).map_err(anyhow::Error::from)?)
+}
 
 #[allow(unused_variables)]
 async fn run_datasets(c: Ctx<'_>, args: &Value) -> AppResult<String> {

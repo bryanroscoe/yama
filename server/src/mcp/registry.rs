@@ -170,6 +170,23 @@ pub fn paged() -> Value {
 /// rest is read with `chunk`.
 pub const MAX_ANSWER: usize = 40_000;
 
+/// Starts a handler's answer that is an image rather than text (`image_answer`). A NUL can't
+/// begin any other tool's text.
+const IMAGE_MARK: &str = "\u{0}yama-image\n";
+
+/// An answer that is an image: `tools/call` gives it as MCP image content after `caption`, whole
+/// (an image is never cut into chunks).
+pub fn image_answer(mime: &str, caption: &str, bytes: &[u8]) -> String {
+    use base64::Engine as _;
+    format!("{IMAGE_MARK}{mime}\n{}\n{}", caption.replace('\n', " "), base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
+/// The parts of an image answer: its MIME type, caption and base64 data.
+fn image_parts(text: &str) -> Option<(&str, &str, &str)> {
+    let mut parts = text.strip_prefix(IMAGE_MARK)?.splitn(3, '\n');
+    Some((parts.next()?, parts.next()?, parts.next()?))
+}
+
 /// A tool's handler from an `async fn(Ctx<'_>, &Value) -> AppResult<String>`.
 macro_rules! run {
     ($f:path) => {
@@ -389,6 +406,9 @@ async fn answer(st: &AppState, user: &User, via: &Via, name: &str, args: &Value)
     }
     let asked = rest.as_ref().unwrap_or(args);
     let mut text = call(st, user, via, name, asked).await?;
+    if let Some((mime, caption, data)) = image_parts(&text) {
+        return Ok(json!({"content": [{"type": "text", "text": caption}, {"type": "image", "data": data, "mimeType": mime}], "isError": false}));
+    }
     let mut structured = None;
     if tool.output.is_some() {
         // A JSON answer: the object itself, or a list under `items` (structured content is an object).

@@ -175,6 +175,11 @@ would make a later move a rewrite. The schema is the numbered migrations in
   a value changes. A missing price is `NULL` and is shown as "no price", never as 0.
 - **Games are event logs.** An in-person game is a list of table events; an online game is a
   seed and an action log. Both use the same `games` table, so stats cover both.
+- **Files beside the database: scanner diagnostics only.** Their images (a card's full-resolution
+  bottom strip and a 640 px photo, per record) are files under the data directory,
+  `scan-diagnostics/<owner>/<id>/`, with a metadata row in `scan_diagnostics`; deleting the row,
+  the record or the account removes them
+  ([Scanner diagnostics](#scanner-diagnostics-15-november-2026)).
 - **Backups.** The release gate copies an existing database before every activation. A nightly job on
   the host keeps verified snapshots for 14 days, and another copies the live database offsite.
 
@@ -327,6 +332,9 @@ into `/mcp` with a token scoped to that one question. Details:
 - **Which build a device runs is the account's own.** The app's `X-Yama-Client` header is kept
   per account and sign-in for its assistant (`list_devices`) and admins, never shown publicly
   ([Which build each device runs](#which-build-each-device-runs-15-november-2026)).
+- **Scanner diagnostics are their owner's alone.** Opt-in per device; owner-only routes and MCP
+  tools; never shared with an admin, unlike shared scan photos
+  ([Scanner diagnostics](#scanner-diagnostics-15-november-2026)).
 - **A list checked without an account belongs to nobody.** `POST /api/public/deck-check` takes
   no session, reads card data and market prices only, stores nothing and sends the list to no
   other service ([Check a deck without an account](#check-a-deck-without-an-account-2026-11-12)).
@@ -396,7 +404,7 @@ section 4 is the first sketch; the current system is [above](#the-system-at-a-gl
 - **Shopping:** [Live store stock (13 November 2026)](#live-store-stock-13-november-2026).
 - **The Android app:** [The Android app, sideloaded (13 November 2026)](#the-android-app-sideloaded-13-november-2026), [Which build each device runs (15 November 2026)](#which-build-each-device-runs-15-november-2026).
 - **Game night:** [Table and playgroup stats (2026-10-19)](#table-and-playgroup-stats-2026-10-19).
-- **The scanner:** [Scan photos shared with the developer (15 November 2026)](#scan-photos-shared-with-the-developer-15-november-2026), [The scanner's own art supplement (15 November 2026)](#the-scanners-own-art-supplement-15-november-2026).
+- **The scanner:** [Scan photos shared with the developer (15 November 2026)](#scan-photos-shared-with-the-developer-15-november-2026), [The scanner's own art supplement (15 November 2026)](#the-scanners-own-art-supplement-15-november-2026), [Scanner diagnostics (15 November 2026)](#scanner-diagnostics-15-november-2026).
 - **Cards, collection and prices:** [Mana symbols (2026-11-12)](#mana-symbols-2026-11-12), [Release calendar and What's new (2026-10-19)](#release-calendar-and-whats-new-2026-10-19), [A deck's cards in the collection, and Mythic re-imports (2026-10-23)](#a-decks-cards-in-the-collection-and-mythic-re-imports-2026-10-23), [Deck market values (2026-10-27)](#deck-market-values-2026-10-27), [Scan this deck (2026-10-29)](#scan-this-deck-2026-10-29), [Mythic Tools bridge (2026-10-31, proposal)](#mythic-tools-bridge-2026-10-31-proposal), [Store trips (2026-11-01)](#store-trips-2026-11-01), [Deleting collection containers (2026-11-02)](#deleting-collection-containers-2026-11-02), [Sell lists for store buylists (2026-11-02)](#sell-lists-for-store-buylists-2026-11-02), [Local buylist offers (2026-11-02)](#local-buylist-offers-2026-11-02), [Price history (2026-11-02)](#price-history-2026-11-02), [Recording printed copies in a deck box (2026-11-02)](#recording-printed-copies-in-a-deck-box-2026-11-02).
 - **Decks, plans and sharing:** [Brackets, deck stats and exports (2026-10-19)](#brackets-deck-stats-and-exports-2026-10-19), [Deck import (2026-10-22)](#deck-import-2026-10-22), [Sharing and deck configurations (2026-10-28)](#sharing-and-deck-configurations-2026-10-28), [Review, installed decks and the Lab tab (2026-10-28)](#review-installed-decks-and-the-lab-tab-2026-10-28), [Check this deck (2026-11-01)](#check-this-deck-2026-11-01), [Deck configurations and quieter editing (2026-11-03)](#deck-configurations-and-quieter-editing-2026-11-03), [One plan page (2026-11-04)](#one-plan-page-2026-11-04), [Printing with MakePlayingCards (2026-11-05)](#printing-with-makeplayingcards-2026-11-05), [Plans: one plan per deck (2026-11-06)](#plans-one-plan-per-deck-2026-11-06), [Site design pass (2026-11-08)](#site-design-pass-2026-11-08), [Public by default and the navigation (2026-11-12)](#public-by-default-and-the-navigation-2026-11-12), [Check a deck without an account (2026-11-12)](#check-a-deck-without-an-account-2026-11-12).
 - **Assistants:** [Ask Claude, the advisor (2026-10-22)](#ask-claude-the-advisor-2026-10-22), [Yama's tools for Claude (MCP, 2026-10-22)](#yamas-tools-for-claude-mcp-2026-10-22).
@@ -2912,3 +2920,36 @@ few. So:
   `/api/admin/scan-samples` (the admin area's Scan photos page) or `yama-server
   scan-samples-export` on the server. Nothing else about the account comes with them beyond its id
   and display name. They are still capped per account and deleted with it or on request.
+
+## Scanner diagnostics (15 November 2026)
+
+Bryan, 15 Nov 2026: printings were being read wrong on his Pixel 10 Pro, and the scanner consult's
+first item was a replayable record of what the scanner saw: the kept 640 px scan photos put the
+collector line at about 7 px, too small to replay a printing read. So, a new data flow:
+
+- **Opt-in, per device, owner-only.** "Scanner diagnostics" in Scan settings is off by default.
+  While it's on, the scanner sends a record (`POST /api/scan/diagnostics`) for each card it
+  struggled with: the printing picked from the list, Wrong card, Wrong printing, a read that gave
+  up, the close-up taking over, a title overruling the art. Nothing is sent for a card that went
+  smoothly. Records are readable by their owner only (owner-bound routes, and the MCP tools
+  `list_scan_diagnostics` and `get_scan_diagnostic`, which give the images as MCP image content or
+  base64); no admin route or export reads them, and an admin's View as is refused them (`view_as.rs`,
+  `HIDDEN`). A record goes out only under the account that started it and only while the switch is
+  on; its card photo is the card alone, never the frame around it. This differs from shared scan photos on purpose:
+  they hold more (the camera, every read).
+- **What a record holds.** The card's bottom strip at the camera's full resolution, both collector
+  corners, warped upright (`strip`, and `strip-last` from the last frame read); a 640 px photo
+  (`card`); and JSON: every frame's reads per crop with its sharpness, glare, card height in
+  pixels, zoom and the evidence after it; the art's top matches; the title reads; the candidate
+  printings; the camera's settings and capabilities; how it ended. Never a full camera frame.
+- **Images out of the main database.** They are files under the data directory,
+  `scan-diagnostics/<owner>/<id>/<name>.jpg`, written before the metadata row
+  (`scan_diagnostics`, migration 0096) is committed and removed if it isn't. Only names the record
+  lists are served, and ids are the server's UUIDs, so no request reaches another path.
+- **Bounded.** At most 200 records and 200 MB of images per account (the oldest go, files and
+  all), 1.5 MB an image, 4 MB a record, 200 uploads an hour. Deleted one at a time or all on
+  request ("Delete them" in Scan settings, `DELETE /api/scan/diagnostics`) and with the account
+  (the row in `admin/delete.rs`, then the account's folder after the commit).
+- **Replay.** `web/src/scanner/eval/real.test.ts` replays exported records (and kept photos with
+  their art scores) through today's evidence, hold budgets, collector-line crops and title/art
+  fusion, and reports right, wrong and filed, unsettled, and frames to settle.

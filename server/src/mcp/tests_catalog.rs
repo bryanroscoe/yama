@@ -296,6 +296,9 @@ const ISOLATION_ELSEWHERE: [(&str, &str); 1] = [("dataset", "datasets/tests.rs, 
 /// Text only account A's rows hold. None of the ids and names B sends contains it.
 const SECRET: &str = "SECRET";
 
+/// Account A's scanner diagnostic (its image file isn't written: B's image call must refuse on the row).
+const DIAGNOSTIC: &str = "00000000-0000-4000-8000-00000000000a";
+
 struct Fixture {
     deck: String,
     change: String,
@@ -358,6 +361,15 @@ async fn one_of_everything(app: &axum::Router, pool: &SqlitePool, owner: &str, t
         .execute(pool)
         .await
         .unwrap();
+    sqlx::query(
+        "INSERT INTO scan_diagnostics (id, owner_id, created_at, outcome, card_name, detail, images, bytes)
+         VALUES (?, ?, 't', 'picked', 'SECRET card', '{}', '[{\"name\":\"strip\"}]', 0)",
+    )
+    .bind(DIAGNOSTIC)
+    .bind(owner)
+    .execute(pool)
+    .await
+    .unwrap();
     let (err, staged) = call(app, token, "edit_deck", json!({"deck": deck, "add": ["Arcane Signet"], "note": "SECRET change"})).await;
     assert!(!err, "{staged}");
     let change = staged.lines().find_map(|l| l.strip_prefix("Change id: ")).unwrap().trim().to_string();
@@ -434,6 +446,8 @@ fn isolation_cases(f: &Fixture) -> Vec<(&'static str, Value, ForOwner)> {
         ("changes", json!({"id": f.change}), Shows),
         ("discard_change", json!({"id": f.change}), Works),
         ("apply_change", json!({"id": f.change}), Unchecked),
+        ("get_scan_diagnostic", json!({"id": DIAGNOSTIC}), Shows),
+        ("get_scan_diagnostic", json!({"id": DIAGNOSTIC, "image": "strip"}), Unchecked),
     ]
 }
 
@@ -698,8 +712,9 @@ fn descriptions_are_short_and_written_for_anyone() {
         }
     }
     // 25,000 until browse_public_decks (12 Nov 2026), which took the total to 25,272;
-    // list_devices (15 Nov 2026) took it to about 25,450.
-    assert!(total <= 25_500, "the descriptions are {total} characters in all");
+    // list_devices (15 Nov 2026) took it to about 25,450; the two scanner diagnostics tools
+    // (15 Nov 2026) to 25,921.
+    assert!(total <= 26_000, "the descriptions are {total} characters in all");
     let instructions = super::SERVER_INSTRUCTIONS;
     assert!(instructions.chars().count() <= 2_600, "the instructions are {} characters", instructions.chars().count());
     for word in his {

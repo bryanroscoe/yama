@@ -1,0 +1,16 @@
+{
+  "about": "Real scans replayed by real.test.ts. Photos and diagnostic records are people's own and stay out of the repository: each `photo` is a path under SCANNER_REAL_DIR. `art` is what the art recognizer scored on that phone, for a replay without the bundle.",
+  "photos": [
+    {
+      "id": "westvale-9288fda7",
+      "note": "Bryan, 15 Nov 2026 (scan_samples 9288fda7): a foil SOI Westvale Abbey // Ormendahl in a blue box, 2160 x 3840 camera. The art locked Wei Night Raiders (PTK 89) at 0.658 on two frames; the title is plainly readable. A 640 px photo, so a title-only replay.",
+      "photo": "westvale/sample.jpg",
+      "want": { "name": "Westvale Abbey // Ormendahl, Profane Prince" },
+      "art": [
+        { "name": "Wei Night Raiders", "set": "ptk", "score": 0.668 },
+        { "name": "Westvale Abbey // Ormendahl, Profane Prince", "set": "inr", "score": 0.634 },
+        { "name": "Nature's Lore", "set": "por", "score": 0.613 }
+      ]
+    }
+  ]
+}
