@@ -759,9 +759,10 @@ def release_record_images(name):
         value = json.loads((BASE / name).read_text()).get('images') or {}
     except FileNotFoundError:
         return set()
-    if not isinstance(value, dict) or not all(isinstance(image, str) for image in value.values()):
+    # A service with no container when the record was written is recorded as None.
+    if not isinstance(value, dict) or not all(image is None or isinstance(image, str) for image in value.values()):
         raise Refused(name + ' names invalid images')
-    return set(value.values())
+    return {image for image in value.values() if image}
 
 
 def prune_release_images(revision, keep_newest=RELEASE_IMAGES_KEEP_NEWEST, remove_max=RELEASE_IMAGES_REMOVE_MAX):
@@ -792,19 +793,19 @@ def prune_release_images(revision, keep_newest=RELEASE_IMAGES_KEEP_NEWEST, remov
             if image not in newest:
                 newest.append(image)
         keep = kept | set(newest[:keep_newest])
-        this_service = 0
+        attempts = 0
         for _, tag, image in reversed(rows):  # oldest first
             if tag == revision or image in keep:
                 continue
-            if this_service >= remove_max:
+            if attempts >= remove_max:  # refusals count too, so a stuck tag can't flood the log
                 skipped += 1
                 continue
+            attempts += 1
             try:
                 run(['docker', 'image', 'rm', service + ':' + tag], timeout=120)
-                this_service += 1
+                removed += 1
             except Refused:
                 skipped += 1
-        removed += this_service
     log('Image retention removed ' + str(removed) + ' old release tags; ' + str(skipped) + ' left for later')
     return removed
 

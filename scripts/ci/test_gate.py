@@ -525,15 +525,23 @@ class LocalScript(unittest.TestCase):
         (target / 'debug').mkdir(parents=True)
         (target / 'debug/old-engine').write_bytes(b'x' * 4096)
         self.assertEqual(self.run_script('--no-amend').returncode, 0)  # under the default cap
-        self.assertNotIn('cargo clean --quiet\n', self.log.read_text())
+        self.assertNotIn('cargo clean --quiet --profile dev', self.log.read_text())
         self.log.unlink()
         self.env['YAMA_CARGO_TARGET_CAP_GIB'] = '0'
         result = self.run_script('--no-amend')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('over its 0 GiB cap; clearing it', result.stdout)
         calls = self.log.read_text().splitlines()
-        self.assertEqual(calls[calls.index('cargo clean --quiet') + 1],
+        self.assertEqual(calls[calls.index('cargo clean --quiet --profile dev') + 1],
                          'cargo clean --quiet -p yama-server -p yama-play')
+        # Only the dev profile goes: local-ci's lock stays at the target's top level.
+        self.assertTrue((target / '.yama-local-ci.lock').exists())
+
+    def test_a_cap_that_is_not_a_whole_number_is_refused(self):
+        self.env['YAMA_CARGO_TARGET_CAP_GIB'] = '25.5'
+        result = self.run_script('--no-amend')
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('must be a whole number of GiB', result.stderr)
 
     def test_a_shared_target_another_build_holds_is_left_alone(self):
         target = self.repo.parent / 'cargo-target'
@@ -545,7 +553,7 @@ class LocalScript(unittest.TestCase):
             result = self.run_script('--no-amend')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('another build is using it', result.stdout)
-        self.assertNotIn('cargo clean --quiet\n', self.log.read_text())
+        self.assertNotIn('cargo clean --quiet --profile dev', self.log.read_text())
         self.assertIn('cargo test --locked', self.log.read_text())
 
     def test_shared_target_is_the_default(self):

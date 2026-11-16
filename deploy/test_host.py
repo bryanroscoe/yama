@@ -1055,10 +1055,17 @@ class ImageRetention(unittest.TestCase):
                          ['yama-advisor:%040x' % 3])
 
     def test_removals_per_release_are_capped(self):
-        host.prune_release_images('f' * 40, keep_newest=0, remove_max=2)
-        self.assertEqual(len(self.removed), 2)
-        # Oldest first; the 'running' tag (1 October) is kept, so days 1 and 2 go.
-        self.assertEqual(self.removed, ['yama:%040x' % 1, 'yama:%040x' % 2])
+        self.refuse = {'yama:%040x' % 1}
+        host.prune_release_images('f' * 40, keep_newest=0, remove_max=3)
+        self.assertEqual(len(self.removed), 2)  # the refused attempt counts toward the cap
+        # Oldest first; the 'running' tag (1 October) is kept and day 1 is refused, so 2 and 3 go.
+        self.assertEqual(self.removed, ['yama:%040x' % 2, 'yama:%040x' % 3])
+
+    def test_a_service_recorded_without_a_container_is_not_an_error(self):
+        self.write('previous.json', {'yama': 'sha256:y1', 'yama-forge': None})
+        host.prune_release_images('f' * 40, keep_newest=5)
+        self.assertNotIn('yama:%040x' % 1, self.removed)
+        self.assertIn('yama:%040x' % 2, self.removed)
 
     def test_unreadable_rollback_inputs_remove_nothing(self):
         (self.base / 'previous.json').write_text(json.dumps({'images': ['not', 'a', 'map']}))

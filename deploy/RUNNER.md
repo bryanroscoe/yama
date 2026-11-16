@@ -63,9 +63,8 @@ The workflow reaches saget through one of two backends; see [Choose the deploy b
 - Release images: each release tags `yama`, `yama-advisor` and `yama-forge` with its commit
   SHA, and those tags were never removed (750 by 16 Nov 2026). After a healthy activation the
   host now removes SHA tags on those three repositories except those of the newest five
-  distinct images per service,
-  oldest first and at most 60 per service per release, so a backlog drains over a few
-  releases. It keeps this release's tags, every image `previous.json` and `current.json` name
+  distinct images per service, oldest first and at most 60 attempts per service per release,
+  so a backlog drains over a few releases. It keeps this release's tags, every image `previous.json` and `current.json` name
   and every image a container uses, never forces a removal, and never touches `latest` or
   any other repository. A failure is logged and never fails the release. BuildKit's build
   cache is shared with other projects on saget and is not pruned here.

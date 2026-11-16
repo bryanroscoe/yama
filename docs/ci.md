@@ -245,9 +245,11 @@ than 30 minutes, don't wait for it. Run the checks locally, treat that as good e
   by Yama local CI, not by any one task, so retiring a worktree leaves it in place. It keeps
   a whole engine build (about 8 GiB) for every engine pin and toolchain it has seen, and it
   reached 44 GiB before anyone noticed (Bryan, 16 Nov 2026: clean it up every time). So it
-  trims itself: once it passes 25 GiB (`YAMA_CARGO_TARGET_CAP_GIB`), the next `local-ci.sh`
-  Rust step clears it under its lock, unless a Cargo run outside local-ci is building in it
-  (it holds `debug/.cargo-lock`); that run rebuilds the engine once. To reclaim space sooner,
+  trims itself: once its dev profile (`debug/`) passes 25 GiB (`YAMA_CARGO_TARGET_CAP_GIB`,
+  a whole number), the next `local-ci.sh` Rust step clears that profile under local-ci's lock,
+  unless a Cargo run outside local-ci is compiling there (it holds `debug/.cargo-lock`); that
+  run rebuilds the engine once. The check is best-effort: it can't see a test binary that is
+  still running, which is one more reason not to point a bare `cargo test` at this target. To reclaim space sooner,
   preview and apply `agent-clean <worktree> --target-dir ~/Library/Caches/yama/cargo-target`
   (workspace artifacts only, keeping the shared dependency builds) when nothing is running
   there; add `--all` only when the engine pin or toolchain changed and the old builds are
