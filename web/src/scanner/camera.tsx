@@ -75,6 +75,12 @@ export function zoomTop(caps: CameraCaps): number {
   return caps.zoom ? Math.max(caps.zoom.min, Math.min(caps.zoom.max, HAND_MAX)) : DIGITAL_MAX;
 }
 
+/** A zoom for this camera: within its own range (or 1× to the digital limit) and the 4× cap, to two decimals. */
+export function clampZoom(caps: CameraCaps, z: number): number {
+  const lo = caps.zoom ? caps.zoom.min : 1;
+  return Math.round(Math.min(zoomTop(caps), Math.max(lo, z)) * 100) / 100;
+}
+
 /** The zoom levels to step through. */
 export function zoomLevels(caps: CameraCaps): number[] {
   if (caps.zoom) {
@@ -186,6 +192,8 @@ export function useCameraControls() {
     applier.current.reset({});
     if (t && focus.focusMode) void apply(t, focus).catch(() => undefined);
     capsRef.current = t ? readCaps(t) : NO_CAPS;
+    // A pinch still queued for the last camera goes with it.
+    pending.current.next = null;
     setCaps(capsRef.current);
     setTorchState(false);
     setZoomState(1);
@@ -208,43 +216,51 @@ export function useCameraControls() {
    * open when it's called, and published only if that camera is still the one in use (review of
    * #145: a 4× meant for a camera with its own zoom landed on one without, past its 3× limit).
    */
-  const setZoom = useCallback(async (z: number) => {
+  const setZoom = useCallback(async (z: number, forTrack?: MediaStreamTrack | null) => {
     const t = track.current;
+    // A request made on another camera (a pinch queued before a switch) is dropped.
+    if (forTrack !== undefined && forTrack !== t) return;
     const c = capsRef.current;
+    // Clamped to the camera in use, right before it's applied (and to the 4× cap).
+    const want = clampZoom(c, z);
+    let shown = want;
     if (c.zoom && t) {
       try {
-        if (!(await apply(t, { zoom: z }))) return;
+        if (!(await apply(t, { zoom: want }))) return;
       } catch {
         if (track.current === t) setError("The camera didn't zoom");
         return;
       }
+      // What the camera says it's at, where it says.
+      const reported = (t.getSettings?.() as { zoom?: number } | undefined)?.zoom;
+      if (typeof reported === "number" && Number.isFinite(reported)) shown = reported;
     }
     if (track.current !== t) return;
-    setZoomState(c.zoom ? z : Math.min(z, DIGITAL_MAX));
+    setZoomState(shown);
     setError(null);
   }, []);
-  /** Any zoom in the camera's range (or 1× to the digital limit), for a pinch. Camera calls are queued, newest wins. */
-  const pending = useRef<{ busy: boolean; next: number | null }>({ busy: false, next: null });
+  /**
+   * Any zoom in the camera's range (or 1× to the digital limit), for a pinch. Camera calls are
+   * queued, newest wins; each is bound to the camera it was made on, and dropped if that changed.
+   */
+  const pending = useRef<{ busy: boolean; next: { z: number; t: MediaStreamTrack | null } | null }>({ busy: false, next: null });
   const zoomTo = useCallback(
     (z: number) => {
       userZoomed.current = true;
-      const lo = caps.zoom ? caps.zoom.min : 1;
-      const hi = zoomTop(caps);
-      const want = Math.round(Math.min(hi, Math.max(lo, z)) * 100) / 100;
       const p = pending.current;
-      p.next = want;
+      p.next = { z: clampZoom(capsRef.current, z), t: track.current };
       if (p.busy) return;
       p.busy = true;
       void (async () => {
         while (p.next != null) {
           const v = p.next;
           p.next = null;
-          await setZoom(v);
+          await setZoom(v.z, v.t);
         }
         p.busy = false;
       })();
     },
-    [caps.zoom, setZoom],
+    [setZoom],
   );
   const { above, below } = zoomSteps(caps, zoom);
   const step = (d: 1 | -1) => {
