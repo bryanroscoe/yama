@@ -17,7 +17,7 @@ import { Button, CardImage, CardThumb, ErrorText, Loading, ManaCost, Pips, ShowM
 import { CardInDecks } from "./CardInDecks";
 import { opIds, ownedFinishes } from "./collectionEdit";
 import "./cards.css";
-import { priceSource, shortDate, usd } from "@yama/core";
+import { priceSource, shortDate, treatmentLabel, usd } from "@yama/core";
 
 type Finish = "nonfoil" | "foil" | "etched";
 const CONDITIONS: Record<string, string> = { NM: "near mint", LP: "lightly played", MP: "moderately played", HP: "heavily played", DMG: "damaged" };
@@ -283,16 +283,20 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
                       const finish: Finish = p.finishes.includes("nonfoil") ? "nonfoil" : (p.finishes[0] as Finish);
                       const yourFinishes = myPrintings.get(p.scryfall_id);
                       const yours = yourFinishes ? ownedFinishes(yourFinishes) : null;
+                      // "Surge foil", "Showcase, Borderless": what sets this printing apart.
+                      const special = treatmentLabel(p);
                       return (
                         <tr key={p.scryfall_id}>
                           <td>
                             <Button className="cp-set" onClick={() => setChart({ id: p.scryfall_id, finish, set: p.set_name })} aria-label={`${p.set_name} #${p.collector_number}: show its price history`}>
                               <span className="cp-set-name">{p.set_name}</span> <span className="cp-set-num">#{p.collector_number}</span>
+                              {special && <span className="cp-set-num">, {special}</span>}
                             </Button>
                             {yours != null && <StatusPill tone="good" className="cp-yours">Yours, {yours}</StatusPill>}
                             {/* Phones: one line under the set for the number, your copies' finish, then the foil market price. */}
                             <span className="cp-set-sub">
                               #{p.collector_number}
+                              {special ? `, ${special}` : ""}
                               {yours != null && <span className="good">, yours ({yours})</span>}
                               {hasFoil && p.finishes.includes("nonfoil") ? `. Foil market ${usd(foil)}` : ""}
                             </span>

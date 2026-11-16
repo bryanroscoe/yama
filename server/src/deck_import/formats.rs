@@ -686,10 +686,14 @@ pub fn parse_archidekt_json(v: &serde_json::Value) -> Parsed {
         }
         l.set_code = card["edition"]["editioncode"].as_str().map(|s| s.to_lowercase()).filter(|s| is_set_code(s));
         l.collector_number = card["collectorNumber"].as_str().map(str::to_string).filter(|s| !s.is_empty());
-        l.finish = match c["modifier"].as_str().unwrap_or("").to_lowercase().as_str() {
-            "foil" => Some("foil".into()),
-            "etched" => Some("etched".into()),
-            _ => None,
+        // "Foil", "Etched", and any special foil Archidekt names, as foil.
+        let modifier = c["modifier"].as_str().unwrap_or("").to_lowercase();
+        l.finish = if modifier.contains("etch") {
+            Some("etched".into())
+        } else if modifier.contains("foil") && !modifier.contains("non") {
+            Some("foil".into())
+        } else {
+            None
         };
         lines.push(l);
     }

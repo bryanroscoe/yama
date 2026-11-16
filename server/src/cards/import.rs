@@ -99,8 +99,9 @@ pub fn importer_version(kind: &str) -> i64 {
         // 2: game_changer; 3: produced_mana (both migration 0008); 4: reserved (0070)
         "oracle_cards" => 4,
         // 2: digital, set_type (migration 0008); 3: illustration IDs (0036); 4: Cardmarket's etched
-        // price and the price history (0060), so the current file is read again once.
-        "default_cards" => 4,
+        // price and the price history (0060), so the current file is read again once; 5: promo
+        // types, frame effects, border color and full art (0093).
+        "default_cards" => 5,
         _ => 1,
     }
 }
@@ -579,6 +580,17 @@ struct ScryCard {
     /// Scryfall's kind of set: expansion, core, masters, commander, memorabilia, promo, ...
     #[serde(default)]
     set_type: Option<String>,
+    /// What makes the printing special: Scryfall's promo types ("surgefoil", "serialized", ...),
+    /// frame effects ("showcase", "extendedart", ...), border color and full art. Stored as
+    /// Scryfall sends them; the web names the ones it knows (packages/core printingTreatment).
+    #[serde(default)]
+    promo_types: Vec<String>,
+    #[serde(default)]
+    frame_effects: Vec<String>,
+    #[serde(default)]
+    border_color: Option<String>,
+    #[serde(default)]
+    full_art: Option<bool>,
     #[serde(default)]
     prices: Prices,
 }
@@ -887,8 +899,9 @@ async fn import_default_inner(pool: &SqlitePool, path: &Path, file: &HistoryFile
             sqlx::query(
                 "INSERT INTO printings (scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang,
                     rarity, finishes, released_at, image_normal, image_small, image_art_crop, back_image_normal,
-                    artist, digital, set_type, illustration_id, back_illustration_id, updated_at)
-                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    artist, digital, set_type, illustration_id, back_illustration_id, promo_types, frame_effects,
+                    border_color, full_art, updated_at)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                  ON CONFLICT(scryfall_id) DO UPDATE SET oracle_id=excluded.oracle_id, name=excluded.name,
                     set_code=excluded.set_code, set_name=excluded.set_name,
                     collector_number=excluded.collector_number, lang=excluded.lang, rarity=excluded.rarity,
@@ -897,17 +910,21 @@ async fn import_default_inner(pool: &SqlitePool, path: &Path, file: &HistoryFile
                     image_art_crop=excluded.image_art_crop, back_image_normal=excluded.back_image_normal,
                     artist=excluded.artist, digital=excluded.digital, set_type=excluded.set_type,
                     illustration_id=excluded.illustration_id, back_illustration_id=excluded.back_illustration_id,
+                    promo_types=excluded.promo_types, frame_effects=excluded.frame_effects,
+                    border_color=excluded.border_color, full_art=excluded.full_art,
                     updated_at=excluded.updated_at
                  -- Only a printing that changed (136 of 117,181 between two days' files): updated_at
                  -- now means its last change, and an import rewrites a few rows, not every one.
                  WHERE (printings.oracle_id, printings.name, printings.set_code, printings.set_name, printings.collector_number,
                         printings.lang, printings.rarity, printings.finishes, printings.released_at, printings.image_normal,
                         printings.image_small, printings.image_art_crop, printings.back_image_normal, printings.artist,
-                        printings.digital, printings.set_type, printings.illustration_id, printings.back_illustration_id)
+                        printings.digital, printings.set_type, printings.illustration_id, printings.back_illustration_id,
+                        printings.promo_types, printings.frame_effects, printings.border_color, printings.full_art)
                     IS NOT (excluded.oracle_id, excluded.name, excluded.set_code, excluded.set_name, excluded.collector_number,
                         excluded.lang, excluded.rarity, excluded.finishes, excluded.released_at, excluded.image_normal,
                         excluded.image_small, excluded.image_art_crop, excluded.back_image_normal, excluded.artist,
-                        excluded.digital, excluded.set_type, excluded.illustration_id, excluded.back_illustration_id)",
+                        excluded.digital, excluded.set_type, excluded.illustration_id, excluded.back_illustration_id,
+                        excluded.promo_types, excluded.frame_effects, excluded.border_color, excluded.full_art)",
             )
             .bind(&c.id)
             .bind(&oracle_id)
@@ -928,6 +945,10 @@ async fn import_default_inner(pool: &SqlitePool, path: &Path, file: &HistoryFile
             .bind(&c.set_type)
             .bind(illustration)
             .bind(back_illustration)
+            .bind(serde_json::to_string(&c.promo_types)?)
+            .bind(serde_json::to_string(&c.frame_effects)?)
+            .bind(&c.border_color)
+            .bind(c.full_art)
             .bind(&stamp)
             .execute(&mut *tx)
             .await?;
@@ -1038,6 +1059,7 @@ mod tests {
        "produced_mana":["C"],"keywords":[],"legalities":{"commander":"legal","vintage":"restricted"},"rarity":"uncommon",
        "image_uris":{"small":"s","normal":"n","art_crop":"a"},"illustration_id":"ill-sol","set":"cmm","set_name":"Commander Masters",
        "collector_number":"410","lang":"en","finishes":["nonfoil","foil"],"digital":false,"set_type":"masters",
+       "promo_types":["surgefoil","universesbeyond"],"frame_effects":["showcase"],"border_color":"black","full_art":false,
        "prices":{"usd":"1.50","usd_foil":null,"eur":"1.20","tix":null}},
       {"id":"p2","oracle_id":"o2","name":"Fable of the Mirror-Breaker // Reflection of Kiki-Jiki",
        "layout":"transform","cmc":3.0,"type_line":"Enchantment — Saga // Enchantment Creature — Goblin Shaman",
@@ -1091,6 +1113,20 @@ mod tests {
         let arts: Vec<(String, Option<String>, Option<String>)> =
             sqlx::query_as("SELECT scryfall_id, illustration_id, back_illustration_id FROM printings ORDER BY scryfall_id").fetch_all(&pool).await.unwrap();
         assert_eq!(arts, vec![("p1".into(), Some("ill-sol".into()), None), ("p2".into(), Some("ill-fable".into()), Some("ill-kiki".into()))]);
+
+        // What makes a printing special, as Scryfall sends it; a card without any gets empty lists.
+        let special: Vec<(String, Option<String>, Option<String>, Option<String>, Option<bool>)> =
+            sqlx::query_as("SELECT scryfall_id, promo_types, frame_effects, border_color, full_art FROM printings ORDER BY scryfall_id")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            special,
+            vec![
+                ("p1".into(), Some(r#"["surgefoil","universesbeyond"]"#.into()), Some(r#"["showcase"]"#.into()), Some("black".into()), Some(false)),
+                ("p2".into(), Some("[]".into()), Some("[]".into()), None, None),
+            ]
+        );
 
         // Missing prices stay missing; a printing with no prices at all gets no row.
         let prices: Vec<(String, Option<f64>, Option<f64>)> =

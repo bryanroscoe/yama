@@ -15,6 +15,17 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-15-special-printings",
+    date: "2026-11-15",
+    title: "Etched, surge foils and other special printings",
+    items: [
+      "The scanner's Finish now offers the finishes the card's printing actually comes in, Etched included, and picks the only one when there's just one. Its price is that finish's own.",
+      "Special printings are named wherever you choose or see one: \"Surge foil, MSC 40\", Galaxy foil, Showcase, Extended art, Borderless and more, in the scanner, a card's printings, your collection and its CSV export.",
+      "Imports keep etched and special foils: a file that says \"Surge Foil\" files a foil copy of that printing, never a regular one.",
+    ],
+    link: { to: "/collection", label: "Scan cards" },
+  },
+  {
     id: "2026-11-15-scan-camera",
     date: "2026-11-15",
     title: "Choose the scanner's camera, and it zooms in for you",

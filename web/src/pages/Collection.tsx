@@ -11,7 +11,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { exportLink } from "../download";
-import { api, API_BASE, ApiError, type CollectionItem, type CollectionSummary, type Container, type DeckSummary } from "../api";
+import { api, API_BASE, ApiError, type CollectionItem, type CollectionSummary, type Container, type DeckSummary, type Printing } from "../api";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { BackLink, Button, ButtonLink, CardImage, CardThumb, Details, Dialog, EmptyState, ErrorText, Field, Loading, Segmented, Tag } from "../components/ui";
 import "./collection.css";
@@ -31,7 +31,7 @@ import type { Added, Finish, Fix, ScanCandidate } from "../scanner";
 import { useDebounced } from "../useDebounced";
 // The scan choices and their notes, shown here outside the scanner too.
 import "../scanner/scanner.css";
-import { priceSource, shortDate, usd, count, plural, usdWhole } from "@yama/core";
+import { priceSource, shortDate, usd, count, plural, usdWhole, treatmentLabel, finishName, finishesOf, pickFinish } from "@yama/core";
 
 // The scanner pulls in OCR; load it only when someone opens it.
 const scanner = () => import("../scanner");
@@ -343,6 +343,8 @@ export function CollectionPage() {
           {shown.map((i) => {
             const place = i.container_name ?? "Not filed";
             const cond = CONDITIONS[i.condition] ?? i.condition;
+            // "Surge foil", "Showcase": what makes this copy's printing special.
+            const special = treatmentLabel(i, i.finish);
             return (
               <li key={i.id}>
                 <Button className="coll-row" onClick={() => setOpen(i)}>
@@ -356,10 +358,11 @@ export function CollectionPage() {
                       {markWords(i).map((w) => <Tag key={w}>{w[0]!.toUpperCase() + w.slice(1)}</Tag>)}
                     </span>
                     <span className="coll-row-where coll-wide">
-                      {place}, {i.set_name ?? "unknown set"} #{i.collector_number}, {cond}
+                      {place}, {i.set_name ?? "unknown set"} #{i.collector_number}{special ? `, ${special}` : ""}, {cond}
                     </span>
                     <span className="coll-row-where coll-narrow">
                       {place}
+                      {special ? `, ${special}` : ""}
                       {i.condition !== "NM" ? `, ${cond}` : ""}
                       {i.qty > 1 ? `, ${i.qty} copies` : ""}
                     </span>
@@ -583,7 +586,10 @@ function NewContainer({ onClose }: { onClose: () => void }) {
 
 export function ScanToCollection({ containers, onClose }: { containers: Container[]; onClose: () => void }) {
   const qc = useQueryClient();
+  /** The finish chosen last. Each card is filed in the finish its printing comes in (`pickFinish`). */
   const [finish, setFinish] = useState<Finish>("nonfoil");
+  /** The printing the found card is settled on, whose finishes the Finish choice offers. */
+  const [printing, setPrinting] = useState<Printing | null>(null);
   const [container, setContainer] = useState("");
   const [keepAdding, setKeepAdding] = useState(() => localStorage.getItem(KEEP_ADDING) === "1");
   const [closeups, setCloseups] = useState(() => localStorage.getItem(CLOSEUPS) !== "0");
@@ -694,6 +700,8 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
     }
     const { addOp } = await scanner();
     const box = container || null;
+    // Its only finish, else the one chosen last if it comes that way, else regular (Etched too).
+    const filed: Finish = finish === "proxy" ? "proxy" : (pickFinish({ finishes: c.finishes }, finish) as Finish);
     const entry: Added = {
       key: crypto.randomUUID(),
       name: c.name,
@@ -701,12 +709,14 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
       set: c.set ?? "",
       number: c.number ?? "",
       image: c.thumb ?? c.image ?? null,
-      finish,
+      finish: filed,
+      finishes: c.finishes,
+      treatment: c.treatment,
       container: box,
       copies,
       auto,
       prices: c.prices ?? null,
-      pending: { ops: [addOp(c.scryfall_id, copies, finish, box, crypto.randomUUID())], fix: null },
+      pending: { ops: [addOp(c.scryfall_id, copies, filed, box, crypto.randomUUID())], fix: null },
     };
     put([entry, ...listRef.current]);
     filedAs.current.set(c, entry.key);
@@ -737,7 +747,7 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
     filedAs.current.set(to, key);
     if (a.scryfall_id === to.scryfall_id && !a.pending) return "kept";
     const { printingFix } = await scanner();
-    await fix(a, printingFix(a, { scryfall_id: to.scryfall_id, set: to.set, number: to.number, name: to.name, image: to.thumb ?? to.image ?? null, prices: to.prices }));
+    await fix(a, printingFix(a, { scryfall_id: to.scryfall_id, set: to.set, number: to.number, name: to.name, image: to.thumb ?? to.image ?? null, prices: to.prices, finishes: to.finishes, treatment: to.treatment }));
     return "changed";
   };
   const busyMessage = (a: Added) => (a.pending?.error ? "Try the last change again first." : "Still saving the last change.");
@@ -795,16 +805,21 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
     for (const a of listRef.current) if (a.pending?.error) void send(a.key);
   };
 
-  const finishLabel = finish === "foil" ? "Foil" : finish === "proxy" ? "Proxy" : "Regular";
+  // The finishes the found card's printing comes in (all three while none is found), and Proxy.
+  const shownFinish: Finish = finish === "proxy" ? "proxy" : (pickFinish(printing, finish) as Finish);
+  const finishOptions = [...finishesOf(printing), "proxy"];
+  const finishLabel = finishName(shownFinish);
   const filedIn = containers.find((c) => c.id === container)?.name;
   const settingsSummary = [finishLabel, filedIn ? `into ${filedIn}` : "not filed", keepAdding && "keep adding", !closeups && "no close-ups"].filter(Boolean).join(", ");
   const settings = (
     <>
       <Field label="Finish">
-        <select value={finish} onChange={(e) => setFinish(e.target.value as Finish)}>
-          <option value="nonfoil">Regular</option>
-          <option value="foil">Foil</option>
-          <option value="proxy">Proxy</option>
+        <select value={shownFinish} onChange={(e) => setFinish(e.target.value as Finish)}>
+          {finishOptions.map((f) => (
+            <option key={f} value={f}>
+              {finishName(f)}
+            </option>
+          ))}
         </select>
       </Field>
       <Field label="Put in">
@@ -858,6 +873,7 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
           paused={reviewing || closing}
           recentCards={added.map((a) => ({ key: a.key, name: a.name, set: a.set, number: a.number, finish: a.finish, copies: a.copies, prices: a.prices }))}
           finish={finish}
+          onPrinting={setPrinting}
           controls={controls}
           settings={settings}
           settingsSummary={settingsSummary}

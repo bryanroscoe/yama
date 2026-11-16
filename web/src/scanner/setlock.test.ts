@@ -102,7 +102,11 @@ describe("price range of unsettled printings", () => {
     );
     expect(r).toEqual({ low: 0.5, high: 3, date: "2026-11-05" });
     expect(priceRange([printing({ usd: null })], "nonfoil")).toBeNull();
-    expect(priceRange([printing({ usd: 1, usd_foil: 4 })], "foil")).toEqual({ low: 4, high: 4, date: "2026-11-05" });
+    expect(priceRange([printing({ usd: 1, usd_foil: 4, finishes: ["nonfoil", "foil"] })], "foil")).toEqual({ low: 4, high: 4, date: "2026-11-05" });
+    // Each printing in the finish it would be filed in: a regular-only one at its regular price,
+    // an etched-only one at its etched price (15 Nov 2026).
+    expect(priceRange([printing({ usd: 1, usd_foil: 4 })], "foil")).toEqual({ low: 1, high: 1, date: "2026-11-05" });
+    expect(priceRange([printing({ usd: null, usd_etched: 7, finishes: ["etched"] })], "nonfoil")).toEqual({ low: 7, high: 7, date: "2026-11-05" });
   });
 });
 

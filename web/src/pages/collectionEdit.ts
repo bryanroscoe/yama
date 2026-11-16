@@ -1,6 +1,7 @@
 // Fixing a collection row: another printing of the same card (picked, or scanned again), or
 // deleting the row. These plan the ops; the server applies them in one transaction.
 
+import { treatmentLabel } from "@yama/core";
 import type { CollectionItem, Printing } from "../api";
 
 export type Op = Record<string, unknown> & { op_id: string; kind: string };
@@ -57,9 +58,14 @@ export function reprintOps(
   return [op];
 }
 
-/** "The Lord of the Rings: Tales of Middle-earth (LTR) #258", with the language when not English. */
-export function printingLabel(p: Pick<Printing, "set_name" | "set_code" | "collector_number" | "lang">): string {
-  return `${p.set_name} (${p.set_code.toUpperCase()}) #${p.collector_number}${p.lang !== "en" ? `, ${p.lang}` : ""}`;
+/**
+ * "The Lord of the Rings: Tales of Middle-earth (LTR) #258", with the language when not English,
+ * and what makes it special first: "Surge foil, Marvel Super Heroes Commander (MSC) #40". With a
+ * finish, only what a copy in that finish is (a regular copy isn't a surge foil).
+ */
+export function printingLabel(p: Pick<Printing, "set_name" | "set_code" | "collector_number" | "lang" | "promo_types" | "frame_effects" | "border_color" | "full_art">, finish?: string): string {
+  const special = treatmentLabel(p, finish);
+  return `${special ? `${special}, ` : ""}${p.set_name} (${p.set_code.toUpperCase()}) #${p.collector_number}${p.lang !== "en" ? `, ${p.lang}` : ""}`;
 }
 
 /** A finish in words: "regular", "foil", "etched foil". */

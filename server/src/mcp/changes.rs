@@ -1540,6 +1540,17 @@ async fn container(pool: &SqlitePool, owner: &str, wanted: &str) -> AppResult<(S
     }
 }
 
+/// The printing `add_to_collection` adds: which one, the finishes it comes in, and what makes it special.
+#[derive(sqlx::FromRow)]
+struct AddPrinting {
+    scryfall_id: String,
+    set_name: String,
+    collector_number: String,
+    finishes: String,
+    #[sqlx(flatten)]
+    treatment: crate::cards::treatment::Treatment,
+}
+
 pub async fn add_to_collection(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
     let pool = &st.pool;
     let wanted = arg::text(args, "card")?.to_string();
@@ -1551,13 +1562,13 @@ pub async fn add_to_collection(st: &AppState, user: &User, via: &Via, args: &Val
     }
     let set = arg::opt_string(args, "set", 10)?;
     let number = arg::opt_string(args, "number", 20)?;
-    let printing: Option<(String, String, String)> = match &set {
+    let printing: Option<AddPrinting> = match &set {
         Some(set) => {
             sqlx::query_as(
                 // Tokens share names (Scryfall has many cards called Soldier, and a Tarmogoyf token): a
                 // set and number name one printing, so one of any card with this exact name counts,
                 // the one the name resolved to first.
-                "SELECT p.scryfall_id, p.set_name, p.collector_number FROM printings p
+                "SELECT p.scryfall_id, p.set_name, p.collector_number, p.finishes, p.promo_types, p.frame_effects, p.border_color, p.full_art FROM printings p
                  WHERE p.oracle_id IN (SELECT o.oracle_id FROM cards o WHERE o.name = (SELECT n.name FROM cards n WHERE n.oracle_id = ?1) COLLATE NOCASE)
                    AND lower(p.set_code) = lower(?2) AND (?3 IS NULL OR p.collector_number = ?3)
                  ORDER BY p.oracle_id = ?1 DESC, p.lang = 'en' DESC, p.collector_number LIMIT 1",
@@ -1570,14 +1581,14 @@ pub async fn add_to_collection(st: &AppState, user: &User, via: &Via, args: &Val
         }
         None => {
             sqlx::query_as(
-                "SELECT p.scryfall_id, p.set_name, p.collector_number FROM cards c JOIN printings p ON p.scryfall_id = c.default_printing WHERE c.oracle_id = ?",
+                "SELECT p.scryfall_id, p.set_name, p.collector_number, p.finishes, p.promo_types, p.frame_effects, p.border_color, p.full_art FROM cards c JOIN printings p ON p.scryfall_id = c.default_printing WHERE c.oracle_id = ?",
             )
             .bind(&oracle_id)
             .fetch_optional(pool)
             .await?
         }
     };
-    let (scryfall_id, set_name, number) = printing.ok_or_else(|| {
+    let AddPrinting { scryfall_id, set_name, collector_number: number, finishes, treatment } = printing.ok_or_else(|| {
         AppError::bad(match &set {
             Some(s) => format!("Yama has no printing of {name} in set \"{s}\"{}.", number.as_deref().map(|n| format!(" numbered {n}")).unwrap_or_default()),
             None => format!("Yama has no printing of {name} to add."),
@@ -1588,12 +1599,24 @@ pub async fn add_to_collection(st: &AppState, user: &User, via: &Via, args: &Val
         None => None,
     };
     let proxy = args.get("proxy").and_then(Value::as_bool).unwrap_or(false);
-    let finish = arg::opt_string(args, "finish", 10)?.unwrap_or_else(|| "nonfoil".into());
+    // The finishes this printing comes in (a surge foil printing only in foil, an etched one only
+    // etched). Unknown (an empty list): any. A proxy isn't a real copy of the printing, so it can be
+    // any finish, and regular unless said, as the scanner files one.
+    let offered: Vec<String> = if proxy { Vec::new() } else { serde_json::from_str(&finishes).unwrap_or_default() };
+    let finish = match arg::opt_string(args, "finish", 10)? {
+        Some(f) => f,
+        // Not named: regular if it comes that way, else its only finish.
+        None => ["nonfoil", "foil", "etched"].into_iter().find(|f| offered.is_empty() || offered.iter().any(|o| o == f)).unwrap_or("nonfoil").to_string(),
+    };
     if !["nonfoil", "foil", "etched"].contains(&finish.as_str()) {
         return Err(AppError::bad("finish must be nonfoil, foil or etched"));
     }
+    if !offered.is_empty() && !offered.contains(&finish) {
+        return Err(AppError::bad(format!("{set_name} #{number} doesn't come in {finish}; it comes in {}.", offered.join(", "))));
+    }
+    let special = treatment.label(Some(&finish)).map(|l| format!(", {l}")).unwrap_or_default();
     let summary = format!(
-        "Add {qty} {name}{} ({set_name} #{number}{}) to {}",
+        "Add {qty} {name}{} ({set_name} #{number}{}{special}) to {}",
         if proxy { " proxy" } else { "" },
         if finish == "nonfoil" { String::new() } else { format!(", {finish}") },
         place.as_ref().map(|(_, n)| n.as_str()).unwrap_or("the collection (not in a binder or box)")

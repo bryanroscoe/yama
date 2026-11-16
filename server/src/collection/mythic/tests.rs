@@ -2,6 +2,7 @@
 //! shrank, and removals kept to the containers a file names.
 
 use super::*;
+use crate::collection::nonfoil;
 
 async fn seed(pool: &SqlitePool) -> String {
     sqlx::query("INSERT INTO users (id, email, display_name, created_at) VALUES ('u1','a@b.c','A','now')").execute(pool).await.unwrap();
@@ -356,4 +357,195 @@ async fn a_deck_made_in_yama_keeps_its_list_when_a_file_names_its_box() {
     assert_eq!((r.added, r.decks_kept.clone(), r.decks_created.len()), (1, vec!["Tricky Terrain".to_string()], 0));
     let versions: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM deck_versions WHERE deck_id = ?").bind(&deck).fetch_one(&pool).await.unwrap();
     assert_eq!(versions, 1);
+}
+
+#[tokio::test]
+async fn special_foils_and_etched_keep_their_finish() {
+    let pool = crate::db::test_pool().await;
+    seed(&pool).await;
+    // West Coast Expansion, MSC 40, comes regular and in surge foil (Bryan's store order).
+    sqlx::query("INSERT INTO cards (oracle_id, name, type_line, updated_at) VALUES ('o-wce','West Coast Expansion','Land','now')").execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO printings (scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang, finishes, promo_types, updated_at) VALUES ('p-wce','o-wce','West Coast Expansion','msc','Marvel Super Heroes Commander','40','en','[\"nonfoil\",\"foil\"]','[\"surgefoil\"]','now')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    // A file whose Finish names the special foil, or etched, keeps them; never dropped to regular.
+    let file = csv(&[("West Coast Expansion", "p-wce", 1, "Surge Foil", "NM", "box", "bulk"), ("Sol Ring", "p-sol", 1, "Etched", "NM", "box", "bulk")]);
+    import_mythic_csv(&pool, "u1", &file, IMPORT).await.unwrap();
+    assert_eq!(holdings(&pool).await, vec![h("p-sol", "etched", "box: bulk", 1), h("p-wce", "foil", "box: bulk", 1)]);
+}
+
+/// Codex review of #146: the importer before 15 Nov 2026 filed "Surge Foil" as regular. The same
+/// file imported again, with removals asked for, must never take that copy out without its foil
+/// replacement (the receipt holds back the add): the copy is the row, so its finish is corrected.
+#[tokio::test]
+async fn a_file_imported_before_the_finish_fix_corrects_the_copy_and_never_loses_it() {
+    let pool = crate::db::test_pool().await;
+    seed(&pool).await;
+    let bulk = container(&pool, "box", "bulk").await;
+    let text = csv(&[("Sol Ring", "p-sol", 2, "Surge Foil", "NM", "box", "bulk"), ("Lightning Bolt", "p-bolt", 1, "foil", "NM", "box", "bulk")]);
+    // As the old importer left it: the surge foils as regular copies, the foil as foil, and its receipt.
+    add(&pool, "old-sol", "p-sol", 2, Some(&bulk)).await;
+    let mut tx = pool.begin().await.unwrap();
+    let foil = Op {
+        op_id: "old-bolt".into(),
+        device_id: None,
+        op: OpKind::Add { scryfall_id: "p-bolt".into(), qty: 1, copy: CopyKind { condition: nm(), finish: "foil".into(), lang: en(), ..Default::default() }, container_id: Some(bulk.clone()), purchase_price: None, purchase_currency: None },
+    };
+    apply_op(&mut tx, "u1", &foil).await.unwrap();
+    tx.commit().await.unwrap();
+    sqlx::query("INSERT INTO mythic_imports (owner_id, file_hash, imported_at, report) VALUES ('u1', ?, '2026-11-01T00:00:00Z', '{}')")
+        .bind(sha256_hex(text.trim_start_matches('\u{feff}')))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let remove = ImportOptions { dry_run: false, remove_missing: true };
+    let preview = import_mythic_csv(&pool, "u1", &text, ImportOptions { dry_run: true, remove_missing: true }).await.unwrap();
+    assert_eq!((preview.refinished, preview.missing, preview.removed), (2, 0, 0));
+    let r = import_mythic_csv(&pool, "u1", &text, remove).await.unwrap();
+    assert!(r.already_imported.is_some());
+    assert_eq!((r.refinished, r.added, r.removed, r.missing), (2, 0, 0, 0));
+    // Same number of copies, now foil as the file says.
+    assert_eq!(holdings(&pool).await, vec![h("p-bolt", "foil", "box: bulk", 1), h("p-sol", "foil", "box: bulk", 2)]);
+    // The receipt now says this importer read it, keeping its first date.
+    let (version, at): (i64, String) = sqlx::query_as("SELECT parser_version, imported_at FROM mythic_imports").fetch_one(&pool).await.unwrap();
+    assert_eq!((version, at.as_str()), (PARSER_VERSION, "2026-11-01T00:00:00Z"));
+    // A third time changes nothing.
+    let again = import_mythic_csv(&pool, "u1", &text, remove).await.unwrap();
+    assert_eq!((again.refinished, again.added, again.removed), (0, 0, 0));
+    assert_eq!(holdings(&pool).await, vec![h("p-bolt", "foil", "box: bulk", 1), h("p-sol", "foil", "box: bulk", 2)]);
+    // Corrected once only: a copy changed to regular by hand since stays regular when the same
+    // file comes back (Codex round-3 review of #146).
+    set_finish(&pool, "p-sol", "nonfoil").await;
+    for opts in [IMPORT, remove] {
+        let r = import_mythic_csv(&pool, "u1", &text, opts).await.unwrap();
+        assert_eq!((r.refinished, r.added, r.removed), (0, 0, 0));
+    }
+    assert_eq!(holdings(&pool).await, vec![h("p-bolt", "foil", "box: bulk", 1), h("p-sol", "nonfoil", "box: bulk", 2)]);
+}
+
+/// A file this importer read leaves a finish changed by hand alone: the Surge Foil it filed as
+/// foil, made regular since, stays regular when the same file is imported again (as on main).
+#[tokio::test]
+async fn a_finish_changed_by_hand_after_import_survives_the_same_file_again() {
+    let pool = crate::db::test_pool().await;
+    seed(&pool).await;
+    let text = csv(&[("Sol Ring", "p-sol", 1, "Surge Foil", "NM", "box", "bulk")]);
+    let first = import_mythic_csv(&pool, "u1", &text, IMPORT).await.unwrap();
+    assert_eq!((first.added, first.refinished), (1, 0));
+    assert_eq!(holdings(&pool).await, vec![h("p-sol", "foil", "box: bulk", 1)]);
+    set_finish(&pool, "p-sol", "nonfoil").await;
+    for opts in [IMPORT, ImportOptions { dry_run: false, remove_missing: true }] {
+        let r = import_mythic_csv(&pool, "u1", &text, opts).await.unwrap();
+        assert!(r.already_imported.is_some());
+        assert_eq!((r.refinished, r.added, r.removed), (0, 0, 0));
+    }
+    assert_eq!(holdings(&pool).await, vec![h("p-sol", "nonfoil", "box: bulk", 1)]);
+}
+
+/// Change every copy of a printing to `finish`, as an edit on the Collection page does.
+async fn set_finish(pool: &SqlitePool, sid: &str, finish: &str) {
+    let ids: Vec<String> = sqlx::query_scalar("SELECT id FROM collection_items WHERE scryfall_id = ?").bind(sid).fetch_all(pool).await.unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    for (n, id) in ids.into_iter().enumerate() {
+        let op = Op {
+            op_id: format!("hand-{sid}-{finish}-{n}"),
+            device_id: None,
+            op: OpKind::Update { item_id: id, condition: None, finish: Some(finish.into()), lang: None, container_id: None, purchase_price: None, note: None, proxy: None, altered: None, signed: None, scryfall_id: None, split: None },
+        };
+        apply_op(&mut tx, "u1", &op).await.unwrap();
+    }
+    tx.commit().await.unwrap();
+}
+
+/// Only as many copies as the file lists are corrected; a regular copy the file doesn't list stays
+/// regular (and is the one removals may take). The corrected copy keeps the date it was added.
+#[tokio::test]
+async fn only_the_copies_the_file_lists_change_finish_and_keep_their_date() {
+    let pool = crate::db::test_pool().await;
+    seed(&pool).await;
+    let bulk = container(&pool, "box", "bulk").await;
+    add(&pool, "old-sol", "p-sol", 3, Some(&bulk)).await;
+    sqlx::query("UPDATE collection_items SET created_at = '2026-10-18T20:00:00Z'").execute(&pool).await.unwrap();
+    let text = csv(&[("Sol Ring", "p-sol", 1, "Surge Foil", "NM", "box", "bulk")]);
+    receipt(&pool, &text).await;
+    let r = import_mythic_csv(&pool, "u1", &text, ImportOptions { dry_run: false, remove_missing: true }).await.unwrap();
+    assert_eq!((r.refinished, r.added, r.removed), (1, 0, 2));
+    assert_eq!(holdings(&pool).await, vec![h("p-sol", "foil", "box: bulk", 1)]);
+    let added: Vec<String> = sqlx::query_scalar("SELECT created_at FROM collection_items").fetch_all(&pool).await.unwrap();
+    assert_eq!(added, vec!["2026-10-18T20:00:00Z".to_string()]);
+}
+
+/// A file never imported is no evidence an earlier import misread it: a regular copy someone owns
+/// stays regular, and the file's surge foil is added beside it (Codex re-review of #146).
+#[tokio::test]
+async fn a_file_never_imported_adds_its_foil_beside_a_regular_copy() {
+    let pool = crate::db::test_pool().await;
+    seed(&pool).await;
+    let bulk = container(&pool, "box", "bulk").await;
+    add(&pool, "mine", "p-sol", 1, Some(&bulk)).await;
+    let text = csv(&[("Sol Ring", "p-sol", 1, "Surge Foil", "NM", "box", "bulk")]);
+    let r = import_mythic_csv(&pool, "u1", &text, IMPORT).await.unwrap();
+    assert_eq!((r.refinished, r.added, r.removed), (0, 1, 0));
+    assert_eq!(holdings(&pool).await, vec![h("p-sol", "foil", "box: bulk", 1), h("p-sol", "nonfoil", "box: bulk", 1)]);
+}
+
+/// This file's import receipt, as an earlier import of it left one.
+async fn receipt(pool: &SqlitePool, text: &str) {
+    sqlx::query("INSERT INTO mythic_imports (owner_id, file_hash, imported_at, report) VALUES ('u1', ?, '2026-11-01T00:00:00Z', '{}')")
+        .bind(sha256_hex(text.trim_start_matches('\u{feff}')))
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+/// With a receipt, the adds are held back; so are removals from a card the file still lists more
+/// of in that place than Yama has, in any finish: removals and adds go together or not at all.
+#[tokio::test]
+async fn a_file_imported_before_never_removes_what_it_would_have_added_back() {
+    let pool = crate::db::test_pool().await;
+    seed(&pool).await;
+    let bulk = container(&pool, "box", "bulk").await;
+    // Yama has a regular Sol Ring in bulk; the file (imported before) lists a foil one there.
+    add(&pool, "a1", "p-sol", 1, Some(&bulk)).await;
+    let text = csv(&[("Sol Ring", "p-sol", 1, "foil", "NM", "box", "bulk")]);
+    sqlx::query("INSERT INTO mythic_imports (owner_id, file_hash, imported_at, report) VALUES ('u1', ?, '2026-11-01T00:00:00Z', '{}')")
+        .bind(sha256_hex(text.trim_start_matches('\u{feff}')))
+        .execute(&pool)
+        .await
+        .unwrap();
+    let r = import_mythic_csv(&pool, "u1", &text, ImportOptions { dry_run: false, remove_missing: true }).await.unwrap();
+    assert_eq!((r.added, r.missing, r.removed, r.refinished), (0, 1, 0, 0));
+    assert_eq!(holdings(&pool).await, vec![h("p-sol", "nonfoil", "box: bulk", 1)]);
+}
+
+/// Two imports of the same old file at once (Codex round-4 review of #146): B corrects the
+/// finish and moves the receipt to this importer's version, and the copy is changed back to
+/// regular by hand, all while A waits for the write lock. A must decide on the receipt as it is
+/// once it holds the lock, never on what it read before, so it doesn't correct the copy again.
+/// A real database file (several connections, WAL, busy timeout), as the server runs.
+#[tokio::test]
+async fn an_import_waiting_for_the_lock_decides_on_the_receipt_as_it_is_then() {
+    let dir = tempfile::tempdir().unwrap();
+    let pool = crate::db::connect(&format!("sqlite://{}", dir.path().join("t.db").display()), std::time::Duration::from_secs(5)).await.unwrap();
+    seed(&pool).await;
+    let bulk = container(&pool, "box", "bulk").await;
+    add(&pool, "old-sol", "p-sol", 2, Some(&bulk)).await;
+    let text = csv(&[("Sol Ring", "p-sol", 2, "Surge Foil", "NM", "box", "bulk")]);
+    receipt(&pool, &text).await;
+    // B holds the write lock: its correction is done, the receipt moved on, and the copies were
+    // changed back to regular by hand (they're regular again, so only the receipt shows it).
+    let mut b = pool.begin_with("BEGIN IMMEDIATE").await.unwrap();
+    sqlx::query("UPDATE mythic_imports SET parser_version = ?").bind(PARSER_VERSION).execute(&mut *b).await.unwrap();
+    // A starts now and gets as far as the lock.
+    let a = tokio::spawn({
+        let (pool, text) = (pool.clone(), text.clone());
+        async move { import_mythic_csv(&pool, "u1", &text, ImportOptions { dry_run: false, remove_missing: true }).await.unwrap() }
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    b.commit().await.unwrap();
+    let r = a.await.unwrap();
+    assert_eq!((r.refinished, r.added, r.removed), (0, 0, 0));
+    assert_eq!(holdings(&pool).await, vec![h("p-sol", "nonfoil", "box: bulk", 2)]);
 }

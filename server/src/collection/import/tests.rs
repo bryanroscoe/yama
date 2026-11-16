@@ -447,6 +447,65 @@ async fn a_copy_is_filed_under_a_printing_that_comes_in_its_finish() {
     );
 }
 
+/// Special printings from Bryan's real cards (Scryfall, 15 Nov 2026): West Coast Expansion, MSC 40,
+/// comes regular and in surge foil; Blood Crypt, TRK 489, only in surge foil; an etched Commander
+/// Masters printing only etched. Each is its own collector number, so the set and number pick it.
+async fn seed_special(pool: &SqlitePool) {
+    for (oid, name) in [("o-wce", "West Coast Expansion"), ("o-crypt", "Blood Crypt")] {
+        sqlx::query("INSERT INTO cards (oracle_id, name, type_line, updated_at) VALUES (?,?,'Land','now')").bind(oid).bind(name).execute(pool).await.unwrap();
+        sqlx::query("INSERT INTO card_names (name, oracle_id) VALUES (?, ?)").bind(name).bind(oid).execute(pool).await.unwrap();
+    }
+    for (sid, oid, name, set, number, finishes, promos) in [
+        ("p-wce", "o-wce", "West Coast Expansion", "msc", "40", r#"["nonfoil","foil"]"#, r#"["surgefoil","universesbeyond"]"#),
+        ("p-wce-plain", "o-wce", "West Coast Expansion", "msc", "140", r#"["nonfoil"]"#, "[]"),
+        ("p-crypt-trk", "o-crypt", "Blood Crypt", "trk", "489", r#"["foil"]"#, r#"["surgefoil","universesbeyond"]"#),
+        ("p-sol-etched", "o-sol", "Sol Ring", "cmm", "455", r#"["etched"]"#, r#"["boosterfun"]"#),
+    ] {
+        sqlx::query(
+            "INSERT INTO printings (scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang, finishes, promo_types, released_at, updated_at)
+             VALUES (?,?,?,?,'Set',?,'en',?,?,'2026-01-01','now')",
+        )
+        .bind(sid)
+        .bind(oid)
+        .bind(name)
+        .bind(set)
+        .bind(number)
+        .bind(finishes)
+        .bind(promos)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+}
+
+#[tokio::test]
+async fn special_foils_and_etched_survive_lists_and_csv_files() {
+    let pool = crate::db::test_pool().await;
+    seed(&pool).await;
+    seed_special(&pool).await;
+    // A pasted list: the store order's surge foil by set and number, a surge-foil-only TRK card
+    // with no finish named, and an etched Sol Ring.
+    let list = "1 West Coast Expansion (MSC) 40 *F*\n1 Blood Crypt (TRK) 489\n1 Sol Ring (CMM) 455 *E*\n";
+    import_collection(&pool, "u1", list, None, opts(false, false)).await.unwrap();
+    assert_eq!(
+        holdings(&pool, "u1").await,
+        vec![
+            h("p-crypt-trk", "foil", "NM", "en", "unfiled", 1),
+            h("p-sol-etched", "etched", "NM", "en", "unfiled", 1),
+            h("p-wce", "foil", "NM", "en", "unfiled", 1),
+        ]
+    );
+    // A CSV whose finish column names the special foil, or the etched finish in words.
+    let file = "Name,Set code,Collector number,Finish,Quantity\n\
+        West Coast Expansion,MSC,40,Surge Foil,1\n\
+        Sol Ring,CMM,455,Etched Foil,1\n";
+    import_collection(&pool, "u2", file, Some("order.csv"), opts(false, false)).await.unwrap();
+    assert_eq!(holdings(&pool, "u2").await, vec![h("p-sol-etched", "etched", "NM", "en", "unfiled", 1), h("p-wce", "foil", "NM", "en", "unfiled", 1)]);
+    // A special foil's name is a foil finish; "Non-Foil" isn't.
+    assert_eq!(finish_of(Some("Surge Foil")), "foil");
+    assert_eq!(finish_of(Some("Non-Foil")), "nonfoil");
+}
+
 #[test]
 fn rows_are_kept_or_said_never_dropped() {
     // A count of 0 is a wishlist row and is counted; a negative count and a nameless row are listed.

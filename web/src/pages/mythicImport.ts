@@ -35,6 +35,9 @@ export interface MythicReport {
   missing: number;
   missing_cards: MythicChange[];
   removed: number;
+  /** Copies whose finish was corrected in place: an earlier import read it another way ("Surge Foil" as regular). */
+  refinished?: number;
+  refinished_cards?: MythicChange[];
   unknown_printings: string[];
   errors: string[];
   deck_containers: string[];
@@ -69,6 +72,7 @@ export function previewLines(r: MythicReport, day: (iso: string) => string = (is
     out.push(r.added ? `${plural(r.added, "card")} to add.` : "Nothing new to add.");
   }
   if (r.already_in_yama) out.push(`${plural(r.already_in_yama, "card")} ${r.already_in_yama === 1 ? "is" : "are"} in Yama already.`);
+  if (r.refinished) out.push(`${plural(r.refinished, "card")} ${r.refinished === 1 ? "was" : "were"} imported before as regular and ${r.refinished === 1 ? "becomes" : "become"} ${refinishedAs(r)}, as the file says.`);
   if (r.kept_where_moved) {
     const one = r.kept_where_moved === 1;
     out.push(`${r.kept_where_moved} of those ${one ? "is" : "are"} somewhere else in Yama than the file says (moved there, say) and ${one ? "stays" : "stay"} put.`);
@@ -78,6 +82,12 @@ export function previewLines(r: MythicReport, day: (iso: string) => string = (is
   if (r.deck_containers.length)
     out.push(`${r.deck_containers.length === 1 ? "This deck becomes a Yama deck" : "These decks become Yama decks"} too, private until you share ${r.deck_containers.length === 1 ? "it" : "them"}: ${r.deck_containers.join(", ")}.`);
   return out;
+}
+
+/** "foil", "etched", or "foil or etched": what corrected copies become. */
+function refinishedAs(r: MythicReport): string {
+  const kinds = [...new Set((r.refinished_cards ?? []).map((c) => (c.finish === "etched" ? "etched" : "foil")))];
+  return kinds.length ? kinds.join(" or ") : "foil";
 }
 
 /** Above the list of copies the file no longer lists: how many, and in which of its containers. */
@@ -97,7 +107,8 @@ export function resultLines(r: MythicReport): string[] {
   const out: string[] = [];
   if (r.added) out.push(`Added ${plural(r.added, "card")}.`);
   if (r.removed) out.push(`Removed ${plural(r.removed, "card")} the file no longer lists.`);
-  if (!r.added && !r.removed) out.push(r.already_imported ? "Nothing changed: you'd imported this file already." : "Nothing changed: Yama has everything in the file.");
+  if (r.refinished) out.push(`Corrected the finish of ${plural(r.refinished, "card")}, as the file says.`);
+  if (!r.added && !r.removed && !r.refinished) out.push(r.already_imported ? "Nothing changed: you'd imported this file already." : "Nothing changed: Yama has everything in the file.");
   if (r.missing > r.removed) out.push(`${plural(r.missing - r.removed, "card")} the file no longer lists ${r.missing - r.removed === 1 ? "stays" : "stay"} in Yama.`);
   if (r.decks_created.length) out.push(`New decks, private until you share them: ${r.decks_created.join(", ")}. Check each one's commander on the Decks tab.`);
   if (r.decks_updated.length) out.push(`Updated decks: ${r.decks_updated.join(", ")}.`);

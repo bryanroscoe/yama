@@ -309,6 +309,11 @@ export interface Printing {
   image_small: string | null;
   back_image_normal: string | null;
   artist: string | null;
+  /** What makes it special (Scryfall's; absent when none or not imported yet): `treatmentLabel` names it. */
+  promo_types?: string[];
+  frame_effects?: string[];
+  border_color?: string | null;
+  full_art?: boolean;
   price_date: string | null;
   usd: number | null;
   usd_foil: number | null;
@@ -349,6 +354,11 @@ export interface CollectionItem {
   image_normal: string | null;
   type_line: string | null;
   color_identity: string | null;
+  /** The printing's special treatment, as on `Printing` (absent when none). */
+  promo_types?: string[];
+  frame_effects?: string[];
+  border_color?: string | null;
+  full_art?: boolean;
   unit_price_usd: number | null;
   price_date: string | null;
 }

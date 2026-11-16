@@ -21,8 +21,8 @@ vi.mock("../api", async (original) => ({
     if (path.startsWith("/api/cards/autocomplete")) return Promise.resolve(path.includes("Sol") ? ["Sol Ring"] : ["Arcane Signet"]);
     // One English printing (so it's settled as "the only one") and two in other languages.
     if (path.startsWith("/api/scan/printings") && path.includes("Sol"))
-      return Promise.resolve({ same_art: false, printings: [{ ...printing("ecc", "57"), name: "Sol Ring", scryfall_id: "sol-en", usd: 12 }, { ...printing("cmm", "410"), name: "Sol Ring", lang: "ja", scryfall_id: "sol-ja" }, { ...printing("cmm", "411"), name: "Sol Ring", lang: "de", scryfall_id: "sol-de" }] });
-    if (path.startsWith("/api/scan/printings")) return Promise.resolve({ same_art: false, printings: [printing("woc", "145"), printing("cmm", "390"), printing("c21", "236")] });
+      return Promise.resolve({ same_art: false, printings: [{ ...printing("ecc", "57"), name: "Sol Ring", scryfall_id: "sol-en", usd: 12, finishes: ["nonfoil", "foil"] }, { ...printing("cmm", "410"), name: "Sol Ring", lang: "ja", scryfall_id: "sol-ja" }, { ...printing("cmm", "411"), name: "Sol Ring", lang: "de", scryfall_id: "sol-de" }] });
+    if (path.startsWith("/api/scan/printings")) return Promise.resolve({ same_art: false, printings: [printing("woc", "145"), printing("cmm", "390"), { ...printing("c21", "236"), finishes: ["foil"], promo_types: ["surgefoil", "universesbeyond"], usd_foil: 2.5 }] });
     return Promise.reject(new Error(`offline: ${path}`));
   },
 }));
@@ -160,6 +160,31 @@ describe("ScannerView after a printing is chosen", () => {
     act(() => root.render(view("foil")));
     await wait(20);
     expect(button("Scan anyway")).toBeUndefined();
+  });
+
+  it("names a special printing in the list and hands the host its finishes", async () => {
+    const accepted: ScanCandidate[] = [];
+    act(() =>
+      root.render(
+        <ScannerView
+          finish="nonfoil"
+          onAccept={async (c) => {
+            accepted.push(c);
+            return true;
+          }}
+        />,
+      ),
+    );
+    await typeName();
+    const options = await until(() => (document.querySelectorAll('[role="option"]').length === 3 ? document.querySelectorAll<HTMLElement>('[role="option"]') : null), "the printings");
+    // "Surge foil" names the special printing; promo types without words ("universesbeyond") stay out.
+    expect(options[2]!.textContent).toContain("Surge foil");
+    expect(options[2]!.textContent).not.toContain("universesbeyond");
+    expect(options[0]!.textContent).not.toContain("foil");
+    await click(options[2]!);
+    // A tap files it at once: the card handed to the host carries its finishes (foil only) and
+    // what makes it special, so the host files it as foil whatever was chosen last.
+    expect(accepted[0]).toMatchObject({ scryfall_id: "id-c21-236", finishes: ["foil"], treatment: { promo_types: ["surgefoil", "universesbeyond"] } });
   });
 
   it("keeps Use a photo and Read the name up close, in More", async () => {

@@ -66,6 +66,8 @@ pub struct Printing {
     /// one Yama doesn't have).
     pub from: &'static str,
     pub image_small: Option<String>,
+    /// What makes the printing special for a copy in this finish, in words ("Surge foil").
+    pub special: Option<String>,
 }
 
 /// Copies of exactly the printing to add, outside deck boxes.
@@ -474,35 +476,59 @@ async fn find_box(tx: &mut Transaction<'_, Sqlite>, owner: &str, deck_id: &str, 
 }
 
 /// The printing a new copy would be: the deck's named printing if Yama has it, else the default.
+/// A finish the named printing doesn't come in (a regular copy of a surge-foil-only printing)
+/// becomes its own: nonfoil if it comes that way, else foil, else etched.
 pub(crate) async fn printing_for(tx: &mut Transaction<'_, Sqlite>, oracle_id: &str, chosen: Option<&DeckPrint>) -> AppResult<Option<Printing>> {
-    type Row = (String, String, String, String, Option<String>);
+    #[derive(sqlx::FromRow)]
+    struct Row {
+        scryfall_id: String,
+        set_code: String,
+        set_name: String,
+        collector_number: String,
+        finishes: String,
+        image_small: Option<String>,
+        #[sqlx(flatten)]
+        treatment: crate::cards::treatment::Treatment,
+    }
+    const COLUMNS: &str = "scryfall_id, set_code, set_name, collector_number, finishes, image_small, promo_types, frame_effects, border_color, full_art";
     if let Some(p) = chosen.filter(|p| !p.set_code.is_empty()) {
-        let row: Option<Row> = sqlx::query_as(
-            "SELECT scryfall_id, set_code, set_name, collector_number, image_small FROM printings
+        let row: Option<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT {COLUMNS} FROM printings
              WHERE oracle_id = ?1 AND set_code = ?2 AND (?3 IS NULL OR collector_number = ?3)
-             ORDER BY lang = 'en' DESC, length(collector_number), collector_number LIMIT 1",
-        )
+             ORDER BY lang = 'en' DESC, length(collector_number), collector_number LIMIT 1"
+        )))
         .bind(oracle_id)
         .bind(&p.set_code)
         .bind(&p.collector_number)
         .fetch_optional(&mut **tx)
         .await?;
-        if let Some((scryfall_id, set_code, set_name, collector_number, image_small)) = row {
-            return Ok(Some(Printing { scryfall_id, set_code, set_name, collector_number, finish: p.finish.clone(), from: "deck", image_small }));
+        if let Some(r) = row {
+            let offered: Vec<String> = serde_json::from_str(&r.finishes).unwrap_or_default();
+            let finish = if offered.is_empty() || offered.contains(&p.finish) {
+                p.finish.clone()
+            } else {
+                ["nonfoil", "foil", "etched"].into_iter().find(|f| offered.iter().any(|o| o == f)).unwrap_or("nonfoil").to_string()
+            };
+            let special = r.treatment.label(Some(&finish));
+            return Ok(Some(Printing { scryfall_id: r.scryfall_id, set_code: r.set_code, set_name: r.set_name, collector_number: r.collector_number, finish, from: "deck", image_small: r.image_small, special }));
         }
     }
     let choices = printing_choices(&mut **tx, oracle_id).await?;
     let Some(best) = collection_printing(&choices) else { return Ok(None) };
-    let (set_name, image_small): (String, Option<String>) =
-        sqlx::query_as("SELECT set_name, image_small FROM printings WHERE scryfall_id = ?").bind(&best.scryfall_id).fetch_one(&mut **tx).await?;
+    let r: Row = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {COLUMNS} FROM printings WHERE scryfall_id = ?")))
+        .bind(&best.scryfall_id)
+        .fetch_one(&mut **tx)
+        .await?;
+    let finish = best.plain_finish();
     Ok(Some(Printing {
-        scryfall_id: best.scryfall_id.clone(),
-        set_code: best.set_code.clone(),
-        set_name,
-        collector_number: best.collector_number.clone(),
-        finish: best.plain_finish().into(),
+        scryfall_id: r.scryfall_id,
+        set_code: r.set_code,
+        set_name: r.set_name,
+        collector_number: r.collector_number,
+        finish: finish.into(),
         from: "default",
-        image_small,
+        image_small: r.image_small,
+        special: r.treatment.label(Some(finish)),
     }))
 }
 

@@ -2164,6 +2164,7 @@
             "type": "string"
           },
           "finish": {
+            "description": "Regular unless said, or the printing's only finish. A special foil (surge, galaxy, textured...) is its own printing: give its set and number, with foil.",
             "enum": [
               "nonfoil",
               "foil",

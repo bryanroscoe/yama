@@ -87,6 +87,11 @@ describe("add to my collection", () => {
     const foil = line("Arcane Signet", { proxy: true, printing: { scryfall_id: "p", set_code: "c21", set_name: "C21", collector_number: "236", finish: "foil", from: "deck", image_small: null } });
     expect(printingText(foil)).toBe("C21 236, foil, proxy. The deck's printing");
     expect(printingText(line("Unknown", { printing: null }))).toBe("No printing in Yama's card data");
+    // A special printing says so first; a special foil doesn't say foil twice.
+    const surge = line("West Coast Expansion", { printing: { scryfall_id: "p", set_code: "msc", set_name: "MSC", collector_number: "40", finish: "foil", from: "deck", image_small: null, special: "Surge foil" } });
+    expect(printingText(surge)).toBe("Surge foil, MSC 40. The deck's printing");
+    const etched = line("Sol Ring", { printing: { scryfall_id: "p", set_code: "cmm", set_name: "CMM", collector_number: "455", finish: "etched", from: "default", image_small: null, special: "Showcase" } });
+    expect(printingText(etched)).toBe("Showcase, CMM 455, etched. Default printing");
   });
 
   it("groups the cards by what happens to them", () => {

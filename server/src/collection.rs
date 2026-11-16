@@ -372,9 +372,16 @@ pub async fn apply_op(tx: &mut Transaction<'_, Sqlite>, owner: &str, op: &Op) ->
                         .execute(&mut **tx)
                         .await?;
                     let to = add_copies(tx, owner, &printing, n, &copy, container.as_deref(), price, item.purchase_currency.as_deref()).await?;
-                    sqlx::query(sqlx::AssertSqlSafe(format!("UPDATE collection_items SET note = {MERGE_NOTE} WHERE id = ?2")))
+                    // The copies split off are the same copies: they keep the row's date added (or
+                    // the older one, merging into a row that was there first), not today's.
+                    sqlx::query(sqlx::AssertSqlSafe(format!(
+                        "UPDATE collection_items SET note = {MERGE_NOTE},
+                            created_at = MIN(created_at, IFNULL((SELECT created_at FROM collection_items WHERE id = ?3), created_at))
+                         WHERE id = ?2"
+                    )))
                         .bind(&note)
                         .bind(&to)
+                        .bind(item_id)
                         .execute(&mut **tx)
                         .await?;
                     return Ok(true);
@@ -407,7 +414,8 @@ pub async fn apply_op(tx: &mut Transaction<'_, Sqlite>, owner: &str, op: &Op) ->
                     sqlx::query(sqlx::AssertSqlSafe(format!(
                         "UPDATE collection_items SET qty = qty + ?2, updated_at = ?3,
                             purchase_currency = CASE WHEN purchase_price IS NULL THEN ?4 ELSE purchase_currency END,
-                            purchase_price = COALESCE(purchase_price, ?5), note = {MERGE_NOTE}
+                            purchase_price = COALESCE(purchase_price, ?5), note = {MERGE_NOTE},
+                            created_at = MIN(created_at, IFNULL((SELECT created_at FROM collection_items WHERE id = ?7), created_at))
                          WHERE id = ?6"
                     )))
                         .bind(&note)
@@ -416,6 +424,7 @@ pub async fn apply_op(tx: &mut Transaction<'_, Sqlite>, owner: &str, op: &Op) ->
                         .bind(&item.purchase_currency)
                         .bind(price)
                         .bind(&twin)
+                        .bind(item_id)
                         .execute(&mut **tx)
                         .await?;
                     sqlx::query("DELETE FROM collection_items WHERE id = ?").bind(item_id).execute(&mut **tx).await?;
@@ -712,6 +721,10 @@ pub struct Item {
     pub image_normal: Option<String>,
     pub type_line: Option<String>,
     pub color_identity: Option<String>,
+    /// What makes the printing special (surge foil, showcase, ...), as Scryfall lists it.
+    #[serde(flatten)]
+    #[sqlx(flatten)]
+    pub treatment: crate::cards::treatment::Treatment,
     /// Market price for this item's finish from the latest snapshot. `None` = no price, never 0.
     pub unit_price_usd: Option<f64>,
     pub price_date: Option<String>,
@@ -732,6 +745,7 @@ const ITEM_SELECT: &str = "SELECT i.id, i.scryfall_id, i.qty, i.condition, i.fin
     i.misprint, i.proxy, i.container_id, ct.name AS container_name, ct.kind AS container_kind, i.purchase_price,
     i.purchase_currency, i.note, i.updated_at, p.oracle_id, p.name, p.set_code, p.set_name, p.collector_number,
     p.rarity, p.image_small, p.image_normal, p.image_art_crop, p.artist, c.type_line, c.color_identity,
+    p.promo_types, p.frame_effects, p.border_color, p.full_art,
     CASE i.finish WHEN 'foil' THEN ps.usd_foil WHEN 'etched' THEN ps.usd_etched ELSE ps.usd END AS unit_price_usd,
     ps.date AS price_date
     FROM collection_items i
@@ -1132,13 +1146,15 @@ async fn delete_container_for_owner(pool: &SqlitePool, owner: &str, id: &str) ->
 }
 
 /// Export in Mythic Tools' column layout, so the file round-trips into Mythic Tools or back into Yama.
+/// One column of Yama's own at the end, "Special Printing", names a special printing in words
+/// ("Surge foil, Showcase"); importers read columns by name, so it's ignored there.
 async fn export_csv(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<impl IntoResponse> {
     let items = items_for_owner(&st.pool, &user.id).await?;
     let mut w = csv::Writer::from_writer(Vec::new());
     w.write_record([
         "Card Name", "Set Code", "Set Name", "Collector Number", "Rarity", "Language", "Quantity", "Condition", "Finish",
         "Altered", "Signed", "Misprint", "Proxy", "Price (USD)", "Price Date", "Scryfall ID", "Container Type",
-        "Container Name", "Purchase Price (USD)",
+        "Container Name", "Purchase Price (USD)", "Special Printing",
     ])
     .map_err(anyhow::Error::from)?;
     let opt = |v: &Option<String>| v.clone().unwrap_or_default();
@@ -1164,6 +1180,7 @@ async fn export_csv(State(st): State<AppState>, CurrentUser(user): CurrentUser) 
             opt(&i.container_kind),
             opt(&i.container_name),
             money(if i.purchase_currency.as_deref() == Some("USD") { i.purchase_price } else { None }),
+            i.treatment.label(Some(&i.finish)).unwrap_or_default(),
         ])
         .map_err(anyhow::Error::from)?;
     }
@@ -1187,6 +1204,38 @@ mod tests {
             .await
             .unwrap();
         "u1".into()
+    }
+
+    #[tokio::test]
+    async fn rows_carry_what_makes_their_printing_special_and_the_export_names_it() {
+        let pool = crate::db::test_pool().await;
+        let owner = user(&pool).await;
+        sqlx::query(
+            "INSERT INTO printings (scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang, finishes, promo_types, frame_effects, border_color, full_art, updated_at)
+             VALUES ('p-wce','o-wce','West Coast Expansion','msc','Marvel Super Heroes Commander','40','en','[\"nonfoil\",\"foil\"]','[\"surgefoil\",\"universesbeyond\"]','[]','black',0,'now')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let mut tx = pool.begin().await.unwrap();
+        for (op_id, finish) in [("a", "foil"), ("b", "nonfoil")] {
+            let op = Op {
+                op_id: op_id.into(),
+                device_id: None,
+                op: OpKind::Add { scryfall_id: "p-wce".into(), qty: 1, copy: CopyKind { condition: nm(), finish: finish.into(), lang: en(), ..Default::default() }, container_id: None, purchase_price: None, purchase_currency: None },
+            };
+            apply_op(&mut tx, &owner, &op).await.unwrap();
+        }
+        tx.commit().await.unwrap();
+        let items = items_for_owner(&pool, &owner).await.unwrap();
+        let labels: Vec<(String, Option<String>)> = items.iter().map(|i| (i.finish.clone(), i.treatment.label(Some(&i.finish)))).collect();
+        assert!(labels.contains(&("foil".into(), Some("Surge foil".into()))), "{labels:?}");
+        // A regular copy of a printing that also comes in surge foil isn't a surge foil.
+        assert!(labels.contains(&("nonfoil".into(), None)), "{labels:?}");
+        // The web gets Scryfall's lists to name it; empty lists and plain values are left out.
+        let row = serde_json::to_value(&items[0]).unwrap();
+        assert_eq!(row["promo_types"], serde_json::json!(["surgefoil", "universesbeyond"]));
+        assert!(row.get("frame_effects").is_none() && row.get("full_art").is_none(), "{row}");
     }
 
     #[tokio::test]
@@ -1676,6 +1725,39 @@ mod tests {
         tx.commit().await.unwrap();
         let rows: Vec<(String, i64, Option<String>)> = sqlx::query_as("SELECT scryfall_id, qty, note FROM collection_items").fetch_all(&pool).await.unwrap();
         assert_eq!(rows, vec![("ltr".into(), 3, Some("mine\nfrom a trade".into()))]);
+    }
+
+    /// Copies split off a row (a finish correction, one copy changed) are the same copies: the new
+    /// row keeps the date they were added, and so does a whole row merging into a newer twin.
+    #[tokio::test]
+    async fn changed_copies_keep_the_date_they_were_added() {
+        let pool = crate::db::test_pool().await;
+        let owner = user(&pool).await;
+        sqlx::query("INSERT INTO collection_items (id, owner_id, scryfall_id, qty, condition, finish, lang, altered, signed, misprint, proxy, created_at, updated_at) VALUES ('old','u1','p1',3,'NM','nonfoil','en',0,0,0,0,'2026-10-18T20:00:00Z','2026-10-18T20:00:00Z')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let to_foil = |op_id: &str, split| Op {
+            op_id: op_id.into(),
+            device_id: None,
+            op: OpKind::Update { item_id: "old".into(), condition: None, finish: Some("foil".into()), lang: None, container_id: None, purchase_price: None, note: None, proxy: None, altered: None, signed: None, scryfall_id: None, split },
+        };
+        let mut tx = pool.begin().await.unwrap();
+        apply_op(&mut tx, &owner, &to_foil("s1", Some(1))).await.unwrap();
+        tx.commit().await.unwrap();
+        let dates = |pool: SqlitePool| async move {
+            sqlx::query_as::<_, (String, i64, String)>("SELECT finish, qty, created_at FROM collection_items ORDER BY finish").fetch_all(&pool).await.unwrap()
+        };
+        assert_eq!(
+            dates(pool.clone()).await,
+            vec![("foil".into(), 1, "2026-10-18T20:00:00Z".into()), ("nonfoil".into(), 2, "2026-10-18T20:00:00Z".into())]
+        );
+        // The rest of the row merges into the foil row: the older date stays.
+        sqlx::query("UPDATE collection_items SET created_at = '2026-11-15T00:00:00Z' WHERE finish = 'foil'").execute(&pool).await.unwrap();
+        let mut tx = pool.begin().await.unwrap();
+        apply_op(&mut tx, &owner, &to_foil("s2", None)).await.unwrap();
+        tx.commit().await.unwrap();
+        assert_eq!(dates(pool.clone()).await, vec![("foil".into(), 3, "2026-10-18T20:00:00Z".into())]);
     }
 
     #[tokio::test]
