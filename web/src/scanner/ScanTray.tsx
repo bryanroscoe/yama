@@ -38,11 +38,14 @@ export function trayTotal(cards: readonly RecentCard[]): { head: string; note: s
   const copies = cards.reduce((n, c) => n + c.copies, 0);
   const count = `${copies} ${copies === 1 ? "card" : "cards"}`;
   if (t.priced === 0) return { head: count, note: t.missing ? "no prices" : null };
-  const dates = cards.flatMap((c) => (priceFor(c.prices, c.finish) != null && c.prices?.date ? [c.prices.date] : [])).sort();
+  const priced = cards.filter((c) => priceFor(c.prices, c.finish) != null);
+  const dates = priced.flatMap((c) => (c.prices?.date ? [c.prices.date] : [])).sort();
+  // Priced copies whose price has no date: counted in the total, and said (review of #152).
+  const undated = priced.reduce((n, c) => n + (c.prices?.date ? 0 : c.copies), 0);
   const first = shortDate(dates[0] ?? null);
   const last = shortDate(dates.at(-1) ?? null);
   // Every price says when: one date, the span when they differ, or that it isn't known.
-  const when = !last ? "date unknown" : first && first !== last ? `${first} to ${last}` : last;
+  const when = !last ? "date unknown" : `${first && first !== last ? `${first} to ${last}` : last}${undated ? `, ${undated} undated` : ""}`;
   return { head: `${count}, ${usd(t.total)}`, note: `market, ${when}${t.missing ? `, ${t.missing} unpriced` : ""}` };
 }
 

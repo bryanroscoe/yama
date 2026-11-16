@@ -1110,3 +1110,18 @@ button.scan-count {
   border: 0;
   background: none;
 }
+
+/* The camera keeps room for its frame on a short screen (review of #152): with the strip showing,
+   the sheet stops short of it, and a camera too short for the frame's clearances drops them, so
+   the guide (and the text reader's region, which is the guide's box) never collapses. */
+.scan:has(> .scan-tray) .scan-panel {
+  max-height: min(62dvh, calc(100dvh - 340px));
+}
+.scan-camera {
+  container-type: size;
+}
+@container (max-height: 300px) {
+  .scan-frame {
+    inset: 0 0 20px;
+  }
+}

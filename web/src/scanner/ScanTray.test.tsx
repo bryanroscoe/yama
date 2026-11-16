@@ -76,6 +76,10 @@ describe("the strip of cards scanned (Bryan, 16 Nov 2026)", () => {
   it("totals only known prices", () => {
     expect(trayTotal([cards[2]!])).toEqual({ head: "1 card", note: "no prices" });
     expect(trayTotal([cards[3]!])).toEqual({ head: "1 card", note: null });
+    // A price without a date is in the total and said to be undated; with no dates at all, "date unknown".
+    const undated: RecentCard = { key: "u", name: "Undated", finish: "nonfoil", copies: 2, prices: { usd: 3, usd_foil: null, usd_etched: null, date: null } };
+    expect(trayTotal([cards[1]!, undated])).toEqual({ head: "4 cards, $9.00", note: "market, Nov 15, 2 undated" });
+    expect(trayTotal([undated])).toEqual({ head: "2 cards, $6.00", note: "market, date unknown" });
   });
 });
 
