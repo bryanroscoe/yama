@@ -382,18 +382,19 @@ pub async fn run(pool: &SqlitePool, owner: &str, key: &str, dry_run: bool) -> Ap
     let linked_bag = crate::decks::spares::linked(&mut tx, owner, &deck_id).await?;
     let (bag_name, bag_box) = match &linked_bag {
         Some((id, name)) => (name.clone(), Some(id.clone())),
-        None => {
-            let name = crate::decks::spares::default_name(&plan_name);
-            let found = named_box(&mut tx, owner, &name, false).await?;
-            (name, found)
-        }
+        // Never a box by that name that holds another deck's 100 or its spares.
+        None => match crate::decks::spares::free_bag(&mut tx, owner, &plan_name).await? {
+            Some((id, name)) => (name, Some(id)),
+            None => (crate::decks::spares::default_name(&plan_name), None),
+        },
     };
+    let mut bag_name = bag_name;
     let (mut spares_new, mut bag_new) = (spares.is_none(), bag_box.is_none());
     let mut spares = spares;
     let mut bag_box = bag_box;
     for (name, qty) in &outs {
         let oid = &ids[name];
-        let (to, to_name, to_box, replaces) = if let Some((k, replaces)) = taken_by.get(name) {
+        let (to, mut to_name, to_box, replaces) = if let Some((k, replaces)) = taken_by.get(name) {
             let (n, b) = other_box.get(k).cloned().unwrap_or_default();
             if b.is_none() {
                 warnings.push(format!("{n} has no box yet, so {name} goes to {spares_name} instead."));
@@ -410,8 +411,10 @@ pub async fn run(pool: &SqlitePool, owner: &str, key: &str, dry_run: bool) -> Ap
             "deck" => to_box,
             "swap_bag" => {
                 if bag_box.is_none() && !dry_run {
-                    bag_box = named_box(&mut tx, owner, &bag_name, true).await?;
+                    let (id, made, _) = crate::decks::spares::ensure(&mut tx, owner, &deck_id, &plan_name).await?;
+                    (bag_box, bag_name) = (Some(id), made);
                 }
+                to_name = bag_name.clone();
                 bag_box.clone()
             }
             _ => {
@@ -456,6 +459,18 @@ pub async fn run(pool: &SqlitePool, owner: &str, key: &str, dry_run: bool) -> Ap
             puts_in.push(PutIn { name: name.clone(), kind: kind.into(), from_deck: from_deck.and_then(|k| other_box.get(&k).map(|o| o.0.clone())), action: "in_box".into(), detail: None, swap });
             continue;
         }
+        // A copy already waiting in this deck's swappable spares comes out of them first.
+        let mut need = need;
+        if let Some((own, own_name)) = &linked_bag {
+            let spare = |c: &OwnedCopy| c.container_id.as_deref() == Some(own.as_str());
+            let (n, _) = move_ops(&mut copies, &spare, oid, need, Some(&box_id), &mut ops);
+            moved += n;
+            need -= n;
+            if need == 0 {
+                puts_in.push(PutIn { name: name.clone(), kind: kind.into(), from_deck: None, action: "move".into(), detail: Some(format!("from {own_name}")), swap });
+                continue;
+            }
+        }
         if kind == "print" {
             let p = printing_for(&mut tx, oid, None).await?;
             let Some(p) = p else {
@@ -482,17 +497,11 @@ pub async fn run(pool: &SqlitePool, owner: &str, key: &str, dry_run: bool) -> Ap
                 swap,
             });
         } else {
-            // A move (or any other card the plan has in hand): the giving deck's box first, then this
-            // deck's swappable spares, then any copy outside a deck box.
+            // A move (or any other card the plan has in hand): after this deck's swappable spares
+            // (above), the giving deck's box, then any copy outside a deck box.
             let giver_box = from_deck.as_ref().and_then(|k| other_box.get(k)).and_then(|o| o.1.clone());
             let giver = |c: &OwnedCopy| giver_box.is_some() && c.container_id == giver_box;
             let mut found = move_ops(&mut copies, &giver, oid, need, Some(&box_id), &mut ops);
-            // Then this deck's own swappable spares: a ready swap coming in.
-            if found.0 < need && let Some((own, _)) = &linked_bag {
-                let spare = |c: &OwnedCopy| c.container_id.as_deref() == Some(own.as_str());
-                let more = move_ops(&mut copies, &spare, oid, need - found.0, Some(&box_id), &mut ops);
-                found = (found.0 + more.0, found.1.or(more.1));
-            }
             if found.0 < need {
                 let loose = |c: &OwnedCopy| c.container_id.as_ref().is_none_or(|id| !deck_boxes.contains(id));
                 let more = move_ops(&mut copies, &loose, oid, need - found.0, Some(&box_id), &mut ops);

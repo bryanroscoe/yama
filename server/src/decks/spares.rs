@@ -136,6 +136,19 @@ pub async fn unlink(conn: &mut SqliteConnection, owner: &str, main_id: &str) -> 
     Ok(())
 }
 
+/// Their box called "<deck> swap bag" that no live deck keeps its 100 or its spares in: (id, name).
+pub async fn free_bag(conn: &mut SqliteConnection, owner: &str, deck_name: &str) -> AppResult<Option<(String, String)>> {
+    Ok(sqlx::query_as(
+        "SELECT c.id, c.name FROM containers c WHERE c.owner_id = ?1 AND c.kind = 'box' AND lower(c.name) = lower(?2)
+           AND NOT EXISTS (SELECT 1 FROM decks d WHERE d.owner_id = ?1 AND d.archived = 0 AND (d.spares_container_id = c.id OR d.container_id = c.id))
+         ORDER BY c.name = ?2 DESC, c.created_at LIMIT 1",
+    )
+    .bind(owner)
+    .bind(default_name(deck_name))
+    .fetch_optional(&mut *conn)
+    .await?)
+}
+
 /// The main deck's spares container, linked or made: the one linked, else their box called
 /// "<deck> swap bag" when no live deck's spares are in it, else a new box by that name (with
 /// " (2)" and so on when the name is taken). Returns (id, name, made).
@@ -144,15 +157,7 @@ pub async fn ensure(conn: &mut SqliteConnection, owner: &str, main_id: &str, dec
         return Ok((id, name, false));
     }
     let base = default_name(deck_name);
-    let found: Option<(String, String)> = sqlx::query_as(
-        "SELECT c.id, c.name FROM containers c WHERE c.owner_id = ?1 AND c.kind = 'box' AND lower(c.name) = lower(?2)
-           AND NOT EXISTS (SELECT 1 FROM decks d WHERE d.owner_id = ?1 AND d.archived = 0 AND (d.spares_container_id = c.id OR d.container_id = c.id))
-         ORDER BY c.name = ?2 DESC, c.created_at LIMIT 1",
-    )
-    .bind(owner)
-    .bind(&base)
-    .fetch_optional(&mut *conn)
-    .await?;
+    let found = free_bag(conn, owner, deck_name).await?;
     if let Some((id, name)) = found {
         link(conn, owner, main_id, &id).await?;
         return Ok((id, name, false));

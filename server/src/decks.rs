@@ -1454,6 +1454,14 @@ async fn update_deck(
             .bind(&user.id)
             .fetch_one(&mut *tx)
             .await?;
+    // A main deck with swappable spares stays a main deck until they're let go: a configuration
+    // uses its main deck's.
+    if body.parent_id.as_ref().is_some_and(|p| p.is_some()) {
+        let has: Option<String> = sqlx::query_scalar("SELECT spares_container_id FROM decks WHERE id = ? AND owner_id = ?").bind(&id).bind(&user.id).fetch_one(&mut *tx).await?;
+        if has.is_some() {
+            return Err(AppError::bad("This deck keeps swappable spares. Stop keeping them on its page first; a configuration uses its main deck's."));
+        }
+    }
     // A deck's swappable spares (`spares`) are never another deck's box for its 100.
     if let Some(Some(c)) = &body.container_id {
         let spares_of: Option<String> = sqlx::query_scalar("SELECT name FROM decks WHERE owner_id = ? AND archived = 0 AND spares_container_id = ?")

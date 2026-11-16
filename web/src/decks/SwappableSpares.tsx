@@ -43,7 +43,7 @@ export function SwappableSpares({ deckId, onOpen }: { deckId: string; onOpen: (o
     onSuccess: (r) => (setLinking(false), done(r)),
   });
   const swap = useMutation({
-    mutationFn: (body: { oracle_id: string; swaps_out: string | null; bracket: number | null }) => api<DeckSpares>(`/api/decks/${deckId}/spares/swaps`, { method: "PUT", json: body }),
+    mutationFn: (body: { oracle_id: string; swaps_out: string | null; bracket: number | null; note: string | null }) => api<DeckSpares>(`/api/decks/${deckId}/spares/swaps`, { method: "PUT", json: body }),
     onSuccess: (r) => (setEditing(null), done(r)),
   });
   const s = spares.data;
@@ -88,7 +88,7 @@ export function SwappableSpares({ deckId, onOpen }: { deckId: string; onOpen: (o
                     initial={c.swaps.find((w) => w.from === "owner") ?? null}
                     busy={swap.isPending || viewing}
                     onCancel={() => setEditing(null)}
-                    onSave={(out, bracket) => swap.mutate({ oracle_id: c.oracle_id, swaps_out: out, bracket })}
+                    onSave={(out, bracket) => swap.mutate({ oracle_id: c.oracle_id, swaps_out: out, bracket, note: c.swaps.find((w) => w.from === "owner")?.note ?? null })}
                   />
                 ) : (
                   !viewing && (

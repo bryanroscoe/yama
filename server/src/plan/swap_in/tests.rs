@@ -364,11 +364,29 @@ async fn the_swap_bag_is_the_decks_swappable_spares_and_ready_swaps_come_out_of_
         ],
     )
     .await;
+    // A box by the bag's name that holds another deck's 100 is never used.
+    let other = crate::decks::create_deck_with_cards(&pool, &a_id, "Other", None, vec![dc("o-bcmd", "Beta Commander", 1, Board::Commander)]).await.unwrap();
+    sqlx::query("INSERT INTO containers (id, owner_id, kind, name, created_at) VALUES ('taken', ?, 'box', 'Alpha Deck swap bag', 'now')").bind(&a_id).execute(&pool).await.unwrap();
+    sqlx::query("UPDATE decks SET container_id = 'taken' WHERE id = ?").bind(&other).execute(&pool).await.unwrap();
+    // Alpha keeps spares already, with a real Print Card waiting in them for its print's slot.
+    let (status, made) = send(&app, Method::PUT, &format!("/api/decks/{alpha}/spares"), Some(&a), Some(json!({"create": true}))).await;
+    assert_eq!(status, StatusCode::OK, "{made}");
+    assert_eq!(made["container_name"], "Alpha Deck swap bag (2)", "{made}");
+    sqlx::query("INSERT INTO collection_items (id, owner_id, scryfall_id, qty, container_id, created_at, updated_at) VALUES ('waiting', ?, 'p-print', 1, ?, 'now', 'now')")
+        .bind(&a_id)
+        .bind(made["container_id"].as_str().unwrap())
+        .execute(&pool)
+        .await
+        .unwrap();
     let (status, done) = send(&app, Method::POST, "/api/plan/decks/alpha/swap-in", Some(&a), None).await;
     assert_eq!(status, StatusCode::OK, "{done}");
-    let bag: String = sqlx::query_scalar("SELECT id FROM containers WHERE owner_id = ? AND name = 'Alpha Deck swap bag'").bind(&a_id).fetch_one(&pool).await.unwrap();
+    assert_eq!(in_box(&pool, &a_id, "Alpha Deck", "Print Card").await, (1, 0), "the waiting copy, not a new proxy: {done}");
+    let taken: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM collection_items WHERE container_id = 'taken'").fetch_one(&pool).await.unwrap();
+    assert_eq!(taken, 0, "nothing went into another deck's box");
+    let bag: String = sqlx::query_scalar("SELECT id FROM containers WHERE owner_id = ? AND name = 'Alpha Deck swap bag (2)'").bind(&a_id).fetch_one(&pool).await.unwrap();
     let linked: Option<String> = sqlx::query_scalar("SELECT spares_container_id FROM decks WHERE id = ?").bind(&alpha).fetch_one(&pool).await.unwrap();
     assert_eq!(linked, Some(bag.clone()), "the bag it made is the deck's swappable spares");
+    assert_eq!(in_box(&pool, &a_id, "Alpha Deck swap bag (2)", "Bag Card").await, (1, 0));
 
     // Beta takes Gift Card from Alpha. Its copy now waits in Beta's own spares instead: it comes from there.
     let beta = yama_deck(&app, &pool, &a_id, &a, "beta", "Beta Deck", vec![dc("o-bcmd", "Beta Commander", 1, Board::Commander), dc("o-bcut", "Beta Cut", 1, Board::Main), dc("o-forest", "Forest", 3, Board::Main)]).await;

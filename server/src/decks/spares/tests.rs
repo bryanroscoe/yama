@@ -118,6 +118,12 @@ async fn a_deck_keeps_swappable_spares_apart_from_its_list() {
     let (_, cleared) = send(&app, Method::PUT, &format!("{path}/swaps"), Some(&token), Some(json!({"oracle_id": "o-tal"}))).await;
     assert_eq!(card(&cleared, "Talisman of Creativity")["swaps"], json!([]));
 
+    // A deck that keeps spares can't become a configuration until it lets them go.
+    let parent = deck(&pool, &ann, "Parent").await;
+    let (status, refused) = send(&app, Method::PATCH, &format!("/api/decks/{id}"), Some(&token), Some(json!({"parent_id": parent}))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{refused}");
+    assert!(refused.to_string().contains("swappable spares"), "{refused}");
+
     // A configuration shares its main deck's spares.
     let child = deck(&pool, &ann, "Riders of Rohan (bracket 3)").await;
     sqlx::query("UPDATE decks SET parent_id = ? WHERE id = ?").bind(&id).bind(&child).execute(&pool).await.unwrap();
