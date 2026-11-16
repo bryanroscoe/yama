@@ -79,6 +79,8 @@ export interface ScanCandidate {
   number?: string;
   lang?: string;
   scryfall_id?: string;
+  /** The card's oracle id, once the printing is settled (for its playability, playable.ts). */
+  oracle_id?: string;
   image?: string | null;
   /** The small picture, for lists. */
   thumb?: string | null;

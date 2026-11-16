@@ -28,13 +28,14 @@
 /* The window sits in the middle of what the sheet leaves showing. */
 .scan-frame {
   position: absolute;
-  inset: 0 0 20px;
+  /* Clear of the top row of buttons and of the status chip at the bottom (design pass, 16 Nov 2026). */
+  inset: calc(max(14px, env(safe-area-inset-top)) + 52px) 0 64px;
   display: grid;
   place-items: center;
   pointer-events: none;
 }
 .scan-guide {
-  height: min(78%, calc(62vw * 88 / 63));
+  height: min(100%, calc(62vw * 88 / 63));
   aspect-ratio: 63 / 88;
   border-radius: 14px;
   box-shadow:
@@ -121,12 +122,13 @@
 }
 .scan-count {
   top: calc(max(14px, env(safe-area-inset-top)) + 8px);
-  right: 14px;
+  right: 66px;
 }
 .scan-chip {
   left: 50%;
   bottom: 36px;
   transform: translateX(-50%);
+  width: max-content;
   max-width: calc(100% - 32px);
   padding: 6px 14px;
   background: rgb(0 0 0 / 0.65);
@@ -313,16 +315,23 @@
   font-size: var(--t-sm);
   color: var(--dim);
 }
+/* The sheet's lesser choices (Wrong printing?, Wrong card?, another card it might be): small
+   outlined pills that read as buttons, not underlined words (Bryan, 16 Nov 2026). */
 .scan .scan-alt {
-  display: inline;
-  min-height: 0;
-  padding: 0;
-  border: none;
-  background: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 4px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: var(--raised);
   color: var(--text);
+  font-size: var(--t-label);
   font-weight: 700;
-  text-decoration: underline;
-  text-underline-offset: 0.2em;
+  line-height: 1.2;
+}
+.scan .scan-alt:hover {
+  border-color: var(--dim);
 }
 .scan .scan-photo {
   background: var(--raised);
@@ -603,28 +612,6 @@ button.scan-count {
   min-height: 32px;
 }
 
-/* Scan settings: one row, opened with a tap; closed it says what's set. */
-.scan-settings > summary {
-  gap: 10px;
-}
-.scan-settings-title {
-  font-weight: 700;
-}
-.scan-settings-summary {
-  color: var(--dim);
-  font-size: var(--t-sm);
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.scan-settings[open] .scan-settings-summary {
-  display: none;
-}
-.scan-settings > .scan-choices {
-  margin-top: 10px;
-}
-
 /* The sheet scrolls when it holds more than fits: its rows keep their own height rather than
    shrinking into each other (a min-height 0 link button over the tap prompt, 15 Nov 2026). */
 .scan-panel > * {
@@ -697,24 +684,6 @@ button.scan-count {
   justify-content: center;
 }
 
-/* Recent (RecentCards.tsx): the last card added, large; older ones smaller; the session total. */
-.scan-recent {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding-top: 10px;
-  border-top: 1px solid var(--line);
-}
-.scan-recent-last {
-  font-size: var(--t-label);
-}
-.scan-recent-older {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  font-size: var(--t-sm);
-  color: var(--dim);
-}
 /* The "worth it" amount, under the Sounds switch. */
 .scan-worth {
   display: flex;
@@ -726,6 +695,12 @@ button.scan-count {
 }
 .scan-worth input {
   width: 5rem;
+  min-height: var(--target);
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-input);
+  background: var(--ground);
+  color: var(--text);
 }
 
 /* Which camera, and what it delivers (Scan settings): the whole row. */
@@ -734,4 +709,419 @@ button.scan-count {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+/* The gear for Scan settings, top right on the camera, above the flashlight and zoom. */
+.scan .scan-gear {
+  position: absolute;
+  top: max(14px, env(safe-area-inset-top));
+  right: 14px;
+  width: 44px;
+  height: 44px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 0.6);
+  color: #fff;
+}
+.scan .scan-gear:hover {
+  background: rgb(0 0 0 / 0.8);
+}
+.scan .scan-tools {
+  top: calc(max(14px, env(safe-area-inset-top)) + 58px);
+}
+.scan-settings .scan-choices {
+  margin-top: 4px;
+}
+.scan-settings .scan-choices > .scan-note {
+  grid-column: 1 / -1;
+}
+
+/* What cards are filed as, on the sheet; a tap opens Scan settings. */
+.scan .scan-filing {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-tile);
+  background: none;
+  color: var(--text);
+  font-weight: 400;
+  text-align: left;
+}
+.scan-filing-what {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--t-label);
+}
+.scan-filing-change {
+  flex: 0 0 auto;
+  font-size: var(--t-sm);
+  font-weight: 700;
+  color: var(--dim);
+}
+
+/* The strip of cards scanned (ScanTray.tsx): between the camera and the sheet, never scrolled
+   away. The newest card is the largest; each says its price, and a card worth the "worth it"
+   amount is ringed in white. The sheet's rounded top sits over the strip's last 20 px. */
+.scan-tray {
+  position: relative;
+  flex: 0 0 auto;
+  padding: 4px 0 24px;
+  background: #000;
+}
+/* The card just added on the first line, the session's dated total under it, Review all beside. */
+.scan-tray-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 10px;
+  padding: 0 16px 4px;
+  font-size: var(--t-sm);
+  color: #fff;
+}
+.scan-tray-head p {
+  margin: 0;
+  min-width: 0;
+}
+.scan-tray-last {
+  font-size: var(--t-label);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.scan-tray-total {
+  grid-column: 1;
+  font-size: var(--t-12);
+}
+.scan-tray-head > :last-child:not(p) {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+.scan-tray-note {
+  color: var(--on-art-dim);
+}
+.scan-tray-failed {
+  flex: 0 0 auto;
+  font-weight: 700;
+  color: var(--bad);
+  white-space: nowrap;
+}
+.scan .scan-tray-review {
+  min-height: var(--target);
+  padding: 2px 14px;
+  border: 1px solid rgb(255 255 255 / 0.35);
+  border-radius: var(--r-pill);
+  background: none;
+  color: #fff;
+  font-size: var(--t-sm);
+  white-space: nowrap;
+}
+.scan .scan-tray-review.is-failed {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+.scan-tray-list {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin: 0;
+  padding: 4px 16px;
+  scroll-padding-inline: 16px;
+  list-style: none;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  touch-action: pan-x;
+}
+.scan-tray-list::-webkit-scrollbar {
+  display: none;
+}
+.scan-tray-list > li {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+}
+.scan .scan-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  width: 46px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #fff;
+  font-weight: 400;
+  text-align: center;
+}
+.scan .scan-tile.is-newest {
+  width: 64px;
+}
+.scan-tile-card {
+  position: relative;
+  display: block;
+  aspect-ratio: 488 / 680;
+  border-radius: var(--card-radius);
+  overflow: hidden;
+  background: var(--raised);
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.12);
+}
+.scan-tile-card img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.scan-tile-fallback {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  padding: 4px;
+  font-size: var(--t-xs);
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+/* The newest card is ringed; a card worth the sound's amount has its price inverted instead,
+   so "just scanned" and "worth it" don't share one signal. */
+.scan-tile.is-newest .scan-tile-card {
+  box-shadow: 0 0 0 2px #fff;
+}
+.scan-tile.is-saving .scan-tile-card {
+  box-shadow: 0 0 0 1px var(--dim);
+}
+.scan-tile.is-failed .scan-tile-card {
+  box-shadow: 0 0 0 2px var(--bad);
+}
+.scan-tile-copies,
+.scan-tile-finish {
+  position: absolute;
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  background: var(--art-chip);
+  color: #fff;
+  font-size: var(--t-xs);
+  font-weight: 700;
+  line-height: 1.35;
+}
+.scan-tile-copies {
+  top: 3px;
+  right: 3px;
+}
+.scan-tile-finish {
+  top: 3px;
+  left: 3px;
+}
+.scan-tile-price {
+  font-size: var(--t-sm);
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.scan-tile.is-newest .scan-tile-price {
+  font-size: var(--t-15);
+}
+.scan-tile-price.is-failed {
+  color: var(--bad);
+}
+.scan-tile-price.is-none {
+  font-weight: 400;
+  color: var(--on-art-dim);
+}
+.scan-tile.is-worth .scan-tile-price {
+  align-self: center;
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  background: #fff;
+  color: #000;
+}
+/* The play tag sits on the card's text box, where a thumbnail has nothing readable anyway. */
+.scan-tile-tag {
+  position: absolute;
+  left: 50%;
+  bottom: 4px;
+  transform: translateX(-50%);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.6);
+}
+
+/* The newest card arrives with a small lift, so a scan is seen landing in the strip. */
+@media (prefers-reduced-motion: no-preference) {
+  .scan-tile.is-newest .scan-tile-card {
+    animation: scan-tile-in 0.28s ease-out;
+  }
+}
+@keyframes scan-tile-in {
+  from {
+    transform: translateY(12px) scale(0.92);
+    opacity: 0.4;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+@media (min-width: 900px) {
+  .scan-tray-head,
+  .scan-tray-list {
+    width: min(560px, 100%);
+    margin-inline: auto;
+  }
+  .scan .scan-tile {
+    width: 64px;
+  }
+  .scan .scan-tile.is-newest {
+    width: 96px;
+  }
+}
+
+/* Whether a card sees play in Commander (playable.ts): Played, Staple, Game Changer. */
+/* White is the only accent: Played outlined dim, Staple outlined white, Game Changer filled. */
+.scan-tile-tag,
+.scan-play-tag {
+  display: inline-block;
+  padding: 0 7px;
+  border: 1px solid rgb(255 255 255 / 0.35);
+  border-radius: var(--r-pill);
+  background: var(--art-chip);
+  color: var(--on-art-dim);
+  font-size: var(--t-xs);
+  font-weight: 700;
+  line-height: 1.45;
+  white-space: nowrap;
+}
+.scan-tile-tag.is-staple,
+.scan-play-tag.is-staple {
+  border-color: #fff;
+  color: #fff;
+}
+.scan-tile-tag.is-game-changer,
+.scan-play-tag.is-game-changer {
+  border-color: #fff;
+  background: #fff;
+  color: #000;
+}
+.scan-play-tag {
+  font-size: var(--t-sm);
+  padding: 1px 10px;
+}
+.scan-result .scan-play-tag {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+.scan-big-play {
+  font-size: var(--t-sm);
+}
+.scan-big-play .dim {
+  white-space: nowrap;
+}
+
+/* The found card's price, large, ringed when it's worth the "worth it" amount. */
+.scan-price {
+  margin-top: 2px;
+}
+.scan-price strong {
+  font-size: var(--t-22);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.scan-price.is-worth strong {
+  padding: 0 8px;
+  border-radius: var(--r-pill);
+  background: #fff;
+  color: #000;
+}
+
+/* One scanned card large (AddedList.tsx, ScannedCard). */
+.scan-big {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.scan-big-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+.scan-big-card .card-img,
+.scan-big-card .card-fallback {
+  width: 100%;
+  aspect-ratio: 488 / 680;
+  border-radius: var(--card-radius);
+  object-fit: cover;
+}
+.scan-big-card .card-zoom-open {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.scan-big-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.scan-big-info p {
+  margin: 0;
+}
+.scan-big-printing {
+  font-size: var(--t-label);
+  color: var(--dim);
+}
+.scan-big-price strong {
+  display: block;
+  font-family: var(--display);
+  font-size: var(--t-2xl);
+  font-weight: 800;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.scan-big-price .dim {
+  font-size: var(--t-sm);
+}
+/* The finish track on the dialog's own surface needs the ground to show as one control. */
+.scan-big .segmented {
+  background: var(--ground);
+}
+.scan-big-fixes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+}
+
+/* A row's picture in the Added list opens the card large. */
+.scan .scan-added-open,
+.scan-added-open {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+/* The camera keeps room for its frame on a short screen (review of #152): with the strip showing,
+   the sheet stops short of it, and a camera too short for the frame's clearances drops them, so
+   the guide (and the text reader's region, which is the guide's box) never collapses. */
+.scan:has(> .scan-tray) .scan-panel {
+  max-height: min(62dvh, calc(100dvh - 340px));
+}
+.scan-camera {
+  container-type: size;
+}
+@container (max-height: 300px) {
+  .scan-frame {
+    inset: 0 0 20px;
+  }
 }

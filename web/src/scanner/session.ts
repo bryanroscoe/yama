@@ -18,6 +18,8 @@ export interface Added {
   key: string;
   name: string;
   scryfall_id: string;
+  /** The card's oracle id, for its playability (playable.ts); absent for entries made before it was kept. */
+  oracle_id?: string;
   set: string;
   number: string;
   image: string | null;

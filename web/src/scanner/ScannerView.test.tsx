@@ -371,7 +371,7 @@ describe("sounds (Bryan, 15 Nov 2026)", () => {
     localStorage.removeItem("yama.scan.worthIt");
   });
 
-  it("plays the brighter sound for a card worth $5 or more in the finish filed, and the plain one otherwise", async () => {
+  it("plays the brighter sound for a card worth $2 or more in the finish filed, and the plain one otherwise", async () => {
     act(() => root.render(<ScannerView onAccept={async () => true} />));
     await typeName("Sol Ring");
     await click(await until(() => button("Add"), "Add"));
@@ -402,11 +402,14 @@ describe("sounds (Bryan, 15 Nov 2026)", () => {
     expect(sounds.played).toEqual([]);
   });
 
-  it("offers the Sounds switch and its amount in Scan settings, on and $5 by default", async () => {
+  it("offers the Sounds switch and its amount in Scan settings, behind the gear, on and $2 by default", async () => {
     act(() => root.render(<ScannerView onAccept={async () => true} />));
+    expect(document.querySelector("#scan-sounds")).toBeNull();
+    await click(await until(() => document.querySelector<HTMLButtonElement>('button[aria-label="Scan settings"]'), "the gear"));
     const box = await until(() => document.querySelector<HTMLInputElement>("#scan-sounds"), "the Sounds switch");
     expect(box.checked).toBe(true);
-    expect(document.querySelector<HTMLInputElement>(".scan-worth input")?.value).toBe("5");
+    expect(document.querySelector<HTMLInputElement>(".scan-worth input")?.value).toBe("2");
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Scan settings");
   });
 });
 
@@ -504,6 +507,8 @@ describe("scanner diagnostics, when they're on (slice 5)", () => {
     await click(options[1]!);
     await wait(30);
     expect(diag.posted).toEqual([]);
+    // The switch is in Scan settings, behind the gear.
+    await click(document.querySelector<HTMLButtonElement>('button[aria-label="Scan settings"]')!);
     expect(document.querySelector<HTMLInputElement>("#scan-diagnostics")?.checked).toBe(false);
 
     // On, but a card filed straight away (the only printing): no reason to keep it.
