@@ -2975,7 +2975,7 @@ plan's swap-in made loose boxes called "<deck> swap bag".
   container like a deck box and never move copies out of it. `list_collection_cards` with
   `outside_decks` leaves them out too. Swap in the prints puts its bracket-bag cards in the deck's
   spares, and makes the "<deck> swap bag" box those spares when it has to make one.
-- **Migration 0096** links each existing "<deck> swap bag" box to its deck when exactly one live main
+- **Migration 0097** links each existing "<deck> swap bag" box to its deck when exactly one live main
   deck of that owner has the name. It writes only the link: no copy moves and no container changes,
   so `UPDATE decks SET spares_container_id = NULL` undoes it. On 15 November that is Riders of
   Rohan (7 copies) and World Shaper (3).
