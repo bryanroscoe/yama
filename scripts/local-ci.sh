@@ -98,6 +98,32 @@ if [ -z "${CARGO_TARGET_DIR:-}" ]; then
 fi
 mkdir -p "$CARGO_TARGET_DIR"
 
+# The shared target keeps a whole engine build (about 8 GiB) for every engine pin and
+# toolchain it has seen, and nothing else removes them: it reached 44 GiB in November 2026.
+# Past the cap (YAMA_CARGO_TARGET_CAP_GIB, default 25), the Rust step clears its dev profile
+# (debug/) under local-ci's lock first, which stays in place at the target's top level. It
+# skips the clear while a Cargo run outside local-ci is compiling there (Cargo holds
+# debug/.cargo-lock); that check is best-effort: a test binary still running is not seen.
+cargo_target_cap="${YAMA_CARGO_TARGET_CAP_GIB:-25}"
+case "$cargo_target_cap" in
+  ''|*[!0-9]*) die "YAMA_CARGO_TARGET_CAP_GIB must be a whole number of GiB, not '$cargo_target_cap'." ;;
+esac
+export cargo_target_cap
+trim_target() {
+  local kib
+  kib="$(du -sk "$CARGO_TARGET_DIR/debug" 2>/dev/null | cut -f1)"
+  [ "${kib:-0}" -gt $((cargo_target_cap * 1024 * 1024)) ] || return 0
+  if ! perl -MFcntl=:flock -e '
+      open(my $lock, ">>", shift) or exit 0;
+      exit(flock($lock, LOCK_EX | LOCK_NB) ? 0 : 1)' "$CARGO_TARGET_DIR/debug/.cargo-lock"; then
+    echo "local-ci: the shared Cargo target is $((kib / 1048576)) GiB, over its $cargo_target_cap GiB cap, but another build is using it; leaving it for a later run."
+    return 0
+  fi
+  echo "local-ci: the shared Cargo target is $((kib / 1048576)) GiB, over its $cargo_target_cap GiB cap; clearing it (this run rebuilds the engine)."
+  cargo clean --quiet --profile dev
+}
+export -f trim_target
+
 # CI pins Rust 1.98.1 and Node 22. A different Node major only warns (and is recorded),
 # since the web checks rarely depend on it; push CI on main still runs Node 22.
 rust_version="$(rustc --version)"
@@ -139,7 +165,7 @@ else
     my $status = system(@ARGV);
     exit($status == -1 ? 127 : ($status & 127) ? 128 + ($status & 127) : $status >> 8);
   ' "$CARGO_TARGET_DIR/.yama-local-ci.lock" \
-    bash -c 'cargo clean --quiet -p yama-server -p yama-play && cargo test --locked'
+    bash -c 'trim_target && cargo clean --quiet -p yama-server -p yama-play && cargo test --locked'
 fi
 
 if [ "$python" = 0 ]; then
