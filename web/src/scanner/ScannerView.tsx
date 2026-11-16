@@ -547,6 +547,15 @@ export function ScannerView({
   const [showAll, setShowAll] = useState(false);
   /** What was just added (by Add, a tapped printing or Keep adding), shown on the camera for a moment, with Undo once saved. */
   const [justAdded, setJustAdded] = useState<JustAdded | null>(null);
+  // For a moment after each add the camera says so, where the eye already is (design review,
+  // 16 Nov 2026: with the strip, the add itself had gone quiet).
+  const [flash, setFlash] = useState(false);
+  useEffect(() => {
+    if (!justAdded?.card || justAdded.say || justAdded.busy) return;
+    setFlash(true);
+    const t = window.setTimeout(() => setFlash(false), 1200);
+    return () => window.clearTimeout(t);
+  }, [justAdded]);
   /**
    * The card just filed, while the scanner holds it back as the same card (hold.ts): "Scan anyway"
    * files one more copy of it (Bryan, 15 Nov 2026: real duplicates, two of a card from two orders).
@@ -1755,7 +1764,7 @@ export function ScannerView({
       : found.outside
         ? `Not in ${lockLabel}: another set?`
         : (!chosen || found.picking) && !found.reading && !!found.options && found.options.length > 1
-          ? "Tap your printing below"
+          ? "Tap your printing"
           : null;
   useEffect(() => {
     if (!tapNeeded) return;
@@ -1944,7 +1953,9 @@ export function ScannerView({
   const filing = settingsSummary ? (
     <Button className="scan-filing" onClick={() => setSettingsOpen(true)} aria-label={`Filing as ${settingsSummary}. Change`}>
       <span className="scan-filing-what">{settingsSummary}</span>
-      <span className="scan-filing-change">Change</span>
+      <svg className="scan-filing-change" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M9 6l6 6-6 6" />
+      </svg>
     </Button>
   ) : null;
   const chosenFinish = chosen ? filedFinish(chosen.finishes, finish) : finish;
@@ -2031,6 +2042,14 @@ export function ScannerView({
   // "Scan anyway", in the picture (Bryan, 16 Nov 2026): the card just added is still in view, so
   // the camera says so, with +1 copy for when you really have another.
   const stillInView = receipt && dupeHere && !isFound && !lockOpen && !closeup;
+  // How many of it in a row: "3 added" beside +1 copy, so a stack of four can be counted.
+  let inARow = 0;
+  for (const c of recentCards ?? []) {
+    if (!newest || c.name !== newest.name || c.set !== newest.set || c.number !== newest.number) break;
+    inARow += c.copies;
+  }
+  const flashing = receipt && flash && sameAsNewest && !isFound && !lockOpen && !closeup;
+  const flashPrice = flashing && newest && !identityOnly ? priceFor(newest.prices, newest.finish) : null;
   // Once the strip has cards, waiting for one is known: the chip only speaks when it has news.
   const idleStatus = mode === "art" && (status === WAITING || status === NEXT);
   // Said in the head in place of the card's name: an event with no card (Took out …, Couldn't …),
@@ -2092,12 +2111,27 @@ export function ScannerView({
         )}
         <CameraControls c={cam} live={live} />
         {typeof overlay === "function" ? overlay(isFound && found ? candidateOf(found, chosen) : null) : overlay}
-        {stillInView && !tapNeeded ? (
-          <div className="scan-chip has-action">
-            <span role="status">{dupe!.found.name} still in view</span>
-            <Button className="scan-chip-action" onClick={scanAnyway} disabled={dupeSaving} aria-label={`Scan anyway: add another ${dupe!.label}`}>
-              {dupeSaving ? "Adding…" : "+1 copy"}
-            </Button>
+        {(stillInView || flashing) && !tapNeeded ? (
+          <div className={`scan-chip has-action${flashing ? " found" : ""}`}>
+            <span>
+              {flashing ? (
+                <>
+                  <svg className="scan-chip-tick" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M5 12.5l4.5 4.5L19 7.5" />
+                  </svg>
+                  {flashPrice != null ? `Added, ${usd(flashPrice)}` : "Added"}
+                </>
+              ) : inARow > 1 ? (
+                `${inARow} added`
+              ) : (
+                "Still in view"
+              )}
+            </span>
+            {stillInView && (
+              <Button className="scan-chip-action" onClick={scanAnyway} disabled={dupeSaving} aria-label={`Scan anyway: add another ${dupe!.label}`}>
+                {dupeSaving ? "Adding…" : "+1 copy"}
+              </Button>
+            )}
           </div>
         ) : receipt && !tapNeeded && !isFound && !lockOpen && idleStatus ? null : !receipt && !tapNeeded && !isFound && !lockOpen && justAdded?.card && (onUndo || (onCorrect && justAdded.printing)) ? (
           <div className="scan-chip found has-action">
@@ -2254,12 +2288,15 @@ export function ScannerView({
                     {price != null && <span className="dim"> market, {shortDate(chosen.price_date) ?? "date unknown"}</span>}
                   </span>
                 )}
-                {range && (
+                {/* With the printings showing, each carries its own price: here, only where they're from. */}
+                {range && (showPicker ? (
+                  <span className="dim">market, {shortDate(range.date) ?? "date unknown"}</span>
+                ) : (
                   <span className="scan-price">
                     <strong>{range.low === range.high ? usd(range.low) : `${usd(range.low)} to ${usd(range.high)}`}</strong>
                     <span className="dim"> market, by printing, {shortDate(range.date) ?? "date unknown"}</span>
                   </span>
-                )}
+                ))}
               </div>
             </div>
             {found.outside && (
@@ -2299,9 +2336,7 @@ export function ScannerView({
                       <strong>Reading the printing</strong>
                       {readProgress && <span className="dim"> {readProgress}</span>}
                     </>
-                  ) : (
-                    <strong>{onAccept ? (single ? "Tap your printing to use it" : "Tap your printing to add it") : "Tap your printing"}</strong>
-                  )}
+                  ) : null}
                 </p>
                 {/* A fresh, full attempt at reading it from the held card: after one gave up, or for a typed name. */}
                 {!holding && live && !chosen && !wrongOpen && (
@@ -2336,12 +2371,17 @@ export function ScannerView({
                       {p.set_code.toUpperCase()} #{p.collector_number}
                     </span>
                     {found.misread?.scryfall_id === p.scryfall_id && <span className="scan-misread">{found.correcting ? "Added as this" : "Read as this"}</span>}
-                    {/* What tells printings apart stays visible; the set's name is what gets cut short. */}
-                    {(treatmentLabel(p) || p.lang !== "en") && <span className="scan-printing-what">{[treatmentLabel(p), p.lang !== "en" ? p.lang : null].filter(Boolean).join(", ")}</span>}
-                    <span className="dim">
-                      {p.set_name}
-                      {p.released_at ? `, ${p.released_at.slice(0, 4)}` : ""}
-                    </span>
+                    {/* What you choose by, visible: the printing's own price and what's special about it.
+                        The set's name is in its label (design review, 16 Nov 2026). */}
+                    {identityOnly ? (
+                      <span className="dim">{p.set_name}</span>
+                    ) : (
+                      <span className="scan-printing-what">
+                        {usd(priceFor(pricesOf(p), filedFinish(p.finishes, finish)))}
+                        {(treatmentLabel(p) || p.lang !== "en") && <span className="dim"> {[treatmentLabel(p), p.lang !== "en" ? p.lang : null].filter(Boolean).join(", ")}</span>}
+                      </span>
+                    )}
+                    {!identityOnly && <span className="visually-hidden">{`, ${p.set_name}${p.released_at ? `, ${p.released_at.slice(0, 4)}` : ""}`}</span>}
                   </Button>
                 ))}
                 {!showAll && options.length > PICKER_FIRST && (

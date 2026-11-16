@@ -62,8 +62,9 @@
     linear-gradient(var(--c), var(--c)) bottom right / 2px var(--l);
   background-repeat: no-repeat;
 }
+/* Seen: the corners go full white (white is the only accent). */
 .scan-guide.is-hint.is-locked {
-  --c: var(--good);
+  --c: #fff;
   box-shadow: none;
 }
 .scan-guide.is-locked {
@@ -832,8 +833,8 @@ button.scan-count {
 .scan .scan-filing {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  justify-content: flex-start;
+  gap: 4px;
   min-height: 32px;
   padding: 0 2px;
   border: 0;
@@ -854,8 +855,6 @@ button.scan-count {
 }
 .scan-filing-change {
   flex: 0 0 auto;
-  font-size: var(--t-sm);
-  font-weight: 700;
   color: var(--dim);
 }
 
@@ -900,12 +899,17 @@ button.scan-count {
   white-space: normal;
 }
 /* On a narrow phone the card's name keeps room to be read, and its actions go under it. */
-.scan-tray-row:first-child {
+.scan-tray-row:first-of-type {
   flex-wrap: wrap;
   row-gap: 4px;
 }
-.scan-tray-row:first-child > .scan-tray-last {
-  flex: 1 1 9rem;
+/* Undo right after the card it takes out, so the two read as one; away from Review all. */
+.scan-tray-row:first-of-type > .scan-tray-last {
+  flex: 0 1 auto;
+}
+.scan-tray-row > .scan-tray-do.action-bar {
+  margin-left: 0;
+  justify-content: flex-start;
 }
 .scan-tray-do.action-bar {
   flex: 0 0 auto;
@@ -1323,12 +1327,14 @@ button.scan-count {
 
 /* While the sheet needs a decision the strip steps aside on a phone, so the camera keeps its room;
    it's back the moment the card is filed or skipped (round 2, 16 Nov 2026). */
-.scan.is-deciding .scan-tray:not(:has(.is-event)) {
-  display: none;
-}
-/* …but an event (Couldn't save …) that lands meanwhile is said, on its own line. */
-.scan.is-deciding .scan-tray:has(.is-event) :is(.scan-tray-row + .scan-tray-row, .scan-tray-list) {
-  display: none;
+@media not all and (min-width: 900px) and (orientation: landscape) and (min-height: 600px) {
+  .scan.is-deciding .scan-tray:not(:has(.is-event)) {
+    display: none;
+  }
+  /* …but an event (Couldn't save …) that lands meanwhile is said, on its own line. */
+  .scan.is-deciding .scan-tray:has(.is-event) :is(.scan-tray-row + .scan-tray-row, .scan-tray-list) {
+    display: none;
+  }
 }
 .scan:has(> .scan-tray) .scan-panel {
   max-height: min(58dvh, calc(100dvh - 320px));
@@ -1377,9 +1383,6 @@ button.scan-count {
   .scan .scan-handle {
     display: none;
   }
-  .scan.is-deciding .scan-tray {
-    display: block;
-  }
   .scan .scan-printing {
     width: 88px;
   }
@@ -1418,7 +1421,7 @@ button.scan-count {
 /* Review fixes (16 Nov 2026). */
 /* The difference between printings, visible on the tile. */
 .scan-printing-what {
-  font-size: var(--t-12);
+  font-size: var(--t-sm);
   font-weight: 700;
   white-space: nowrap;
   overflow: hidden;
@@ -1470,4 +1473,21 @@ button.scan-count {
   .scan .scan-buttons button {
     min-height: var(--target);
   }
+}
+
+/* Design review (16 Nov 2026). */
+/* "Added, $1.40" with a tick, for a moment on the camera. */
+.scan-chip-tick {
+  margin-right: 6px;
+  vertical-align: -2px;
+}
+.scan-printing-what .dim {
+  font-weight: 400;
+  font-size: var(--t-12);
+}
+/* While a card waits on you, the card before it steps back: one bold name in view (laptop). */
+.scan.is-deciding .scan-tray-last:not(.is-event),
+.scan.is-deciding .scan-tray-last:not(.is-event) strong {
+  color: var(--dim);
+  font-weight: 400;
 }

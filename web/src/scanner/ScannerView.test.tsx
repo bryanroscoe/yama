@@ -335,16 +335,19 @@ describe("with the strip, what just happened is said beside the card (design pas
     expect(head().textContent).toContain("Arcane Signet");
     // A printing you tapped yourself is rarely wrong: Undo alone (Wrong printing is in the card's sheet).
     expect([...head().querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Undo"]);
-    // The camera says what's in front of it: the card just added, still in view, with +1 copy.
-    const chip = document.querySelector(".scan-chip")!;
-    expect(chip.textContent).toContain("Arcane Signet still in view");
-    expect(chip.textContent).not.toContain("Added");
+    // The camera says so for a moment where the eye is, then that the card is still in view, with +1 copy.
+    const chip = () => document.querySelector(".scan-chip")!;
+    expect(chip().textContent).toContain("Added");
+    expect(chip().textContent).toContain("+1 copy");
+    await until(() => (chip().textContent?.startsWith("Still in view") ? true : null), "Still in view");
     // No "still in view" box in the sheet.
     expect(document.querySelector(".scan-dupe")).toBeNull();
 
-    await click([...chip.querySelectorAll("button")].find((b) => b.textContent === "+1 copy")!);
+    await click([...chip().querySelectorAll("button")].find((b) => b.textContent === "+1 copy")!);
     expect(accepted).toHaveLength(2);
     expect(accepted[1]).toMatchObject({ set: "cmm", number: "390" });
+    // A stack can be counted: after the moment's "Added", the chip says how many in a row.
+    await until(() => (chip().textContent?.startsWith("2 added") ? true : null), "2 added");
     // Undo takes back the newest copy.
     await click(await until(() => [...head().querySelectorAll("button")].find((b) => b.textContent === "Undo"), "Undo for the extra copy"));
     await until(() => (undone.length === 1 ? true : null), "the undo");
