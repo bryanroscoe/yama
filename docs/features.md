@@ -167,7 +167,7 @@ Subset of Scryfall syntax (`t:` `o:` `c:` `id<=` `mv` `pow` `f:` `kw:` `is:comma
 
 ### Card sheet
 
-Oracle text, Commander legality, Game Changer tag, rulings with dates and sources, printings with market prices and price history. Which of your decks run the card, and the combos it is part of in them (from each deck's kept Commander Spellbook check; nothing new is sent).
+Oracle text, Commander legality, Game Changer tag, rulings with dates and sources, printings with market prices and price history. Each printing shows its own picture, which opens full size (as does the card at the top), and adds a copy of that printing in any finish it comes in, the button naming a special foil ("Surge foil"), or a proxy with its art (since 16 Nov 2026; before, +1 and +F buttons with no picture). Which of your decks run the card, and the combos it is part of in them (from each deck's kept Commander Spellbook check; nothing new is sent).
 
 ### Release calendar
 

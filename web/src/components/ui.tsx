@@ -28,8 +28,11 @@ function largeOf(src: string): string {
   return src.replace(/\/(small|normal)\//, "/large/");
 }
 
-/** A card image you can tap to see it full size (Escape, a tap or Close puts it back). */
-export function ZoomableCard({ src, name, className = "card-img" }: { src: string | null | undefined; name: string; className?: string }) {
+/**
+ * A card image you can tap to see it full size (Escape, a tap or Close puts it back). `zoomSrc`
+ * is a bigger image for the full-size view when `src` is a thumbnail.
+ */
+export function ZoomableCard({ src, zoomSrc, name, className = "card-img" }: { src: string | null | undefined; zoomSrc?: string | null; name: string; className?: string }) {
   const [open, setOpen] = useState(false);
   if (!src) return <CardImage src={src} name={name} className={className} />;
   return (
@@ -37,7 +40,7 @@ export function ZoomableCard({ src, name, className = "card-img" }: { src: strin
       <Button className="card-zoom-open" onClick={() => setOpen(true)} aria-label={`Show ${name} larger`}>
         <CardImage src={src} name={name} className={className} />
       </Button>
-      {open && <CardZoom src={src} name={name} onClose={() => setOpen(false)} />}
+      {open && <CardZoom src={zoomSrc || src} name={name} onClose={() => setOpen(false)} />}
     </>
   );
 }

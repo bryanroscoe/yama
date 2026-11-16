@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import fixtures from "./printingTreatment.fixtures.json";
-import { copyWords, finishesOf, finishName, finishPrice, pickFinish, printingLabel, treatmentLabel, type Treated } from "./printingTreatment";
+import { copyWords, finishesOf, foilKind, finishName, finishPrice, pickFinish, printingLabel, treatmentLabel, type Treated } from "./printingTreatment";
 
 // Bryan's real cards, as Scryfall lists them (15 Nov 2026).
 const westCoast = { set_code: "msc", collector_number: "40", lang: "en", finishes: ["nonfoil", "foil"], promo_types: ["surgefoil", "universesbeyond"], frame_effects: null, border_color: "black", full_art: false };
@@ -31,6 +31,16 @@ describe("treatmentLabel", () => {
     expect(treatmentLabel(etchedSol, "etched")).toBeNull();
     expect(treatmentLabel({ promo_types: ["somethingnew", "universesbeyond"], frame_effects: ["legendary", "inverted"] })).toBeNull();
     expect(treatmentLabel({})).toBeNull();
+  });
+});
+
+describe("foilKind", () => {
+  it("names the kind of foil a printing's foil copies are, and nothing for plain foil", () => {
+    expect(foilKind(westCoast)).toBe("Surge foil");
+    expect(foilKind(bloodCrypt)).toBe("Surge foil");
+    expect(foilKind({ promo_types: ["serialized", "doublerainbow"] })).toBe("Double rainbow");
+    expect(foilKind(etchedSol)).toBeNull();
+    expect(foilKind({})).toBeNull();
   });
 });
 

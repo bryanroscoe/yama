@@ -65,6 +65,16 @@ export function treatmentLabel(p: Treated, finish?: string | null): string | nul
   return words.length ? words.join(", ") : null;
 }
 
+/**
+ * The kind of foil a printing's foil copies are, in words ("Surge foil"), or null for plain foil
+ * or when not known. For a control that adds a foil copy of that printing.
+ */
+export function foilKind(p: Treated): string | null {
+  const promos = p.promo_types ?? [];
+  for (const [id, words] of Object.entries(FOIL_KINDS)) if (promos.includes(id)) return words;
+  return null;
+}
+
 /** A finish in words, capitalised for a control: "Regular", "Foil", "Etched", "Proxy". */
 export function finishName(finish: string): string {
   return finish === "nonfoil" ? "Regular" : finish === "etched" ? "Etched" : finish === "foil" ? "Foil" : finish === "proxy" ? "Proxy" : finish;
