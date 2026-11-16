@@ -16,6 +16,8 @@ import { loadArtRecognizer, RECOGNIZER_SHORT_SIDE, type ArtRecognizer, type Load
 import { NameIndex } from "./fuzzy";
 import { normaliseName } from "./parse";
 import { applyH, rectQuad, squareToQuad } from "./image";
+import { deleteDiagnostics, diagnosticsOn, diagnosticsSummary, setDiagnosticsOn, ScanRecord, type DiagnosticsSummary, type Outcome, type Reason } from "./diagnostics";
+import type { StripQuality } from "./quality";
 import { readCloseup, readCollectorLines, readTitles, scanFrame, SURE } from "./pipeline";
 import { artHoldFrame, AWAY_FRAMES, hold, holdRead, type ArtHold, type Hold } from "./hold";
 import { NameEntry } from "./NameEntry";
@@ -184,6 +186,8 @@ interface Found {
   misread?: Printing;
   /** Correcting a card already filed: the card `onAccept` was given. Filing then changes that copy. */
   correcting?: ScanCandidate;
+  /** Scanner diagnostics (diagnostics.ts): this card's record, when they're on. Carried through Wrong card and Wrong printing. */
+  rec?: ScanRecord;
   /** The person asked to see the other printings. */
   picking: boolean;
   /** Reading the collector line to tell printings apart. */
@@ -366,6 +370,20 @@ export function fusedHeld(fused: Fused<{ name: string }>, heldName: string | und
   return sameCardName(fused.kind === "art" ? fused.match.name : fused.name, heldName);
 }
 
+/** The candidate printings, as a replay needs them (bounded). */
+const optionsNote = (printings: Printing[]) =>
+  printings.slice(0, 300).map((p) => ({ id: p.scryfall_id, name: p.name, set: p.set_code, number: p.collector_number, rarity: p.rarity, lang: p.lang, released_at: p.released_at }));
+
+/** A strip's sharpness and glare, rounded, for a frame note. */
+const qualityNote = (q: StripQuality | null) => (q ? { sharpness: Math.round(q.sharpness), clipped: Math.round(q.clipped * 1000) / 1000 } : {});
+
+/** A card's record with one more reason it's kept (a fresh one when the record was already sent). */
+function withReason(rec: ScanRecord | undefined, reason: Reason): ScanRecord | undefined {
+  const r = rec?.continued();
+  r?.reasons.add(reason);
+  return r;
+}
+
 /** What the scanner said, for a kept photo. */
 const guessOf = (f: Found): NonNullable<Found["guess"]> => ({
   guess_name: f.name,
@@ -536,6 +554,41 @@ export function ScannerView({
   useEffect(() => holdSound(), []);
   const camRef = useRef(cam);
   camRef.current = cam;
+  // Scanner diagnostics (diagnostics.ts): the switch, and what the scanning loop knew when it found a card.
+  const [diag, setDiag] = useState(diagnosticsOn);
+  const diagRef = useRef(diag);
+  diagRef.current = diag;
+  const scanCtx = useRef<Record<string, unknown> | null>(null);
+  const cameraNowRef = useRef<Record<string, unknown> | null>(null);
+  const ocrNameRef = useRef<string | null>(null);
+  /** A record for a card just found, when diagnostics are on (or the one carried from the card before). */
+  const newRecord = (carry?: ScanRecord): ScanRecord | undefined => {
+    if (carry) return carry;
+    if (!diagRef.current) return undefined;
+    const rec = new ScanRecord();
+    const c = camRef.current;
+    rec.camera = { ...(cameraNowRef.current ?? {}), zoom: c.zoom, torch: c.torch, digital: c.digital };
+    rec.engine = ocrNameRef.current;
+    const ctx = scanCtx.current;
+    scanCtx.current = null;
+    if (ctx) {
+      rec.note("scan", ctx);
+      if (ctx.overruled) rec.reasons.add("title-overruled");
+    }
+    return rec;
+  };
+  /** The card is done with: send its record, if it was kept for anything. */
+  const endRecord = (outcome: Outcome, f: Found | null | undefined = foundRef.current) => {
+    if (f?.rec) void f.rec.send(outcome);
+  };
+  cameraNowRef.current = cameraNow as Record<string, unknown> | null;
+  ocrNameRef.current = ocrName;
+  // Closing the scanner with a card still in hand ends its record ("left").
+  useEffect(
+    () => () => endRecord("left"),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
   /**
    * The loops reading the camera (scanning, hold and read, the close-up): each registers how to
    * stop it, and a camera switch stops them all at once, synchronously, so nothing from the old
@@ -846,6 +899,8 @@ export function ScannerView({
           }
         }
         let choice: Choice = choosePrinting(opts);
+        // The candidates, for a replay of what was read (eval/real.test.ts).
+        f.rec?.note("options", optionsNote(opts.printings));
         // Read from the collector line by the text reader already. Proof only as evidence.ts would
         // settle it (a field read exactly, the twin guards), never from the reader's confidence;
         // otherwise its printing goes first in the list and the held card is read on, with that
@@ -853,6 +908,7 @@ export function ScannerView({
         if (!choice.chosen && known?.set && known.number) {
           const hit = opts.printings.find((p) => p.set_code === known.set && p.collector_number === known.number);
           const { proven, ev } = proofOf(opts.printings, known.text ?? "");
+          f.rec?.frame({ source: "first", reads: [known.text ?? ""], verdict: ev.verdict() });
           if (sameCamera() && hit && proven === hit.scryfall_id) choice = { chosen: hit, how: "collector", options: [hit, ...choice.options.filter((p) => p !== hit)], certain: true };
           else {
             if (hit) choice = { ...choice, options: [hit, ...choice.options.filter((p) => p !== hit)] };
@@ -869,7 +925,8 @@ export function ScannerView({
         // The crops' reads are one frame of evidence (evidence.ts); it carries on into hold and read.
         const ev = new Evidence(opts.printings);
         const reads: string[] = [];
-        for await (const text of readCollectorLines(read!.image, read!.quad, await ocrEngine())) {
+        let quality: StripQuality | null = null;
+        for await (const text of readCollectorLines(read!.image, read!.quad, await ocrEngine(), { gate: (q) => ((quality = q), true) })) {
           if (foundSeq.current !== seq || !sameCamera()) break;
           reads.push(text);
         }
@@ -881,6 +938,7 @@ export function ScannerView({
         ev.add(reads);
         const v = ev.verdict();
         const raw = reads.join("\n");
+        f.rec?.frame({ source: "first", reads, ...qualityNote(quality), cardPx: Math.round(cardHeight(read!.quad)), verdict: v });
         if (v.kind === "settled") {
           const hit = opts.printings.find((p) => p.scryfall_id === v.id)!;
           update({ options: [hit, ...choice.options.filter((p) => p !== hit)], chosen: hit, how: "collector", sure: true, settledId: hit.scryfall_id, raw, reading: false });
@@ -898,11 +956,18 @@ export function ScannerView({
 
   /** Show a card recognised by its art. `read` is a sharp view of it for the collector line. */
   const showArt = useCallback(
-    (r: Recognition, top: ArtMatch, read: { image: RgbaImage; quad: Quad } | null, carry: Pick<Found, "shot" | "guess" | "unlocked"> = {}) => {
+    (r: Recognition, top: ArtMatch, read: { image: RgbaImage; quad: Quad } | null, carry: Pick<Found, "shot" | "guess" | "unlocked" | "rec"> = {}) => {
       const seq = ++foundSeq.current;
+      const rec = newRecord(carry.rec);
+      rec?.setShot(read);
+      if (rec) {
+        rec.cardName = top.name;
+        rec.note("found", { method: "art", art: top.name, set: top.set, number: top.number, score: top.score, matches: [...r.matches, ...(r.pool ?? [])].slice(0, 8).map((m) => ({ name: m.name, set: m.set, number: m.number, score: Math.round(m.score * 1000) / 1000 })) });
+      }
       const f: Found = {
         shot: read,
         ...carry,
+        rec,
         name: top.name,
         method: "art",
         confidence: top.score,
@@ -932,9 +997,16 @@ export function ScannerView({
     (res: ScanResult, shot: Shot | null = null) => {
       const best = res.candidates[0]!;
       const seq = ++foundSeq.current;
+      const rec = newRecord();
+      rec?.setShot(shot);
+      if (rec) {
+        rec.cardName = best.name;
+        rec.note("found", { method: best.method, confidence: best.confidence, collector: res.raw.collector, title: res.raw.name });
+      }
       // What the text reader read from the collector line: settle() weighs it as evidence (the
       // reader's confidence is about the card, not proof of the printing).
       const f: Found = {
+        rec,
         shot,
         known: { set: best.set, number: best.number, text: res.raw.collector },
         name: best.name,
@@ -1027,6 +1099,8 @@ export function ScannerView({
           const toVideo = (q: Quad) => q.map(([x, y]) => [x / k + zone.x, y / k + zone.y]) as Quad;
           setOutline(r.quad ? { quad: toVideo(r.quad), w: v.videoWidth, h: v.videoHeight } : null);
           seeCard(r.quad ? toVideo(r.quad) : null, v);
+          // What this frame knew is for a card found from this frame only.
+          scanCtx.current = null;
           // Locked to sets: go on the best match among their art while it's about as good as the
           // best anywhere; otherwise on the best anywhere, which settling then shows as outside.
           const locked = lockRef.current;
@@ -1073,8 +1147,11 @@ export function ScannerView({
           // title is read first (Bryan, 15 Nov 2026: no Star Trek card scanned; their art isn't in
           // the bundle, so lookalikes scored 0.5 to 0.8 and the scanner named them, or waited on
           // "Hold still" for ever).
+          // For a diagnostic record of the card found next (diagnostics.ts): what the art said.
+          const artNote = { art: ranked.slice(0, 5).map((m) => ({ name: m.name, set: m.set, number: m.number, score: Math.round(m.score * 1000) / 1000 })), cardPx: Math.round(cardHeight(toVideo(r.quad))) };
           if (!readTitleFirst({ score: top.score, lockOnce: LOCK_ONCE, locked: !!locked, inSet: judged?.kind === "in-set", share: poolShare.current }) && !needsTitle(ranked)) {
             unknownFrames = 0;
+            scanCtx.current = artNote;
             showArt(r, top, read());
             return;
           }
@@ -1093,8 +1170,12 @@ export function ScannerView({
             // The card from title and art together (fuse.ts): a clear title settles the card when
             // the art has it among its matches, and overrules the art when it doesn't. Matches from
             // art the index doesn't know for the locked sets count for nothing.
-            const fused = fuseTitle(artUnknown ? [] : ranked, titleRead(await readTitles(hi.image, hi.quad, reader.ocr), reader));
+            const titles = await readTitles(hi.image, hi.quad, reader.ocr);
             if (stop) return;
+            const title = titleRead(titles, reader);
+            const fused = fuseTitle(artUnknown ? [] : ranked, title);
+            // The title overruled the art: it named a card other than the art's best match.
+            scanCtx.current = { ...artNote, titles, title, fused: fused.kind, artUnknown, overruled: fused.kind === "title" && !!top && !sameCardName(top.name, fused.name) };
             // The card just filed, by its art or its title: still held.
             if (fusedHeld(fused, heldName)) {
               setStatus("Ready for the next card");
@@ -1249,9 +1330,15 @@ export function ScannerView({
   };
 
   /** A card typed by name: straight to its printings. */
-  const fromName = (name: string, how: "typed" | "name" = "typed", carry: Pick<Found, "shot" | "guess"> = {}) => {
+  const fromName = (name: string, how: "typed" | "name" = "typed", carry: Pick<Found, "shot" | "guess" | "rec"> = {}) => {
     const seq = ++foundSeq.current;
-    const f: Found = { name, method: "name", confidence: how === "typed" ? 1 : 0.9, others: [], options: null, sameArt: false, chosen: null, how: null, picking: false, ...carry };
+    const rec = newRecord(carry.rec);
+    rec?.setShot(carry.shot);
+    if (rec) {
+      rec.cardName = name;
+      rec.note(carry.rec ? "renamed" : "found", { method: how === "typed" ? "typed" : "title", name });
+    }
+    const f: Found = { name, method: "name", confidence: how === "typed" ? 1 : 0.9, others: [], options: null, sameArt: false, chosen: null, how: null, picking: false, ...carry, rec };
     setFound(f);
     setShowAll(false);
     setWrongOpen(false);
@@ -1262,6 +1349,8 @@ export function ScannerView({
 
   /** Back to scanning. The card just shown isn't found again until it leaves the view. */
   const again = (held: Found | null = found) => {
+    // A card let go without filing (Skip, Scan next): its record ends here, unless already sent.
+    endRecord("skipped", foundRef.current);
     foundSeq.current += 1;
     setReadProgress(null);
     setWrongOpen(false);
@@ -1286,6 +1375,7 @@ export function ScannerView({
       shot: found.shot,
       guess: found.guess ?? guessOf(found),
       unlocked: found.unlocked,
+      rec: withReason(found.rec, "wrong-card"),
     });
   };
 
@@ -1304,6 +1394,8 @@ export function ScannerView({
   /** Wrong card, with nothing more said: keep the photo as a miss and scan again. */
   const wrongAgain = () => {
     if (found) keep(found, "wrong");
+    found?.rec?.reasons.add("wrong-card");
+    endRecord("wrong");
     again();
   };
 
@@ -1378,6 +1470,7 @@ export function ScannerView({
     };
     const settleOn = (c: Choice, text: string) => {
       const chosenNow = c.chosen!;
+      start.rec?.attempt({ ...held.summary(), ended: "settled", chosen: chosenNow.scryfall_id });
       done();
       setFound((cur) => (cur && cur === start ? { ...cur, chosen: chosenNow, how: "collector", sure: true, settledId: chosenNow.scryfall_id, options: c.options, raw: text } : cur));
       buzz(30);
@@ -1420,23 +1513,30 @@ export function ScannerView({
       return rectQuad(gx, gy, gw, gh);
     };
     /** Read one image of the card into the evidence; true when that settled it. */
-    const readInto = async (src: CanvasImageSource, w: number, h: number, quad: Quad, f: Found): Promise<"settled" | "read" | "blurred"> => {
+    const readInto = async (src: CanvasImageSource, w: number, h: number, quad: Quad, f: Found, source: "hold" | "still" = "hold"): Promise<"settled" | "read" | "blurred"> => {
       const read = around(src, w, h, quad, hiCanvasRef.current!);
       setLiveShot(read);
+      f.rec?.latestShot(read);
       const ocr = await ocrEngine();
       // A blurred or washed-out strip is skipped before the reader sees it (quality.ts).
       let sharp = true;
+      let quality: StripQuality | null = null;
       const reads: string[] = [];
-      for await (const text of readCollectorLines(read.image, read.quad, ocr, { gate: (q) => (sharp = worthReading(q)) })) {
+      for await (const text of readCollectorLines(read.image, read.quad, ocr, { gate: (q) => ((quality = q), (sharp = worthReading(q))) })) {
         if (stop) return "read";
         reads.push(text);
       }
-      if (!sharp) return "blurred";
+      const note = { source, ...qualityNote(quality), cardPx: Math.round(cardHeight(quad)), zoom: camRef.current.zoom };
+      if (!sharp) {
+        f.rec?.frame({ ...note, reads: [], skipped: true });
+        return "blurred";
+      }
       // Finished after the attempt ended (a still, or a camera switch): it counts for nothing.
       if (stop) return "read";
       // Every read adds to the evidence (evidence.ts): settled on weight, not on a run.
       ev.add(reads);
       const weighed = ev.verdict();
+      f.rec?.frame({ ...note, reads, verdict: weighed });
       if (weighed.kind === "settled") {
         const c = choosePrinting({ sameArt: f.sameArt, printings: f.options! }, reads.join("\n"));
         const hit = f.options!.find((p) => p.scryfall_id === weighed.id)!;
@@ -1466,7 +1566,7 @@ export function ScannerView({
         if (stop) return false;
         const quad = await locate(bmp, bmp.width, bmp.height, null);
         if (!quad || stop) return false;
-        return (await readInto(bmp, bmp.width, bmp.height, quad, f)) === "settled";
+        return (await readInto(bmp, bmp.width, bmp.height, quad, f, "still")) === "settled";
       } catch (e) {
         console.info("No still from the camera", e);
         return false;
@@ -1479,10 +1579,15 @@ export function ScannerView({
     const act = (verdict: HeldVerdict, wait: number) => {
       switch (verdict) {
         case "closeup":
+          // Diagnostics: the close-up took over from reading the whole card.
+          start.rec?.reasons.add("closeup");
+          start.rec?.attempt(held.summary());
           done();
           setCloseup("collector");
           return;
         case "stop":
+          start.rec?.reasons.add("hold-gave-up");
+          start.rec?.attempt(held.summary());
           return done(true);
         default:
           return next(wait);
@@ -1580,6 +1685,7 @@ export function ScannerView({
           if (closeEv?.options !== f.options) closeEv = { options: f.options, ev: new Evidence(f.options) };
           closeEv.ev.add([text]);
           const weighed = closeEv.ev.verdict();
+          f.rec?.frame({ source: "closeup", reads: [text], verdict: weighed });
           if (weighed.kind === "settled") {
             const chosenNow = f.options.find((p) => p.scryfall_id === weighed.id)!;
             const c = choosePrinting({ sameArt: f.sameArt, printings: f.options }, text);
@@ -1652,6 +1758,9 @@ export function ScannerView({
     const label = c ? `${c.name} (${c.set_code.toUpperCase()} ${c.collector_number})` : f.name;
     const card = candidateOf(f, c);
     keep(f, "added", card);
+    // Diagnostics: how the card ended, and its record goes (when it was kept for anything).
+    f.rec?.note("final", { id: c?.scryfall_id, set: c?.set_code, number: c?.collector_number, how: f.how, sure: !!f.sure, correcting: !!f.correcting, misread: f.misread?.scryfall_id });
+    endRecord(f.how === "picked" ? "picked" : "filed", f);
     // Wrong printing after filing: change the copy already filed, never add another.
     if (f.correcting) {
       const from = f.correcting;
@@ -1706,7 +1815,8 @@ export function ScannerView({
    * changes that copy. A scan photo is kept as a correction of the misread.
    */
   const wrongPrinting = (f: Found, misread: Printing, filed?: ScanCandidate) => {
-    const base: Found = { ...f, guess: f.guess ?? guessOf(f), misread, correcting: filed, chosen: null, how: null, sure: false, picking: false, error: undefined };
+    const base: Found = { ...f, guess: f.guess ?? guessOf(f), misread, correcting: filed, chosen: null, how: null, sure: false, picking: false, error: undefined, rec: withReason(f.rec, "wrong-printing") };
+    base.rec?.note("misread", { id: misread.scryfall_id, set: misread.set_code, number: misread.collector_number, how: f.how });
     setJustAdded(null);
     setWrongOpen(false);
     setCloseup(null);
@@ -1782,6 +1892,13 @@ export function ScannerView({
         }}
       />
       <SavePhotosSwitch />
+      <DiagnosticsSwitch
+        on={diag}
+        onChange={(on) => {
+          setDiagnosticsOn(on);
+          setDiag(on);
+        }}
+      />
       {soundsProp && (
         <SoundsSetting
           on={soundsSwitch}
@@ -2090,6 +2207,8 @@ export function ScannerView({
                     className={`scan-printing${p === chosen ? " is-chosen" : ""}`}
                     onClick={() => {
                       setCloseup(null);
+                      // Diagnostics: the printing came from the list, not the card.
+                      if (options.length > 1) found.rec?.reasons.add("picked");
                       const picked: Found = { ...found, chosen: p, how: "picked", sure: false, picking: false };
                       // Tapping the printing is the confirmation (Bryan, 15 Nov 2026): it's filed at
                       // once, with Undo on the camera (or Wrong card before tapping) as the way back.
@@ -2172,7 +2291,7 @@ export function ScannerView({
                   </div>
                 )}
                 <div className="scan-other-ways">
-                  <NameEntry onPick={(n) => fromName(n, "typed", { shot: found.shot, guess: found.guess ?? guessOf(found) })} />
+                  <NameEntry onPick={(n) => fromName(n, "typed", { shot: found.shot, guess: found.guess ?? guessOf(found), rec: withReason(found.rec, "wrong-card") })} />
                   <Button onClick={wrongAgain}>Scan it again</Button>
                 </div>
               </div>
@@ -2307,6 +2426,56 @@ function SavePhotosSwitch() {
               className="scan-alt"
               onClick={() =>
                 deleteSamples().then(
+                  (r) => {
+                    setSummary({ ...summary, count: 0, bytes: 0 });
+                    setNote(`Deleted ${r.deleted}.`);
+                  },
+                  (e: unknown) => setNote(e instanceof Error ? e.message : String(e)),
+                )
+              }
+            >
+              Delete them
+            </Button>
+          </>
+        )}
+        {note && <span className="dim"> {note}</span>}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Scanner diagnostics (diagnostics.ts): off by default, per device, and kept for this account only
+ * (not shared, unlike scan photos); how many are kept, and "Delete them".
+ */
+function DiagnosticsSwitch({ on, onChange }: { on: boolean; onChange: (on: boolean) => void }) {
+  const [summary, setSummary] = useState<DiagnosticsSummary | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  useEffect(() => {
+    if (!on) return;
+    let live = true;
+    diagnosticsSummary().then(
+      (s) => live && setSummary(s),
+      () => undefined,
+    );
+    return () => {
+      live = false;
+    };
+  }, [on]);
+  return (
+    <div className="scan-keep">
+      <input id="scan-diagnostics" type="checkbox" checked={on} onChange={(e) => onChange(e.target.checked)} />
+      <span>
+        <label htmlFor="scan-diagnostics">
+          <strong>Scanner diagnostics.</strong> When the scanner struggles with a card (you pick the printing, say it's the wrong card or printing, or it gives up), keep what it saw: the bottom edge of the card at the camera's full resolution, a small photo, everything it read and the camera's settings. Kept in your account only, for checking and improving the scanner; not shared. On this device.
+        </label>{" "}
+        {summary && summary.count > 0 && (
+          <>
+            {summary.count} kept.{" "}
+            <Button
+              className="scan-alt"
+              onClick={() =>
+                deleteDiagnostics().then(
                   (r) => {
                     setSummary({ ...summary, count: 0, bytes: 0 });
                     setNote(`Deleted ${r.deleted}.`);

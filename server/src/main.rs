@@ -47,6 +47,7 @@ mod privacy_tests;
 mod routes;
 mod scan;
 mod scan_art;
+mod scan_diagnostics;
 mod scan_samples;
 mod sell;
 mod sharing;

@@ -15,6 +15,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-15-scanner-diagnostics",
+    date: "2026-11-15",
+    title: "Scanner diagnostics, for when it reads a card wrong",
+    items: [
+      "To turn it on: open the scanner, open Scan settings and tick \"Scanner diagnostics\". It's off unless you turn it on, and it's set per device.",
+      "While it's on, each card the scanner struggles with (you pick the printing, say it's the wrong card or printing, or it gives up) keeps what the scanner saw: the bottom edge of the card at the camera's full resolution, a small photo, and everything it read. They stay in your account, shown to no one else; \"Delete them\" in Scan settings removes them.",
+    ],
+    link: { to: "/collection", label: "Scan cards" },
+  },
+  {
     id: "2026-11-15-scan-new-art",
     date: "2026-11-15",
     title: "New cards are recognised by their art within a day",

@@ -1,0 +1,75 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { applyH, rectQuad, squareToQuad, warpRegion } from "./image";
+import { STRIP, ScanRecord, stripQuad, stripSize } from "./diagnostics";
+import { COLLECTOR_REGION, RIGHT_COLLECTOR_REGION } from "./pipeline";
+
+const posted = vi.hoisted(() => ({ bodies: [] as unknown[] }));
+vi.mock("../api", async (original) => ({
+  ...(await original<typeof import("../api")>()),
+  api: async (path: string, init?: { json?: unknown }) => {
+    posted.bodies.push({ path, ...(init?.json as object) });
+    return { id: "x" };
+  },
+}));
+
+describe("scanner diagnostics", () => {
+  beforeEach(() => {
+    posted.bodies.length = 0;
+  });
+
+  it("keeps the whole bottom strip, both collector corners, at the card's own resolution", () => {
+    expect(STRIP.y0).toBeLessThanOrEqual(COLLECTOR_REGION.y0);
+    expect(STRIP.x0).toBeLessThanOrEqual(COLLECTOR_REGION.x0);
+    expect(STRIP.x1).toBeGreaterThanOrEqual(RIGHT_COLLECTOR_REGION.x1);
+    // A card 1,400 px wide in the frame: its strip is 1,400 px wide, never enlarged.
+    expect(stripSize(rectQuad(0, 0, 1400, 1956))).toEqual({ width: 1400, height: Math.round((1400 * 0.14 * 88) / 63) });
+  });
+
+  it("gives a replay a card quad that cuts the same corners from the strip", () => {
+    const { width, height } = stripSize(rectQuad(0, 0, 900, 1257));
+    const q = stripQuad(width, height);
+    // The strip's top-left and bottom-right are the card's (0, 0.86) and (1, 1).
+    const m = squareToQuad(q);
+    const [x0, y0] = applyH(m, STRIP.x0, STRIP.y0);
+    const [x1, y1] = applyH(m, STRIP.x1, STRIP.y1);
+    expect(x0).toBeCloseTo(0, 6);
+    expect(y0).toBeCloseTo(0, 6);
+    expect(x1).toBeCloseTo(width, 6);
+    expect(y1).toBeCloseTo(height, 6);
+    // Reading the collector corner from it stays inside the strip.
+    const grey = { width, height, data: new Uint8ClampedArray(width * height).fill(200) };
+    expect(warpRegion(grey, q, COLLECTOR_REGION, 100, 20).data.every((v) => v === 200)).toBe(true);
+  });
+
+  it("sends a record only when it has a reason, once, with every frame and fact", async () => {
+    const rec = new ScanRecord();
+    rec.frame({ source: "first", reads: ["0145 C", "WOC • EN"], sharpness: 120 });
+    expect(await rec.send("filed")).toBe(false);
+    rec.reasons.add("picked");
+    rec.note("final", { id: "woc", how: "picked" });
+    expect(await rec.send("picked")).toBe(true);
+    expect(await rec.send("picked")).toBe(false);
+    const body = posted.bodies[0] as { path: string; outcome: string; detail: { reasons: string[]; frames: unknown[]; final: unknown } };
+    expect(body.path).toBe("/api/scan/diagnostics");
+    expect(body.outcome).toBe("picked");
+    expect(body.detail.reasons).toEqual(["picked"]);
+    expect(body.detail.frames).toHaveLength(1);
+    expect(body.detail.final).toEqual({ id: "woc", how: "picked" });
+  });
+
+  it("continues a sent record as a new one for what happens next (Wrong printing after filing)", async () => {
+    const rec = new ScanRecord();
+    rec.reasons.add("hold-gave-up");
+    rec.note("options", [{ id: "a" }]);
+    rec.frame({ source: "hold", reads: ["x"] });
+    await rec.send("filed");
+    const next = rec.continued();
+    expect(next).not.toBe(rec);
+    expect(next.reasons.size).toBe(0);
+    expect(next.facts.options).toEqual([{ id: "a" }]);
+    expect(next.frames).toHaveLength(1);
+    // Not yet sent: the same record.
+    const fresh = new ScanRecord();
+    expect(fresh.continued()).toBe(fresh);
+  });
+});

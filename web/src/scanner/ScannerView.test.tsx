@@ -15,9 +15,15 @@ const printing = (set: string, n: string): Printing => ({
   price_date: null, usd: null, usd_foil: null, usd_etched: null, eur: null, eur_foil: null,
 });
 
+const diag = vi.hoisted(() => ({ posted: [] as { outcome: string; detail: Record<string, unknown> }[] }));
 vi.mock("../api", async (original) => ({
   ...(await original<typeof import("../api")>()),
-  api: (path: string) => {
+  api: (path: string, init?: { method?: string; json?: unknown }) => {
+    if (path === "/api/scan/diagnostics" && init?.method === "POST") {
+      diag.posted.push(init.json as (typeof diag.posted)[number]);
+      return Promise.resolve({ id: "d1" });
+    }
+    if (path.startsWith("/api/scan/diagnostics")) return Promise.resolve({ count: 0, bytes: 0, keep: 200 });
     if (path.startsWith("/api/cards/autocomplete")) return Promise.resolve(path.includes("Sol") ? ["Sol Ring"] : ["Arcane Signet"]);
     // One English printing (so it's settled as "the only one") and two in other languages.
     if (path.startsWith("/api/scan/printings") && path.includes("Sol"))
@@ -470,3 +476,45 @@ describe("withTimeout", () => {
     }
   });
 });
+
+describe("scanner diagnostics, when they're on (slice 5)", () => {
+  beforeEach(() => {
+    diag.posted.length = 0;
+  });
+  afterEach(() => localStorage.removeItem("yama.scan.diagnostics"));
+
+  it("keeps a card whose printing was picked from the list, with the candidates and how it ended", async () => {
+    localStorage.setItem("yama.scan.diagnostics", "1");
+    act(() => root.render(<ScannerView onAccept={async () => true} />));
+    await typeName();
+    const options = await until(() => (document.querySelectorAll('[role="option"]').length === 3 ? document.querySelectorAll<HTMLElement>('[role="option"]') : null), "the printings");
+    await click(options[1]!);
+    const sent = await until(() => diag.posted[0], "the record");
+    expect(sent.outcome).toBe("picked");
+    expect(sent.detail.reasons).toEqual(["picked"]);
+    expect(sent.detail.final).toMatchObject({ id: "id-cmm-390", how: "picked" });
+    expect((sent.detail.options as { id: string }[]).map((o) => o.id)).toEqual(["id-woc-145", "id-cmm-390", "id-c21-236"]);
+    expect(sent.detail.found).toMatchObject({ method: "typed", name: "Arcane Signet" });
+  });
+
+  it("keeps nothing with the switch off (its default), and nothing for a card that went smoothly", async () => {
+    act(() => root.render(<ScannerView onAccept={async () => true} />));
+    await typeName();
+    const options = await until(() => (document.querySelectorAll('[role="option"]').length === 3 ? document.querySelectorAll<HTMLElement>('[role="option"]') : null), "the printings");
+    await click(options[1]!);
+    await wait(30);
+    expect(diag.posted).toEqual([]);
+    expect(document.querySelector<HTMLInputElement>("#scan-diagnostics")?.checked).toBe(false);
+
+    // On, but a card filed straight away (the only printing): no reason to keep it.
+    act(() => root.unmount());
+    root = createRoot(host);
+    localStorage.setItem("yama.scan.diagnostics", "1");
+    act(() => root.render(<ScannerView onAccept={async () => true} />));
+    await typeName("Sol Ring");
+    await click(await until(() => button("Add"), "Add"));
+    await wait(30);
+    expect(diag.posted).toEqual([]);
+  });
+});
+

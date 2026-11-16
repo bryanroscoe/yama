@@ -552,6 +552,8 @@ async fn deleting_an_account_leaves_nothing_of_it() {
     fill(&pool, "play_prefs", &[("user_id", t(&v))]).await;
     fill(&pool, "scan_samples", &[("owner_id", t(&v)), ("kind", t("added"))]).await;
     let b_sample = fill(&pool, "scan_samples", &[("owner_id", t(&b)), ("kind", t("wrong"))]).await;
+    let v_diag = fill(&pool, "scan_diagnostics", &[("owner_id", t(&v)), ("outcome", t("picked")), ("detail", t("{}")), ("images", t("[]"))]).await;
+    let b_diag = fill(&pool, "scan_diagnostics", &[("owner_id", t(&b)), ("outcome", t("wrong")), ("detail", t("{}")), ("images", t("[]"))]).await;
 
     // Playgroups: one it owns with the bystander in it (passes on), one with only a guest
     // (deleted), and the bystander's with the victim in it (membership becomes a guest).
@@ -759,6 +761,8 @@ async fn deleting_an_account_leaves_nothing_of_it() {
     assert_eq!(count(&pool, "online_games", "game_id", &g6).await, 0);
     assert_eq!(count(&pool, "decks", "id", &b_deck).await, 1);
     assert_eq!(count(&pool, "scan_samples", "id", &b_sample).await, 1);
+    assert_eq!(count(&pool, "scan_diagnostics", "id", &v_diag).await, 0);
+    assert_eq!(count(&pool, "scan_diagnostics", "id", &b_diag).await, 1);
     assert_eq!(count(&pool, "lab_runs", "id", &global_run).await, 1);
     assert_eq!(count(&pool, "lab_worker_jobs", "run_id", &execution).await, 0);
     for ((table, column), before) in USER_COLUMNS.iter().zip(bystander_before) {
