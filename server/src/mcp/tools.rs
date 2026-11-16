@@ -657,7 +657,8 @@ pub(super) const TOOLS: &[Tool] = &[
         title: "Collection totals and containers",
         description: "Their collection as the Collection page totals it: copies, proxies, distinct printings, market value of the \
                       copies with a price (with the newest price date), how many have none, and what they paid; then each binder, \
-                      deck box and list with its copies and market value. Proxies have no market value. A missing price is \
+                      deck box, box and list in tree order with its path, copies and market value (total_*: with its sections). \
+                      Proxies have no market value. A missing price is \
                       unknown, never zero, and a market value isn't what a store would pay. Use list_collection_cards for the cards.",
         schema: no_args,
         kind: Kind::Read,
@@ -1197,7 +1198,7 @@ pub(super) const TOOLS: &[Tool] = &[
                     "qty": {"type": "integer", "minimum": 1, "maximum": 100},
                     "set": {"type": "string", "description": "Set code, such as \"cmm\"."},
                     "number": {"type": "string", "description": "Collector number in that set."},
-                    "container": {"type": "string", "description": "Their binder, deck box or list, by name, or \"Loose\" for copies in none."},
+                    "container": {"type": "string", "description": "Their binder, deck box, box or section, by name or path (\"Big box/Bulk Basic\"), or \"Loose\" for copies in none."},
                     "proxy": {"type": "boolean"},
                     "finish": {"type": "string", "enum": ["nonfoil", "foil", "etched"], "description": "Regular unless said, or the printing's only finish. A special foil (surge, galaxy, textured...) is its own printing: give its set and number, with foil."},
                 },
@@ -1219,26 +1220,37 @@ pub(super) const TOOLS: &[Tool] = &[
         name: "move_cards",
         aliases: &[],
         title: "Move cards between binders and boxes",
-        description: staged!("Move copies of a card between their binders, deck boxes and lists. A deck's swappable spares \
-                      are cards kept in its box outside the 100, never counted in its list: to_deck_spares puts copies \
+        description: staged!("Move copies of a card between their containers; moves (up to 500) stages many as one all-or-nothing \
+                      change. A deck's swappable spares are cards kept in its box outside the 100: to_deck_spares puts copies \
                       there (swaps_for and bracket say what each comes in for), from_deck_spares takes them out."),
         schema: || {
-            json!({
-                "type": "object",
-                "properties": {
-                    "card": {"type": "string"},
-                    "qty": {"type": "integer", "minimum": 1, "maximum": 100},
-                    "from": {"type": "string", "description": "Where the copies are: a binder, deck box or list by name, or \"Loose\" for copies in none. Give this or from_deck_spares."},
-                    "to": {"type": "string", "description": "Where they go: a binder, deck box or list by name, or \"Loose\" for none. Give this or to_deck_spares. A deck box by name means the deck's 100."},
-                    "from_deck_spares": {"type": "string", "description": "A deck's name or id: take the copies out of that deck's swappable spares."},
-                    "to_deck_spares": {"type": "string", "description": "A deck's name or id: put the copies in that deck's swappable spares (in its box, outside the 100). A configuration means its main deck."},
-                    "swaps_for": {"type": "string", "description": "With to_deck_spares: the card in the deck this spare comes in for."},
-                    "bracket": {"type": "integer", "minimum": 1, "maximum": 5, "description": "With to_deck_spares: the Commander bracket that swap is for."},
-                    "proxy": {"type": "boolean", "description": "true moves only proxies, false only real copies. Left out, real copies go first."},
-                },
-                "required": ["card"],
-                "additionalProperties": false,
-            })
+            let one = |required: bool| {
+                let mut o = json!({
+                    "type": "object",
+                    "properties": {
+                        "card": {"type": "string"},
+                        "qty": {"type": "integer", "minimum": 1, "maximum": 1000},
+                        "from": {"type": "string", "description": "Where the copies are: a container by name or path (\"Big box/Bulk Basic\"), or \"Loose\" for copies in none. Give this or from_deck_spares."},
+                        "to": {"type": "string", "description": "Where they go, the same way. Give this or to_deck_spares. A deck box by name means the deck's 100."},
+                        "from_deck_spares": {"type": "string", "description": "A deck's name or id: take the copies out of that deck's swappable spares."},
+                        "to_deck_spares": {"type": "string", "description": "A deck's name or id: put the copies in that deck's swappable spares (in its box, outside the 100). A configuration means its main deck."},
+                        "swaps_for": {"type": "string", "description": "With to_deck_spares: the card in the deck this spare comes in for."},
+                        "bracket": {"type": "integer", "minimum": 1, "maximum": 5, "description": "With to_deck_spares: the Commander bracket that swap is for."},
+                        "proxy": {"type": "boolean", "description": "true moves only proxies, false only real copies. Left out, real copies go first."},
+                        "set": {"type": "string", "maxLength": 10, "description": "Only copies of this printing: its set code."},
+                        "number": {"type": "string", "maxLength": 20, "description": "Collector number in that set."},
+                        "finish": {"type": "string", "enum": ["nonfoil", "foil", "etched"], "description": "Only copies with this finish."},
+                    },
+                    "additionalProperties": false,
+                });
+                if required {
+                    o["required"] = json!(["card"]);
+                }
+                o
+            };
+            let mut s = one(false);
+            s["properties"]["moves"] = json!({"type": "array", "maxItems": 500, "minItems": 1, "items": one(true), "description": "Several moves as one change, instead of card, from and to."});
+            s
         },
         kind: Kind::Stage,
         offer: Offer::Everyone,
@@ -1262,7 +1274,7 @@ pub(super) const TOOLS: &[Tool] = &[
             json!({
                 "type": "object",
                 "properties": {
-                    "container": {"type": "string", "description": "Their binder, deck box or list, by name, or \"Loose\" for copies in none."},
+                    "container": {"type": "string", "description": "Their binder, deck box, box or section, by name or path (\"Big box/Bulk Basic\"), or \"Loose\" for copies in none."},
                     "card": {"type": "string", "description": "Only this card's copies; every card there if left out."},
                     "condition": {"type": "string", "enum": ["NM", "LP", "MP", "HP", "DMG"]},
                 },
@@ -1335,16 +1347,17 @@ pub(super) const TOOLS: &[Tool] = &[
     Tool {
         name: "create_container",
         aliases: &[],
-        title: "Make a binder, box or list",
-        description: staged!("Make a new, empty binder, deck box, box or list in their collection."),
+        title: "Make a binder, box, section or list",
+        description: staged!("Make a new, empty binder, deck box, box or list in their collection, or a section inside one (parent)."),
         schema: || {
             json!({
                 "type": "object",
                 "properties": {
                     "name": {"type": "string", "maxLength": 80},
-                    "kind": {"type": "string", "enum": ["binder", "deck", "box", "list"], "description": "deck is a deck box; list holds cards they don't physically keep together."},
+                    "kind": {"type": "string", "enum": ["binder", "deck", "box", "list"], "description": "deck is a deck box; list holds cards they don't physically keep together. A section can leave it out: it takes its parent's."},
+                    "parent": {"type": "string", "description": "Make it a section of this container: a name or path, such as \"Big box/Bulk Basic\". Left out: top level."},
                 },
-                "required": ["name", "kind"],
+                "required": ["name"],
                 "additionalProperties": false,
             })
         },
@@ -1353,6 +1366,36 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: stage!(changes::create_container),
         stages: Some(changes::staging::CREATE_CONTAINER),
+        output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
+    },
+    Tool {
+        name: "update_container",
+        aliases: &[],
+        title: "Rename or move a binder, box or section",
+        description: staged!(
+            "Rename one of their containers, or move it with its cards and sections into another (parent) or to the top level."
+        ),
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "container": {"type": "string", "description": "The container: a name or path, such as \"Big box/Bulk Basic/Plains\", or its id."},
+                    "name": {"type": "string", "maxLength": 80, "description": "Its new name."},
+                    "parent": {"type": "string", "description": "Move it inside this container (name or path)."},
+                    "top_level": {"type": "boolean", "description": "true moves it out of any container, to the top level."},
+                },
+                "required": ["container"],
+                "additionalProperties": false,
+            })
+        },
+        kind: Kind::Stage,
+        offer: Offer::Everyone,
+        search: false,
+        handler: stage!(changes::update_container),
+        stages: Some(changes::staging::UPDATE_CONTAINER),
         output: None,
         untrusted: None,
         renamed: &[],
@@ -1369,7 +1412,7 @@ pub(super) const TOOLS: &[Tool] = &[
                 "properties": {
                     "card": {"type": "string"},
                     "qty": {"type": "integer", "minimum": 1, "maximum": 100, "description": "How many copies (default 1)."},
-                    "from": {"type": "string", "description": "Their binder, deck box or list, by name, or \"Loose\" for copies in none."},
+                    "from": {"type": "string", "description": "Their binder, deck box, box or section, by name or path (\"Big box/Bulk Basic\"), or \"Loose\" for copies in none."},
                     "set": {"type": "string", "maxLength": 10, "description": "Only copies of this printing: its set code, such as \"cmm\"."},
                     "number": {"type": "string", "maxLength": 20, "description": "Collector number in that set."},
                     "finish": {"type": "string", "enum": ["nonfoil", "foil", "etched"], "description": "Only copies with this finish."},
@@ -1399,7 +1442,7 @@ pub(super) const TOOLS: &[Tool] = &[
                 "type": "object",
                 "properties": {
                     "card": {"type": "string"},
-                    "container": {"type": "string", "description": "Their binder, deck box or list, by name, or \"Loose\" for copies in none."},
+                    "container": {"type": "string", "description": "Their binder, deck box, box or section, by name or path (\"Big box/Bulk Basic\"), or \"Loose\" for copies in none."},
                     "qty": {"type": "integer", "minimum": 1, "maximum": 100, "description": "How many copies get a new finish or proxy mark; every copy that would change if left out. A note or price is for all of them: leave it out."},
                     "finish": {"type": "string", "enum": ["nonfoil", "foil", "etched"]},
                     "proxy": {"type": "boolean"},
@@ -2440,12 +2483,15 @@ async fn collection_summary(pool: &SqlitePool, user: &User) -> AppResult<String>
         if let Some(o) = c.as_object_mut() {
             o.remove("art");
             o.remove("artist");
+            // "Big box › Bulk Basic › Plains": the path as one string, as the tools take it.
+            let path: Vec<String> = o.get("path").and_then(|p| serde_json::from_value(p.clone()).ok()).unwrap_or_default();
+            o.insert("path".into(), json!(path.join(crate::collection::sections::SHOWN)));
         }
     }
     let out = json!({
         "totals": summary,
         "containers": containers,
-        "note": "Market values are dated market references, not store or buylist offers. Loose copies are in no container.",
+        "note": "Market values are dated market references, not store or buylist offers. Loose copies are in no container. Containers are in tree order; a tool takes a section by its path with / (\"Big box/Bulk Basic\").",
     });
     Ok(out.to_string())
 }

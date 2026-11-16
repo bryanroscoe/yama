@@ -1173,7 +1173,7 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
-      "description": "Their collection as the Collection page totals it: copies, proxies, distinct printings, market value of the copies with a price (with the newest price date), how many have none, and what they paid; then each binder, deck box and list with its copies and market value. Proxies have no market value. A missing price is unknown, never zero, and a market value isn't what a store would pay. Use list_collection_cards for the cards.",
+      "description": "Their collection as the Collection page totals it: copies, proxies, distinct printings, market value of the copies with a price (with the newest price date), how many have none, and what they paid; then each binder, deck box, box and list in tree order with its path, copies and market value (total_*: with its sections). Proxies have no market value. A missing price is unknown, never zero, and a market value isn't what a store would pay. Use list_collection_cards for the cards.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2159,7 +2159,7 @@
             "type": "string"
           },
           "container": {
-            "description": "Their binder, deck box or list, by name, or \"Loose\" for copies in none.",
+            "description": "Their binder, deck box, box or section, by name or path (\"Big box/Bulk Basic\"), or \"Loose\" for copies in none.",
             "maxLength": 300,
             "type": "string"
           },
@@ -2213,7 +2213,7 @@
         "openWorldHint": false,
         "readOnlyHint": false
       },
-      "description": "Move copies of a card between their binders, deck boxes and lists. A deck's swappable spares are cards kept in its box outside the 100, never counted in its list: to_deck_spares puts copies there (swaps_for and bracket say what each comes in for), from_deck_spares takes them out. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
+      "description": "Move copies of a card between their containers; moves (up to 500) stages many as one all-or-nothing change. A deck's swappable spares are cards kept in its box outside the 100: to_deck_spares puts copies there (swaps_for and bracket say what each comes in for), from_deck_spares takes them out. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2227,14 +2227,106 @@
             "maxLength": 300,
             "type": "string"
           },
+          "finish": {
+            "description": "Only copies with this finish.",
+            "enum": [
+              "nonfoil",
+              "foil",
+              "etched"
+            ],
+            "type": "string"
+          },
           "from": {
-            "description": "Where the copies are: a binder, deck box or list by name, or \"Loose\" for copies in none. Give this or from_deck_spares.",
+            "description": "Where the copies are: a container by name or path (\"Big box/Bulk Basic\"), or \"Loose\" for copies in none. Give this or from_deck_spares.",
             "maxLength": 300,
             "type": "string"
           },
           "from_deck_spares": {
             "description": "A deck's name or id: take the copies out of that deck's swappable spares.",
             "maxLength": 300,
+            "type": "string"
+          },
+          "moves": {
+            "description": "Several moves as one change, instead of card, from and to.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "bracket": {
+                  "description": "With to_deck_spares: the Commander bracket that swap is for.",
+                  "maximum": 5,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "card": {
+                  "maxLength": 300,
+                  "type": "string"
+                },
+                "finish": {
+                  "description": "Only copies with this finish.",
+                  "enum": [
+                    "nonfoil",
+                    "foil",
+                    "etched"
+                  ],
+                  "type": "string"
+                },
+                "from": {
+                  "description": "Where the copies are: a container by name or path (\"Big box/Bulk Basic\"), or \"Loose\" for copies in none. Give this or from_deck_spares.",
+                  "maxLength": 300,
+                  "type": "string"
+                },
+                "from_deck_spares": {
+                  "description": "A deck's name or id: take the copies out of that deck's swappable spares.",
+                  "maxLength": 300,
+                  "type": "string"
+                },
+                "number": {
+                  "description": "Collector number in that set.",
+                  "maxLength": 20,
+                  "type": "string"
+                },
+                "proxy": {
+                  "description": "true moves only proxies, false only real copies. Left out, real copies go first.",
+                  "type": "boolean"
+                },
+                "qty": {
+                  "maximum": 1000,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "set": {
+                  "description": "Only copies of this printing: its set code.",
+                  "maxLength": 10,
+                  "type": "string"
+                },
+                "swaps_for": {
+                  "description": "With to_deck_spares: the card in the deck this spare comes in for.",
+                  "maxLength": 300,
+                  "type": "string"
+                },
+                "to": {
+                  "description": "Where they go, the same way. Give this or to_deck_spares. A deck box by name means the deck's 100.",
+                  "maxLength": 300,
+                  "type": "string"
+                },
+                "to_deck_spares": {
+                  "description": "A deck's name or id: put the copies in that deck's swappable spares (in its box, outside the 100). A configuration means its main deck.",
+                  "maxLength": 300,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "card"
+              ],
+              "type": "object"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "type": "array"
+          },
+          "number": {
+            "description": "Collector number in that set.",
+            "maxLength": 20,
             "type": "string"
           },
           "op_id": {
@@ -2249,9 +2341,14 @@
             "type": "boolean"
           },
           "qty": {
-            "maximum": 100,
+            "maximum": 1000,
             "minimum": 1,
             "type": "integer"
+          },
+          "set": {
+            "description": "Only copies of this printing: its set code.",
+            "maxLength": 10,
+            "type": "string"
           },
           "swaps_for": {
             "description": "With to_deck_spares: the card in the deck this spare comes in for.",
@@ -2259,7 +2356,7 @@
             "type": "string"
           },
           "to": {
-            "description": "Where they go: a binder, deck box or list by name, or \"Loose\" for none. Give this or to_deck_spares. A deck box by name means the deck's 100.",
+            "description": "Where they go, the same way. Give this or to_deck_spares. A deck box by name means the deck's 100.",
             "maxLength": 300,
             "type": "string"
           },
@@ -2269,9 +2366,6 @@
             "type": "string"
           }
         },
-        "required": [
-          "card"
-        ],
         "type": "object"
       },
       "name": "move_cards",
@@ -2304,7 +2398,7 @@
             "type": "string"
           },
           "container": {
-            "description": "Their binder, deck box or list, by name, or \"Loose\" for copies in none.",
+            "description": "Their binder, deck box, box or section, by name or path (\"Big box/Bulk Basic\"), or \"Loose\" for copies in none.",
             "maxLength": 300,
             "type": "string"
           },
@@ -2410,12 +2504,12 @@
         "openWorldHint": false,
         "readOnlyHint": false
       },
-      "description": "Make a new, empty binder, deck box, box or list in their collection. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
+      "description": "Make a new, empty binder, deck box, box or list in their collection, or a section inside one (parent). Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
           "kind": {
-            "description": "deck is a deck box; list holds cards they don't physically keep together.",
+            "description": "deck is a deck box; list holds cards they don't physically keep together. A section can leave it out: it takes its parent's.",
             "enum": [
               "binder",
               "deck",
@@ -2434,16 +2528,66 @@
             "minLength": 8,
             "pattern": "^[A-Za-z0-9_-]+$",
             "type": "string"
+          },
+          "parent": {
+            "description": "Make it a section of this container: a name or path, such as \"Big box/Bulk Basic\". Left out: top level.",
+            "maxLength": 300,
+            "type": "string"
           }
         },
         "required": [
-          "name",
-          "kind"
+          "name"
         ],
         "type": "object"
       },
       "name": "create_container",
-      "title": "Make a binder, box or list"
+      "title": "Make a binder, box, section or list"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Rename one of their containers, or move it with its cards and sections into another (parent) or to the top level. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "container": {
+            "description": "The container: a name or path, such as \"Big box/Bulk Basic/Plains\", or its id.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "name": {
+            "description": "Its new name.",
+            "maxLength": 80,
+            "type": "string"
+          },
+          "op_id": {
+            "description": "Optional: your own id for this call, a new UUID each time you stage something. Calling again with the same op_id and the same arguments answers with the change already staged instead of staging another, so a retry after a lost reply is safe. Never reuse one for a different change: that is refused.",
+            "maxLength": 64,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "parent": {
+            "description": "Move it inside this container (name or path).",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "top_level": {
+            "description": "true moves it out of any container, to the top level.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "container"
+        ],
+        "type": "object"
+      },
+      "name": "update_container",
+      "title": "Rename or move a binder, box or section"
     },
     {
       "annotations": {
@@ -2470,7 +2614,7 @@
             "type": "string"
           },
           "from": {
-            "description": "Their binder, deck box or list, by name, or \"Loose\" for copies in none.",
+            "description": "Their binder, deck box, box or section, by name or path (\"Big box/Bulk Basic\"), or \"Loose\" for copies in none.",
             "maxLength": 300,
             "type": "string"
           },
@@ -2527,7 +2671,7 @@
             "type": "string"
           },
           "container": {
-            "description": "Their binder, deck box or list, by name, or \"Loose\" for copies in none.",
+            "description": "Their binder, deck box, box or section, by name or path (\"Big box/Bulk Basic\"), or \"Loose\" for copies in none.",
             "maxLength": 300,
             "type": "string"
           },
@@ -3431,13 +3575,18 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
-      "description": "Read your collection, including quantities, proxies and containers. Filter by card-name text or to copies outside deck containers. spares_of_deck names the deck whose swappable spares a copy is (in its box, outside the 100); outside_decks leaves those out. Outside a deck box does not establish that a copy is unreserved in an upgrade plan.",
+      "description": "Read your collection, including quantities, proxies and containers (container_path for a section). Filter by card-name text, one container or copies outside deck containers. spares_of_deck names the deck whose swappable spares a copy is (in its box, outside the 100); outside_decks leaves those out. Outside a deck box does not establish that a copy is unreserved in an upgrade plan.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
           "chunk": {
             "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
             "maxLength": 200,
+            "type": "string"
+          },
+          "container": {
+            "description": "Only copies in this container: a name or path (\"Big box/Bulk Basic\"), or \"Loose\"",
+            "maxLength": 1000,
             "type": "string"
           },
           "cursor": {
@@ -3452,6 +3601,11 @@
               "full"
             ],
             "type": "string"
+          },
+          "include_sections": {
+            "default": true,
+            "description": "With container: its sections' copies too.",
+            "type": "boolean"
           },
           "limit": {
             "default": 20,

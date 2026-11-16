@@ -236,7 +236,7 @@ pub async fn import_mythic_csv(pool: &SqlitePool, owner: &str, text: &str, opts:
     }
     let mut place_ids: Vec<String> = Vec::new();
     for (i, (kind, name)) in places.iter().enumerate() {
-        let mut existing: Option<String> = sqlx::query_scalar("SELECT id FROM containers WHERE owner_id = ? AND kind = ? AND name = ?")
+        let mut existing: Option<String> = sqlx::query_scalar("SELECT id FROM containers WHERE owner_id = ? AND kind = ? AND name = ? ORDER BY parent_id IS NOT NULL, created_at, id LIMIT 1")
             .bind(owner)
             .bind(kind)
             .bind(name)

@@ -130,6 +130,52 @@
 .coll-open .back-inline {
   align-self: start;
 }
+/* An opened container's place, sections and actions. */
+.coll-open .coll-crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+}
+.coll-open .coll-sections-panel {
+  gap: 10px;
+}
+.coll-open .coll-sections {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.coll-open .coll-sections .coll-sections {
+  margin-top: 6px;
+  padding-left: 18px;
+  border-left: 1px solid var(--line);
+}
+.coll-open .coll-section {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-list);
+  background: var(--surface);
+  text-align: left;
+}
+.coll-open .coll-section-name {
+  font-weight: 700;
+}
+.coll-open .coll-section-form {
+  align-items: end;
+}
+.coll-page .coll-with-sections {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
 .coll-page .coll-note {
   margin: 0;
 }
@@ -593,4 +639,14 @@
 }
 .sell-qty input {
   width: 4.5rem;
+}
+
+/* Scan a box or section (BoxCheckPage): each card's line, with its button at the end. */
+.box-check .box-check-list > li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px 12px;
+  flex-wrap: wrap;
+  padding: 4px 0;
 }

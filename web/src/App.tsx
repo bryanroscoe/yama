@@ -46,6 +46,7 @@ const changes = area(() => import("./advisor/Changes"));
 const research = area(() => import("./research/Research"));
 const deckScan = area(() => import("./decks/DeckScanPage"));
 const deckCheck = area(() => import("./decks/DeckCheckPage"));
+const boxCheck = area(() => import("./pages/BoxCheckPage"));
 const checkDeck = area(() => import("./check/CheckPage"));
 const consent = area(() => import("./oauth/Consent"));
 const guestTable = area(() => import("./table/GuestTable"));
@@ -108,6 +109,7 @@ const ResearchPage = research.page("ResearchPage");
 const DatasetsPage = lab.page("DatasetsPage");
 const DeckScanPage = deckScan.page("DeckScanPage");
 const DeckCheckPage = deckCheck.page("DeckCheckPage");
+const BoxCheckPage = boxCheck.page("BoxCheckPage");
 const CheckPage = checkDeck.page("CheckPage");
 const OAuthConsent = consent.page("OAuthConsent");
 const GuestTable = guestTable.page("GuestTable");
@@ -336,6 +338,7 @@ export function App() {
           <Route path="profile" element={<Paged page={ProfilePage} title="You" />} />
           <Route path="sharing" element={<Paged page={SharingPage} title="Sharing settings" />} />
           <Route path="sharing/compare/:handle" element={<Paged page={ComparePage} kind="detail" />} />
+          <Route path="collection/check/:id" element={<Paged page={BoxCheckPage} kind="detail" />} />
           <Route path="collection/trade" element={<Paged page={TradePage} title="Trade with a friend" />} />
           {/* The wish list is kept with the plans (one bundle), so it loads under their layout. */}
           <Route path="collection/wishlist" element={<Paged page={WishListLayout} title="Wish list" />}>

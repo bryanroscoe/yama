@@ -455,7 +455,7 @@ async fn find_box(tx: &mut Transaction<'_, Sqlite>, owner: &str, deck_id: &str, 
     }
     for n in 1.. {
         let name = if n == 1 { deck_name.trim().to_string() } else { format!("{} ({n})", deck_name.trim()) };
-        let existing: Option<String> = sqlx::query_scalar("SELECT id FROM containers WHERE owner_id = ? AND kind = 'deck' AND name = ?")
+        let existing: Option<String> = sqlx::query_scalar("SELECT id FROM containers WHERE owner_id = ? AND kind = 'deck' AND name = ? ORDER BY parent_id IS NOT NULL, created_at, id LIMIT 1")
             .bind(owner)
             .bind(&name)
             .fetch_optional(&mut **tx)

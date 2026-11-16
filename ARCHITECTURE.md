@@ -405,7 +405,7 @@ section 4 is the first sketch; the current system is [above](#the-system-at-a-gl
 - **The Android app:** [The Android app, sideloaded (13 November 2026)](#the-android-app-sideloaded-13-november-2026), [Which build each device runs (15 November 2026)](#which-build-each-device-runs-15-november-2026).
 - **Game night:** [Table and playgroup stats (2026-10-19)](#table-and-playgroup-stats-2026-10-19).
 - **The scanner:** [Scan photos shared with the developer (15 November 2026)](#scan-photos-shared-with-the-developer-15-november-2026), [The scanner's own art supplement (15 November 2026)](#the-scanners-own-art-supplement-15-november-2026), [Scanner diagnostics (15 November 2026)](#scanner-diagnostics-15-november-2026).
-- **Cards, collection and prices:** [Mana symbols (2026-11-12)](#mana-symbols-2026-11-12), [Release calendar and What's new (2026-10-19)](#release-calendar-and-whats-new-2026-10-19), [A deck's cards in the collection, and Mythic re-imports (2026-10-23)](#a-decks-cards-in-the-collection-and-mythic-re-imports-2026-10-23), [Deck market values (2026-10-27)](#deck-market-values-2026-10-27), [Scan this deck (2026-10-29)](#scan-this-deck-2026-10-29), [Mythic Tools bridge (2026-10-31, proposal)](#mythic-tools-bridge-2026-10-31-proposal), [Store trips (2026-11-01)](#store-trips-2026-11-01), [Deleting collection containers (2026-11-02)](#deleting-collection-containers-2026-11-02), [Sell lists for store buylists (2026-11-02)](#sell-lists-for-store-buylists-2026-11-02), [Local buylist offers (2026-11-02)](#local-buylist-offers-2026-11-02), [Price history (2026-11-02)](#price-history-2026-11-02), [Recording printed copies in a deck box (2026-11-02)](#recording-printed-copies-in-a-deck-box-2026-11-02).
+- **Cards, collection and prices:** [Mana symbols (2026-11-12)](#mana-symbols-2026-11-12), [Release calendar and What's new (2026-10-19)](#release-calendar-and-whats-new-2026-10-19), [A deck's cards in the collection, and Mythic re-imports (2026-10-23)](#a-decks-cards-in-the-collection-and-mythic-re-imports-2026-10-23), [Deck market values (2026-10-27)](#deck-market-values-2026-10-27), [Scan this deck (2026-10-29)](#scan-this-deck-2026-10-29), [Mythic Tools bridge (2026-10-31, proposal)](#mythic-tools-bridge-2026-10-31-proposal), [Store trips (2026-11-01)](#store-trips-2026-11-01), [Deleting collection containers (2026-11-02)](#deleting-collection-containers-2026-11-02), [Sell lists for store buylists (2026-11-02)](#sell-lists-for-store-buylists-2026-11-02), [Local buylist offers (2026-11-02)](#local-buylist-offers-2026-11-02), [Price history (2026-11-02)](#price-history-2026-11-02), [Recording printed copies in a deck box (2026-11-02)](#recording-printed-copies-in-a-deck-box-2026-11-02), [Sections in boxes, and scanning a box (16 November 2026)](#sections-in-boxes-and-scanning-a-box-16-november-2026).
 - **Decks, plans and sharing:** [Swappable spares in the deck box (15 November 2026)](#swappable-spares-in-the-deck-box-15-november-2026), [Brackets, deck stats and exports (2026-10-19)](#brackets-deck-stats-and-exports-2026-10-19), [Deck import (2026-10-22)](#deck-import-2026-10-22), [Sharing and deck configurations (2026-10-28)](#sharing-and-deck-configurations-2026-10-28), [Review, installed decks and the Lab tab (2026-10-28)](#review-installed-decks-and-the-lab-tab-2026-10-28), [Check this deck (2026-11-01)](#check-this-deck-2026-11-01), [Deck configurations and quieter editing (2026-11-03)](#deck-configurations-and-quieter-editing-2026-11-03), [One plan page (2026-11-04)](#one-plan-page-2026-11-04), [Printing with MakePlayingCards (2026-11-05)](#printing-with-makeplayingcards-2026-11-05), [Plans: one plan per deck (2026-11-06)](#plans-one-plan-per-deck-2026-11-06), [Site design pass (2026-11-08)](#site-design-pass-2026-11-08), [Public by default and the navigation (2026-11-12)](#public-by-default-and-the-navigation-2026-11-12), [Check a deck without an account (2026-11-12)](#check-a-deck-without-an-account-2026-11-12).
 - **Assistants:** [Ask Claude, the advisor (2026-10-22)](#ask-claude-the-advisor-2026-10-22), [Yama's tools for Claude (MCP, 2026-10-22)](#yamas-tools-for-claude-mcp-2026-10-22).
 - **Navigation:** [Navigation frame (2026-11-12)](#navigation-frame-2026-11-12).
@@ -514,6 +514,36 @@ set from waiting. Yama now extends the gallery itself (docs/scanner.md, "Extendi
   a run without charging any artwork (review of #147).
 - **Switch:** `YAMA_SCAN_SUPPLEMENT=0` stops the job and the scanner stops loading it. On by
   default, after the held-out eval in docs/scanner.md.
+
+## Sections in boxes, and scanning a box (16 November 2026)
+
+Bryan, 15 to 16 November, after sorting his bulk by color into one big box: "I have a separate
+section for each land color btw, let's also make a feature to scan boxes or sections as well.
+Also a side note is that I have most of these in one box with lots of dividers and some of those
+dividers have sub sections as well."
+
+- **A container can sit in another.** `containers.parent_id` (migration 0098) is the container a
+  section is in; NULL is the top level. Cards stay filed in exactly one container; counts and
+  values roll up to the parents in `GET /api/containers` (`total_*`), which lists the tree depth
+  first (`collection/sections.rs`). Nesting stops at eight levels; a container can't go into
+  itself or one of its own sections; one that still has sections can't be deleted (409), so no
+  section is ever left without a parent, and a deleted section's cards go into the container it
+  was in (they are still in that box). A section of a deck box defaults to a box: a "deck"
+  container's cards count as in a deck.
+- **Names are unique among siblings**, not across the account: two boxes can each have a
+  "Plains". SQLite can't drop the old `UNIQUE(owner_id, kind, name)`, so 0098 rebuilds the
+  table with foreign keys off (`-- no-transaction`, its own `BEGIN`/`COMMIT`): dropping the old
+  table with them on would have unfiled every card through `ON DELETE SET NULL`. Every existing
+  container became top level, so none could clash. Lookups by name that imports, deck boxes and
+  swap-ins make still find a container wherever it was moved (`ensure_container` prefers the top
+  level, then the oldest).
+- **Paths for assistants.** MCP container arguments take an id, a path ("Big box/Bulk
+  Basic/Plains") or a name only one container has; an ambiguous name is refused with the paths.
+  `update_container` reparents and renames; `move_cards` takes up to 500 moves as one change,
+  applied in one transaction (the per-card form cost about a thousand calls on 15 November).
+- **Scanning a box is like Check this deck**: identity first, worked out on the device, nothing
+  saved but the moves, adds and "missing" marks tapped, which are ordinary collection ops. A
+  missing card moves to a top-level "Missing" box rather than leaving the collection.
 
 ## Live store stock (13 November 2026)
 
@@ -991,7 +1021,7 @@ price_series(id, feed, provider, kind, finish, currency, label)  -- 1-7 Scryfall
 price_snapshots(scryfall_id, date, usd, usd_foil, usd_etched, eur, eur_foil, tix)  -- the old daily table, still written until it's dropped
 
 -- collection
-containers(id, owner_id, kind[binder|deck|list|box], name)
+containers(id, owner_id, kind[binder|deck|list|box], name, parent_id → containers)   -- sections since 2026-11-16
 collection_items(id, owner_id, scryfall_id, qty, condition, finish, lang, altered, signed, misprint,
                  proxy, container_id, purchase_price, purchase_currency, acquired_at, source jsonb)
 collection_ops(op_id PK, owner_id, device_id, payload jsonb, applied_at)          -- sync dedupe

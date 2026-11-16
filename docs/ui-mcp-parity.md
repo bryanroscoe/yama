@@ -82,13 +82,15 @@ part of it). "Gap" rows are the backlog, in rough priority order inside each are
 | Browse and filter copies | Collection | `list_collection_cards` | Both |
 | Totals, market value, paid, per-container values | Collection | `get_collection_summary` | Both (added 2026-11-09) |
 | Add copies | Collection, Scanner | `add_to_collection` (staged) | Both |
-| Move copies between containers | Collection | `move_cards` (staged; `proxy` moves only proxies or only real copies, 2026-11-15) | Both |
+| Move copies between containers | Collection | `move_cards` (staged; `proxy` moves only proxies or only real copies, 2026-11-15; `set`/`number`/`finish` and up to 500 `moves` as one all-or-nothing change, 2026-11-16) | Both |
 | A deck's swappable spares (in its box, outside the 100) | Deck page, Swappable spares; Collection, Move | `move_cards` with `to_deck_spares`/`from_deck_spares` (staged), `get_deck`, `list_collection_cards` (`spares_of_deck`) | Both (linking another box or stopping: web only) |
 | Set condition | Collection item sheet | `set_condition` (staged) | Both |
 | Edit one copy: finish, printing, price paid, proxy, remove | Collection item sheet | `edit_copies`, `remove_from_collection` (staged), by card and container | Both (2026-11-11) for copies in a binder, box or list; **Gap (MCP)** for changing the printing and for copies not in a container |
 | Mark a copy signed or altered, or set its language | Collection item sheet | — | **Gap (MCP)**: `edit_copies` doesn't set them |
-| Create or delete a binder, deck box or list | Collection | `create_container` (staged) | Partial (2026-11-11): **Gap (MCP)** for deleting one |
-| Rename a binder, deck box or list | — (the server has `PATCH /api/containers/:id`) | — | **Gap (UI and MCP)** |
+| Create or delete a binder, deck box or list | Collection | `create_container` (staged; `parent` makes a section, 2026-11-16) | Partial (2026-11-11): **Gap (MCP)** for deleting one |
+| Rename a binder, deck box or list, or move it into another as a section | Collection, an open container: Rename, Move | `update_container` (staged) | Both (2026-11-16) |
+| Sections: a container's tree, paths, rolled-up totals | Collection, an open container; every container picker shows the path | `get_collection_summary` (tree order, `path`, `total_*`), `list_collection_cards` (`container`, `include_sections`, `container_path`); container arguments take a path | Both (2026-11-16) |
+| Scan a box or section against what Yama has filed there | Collection, Scan this box (`/collection/check/:id`) | — | UI only: it needs the camera; the moves, adds and missing marks it makes are `move_cards`/`add_to_collection` over MCP |
 | Export CSV | Collection | — | UI only (a file download; the MCP reads the same rows) |
 | Import from Mythic Tools export | Collection, Mythic import | — | UI only (file upload) |
 | Import a pasted list or another app's export (ManaBox, Moxfield, Archidekt, Deckbox, Dragon Shield, TCGplayer) | Collection, Import cards | `add_to_collection` (staged), card by card | Partial: **Gap (MCP)** for a whole list or file |
@@ -192,7 +194,6 @@ this list whenever a gap is found that can't simply reuse an existing pattern.
 | Logging a finished game from the MCP | — (the Table already logs games) | Not a UI design question; the staged change needs a review card that shows seats and the winner |
 | Staged-change review cards for every new tool kind | Changes, Ask Claude panel | Each new staged kind needs a before/after card that reads well; a generic JSON card is not acceptable |
 | Sell list in the MCP | — | What an assistant should say about selling: buylist cash vs credit (AGENTS.md, deck valuation) |
-| Renaming a container | Collection, container tile | Inline rename on a tile vs a sheet; the server route exists, nothing calls it |
 | Plan actions from an assistant (archive, restore, undo) | — | Each needs a staged-change card that shows what the plan returns to |
 
 ## Stays one-sided on purpose

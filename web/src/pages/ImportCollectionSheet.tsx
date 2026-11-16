@@ -2,6 +2,7 @@ import { count, shortDate } from "@yama/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, type Container } from "../api";
+import { optionLabel, treeOrder } from "./containerTree";
 import { CopyButton } from "../components/CopyButton";
 import { Button, Details, Dialog, ErrorText, Field, Loading } from "../components/ui";
 import "../decks/collect.css";
@@ -123,9 +124,9 @@ export function ImportCollectionSheet({ containers, onClose, onMythic }: { conta
             <Field label="Put them in">
               <select value={place} onChange={(e) => setPlace(e.target.value)}>
                 <option value="">Not filed anywhere (loose cards)</option>
-                {containers.map((c) => (
+                {treeOrder(containers).map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.name} ({c.kind === "deck" ? "deck box" : c.kind})
+                    {optionLabel(c, containers)}
                   </option>
                 ))}
                 <option value={NEW_BOX}>A new box</option>

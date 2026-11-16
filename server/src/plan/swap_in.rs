@@ -211,7 +211,7 @@ async fn yama_deck(tx: &mut Transaction<'_, Sqlite>, owner: &str, linked: Option
 async fn own_spares_box(tx: &mut Transaction<'_, Sqlite>, owner: &str, deck_names: &[&str]) -> AppResult<Option<(String, String)>> {
     for deck in deck_names {
         let found: Option<(String, String)> =
-            sqlx::query_as("SELECT id, name FROM containers WHERE owner_id = ? AND lower(name) = lower(?) AND kind != 'deck' ORDER BY name = ? DESC, created_at LIMIT 1")
+            sqlx::query_as("SELECT id, name FROM containers WHERE owner_id = ? AND lower(name) = lower(?) AND kind != 'deck' ORDER BY name = ? DESC, parent_id IS NOT NULL, created_at LIMIT 1")
                 .bind(owner)
                 .bind(deck_spares(deck.trim()))
                 .bind(deck_spares(deck.trim()))
@@ -226,7 +226,7 @@ async fn own_spares_box(tx: &mut Transaction<'_, Sqlite>, owner: &str, deck_name
 
 /// A box by name (not a deck's box), made when `make` and it doesn't exist. `None` in a dry run.
 async fn named_box(tx: &mut Transaction<'_, Sqlite>, owner: &str, name: &str, make: bool) -> AppResult<Option<String>> {
-    let found: Option<String> = sqlx::query_scalar("SELECT id FROM containers WHERE owner_id = ? AND name = ? AND kind != 'deck' ORDER BY created_at LIMIT 1")
+    let found: Option<String> = sqlx::query_scalar("SELECT id FROM containers WHERE owner_id = ? AND name = ? AND kind != 'deck' ORDER BY parent_id IS NOT NULL, created_at LIMIT 1")
         .bind(owner)
         .bind(name)
         .fetch_optional(&mut **tx)

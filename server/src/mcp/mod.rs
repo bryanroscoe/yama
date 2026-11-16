@@ -334,3 +334,5 @@ mod tests;
 mod tests_budget;
 #[cfg(test)]
 mod tests_catalog;
+#[cfg(test)]
+mod tests_sections;

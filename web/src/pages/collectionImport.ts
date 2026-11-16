@@ -1,5 +1,6 @@
 import { plural } from "@yama/core";
 import { languageName } from "./collectionEdit";
+import { pathLabel } from "./containerTree";
 // Importing a collection from another app's export or a pasted list (server/src/collection/
 // import.rs): the report the server sends for a preview (dry_run) and for the import itself, and
 // the sentences shown. The Mythic Tools import has its own (mythicImport.ts).
@@ -147,10 +148,10 @@ export function resultLines(r: ImportReport): string[] {
 export const NEW_BOX = "new";
 
 /** Where the copies go, as the report words it, before the server has said: "box: Bulk", "unfiled". */
-export function chosenPlace(place: string, newName: string, containers: { id: string; kind: string; name: string }[]): string {
+export function chosenPlace(place: string, newName: string, containers: { id: string; kind: string; name: string; parent_id?: string | null; path?: string[] }[]): string {
   if (place === NEW_BOX) return newName.trim() ? `box: ${newName.trim()}` : "unfiled";
   const c = containers.find((c) => c.id === place);
-  return c ? `${c.kind}: ${c.name}` : "unfiled";
+  return c ? `${c.kind}: ${pathLabel(c, containers)}` : "unfiled";
 }
 
 type Call = <T>(path: string, init: { method: string; json: unknown }) => Promise<T>;

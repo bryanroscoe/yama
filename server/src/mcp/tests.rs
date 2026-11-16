@@ -1031,7 +1031,7 @@ async fn a_staging_call_repeated_with_its_op_id_stages_once() {
     let with_lab = [
         "add_wish", "edit_deck", "delete_deck", "track_build", "approve_plan", "propose_swap", "answer_review", "mark_bought", "swap_in_prints",
         "mark_installed", "start_lab_run", "add_lab_games", "rerun_lab_run", "cancel_lab_run", "add_to_collection", "move_cards", "set_condition",
-        "update_deck", "remove_wish", "create_container", "remove_from_collection", "edit_copies", "save_deck",
+        "update_deck", "remove_wish", "create_container", "update_container", "remove_from_collection", "edit_copies", "save_deck",
     ];
     assert_eq!(staging_names(&r), with_lab, "staging tools listed for an account with no stores or runs");
     // A power user is listed the same tools: the difference is the allowance, not the catalog.
