@@ -1230,21 +1230,34 @@ pub(crate) async fn update_container(pool: &SqlitePool, owner: &str, id: &str, n
 /// one's become unfiled. One that still has sections is refused (409) and changes nothing. A container that isn't the caller's (someone else's, already deleted, never there) is a 404 and changes nothing.
 async fn delete_container(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<()> {
     st.limits.collection_writes.check_user(&user)?;
-    if delete_container_for_owner(&st.pool, &user.id, &id).await? { Ok(()) } else { Err(AppError::NotFound("container")) }
+    if delete_container_for_owner(&st.pool, &user.id, &id, Contents::Unfile).await? { Ok(()) } else { Err(AppError::NotFound("container")) }
+}
+
+/// What deleting a container does with what is in it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Contents {
+    /// The page's delete: its cards go where it was, as the route's comment says.
+    Unfile,
+    /// The MCP's `delete_container`: only an empty one that isn't a deck box goes. One that holds
+    /// any card row, or is a deck box, is refused (409) and nothing changes, so it never unfiles.
+    MustBeEmpty,
 }
 
 /// Returns whether `owner` had this container (false: nothing was there to delete).
-async fn delete_container_for_owner(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<bool> {
+pub(crate) async fn delete_container_for_owner(pool: &SqlitePool, owner: &str, id: &str, contents: Contents) -> AppResult<bool> {
     // Immediate: it reads the container's cards and then rewrites them.
     let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
-    let mine: Option<(String, Option<String>)> = sqlx::query_as("SELECT id, parent_id FROM containers WHERE id = ? AND owner_id = ?")
+    let mine: Option<(String, Option<String>)> = sqlx::query_as("SELECT kind, parent_id FROM containers WHERE id = ? AND owner_id = ?")
         .bind(id)
         .bind(owner)
         .fetch_optional(&mut *tx)
         .await?;
-    let Some((_, parent)) = mine else {
+    let Some((kind, parent)) = mine else {
         return Ok(false);
     };
+    if contents == Contents::MustBeEmpty && kind == "deck" {
+        return Err(AppError::Conflict("It's a deck box, and a deck box is only deleted on the Collection page.".into()));
+    }
     // Its sections would have nowhere to go: move or delete them first.
     let sections: Vec<String> = sqlx::query_scalar("SELECT name FROM containers WHERE parent_id = ? AND owner_id = ? ORDER BY name")
         .bind(id)
@@ -1267,6 +1280,18 @@ async fn delete_container_for_owner(pool: &SqlitePool, owner: &str, id: &str) ->
         .bind(owner)
         .fetch_all(&mut *tx)
         .await?;
+    if contents == Contents::MustBeEmpty && !ids.is_empty() {
+        let copies: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(qty), 0) FROM collection_items WHERE container_id = ? AND owner_id = ?")
+            .bind(id)
+            .bind(owner)
+            .fetch_one(&mut *tx)
+            .await?;
+        return Err(AppError::Conflict(format!(
+            "It still holds {}. Move {} out first.",
+            if copies == 1 { "a card".to_string() } else { format!("{copies} cards") },
+            if copies == 1 { "it" } else { "them" }
+        )));
+    }
     for item_id in ids {
         let op = Op {
             op_id: new_id(),
@@ -1466,16 +1491,16 @@ mod tests {
             }).await.unwrap();
             tx.commit().await.unwrap();
         }
-        assert!(!delete_container_for_owner(&pool, "u2", &box_id).await.unwrap(), "someone else's box");
+        assert!(!delete_container_for_owner(&pool, "u2", &box_id, Contents::Unfile).await.unwrap(), "someone else's box");
         let linked: Option<String> = sqlx::query_scalar("SELECT container_id FROM decks WHERE id = 'd1'").fetch_one(&pool).await.unwrap();
         assert_eq!(linked.as_deref(), Some(box_id.as_str()));
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM containers WHERE id = ?").bind(&box_id).fetch_one(&pool).await.unwrap();
         assert_eq!(count, 1);
 
-        assert!(delete_container_for_owner(&pool, &owner, &box_id).await.unwrap());
+        assert!(delete_container_for_owner(&pool, &owner, &box_id, Contents::Unfile).await.unwrap());
         // A retry after a lost response changes nothing more (the route answers 404, which the
         // page reads as already deleted).
-        assert!(!delete_container_for_owner(&pool, &owner, &box_id).await.unwrap());
+        assert!(!delete_container_for_owner(&pool, &owner, &box_id, Contents::Unfile).await.unwrap());
         let rows: Vec<(i64, Option<String>)> = sqlx::query_as("SELECT qty, container_id FROM collection_items WHERE owner_id = ?")
             .bind(&owner).fetch_all(&pool).await.unwrap();
         assert_eq!(rows, vec![(5, None)]);
@@ -1484,7 +1509,7 @@ mod tests {
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM containers WHERE id = ?").bind(&box_id).fetch_one(&pool).await.unwrap();
         assert_eq!(count, 0);
         let empty = ensure_container(&pool, &owner, "box", "Empty").await.unwrap();
-        assert!(delete_container_for_owner(&pool, &owner, &empty).await.unwrap());
+        assert!(delete_container_for_owner(&pool, &owner, &empty, Contents::Unfile).await.unwrap());
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM containers WHERE id = ?").bind(empty).fetch_one(&pool).await.unwrap();
         assert_eq!(count, 0);
     }

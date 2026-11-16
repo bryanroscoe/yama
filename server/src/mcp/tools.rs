@@ -1402,6 +1402,33 @@ pub(super) const TOOLS: &[Tool] = &[
         needs: Needs::Nothing,
     },
     Tool {
+        name: "delete_container",
+        aliases: &[],
+        title: "Delete an empty binder, box or section",
+        description: staged!(
+            "Delete one of their binders, boxes, lists or sections that is empty: no cards, no sections. Deck boxes are refused."
+        ),
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "container": {"type": "string", "description": "The container, named exactly: a name or path, such as \"Big box/Bulk Basic\", or its id."},
+                },
+                "required": ["container"],
+                "additionalProperties": false,
+            })
+        },
+        kind: Kind::Stage,
+        offer: Offer::Everyone,
+        search: false,
+        handler: stage!(changes::delete_container),
+        stages: Some(changes::staging::DELETE_CONTAINER),
+        output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
+    },
+    Tool {
         name: "remove_from_collection",
         aliases: &[],
         title: "Remove copies from their collection",

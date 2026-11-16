@@ -2596,6 +2596,38 @@
         "openWorldHint": false,
         "readOnlyHint": false
       },
+      "description": "Delete one of their binders, boxes, lists or sections that is empty: no cards, no sections. Deck boxes are refused. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "container": {
+            "description": "The container, named exactly: a name or path, such as \"Big box/Bulk Basic\", or its id.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "op_id": {
+            "description": "Optional: your own id for this call, a new UUID each time you stage something. Calling again with the same op_id and the same arguments answers with the change already staged instead of staging another, so a retry after a lost reply is safe. Never reuse one for a different change: that is refused.",
+            "maxLength": 64,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "container"
+        ],
+        "type": "object"
+      },
+      "name": "delete_container",
+      "title": "Delete an empty binder, box or section"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
       "description": "Remove copies of a card from one of their binders, deck boxes or lists for good: sold, traded or lost. When the copies there differ, say which with set and number, finish or proxy. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
       "inputSchema": {
         "additionalProperties": false,

@@ -1,4 +1,4 @@
-## script key, power user: 74 tools
+## script key, power user: 75 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -52,6 +52,7 @@ update_deck	write
 remove_wish	write
 create_container	write
 update_container	write
+delete_container	write
 remove_from_collection	write
 edit_copies	write
 list_scan_diagnostics	read
@@ -74,7 +75,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## OAuth sign-in, power user: 74 tools
+## OAuth sign-in, power user: 75 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -128,6 +129,7 @@ update_deck	write
 remove_wish	write
 create_container	write
 update_container	write
+delete_container	write
 remove_from_collection	write
 edit_copies	write
 list_scan_diagnostics	read
@@ -150,7 +152,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## script key: 74 tools
+## script key: 75 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -204,6 +206,7 @@ update_deck	write
 remove_wish	write
 create_container	write
 update_container	write
+delete_container	write
 remove_from_collection	write
 edit_copies	write
 list_scan_diagnostics	read
@@ -226,7 +229,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## OAuth sign-in: 74 tools
+## OAuth sign-in: 75 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -280,6 +283,7 @@ update_deck	write
 remove_wish	write
 create_container	write
 update_container	write
+delete_container	write
 remove_from_collection	write
 edit_copies	write
 list_scan_diagnostics	read
@@ -302,7 +306,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## Ask Claude, power user: 72 tools
+## Ask Claude, power user: 73 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -356,6 +360,7 @@ update_deck	write
 remove_wish	write
 create_container	write
 update_container	write
+delete_container	write
 remove_from_collection	write
 edit_copies	write
 list_scan_diagnostics	read
@@ -376,7 +381,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## OAuth sign-in limited to reading and staging, power user: 72 tools
+## OAuth sign-in limited to reading and staging, power user: 73 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -430,6 +435,7 @@ update_deck	write
 remove_wish	write
 create_container	write
 update_container	write
+delete_container	write
 remove_from_collection	write
 edit_copies	write
 list_scan_diagnostics	read
@@ -495,7 +501,7 @@ list_deck_versions	read
 list_collection_cards	read
 get_research_sources	read
 
-## script key, an account with no stores, datasets or lab runs: 59 tools
+## script key, an account with no stores, datasets or lab runs: 60 tools
 get_research
 save_research
 review_research
@@ -534,6 +540,7 @@ update_deck
 remove_wish
 create_container
 update_container
+delete_container
 remove_from_collection
 edit_copies
 list_scan_diagnostics
