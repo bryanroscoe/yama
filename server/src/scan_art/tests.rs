@@ -35,6 +35,7 @@ fn art_crop_urls_come_from_the_printing_id() {
     assert_eq!(art_crop_url("fca1528c-84cc-42d2-99ae-9f10f0e28743", false).unwrap(), "https://cards.scryfall.io/art_crop/front/f/c/fca1528c-84cc-42d2-99ae-9f10f0e28743.jpg");
     assert_eq!(art_crop_url("63ba8eef-b834-4031-b0a1-0f8505d53813-1", true).unwrap(), "https://cards.scryfall.io/art_crop/back/6/3/63ba8eef-b834-4031-b0a1-0f8505d53813.jpg");
     assert!(art_crop_url("../x", false).is_none());
+    assert_eq!(art_url("fca1528c-84cc-42d2-99ae-9f10f0e28743", false).unwrap(), "https://cards.scryfall.io/art/front/f/c/fca1528c-84cc-42d2-99ae-9f10f0e28743.webp");
 }
 
 /// A stand-in for the graph: the crop's mean colour as a unit vector (enough to tell crops apart).

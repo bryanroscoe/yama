@@ -261,14 +261,25 @@ fn read_bundle(dir: &Path) -> anyhow::Result<Bundle> {
 }
 
 /// Scryfall's art crop JPEG for a printing's face, from its ID (`art_crop/<face>/<a>/<b>/<id>.jpg`).
+/// ManaVault's gallery is built from these. Scryfall stops serving them on 2027-01-01
+/// (cards/import.rs); the same crop as WebP (`art/…/<id>.webp`) is [`art_url`].
 fn art_crop_url(scryfall_id: &str, back: bool) -> Option<String> {
+    face_url(scryfall_id, back, "art_crop", "jpg")
+}
+
+/// Scryfall's WebP art crop for a printing's face, from its ID.
+fn art_url(scryfall_id: &str, back: bool) -> Option<String> {
+    face_url(scryfall_id, back, "art", "webp")
+}
+
+fn face_url(scryfall_id: &str, back: bool, kind: &str, ext: &str) -> Option<String> {
     let id = scryfall_id.strip_suffix("-1").unwrap_or(scryfall_id);
     let mut chars = id.chars();
     let (a, b) = (chars.next()?, chars.next()?);
     if !id.chars().all(|c| c.is_ascii_hexdigit() || c == '-') {
         return None;
     }
-    Some(format!("https://cards.scryfall.io/art_crop/{}/{a}/{b}/{id}.jpg", if back { "back" } else { "front" }))
+    Some(format!("https://cards.scryfall.io/{kind}/{}/{a}/{b}/{id}.{ext}", if back { "back" } else { "front" }))
 }
 
 /// Fetches an image by URL: the bytes, or None when the server has no such image (404).
@@ -495,9 +506,11 @@ async fn candidates(pool: &SqlitePool, bundle: &Bundle, opts: &Options) -> anyho
 
 /// Download, decode, resize and embed one artwork, pausing first so requests stay 100 ms apart.
 async fn embed_one(c: &Candidate, fetch: &Fetch, embedder: &Arc<dyn Embed>) -> anyhow::Result<(f64, Vec<f32>)> {
-    let mut urls: Vec<String> = art_crop_url(&c.scryfall_id, c.face == 1).into_iter().collect();
-    // Scryfall stops serving the art_crop JPEGs in 2027 (cards/import.rs); then the stored WebP crop.
-    urls.extend(c.url.clone());
+    // The JPEG ManaVault embeds; once Scryfall drops those (2027), the WebP of the same crop, and
+    // last the URL the card data stored. The parity check refuses vectors that stop matching.
+    let back = c.face == 1;
+    let mut urls: Vec<String> = art_crop_url(&c.scryfall_id, back).into_iter().chain(art_url(&c.scryfall_id, back)).collect();
+    urls.extend(c.url.clone().filter(|u| !urls.contains(u)));
     let mut bytes = None;
     for url in urls {
         tokio::time::sleep(PAUSE).await;
