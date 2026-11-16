@@ -56,6 +56,19 @@ const SHOW = 24;
 const MORE = 200;
 /** List or pictures, remembered on this device. */
 const VIEW = "yama.collection.view";
+/** Whether the binder, box and deck tiles are shown, remembered on this device. Unset, they
+ *  show while they fit about a row; past that they fold away behind the dropdown, so the search
+ *  and the cards stay near the top. */
+const PLACES = "yama.collection.places";
+const FEW_PLACES = 6;
+function storedPlaces(): "tiles" | "folded" | null {
+  try {
+    const v = typeof localStorage !== "undefined" ? localStorage.getItem(PLACES) : null;
+    return v === "tiles" || v === "folded" ? v : null;
+  } catch {
+    return null;
+  }
+}
 function storedView(): "list" | "grid" {
   try {
     return typeof localStorage !== "undefined" && localStorage.getItem(VIEW) === "grid" ? "grid" : "list";
@@ -97,6 +110,15 @@ export function CollectionPage() {
   /** An open container's cards: its own, or with every section under it too. */
   const [withSections, setWithSections] = useState(false);
   const [show, setShow] = useState(storedView);
+  const [placesChoice, setPlacesChoice] = useState(storedPlaces);
+  const choosePlaces = (v: "tiles" | "folded") => {
+    setPlacesChoice(v);
+    try {
+      localStorage.setItem(PLACES, v);
+    } catch {
+      // Private browsing: the choice lasts for this visit.
+    }
+  };
   const showAs = (v: "list" | "grid") => {
     setShow(v);
     try {
@@ -127,7 +149,16 @@ export function CollectionPage() {
   });
 
   const [newContainer, setNewContainer] = useState(false);
-  const [scanning, setScanning] = useState(false);
+  // "Scan my cards" elsewhere (the Cards tab) lands here with the scanner open.
+  const [scanning, setScanningState] = useState(() => params.get("scan") === "1");
+  const setScanning = (on: boolean) => {
+    setScanningState(on);
+    if (!on && params.has("scan")) {
+      const next = new URLSearchParams(params);
+      next.delete("scan");
+      setParams(next, { replace: true });
+    }
+  };
   const [selling, setSelling] = useState(false);
   const [deleting, setDeleting] = useState<Container | null>(null);
 
@@ -171,44 +202,53 @@ export function CollectionPage() {
   const heading = container ? "Cards" : sort === "value" ? "Most valuable" : "Every card";
   // The list shows art crops (credited under it); the pictures are whole cards, which name their artist.
   const thumbArtists = show === "list" ? shown.filter((i) => i.image_art_crop).map((i) => i.artist) : [];
+  const places = tiles.length + (loose > 0 ? 1 : 0);
+  const showTiles = (placesChoice ?? (places > FEW_PLACES ? "folded" : "tiles")) === "tiles";
+  const searchLabel = chosen ? `Search ${chosen.name}` : container === "none" ? "Search loose cards" : "Search your collection";
   return (
     <main className="page coll-page">
       <div className="coll-head">
         <div className="coll-title">
           <h1>Collection</h1>
           {s && s.copies > 0 && (
-            <>
-              <span className="coll-value">
-                <b className="num">{usdWhole(s.market_value_usd)}</b>
-                <span className="coll-wide">
-                  market value of {plural(real, "card")} on {day}.
-                  {s.copies_without_price > 0 ? ` ${count(s.copies_without_price)} ${s.copies_without_price === 1 ? "has" : "have"} no price.` : ""}
+            <span className="coll-value">
+              <b className="num">{usdWhole(s.market_value_usd)}</b>
+              <span className="coll-wide">
+                {plural(real, "card")}, market value on {day}
+                {s.copies_without_price > 0 ? `, ${count(s.copies_without_price)} with no price` : ""}
+              </span>
+              <span className="coll-narrow">
+                {plural(real, "card")}, {day}
+              </span>
+              <HelpPopover label="About this total">
+                <p>
+                  TCGplayer market value of your real cards on {day}, per copy in its finish. It is not a store quote or a resale offer.
+                  {s.copies_without_price > 0 ? ` ${count(s.copies_without_price)} ${s.copies_without_price === 1 ? "card has no price and isn't" : "cards have no price and aren't"} counted.` : ""}
                   {proxies > 0 ? ` Your ${count(proxies)} ${proxies === 1 ? "proxy isn't" : "proxies aren't"} counted.` : ""}
-                </span>
-                <span className="coll-narrow">
-                  {plural(real, "card")}, {day}
-                </span>
-              </span>
-              <span className="coll-sub">
-                {s.copies_without_price > 0 && (
-                  <span className="coll-narrow">
-                    {count(s.copies_without_price)} {s.copies_without_price === 1 ? "card has no price and isn't" : "cards have no price and aren't"} counted.{" "}
-                  </span>
+                </p>
+                {s.purchase_total_usd > 0 && (
+                  <p>
+                    You paid {usdWhole(s.purchase_total_usd)}, where recorded{s.copies_without_purchase_price ? ` (${count(s.copies_without_purchase_price)} ${s.copies_without_purchase_price === 1 ? "copy has" : "copies have"} no purchase price)` : ""}
+                    {s.copies_paid_in_other_currency ? `; ${count(s.copies_paid_in_other_currency)} paid in another currency ${s.copies_paid_in_other_currency === 1 ? "isn't" : "aren't"} added in` : ""}.
+                  </p>
                 )}
-                {s.purchase_total_usd > 0 && <>You paid {usdWhole(s.purchase_total_usd)}, where recorded{s.copies_without_purchase_price ? ` (${count(s.copies_without_purchase_price)} ${s.copies_without_purchase_price === 1 ? "copy has" : "copies have"} no purchase price)` : ""}{s.copies_paid_in_other_currency ? `; ${count(s.copies_paid_in_other_currency)} paid in another currency ${s.copies_paid_in_other_currency === 1 ? "isn't" : "aren't"} added in` : ""}.</>}
-              </span>
-            </>
+              </HelpPopover>
+            </span>
           )}
         </div>
         <div className="coll-actions">
-          <Button variant="outline" className="coll-import" onClick={() => setImporting("cards")}>
-            <span className="coll-wide">Import cards</span>
-            <span className="coll-narrow">Import</span>
-          </Button>
+          <Button variant="outline" className="coll-import" onClick={() => setImporting("cards")}>Import</Button>
           <ButtonLink variant="outline" className="coll-export" {...exportLink("/api/collection/export.csv", "yama-collection.csv")}>Export CSV</ButtonLink>
           <Button variant="primary" className="coll-scan" onClick={() => setScanning(true)}>Scan cards</Button>
         </div>
       </div>
+
+      {/* The search sits under the head, above the boxes, so it's always near the top. */}
+      {!(s && s.copies === 0) && (
+        <div className="coll-filter" role="search">
+          <input type="search" aria-label={`${searchLabel} by name`} placeholder={`${searchLabel} by name`} value={filter} onChange={(e) => setFilter(e.target.value)} />
+        </div>
+      )}
 
       {container && (
         <section className="containers coll-open" aria-label={chosen ? chosen.name : "Loose cards"}>
@@ -231,16 +271,33 @@ export function CollectionPage() {
         </section>
       )}
       {!container && (tiles.length > 0 || loose > 0) && (
-        <section className="containers" aria-labelledby="where">
+        <section className={showTiles ? "containers" : "containers coll-folded"} aria-labelledby="where">
           <div className="section-head">
             <h2 id="where">
               <span className="coll-wide">Binders, boxes and decks</span>
               <span className="coll-narrow">Where they live</span>
             </h2>
+            {!showTiles && (
+              <select
+                className="coll-place"
+                aria-label="Open a binder, box or deck"
+                value=""
+                onChange={(e) => e.target.value && setContainer(e.target.value)}
+              >
+                <option value="">Open one of {count(places)}</option>
+                {treeOrder(all).map((c) => <option key={c.id} value={c.id}>{optionLabel(c, all)}</option>)}
+                {loose > 0 && <option value="none">Loose cards</option>}
+              </select>
+            )}
+            <Button variant="quiet" size="small" className="coll-tiles-toggle" aria-expanded={showTiles} aria-controls="coll-tiles" onClick={() => choosePlaces(showTiles ? "folded" : "tiles")}>
+              {showTiles ? "Hide tiles" : "Show tiles"}
+            </Button>
             <Button className="coll-new" onClick={() => setNewContainer(true)}>New</Button>
           </div>
           {newContainer && <NewContainer onClose={() => setNewContainer(false)} />}
-          <ul className="container-tiles">
+          {showTiles && (
+          <>
+          <ul className="container-tiles" id="coll-tiles">
             {tiles.map(({ c, art, artist }) => (
               <li key={c.id}>
                 <Button className="container-tile" onClick={() => setContainer(c.id)}>
@@ -274,6 +331,8 @@ export function CollectionPage() {
             {priced}.{" "}
             {tiles.some((t) => t.art) ? artCredits(tiles.filter((t) => t.art).map((t) => t.artist)) : ""}
           </p>
+          </>
+          )}
         </section>
       )}
       {tiles.length === 0 && loose === 0 && newContainer && <NewContainer onClose={() => setNewContainer(false)} />}
@@ -295,10 +354,6 @@ export function CollectionPage() {
           {!!items.data?.length && !items.isPlaceholderData && filter.trim() === query && (
             <Button variant="outline" className="coll-sell" onClick={() => setSelling(true)}>Sell list</Button>
           )}
-          <label className="coll-filter">
-            <span className="visually-hidden">Filter by name</span>
-            <input type="search" placeholder="Filter by name" value={filter} onChange={(e) => setFilter(e.target.value)} />
-          </label>
           {tiles.length === 0 && loose === 0 && <Button onClick={() => setNewContainer(true)}>New binder, box or deck</Button>}
         </div>
 
