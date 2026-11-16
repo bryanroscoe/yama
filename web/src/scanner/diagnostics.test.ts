@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { applyH, rectQuad, squareToQuad, warpRegion } from "./image";
-import { STRIP, ScanRecord, stripQuad, stripSize } from "./diagnostics";
+import { DIAGNOSTICS_KEY, STRIP, ScanRecord, cardOf, setDiagnosticsOn, stripQuad, stripSize } from "./diagnostics";
 import { COLLECTOR_REGION, RIGHT_COLLECTOR_REGION } from "./pipeline";
 
 const posted = vi.hoisted(() => ({ bodies: [] as unknown[] }));
@@ -12,9 +12,14 @@ vi.mock("../api", async (original) => ({
   },
 }));
 
+// The switch lives in localStorage; tests run without a browser.
+const store = new Map<string, string>();
+vi.stubGlobal("localStorage", { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) });
+
 describe("scanner diagnostics", () => {
   beforeEach(() => {
     posted.bodies.length = 0;
+    setDiagnosticsOn(true);
   });
 
   it("keeps the whole bottom strip, both collector corners, at the card's own resolution", () => {
@@ -71,5 +76,64 @@ describe("scanner diagnostics", () => {
     // Not yet sent: the same record.
     const fresh = new ScanRecord();
     expect(fresh.continued()).toBe(fresh);
+  });
+
+  it("sends nothing once the switch is off, even a record already kept", async () => {
+    const rec = new ScanRecord();
+    rec.reasons.add("picked");
+    setDiagnosticsOn(false);
+    expect(localStorage.getItem(DIAGNOSTICS_KEY)).toBe("0");
+    expect(await rec.send("picked")).toBe(false);
+    expect(posted.bodies).toHaveLength(0);
+  });
+
+  it("a cancelled record keeps nothing more and is never sent, nor what follows it", async () => {
+    const rec = new ScanRecord();
+    rec.reasons.add("hold-gave-up");
+    rec.frame({ source: "hold", reads: ["x"] });
+    rec.cancel();
+    rec.frame({ source: "hold", reads: ["y"] });
+    expect(rec.frames).toHaveLength(0);
+    const next = rec.continued();
+    next.reasons.add("wrong-printing");
+    expect(await next.send("wrong")).toBe(false);
+    expect(await rec.send("filed")).toBe(false);
+    expect(posted.bodies).toHaveLength(0);
+  });
+
+  it("is never sent under another account than the one it started with", async () => {
+    const account = new AbortController();
+    const rec = new ScanRecord(account.signal);
+    rec.reasons.add("picked");
+    account.abort();
+    expect(await rec.send("picked")).toBe(false);
+    // Nor what follows it.
+    const before = new AbortController();
+    const sent = new ScanRecord(before.signal);
+    sent.reasons.add("picked");
+    expect(await sent.send("filed")).toBe(true);
+    before.abort();
+    const next = sent.continued();
+    next.reasons.add("wrong-printing");
+    expect(await next.send("wrong")).toBe(false);
+    expect(posted.bodies).toHaveLength(1);
+  });
+
+  it("keeps the card alone, never the frame around it", () => {
+    // A 1,000 x 1,000 frame, mid-grey, with a white card in the middle.
+    const width = 1000;
+    const height = 1000;
+    const data = new Uint8ClampedArray(width * height * 4).fill(90);
+    const quad = rectQuad(300, 200, 315, 440);
+    for (let y = 200; y < 640; y += 1) for (let x = 300; x < 615; x += 1) data.fill(250, (y * width + x) * 4, (y * width + x) * 4 + 4);
+    const card = cardOf({ image: { width, height, data }, quad });
+    expect(card.height).toBe(440);
+    expect(card.width).toBe(Math.round((440 * 63) / 88));
+    // Inside the card's edge, every pixel is the card's.
+    const at = (x: number, y: number) => card.data[(y * card.width + x) * 4]!;
+    expect(at(5, 5)).toBe(250);
+    expect(at(card.width - 6, card.height - 6)).toBe(250);
+    // Never enlarged past CARD_SIDE.
+    expect(cardOf({ image: { width, height, data }, quad: rectQuad(0, 0, 1000, 1000) }).height).toBe(640);
   });
 });

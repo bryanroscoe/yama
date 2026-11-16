@@ -17,7 +17,7 @@
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
 use crate::routes::AppState;
-use axum::extract::{DefaultBodyLimit, Path, Query, State};
+use axum::extract::{DefaultBodyLimit, FromRequest, Path, Query, Request, State};
 use axum::http::header;
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
@@ -112,8 +112,15 @@ fn valid_id(id: &str) -> bool {
     id.len() == 36 && id.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-')
 }
 
-async fn add(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(d): Json<NewDiagnostic>) -> AppResult<Json<Value>> {
+async fn add(State(st): State<AppState>, CurrentUser(user): CurrentUser, req: Request) -> AppResult<axum::response::Response> {
+    // The rate limit before the body: a limited account isn't let make the server buffer and parse
+    // another few megabytes first (the body is read only below, within DefaultBodyLimit).
     st.limits.scan_diagnostics.check_user(&user)?;
+    let Json(d) = match Json::<NewDiagnostic>::from_request(req, &st).await {
+        Ok(json) => json,
+        // Axum's own answer: 413 for too large, 400/415/422 for the rest.
+        Err(rejection) => return Ok(rejection.into_response()),
+    };
     if !OUTCOMES.contains(&d.outcome.as_str()) {
         return Err(AppError::bad(format!("outcome is one of {}", OUTCOMES.join(", "))));
     }
@@ -217,7 +224,7 @@ async fn add(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(d)
             for old in gone {
                 remove_record_files(&st.cfg.data_dir, &user.id, &old);
             }
-            Ok(Json(json!({ "id": id })))
+            Ok(Json(json!({ "id": id })).into_response())
         }
         Err(e) => {
             remove_record_files(&st.cfg.data_dir, &user.id, &id);
@@ -336,9 +343,14 @@ async fn delete_one(State(st): State<AppState>, CurrentUser(user): CurrentUser, 
 }
 
 async fn delete_all(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Value>> {
-    let gone = sqlx::query("DELETE FROM scan_diagnostics WHERE owner_id = ?").bind(&user.id).execute(&st.pool).await?.rows_affected();
-    remove_owner_files(&st.cfg.data_dir, &user.id);
-    Ok(Json(json!({ "deleted": gone })))
+    // Only the folders of the rows this statement deleted: an upload still waiting to commit has
+    // written its folder already, and removing the whole owner folder would leave its row without
+    // images. (Account deletion, with no uploads to come, removes the whole folder.)
+    let gone: Vec<String> = sqlx::query_scalar("DELETE FROM scan_diagnostics WHERE owner_id = ? RETURNING id").bind(&user.id).fetch_all(&st.pool).await?;
+    for id in gone.iter().filter(|id| valid_id(id)) {
+        remove_record_files(&st.cfg.data_dir, &user.id, id);
+    }
+    Ok(Json(json!({ "deleted": gone.len() })))
 }
 
 #[cfg(test)]
@@ -436,8 +448,15 @@ mod tests {
         let (_, d) = testutil::send(&app, Method::DELETE, &format!("/api/scan/diagnostics/{id}"), Some(&mine), None).await;
         assert_eq!(d["deleted"], 1);
         assert_eq!(files(&me), 2);
+        // An upload still waiting to commit has written its folder already: Delete them removes
+        // only the records it deleted, so that upload's row won't arrive without its images.
+        let pending = owner_dir(&std::env::temp_dir(), &me).join(crate::util::new_id());
+        std::fs::create_dir_all(&pending).unwrap();
+        std::fs::write(pending.join("strip.jpg"), JPEG).unwrap();
         let (_, d) = testutil::send(&app, Method::DELETE, "/api/scan/diagnostics", Some(&mine), None).await;
         assert_eq!(d["deleted"], 1);
+        assert_eq!(files(&me), 1, "the in-flight upload's folder stays");
+        std::fs::remove_dir_all(&pending).unwrap();
         assert_eq!(files(&me), 0);
         let (status, _) = testutil::send(&app, Method::GET, "/api/scan/diagnostics", None, None).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);

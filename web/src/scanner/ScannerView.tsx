@@ -1897,6 +1897,8 @@ export function ScannerView({
         onChange={(on) => {
           setDiagnosticsOn(on);
           setDiag(on);
+          // Off means off now: the card in hand keeps nothing more and sends nothing.
+          if (!on) foundRef.current?.rec?.cancel();
         }}
       />
       {soundsProp && (

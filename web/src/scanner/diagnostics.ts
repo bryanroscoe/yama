@@ -13,7 +13,7 @@
 // close-up took over, or a title overruled the art. Best effort: a record that can't be sent is
 // dropped. Server: server/src/scan_diagnostics.rs. Replay: eval/real.test.ts.
 
-import { api } from "../api";
+import { accountSignal, api } from "../api";
 import { warpRegionRgba, type CardRegion } from "./image";
 import type { Gray, Quad, RgbaImage } from "./types";
 
@@ -23,6 +23,8 @@ export const DIAGNOSTICS_KEY = "yama.scan.diagnostics";
 export const STRIP: CardRegion = { x0: 0, y0: 0.86, x1: 1, y1: 1 };
 /** The longest side of the card photo kept. */
 const CARD_SIDE = 640;
+/** The whole card, corner to corner: the photo kept is the card alone, never the frame around it. */
+const WHOLE: CardRegion = { x0: 0, y0: 0, x1: 1, y1: 1 };
 /** A strip is never drawn wider than this (a card nearly filling a 4K frame). */
 const STRIP_MAX = 2400;
 /** Frames written down per record, and the longest text kept per read. */
@@ -86,6 +88,18 @@ export function stripSize(quad: Quad): { width: number; height: number } {
 export function stripOf(shot: Shot): RgbaImage {
   const { width, height } = stripSize(shot.quad);
   return warpRegionRgba(shot.image, shot.quad, STRIP, width, height);
+}
+
+/**
+ * The card alone, warped upright, at most CARD_SIDE tall (never enlarged): nothing of the camera
+ * frame or photo around it, which may show the room, a hand or other cards.
+ */
+export function cardOf(shot: Shot): RgbaImage {
+  const q = shot.quad;
+  const cardH = Math.max(Math.hypot(q[3][0] - q[0][0], q[3][1] - q[0][1]), Math.hypot(q[2][0] - q[1][0], q[2][1] - q[1][1]));
+  const height = Math.max(8, Math.min(CARD_SIDE, Math.round(cardH)));
+  const width = Math.max(6, Math.round((height * 63) / 88));
+  return warpRegionRgba(shot.image, shot.quad, WHOLE, width, height);
 }
 
 /**
@@ -153,13 +167,40 @@ export class ScanRecord {
   camera: Record<string, unknown> | null = null;
   engine: string | null = null;
   cardName: string | null = null;
-  private card: Shot | null = null;
+  private card: RgbaImage | null = null;
   private strip: RgbaImage | null = null;
   private stripLast: RgbaImage | null = null;
   private sent = false;
+  private cancelled = false;
+  /**
+   * The account signed in when the record started: it stops if the account changes, so a record
+   * kept for one account is never sent under another's sign-in (api.ts, `abortRequests`).
+   */
+  private readonly account: AbortSignal;
+
+  constructor(account: AbortSignal = accountSignal()) {
+    this.account = account;
+  }
 
   get isSent() {
     return this.sent;
+  }
+
+  /**
+   * Scanner diagnostics were turned off: this record keeps nothing more and is never sent. Its
+   * continuations (`continued`) are the same record, so they aren't sent either.
+   */
+  cancel() {
+    this.cancelled = true;
+    this.card = null;
+    this.strip = null;
+    this.stripLast = null;
+    this.frames.length = 0;
+  }
+
+  /** Whether it may still be sent: not cancelled, the switch still on, the same account signed in. */
+  private allowed(): boolean {
+    return !this.cancelled && !this.account.aborted && diagnosticsOn();
   }
 
   /**
@@ -167,8 +208,8 @@ export class ScanRecord {
    * filing), starting from what was known. Before, this one.
    */
   continued(): ScanRecord {
-    if (!this.sent) return this;
-    const r = new ScanRecord();
+    if (!this.sent || this.cancelled) return this;
+    const r = new ScanRecord(this.account);
     Object.assign(r.facts, this.facts);
     r.camera = this.camera;
     r.engine = this.engine;
@@ -182,17 +223,19 @@ export class ScanRecord {
 
   /** The card as first found: its photo and full-resolution strip. */
   setShot(shot: Shot | null | undefined) {
-    if (!shot || this.card) return;
-    this.card = shot;
+    if (!shot || this.card || this.cancelled) return;
+    this.card = cardOf(shot);
     this.strip = stripOf(shot);
   }
 
   /** The latest frame read while the card was held: its strip, kept as "strip-last". */
   latestShot(shot: Shot) {
+    if (this.cancelled) return;
     this.stripLast = stripOf(shot);
   }
 
   frame(f: Omit<FrameNote, "t">) {
+    if (this.cancelled) return;
     if (this.frames.length >= MAX_FRAMES) {
       this.dropped += 1;
       return;
@@ -214,9 +257,12 @@ export class ScanRecord {
     return { reasons: [...this.reasons], outcome, ms: Date.now() - this.started, ...this.facts, attempts: this.attempts, frames: this.frames, framesDropped: this.dropped || undefined };
   }
 
-  /** Send it, once, if it has a reason to be kept. Never throws. */
+  /**
+   * Send it, once, if it has a reason to be kept and may still be sent (checked again after the
+   * images are encoded, which takes a moment). Never throws.
+   */
   async send(outcome: Outcome): Promise<boolean> {
-    if (this.sent || this.reasons.size === 0) return false;
+    if (this.sent || this.reasons.size === 0 || !this.allowed()) return false;
     this.sent = true;
     try {
       const images: { name: string; image: string; width: number; height: number }[] = [];
@@ -227,9 +273,11 @@ export class ScanRecord {
       };
       await add("strip", this.strip, STRIP_MAX);
       await add("strip-last", this.stripLast, STRIP_MAX);
-      await add("card", this.card?.image ?? null, CARD_SIDE);
+      await add("card", this.card, CARD_SIDE);
+      if (!this.allowed()) return false;
       await api("/api/scan/diagnostics", {
         method: "POST",
+        signal: this.account,
         json: { outcome, card_name: this.cardName ?? undefined, engine: this.engine ?? undefined, camera: this.camera ?? undefined, detail: this.detail(outcome), images },
       });
       return true;

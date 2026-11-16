@@ -2933,7 +2933,9 @@ collector line at about 7 px, too small to replay a printing read. So, a new dat
   up, the close-up taking over, a title overruling the art. Nothing is sent for a card that went
   smoothly. Records are readable by their owner only (owner-bound routes, and the MCP tools
   `list_scan_diagnostics` and `get_scan_diagnostic`, which give the images as MCP image content or
-  base64); no admin route or export reads them. This differs from shared scan photos on purpose:
+  base64); no admin route or export reads them, and an admin's View as is refused them (`view_as.rs`,
+  `HIDDEN`). A record goes out only under the account that started it and only while the switch is
+  on; its card photo is the card alone, never the frame around it. This differs from shared scan photos on purpose:
   they hold more (the camera, every read).
 - **What a record holds.** The card's bottom strip at the camera's full resolution, both collector
   corners, warped upright (`strip`, and `strip-last` from the last frame read); a 640 px photo
