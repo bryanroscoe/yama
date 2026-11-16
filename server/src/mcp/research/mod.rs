@@ -320,13 +320,13 @@ pub(super) const TOOLS: &[Tool] = &[
         name: "list_collection_cards",
         aliases: &["collection_cards"],
         title: "Owned cards and locations",
-        description: "Read your collection, including quantities, proxies and containers. Filter by card-name text or to copies outside deck containers. Outside a deck box does not establish that a copy is unreserved in an upgrade plan.",
+        description: "Read your collection, including quantities, proxies and containers (container_path for a section). Filter by card-name text, one container or copies outside deck containers. Outside a deck box does not establish that a copy is unreserved in an upgrade plan.",
         kind: Kind::Read,
         offer: Offer::Everyone,
         search: true,
         schema: || {
             schema(
-                json!({"query":string("Optional card-name substring"),"outside_decks":{"type":"boolean","default":false},"page":number("The older way to continue: page number. cursor is preferred.",1,1,10000),"limit":number("Rows",20,1,100),"cursor": {"type": "string", "maxLength": 200, "description": "next_cursor from the answer before, with the same other arguments."},"detail": {"type": "string", "enum": ["summary", "full"], "description": "summary: fewer fields a row, for a shorter answer. full (default): every field."}}),
+                json!({"query":string("Optional card-name substring"),"outside_decks":{"type":"boolean","default":false},"container":string("Only copies in this container: a name or path (\"Big box/Bulk Basic\"), or \"Loose\""),"include_sections":{"type":"boolean","default":true,"description":"With container: its sections' copies too."},"page":number("The older way to continue: page number. cursor is preferred.",1,1,10000),"limit":number("Rows",20,1,100),"cursor": {"type": "string", "maxLength": 200, "description": "next_cursor from the answer before, with the same other arguments."},"detail": {"type": "string", "enum": ["summary", "full"], "description": "summary: fewer fields a row, for a shorter answer. full (default): every field."}}),
                 &[],
             )
         },
@@ -1156,6 +1156,20 @@ async fn collection(st: &AppState, user: &User, args: &Value) -> AppResult<Value
     let outside = arg::flag(args, "outside_decks", false)?;
     let limit = arg::int(args, "limit", 20, 1, 100)? as usize;
     let page = arg::int(args, "page", 1, 1, 10000)? as usize;
+    let tree = crate::collection::sections::Tree::load(&mut *st.pool.acquire().await?, &user.id).await?;
+    // One container (and its sections, unless said): their ids, with "" for loose copies.
+    let place = match arg::opt_text(args, "container", 300)? {
+        Some(c) => {
+            let (id, shown) = crate::mcp::changes::container_in(&tree, c)?;
+            let ids: std::collections::HashSet<String> = if id.is_empty() || !arg::flag(args, "include_sections", true)? {
+                [id].into()
+            } else {
+                tree.subtree(&id).iter().map(|n| n.id.clone()).collect()
+            };
+            Some((ids, shown))
+        }
+        None => None,
+    };
     let mut rows = crate::collection::items_for_owner(&st.pool, &user.id).await?;
     rows.retain(|i| {
         i.name
@@ -1164,11 +1178,13 @@ async fn collection(st: &AppState, user: &User, args: &Value) -> AppResult<Value
             .to_lowercase()
             .contains(&query)
             && (!outside || i.container_kind.as_deref() != Some("deck"))
+            && place.as_ref().is_none_or(|(ids, _)| ids.contains(i.container_id.as_deref().unwrap_or("")))
     });
     rows.sort_by(|a, b| a.name.cmp(&b.name).then(a.id.cmp(&b.id)));
     let total = rows.len();
     // A cursor continues one listing; the older page argument still works.
-    let scope = super::page::scope("collection_cards", &[&query, if outside { "outside decks" } else { "all" }]);
+    let within = place.as_ref().map(|(ids, shown)| format!("{shown}|{}", ids.len())).unwrap_or_default();
+    let scope = super::page::scope("collection_cards", &[&query, if outside { "outside decks" } else { "all" }, &within]);
     let offset = super::page::start(args, &scope, (page - 1) * limit)?;
     let summary = arg::summary(args)?;
     let mut items = json!(rows.into_iter().skip(offset).take(limit).collect::<Vec<_>>());
@@ -1177,9 +1193,14 @@ async fn collection(st: &AppState, user: &User, args: &Value) -> AppResult<Value
         if let Some(o) = item.as_object_mut() {
             o.remove("image_small");
             o.remove("image_normal");
+            // A section's place in full: "Big box › Bulk Basic › Plains".
+            let path = o.get("container_id").and_then(Value::as_str).filter(|id| tree.depth(id) > 0).map(|id| tree.shown(id));
+            if let Some(path) = path {
+                o.insert("container_path".into(), json!(path));
+            }
             if summary {
                 // A missing price stays null, beside the date it was read and found missing.
-                o.retain(|k, _| ["name", "set_code", "collector_number", "qty", "finish", "condition", "proxy", "container_name", "container_kind", "unit_price_usd", "price_date"].contains(&k.as_str()));
+                o.retain(|k, _| ["name", "set_code", "collector_number", "qty", "finish", "condition", "proxy", "container_name", "container_path", "container_kind", "unit_price_usd", "price_date"].contains(&k.as_str()));
             }
         }
     }

@@ -1,4 +1,4 @@
-## script key, power user: 71 tools
+## script key, power user: 72 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -51,6 +51,7 @@ set_condition	write
 update_deck	write
 remove_wish	write
 create_container	write
+update_container	write
 remove_from_collection	write
 edit_copies	write
 apply_change	destructive
@@ -71,7 +72,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## OAuth sign-in, power user: 71 tools
+## OAuth sign-in, power user: 72 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -124,6 +125,7 @@ set_condition	write
 update_deck	write
 remove_wish	write
 create_container	write
+update_container	write
 remove_from_collection	write
 edit_copies	write
 apply_change	destructive
@@ -144,7 +146,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## script key: 71 tools
+## script key: 72 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -197,6 +199,7 @@ set_condition	write
 update_deck	write
 remove_wish	write
 create_container	write
+update_container	write
 remove_from_collection	write
 edit_copies	write
 apply_change	destructive
@@ -217,7 +220,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## OAuth sign-in: 71 tools
+## OAuth sign-in: 72 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -270,6 +273,7 @@ set_condition	write
 update_deck	write
 remove_wish	write
 create_container	write
+update_container	write
 remove_from_collection	write
 edit_copies	write
 apply_change	destructive
@@ -290,7 +294,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## Ask Claude, power user: 69 tools
+## Ask Claude, power user: 70 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -343,6 +347,7 @@ set_condition	write
 update_deck	write
 remove_wish	write
 create_container	write
+update_container	write
 remove_from_collection	write
 edit_copies	write
 search_scryfall	read, reaches outside Yama
@@ -361,7 +366,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## OAuth sign-in limited to reading and staging, power user: 69 tools
+## OAuth sign-in limited to reading and staging, power user: 70 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -414,6 +419,7 @@ set_condition	write
 update_deck	write
 remove_wish	write
 create_container	write
+update_container	write
 remove_from_collection	write
 edit_copies	write
 search_scryfall	read, reaches outside Yama
@@ -475,7 +481,7 @@ list_deck_versions	read
 list_collection_cards	read
 get_research_sources	read
 
-## script key, an account with no stores, datasets or lab runs: 56 tools
+## script key, an account with no stores, datasets or lab runs: 57 tools
 get_research
 save_research
 review_research
@@ -513,6 +519,7 @@ set_condition
 update_deck
 remove_wish
 create_container
+update_container
 remove_from_collection
 edit_copies
 apply_change

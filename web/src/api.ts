@@ -371,9 +371,21 @@ export interface Container {
   /** Market value of the copies that have a price; the others are counted separately. */
   market_value_usd?: number;
   copies_without_price?: number;
-  /** Art crop of the most valuable card inside, and its artist, for the container's tile. */
+  /** Art crop of the most valuable card inside (its sections included), and its artist, for the container's tile. */
   art?: string | null;
   artist?: string | null;
+  /** The container this one is a section of; null at the top level. */
+  parent_id?: string | null;
+  /** Names from the top-level container down to this one. */
+  path?: string[];
+  /** 0 at the top level, 1 for a section of one, and so on. */
+  depth?: number;
+  /** How many sections sit directly in it. */
+  sections?: number;
+  /** Copies, value and unpriced copies with every section under it counted in. `copies` is its own. */
+  total_copies?: number;
+  total_market_value_usd?: number;
+  total_copies_without_price?: number;
 }
 
 export interface CollectionSummary {

@@ -15,6 +15,17 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-16-box-sections",
+    date: "2026-11-16",
+    title: "Sections inside boxes, and scanning a box",
+    items: [
+      "A box can hold sections, and a section can hold its own: open a box in Collection and tap New section for each divider. Move puts a box or section inside another, Rename renames it, and each one shows its own cards and, with its sections, the total.",
+      "Everywhere you pick a place, a section is named by its path, such as \"Big box › Bulk Basic › Plains\".",
+      "Scan this box (or section) checks the cards physically in it against Yama: the ones filed there, the ones Yama has somewhere else (move them here in one tap, or all at once), the ones it hasn't got (add them, picking the printing) and the ones that weren't scanned (mark them missing, or leave them). Include its sections counts the sections inside as part of it.",
+    ],
+    link: { to: "/collection", label: "Open your collection" },
+  },
+  {
     id: "2026-11-15-scan-new-art",
     date: "2026-11-15",
     title: "New cards are recognised by their art within a day",

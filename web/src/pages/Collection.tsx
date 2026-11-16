@@ -7,6 +7,8 @@ import { markWords } from "./collectionEdit";
 import { UnsavedPrompt, useUnsavedChanges } from "../unsaved";
 import { closeQuestion, unsavedScans } from "./scanClose";
 import { SellSheet } from "./SellSheet";
+import { ContainerSections, Breadcrumb } from "./ContainerSections";
+import { optionLabel, pathLabel, placeLabel, treeOrder } from "./containerTree";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
@@ -90,6 +92,8 @@ export function CollectionPage() {
   const [limit, setLimit] = useState(SHOW);
   const [kind, setKind] = useState<"all" | "real" | "proxy">("all");
   const [chosenFilters, setFilters] = useState<Filters>(NO_FILTERS);
+  /** An open container's cards: its own, or with every section under it too. */
+  const [withSections, setWithSections] = useState(false);
   const [show, setShow] = useState(storedView);
   const showAs = (v: "list" | "grid") => {
     setShow(v);
@@ -105,11 +109,14 @@ export function CollectionPage() {
   const summary = useQuery({ queryKey: ["collection-summary"], queryFn: ({ signal }) => api<CollectionSummary>("/api/collection/summary", { signal }) });
   const containers = useQuery({ queryKey: ["containers"], queryFn: ({ signal }) => api<Container[]>("/api/containers", { signal }) });
   const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
+  // An open container's sections' cards too, when it has sections and that's asked for.
+  const openSections = withSections && !!containers.data?.find((c) => c.id === container)?.sections;
   const items = useQuery({
-    queryKey: ["collection", container, query, kind],
+    queryKey: ["collection", container, query, kind, ...(openSections ? ["sections"] : [])],
     queryFn: ({ signal }) => {
       const p = new URLSearchParams();
       if (container) p.set("container", container);
+      if (openSections) p.set("sections", "1");
       if (query) p.set("q", query);
       if (kind !== "all") p.set("proxy", kind === "proxy" ? "only" : "none");
       return api<Item[]>(`/api/collection?${p}`, { signal });
@@ -126,13 +133,16 @@ export function CollectionPage() {
   const proxies = s?.proxies ?? 0;
   const real = (s?.copies ?? 0) - proxies;
   // A deck box shows its deck's commander; anything else, the most valuable card inside.
-  const tiles = (containers.data ?? []).map((c) => {
+  const all = containers.data ?? [];
+  // The tiles are the top-level containers; a section shows inside its box.
+  const tiles = all.filter((c) => !c.parent_id).map((c) => {
     const deck = decks.data?.find((d) => d.container_id === c.id && d.commander_image);
     return { c, art: deck ? deck.commander_image : (c.art ?? null), artist: deck ? deck.commander_artist : (c.artist ?? null) };
   });
   const filed = (containers.data ?? []).reduce((a, c) => a + c.copies, 0);
   const loose = s ? s.copies - filed : 0;
   const chosen = containers.data?.find((c) => c.id === container);
+  const hasSections = !!chosen?.sections;
   const priced = priceSource(s?.price_date);
   const day = shortDate(s?.price_date) ?? "an unknown date";
   // The filters offer what the rows in view hold; a choice those rows no longer have is dropped.
@@ -148,7 +158,7 @@ export function CollectionPage() {
   );
   const filter1 = (patch: Partial<Filters>) => setFilters({ ...filters, ...patch });
   // Another binder, filter or order starts from the top again.
-  const view = `${container}|${query}|${kind}|${sort}|${show}|${Object.values(filters).join("|")}`;
+  const view = `${container}|${query}|${kind}|${sort}|${show}|${openSections}|${Object.values(filters).join("|")}`;
   const [viewed, setViewed] = useState(view);
   if (viewed !== view) {
     setViewed(view);
@@ -204,15 +214,18 @@ export function CollectionPage() {
           {(() => {
             const t = tiles.find((x) => x.c.id === container);
             // An id that names no box (deleted, or a stale link) says so rather than passing for loose cards.
-            const name = t ? t.c.name : container === "none" ? "Loose cards" : containers.data ? "No such binder or box" : "";
+            const c = chosen;
+            const name = c ? c.name : container === "none" ? "Loose cards" : containers.data ? "No such binder or box" : "";
             return (
-              <ArtPanel art={t?.art ?? null} artist={t?.artist ?? null} wash="bottom" empty={!t?.art} className="coll-open-art">
-                <span className="ct-kind">{t ? (KIND_LABEL[t.c.kind] ?? t.c.kind) : container === "none" ? "Not filed" : ""}</span>
+              <ArtPanel art={t?.art ?? c?.art ?? null} artist={t?.artist ?? c?.artist ?? null} wash="bottom" empty={!(t?.art ?? c?.art)} className="coll-open-art">
+                <span className="ct-kind">{c ? (c.parent_id ? "Section" : (KIND_LABEL[c.kind] ?? c.kind)) : container === "none" ? "Not filed" : ""}</span>
                 <h2 className="ct-name">{name}</h2>
-                <span className="ct-meta num">{t ? tileMeta(t.c.copies, t.c.market_value_usd, t.c.copies_without_price) : container === "none" && s ? tileMeta(loose, undefined, undefined) : ""}</span>
+                <span className="ct-meta num">{c ? tileMeta(c.total_copies ?? c.copies, c.total_market_value_usd ?? c.market_value_usd, c.total_copies_without_price ?? c.copies_without_price) : container === "none" && s ? tileMeta(loose, undefined, undefined) : ""}</span>
               </ArtPanel>
             );
           })()}
+          {chosen && <Breadcrumb id={chosen.id} all={all} onOpen={setContainer} />}
+          {chosen && <ContainerSections key={chosen.id} container={chosen} all={all} onOpen={setContainer} onDone={setDone} />}
         </section>
       )}
       {!container && (tiles.length > 0 || loose > 0) && (
@@ -232,7 +245,10 @@ export function CollectionPage() {
                   <ArtPanel as="span" art={art} artist={artist} wash="bottom" credit={false}>
                     <span className="ct-kind">{KIND_LABEL[c.kind] ?? c.kind}</span>
                     <span className="ct-name">{c.name}</span>
-                    <span className="ct-meta num">{tileMeta(c.copies, c.market_value_usd, c.copies_without_price)}</span>
+                    <span className="ct-meta num">
+                      {tileMeta(c.total_copies ?? c.copies, c.total_market_value_usd ?? c.market_value_usd, c.total_copies_without_price ?? c.copies_without_price)}
+                      {c.sections ? `, ${plural(c.sections, "section")}` : ""}
+                    </span>
                   </ArtPanel>
                 </Button>
               </li>
@@ -263,7 +279,13 @@ export function CollectionPage() {
       <section className="coll-cards" aria-labelledby="coll-cards-h">
         <div className="coll-cards-head">
           <h2 id="coll-cards-h">{heading}</h2>
-          {chosen && <Button variant="outline" size="small" onClick={() => setDeleting(chosen)}>Delete {(KIND_LABEL[chosen.kind] ?? "container").toLowerCase()}</Button>}
+          {chosen && <Button variant="outline" size="small" onClick={() => setDeleting(chosen)}>Delete {chosen.parent_id ? "section" : (KIND_LABEL[chosen.kind] ?? "container").toLowerCase()}</Button>}
+          {hasSections && (
+            <label className="coll-with-sections small">
+              <input type="checkbox" checked={withSections} onChange={(e) => setWithSections(e.target.checked)} />
+              <span>Include its sections</span>
+            </label>
+          )}
           <Segmented className="coll-sort" label="Order" value={sort} onChange={setSort} options={[["value", "By value"], ["name", "By name"]]} />
           {(proxies > 0 || kind !== "all") && (
             <Segmented className="coll-kind" label="Real cards or proxies" value={kind} onChange={setKind} options={[["all", "All"], ["real", "Real"], ["proxy", "Proxies"]]} />
@@ -341,7 +363,7 @@ export function CollectionPage() {
         {show === "list" && (
         <ul className="coll-list">
           {shown.map((i) => {
-            const place = i.container_name ?? "Not filed";
+            const place = placeLabel(i.container_id, all) ?? i.container_name ?? "Not filed";
             const cond = CONDITIONS[i.condition] ?? i.condition;
             // "Surge foil", "Showcase": what makes this copy's printing special.
             const special = treatmentLabel(i, i.finish);
@@ -408,7 +430,7 @@ export function CollectionPage() {
       {selling && (
         <SellSheet
           items={sorted}
-          from={(chosen ? chosen.name : container === "none" ? "loose cards" : "every card") + (query ? ` called "${query}"` : "") + (filtering ? ", filtered" : "")}
+          from={(chosen ? pathLabel(chosen, all) : container === "none" ? "loose cards" : "every card") + (query ? ` called "${query}"` : "") + (filtering ? ", filtered" : "")}
           inDeckBox={chosen?.kind === "deck"}
           onClose={() => setSelling(false)}
         />
@@ -416,7 +438,7 @@ export function CollectionPage() {
       {deleting && <DeleteContainer container={deleting} onClose={() => setDeleting(null)} onDeleted={() => {
         setContainer("");
         setDeleting(null);
-        setDone(`Deleted “${deleting.name}”. Its cards are still in your collection as loose cards.`);
+        setDone(`Deleted “${pathLabel(deleting, all)}”. Its cards are still in your collection as loose cards.`);
       }} />}
       {importing === "cards" && <ImportCollectionSheet containers={containers.data ?? []} onClose={() => setImporting(null)} onMythic={() => setImporting("mythic")} />}
       {importing === "mythic" && <MythicImportSheet onClose={() => setImporting(null)} />}
@@ -809,7 +831,7 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
   const shownFinish: Finish = finish === "proxy" ? "proxy" : (pickFinish(printing, finish) as Finish);
   const finishOptions = [...finishesOf(printing), "proxy"];
   const finishLabel = finishName(shownFinish);
-  const filedIn = containers.find((c) => c.id === container)?.name;
+  const filedIn = placeLabel(container, containers);
   const settingsSummary = [finishLabel, filedIn ? `into ${filedIn}` : "not filed", keepAdding && "keep adding", !closeups && "no close-ups"].filter(Boolean).join(", ");
   const settings = (
     <>
@@ -825,7 +847,7 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
       <Field label="Put in">
         <select value={container} onChange={(e) => setContainer(e.target.value)}>
           <option value="">Not filed anywhere</option>
-          {containers.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.kind})</option>)}
+          {treeOrder(containers).map((c) => <option key={c.id} value={c.id}>{optionLabel(c, containers)}</option>)}
         </select>
       </Field>
       <label className="scan-keep">

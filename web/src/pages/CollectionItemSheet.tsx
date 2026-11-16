@@ -8,6 +8,7 @@ import { finishChoices, finishFor, finishWord, languageChoices, markDone, markOp
 // The scan choices and their notes, shown here outside the scanner too.
 import "../scanner/scanner.css";
 import { shortDate, treatmentLabel, usd } from "@yama/core";
+import { optionLabel, placeLabel, treeOrder } from "./containerTree";
 
 // The scanner pulls in OCR; load it only when someone rescans.
 const ScannerView = lazy(() => import("../scanner").then((m) => ({ default: m.ScannerView })));
@@ -223,7 +224,7 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
         <Field label="Kept in">
           <select value={item.container_id ?? ""} disabled={busy} onChange={(e) => one({ container_id: e.target.value || null })}>
             <option value="">Not filed anywhere</option>
-            {containers.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.kind})</option>)}
+            {treeOrder(containers).map((c) => <option key={c.id} value={c.id}>{optionLabel(c, containers)}</option>)}
           </select>
         </Field>
         <Field label="Condition">
@@ -265,13 +266,13 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
         {deleting ? (
           <div className="coll-delete stack" role="alert">
             <p>
-              Delete {item.qty === 1 ? "this copy" : `all ${item.qty} copies`} of {item.name ?? "this card"} from {item.container_name ?? "your collection"}?
+              Delete {item.qty === 1 ? "this copy" : `all ${item.qty} copies`} of {item.name ?? "this card"} from {placeLabel(item.container_id, containers) ?? item.container_name ?? "your collection"}?
             </p>
             <div className="row">
               <Button
                 variant="destructive"
                 disabled={busy}
-                onClick={() => save([{ op_id: ids.idFor("remove"), kind: "remove", item_id: item.id }], `Deleted ${item.qty === 1 ? name : `${item.qty} copies of ${name}`} from ${item.container_name ?? "your collection"}.`)}
+                onClick={() => save([{ op_id: ids.idFor("remove"), kind: "remove", item_id: item.id }], `Deleted ${item.qty === 1 ? name : `${item.qty} copies of ${name}`} from ${placeLabel(item.container_id, containers) ?? item.container_name ?? "your collection"}.`)}
               >
                 Delete
               </Button>

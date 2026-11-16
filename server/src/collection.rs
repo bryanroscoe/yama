@@ -12,6 +12,7 @@
 pub mod deck_box;
 pub mod import;
 pub mod mythic;
+pub mod sections;
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
@@ -32,7 +33,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/collection/ops", post(apply_ops))
         .route("/api/collection/export.csv", get(export_csv))
         .route("/api/containers", get(list_containers).post(create_container))
-        .route("/api/containers/{id}", patch(rename_container).delete(delete_container))
+        .route("/api/containers/{id}", patch(edit_container).delete(delete_container))
         .merge(mythic::router())
         .merge(import::router())
         .merge(deck_box::router())
@@ -757,6 +758,8 @@ const ITEM_SELECT: &str = "SELECT i.id, i.scryfall_id, i.qty, i.condition, i.fin
 #[derive(Deserialize)]
 struct ListParams {
     container: Option<String>,
+    /// With `container`: "1" lists its sections' cards too.
+    sections: Option<String>,
     q: Option<String>,
     /// "only": proxies only; "none": real copies only; anything else: both.
     proxy: Option<String>,
@@ -768,8 +771,16 @@ async fn list_items(
     Query(p): Query<ListParams>,
 ) -> AppResult<Json<Vec<ListedItem>>> {
     let mut sql = format!("{ITEM_SELECT} WHERE i.owner_id = ?");
+    let with_sections = p.sections.as_deref().is_some_and(|s| matches!(s, "1" | "true"));
     if p.container.as_deref() == Some("none") {
         sql.push_str(" AND i.container_id IS NULL");
+    } else if p.container.is_some() && with_sections {
+        // The container and every section under it (bounded: sections go MAX_DEPTH deep).
+        sql.push_str(
+            " AND i.container_id IN (WITH RECURSIVE under(id, level) AS (SELECT ?, 0
+                 UNION SELECT ct2.id, under.level + 1 FROM containers ct2 JOIN under ON ct2.parent_id = under.id
+                 WHERE ct2.owner_id = ? AND under.level < 16) SELECT id FROM under)",
+        );
     } else if p.container.is_some() {
         sql.push_str(" AND i.container_id = ?");
     }
@@ -785,6 +796,9 @@ async fn list_items(
     let mut q = sqlx::query_as::<_, ListedItem>(sqlx::AssertSqlSafe(sql)).bind(&user.id);
     if let Some(c) = p.container.as_deref().filter(|c| *c != "none") {
         q = q.bind(c);
+        if with_sections {
+            q = q.bind(&user.id);
+        }
     }
     if let Some(text) = p.q.as_deref().filter(|q| !q.trim().is_empty()) {
         q = q.bind(format!("%{}%", text.trim()));
@@ -897,16 +911,37 @@ pub(crate) async fn summary_for(pool: &SqlitePool, owner: &str) -> AppResult<Sum
 
 #[derive(Serialize, sqlx::FromRow)]
 pub(crate) struct Container {
-    id: String,
-    kind: String,
-    name: String,
-    copies: i64,
+    pub(crate) id: String,
+    pub(crate) kind: String,
+    pub(crate) name: String,
+    /// Copies filed in this container itself, not counting its sections.
+    pub(crate) copies: i64,
+    /// The container this one is a section of; None at the top level.
+    #[sqlx(skip)]
+    pub(crate) parent_id: Option<String>,
+    /// Names from the top-level container down to this one ("Big box", "Bulk Basic", "Plains").
+    #[sqlx(skip)]
+    pub(crate) path: Vec<String>,
+    /// 0 for a top-level container, 1 for a section of one, and so on.
+    #[sqlx(skip)]
+    pub(crate) depth: usize,
+    /// How many sections sit directly in it.
+    #[sqlx(skip)]
+    pub(crate) sections: usize,
     /// Market value of the copies that have a price; the rest are counted in `copies_without_price`.
     #[sqlx(skip)]
-    market_value_usd: f64,
+    pub(crate) market_value_usd: f64,
     #[sqlx(skip)]
-    copies_without_price: i64,
-    /// Art crop of the most valuable card inside, for the container's tile, and its artist.
+    pub(crate) copies_without_price: i64,
+    /// The same three with every section under it counted in too.
+    #[sqlx(skip)]
+    pub(crate) total_copies: i64,
+    #[sqlx(skip)]
+    pub(crate) total_market_value_usd: f64,
+    #[sqlx(skip)]
+    pub(crate) total_copies_without_price: i64,
+    /// Art crop of the most valuable card inside (its sections included), for the container's
+    /// tile, and its artist.
     #[sqlx(skip)]
     art: Option<String>,
     #[sqlx(skip)]
@@ -917,20 +952,27 @@ async fn list_containers(State(st): State<AppState>, CurrentUser(user): CurrentU
     Ok(Json(containers_for(&st.pool, &user.id).await?))
 }
 
-/// The owner's binders, deck boxes and lists with copies and market value, shared with the MCP.
+/// The owner's binders, deck boxes, boxes and lists with copies and market value, shared with
+/// the MCP. In tree order: each top-level container (by kind, then name) followed by its
+/// sections, depth first; each has its own counts and, in `total_*`, those of everything under it.
 pub(crate) async fn containers_for(pool: &SqlitePool, owner: &str) -> AppResult<Vec<Container>> {
-    let mut containers: Vec<Container> = sqlx::query_as(
+    let mut conn = pool.acquire().await?;
+    let tree = sections::Tree::load(&mut conn, owner).await?;
+    let mut own: std::collections::HashMap<String, Container> = sqlx::query_as::<_, Container>(
         "SELECT ct.id, ct.kind, ct.name, IFNULL(SUM(i.qty), 0) AS copies FROM containers ct
          LEFT JOIN collection_items i ON i.container_id = ct.id
-         WHERE ct.owner_id = ? GROUP BY ct.id ORDER BY ct.kind, ct.name",
+         WHERE ct.owner_id = ? GROUP BY ct.id",
     )
     .bind(owner)
-    .fetch_all(pool)
-    .await?;
+    .fetch_all(&mut *conn)
+    .await?
+    .into_iter()
+    .map(|c| (c.id.clone(), c))
+    .collect();
     // Every filed item once, with its printing's art, grouped by box.
     let items: Vec<ListedItem> = sqlx::query_as(sqlx::AssertSqlSafe(format!("{ITEM_SELECT} WHERE i.owner_id = ? AND i.container_id IS NOT NULL")))
         .bind(owner)
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await?;
     let mut by_container: std::collections::HashMap<&str, Vec<&ListedItem>> = std::collections::HashMap::new();
     for i in &items {
@@ -938,29 +980,53 @@ pub(crate) async fn containers_for(pool: &SqlitePool, owner: &str) -> AppResult<
             by_container.entry(c).or_default().push(i);
         }
     }
-    for ct in &mut containers {
-        let inside: Vec<&ListedItem> = by_container.remove(ct.id.as_str()).unwrap_or_default();
-        for i in inside.iter().map(|i| &i.item).filter(|i| !i.proxy) {
+    let round = |v: f64| (v * 100.0).round() / 100.0;
+    let mut containers = Vec::new();
+    for node in tree.ordered() {
+        let Some(mut ct) = own.remove(&node.id) else { continue };
+        ct.parent_id = node.parent_id.clone();
+        ct.path = tree.path(&node.id);
+        ct.depth = tree.depth(&node.id);
+        ct.sections = tree.children(Some(&node.id)).count();
+        for i in by_container.get(node.id.as_str()).into_iter().flatten().map(|i| &i.item).filter(|i| !i.proxy) {
             match i.unit_price_usd {
                 Some(p) => ct.market_value_usd += p * i.qty as f64,
                 None => ct.copies_without_price += i.qty,
             }
         }
-        ct.market_value_usd = (ct.market_value_usd * 100.0).round() / 100.0;
+        // Everything under it, itself included.
+        let inside: Vec<&ListedItem> = tree.subtree(&node.id).iter().flat_map(|n| by_container.get(n.id.as_str()).into_iter().flatten().copied()).collect();
+        for i in inside.iter().map(|i| &i.item) {
+            ct.total_copies += i.qty;
+            if i.proxy {
+                continue;
+            }
+            match i.unit_price_usd {
+                Some(p) => ct.total_market_value_usd += p * i.qty as f64,
+                None => ct.total_copies_without_price += i.qty,
+            }
+        }
+        ct.market_value_usd = round(ct.market_value_usd);
+        ct.total_market_value_usd = round(ct.total_market_value_usd);
         let top = inside.iter().filter(|i| i.item.oracle_id.is_some() && !i.item.proxy).max_by(|a, b| {
             a.item.unit_price_usd.unwrap_or(-1.0).partial_cmp(&b.item.unit_price_usd.unwrap_or(-1.0)).unwrap_or(std::cmp::Ordering::Equal)
         });
         if let Some(top) = top {
             (ct.art, ct.artist) = (top.image_art_crop.clone(), top.artist.clone());
         }
+        containers.push(ct);
     }
     Ok(containers)
 }
 
 #[derive(Deserialize)]
 struct NewContainer {
-    kind: String,
+    /// Left out for a section: the kind of the container it goes in.
+    kind: Option<String>,
     name: String,
+    /// The container it goes in; left out or null: top level.
+    #[serde(default)]
+    parent_id: Option<String>,
 }
 
 /// A container name as typed: trimmed, not blank, no line breaks or control characters, at most
@@ -985,42 +1051,60 @@ async fn create_container(
     Json(body): Json<NewContainer>,
 ) -> AppResult<Json<serde_json::Value>> {
     let name = container_name(&body.name)?;
-    let kind = body.kind.to_lowercase();
-    if !KINDS.contains(&kind.as_str()) {
+    let kind = body.kind.map(|k| k.to_lowercase());
+    if kind.as_deref().is_some_and(|k| !KINDS.contains(&k)) || (kind.is_none() && body.parent_id.is_none()) {
         return Err(AppError::bad(format!("container kind must be one of {}", KINDS.join(", "))));
     }
     st.limits.collection_writes.check_user(&user)?;
-    let id = insert_container(&st.pool, &user.id, &kind, &name).await?;
+    let id = insert_container(&st.pool, &user.id, kind.as_deref(), &name, body.parent_id.as_deref()).await?;
     Ok(Json(serde_json::json!({ "id": id })))
 }
 
-/// Make a container of a checked kind and name, or answer with the one that is already there.
-/// Shared with the MCP's `create_container`.
-pub(crate) async fn insert_container(pool: &SqlitePool, owner: &str, kind: &str, name: &str) -> AppResult<String> {
+/// Make a container of a checked kind and name, in `parent` (None: top level), or answer with the
+/// one of that kind and name already there. Without a kind, a section takes its parent's. Shared
+/// with the MCP's `create_container`.
+pub(crate) async fn insert_container(pool: &SqlitePool, owner: &str, kind: Option<&str>, name: &str, parent: Option<&str>) -> AppResult<String> {
     // Immediate, so the count and the insert are one step: two requests arriving together
     // can't both find room for the last one. Asking for a container that is already there
     // answers with it, as before, however many there are.
     let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
-    let existing: Option<String> = sqlx::query_scalar("SELECT id FROM containers WHERE owner_id = ? AND kind = ? AND name = ?")
-        .bind(owner)
-        .bind(kind)
-        .bind(name)
-        .fetch_optional(&mut *tx)
-        .await?;
+    let kind = match (kind, parent) {
+        (Some(k), _) => k.to_string(),
+        (None, Some(p)) => sqlx::query_scalar("SELECT kind FROM containers WHERE id = ? AND owner_id = ?")
+            .bind(p)
+            .bind(owner)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or(AppError::NotFound("container"))?,
+        (None, None) => return Err(AppError::bad(format!("container kind must be one of {}", KINDS.join(", ")))),
+    };
+    let existing: Option<String> =
+        sqlx::query_scalar("SELECT id FROM containers WHERE owner_id = ? AND kind = ? AND name = ? AND IFNULL(parent_id, '') = IFNULL(?, '')")
+            .bind(owner)
+            .bind(&kind)
+            .bind(name)
+            .bind(parent)
+            .fetch_optional(&mut *tx)
+            .await?;
     let id = match existing {
         Some(id) => id,
         None => {
+            if let Some(p) = parent {
+                let tree = sections::Tree::load(&mut tx, owner).await?;
+                sections::check_parent(&tree, None, p)?;
+            }
             let have: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM containers WHERE owner_id = ?").bind(owner).fetch_one(&mut *tx).await?;
             if have >= CONTAINERS_MAX {
                 return Err(AppError::Conflict(format!("You already have {CONTAINERS_MAX} binders, boxes and lists. Delete one you no longer use first.")));
             }
             let id = new_id();
-            sqlx::query("INSERT INTO containers (id, owner_id, kind, name, created_at) VALUES (?,?,?,?,?)")
+            sqlx::query("INSERT INTO containers (id, owner_id, kind, name, created_at, parent_id) VALUES (?,?,?,?,?,?)")
                 .bind(&id)
                 .bind(owner)
-                .bind(kind)
+                .bind(&kind)
                 .bind(name)
                 .bind(now())
+                .bind(parent)
                 .execute(&mut *tx)
                 .await?;
             id
@@ -1030,6 +1114,9 @@ pub(crate) async fn insert_container(pool: &SqlitePool, owner: &str, kind: &str,
     Ok(id)
 }
 
+/// The container of this kind and name, made at the top level if there is none. One already in
+/// a box (a section) counts: an import naming "Bulk Red" finds the one moved into the big box.
+/// Two of that name: the top-level one, else the oldest.
 pub async fn ensure_container(pool: &SqlitePool, owner: &str, kind: &str, name: &str) -> AppResult<String> {
     let kind = kind.to_lowercase();
     if !KINDS.contains(&kind.as_str()) {
@@ -1039,6 +1126,17 @@ pub async fn ensure_container(pool: &SqlitePool, owner: &str, kind: &str, name: 
     if name.is_empty() {
         return Err(AppError::bad("container needs a name"));
     }
+    let find = || {
+        sqlx::query_scalar::<_, String>(
+            "SELECT id FROM containers WHERE owner_id = ? AND kind = ? AND name = ? ORDER BY parent_id IS NOT NULL, created_at, id LIMIT 1",
+        )
+        .bind(owner)
+        .bind(&kind)
+        .bind(name)
+    };
+    if let Some(id) = find().fetch_optional(pool).await? {
+        return Ok(id);
+    }
     sqlx::query("INSERT INTO containers (id, owner_id, kind, name, created_at) VALUES (?,?,?,?,?) ON CONFLICT DO NOTHING")
         .bind(new_id())
         .bind(owner)
@@ -1047,53 +1145,68 @@ pub async fn ensure_container(pool: &SqlitePool, owner: &str, kind: &str, name: 
         .bind(now())
         .execute(pool)
         .await?;
-    Ok(sqlx::query_scalar("SELECT id FROM containers WHERE owner_id = ? AND kind = ? AND name = ?")
-        .bind(owner)
-        .bind(&kind)
-        .bind(name)
-        .fetch_one(pool)
-        .await?)
+    Ok(find().fetch_one(pool).await?)
 }
 
+/// A rename, a move into another container, or both. `parent_id` left out keeps it where it is;
+/// null moves it to the top level.
 #[derive(Deserialize)]
-struct RenameContainer {
-    name: String,
+struct EditContainer {
+    name: Option<String>,
+    #[serde(default, deserialize_with = "crate::util::double_option")]
+    parent_id: Option<Option<String>>,
 }
 
-async fn rename_container(
+async fn edit_container(
     State(st): State<AppState>,
     CurrentUser(user): CurrentUser,
     Path(id): Path<String>,
-    Json(body): Json<RenameContainer>,
+    Json(body): Json<EditContainer>,
 ) -> AppResult<()> {
-    let name = container_name(&body.name)?;
+    let name = body.name.as_deref().map(container_name).transpose()?;
     st.limits.collection_writes.check_user(&user)?;
-    // Immediate, so the name can't be taken between the check and the rename. (Names are unique
-    // per owner and kind; without the check a clash was a database error, a 500.)
-    let mut tx = st.pool.begin_with("BEGIN IMMEDIATE").await?;
-    let kind: String = sqlx::query_scalar("SELECT kind FROM containers WHERE id = ? AND owner_id = ?")
-        .bind(&id)
-        .bind(&user.id)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or(AppError::NotFound("container"))?;
-    let taken: Option<String> = sqlx::query_scalar("SELECT id FROM containers WHERE owner_id = ? AND kind = ? AND name = ? AND id != ?")
-        .bind(&user.id)
-        .bind(&kind)
-        .bind(&name)
-        .bind(&id)
-        .fetch_optional(&mut *tx)
-        .await?;
-    if taken.is_some() {
-        return Err(AppError::Conflict(format!("You already have a {kind} called {name}.")));
+    update_container(&st.pool, &user.id, &id, name.as_deref(), body.parent_id.as_ref().map(|p| p.as_deref())).await
+}
+
+/// Rename a container (`name`), move it (`parent`: Some(None) is the top level, Some(Some(id))
+/// inside that one), or both. Its cards and sections go with it. Shared with the MCP's
+/// `update_container`.
+pub(crate) async fn update_container(pool: &SqlitePool, owner: &str, id: &str, name: Option<&str>, parent: Option<Option<&str>>) -> AppResult<()> {
+    // Immediate, so the name can't be taken, or the tree change, between the checks and the
+    // write. (Names are unique among siblings; without the check a clash was a database error.)
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+    let tree = sections::Tree::load(&mut tx, owner).await?;
+    let me = tree.get(id).ok_or(AppError::NotFound("container"))?.clone();
+    let parent = match parent {
+        None => me.parent_id.clone(),
+        Some(None) => None,
+        Some(Some(p)) => {
+            sections::check_parent(&tree, Some(id), p)?;
+            Some(p.to_string())
+        }
+    };
+    let name = name.unwrap_or(&me.name).to_string();
+    let clash = tree.children(parent.as_deref()).find(|n| n.id != id && n.kind == me.kind && n.name == name);
+    if clash.is_some() {
+        let place = match parent.as_deref() {
+            Some(p) => format!(" in {}", tree.shown(p)),
+            None => String::new(),
+        };
+        return Err(AppError::Conflict(format!("You already have a {} called {name}{place}.", me.kind)));
     }
-    sqlx::query("UPDATE containers SET name = ? WHERE id = ? AND owner_id = ?").bind(&name).bind(&id).bind(&user.id).execute(&mut *tx).await?;
+    sqlx::query("UPDATE containers SET name = ?, parent_id = ? WHERE id = ? AND owner_id = ?")
+        .bind(&name)
+        .bind(&parent)
+        .bind(id)
+        .bind(owner)
+        .execute(&mut *tx)
+        .await?;
     tx.commit().await?;
     Ok(())
 }
 
-/// Deleting a container keeps its cards; they become unfiled. A container that isn't the
-/// caller's (someone else's, already deleted, never there) is a 404 and changes nothing.
+/// Deleting a container keeps its cards; they become unfiled. One that still has sections is
+/// refused (409) and changes nothing. A container that isn't the caller's (someone else's, already deleted, never there) is a 404 and changes nothing.
 async fn delete_container(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<()> {
     st.limits.collection_writes.check_user(&user)?;
     if delete_container_for_owner(&st.pool, &user.id, &id).await? { Ok(()) } else { Err(AppError::NotFound("container")) }
@@ -1110,6 +1223,20 @@ async fn delete_container_for_owner(pool: &SqlitePool, owner: &str, id: &str) ->
         .await?;
     if mine.is_none() {
         return Ok(false);
+    }
+    // Its sections would have nowhere to go: move or delete them first.
+    let sections: Vec<String> = sqlx::query_scalar("SELECT name FROM containers WHERE parent_id = ? AND owner_id = ? ORDER BY name")
+        .bind(id)
+        .bind(owner)
+        .fetch_all(&mut *tx)
+        .await?;
+    if !sections.is_empty() {
+        return Err(AppError::Conflict(format!(
+            "It still has {} ({}). Move or delete {} first.",
+            if sections.len() == 1 { "a section".to_string() } else { format!("{} sections", sections.len()) },
+            sections.join(", "),
+            if sections.len() == 1 { "it" } else { "them" }
+        )));
     }
     // Unfiling can collide with an identical unfiled row, so re-add rather than update.
     let ids: Vec<String> = sqlx::query_scalar("SELECT id FROM collection_items WHERE container_id = ? AND owner_id = ?")

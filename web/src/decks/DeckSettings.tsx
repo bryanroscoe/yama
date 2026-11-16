@@ -4,6 +4,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, type Container, type DeckSummary, type DeckView } from "../api";
+import { pathLabel, placeLabel, treeOrder } from "../pages/containerTree";
 import { SearchPicker } from "../components/SearchPicker";
 import { ActionBar, Button, CheckRow, Dialog, ErrorText, Field, Segmented } from "../components/ui";
 import { UnsavedPrompt, useUnsavedChanges } from "../unsaved";
@@ -69,7 +70,7 @@ export function DeckSettings({ deck, onClose: closeSheet }: { deck: DeckView; on
   const [picking, setPicking] = useState<"box" | "parent" | null>(null);
   const hasLists = deck.configurations.length > 1 && !deck.parent_id;
   const mains = (decks.data ?? []).filter((x) => !x.parent_id && x.id !== deck.id);
-  const boxName = containers.data?.find((c) => c.id === container)?.name ?? (container ? "A box" : "None");
+  const boxName = placeLabel(container, containers.data ?? []) ?? (container ? "A box" : "None");
   const parentName = mains.find((m) => m.id === parent)?.name ?? (parent ? deck.configurations[0]?.name ?? "Another deck" : null);
 
   // Closing (Close, Cancel, Escape, a tap outside) or leaving the page with changes asks first.
@@ -96,7 +97,7 @@ export function DeckSettings({ deck, onClose: closeSheet }: { deck: DeckView; on
           {box ? (
             <SearchPicker
               label="Boxes"
-              options={[{ id: "", label: "None" }, ...(containers.data ?? []).map((c) => ({ id: c.id, label: c.name, detail: c.kind }))]}
+              options={[{ id: "", label: "None" }, ...treeOrder(containers.data ?? []).map((c) => ({ id: c.id, label: pathLabel(c, containers.data ?? []), detail: c.kind }))]}
               current={container}
               onPick={(id) => { setContainer(id); setPicking(null); }}
             />

@@ -92,7 +92,7 @@ export const TABS: NavTab[] = [
     label: "Collection",
     icon: <CollectionIcon />,
     sections: [
-      { to: "/collection", label: "Cards", end: true },
+      { to: "/collection", label: "Cards", end: true, also: ["/collection/check"] },
       { to: "/collection/wishlist", label: "Wish list" },
       { to: "/collection/trade", label: "Trade with a friend", also: ["/sharing/compare"] },
     ],

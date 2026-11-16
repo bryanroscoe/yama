@@ -424,6 +424,8 @@ fn isolation_cases(f: &Fixture) -> Vec<(&'static str, Value, ForOwner)> {
         ("shopping_trip", json!({"stores": ["store-a"]}), Works),
         ("add_to_collection", json!({"card": "Sol Ring", "container": "Box A"}), Works),
         ("move_cards", json!({"card": "Sol Ring", "from": "Box A", "to": "Box A"}), Unchecked),
+        ("update_container", json!({"container": "Box A", "name": "Box B"}), Works),
+        ("collection_cards", json!({"container": "Box A"}), Works),
         ("set_condition", json!({"container": "Box A", "condition": "LP"}), Works),
         ("update_deck", json!({"deck": deck, "bracket": 3}), Works),
         // The owner's side, with a real wish, is in tests.rs (wishes_containers_and_copies_change_only_when_applied).
@@ -698,8 +700,9 @@ fn descriptions_are_short_and_written_for_anyone() {
         }
     }
     // 25,000 until browse_public_decks (12 Nov 2026), which took the total to 25,272;
-    // list_devices (15 Nov 2026) took it to about 25,450.
-    assert!(total <= 25_500, "the descriptions are {total} characters in all");
+    // list_devices (15 Nov 2026) took it to about 25,450; update_container and sections in
+    // the collection tools (16 Nov 2026) to about 25,900.
+    assert!(total <= 26_000, "the descriptions are {total} characters in all");
     let instructions = super::SERVER_INSTRUCTIONS;
     assert!(instructions.chars().count() <= 2_600, "the instructions are {} characters", instructions.chars().count());
     for word in his {

@@ -19,6 +19,7 @@ use super::args as arg;
 use super::registry::{Pending, Staging};
 use super::tools::{card_info, checks, deck_id, near_names, precon_id};
 use crate::auth::{CurrentUser, User};
+use crate::collection::sections::{self, Tree};
 use crate::decks::{Board, DeckCard};
 use crate::error::{AppError, AppResult};
 use crate::routes::AppState;
@@ -1520,23 +1521,43 @@ fn stored(id: &str) -> Option<String> {
     (id != LOOSE).then(|| id.to_string())
 }
 
-/// The caller's binder, deck box or list by name: (id, name). "Loose" is their copies in none
-/// (id `LOOSE`). Unknown names list theirs.
+/// The caller's binder, deck box, box or list by name or path: (id, its path as shown, "Big box ›
+/// Bulk Basic › Plains"). A path is "Big box/Bulk Basic/Plains" (or with "›"); a plain name works
+/// when only one container has it. "Loose" is their copies in none (id `LOOSE`). Unknown names
+/// list theirs; a name several share lists their paths.
 async fn container(pool: &SqlitePool, owner: &str, wanted: &str) -> AppResult<(String, String)> {
-    let all: Vec<(String, String)> = sqlx::query_as("SELECT id, name FROM containers WHERE owner_id = ? ORDER BY name").bind(owner).fetch_all(pool).await?;
-    if let Some(c) = all.iter().find(|(id, n)| id == wanted || n.eq_ignore_ascii_case(wanted)) {
-        return Ok(c.clone());
+    let tree = Tree::load(&mut *pool.acquire().await?, owner).await?;
+    container_in(&tree, wanted)
+}
+
+/// [`container`] against a tree already loaded.
+pub(crate) fn container_in(tree: &Tree, wanted: &str) -> AppResult<(String, String)> {
+    let found = sections::find(tree, wanted);
+    match found.as_slice() {
+        [one] => return Ok((one.id.clone(), tree.shown(&one.id))),
+        [] => {}
+        many => {
+            return Err(AppError::bad(format!(
+                "Several of their containers are called \"{wanted}\": {}. Name one by its path (\"{}\") or id.",
+                many.iter().take(20).map(|n| format!("{} ({}, id {})", tree.shown(&n.id), n.kind, n.id)).collect::<Vec<_>>().join("; "),
+                tree.path(&many[0].id).join("/")
+            )));
+        }
     }
     if means_loose(wanted) {
         return Ok((LOOSE.to_string(), "Loose (in no binder or box)".to_string()));
     }
-    let near: Vec<&(String, String)> = all.iter().filter(|(_, n)| n.to_lowercase().contains(&wanted.to_lowercase())).collect();
+    let low = wanted.to_lowercase();
+    let near: Vec<&sections::Node> = tree.nodes.iter().filter(|n| n.name.to_lowercase().contains(&low)).collect();
     match near.as_slice() {
-        [one] => Ok((*one).clone()),
-        _ => Err(AppError::bad(format!(
-            "They have no binder, deck box or list called \"{wanted}\". Theirs: {}. \"Loose\" names their copies in none.",
-            if all.is_empty() { "none yet".into() } else { all.iter().take(40).map(|(_, n)| n.as_str()).collect::<Vec<_>>().join(", ") }
-        ))),
+        [one] => Ok((one.id.clone(), tree.shown(&one.id))),
+        _ => {
+            let all = tree.ordered();
+            Err(AppError::bad(format!(
+                "They have no binder, deck box or list called \"{wanted}\". Theirs: {}. A section is named by its path, such as \"Big box/Bulk Basic\". \"Loose\" names their copies in none.",
+                if all.is_empty() { "none yet".into() } else { all.iter().take(60).map(|n| tree.shown(&n.id)).collect::<Vec<_>>().join(", ") }
+            )))
+        }
     }
 }
 
@@ -1684,42 +1705,225 @@ async fn copies_in(conn: &mut sqlx::SqliteConnection, owner: &str, oracle_id: &s
     .await?)
 }
 
+/// The most moves one `move_cards` call may stage, and the most copies one move may take.
+pub const MAX_MOVES: usize = 500;
+pub const MAX_MOVE_QTY: i64 = 1_000;
+
+/// Which of a container's copies a move may take: proxies or real copies only, one printing
+/// (set, and number), one finish. Left out: any.
+#[derive(Default)]
+struct MoveFilter {
+    proxy: Option<bool>,
+    set: Option<String>,
+    number: Option<String>,
+    finish: Option<String>,
+}
+
+impl MoveFilter {
+    fn read(m: &Value) -> AppResult<MoveFilter> {
+        // Real copies move first; proxy picks only proxies (true) or only real copies (false).
+        let proxy = match m.get("proxy") {
+            None | Some(Value::Null) => None,
+            Some(Value::Bool(b)) => Some(*b),
+            Some(_) => return Err(AppError::bad("proxy must be true (only proxies) or false (only real copies)")),
+        };
+        let set = arg::opt_string(m, "set", 10)?;
+        let number = arg::opt_string(m, "number", 20)?;
+        if number.is_some() && set.is_none() {
+            return Err(AppError::bad("number needs its set"));
+        }
+        let finish = arg::opt_string(m, "finish", 10)?;
+        if finish.as_deref().is_some_and(|f| !crate::collection::FINISHES.contains(&f)) {
+            return Err(AppError::bad("finish must be nonfoil, foil or etched"));
+        }
+        Ok(MoveFilter { proxy, set, number, finish })
+    }
+
+    fn from_payload(p: &Value) -> MoveFilter {
+        let text = |k: &str| p[k].as_str().map(String::from);
+        MoveFilter { proxy: p["proxy"].as_bool(), set: text("set"), number: text("number"), finish: text("finish") }
+    }
+
+    fn keeps(&self, r: &CopyRow) -> bool {
+        self.proxy.is_none_or(|p| p == r.proxy)
+            && self.set.as_deref().is_none_or(|s| r.set_code.as_deref().is_some_and(|c| c.eq_ignore_ascii_case(s)))
+            && self.number.as_deref().is_none_or(|n| r.collector_number.as_deref() == Some(n))
+            && self.finish.as_deref().is_none_or(|f| r.finish == f)
+    }
+
+    /// " real copies (CMM #12, foil)": what the filter asks for, after the card's name.
+    fn words(&self, qty: i64) -> String {
+        let mut out = match (self.proxy, qty) {
+            (Some(true), 1) => " proxy".to_string(),
+            (Some(true), _) => " proxies".to_string(),
+            (Some(false), 1) => " real copy".to_string(),
+            (Some(false), _) => " real copies".to_string(),
+            (None, _) => String::new(),
+        };
+        let mut what = Vec::new();
+        if let Some(set) = &self.set {
+            what.push(match &self.number {
+                Some(n) => format!("{} #{n}", set.to_uppercase()),
+                None => set.to_uppercase(),
+            });
+        }
+        if let Some(f) = &self.finish {
+            what.push(f.clone());
+        }
+        if !what.is_empty() {
+            let _ = write!(out, " ({})", what.join(", "));
+        }
+        out
+    }
+
+    fn payload(&self, into: &mut Value) {
+        into["proxy"] = json!(self.proxy);
+        for (k, v) in [("set", &self.set), ("number", &self.number), ("finish", &self.finish)] {
+            if let Some(v) = v {
+                into[k] = json!(v);
+            }
+        }
+    }
+}
+
+/// `move_cards`: copies of a card from one container to another, or up to [`MAX_MOVES`] such moves
+/// at once (`moves`), staged as one change and applied in one transaction: all of them or none.
 pub async fn move_cards(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
     let pool = &st.pool;
-    let wanted = arg::text(args, "card")?.to_string();
-    let known = known_cards(pool, std::slice::from_ref(&wanted)).await?;
-    let (oracle_id, name) = known[&wanted].clone();
-    let qty = args.get("qty").and_then(Value::as_i64).unwrap_or(1);
-    if !(1..=100).contains(&qty) {
-        return Err(AppError::bad("qty must be from 1 to 100"));
-    }
-    let from = container(pool, &user.id, arg::text(args, "from")?).await?;
-    let to = container(pool, &user.id, arg::text(args, "to")?).await?;
-    if from.0 == to.0 {
-        return Err(AppError::bad("from and to are the same place"));
-    }
-    // Real copies move first; proxy picks only proxies (true) or only real copies (false).
-    let proxy = match args.get("proxy") {
+    let batch = match args.get("moves") {
         None | Some(Value::Null) => None,
-        Some(Value::Bool(b)) => Some(*b),
-        Some(_) => return Err(AppError::bad("proxy must be true (only proxies) or false (only real copies)")),
+        Some(Value::Array(a)) => {
+            if args.get("card").is_some_and(|c| !c.is_null()) || args.get("from").is_some_and(|c| !c.is_null()) || args.get("to").is_some_and(|c| !c.is_null()) {
+                return Err(AppError::bad("Give either one move (card, from, to) or moves, not both. Nothing was staged."));
+            }
+            if a.is_empty() || a.len() > MAX_MOVES {
+                return Err(AppError::bad(format!("moves holds 1 to {MAX_MOVES} moves. Nothing was staged.")));
+            }
+            Some(a.iter().collect::<Vec<_>>())
+        }
+        Some(_) => return Err(AppError::bad("moves must be a list of moves, each with card, from, to and qty")),
     };
-    let rows = copies_in(&mut *pool.acquire().await?, &user.id, &oracle_id, &from.0, true).await?;
-    let have: i64 = rows.iter().filter(|r| proxy.is_none_or(|p| p == r.proxy)).map(|c| c.qty).sum();
-    let kind = match (proxy, qty) {
-        (Some(true), 1) => " proxy",
-        (Some(true), _) => " proxies",
-        (Some(false), 1) => " real copy",
-        (Some(false), _) => " real copies",
-        (None, _) => "",
-    };
-    if have < qty {
-        let there = if rows.is_empty() { String::new() } else { format!(" It holds: {}.", rows.iter().map(|r| format!("{} × {}", r.qty, r.kind())).collect::<Vec<_>>().join("; ")) };
-        return Err(AppError::bad(format!("{} holds {have} {name}{}, not {qty}.{there} Nothing was staged.", from.1, if proxy.is_some() { " like that" } else { "" })));
+    let entries: Vec<&Value> = batch.clone().unwrap_or_else(|| vec![args]);
+    let at = |n: usize| if batch.is_some() { format!("Move {}: ", n + 1) } else { String::new() };
+    let mut names = Vec::new();
+    for (n, m) in entries.iter().enumerate() {
+        if !m.is_object() {
+            return Err(AppError::bad(format!("{}each move is an object with card, from, to and qty", at(n))));
+        }
+        names.push(arg::text(m, "card").map_err(|e| AppError::bad(format!("{}{e}", at(n))))?.to_string());
     }
-    let summary = format!("Move {qty} {name}{kind} from {} to {}", from.1, to.1);
-    let payload = json!({"oracle_id": oracle_id, "same_name": true, "name": name, "qty": qty, "proxy": proxy, "from_id": from.0, "from": from.1, "to_id": to.0, "to": to.1});
-    stage(st, user, via, args, Staged { kind: "move_cards", summary, detail: String::new(), payload }).await
+    names.sort();
+    names.dedup();
+    let known = known_cards(pool, &names).await?;
+    let mut conn = pool.acquire().await?;
+    let tree = Tree::load(&mut conn, &user.id).await?;
+    // Copies each move takes from a place, and puts in one, by card: a later move in the same
+    // call can take what an earlier one brought.
+    let mut flow: HashMap<(String, String), i64> = HashMap::new();
+    let mut moves = Vec::new();
+    let mut lines = Vec::new();
+    for (n, m) in entries.iter().enumerate() {
+        let fail = |msg: String| AppError::bad(format!("{}{msg}", at(n)));
+        let (oracle_id, name) = known[arg::text(m, "card")?].clone();
+        let qty = m.get("qty").and_then(Value::as_i64).unwrap_or(1);
+        if !(1..=MAX_MOVE_QTY).contains(&qty) {
+            return Err(fail(format!("qty must be from 1 to {MAX_MOVE_QTY}")));
+        }
+        let from = container_in(&tree, arg::text(m, "from").map_err(|e| fail(e.to_string()))?).map_err(|e| fail(e.to_string()))?;
+        let to = container_in(&tree, arg::text(m, "to").map_err(|e| fail(e.to_string()))?).map_err(|e| fail(e.to_string()))?;
+        if from.0 == to.0 {
+            return Err(fail("from and to are the same place".into()));
+        }
+        let filter = MoveFilter::read(m).map_err(|e| fail(e.to_string()))?;
+        let rows = copies_in(&mut conn, &user.id, &oracle_id, &from.0, true).await?;
+        let there: i64 = rows.iter().filter(|r| filter.keeps(r)).map(|c| c.qty).sum();
+        let have = there + flow.get(&(from.0.clone(), oracle_id.clone())).copied().unwrap_or(0);
+        if have < qty {
+            let held = if rows.is_empty() { String::new() } else { format!(" It holds: {}.", rows.iter().map(|r| format!("{} × {}", r.qty, r.kind())).collect::<Vec<_>>().join("; ")) };
+            let like = if filter.proxy.is_some() || filter.set.is_some() || filter.finish.is_some() { " like that" } else { "" };
+            return Err(fail(format!("{} holds {have} {name}{like}, not {qty}.{held} Nothing was staged.", from.1)));
+        }
+        *flow.entry((from.0.clone(), oracle_id.clone())).or_default() -= qty;
+        *flow.entry((to.0.clone(), oracle_id.clone())).or_default() += qty;
+        lines.push(format!("{qty} {name}{} from {} to {}", filter.words(qty), from.1, to.1));
+        let mut one = json!({"oracle_id": oracle_id, "name": name, "qty": qty, "from_id": from.0, "from": from.1, "to_id": to.0, "to": to.1});
+        filter.payload(&mut one);
+        moves.push(one);
+    }
+    drop(conn);
+    let (summary, detail, payload) = match batch {
+        None => {
+            let mut one = moves.pop().unwrap_or_default();
+            one["same_name"] = json!(true);
+            (format!("Move {}", lines[0]), String::new(), one)
+        }
+        Some(_) => {
+            let copies: i64 = moves.iter().filter_map(|m| m["qty"].as_i64()).sum();
+            let shown: Vec<String> = lines.iter().take(60).map(|l| format!("- {l}")).collect();
+            let more = if lines.len() > shown.len() { format!("\n- and {} more", lines.len() - shown.len()) } else { String::new() };
+            (
+                format!("Move {copies} cards in {} moves", moves.len()),
+                format!("All of them or none, in one step:\n{}{more}", shown.join("\n")),
+                json!({"same_name": true, "moves": moves}),
+            )
+        }
+    };
+    stage(st, user, via, args, Staged { kind: "move_cards", summary, detail, payload }).await
+}
+
+/// Carry out one staged move inside the apply's transaction: take `qty` copies from `from_id`
+/// (real ones first, as staged) and file them in `to_id`. Too few copies left is a Conflict, and
+/// the transaction (every move of the change) is dropped.
+async fn apply_move(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    owner: &str,
+    m: &Value,
+    same: bool,
+    n: &mut usize,
+    change: &str,
+) -> AppResult<()> {
+    use crate::collection::{CopyKind, Op, OpKind, apply_op};
+    let op = |n: usize, op: OpKind| Op { op_id: format!("{DEVICE}-{change}-{n}"), device_id: Some(DEVICE.into()), op };
+    let (oracle_id, to) = (m["oracle_id"].as_str().unwrap_or_default(), m["to_id"].as_str().unwrap_or_default());
+    let mut left = m["qty"].as_i64().unwrap_or(1);
+    let filter = MoveFilter::from_payload(m);
+    let mut rows = copies_in(tx, owner, oracle_id, m["from_id"].as_str().unwrap_or_default(), same).await?;
+    rows.retain(|r| filter.keeps(r));
+    if rows.iter().map(|r| r.qty).sum::<i64>() < left {
+        return Err(AppError::Conflict(format!("{} no longer holds {left} {}. Nothing was moved.", m["from"].as_str().unwrap_or("That place"), m["name"].as_str().unwrap_or("copies"))));
+    }
+    for r in rows {
+        if left == 0 {
+            break;
+        }
+        let take = left.min(r.qty);
+        left -= take;
+        if take == r.qty {
+            let update = OpKind::Update {
+                item_id: r.id.clone(),
+                condition: None,
+                finish: None,
+                lang: None,
+                container_id: Some(stored(to)),
+                purchase_price: None,
+                note: None,
+                proxy: None,
+                altered: None,
+                signed: None,
+                scryfall_id: None,
+                split: None,
+            };
+            apply_op(tx, owner, &op(*n, update)).await?;
+            *n += 1;
+        } else {
+            apply_op(tx, owner, &op(*n, OpKind::Adjust { item_id: r.id.clone(), delta: -take })).await?;
+            let copy = CopyKind { condition: r.condition, finish: r.finish, lang: r.lang, altered: r.altered, signed: r.signed, misprint: r.misprint, proxy: r.proxy };
+            let add = OpKind::Add { scryfall_id: r.scryfall_id, qty: take, copy, container_id: stored(to), purchase_price: r.purchase_price, purchase_currency: None };
+            apply_op(tx, owner, &op(*n + 1, add)).await?;
+            *n += 2;
+        }
+    }
+    Ok(())
 }
 
 /// Card conditions, as the collection page names them.
@@ -1832,48 +2036,17 @@ async fn apply_collection(st: &AppState, user: &User, kind: &str, id: &str, p: &
         let said = CONDITIONS.iter().find(|(c, _)| *c == condition).map(|(_, s)| *s).unwrap_or(condition);
         let what = p["name"].as_str().unwrap_or("Cards");
         return Ok(json!({"label": format!("Done: {what} in {} now {said}", p["container"].as_str().unwrap_or("the box")), "link": "/collection"}));
-    } else {
-        let (oracle_id, to) = (p["oracle_id"].as_str().unwrap_or_default(), p["to_id"].as_str().unwrap_or_default());
-        let mut left = p["qty"].as_i64().unwrap_or(1);
-        let mut rows = copies_in(&mut tx, &user.id, oracle_id, p["from_id"].as_str().unwrap_or_default(), same_name(p)).await?;
-        if let Some(proxy) = p["proxy"].as_bool() {
-            rows.retain(|r| r.proxy == proxy);
-        }
-        if rows.iter().map(|r| r.qty).sum::<i64>() < left {
-            return Err(AppError::Conflict(format!("{} no longer holds {left} {}.", p["from"].as_str().unwrap_or("That place"), p["name"].as_str().unwrap_or("copies"))));
-        }
+    } else if let Some(moves) = p["moves"].as_array() {
         let mut n = 0;
-        for r in rows {
-            if left == 0 {
-                break;
-            }
-            let take = left.min(r.qty);
-            left -= take;
-            if take == r.qty {
-                let update = OpKind::Update {
-                    item_id: r.id.clone(),
-                    condition: None,
-                    finish: None,
-                    lang: None,
-                    container_id: Some(stored(to)),
-                    purchase_price: None,
-                    note: None,
-                    proxy: None,
-                    altered: None,
-                    signed: None,
-                    scryfall_id: None,
-                    split: None,
-                };
-                apply_op(&mut tx, &user.id, &op(n, update)).await?;
-                n += 1;
-            } else {
-                apply_op(&mut tx, &user.id, &op(n, OpKind::Adjust { item_id: r.id.clone(), delta: -take })).await?;
-                let copy = CopyKind { condition: r.condition, finish: r.finish, lang: r.lang, altered: r.altered, signed: r.signed, misprint: r.misprint, proxy: r.proxy };
-                let add = OpKind::Add { scryfall_id: r.scryfall_id, qty: take, copy, container_id: stored(to), purchase_price: r.purchase_price, purchase_currency: None };
-                apply_op(&mut tx, &user.id, &op(n + 1, add)).await?;
-                n += 2;
-            }
+        for m in moves {
+            apply_move(&mut tx, &user.id, m, same_name(p), &mut n, id).await?;
         }
+        tx.commit().await?;
+        let copies: i64 = moves.iter().filter_map(|m| m["qty"].as_i64()).sum();
+        return Ok(json!({"label": format!("Done: moved {copies} cards in {} moves", moves.len()), "link": "/collection"}));
+    } else {
+        let mut n = 0;
+        apply_move(&mut tx, &user.id, p, same_name(p), &mut n, id).await?;
     }
     tx.commit().await?;
     let label = match p["container"].as_str().or(p["to"].as_str()) {
@@ -2330,27 +2503,131 @@ async fn apply_remove_wish(st: &AppState, user: &User, p: &Value) -> AppResult<V
 /// What the app calls each kind of container.
 const CONTAINER_KINDS: [(&str, &str); 4] = [("binder", "binder"), ("deck", "deck box"), ("box", "box"), ("list", "list")];
 
-/// `create_container`: a new binder, deck box, box or list.
+/// `create_container`: a new binder, deck box, box or list, at the top level or as a section of
+/// one they have (`parent`, by name or path). A section takes its parent's kind unless told.
 pub async fn create_container(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
     let name = crate::collection::container_name(arg::text(args, "name")?)?;
-    let kind = arg::text(args, "kind")?.to_lowercase();
+    let tree = Tree::load(&mut *st.pool.acquire().await?, &user.id).await?;
+    let parent = match arg::opt_text(args, "parent", 300)? {
+        Some(p) => {
+            let (id, shown) = container_in(&tree, p)?;
+            if id == LOOSE {
+                return Err(AppError::bad("parent is a binder, box or list they have; leave it out for the top level. Nothing was staged."));
+            }
+            sections::check_parent(&tree, None, &id)?;
+            Some((id, shown))
+        }
+        None => None,
+    };
+    let kind = match (arg::opt_text(args, "kind", 20)?, &parent) {
+        (Some(k), _) => k.to_lowercase(),
+        (None, Some((id, _))) => tree.get(id).map(|n| n.kind.clone()).unwrap_or_default(),
+        (None, None) => return Err(AppError::bad("kind is binder, deck, box or list (it can be left out for a section, which takes its parent's)")),
+    };
     let Some(&(kind, said)) = CONTAINER_KINDS.iter().find(|(k, _)| *k == kind) else {
         return Err(AppError::bad("kind is binder, deck, box or list"));
     };
-    let there: Option<String> = sqlx::query_scalar("SELECT id FROM containers WHERE owner_id = ? AND kind = ? AND name = ?").bind(&user.id).bind(kind).bind(&name).fetch_optional(&st.pool).await?;
-    if there.is_some() {
-        return Err(AppError::bad(format!("They already have a {said} called {name}. Nothing was staged.")));
+    let parent_id = parent.as_ref().map(|(id, _)| id.as_str());
+    if tree.children(parent_id).any(|n| n.kind == kind && n.name == name) {
+        let place = parent.as_ref().map(|(_, p)| format!(" in {p}")).unwrap_or_default();
+        return Err(AppError::bad(format!("They already have a {said} called {name}{place}. Nothing was staged.")));
     }
-    let summary = format!("Make a {said} called {name}");
-    stage(st, user, via, args, Staged { kind: "create_container", summary, detail: "It starts empty.".into(), payload: json!({"kind": kind, "said": said, "name": name}) }).await
+    let summary = match &parent {
+        Some((_, p)) => format!("Make a {said} called {name} in {p}"),
+        None => format!("Make a {said} called {name}"),
+    };
+    let payload = json!({"kind": kind, "said": said, "name": name, "parent_id": parent_id, "parent": parent.as_ref().map(|(_, p)| p)});
+    stage(st, user, via, args, Staged { kind: "create_container", summary, detail: "It starts empty.".into(), payload }).await
 }
 
 async fn apply_create_container(st: &AppState, user: &User, p: &Value) -> AppResult<Value> {
     let name = crate::collection::container_name(p["name"].as_str().unwrap_or_default())?;
     let kind = p["kind"].as_str().filter(|k| crate::collection::KINDS.contains(k)).ok_or_else(|| AppError::bad("kind is binder, deck, box or list"))?;
     st.limits.collection_writes.check_user(user)?;
-    crate::collection::insert_container(&st.pool, &user.id, kind, &name).await?;
-    Ok(json!({"label": format!("Made the {} {name}", p["said"].as_str().unwrap_or(kind)), "link": "/collection"}))
+    let parent = p["parent_id"].as_str();
+    crate::collection::insert_container(&st.pool, &user.id, Some(kind), &name, parent).await.map_err(|e| match e {
+        AppError::NotFound(_) => AppError::Conflict(format!("{} isn't there any more, so {name} wasn't made.", p["parent"].as_str().unwrap_or("The container it was to go in"))),
+        other => other,
+    })?;
+    let place = p["parent"].as_str().map(|p| format!(" in {p}")).unwrap_or_default();
+    Ok(json!({"label": format!("Made the {} {name}{place}", p["said"].as_str().unwrap_or(kind)), "link": "/collection"}))
+}
+
+/// `update_container`: rename one of their containers, move it (with its cards and sections) into
+/// another as a section (`parent`), or back to the top level (`top_level`).
+pub async fn update_container(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
+    let tree = Tree::load(&mut *st.pool.acquire().await?, &user.id).await?;
+    let (id, shown) = container_in(&tree, arg::text(args, "container")?)?;
+    if id == LOOSE {
+        return Err(AppError::bad("Loose copies aren't a container; name a binder, box or list. Nothing was staged."));
+    }
+    let me = tree.get(&id).cloned().ok_or(AppError::NotFound("container"))?;
+    let name = arg::opt_text(args, "name", 300)?.map(crate::collection::container_name).transpose()?;
+    let top = arg::flag(args, "top_level", false)?;
+    let parent = match (arg::opt_text(args, "parent", 300)?, top) {
+        (Some(_), true) => return Err(AppError::bad("Give parent or top_level, not both. Nothing was staged.")),
+        (Some(p), false) => {
+            let (pid, pshown) = container_in(&tree, p)?;
+            if pid == LOOSE {
+                return Err(AppError::bad("parent is a binder, box or list they have; use top_level for the top. Nothing was staged."));
+            }
+            sections::check_parent(&tree, Some(&id), &pid)?;
+            Some(Some((pid, pshown)))
+        }
+        (None, true) => Some(None),
+        (None, false) => None,
+    };
+    if name.is_none() && parent.is_none() {
+        return Err(AppError::bad("Say what changes: name, parent or top_level. Nothing was staged."));
+    }
+    let new_parent = match &parent {
+        Some(p) => p.as_ref().map(|(pid, _)| pid.clone()),
+        None => me.parent_id.clone(),
+    };
+    let new_name = name.clone().unwrap_or_else(|| me.name.clone());
+    if tree.children(new_parent.as_deref()).any(|n| n.id != id && n.kind == me.kind && n.name == new_name) {
+        let place = new_parent.as_deref().map(|p| format!(" in {}", tree.shown(p))).unwrap_or_default();
+        return Err(AppError::bad(format!("They already have a {} called {new_name}{place}. Nothing was staged.", me.kind)));
+    }
+    let (mut parts, mut done) = (Vec::new(), Vec::new());
+    if let Some(n) = name.as_ref().filter(|n| **n != me.name) {
+        parts.push(format!("rename it {n}"));
+        done.push(format!("renamed {n}"));
+    }
+    match &parent {
+        Some(Some((_, p))) => {
+            parts.push(format!("move it into {p}"));
+            done.push(format!("now in {p}"));
+        }
+        Some(None) => {
+            parts.push("move it to the top level".into());
+            done.push("now at the top level".into());
+        }
+        None => {}
+    }
+    if parts.is_empty() {
+        return Err(AppError::bad(format!("{shown} already has that name and place. Nothing was staged.")));
+    }
+    let summary = format!("{shown}: {}", parts.join(" and "));
+    let payload = json!({
+        "id": id, "was": shown, "name": name, "done": done.join(", "),
+        "move": parent.is_some(), "parent_id": parent.as_ref().and_then(|p| p.as_ref().map(|(pid, _)| pid)),
+        "parent": parent.as_ref().and_then(|p| p.as_ref().map(|(_, ps)| ps)),
+    });
+    let detail = if tree.children(Some(&id)).next().is_some() || parent.is_some() { "Its cards and sections go with it.".to_string() } else { String::new() };
+    stage(st, user, via, args, Staged { kind: "update_container", summary, detail, payload }).await
+}
+
+async fn apply_update_container(st: &AppState, user: &User, p: &Value) -> AppResult<Value> {
+    st.limits.collection_writes.check_user(user)?;
+    let id = p["id"].as_str().unwrap_or_default();
+    let name = p["name"].as_str().map(crate::collection::container_name).transpose()?;
+    let parent = p["move"].as_bool().unwrap_or(false).then(|| p["parent_id"].as_str());
+    crate::collection::update_container(&st.pool, &user.id, id, name.as_deref(), parent).await.map_err(|e| match e {
+        AppError::NotFound(_) => AppError::Conflict(format!("{} or the container it was to go in isn't there any more. Nothing changed.", p["was"].as_str().unwrap_or("That container"))),
+        other => other,
+    })?;
+    Ok(json!({"label": format!("Done: {} {}", p["was"].as_str().unwrap_or("the container"), p["done"].as_str().unwrap_or("changed")), "link": "/collection"}))
 }
 
 /// `remove_from_collection`: copies of a card leave one of their binders, boxes or lists for
@@ -2713,6 +2990,7 @@ pub(super) mod staging {
     pub const UPDATE_DECK: Staging = Staging { kind: "update_deck", apply: |st, user, _, p| Box::pin(apply_update_deck(st, user, p)) };
     pub const REMOVE_WISH: Staging = Staging { kind: "remove_wish", apply: |st, user, _, p| Box::pin(apply_remove_wish(st, user, p)) };
     pub const CREATE_CONTAINER: Staging = Staging { kind: "create_container", apply: |st, user, _, p| Box::pin(apply_create_container(st, user, p)) };
+    pub const UPDATE_CONTAINER: Staging = Staging { kind: "update_container", apply: |st, user, _, p| Box::pin(apply_update_container(st, user, p)) };
     pub const REMOVE_FROM_COLLECTION: Staging = Staging { kind: "remove_from_collection", apply: |st, user, change, p| Box::pin(apply_remove_copies(st, user, change.id, p)) };
     pub const EDIT_COPIES: Staging = Staging { kind: "edit_copies", apply: |st, user, change, p| Box::pin(apply_edit_copies(st, user, change.id, p)) };
 }
