@@ -1755,6 +1755,13 @@ async fn move_cards_puts_a_card_in_a_decks_swappable_spares() {
     assert!(!err && text.contains("to Elf Ball's swappable spares (Elf Ball swap bag, in its deck box)"), "{text}");
     let (err, applied) = call(&app, &mcp, "apply_change", json!({"id": change_id(&text)})).await;
     assert!(!err, "{applied}");
+    // Staged out of the spares, then the deck keeps its spares elsewhere: the apply refuses.
+    let (err, stale) = call(&app, &mcp, "move_cards", json!({"card": "Arcane Signet", "from_deck_spares": "Elf Ball", "to": "Trade Binder"})).await;
+    assert!(!err, "{stale}");
+    sqlx::query("UPDATE decks SET spares_container_id = 'binder' WHERE id = ?").bind(&deck).execute(&pool).await.unwrap();
+    let (err, refused) = call(&app, &mcp, "apply_change", json!({"id": change_id(&stale)})).await;
+    assert!(err && refused.contains("kept somewhere else now"), "{refused}");
+    sqlx::query("UPDATE decks SET spares_container_id = ? WHERE id = ?").bind(&spares).bind(&deck).execute(&pool).await.unwrap();
     let (err, text) = call(&app, &mcp, "move_cards", json!({"card": "Arcane Signet", "from_deck_spares": "Elf Ball", "to": "Trade Binder"})).await;
     assert!(!err, "{text}");
     let (err, applied) = call(&app, &mcp, "apply_change", json!({"id": change_id(&text)})).await;

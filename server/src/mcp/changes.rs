@@ -1770,7 +1770,7 @@ pub async fn move_cards(st: &AppState, user: &User, via: &Via, args: &Value) -> 
     };
     let summary = format!("Move {qty} {name}{kind} from {from_said} to {to_said}{swap_said}");
     let payload = json!({"oracle_id": oracle_id, "same_name": true, "name": name, "qty": qty, "proxy": proxy, "from_id": from_id, "from": from_said, "to_id": to_id, "to": to_said,
-        "to_deck_spares": to_deck.as_ref().map(|d| &d.0), "deck": to_deck.as_ref().map(|d| &d.1), "swaps_for": swaps_for, "bracket": bracket});
+        "from_deck_spares": from_deck.as_ref().map(|d| &d.0), "to_deck_spares": to_deck.as_ref().map(|d| &d.0), "deck": to_deck.as_ref().map(|d| &d.1), "swaps_for": swaps_for, "bracket": bracket});
     stage(st, user, via, args, Staged { kind: "move_cards", summary, detail: String::new(), payload }).await
 }
 
@@ -1896,6 +1896,14 @@ async fn apply_collection(st: &AppState, user: &User, kind: &str, id: &str, p: &
             None => p["to_id"].as_str().unwrap_or_default().to_string(),
         };
         let to = to.as_str();
+        // Out of a deck's spares: still that deck's, and still the container staged.
+        if let Some(deck) = p["from_deck_spares"].as_str() {
+            let (main, name) = crate::decks::spares::main_deck(&mut tx, &user.id, deck).await?;
+            let now = crate::decks::spares::linked(&mut tx, &user.id, &main).await?.map(|l| l.0);
+            if now.as_deref() != p["from_id"].as_str() {
+                return Err(AppError::Conflict(format!("{name}'s swappable spares are kept somewhere else now, so nothing was moved.")));
+            }
+        }
         if to == p["from_id"].as_str().unwrap_or_default() {
             return Err(AppError::Conflict("Those copies are already there.".into()));
         }

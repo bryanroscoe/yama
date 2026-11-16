@@ -482,11 +482,17 @@ pub async fn run(pool: &SqlitePool, owner: &str, key: &str, dry_run: bool) -> Ap
                 swap,
             });
         } else {
-            // A move (or any other card the plan has in hand): the giving deck's box first, then any
-            // copy outside a deck box.
+            // A move (or any other card the plan has in hand): the giving deck's box first, then this
+            // deck's swappable spares, then any copy outside a deck box.
             let giver_box = from_deck.as_ref().and_then(|k| other_box.get(k)).and_then(|o| o.1.clone());
             let giver = |c: &OwnedCopy| giver_box.is_some() && c.container_id == giver_box;
             let mut found = move_ops(&mut copies, &giver, oid, need, Some(&box_id), &mut ops);
+            // Then this deck's own swappable spares: a ready swap coming in.
+            if found.0 < need && let Some((own, _)) = &linked_bag {
+                let spare = |c: &OwnedCopy| c.container_id.as_deref() == Some(own.as_str());
+                let more = move_ops(&mut copies, &spare, oid, need - found.0, Some(&box_id), &mut ops);
+                found = (found.0 + more.0, found.1.or(more.1));
+            }
             if found.0 < need {
                 let loose = |c: &OwnedCopy| c.container_id.as_ref().is_none_or(|id| !deck_boxes.contains(id));
                 let more = move_ops(&mut copies, &loose, oid, need - found.0, Some(&box_id), &mut ops);

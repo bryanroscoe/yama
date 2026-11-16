@@ -713,8 +713,9 @@ fn descriptions_are_short_and_written_for_anyone() {
     }
     // 25,000 until browse_public_decks (12 Nov 2026), which took the total to 25,272;
     // list_devices (15 Nov 2026) took it to about 25,450; the two scanner diagnostics tools
-    // (15 Nov 2026) to 25,921.
-    assert!(total <= 26_000, "the descriptions are {total} characters in all");
+    // (15 Nov 2026) to 25,921; a deck's swappable spares (move_cards, get_deck and
+    // list_collection_cards, 15 Nov 2026) to about 26,320.
+    assert!(total <= 26_350, "the descriptions are {total} characters in all");
     let instructions = super::SERVER_INSTRUCTIONS;
     assert!(instructions.chars().count() <= 2_600, "the instructions are {} characters", instructions.chars().count());
     for word in his {

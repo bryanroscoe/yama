@@ -164,9 +164,8 @@ pub(super) const TOOLS: &[Tool] = &[
         aliases: &["deck"],
         title: "One deck",
         description: "One of their Yama decks: the current list, the bracket they declared, Commander legality problems \
-                      (size, singleton, color identity, banned cards), Game Changers, real game results, and its swappable \
-                      spares (cards kept in the deck box outside the 100, with what each comes in for; never counted in the \
-                      list or its checks). Give the deck's name (as `get_overview` lists it) or its id.",
+                      (size, singleton, color identity, banned cards), Game Changers, real game results and its swappable \
+                      spares (kept in its box outside the 100). Give the deck's name (as `get_overview` lists it) or its id.",
         schema: || obj(&[("deck", "string", "The deck's name or id.")], &["deck"]),
         kind: Kind::Read,
         offer: Offer::Everyone,
@@ -1220,13 +1219,9 @@ pub(super) const TOOLS: &[Tool] = &[
         name: "move_cards",
         aliases: &[],
         title: "Move cards between binders and boxes",
-        description: staged!("Move copies of a card from one of their binders, deck boxes or lists to another. \
-                      A deck's swappable spares are the cards kept in its deck box on top of its 100 (bracket-bag cards and \
-                      ready swaps): they never count toward the deck's size, legality or analysis. To put a card there give \
-                      to_deck_spares (the deck's name) instead of to, with swaps_for and bracket when you know what it comes in \
-                      for (Talisman of Creativity for Thought Vessel at Bracket 4); applying links the deck's spares box, or \
-                      makes \"<deck> swap bag\", if it has none yet. from_deck_spares takes a spare back out. get_deck lists a \
-                      deck's swappable spares; list_collection_cards marks those copies with spares_of_deck."),
+        description: staged!("Move copies of a card between their binders, deck boxes and lists. A deck's swappable spares \
+                      are cards kept in its box outside the 100, never counted in its list: to_deck_spares puts copies \
+                      there (swaps_for and bracket say what each comes in for), from_deck_spares takes them out."),
         schema: || {
             json!({
                 "type": "object",

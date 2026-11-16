@@ -22,15 +22,18 @@ CREATE TABLE deck_spare_swaps (
 CREATE INDEX deck_spare_swaps_owner ON deck_spare_swaps(owner_id);
 
 -- The boxes the plan's swap-in made, "<deck> swap bag", become those decks' swappable spares when
--- exactly one live main deck of the owner has that name (ignoring case). Only the link is written:
+-- exactly one live main deck of the owner has that name (ignoring case) and no live deck keeps its
+-- 100 in it. Only the link is written:
 -- no copy moves and no container changes, so undoing it is
 --   UPDATE decks SET spares_container_id = NULL;
 UPDATE decks SET spares_container_id = (
     SELECT c.id FROM containers c
     WHERE c.owner_id = decks.owner_id AND c.kind = 'box' AND lower(c.name) = lower(decks.name || ' swap bag')
-    ORDER BY c.name = decks.name || ' swap bag' DESC, c.created_at, c.id LIMIT 1)
+      AND NOT EXISTS (SELECT 1 FROM decks b WHERE b.owner_id = c.owner_id AND b.archived = 0 AND b.container_id = c.id)
+    ORDER BY c.created_at, c.id LIMIT 1)
 WHERE archived = 0 AND parent_id IS NULL AND spares_container_id IS NULL
   AND (SELECT COUNT(*) FROM decks d2
        WHERE d2.owner_id = decks.owner_id AND d2.archived = 0 AND d2.parent_id IS NULL AND lower(d2.name) = lower(decks.name)) = 1
   AND EXISTS (SELECT 1 FROM containers c
-              WHERE c.owner_id = decks.owner_id AND c.kind = 'box' AND lower(c.name) = lower(decks.name || ' swap bag'));
+              WHERE c.owner_id = decks.owner_id AND c.kind = 'box' AND lower(c.name) = lower(decks.name || ' swap bag')
+                AND NOT EXISTS (SELECT 1 FROM decks b WHERE b.owner_id = c.owner_id AND b.archived = 0 AND b.container_id = c.id));

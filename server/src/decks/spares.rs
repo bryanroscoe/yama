@@ -71,15 +71,6 @@ pub async fn linked(conn: &mut SqliteConnection, owner: &str, main_id: &str) -> 
     .await?)
 }
 
-/// Every container that holds a live deck's swappable spares, for the places that never take
-/// copies out of another deck's box.
-pub async fn all_spares_boxes(conn: &mut SqliteConnection, owner: &str) -> AppResult<Vec<String>> {
-    Ok(sqlx::query_scalar("SELECT spares_container_id FROM decks WHERE owner_id = ? AND archived = 0 AND spares_container_id IS NOT NULL")
-        .bind(owner)
-        .fetch_all(&mut *conn)
-        .await?)
-}
-
 /// Make `container_id` the main deck's swappable spares. Refused: a container that isn't theirs,
 /// a deck box (the 100 live there), and one holding another live deck's spares. An archived deck
 /// that held it lets go of it. No copy moves.

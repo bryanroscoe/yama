@@ -130,6 +130,10 @@ async fn a_deck_keeps_swappable_spares_apart_from_its_list() {
     let (status, _) = send(&app, Method::PUT, &format!("/api/decks/{other}/spares"), Some(&token), Some(json!({"container_id": bag}))).await;
     assert_eq!(status, StatusCode::CONFLICT);
 
+    // Nor can a deck keep its 100 in it.
+    let (status, refused) = send(&app, Method::PATCH, &format!("/api/decks/{other}"), Some(&token), Some(json!({"container_id": bag}))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{refused}");
+
     // Unlinking keeps the box and its copies.
     let (status, off) = send(&app, Method::PUT, &path, Some(&token), Some(json!({"container_id": null}))).await;
     assert_eq!(status, StatusCode::OK, "{off}");
@@ -163,6 +167,9 @@ async fn the_migration_links_each_swap_bag_to_its_one_deck() {
     copies(&pool, &ann, "p-o-tal", 1, &bag).await;
     let shaper_bag = container(&pool, &ann, "box", "world shaper SWAP BAG").await;
     container(&pool, &ann, "box", "Twins swap bag").await;
+    let held = deck(&pool, &ann, "Held").await;
+    let held_box = container(&pool, &ann, "box", "Held swap bag").await;
+    sqlx::query("UPDATE decks SET container_id = ? WHERE id = ?").bind(&held_box).bind(&held).execute(&pool).await.unwrap();
     let before: Vec<(String, Option<String>, i64)> = sqlx::query_as("SELECT id, container_id, qty FROM collection_items ORDER BY id").fetch_all(&pool).await.unwrap();
 
     let sql = include_str!("../../../migrations/0093_deck_swappable_spares.sql");
@@ -178,6 +185,7 @@ async fn the_migration_links_each_swap_bag_to_its_one_deck() {
     assert_eq!(link(twin_a).await, None, "two decks share the name");
     assert_eq!(link(twin_b).await, None);
     assert_eq!(link(bobs).await, None, "never another account's box");
+    assert_eq!(link(held).await, None, "never a box that holds a deck's 100");
     let after: Vec<(String, Option<String>, i64)> = sqlx::query_as("SELECT id, container_id, qty FROM collection_items ORDER BY id").fetch_all(&pool).await.unwrap();
     assert_eq!(before, after, "no copy moves");
 }

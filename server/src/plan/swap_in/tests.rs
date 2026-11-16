@@ -338,6 +338,51 @@ async fn a_deck_with_its_own_spares_box_sends_its_cuts_there() {
     assert_eq!(shared, 0, "nothing went to the shared Spares or another deck's");
 }
 
+/// A deck's swappable spares (`decks::spares`): the swap bag it makes becomes them, and a card
+/// coming in that waits in them (a ready swap) comes out of them into the deck's box.
+#[tokio::test]
+async fn the_swap_bag_is_the_decks_swappable_spares_and_ready_swaps_come_out_of_them() {
+    let (app, pool) = app().await;
+    seed(&pool).await;
+    let (a_id, a) = user(&pool, "a@example.com").await;
+    let (status, report) = send(&app, Method::POST, "/api/plan/import", Some(&a), Some(doc())).await;
+    assert_eq!(status, StatusCode::OK, "{report}");
+    let alpha = yama_deck(
+        &app,
+        &pool,
+        &a_id,
+        &a,
+        "alpha",
+        "Alpha Deck",
+        vec![
+            dc("o-acmd", "Alpha Commander", 1, Board::Commander),
+            dc("o-stand", "Stand In", 1, Board::Main),
+            dc("o-cut", "Cut Card", 1, Board::Main),
+            dc("o-bag", "Bag Card", 1, Board::Main),
+            dc("o-gift", "Gift Card", 1, Board::Main),
+            dc("o-forest", "Forest", 5, Board::Main),
+        ],
+    )
+    .await;
+    let (status, done) = send(&app, Method::POST, "/api/plan/decks/alpha/swap-in", Some(&a), None).await;
+    assert_eq!(status, StatusCode::OK, "{done}");
+    let bag: String = sqlx::query_scalar("SELECT id FROM containers WHERE owner_id = ? AND name = 'Alpha Deck swap bag'").bind(&a_id).fetch_one(&pool).await.unwrap();
+    let linked: Option<String> = sqlx::query_scalar("SELECT spares_container_id FROM decks WHERE id = ?").bind(&alpha).fetch_one(&pool).await.unwrap();
+    assert_eq!(linked, Some(bag.clone()), "the bag it made is the deck's swappable spares");
+
+    // Beta takes Gift Card from Alpha. Its copy now waits in Beta's own spares instead: it comes from there.
+    let beta = yama_deck(&app, &pool, &a_id, &a, "beta", "Beta Deck", vec![dc("o-bcmd", "Beta Commander", 1, Board::Commander), dc("o-bcut", "Beta Cut", 1, Board::Main), dc("o-forest", "Forest", 3, Board::Main)]).await;
+    let (status, made) = send(&app, Method::PUT, &format!("/api/decks/{beta}/spares"), Some(&a), Some(json!({"create": true}))).await;
+    assert_eq!(status, StatusCode::OK, "{made}");
+    let beta_spares = made["container_id"].as_str().unwrap().to_string();
+    sqlx::query("UPDATE collection_items SET container_id = ? WHERE owner_id = ? AND scryfall_id = 'p-gift'").bind(&beta_spares).bind(&a_id).execute(&pool).await.unwrap();
+    let (status, done) = send(&app, Method::POST, "/api/plan/decks/beta/swap-in", Some(&a), None).await;
+    assert_eq!(status, StatusCode::OK, "{done}");
+    let beta_box: String = sqlx::query_scalar("SELECT container_id FROM decks WHERE id = ?").bind(&beta).fetch_one(&pool).await.unwrap();
+    let held: Vec<(String, i64)> = sqlx::query_as("SELECT container_id, qty FROM collection_items WHERE owner_id = ? AND scryfall_id = 'p-gift' AND qty > 0").bind(&a_id).fetch_all(&pool).await.unwrap();
+    assert_eq!(held, [(beta_box, 1)], "{done}");
+}
+
 #[tokio::test]
 async fn a_renamed_deck_finds_its_spares_box_by_its_new_name() {
     let (app, pool) = app().await;

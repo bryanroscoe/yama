@@ -320,7 +320,7 @@ pub(super) const TOOLS: &[Tool] = &[
         name: "list_collection_cards",
         aliases: &["collection_cards"],
         title: "Owned cards and locations",
-        description: "Read your collection, including quantities, proxies and containers. Filter by card-name text or to copies outside deck containers. A copy with spares_of_deck set is one of that deck's swappable spares: in its deck box on top of the 100, kept for its bracket swaps (move_cards with to_deck_spares puts one there); outside_decks leaves those out too. Outside a deck box does not establish that a copy is unreserved in an upgrade plan.",
+        description: "Read your collection, including quantities, proxies and containers. Filter by card-name text or to copies outside deck containers. spares_of_deck names the deck whose swappable spares a copy is (in its box, outside the 100); outside_decks leaves those out. Outside a deck box does not establish that a copy is unreserved in an upgrade plan.",
         kind: Kind::Read,
         offer: Offer::Everyone,
         search: true,
