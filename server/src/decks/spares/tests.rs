@@ -172,7 +172,7 @@ async fn the_migration_links_each_swap_bag_to_its_one_deck() {
     sqlx::query("UPDATE decks SET container_id = ? WHERE id = ?").bind(&held_box).bind(&held).execute(&pool).await.unwrap();
     let before: Vec<(String, Option<String>, i64)> = sqlx::query_as("SELECT id, container_id, qty FROM collection_items ORDER BY id").fetch_all(&pool).await.unwrap();
 
-    let sql = include_str!("../../../migrations/0093_deck_swappable_spares.sql");
+    let sql = include_str!("../../../migrations/0096_deck_swappable_spares.sql");
     let update = &sql[sql.find("UPDATE decks SET spares_container_id = (").unwrap()..];
     sqlx::query(sqlx::AssertSqlSafe(update.to_string())).execute(&pool).await.unwrap();
 

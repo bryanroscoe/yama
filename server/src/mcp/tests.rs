@@ -1701,6 +1701,7 @@ async fn add_to_collection_follows_a_printings_finishes_but_not_for_proxies() {
     }
     let rows: Vec<(String, bool, i64)> = sqlx::query_as("SELECT finish, proxy, qty FROM collection_items WHERE owner_id = ?").bind(&a).fetch_all(&pool).await.unwrap();
     assert_eq!(rows, vec![("nonfoil".to_string(), true, 2)]);
+}
 
 /// A deck's swappable spares through the MCP: `move_cards` with `to_deck_spares` stages, the
 /// apply makes and links the deck's box for them and keeps what the card swaps for, `get_deck`
