@@ -39,7 +39,14 @@ export function diagnosticsOn(): boolean {
   }
 }
 
+/**
+ * Moves on each time the switch is turned off: a record started before (even one already being
+ * encoded and sent, no longer the card in hand) is never sent, though the switch is on again.
+ */
+let generation = 0;
+
 export function setDiagnosticsOn(on: boolean) {
+  if (!on) generation += 1;
   try {
     localStorage.setItem(DIAGNOSTICS_KEY, on ? "1" : "0");
   } catch {
@@ -177,9 +184,12 @@ export class ScanRecord {
    * kept for one account is never sent under another's sign-in (api.ts, `abortRequests`).
    */
   private readonly account: AbortSignal;
+  /** The switch's generation when the record started (`setDiagnosticsOn`). */
+  private readonly generation: number;
 
-  constructor(account: AbortSignal = accountSignal()) {
+  constructor(account: AbortSignal = accountSignal(), gen: number = generation) {
     this.account = account;
+    this.generation = gen;
   }
 
   get isSent() {
@@ -198,9 +208,9 @@ export class ScanRecord {
     this.frames.length = 0;
   }
 
-  /** Whether it may still be sent: not cancelled, the switch still on, the same account signed in. */
+  /** Whether it may still be sent: not cancelled, the switch on and not turned off since it started, the same account signed in. */
   private allowed(): boolean {
-    return !this.cancelled && !this.account.aborted && diagnosticsOn();
+    return !this.cancelled && !this.account.aborted && this.generation === generation && diagnosticsOn();
   }
 
   /**
@@ -209,7 +219,7 @@ export class ScanRecord {
    */
   continued(): ScanRecord {
     if (!this.sent || this.cancelled) return this;
-    const r = new ScanRecord(this.account);
+    const r = new ScanRecord(this.account, this.generation);
     Object.assign(r.facts, this.facts);
     r.camera = this.camera;
     r.engine = this.engine;

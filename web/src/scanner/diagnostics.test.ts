@@ -87,6 +87,27 @@ describe("scanner diagnostics", () => {
     expect(posted.bodies).toHaveLength(0);
   });
 
+  it("a record already on its way, no longer the card in hand, isn't sent once the switch was turned off, though it's on again", async () => {
+    const rec = new ScanRecord();
+    rec.reasons.add("picked");
+    // Filed: sending starts (its images are encoded first), and the scanner moves on to the next card.
+    const sending = rec.send("filed");
+    setDiagnosticsOn(false);
+    setDiagnosticsOn(true);
+    expect(await sending).toBe(false);
+    // Nor what follows it, nor a record started before the switch went off.
+    const earlier = new ScanRecord();
+    earlier.reasons.add("picked");
+    setDiagnosticsOn(false);
+    setDiagnosticsOn(true);
+    expect(await earlier.send("picked")).toBe(false);
+    expect(posted.bodies).toHaveLength(0);
+    // A record started after it went back on is sent.
+    const after = new ScanRecord();
+    after.reasons.add("picked");
+    expect(await after.send("picked")).toBe(true);
+  });
+
   it("a cancelled record keeps nothing more and is never sent, nor what follows it", async () => {
     const rec = new ScanRecord();
     rec.reasons.add("hold-gave-up");
