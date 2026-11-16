@@ -415,17 +415,44 @@ async fn a_file_imported_before_the_finish_fix_corrects_the_copy_and_never_loses
 }
 
 /// Only as many copies as the file lists are corrected; a regular copy the file doesn't list stays
-/// regular (and is the one removals may take).
+/// regular (and is the one removals may take). The corrected copy keeps the date it was added.
 #[tokio::test]
-async fn only_the_copies_the_file_lists_change_finish() {
+async fn only_the_copies_the_file_lists_change_finish_and_keep_their_date() {
     let pool = crate::db::test_pool().await;
     seed(&pool).await;
     let bulk = container(&pool, "box", "bulk").await;
     add(&pool, "old-sol", "p-sol", 3, Some(&bulk)).await;
+    sqlx::query("UPDATE collection_items SET created_at = '2026-10-18T20:00:00Z'").execute(&pool).await.unwrap();
     let text = csv(&[("Sol Ring", "p-sol", 1, "Surge Foil", "NM", "box", "bulk")]);
+    receipt(&pool, &text).await;
     let r = import_mythic_csv(&pool, "u1", &text, ImportOptions { dry_run: false, remove_missing: true }).await.unwrap();
     assert_eq!((r.refinished, r.added, r.removed), (1, 0, 2));
     assert_eq!(holdings(&pool).await, vec![h("p-sol", "foil", "box: bulk", 1)]);
+    let added: Vec<String> = sqlx::query_scalar("SELECT created_at FROM collection_items").fetch_all(&pool).await.unwrap();
+    assert_eq!(added, vec!["2026-10-18T20:00:00Z".to_string()]);
+}
+
+/// A file never imported is no evidence an earlier import misread it: a regular copy someone owns
+/// stays regular, and the file's surge foil is added beside it (Codex re-review of #146).
+#[tokio::test]
+async fn a_file_never_imported_adds_its_foil_beside_a_regular_copy() {
+    let pool = crate::db::test_pool().await;
+    seed(&pool).await;
+    let bulk = container(&pool, "box", "bulk").await;
+    add(&pool, "mine", "p-sol", 1, Some(&bulk)).await;
+    let text = csv(&[("Sol Ring", "p-sol", 1, "Surge Foil", "NM", "box", "bulk")]);
+    let r = import_mythic_csv(&pool, "u1", &text, IMPORT).await.unwrap();
+    assert_eq!((r.refinished, r.added, r.removed), (0, 1, 0));
+    assert_eq!(holdings(&pool).await, vec![h("p-sol", "foil", "box: bulk", 1), h("p-sol", "nonfoil", "box: bulk", 1)]);
+}
+
+/// This file's import receipt, as an earlier import of it left one.
+async fn receipt(pool: &SqlitePool, text: &str) {
+    sqlx::query("INSERT INTO mythic_imports (owner_id, file_hash, imported_at, report) VALUES ('u1', ?, '2026-11-01T00:00:00Z', '{}')")
+        .bind(sha256_hex(text.trim_start_matches('\u{feff}')))
+        .execute(pool)
+        .await
+        .unwrap();
 }
 
 /// With a receipt, the adds are held back; so are removals from a card the file still lists more

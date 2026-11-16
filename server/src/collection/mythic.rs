@@ -359,10 +359,15 @@ pub async fn import_mythic_csv(pool: &SqlitePool, owner: &str, text: &str, opts:
         *file_at.entry((f.key.clone(), loc_of(f.place))).or_insert(0) += f.qty;
         rows_of.entry(f.key.clone()).or_default().push(i);
     }
-    // A finish an earlier import read another way (`legacy_finish`): the copies it filed are this
-    // row's copies, so their finish is corrected in place, never removed and added again. Only
-    // where the file is short of its own finish there and has more of the old one than it lists.
-    refinish(&mut copies, &file, &file_at, &loc_of, &mut report, &mut ops, short, stamp);
+    // A finish an earlier import of this same file read another way (`legacy_finish`): the copies
+    // it filed are this row's copies, so their finish is corrected in place, never removed and
+    // added again. Only with this file's receipt (rows keep no record of the import that made
+    // them): a file never imported adds its foil beside a regular copy someone already owns.
+    // And only where the file is short of its own finish there and has more of the old one than
+    // it lists.
+    if report.already_imported.is_some() {
+        refinish(&mut copies, &file, &file_at, &loc_of, &mut report, &mut ops, short, stamp);
+    }
     let mut copies_of: HashMap<Key, Vec<usize>> = HashMap::new();
     for (i, c) in copies.iter().enumerate() {
         copies_of.entry(key_of(c)).or_default().push(i);

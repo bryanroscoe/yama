@@ -372,9 +372,16 @@ pub async fn apply_op(tx: &mut Transaction<'_, Sqlite>, owner: &str, op: &Op) ->
                         .execute(&mut **tx)
                         .await?;
                     let to = add_copies(tx, owner, &printing, n, &copy, container.as_deref(), price, item.purchase_currency.as_deref()).await?;
-                    sqlx::query(sqlx::AssertSqlSafe(format!("UPDATE collection_items SET note = {MERGE_NOTE} WHERE id = ?2")))
+                    // The copies split off are the same copies: they keep the row's date added (or
+                    // the older one, merging into a row that was there first), not today's.
+                    sqlx::query(sqlx::AssertSqlSafe(format!(
+                        "UPDATE collection_items SET note = {MERGE_NOTE},
+                            created_at = MIN(created_at, IFNULL((SELECT created_at FROM collection_items WHERE id = ?3), created_at))
+                         WHERE id = ?2"
+                    )))
                         .bind(&note)
                         .bind(&to)
+                        .bind(item_id)
                         .execute(&mut **tx)
                         .await?;
                     return Ok(true);
@@ -407,7 +414,8 @@ pub async fn apply_op(tx: &mut Transaction<'_, Sqlite>, owner: &str, op: &Op) ->
                     sqlx::query(sqlx::AssertSqlSafe(format!(
                         "UPDATE collection_items SET qty = qty + ?2, updated_at = ?3,
                             purchase_currency = CASE WHEN purchase_price IS NULL THEN ?4 ELSE purchase_currency END,
-                            purchase_price = COALESCE(purchase_price, ?5), note = {MERGE_NOTE}
+                            purchase_price = COALESCE(purchase_price, ?5), note = {MERGE_NOTE},
+                            created_at = MIN(created_at, IFNULL((SELECT created_at FROM collection_items WHERE id = ?7), created_at))
                          WHERE id = ?6"
                     )))
                         .bind(&note)
@@ -416,6 +424,7 @@ pub async fn apply_op(tx: &mut Transaction<'_, Sqlite>, owner: &str, op: &Op) ->
                         .bind(&item.purchase_currency)
                         .bind(price)
                         .bind(&twin)
+                        .bind(item_id)
                         .execute(&mut **tx)
                         .await?;
                     sqlx::query("DELETE FROM collection_items WHERE id = ?").bind(item_id).execute(&mut **tx).await?;
@@ -1716,6 +1725,39 @@ mod tests {
         tx.commit().await.unwrap();
         let rows: Vec<(String, i64, Option<String>)> = sqlx::query_as("SELECT scryfall_id, qty, note FROM collection_items").fetch_all(&pool).await.unwrap();
         assert_eq!(rows, vec![("ltr".into(), 3, Some("mine\nfrom a trade".into()))]);
+    }
+
+    /// Copies split off a row (a finish correction, one copy changed) are the same copies: the new
+    /// row keeps the date they were added, and so does a whole row merging into a newer twin.
+    #[tokio::test]
+    async fn changed_copies_keep_the_date_they_were_added() {
+        let pool = crate::db::test_pool().await;
+        let owner = user(&pool).await;
+        sqlx::query("INSERT INTO collection_items (id, owner_id, scryfall_id, qty, condition, finish, lang, altered, signed, misprint, proxy, created_at, updated_at) VALUES ('old','u1','p1',3,'NM','nonfoil','en',0,0,0,0,'2026-10-18T20:00:00Z','2026-10-18T20:00:00Z')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let to_foil = |op_id: &str, split| Op {
+            op_id: op_id.into(),
+            device_id: None,
+            op: OpKind::Update { item_id: "old".into(), condition: None, finish: Some("foil".into()), lang: None, container_id: None, purchase_price: None, note: None, proxy: None, altered: None, signed: None, scryfall_id: None, split },
+        };
+        let mut tx = pool.begin().await.unwrap();
+        apply_op(&mut tx, &owner, &to_foil("s1", Some(1))).await.unwrap();
+        tx.commit().await.unwrap();
+        let dates = |pool: SqlitePool| async move {
+            sqlx::query_as::<_, (String, i64, String)>("SELECT finish, qty, created_at FROM collection_items ORDER BY finish").fetch_all(&pool).await.unwrap()
+        };
+        assert_eq!(
+            dates(pool.clone()).await,
+            vec![("foil".into(), 1, "2026-10-18T20:00:00Z".into()), ("nonfoil".into(), 2, "2026-10-18T20:00:00Z".into())]
+        );
+        // The rest of the row merges into the foil row: the older date stays.
+        sqlx::query("UPDATE collection_items SET created_at = '2026-11-15T00:00:00Z' WHERE finish = 'foil'").execute(&pool).await.unwrap();
+        let mut tx = pool.begin().await.unwrap();
+        apply_op(&mut tx, &owner, &to_foil("s2", None)).await.unwrap();
+        tx.commit().await.unwrap();
+        assert_eq!(dates(pool.clone()).await, vec![("foil".into(), 3, "2026-10-18T20:00:00Z".into())]);
     }
 
     #[tokio::test]
