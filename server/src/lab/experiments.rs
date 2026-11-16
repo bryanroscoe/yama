@@ -261,11 +261,22 @@ pub struct LabList {
 pub struct LabCombo {
     pub id: String,
     pub cards: Vec<String>,
+    /// What rehearsing it before any game showed (`crate::combo_plans`), when the list had been
+    /// rehearsed under the running engine as the run was made. Every game of the run tells its
+    /// seat the same; without it the seat rehearses in the game.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan: Option<yama_play::ComboPlan>,
 }
 
 /// Freeze into each of `spec`'s lists the combos known in it, from Yama's copy of Commander
 /// Spellbook's combos (`crate::combos`): none until that has been imported. A lookup that fails
 /// leaves the list without combos; the run still plays.
+///
+/// With them go what rehearsing them before any game showed (`crate::combo_plans`), but only
+/// when every list in the run with combos has been rehearsed under the running engine: otherwise
+/// one arm's seats would know their combos from the start and another's would rehearse in the
+/// game, and a paired difference would mix the card change with that. Without plans every seat
+/// rehearses in the game, as before.
 async fn attach_combos(pool: &SqlitePool, spec: &mut ExperimentSpec) {
     // Only Phase's AI is told about combos.
     if !spec.engines.mode.phase() {
@@ -273,6 +284,7 @@ async fn attach_combos(pool: &SqlitePool, spec: &mut ExperimentSpec) {
     }
     // The same list often sits in a run more than once (an entrant that is also the base).
     let mut known: HashMap<String, Vec<LabCombo>> = HashMap::new();
+    let mut every_list_planned = true;
     let lists = std::iter::once(&mut spec.base).chain(spec.variant.iter_mut()).chain(spec.entrants.iter_mut()).chain(spec.opponents.iter_mut().map(|o| &mut o.list));
     for list in lists {
         if let Some(found) = known.get(&list.sha256) {
@@ -285,7 +297,15 @@ async fn attach_combos(pool: &SqlitePool, spec: &mut ExperimentSpec) {
             .map(|c| DeckCard { oracle_id: c.oracle_id.clone().unwrap_or_default(), name: c.name.clone(), qty: i64::from(c.qty), board: if c.commander { Board::Commander } else { Board::Main } })
             .collect();
         list.combos = match crate::combos::in_list(pool, &deck, yama_play::MAX_SEAT_COMBOS).await {
-            Ok(Some(found)) => found.into_iter().map(|f| LabCombo { id: f.id, cards: f.cards }).collect(),
+            Ok(Some(found)) => {
+                let mut combos: Vec<LabCombo> = found.into_iter().map(|f| LabCombo { id: f.id, cards: f.cards, plan: None }).collect();
+                let kept = crate::combo_plans::stored(pool, &crate::deck_checks::list_hash(&deck)).await.ok().flatten().unwrap_or_default();
+                every_list_planned &= combos.iter().all(|c| kept.iter().any(|k| k.id == c.id));
+                for combo in combos.iter_mut() {
+                    combo.plan = kept.iter().find(|k| k.id == combo.id).and_then(|k| k.plan.clone());
+                }
+                combos
+            }
             Ok(None) => Vec::new(),
             Err(error) => {
                 tracing::warn!(list = %list.id, %error, "couldn't look up a lab list's combos; it plays without them");
@@ -293,6 +313,12 @@ async fn attach_combos(pool: &SqlitePool, spec: &mut ExperimentSpec) {
             }
         };
         known.insert(list.sha256.clone(), list.combos.clone());
+    }
+    if !every_list_planned {
+        let lists = std::iter::once(&mut spec.base).chain(spec.variant.iter_mut()).chain(spec.entrants.iter_mut()).chain(spec.opponents.iter_mut().map(|o| &mut o.list));
+        for combo in lists.flat_map(|list| list.combos.iter_mut()) {
+            combo.plan = None;
+        }
     }
 }
 

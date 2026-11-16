@@ -189,7 +189,7 @@ fn only_whitelisted_answers_parse() {
 #[tokio::test(flavor = "multi_thread")]
 async fn act_is_checked_against_the_seats_own_decision() {
     let pool = crate::db::test_pool().await;
-    let hub = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()), historical: None, historical_v0119: None, setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()) });
+    let hub = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()), historical: None, historical_v0119: None, setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()), plans: Default::default() });
     // Two people. Seat 0's cards (Island, Opt, Preordain) appear nowhere in seat 1's deck.
     let mine = deck(&[("Island", 50), ("Opt", 25), ("Preordain", 24)]);
     let theirs = deck(&[("Mountain", 60), ("Blaze", 39)]);
@@ -297,7 +297,7 @@ async fn turn_controls_are_saved_per_account_and_apply_to_live_games() {
     assert_eq!(load_prefs(&pool, &user).await.unwrap(), Some(PlayPrefs::default()));
 
     // A live game starts with each seat's saved settings, and its board says what they are.
-    let hub = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()), historical: None, historical_v0119: None, setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()) });
+    let hub = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()), historical: None, historical_v0119: None, setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()), plans: Default::default() });
     let m = engine().new_match_first(5, vec![deck(&[("Mountain", 99)]), deck(&[("Forest", 99)])], &[], Some(0)).unwrap();
     let saved = HashMap::from([(0u8, PlayPrefs { stops: None, full_control: true, tap_mana: PayMode::Auto })]);
     hub.spawn_game("game-turns-1".into(), m, vec![seat(0, "Ana"), seat(1, "Ben")], saved, pool.clone());
@@ -512,7 +512,7 @@ async fn the_host_starts_a_rematch_and_the_other_players_can_join_it() {
     use crate::testutil::{deck as make_deck, send as request, user};
     use axum::http::{Method, StatusCode};
     let mut st = crate::testutil::state().await;
-    st.play = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()), historical: None, historical_v0119: None, setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()), });
+    st.play = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()), historical: None, historical_v0119: None, setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()), plans: Default::default(), });
     let pool = st.pool.clone();
     let app = crate::routes::app(st);
     let (host, host_token) = user(&pool, "ana@example.com").await;
@@ -711,7 +711,7 @@ async fn online_games_start_with_loop_detection_and_save_it() {
     use crate::testutil::{send as request, user};
     use axum::http::{Method, StatusCode};
     let mut st = crate::testutil::state().await;
-    st.play = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()), historical: None, historical_v0119: None, setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()) });
+    st.play = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()), historical: None, historical_v0119: None, setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()), plans: Default::default() });
     let hub = st.play.clone();
     let pool = st.pool.clone();
     let app = crate::routes::app(st);
@@ -774,7 +774,7 @@ fn ready_hub(historical: Option<history::Config>) -> Arc<PlayHub> {
         live: Mutex::new(HashMap::new()),
         historical,
         historical_v0119,
-        setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()),
+        setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()), plans: Default::default(),
     })
 }
 
@@ -1512,7 +1512,7 @@ async fn ending_a_solo_game_is_durable_and_does_not_award_a_winner() {
         live: Mutex::new(HashMap::new()),
         historical: None, historical_v0119: None,
         setup_gate: Arc::new(tokio::sync::Semaphore::new(1)),
-        unavailable: Mutex::new(HashMap::new()),
+        unavailable: Mutex::new(HashMap::new()), plans: Default::default(),
     });
     let pool = st.pool.clone();
     let (host, token) = user(&pool, "solo@example.com").await;
@@ -2445,7 +2445,7 @@ async fn a_computers_seat_is_given_the_combos_kept_for_the_list_it_plays() {
     computer.deck_version_id = Some(version);
     // Named as the engine names its cards, whatever the stored answer's spelling.
     let found = seat_combos(&st, &e, &computer, &cards).await;
-    assert_eq!(found, [yama_play::SeatCombo { id: "1-2".into(), cards: vec!["Opt".into(), "Preordain".into()] }]);
+    assert_eq!(found, [yama_play::SeatCombo { id: "1-2".into(), cards: vec!["Opt".into(), "Preordain".into()], plan: None }]);
 
     // A person's seat is given none, and nobody is once the setting is off.
     let mut person = computer.clone();
@@ -2474,7 +2474,7 @@ async fn a_computers_seat_is_given_the_combos_kept_for_the_list_it_plays() {
         .execute(&st.pool)
         .await
         .unwrap();
-    assert_eq!(seat_combos(&st, &e, &precon, &cards).await, [yama_play::SeatCombo { id: "9".into(), cards: vec!["Preordain".into(), "Opt".into()] }]);
+    assert_eq!(seat_combos(&st, &e, &precon, &cards).await, [yama_play::SeatCombo { id: "9".into(), cards: vec!["Preordain".into(), "Opt".into()], plan: None }]);
 
     // Once Spellbook's combos are imported (combos.rs), the list itself is looked up, whoever's
     // it is, and the stored answers are no longer read.
@@ -2486,8 +2486,25 @@ async fn a_computers_seat_is_given_the_combos_kept_for_the_list_it_plays() {
     ] {
         sqlx::query(sql).execute(&st.pool).await.unwrap();
     }
-    let bulk = [yama_play::SeatCombo { id: "bulk".into(), cards: vec!["Opt".into(), "Preordain".into()] }];
+    let bulk = [yama_play::SeatCombo { id: "bulk".into(), cards: vec!["Opt".into(), "Preordain".into()], plan: None }];
     assert_eq!(seat_combos(&st, &e, &computer, &cards).await, bulk);
     assert_eq!(seat_combos(&st, &e, &precon, &cards).await, bulk);
     assert!(seat_combos(&st, &e, &person, &cards).await.is_empty());
+
+    // Once the list has been rehearsed under this engine (combo_plans.rs), each combo comes with
+    // what that showed; a plan kept for another engine is not used.
+    let kept = r#"[{"id":"bulk","cards":["Opt","Preordain"],"plan":{"outcome":"wins","with":["Fireball"]}}]"#;
+    for engine in ["phase-v0.1.0+older", yama_play::ENGINE_VERSION] {
+        let planned = seat_combos(&st, &e, &computer, &cards).await;
+        assert!(planned[0].plan.is_none(), "nothing kept for {engine} yet");
+        sqlx::query("INSERT INTO combo_plans (list_hash, engine, combos, learned_at) VALUES (?, ?, ?, '2026-11-16T00:00:00Z')")
+            .bind(crate::deck_checks::list_hash(&cards))
+            .bind(engine)
+            .bind(kept)
+            .execute(&st.pool)
+            .await
+            .unwrap();
+    }
+    let planned = seat_combos(&st, &e, &computer, &cards).await;
+    assert_eq!(planned[0].plan, Some(yama_play::ComboPlan::Wins { with: vec!["Fireball".into()], cast: vec![] }));
 }

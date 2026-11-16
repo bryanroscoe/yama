@@ -72,6 +72,8 @@ pub struct PlayHub {
     historical_v0119: Option<history::Config>,
     unavailable: Mutex<HashMap<String, String>>,
     setup_gate: Arc<tokio::sync::Semaphore>,
+    /// Lists whose combos are being rehearsed before any game (`crate::combo_plans`).
+    pub(crate) plans: Arc<crate::combo_plans::Planner>,
 }
 
 #[derive(Clone)]
@@ -185,6 +187,7 @@ impl PlayHub {
             historical: card_data.as_deref().map(history::Config::discover),
             historical_v0119: card_data.as_deref().map(history::Config::discover_v0119),
             setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()),
+            plans: Arc::new(crate::combo_plans::Planner::new()),
         });
         let Some(path) = card_data else {
             *hub.engine.lock().unwrap() =
@@ -963,7 +966,31 @@ async fn seat_cards(pool: &SqlitePool, s: &SeatCfg) -> AppResult<Vec<DeckCard>> 
 /// Either way a combo that also needs something that isn't a named card ("a creature that taps
 /// for mana") is left out: its named cards alone aren't the combo. A person's seat gets none,
 /// and a failed read gives none rather than keeping the game from starting.
+///
+/// Each comes with what rehearsing it before any game showed (`crate::combo_plans`), once the list
+/// has been rehearsed under the running engine; until then the rehearsal is started in the
+/// background and this game's seat rehearses up to four combos itself.
 pub(crate) async fn seat_combos(st: &AppState, engine: &Engine, s: &SeatCfg, cards: &[DeckCard]) -> Vec<yama_play::SeatCombo> {
+    let mut found = listed_combos(st, engine, s, cards).await;
+    if found.is_empty() {
+        return found;
+    }
+    let hash = crate::deck_checks::list_hash(cards);
+    let kept = crate::combo_plans::stored(&st.pool, &hash).await.unwrap_or_else(|error| {
+        tracing::warn!(seat = s.seat, %error, "couldn't read a list's combo plans; its seat rehearses in the game");
+        None
+    });
+    let covered = kept.as_deref().is_some_and(|kept| crate::combo_plans::attach(&mut found, kept));
+    if !covered && let Ok(shared) = st.play.engine() {
+        let (deck, _) = resolve(&shared, cards);
+        let to_learn = found.iter().map(|c| yama_play::SeatCombo { plan: None, ..c.clone() }).collect();
+        st.play.plans.request(st.pool.clone(), shared, hash, deck, to_learn);
+    }
+    found
+}
+
+/// The combos known in the list a computer's seat plays, without their plans.
+async fn listed_combos(st: &AppState, engine: &Engine, s: &SeatCfg, cards: &[DeckCard]) -> Vec<yama_play::SeatCombo> {
     if !st.cfg.ai_combos || s.kind != "ai" {
         return Vec::new();
     }

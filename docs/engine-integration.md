@@ -2,6 +2,20 @@
 
 The original research spike below describes phase **v0.113.0** (tag commit `0571ee32f08c`, released 2026-10-18). Its file references are into that tag of <https://github.com/phase-rs/phase>. Current source composition is recorded first; dated evidence below remains historical.
 
+## Re-pin for holding the payoff, 16 November 2026
+
+`deploy/phase-rev` moves to `8e319097a3460c76252e68b83b648e21e672359d` (fork PR 17): a seat putting a rehearsed combo together,
+or holding all of it, doesn't cast the cards its winning line casts (`Rehearsal::Wins::cast`)
+nor the payoff (`with`); a rehearsal starts from a clean hand; a card in the graveyard or exile
+no longer counts as held. Measured on the fork in whole games (40 seeds per arm, one test list
+against a creature deck): wins 1 / 2 / 11 for no catalog / catalog not pursued / rehearsed,
+nine games turned into wins and none the other way (`docs/AI-COMBOS.md` on the fork).
+
+- Checked on the fork: the combo gates (eleven tests), the tutor unit tests, the paired-seed
+  AI gate and the decision-cost performance gate. A seat with no combos plays as before.
+- The `candidate_v0122_*` seeded scenarios were not rerun, as on 13 and 15 November.
+- Runtime identity and lab label change with the pin, as before.
+
 ## Re-pin for the deck plan, 15 November 2026
 
 `deploy/phase-rev` moves to `6277c3925ac42c43ff385653d4c35364f6cffba4` (fork PR 16): a seat rehearses its combos on a copy of
