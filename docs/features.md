@@ -195,6 +195,7 @@ Camera scanning in Collection: the card is found by its art, and its printing an
 - Mythic Tools CSV import (with a preview; a newer export adds only what's new, and cards it no longer lists are removed only if you ask) and export
 - Special printings named in plain words wherever a printing is chosen or shown (the scanner, a card's printings, collection rows, the Added list, a deck's "Add to my collection" and the CSV export's "Special Printing" column): "Surge foil, MSC 40", Galaxy foil, Textured foil, Double rainbow, Serialized, Showcase, Extended art, Borderless, Full art, from Scryfall's promo types, frame effects, border and full art (`treatmentLabel` in packages/core; since 15 Nov 2026). A special foil is its own printing, so imports find it by set and number, and a finish column or marker that says "Surge Foil" or "Etched" is kept as foil or etched
 - "Add to my collection" on a deck puts its cards in its deck box, in the printings the list names
+- A deck's swappable spares (2026-11-15): cards kept in its deck box on top of its 100, such as the bracket bag's cards and ready swaps. They live in a box of their own linked to the deck, shown as "<deck>'s box (swappable)", and count toward nothing in the deck (size, legality, stats, prices, exports). The deck page lists them with what each comes in for (the plan's bracket bags, or your own note), and sets up, changes or stops the box; copies go in and out with Move. The old "<deck> swap bag" boxes became those decks' spares
 
 ## Decks and plans
 
@@ -377,7 +378,7 @@ other Magic MCP installation is needed for those workflows. Write tools stage a 
 in Yama for its owner to apply or discard. `move_cards` takes `proxy` to move only proxies or
 only real copies (real copies go first otherwise), and collection tools treat every card with one
 exact name as that card, so a token named like others (Soldier, tmsh 3) is found by set and
-number (2026-11-15). See the public
+number (2026-11-15). `move_cards` with `to_deck_spares` puts copies in a deck's swappable spares (with `swaps_for` and `bracket` for what they come in for), `get_deck` lists them and `list_collection_cards` marks them `spares_of_deck` (2026-11-15). See the public
 [MCP feature and setup guide](https://yama.ing/docs/mcp/), [capabilities and use](mcp-parity.md)
 and [connection design](mcp-design.md). The private [Codex and ChatGPT plugin](codex-plugin.md)
 packages this connection with deck-building, collection-planning and research skills; it is not a

@@ -164,8 +164,8 @@ pub(super) const TOOLS: &[Tool] = &[
         aliases: &["deck"],
         title: "One deck",
         description: "One of their Yama decks: the current list, the bracket they declared, Commander legality problems \
-                      (size, singleton, color identity, banned cards), Game Changers and real game results. \
-                      Give the deck's name (as `get_overview` lists it) or its id.",
+                      (size, singleton, color identity, banned cards), Game Changers, real game results and its swappable \
+                      spares (kept in its box outside the 100). Give the deck's name (as `get_overview` lists it) or its id.",
         schema: || obj(&[("deck", "string", "The deck's name or id.")], &["deck"]),
         kind: Kind::Read,
         offer: Offer::Everyone,
@@ -1219,18 +1219,24 @@ pub(super) const TOOLS: &[Tool] = &[
         name: "move_cards",
         aliases: &[],
         title: "Move cards between binders and boxes",
-        description: staged!("Move copies of a card from one of their binders, deck boxes or lists to another."),
+        description: staged!("Move copies of a card between their binders, deck boxes and lists. A deck's swappable spares \
+                      are cards kept in its box outside the 100, never counted in its list: to_deck_spares puts copies \
+                      there (swaps_for and bracket say what each comes in for), from_deck_spares takes them out."),
         schema: || {
             json!({
                 "type": "object",
                 "properties": {
                     "card": {"type": "string"},
                     "qty": {"type": "integer", "minimum": 1, "maximum": 100},
-                    "from": {"type": "string", "description": "Where the copies are: a binder, deck box or list by name, or \"Loose\" for copies in none."},
-                    "to": {"type": "string", "description": "Where they go: a binder, deck box or list by name, or \"Loose\" for none."},
+                    "from": {"type": "string", "description": "Where the copies are: a binder, deck box or list by name, or \"Loose\" for copies in none. Give this or from_deck_spares."},
+                    "to": {"type": "string", "description": "Where they go: a binder, deck box or list by name, or \"Loose\" for none. Give this or to_deck_spares. A deck box by name means the deck's 100."},
+                    "from_deck_spares": {"type": "string", "description": "A deck's name or id: take the copies out of that deck's swappable spares."},
+                    "to_deck_spares": {"type": "string", "description": "A deck's name or id: put the copies in that deck's swappable spares (in its box, outside the 100). A configuration means its main deck."},
+                    "swaps_for": {"type": "string", "description": "With to_deck_spares: the card in the deck this spare comes in for."},
+                    "bracket": {"type": "integer", "minimum": 1, "maximum": 5, "description": "With to_deck_spares: the Commander bracket that swap is for."},
                     "proxy": {"type": "boolean", "description": "true moves only proxies, false only real copies. Left out, real copies go first."},
                 },
-                "required": ["card", "from", "to"],
+                "required": ["card"],
                 "additionalProperties": false,
             })
         },
@@ -2169,8 +2175,55 @@ async fn deck(pool: &SqlitePool, user: &User, wanted: &str) -> AppResult<String>
         out.push('\n');
         out.push_str(&checks(&cards, &info));
     }
+    out.push_str(&spares_text(&crate::decks::spares::view(pool, &user.id, &id).await?));
     let _ = writeln!(out, "Deck id: {id}");
     Ok(out)
+}
+
+/// A deck's swappable spares as lines for `get_deck`.
+fn spares_text(s: &crate::decks::spares::Spares) -> String {
+    let mut out = String::new();
+    let swap_line = |w: &crate::decks::spares::SpareSwap| {
+        let mut said = match (&w.out, w.bracket) {
+            (Some(o), Some(b)) => format!("for {o} at Bracket {b}"),
+            (Some(o), None) => format!("for {o}"),
+            (None, Some(b)) => format!("at Bracket {b}"),
+            (None, None) => String::new(),
+        };
+        if let Some(n) = &w.note {
+            said = if said.is_empty() { n.clone() } else { format!("{said} ({n})") };
+        }
+        format!("{said} [{}]", if w.from == "plan" { "plan's bracket bag" } else { "their note" })
+    };
+    match &s.container_name {
+        None => {
+            let _ = writeln!(out, "Swappable spares (in the deck box, outside the 100): none set up. move_cards with to_deck_spares puts a card there.");
+        }
+        Some(box_name) => {
+            let _ = writeln!(
+                out,
+                "Swappable spares (in the deck box, outside the 100; not counted in the list or its checks): {} copies, kept as \"{box_name}\"{}",
+                s.copies,
+                if s.cards.is_empty() { ", empty" } else { ":" }
+            );
+            for c in &s.cards {
+                let swaps: Vec<String> = c.swaps.iter().map(swap_line).collect();
+                let _ = writeln!(
+                    out,
+                    "- {} {}{}{}",
+                    c.qty,
+                    c.name,
+                    if c.proxies > 0 { format!(" ({} proxy)", c.proxies) } else { String::new() },
+                    if swaps.is_empty() { String::new() } else { format!(": {}", swaps.join("; ")) }
+                );
+            }
+        }
+    }
+    if !s.planned_missing.is_empty() {
+        let names: Vec<String> = s.planned_missing.iter().map(|m| format!("{} ({})", m.name, m.swaps.iter().map(swap_line).collect::<Vec<_>>().join("; "))).collect();
+        let _ = writeln!(out, "The plan's bracket bags name these, not in the swappable spares: {}", names.join(", "));
+    }
+    out
 }
 
 async fn check_list(pool: &SqlitePool, args: &Value) -> AppResult<String> {

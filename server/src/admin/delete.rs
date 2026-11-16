@@ -60,6 +60,7 @@ pub const USER_COLUMNS: &[(&str, &str)] = &[
     ("content_reports", "owner_id"),
     ("content_reports", "resolved_by"),
     ("deck_takedowns", "admin_id"),
+    ("deck_spare_swaps", "owner_id"),
     ("deck_takedowns", "owner_id"),
     ("decks", "owner_id"),
     ("deleted_games", "deleted_by"),
@@ -194,6 +195,7 @@ const OWNED_DELETES: &[(&str, &str)] = &[
     ("containers", "owner_id"),
     ("item_aliases", "owner_id"),
     ("applied_ops", "owner_id"),
+    ("deck_spare_swaps", "owner_id"),
     // The Mythic Tools bridge: its links, and Mythic's notes kept for this account alone.
     ("mythic_game_notes", "owner_id"),
     ("mythic_links", "owner_id"),

@@ -1703,6 +1703,76 @@ async fn add_to_collection_follows_a_printings_finishes_but_not_for_proxies() {
     assert_eq!(rows, vec![("nonfoil".to_string(), true, 2)]);
 }
 
+/// A deck's swappable spares through the MCP: `move_cards` with `to_deck_spares` stages, the
+/// apply makes and links the deck's box for them and keeps what the card swaps for, `get_deck`
+/// lists them apart from the list, and `list_collection_cards` marks the copies.
+#[tokio::test]
+async fn move_cards_puts_a_card_in_a_decks_swappable_spares() {
+    let (app, pool) = app().await;
+    seed_cards(&pool).await;
+    let (a, session) = user(&pool, "bryan@example.com").await;
+    let deck = my_deck(&pool, &a).await;
+    sqlx::query("INSERT INTO containers (id, owner_id, kind, name, created_at) VALUES ('binder', ?, 'binder', 'Trade Binder', 'now')").bind(&a).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO collection_items (id, owner_id, scryfall_id, qty, container_id, created_at, updated_at) VALUES ('sig', ?, 'p-o-sig', 2, 'binder', 'now', 'now')")
+        .bind(&a)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let mcp = key(&app, &session, Some("mcp")).await;
+
+    let (err, text) = call(&app, &mcp, "move_cards", json!({"card": "Arcane Signet", "from": "Trade Binder", "to": "Trade Binder", "to_deck_spares": "Elf Ball"})).await;
+    assert!(err && text.contains("not both"), "{text}");
+    let (err, text) = call(&app, &mcp, "move_cards", json!({"card": "Arcane Signet", "from": "Trade Binder", "to": "Loose", "swaps_for": "Sol Ring"})).await;
+    assert!(err && text.contains("go with to_deck_spares"), "{text}");
+    let (err, text) = call(&app, &mcp, "move_cards", json!({"card": "Arcane Signet", "from_deck_spares": "Elf Ball", "to": "Loose"})).await;
+    assert!(err && text.contains("has no swappable spares yet"), "{text}");
+    let (err, text) = call(&app, &mcp, "move_cards", json!({"card": "Arcane Signet", "from": "Trade Binder", "to_deck_spares": "elf ball", "swaps_for": "sol ring", "bracket": 4})).await;
+    assert!(!err, "{text}");
+    assert!(text.contains("Move 1 Arcane Signet from Trade Binder to Elf Ball's swappable spares (a new box, Elf Ball swap bag, linked to the deck), to come in for Sol Ring at Bracket 4"), "{text}");
+    let linked: Option<String> = sqlx::query_scalar("SELECT spares_container_id FROM decks WHERE id = ?").bind(&deck).fetch_one(&pool).await.unwrap();
+    assert_eq!(linked, None, "nothing changes before it's applied");
+    let (err, applied) = call(&app, &mcp, "apply_change", json!({"id": change_id(&text)})).await;
+    assert!(!err, "{applied}");
+
+    let spares: String = sqlx::query_scalar("SELECT spares_container_id FROM decks WHERE id = ?").bind(&deck).fetch_one(&pool).await.unwrap();
+    let held: Vec<(String, i64)> = sqlx::query_as("SELECT container_id, qty FROM collection_items WHERE owner_id = ? ORDER BY container_id = 'binder'").bind(&a).fetch_all(&pool).await.unwrap();
+    assert_eq!(held, [(spares.clone(), 1), ("binder".to_string(), 1)]);
+    let (err, text) = call(&app, &mcp, "get_deck", json!({"deck": "Elf Ball"})).await;
+    assert!(!err, "{text}");
+    assert!(text.contains("Cards (commander and main): 3."), "the spare isn't in the list: {text}");
+    assert!(text.contains("Swappable spares (in the deck box, outside the 100; not counted in the list or its checks): 1 copies, kept as \"Elf Ball swap bag\":"), "{text}");
+    assert!(text.contains("- 1 Arcane Signet: for Sol Ring at Bracket 4 [their note]"), "{text}");
+    let (err, text) = call(&app, &mcp, "list_collection_cards", json!({"query": "signet", "detail": "summary"})).await;
+    assert!(!err, "{text}");
+    let rows: Value = serde_json::from_str(&text).unwrap();
+    let marks: Vec<Value> = rows["items"].as_array().unwrap().iter().map(|r| r["spares_of_deck"].clone()).collect();
+    assert_eq!(marks, [json!("Elf Ball"), Value::Null], "{rows}");
+    let (_, outside) = call(&app, &mcp, "list_collection_cards", json!({"query": "signet", "outside_decks": true})).await;
+    let outside: Value = serde_json::from_str(&outside).unwrap();
+    assert_eq!(outside["total_rows"], 1, "{outside}");
+
+    // A second move goes to the same box; taking one back out works by the deck's name.
+    let (err, text) = call(&app, &mcp, "move_cards", json!({"card": "Arcane Signet", "from": "Trade Binder", "to_deck_spares": "Elf Ball"})).await;
+    assert!(!err && text.contains("to Elf Ball's swappable spares (Elf Ball swap bag, in its deck box)"), "{text}");
+    let (err, applied) = call(&app, &mcp, "apply_change", json!({"id": change_id(&text)})).await;
+    assert!(!err, "{applied}");
+    // Staged out of the spares, then the deck keeps its spares elsewhere: the apply refuses.
+    let (err, stale) = call(&app, &mcp, "move_cards", json!({"card": "Arcane Signet", "from_deck_spares": "Elf Ball", "to": "Trade Binder"})).await;
+    assert!(!err, "{stale}");
+    sqlx::query("UPDATE decks SET spares_container_id = 'binder' WHERE id = ?").bind(&deck).execute(&pool).await.unwrap();
+    let (err, refused) = call(&app, &mcp, "apply_change", json!({"id": change_id(&stale)})).await;
+    assert!(err && refused.contains("kept somewhere else now"), "{refused}");
+    sqlx::query("UPDATE decks SET spares_container_id = ? WHERE id = ?").bind(&spares).bind(&deck).execute(&pool).await.unwrap();
+    let (err, text) = call(&app, &mcp, "move_cards", json!({"card": "Arcane Signet", "from_deck_spares": "Elf Ball", "to": "Trade Binder"})).await;
+    assert!(!err, "{text}");
+    let (err, applied) = call(&app, &mcp, "apply_change", json!({"id": change_id(&text)})).await;
+    assert!(!err, "{applied}");
+    let in_spares: i64 = sqlx::query_scalar("SELECT SUM(qty) FROM collection_items WHERE container_id = ?").bind(&spares).fetch_one(&pool).await.unwrap();
+    assert_eq!(in_spares, 1);
+    let boxes: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM containers WHERE owner_id = ?").bind(&a).fetch_one(&pool).await.unwrap();
+    assert_eq!(boxes, 2, "one spares box, made once");
+}
+
 #[tokio::test]
 async fn scan_diagnostics_are_read_by_their_owner_with_images() {
     use base64::Engine as _;

@@ -406,7 +406,7 @@ section 4 is the first sketch; the current system is [above](#the-system-at-a-gl
 - **Game night:** [Table and playgroup stats (2026-10-19)](#table-and-playgroup-stats-2026-10-19).
 - **The scanner:** [Scan photos shared with the developer (15 November 2026)](#scan-photos-shared-with-the-developer-15-november-2026), [The scanner's own art supplement (15 November 2026)](#the-scanners-own-art-supplement-15-november-2026), [Scanner diagnostics (15 November 2026)](#scanner-diagnostics-15-november-2026).
 - **Cards, collection and prices:** [Mana symbols (2026-11-12)](#mana-symbols-2026-11-12), [Release calendar and What's new (2026-10-19)](#release-calendar-and-whats-new-2026-10-19), [A deck's cards in the collection, and Mythic re-imports (2026-10-23)](#a-decks-cards-in-the-collection-and-mythic-re-imports-2026-10-23), [Deck market values (2026-10-27)](#deck-market-values-2026-10-27), [Scan this deck (2026-10-29)](#scan-this-deck-2026-10-29), [Mythic Tools bridge (2026-10-31, proposal)](#mythic-tools-bridge-2026-10-31-proposal), [Store trips (2026-11-01)](#store-trips-2026-11-01), [Deleting collection containers (2026-11-02)](#deleting-collection-containers-2026-11-02), [Sell lists for store buylists (2026-11-02)](#sell-lists-for-store-buylists-2026-11-02), [Local buylist offers (2026-11-02)](#local-buylist-offers-2026-11-02), [Price history (2026-11-02)](#price-history-2026-11-02), [Recording printed copies in a deck box (2026-11-02)](#recording-printed-copies-in-a-deck-box-2026-11-02).
-- **Decks, plans and sharing:** [Brackets, deck stats and exports (2026-10-19)](#brackets-deck-stats-and-exports-2026-10-19), [Deck import (2026-10-22)](#deck-import-2026-10-22), [Sharing and deck configurations (2026-10-28)](#sharing-and-deck-configurations-2026-10-28), [Review, installed decks and the Lab tab (2026-10-28)](#review-installed-decks-and-the-lab-tab-2026-10-28), [Check this deck (2026-11-01)](#check-this-deck-2026-11-01), [Deck configurations and quieter editing (2026-11-03)](#deck-configurations-and-quieter-editing-2026-11-03), [One plan page (2026-11-04)](#one-plan-page-2026-11-04), [Printing with MakePlayingCards (2026-11-05)](#printing-with-makeplayingcards-2026-11-05), [Plans: one plan per deck (2026-11-06)](#plans-one-plan-per-deck-2026-11-06), [Site design pass (2026-11-08)](#site-design-pass-2026-11-08), [Public by default and the navigation (2026-11-12)](#public-by-default-and-the-navigation-2026-11-12), [Check a deck without an account (2026-11-12)](#check-a-deck-without-an-account-2026-11-12).
+- **Decks, plans and sharing:** [Swappable spares in the deck box (15 November 2026)](#swappable-spares-in-the-deck-box-15-november-2026), [Brackets, deck stats and exports (2026-10-19)](#brackets-deck-stats-and-exports-2026-10-19), [Deck import (2026-10-22)](#deck-import-2026-10-22), [Sharing and deck configurations (2026-10-28)](#sharing-and-deck-configurations-2026-10-28), [Review, installed decks and the Lab tab (2026-10-28)](#review-installed-decks-and-the-lab-tab-2026-10-28), [Check this deck (2026-11-01)](#check-this-deck-2026-11-01), [Deck configurations and quieter editing (2026-11-03)](#deck-configurations-and-quieter-editing-2026-11-03), [One plan page (2026-11-04)](#one-plan-page-2026-11-04), [Printing with MakePlayingCards (2026-11-05)](#printing-with-makeplayingcards-2026-11-05), [Plans: one plan per deck (2026-11-06)](#plans-one-plan-per-deck-2026-11-06), [Site design pass (2026-11-08)](#site-design-pass-2026-11-08), [Public by default and the navigation (2026-11-12)](#public-by-default-and-the-navigation-2026-11-12), [Check a deck without an account (2026-11-12)](#check-a-deck-without-an-account-2026-11-12).
 - **Assistants:** [Ask Claude, the advisor (2026-10-22)](#ask-claude-the-advisor-2026-10-22), [Yama's tools for Claude (MCP, 2026-10-22)](#yamas-tools-for-claude-mcp-2026-10-22).
 - **Navigation:** [Navigation frame (2026-11-12)](#navigation-frame-2026-11-12).
 
@@ -2953,3 +2953,34 @@ collector line at about 7 px, too small to replay a printing read. So, a new dat
 - **Replay.** `web/src/scanner/eval/real.test.ts` replays exported records (and kept photos with
   their art scores) through today's evidence, hold budgets, collector-line crops and title/art
   fusion, and reports right, wrong and filed, unsettled, and frames to settle.
+
+## Swappable spares in the deck box (15 November 2026)
+
+Bryan, 15 November 2026: a deck's cards live in three places: the deck itself (its 100), swappable
+spares kept in the deck box on top of the 100 (bracket-bag cards and ready swaps, such as Talisman
+of Creativity in the Riders of Rohan box, which comes in for Thought Vessel at Bracket 4), and the
+deck's spares section in a bulk container ("<deck> spares"). Yama had no model for the second; the
+plan's swap-in made loose boxes called "<deck> swap bag".
+
+- **A linked container, not a flag on copies.** `decks.spares_container_id` names one box, binder or
+  list of the owner's that holds the main deck's swappable spares (a configuration shares its main
+  deck's, as it shares the physical box). The 100 stay in `decks.container_id`. Keeping them apart
+  means nothing that reads the deck's list or its box (size, legality, analysis, prices, the lab,
+  "Add to my collection", Mythic Tools sync) has to learn to skip them, and moving a copy in or out
+  is the collection's ordinary move, offline ops included. A flag on `collection_items` would have
+  needed a new copy identity and a change to every reader of a deck box.
+- **What each swaps for** comes from the plan's bracket bags (read live, never copied) and the
+  owner's own note per card (`deck_spare_swaps`), for swaps a plan doesn't hold.
+- **Never taken by another deck:** "Add to my collection" and Swap in the prints treat a spares
+  container like a deck box and never move copies out of it. `list_collection_cards` with
+  `outside_decks` leaves them out too. Swap in the prints puts its bracket-bag cards in the deck's
+  spares, and makes the "<deck> swap bag" box those spares when it has to make one.
+- **Migration 0097** links each existing "<deck> swap bag" box to its deck when exactly one live main
+  deck of that owner has the name. It writes only the link: no copy moves and no container changes,
+  so `UPDATE decks SET spares_container_id = NULL` undoes it. On 15 November that is Riders of
+  Rohan (7 copies) and World Shaper (3).
+- **Where it shows:** the deck page's Swappable spares section (set up, link another box, stop, and
+  say what a card swaps for); the collection names those copies "<deck>'s box (swappable)"; the MCP's
+  `move_cards` takes `to_deck_spares`/`from_deck_spares` (with `swaps_for` and `bracket`),
+  `list_collection_cards` gives `spares_of_deck`, and `get_deck` lists the spares.
+

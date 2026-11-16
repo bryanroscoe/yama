@@ -706,6 +706,12 @@ pub struct Item {
     pub container_id: Option<String>,
     pub container_name: Option<String>,
     pub container_kind: Option<String>,
+    /// The live deck whose swappable spares this container holds: copies in that deck's box on
+    /// top of its 100 (`decks::spares`). Its id, and the collection's name for the place.
+    #[sqlx(default)]
+    pub spares_of_deck_id: Option<String>,
+    #[sqlx(default)]
+    pub spares_of_deck: Option<String>,
     pub purchase_price: Option<f64>,
     pub purchase_currency: Option<String>,
     pub note: Option<String>,
@@ -742,7 +748,8 @@ pub struct ListedItem {
 }
 
 const ITEM_SELECT: &str = "SELECT i.id, i.scryfall_id, i.qty, i.condition, i.finish, i.lang, i.altered, i.signed,
-    i.misprint, i.proxy, i.container_id, ct.name AS container_name, ct.kind AS container_kind, i.purchase_price,
+    i.misprint, i.proxy, i.container_id, ct.name AS container_name, ct.kind AS container_kind,
+    sd.id AS spares_of_deck_id, sd.name AS spares_of_deck, i.purchase_price,
     i.purchase_currency, i.note, i.updated_at, p.oracle_id, p.name, p.set_code, p.set_name, p.collector_number,
     p.rarity, p.image_small, p.image_normal, p.image_art_crop, p.artist, c.type_line, c.color_identity,
     p.promo_types, p.frame_effects, p.border_color, p.full_art,
@@ -750,6 +757,7 @@ const ITEM_SELECT: &str = "SELECT i.id, i.scryfall_id, i.qty, i.condition, i.fin
     ps.date AS price_date
     FROM collection_items i
     LEFT JOIN containers ct ON ct.id = i.container_id
+    LEFT JOIN decks sd ON sd.spares_container_id = i.container_id AND sd.owner_id = i.owner_id AND sd.archived = 0
     LEFT JOIN printings p ON p.scryfall_id = i.scryfall_id
     LEFT JOIN cards c ON c.oracle_id = p.oracle_id
     LEFT JOIN price_latest ps ON ps.scryfall_id = i.scryfall_id";
@@ -901,6 +909,9 @@ pub(crate) struct Container {
     kind: String,
     name: String,
     copies: i64,
+    /// The live deck whose swappable spares it holds (`decks::spares`): its id and name.
+    spares_of_deck_id: Option<String>,
+    spares_of_deck: Option<String>,
     /// Market value of the copies that have a price; the rest are counted in `copies_without_price`.
     #[sqlx(skip)]
     market_value_usd: f64,
@@ -920,8 +931,9 @@ async fn list_containers(State(st): State<AppState>, CurrentUser(user): CurrentU
 /// The owner's binders, deck boxes and lists with copies and market value, shared with the MCP.
 pub(crate) async fn containers_for(pool: &SqlitePool, owner: &str) -> AppResult<Vec<Container>> {
     let mut containers: Vec<Container> = sqlx::query_as(
-        "SELECT ct.id, ct.kind, ct.name, IFNULL(SUM(i.qty), 0) AS copies FROM containers ct
+        "SELECT ct.id, ct.kind, ct.name, IFNULL(SUM(i.qty), 0) AS copies, sd.id AS spares_of_deck_id, sd.name AS spares_of_deck FROM containers ct
          LEFT JOIN collection_items i ON i.container_id = ct.id
+         LEFT JOIN decks sd ON sd.spares_container_id = ct.id AND sd.owner_id = ct.owner_id AND sd.archived = 0
          WHERE ct.owner_id = ? GROUP BY ct.id ORDER BY ct.kind, ct.name",
     )
     .bind(owner)
@@ -1139,6 +1151,8 @@ async fn delete_container_for_owner(pool: &SqlitePool, owner: &str, id: &str) ->
         apply_op(&mut tx, owner, &op).await?;
     }
     sqlx::query("UPDATE decks SET container_id = NULL WHERE container_id = ? AND owner_id = ?")
+        .bind(id).bind(owner).execute(&mut *tx).await?;
+    sqlx::query("UPDATE decks SET spares_container_id = NULL WHERE spares_container_id = ? AND owner_id = ?")
         .bind(id).bind(owner).execute(&mut *tx).await?;
     sqlx::query("DELETE FROM containers WHERE id = ? AND owner_id = ?").bind(id).bind(owner).execute(&mut *tx).await?;
     tx.commit().await?;

@@ -544,6 +544,7 @@ async fn deleting_an_account_leaves_nothing_of_it() {
     fill(&pool, "content_reports", &[("kind", t("deck")), ("owner_id", t(&b)), ("deck_id", t(&b_deck)), ("resolved_by", t(&v))]).await;
     fill(&pool, "deck_takedowns", &[("deck_id", t(&b_deck)), ("owner_id", t(&b)), ("admin_id", t(&v))]).await;
     let container = fill(&pool, "containers", &[("owner_id", t(&v))]).await;
+    fill(&pool, "deck_spare_swaps", &[("owner_id", t(&v)), ("deck_id", t(&v_deck))]).await;
     fill(&pool, "collection_items", &[("owner_id", t(&v)), ("container_id", t(&container))]).await;
     fill(&pool, "applied_ops", &[("owner_id", t(&v))]).await;
     fill(&pool, "item_aliases", &[("owner_id", t(&v))]).await;
