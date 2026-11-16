@@ -8,7 +8,7 @@
 //!   embedded once per bundle version and kept in `scan_arts`.
 //! - **How:** Scryfall's `art_crop` JPEG, resized straight to 128 × 128 with OpenCV's `INTER_AREA`
 //!   rule, /255 and ImageNet-normalised, through the embedding half of the bundle's own
-//!   `embed.onnx` (from its normalised input `/Div_5_output_0` to `embeddings`), run by tract. That
+//!   `embed.onnx` (from its normalised input, node `/Div_5`, to `embeddings`), run by tract. That
 //!   is exactly how ManaVault builds a gallery row (oracle `degrade.clean_view`, `data.to_tensor`,
 //!   `index.ArtIndex`), so the vectors score like the bundle's own. Each run first re-embeds three
 //!   artworks the bundle has and stops if they don't match their gallery rows.
@@ -37,9 +37,10 @@ use tokio::sync::{Mutex, Notify};
 
 /// Side of the embedder's square input.
 pub const INPUT: usize = 128;
-/// The embedder's input inside `embed.onnx`: the ImageNet-normalised N × 3 × 128 × 128 crops,
-/// after the graph's own warp and cuts.
-const EMBED_INPUT: &str = "/Div_5_output_0";
+/// The embedder's input inside `embed.onnx`: the node (`/Div_5`, whose output is
+/// `/Div_5_output_0`) that yields the ImageNet-normalised N × 3 × 128 × 128 crops, after the
+/// graph's own warp and cuts. tract names a wire by the node that makes it.
+const EMBED_INPUT: &str = "/Div_5";
 const MEAN: [f32; 3] = [0.485, 0.456, 0.406];
 const STD: [f32; 3] = [0.229, 0.224, 0.225];
 /// Pointer to the current supplement file, inside the bundle folder.
@@ -196,6 +197,13 @@ impl Embedder {
         use tract_onnx::prelude::*;
         let mut model = tract_onnx::onnx().model_for_path(embed_onnx).with_context(|| format!("reading {}", embed_onnx.display()))?;
         model.set_input_names([EMBED_INPUT]).context("the embedding graph has no normalised input where expected")?;
+        // The export recorded every wire's shape for its batch of 17 frame cuts; forget them so
+        // tract infers them again for one art crop at a time.
+        for node in 0..model.nodes.len() {
+            for slot in 0..model.nodes[node].outputs.len() {
+                model.set_outlet_fact(OutletId::new(node, slot), InferenceFact::default())?;
+            }
+        }
         model.set_input_fact(0, f32::fact([1, 3, INPUT, INPUT]).into())?;
         let plan = model.into_optimized().context("preparing the embedding graph")?.into_runnable()?;
         Ok(Self { plan })

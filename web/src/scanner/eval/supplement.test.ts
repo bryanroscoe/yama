@@ -174,8 +174,8 @@ describe.skipIf(!process.env.SCANNER_SUPPLEMENT_EVAL)("artwork supplement (held 
       `Supplement: ${file.rows.length} rows for bundle ${version}; ${compared} of them are artworks the bundle has.`,
       `Cosine with the bundle's own row: min ${sorted[0]!.toFixed(4)}, 1st percentile ${q(0.01).toFixed(4)}, median ${q(0.5).toFixed(4)}. Same frame as the bundle: ${frameAgree} of ${compared}.`,
       "",
-      "| Setup | Cards | Scans | Card found | Right card | Wrong, score ≥ 0.62 | Wrong, score ≥ 0.8 | Right scores (min / median) | Median ms |",
-      "|---|---|---|---|---|---|---|---|---|",
+      "| Setup | Bundle rows hidden | Cards | Scans | Card found | Right card | Right, through the supplement | Wrong, score ≥ 0.62 | Wrong, score ≥ 0.8 | Right scores (min / median) | Median ms |",
+      "|---|---|---|---|---|---|---|---|---|---|---|",
     ];
     const misses: string[] = [];
     for (const cfg of configs) {
@@ -183,7 +183,7 @@ describe.skipIf(!process.env.SCANNER_SUPPLEMENT_EVAL)("artwork supplement (held 
       const supplement = cfg.supplement ? parseSupplement(cfg.supplement, version) : null;
       const recognizer = await createRecognizer(ort, graphs, manifest.constants, arts, supplement, { hidden: cfg.hidden });
       const loadMs = performance.now() - t0;
-      const rows: { group: string; found: boolean; ok: boolean; score: number; ms: number }[] = [];
+      const rows: { group: string; found: boolean; ok: boolean; extra: boolean; score: number; ms: number }[] = [];
       let seed = 7000;
       for (const c of cards) {
         const card = decode(new Uint8Array(readFileSync(join(dir, `${c.set}-${c.number}.jpg`))));
@@ -195,7 +195,7 @@ describe.skipIf(!process.env.SCANNER_SUPPLEMENT_EVAL)("artwork supplement (held 
           const r = await recognizer.identify(shrink(scene.frame, k));
           const top = r.matches[0];
           const ok = !!top && want.has(normaliseName(top.name));
-          rows.push({ group: c.group, found: !!r.quad, ok, score: top?.score ?? 0, ms: r.timings.totalMs });
+          rows.push({ group: c.group, found: !!r.quad, ok, extra: !!top && top.index >= arts.length, score: top?.score ?? 0, ms: r.timings.totalMs });
           if (!ok && cfg.supplement) misses.push(`${cfg.name.split(",")[0]}: ${c.set}-${c.number} [${v}] -> ${top ? `${top.name} (${top.set}) ${top.score.toFixed(3)}` : "no card"}`);
         }
       }
@@ -205,7 +205,7 @@ describe.skipIf(!process.env.SCANNER_SUPPLEMENT_EVAL)("artwork supplement (held 
         const rs = rows.filter((r) => r.group === group);
         const right = rs.filter((r) => r.ok).map((r) => r.score);
         lines.push(
-          `| ${cfg.name} | ${group === "trek" ? "21 Star Trek" : "26 eval cards"} | ${rs.length} | ${pct(rs.filter((r) => r.found).length, rs.length)} | ${pct(right.length, rs.length)} | ${rs.filter((r) => !r.ok && r.found && r.score >= 0.62).length} | ${rs.filter((r) => !r.ok && r.found && r.score >= 0.8).length} | ${right.length ? `${Math.min(...right).toFixed(2)} / ${med(right).toFixed(2)}` : "n/a"} | ${med(rs.map((r) => r.ms)).toFixed(0)} |`,
+          `| ${cfg.name} | ${cfg.hidden.length} | ${group === "trek" ? "21 Star Trek" : "26 eval cards"} | ${rs.length} | ${pct(rs.filter((r) => r.found).length, rs.length)} | ${pct(right.length, rs.length)} | ${rs.filter((r) => r.ok && r.extra).length} | ${rs.filter((r) => !r.ok && r.found && r.score >= 0.62).length} | ${rs.filter((r) => !r.ok && r.found && r.score >= 0.8).length} | ${right.length ? `${Math.min(...right).toFixed(2)} / ${med(right).toFixed(2)}` : "n/a"} | ${med(rs.map((r) => r.ms)).toFixed(0)} |`,
         );
       }
       console.log(`${cfg.name}: loaded in ${loadMs.toFixed(0)} ms, ${cfg.hidden.length} bundle rows hidden`);

@@ -1,6 +1,6 @@
 # Card scanner
 
-Status (2026-11-15): the art bundle is `gallery-20261106T183001884398Z`, which knows Star Trek and Star Trek Commander; see "Bundle gallery-20261106 (2026-11-15)".
+Status (2026-11-15): cards newer than the art bundle are recognised by their art too: the server embeds their artworks with the bundle's own model after each card import, and the scanner searches them alongside (see "Extending the gallery: Yama's art supplement"). The art bundle is `gallery-20261106T183001884398Z`, which knows Star Trek and Star Trek Commander; see "Bundle gallery-20261106 (2026-11-15)".
 
 Status (2026-11-13): inside the Android app the scanner reads text with **ML Kit** (`mlkit.ts`, `TextReaderPlugin.java`; picked by `ocrEngine.ts`); in browsers it reads with PaddleOCR's PP-OCRv5 models (ONNX Runtime, in a worker), with Tesseract as the fallback (see "Browser OCR: PP-OCRv5"). On the Android 16 emulator ML Kit read the collector line of five Scryfall scans (MOM 214, WOC 145, ECC 57, DMU 107, CMM 1) and each parsed to the right set and number, in 7 to 66 ms per read [ran]; a phone check with real cards is still to do ("Left for a real phone test", item 5). ML Kit reads lower case as printed, so for the capitals-only collector whitelist its text is raised to capitals before filtering. See docs/mobile.md.
 
@@ -259,6 +259,47 @@ Read from the pinned bundle's graphs [ran: protobuf dump of both bundles' `.onnx
 - **Close-ups are a switch (Bryan, 2026-10-31):** "Close-ups" under the camera, on by default, remembered per device (`yama.scan.closeups`, shared by the collection and deck scans; `ScannerView`'s `closeups` prop). Bryan likes the two-step scan for handheld use, but a camera that stays put (a stand, or a feeder that drops cards under it) can't be moved to the corner. With it off, the scanner is one-step again: it reads the collector line from the whole-card view (since 2026-11-15, frame after frame while the card is held; "Hold and read" above), and if that doesn't settle the printing, it asks for a tap in the picker; an unknown card's name keeps being read from the whole card. Neither close-up starts by itself, but the "up close" buttons still start one. Turning it off ends a close-up in progress; the switch stays shown during both close-ups. Keep adding behaves the same either way: only a printing the scanner proved is added without a tap. A native app would do this differently.
 - **Camera resolution:** the scanner asks for 3840 × 2160 (browsers give the nearest they have) and continuous focus where the browser exposes it. The resolution actually delivered is shown under "What the scanner saw". Frames are scaled to 640 px for recognition; only text crops use the full resolution.
 
+### Extending the gallery: Yama's art supplement (2026-11-15)
+
+Bryan (15 Nov 2026): none of the Star Trek cards scanned by art, because the pinned bundle predated them. The 6 November bundle fixed Star Trek (above); this keeps the next set from waiting for ManaVault. The server embeds the artworks the bundle lacks itself and the scanner searches them next to the bundle's (`server/src/scan_art.rs`; ARCHITECTURE.md, "The scanner's own art supplement").
+
+```
+card import (scheduler or import-cards) ─▶ scan_art: English paper illustrations in printings, not in arts.json
+   ─▶ Scryfall art_crop JPEG (100 ms apart; the stored WebP crop if the JPEG is gone)
+   ─▶ INTER_AREA to 128 × 128, /255, ImageNet-normalised ─▶ embed.onnx from node /Div_5 to embeddings (tract)
+   ─▶ scan_arts (one 128-float vector per illustration and bundle version; no image kept)
+   ─▶ data/scan-bundle/<version>/supplement-<hash>.json(.gz), named by GET /api/scan/bundle (files.supplement)
+art worker: search graph's top 5 ─┬─▶ merged by score ─▶ matches
+supplement rows, scored in JS ────┘   (set lock pool: both, indices from N up)
+```
+
+- **Which artworks:** English, non-digital printings with an illustration ID and an art crop, in the layouts the bundle embeds (normal, saga, class, case, token, emblem, adventure, prepare, mutate, prototype, leveler, meld, and each face of transform, modal and reversible cards and double-faced tokens). Not split, flip or Room halves (the bundle cuts those from the whole card), battles, art series, or inserts typed just `Card`. One printing per illustration, the newest. A back face is `<id>-1`, as in the bundle.
+- **The same numbers as the bundle's.** A gallery row in ManaVault is the art crop resized straight to 128 × 128 with OpenCV's `INTER_AREA`, ImageNet-normalised, through the recogniser (oracle `degrade.clean_view`, `index.ArtIndex`). `embed.onnx` contains that recogniser after its warp and cuts, so the job runs the graph from the node that makes the normalised crops (`/Div_5`) to `embeddings`, with the stored wire shapes cleared (the export recorded a batch of 17 cuts). `resize_area` is OpenCV's area rule (`computeResizeAreaTab`). Every run first re-embeds three artworks the bundle has and stops, serving nothing new, unless each comes out at cosine 0.97 or more with its gallery row: a later bundle with a retrained model can't silently make vectors that don't compare.
+- **Frame and penalty:** the frame from the crop's aspect and the card's layout (oracle `detect.frame_of`), indexed in the manifest's `frame_names`; the manifest's 0.02 penalty for rare frames. No hub penalty: it needs ManaVault's 3,000 background card scans, and in the bundle half the rows pay none and the median modern row about 0.003.
+- **The file:** `{bundle, dim, columns, rows, frames, penalties, vectors}`, rows in the slim `arts.slim.json` shape (`parseArts` reads them), vectors float16 like the bundle's, base64. Its name is a hash of its contents, so it is served immutable; `supplement.current` points at the newest, and the one before it stays for a phone that asked a moment ago. About 470 bytes per artwork (825 artworks: 390 KB, 262 KB gzipped).
+- **In the worker:** `parseSupplement` checks it is for the loaded bundle; `galleryOf` scores its rows with the formula `readGallery` uses for the graph's own (dot product with the embedding for the row's frame, less its penalty), and `createRecognizer` merges them into the top 5 by score, numbered after the bundle's rows, so the set lock's `poolIndices` (over the bundle's arts, then the supplement's) and `/api/scan/printings?art=` work unchanged. A supplement that fails to download or parse is skipped with a warning; the bundle alone still works. Other supplements are dropped from the Cache API.
+- **When:** at start, after each `default_cards` import (`scan_art::nudge`), every six hours, and after `import-cards`; `yama-server scan-arts [--sets trk,trc] [--limit N]` runs it by hand, and `--include-known --out DIR` writes one that includes artworks the bundle has (for evals; nothing served changes). At most 3,000 new artworks a run. A failure is retried after a day, five times at most. Rows of other bundle versions are deleted when the pin moves.
+- **Scryfall's terms:** one request at a time, 100 ms apart, with Yama's User-Agent; images are decoded in memory and dropped. Only vectors are stored or served.
+- **Switch:** `YAMA_SCAN_SUPPLEMENT=0` stops the job and leaves the supplement out of `/api/scan/bundle`.
+
+**Measured [ran, 2026-11-15, M3 Pro]** on the 6 Nov bundle, which already knows Star Trek, so it could be held out: a database of all 1,158 TRK and TRC printings plus the 26 eval cards (from Scryfall's API), `yama-server scan-arts --include-known` (debug build) embedded their 825 artworks in 3 minutes, none failed (about 0.2 s each, most of it the 100 ms pause and the download). Then `eval/supplement.test.ts` hid those artworks' rows from the bundle (the search graph's mask, `createRecognizer`'s `hidden`) so they could only be found through the supplement, on the recognizer eval's simulated captures (six free-hand variants plus "steady" and "far" with the guide):
+
+| Setup | Bundle rows hidden | Cards | Scans | Card found | Right card | Right, through the supplement | Wrong, score ≥ 0.62 | Wrong, score ≥ 0.8 | Right scores (min / median) | Median ms |
+|---|---|---|---|---|---|---|---|---|---|---|
+| bundle alone (baseline) | 0 | 21 Star Trek | 168 | 100% | 100% | 0 | 0 | 0 | 0.87 / 0.98 | 161 |
+| bundle alone (baseline) | 0 | 26 eval cards | 208 | 99.0% | 95.2% | 0 | 0 | 0 | 0.88 / 0.97 | 160 |
+| Star Trek hidden from the bundle | 797 | 21 Star Trek | 168 | 100% | 100% | 168 | 0 | 0 | 0.87 / 0.98 | 161 |
+| Star Trek hidden from the bundle | 797 | 26 eval cards | 208 | 99.0% | 95.2% | 0 | 0 | 0 | 0.88 / 0.97 | 161 |
+| Star Trek and the eval cards hidden | 825 | 21 Star Trek | 168 | 100% | 100% | 168 | 0 | 0 | 0.87 / 0.98 | 160 |
+| Star Trek and the eval cards hidden | 825 | 26 eval cards | 208 | 99.0% | 95.2% | 198 | 0 | 0 | 0.87 / 0.98 | 160 |
+
+The 21 Star Trek cards are ones Bryan owns (the coordinator's list from `t3/trk-text-first`). With their artworks hidden, every right answer came from a supplement row, at the same scores as the bundle's own rows: the supplement does what the bundle does for these cards, with no confident wrong answer. That is why `YAMA_SCAN_SUPPLEMENT` is on by default.
+
+- **Same vectors.** Median cosine between a re-embedded artwork and the bundle's own row 1.0000; the parity check's three came out at 0.99986 or more. 807 of 825 were at 0.97 or more (803 at 0.99 or more). The other 18 are the same illustration from a different crop, not a different model: where one illustration has several printings (borderless and showcase variants), we embed the newest and ManaVault picked another, whose art crop is cut differently (Hallowed Fountain 392 against 487: 0.74); and two Star Trek sagas (Amok Time, The City on the Edge of Forever: 0.24 and 0.20) whose Scryfall art crop is now a 626 × 457 landscape crop, framed `modern`, where the bundle embedded an earlier half-width one (`right`). Frames agreed for 821 of 825. Recognition didn't suffer from either.
+- **No harm to what the bundle knows.** Star Trek hidden, the eval cards not: the eval cards scored exactly as in the baseline, so the supplement's 797 Star Trek rows took no matches from the bundle's own.
+- **The same misses** as the bundle alone: the battle (Invasion of Tolvada, not in either; it reads its name) and two "no card" frames on the full-art Forest. The battle's best wrong match was a supplement row (Pattern Buffer Preservation, 0.58), below the 0.62 two-frame lock.
+- Not measured: real phone captures of a set newer than the bundle (none has reached Scryfall since 6 November), and the job against production's database (it runs on the first start after the deploy: with the 6 Nov bundle, only artworks printed since).
+
 ### Measured [ran]
 
 Node 26, onnxruntime-web 1.31.1 WASM on one thread, M3 Pro. The 26 eval cards rendered into 1080 × 1440 phone frames with **no guide to line up with**, scaled to a 640 px short side as the app does (`eval/recognizer.test.ts`):
@@ -411,6 +452,7 @@ Files, all under `web/src/scanner/`:
 | `paddle.test.ts` | unit tests for its pure parts (detector boxes, line splitting, CTC decoding, fallback) |
 | `tesseract.ts` | `OcrEngine` on tesseract.js (two workers), the fallback |
 | `recognizer.ts` | the art recognizer: detector, embed and search graphs (ONNX Runtime passed in) |
+| `gallery.ts` | the search graph's gallery read into JavaScript, and the server's art supplement scored the same way |
 | `art.worker.ts`, `artClient.ts` | the recognizer in a web worker; bundle download and Cache API |
 | `printings.ts` | `printingOptions` (`/api/scan/printings`) and `choosePrinting` |
 | `printings.test.ts` | unit tests for the printing choice and the recognizer's pure parts |
