@@ -1418,7 +1418,7 @@ pub(super) const TOOLS: &[Tool] = &[
         name: "list_scan_diagnostics",
         aliases: &[],
         title: "Your scanner diagnostics",
-        description: "List the scanner diagnostics this account kept (Scan settings, \"Scanner diagnostics\", per device, off by default, owner-only): one record per card the scanner struggled with (the printing list used, Wrong card, Wrong printing, a read that gave up, the close-up taking over, a title overruling the art), newest first, with how it ended (filed, picked, wrong, skipped, left), why it was kept, what was chosen, the text reader and its images' names. Read one with get_scan_diagnostic.",
+        description: "The scanner diagnostics this account kept (Scan settings, off by default): one per card the scanner struggled with, newest first, with how it ended, why it was kept and its images. Read one with get_scan_diagnostic.",
         schema: || json!({"type": "object", "properties": {
             "limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Records per page, default 20."},
             "cursor": {"type": "string", "maxLength": 200, "description": "next_cursor from the answer before."}}, "additionalProperties": false}),
@@ -1436,7 +1436,7 @@ pub(super) const TOOLS: &[Tool] = &[
         name: "get_scan_diagnostic",
         aliases: &[],
         title: "One scanner diagnostic, or one of its images",
-        description: "Read one scanner diagnostic by id: the camera (name, delivered width and height, zoom, torch, focus, capabilities), the text reader, every frame's reads per crop with the evidence after it, the art's top matches and scores, the title reads, the card's height in pixels, strip sharpness and glare, the candidate printings, and how it ended. Its images: \"strip\" (the card's bottom edge, both collector corners, at the camera's full resolution, warped upright) and \"card\" (640 px). With image set to one of those names, the answer is that JPEG as an image; with encoding \"base64\", as base64 text instead.",
+        description: "One scanner diagnostic by id: the camera, every frame's reads with the evidence, the art and title reads, and how it ended. With image (a name it lists, such as \"strip\" or \"card\"), that JPEG as an image, or as base64 text with encoding \"base64\".",
         schema: || json!({"type": "object", "properties": {
             "id": {"type": "string", "description": "The diagnostic id from list_scan_diagnostics."},
             "image": {"type": "string", "description": "Optional: one image name from the record, to see that image."},
