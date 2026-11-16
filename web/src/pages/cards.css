@@ -357,6 +357,11 @@
 .cp-figure .card-fallback {
   box-shadow: 0 24px 50px rgb(0 0 0 / 0.6);
 }
+/* The card opens full size; its button fills the column, as the image did before. */
+.cp-figure .card-zoom-open {
+  width: 100%;
+  align-self: stretch;
+}
 .cp-figure figcaption {
   font-size: var(--t-xs);
   color: var(--dim);
@@ -610,6 +615,15 @@
   font-size: var(--t-sm);
   color: var(--dim);
 }
+.cp-row-status {
+  display: block;
+  margin-top: 4px;
+  font-size: var(--t-sm);
+  color: var(--good);
+}
+.cp-table .error {
+  margin: 4px 0 0;
+}
 .cp-set-sub .good {
   color: var(--good);
 }
@@ -676,7 +690,7 @@
     font-size: var(--t-12);
     text-align: left;
   }
-  .cp-figure > button {
+  .cp .cp-figure .cp-flip {
     align-self: start;
   }
   .cp-main {
@@ -786,7 +800,7 @@
     padding: 6px 6px 6px 0;
   }
   .cp-add-row {
-    flex-wrap: nowrap;
+    justify-content: flex-end;
   }
   .cp-table .cp-foil {
     display: table-cell;

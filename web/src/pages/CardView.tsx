@@ -99,8 +99,9 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
   const detail = useQuery({ ...cardDetailQuery(oracleId), enabled: !guest });
   const card = detail.data?.card ?? (guest ? hit : undefined);
   const [flipped, setFlipped] = useState(false);
-  // What the last add did, and where it was tapped, so the line shows beside that button.
-  const [added, setAdded] = useState<{ text: string; where: "top" | "printings" } | null>(null);
+  // What the last add did, and which printing's row it was tapped in (none: the buttons at the
+  // top), so the line shows beside that button.
+  const [added, setAdded] = useState<{ text: string; row?: string } | null>(null);
   const [allPrintings, setAllPrintings] = useState(false);
   const [chart, setChart] = useState<{ id: string; finish: Finish; set: string } | null>(null);
   const qc = useQueryClient();
@@ -116,11 +117,12 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
   const [ids] = useState(() => opIds());
   const addKey = (v: { p: Printing; finish: string; proxy?: boolean }) => `${v.p.scryfall_id}:${v.finish}:${v.proxy ? "proxy" : "real"}`;
   const add = useMutation({
-    mutationFn: (v: { p: Printing; finish: string; proxy?: boolean; where?: "top" | "printings" }) =>
+    mutationFn: (v: { p: Printing; finish: string; proxy?: boolean; row?: string }) =>
       api("/api/collection/ops", {
         method: "POST",
         json: [{ op_id: ids.idFor(addKey(v)), kind: "add", scryfall_id: v.p.scryfall_id, qty: 1, finish: v.finish, proxy: !!v.proxy }],
       }),
+    onMutate: () => setAdded(null),
     onSuccess: (_, v) => {
       ids.saved(addKey(v));
       const kind = v.finish === "foil" ? (foilKind(v.p)?.toLowerCase() ?? "foil") : v.finish;
@@ -128,7 +130,7 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
         text: v.proxy
           ? `Added a proxy of ${card!.name} (${v.p.set_name} #${v.p.collector_number} art) to your collection.`
           : `Added ${v.finish === "nonfoil" ? "a" : `${article(kind)} ${kind}`} ${v.p.set_name} #${v.p.collector_number} copy to your collection.`,
-        where: v.where ?? "top",
+        row: v.row,
       });
       void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("collection") || q.queryKey[0] === "search" });
     },
@@ -196,7 +198,7 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
               {card.artist ? `Art by ${card.artist}. ` : ""}™ &amp; © Wizards of the Coast. Image from Scryfall.
             </figcaption>
             {card.back_image_normal && (
-              <Button variant="quiet" size="small" onClick={() => setFlipped((f) => !f)}>Show the other face</Button>
+              <Button variant="quiet" size="small" className="cp-flip" onClick={() => setFlipped((f) => !f)}>Show the other face</Button>
             )}
           </figure>
 
@@ -266,8 +268,8 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
                 </Button>
               </div>
             )}
-            {added?.where === "top" && <p className="small" role="status" style={{ margin: 0 }}>{added.text}</p>}
-            {add.variables?.where !== "printings" && <ErrorText error={add.error} />}
+            {added && !added.row && <p className="small" role="status" style={{ margin: 0 }}>{added.text}</p>}
+            {!add.variables?.row && <ErrorText error={add.error} />}
 
             {!guest && <CardInDecks oracleId={oracleId} />}
 
@@ -302,7 +304,7 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
                           {/* Each printing's own picture; tapping it shows the card full size. */}
                           <td className="cp-pic">
                             {p.image_small || p.image_normal ? (
-                              <ZoomableCard src={p.image_small ?? p.image_normal} zoomSrc={p.image_normal} name={label} className="cp-pic-img" />
+                              <ZoomableCard src={p.image_small || p.image_normal} zoomSrc={p.image_normal} name={label} className="cp-pic-img" />
                             ) : (
                               <span className="cp-pic-none">No picture</span>
                             )}
@@ -320,6 +322,9 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
                               {yours != null && <span className="good">, yours ({yours})</span>}
                               {hasFoil && p.finishes.includes("nonfoil") ? `. Foil market ${usd(foil)}` : ""}
                             </span>
+                            {/* An add from this row says what it did here, not off-screen at the top. */}
+                            {added?.row === p.scryfall_id && <span className="cp-row-status" role="status">{added.text}</span>}
+                            {add.variables?.row === p.scryfall_id && <ErrorText error={add.error} small />}
                           </td>
                           <td className={`r num cp-normal${p.finishes.includes("nonfoil") && p.usd == null ? " dim" : ""}`}>
                             {p.finishes.includes("nonfoil") ? usd(p.usd) : <span className="cp-only-foil">{usd(foil)}</span>}
@@ -331,12 +336,12 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
                                 {p.finishes.map((f) => {
                                   const word = finishWord(p, f);
                                   return (
-                                    <Button key={f} size="small" disabled={add.isPending} onClick={() => add.mutate({ p, finish: f, where: "printings" })} aria-label={`Add ${article(word)} ${word.toLowerCase()} ${p.set_name} #${p.collector_number} copy to your collection`}>
+                                    <Button key={f} size="small" disabled={add.isPending} onClick={() => add.mutate({ p, finish: f, row: p.scryfall_id })} aria-label={`Add ${article(word)} ${word.toLowerCase()} ${p.set_name} #${p.collector_number} copy to your collection`}>
                                       {word}
                                     </Button>
                                   );
                                 })}
-                                <Button size="small" variant="outline" disabled={add.isPending} onClick={() => add.mutate({ p, finish: "nonfoil", proxy: true, where: "printings" })} aria-label={`Add a proxy with the ${p.set_name} #${p.collector_number} art to your collection`}>
+                                <Button size="small" variant="outline" disabled={add.isPending} onClick={() => add.mutate({ p, finish: "nonfoil", proxy: true, row: p.scryfall_id })} aria-label={`Add a proxy with the ${p.set_name} #${p.collector_number} art to your collection`}>
                                   Proxy
                                 </Button>
                               </span>
@@ -350,8 +355,6 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
                 {printings.length > 12 && !allPrintings && (
                   <ShowMore total={printings.length} noun="printings" onToggle={() => setAllPrintings(true)} />
                 )}
-                {added?.where === "printings" && <p className="small" role="status" style={{ margin: 0 }}>{added.text}</p>}
-                {add.variables?.where === "printings" && <ErrorText error={add.error} />}
                 <p className="cp-note">
                   Tap a picture to see it full size, or a set for its price history.{readOnly ? "" : " Regular, Foil and Etched add a copy of that printing to your collection; Proxy adds a proxy with its art."} Prices are {priceSource(priceDate)}. Market prices aren't a quote from any store. A missing price says so.
                 </p>
