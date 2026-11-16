@@ -8,7 +8,6 @@
 // gathering; it slots in here as another tag when it lands.
 
 import { useEffect, useState } from "react";
-import { count } from "@yama/core";
 import { offlineCard } from "../offline/cards";
 
 export interface Playability {
@@ -43,12 +42,9 @@ export const PLAY_WORD: Record<PlayTag, string> = { "game-changer": "Game Change
 /** The sentence under the card: where the tag comes from, in words. Null with nothing to say. */
 export function playLine(p: Playability | null | undefined): string | null {
   if (!p) return null;
-  const rank = p.rank == null ? null : `EDHREC rank ${count(p.rank)} by how many Commander decks run it`;
-  const gc = p.gameChanger ? "On the Game Changer list" : null;
-  if (gc && rank) return `${gc}. ${rank}.`;
-  if (gc) return `${gc}.`;
-  if (rank) return `${rank}${p.rank! > PLAYED_RANK ? ", so it's rarely played" : ""}.`;
-  return null;
+  const gc = p.gameChanger ? "On the Game Changer list." : null;
+  const rank = p.rank == null ? null : p.rank > PLAYED_RANK ? "Rarely in Commander decks." : "Ranked by how many Commander decks run it.";
+  return [gc, rank].filter(Boolean).join(" ") || null;
 }
 
 const known = new Map<string, Promise<Playability | null>>();

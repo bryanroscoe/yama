@@ -4,7 +4,7 @@
 // 2026: "Being able to tap them to see them bigger, to make sure you get the right printing").
 
 import { useState } from "react";
-import { copyWords, finishesOf, finishName, pickFinish, shortDate, treatmentLabel, usd } from "@yama/core";
+import { copyWords, count, finishesOf, finishName, pickFinish, shortDate, treatmentLabel, usd } from "@yama/core";
 import type { Printing } from "../api";
 import { playLine, PLAY_WORD, playTag, usePlayability } from "./playable";
 import { priceFor, pricesOf } from "./price";
@@ -238,12 +238,21 @@ export function ScannedCard({ a, onFix, onRetry, onClose }: { a: Added; onFix: A
           )}
           {others.length > 0 && (
             <p className="scan-note">
-              {others.map((x) => `${finishName(x)} ${usd(priceFor(a.prices, x))}`).join(", ")}
+              {others
+                .map((x) => {
+                  const v = priceFor(a.prices, x);
+                  return v == null ? `${finishName(x)}: no price` : `${finishName(x)} ${usd(v)}`;
+                })
+                .join(", ")}
             </p>
           )}
-          {tag && <span className={`scan-play-tag is-${tag}`}>{PLAY_WORD[tag]}</span>}
+          {(tag || play?.rank != null) && (
+            <p className="scan-big-play">
+              {tag && <span className={`scan-play-tag is-${tag}`}>{PLAY_WORD[tag]}</span>}
+              {play?.rank != null && <span className="dim"> EDHREC #{count(play.rank)}</span>}
+            </p>
+          )}
           {line && <p className="scan-note">{line}</p>}
-          {a.auto && <p className="scan-note">Added by Keep adding.</p>}
         </div>
       </div>
       <EntryState a={a} f={f} />
@@ -263,7 +272,7 @@ export function ScannedCard({ a, onFix, onRetry, onClose }: { a: Added; onFix: A
         <Button disabled={f.busy} onClick={() => void f.openPrintings()}>
           {f.printings ? "Keep this printing" : "Wrong printing?"}
         </Button>
-        <Button variant="quiet" danger disabled={f.busy} onClick={() => void f.run(removeFix(a))}>
+        <Button variant="outline" danger disabled={f.busy} onClick={() => void f.run(removeFix(a))}>
           Remove
         </Button>
       </ActionBar>

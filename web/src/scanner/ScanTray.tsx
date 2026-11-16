@@ -47,18 +47,25 @@ export function ScanTray({ cards, worth, onOpen, onReview }: { cards: readonly R
   if (cards.length === 0) return null;
   const failed = cards.filter((c) => c.state === "failed").length;
   const total = trayTotal(cards);
+  const last = cards[0]!;
   return (
     <section className="scan-tray" aria-label="Scanned this session">
       <div className="scan-tray-head">
-        <span className="scan-tray-total">
-          <strong>{total.head}</strong>
+        {/* The card just added, named: a 72 px picture alone doesn't say it was the right one. */}
+        <p className="scan-tray-last">
+          <strong>{last.name}</strong>
+          {last.set && <span className="scan-tray-note"> {last.set.toUpperCase()}{last.number ? ` #${last.number}` : ""}</span>}
+        </p>
+        <p className="scan-tray-total">
+          {total.head}
           {total.note && <span className="scan-tray-note"> {total.note}</span>}
-        </span>
-        {failed > 0 && <span className="scan-tray-failed">{failed} not saved</span>}
-        {onReview && (
-          <Button className="scan-tray-review" size="small" variant="quiet" onClick={onReview}>
-            Review all
+        </p>
+        {onReview ? (
+          <Button className={`scan-tray-review${failed ? " is-failed" : ""}`} size="small" variant="outline" onClick={onReview}>
+            {failed ? `${failed} not saved` : "Review all"}
           </Button>
+        ) : (
+          failed > 0 && <span className="scan-tray-failed">{failed} not saved</span>
         )}
       </div>
       <ol className="scan-tray-list">
@@ -73,10 +80,12 @@ export function ScanTray({ cards, worth, onOpen, onReview }: { cards: readonly R
                 <CardThumb src={c.image} eager={i < 6} fallback={<span className="scan-tile-fallback">{c.name}</span>} />
                 {c.copies > 1 && <span className="scan-tile-copies">×{c.copies}</span>}
                 {c.finish !== "nonfoil" && <span className={`scan-tile-finish is-${c.finish}`}>{FINISH_SHORT[c.finish]}</span>}
-                {c.state === "failed" && <span className="scan-tile-alert">Not saved</span>}
-                {word && <span className={`scan-tile-tag is-${tag}`}>{tag === "game-changer" ? "GC" : word}</span>}
+                {word && c.state !== "failed" && <span className={`scan-tile-tag is-${tag}`}>{tag === "game-changer" ? "GC" : word}</span>}
               </span>
-              <span className="scan-tile-price">{c.finish === "proxy" ? "Proxy" : price == null ? "No price" : usd(price)}</span>
+              {/* A failed save says so where the price goes: the red ring alone is easy to miss. */}
+              <span className={`scan-tile-price${c.state === "failed" ? " is-failed" : price == null ? " is-none" : ""}`}>
+                {c.state === "failed" ? "Unsaved" : c.finish === "proxy" ? "Proxy" : price == null ? "No price" : usd(price)}
+              </span>
             </>
           );
           return (

@@ -46,7 +46,7 @@ describe("a scanned card, large (Bryan, 16 Nov 2026)", () => {
     expect(host.querySelector(".scan-big-price")?.textContent).toBe("$1.10 market each, Nov 14");
     expect(host.textContent).toContain("Foil $3.20");
     expect(host.querySelector(".scan-play-tag")?.textContent).toBe("Played");
-    expect(host.textContent).toContain("EDHREC rank 2,400 by how many Commander decks run it.");
+    expect(host.querySelector(".scan-big-play")?.textContent).toBe("Played EDHREC #2,400");
   });
 
   it("changes the finish of the copies added here with one tap", async () => {

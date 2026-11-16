@@ -1806,7 +1806,8 @@ export function ScannerView({
     again(f);
     // While the camera still holds this card it isn't found again; "Scan anyway" files another.
     if (!single) setDupe({ found: f, printing: c, label, settings: fileSettings });
-    const failed = () => setJustAdded({ text: `Couldn't save ${label}. Tap ${addedWord} to try again` });
+    // With the strip, the card's tile opens it with Try again; otherwise the Added chip does.
+    const failed = () => setJustAdded({ text: `Couldn't save ${label}. Tap ${recentCards?.length ? "it below" : addedWord} to try again` });
     return Promise.resolve(saved).then((ok) => {
       if (ok === false) return failed();
       buzz(40);

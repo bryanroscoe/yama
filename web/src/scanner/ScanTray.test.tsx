@@ -45,14 +45,16 @@ describe("the strip of cards scanned (Bryan, 16 Nov 2026)", () => {
     act(() => root.render(<ScanTray cards={cards} worth={2} onOpen={open} onReview={() => undefined} />));
     await settle();
     const tiles = [...host.querySelectorAll<HTMLButtonElement>(".scan-tile")];
-    expect(tiles.map((t) => t.querySelector(".scan-tile-price")?.textContent)).toEqual(["$3.20", "$1.50", "No price", "Proxy"]);
+    expect(tiles.map((t) => t.querySelector(".scan-tile-price")?.textContent)).toEqual(["$3.20", "$1.50", "Unsaved", "Proxy"]);
     expect(tiles[0]!.className).toContain("is-newest");
     // Worth it: $3.20 foil at $2. A missing price never is; nor is a proxy, whatever its printing costs.
     expect(tiles.map((t) => t.classList.contains("is-worth"))).toEqual([true, false, false, false]);
     expect(tiles[1]!.className).toContain("is-saving");
     expect(tiles[2]!.className).toContain("is-failed");
+    expect(host.querySelector(".scan-tray-last")?.textContent).toBe("Westvale Abbey SOI #281");
     expect(host.querySelector(".scan-tray-total")?.textContent).toBe("5 cards, $6.20 market, Nov 15, 1 unpriced");
-    expect(host.querySelector(".scan-tray-failed")?.textContent).toBe("1 not saved");
+    // A failed save turns Review all into how many weren't saved, which opens the same list.
+    expect(host.querySelector(".scan-tray-review")?.textContent).toBe("1 not saved");
     expect(tiles[1]!.getAttribute("aria-label")).toBe("Sol Ring, ECC 57, $1.50, 2 copies, Staple, saving. Show it larger");
     act(() => tiles[2]!.click());
     expect(open).toHaveBeenCalledWith("c");
@@ -85,9 +87,9 @@ describe("playability", () => {
     expect(playTag({ rank: 5001, gameChanger: false })).toBeNull();
     expect(playTag({ rank: null, gameChanger: null })).toBeNull();
     expect(playTag(null)).toBeNull();
-    expect(playLine({ rank: 2400, gameChanger: false })).toBe("EDHREC rank 2,400 by how many Commander decks run it.");
-    expect(playLine({ rank: 24000, gameChanger: false })).toBe("EDHREC rank 24,000 by how many Commander decks run it, so it's rarely played.");
-    expect(playLine({ rank: 40, gameChanger: true })).toBe("On the Game Changer list. EDHREC rank 40 by how many Commander decks run it.");
+    expect(playLine({ rank: 2400, gameChanger: false })).toBe("Ranked by how many Commander decks run it.");
+    expect(playLine({ rank: 24000, gameChanger: false })).toBe("Rarely in Commander decks.");
+    expect(playLine({ rank: 40, gameChanger: true })).toBe("On the Game Changer list. Ranked by how many Commander decks run it.");
     expect(playLine({ rank: null, gameChanger: null })).toBeNull();
   });
 });
