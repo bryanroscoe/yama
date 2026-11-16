@@ -113,6 +113,14 @@ async fn a_deck_keeps_swappable_spares_apart_from_its_list() {
     assert_eq!(card(&set, "Talisman of Creativity")["swaps"], json!([{"out": "Thought Vessel", "bracket": 4, "note": null, "from": "owner"}]));
     assert_eq!(card(&set, "Vanquisher's Banner")["swaps"], json!([{"out": "The One Ring", "bracket": 2, "note": null, "from": "plan"}]));
     assert_eq!(set["planned_missing"], json!([{"name": "Heirloom Blade", "swaps": [{"out": "Smothering Tithe", "bracket": 2, "note": null, "from": "plan"}]}]));
+    // A plan not linked to the deck goes by the deck's name.
+    sqlx::query("UPDATE plan_decks SET deck_id = NULL, name = ' riders of rohan ' WHERE id = 'pd'").execute(&pool).await.unwrap();
+    let (_, by_name) = send(&app, Method::GET, &path, Some(&token), None).await;
+    assert_eq!(card(&by_name, "Vanquisher's Banner")["swaps"], json!([{"out": "The One Ring", "bracket": 2, "note": null, "from": "plan"}]), "{by_name}");
+    sqlx::query("UPDATE plan_decks SET name = 'Someone Else' WHERE id = 'pd'").execute(&pool).await.unwrap();
+    let (_, other_name) = send(&app, Method::GET, &path, Some(&token), None).await;
+    assert_eq!(card(&other_name, "Vanquisher's Banner")["swaps"], json!([]), "{other_name}");
+    sqlx::query("UPDATE plan_decks SET name = 'Riders of Rohan', deck_id = ? WHERE id = 'pd'").bind(&id).execute(&pool).await.unwrap();
     let (status, _) = send(&app, Method::PUT, &format!("{path}/swaps"), Some(&token), Some(json!({"oracle_id": "o-tal", "bracket": 9}))).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     let (_, cleared) = send(&app, Method::PUT, &format!("{path}/swaps"), Some(&token), Some(json!({"oracle_id": "o-tal"}))).await;
