@@ -5,7 +5,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { artCredits } from "../components/ArtPanel";
-import { useReorder } from "./Decide";
+import { useReorder } from "./reorder";
 import type { SeatTone } from "./model";
 import { PLAY_SPEEDS, type PlaySpeed } from "./motion";
 import { TAP_MANA } from "./pay";
@@ -263,7 +263,7 @@ function HandOrder({ hand, meta, onAct, disabled, compact }: { hand: CardView[];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, ids.join(",")]);
   const send = (next: number[]) => onAct({ kind: "reorder_hand", order: next });
-  const drag = useReorder("x", (from, to) => setOrder(moved(current.current, from, to)), () => send(current.current));
+  const drag = useReorder("x", (from, to) => setOrder(moved(current.current, from, to)), { onEnd: () => send(current.current), disabled });
   const step = (by: -1 | 1) => {
     if (sel === null) return;
     const next = shift(order, sel, by);
@@ -285,22 +285,16 @@ function HandOrder({ hand, meta, onAct, disabled, compact }: { hand: CardView[];
         {order.map((id, i) => {
           const c = byId.get(id);
           if (!c) return null;
-          const grab = drag.handle(i);
           return (
-            <li key={id} data-reorder>
+            <li key={id} {...drag.row}>
               <Button
+                {...drag.grip}
                 className={id === sel ? "on" : ""}
                 aria-pressed={id === sel}
                 aria-label={`${c.name}, card ${i + 1} of ${order.length}`}
                 disabled={disabled}
                 onClick={() => setSel(id)}
-                onPointerDown={(e) => {
-                  setSel(id);
-                  grab.onPointerDown(e);
-                }}
-                onPointerMove={grab.onPointerMove}
-                onPointerUp={grab.onPointerUp}
-                onPointerCancel={grab.onPointerCancel}
+                onPointerDown={() => setSel(id)}
               >
                 {meta[c.name]?.image ? <img src={meta[c.name]!.image!} alt="" draggable={false} /> : <span className="gs-card-name">{c.name}</span>}
               </Button>
