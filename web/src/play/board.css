@@ -8074,7 +8074,7 @@ button.dw-pile2:disabled {
 /* Something done to you (HitCues.tsx): stays up long enough to read at the chosen speed, never
    blocks the board. */
 .hit-cue {
-  position: fixed; z-index: 24; top: 90px; right: 16px;
+  position: fixed; z-index: 24; top: 90px; left: 16px;
   display: flex; gap: 12px; align-items: flex-start;
   width: min(440px, calc(100dvw - 32px)); padding: 12px;
   border: 2px solid var(--bad); border-radius: 14px; background: var(--ground);
@@ -8118,6 +8118,6 @@ button.dw-pile2:disabled {
 .wh-list-head { display: block; color: var(--text); font-weight: 700; margin-bottom: 2px; }
 .wh-rewind { margin: 0; }
 @media (max-width: 999px) {
-  .wh { left: 16px; right: 16px; width: auto; bottom: 12px; max-height: 60dvh; }
+  .wh { left: 16px; right: 16px; width: auto; top: 12px; bottom: auto; max-height: 45dvh; }
   .wh-card img { width: 84px; }
 }

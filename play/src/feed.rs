@@ -644,7 +644,10 @@ fn convert(shown: &[GameEvent], all: &[GameEvent], state: &GameState, lens: &mut
             GameEvent::DamageDealt { source_id, target: TargetRef::Object(o), amount, .. } if *amount > 0 => {
                 damaged.insert(*o, *source_id);
             }
-            GameEvent::ZoneChanged { object_id, from: Some(Zone::Battlefield), to, .. } if *to != Zone::Battlefield => {
+            GameEvent::ZoneChanged { object_id, from: Some(Zone::Battlefield), to, record } if *to != Zone::Battlefield => {
+                // A creature put into a graveyard at 0 toughness died by the rules (CR 704.5f),
+                // not by the next instruction to finish.
+                let zero = *to == Zone::Graveyard && record.toughness.is_some_and(|t| t <= 0) && record.core_types.contains(&CoreType::Creature);
                 match how.get(object_id) {
                     Some((_, Some(_))) => {}
                     Some((How::Destroyed, None)) => {
@@ -652,6 +655,7 @@ fn convert(shown: &[GameEvent], all: &[GameEvent], state: &GameState, lens: &mut
                             caused.insert(i, (*src, true));
                         }
                     }
+                    _ if zero => {}
                     _ => {
                         if let Some(src) = effect_after(shown, i, *object_id) {
                             caused.insert(i, (src, false));
@@ -858,7 +862,9 @@ fn convert(shown: &[GameEvent], all: &[GameEvent], state: &GameState, lens: &mut
 
 /// The source of the first instruction that finished after event `i` and could have moved or
 /// taken `object` (destroy, exile, bounce, sacrifice, gain control), before the next spell or
-/// ability resolves. Not `object` itself ("sacrifice this" says nothing new).
+/// ability resolves (an item's `StackResolved` follows its effects, so one resolving later in the
+/// same action is cut off there), priority passes or the step or turn moves on. Not `object` itself
+/// ("sacrifice this" says nothing new).
 fn effect_after(shown: &[GameEvent], i: usize, object: ObjectId) -> Option<ObjectId> {
     use engine::types::ability::EffectKind as K;
     for e in &shown[i + 1..] {
@@ -885,7 +891,12 @@ fn effect_after(shown: &[GameEvent], i: usize, object: ObjectId) -> Option<Objec
                     return None;
                 }
             }
-            GameEvent::StackResolved { .. } | GameEvent::SpellCast { .. } | GameEvent::StackPushed { .. } => return None,
+            GameEvent::StackResolved { .. }
+            | GameEvent::SpellCast { .. }
+            | GameEvent::StackPushed { .. }
+            | GameEvent::PriorityPassed { .. }
+            | GameEvent::PhaseChanged { .. }
+            | GameEvent::TurnStarted { .. } => return None,
             _ => {}
         }
     }

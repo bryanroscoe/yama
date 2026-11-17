@@ -2234,6 +2234,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
       )}
       {review && view.events && (
         <WhatHappened
+          key={review.at ?? "latest"}
           events={view.events}
           names={names}
           meta={meta}

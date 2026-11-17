@@ -9,8 +9,9 @@ import type { Happening, Seen } from "./types";
 /**
  * What another player did to you or your cards among the events after `after`: a card of yours
  * that left the battlefield by someone else's hand (destroyed, exiled, returned, sacrificed at their
- * say, or dead from their damage), control taken from you, and damage, life or poison you took from
- * someone else outside combat (combat has its own cues, CombatCues.tsx). `mine` says whether a card
+ * say, or dead from their damage), control taken from you, and damage or poison you took from
+ * someone else outside combat (combat has its own cues, CombatCues.tsx). Life lost on its own is
+ * left out: it names no source, and paying life (a fetch land, Phyrexian mana) is the usual cause. `mine` says whether a card
  * on the battlefield is yours, for damage to your creatures.
  */
 export function hitsOnYou(events: Happening[], after: number, you: number | null, mine: (id: number) => boolean = () => false): Happening[] {
@@ -27,8 +28,6 @@ export function hitsOnYou(events: Happening[], after: number, you: number | null
       case "damage":
         if (h.combat || h.by === you) return false;
         return h.to.kind === "player" ? h.to.seat === you : h.to.card.id !== undefined && mine(h.to.card.id);
-      case "life":
-        return h.seat === you && h.delta < 0 && h.active !== you;
       case "poison":
         return h.seat === you && h.delta > 0 && h.active !== you;
       default:

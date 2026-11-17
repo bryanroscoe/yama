@@ -601,6 +601,38 @@ fn run_game(
             None => false,
             Some(Cmd::EndSolo { seat, reply }) => finish_solo(m, seat, reply),
             Some(Cmd::GoBack { seat, revision, checkpoint, reply }) => restore(m, seat, revision, checkpoint, reply),
+            // Turn controls apply from the computer's next move, so a stop or full control set
+            // while its moves are being shown catches what it does next.
+            Some(Cmd::Prefs { seat, prefs }) => {
+                m.set_prefs(seat, prefs.stops, prefs.full_control);
+                m.set_tap_mana(seat, prefs.tap_mana);
+                save(m);
+                false
+            }
+            Some(Cmd::AccountPrefs { seat, prefs }) => {
+                m.initialize_prefs(seat, prefs.stops, prefs.full_control, prefs.tap_mana);
+                save(m);
+                false
+            }
+            Some(Cmd::FullControl { seat, on }) => {
+                m.set_full_control(seat, on);
+                save(m);
+                false
+            }
+            Some(Cmd::Stops { seat, stops }) => {
+                m.set_stops(seat, stops);
+                false
+            }
+            Some(Cmd::Hold { seat, on }) => {
+                m.set_hold(seat, on);
+                save(m);
+                false
+            }
+            // The game is being stopped: end the computer's run here and let the main loop stop.
+            Some(Cmd::Stop) => {
+                queued.borrow_mut().push_front(Cmd::Stop);
+                true
+            }
             Some(other) => {
                 queued.borrow_mut().push_back(other);
                 false
@@ -626,6 +658,7 @@ fn run_game(
         // shortens the rest that's left.
         if let Some((factor, _)) = pace
             && batch.beat > 0
+            && !m.waiting_on().iter().any(|s| humans.contains(s))
         {
             let start = std::time::Instant::now();
             loop {
@@ -808,6 +841,11 @@ fn ai_batch(m: &mut Match, humans: &[u8], watching: Option<&[u8]>) -> Batch {
     loop {
         let passed = m.auto_pass(humans);
         moved += passed;
+        // A pass made for a person can resolve something worth seeing on its own (the computer's
+        // spell): show it before the computer moves again.
+        if !marks.is_empty() && passed > 0 && beat(m) > 0 {
+            return Batch { moved, settled: m.is_over(), fault: None, beat: beat(m) };
+        }
         let acted = match m.run_ai(AI_BATCH.saturating_sub(moved).clamp(1, step)) {
             Ok(n) => n,
             Err(fault) => return Batch { moved, settled: true, fault: Some(fault), beat: 0 },
@@ -2692,6 +2730,10 @@ async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Op
                     }
                 }
             }
+        }
+        // The socket closed: this connection no longer watches.
+        if let Some(seat) = you {
+            let _ = cmds.send(Cmd::Pace { conn, seat, factor: None });
         }
     });
 

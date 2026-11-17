@@ -32,13 +32,13 @@ describe("what was done to you", () => {
     expect(hitsOnYou([own, ownSpell, combat, cast], 0, 0)).toEqual([]);
   });
 
-  it("counts a creature of yours dying on someone else's turn, damage outside combat, theft and drain", () => {
+  it("counts a creature of yours dying on someone else's turn, damage outside combat and theft, not life you paid", () => {
     const died = at(7, 2, { kind: "moved", owner: 0, card: seen("Squire"), from: "battlefield", to: "graveyard", how: "moved", creature: true });
     const bolt = at(7, 2, { kind: "damage", source: seen("Lightning Bolt"), by: 2, to: { kind: "card", card: seen("Squire", 3) }, amount: 3 });
     const steal = at(7, 2, { kind: "control", card: seen("Sol Ring", 8), from: 0, to: 2, by: seen("Treachery") });
     const drain = at(8, 3, { kind: "life", seat: 0, delta: -1, total: 37 });
     const mine = (id: number) => id === 3;
-    expect(hitsOnYou([died, bolt, steal, drain], 0, 0, mine)).toEqual([died, bolt, steal, drain]);
+    expect(hitsOnYou([died, bolt, steal, drain], 0, 0, mine)).toEqual([died, bolt, steal]);
     // Damage to a creature that isn't yours isn't.
     expect(hitsOnYou([bolt], 0, 0, () => false)).toEqual([]);
   });

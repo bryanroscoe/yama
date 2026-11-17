@@ -5,7 +5,7 @@
 // underneath. Rewind, where the game allows it, is one button away. The plan for a fuller replay
 // that rebuilds earlier boards is docs/plans/play-replay.md.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { SymbolText } from "../components/ManaSymbols";
 import type { Names } from "./feed";
 import { happeningCards, reviewSteps } from "./review";
@@ -24,7 +24,7 @@ export function WhatHappened({ events, names, meta, at, onStep, onRead, onClose,
   /** Rewind or Go back, when this game has one now. */
   rewind?: { label: string; run: () => void; disabled: boolean } | null;
 }) {
-  const steps = useMemo(() => reviewSteps(events, names), [events, names]);
+  const steps = reviewSteps(events, names);
   // The step looked at, by its happening's number, so new happenings arriving meanwhile don't move
   // it; `null` follows the newest.
   const [seq, setSeq] = useState<number | null>(() => (at == null ? null : steps.find((s) => s.h.seq >= at)?.h.seq ?? null));
@@ -40,12 +40,20 @@ export function WhatHappened({ events, names, meta, at, onStep, onRead, onClose,
   }, [step?.h.seq]);
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
+      // Not while typing, in a dialog (the card reader opened from here closes on its own Escape)
+      // or with a modifier; and the board's own keys don't also act on it.
+      const t = e.target as HTMLElement | null;
+      if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      if (t?.closest("input, textarea, select, [contenteditable], .sheet, [role=dialog]") || document.querySelector("[role=dialog]")) return;
+      if (e.key !== "Escape" && e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
       if (e.key === "Escape") onClose();
       else if (e.key === "ArrowLeft") setI((k) => k - 1);
       else if (e.key === "ArrowRight") setI((k) => k + 1);
     };
-    window.addEventListener("keydown", key);
-    return () => window.removeEventListener("keydown", key);
+    window.addEventListener("keydown", key, true);
+    return () => window.removeEventListener("keydown", key, true);
   });
   const cards = step ? happeningCards(step.h).filter((c) => c.name && meta[c.name]?.image) : [];
   return (
