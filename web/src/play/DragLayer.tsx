@@ -27,8 +27,8 @@ export interface DragLayerHandle {
   clear(): void;
   /** Where the lifted or parked card is now, for an arrow that starts at it. */
   parkedAt(): Point | null;
-  /** Draw the live arrow, or hide it with `null`. */
-  arrow(from: Point | null, to?: Point, tone?: ArrowTone): void;
+  /** Draw the live arrow (one from each point given), or hide it with `null`. */
+  arrow(from: Point | readonly Point[] | null, to?: Point, tone?: ArrowTone): void;
 }
 
 const reduced = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -39,6 +39,8 @@ export const DragLayer = forwardRef<DragLayerHandle>(function DragLayer(_props, 
   const name = useRef<HTMLSpanElement>(null);
   const note = useRef<HTMLSpanElement>(null);
   const path = useRef<SVGPathElement>(null);
+  // More arrows to the same point: several attackers waiting for whom they attack (attackAim.ts).
+  const more = useRef<SVGGElement>(null);
   const grab = useRef({ dx: 0, dy: 0, w: 120, h: 168 });
   const at = useRef<Point | null>(null);
 
@@ -106,14 +108,24 @@ export const DragLayer = forwardRef<DragLayerHandle>(function DragLayer(_props, 
     arrow(from, to, tone = "aim") {
       const p = path.current;
       if (!p) return;
-      if (!from || !to) {
+      const starts = !from ? [] : Array.isArray(from) ? (from as readonly Point[]) : [from as Point];
+      const g = more.current;
+      if (!starts.length || !to) {
         p.style.display = "none";
+        g?.replaceChildren();
         return;
       }
+      const draw = (el: SVGPathElement, start: Point) => {
+        el.setAttribute("d", arcPath(start, to));
+        el.setAttribute("class", `drag-arrow ${tone}`);
+        el.setAttribute("marker-end", `url(#pb-head-${tone})`);
+      };
       p.style.display = "";
-      p.setAttribute("d", arcPath(from, to));
-      p.setAttribute("class", `drag-arrow ${tone}`);
-      p.setAttribute("marker-end", `url(#pb-head-${tone})`);
+      draw(p, starts[0]!);
+      if (!g) return;
+      while (g.childNodes.length > starts.length - 1) g.lastChild!.remove();
+      while (g.childNodes.length < starts.length - 1) g.appendChild(document.createElementNS("http://www.w3.org/2000/svg", "path"));
+      starts.slice(1).forEach((start, i) => draw(g.childNodes[i] as SVGPathElement, start));
     },
   }));
 
@@ -122,6 +134,7 @@ export const DragLayer = forwardRef<DragLayerHandle>(function DragLayer(_props, 
       <svg className="drag-svg">
         <ArrowHeads prefix="pb-head" />
         <path ref={path} className="drag-arrow" style={{ display: "none" }} />
+        <g ref={more} />
       </svg>
       <div ref={ghost} className="drag-ghost" hidden>
         <img ref={img} alt="" draggable={false} />
@@ -154,6 +167,8 @@ export interface PlanArrow {
   from: number | { stack: number; source?: number } | { point: Point };
   to: { seat: number } | { id: number };
   tone: "attack" | "block" | SeatTone;
+  /** Dotted: an attack you're still building (attackAim.ts). */
+  dash?: boolean;
 }
 
 /** Hidden stack/details rows must never produce a (0,0) arrow or animation. */
@@ -195,7 +210,7 @@ export function seatHeadOf(root: ParentNode, seat: number): HTMLElement | null {
 export function PlanArrows({ arrows, root }: { arrows: PlanArrow[]; root: React.RefObject<HTMLElement | null> }) {
   const [, remeasure] = useReducer((n: number) => n + 1, 0);
   const svg = useRef<SVGSVGElement>(null);
-  const key = arrows.map((a) => `${fromKey(a.from)}>${"seat" in a.to ? `s${a.to.seat}` : a.to.id}`).join(",");
+  const key = arrows.map((a) => `${fromKey(a.from)}>${"seat" in a.to ? `s${a.to.seat}` : a.to.id}${a.dash ? "~" : ""}`).join(",");
   useLayoutEffect(() => {
     const el = svg.current;
     const r = root.current;
@@ -217,7 +232,8 @@ export function PlanArrows({ arrows, root }: { arrows: PlanArrow[]; root: React.
       // Arrows to a player end at the near edge of their header or portrait; to a card, at its centre.
       const end = "seat" in a.to ? { x: tr.left + tr.width / 2, y: start.y < tr.top ? tr.top + 6 : tr.bottom - 6 } : centre(tr);
       const theirs = a.tone.startsWith("seat-") ? " theirs" : "";
-      paths.push(`<path class="plan-arrow ${a.tone}${theirs}" d="${arcPath(start, end)}" marker-end="url(#pb-plan-head-${a.tone})"/>`);
+      const dash = a.dash ? " dashed" : "";
+      paths.push(`<path class="plan-arrow ${a.tone}${theirs}${dash}" d="${arcPath(start, end)}" marker-end="url(#pb-plan-head-${a.tone})"/>`);
     }
     // Other seats' arrows first, so yours are drawn on top.
     paths.sort((x, y) => Number(y.includes(" theirs")) - Number(x.includes(" theirs")));

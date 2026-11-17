@@ -66,6 +66,7 @@ import { COLOR_NAME, counterName, FieldTile, HandCard, ManaDot, type TileHandler
 import type { Act, AttackAt, CardMeta, CardView, Decision, Happening, ManaSourceView, OptionView, PassMode, Pending, PlayerView, SeatInfo, ServerMessage, StackItem, TapMana, View, WatchStatus } from "./types";
 import { WatchControls, type WatchMessage } from "./WatchControls";
 import { seatLabel, seatName } from "./watch";
+import { cancelAim, isLegal, legalDefenders, pressAttacker, pressDefender, type AimResult, type AimState, type AimWarn } from "./attackAim";
 import { attackDrop, blockDrop, centre, dragSlop, handDrop, movedPast, pastPlayLine, readDrop, targetDrop, targetIndex, type Point } from "./drag";
 import { DragLayer, PlanArrows, seatHeadOf, stackRowOf, tileOf, type ArrowTone, type DragLayerHandle, type PlanArrow } from "./DragLayer";
 import { MotionContext, Tick, useBoardMotion, type MotionOptions } from "./BoardMotion";
@@ -189,6 +190,8 @@ interface AttackState {
   valid: Map<number, AttackAt[]>;
   plan: Map<number, AttackAt>;
   defender: AttackAt | null;
+  /** Creatures picked up and waiting to be told whom they attack (attackAim.ts). */
+  waiting: number[];
 }
 interface BlockState {
   valid: Map<number, number[]>;
@@ -301,6 +304,8 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
   const [focusSeat, setFocusSeat] = useState<number | null>(null);
   const [attackPlan, setAttackPlan] = useState<Map<number, AttackAt>>(new Map());
   const [defender, setDefender] = useState<AttackAt | null>(null);
+  // Attackers clicked and waiting for whom they attack: a dotted line follows the pointer (attackAim.ts).
+  const [aimWait, setAimWait] = useState<number[]>([]);
   const [blockPlan, setBlockPlan] = useState<Map<number, number>>(new Map());
   const [pendingBlocker, setPendingBlocker] = useState<number | null>(null);
   // A combat rule the plan runs into ("Bloodrock Cyclops attacks this combat if able"), in red.
@@ -459,6 +464,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
     setManaMenu(null);
     setSpecial(null);
     setAttackPlan(new Map());
+    setAimWait([]);
     setBlockPlan(new Map());
     setPendingBlocker(null);
     setCombatWarn(null);
@@ -588,6 +594,22 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+  // Attackers waiting for whom they attack: a dotted line from each to the pointer, snapping to a
+  // player, planeswalker or battle they may attack (attackAim.ts). With a mouse only: a tap has no
+  // pointer to follow, so touch screens show the rings alone. `aimMove` is the latest render's.
+  const aimMove = useRef<((x: number, y: number) => void) | null>(null);
+  const aimWaitKey = aimWait.join(",");
+  useEffect(() => {
+    if (!aimWaitKey || !canHover) return;
+    const move = (e: PointerEvent) => aimMove.current?.(e.clientX, e.clientY);
+    window.addEventListener("pointermove", move);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      if (!dragRef.current?.started) layer.current?.arrow(null);
+      hotEl.current?.classList.remove("drop-hot");
+      hotEl.current = null;
+    };
+  }, [aimWaitKey, canHover]);
   // Watching: the right arrow plays one move while paused.
   useEffect(() => {
     if (!watch) return;
@@ -733,7 +755,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
 
   // Attack and block declarations, built on the board and sent whole.
   const attack: AttackState | null = decision?.attack
-    ? { valid: new Map(decision.attack.attackers.map((a) => [a.id, a.targets])), plan: attackPlan, defender }
+    ? { valid: new Map(decision.attack.attackers.map((a) => [a.id, a.targets])), plan: attackPlan, defender, waiting: aimWait }
     : null;
   const block: BlockState | null = decision?.block
     ? { valid: new Map(decision.block.blockers.map((b) => [b.id, b.attackers])), plan: blockPlan, pending: pendingBlocker }
@@ -873,8 +895,51 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
     }
     setAttackPlan(next);
   };
+  /** What to do next while declaring attackers, for the rail ("Click") and the phone ("Tap"). */
+  const aimHint = (mouse: boolean) => {
+    if (!attack) return "";
+    const verb = mouse ? "Click" : "Tap";
+    const one = aimWait.length === 1;
+    if (aimWait.length) return `Now ${verb.toLowerCase()} whom ${one ? `${shortName(cardById.get(aimWait[0]!)?.name ?? "it")} attacks` : "they attack"}, or ${mouse ? "press Esc" : "tap it again"} to put ${one ? "it" : "them"} down.`;
+    if (![...attack.valid.values()].some((ts) => ts.length > 1)) return `${verb} creatures to attack${attack.defender?.kind === "player" ? ` ${who(attack.defender.seat)}` : ""}. ${verb} one again to take it back.`;
+    return `${verb} a creature, then the player${mouse ? ", planeswalker or battle" : " (their tab) or planeswalker"} it attacks. ${verb} an attacker again to send it somewhere else.`;
+  };
+  // Clicking a creature, then whom it attacks, with a dotted line between (attackAim.ts).
+  const mustAttack = new Map((decision?.attack?.attackers ?? []).filter((a) => a.must).map((a) => [a.id, a.must!]));
+  const aimState = (): AimState | null => (attack ? { valid: attack.valid, plan: attackPlan, waiting: aimWait, defender, must: mustAttack } : null);
+  const atName = (t: AttackAt) => (t.kind === "player" ? who(t.seat) : shortName(cardById.get(t.id)?.name ?? "it"));
+  const warnText = (w: AimWarn) => {
+    const name = cardById.get(w.id)?.name ?? "It";
+    if (w.kind === "must") return `${name} attacks this combat if able.`;
+    if (w.kind === "mustAt") return `${name} must attack ${atName(w.at)} if able.`;
+    return `${name} can't attack ${atName(w.at)}.`;
+  };
+  const applyAim = (r: AimResult) => {
+    setAttackPlan(r.plan);
+    setAimWait(r.waiting);
+    setDefender(r.defender);
+    setCombatWarn(r.warn ? warnText(r.warn) : null);
+  };
+  /** A click or tap on one of your creatures while declaring attackers. */
+  const aimFrom = (ids: number[]) => {
+    const s = aimState();
+    if (!s) return;
+    if (!ids.some((i) => s.valid.has(i))) return toggleAttack(ids);
+    applyAim(pressAttacker(s, ids));
+  };
+  /** Whether creatures are waiting and `t` is somewhere one of them may attack (it has a ring). */
+  const aimable = (t: AttackAt) => !!attack && aimWait.length > 0 && isLegal(attack.valid, aimWait, t);
+  const aimAt = (t: AttackAt) => {
+    const s = aimState();
+    if (s) applyAim(pressDefender(s, t));
+  };
+  const putDown = () => {
+    const s = aimState();
+    if (s && s.waiting.length) applyAim({ ...cancelAim(s), warn: null });
+  };
   const attackAll = () => {
     if (!attack) return;
+    setAimWait([]);
     toggleAttack([...attack.valid.keys()].filter((i) => !attack.plan.has(i)));
   };
   const sendAttack = () => {
@@ -944,10 +1009,14 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
     }
     const asTarget = targetFor(p.ids, p.card.name);
     if (asTarget) return choose(asTarget);
-    // A planeswalker or battle someone may attack: aim new attackers at it (GCombatMore).
-    const walker = attack ? defenderAt(p) : null;
-    if (walker) return setDefender(walker);
-    if (attack && p.ids.some((i) => attack.valid.has(i))) return toggleAttack(p.ids);
+    // Declaring attackers: one of your creatures is picked up (or sent straight to the only place
+    // it can attack); a planeswalker or battle with a ring takes the creatures waiting (GAttack).
+    if (attack) {
+      const walker = defenderAt(p);
+      if (walker && (aimable(walker) || !aimWait.length)) return aimAt(walker);
+      if (p.ids.some((i) => attack.valid.has(i)) || attackCant.has(p.ids[0]!)) return aimFrom(p.ids);
+      if (aimWait.length) return putDown();
+    }
     if (block) {
       const blocker = p.ids.find((i) => block.valid.has(i) && !block.plan.has(i)) ?? p.ids.find((i) => block.plan.has(i));
       if (blocker !== undefined) return pickBlocker(blocker);
@@ -1024,12 +1093,16 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
       // A pick on the board has its own ring; the option dot would only repeat it.
       playable: !attack && !block && !boardPick && any(optionObjects),
       will: any(willTap),
-      selected: (!!selected && p.ids.some((i) => selected.includes(i))) || (block?.pending !== null && block?.pending !== undefined && p.ids.includes(block.pending)),
+      selected: (!!selected && p.ids.some((i) => selected.includes(i))) || (block?.pending !== null && block?.pending !== undefined && p.ids.includes(block.pending)) || (!!attack && p.ids.some((i) => aimWait.includes(i))),
       attacking: !!attack && any(attack.plan),
       blocking: !!block && any(block.plan),
       ready: (!!attack && any(attack.valid) && !any(attack.plan)) || (!!block && any(block.valid) && !any(block.plan)),
       target: !!targetFor(p.ids, p.card.name),
-      pick: boardPick && p.ids.some((i) => pickable.has(i) && !pickedIds.includes(String(i))),
+      pick: (boardPick && p.ids.some((i) => pickable.has(i) && !pickedIds.includes(String(i)))) || (() => {
+        // A planeswalker or battle the creatures waiting may attack: an amber ring (attackAim.ts).
+        const t = aimWait.length ? defenderAt(p) : null;
+        return !!t && aimable(t);
+      })(),
       picked: boardPick ? p.ids.map((i) => pickNo(String(i))).find((n) => n !== undefined) : undefined,
       chosen: any(splitIds) || !!chip?.tapped,
       ...combat,
@@ -1110,7 +1183,8 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
     if (asTarget) return choose(asTarget);
     if (attack) {
       const t: AttackAt = { kind: "player", seat };
-      if ([...attack.valid.values()].some((ts) => ts.some((x) => sameTarget(x, t)))) setDefender(t);
+      if (aimWait.length && !aimable(t)) putDown();
+      else aimAt(t);
     }
     setFocusSeat(seat);
   };
@@ -1223,7 +1297,8 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
     if (s.kind === "aim") return aimTo(x, y, null);
     const hit = combatAt(s, x, y);
     setHot(hit?.el ?? null);
-    const tone: ArrowTone = s.kind === "attack" ? "attack" : "block";
+    // An attack still being built is dotted, like the line after a click (attackAim.ts).
+    const tone: ArrowTone = s.kind === "attack" ? "aim" : "block";
     layer.current?.arrow(s.from, hit?.el ? anchor(hit.el, hit.el.classList.contains("opp-head")) : { x, y }, tone);
   };
   const release = (s: DragSession, x: number, y: number) => {
@@ -1262,6 +1337,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
         if (mine) next.set(i, mine);
       }
       setAttackPlan(next);
+      setAimWait((w) => w.filter((i) => !s.pile!.ids.includes(i)));
       if (t.kind === "player") setDefender(t);
     } else if (hit.blocks !== undefined) {
       const b = blockerOf(s.pile);
@@ -1269,6 +1345,16 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
     }
   };
   dragLive.current = { aimTo, update, release };
+  aimMove.current = (x, y) => {
+    const root = boardRoot.current;
+    if (!attack || !aimWait.length || !root || dragRef.current?.started) return;
+    // One line from each tile (a stack of tokens is one tile).
+    const tiles = [...new Set(aimWait.map((i) => tileOf(root, i)).filter((el): el is HTMLElement => !!el))];
+    const t = attackDrop(legalDefenders(attack.valid, aimWait), readDrop(document.elementFromPoint(x, y)));
+    const el = t ? (t.kind === "player" ? seatHeadOf(root, t.seat) : tileOf(root, t.id)) : null;
+    setHot(el);
+    layer.current?.arrow(tiles.map((tile) => centre(tile.getBoundingClientRect())), el ? anchor(el, el.classList.contains("opp-head")) : { x, y }, "aim");
+  };
 
   /** Stop tracking a press: listeners, highlights and the live arrow. */
   const endDrag = (s: DragSession) => {
@@ -1353,6 +1439,19 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
     if (attack && pile.ids.some((i) => attack.valid.has(i))) return track("attack", pile, e.currentTarget, e);
     if (block && pile.ids.some((i) => block.valid.has(i))) return track("block", pile, e.currentTarget, e);
   };
+  /**
+   * A click on the table while attackers wait for whom they attack (attackAim.ts): anywhere on an
+   * opponent's side sends them at that player; empty table puts them down. Cards, headers and
+   * buttons answer for themselves.
+   */
+  const onBoardClick = (e: React.MouseEvent<HTMLElement>) => {
+    if (!attack || !aimWait.length || justDragged()) return;
+    const el = e.target as HTMLElement;
+    if (el.closest("[data-ids], .opp-head, button, a, input, select, textarea, [role=button], [role=dialog], .sheet")) return;
+    const t = attackDrop(legalDefenders(attack.valid, aimWait), readDrop(el));
+    if (t) aimAt(t);
+    else putDown();
+  };
   /** While choosing a target, a press anywhere on the table can be dragged onto the target. */
   const onBoardPress = (e: React.PointerEvent<HTMLElement>) => {
     if (!aiming || dragRef.current || e.button !== 0) return;
@@ -1392,7 +1491,11 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
     ...(block
       ? []
       : view.battlefield.flatMap((c) => (c.blocks ?? []).map((a): PlanArrow => ({ from: c.id, to: { id: a }, tone: c.controller === bottom ? "block" : toneOf(c.controller) })))),
-    ...[...attackPlan.entries()].filter(() => !!attack).map(([from, at]): PlanArrow => ({ from, to: at.kind === "player" ? { seat: at.seat } : { id: at.id }, tone: "attack" })),
+    // The attack you're building, dotted until it's declared; a creature picked up again to go
+    // somewhere else has the line following the pointer instead (attackAim.ts).
+    ...[...attackPlan.entries()]
+      .filter(([from]) => !!attack && !aimWait.includes(from))
+      .map(([from, at]): PlanArrow => ({ from, to: at.kind === "player" ? { seat: at.seat } : { id: at.id }, tone: "attack", dash: true })),
     ...[...blockPlan.entries()].filter(() => !!block).map(([from, to]): PlanArrow => ({ from, to: { id: to }, tone: "block" })),
     // What each spell and ability on the stack targets, in its controller's colour (GRespond).
     ...view.stack
@@ -1611,7 +1714,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
       const left = [...attack.valid.keys()].filter((i) => !attack.plan.has(i)).length;
       return {
         primary: { label: n ? `Attack (${n})` : "No attacks", run: sendAttack, disabled: pending },
-        secondary: left > 0 && attack.valid.size > 1 ? { label: "Attack with all", run: attackAll } : n ? { label: "Clear", run: () => setAttackPlan(new Map()) } : null,
+        secondary: left > 0 && attack.valid.size > 1 ? { label: "Attack with all", run: attackAll } : n ? { label: "Clear", run: () => (setAttackPlan(new Map()), setAimWait([])) } : null,
       };
     }
     if (block) {
@@ -1679,6 +1782,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
     if (special) return (setSpecial(null), true);
     if (pendingBlocker !== null) return (setPendingBlocker(null), true);
     if (block && blockPlan.size) return (setBlockPlan(new Map()), true);
+    if (attack && aimWait.length) return (putDown(), true);
     if (attack && attackPlan.size) return (setAttackPlan(new Map()), true);
     if (selected) return (setSelected(null), true);
     // Choosing a target with nothing picked: backing out cancels the spell (CancelCast).
@@ -1711,13 +1815,15 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
     const by = targeted.seats.get(seat);
     return by?.length ? { text: targetedText(by, (n) => (n === you ? "you" : who(n))), tone: tones.get(by[0]!) } : undefined;
   };
-  // While you declare attackers: each opponent's count and whether you're aiming at them (GAttack).
+  // While you declare attackers: each opponent's count and whether you're aiming at them (GAttack),
+  // and, with creatures waiting for whom they attack, who they may attack (attackAim.ts).
   const paneTag = (seat: number): { text: string; tone: "aimed" | "some" | "idle" } | undefined => {
     if (!attack || ![...attack.valid.values()].some((ts) => ts.some((t) => t.kind === "player" && t.seat === seat))) return undefined;
+    if (aimWait.length) return aimable({ kind: "player", seat }) ? { text: "Click to attack", tone: "aimed" } : undefined;
     const n = [...attack.plan.values()].filter((t) => t.kind === "player" && t.seat === seat).length;
     const aimed = attack.defender?.kind === "player" && attack.defender.seat === seat;
     if (n) return { text: `${n} attacking${aimed ? ", aimed" : ""}`, tone: aimed ? "aimed" : "some" };
-    return aimed ? { text: "Aimed here", tone: "aimed" } : { text: "Click to aim", tone: "idle" };
+    return aimed ? { text: "Aimed here", tone: "aimed" } : undefined;
   };
   /** The colour of whoever attacks a seat now (GCombatView): yours blue. */
   const attackerTone = (seat: number) => {
@@ -1921,6 +2027,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
   const everythingAt = (t: AttackAt) => {
     if (!attack) return;
     setDefender(t);
+    setAimWait([]);
     const next = new Map(attack.plan);
     for (const [id, ts] of attack.valid) {
       const m = ts.find((x) => sameTarget(x, t));
@@ -2031,7 +2138,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
       onChoose={choose}
       onClear={() => setSelected(null)}
       onRead={setInspect}
-      onToggleAttack={(id) => toggleAttack([id])}
+      onToggleAttack={(id) => (setAimWait((w) => w.filter((i) => i !== id)), toggleAttack([id]))}
       onCycleTarget={(id) => {
         const ts = attack?.valid.get(id) ?? [];
         const cur = attackPlan.get(id);
@@ -2041,6 +2148,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
       }}
       onPickBlocker={pickBlocker}
       pending={pending}
+      attackHint={aimHint(true)}
       extra={attack ? attackSummary : block ? blockSummary : null}
     />
   );
@@ -2380,7 +2488,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
   if (wide) {
     return (
       <MotionContext.Provider value={scale}>
-      <div className={`pb wide${railOpen ? " rail-open" : " rail-collapsed"}${inPanes.length === 1 ? " duel" : ""}${aiming ? " aiming" : ""}${scale === 0 ? " motion-off" : ""}`} ref={boardRoot} onPointerDown={onBoardPress} onMouseOverCapture={previewImage} onMouseOutCapture={leavePreviewImage}>
+      <div className={`pb wide${railOpen ? " rail-open" : " rail-collapsed"}${inPanes.length === 1 ? " duel" : ""}${aiming ? " aiming" : ""}${scale === 0 ? " motion-off" : ""}`} ref={boardRoot} onPointerDown={onBoardPress} onClick={onBoardClick} onMouseOverCapture={previewImage} onMouseOutCapture={leavePreviewImage}>
           <div className="rail-top pb-toolbar">
             <Link to={leaveTo} className="rail-leave">Leave</Link>
             <AlphaTag />
@@ -2416,8 +2524,8 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
                 attacked={attackedSeats.has(p.seat)}
                 attackedBy={attackerTone(p.seat)}
                 targetable={!!attack && [...attack.valid.values()].some((ts) => ts.some((t) => t.kind === "player" && t.seat === p.seat))}
-                aimed={!!seatTarget(p.seat) || pickSeats.has(p.seat)}
-                chosen={splitSeats.has(p.seat) || pickedIds.includes(`p${p.seat}`) || (attack?.defender?.kind === "player" && attack.defender.seat === p.seat)}
+                aimed={!!seatTarget(p.seat) || pickSeats.has(p.seat) || aimable({ kind: "player", seat: p.seat })}
+                chosen={splitSeats.has(p.seat) || pickedIds.includes(`p${p.seat}`) || (!aimWait.length && attack?.defender?.kind === "player" && attack.defender.seat === p.seat)}
                 pickNo={pickNo(`p${p.seat}`)}
                 by={seatBy(p.seat)}
                 tag={paneTag(p.seat)}
@@ -2664,7 +2772,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
   const phoneHint = pend || paying
     ? null
     : attack
-    ? `Tap creatures to attack ${attack.defender?.kind === "player" ? who(attack.defender.seat) : "their target"}${new Set([...attack.valid.values()].flat().filter((t) => t.kind === "player").map((t) => (t as { seat: number }).seat)).size > 1 ? ", or tap a tab for someone else." : "."}`
+    ? aimHint(false)
     : block
       ? block.pending !== null
         ? `Now tap the attacker ${shortName(cardById.get(block.pending)?.name ?? "it")} blocks.`
@@ -2684,7 +2792,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
       : [];
   return (
     <MotionContext.Provider value={scale}>
-    <div className={`pb phone${scale === 0 ? " motion-off" : ""}${stage === "sheet" ? " sheet-open" : stage === "strip" ? " strip-open" : paying ? " pay-open" : ""}`} ref={boardRoot} onMouseOverCapture={previewImage} onMouseOutCapture={leavePreviewImage}>
+    <div className={`pb phone${scale === 0 ? " motion-off" : ""}${stage === "sheet" ? " sheet-open" : stage === "strip" ? " strip-open" : paying ? " pay-open" : ""}`} ref={boardRoot} onClick={onBoardClick} onMouseOverCapture={previewImage} onMouseOutCapture={leavePreviewImage}>
       {banner && <div className="phone-banner">{banner}</div>}
       <nav className="opp-tabs" aria-label="Opponents">
         {opponents.map((p) => {
@@ -2697,7 +2805,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
               key={p.seat}
               type="button"
               data-seat={p.seat}
-              className={`opp-tab${on ? " on" : ""}${attacked ? " attacked" : ""}${seatTarget(p.seat) ? " aimed" : ""}${p.eliminated ? " out" : ""}${view.active === p.seat ? " active" : ""}`}
+              className={`opp-tab${on ? " on" : ""}${attacked ? " attacked" : ""}${seatTarget(p.seat) || aimable({ kind: "player", seat: p.seat }) ? " aimed" : ""}${p.eliminated ? " out" : ""}${view.active === p.seat ? " active" : ""}`}
               style={seatStyle(tones.get(p.seat))}
               aria-pressed={on}
               aria-label={`${label(p.seat)}, ${p.eliminated ? "out" : `${p.life} life`}${view.active === p.seat ? ", their turn" : ""}${on ? ", showing" : ""}`}
@@ -2893,6 +3001,8 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
           <button type="button" className="quiet" onClick={() => setSheet("log")}>Game log</button>
         </div>
       </div>
+      {/* The attack you're building, dotted from each creature to the tab of whom it attacks (attackAim.ts). */}
+      {attack && <PlanArrows arrows={planArrows.filter((a) => a.dash)} root={boardRoot} />}
       <div className="motion-layer" ref={motionLayer} aria-hidden="true" />
       {sheets}
     </div>
@@ -3251,7 +3361,7 @@ function OppPane(props: {
         role={clickable ? "button" : undefined}
         tabIndex={clickable ? 0 : undefined}
         onKeyDown={clickable ? (e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), props.onSeat()) : undefined}
-        aria-label={props.aimed ? `Target ${props.label}` : props.pickNo !== undefined ? `${props.label}, chosen target ${props.pickNo}` : props.targetable ? `Attack ${props.label}` : undefined}
+        aria-label={props.targetable ? `Attack ${props.label}` : props.aimed ? `Target ${props.label}` : props.pickNo !== undefined ? `${props.label}, chosen target ${props.pickNo}` : undefined}
       >
         {props.pickNo !== undefined && <span className="pick-badge num opp-pick" aria-hidden="true">{props.pickNo}</span>}
         {props.art.art && <img className="opp-art" src={props.art.art} alt="" />}
@@ -3537,6 +3647,8 @@ function DecisionBody(props: {
   onCycleTarget: (id: number) => void;
   onPickBlocker: (id: number) => void;
   pending: boolean;
+  /** What to do next while declaring attackers (attackAim.ts). */
+  attackHint?: string;
   /** The plan's totals and warnings (GAttack, GBlock), over the list of creatures. */
   extra?: React.ReactNode;
 }) {
@@ -3550,7 +3662,7 @@ function DecisionBody(props: {
     const ids = [...attack.valid.keys()];
     return (
       <>
-        <p className="rail-help">Click a player's panel to aim, then click creatures to send them. Click again to take one back.</p>
+        <p className="rail-help">{props.attackHint}</p>
         {props.extra}
         <ul className="combat-list">
           {ids.map((id) => {
