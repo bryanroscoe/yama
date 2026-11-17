@@ -60,10 +60,14 @@ describe("the strip of cards scanned (Bryan, 16 Nov 2026)", () => {
     expect(open).toHaveBeenCalledWith("c");
   });
 
-  it("tags the cards that see play in Commander, and not the bulk", async () => {
+  it("tags the cards that see play in Commander, and not the bulk: on the card just added, and in every card's label", async () => {
     act(() => root.render(<ScanTray cards={cards} worth={2} />));
     await settle();
-    expect([...host.querySelectorAll(".scan-tile")].map((t) => t.querySelector(".scan-tile-tag")?.textContent ?? null)).toEqual(["Played", "Staple", null, "GC"]);
+    // Only the newest shows its tag (16 Nov 2026: the strip was too busy); every tile still says it.
+    expect([...host.querySelectorAll(".scan-tile")].map((t) => t.querySelector(".scan-tile-tag")?.textContent ?? null)).toEqual(["Played", null, null, null]);
+    const labels = [...host.querySelectorAll(".scan-tile")].map((t) => t.getAttribute("aria-label") ?? "");
+    expect(labels[1]).toContain("Staple");
+    expect(labels[3]).toMatch(/Game Changer|GC/);
     // Without onOpen the tiles are pictures, not buttons.
     expect(host.querySelector("button.scan-tile")).toBeNull();
   });
@@ -95,5 +99,19 @@ describe("playability", () => {
     expect(playLine({ rank: 24000, gameChanger: false })).toBe("Rarely in Commander decks.");
     expect(playLine({ rank: 40, gameChanger: true })).toBe("On the Game Changer list. Ranked by how many Commander decks run it.");
     expect(playLine({ rank: null, gameChanger: null })).toBeNull();
+  });
+});
+
+describe("the strip's head is the receipt (design pass, 16 Nov 2026)", () => {
+  it("names the card just added with what can be done about it, and says an event in its place", async () => {
+    act(() => root.render(<ScanTray cards={cards} worth={2} actions={<button>Undo</button>} />));
+    await settle();
+    const head = host.querySelector(".scan-tray-head")!;
+    expect(head.querySelector(".scan-tray-last")?.textContent).toContain("Westvale Abbey");
+    expect(head.querySelector(".scan-tray-do")?.textContent).toBe("Undo");
+    act(() => root.render(<ScanTray cards={cards} worth={2} event="Took out Sol Ring (ECC 57)" />));
+    await settle();
+    expect(head.querySelector(".scan-tray-last")?.textContent).toBe("Took out Sol Ring (ECC 57)");
+    expect(head.querySelector(".scan-tray-do")).toBeNull();
   });
 });

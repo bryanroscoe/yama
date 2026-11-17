@@ -6,7 +6,8 @@
 // to check the printing and fix it (the host's ScannedCard dialog).
 
 import { shortDate, usd } from "@yama/core";
-import { Button, CardThumb } from "../components/ui";
+import { useEffect, useRef, type ReactNode } from "react";
+import { ActionBar, Button, CardThumb } from "../components/ui";
 import { PLAY_WORD, playTag, usePlayability } from "./playable";
 import { priceFor, sessionTotal, worthIt, type RecentCard } from "./price";
 
@@ -49,8 +50,23 @@ export function trayTotal(cards: readonly RecentCard[]): { head: string; note: s
   return { head: `${count}, ${usd(t.total)}`, note: `market, ${when}${t.missing ? `, ${t.missing} unpriced` : ""}` };
 }
 
-export function ScanTray({ cards, worth, onOpen, onReview }: { cards: readonly RecentCard[]; worth: number; onOpen?: (key: string) => void; onReview?: () => void }) {
+/**
+ * The strip's head is the receipt for what just happened (Bryan, 16 Nov 2026: the options popped
+ * up in your face rather than what happened): the card just added, named, with what can be done
+ * about it right now (`actions`: Undo, Wrong printing, Add another) beside it, or `event` (Took
+ * out …, Couldn't save …) in its place for a moment. The camera's chip says only what the scanner
+ * is doing now.
+ */
+export function ScanTray({ cards, worth, onOpen, onReview, event, actions, announce = "" }: { cards: readonly RecentCard[]; worth: number; onOpen?: (key: string) => void; onReview?: () => void; event?: string | null; actions?: ReactNode; announce?: string }) {
   const play = usePlayability(cards.map((c) => c.oracleId));
+  const list = useRef<HTMLOListElement>(null);
+  const newestKey = cards[0]?.key;
+  // A card just added lands at the start of the strip: bring the start back into view, or a strip
+  // scrolled along hides the card the receipt above names.
+  useEffect(() => {
+    const el = list.current;
+    if (el && el.scrollLeft !== 0) el.scrollTo?.({ left: 0, behavior: "smooth" });
+  }, [newestKey]);
   if (cards.length === 0) return null;
   // Anything to try again: an add, or a change to one.
   const failed = cards.filter((c) => c.state === "failed" || c.state === "change-failed").length;
@@ -59,24 +75,42 @@ export function ScanTray({ cards, worth, onOpen, onReview }: { cards: readonly R
   return (
     <section className="scan-tray" aria-label="Scanned this session">
       <div className="scan-tray-head">
-        {/* The card just added, named: a 72 px picture alone doesn't say it was the right one. */}
-        <p className="scan-tray-last">
-          <strong>{last.name}</strong>
-          {last.set && <span className="scan-tray-note"> {last.set.toUpperCase()}{last.number ? ` #${last.number}` : ""}</span>}
+        {/* Always there, so a screen reader hears each add and event as its text changes. */}
+        <p className="visually-hidden" role="status">
+          {announce}
         </p>
-        <p className="scan-tray-total">
-          {total.head}
-          {total.note && <span className="scan-tray-note"> {total.note}</span>}
-        </p>
-        {onReview ? (
-          <Button className={`scan-tray-review${failed ? " is-failed" : ""}`} size="small" variant="outline" onClick={onReview}>
-            {failed ? `${failed} to try again` : "Review all"}
-          </Button>
-        ) : (
-          failed > 0 && <span className="scan-tray-failed">{failed} not saved</span>
-        )}
+        {/* What just happened, and what can be done about it now. */}
+        <div className="scan-tray-row">
+          {event ? (
+            <p className="scan-tray-last is-event">{event}</p>
+          ) : (
+            // The card just added, named: a 72 px picture alone doesn't say it was the right one.
+            <p className="scan-tray-last">
+              <strong>{last.name}</strong>
+              {last.set && <span className="scan-tray-note"> {last.set.toUpperCase()}{last.number ? ` #${last.number}` : ""}</span>}
+            </p>
+          )}
+          {actions && (
+            <ActionBar align="end" className="scan-tray-do">
+              {actions}
+            </ActionBar>
+          )}
+        </div>
+        <div className="scan-tray-row">
+          <p className="scan-tray-total">
+            {total.head}
+            {total.note && <span className="scan-tray-note"> {total.note}</span>}
+          </p>
+          {onReview ? (
+            <Button className={`scan-tray-review${failed ? " is-failed" : ""}`} size="small" variant="outline" onClick={onReview}>
+              {failed ? `${failed} to try again` : "Review all"}
+            </Button>
+          ) : (
+            failed > 0 && <span className="scan-tray-failed">{failed} not saved</span>
+          )}
+        </div>
       </div>
-      <ol className="scan-tray-list">
+      <ol ref={list} className="scan-tray-list">
         {cards.map((c, i) => {
           const price = c.finish === "proxy" ? null : priceFor(c.prices, c.finish);
           const tag = playTag(play.get(c.oracleId ?? ""));
@@ -88,7 +122,9 @@ export function ScanTray({ cards, worth, onOpen, onReview }: { cards: readonly R
                 <CardThumb src={c.image} eager={i < 6} fallback={<span className="scan-tile-fallback">{c.name}</span>} />
                 {c.copies > 1 && <span className="scan-tile-copies">×{c.copies}</span>}
                 {c.finish !== "nonfoil" && <span className={`scan-tile-finish is-${c.finish}`}>{FINISH_SHORT[c.finish]}</span>}
-                {word && c.state !== "failed" && <span className={`scan-tile-tag is-${tag}`}>{tag === "game-changer" ? "GC" : word}</span>}
+                {/* The tag on the card just added; an older card's is in its own sheet (tap it), so the
+                    strip stays quiet (Bryan, 16 Nov 2026: too busy). */}
+                {word && i === 0 && c.state !== "failed" && <span className={`scan-tile-tag is-${tag}`}>{tag === "game-changer" ? "GC" : word}</span>}
               </span>
               {/* A failed save says so where the price goes: the red ring alone is easy to miss. */}
               <span className={`scan-tile-price${c.state === "failed" ? " is-failed" : price == null ? " is-none" : ""}`}>

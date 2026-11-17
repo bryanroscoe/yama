@@ -3,7 +3,7 @@
 // zoom where the browser exposes it, else a digital zoom: the view is enlarged and the recognizer
 // is given the middle of the frame, so a small or far card is seen with more of the camera's pixels.
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../components/ui";
 
 export interface CameraCaps {
@@ -310,6 +310,22 @@ export type CameraControlState = ReturnType<typeof useCameraControls>;
 const fmt = (z: number) => `${Number.isInteger(z) ? z : z.toFixed(1)}×`;
 
 export function CameraControls({ c, live }: { c: CameraControlState; live: boolean }) {
+  // The scanner zooms by itself and a pinch zooms too, so zoom is one small button showing the
+  // level; a tap opens + and − (Bryan, 16 Nov 2026: too busy).
+  const [zoomOpen, setZoomOpen] = useState(false);
+  const levelRef = useRef<HTMLButtonElement>(null);
+  const groupRef = useRef<HTMLDivElement>(null);
+  // + and − fold away again a few seconds after the last zoom. Focus on one of them goes back to
+  // the level button rather than to the page (Codex review, 16 Nov 2026).
+  useEffect(() => {
+    if (!zoomOpen) return;
+    const t = window.setTimeout(() => {
+      const at = document.activeElement;
+      if (at && at !== levelRef.current && groupRef.current?.contains(at)) levelRef.current?.focus();
+      setZoomOpen(false);
+    }, 4000);
+    return () => window.clearTimeout(t);
+  }, [zoomOpen, c.zoom]);
   if (!live) return null;
   return (
     <div className="scan-tools">
@@ -321,17 +337,27 @@ export function CameraControls({ c, live }: { c: CameraControlState; live: boole
           </svg>
         </Button>
       )}
-      <div className="scan-zoom-buttons" role="group" aria-label="Zoom">
-        <Button className="scan-tool" onClick={c.zoomIn} disabled={!c.canZoomIn} aria-label="Zoom in">
-          +
-        </Button>
-        <span className="scan-zoom-level" aria-live="polite">
-          {fmt(c.zoom)}
-        </span>
-        <Button className="scan-tool" onClick={c.zoomOut} disabled={!c.canZoomOut} aria-label="Zoom out">
-          −
-        </Button>
-      </div>
+      {(c.canZoomIn || c.canZoomOut) && (
+        <div ref={groupRef} className={`scan-zoom-buttons${zoomOpen ? " is-open" : ""}`} role="group" aria-label="Zoom">
+          {zoomOpen && (
+            <Button className="scan-tool" onClick={c.zoomIn} disabled={!c.canZoomIn} aria-label="Zoom in">
+              +
+            </Button>
+          )}
+          <Button ref={levelRef} className="scan-tool scan-zoom-level" onClick={() => setZoomOpen((o) => !o)} aria-expanded={zoomOpen} aria-label={`Zoom ${fmt(c.zoom)}${zoomOpen ? "" : ", change it"}`}>
+            {fmt(c.zoom)}
+          </Button>
+          {/* A pinch or the scanner's own zoom, said too: the button's label alone isn't announced. */}
+          <span className="visually-hidden" aria-live="polite">
+            {fmt(c.zoom)}
+          </span>
+          {zoomOpen && (
+            <Button className="scan-tool" onClick={c.zoomOut} disabled={!c.canZoomOut} aria-label="Zoom out">
+              −
+            </Button>
+          )}
+        </div>
+      )}
       {c.error && <span className="scan-tool-error">{c.error}</span>}
     </div>
   );

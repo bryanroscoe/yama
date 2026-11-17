@@ -3,7 +3,7 @@
 // at once with Undo on the camera; the card is then held back as the same card, and "Scan anyway"
 // files one more copy of it; the ways in used now and then sit in More. No camera here, so the
 // card comes from a typed name.
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Printing } from "../api";
@@ -91,6 +91,33 @@ async function typeName(name = "Arcane Signet") {
 }
 
 describe("ScannerView after a printing is chosen", () => {
+  it("keeps Copies beside the printings to tap, with no Add, and the tap files that many (Codex review, 16 Nov 2026)", async () => {
+    const accepted: [ScanCandidate, number][] = [];
+    act(() =>
+      root.render(
+        <ScannerView
+          onAccept={async (c, n) => {
+            accepted.push([c, n]);
+            return true;
+          }}
+          acceptLabel="Add and scan next"
+        />,
+      ),
+    );
+    await typeName();
+    const options = await until(() => (document.querySelectorAll('[role="option"]').length === 3 ? document.querySelectorAll<HTMLElement>('[role="option"]') : null), "the printings");
+    expect(button("Add and scan next")).toBeUndefined();
+    const select = document.querySelector<HTMLSelectElement>(".scan-copies select")!;
+    expect(select).not.toBeNull();
+    act(() => {
+      select.value = "3";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await click(options[1]!);
+    expect(accepted).toHaveLength(1);
+    expect(accepted[0]![1]).toBe(3);
+  });
+
   it("files a tapped printing at once, offers Undo, then Scan anyway files one more of it", async () => {
     const accepted: [ScanCandidate, number, boolean][] = [];
     const undone: ScanCandidate[] = [];
@@ -241,10 +268,11 @@ describe("ScannerView after a printing is chosen", () => {
     await typeName("Sol Ring");
     // No placeholder text: the picture's stand-in is an empty card shape, the name is the heading.
     await until(() => document.querySelector("h3"), "the card's name");
-    expect(document.querySelector("h3")?.textContent).toBe("Sol Ring");
+    expect(document.querySelector("h3")?.firstChild?.textContent).toBe("Sol Ring");
     expect(document.querySelector(".scan-thumb.card-fallback")?.textContent ?? "").toBe("");
-    // Settled by the scanner (the only English printing): Wrong printing is offered.
-    await click(await until(() => button("Wrong printing?"), "Wrong printing?"));
+    // Settled by the scanner (the only English printing): Wrong printing is offered, under More.
+    await click(await until(() => button("More"), "More"));
+    await click(await until(() => button("Wrong printing"), "Wrong printing"));
     const marked = await until(() => document.querySelector(".scan-misread"), "the misread mark");
     expect(marked.textContent).toBe("Read as this");
     expect(marked.closest('[role="option"]')?.textContent).toContain("ECC");
@@ -299,6 +327,152 @@ describe("ScannerView after a printing is chosen", () => {
     await click(await until(() => button("Undo"), "Undo"));
     await until(() => (undone.length ? undone : null), "the undo");
     expect(undone[0]).toBe(corrected[0]![1]);
+  });
+});
+
+describe("with the strip, what just happened is said beside the card (design pass, 16 Nov 2026)", () => {
+  it("puts Undo in the strip's head, and +1 copy (Scan anyway) on the camera while the card is still in view", async () => {
+    const accepted: ScanCandidate[] = [];
+    const undone: ScanCandidate[] = [];
+    function Host() {
+      const [cards, setCards] = useState<ScanCandidate[]>([]);
+      return (
+        <ScannerView
+          onAccept={async (c) => {
+            accepted.push(c);
+            setCards((a) => [c, ...a]);
+            return true;
+          }}
+          onUndo={async (c) => {
+            undone.push(c);
+            setCards((a) => a.filter((x) => x !== c));
+          }}
+          onCorrect={async () => "changed"}
+          recentCards={cards.map((c, i) => ({ key: `k${cards.length - i}`, name: c.name, set: c.set, number: c.number, finish: "nonfoil", copies: 1, prices: c.prices, image: null, oracleId: c.oracle_id }))}
+        />
+      );
+    }
+    act(() => root.render(<Host />));
+    await typeName();
+    const options = await until(() => (document.querySelectorAll('[role="option"]').length === 3 ? document.querySelectorAll<HTMLElement>('[role="option"]') : null), "the printings");
+    await click(options[1]!);
+    const tray = await until(() => document.querySelector(".scan-tray"), "the strip");
+    const head = () => tray.querySelector(".scan-tray-head")!;
+    await until(() => (head().querySelector(".scan-tray-do") ? true : null), "the receipt's actions");
+    expect(head().textContent).toContain("Arcane Signet");
+    // A printing you tapped yourself is rarely wrong: Undo alone (Wrong printing is in the card's sheet).
+    expect([...head().querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Undo"]);
+    // The camera says so for a moment where the eye is, then that the card is still in view, with +1 copy.
+    const chip = () => document.querySelector(".scan-chip")!;
+    expect(chip().textContent).toContain("Added");
+    expect(chip().textContent).toContain("+1 copy");
+    await until(() => (chip().textContent?.startsWith("Still in view") ? true : null), "Still in view");
+    // No "still in view" box in the sheet.
+    expect(document.querySelector(".scan-dupe")).toBeNull();
+
+    await click([...chip().querySelectorAll("button")].find((b) => b.textContent === "+1 copy")!);
+    expect(accepted).toHaveLength(2);
+    expect(accepted[1]).toMatchObject({ set: "cmm", number: "390" });
+    // A stack can be counted: after the moment's "Added", the chip says how many in a row.
+    await until(() => (chip().textContent?.startsWith("2 added") ? true : null), "2 added");
+    // Undo takes back the newest copy.
+    await click(await until(() => [...head().querySelectorAll("button")].find((b) => b.textContent === "Undo"), "Undo for the extra copy"));
+    await until(() => (undone.length === 1 ? true : null), "the undo");
+    expect(undone[0]).toBe(accepted[1]);
+    // What Undo did is said where the card was named.
+    await until(() => (document.querySelector(".scan-tray-last.is-event")?.textContent?.includes("Took out") ? true : null), "Took out");
+  });
+
+  function stripHost(accept: (c: ScanCandidate, n: number) => Promise<boolean>, undone: ScanCandidate[], props: Partial<Parameters<typeof ScannerView>[0]> = {}) {
+    let n = 0;
+    // Like Collection's `filedAs`: the entry each card handed to onAccept went into.
+    const keys = new WeakMap<ScanCandidate, string>();
+    function Host() {
+      const [cards, setCards] = useState<ScanCandidate[]>([]);
+      return (
+        <ScannerView
+          // Like Collection: the entry goes into the strip at once, before its save comes back.
+          onAccept={(c) => {
+            keys.set(c, `k${n}`);
+            setCards((a) => [c, ...a]);
+            return accept(c, n++);
+          }}
+          onUndo={async (c) => {
+            undone.push(c);
+          }}
+          onCorrect={async () => "changed"}
+          entryOf={(c) => keys.get(c)}
+          recentCards={cards.map((c) => ({ key: keys.get(c)!, name: c.name, set: c.set, number: c.number, finish: "nonfoil", copies: 1, prices: c.prices, image: null, oracleId: c.oracle_id }))}
+          {...props}
+        />
+      );
+    }
+    act(() => root.render(<Host />));
+  }
+
+  it("never puts an Undo beside a card it wouldn't take out: a second card filed inside the Undo window has none (review, 16 Nov 2026)", async () => {
+    const undone: ScanCandidate[] = [];
+    // The first save comes back; the second never does.
+    stripHost((_, n) => (n === 0 ? Promise.resolve(true) : new Promise<boolean>(() => {})), undone);
+    await typeName();
+    let options = await until(() => (document.querySelectorAll('[role="option"]').length === 3 ? document.querySelectorAll<HTMLElement>('[role="option"]') : null), "the printings");
+    await click(options[1]!);
+    const head = () => document.querySelector(".scan-tray-head")!;
+    await until(() => (head().querySelector(".scan-tray-do") ? true : null), "Undo for the first card");
+    // Every add is said to a screen reader, in the strip's status line.
+    expect(head().querySelector('.visually-hidden[role="status"]')?.textContent).toContain("Added Arcane Signet");
+
+    await typeName();
+    options = await until(() => (document.querySelectorAll('[role="option"]').length === 3 ? document.querySelectorAll<HTMLElement>('[role="option"]') : null), "the printings again");
+    await click(options[2]!);
+    await until(() => (document.querySelectorAll(".scan-tile").length === 2 ? true : null), "the second card in the strip");
+    // The head no longer offers Undo: it would have taken out the first card, not the one named.
+    expect(head().querySelector(".scan-tray-do")).toBeNull();
+    expect(undone).toHaveLength(0);
+  });
+
+  it("puts no Undo beside a +1 copy of the same printing while it saves: Undo would take out the earlier entry (Codex review, 16 Nov 2026)", async () => {
+    const undone: ScanCandidate[] = [];
+    // The first save comes back; the extra copy's never does.
+    stripHost((_, n) => (n === 0 ? Promise.resolve(true) : new Promise<boolean>(() => {})), undone);
+    await typeName();
+    const options = await until(() => (document.querySelectorAll('[role="option"]').length === 3 ? document.querySelectorAll<HTMLElement>('[role="option"]') : null), "the printings");
+    await click(options[1]!);
+    const head = () => document.querySelector(".scan-tray-head")!;
+    await until(() => (head().querySelector(".scan-tray-do") ? true : null), "Undo for the first copy");
+    const chip = () => document.querySelector(".scan-chip")!;
+    await click(await until(() => [...chip().querySelectorAll("button")].find((b) => b.textContent === "+1 copy"), "+1 copy"));
+    await until(() => (document.querySelectorAll(".scan-tile").length === 2 ? true : null), "the extra copy in the strip");
+    // Same name, set and number as the newest tile, but not its entry: no Undo or Wrong printing.
+    expect(head().querySelector(".scan-tray-do")).toBeNull();
+    expect(undone).toHaveLength(0);
+  });
+
+  it("pins name suggestions in the scanner itself, not the sheet, so the sheet keeps scrolling and a drag doesn't carry them off (Codex review, 16 Nov 2026)", async () => {
+    act(() => root.render(<ScannerView onAccept={async () => true} />));
+    const input = await until(() => document.querySelector<HTMLInputElement>('input[aria-label="Card name"]'), "the name box");
+    await act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "Arcane");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const list = await until(() => document.querySelector<HTMLElement>(".scan-name-list"), "the suggestions");
+    expect(list.classList.contains("is-pinned")).toBe(true);
+    expect(list.closest(".scan-panel")).toBeNull();
+    expect(list.parentElement?.classList.contains("scan")).toBe(true);
+    expect(list.style.getPropertyValue("--name-width")).not.toBe("");
+    // Picking one still works from there.
+    await click(await until(() => button("Arcane Signet"), "the suggestion"));
+    await until(() => (document.querySelectorAll('[role="option"]').length === 3 ? true : null), "the printings");
+    expect(document.querySelector(".scan-name-list")).toBeNull();
+  });
+
+  it("has no More when there is nothing in it (a deck check, after Wrong card)", async () => {
+    act(() => root.render(<ScannerView identityOnly onAccept={async () => true} />));
+    await typeName();
+    await click(await until(() => button("More"), "More"));
+    await click(await until(() => button("Wrong card"), "Wrong card"));
+    await until(() => (document.querySelector(".scan-wrong") ? true : null), "the Wrong card panel");
+    expect(button("More")).toBeUndefined();
   });
 });
 
