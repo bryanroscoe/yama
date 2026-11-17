@@ -72,6 +72,15 @@ it("tells a target from tokens of the same name", () => {
   const story = sourceStory(events, { id: 40, name: "Path to Exile", controller: 1 }, [{ id: "8", name: "Treasure", controller: 0 }], { you: 0, Who: (n) => (n === 0 ? "You" : "Sam") });
   expect(story).toEqual({ lead: "Sam cast Path to Exile targeting your Treasure.", lines: ["Treasure was exiled from the battlefield."] });
 });
+it("tells what a copy did, though it was never cast", () => {
+  const events: Happening[] = [
+    { kind: "cast", seq: 1, turn: 6, active: 2, seat: 2, card: { id: 40, name: "Chain of Vapor" } },
+    { kind: "moved", seq: 2, turn: 6, active: 2, card: { id: 12, name: "Swiftfoot Boots" }, owner: 0, from: "battlefield", to: "hand", how: "moved" },
+    { kind: "moved", seq: 3, turn: 6, active: 2, card: { id: 30, name: "Sol Ring" }, owner: 2, from: "battlefield", to: "hand", how: "moved" },
+  ];
+  const story = sourceStory(events, { id: 41, name: "Chain of Vapor", controller: 0 }, [{ id: "30", name: "Sol Ring", controller: 2 }], { you: 0, Who: (n) => (n === 0 ? "You" : "Kraum") });
+  expect(story).toEqual({ lead: "Your Chain of Vapor is targeting Kraum's Sol Ring.", lines: ["Sol Ring returned to Kraum's hand."] });
+});
 it("leaves out an old cast when a permanent's trigger asks", () => {
   const events: Happening[] = [
     { kind: "cast", seq: 1, turn: 2, active: 1, seat: 1, card: { id: 7, name: "Rhystic Study" } },

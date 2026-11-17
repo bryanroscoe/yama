@@ -706,8 +706,9 @@ fn focus_may(text: &str, verb: &str) -> Option<(String, Option<String>)> {
     let ask = second_person(ask);
     let mut chars = ask.chars();
     let question = format!("{}{}?", chars.next()?.to_uppercase(), chars.as_str());
-    let after = sentences[i + 1..].join(" ");
-    let after = (!after.is_empty()).then(|| if_you_do(&after));
+    // Only what hangs on this player's own yes; the rest of the card may be someone else's part
+    // (Tempt with Discovery's "search your library" for each opponent who searched is its caster's).
+    let after = sentences.get(i + 1).and_then(|s| if_you_do(s));
     let detail = [also, after].into_iter().flatten().collect::<Vec<_>>().join(" ");
     Some((question, (!detail.is_empty()).then_some(detail)))
 }
@@ -741,14 +742,15 @@ fn second_person(text: &str) -> String {
 }
 
 /// "If the player does, they may copy this spell" as said to that player: "If you do, you may
-/// copy this spell". Text about someone else is left alone.
-fn if_you_do(text: &str) -> String {
-    for lead in ["If the player does, ", "If that player does, ", "If they do, "] {
-        if let Some(rest) = text.strip_prefix(lead) {
-            return format!("If you do, {}", second_person(rest));
-        }
+/// copy this spell". `None` for a sentence that doesn't hang on their yes.
+fn if_you_do(text: &str) -> Option<String> {
+    if text.starts_with("If you do, ") {
+        return Some(text.to_string());
     }
-    text.to_string()
+    ["If the player does, ", "If that player does, ", "If they do, "]
+        .iter()
+        .find_map(|lead| text.strip_prefix(lead))
+        .map(|rest| format!("If you do, {}", second_person(rest)))
 }
 
 /// The range of a named choice whose options are every whole number from one to another.
@@ -3408,6 +3410,11 @@ mod tests {
         // A verb the text doesn't say after "may", or says twice, leaves the question alone.
         assert_eq!(focus_may(chain, "return"), None);
         assert_eq!(focus_may("You may draw a card. Then you may draw a card.", "draw"), None);
+        // The caster's part after an opponent's "may" isn't the opponent's.
+        assert_eq!(
+            focus_may("Search your library for a land card, put it onto the battlefield, then shuffle. Each opponent may search their library for a land card and put it onto the battlefield. For each opponent who searches a library this way, search your library for a land card and put it onto the battlefield.", "search"),
+            Some(("Search your library for a land card and put it onto the battlefield?".into(), None))
+        );
         // "Their mana costs" are the cards'.
         assert_eq!(
             focus_may("Exile the top five cards of your library. You may cast up to two of them without paying their mana costs.", "cast"),

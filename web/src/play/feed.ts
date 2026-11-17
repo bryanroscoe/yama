@@ -181,10 +181,17 @@ export function sourceStory(
   const names = new Set(targets.filter((t) => t.zone !== "player").map((t) => t.name));
   // By id where the card has one here; by name only where it went out of sight (a hand you can't see).
   const aimed = (c: Seen) => (c.id !== undefined ? ids.has(String(c.id)) : !!c.name && names.has(c.name));
+  // A copy (Chain of Vapor copied) was never cast: what happened this turn to the cards it targets,
+  // by id only, since there's no cast to count from.
+  const thisTurn = events.length ? events[events.length - 1]!.turn : -1;
+  const from = at >= 0 ? at + 1 : events.findIndex((h) => h.turn === thisTurn);
   const lines = events
-    .slice(at + 1)
+    .slice(Math.max(from, 0))
     .filter((h) => {
-      if (at < 0) return false;
+      if (at < 0) {
+        if (!ids.size || from < 0) return false;
+        return (h.kind === "moved" || h.kind === "control" || h.kind === "counters" || h.kind === "transformed") && h.card.id !== undefined && ids.has(String(h.card.id));
+      }
       switch (h.kind) {
         case "moved":
           return aimed(h.card) || (!!h.by && isSource(h.by));
