@@ -8234,3 +8234,9 @@ button.dw-pile2:disabled {
   .wh { left: 16px; right: 16px; width: auto; top: 12px; bottom: auto; max-height: 45dvh; }
   .wh-card img { width: 84px; }
 }
+
+/* An attack still being built: dotted, like the line that follows the pointer after a click on an
+   attacker (attackAim.ts). Declared attacks are solid. */
+.plan-arrow.dashed {
+  stroke-dasharray: 10 8;
+}
