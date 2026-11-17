@@ -82,6 +82,15 @@ describe("the others sliding aside", () => {
     expect(shifts(rows, 2, 0, "y")).toEqual([{ dx: 0, dy: 88 }, { dx: 0, dy: 88 }, { dx: 0, dy: 0 }]);
     expect(shifts(rows, 1, 0, "y")).toEqual([{ dx: 0, dy: 128 }, { dx: 0, dy: 0 }, { dx: 0, dy: 0 }]);
   });
+  it("moves a row past a split marker between two places, not on top of it", () => {
+    // Telling Time on a phone: two rows on top, a 40 px "Bottom of your library" line, two below.
+    const split: Box[] = [0, 1, 2, 3].map((k) => ({ left: 0, top: k * 88 + (k >= 2 ? 40 : 0), width: 360, height: 80 }));
+    // The first row dropped last: the second goes up into the first place, the third up above
+    // the line into the second, the fourth up under the line.
+    expect(shifts(split, 0, 3, "y").map((s) => s.dy)).toEqual([0, -88, -128, -88]);
+    expect(landing(split, 0, 3, "y").top).toBe(304);
+    expect(shifts(split, 3, 0, "y").map((s) => s.dy)).toEqual([88, 128, 88, 0]);
+  });
   it("leaves everything still when it's back where it started", () => {
     expect(shifts(rows, 1, 1, "y").every((s) => s.dx === 0 && s.dy === 0)).toBe(true);
   });

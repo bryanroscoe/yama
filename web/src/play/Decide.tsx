@@ -139,6 +139,8 @@ function useRead(read: () => void) {
       clear();
       timer.current = window.setTimeout(() => {
         if (reorderHold.active) return;
+        // A card read from a grip that hasn't moved yet: it stays put under the reader.
+        reorderHold.cancel?.();
         fired.current = true;
         read();
       }, 400);
