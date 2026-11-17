@@ -57,6 +57,7 @@ import {
   type TimeMove,
 } from "./answer";
 import { seatHeadOf, tileOf } from "./DragLayer";
+import { reorderHold, useReorder } from "./reorder";
 import { reachable, roomSpot, shortcutCount, stepStop, timeAfter, timeChoices, timeCounters } from "./rare";
 import type { CardMeta, DecisionOption, Pending, TogetherView } from "./types";
 
@@ -137,6 +138,9 @@ function useRead(read: () => void) {
       start.current = { x: e.clientX, y: e.clientY };
       clear();
       timer.current = window.setTimeout(() => {
+        if (reorderHold.active) return;
+        // A card read from a grip that hasn't moved yet: it stays put under the reader.
+        reorderHold.cancel?.();
         fired.current = true;
         read();
       }, 400);
@@ -434,7 +438,7 @@ export function ScryPiles({ p, draft, onDraft, ctx, compact, disabled }: Props) 
 
 function ReadImg({ src, name, onRead }: { src: string | null; name: string; onRead: () => void }) {
   const { handlers } = useRead(onRead);
-  return src ? <img className="dw-row-img" src={src} alt={name} {...handlers} /> : <span className="dw-row-img blank" />;
+  return src ? <img className="dw-row-img" src={src} alt={name} data-reads="" draggable={false} {...handlers} /> : <span className="dw-row-img blank" />;
 }
 
 function ReadButton({ className, label, disabled, onClick, onRead, children }: { className: string; label: string; disabled: boolean; onClick: () => void; onRead: () => void; children: ReactNode }) {
@@ -448,52 +452,6 @@ function ReadButton({ className, label, disabled, onClick, onRead, children }: {
 
 // ── put in order (GOrder, GTriggers) ───────────────────────────────────────
 
-/**
- * Drag to reorder: a press on a handle follows the pointer and moves its entry past each
- * neighbour's middle. The arrows do the same one step at a time. `onEnd` runs when the press
- * lets go (the hand order sends the new order then, not at every step).
- */
-export function useReorder(axis: "x" | "y", onMove: (from: number, to: number) => void, onEnd?: () => void) {
-  const list = useRef<HTMLOListElement>(null);
-  const drag = useRef<{ i: number; pointer: number } | null>(null);
-  return {
-    list,
-    handle: (i: number) => ({
-      onPointerDown: (e: React.PointerEvent<HTMLElement>) => {
-        if (e.button !== 0) return;
-        e.preventDefault();
-        e.currentTarget.setPointerCapture(e.pointerId);
-        drag.current = { i, pointer: e.pointerId };
-      },
-      onPointerMove: (e: React.PointerEvent<HTMLElement>) => {
-        const d = drag.current;
-        if (!d || d.pointer !== e.pointerId || !list.current) return;
-        const items = [...list.current.querySelectorAll<HTMLElement>(":scope > [data-reorder]")];
-        const at = axis === "x" ? e.clientX : e.clientY;
-        let to = d.i;
-        items.forEach((el, k) => {
-          const r = el.getBoundingClientRect();
-          const mid = axis === "x" ? r.left + r.width / 2 : r.top + r.height / 2;
-          if (k < d.i && at < mid) to = Math.min(to, k);
-          if (k > d.i && at > mid) to = Math.max(to, k);
-        });
-        if (to !== d.i) {
-          onMove(d.i, to);
-          d.i = to;
-        }
-      },
-      onPointerUp: () => {
-        if (drag.current) onEnd?.();
-        drag.current = null;
-      },
-      onPointerCancel: () => {
-        if (drag.current) onEnd?.();
-        drag.current = null;
-      },
-    }),
-  };
-}
-
 const Grip = ({ cols }: { cols: number }) => (
   <span className="dw-grip" aria-hidden="true" style={{ gridTemplateColumns: `repeat(${cols}, 4px)` }}>
     {Array.from({ length: 6 }, (_, i) => <span key={i} />)}
@@ -503,7 +461,7 @@ const Grip = ({ cols }: { cols: number }) => (
 /** Cards in an order (GOrder): left to right is the order sent, with the destination drawn beside them. */
 export function OrderCards({ p, draft, onDraft, ctx, compact, disabled }: Props) {
   // A dig's rest split by someone else keeps its two piles: only the order within each moves.
-  const { list, handle } = useReorder(compact ? "y" : "x", (from, to) => canMoveOrder(p, from, to) && onDraft(moveTo(draft, from, to)));
+  const { list, row, grip } = useReorder(compact ? "y" : "x", (from, to) => onDraft(moveTo(draft, from, to)), { canMove: (from, to) => canMoveOrder(p, from, to), disabled });
   if (draft.kind !== "order") return null;
   const byId = new Map(p.options.map((o) => [o.id, o]));
   const n = draft.ids.length;
@@ -531,9 +489,9 @@ export function OrderCards({ p, draft, onDraft, ctx, compact, disabled }: Props)
                   <span>Bottom of your library</span>
                 </li>
               ),
-              <li key={id} data-reorder className="dw-order-item">
+              <li key={id} className="dw-order-item" {...row}>
                 <span className={`dw-tag${i === 0 ? " first" : ""}`}>{orderTag(p, i, n)}</span>
-                <span className="dw-order-card" {...handle(i)}>
+                <span className="dw-order-card" {...grip}>
                   <ReadImg src={img(o)} name={name} onRead={() => ctx.onRead(name, Number(id))} />
                   <span className="pick-badge num">{i + 1}</span>
                 </span>
@@ -543,7 +501,7 @@ export function OrderCards({ p, draft, onDraft, ctx, compact, disabled }: Props)
                     {compact ? "↑" : "←"}
                   </button>
                   {!compact && (
-                    <span className="dw-grip-wrap" title="Drag" {...handle(i)}>
+                    <span className="dw-grip-wrap" title="Drag" {...grip}>
                       <Grip cols={3} />
                     </span>
                   )}
@@ -556,14 +514,14 @@ export function OrderCards({ p, draft, onDraft, ctx, compact, disabled }: Props)
           })}
         </ol>
       </div>
-      <p className="dw-foot">{compact ? "Press and hold a card to drag it. " : "Drag a card, or use the arrows; left to right is the order it's sent. "}{IMAGES}</p>
+      <p className="dw-foot">{compact ? "Drag a card, or use the arrows. " : "Drag a card, or use the arrows; left to right is the order it's sent. "}{IMAGES}</p>
     </div>
   );
 }
 
 /** Triggers in order (GTriggers): the top one resolves first; each row is the trigger's own Oracle text. */
 export function TriggerOrder({ p, draft, onDraft, ctx, compact, disabled }: Props) {
-  const { list, handle } = useReorder("y", (from, to) => onDraft(moveTo(draft, from, to)));
+  const { list, row, grip } = useReorder("y", (from, to) => onDraft(moveTo(draft, from, to)), { disabled });
   if (draft.kind !== "order") return null;
   const byId = new Map(p.options.map((o) => [o.id, o]));
   const n = draft.ids.length;
@@ -583,8 +541,8 @@ export function TriggerOrder({ p, draft, onDraft, ctx, compact, disabled }: Prop
           const artist = o?.artist ?? (o ? ctx.meta[o.name]?.artist : null);
           const name = o?.name ?? "A trigger";
           return (
-            <li key={id} data-reorder className="dw-trigger">
-              <span className="dw-grip-wrap" title="Drag" {...handle(i)}>
+            <li key={id} className="dw-trigger" {...row}>
+              <span className="dw-grip-wrap" title="Drag" {...grip}>
                 <Grip cols={2} />
               </span>
               <b className="dw-trigger-n">{i + 1}</b>
@@ -605,7 +563,7 @@ export function TriggerOrder({ p, draft, onDraft, ctx, compact, disabled }: Prop
           );
         })}
       </ol>
-      <p className="dw-foot">Drag a handle or use the arrows. {COPYRIGHT}.</p>
+      <p className="dw-foot">Drag a trigger, or use the arrows. {COPYRIGHT}.</p>
     </div>
   );
 }
