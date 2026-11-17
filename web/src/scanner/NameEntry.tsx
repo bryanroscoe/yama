@@ -1,4 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { api } from "../api";
 import { Button } from "../components/ui";
 
@@ -11,9 +12,14 @@ export function NameEntry({ onPick, placeholder = "Or type the name" }: { onPick
   // keeps scrolling rather than letting them out: Codex review, 16 Nov 2026). Above the box when
   // there's room, else below; as tall as that side allows.
   const [at, setAt] = useState<CSSProperties>({});
+  // In the scanner's sheet the list goes to the scanner itself, which never moves: the sheet is
+  // transformed while it's dragged, and a fixed list inside it would follow the sheet, not the box.
+  const [pinTo, setPinTo] = useState<Element | null>(null);
   const open = names.length > 0;
   useLayoutEffect(() => {
     if (!open) return;
+    const input = inputRef.current;
+    setPinTo(input?.closest(".scan-panel") ? input.closest(".scan") : null);
     const place = () => {
       const r = inputRef.current?.getBoundingClientRect();
       if (!r) return;
@@ -52,8 +58,8 @@ export function NameEntry({ onPick, placeholder = "Or type the name" }: { onPick
   return (
     <div className="scan-name">
       <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder={placeholder} aria-label="Card name" autoComplete="off" />
-      {names.length > 0 && (
-        <ul className="scan-name-list" style={at}>
+      {names.length > 0 && maybePortal(
+        <ul className={`scan-name-list${pinTo ? " is-pinned" : ""}`} style={at}>
           {names.map((n) => (
             <li key={n}>
               <Button
@@ -67,8 +73,11 @@ export function NameEntry({ onPick, placeholder = "Or type the name" }: { onPick
               </Button>
             </li>
           ))}
-        </ul>
+        </ul>,
+        pinTo,
       )}
     </div>
   );
 }
+
+const maybePortal = (node: ReactNode, to: Element | null) => (to ? createPortal(node, to) : node);

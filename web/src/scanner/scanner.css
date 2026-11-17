@@ -345,13 +345,12 @@
   background: var(--ground);
   color: var(--text);
 }
-/* In the sheet the suggestions are pinned beside the box (NameEntry places them), over the strip
-   above it, so the sheet keeps scrolling while they're open. */
-.scan-panel:has(.scan-name-list) {
-  z-index: 3;
-}
-.scan-panel .scan-name-list {
+/* In the sheet the suggestions are pinned beside the box (NameEntry places them, in the scanner
+   itself rather than the sheet), over the strip above it, so the sheet keeps scrolling while
+   they're open and a dragged sheet doesn't carry them off. */
+.scan-name-list.is-pinned {
   position: fixed;
+  z-index: 5;
   left: var(--name-left, 16px);
   right: auto;
   top: var(--name-top, auto);

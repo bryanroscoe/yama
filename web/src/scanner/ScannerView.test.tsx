@@ -448,6 +448,24 @@ describe("with the strip, what just happened is said beside the card (design pas
     expect(undone).toHaveLength(0);
   });
 
+  it("pins name suggestions in the scanner itself, not the sheet, so the sheet keeps scrolling and a drag doesn't carry them off (Codex review, 16 Nov 2026)", async () => {
+    act(() => root.render(<ScannerView onAccept={async () => true} />));
+    const input = await until(() => document.querySelector<HTMLInputElement>('input[aria-label="Card name"]'), "the name box");
+    await act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "Arcane");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const list = await until(() => document.querySelector<HTMLElement>(".scan-name-list"), "the suggestions");
+    expect(list.classList.contains("is-pinned")).toBe(true);
+    expect(list.closest(".scan-panel")).toBeNull();
+    expect(list.parentElement?.classList.contains("scan")).toBe(true);
+    expect(list.style.getPropertyValue("--name-width")).not.toBe("");
+    // Picking one still works from there.
+    await click(await until(() => button("Arcane Signet"), "the suggestion"));
+    await until(() => (document.querySelectorAll('[role="option"]').length === 3 ? true : null), "the printings");
+    expect(document.querySelector(".scan-name-list")).toBeNull();
+  });
+
   it("has no More when there is nothing in it (a deck check, after Wrong card)", async () => {
     act(() => root.render(<ScannerView identityOnly onAccept={async () => true} />));
     await typeName();
