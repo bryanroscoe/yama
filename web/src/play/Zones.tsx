@@ -117,7 +117,7 @@ export function ZoneBrowser(props: {
           <figure key={c.id} className="gz-card">
             <Button
               className="zone-card"
-              aria-label={`${c.name}${c.came ? `, ${cameText(c.came)}` : ""}`}
+              aria-label={`${c.name}${c.came ? `, ${cameText(c.came, names)}` : ""}`}
               onClick={() => props.onRead(c)}
               onContextMenu={(e) => (e.preventDefault(), props.onRead(c))}
               onMouseEnter={(e) => props.canHover && props.onHover(c, e.currentTarget)}
@@ -126,7 +126,7 @@ export function ZoneBrowser(props: {
               {meta[c.name]?.image ? <img src={meta[c.name]!.image!} alt="" loading="lazy" /> : <span className="hc-name">{c.name}</span>}
               {c.face_down && <span className="gz-down">Face down</span>}
             </Button>
-            {c.came && <figcaption>{cameText(c.came)}</figcaption>}
+            {c.came && <figcaption>{cameText(c.came, names)}</figcaption>}
           </figure>
         ))}
         {!shown.length && <p className="dim gz-empty">{all.length ? "Nothing here matches." : "Empty."}</p>}

@@ -112,6 +112,13 @@ pub enum What {
         how: How,
         #[serde(skip_serializing_if = "Option::is_none")]
         by: Option<Seen>,
+        /// Who controls `by`: whose spell, ability or creature it was.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        by_seat: Option<u8>,
+        /// `by` dealt the damage the card died of (a state-based destruction, CR 704.5g), rather
+        /// than an instruction that moved it.
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        by_damage: bool,
         /// A creature as it moved, so leaving the battlefield for a graveyard reads "died".
         #[serde(skip_serializing_if = "std::ops::Not::not")]
         creature: bool,
@@ -140,7 +147,14 @@ pub enum What {
     Block { seat: u8, blocks: Vec<[Seen; 2]> },
     Token { seat: u8, card: Seen, count: u32 },
     Counters { card: Seen, counter: String, delta: i32 },
-    Control { card: Seen, from: u8, to: u8 },
+    Control {
+        card: Seen,
+        from: u8,
+        to: u8,
+        /// The spell or ability that took it, when the engine's events say.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        by: Option<Seen>,
+    },
     Transformed { card: Seen },
     /// Cards revealed to everyone (CR 701.20a).
     Revealed { seat: u8, cards: Vec<Seen> },
@@ -248,6 +262,10 @@ pub(crate) struct Feed {
     tally: BTreeMap<u8, SeatStats>,
     /// The private look last noted, so a look that stays open across actions is noted once.
     look: Option<(u8, Vec<ObjectId>)>,
+    /// Each turn of the game (the engine counts every player's turn: turn 14 of a four-player
+    /// game) with how many turns its player had taken by then, which is the turn the table says
+    /// it is ("Worf's turn 4"). See [`Feed::rounds`].
+    rounds: BTreeMap<u32, u32>,
 }
 
 impl Feed {
@@ -282,7 +300,40 @@ impl Feed {
             }
         }
         self.private_look(state);
+        self.note_rounds(events, state);
         self.cursor = Some((state.turn_number, state.active_player.0));
+    }
+
+    /// Note the turn each `TurnStarted` began as its player counts it, and the turn in progress.
+    /// `turns_taken` is the count after the action, so a player who began two turns in one action
+    /// (an extra turn) had one fewer at the first.
+    fn note_rounds(&mut self, events: &[GameEvent], state: &GameState) {
+        let taken = |seat: u8| state.players.iter().find(|p| p.id.0 == seat).map(|p| p.turns_taken).unwrap_or(0);
+        let mut left: HashMap<u8, u32> = HashMap::new();
+        for e in events {
+            if let GameEvent::TurnStarted { player_id, .. } = e {
+                *left.entry(player_id.0).or_default() += 1;
+            }
+        }
+        for e in events {
+            if let GameEvent::TurnStarted { player_id, turn_number } = e {
+                let n = left.get_mut(&player_id.0).expect("counted above");
+                self.rounds.insert(*turn_number, taken(player_id.0).saturating_sub(*n - 1).max(1));
+                *n -= 1;
+            }
+        }
+        self.rounds.entry(state.turn_number).or_insert_with(|| taken(state.active_player.0).max(1));
+    }
+
+    /// Each turn number the engine has used, with the turn its player was on: the turn players
+    /// count, round by round. Turns this game never showed (a skipped turn) are missing.
+    pub(crate) fn rounds(&self) -> Vec<[u32; 2]> {
+        self.rounds.iter().map(|(t, r)| [*t, *r]).collect()
+    }
+
+    /// The turn in progress as its player counts it.
+    pub(crate) fn round(&self, state: &GameState) -> u32 {
+        self.rounds.get(&state.turn_number).copied().unwrap_or(state.turn_number)
     }
 
     /// An answer Yama gave for `seat` from memory, in that seat's feed only.
@@ -310,6 +361,17 @@ impl Feed {
     pub(crate) fn recent(&self, viewer: Viewer, n: usize) -> Vec<Happening> {
         let Some(feed) = self.by.get(&viewer) else { return vec![] };
         feed.iter().skip(feed.len().saturating_sub(n)).cloned().collect()
+    }
+
+    /// The newest happening's number in `viewer`'s feed (0 before any).
+    pub(crate) fn last_seq(&self, viewer: Viewer) -> u64 {
+        self.by.get(&viewer).and_then(|f| f.back()).map_or(0, |h| h.seq)
+    }
+
+    /// `viewer`'s happenings numbered after `after`, oldest first.
+    pub(crate) fn since(&self, viewer: Viewer, after: u64) -> Vec<Happening> {
+        let Some(feed) = self.by.get(&viewer) else { return vec![] };
+        feed.iter().filter(|h| h.seq > after).cloned().collect()
     }
 
     /// How a card in a public zone got there, as `viewer` saw it happen.
@@ -571,6 +633,41 @@ fn convert(shown: &[GameEvent], all: &[GameEvent], state: &GameState, lens: &mut
             _ => {}
         }
     }
+    // What moved a card off the battlefield or took control of it, when no event beside the move
+    // names it: the spell or ability whose instruction finished just after (the engine reports an
+    // effect's completion after what it did), or, for a creature destroyed by the rules for
+    // lethal damage, whatever dealt it damage earlier in the action.
+    let mut damaged: HashMap<ObjectId, ObjectId> = HashMap::new();
+    let mut caused: HashMap<usize, (ObjectId, bool)> = HashMap::new();
+    for (i, e) in shown.iter().enumerate() {
+        match e {
+            GameEvent::DamageDealt { source_id, target: TargetRef::Object(o), amount, .. } if *amount > 0 => {
+                damaged.insert(*o, *source_id);
+            }
+            GameEvent::ZoneChanged { object_id, from: Some(Zone::Battlefield), to, .. } if *to != Zone::Battlefield => {
+                match how.get(object_id) {
+                    Some((_, Some(_))) => {}
+                    Some((How::Destroyed, None)) => {
+                        if let Some(src) = damaged.get(object_id).filter(|s| *s != object_id) {
+                            caused.insert(i, (*src, true));
+                        }
+                    }
+                    _ => {
+                        if let Some(src) = effect_after(shown, i, *object_id) {
+                            caused.insert(i, (src, false));
+                        }
+                    }
+                }
+            }
+            GameEvent::ControllerChanged { object_id, old_controller, new_controller, .. } if old_controller != new_controller => {
+                if let Some(src) = effect_after(shown, i, *object_id) {
+                    caused.insert(i, (src, false));
+                }
+            }
+            _ => {}
+        }
+    }
+
     // Life lost to damage reads as one line with the damage ("Terra dealt 3 damage to you, 41 → 38"):
     // the engine reports the life change just before the damage event that caused it.
     let mut folded: HashSet<usize> = HashSet::new();
@@ -631,14 +728,22 @@ fn convert(shown: &[GameEvent], all: &[GameEvent], state: &GameState, lens: &mut
                     || !face_up;
                 (!skip).then(|| {
                     let (h, by) = how.get(object_id).copied().unwrap_or((How::Moved, None));
+                    let (by, by_damage) = match (by, caused.get(&i)) {
+                        (Some(b), _) => (Some(b), false),
+                        (None, Some((b, dmg))) => (Some(*b), *dmg),
+                        (None, None) => (None, false),
+                    };
                     let here = (to.is_public() && !arrived_down) || (*to == Zone::Hand && viewer == Some(record.owner.0));
+                    let by_card = by.map(|b| lens.seen(b, &known)).filter(|s| s.name.is_some());
                     What::Moved {
                         card: Seen { id: here.then_some(object_id.0), name: Some(record.name.clone()), face_down: false },
                         owner: record.owner.0,
                         from: Some(zone_word(*from)),
                         to: zone_word(*to),
                         how: h,
-                        by: by.map(|b| lens.seen(b, &known)).filter(|s| s.name.is_some()),
+                        by_seat: by_card.as_ref().and(by).and_then(|b| lens.controller(b)),
+                        by_damage: by_damage && by_card.is_some(),
+                        by: by_card,
                         creature: record.core_types.contains(&CoreType::Creature),
                     }
                 })
@@ -714,7 +819,8 @@ fn convert(shown: &[GameEvent], all: &[GameEvent], state: &GameState, lens: &mut
                 counters(&mut out, lens.seen(*object_id, &known), counter_type, -i64::from(*count))
             }
             GameEvent::ControllerChanged { object_id, old_controller, new_controller, evidence: _ } if old_controller != new_controller => {
-                Some(What::Control { card: lens.seen(*object_id, &known), from: old_controller.0, to: new_controller.0 })
+                let by = caused.get(&i).map(|(b, _)| lens.seen(*b, &known)).filter(|s| s.name.is_some());
+                Some(What::Control { card: lens.seen(*object_id, &known), from: old_controller.0, to: new_controller.0, by })
             }
             GameEvent::Transformed { object_id } => Some(What::Transformed { card: lens.seen(*object_id, &known) }),
             // Names in the order revealed. The ids are left out: a revealed card usually goes back
@@ -750,6 +856,42 @@ fn convert(shown: &[GameEvent], all: &[GameEvent], state: &GameState, lens: &mut
     (out, arrivals)
 }
 
+/// The source of the first instruction that finished after event `i` and could have moved or
+/// taken `object` (destroy, exile, bounce, sacrifice, gain control), before the next spell or
+/// ability resolves. Not `object` itself ("sacrifice this" says nothing new).
+fn effect_after(shown: &[GameEvent], i: usize, object: ObjectId) -> Option<ObjectId> {
+    use engine::types::ability::EffectKind as K;
+    for e in &shown[i + 1..] {
+        match e {
+            GameEvent::EffectResolved { kind, source_id, .. } => {
+                let moves = matches!(
+                    kind,
+                    K::Destroy
+                        | K::DestroyAll
+                        | K::Sacrifice
+                        | K::ChooseAndSacrificeRest
+                        | K::ChangeZone
+                        | K::ChangeZoneAll
+                        | K::Bounce
+                        | K::BounceAll
+                        | K::GainControl
+                        | K::GainControlAll
+                        | K::ExchangeControl
+                );
+                if moves && *source_id != object {
+                    return Some(*source_id);
+                }
+                if moves {
+                    return None;
+                }
+            }
+            GameEvent::StackResolved { .. } | GameEvent::SpellCast { .. } | GameEvent::StackPushed { .. } => return None,
+            _ => {}
+        }
+    }
+    None
+}
+
 /// Counters on a card, folded into the line before when it's the same card and kind.
 fn counters(out: &mut [(u32, u8, What)], card: Seen, kind: &engine::types::counter::CounterType, delta: i64) -> Option<What> {
     let counter = format!("{kind:?}").to_lowercase();
@@ -763,6 +905,34 @@ fn counters(out: &mut [(u32, u8, What)], card: Seen, kind: &engine::types::count
         return None;
     }
     Some(What::Counters { card, counter, delta })
+}
+
+/// How long the board rests on these happenings at normal play speed so `viewer` can follow
+/// what the computer did, in milliseconds; 0 when none is worth a pause (a draw, a look, Yama's
+/// own answers). An attack gets the longest beat, longer still when it comes at the viewer, and so
+/// does anything done to the viewer's cards; the server scales it by the viewer's play speed
+/// (server/src/play.rs, `Pace`).
+pub fn beat_ms(happenings: &[Happening], viewer: u8) -> u32 {
+    let me = |seat: u8| seat == viewer;
+    happenings
+        .iter()
+        .map(|h| match &h.what {
+            What::Attack { attacks, .. } => {
+                if attacks.iter().any(|a| matches!(a.at, Hit::Player { seat } if me(seat))) { 1800 } else { 1400 }
+            }
+            What::Block { .. } => 1100,
+            What::Damage { to: Hit::Player { seat }, .. } if me(*seat) => 1400,
+            What::Damage { .. } => 900,
+            What::Moved { owner, from: Some("battlefield"), .. } if me(*owner) => 1800,
+            What::Control { from, .. } if me(*from) => 1800,
+            What::Cast { .. } | What::Activated { .. } | What::Out { .. } | What::Over { .. } => 1000,
+            What::Life { .. } | What::Poison { .. } => 700,
+            What::Moved { .. } | What::Land { .. } | What::Token { .. } | What::Counters { .. } | What::Control { .. } | What::Transformed { .. } | What::Revealed { .. } => 600,
+            What::Turn { .. } => 500,
+            What::Drew { .. } | What::Looked { .. } | What::Automatic { .. } => 0,
+        })
+        .max()
+        .unwrap_or(0)
 }
 
 impl Happening {

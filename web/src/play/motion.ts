@@ -54,6 +54,21 @@ export function readPlaySpeed(): PlaySpeed {
 
 export const dur = (base: number, scale: number) => Math.round(base * scale);
 
+/**
+ * The pace message the board sends the game (server/src/play.rs, `ClientMessage::Pace`): the
+ * computer's moves go out one visible step at a time, resting on each (an attack, then the blocks,
+ * then the damage) for a beat scaled by the speed: Slow twice Normal, Fast 0.6 of it, Instant none.
+ * A hidden tab asks for none, since nobody is watching.
+ */
+export function paceMessage(speed: PlaySpeed, hidden: boolean): { type: "pace"; speed: PlaySpeed } {
+  return { type: "pace", speed: hidden ? "instant" : speed };
+}
+
+/** How long a callout about something done to you stays up, in ms: longest on Slow, never under 2.5 s. */
+export function hitCueMs(scale: number): number {
+  return Math.max(2500, Math.round(4500 * scale));
+}
+
 export type Zone = "battlefield" | "hand" | "graveyard" | "exile" | "command";
 
 /** Where every card you can see is, by id, with the seat whose zone it is. */

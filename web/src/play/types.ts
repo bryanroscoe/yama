@@ -82,7 +82,8 @@ export type Happening = { seq: number; turn: number; active: number } & (
   | { kind: "cast"; seat: number; card: Seen }
   | { kind: "land"; seat: number; card: Seen }
   | { kind: "activated"; seat: number; card: Seen }
-  | { kind: "moved"; card: Seen; owner: number; from?: ZoneWord; to: ZoneWord; how: How; by?: Seen; creature?: boolean }
+  /** `by` is what moved it (or, with `by_damage`, what dealt the damage it died of); `by_seat` whose that was. */
+  | { kind: "moved"; card: Seen; owner: number; from?: ZoneWord; to: ZoneWord; how: How; by?: Seen; by_seat?: number; by_damage?: boolean; creature?: boolean }
   | { kind: "damage"; source: Seen; by?: number; to: Hit; amount: number; combat?: boolean; life?: [number, number] }
   | { kind: "life"; seat: number; delta: number; total?: number }
   | { kind: "poison"; seat: number; delta: number }
@@ -90,7 +91,7 @@ export type Happening = { seq: number; turn: number; active: number } & (
   | { kind: "block"; seat: number; blocks: [Seen, Seen][] }
   | { kind: "token"; seat: number; card: Seen; count: number }
   | { kind: "counters"; card: Seen; counter: string; delta: number }
-  | { kind: "control"; card: Seen; from: number; to: number }
+  | { kind: "control"; card: Seen; from: number; to: number; by?: Seen }
   | { kind: "transformed"; card: Seen }
   | { kind: "revealed"; seat: number; cards: Seen[] }
   | { kind: "looked"; seat: number; whose?: number; cards: Seen[] }
@@ -810,6 +811,10 @@ export interface View {
   outs?: Out[];
   /** The game's numbers, once it's over. */
   stats?: Stats;
+  /** The turn in progress as the table counts it: the active player's own turn count (newer servers). */
+  round?: number;
+  /** Engine turn numbers (`turn`, every player's turn counted) with the turn the table says it was, oldest first (newer servers). */
+  rounds?: [number, number][];
 }
 
 export interface SeatInfo {

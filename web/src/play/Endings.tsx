@@ -16,7 +16,7 @@ import { usePlayerId } from "../guestPlay";
 import { ask } from "../components/confirm";
 import { FunPicker, WinConditionPicker } from "../components/GameCapture";
 import { serialQueue } from "./saveQueue";
-import { INFERRED, lastOut, list, outText, standings, whyText, type Names } from "./feed";
+import { INFERRED, lastOut, list, outText, standings, tableTurn, whyText, type Names } from "./feed";
 import type { OnlineGame, Out, SeatInfo, Stats, View } from "./types";
 import { Button, ButtonLink, ErrorText } from "../components/ui";
 
@@ -105,7 +105,7 @@ export function YouAreOut({ out, view, names, art, tone, label, wide }: { out: O
           <span className="ko-hero-text">
             <b>{conceded ? "You conceded" : "You're out"}</b>
             <span>
-              Turn {out?.turn ?? view.turn}. {cause ? sentence(cause) : ""} Your cards have left the game; the others play on.
+              Turn {out ? tableTurn(names, out.turn) : view.round || tableTurn(names, view.turn)}. {cause ? sentence(cause) : ""} Your cards have left the game; the others play on.
             </span>
             {out?.inferred && <span className="ko-inferred">{INFERRED}.</span>}
           </span>
@@ -207,7 +207,8 @@ export function GameOver(props: {
   const mine = stats?.seats.find((s) => s.seat === (names.you ?? -1));
   const tiles = [
     length ? { v: length, k: "Length" } : null,
-    { v: `${stats?.turns ?? view.turn}`, k: "Turns" },
+    // Turns as the table counts them (rounds); the engine's `stats.turns` counts every player's.
+    { v: `${view.round || stats?.turns || view.turn}`, k: "Turns" },
     mine ? (mine.commander_damage > 0 ? { v: `${mine.commander_damage}`, k: "Commander damage you dealt" } : { v: `${mine.damage}`, k: "Damage you dealt" }) : null,
     mine ? { v: `${mine.spells}`, k: "Spells you cast" } : null,
   ].filter((t): t is { v: string; k: string } => !!t);
@@ -302,7 +303,7 @@ export function GameOver(props: {
         <span className="go-wash" aria-hidden="true" />
         <div className="go-title">
           <span className="go-meta">
-            {wide ? `Commander game, ${view.players.length} players, ended on turn ${view.turn}` : `Turn ${view.turn}${length ? `, ${length}` : ""}`}
+            {wide ? `Commander game, ${view.players.length} players, ended on turn ${view.round || tableTurn(names, view.turn)}` : `Turn ${view.round || tableTurn(names, view.turn)}${length ? `, ${length}` : ""}`}
           </span>
           <h1>{title}</h1>
           <span>
