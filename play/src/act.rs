@@ -356,6 +356,18 @@ pub struct Pending {
     /// Plowshares is countered.").
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warn: Option<String>,
+    /// A "may" in the middle of a longer spell: what follows a yes, in your words ("If you do,
+    /// you may copy this spell…"), when the question was narrowed to the part being asked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    /// What the spell or ability asking targets, as you may see it (Chain of Vapor's bounced
+    /// permanent), so the question can say what it already did.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub targets: Vec<Choice>,
+    /// A "may": the engine's description as written, before it was made a question, for
+    /// `with_optional_focus`.
+    #[serde(skip)]
+    said: Option<String>,
     /// Phyrexian mana: the rest of the cost, printed, which is paid with mana either way.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rest: Option<String>,
@@ -435,6 +447,9 @@ impl Pending {
             keep_rest: false,
             need: None,
             warn: None,
+            detail: None,
+            targets: vec![],
+            said: None,
             rest: None,
             origin: None,
             shown: vec![],
@@ -611,6 +626,131 @@ fn effect_text(vs: &GameState, source: &ObjectId, text: &str) -> String {
         Some((cost, rest)) if cost.chars().all(|c| matches!(c, '+' | '−' | '-' | '0'..='9' | 'X')) => rest.to_string(),
         _ => named,
     }
+}
+
+/// What the spell resolving from `source` targets, as `vs` may see it, so the question can say
+/// "cast Chain of Vapor targeting your Swiftfoot Boots". Only a spell: a trigger's targets aren't
+/// what its card was cast at. A target since gone where `vs` can't see it is "a card".
+fn resolving_targets(vs: &GameState, source: &ObjectId, names: &[String]) -> Vec<Choice> {
+    let Some(entry) = vs.resolving_stack_entry.as_ref().filter(|e| e.source_id == *source && matches!(e.kind, engine::types::game_state::StackEntryKind::Spell { .. })) else { return vec![] };
+    let Some(ability) = entry.ability() else { return vec![] };
+    ability
+        .targets
+        .iter()
+        .filter(|t| !matches!(t, TargetRef::Object(id) if !vs.objects.contains_key(id)))
+        .map(|t| {
+            let mut c = target(vs, t, names);
+            if c.name == "Hidden Card" || c.name.is_empty() {
+                c.name = "a card".into();
+                c.controller = None;
+            }
+            c
+        })
+        .collect()
+}
+
+/// A "may" in the middle of a longer spell or ability. The engine describes the whole of it
+/// (Chain of Vapor: "Return target nonland permanent to its owner's hand. Then that permanent's
+/// controller may sacrifice a land of their choice. If the player does, they may copy this
+/// spell…") and asks about each optional part in turn with the same words. The part being asked
+/// is found by the asked effect's own verb, so the question becomes "Sacrifice a land of your
+/// choice?" and what a yes leads to goes in `detail`. Anything less certain stays as it was.
+pub(crate) fn with_optional_focus(mut p: Pending, full: &GameState) -> Pending {
+    if p.answer != Answer::DecideOptionalEffect || p.purpose != "may" || p.prompt.ends_with('?') {
+        return p;
+    }
+    let Some(frame) = full.active_optional_effect_frame() else { return p };
+    let Some(verb) = effect_verb(&frame.ability.effect) else { return p };
+    let Some(said) = p.said.as_deref() else { return p };
+    if let Some((question, detail)) = focus_may(said, &verb) {
+        p.prompt = question;
+        p.detail = detail;
+    }
+    p
+}
+
+/// The verb a card's text uses for an effect, from the effect's own name ("Sacrifice",
+/// "CopySpell" reads "copy", "Bounce" reads "return").
+fn effect_verb(effect: &Effect) -> Option<String> {
+    let value = serde_json::to_value(effect).ok()?;
+    let kind = value.get("type")?.as_str()?;
+    let first: String = kind.chars().take(1).chain(kind.chars().skip(1).take_while(|c| c.is_lowercase())).collect();
+    let verb = first.to_lowercase();
+    Some(match verb.as_str() {
+        "bounce" => "return".into(),
+        "token" => "create".into(),
+        "" => return None,
+        _ => verb,
+    })
+}
+
+/// The narrowed question and what follows a yes, when exactly one sentence says "may <verb>".
+fn focus_may(text: &str, verb: &str) -> Option<(String, Option<String>)> {
+    let sentences: Vec<&str> = text.split_inclusive(". ").map(str::trim).filter(|s| !s.is_empty()).collect();
+    let needle = format!("may {verb}");
+    let at_word = |s: &str| {
+        let lower = s.to_ascii_lowercase();
+        lower.match_indices(&needle).map(|(i, _)| i).find(|&i| {
+            let before = lower[..i].chars().last();
+            let after = lower[i + needle.len()..].chars().next();
+            !before.is_some_and(char::is_alphanumeric) && !after.is_some_and(char::is_alphanumeric)
+        })
+    };
+    let hits: Vec<(usize, usize)> = sentences.iter().enumerate().filter_map(|(i, s)| at_word(s).map(|at| (i, at + "may ".len()))).collect();
+    let [(i, at)] = hits[..] else { return None };
+    let clause = sentences[i][at..].trim().trim_end_matches(['.', '?']);
+    let (ask, also) = match clause.split_once(" and may ") {
+        Some((ask, rest)) => (ask, Some(format!("You may {}.", second_person(rest)))),
+        None => (clause, None),
+    };
+    let ask = second_person(ask);
+    let mut chars = ask.chars();
+    let question = format!("{}{}?", chars.next()?.to_uppercase(), chars.as_str());
+    // Only what hangs on this player's own yes; the rest of the card may be someone else's part
+    // (Tempt with Discovery's "search your library" for each opponent who searched is its caster's).
+    let after = sentences.get(i + 1).and_then(|s| if_you_do(s));
+    let detail = [also, after].into_iter().flatten().collect::<Vec<_>>().join(" ");
+    Some((question, (!detail.is_empty()).then_some(detail)))
+}
+
+/// "their choice" as said to the player being asked: "your choice". "Them" and "their mana
+/// costs" are left alone: they're usually the cards ("cast them without paying their mana costs").
+fn second_person(text: &str) -> String {
+    let words: Vec<&str> = text.split(' ').collect();
+    words
+        .iter()
+        .enumerate()
+        .map(|(i, word)| {
+            if words.get(i + 1).is_some_and(|next| next.starts_with("mana")) {
+                return word.to_string();
+            }
+            let end = word.find(|c: char| !c.is_alphabetic()).unwrap_or(word.len());
+            let (w, rest) = word.split_at(end);
+            let to = match w {
+                "they" => "you",
+                "They" => "You",
+                "their" => "your",
+                "Their" => "Your",
+                "theirs" => "yours",
+                "themselves" => "yourself",
+                _ => return word.to_string(),
+            };
+            format!("{to}{rest}")
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// "If the player does, they may copy this spell" as said to that player: "If you do, you may
+/// copy this spell". `None` for a sentence that doesn't hang on their yes.
+fn if_you_do(text: &str) -> Option<String> {
+    if text.starts_with("If you do, ") {
+        return Some(text.to_string());
+    }
+    ["If the player does, ", "If that player does, ", "If they do, "]
+        .iter()
+        .find_map(|lead| text.strip_prefix(lead))
+        .map(|rest| format!("If you do, {}", second_person(rest)))
 }
 
 /// The range of a named choice whose options are every whole number from one to another.
@@ -1057,20 +1197,27 @@ impl Pending {
             WaitingFor::OptionalEffectChoice { player, source_id, description, may_trigger_key, same_card_may_trigger_choice_available, .. }
                 if *player == me =>
             {
-                let prompt = description.as_deref().map(|d| question(&effect_text(vs, source_id, d))).unwrap_or_else(|| "Do it?".into());
+                let said = description.as_deref().map(|d| one_line(&effect_text(vs, source_id, d)));
+                let prompt = said.as_deref().map(question).unwrap_or_else(|| "Do it?".into());
                 let mut p = Pending::new(Kind::Yesno, Answer::DecideOptionalEffect, "may", prompt, vec![])
                     .yes_no("Yes", "No")
                     .from(vs, Some(*source_id));
+                p.targets = resolving_targets(vs, source_id, names);
+                p.said = said;
                 // The engine can remember this answer for this card (DecideOptionalEffectAndRemember).
                 p.remember = may_trigger_key.is_some().then_some("engine");
                 p.remember_same_card = may_trigger_key.is_some() && *same_card_may_trigger_choice_available;
                 p
             }
             WaitingFor::OpponentMayChoice { player, source_id, description, .. } if *player == me => {
-                let prompt = description.as_deref().map(|d| question(&effect_text(vs, source_id, d))).unwrap_or_else(|| "Do it?".into());
-                Pending::new(Kind::Yesno, Answer::DecideOptionalEffect, "may", prompt, vec![])
+                let said = description.as_deref().map(|d| one_line(&effect_text(vs, source_id, d)));
+                let prompt = said.as_deref().map(question).unwrap_or_else(|| "Do it?".into());
+                let mut p = Pending::new(Kind::Yesno, Answer::DecideOptionalEffect, "may", prompt, vec![])
                     .yes_no("Yes", "No")
-                    .from(vs, Some(*source_id))
+                    .from(vs, Some(*source_id));
+                p.targets = resolving_targets(vs, source_id, names);
+                p.said = said;
+                p
             }
             WaitingFor::NamedChoice { player, choice_type, options, free_entry, source, .. } if *player == me => {
                 let what = serde_json::to_value(choice_type).ok().as_ref().and_then(choice_type_name).unwrap_or_else(|| "option".into());
@@ -3244,5 +3391,34 @@ mod tests {
         assert_eq!(modes_prompt(1, 3, 3), "Choose one or more");
         assert_eq!(modes_prompt(0, 2, 3), "Choose up to two");
         assert_eq!(modes_prompt(2, 3, 5), "Choose two to three");
+    }
+
+    #[test]
+    fn a_may_inside_a_longer_spell_asks_only_its_own_part() {
+        let chain = "Return target nonland permanent to its owner's hand. Then that permanent's controller may sacrifice a land of their choice. If the player does, they may copy this spell and may choose a new target for that copy.";
+        // Chain of Vapor asks twice with the same words: first the sacrifice, then the copy.
+        assert_eq!(
+            focus_may(chain, "sacrifice"),
+            Some(("Sacrifice a land of your choice?".into(), Some("If you do, you may copy this spell and may choose a new target for that copy.".into())))
+        );
+        assert_eq!(focus_may(chain, "copy"), Some(("Copy this spell?".into(), Some("You may choose a new target for that copy.".into()))));
+        // Quintorius's +1.
+        assert_eq!(
+            focus_may("You may discard a card. If you do, draw two cards, then mill a card.", "discard"),
+            Some(("Discard a card?".into(), Some("If you do, draw two cards, then mill a card.".into())))
+        );
+        // A verb the text doesn't say after "may", or says twice, leaves the question alone.
+        assert_eq!(focus_may(chain, "return"), None);
+        assert_eq!(focus_may("You may draw a card. Then you may draw a card.", "draw"), None);
+        // The caster's part after an opponent's "may" isn't the opponent's.
+        assert_eq!(
+            focus_may("Search your library for a land card, put it onto the battlefield, then shuffle. Each opponent may search their library for a land card and put it onto the battlefield. For each opponent who searches a library this way, search your library for a land card and put it onto the battlefield.", "search"),
+            Some(("Search your library for a land card and put it onto the battlefield?".into(), None))
+        );
+        // "Their mana costs" are the cards'.
+        assert_eq!(
+            focus_may("Exile the top five cards of your library. You may cast up to two of them without paying their mana costs.", "cast"),
+            Some(("Cast up to two of them without paying their mana costs?".into(), None))
+        );
     }
 }

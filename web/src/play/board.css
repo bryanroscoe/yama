@@ -2710,36 +2710,78 @@ body.pb-dragging .pb-preview {
 .dw-strip {
   width: min(780px, 100%);
   display: grid;
-  grid-template-columns: 112px minmax(0, 1fr);
-  gap: 16px;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 18px;
   align-items: start;
-  padding: 14px 16px;
+  padding: 16px 18px;
   border-radius: 20px;
   background: var(--ground);
   box-shadow: 0 0 0 2px var(--text), 0 24px 60px rgb(0 0 0 / 0.75);
 }
-.dw-strip:not(:has(.dw-strip-art)) {
+.dw-strip:not(:has(.dw-strip-card)) {
   grid-template-columns: minmax(0, 1fr);
 }
-.dw-strip-art {
+/* The card asking: whole, so its name and type line show; an art crop when that's all there is. */
+.dw-strip-card {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
-.dw-strip-art img {
-  width: 112px;
-  height: 82px;
+.dw-strip-card img {
+  display: block;
+  width: 150px;
+  border-radius: 8px;
+  cursor: help;
+}
+.dw-strip-card img.crop {
+  height: 110px;
   border-radius: 12px;
   object-fit: cover;
 }
 .dw-strip-body {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 10px;
   min-width: 0;
 }
+/* What happened, then what you decide. */
+.dw-story {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.dw-story .dw-source-line {
+  font-size: 15px;
+  color: var(--text);
+}
+.dw-story-line {
+  font-size: 14px;
+  color: var(--dim);
+}
+.dw-ask {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
 .dw-question {
-  font: 800 32px/1.05 var(--display);
+  font: 800 28px/1.1 var(--display);
+}
+.dw-question.long {
+  font: 700 19px/1.3 var(--body);
+}
+.dw-ask .dw-note {
+  font-size: 14px;
+}
+.dw-oracle-more summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--dim);
+}
+.dw-oracle-more .dw-oracle {
+  display: block;
+  margin-top: 4px;
 }
 .dw-remember {
   display: flex;
@@ -3619,10 +3661,18 @@ body.pb-dragging .pb-preview {
   background: none;
   box-shadow: none;
 }
-.dw-strip.compact .dw-strip-art img {
+.dw-strip.compact .dw-strip-card img {
   width: 64px;
+}
+.dw-strip.compact .dw-strip-card img.crop {
   height: 48px;
   border-radius: 10px;
+}
+.dw-strip.compact .dw-story .dw-source-line {
+  font-size: 13px;
+}
+.dw-strip.compact .dw-story-line {
+  font-size: 12px;
 }
 .dw-strip.compact .dw-question {
   font: 700 18px/1.2 var(--body);
@@ -8059,8 +8109,6 @@ button.dw-pile2:disabled {
 .dw-card-art { grid-column: 1 / -1; font-size: 13px; }
 .dw-card-art summary { cursor: pointer; color: var(--dim); padding-block: 4px; }
 .dw-card-art img { display: block; width: auto; max-width: 240px; max-height: 220px; border-radius: 12px; }
-.dw-strip > .dw-card-art { flex: none; max-width: 240px; }
-.dw-strip:has(> .dw-card-art:not([open])) { grid-template-columns: minmax(0, 1fr); }
 .gs:has(> .pb-prompt-actions) { grid-template-rows: minmax(0, 1fr) auto; }
 /* Keep life and cards beside the compact action dock, including on short laptops. */
 .rail-collapsed .pb-handrow { padding-right: 292px; }

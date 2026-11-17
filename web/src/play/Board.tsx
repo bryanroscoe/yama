@@ -95,7 +95,7 @@ import { answerOf, modeChip, passChoices, passKey, priorityPartner, settingsButt
 import { ConsentBody, GameSettings, ModeChip, PassList, PassMenu } from "./TurnControls";
 import { PreviewCache, paymentButtons, paymentTitle, sourceChip, sourceClick, sourceIn } from "./pay";
 import { ManaMenu, PaymentRail, PaymentSheet } from "./PaymentPanel";
-import { INFERRED, lineText, outText, revealGroups, turnOf, type Names } from "./feed";
+import { INFERRED, lineText, outText, revealGroups, sourceStory, turnOf, type Names } from "./feed";
 import { CardReader } from "./Inspector";
 import { ZoneBrowser, type BrowsedZone } from "./Zones";
 import { GameLog } from "./GameLog";
@@ -1840,6 +1840,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
             seat: (n: number) => ({ art: art(n).art, artist: art(n).artist, life: view.players.find((x) => x.seat === n)?.life ?? null }),
             library: (n: number) => view.players.find((x) => x.seat === n)?.library,
             others: view.players.filter((x) => x.seat !== you && !x.eliminated).map((x) => x.seat),
+            story: (q: Pending) => (q.source ? sourceStory(view.events ?? [], q.source, q.targets ?? [], names) : null),
           } satisfies WidgetContext,
         }
       : null;

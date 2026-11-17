@@ -1145,7 +1145,7 @@ impl Match {
             prompt: self.prompt(&vs),
             options,
             mulligan: Self::mulligan_view(&vs, me),
-            pending: Pending::of(&vs, me, &candidates, &self.names).map(|p| together::with_clash_cards(ways::with_resolving_source(p, &self.state, &vs), &self.state)),
+            pending: Pending::of(&vs, me, &candidates, &self.names).map(|p| act::with_optional_focus(together::with_clash_cards(ways::with_resolving_source(p, &self.state, &vs), &self.state), &self.state)),
             payment: PaymentView::of(&self.state, &vs, me, &candidates, self.kept.get(&seat).map(Vec::as_slice).unwrap_or_default()),
             attack,
             block,

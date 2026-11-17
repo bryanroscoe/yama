@@ -296,6 +296,7 @@ Commander on the [Phase](https://github.com/bryanroscoe/yama-phase) rules engine
 - Game settings for trigger yields, remembered answers (turned off there or from the log), hand order and conceding
 - Read any card with its Oracle text, its state on the battlefield and its rulings, flipping two-faced cards
 - Every player's graveyard, exile and command zone, each card saying how it got there
+- A "may" question shows the whole card asking, who cast it at what and what it did so far ("Kraum cast Chain of Vapor targeting your Swiftfoot Boots", "Swiftfoot Boots returned to your hand"), then asks only the part that is optional ("Sacrifice a land of your choice?") with what a yes leads to; the card's full text is folded underneath and never repeated as the question
 - Reveals shown to the players allowed to see them
 - A game log of what happened, as each seat may know it, with filters (since your last turn, about you, spells, combat). A card that leaves the battlefield says what did it and whose it was ("Worf's Vindicate destroyed your Kinsbaile Cavalier", "Your Squire died from damage dealt by Sam's Ragavan"), with both cards' art, each opening the card reader
 - Turns are numbered as the table counts them, each player's own turn count ("Worf, turn 4"), in the log, the turn banner, captions, knockouts and the end of the game; the engine's own count of every player's turn (turn 14 in a four-player game) stays in saved game records
