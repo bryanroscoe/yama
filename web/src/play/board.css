@@ -4232,11 +4232,12 @@ body.pb-dragging .pb-preview {
   gap: 6px;
   padding-top: 14px;
 }
-/* Centred while the cards fit; scrolls from the first card when they don't. */
-.gs-hand > li:first-child {
+/* Centred while the cards fit; scrolls from the first card when they don't. Of-type, so the
+   drop slot a drag adds at the end of the list (reorder.ts) doesn't move the cards. */
+.gs-hand > li:first-of-type {
   margin-left: auto;
 }
-.gs-hand > li:last-child {
+.gs-hand > li:last-of-type {
   margin-right: auto;
 }
 .gs.compact .gs-hand img,
