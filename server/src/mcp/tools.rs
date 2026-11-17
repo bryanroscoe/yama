@@ -608,7 +608,7 @@ pub(super) const TOOLS: &[Tool] = &[
         name: "list_games",
         aliases: &["games"],
         title: "Your game history",
-        description: "Games they played in person with Yama's life counter or online, newest first, 10 at a time (next_cursor continues): each with its seats (player, commander, final life, knockout turn), winner, turns, status, note and format (commander, standard for Constructed, limited, other); a game of a best-of-three or best-of-five match has match_id, match_game and match_best_of, and `get_game` lists the match's games. query matches a player's or commander's name; playgroup lists one playgroup's games, also ones they weren't in; filter unfinished or unnamed finds games to tidy up; detail summary gives one short row a game. These are real games, unlike lab results. `get_game` has one game's events or, for an online game, its log.",
+        description: "Games they played in person with Yama's life counter or online, newest first, 10 at a time (next_cursor continues): each with its seats (player, commander, final life, knockout turn), winner, turns, status and note. query matches a player's or commander's name; playgroup lists one playgroup's games, also ones they weren't in; filter unfinished or unnamed finds games to tidy up; detail summary gives one short row a game. These are real games, unlike lab results. `get_game` has one game's events or, for an online game, its log.",
         schema: || {
             json!({
                 "type": "object",

@@ -11,6 +11,14 @@ or discard, and nothing changes until then. Stage a change when they ask for it 
 not as a guess. Pass `op_id` (a new UUID for each change) so a retry after a lost reply stages
 once. `list_changes` with an `id` shows one change whole; check it before `apply_change`.
 
+## Games (`list_games`, `get_game`)
+
+Each game has a `format`: `commander`, `standard` (Constructed), `limited` or `other`. A game
+played as one game of a best-of-three or best-of-five match has `match_id`, `match_game` (which
+game of the match, from 1) and `match_best_of`, and `match_wins` and `match_draws`: the score
+before that game, by that game's seat numbers. Each game is still its own game, counted on its
+own. `get_game` lists the match's games you can see (`match_games`, each with its winner's name).
+
 ## Precons (`get_precon`)
 
 - Real results are playgroup.gg's, with dated history: the all-time rate, an approximate recent
