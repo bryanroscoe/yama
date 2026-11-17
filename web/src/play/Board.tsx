@@ -598,18 +598,33 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
   // player, planeswalker or battle they may attack (attackAim.ts). With a mouse only: a tap has no
   // pointer to follow, so touch screens show the rings alone. `aimMove` is the latest render's.
   const aimMove = useRef<((x: number, y: number) => void) | null>(null);
+  const aimPointer = useRef<{ x: number; y: number } | null>(null);
   const aimWaitKey = aimWait.join(",");
+  const aimLine = !!aimWaitKey && canHover;
   useEffect(() => {
-    if (!aimWaitKey || !canHover) return;
-    const move = (e: PointerEvent) => aimMove.current?.(e.clientX, e.clientY);
+    if (!aimLine) return;
+    let frame = 0;
+    const move = (e: PointerEvent) => {
+      aimPointer.current = { x: e.clientX, y: e.clientY };
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        if (aimPointer.current) aimMove.current?.(aimPointer.current.x, aimPointer.current.y);
+      });
+    };
     window.addEventListener("pointermove", move);
     return () => {
       window.removeEventListener("pointermove", move);
+      if (frame) cancelAnimationFrame(frame);
       if (!dragRef.current?.started) layer.current?.arrow(null);
       hotEl.current?.classList.remove("drop-hot");
       hotEl.current = null;
     };
-  }, [aimWaitKey, canHover]);
+  }, [aimLine]);
+  // Another creature picked up (or one put down): redraw the lines from where the pointer is.
+  useEffect(() => {
+    if (aimLine && aimPointer.current) aimMove.current?.(aimPointer.current.x, aimPointer.current.y);
+  }, [aimWaitKey, aimLine]);
   // Watching: the right arrow plays one move while paused.
   useEffect(() => {
     if (!watch) return;
@@ -900,9 +915,9 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
     if (!attack) return "";
     const verb = mouse ? "Click" : "Tap";
     const one = aimWait.length === 1;
-    if (aimWait.length) return `Now ${verb.toLowerCase()} whom ${one ? `${shortName(cardById.get(aimWait[0]!)?.name ?? "it")} attacks` : "they attack"}, or ${mouse ? "press Esc" : "tap it again"} to put ${one ? "it" : "them"} down.`;
+    if (aimWait.length) return `Now ${verb.toLowerCase()} whom ${one ? `${shortName(cardById.get(aimWait[0]!)?.name ?? "it")} attacks` : "they attack"}, or ${mouse ? "press Esc" : "tap an empty spot"} to put ${one ? "it" : "them"} back.`;
     if (![...attack.valid.values()].some((ts) => ts.length > 1)) return `${verb} creatures to attack${attack.defender?.kind === "player" ? ` ${who(attack.defender.seat)}` : ""}. ${verb} one again to take it back.`;
-    return `${verb} a creature, then the player${mouse ? ", planeswalker or battle" : " (their tab) or planeswalker"} it attacks. ${verb} an attacker again to send it somewhere else.`;
+    return `${verb} a creature, then the player${mouse ? "" : " (their tab)"}, planeswalker or battle it attacks. ${verb} an attacker again to send it somewhere else.`;
   };
   // Clicking a creature, then whom it attacks, with a dotted line between (attackAim.ts).
   const mustAttack = new Map((decision?.attack?.attackers ?? []).filter((a) => a.must).map((a) => [a.id, a.must!]));
@@ -943,7 +958,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
     toggleAttack([...attack.valid.keys()].filter((i) => !attack.plan.has(i)));
   };
   const sendAttack = () => {
-    if (!decision || pending) return;
+    if (!decision || pending || aimWait.length) return;
     const attacks = [...attackPlan.entries()];
     if (!attacks.length) {
       const none = decision.options.find((o) => o.label === "Don't attack");
@@ -1015,7 +1030,12 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
       const walker = defenderAt(p);
       if (walker && (aimable(walker) || !aimWait.length)) return aimAt(walker);
       if (p.ids.some((i) => attack.valid.has(i)) || attackCant.has(p.ids[0]!)) return aimFrom(p.ids);
-      if (aimWait.length) return putDown();
+      if (aimWait.length) {
+        // Any other card of an opponent they may attack stands for that player, as the line
+        // following the pointer shows; anything else puts them down.
+        const owner: AttackAt = { kind: "player", seat: p.card.controller };
+        return aimable(owner) ? aimAt(owner) : putDown();
+      }
     }
     if (block) {
       const blocker = p.ids.find((i) => block.valid.has(i) && !block.plan.has(i)) ?? p.ids.find((i) => block.plan.has(i));
@@ -1330,15 +1350,15 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
     const hit = combatAt(s, x, y);
     if (!hit || !s.pile) return;
     if (hit.attack && attack) {
+      // Dropped on a defender: the same rules as clicking one (attackAim.ts), so a creature that
+      // must attack someone else stays out with the warning.
       const t = hit.attack;
-      const next = new Map(attackPlan);
-      for (const i of s.pile.ids) {
-        const mine = attack.valid.get(i)?.find((x) => sameTarget(x, t));
-        if (mine) next.set(i, mine);
-      }
-      setAttackPlan(next);
-      setAimWait((w) => w.filter((i) => !s.pile!.ids.includes(i)));
-      if (t.kind === "player") setDefender(t);
+      const ids = s.pile.ids;
+      const r = pressDefender({ valid: attack.valid, plan: attackPlan, waiting: ids.filter((i) => attack.valid.has(i)), defender, must: mustAttack }, t);
+      setAttackPlan(r.plan);
+      setAimWait((w) => w.filter((i) => !ids.includes(i)));
+      setCombatWarn(r.warn ? warnText(r.warn) : null);
+      if (t.kind === "player" && r.defender && sameTarget(r.defender, t)) setDefender(t);
     } else if (hit.blocks !== undefined) {
       const b = blockerOf(s.pile);
       if (b !== undefined) assignBlock(b, hit.blocks);
@@ -1713,7 +1733,10 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
       const n = attack.plan.size;
       const left = [...attack.valid.keys()].filter((i) => !attack.plan.has(i)).length;
       return {
-        primary: { label: n ? `Attack (${n})` : "No attacks", run: sendAttack, disabled: pending },
+        // Creatures waiting for whom they attack aren't in the attack yet: choose first (or Esc).
+        primary: aimWait.length
+          ? { label: `Choose whom ${aimWait.length === 1 ? "it attacks" : "they attack"}`, disabled: true }
+          : { label: n ? `Attack (${n})` : "No attacks", run: sendAttack, disabled: pending },
         secondary: left > 0 && attack.valid.size > 1 ? { label: "Attack with all", run: attackAll } : n ? { label: "Clear", run: () => (setAttackPlan(new Map()), setAimWait([])) } : null,
       };
     }

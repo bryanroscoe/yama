@@ -114,12 +114,19 @@ describe("choosing whom it attacks", () => {
     expect(r.warn).toBeNull();
   });
 
-  it("warns when a creature that must attack someone is sent at someone else", () => {
-    const r = pressDefender(multi({ waiting: [10], must: new Map([[10, [p(2)]]]) }), p(3));
-    expect(r.plan.get(10)).toEqual(p(3));
+  it("keeps a creature that must attack someone from going elsewhere, and says whom", () => {
+    const r = pressDefender(multi({ waiting: [10, 11], must: new Map([[10, [p(2)]]]) }), p(3));
+    expect(r.plan.has(10)).toBe(false);
+    expect(r.plan.get(11)).toEqual(p(3));
+    expect(r.waiting).toEqual([10]);
     expect(r.warn).toEqual({ kind: "mustAt", id: 10, at: p(2) });
     const ok = pressDefender(multi({ waiting: [10], must: new Map([[10, [p(2)]]]) }), p(2));
+    expect(ok.plan.get(10)).toEqual(p(2));
     expect(ok.warn).toBeNull();
+    // Unable to attack the one it must (not among its targets): anyone will do.
+    const unable = pressDefender(multi({ waiting: [10], must: new Map([[10, [p(7)]]]) }), p(3));
+    expect(unable.plan.get(10)).toEqual(p(3));
+    expect(unable.warn).toBeNull();
   });
 
   it("with nothing waiting, aims A at a defender someone may attack", () => {

@@ -107,20 +107,23 @@ export function pressDefender(s: AimState, t: AttackAt): AimResult {
     const anyCan = [...s.valid.values()].some((ts) => ts.some((x) => sameTarget(x, t)));
     return result(s, { defender: anyCan ? t : s.defender });
   }
-  const fits = s.waiting.filter((i) => s.valid.get(i)?.some((x) => sameTarget(x, t)));
+  const legal = s.waiting.filter((i) => s.valid.get(i)?.some((x) => sameTarget(x, t)));
   // Not somewhere any of them may attack: it has no ring, so nothing happens.
-  if (!fits.length) return result(s, {});
+  if (!legal.length) return result(s, {});
+  // One that must attack someone it can attack goes nowhere else: the engine would refuse the
+  // attack. It keeps waiting, and the red line says whom it must attack.
+  const bound = (i: number) => (s.must.get(i) ?? []).filter((m) => s.valid.get(i)?.some((x) => sameTarget(x, m)));
+  const held = legal.filter((i) => bound(i).length > 0 && !bound(i).some((m) => sameTarget(m, t)));
+  const fits = legal.filter((i) => !held.includes(i));
   const plan = new Map(s.plan);
-  let warn: AimWarn | null = null;
-  for (const i of fits) {
-    plan.set(i, s.valid.get(i)!.find((x) => sameTarget(x, t))!);
-    // Sent somewhere other than where it must attack: the engine would refuse the attack.
-    const must = s.must.get(i);
-    if (must?.length && !must.some((m) => sameTarget(m, t))) warn ??= { kind: "mustAt", id: i, at: must[0]! };
-  }
+  for (const i of fits) plan.set(i, s.valid.get(i)!.find((x) => sameTarget(x, t))!);
   const rest = s.waiting.filter((i) => !fits.includes(i));
-  if (rest.length) warn = { kind: "cant", id: rest[0]!, at: t };
-  return result(s, { plan, waiting: rest, defender: t, warn });
+  const warn: AimWarn | null = held.length
+    ? { kind: "mustAt", id: held[0]!, at: bound(held[0]!)[0]! }
+    : rest.length
+      ? { kind: "cant", id: rest[0]!, at: t }
+      : null;
+  return result(s, { plan, waiting: rest, defender: fits.length ? t : s.defender, warn });
 }
 
 /** Esc, or a click on empty table: the waiting creatures are put down where they were. */
