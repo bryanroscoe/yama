@@ -558,7 +558,8 @@ async function pushGame(g: LocalGame): Promise<boolean> {
       starting_life: s.startingLife,
       started_at: s.startedAt,
       // One game of a match: which match, which game of it, and how long it runs.
-      ...(s.match ? { match: { id: s.match.id, game: s.match.game, best_of: s.match.bestOf } } : {}),
+      // The score before this game rides along: seats are renumbered between games, and names change.
+      ...(s.match ? { match: { id: s.match.id, game: s.match.game, best_of: s.match.bestOf, wins: s.players.map((_, seat) => s.match!.wins[seat] ?? 0), draws: s.match.draws } } : {}),
       seats: s.players.map((p) => {
         const c = now.get(p.seat) ?? p;
         return {
@@ -569,6 +570,8 @@ async function pushGame(g: LocalGame): Promise<boolean> {
           deck_version_id: c.deckVersionId ?? null,
           deck_label: deckLabel(c),
           commander_name: now.get(p.seat)?.commanderName ?? null,
+          // Outside Commander, the deck colors the seat started with (later changes are its "seat" events).
+          colors: s.format !== "commander" && p.colorIdentity ? p.colorIdentity : null,
         };
       }),
       // The events ride along, so a seat's new player arrives with the "player" event that

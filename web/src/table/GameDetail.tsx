@@ -3,9 +3,9 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { FORMATS, formatLabel, GAME_WORDS, matchResult, noteText, type MatchSetup, wonText, winConditionLabel, WIN_CONDITIONS, type LoggedEvent, type TableEvent, type TableFormat, type TableSetup, fmtDateTime, fmtTime } from "@yama/core";
+import { FORMATS, formatLabel, GAME_WORDS, matchAfter, noteText, type MatchSetup, wonText, winConditionLabel, WIN_CONDITIONS, type LoggedEvent, type TableEvent, type TableFormat, type TableSetup, fmtDateTime, fmtTime } from "@yama/core";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
-import { api, type DeckSummary, type GameDetail, type GameSeat, type MatchGame } from "../api";
+import { api, type DeckSummary, type GameDetail, type GameSeat } from "../api";
 import { MythicNote } from "../bridges/mythic/MythicImport";
 import { ArtMosaic } from "../components/ArtMosaic";
 import { artCredits } from "../components/ArtPanel";
@@ -92,7 +92,8 @@ export function setupFromServer(g: GameDetail): { setup: TableSetup; log: Logged
         deckLabel: before ? commander : (s.deck_label ?? commander),
         commanderName: commander,
         partnerName: partner,
-        colorIdentity: "",
+        // A commander's colors come from its card, looked up later; outside Commander, the deck's as picked.
+        colorIdentity: commander ? "" : (s.colors ?? ""),
       };
     }),
   };
@@ -100,39 +101,37 @@ export function setupFromServer(g: GameDetail): { setup: TableSetup; log: Logged
 }
 
 /**
- * A game's place in its match, as the table keeps it, from the server's record: the games before
- * this one give the score, each winner found among this game's seats by name.
+ * A game's place in its match, as the table keeps it, from the server's record: the score before
+ * this game is stored with it, by this game's seats. A game saved before the score was kept
+ * starts its count from nothing.
  */
-export function matchFromServer(g: Pick<GameDetail, "match_id" | "match_game" | "match_best_of" | "match_games" | "seats">): MatchSetup | null {
+export function matchFromServer(g: Pick<GameDetail, "match_id" | "match_game" | "match_best_of" | "match_wins" | "match_draws" | "seats">): MatchSetup | null {
   if (!g.match_id || !g.match_game || !g.match_best_of) return null;
-  const wins: number[] = g.seats.map(() => 0);
-  let draws = 0;
-  for (const m of g.match_games ?? []) {
-    if (m.game >= g.match_game || m.status !== "finished") continue;
-    const seat = m.winner === null ? undefined : g.seats.find((s) => seatName(s) === m.winner)?.seat;
-    if (seat !== undefined) wins[seat] = (wins[seat] ?? 0) + 1;
-    else if (m.winner === null) draws++;
-  }
-  return { id: g.match_id, bestOf: g.match_best_of, game: g.match_game, wins, draws };
+  const wins = g.seats.map((s) => Math.max(0, g.match_wins?.[s.seat] ?? 0));
+  return { id: g.match_id, bestOf: g.match_best_of, game: g.match_game, wins, draws: Math.max(0, g.match_draws ?? 0) };
 }
 
 /**
- * Where the match stands, told from its games' winners: "Sam won the match 2–1", or "Sam leads
- * 1–0" while it goes on. Wins are counted by name, as the games name their winners.
+ * Where the match stood once this game was over (or stands while it goes on): "Sam won the
+ * match 2–1", "Sam leads 1–0, best of 3". Read from this game's own score and result, so it
+ * names this game's players.
  */
-export function matchSummary(bestOf: number, games: MatchGame[], players: string[]): string {
-  const finished = games.filter((m) => m.status === "finished");
-  const wins = players.map((p) => finished.filter((m) => m.winner === p).length);
-  const result = matchResult({ wins, bestOf }, finished.length);
-  const score = (first: number) => (players.length === 2 ? `${wins[first]}–${wins[1 - first]}` : players.map((p, i) => `${p} ${wins[i]}`).join(", "));
-  if (result && "winner" in result) return `${players[result.winner]} won the match ${score(result.winner)}.`;
-  if (result) return `The match was a draw, ${score(0)}.`;
-  const most = Math.max(0, ...wins);
-  const leaders = wins.flatMap((w, i) => (w === most ? [i] : []));
-  if (finished.length === 0) return `Best of ${bestOf}, no games finished yet.`;
-  if (players.length !== 2) return `Best of ${bestOf}, so far ${score(0)}.`;
-  if (leaders.length !== 1) return `Best of ${bestOf}, level at ${score(0)}.`;
-  return `Best of ${bestOf}, ${players[leaders[0]!]} leads ${score(leaders[0]!)}.`;
+export function matchSummary(match: MatchSetup, g: Pick<GameDetail, "status" | "winner_seat" | "seats">): string {
+  const finished = g.status === "finished";
+  const after = finished ? matchAfter(match, g.winner_seat) : { wins: match.wins, result: null };
+  const seats = g.seats;
+  const name = (seat: number) => seatName(seats.find((s) => s.seat === seat)!);
+  const won = (seat: number) => after.wins[seat] ?? 0;
+  const score = (first: number) =>
+    seats.length === 2 ? `${won(first)}–${won(seats.find((s) => s.seat !== first)!.seat)}` : seats.map((s) => `${seatName(s)} ${won(s.seat)}`).join(", ");
+  const prefix = finished ? "After this game" : "Before this game";
+  if (after.result && "winner" in after.result) return `${name(after.result.winner)} won the match ${score(after.result.winner)}.`;
+  if (after.result) return `The match was a draw, ${score(seats[0]!.seat)}.`;
+  if (seats.length !== 2) return `Best of ${match.bestOf}. ${prefix}: ${score(seats[0]!.seat)}.`;
+  const [a, b] = seats as [GameSeat, GameSeat];
+  if (won(a.seat) === won(b.seat)) return `Best of ${match.bestOf}. ${prefix}, level at ${score(a.seat)}.`;
+  const lead = won(a.seat) > won(b.seat) ? a : b;
+  return `Best of ${match.bestOf}. ${prefix}, ${seatName(lead)} leads ${score(lead.seat)}.`;
 }
 
 export function GameDetailPage() {
@@ -177,7 +176,7 @@ export function GameDetailPage() {
           const [c, partner] = await Promise.all([p.commanderName ? cardNamed(p.commanderName) : null, p.partnerName ? cardNamed(p.partnerName) : null]);
           return {
             ...p,
-            colorIdentity: unionIdentity(c?.color_identity, partner?.color_identity),
+            colorIdentity: c || partner ? unionIdentity(c?.color_identity, partner?.color_identity) : p.colorIdentity,
             art: c?.image_art_crop ?? undefined,
             artist: c?.artist ?? undefined,
             partnerArt: partner?.image_art_crop ?? undefined,
@@ -294,12 +293,12 @@ export function GameDetailPage() {
         </section>
       )}
 
-      {g.match_best_of && g.match_game && (g.match_games?.length ?? 0) > 0 && (
+      {setup.match && (
         <section aria-labelledby="gd-match" className="gd-match">
           <h2 id="gd-match">Match</h2>
-          <p>{matchSummary(g.match_best_of, g.match_games!, g.seats.map(seatName))}</p>
+          <p>{matchSummary(setup.match, { ...g, status: going ? "in_progress" : g.status })}</p>
           <ol className="gd-match-games">
-            {g.match_games!.map((m) => {
+            {(g.match_games ?? []).map((m) => {
               const what = m.status !== "finished" ? GAME_WORDS.going : m.winner ? wonText(m.winner) : GAME_WORDS.draw;
               return (
                 <li key={m.id}>

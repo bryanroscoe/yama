@@ -360,11 +360,12 @@ async fn a_yama_edit_during_apply_is_not_overwritten() {
         started_at: Some("2026-10-04T01:00:00+00:00".into()),
         seats: vec![Seat {
             seat: 0, member_id: None, user_id: Some(bryan.clone()), guest_name: None, ai_kind: None, deck_version_id: None,
-            deck_label: None, commander_name: None, final_life: None, eliminated_turn: None, eliminated_by_seat: None, fun: None, display_name: None,
+            deck_label: None, commander_name: None, final_life: None, eliminated_turn: None, eliminated_by_seat: None, fun: None, display_name: None, colors: None,
         }],
         events: vec![],
         finish: Some(Finish { winner_seat: None, turns: None, ended_at: None, first_seat: None, win_condition: None, note: None, seats: vec![] }),
         note: Some(NOTE.into()),
+        game_match: None,
     };
     let sync = Sync { mythic: "80", yama: &id, fingerprint: "a b", keep_yama: None, note: None, tags: &[] };
     let r = save_game(&pool, &bryan, game, Some(&seen), sync).await;

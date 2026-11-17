@@ -862,6 +862,8 @@ export interface GameSeat {
   eliminated_by_seat: number | null;
   fun: number | null;
   display_name: string | null;
+  /** Outside Commander, the deck colors picked for the seat ("WU"). Absent from older servers. */
+  colors?: string | null;
 }
 
 export interface GameRow {
@@ -883,6 +885,9 @@ export interface GameRow {
   match_id?: string | null;
   match_game?: number | null;
   match_best_of?: number | null;
+  /** The games each seat had won before this one, by this game's seats, and the drawn ones. */
+  match_wins?: number[] | null;
+  match_draws?: number | null;
 }
 
 /** One game of a match, as a game's page lists them. */

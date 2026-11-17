@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { GameDetail, GameSeat } from "../api";
-import { matchFromServer, matchSummary } from "./GameDetail";
+import { matchFromServer, matchSummary, setupFromServer } from "./GameDetail";
 
-const seat = (n: number, name: string): GameSeat => ({
+const seat = (n: number, name: string, more: Partial<GameSeat> = {}): GameSeat => ({
   seat: n,
   member_id: null,
   user_id: null,
@@ -14,25 +14,40 @@ const seat = (n: number, name: string): GameSeat => ({
   eliminated_by_seat: null,
   fun: null,
   display_name: name,
+  ...more,
 });
 
-describe("a game's match on its page", () => {
-  const games = [
-    { id: "a", game: 1, status: "finished", winner: "Sam" },
-    { id: "b", game: 2, status: "finished", winner: "Alex" },
-    { id: "c", game: 3, status: "in_progress", winner: null },
-  ];
+const game2 = {
+  match_id: "m",
+  match_game: 2,
+  match_best_of: 3,
+  match_wins: [0, 1],
+  match_draws: 0,
+  status: "finished",
+  winner_seat: 1,
+  // Alex was "Player 2" when they won game 1: the score is kept by seat, so the rename loses nothing.
+  seats: [seat(0, "Sam"), seat(1, "Alex")],
+};
 
-  it("tells where the match stands from its games' winners", () => {
-    expect(matchSummary(3, games.slice(0, 1), ["Sam", "Alex"])).toBe("Best of 3, Sam leads 1–0.");
-    expect(matchSummary(3, games, ["Sam", "Alex"])).toBe("Best of 3, level at 1–1.");
-    expect(matchSummary(3, [...games.slice(0, 2), { id: "c", game: 3, status: "finished", winner: "Alex" }], ["Sam", "Alex"])).toBe("Alex won the match 2–1.");
-    expect(matchSummary(3, [], ["Sam", "Alex"])).toBe("Best of 3, no games finished yet.");
+describe("a game's match on its page", () => {
+  it("rebuilds the score before the game from what the server kept, by seat", () => {
+    expect(matchFromServer(game2)).toEqual({ id: "m", bestOf: 3, game: 2, wins: [0, 1], draws: 0 });
+    expect(matchFromServer({ ...game2, match_id: null })).toBeNull();
+    // A game saved before the score was kept counts from nothing.
+    expect(matchFromServer({ ...game2, match_wins: null, match_draws: null })).toMatchObject({ wins: [0, 0], draws: 0 });
   });
 
-  it("rebuilds the score so far for a game carried on from Yama, by the winners' names", () => {
-    const g = { match_id: "m", match_game: 3, match_best_of: 3, match_games: games, seats: [seat(0, "Alex"), seat(1, "Sam")] } as Pick<GameDetail, "match_id" | "match_game" | "match_best_of" | "match_games" | "seats">;
-    expect(matchFromServer(g)).toEqual({ id: "m", bestOf: 3, game: 3, wins: [1, 1], draws: 0 });
-    expect(matchFromServer({ ...g, match_id: null })).toBeNull();
+  it("tells where the match stood after the game, naming this game's players", () => {
+    const m = matchFromServer(game2)!;
+    expect(matchSummary(m, game2)).toBe("Alex won the match 2–0.");
+    expect(matchSummary(m, { ...game2, winner_seat: 0 })).toBe("Best of 3. After this game, level at 1–1.");
+    expect(matchSummary(m, { ...game2, status: "in_progress", winner_seat: null })).toBe("Best of 3. Before this game, Alex leads 1–0.");
+    expect(matchSummary(m, { ...game2, winner_seat: null })).toBe("Best of 3. After this game, Alex leads 1–0.");
+  });
+
+  it("keeps a seat's deck colors outside Commander", () => {
+    const g = { ...game2, id: "g", mode: "in_person", playgroup_id: null, format: "limited", starting_life: 20, started_at: "2026-11-17T19:00:00Z", ended_at: null, turns: null, first_seat: null, win_condition: null, events: [], can_continue: true, seats: [seat(0, "Sam", { colors: "WU" }), seat(1, "Alex")] } as GameDetail;
+    expect(setupFromServer(g).setup.players.map((p) => p.colorIdentity)).toEqual(["WU", ""]);
+    expect(setupFromServer(g).setup.match).toMatchObject({ game: 2, wins: [0, 1] });
   });
 });
