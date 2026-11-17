@@ -15,6 +15,18 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-17-limited-matches",
+    date: "2026-11-17",
+    title: "Life counter: Limited, and best-of-three matches",
+    items: [
+      "Limited is a game type of its own: 20 life, two players, and a best-of-three match to start with.",
+      "Any two players can play a best of three or five. Each panel shows the games won, finishing a game offers Save and start game 2, and whoever lost picks who plays first next.",
+      "Outside Commander, tap a deck's colors on a seat and its panel takes them, named for the colors (Azorius). Commander damage and tax stay out of the way.",
+      "Each game is still saved as a game; its page shows the match and its other games.",
+    ],
+    link: { to: "/play/table", label: "Start a match" },
+  },
+  {
     id: "2026-11-16-collection-search-up",
     date: "2026-11-16",
     title: "Collection: search at the top",

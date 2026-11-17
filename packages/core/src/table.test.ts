@@ -28,6 +28,12 @@ import {
   rematchSeat,
   seatOrder,
   wonText,
+  matchAfter,
+  matchNeeds,
+  matchResult,
+  newMatch,
+  nextMatchGame,
+  winConditionsFor,
   type LoggedEvent,
   type TableEvent,
   type TableSetup,
@@ -320,7 +326,8 @@ describe("the words game pages share", () => {
   it("names a game type the way the picker does", () => {
     // The picker's buttons and a game's page read the same list.
     expect(FORMATS.map((f) => formatLabel(f.key))).toEqual(FORMATS.map((f) => f.label));
-    expect(FORMATS.map((f) => f.label)).toEqual(["Commander", "Constructed", "Other"]);
+    expect(FORMATS.map((f) => f.label)).toEqual(["Commander", "Constructed", "Limited", "Other"]);
+    expect(FORMATS.find((f) => f.key === "limited")!.life).toBe(20);
   });
 
   it("has one name each for a game still going, a draw and a result", () => {
@@ -496,5 +503,63 @@ describe("the clock", () => {
     expect([0, 1_000, 7_000, 60_000, 252_000, 3_600_000, 3_730_000, 7_260_000].map(clockWords)).toEqual([
       "0 seconds", "1 second", "7 seconds", "1 minute", "4 minutes 12 seconds", "1 hour", "1 hour 2 minutes", "2 hours 1 minute",
     ]);
+  });
+});
+
+describe("matches", () => {
+  const duel: TableSetup = {
+    id: "m1",
+    startedAt: "2026-11-17T19:00:00Z",
+    format: "limited",
+    startingLife: 20,
+    players: [
+      { seat: 0, name: "Sam", colorIdentity: "WU" },
+      { seat: 1, name: "Alex", colorIdentity: "BR" },
+    ],
+    match: newMatch("match-1", 3),
+  };
+
+  it("needs two wins of three and three of five", () => {
+    expect([matchNeeds(3), matchNeeds(5)]).toEqual([2, 3]);
+  });
+
+  it("goes on to game 2 with the loser choosing play or draw", () => {
+    const next = nextMatchGame(initialState(duel), 0)!;
+    expect(next).toEqual({ id: "match-1", bestOf: 3, game: 2, wins: [1, 0], draws: 0, chooser: 1 });
+  });
+
+  it("ends once someone has won enough games", () => {
+    const game2 = { ...duel, match: { ...duel.match!, game: 2, wins: [1, 0], chooser: 1 } };
+    expect(matchAfter(game2.match, 0).result).toEqual({ winner: 0 });
+    expect(nextMatchGame(initialState(game2), 0)).toBeNull();
+    // 1–1 goes to a third game, chosen by the one who lost the second.
+    expect(nextMatchGame(initialState(game2), 1)).toMatchObject({ game: 3, wins: [1, 1], chooser: 0 });
+  });
+
+  it("after a draw keeps the same chooser, and a match with every game played goes to the leader or is drawn", () => {
+    const game2 = { ...duel, match: { ...duel.match!, game: 2, wins: [1, 0], chooser: 1 } };
+    expect(nextMatchGame(initialState(game2), null)).toMatchObject({ game: 3, wins: [1, 0], draws: 1, chooser: 1 });
+    expect(matchResult({ wins: [1, 0], bestOf: 3 }, 3)).toEqual({ winner: 0 });
+    expect(matchResult({ wins: [1, 1], bestOf: 3 }, 3)).toEqual({ draw: true });
+    expect(matchResult({ wins: [0, 0], bestOf: 3 }, 3)).toEqual({ draw: true });
+    expect(matchResult({ wins: [1, 1], bestOf: 3 }, 2)).toBeNull();
+  });
+
+  it("carries each player's wins to their seat after a swap of places", () => {
+    const swapped = apply(initialState(duel), { type: "swap_places", a: 0, b: 1 });
+    // Sam (seat 0) wins game 1 and sits second now: seat 1 in game 2, with the win.
+    expect(nextMatchGame(swapped, 0)).toMatchObject({ wins: [0, 1], chooser: 0 });
+  });
+
+  it("is not a match without a match", () => {
+    expect(nextMatchGame(initialState({ ...duel, match: undefined }), 0)).toBeNull();
+  });
+});
+
+describe("ways to win", () => {
+  it("offers commander damage only in Commander", () => {
+    expect(winConditionsFor("commander").map((w) => w.key)).toContain("commander_damage");
+    expect(winConditionsFor("limited").map((w) => w.key)).not.toContain("commander_damage");
+    expect(winConditionsFor("standard").map((w) => w.key)).toContain("combat");
   });
 });

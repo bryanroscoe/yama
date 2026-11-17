@@ -557,6 +557,8 @@ async function pushGame(g: LocalGame): Promise<boolean> {
       format: s.format,
       starting_life: s.startingLife,
       started_at: s.startedAt,
+      // One game of a match: which match, which game of it, and how long it runs.
+      ...(s.match ? { match: { id: s.match.id, game: s.match.game, best_of: s.match.bestOf } } : {}),
       seats: s.players.map((p) => {
         const c = now.get(p.seat) ?? p;
         return {

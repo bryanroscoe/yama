@@ -608,7 +608,7 @@ pub(super) const TOOLS: &[Tool] = &[
         name: "list_games",
         aliases: &["games"],
         title: "Your game history",
-        description: "Games they played in person with Yama's life counter or online, newest first, 10 at a time (next_cursor continues): each with its seats (player, commander, final life, knockout turn), winner, turns, status and note. query matches a player's or commander's name; playgroup lists one playgroup's games, also ones they weren't in; filter unfinished or unnamed finds games to tidy up; detail summary gives one short row a game. These are real games, unlike lab results. `get_game` has one game's events or, for an online game, its log.",
+        description: "Games they played in person with Yama's life counter or online, newest first, 10 at a time (next_cursor continues): each with its seats (player, commander, final life, knockout turn), winner, turns, status, note and format (commander, standard for Constructed, limited, other); a game of a best-of-three or best-of-five match has match_id, match_game and match_best_of, and `get_game` lists the match's games. query matches a player's or commander's name; playgroup lists one playgroup's games, also ones they weren't in; filter unfinished or unnamed finds games to tidy up; detail summary gives one short row a game. These are real games, unlike lab results. `get_game` has one game's events or, for an online game, its log.",
         schema: || {
             json!({
                 "type": "object",
@@ -2700,7 +2700,9 @@ async fn games(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String
                 Some(commander) => format!("{} ({commander})", name(s)),
                 None => name(s),
             }).collect();
-            *game = json!({"id": game["id"], "started_at": game["started_at"], "status": game["status"], "turns": game["turns"], "winner": winner, "players": players});
+            // A game of a match says which: "game 2 of 3".
+            let in_match = game["match_game"].as_i64().zip(game["match_best_of"].as_i64()).map(|(n, of)| format!("game {n} of {of}"));
+            *game = json!({"id": game["id"], "started_at": game["started_at"], "status": game["status"], "format": game["format"], "match": in_match, "match_id": game["match_id"], "turns": game["turns"], "winner": winner, "players": players});
         }
         without_nulls(&mut out);
     }

@@ -1,6 +1,6 @@
 // A table game told as it happened: one line per logged event, for the game's detail page.
 
-import { apply, commanderTax, formatLabel, keySeat, sourceName, initialState, turnsCounted, winConditionLabel, type LoggedEvent, type TableEvent, type TableSetup, type TableState, plural } from "@yama/core";
+import { apply, commanderTax, formatLabel, identityName, keySeat, sourceName, initialState, turnsCounted, winConditionLabel, type LoggedEvent, type TableEvent, type TableSetup, type TableState, plural } from "@yama/core";
 
 export interface HistoryLine {
   seq: number;
@@ -14,9 +14,11 @@ export interface HistoryLine {
 /** "Commander game on turn 5. Alex's turn.", or "Commander game, 4 players." when nobody counts turns. */
 export function gameSummary(state: TableState): string {
   const active = state.players.find((p) => p.seat === state.activeSeat);
-  const kind = formatLabel(state.setup.format);
-  if (!turnsCounted(state)) return `${kind} game, ${state.players.length} ${state.players.length === 1 ? "player" : "players"}.`;
-  return `${kind} game on turn ${state.turn}.${active && !state.finished ? ` ${active.name}'s turn.` : ""}`;
+  const m = state.setup.match;
+  // "Limited match, game 2 of 3" in a match, else "Commander game".
+  const kind = m ? `${formatLabel(state.setup.format)} match, game ${m.game} of ${m.bestOf}` : `${formatLabel(state.setup.format)} game`;
+  if (!turnsCounted(state)) return `${kind}, ${state.players.length} ${state.players.length === 1 ? "player" : "players"}.`;
+  return `${kind}${m ? "," : ""} on turn ${state.turn}.${active && !state.finished ? ` ${active.name}'s turn.` : ""}`;
 }
 
 /** One event in words, read against the state just before it. null for nothing worth a line. */
@@ -74,6 +76,8 @@ export function describe(before: TableState, after: TableState, e: TableEvent): 
     case "revive":
       return `${name(e.seat)} is back in the game.`;
     case "seat": {
+      // Outside Commander a seat changes only its deck's colors.
+      if (!e.commanderName && before.setup.format !== "commander") return e.colorIdentity ? `${name(e.seat)}'s deck is ${identityName(e.colorIdentity)} now.` : `${name(e.seat)}'s deck has no colors set now.`;
       const cmdr = e.partnerName ? `${e.commanderName} and ${e.partnerName}` : (e.commanderName ?? "no commander");
       return `${name(e.seat)} is playing ${cmdr} now.`;
     }

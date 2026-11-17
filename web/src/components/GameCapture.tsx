@@ -1,7 +1,7 @@
 // End-of-game questions, shared by the table's finish sheet and Log a game. Every one is
 // optional: skipping leaves it unrecorded, never a default.
 
-import { NOTE_MAX, WIN_CONDITIONS, type FunRating, type WinCondition } from "@yama/core";
+import { NOTE_MAX, winConditionsFor, type FunRating, type WinCondition } from "@yama/core";
 import { useState } from "react";
 import "./stats.css";
 import { Button } from "./Button";
@@ -36,10 +36,11 @@ function Chips<T extends string | number>({ options, value, onChange, label }: {
   );
 }
 
-export function WinConditionPicker({ value, onChange, winner }: { value: WinCondition | null; onChange: (v: WinCondition | null) => void; winner?: string }) {
+/** `format`: the game type, so only a Commander game offers commander damage. */
+export function WinConditionPicker({ value, onChange, winner, format = "commander" }: { value: WinCondition | null; onChange: (v: WinCondition | null) => void; winner?: string; format?: string }) {
   return (
     <Question title={winner ? `How did ${winner} win?` : "How was it won?"}>
-      <Chips options={WIN_CONDITIONS.map((w) => ({ key: w.key, label: w.label }))} value={value} onChange={onChange} label="Win condition" />
+      <Chips options={winConditionsFor(format).map((w) => ({ key: w.key, label: w.label }))} value={value} onChange={onChange} label="Win condition" />
     </Question>
   );
 }

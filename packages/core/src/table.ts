@@ -44,7 +44,7 @@ export type CommanderPick = Pick<PlayerSetup, "commanderName" | "partnerName" | 
 /** Who sits at a seat: renamed mid-game, or tied to a playgroup member or account after all. */
 export type PlayerPick = Pick<PlayerSetup, "name" | "memberId" | "userId">;
 
-export type TableFormat = "commander" | "standard" | "other";
+export type TableFormat = "commander" | "standard" | "limited" | "other";
 
 /**
  * The game types New game and Log a game offer, with the starting life each one usually uses.
@@ -53,6 +53,8 @@ export type TableFormat = "commander" | "standard" | "other";
 export const FORMATS: { key: TableFormat; label: string; life: number }[] = [
   { key: "commander", label: "Commander", life: 40 },
   { key: "standard", label: "Constructed", life: 20 },
+  // Draft and sealed: 20 life, usually two players, usually a best-of-three match.
+  { key: "limited", label: "Limited", life: 20 },
   { key: "other", label: "Other", life: 20 },
 ];
 
@@ -83,6 +85,104 @@ export interface TableSetup {
   startingLife: number;
   playgroupId?: string;
   players: PlayerSetup[];
+  /** This game is one game of a match (best of three, say). Missing for a single game. */
+  match?: MatchSetup;
+}
+
+// ── matches ────────────────────────────────────────────────────────────────
+//
+// A match is a run of games between the same players, won by whoever first wins most of them
+// (two of three). Each game is still its own game, saved and counted as one; the match only ties
+// them together. The score so far rides in each game's setup, so a game in a match shows it with
+// no connection, and a phone following the table sees it too.
+
+/** How many games a match can run to: one game (no match), best of three, best of five. */
+export const MATCH_LENGTHS = [1, 3, 5] as const;
+
+export interface MatchSetup {
+  /** Shared by every game in the match (a UUID, made on the device). */
+  id: string;
+  /** 3 or 5. */
+  bestOf: number;
+  /** Which game of the match this is, from 1. */
+  game: number;
+  /** Games each seat had won before this one, by this game's seat numbers (a missing seat has none). */
+  wins: number[];
+  /** Games before this one that nobody won. */
+  draws: number;
+  /**
+   * Who chooses to play or draw this game: the player who lost the game before it, or after a
+   * draw whoever chose last time. Missing for the first game (the table rolls for it).
+   */
+  chooser?: Seat;
+}
+
+/** Games a player must win to take a match: 2 of 3, 3 of 5. */
+export function matchNeeds(bestOf: number): number {
+  return Math.floor(bestOf / 2) + 1;
+}
+
+/** Games a seat has won in the match so far. */
+export function matchWins(match: Pick<MatchSetup, "wins">, seat: Seat): number {
+  return match.wins[seat] ?? 0;
+}
+
+export type MatchResult = { winner: Seat } | { draw: true } | null;
+
+/**
+ * Who has taken the match: a seat once it has won enough games, or after the last game the seat
+ * with the most wins (a draw if two share the most). null while it goes on.
+ */
+export function matchResult(match: Pick<MatchSetup, "wins" | "bestOf">, played: number): MatchResult {
+  const needs = matchNeeds(match.bestOf);
+  const winner = match.wins.findIndex((w) => (w ?? 0) >= needs);
+  if (winner >= 0) return { winner };
+  if (played < match.bestOf) return null;
+  const most = Math.max(0, ...match.wins.map((w) => w ?? 0));
+  const leaders = match.wins.flatMap((w, seat) => ((w ?? 0) === most && most > 0 ? [seat] : []));
+  return leaders.length === 1 ? { winner: leaders[0]! } : { draw: true };
+}
+
+/** The match as it stands once this game ends with `winnerSeat` (null: a draw), by this game's seats. */
+export function matchAfter(match: MatchSetup, winnerSeat: Seat | null): { wins: number[]; draws: number; played: number; result: MatchResult } {
+  const wins = [...match.wins];
+  if (winnerSeat !== null) wins[winnerSeat] = (wins[winnerSeat] ?? 0) + 1;
+  for (let i = 0; i < wins.length; i++) wins[i] ??= 0;
+  const draws = match.draws + (winnerSeat === null ? 1 : 0);
+  return { wins, draws, played: match.game, result: matchResult({ wins, bestOf: match.bestOf }, match.game) };
+}
+
+/** A new match's first game. */
+export function newMatch(id: string, bestOf: number): MatchSetup {
+  return { id, bestOf, game: 1, wins: [], draws: 0 };
+}
+
+/**
+ * The next game of the match after this one ends with `winnerSeat`, its seats numbered as Play
+ * again numbers them (seatOrder, `rematchSeat`); null once the match is decided. With two players
+ * the one who lost chooses to play or draw; after a draw, whoever chose last time chooses again.
+ */
+export function nextMatchGame(state: Pick<TableState, "setup" | "players" | "order">, winnerSeat: Seat | null): MatchSetup | null {
+  const match = state.setup.match;
+  if (!match) return null;
+  const after = matchAfter(match, winnerSeat);
+  if (after.result) return null;
+  const order = seatOrder(state);
+  const loser = winnerSeat !== null && state.players.length === 2 ? state.players.find((p) => p.seat !== winnerSeat)?.seat : undefined;
+  const chooser = loser ?? (winnerSeat === null ? match.chooser : undefined);
+  return {
+    id: match.id,
+    bestOf: match.bestOf,
+    game: match.game + 1,
+    wins: order.map((s) => after.wins[s] ?? 0),
+    draws: after.draws,
+    ...(chooser !== undefined ? { chooser: rematchSeat(state, chooser) } : {}),
+  };
+}
+
+/** "2–1", the match score between two players, `seat`'s wins first. */
+export function matchScore(match: Pick<MatchSetup, "wins">, seat: Seat, other: Seat): string {
+  return `${matchWins(match, seat)}–${matchWins(match, other)}`;
 }
 
 /** How a game was won, as the table tells it. Optional at the end of every game. */
@@ -98,6 +198,11 @@ export const WIN_CONDITIONS = [
 ] as const;
 
 export type WinCondition = (typeof WIN_CONDITIONS)[number]["key"];
+
+/** The ways a game of this type can be won: commander damage only in Commander. */
+export function winConditionsFor(format: TableFormat | string): (typeof WIN_CONDITIONS)[number][] {
+  return format === "commander" ? [...WIN_CONDITIONS] : WIN_CONDITIONS.filter((w) => w.key !== "commander_damage");
+}
 
 export function winConditionLabel(key: string | null | undefined): string | null {
   return WIN_CONDITIONS.find((w) => w.key === key)?.label ?? null;

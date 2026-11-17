@@ -84,7 +84,7 @@ pub struct SeatFacts {
 pub struct GameFacts {
     pub id: String,
     pub mode: String,
-    /// `games.format`: "commander", "standard" (Constructed) or "other".
+    /// `games.format`: "commander", "standard" (Constructed), "limited" or "other".
     pub format: String,
     pub starting_life: i64,
     pub playgroup_name: Option<String>,

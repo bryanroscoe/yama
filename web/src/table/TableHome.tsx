@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FORMATS, formatLabel, type FunRating, type PlayerSetup, type TableFormat, type TableSetup, type WinCondition, fmtDateTime } from "@yama/core";
+import { FORMATS, formatLabel, identityName, MATCH_LENGTHS, newMatch, type FunRating, type PlayerSetup, type TableFormat, type TableSetup, type WinCondition, fmtDateTime } from "@yama/core";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { api, type DeckSummary, type GameDetail, type GameRow, type Playgroup } from "../api";
@@ -235,10 +235,13 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
       emptySeat(),
     ]);
   });
+  /** A best-of-three (or five) match, or one game (1). Offered for two players. */
+  const [bestOf, setBestOf] = useState<number>(1);
   useEffect(() => {
     if (last?.groupId) setGroupId(last.groupId);
     if (last?.life) setLife(last.life);
     if (FORMATS.some((f) => f.key === last?.format)) setFormat(last!.format as TableFormat);
+    if (MATCH_LENGTHS.some((n) => n === last?.bestOf)) setBestOf(last!.bestOf!);
   }, [last]);
 
   // "Play this deck" on a deck page: put that deck in your seat.
@@ -254,6 +257,7 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
     applied.current = d.id;
     // A deck page's deck is a Commander deck.
     setFormat("commander");
+    setBestOf(1);
     setLife((l) => (FORMATS.some((f) => f.key !== "commander" && f.life === l) ? 40 : l));
     const myRow = groups.data?.find((g) => g.id === groupId)?.members.find((m) => m.user_id && m.user_id === me.data?.id);
     setSeats((all) => {
@@ -288,6 +292,11 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
   const chooseFormat = (f: TableFormat) => {
     setFormat(f);
     setLife(FORMATS.find((x) => x.key === f)!.life);
+    // Limited is played one on one, in best-of-three matches; Commander one game at a time.
+    if (f === "limited") {
+      if (seats.length !== 2) setCount(2);
+      setBestOf(3);
+    } else if (f === "commander") setBestOf(1);
   };
   // A saved playgroup that's no longer one of yours (you left it, or it's gone): play as friends,
   // its members becoming names, rather than send an id the server refuses.
@@ -326,7 +335,8 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
       deckLabel: (cmdr && seatDeckLabel(s)) || undefined,
       commanderName: (cmdr && s.commanderName) || undefined,
       partnerName: (cmdr && s.partnerName?.trim()) || undefined,
-      colorIdentity: cmdr ? s.colorIdentity : "",
+      // Outside Commander a seat may say its deck's colors (a white-blue draft deck), for its panel.
+      colorIdentity: cmdr ? s.colorIdentity : (s.deckColors ?? ""),
       art: cmdr ? s.art : undefined,
       artist: cmdr ? s.artist : undefined,
       partnerArt: cmdr && s.partnerName ? s.partnerArt : undefined,
@@ -339,8 +349,9 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
       startingLife: life,
       playgroupId: groupId || undefined,
       players,
+      ...(matchOn ? { match: newMatch(crypto.randomUUID(), bestOf) } : {}),
     };
-    writeLastSetup(localStorage, guest ? null : me.data?.id, { seats: seatsNow, groupId, life, format, phones, at: new Date().toISOString() });
+    writeLastSetup(localStorage, guest ? null : me.data?.id, { seats: seatsNow, groupId, life, format, bestOf, phones, at: new Date().toISOString() });
     const followed = followedTable(me.data?.id ?? null);
     if (followed) forgetTable(me.data?.id ?? null, followed.gameId);
     startGame(setup);
@@ -375,8 +386,10 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
       commander: format === "commander",
     };
   };
-  const startLabel = starting ? "Starting…" : "Start the game";
-  const startSub = `${seats.length} ${seats.length === 1 ? "player" : "players"} at ${life} life`;
+  // Matches are one on one.
+  const matchOn = seats.length === 2 && bestOf > 1;
+  const startLabel = starting ? "Starting…" : matchOn ? "Start the match" : "Start the game";
+  const startSub = `${seats.length} ${seats.length === 1 ? "player" : "players"} at ${life} life${matchOn ? `, best of ${bestOf}` : ""}`;
   const artists = seats.filter((s) => s.art).map((s) => s.artist);
   const people = usePeople(group, groups.data);
 
@@ -394,6 +407,7 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
           <Choice label="Game type" options={FORMATS.map((f) => f.key)} value={format} onChange={chooseFormat} name={(f) => formatLabel(f)} />
           <Choice label="Players" options={Array.from({ length: MAX_SEATS }, (_, i) => i + 1)} value={seats.length} onChange={setCount} />
           <Choice label="Starting life" options={[40, 30, 25, 20]} value={life} onChange={setLife} />
+          {seats.length === 2 && <Choice label="Match" options={[...MATCH_LENGTHS]} value={bestOf} onChange={setBestOf} name={(n) => (n === 1 ? "One game" : `Best of ${n}`)} />}
           {!guest && !groupId && <Choice label="Devices" options={["one", "everyone"] as ("one" | "everyone")[]} value={phones} onChange={setPhones} name={(v) => (v === "one" ? "One device" : "Separate devices")} />}
         </div>
         {!guest && groupId ? (
@@ -530,7 +544,7 @@ function Choice<T extends string | number>({ label, options, value, onChange, na
 function SeatRow({ index, seat, deckName, onOpen, commander = true }: { index: number; seat: SeatDraft; deckName?: string; onOpen: () => void; commander?: boolean }) {
   const who = seat.name.trim() || `Player ${index + 1}`;
   const cmdr = seat.partnerName ? `${seat.commanderName} and ${seat.partnerName}` : seat.commanderName;
-  const what = !commander ? (deckName ?? "Change player") : seat.commanderName ? (deckName ? `${deckName}, ${cmdr}` : cmdr) : "Pick a commander";
+  const what = !commander ? (seat.deckColors ? identityName(seat.deckColors) : "Change player") : seat.commanderName ? (deckName ? `${deckName}, ${cmdr}` : cmdr) : "Pick a commander";
   return (
     <Button className="seat-row" onClick={onOpen} aria-label={`Seat ${index + 1}: ${who}, ${what}. Change`}>
       <ArtPanel as="span" className="seat-row-art" art={seat.art} artist={seat.artist} wash="left" empty={!seat.commanderName} credit={false}>
@@ -539,7 +553,7 @@ function SeatRow({ index, seat, deckName, onOpen, commander = true }: { index: n
           <span className="seat-row-name">{who}</span>
           <span className="seat-row-what">{what}</span>
         </span>
-        {seat.commanderName && <Pips identity={seat.colorIdentity} label={false} />}
+        {commander ? seat.commanderName && <Pips identity={seat.colorIdentity} label={false} /> : seat.deckColors && <Pips identity={seat.deckColors} label={false} />}
       </ArtPanel>
     </Button>
   );
@@ -629,6 +643,8 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
   const chooseFormat = (f: TableFormat) => {
     setFormat(f);
     setStartingLife(FORMATS.find((x) => x.key === f)!.life);
+    // Only a Commander game is won by commander damage.
+    if (f !== "commander") setCondition((c) => (c === "commander_damage" ? null : c));
   };
   const cmdr = format === "commander";
   // The day here, not in UTC: after 7 pm in Texas, UTC is already tomorrow.
@@ -878,7 +894,7 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
         </div>
         {named.length > 0 && (
           <>
-            {typeof winner === "number" && <WinConditionPicker value={condition} onChange={setCondition} winner={named.find((n) => n.seat === winner)?.name} />}
+            {typeof winner === "number" && <WinConditionPicker value={condition} onChange={setCondition} winner={named.find((n) => n.seat === winner)?.name} format={format} />}
             <FirstPlayerPicker key={gameId} seats={named} value={first} onChange={setFirst} />
             <KnockoutPicker
               seats={named}

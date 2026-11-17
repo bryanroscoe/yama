@@ -34,6 +34,11 @@ export interface SeatDraft {
   pairScope?: string;
   /** The deck's listed commanders, when they can't all lead it together: the seat plays one. */
   commanderChoices?: string[];
+  /**
+   * Outside Commander, the colors the player's deck is (a white-blue draft deck: "WU"), chosen by
+   * hand: there's no commander to read them from. They color the seat's panel.
+   */
+  deckColors?: string;
 }
 
 export interface Me {
