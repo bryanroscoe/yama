@@ -358,6 +358,7 @@ fn build(g: &MGame, ctx: &Ctx) -> Result<Built, String> {
             eliminated_by_seat: None,
             fun: None,
             display_name: None,
+            colors: None,
         });
         rows.push(SeatRow { name, deck, commander, won, me });
     }
@@ -876,6 +877,7 @@ async fn apply(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(
                     events: vec![],
                     finish: Some(b.finish),
                     note: Some(NOTE.into()),
+                    game_match: None,
                 };
                 save_game(pool, owner, game, p.seen_yama.as_deref(), Sync { mythic: &p.mythic_id, yama: &yama, fingerprint: &b.fingerprint, keep_yama: None, note: b.note.as_deref(), tags: &b.tags }).await
             }

@@ -45,6 +45,10 @@ pub struct Seat {
     #[sqlx(default)]
     #[serde(default)]
     pub display_name: Option<String>,
+    /// Outside Commander, the deck colors picked for the seat ("WU"), as the game started.
+    #[sqlx(default)]
+    #[serde(default)]
+    pub colors: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -72,7 +76,28 @@ pub(crate) struct NewGame {
     /// Set when logging a game that's already over (played without the app).
     pub(crate) finish: Option<Finish>,
     pub(crate) note: Option<String>,
+    /// This game is one game of a match (best of three, say). Kept as the game was first saved.
+    #[serde(default, rename = "match")]
+    pub(crate) game_match: Option<MatchRef>,
 }
+
+/// One game's place in a match: which match (a UUID made on the device), which game of it from 1,
+/// and how many games it could run to.
+#[derive(Deserialize, Clone)]
+pub(crate) struct MatchRef {
+    pub(crate) id: String,
+    pub(crate) game: i64,
+    pub(crate) best_of: i64,
+    /// Games each seat had won before this one, by this game's seat numbers.
+    #[serde(default)]
+    pub(crate) wins: Vec<i64>,
+    /// Games before this one that nobody won.
+    #[serde(default)]
+    pub(crate) draws: i64,
+}
+
+/// How many games a match can run to.
+const MATCH_LENGTHS: [i64; 2] = [3, 5];
 
 fn commander() -> String {
     "commander".into()
@@ -221,6 +246,17 @@ struct StoredSeat {
     deck_version_id: Option<String>,
     deck_label: Option<String>,
     commander_name: Option<String>,
+    /// Not part of who sits there: a retry compares seats without it.
+    #[sqlx(default)]
+    colors: Option<String>,
+}
+
+/// A seat's deck colors as stored: the letters W, U, B, R and G, each once, in that order; None
+/// for none.
+fn clean_colors(colors: Option<&str>) -> Option<String> {
+    let c = colors?.to_ascii_uppercase();
+    let kept: String = "WUBRG".chars().filter(|k| c.contains(*k)).collect();
+    (!kept.is_empty()).then_some(kept)
 }
 
 impl StoredSeat {
@@ -282,14 +318,15 @@ async fn resolve_seat(conn: &mut sqlx::SqliteConnection, user: &str, playgroup: 
         deck_version_id: deck_version,
         deck_label: s.deck_label.clone(),
         commander_name: s.commander_name.clone(),
+        colors: clean_colors(s.colors.as_deref()),
     })
 }
 
 async fn insert_seats(conn: &mut sqlx::SqliteConnection, game: &str, seats: &[StoredSeat]) -> AppResult<()> {
     for s in seats {
         sqlx::query(
-            "INSERT INTO game_seats (game_id, seat, member_id, user_id, guest_name, ai_kind, deck_version_id, deck_label, commander_name)
-             VALUES (?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO game_seats (game_id, seat, member_id, user_id, guest_name, ai_kind, deck_version_id, deck_label, commander_name, colors)
+             VALUES (?,?,?,?,?,?,?,?,?,?)",
         )
         .bind(game)
         .bind(s.seat)
@@ -300,6 +337,7 @@ async fn insert_seats(conn: &mut sqlx::SqliteConnection, game: &str, seats: &[St
         .bind(&s.deck_version_id)
         .bind(&s.deck_label)
         .bind(&s.commander_name)
+        .bind(&s.colors)
         .execute(&mut *conn)
         .await?;
     }
@@ -346,6 +384,21 @@ pub(crate) async fn check_game(pool: &SqlitePool, user: &str, g: &NewGame) -> Ap
     }
     check_note(g.note.as_deref())?;
     check_time(g.started_at.as_deref(), "started_at")?;
+    if let Some(m) = &g.game_match {
+        if uuid::Uuid::parse_str(&m.id).is_err() {
+            return Err(AppError::bad("a match id must be a UUID"));
+        }
+        if !MATCH_LENGTHS.contains(&m.best_of) {
+            return Err(AppError::bad("a match is best of 3 or best of 5"));
+        }
+        if !(1..=m.best_of).contains(&m.game) {
+            return Err(AppError::bad(format!("a best of {} has games 1 to {}", m.best_of, m.best_of)));
+        }
+        // The score before this game: a count per seat, adding up with the draws to the games before it.
+        if m.wins.len() > g.seats.len() || m.wins.iter().any(|w| *w < 0) || m.draws < 0 || m.wins.iter().sum::<i64>() + m.draws != m.game - 1 {
+            return Err(AppError::bad("a match's score must count the games before this one"));
+        }
+    }
     if let Some(f) = &g.finish {
         check_finish(f, &seat_numbers)?;
     }
@@ -382,8 +435,8 @@ pub(crate) async fn create_game_in(tx: &mut sqlx::SqliteConnection, user: &str, 
     let existing = match found {
         None => {
             sqlx::query(
-                "INSERT INTO games (id, mode, playgroup_id, created_by, format, status, starting_life, started_at, note)
-                 VALUES (?, 'in_person', ?, ?, ?, 'in_progress', ?, ?, ?)",
+                "INSERT INTO games (id, mode, playgroup_id, created_by, format, status, starting_life, started_at, note, match_id, match_game, match_best_of, match_wins, match_draws)
+                 VALUES (?, 'in_person', ?, ?, ?, 'in_progress', ?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(&g.id)
             .bind(&g.playgroup_id)
@@ -392,6 +445,11 @@ pub(crate) async fn create_game_in(tx: &mut sqlx::SqliteConnection, user: &str, 
             .bind(g.starting_life)
             .bind(g.started_at.clone().unwrap_or_else(now))
             .bind(&g.note)
+            .bind(g.game_match.as_ref().map(|m| &m.id))
+            .bind(g.game_match.as_ref().map(|m| m.game))
+            .bind(g.game_match.as_ref().map(|m| m.best_of))
+            .bind(g.game_match.as_ref().map(|m| serde_json::to_string(&m.wins).unwrap_or_else(|_| "[]".into())))
+            .bind(g.game_match.as_ref().map(|m| m.draws))
             .execute(&mut *tx)
             .await?;
             insert_seats(&mut *tx, &g.id, &seats).await?;
@@ -763,6 +821,13 @@ pub(crate) struct GameRow {
     first_seat: Option<i64>,
     win_condition: Option<String>,
     note: Option<String>,
+    /// One game of a match: the match, which game of it, and how many games it could run to.
+    match_id: Option<String>,
+    match_game: Option<i64>,
+    match_best_of: Option<i64>,
+    /// The games each seat had won before this one, by this game's seats, and the drawn ones.
+    match_wins: Option<sqlx::types::Json<Vec<i64>>>,
+    match_draws: Option<i64>,
     #[sqlx(skip)]
     seats: Vec<Seat>,
 }
@@ -772,12 +837,12 @@ pub(crate) struct GameRow {
 const NOT_A_LOBBY: &str = "NOT EXISTS (SELECT 1 FROM online_games lobby WHERE lobby.game_id = g.id AND lobby.stage = 'lobby')";
 
 const GAME_COLUMNS: &str =
-    "g.id, g.mode, g.playgroup_id, g.format, g.status, g.starting_life, g.started_at, g.ended_at, g.turns, g.winner_seat, g.first_seat, g.win_condition, g.note";
+    "g.id, g.mode, g.playgroup_id, g.format, g.status, g.starting_life, g.started_at, g.ended_at, g.turns, g.winner_seat, g.first_seat, g.win_condition, g.note, g.match_id, g.match_game, g.match_best_of, g.match_wins, g.match_draws";
 
 async fn seats(pool: &SqlitePool, game: &str) -> AppResult<Vec<Seat>> {
     Ok(sqlx::query_as(
         "SELECT s.seat, s.member_id, s.user_id, s.guest_name, s.ai_kind, s.deck_version_id, s.deck_label, s.commander_name,
-                s.final_life, s.eliminated_turn, s.eliminated_by_seat, s.fun,
+                s.final_life, s.eliminated_turn, s.eliminated_by_seat, s.fun, s.colors,
                 COALESCE(u.display_name, s.guest_name, m.guest_name, s.ai_kind) AS display_name
          FROM game_seats s LEFT JOIN users u ON u.id = s.user_id LEFT JOIN playgroup_members m ON m.id = s.member_id
          WHERE s.game_id = ? ORDER BY s.seat",
@@ -802,7 +867,7 @@ async fn seats_for(pool: &SqlitePool, games: &[&str]) -> AppResult<HashMap<Strin
     }
     let rows: Vec<GameSeat> = sqlx::query_as(
         "SELECT s.game_id, s.seat, s.member_id, s.user_id, s.guest_name, s.ai_kind, s.deck_version_id, s.deck_label, s.commander_name,
-                s.final_life, s.eliminated_turn, s.eliminated_by_seat, s.fun,
+                s.final_life, s.eliminated_turn, s.eliminated_by_seat, s.fun, s.colors,
                 COALESCE(u.display_name, s.guest_name, m.guest_name, s.ai_kind) AS display_name
          FROM game_seats s LEFT JOIN users u ON u.id = s.user_id LEFT JOIN playgroup_members m ON m.id = s.member_id
          WHERE s.game_id IN (SELECT value FROM json_each(?)) ORDER BY s.game_id, s.seat",
@@ -1005,6 +1070,46 @@ pub(crate) struct GameDetail {
     /// Seat number to deck id, for seats that played one of this account's own decks (so editing
     /// can name it); never anyone else's deck.
     your_decks: std::collections::BTreeMap<i64, String>,
+    /// The games of this game's match that this account can see, this one included, in order.
+    /// Empty for a game played on its own.
+    match_games: Vec<MatchGame>,
+}
+
+/// One game of a match, as a game's page lists them.
+#[derive(Serialize, sqlx::FromRow)]
+pub(crate) struct MatchGame {
+    id: String,
+    game: i64,
+    status: String,
+    /// The winner's name as the game names them; null for a draw or a game still going.
+    winner: Option<String>,
+}
+
+/// The games of `game`'s match, `match_id`, that `user` can see: the same match id among games
+/// recorded by the same account (a match id is made on a device, so another account's games that
+/// claim it aren't this match), each checked as its own page would be.
+async fn match_games(pool: &SqlitePool, user: &str, game: &str, match_id: &str) -> AppResult<Vec<MatchGame>> {
+    let rows: Vec<MatchGame> = sqlx::query_as(
+        "SELECT g.id, g.match_game AS game, g.status,
+                CASE WHEN g.status = 'finished' THEN (
+                    SELECT COALESCE(u.display_name, s.guest_name, m.guest_name, s.ai_kind)
+                    FROM game_seats s LEFT JOIN users u ON u.id = s.user_id LEFT JOIN playgroup_members m ON m.id = s.member_id
+                    WHERE s.game_id = g.id AND s.seat = g.winner_seat) END AS winner
+         FROM games g
+         WHERE g.match_id = ? AND g.created_by = (SELECT created_by FROM games WHERE id = ?)
+         ORDER BY g.match_game, g.started_at LIMIT 10",
+    )
+    .bind(match_id)
+    .bind(game)
+    .fetch_all(pool)
+    .await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for r in rows {
+        if r.id == game || can_see(pool, &r.id, user).await? {
+            out.push(r);
+        }
+    }
+    Ok(out)
 }
 
 async fn detail(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<GameDetail>> {
@@ -1057,7 +1162,11 @@ pub(crate) async fn game_detail(pool: &SqlitePool, user_id: &str, id: &str) -> A
             }
         }
     }
-    Ok(GameDetail { game, events, can_continue, can_delete: mine, can_edit, your_decks })
+    let match_games = match &game.match_id {
+        Some(m) => match_games(pool, user_id, id, m).await?,
+        None => Vec::new(),
+    };
+    Ok(GameDetail { game, events, can_continue, can_delete: mine, can_edit, your_decks, match_games })
 }
 
 async fn remove(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<()> {
@@ -1305,6 +1414,54 @@ mod tests {
         assert_eq!((d.first_seat, d.win_condition.clone()), (Some(0), None));
         let l = games.iter().find(|g| g.id == logged).unwrap();
         assert_eq!((l.first_seat, l.win_condition.as_deref(), l.seats[2].fun), (Some(1), Some("alternate"), Some(3)));
+    }
+
+    #[tokio::test]
+    async fn a_match_ties_its_games_together_for_those_who_can_see_them() {
+        let pool = setup().await;
+        let m = "6f1c2c43-6c1e-4d6c-9f55-1d2b8a7f00a0";
+        let game = |id: &str, n: i64, wins: serde_json::Value, finish: serde_json::Value| -> NewGame {
+            serde_json::from_value(json!({
+                "id": id, "format": "limited", "starting_life": 20, "started_at": format!("2026-11-17T19:0{n}:00Z"),
+                "seats": [{ "seat": 0, "user_id": "me" }, { "seat": 1, "guest_name": "Alex" }],
+                "finish": finish, "match": { "id": m, "game": n, "best_of": 3, "wins": wins, "draws": 0 }
+            }))
+            .unwrap()
+        };
+        let (g1, g2) = ("6f1c2c43-6c1e-4d6c-9f55-1d2b8a7f00a1", "6f1c2c43-6c1e-4d6c-9f55-1d2b8a7f00a2");
+        create_game(&pool, "me", game(g1, 1, json!([]), json!({ "winner_seat": 1, "seats": [] }))).await.unwrap();
+        create_game(&pool, "me", game(g2, 2, json!([0, 1]), json!({ "winner_seat": 0, "seats": [] }))).await.unwrap();
+        let d = game_detail(&pool, "me", g2).await.unwrap();
+        assert_eq!((d.game.format.as_str(), d.game.match_id.as_deref(), d.game.match_game, d.game.match_best_of), ("limited", Some(m), Some(2), Some(3)));
+        // The score before the game is kept as the table had it.
+        assert_eq!((d.game.match_wins.as_ref().map(|w| w.0.clone()), d.game.match_draws), (Some(vec![0, 1]), Some(0)));
+        let listed: Vec<(i64, Option<&str>)> = d.match_games.iter().map(|g| (g.game, g.winner.as_deref())).collect();
+        assert_eq!(listed, vec![(1, Some("Alex")), (2, Some("Bryan"))]);
+
+        // Another account's game claiming the same match id isn't part of it, and someone who
+        // can't see a game doesn't see it listed.
+        let theirs: NewGame = serde_json::from_value(json!({
+            "id": "6f1c2c43-6c1e-4d6c-9f55-1d2b8a7f00a3", "seats": [{ "seat": 0, "user_id": "sam" }],
+            "match": { "id": m, "game": 3, "best_of": 3, "wins": [1], "draws": 1 }
+        }))
+        .unwrap();
+        create_game(&pool, "sam", theirs).await.unwrap();
+        assert_eq!(game_detail(&pool, "me", g2).await.unwrap().match_games.len(), 2);
+        assert!(game_detail(&pool, "sam", g2).await.is_err());
+
+        // A match is best of 3 or 5, its games numbered within it, its id a UUID.
+        // Its score counts the games before it.
+        for bad in [
+            json!({ "id": m, "game": 1, "best_of": 2 }),
+            json!({ "id": m, "game": 4, "best_of": 3 }),
+            json!({ "id": "x", "game": 1, "best_of": 3 }),
+            json!({ "id": m, "game": 2, "best_of": 3, "wins": [] }),
+            json!({ "id": m, "game": 2, "best_of": 3, "wins": [0, 0, 1] }),
+            json!({ "id": m, "game": 2, "best_of": 3, "wins": [-1, 2] }),
+        ] {
+            let g: NewGame = serde_json::from_value(json!({ "id": "6f1c2c43-6c1e-4d6c-9f55-1d2b8a7f00a4", "seats": [{ "seat": 0, "user_id": "me" }], "match": bad })).unwrap();
+            assert!(create_game(&pool, "me", g).await.is_err());
+        }
     }
 
     #[tokio::test]

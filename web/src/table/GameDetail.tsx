@@ -3,7 +3,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { formatLabel, GAME_WORDS, noteText, wonText, winConditionLabel, WIN_CONDITIONS, type LoggedEvent, type TableEvent, type TableFormat, type TableSetup, fmtDateTime, fmtTime } from "@yama/core";
+import { FORMATS, formatLabel, GAME_WORDS, matchAfter, noteText, type MatchSetup, wonText, winConditionLabel, WIN_CONDITIONS, type LoggedEvent, type TableEvent, type TableFormat, type TableSetup, fmtDateTime, fmtTime } from "@yama/core";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { api, type DeckSummary, type GameDetail, type GameSeat } from "../api";
 import { MythicNote } from "../bridges/mythic/MythicImport";
@@ -24,7 +24,7 @@ import { clockFacts } from "./TableClock";
 import "./home.css";
 import { ask } from "../components/confirm";
 
-const FORMAT_KEYS: TableFormat[] = ["commander", "standard", "other"];
+const FORMAT_KEYS: TableFormat[] = FORMATS.map((f) => f.key);
 
 /** The life counter's setup page, where a game opened from its Recent games goes back to. */
 const SETUP = "/play/table";
@@ -70,12 +70,14 @@ export function setupFromServer(g: GameDetail): { setup: TableSetup; log: Logged
   // "player" event puts the newest one (member and account included) back.
   const firstPlayer = new Map<number, string>();
   for (const { event: e } of log) if (e.type === "player" && e.was && !firstPlayer.has(e.seat)) firstPlayer.set(e.seat, e.was.name);
+  const match = matchFromServer(g);
   const setup: TableSetup = {
     id: g.id,
     startedAt: g.started_at,
     format: FORMAT_KEYS.includes(g.format as TableFormat) ? (g.format as TableFormat) : "commander",
     startingLife: g.starting_life ?? 40,
     playgroupId: g.playgroup_id ?? undefined,
+    ...(match ? { match } : {}),
     players: g.seats.map((s) => {
       const now = splitPair(s);
       const before = started.get(s.seat);
@@ -90,11 +92,46 @@ export function setupFromServer(g: GameDetail): { setup: TableSetup; log: Logged
         deckLabel: before ? commander : (s.deck_label ?? commander),
         commanderName: commander,
         partnerName: partner,
-        colorIdentity: "",
+        // A commander's colors come from its card, looked up later; outside Commander, the deck's as picked.
+        colorIdentity: commander ? "" : (s.colors ?? ""),
       };
     }),
   };
   return { setup, log };
+}
+
+/**
+ * A game's place in its match, as the table keeps it, from the server's record: the score before
+ * this game is stored with it, by this game's seats. A game saved before the score was kept
+ * starts its count from nothing.
+ */
+export function matchFromServer(g: Pick<GameDetail, "match_id" | "match_game" | "match_best_of" | "match_wins" | "match_draws" | "seats">): MatchSetup | null {
+  if (!g.match_id || !g.match_game || !g.match_best_of) return null;
+  const wins = g.seats.map((s) => Math.max(0, g.match_wins?.[s.seat] ?? 0));
+  return { id: g.match_id, bestOf: g.match_best_of, game: g.match_game, wins, draws: Math.max(0, g.match_draws ?? 0) };
+}
+
+/**
+ * Where the match stood once this game was over (or stands while it goes on): "Sam won the
+ * match 2–1", "Sam leads 1–0, best of 3". Read from this game's own score and result, so it
+ * names this game's players.
+ */
+export function matchSummary(match: MatchSetup, g: Pick<GameDetail, "status" | "winner_seat" | "seats">): string {
+  const finished = g.status === "finished";
+  const after = finished ? matchAfter(match, g.winner_seat) : { wins: match.wins, result: null };
+  const seats = g.seats;
+  const name = (seat: number) => seatName(seats.find((s) => s.seat === seat)!);
+  const won = (seat: number) => after.wins[seat] ?? 0;
+  const score = (first: number) =>
+    seats.length === 2 ? `${won(first)}–${won(seats.find((s) => s.seat !== first)!.seat)}` : seats.map((s) => `${seatName(s)} ${won(s.seat)}`).join(", ");
+  const prefix = finished ? "After this game" : "Before this game";
+  if (after.result && "winner" in after.result) return `${name(after.result.winner)} won the match ${score(after.result.winner)}.`;
+  if (after.result) return `The match was a draw, ${score(seats[0]!.seat)}.`;
+  if (seats.length !== 2) return `Best of ${match.bestOf}. ${prefix}: ${score(seats[0]!.seat)}.`;
+  const [a, b] = seats as [GameSeat, GameSeat];
+  if (won(a.seat) === won(b.seat)) return `Best of ${match.bestOf}. ${prefix}, level at ${score(a.seat)}.`;
+  const lead = won(a.seat) > won(b.seat) ? a : b;
+  return `Best of ${match.bestOf}. ${prefix}, ${seatName(lead)} leads ${score(lead.seat)}.`;
 }
 
 export function GameDetailPage() {
@@ -139,7 +176,7 @@ export function GameDetailPage() {
           const [c, partner] = await Promise.all([p.commanderName ? cardNamed(p.commanderName) : null, p.partnerName ? cardNamed(p.partnerName) : null]);
           return {
             ...p,
-            colorIdentity: unionIdentity(c?.color_identity, partner?.color_identity),
+            colorIdentity: c || partner ? unionIdentity(c?.color_identity, partner?.color_identity) : p.colorIdentity,
             art: c?.image_art_crop ?? undefined,
             artist: c?.artist ?? undefined,
             partnerArt: partner?.image_art_crop ?? undefined,
@@ -256,6 +293,23 @@ export function GameDetailPage() {
         </section>
       )}
 
+      {setup.match && (
+        <section aria-labelledby="gd-match" className="gd-match">
+          <h2 id="gd-match">Match</h2>
+          <p>{matchSummary(setup.match, { ...g, status: going ? "in_progress" : g.status })}</p>
+          <ol className="gd-match-games">
+            {(g.match_games ?? []).map((m) => {
+              const what = m.status !== "finished" ? GAME_WORDS.going : m.winner ? wonText(m.winner) : GAME_WORDS.draw;
+              return (
+                <li key={m.id}>
+                  {m.id === g.id ? <span aria-current="page">Game {m.game}, this game: {what}</span> : <Link to={`/table/games/${m.id}`} state={location.state}>Game {m.game}: {what}</Link>}
+                </li>
+              );
+            })}
+          </ol>
+        </section>
+      )}
+
       <section aria-labelledby="gd-seats">
         <h2 id="gd-seats">Players</h2>
         <ol className="gd-seats">
@@ -277,7 +331,7 @@ export function GameDetailPage() {
                 <span className="gd-seat-art">{a?.art && <CardThumb src={a.art} />}</span>
                 <span className="gd-seat-text">
                   <span className="gd-seat-name">{seatName(s)}</span>
-                  <span className="small dim">{commander ? (partner ? `${commander} and ${partner}` : commander) : "No commander saved"}</span>
+                  {commander ? <span className="small dim">{partner ? `${commander} and ${partner}` : commander}</span> : setup.format === "commander" && <span className="small dim">No commander saved</span>}
                 </span>
                 <span className="gd-seat-result">
                   <span>{result}</span>

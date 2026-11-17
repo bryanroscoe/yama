@@ -862,6 +862,8 @@ export interface GameSeat {
   eliminated_by_seat: number | null;
   fun: number | null;
   display_name: string | null;
+  /** Outside Commander, the deck colors picked for the seat ("WU"). Absent from older servers. */
+  colors?: string | null;
 }
 
 export interface GameRow {
@@ -879,6 +881,22 @@ export interface GameRow {
   first_seat: number | null;
   win_condition: string | null;
   seats: GameSeat[];
+  /** One game of a match (best of three, say): the match, which game of it, and its length. Absent from older servers. */
+  match_id?: string | null;
+  match_game?: number | null;
+  match_best_of?: number | null;
+  /** The games each seat had won before this one, by this game's seats, and the drawn ones. */
+  match_wins?: number[] | null;
+  match_draws?: number | null;
+}
+
+/** One game of a match, as a game's page lists them. */
+export interface MatchGame {
+  id: string;
+  game: number;
+  status: string;
+  /** The winner's name; null for a draw or a game still going. */
+  winner: string | null;
 }
 
 /** GET /api/games/:id: a game, its logged events, and whether this account can carry it on. */
@@ -891,6 +909,8 @@ export interface GameDetail extends GameRow {
   can_edit?: boolean;
   /** Seat number to deck id, for seats that played one of your own decks. */
   your_decks?: Record<number, string>;
+  /** The games of this game's match you can see, this one included, in order. Empty or absent for a single game. */
+  match_games?: MatchGame[];
 }
 
 export type VectorKey = "speed" | "consistency" | "interaction" | "mana" | "threats";

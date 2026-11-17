@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
-import type { CommanderPick, TableState } from "@yama/core";
+import { identityName, MANA, type CommanderPick, type TableState } from "@yama/core";
 import { api, type DeckSummary, type GameRow, type Playgroup } from "../api";
 import { useMe } from "../auth";
 import { ArtPanel } from "../components/ArtPanel";
@@ -272,10 +272,36 @@ export function SeatEditor({ index, seat, onChange, group, decks, deckName, wher
         {/* A game keeps two commanders as their names, so a typed deck name gives way to them. */}
         {commander && seat.deckTyped && seat.partnerName?.trim() && <span className="small dim">With two commanders the game is saved under their names.</span>}
         {commander && <span className="seat-credit">{seatCredit(seat, deckShown && !seat.deckTyped ? (deckName ?? deckShown) : undefined)}</span>}
+        {!commander && <DeckColors value={seat.deckColors ?? ""} onChange={(deckColors) => onChange({ deckColors: deckColors || undefined })} />}
         {chosen && (chosen.bracket != null || chosen.estimate) && <BracketChips declared={chosen.bracket} estimate={chosen.estimate} />}
         {footer && <div className="seat-foot">{footer}</div>}
       </div>
     </fieldset>
+  );
+}
+
+const COLORS = ["W", "U", "B", "R", "G"] as const;
+
+/**
+ * Outside Commander: the colors of the deck this player brought (a white-blue draft deck), tapped
+ * on and off. They color the seat's panel, so two players at 20 life aren't two grey panels.
+ */
+export function DeckColors({ value, onChange }: { value: string; onChange: (colors: string) => void }) {
+  const toggle = (k: (typeof COLORS)[number]) => onChange(COLORS.filter((c) => (c === k ? !value.includes(c) : value.includes(c))).join(""));
+  return (
+    <div className="deck-colors" role="group" aria-label="Deck colors">
+      <span className="field-label" aria-hidden="true">Deck colors</span>
+      <span className="deck-colors-row">
+        <span className="deck-colors-pips">
+          {COLORS.map((k) => (
+            <Button key={k} aria-pressed={value.includes(k)} aria-label={MANA[k].name} title={MANA[k].name} onClick={() => toggle(k)}>
+              <Pips identity={k} label={false} />
+            </Button>
+          ))}
+        </span>
+        <span className="small dim">{value ? identityName(value) : "Optional: they color the panel"}</span>
+      </span>
+    </div>
   );
 }
 
@@ -298,6 +324,8 @@ function draftFromPlayer(p: TableState["players"][number], decks: DeckSummary[] 
     deckTyped: !deck && !!label ? true : undefined,
     commanderName: p.commanderName ?? "",
     colorIdentity: p.colorIdentity,
+    // Outside Commander the colors are the deck's, as setup chose them.
+    deckColors: p.commanderName ? undefined : p.colorIdentity || undefined,
     art: p.art,
     artist: p.artist,
     partnerName: p.partnerName,
@@ -354,6 +382,9 @@ export function EditSeat({ state, seat, onDone }: { state: TableState; seat: num
       const was = { commanderName: p.commanderName, partnerName: p.partnerName };
       const same = pick.commanderName === p.commanderName && pick.partnerName === p.partnerName && pick.art === p.art && pick.partnerArt === p.partnerArt && pick.deckVersionId === p.deckVersionId && pick.colorIdentity === p.colorIdentity && pick.deckLabel === (p.deckLabel ?? seatDeckLabel({ commanderName: p.commanderName ?? "", partnerName: p.partnerName }));
       if (!same) dispatch({ type: "seat", seat, ...pick, was });
+    } else if ((d.deckColors ?? "") !== p.colorIdentity) {
+      // Outside Commander a seat's deck is only its colors.
+      dispatch({ type: "seat", seat, colorIdentity: d.deckColors ?? "" });
     }
     onDone();
   };

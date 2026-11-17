@@ -1903,3 +1903,27 @@
 .personal-others .num { font-size: var(--t-28); }
 .personal-credit { margin: 0; font-size: var(--t-xs); color: var(--dim); }
 .table-my-panel { display: grid; position: relative; min-height: 0; flex: 1; }
+
+/* A match: each player's games won as rings beside their badges, filled for each game won. */
+.match-badge {
+  gap: 7px;
+}
+.match-rings {
+  display: inline-flex;
+  gap: 4px;
+}
+.match-ring {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px currentColor;
+}
+.match-ring.won {
+  background: currentColor;
+}
+.table-menu .tm-match,
+.finish-match,
+.first-chooser {
+  margin: 0;
+  font-weight: 700;
+}

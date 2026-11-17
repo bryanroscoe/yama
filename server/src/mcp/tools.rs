@@ -2700,7 +2700,9 @@ async fn games(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String
                 Some(commander) => format!("{} ({commander})", name(s)),
                 None => name(s),
             }).collect();
-            *game = json!({"id": game["id"], "started_at": game["started_at"], "status": game["status"], "turns": game["turns"], "winner": winner, "players": players});
+            // A game of a match says which: "game 2 of 3".
+            let in_match = game["match_game"].as_i64().zip(game["match_best_of"].as_i64()).map(|(n, of)| format!("game {n} of {of}"));
+            *game = json!({"id": game["id"], "started_at": game["started_at"], "status": game["status"], "format": game["format"], "match": in_match, "match_id": game["match_id"], "turns": game["turns"], "winner": winner, "players": players});
         }
         without_nulls(&mut out);
     }

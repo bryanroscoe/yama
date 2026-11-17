@@ -287,7 +287,7 @@ fn export_file(e: &Export) -> ExportFile<'_> {
                 fun is each player's rating from 1 to 5. \
                 mode is in_person (at the table or logged afterwards) or online; turns and eliminated_turn count rounds \
                 for in_person games and every player's turn for online games. \
-                format is commander, standard (Constructed) or other. ai is true for a seat the computer played.",
+                format is commander, standard (Constructed), limited or other. ai is true for a seat the computer played.",
         games,
     }
 }

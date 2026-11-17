@@ -10,6 +10,8 @@ export interface LastSetup {
   groupId?: string;
   life?: number;
   format?: string;
+  /** One game (1) or a best-of-three (3) or five match, offered for two players. */
+  bestOf?: number;
   phones?: string;
   at?: string;
 }

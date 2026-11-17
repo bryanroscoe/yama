@@ -6,7 +6,14 @@ import {
   sourceName,
   COMMANDER_LETHAL,
   identityKeys,
+  identityName,
   lossOf,
+  matchAfter,
+  matchNeeds,
+  matchWins,
+  newMatch,
+  nextMatchGame,
+  type MatchSetup,
   lossesOf,
   MANA,
   nextSeat,
@@ -289,10 +296,13 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
               if (!again) return navigate("/play/table");
               // The same seats and commanders, from the start. Commanders swapped mid-game come along,
               // and so do places swapped: seats are numbered again in the order people now sit.
+              // In a match the next game carries the score; once the match is decided, "again" starts a new one.
+              const match = setup.match ? (nextMatchGame(state, finishing.winner) ?? newMatch(crypto.randomUUID(), setup.match.bestOf)) : undefined;
               startGame({
                 ...setup,
                 id,
                 startedAt: new Date().toISOString(),
+                ...(match ? { match } : {}),
                 players: seatOrder(state).flatMap((s, i) => state.players.filter((p) => p.seat === s).map((p) => ({ ...p, seat: i }))).map(({ seat, name, memberId, userId, deckVersionId, deckLabel, commanderName, partnerName, colorIdentity, art, artist, partnerArt, partnerArtist }) =>
                   ({ seat, name, memberId, userId, deckVersionId, deckLabel, commanderName, partnerName, colorIdentity, art, artist, partnerArt, partnerArtist })),
               });
@@ -532,7 +542,8 @@ export function Panel(props: {
   const partnerArt = mainArt ? secondArt : null;
   // With art on, a seat whose art is missing is a raised block, not a mana fill; the identity
   // band along its top still says whose it is. Plain colors use the same effective choice.
-  const noArt = showArt && !art;
+  // Outside Commander there's no commander art to wait for: a seat with its deck's colors is filled with them.
+  const noArt = showArt && !art && (state.setup.format === "commander" || !p.colorIdentity);
   const keys = identityKeys(p.colorIdentity);
   const base = MANA[fill];
   const out = !!p.eliminated;
@@ -617,6 +628,7 @@ export function Panel(props: {
                 <WarningIcon /> {danger.text}
               </span>
             )}
+            {state.setup.match && <MatchBadge match={state.setup.match} seat={p.seat} />}
             {state.monarch === p.seat && <span className="badge">Monarch</span>}
             {state.initiative === p.seat && <span className="badge">Initiative</span>}
             {p.poison > 0 && <span className="badge">{p.poison} poison</span>}
@@ -642,7 +654,7 @@ export function Panel(props: {
             {p.name}
             {p.colorIdentity && <Pips identity={p.colorIdentity} label={false} />}
           </span>
-          {p.commanderName && <span className="cmdr">{p.commanderName}</span>}
+          {p.commanderName ? <span className="cmdr">{p.commanderName}</span> : state.setup.format !== "commander" && p.colorIdentity && <span className="cmdr">{identityName(p.colorIdentity)}</span>}
         </Button>
         {/* Scryfall asks for the artist and copyright wherever an art crop shows. */}
         {art && <span className="panel-credit">{artCredit(bothArtists(art.artist, partnerArt?.artist))}</span>}
@@ -1148,10 +1160,22 @@ function FinishSheet({ state, winner, onBack, onSave }: {
   const winnerName = state.players.find((p) => p.seat === winner)?.name;
   const seats = state.players.map((p) => ({ seat: p.seat, name: p.name }));
   const firstName = state.players.find((p) => p.seat === state.firstSeat)?.name;
+  const match = state.setup.match;
+  const after = match ? matchAfter(match, winner) : null;
+  const matchWinner = after?.result && "winner" in after.result ? state.players.find((p) => p.seat === (after.result as { winner: number }).winner) : undefined;
   return (
     <div className="stack capture">
-      <DialogHead onClose={onBack}>{winnerName ? wonText(winnerName) : GAME_WORDS.draw}</DialogHead>
-      {winnerName && <WinConditionPicker value={condition} onChange={setCondition} winner={winnerName} />}
+      <DialogHead onClose={onBack}>{match ? (winnerName ? `${winnerName} won game ${match.game}` : `Game ${match.game} was a draw`) : winnerName ? wonText(winnerName) : GAME_WORDS.draw}</DialogHead>
+      {match && after && (
+        <p className="finish-match" role="status">
+          {after.result
+            ? matchWinner
+              ? `${matchWinner.name} wins the match ${scoreText(state, after.wins, matchWinner.seat)}.`
+              : `The match is a draw, ${scoreText(state, after.wins)}.`
+            : `${standing(state, after.wins)}, best of ${match.bestOf}. Next is game ${match.game + 1}.`}
+        </p>
+      )}
+      {winnerName && <WinConditionPicker value={condition} onChange={setCondition} winner={winnerName} format={state.setup.format} />}
       {state.firstSeat === null ? (
         <FirstPlayerPicker seats={seats} value={first} onChange={setFirst} />
       ) : (
@@ -1160,10 +1184,67 @@ function FinishSheet({ state, winner, onBack, onSave }: {
       <FunPicker seats={seats} value={fun} onChange={setFun} />
       <NotePicker value={note} onChange={setNote} />
       <div className="row">
-        <Button variant="primary" onClick={() => onSave(details(), first, false)}>Save the game</Button>
-        <Button onClick={() => onSave(details(), first, true)}>Save and play again</Button>
+        {match && after && !after.result ? (
+          <>
+            <Button variant="primary" onClick={() => onSave(details(), first, true)}>Save and start game {match.game + 1}</Button>
+            <Button onClick={() => onSave(details(), first, false)}>Save and stop the match</Button>
+          </>
+        ) : (
+          <>
+            <Button variant="primary" onClick={() => onSave(details(), first, false)}>{match ? "Save the match" : "Save the game"}</Button>
+            <Button onClick={() => onSave(details(), first, true)}>{match ? "Save and play another match" : "Save and play again"}</Button>
+          </>
+        )}
       </div>
     </div>
+  );
+}
+
+/**
+ * A match's score in words: "2–1" between two players (`first`'s wins first, else the first
+ * seat's), or each player's wins at a bigger table ("Sam 2, Alex 1, Kai 0").
+ */
+function scoreText(state: TableState, wins: number[], first?: number): string {
+  const players = state.players;
+  if (players.length === 2) {
+    const a = first ?? players[0]!.seat;
+    const b = players.find((p) => p.seat !== a)!.seat;
+    return `${wins[a] ?? 0}–${wins[b] ?? 0}`;
+  }
+  return players.map((p) => `${p.name} ${wins[p.seat] ?? 0}`).join(", ");
+}
+
+/** "Sam leads the match 1–0", "The match is level at 1–1", or each player's wins at a bigger table. */
+function standing(state: TableState, wins: number[]): string {
+  if (state.players.length !== 2) return `The match so far: ${scoreText(state, wins)}`;
+  const [a, b] = state.players as [PlayerState, PlayerState];
+  const wa = wins[a.seat] ?? 0;
+  const wb = wins[b.seat] ?? 0;
+  if (wa === wb) return `The match is level at ${wa}–${wb}`;
+  const lead = wa > wb ? a : b;
+  return `${lead.name} leads the match ${scoreText(state, wins, lead.seat)}`;
+}
+
+/** Where a match stands, for the table menu: "Game 2 of 3. Sam leads the match 1–0." */
+export function matchLine(state: TableState): string | null {
+  const m = state.setup.match;
+  if (!m) return null;
+  const head = `Game ${m.game} of ${m.bestOf}.`;
+  if (m.game === 1) return `${head} First to ${matchNeeds(m.bestOf)} wins takes the match.`;
+  return `${head} ${standing(state, m.wins)}.`;
+}
+
+/** A player's games won in a match: a ring for each game the match needs, filled for each won. */
+function MatchBadge({ match, seat }: { match: MatchSetup; seat: number }) {
+  const needs = matchNeeds(match.bestOf);
+  const won = Math.min(needs, matchWins(match, seat));
+  return (
+    <span className="badge match-badge" role="img" aria-label={`${won} of ${needs} games won`} title={`${won} of ${needs} games won`}>
+      <span aria-hidden="true">Games</span>
+      <span className="match-rings" aria-hidden="true">
+        {Array.from({ length: needs }, (_, i) => <span key={i} className={`match-ring${i < won ? " won" : ""}`} />)}
+      </span>
+    </span>
   );
 }
 
@@ -1329,6 +1410,7 @@ function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDic
           <CloseIcon />
         </Button>
       </div>
+      {state.setup.match && <p className="tm-match">{matchLine(state)}</p>}
 
       {counting && (
         <Button variant="primary" className="tm-pass-turn" onClick={() => { dispatch({ type: "pass_turn" }); onClose(); }}>
@@ -1349,7 +1431,7 @@ function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDic
       </div>}
       {confirmEnd && (
         <section className="tm-finish" aria-labelledby="tm-who-won">
-          <h3 id="tm-who-won">Who won?</h3>
+          <h3 id="tm-who-won">{state.setup.match ? `Who won game ${state.setup.match.game}?` : "Who won?"}</h3>
           {aliveCount > 1 && <p className="small dim">{aliveCount} players are still in. Pick the winner, or go back to the table.</p>}
           <div className="tm-winners">
             {state.players.map((p) => (
@@ -1567,10 +1649,13 @@ function FirstSheet({ state, artFor, onDone }: { state: TableState; artFor: ArtF
       </div>
     );
   }
+  // Later games of a match: the player who lost the last one chooses to play or draw.
+  const chooser = state.setup.match?.chooser !== undefined ? state.players.find((p) => p.seat === state.setup.match!.chooser) : undefined;
   return (
     <div className="stack first-sheet">
       {status}
-      <DialogHead onClose={onDone}>Who goes first?</DialogHead>
+      <DialogHead onClose={onDone}>{state.setup.match && state.setup.match.game > 1 ? `Game ${state.setup.match.game}: who plays first?` : "Who goes first?"}</DialogHead>
+      {chooser && <p className="first-chooser">{chooser.name} chooses whether to play first or draw.</p>}
       <div className="tm-winners" aria-busy={spinning}>
         {state.players.map((p) => (
           <Button
@@ -1584,7 +1669,7 @@ function FirstSheet({ state, artFor, onDone }: { state: TableState; artFor: ArtF
           </Button>
         ))}
       </div>
-      <Button variant="primary" aria-disabled={spinning} autoFocus={spinning} onClick={roll}>{spinning ? "Picking" : "Pick at random"}</Button>
+      <Button variant={chooser ? "secondary" : "primary"} aria-disabled={spinning} autoFocus={spinning} onClick={roll}>{spinning ? "Picking" : "Pick at random"}</Button>
       <p className="small dim" style={{ margin: 0 }}>Saved with the game for the playgroup's turn-order stats. Change it any time from the menu.</p>
     </div>
   );

@@ -27,3 +27,39 @@
   flex: 0 0 auto;
   align-self: end;
 }
+
+/* Outside Commander: the deck's colors, round toggles the size of a touch target. */
+.deck-colors {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.deck-colors-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.deck-colors-pips {
+  display: flex;
+  gap: 6px;
+}
+.deck-colors-pips > button {
+  width: var(--target);
+  min-width: var(--target);
+  height: var(--target);
+  padding: 0;
+  border-radius: 50%;
+  justify-content: center;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+.deck-colors-pips > button[aria-pressed="true"] {
+  border-color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--text);
+}
+.deck-colors-pips .pip {
+  width: 14px;
+  height: 14px;
+}

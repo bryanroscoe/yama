@@ -92,3 +92,12 @@ describe("recent game text", () => {
     expect(recentGameText({ ...g, note: "Logged after the game" }).sub).toBe("Combat. Over Quintorius");
   });
 });
+
+describe("recent game text for other game types", () => {
+  it("says a game's type when it isn't Commander, and which game of a match it was", () => {
+    const g = game([seat(0, "Sam", null), seat(1, "Alex", null)], { winner_seat: 0, format: "limited", match_id: "m", match_game: 2, match_best_of: 3 });
+    expect(recentGameText(g).sub).toBe("Limited, game 2 of 3. Over Alex");
+    expect(recentGameText({ ...g, format: "commander" }).sub).toBe("Game 2 of 3. Over Alex");
+    expect(recentGameText({ ...g, match_id: null, match_game: null, match_best_of: null }).sub).toBe("Limited. Over Alex");
+  });
+});

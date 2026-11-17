@@ -976,3 +976,14 @@ a.rg-row:focus-visible {
 .table-home .rg-list:empty {
   display: none;
 }
+
+/* A game of a match: where the match stands and its games, each linking to its page. */
+.gd-match p {
+  margin: 0 0 8px;
+}
+.gd-match-games {
+  margin: 0 0 8px;
+  padding-left: 1.25rem;
+  display: grid;
+  gap: 4px;
+}
