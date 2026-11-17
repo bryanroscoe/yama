@@ -6,6 +6,7 @@
 // the game: the live board and your choices stay current underneath.
 
 import { useEffect, useRef, useState } from "react";
+import { ActionBar, Button } from "../components/ui";
 import { lineText, type Names } from "./feed";
 import { hitCueMs } from "./motion";
 import { happeningCards, hitsOnYou } from "./review";
@@ -64,9 +65,9 @@ export function HitCues({ events, names, meta, scale, mine, onRead, onReview }: 
           {cards.map((c) => {
             const image = c.name ? meta[c.name]?.image : null;
             return image ? (
-              <button key={`${c.name}-${c.id ?? ""}`} type="button" className="hit-cue-card" onClick={() => onRead(c.name!, c.id)} aria-label={`Read ${c.name}`}>
+              <Button key={`${c.name}-${c.id ?? ""}`} className="hit-cue-card" onClick={() => onRead(c.name!, c.id)} aria-label={`Read ${c.name}`}>
                 <img src={image} alt={c.name} />
-              </button>
+              </Button>
             ) : null;
           })}
         </div>
@@ -74,10 +75,10 @@ export function HitCues({ events, names, meta, scale, mine, onRead, onReview }: 
       <div className="hit-cue-text">
         <b>{doer === null ? "Done to you" : `${names.Who(doer)} did this`}</b>
         {cue.map((h) => <span key={h.seq}>{lineText(h, names)}</span>)}
-        <span className="hit-cue-actions">
-          <button type="button" className="outline small" onClick={() => (onReview(cue[0]!.seq), dismiss())}>Step through what happened</button>
-          <button type="button" className="quiet small" onClick={dismiss}>Dismiss</button>
-        </span>
+        <ActionBar as="span" className="hit-cue-buttons">
+          <Button variant="outline" size="small" onClick={() => (onReview(cue[0]!.seq), dismiss())}>Step through what happened</Button>
+          <Button variant="quiet" size="small" onClick={dismiss}>Dismiss</Button>
+        </ActionBar>
       </div>
     </aside>
   );

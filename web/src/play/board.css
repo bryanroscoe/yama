@@ -8152,7 +8152,7 @@ button.dw-pile2:disabled {
 .hit-cue-text { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .hit-cue-text b { font-size: var(--t-18); color: var(--bad); }
 .hit-cue-text > span { font-size: var(--t-15); }
-.hit-cue-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.hit-cue-buttons { margin-top: 4px; }
 @keyframes hit-arrive { from { transform: translateY(-10px); opacity: 0; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .hit-cue { animation: none; } }
 @media (max-width: 999px) {

@@ -134,9 +134,9 @@ function Row({ h, text, names, meta, art, turns, connected, onPref, onRead }: { 
       <span className="glog-thumbs">
         {cards.map((c) =>
           onRead ? (
-            <button key={`${c.name}-${c.id ?? ""}`} type="button" className="glog-thumb" onClick={() => onRead(c.name!, c.id)} onContextMenu={(e) => (e.preventDefault(), onRead(c.name!, c.id))} aria-label={`Read ${c.name}`}>
+            <Button key={`${c.name}-${c.id ?? ""}`} className="glog-thumb" onClick={() => onRead(c.name!, c.id)} onContextMenu={(e) => (e.preventDefault(), onRead(c.name!, c.id))} aria-label={`Read ${c.name}`}>
               <img src={meta[c.name!]!.art!} alt="" />
-            </button>
+            </Button>
           ) : (
             <img key={c.name} src={meta[c.name!]!.art!} alt="" />
           ),

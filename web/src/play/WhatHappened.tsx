@@ -7,6 +7,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { SymbolText } from "../components/ManaSymbols";
+import { Button } from "../components/ui";
 import type { Names } from "./feed";
 import { happeningCards, reviewSteps } from "./review";
 import type { CardMeta, Happening } from "./types";
@@ -60,7 +61,7 @@ export function WhatHappened({ events, names, meta, at, onStep, onRead, onClose,
     <aside className="wh" aria-label="What just happened">
       <header className="wh-top">
         <h2>What just happened</h2>
-        <button type="button" className="quiet small" onClick={onClose}>Close</button>
+        <Button variant="quiet" size="small" onClick={onClose}>Close</Button>
       </header>
       {!step ? (
         <p className="dim">Nothing yet since your last turn.</p>
@@ -71,24 +72,24 @@ export function WhatHappened({ events, names, meta, at, onStep, onRead, onClose,
           {cards.length > 0 && (
             <div className="wh-cards">
               {cards.slice(0, 3).map((c) => (
-                <button key={`${c.name}-${c.id ?? ""}`} type="button" className="wh-card" onClick={() => onRead(c.name!, c.id)} aria-label={`Read ${c.name}`}>
+                <Button key={`${c.name}-${c.id ?? ""}`} className="wh-card" onClick={() => onRead(c.name!, c.id)} aria-label={`Read ${c.name}`}>
                   <img src={meta[c.name!]!.image!} alt={c.name} />
-                </button>
+                </Button>
               ))}
             </div>
           )}
           <div className="wh-nav">
-            <button type="button" className="outline small" disabled={i <= 0} onClick={() => setI((k) => k - 1)}>Earlier</button>
+            <Button variant="outline" size="small" disabled={i <= 0} onClick={() => setI((k) => k - 1)}>Earlier</Button>
             <span className="dim small num">{i + 1} of {steps.length}</span>
-            <button type="button" className="outline small" disabled={i >= steps.length - 1} onClick={() => setI((k) => k + 1)}>Later</button>
+            <Button variant="outline" size="small" disabled={i >= steps.length - 1} onClick={() => setI((k) => k + 1)}>Later</Button>
           </div>
           <ol className="wh-list" ref={list}>
             {steps.map((s, k) => (
               <li key={s.h.seq}>
-                <button type="button" aria-current={k === i ? "step" : undefined} onClick={() => setSeq(s.h.seq)}>
+                <Button aria-current={k === i ? "step" : undefined} onClick={() => setSeq(s.h.seq)}>
                   {(k === 0 || steps[k - 1]!.head !== s.head) && <span className="wh-list-head">{s.head}</span>}
                   <SymbolText text={s.text} />
-                </button>
+                </Button>
               </li>
             ))}
           </ol>
@@ -97,7 +98,7 @@ export function WhatHappened({ events, names, meta, at, onStep, onRead, onClose,
       {rewind && (
         <p className="wh-rewind small dim">
           Want it back?{" "}
-          <button type="button" className="link" disabled={rewind.disabled} onClick={rewind.run}>{rewind.label}</button>
+          <Button className="link" disabled={rewind.disabled} onClick={rewind.run}>{rewind.label}</Button>
         </p>
       )}
     </aside>
