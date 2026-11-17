@@ -639,6 +639,14 @@ fn convert(shown: &[GameEvent], all: &[GameEvent], state: &GameState, lens: &mut
     // lethal damage, whatever dealt it damage earlier in the action.
     let mut damaged: HashMap<ObjectId, ObjectId> = HashMap::new();
     let mut caused: HashMap<usize, (ObjectId, bool)> = HashMap::new();
+    // Who controlled a card as it left a zone in this action (the spell that resolved, a creature
+    // that died in the same fight): the controller then, not the owner it reverts to after.
+    let mut left_under: HashMap<ObjectId, u8> = HashMap::new();
+    for e in shown {
+        if let GameEvent::ZoneChanged { object_id, from: Some(_), record, .. } = e {
+            left_under.entry(*object_id).or_insert(record.controller.0);
+        }
+    }
     for (i, e) in shown.iter().enumerate() {
         match e {
             GameEvent::DamageDealt { source_id, target: TargetRef::Object(o), amount, .. } if *amount > 0 => {
@@ -745,7 +753,7 @@ fn convert(shown: &[GameEvent], all: &[GameEvent], state: &GameState, lens: &mut
                         from: Some(zone_word(*from)),
                         to: zone_word(*to),
                         how: h,
-                        by_seat: by_card.as_ref().and(by).and_then(|b| lens.controller(b)),
+                        by_seat: by_card.as_ref().and(by).and_then(|b| left_under.get(&b).copied().or_else(|| lens.controller(b))),
                         by_damage: by_damage && by_card.is_some(),
                         by: by_card,
                         creature: record.core_types.contains(&CoreType::Creature),

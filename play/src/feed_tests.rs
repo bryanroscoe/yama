@@ -393,7 +393,11 @@ fn a_move_names_what_did_it_and_whose_it_was() {
     let bears = card(&mut m, &e, "Grizzly Bears", 0, Zone::Battlefield);
     let squire = card(&mut m, &e, "Raging Goblin", 0, Zone::Battlefield);
     let spell = card(&mut m, &e, "Eerie Interlude", 1, Zone::Graveyard);
-    let rats = card(&mut m, &e, "Typhoid Rats", 1, Zone::Battlefield);
+    // Seat 0's own Typhoid Rats, stolen by seat 1: when it dies too, it goes back to its owner, and
+    // the damage it dealt is still seat 1's.
+    let rats = card(&mut m, &e, "Typhoid Rats", 0, Zone::Battlefield);
+    let o = m.state.objects.get_mut(&rats).unwrap();
+    (o.controller, o.base_controller) = (PlayerId(1), Some(PlayerId(1)));
 
     // Exiled by a spell: the engine reports the effect's completion after the move.
     let mut events = apply_debug(&mut m, DebugAction::MoveToZone { object_id: bears, to_zone: Zone::Exile, library_position: None, simulate: false }).events;
@@ -402,17 +406,22 @@ fn a_move_names_what_did_it_and_whose_it_was() {
     // Dead of a creature's damage: the rules destroy it (CR 704.5g) with no source; the damage
     // earlier in the action names it.
     m.state.objects.get_mut(&squire).unwrap().damage_marked = 1;
-    let mut events = vec![GameEvent::DamageDealt { source_id: rats, target: TargetRef::Object(squire), amount: 1, is_combat: true, excess: 0, source_incarnation: None }];
+    m.state.objects.get_mut(&rats).unwrap().damage_marked = 1;
+    let mut events = vec![
+        GameEvent::DamageDealt { source_id: rats, target: TargetRef::Object(squire), amount: 1, is_combat: true, excess: 0, source_incarnation: None },
+        GameEvent::DamageDealt { source_id: squire, target: TargetRef::Object(rats), amount: 1, is_combat: true, excess: 0, source_incarnation: None },
+    ];
     check_state_based_actions(&mut m.state, &mut events);
     record(&mut m, &events);
 
     for viewer in [Some(0), Some(1), None] {
         let moves: Vec<What> = told(&m, viewer).into_iter().filter(|w| matches!(w, What::Moved { .. })).collect();
-        assert_eq!(moves.len(), 2, "{viewer:?}: {moves:?}");
+        assert_eq!(moves.len(), 3, "{viewer:?}: {moves:?}");
         let What::Moved { card, to, by, by_seat, by_damage, .. } = &moves[0] else { unreachable!() };
         assert_eq!((card.name.as_deref(), *to, by.as_ref().and_then(|b| b.name.as_deref()), *by_seat, *by_damage), (Some("Grizzly Bears"), "exile", Some("Eerie Interlude"), Some(1), false));
-        let What::Moved { card, how, by, by_seat, by_damage, .. } = &moves[1] else { unreachable!() };
-        assert_eq!((card.name.as_deref(), *how, by.as_ref().and_then(|b| b.name.as_deref()), *by_seat, *by_damage), (Some("Raging Goblin"), How::Destroyed, Some("Typhoid Rats"), Some(1), true));
+        let goblin = moves.iter().find(|w| matches!(w, What::Moved { card, .. } if card.name.as_deref() == Some("Raging Goblin"))).unwrap();
+        let What::Moved { how, by, by_seat, by_damage, .. } = goblin else { unreachable!() };
+        assert_eq!((*how, by.as_ref().and_then(|b| b.name.as_deref()), *by_seat, *by_damage), (How::Destroyed, Some("Typhoid Rats"), Some(1), true), "{viewer:?}");
     }
 }
 

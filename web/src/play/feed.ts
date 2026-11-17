@@ -179,7 +179,10 @@ export function causedText(h: Extract<Happening, { kind: "moved" }>, n: Names): 
   const by = whoseCard(h.by, h.by_seat, n);
   const card = `${whose(h.owner, n)} ${cardName(h.card)}`;
   const By = by.charAt(0).toUpperCase() + by.slice(1);
-  if (h.by_damage) return `${card.charAt(0).toUpperCase() + card.slice(1)} died from damage dealt by ${by}.`;
+  const Card = card.charAt(0).toUpperCase() + card.slice(1);
+  if (h.by_damage)
+    // Lethal damage; a replacement (Rest in Peace) can send it somewhere other than the graveyard.
+    return h.to === "graveyard" ? `${Card} died from damage dealt by ${by}.` : `${Card} was put into ${zoneOf(h.to, h.owner, n)} after lethal damage from ${by}.`;
   switch (h.how) {
     case "destroyed":
       return `${By} destroyed ${card}.`;

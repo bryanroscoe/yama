@@ -67,6 +67,9 @@ describe("lines in the log", () => {
     expect(mine({ to: "graveyard", how: "destroyed", by: seen("Klingon Warrior", 7), by_seat: 1, by_damage: true, creature: true })).toBe(
       "Your Kinsbaile Cavalier died from damage dealt by Sam's Klingon Warrior.",
     );
+    expect(mine({ to: "exile", how: "destroyed", by: seen("Klingon Warrior", 7), by_seat: 1, by_damage: true, creature: true })).toBe(
+      "Your Kinsbaile Cavalier was put into exile after lethal damage from Sam's Klingon Warrior.",
+    );
     // No named cause: the plain line, as before.
     expect(mine({ to: "graveyard", how: "destroyed", creature: true })).toBe("Kinsbaile Cavalier was destroyed.");
     expect(lineText(at(14, 1, { kind: "control", card: seen("Sol Ring"), from: 0, to: 1, by: seen("Treachery") }), n)).toBe("Sam gained control of your Sol Ring with Treachery.");
