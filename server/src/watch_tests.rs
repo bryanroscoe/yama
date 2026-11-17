@@ -86,6 +86,8 @@ fn board(turn: u32, life: i32, over: bool, reveal: bool) -> View {
         events: vec![],
         outs: vec![],
         stats: None,
+        round: 0,
+        rounds: vec![],
     }
 }
 

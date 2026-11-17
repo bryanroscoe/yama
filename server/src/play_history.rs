@@ -630,7 +630,7 @@ fn request_for(cmd: Cmd, controls: bool) -> Option<(Value, Option<oneshot::Sende
             let _ = reply.send(Err("This historical runtime does not support this control.".into()));
             return None;
         }
-        Cmd::Preview { .. } | Cmd::Board { .. } | Cmd::BoardOpen { .. } | Cmd::BoardClosed { .. } | Cmd::Stop => return None,
+        Cmd::Preview { .. } | Cmd::Board { .. } | Cmd::BoardOpen { .. } | Cmd::BoardClosed { .. } | Cmd::Pace { .. } | Cmd::Stop => return None,
     };
     let mut v = v;
     v["op"] = json!("command");

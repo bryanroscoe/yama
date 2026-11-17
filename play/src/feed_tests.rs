@@ -384,3 +384,86 @@ fn an_ai_game_tells_nobody_what_they_may_not_see_and_resumes_with_the_same_feed(
     assert_eq!(back.outs(), m.outs());
     assert_eq!(back.feed.stats(&back.state), m.feed.stats(&m.state));
 }
+
+#[test]
+fn a_move_names_what_did_it_and_whose_it_was() {
+    // Bryan, 17 Nov 2026: a creature of his left and the log didn't say what took it.
+    let e = engine();
+    let mut m = game(&e, 2);
+    let bears = card(&mut m, &e, "Grizzly Bears", 0, Zone::Battlefield);
+    let squire = card(&mut m, &e, "Raging Goblin", 0, Zone::Battlefield);
+    let spell = card(&mut m, &e, "Eerie Interlude", 1, Zone::Graveyard);
+    // Seat 0's own Typhoid Rats, stolen by seat 1: when it dies too, it goes back to its owner, and
+    // the damage it dealt is still seat 1's.
+    let rats = card(&mut m, &e, "Typhoid Rats", 0, Zone::Battlefield);
+    let o = m.state.objects.get_mut(&rats).unwrap();
+    (o.controller, o.base_controller) = (PlayerId(1), Some(PlayerId(1)));
+
+    // Exiled by a spell: the engine reports the effect's completion after the move.
+    let mut events = apply_debug(&mut m, DebugAction::MoveToZone { object_id: bears, to_zone: Zone::Exile, library_position: None, simulate: false }).events;
+    events.push(GameEvent::EffectResolved { kind: engine::types::ability::EffectKind::ChangeZone, source_id: spell, subject: None });
+    record(&mut m, &events);
+    // Dead of a creature's damage: the rules destroy it (CR 704.5g) with no source; the damage
+    // earlier in the action names it.
+    m.state.objects.get_mut(&squire).unwrap().damage_marked = 1;
+    m.state.objects.get_mut(&rats).unwrap().damage_marked = 1;
+    let mut events = vec![
+        GameEvent::DamageDealt { source_id: rats, target: TargetRef::Object(squire), amount: 1, is_combat: true, excess: 0, source_incarnation: None },
+        GameEvent::DamageDealt { source_id: squire, target: TargetRef::Object(rats), amount: 1, is_combat: true, excess: 0, source_incarnation: None },
+    ];
+    check_state_based_actions(&mut m.state, &mut events);
+    record(&mut m, &events);
+
+    for viewer in [Some(0), Some(1), None] {
+        let moves: Vec<What> = told(&m, viewer).into_iter().filter(|w| matches!(w, What::Moved { .. })).collect();
+        assert_eq!(moves.len(), 3, "{viewer:?}: {moves:?}");
+        let What::Moved { card, to, by, by_seat, by_damage, .. } = &moves[0] else { unreachable!() };
+        assert_eq!((card.name.as_deref(), *to, by.as_ref().and_then(|b| b.name.as_deref()), *by_seat, *by_damage), (Some("Grizzly Bears"), "exile", Some("Eerie Interlude"), Some(1), false));
+        let goblin = moves.iter().find(|w| matches!(w, What::Moved { card, .. } if card.name.as_deref() == Some("Raging Goblin"))).unwrap();
+        let What::Moved { how, by, by_seat, by_damage, .. } = goblin else { unreachable!() };
+        assert_eq!((*how, by.as_ref().and_then(|b| b.name.as_deref()), *by_seat, *by_damage), (How::Destroyed, Some("Typhoid Rats"), Some(1), true), "{viewer:?}");
+    }
+}
+
+#[test]
+fn turns_are_numbered_as_the_table_counts_them() {
+    // Bryan, 17 Nov 2026: "the turn numbers are wrong". The engine counts every player's turn;
+    // the board shows each turn as its player's own count, so a three-player game's turn 4 is
+    // turn 2.
+    let e = engine();
+    let ai = [(0, Difficulty::Easy), (1, Difficulty::Easy), (2, Difficulty::Easy)];
+    let mut m = e.new_match_first(11, vec![deck(); 3], &ai, Some(0)).unwrap();
+    m.set_ai_fallback(true);
+    while m.turn() < 7 && !m.is_over() {
+        assert!(m.run_ai(1).unwrap() > 0, "the AI should keep playing");
+        let v = m.view(Some(0));
+        let active = m.state.players.iter().find(|p| p.id.0 == v.active).unwrap();
+        assert_eq!(v.round, active.turns_taken, "turn {}", v.turn);
+    }
+    let v = m.view(None);
+    let rounds: std::collections::BTreeMap<u32, u32> = v.rounds.iter().map(|[t, r]| (*t, *r)).collect();
+    for (turn, round) in [(1, 1), (2, 1), (3, 1), (4, 2), (5, 2), (6, 2), (7, 3)] {
+        assert_eq!(rounds.get(&turn), Some(&round), "turn {turn}: {rounds:?}");
+    }
+    // The same after a restart, which replays the log.
+    let back = e.resume(&m.replay_json(), &ai).unwrap();
+    assert_eq!(back.view(None).rounds, v.rounds);
+}
+
+#[test]
+fn the_computer_rests_longest_on_what_it_does_to_you() {
+    use crate::feed::{Attacked, Happening};
+    let h = |what: What| Happening { seq: 1, turn: 14, active: 1, what };
+    let seen = |name: &str| Seen { id: None, name: Some(name.into()), face_down: false };
+    let at_me = h(What::Attack { seat: 1, attacks: vec![Attacked { card: seen("Klingon Warrior"), at: Hit::Player { seat: 0 } }] });
+    let at_other = h(What::Attack { seat: 1, attacks: vec![Attacked { card: seen("Klingon Warrior"), at: Hit::Player { seat: 2 } }] });
+    let mine_gone = h(What::Moved { card: seen("Kinsbaile Cavalier"), owner: 0, from: Some("battlefield"), to: "graveyard", how: How::Destroyed, by: Some(seen("Vindicate")), by_seat: Some(1), by_damage: false, creature: true });
+    let cast = h(What::Cast { seat: 1, card: seen("Vindicate") });
+    let drew = h(What::Drew { seat: 1, count: 1, cards: vec![] });
+    assert_eq!(crate::beat_ms(std::slice::from_ref(&drew), 0), 0, "a draw is no reason to pause");
+    assert!(crate::beat_ms(std::slice::from_ref(&cast), 0) > 0);
+    assert!(crate::beat_ms(std::slice::from_ref(&at_me), 0) > crate::beat_ms(std::slice::from_ref(&at_other), 0));
+    assert!(crate::beat_ms(std::slice::from_ref(&mine_gone), 0) > crate::beat_ms(std::slice::from_ref(&cast), 0));
+    // A batch rests as long as its longest step.
+    assert_eq!(crate::beat_ms(&[drew, cast.clone(), at_me.clone()], 0), crate::beat_ms(&[at_me], 0));
+}

@@ -68,7 +68,7 @@ pub mod turns;
 pub mod ways;
 
 pub use act::{Act, Pending};
-pub use feed::{Came, Happening, Out, Stats, Why};
+pub use feed::{beat_ms, Came, Happening, Out, Stats, Why};
 pub use pay::{PayMode, PaymentView};
 pub use remember::YamaAnswer;
 pub use together::TogetherView;
@@ -2822,7 +2822,20 @@ impl Match {
             events: self.feed.recent(viewer, feed::SHOWN),
             outs: self.feed.outs().to_vec(),
             stats: self.is_over().then(|| self.feed.stats(&self.state)),
+            round: self.feed.round(&self.state),
+            rounds: self.feed.rounds(),
         }
+    }
+
+    /// The number of the newest happening `viewer` may know (0 before any): pass it to
+    /// [`Match::events_since`] after the next actions to get what they did.
+    pub fn event_seq(&self, viewer: Option<u8>) -> u64 {
+        self.feed.last_seq(viewer)
+    }
+
+    /// What `viewer` may know happened after happening number `after`, oldest first.
+    pub fn events_since(&self, viewer: Option<u8>, after: u64) -> Vec<Happening> {
+        self.feed.since(viewer, after)
     }
 
     /// Everything `viewer` may know happened that the feed still holds, oldest first (tests and
@@ -3144,6 +3157,14 @@ pub struct View {
     /// The game's numbers, once it's over.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stats: Option<Stats>,
+    /// The turn in progress as the table counts it: the active player's own turn count, so the
+    /// fourth round of a four-player game is turn 4, where `turn` (the engine's count of every
+    /// player's turn) says 13 to 16.
+    pub round: u32,
+    /// Each engine turn number this game has shown, with its turn as the table counts it, for
+    /// the turns that events, captions and knockouts carry (`[turn, round]`, oldest first).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub rounds: Vec<[u32; 2]>,
 }
 
 #[derive(Debug, Clone, Serialize)]

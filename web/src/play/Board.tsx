@@ -18,7 +18,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router";
 import { api, API_BASE } from "../api";
 import { artCredits } from "../components/ArtPanel";
-import { PLAY_SPEEDS, readPlaySpeed, type PlaySpeed } from "./motion";
+import { paceMessage, PLAY_SPEEDS, readPlaySpeed, type PlaySpeed } from "./motion";
 import { Dialog } from "../components/ui";
 import { useCardArt } from "../components/useCardArt";
 import { targetChangeWarning } from "./response";
@@ -63,7 +63,7 @@ import {
 } from "./model";
 import { promptText, shortName } from "./text";
 import { COLOR_NAME, counterName, FieldTile, HandCard, ManaDot, type TileHandlers, type TileLook } from "./Tiles";
-import type { Act, AttackAt, CardMeta, CardView, Decision, ManaSourceView, OptionView, PassMode, Pending, PlayerView, SeatInfo, ServerMessage, StackItem, TapMana, View, WatchStatus } from "./types";
+import type { Act, AttackAt, CardMeta, CardView, Decision, Happening, ManaSourceView, OptionView, PassMode, Pending, PlayerView, SeatInfo, ServerMessage, StackItem, TapMana, View, WatchStatus } from "./types";
 import { WatchControls, type WatchMessage } from "./WatchControls";
 import { seatLabel, seatName } from "./watch";
 import { attackDrop, blockDrop, centre, dragSlop, handDrop, movedPast, pastPlayLine, readDrop, targetDrop, targetIndex, type Point } from "./drag";
@@ -95,7 +95,7 @@ import { answerOf, modeChip, passChoices, passKey, priorityPartner, settingsButt
 import { ConsentBody, GameSettings, ModeChip, PassList, PassMenu } from "./TurnControls";
 import { PreviewCache, paymentButtons, paymentTitle, sourceChip, sourceClick, sourceIn } from "./pay";
 import { ManaMenu, PaymentRail, PaymentSheet } from "./PaymentPanel";
-import { INFERRED, lineText, outText, revealGroups, sourceStory, type Names } from "./feed";
+import { INFERRED, lineText, outText, revealGroups, sourceStory, turnOf, type Names } from "./feed";
 import { CardReader } from "./Inspector";
 import { ZoneBrowser, type BrowsedZone } from "./Zones";
 import { GameLog } from "./GameLog";
@@ -104,6 +104,8 @@ import { RevealPanel } from "./Reveal";
 import { openPhaseBoard } from "./phaseBoard";
 import { collapseNinjutsu, ninjutsuPick, specialAct } from "./rare";
 import { CombatCues } from "./CombatCues";
+import { HitCues } from "./HitCues";
+import { WhatHappened } from "./WhatHappened";
 import "./board.css";
 
 type ViewMessage = Extract<ServerMessage, { type: "view" }>;
@@ -244,6 +246,10 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
   // This game's settings (GSettings), open at a section, and the ways to pass (GPriority's menu).
   const [settings, setSettings] = useState<SettingsSection | null>(null);
   const [rewindCheckpoint, setRewindCheckpoint] = useState<number | null>(null);
+  // "What just happened" (WhatHappened.tsx): open at a happening (null: the newest), and the step
+  // looked at, whose arrows CombatCues draws again.
+  const [review, setReview] = useState<{ at: number | null } | null>(null);
+  const [reviewed, setReviewed] = useState<Happening | null>(null);
   // Whether phase's own board is served here, to open this game on it.
   const playStatus = useQuery({ queryKey: ["play-status"], queryFn: () => api<{ enabled: boolean; reason: string | null; board?: boolean }>("/api/play/status") });
   const [passMenu, setPassMenu] = useState(false);
@@ -260,7 +266,25 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
   const navigate = useNavigate();
   const [endingSolo, setEndingSolo] = useState(false);
   const [playSpeed, setPlaySpeed] = useState(readPlaySpeed);
-  const changeSpeed = (speed: PlaySpeed) => { setPlaySpeed(speed); try { localStorage.setItem("yama.play.speed", speed); } catch { /* Session preference still works. */ } };
+  // The server shows the computer's moves one step at a time with a rest scaled by this speed
+  // (server/src/play.rs, Pace): sent when the game connects, when it changes, and as Instant
+  // while the tab is hidden (nobody is watching then).
+  const speedRef = useRef(playSpeed);
+  const sendPace = (ws: WebSocket | null, speed: PlaySpeed) => {
+    if (!watch && ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(paceMessage(speed, typeof document !== "undefined" && document.hidden)));
+  };
+  const changeSpeed = (speed: PlaySpeed) => {
+    setPlaySpeed(speed);
+    speedRef.current = speed;
+    sendPace(socket.current, speed);
+    try { localStorage.setItem("yama.play.speed", speed); } catch { /* Session preference still works. */ }
+  };
+  useEffect(() => {
+    const seen = () => sendPace(socket.current, speedRef.current);
+    document.addEventListener("visibilitychange", seen);
+    return () => document.removeEventListener("visibilitychange", seen);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const endSolo = async () => { setEndingSolo(true); try { await api(`/api/play/${id}/end`, { method: "POST" }); navigate("/play"); } catch (e) { setError(e instanceof Error ? e.message : String(e)); setEndingSolo(false); } };
 
@@ -341,6 +365,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
       ws.onopen = () => {
         attempt = 0;
         setConnected(true);
+        sendPace(ws, speedRef.current);
       };
       ws.onmessage = (m) => {
         const data = JSON.parse(m.data) as ServerMessage;
@@ -649,6 +674,10 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
   const art = (n: number): SeatArt => seatArt.get(n) ?? { art: null, artist: null };
   // The engine's log says "Player 3"; say who that is.
   const named = (text: string) => text.replace(/\bPlayer (\d+)\b/g, (_, n: string) => seatInfo(Number(n) - 1)?.name ?? `Player ${n}`);
+  // Turns as the table counts them: each player's own turn count (feed.ts, turnOf), not the
+  // engine's count of every player's turn.
+  const turnNo = (t: number) => turnOf(view.rounds, t);
+  const turnNow = view.round || turnNo(view.turn);
   // Motion: normal speed while playing; shorter when watching fast, none "to the end".
   const scale = motionScale({ reduced: false, hidden: typeof document !== "undefined" && document.hidden, speed: watch ? watchStatus?.speed ?? "1x" : null }) * (watch ? 1 : PLAY_SPEEDS.find((s) => s.value === playSpeed)!.scale);
   motionOpts.current = {
@@ -656,7 +685,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
     bottom: watch ? pov : you ?? 0,
     scale,
     meta: msg.cards ?? {},
-    turnText: (seat) => (seat === you ? `Your turn ${view.turn}` : watch ? `${Who(seat)}'s turn ${view.turn}` : null),
+    turnText: (seat) => (seat === you ? `Your turn ${turnNow}` : watch ? `${Who(seat)}'s turn ${turnNow}` : null),
     endText: (v) => (v.winner === null ? "A draw" : v.winner === you ? "You won" : `${Who(v.winner)} won`),
     endArt: (v) => (v.winner === null ? null : art(v.winner).art),
   };
@@ -670,7 +699,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
     view.outs?.find((o) => o.seat === seat)?.turn ?? view.log.find((l) => l.text === `Player ${seat + 1} is eliminated` || l.text === `Player ${seat + 1} loses the game`)?.turn;
   const outs = view.outs ?? [];
   /** How the board names seats in what happened (feed.ts). */
-  const names: Names = { you, Who: (n: number) => Who(n) };
+  const names: Names = { you, Who: (n: number) => Who(n), turn: turnNo };
   const meOut = !!view.players.find((p) => p.seat === you)?.eliminated;
   const me = view.players.find((p) => p.seat === bottom);
   const cardById = new Map<number, CardView>(
@@ -1744,7 +1773,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
   // The rail's last few lines: what happened (newer servers), else the engine's log lines.
   const recent = view.events
     ? view.events
-        .map((h) => ({ turn: h.turn, text: lineText(h, names) }))
+        .map((h) => ({ turn: turnNo(h.turn), text: lineText(h, names) }))
         .filter((l): l is { turn: number; text: string } => !!l.text)
         .slice(-3)
     : view.log.slice(-3).map((l) => ({ turn: l.turn, text: named(l.text) }));
@@ -1770,8 +1799,8 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
     ? view.abandoned ? "Game ended" : view.winner === null ? "The game is a draw" : view.winner === you ? "You won" : `${Who(view.winner)} won`
     : watch
       ? watchStatus && !watchStatus.playing
-        ? `Paused, ${who(view.active)}'s turn ${view.turn}`
-        : `${Who(view.active)}'s turn ${view.turn}`
+        ? `Paused, ${who(view.active)}'s turn ${turnNow}`
+        : `${Who(view.active)}'s turn ${turnNow}`
       : meOut
       ? me?.conceded ? "You conceded" : "You're out"
       : agree && refuse
@@ -2086,11 +2115,11 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
     <button type="button" className={wide ? "rail-log" : "quiet"} onClick={() => openPhaseBoard(id, you)}>Phase board</button>
   ) : null;
   const whose = view.active === you ? (
-    <span className="whose mine" key={`w${view.active}-${view.turn}`}>Your turn {view.turn}</span>
+    <span className="whose mine" key={`w${view.active}-${view.turn}`}>Your turn {turnNow}</span>
   ) : (
     <span className="whose" key={`w${view.active}-${view.turn}`}>
       {art(view.active).art && <img src={art(view.active).art!} alt="" />}
-      {Who(view.active)}'s turn {view.turn}
+      {Who(view.active)}'s turn {turnNow}
     </span>
   );
   const deciding = view.waiting_on.filter((s) => s !== you);
@@ -2191,7 +2220,32 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
   const sheets = (
     <>
       <ActionCues key={`action-${connectionGeneration}`} events={view.events} names={names} meta={meta} scale={scale} />
-      <CombatCues key={connectionGeneration} events={view.events} names={names} root={boardRoot} speed={watchStatus?.speed} scale={watch ? 1 : scale} />
+      <CombatCues key={connectionGeneration} events={view.events} names={names} root={boardRoot} speed={watchStatus?.speed} scale={watch ? 1 : scale} pinned={review ? reviewed : null} />
+      {!watch && you !== null && !view.over && (
+        <HitCues
+          key={`hit-${connectionGeneration}`}
+          events={view.events}
+          names={names}
+          meta={meta}
+          scale={scale}
+          mine={(id) => cardById.get(id)?.controller === you}
+          onRead={readCard}
+          onReview={(seq) => setReview({ at: seq })}
+        />
+      )}
+      {review && view.events && (
+        <WhatHappened
+          key={review.at ?? "latest"}
+          events={view.events}
+          names={names}
+          meta={meta}
+          at={review.at}
+          onStep={setReviewed}
+          onRead={readCard}
+          onClose={() => (setReview(null), setReviewed(null))}
+          rewind={playing || canEndSolo ? { label: solo ? "Rewind" : "Go back", run: () => (solo ? openRewind() : sendRaw({ type: "go_back", revision: view.revision })), disabled: !view.can_go_back || pending || !connected } : null}
+        />
+      )}
       {/* One preview layer stays above both the board and its dialogs. */}
       {hover?.image && (
         <div className="pb-preview" style={{ left: hover.left, top: hover.top }} aria-hidden="true">
@@ -2211,6 +2265,8 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
           onPref={sendPref}
           onClose={() => setSheet(null)}
           named={named}
+          onRead={readCard}
+          onReview={view.events ? () => (setSheet(null), setReview({ at: null })) : undefined}
         />
       )}
       {sheet === "stops" && (
@@ -2333,6 +2389,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
             {(playing || canEndSolo) && <button type="button" className="rail-log" disabled={!view.can_go_back || pending || !connected} title={solo ? "Rewind a recent decision and the computer responses" : view.can_go_back ? "Restore the previous decision" : "Go back is available after a phase change, before effects or other decisions"} onClick={() => solo ? openRewind() : sendRaw({ type: "go_back", revision: view.revision })}>{solo ? "Rewind" : "Go back"}</button>}
             {(playing || canEndSolo) && <button type="button" className="rail-log" onClick={() => setSettings("concede")}>{solo ? "End game" : "Concede"}</button>}
             {phaseButton}
+            {view.events && <button type="button" className="rail-log" aria-pressed={!!review} onClick={() => setReview((r) => (r ? null : { at: null }))}>What just happened</button>}
             <button type="button" className="rail-log" onClick={() => setSheet("log")}>Game log</button>
             <button type="button" className="rail-log" aria-expanded={railOpen} onClick={() => setRailOpen((v) => !v)}>{railOpen ? "Hide details" : `Details${view.stack.length ? ` (${view.stack.length} on stack)` : ""}`}</button>
           </div>
@@ -2383,7 +2440,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
           </section>
           </div>
 
-          <div className="pb-strip" aria-label={`${view.active === you ? "Your" : `${Who(view.active)}'s`} turn ${view.turn}, ${stepName(view.phase)}`}>
+          <div className="pb-strip" aria-label={`${view.active === you ? "Your" : `${Who(view.active)}'s`} turn ${turnNow}, ${stepName(view.phase)}`}>
             {whose}
             {/* While you pick on the board, the pill takes the ladder's place (GPickN). */}
             {banner ?? (
@@ -2504,6 +2561,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
                   {recent.map((l, i) => (
                     <p key={i}><span className="dim num">T{l.turn}</span> <SymbolText text={l.text} /></p>
                   ))}
+                  {view.events && <button type="button" className="link" onClick={() => setReview({ at: null })}>Step through what happened</button>}
                 </details>
               )}
               {status}
@@ -2692,7 +2750,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
 
       <div className="pb-strip phone">
         <button type="button" className="strip-chip" onClick={() => setSheet("stops")}>
-          {view.active === you ? "Your turn" : "Turn"} {view.turn}, {STEPS[stepIndex(view.phase)]?.label.toLowerCase() ?? stepName(view.phase)}
+          {view.active === you ? "Your turn" : "Turn"} {turnNow}, {STEPS[stepIndex(view.phase)]?.label.toLowerCase() ?? stepName(view.phase)}
         </button>
         {note}
         <button type="button" className="strip-chip" onClick={() => setSheet("stack")}>Stack {view.stack.length}</button>
@@ -2831,6 +2889,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
           {(playing || canEndSolo) && <button type="button" className="quiet" disabled={!view.can_go_back || pending || !connected} onClick={() => solo ? openRewind() : sendRaw({ type: "go_back", revision: view.revision })}>{solo ? "Rewind" : "Go back"}</button>}
           {(playing || canEndSolo) && <button type="button" className="quiet" onClick={() => setSettings("concede")}>{solo ? "End game" : "Concede"}</button>}
           {phaseButton}
+          {view.events && <button type="button" className="quiet" onClick={() => setReview({ at: null })}>What just happened</button>}
           <button type="button" className="quiet" onClick={() => setSheet("log")}>Game log</button>
         </div>
       </div>

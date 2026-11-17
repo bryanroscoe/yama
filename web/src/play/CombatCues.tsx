@@ -6,10 +6,19 @@ import { lineText, type Names } from "./feed";
 import type { Happening, Hit, Seen, Speed } from "./types";
 
 /** A presentation queue only: legal actions and the live board always stay current. */
-export function CombatCues({ events, names, root, speed, scale = 1 }: { events?: Happening[]; names: Names; root: RefObject<HTMLElement | null>; speed?: Speed; scale?: number }) {
+export function CombatCues({ events, names, root, speed, scale = 1, pinned }: {
+  events?: Happening[];
+  names: Names;
+  root: RefObject<HTMLElement | null>;
+  speed?: Speed;
+  scale?: number;
+  /** A happening being looked at again (WhatHappened.tsx): its arrows stay drawn, without the notice. */
+  pinned?: Happening | null;
+}) {
   const seen = useRef<number | null>(null);
   const [queue, setQueue] = useState<CombatCue[]>([]);
-  const cue = queue[0];
+  const held = pinned ? combatCues([pinned], -1)[0] : undefined;
+  const cue = held ?? queue[0];
   const [paths, setPaths] = useState<string[]>([]);
   const reduced = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
   useEffect(() => {
@@ -23,10 +32,10 @@ export function CombatCues({ events, names, root, speed, scale = 1 }: { events?:
   }, [events, speed, scale]);
   useEffect(() => {
     if (speed === "end" || scale === 0) { setQueue([]); return; }
-    if (!cue) return;
+    if (!cue || held) return;
     const timer = window.setTimeout(() => setQueue((q) => q.slice(1)), (speed === "4x" ? 350 : speed === "2x" ? 700 : 1400) * scale);
     return () => window.clearTimeout(timer);
-  }, [cue, speed, scale]);
+  }, [cue, held, speed, scale]);
   useEffect(() => {
     const hide = () => { if (document.hidden) setQueue([]); };
     document.addEventListener("visibilitychange", hide);
@@ -55,7 +64,7 @@ export function CombatCues({ events, names, root, speed, scale = 1 }: { events?:
     window.addEventListener("resize", measure);
     r.addEventListener("scroll", measure, true);
     return () => { window.removeEventListener("resize", measure); r.removeEventListener("scroll", measure, true); };
-  }, [cue, root]);
+  }, [cue?.events[0]?.seq, cue?.kind, root]);
   if (!cue) return null;
   const atYou = cue.kind === "attack" && cue.events.some((e) => e.kind === "attack" && e.attacks.some((a) => a.at.kind === "player" && a.at.seat === names.you));
   return (
@@ -67,11 +76,11 @@ export function CombatCues({ events, names, root, speed, scale = 1 }: { events?:
           {cue.kind === "damage" && !reduced && <circle r="7" fill="currentColor"><animateMotion dur="0.65s" path={d} fill="freeze" /></circle>}
         </g>)}
       </svg>
-      <div className="combat-cue-notice" role="status" aria-live="polite" key={cue.events[0]!.seq}>
+      {!held && <div className="combat-cue-notice" role="status" aria-live="polite" key={cue.events[0]!.seq}>
         <b>{atYou ? "You are under attack" : cue.kind === "attack" ? "Attack declared" : cue.kind === "block" ? "Blockers declared" : cue.kind === "summary" ? "Combat update" : "Damage dealt"}</b>
         {cue.events.slice(0, 3).map((e) => <span key={e.seq}>{lineText(e, names)}</span>)}
         {cue.events.length + (cue.omitted ?? 0) > 3 && <span>{Math.max(0, cue.events.length - 3) + (cue.omitted ?? 0)} more events. See Game log for every hit.</span>}
-      </div>
+      </div>}
     </div>
   );
 }

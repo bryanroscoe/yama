@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cameText, faceOf, inspectorFacts, inspectorTabs, lastOut, lineText, logRows, outText, revealGroups, revealsAfter, sinceLastTurn, standings, whyText, type Names } from "./feed";
+import { cameText, faceOf, turnOf, inspectorFacts, inspectorTabs, lastOut, lineText, logRows, outText, revealGroups, revealsAfter, sinceLastTurn, standings, whyText, type Names } from "./feed";
 import type { CardView, Happening, Out, PlayerView, View } from "./types";
 
 const NAMES = ["You", "Sam", "Jules", "Computer"];
@@ -47,7 +47,7 @@ describe("lines in the log", () => {
   it("give the engine's reason for a move, and say nothing for a spell resolving", () => {
     const move = (what: Record<string, unknown>) => lineText(at(5, 1, { kind: "moved", owner: 1, card: seen("Ashen Rider", 9), ...what }), n);
     expect(move({ from: "battlefield", to: "graveyard", how: "moved", creature: true })).toBe("Ashen Rider died.");
-    expect(move({ from: "battlefield", to: "graveyard", how: "destroyed", by: seen("Doom Blade") })).toBe("Ashen Rider was destroyed by Doom Blade.");
+    expect(move({ from: "battlefield", to: "graveyard", how: "destroyed", by: seen("Doom Blade") })).toBe("Doom Blade destroyed Sam's Ashen Rider.");
     expect(move({ from: "hand", to: "graveyard", how: "discarded" })).toBe("Sam discarded Ashen Rider.");
     expect(move({ from: "library", to: "graveyard", how: "milled" })).toBe("Sam milled Ashen Rider.");
     expect(move({ from: "battlefield", to: "exile", how: "moved" })).toBe("Ashen Rider was exiled from the battlefield.");
@@ -55,6 +55,39 @@ describe("lines in the log", () => {
     expect(move({ from: "stack", to: "graveyard", how: "moved" })).toBeNull();
     expect(move({ from: "stack", to: "graveyard", how: "countered", by: seen("Counterspell") })).toBe("Ashen Rider was countered by Counterspell.");
     expect(lineText(at(5, 1, { kind: "moved", owner: 1, card: {}, from: "battlefield", to: "exile", how: "moved" }), n)).toBe("a card was exiled from the battlefield.");
+  });
+
+  it("say whose spell or creature took a card off the battlefield, and whose card it was", () => {
+    // Bryan, 17 Nov 2026: "Kinsbaile Cavalier was destroyed by Vindicate" didn't say who did it.
+    const mine = (what: Record<string, unknown>) => lineText(at(14, 1, { kind: "moved", owner: 0, card: seen("Kinsbaile Cavalier", 4), from: "battlefield", ...what }), n);
+    expect(mine({ to: "graveyard", how: "destroyed", by: seen("Vindicate"), by_seat: 1, creature: true })).toBe("Sam's Vindicate destroyed your Kinsbaile Cavalier.");
+    expect(mine({ to: "exile", how: "moved", by: seen("Swords to Plowshares"), by_seat: 2 })).toBe("Jules's Swords to Plowshares exiled your Kinsbaile Cavalier.");
+    expect(mine({ to: "hand", how: "moved", by: seen("Cyclonic Rift"), by_seat: 1 })).toBe("Sam's Cyclonic Rift returned your Kinsbaile Cavalier to your hand.");
+    expect(mine({ to: "graveyard", how: "sacrificed", by: seen("Fleshbag Marauder"), by_seat: 3 })).toBe("Computer's Fleshbag Marauder made you sacrifice Kinsbaile Cavalier.");
+    expect(mine({ to: "graveyard", how: "destroyed", by: seen("Klingon Warrior", 7), by_seat: 1, by_damage: true, creature: true })).toBe(
+      "Your Kinsbaile Cavalier died from damage dealt by Sam's Klingon Warrior.",
+    );
+    expect(mine({ to: "exile", how: "destroyed", by: seen("Klingon Warrior", 7), by_seat: 1, by_damage: true, creature: true })).toBe(
+      "Your Kinsbaile Cavalier was put into exile after lethal damage from Sam's Klingon Warrior.",
+    );
+    // No named cause: the plain line, as before.
+    expect(mine({ to: "graveyard", how: "destroyed", creature: true })).toBe("Kinsbaile Cavalier was destroyed.");
+    expect(lineText(at(14, 1, { kind: "control", card: seen("Sol Ring"), from: 0, to: 1, by: seen("Treachery") }), n)).toBe("Sam gained control of your Sol Ring with Treachery.");
+  });
+
+  it("number turns as the table counts them, not the engine's count of every player's turn", () => {
+    // Bryan's game: four players, the engine's turn 14 is Worf's (seat 1) fourth turn.
+    const rounds: [number, number][] = [[1, 1], [2, 1], [3, 1], [4, 1], [5, 2], [13, 4], [14, 4]];
+    expect(turnOf(rounds, 14)).toBe(4);
+    expect(turnOf(rounds, 5)).toBe(2);
+    // A turn the map lacks (a skipped one) takes the turn before it; an older server's view has no map.
+    expect(turnOf(rounds, 9)).toBe(2);
+    expect(turnOf(undefined, 14)).toBe(14);
+    const t: Names = { ...n, turn: (x) => turnOf(rounds, x) };
+    const rows = logRows([at(14, 1, { kind: "cast", seat: 1, card: seen("Vindicate") })], "all", t);
+    expect(rows[0]!.head).toEqual({ seat: 1, turn: 4 });
+    expect(cameText({ turn: 14, how: "destroyed", from: "battlefield" }, t)).toBe("Destroyed, turn 4");
+    expect(outText({ seat: 2, turn: 13, life: 0, why: { kind: "life", life: 0 }, inferred: true, batch: 1 }, t)).toBe("Out on turn 4: at 0 life");
   });
 
   it("caption a card in a zone with how it got there", () => {

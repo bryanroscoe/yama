@@ -5890,7 +5890,7 @@ button.portrait:hover {
 }
 .glog-row {
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) auto;
+  grid-template-columns: 66px minmax(0, 1fr) auto;
   gap: 10px;
   align-items: start;
   padding: 6px 0;
@@ -8176,3 +8176,61 @@ button.dw-pile2:disabled {
 .rail-decision.responding .rail-body { flex: 0 1 auto; }
 .rail-decision.responding .rail-foot { margin-top: 0; }
 .pb.wide.rail-collapsed .pb-rail:has(.responding) { align-self: start; }
+
+/* The game log's card thumbnails: the card that did it first, then the card it was done to; each
+   opens the card reader like a card on the board. */
+.glog-thumbs { display: flex; gap: 6px; }
+.glog-thumb { display: block; min-height: 0; padding: 0; border: 0; border-radius: 6px; background: none; cursor: pointer; }
+.glog-thumb:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+.glog-review { align-self: flex-start; }
+
+/* Something done to you (HitCues.tsx): stays up long enough to read at the chosen speed, never
+   blocks the board. */
+.hit-cue {
+  position: fixed; z-index: 24; top: 90px; left: 16px;
+  display: flex; gap: 12px; align-items: flex-start;
+  width: min(440px, calc(100dvw - 32px)); padding: 12px;
+  border: 2px solid var(--bad); border-radius: 14px; background: var(--ground);
+  box-shadow: 0 12px 40px rgb(0 0 0 / .6);
+  animation: hit-arrive 300ms ease-out both;
+}
+.hit-cue-cards { display: flex; gap: 6px; flex: none; }
+.hit-cue-card { display: block; min-height: 0; padding: 0; border: 0; background: none; cursor: pointer; border-radius: 6px; }
+.hit-cue-card img { width: 84px; height: auto; border-radius: 6px; display: block; }
+.hit-cue-text { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.hit-cue-text b { font-size: var(--t-18); color: var(--bad); }
+.hit-cue-text > span { font-size: var(--t-15); }
+.hit-cue-buttons { margin-top: 4px; }
+@keyframes hit-arrive { from { transform: translateY(-10px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .hit-cue { animation: none; } }
+@media (max-width: 999px) {
+  .hit-cue { top: 12px; left: 16px; right: 16px; width: auto; }
+  .hit-cue-card img { width: 64px; }
+}
+
+/* What just happened (WhatHappened.tsx): beside the board, so the arrows it draws again stay in
+   view and the game goes on. */
+.wh {
+  position: fixed; z-index: 22; left: 16px; bottom: 16px;
+  width: min(400px, calc(100dvw - 32px)); max-height: min(70dvh, 640px);
+  display: flex; flex-direction: column; gap: 8px; padding: 14px 16px;
+  border: 1px solid var(--line); border-radius: 14px; background: var(--surface);
+  box-shadow: 0 12px 40px rgb(0 0 0 / .6);
+}
+.wh-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.wh-top h2 { margin: 0; font-size: var(--t-18); }
+.wh-head { margin: 0; font-size: var(--t-sm); }
+.wh-text { margin: 0; font-size: var(--t-base); font-weight: 700; }
+.wh-cards { display: flex; gap: 8px; }
+.wh-card { display: block; min-height: 0; padding: 0; border: 0; background: none; cursor: pointer; border-radius: 8px; }
+.wh-card img { width: 112px; height: auto; border-radius: 8px; display: block; }
+.wh-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.wh-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; min-height: 0; flex: 1 1 auto; border-top: 1px solid var(--line); }
+.wh-list button { display: block; width: 100%; min-height: 0; text-align: left; padding: 6px 4px; border: 0; border-radius: 6px; background: none; color: var(--dim); font-size: var(--t-sm); cursor: pointer; }
+.wh-list button[aria-current="step"] { background: var(--raised); color: var(--text); }
+.wh-list-head { display: block; color: var(--text); font-weight: 700; margin-bottom: 2px; }
+.wh-rewind { margin: 0; }
+@media (max-width: 999px) {
+  .wh { left: 16px; right: 16px; width: auto; top: 12px; bottom: auto; max-height: 45dvh; }
+  .wh-card img { width: 84px; }
+}

@@ -173,6 +173,41 @@ enum Cmd {
     BoardClosed { viewer: Option<u8>, },
     /// End the game thread now without saving (an account in it is being deleted).
     Stop,
+    /// How fast one connection of `seat` wants the computer's moves shown (its play speed, as a
+    /// multiple of the normal beat; 0 shows them at once), or `None` when it closes. While any
+    /// connection has asked, the computer's moves go out one visible step at a time with a beat
+    /// between (`ai_batch`, `yama_play::beat_ms`).
+    Pace { conn: u64, seat: u8, factor: Option<f32> },
+}
+
+/// A play speed's beat multiple (web/src/play/motion.ts, PLAY_SPEEDS), 0 for none.
+fn pace_factor(speed: &str) -> Option<f32> {
+    match speed {
+        "slow" => Some(2.0),
+        "normal" => Some(1.0),
+        "fast" => Some(0.6),
+        "instant" => Some(0.0),
+        _ => None,
+    }
+}
+
+/// Each live connection's pace: the seat it plays and its beat multiple.
+#[derive(Default)]
+struct Paces(HashMap<u64, (u8, f32)>);
+
+impl Paces {
+    /// The slowest multiple asked for and the seats watching, or `None` when nobody asked for a
+    /// pause (no connection, or all at Instant).
+    fn now(&self) -> Option<(f32, Vec<u8>)> {
+        let factor = self.0.values().map(|(_, f)| *f).fold(0.0_f32, f32::max);
+        if factor <= 0.0 {
+            return None;
+        }
+        let mut seats: Vec<u8> = self.0.values().map(|(s, _)| *s).collect();
+        seats.sort_unstable();
+        seats.dedup();
+        Some((factor, seats))
+    }
 }
 
 pub(crate) const STACK: usize = 32 << 20;
@@ -483,6 +518,54 @@ fn run_game(
     };
     let humans: Vec<u8> = seats.iter().filter(|s| s.kind == "human").map(|s| s.seat).collect();
     let queued = std::cell::RefCell::new(std::collections::VecDeque::new());
+    let paces = std::cell::RefCell::new(Paces::default());
+    // Commands that only read the game or note a viewer's pace, answered at once, even while the
+    // computer's moves are being shown; anything else comes back to be handled in order.
+    let quick = |m: &mut Match, cmd: Cmd| -> Option<Cmd> {
+        match cmd {
+            Cmd::Pace { conn, seat, factor } => {
+                let mut p = paces.borrow_mut();
+                match factor {
+                    Some(f) => p.0.insert(conn, (seat, f)),
+                    None => p.0.remove(&conn),
+                };
+            }
+            Cmd::Preview { seat, object, reply } => {
+                let _ = reply.send(Ok(m.auto_tap_preview(seat, object)));
+            }
+            Cmd::BoardOpen { viewer, reply } => {
+                let first = match board::started(game_id, m, viewer) {
+                    Ok(first) => first,
+                    Err(rejection) => {
+                        let _ = reply.send(Err(rejection));
+                        return None;
+                    }
+                };
+                *boards.borrow_mut().entry(viewer).or_default() += 1;
+                let opened = board::Opened { first, updates: board_updates.subscribe() };
+                if reply.send(Ok(opened)).is_err() {
+                    let mut b = boards.borrow_mut();
+                    if let Some(n) = b.get_mut(&viewer) {
+                        *n -= 1;
+                        if *n == 0 {
+                            b.remove(&viewer);
+                        }
+                    }
+                }
+            }
+            Cmd::BoardClosed { viewer } => {
+                let mut b = boards.borrow_mut();
+                if let Some(n) = b.get_mut(&viewer) {
+                    *n -= 1;
+                    if *n == 0 {
+                        b.remove(&viewer);
+                    }
+                }
+            }
+            other => return Some(other),
+        }
+        None
+    };
     let finish_solo = |m: &mut Match, seat: u8, reply: oneshot::Sender<Result<(), String>>| {
         if humans.as_slice() != [seat] {
             let _ = reply.send(Err("Only the sole human can end a solo game.".into()));
@@ -512,23 +595,83 @@ fn run_game(
     };
     // Admit solo termination and rewind between batches, including after the human is out.
     // Other commands retain their FIFO order until the next human decision.
+    // A command that arrives while the computer plays: true when it ends this run of AI turns.
+    let between = |m: &mut Match, cmd: Cmd| -> bool {
+        match quick(m, cmd) {
+            None => false,
+            Some(Cmd::EndSolo { seat, reply }) => finish_solo(m, seat, reply),
+            Some(Cmd::GoBack { seat, revision, checkpoint, reply }) => restore(m, seat, revision, checkpoint, reply),
+            // Turn controls apply from the computer's next move, so a stop or full control set
+            // while its moves are being shown catches what it does next.
+            Some(Cmd::Prefs { seat, prefs }) => {
+                m.set_prefs(seat, prefs.stops, prefs.full_control);
+                m.set_tap_mana(seat, prefs.tap_mana);
+                save(m);
+                false
+            }
+            Some(Cmd::AccountPrefs { seat, prefs }) => {
+                m.initialize_prefs(seat, prefs.stops, prefs.full_control, prefs.tap_mana);
+                save(m);
+                false
+            }
+            Some(Cmd::FullControl { seat, on }) => {
+                m.set_full_control(seat, on);
+                save(m);
+                false
+            }
+            Some(Cmd::Stops { seat, stops }) => {
+                m.set_stops(seat, stops);
+                false
+            }
+            Some(Cmd::Hold { seat, on }) => {
+                m.set_hold(seat, on);
+                save(m);
+                false
+            }
+            // The game is being stopped: end the computer's run here and let the main loop stop.
+            Some(Cmd::Stop) => {
+                queued.borrow_mut().push_front(Cmd::Stop);
+                true
+            }
+            Some(other) => {
+                queued.borrow_mut().push_back(other);
+                false
+            }
+        }
+    };
     let ai_turns = |m: &mut Match| loop {
         for _ in 0..32 {
             let Ok(cmd) = cmds.try_recv() else { break };
-            match cmd {
-                Cmd::EndSolo { seat, reply } => if finish_solo(m, seat, reply) { return },
-                Cmd::GoBack { seat, revision, checkpoint, reply } => if restore(m, seat, revision, checkpoint, reply) { return },
-                other => queued.borrow_mut().push_back(other),
-            }
+            if between(m, cmd) { return; }
         }
         if m.is_over() { return; }
-        let batch = ai_batch(m, &humans);
+        let pace = paces.borrow().now();
+        let batch = ai_batch(m, &humans, pace.as_ref().map(|(_, seats)| seats.as_slice()));
         if batch.moved > 0 { publish(m); save(m); }
         if let Some(e) = batch.fault {
             tracing::error!(game_id, error = %format!("{e:#}"), "AI driver fault; game paused");
             break;
         }
         if batch.settled { break; }
+        // Rest on what the computer just did, so the person can see it (an attack, then the
+        // blocks, then the damage), answering commands meanwhile. A faster speed chosen now
+        // shortens the rest that's left.
+        if let Some((factor, _)) = pace
+            && batch.beat > 0
+            && !m.waiting_on().iter().any(|s| humans.contains(s))
+        {
+            let start = std::time::Instant::now();
+            loop {
+                let Some((factor_now, _)) = paces.borrow().now() else { break };
+                let total = std::time::Duration::from_millis((batch.beat as f32 * factor.min(factor_now)) as u64);
+                let Some(left) = total.checked_sub(start.elapsed()).filter(|d| !d.is_zero()) else { break };
+                match cmds.recv_timeout(left) {
+                    Ok(cmd) => if between(m, cmd) { return },
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => break,
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
+                }
+            }
+        }
     };
 
     m.set_names(seats.iter().map(|s| s.name.clone()).collect());
@@ -544,6 +687,7 @@ fn run_game(
     publish(&mut m);
     while !m.is_over() {
         let cmd = if let Some(cmd) = queued.borrow_mut().pop_front() { cmd } else { let Ok(cmd) = cmds.recv() else { return }; cmd };
+        let Some(cmd) = quick(&mut m, cmd) else { continue };
         // A person's move: any refusal goes back to them and leaves the game as it was.
         let moved = |m: &mut Match, result: Result<(), yama_play::ChoiceError>, reply: oneshot::Sender<Result<(), String>>| {
             let ok = result.is_ok();
@@ -636,11 +780,8 @@ fn run_game(
                 m.set_hold(seat, on);
                 save(&m);
             }
-            // Only reads the game: nothing to publish or save.
-            Cmd::Preview { seat, object, reply, } => {
-                let _ = reply.send(Ok(m.auto_tap_preview(seat, object)));
-                continue;
-            }
+            // Answered by `quick` above.
+            Cmd::Preview { .. } | Cmd::BoardOpen { .. } | Cmd::BoardClosed { .. } | Cmd::Pace { .. } => continue,
             Cmd::Board { seat, mv, reply } => {
                 let result = board::apply(&mut m, seat, mv);
                 if let Ok(Some(preference)) = &result
@@ -660,35 +801,6 @@ fn run_game(
                     ai_turns(&mut m);
                 }
             }
-            Cmd::BoardOpen { viewer, reply } => {
-                let first = match board::started(game_id, &mut m, viewer) {
-                    Ok(first) => first,
-                    Err(rejection) => {
-                        let _ = reply.send(Err(rejection));
-                        continue;
-                    }
-                };
-                *boards.borrow_mut().entry(viewer).or_default() += 1;
-                let opened = board::Opened { first, updates: board_updates.subscribe(), };
-                if reply.send(Ok(opened)).is_err() {
-                    let mut b = boards.borrow_mut();
-                    if let Some(n) = b.get_mut(&viewer) {
-                        *n -= 1;
-                        if *n == 0 { b.remove(&viewer); }
-                    }
-                }
-                continue;
-            }
-            Cmd::BoardClosed { viewer } => {
-                let mut b = boards.borrow_mut();
-                if let Some(n) = b.get_mut(&viewer) {
-                    *n -= 1;
-                    if *n == 0 {
-                        b.remove(&viewer);
-                    }
-                }
-                continue;
-            }
             Cmd::Stop => return,
         }
         publish(&mut m);
@@ -704,6 +816,9 @@ struct Batch {
     settled: bool,
     /// The AI stopped on a fault (it found no move, the engine refused one, or a turn never ends).
     fault: Option<anyhow::Error>,
+    /// How long to rest on this batch at normal speed, in ms, when someone is watching the
+    /// computer's moves one at a time ([`yama_play::beat_ms`]); 0 for none.
+    beat: u32,
 }
 
 /// AI seats act, and Yama passes for people where their turn controls say to, until a person has
@@ -712,22 +827,36 @@ struct Batch {
 /// detection (`Match::plain_passes`), the computer and a pass made for a person hand over often;
 /// showing the board at every hand-over cost a set of views and a save each time, which held up a
 /// person's next decision behind the AI's turns (docs/play-performance.md).
-fn ai_batch(m: &mut Match, humans: &[u8]) -> Batch {
+///
+/// With `watching` (seats whose connections asked for a pace, `Cmd::Pace`), the AI moves one
+/// action at a time and the batch also ends at the first action that shows those seats something
+/// worth a pause, with that pause in `beat`: the board then goes out at each visible step (the
+/// attack, then the blocks, then the damage) instead of jumping to the end of the computer's turn.
+fn ai_batch(m: &mut Match, humans: &[u8], watching: Option<&[u8]>) -> Batch {
+    let watching = watching.unwrap_or(&[]);
+    let marks: Vec<(u8, u64)> = watching.iter().map(|s| (*s, m.event_seq(Some(*s)))).collect();
+    let beat = |m: &Match| marks.iter().map(|(s, after)| yama_play::beat_ms(&m.events_since(Some(*s), *after), *s)).max().unwrap_or(0);
+    let step = if watching.is_empty() { AI_BATCH } else { 1 };
     let mut moved = 0;
     loop {
         let passed = m.auto_pass(humans);
         moved += passed;
-        let acted = match m.run_ai(AI_BATCH.saturating_sub(moved).max(1)) {
+        // A pass made for a person can resolve something worth seeing on its own (the computer's
+        // spell): show it before the computer moves again.
+        if !marks.is_empty() && passed > 0 && beat(m) > 0 {
+            return Batch { moved, settled: m.is_over(), fault: None, beat: beat(m) };
+        }
+        let acted = match m.run_ai(AI_BATCH.saturating_sub(moved).clamp(1, step)) {
             Ok(n) => n,
-            Err(fault) => return Batch { moved, settled: true, fault: Some(fault) },
+            Err(fault) => return Batch { moved, settled: true, fault: Some(fault), beat: 0 },
         };
         moved += acted;
         let settled = passed + acted == 0 || m.is_over();
-        if settled || moved >= AI_BATCH {
+        if settled || moved >= AI_BATCH || (!marks.is_empty() && beat(m) > 0) {
             // Pass for people (and give the answers Yama remembers for them) before the board goes
             // out, so it doesn't flash a decision answered a moment later.
             moved += m.auto_pass(humans);
-            return Batch { moved, settled, fault: None };
+            return Batch { moved, settled, fault: None, beat: if marks.is_empty() { 0 } else { beat(m) } };
         }
     }
 }
@@ -1156,7 +1285,8 @@ struct OnlineGame {
     stranded: bool,
     /// The live game uses the exact runtime supported by the installed Phase board.
     phase_board: bool,
-    /// For a game this server is playing, from your view of the board: its turn, whose turn it is,
+    /// For a game this server is playing, from your view of the board: its turn (as the table
+    /// counts it: the active player's own turn count), whose turn it is,
     /// and whether you have a move other than passing (the Play headline, without the board).
     #[serde(skip_serializing_if = "Option::is_none")]
     turn: Option<u32>,
@@ -1173,11 +1303,14 @@ fn headline(snap: &Snapshot, you: Option<u8>) -> Option<(u32, u8, bool)> {
     if let Some(v) = snap.historical_views.get(&you).or_else(|| snap.historical_views.get(&None)) {
         let options: Vec<&str> = v["decision"]["options"].as_array().into_iter().flatten().filter_map(|o| o["label"].as_str()).collect();
         let decided = !v["decision"].is_null();
-        return Some((v["turn"].as_u64()? as u32, v["active"].as_u64()? as u8, decided && real_move(&options)));
+        let turn = v["round"].as_u64().filter(|r| *r > 0).or_else(|| v["turn"].as_u64())?;
+        return Some((turn as u32, v["active"].as_u64()? as u8, decided && real_move(&options)));
     }
     let v = snap.views.get(&you).or_else(|| snap.views.get(&None))?;
     let options: Vec<&str> = v.decision.iter().flat_map(|d| d.options.iter().map(|o| o.label.as_str())).collect();
-    Some((v.turn, v.active, v.decision.is_some() && real_move(&options)))
+    // The turn as the table counts it (the active player's own turn count), as the board shows it.
+    let turn = if v.round > 0 { v.round } else { v.turn };
+    Some((turn, v.active, v.decision.is_some() && real_move(&options)))
 }
 
 /// A rematch lobby: its id, the code to join it, and the deck you played here, to join with.
@@ -2275,7 +2408,15 @@ enum ClientMessage {
         revision: u64,
         object: u64,
     },
+    /// Your play speed (`slow`, `normal`, `fast`, `instant`), sent on connecting and when you change
+    /// it: the computer's moves are shown one visible step at a time, with a rest that long.
+    Pace {
+        speed: String,
+    },
 }
+
+/// Numbers each play connection, for its pace (`Cmd::Pace`).
+static CONNECTIONS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 async fn connect(
     State(st): State<AppState>,
@@ -2471,6 +2612,7 @@ async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Op
 
     // Incoming choices go to the game thread; refusals come back as error messages.
     let cmds = live.cmds.clone();
+    let conn = CONNECTIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let reader = tokio::spawn(async move {
         let mut last_preview: Option<std::time::Instant> = None;
         while let Some(Ok(msg)) = stream.next().await {
@@ -2582,7 +2724,16 @@ async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Op
                 ClientMessage::Stops { stops } => {
                     let _ = cmds.send(Cmd::Stops { seat, stops: stops.map(clean_stops), });
                 }
+                ClientMessage::Pace { speed } => {
+                    if let Some(factor) = pace_factor(&speed) {
+                        let _ = cmds.send(Cmd::Pace { conn, seat, factor: Some(factor) });
+                    }
+                }
             }
+        }
+        // The socket closed: this connection no longer watches.
+        if let Some(seat) = you {
+            let _ = cmds.send(Cmd::Pace { conn, seat, factor: None });
         }
     });
 
@@ -2616,6 +2767,10 @@ async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Op
         }
     }
     reader.abort();
+    // This connection no longer watches: the computer needn't pause for it.
+    if let Some(seat) = you {
+        let _ = live.cmds.send(Cmd::Pace { conn, seat, factor: None });
+    }
 }
 
 // ── saved turn controls ────────────────────────────────────────────────────

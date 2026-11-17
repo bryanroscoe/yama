@@ -153,13 +153,13 @@ async fn play(engine: &Engine, pool: &SqlitePool, decks: &[SeatDeck], seed: u64,
         let waiting = Instant::now();
         loop {
             let batch = match cadence {
-                Cadence::Batched => ai_batch(&mut m, &humans),
+                Cadence::Batched => ai_batch(&mut m, &humans, None),
                 Cadence::EveryHandOver => {
                     let passed = m.auto_pass(&humans);
                     match m.run_ai(AI_BATCH) {
-                        Ok(n) if passed + n == 0 => Batch { moved: 0, settled: true, fault: None },
-                        Ok(n) => Batch { moved: passed + n + m.auto_pass(&humans), settled: m.is_over(), fault: None },
-                        Err(fault) => Batch { moved: passed, settled: true, fault: Some(fault) },
+                        Ok(n) if passed + n == 0 => Batch { moved: 0, settled: true, fault: None, beat: 0 },
+                        Ok(n) => Batch { moved: passed + n + m.auto_pass(&humans), settled: m.is_over(), fault: None, beat: 0 },
+                        Err(fault) => Batch { moved: passed, settled: true, fault: Some(fault), beat: 0 },
                     }
                 }
             };

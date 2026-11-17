@@ -12,7 +12,29 @@ export interface Names {
   you: number | null;
   /** "You", a friend's name, the computer's commander: to start a sentence. */
   Who: (seat: number) => string;
+  /** The turn the table says it is for one of the engine's turn numbers (`turnOf`); as is when left out. */
+  turn?: (turn: number) => number;
 }
+
+/**
+ * The turn players count for one of the engine's turn numbers. The engine numbers every player's
+ * turn (turn 14 of a four-player game is the second player's fourth turn); the table counts
+ * rounds, so the board shows each turn as its player's own turn count ("Worf, turn 4"), which the
+ * server sends as `rounds`. A turn missing there (a skipped one) takes the turn before it; with no
+ * `rounds` at all (older servers) the engine's number stands.
+ */
+export function turnOf(rounds: [number, number][] | undefined, turn: number): number {
+  if (!rounds?.length) return turn;
+  let lo = 0, hi = rounds.length - 1, found: number | null = null;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (rounds[mid]![0] <= turn) { found = rounds[mid]![1]; lo = mid + 1; } else hi = mid - 1;
+  }
+  return found ?? turn;
+}
+
+/** The table's turn for an engine turn number, through `n.turn` when the board has one. */
+export const tableTurn = (n: Pick<Names, "turn"> | undefined, turn: number) => n?.turn?.(turn) ?? turn;
 
 /** A card as the viewer knows it: its name, or "a card" / "a face-down card". */
 export function cardName(s: Seen | undefined): string {
@@ -118,7 +140,9 @@ export function lineText(h: Happening, n: Names): string | null {
       return h.delta > 0 ? `${cardName(h.card)} got ${m} ${k} ${plural(m, "counter")}.` : `${cardName(h.card)} lost ${m} ${k} ${plural(m, "counter")}.`;
     }
     case "control":
-      return `${subject(h.to, n)} gained control of ${cardName(h.card)}.`;
+      return h.by
+        ? `${subject(h.to, n)} gained control of ${whose(h.from, n)} ${cardName(h.card)} with ${cardName(h.by)}.`
+        : `${subject(h.to, n)} gained control of ${cardName(h.card)}.`;
     case "transformed":
       return `${cardName(h.card)} transformed.`;
     case "revealed":
@@ -137,6 +161,50 @@ export function lineText(h: Happening, n: Names): string | null {
       return `${subject(h.seat, n)} ${h.seat === n.you ? "are" : "is"} out.`;
     case "over":
       return h.winner === undefined ? "The game is a draw." : `${subject(h.winner, n)} won.`;
+  }
+}
+
+/** "Worf's Vindicate", "your Lightning Bolt", "Vindicate" when nobody's named. */
+function whoseCard(s: Seen, seat: number | undefined, n: Names): string {
+  return seat === undefined ? cardName(s) : `${whose(seat, n)} ${cardName(s)}`;
+}
+
+/**
+ * A card that left the battlefield because of something named: what did it, whose it was, and
+ * whose card it hit ("Worf's Vindicate destroyed your Kinsbaile Cavalier."). Null when the move
+ * names no cause.
+ */
+export function causedText(h: Extract<Happening, { kind: "moved" }>, n: Names): string | null {
+  if (!h.by || h.from !== "battlefield") return null;
+  const by = whoseCard(h.by, h.by_seat, n);
+  const card = `${whose(h.owner, n)} ${cardName(h.card)}`;
+  const By = by.charAt(0).toUpperCase() + by.slice(1);
+  const Card = card.charAt(0).toUpperCase() + card.slice(1);
+  if (h.by_damage)
+    // Lethal damage; a replacement (Rest in Peace) can send it somewhere other than the graveyard.
+    return h.to === "graveyard" ? `${Card} died from damage dealt by ${by}.` : `${Card} was put into ${zoneOf(h.to, h.owner, n)} after lethal damage from ${by}.`;
+  switch (h.how) {
+    case "destroyed":
+      return `${By} destroyed ${card}.`;
+    case "sacrificed":
+      return `${By} made ${h.owner === n.you ? "you" : n.Who(h.owner)} sacrifice ${cardName(h.card)}.`;
+    case "countered":
+    case "discarded":
+    case "milled":
+    case "left":
+      return null;
+  }
+  switch (h.to) {
+    case "exile":
+      return `${By} exiled ${card}.`;
+    case "hand":
+      return `${By} returned ${card} to ${whose(h.owner, n)} hand.`;
+    case "library":
+      return `${By} put ${card} into ${whose(h.owner, n)} library.`;
+    case "graveyard":
+      return `${By} put ${card} into ${whose(h.owner, n)} graveyard.`;
+    default:
+      return null;
   }
 }
 
@@ -212,6 +280,8 @@ export function sourceStory(
 }
 
 function movedText(h: Extract<Happening, { kind: "moved" }>, n: Names): string | null {
+  const caused = causedText(h, n);
+  if (caused) return caused;
   const card = cardName(h.card);
   const by = h.by ? ` by ${cardName(h.by)}` : "";
   switch (h.how) {
@@ -253,8 +323,8 @@ function movedText(h: Extract<Happening, { kind: "moved" }>, n: Names): string |
 }
 
 /** How a card in a graveyard, exile or the command zone got there, for the zone sheet (GZones). */
-export function cameText(c: Came): string {
-  const t = `turn ${c.turn}`;
+export function cameText(c: Came, n?: Pick<Names, "turn">): string {
+  const t = `turn ${tableTurn(n, c.turn)}`;
   switch (c.how) {
     case "destroyed":
       return `Destroyed, ${t}`;
@@ -283,7 +353,7 @@ export function cameText(c: Came): string {
     case "exile":
       return `From exile, ${t}`;
     default:
-      return `Turn ${c.turn}`;
+      return `Turn ${tableTurn(n, c.turn)}`;
   }
 }
 
@@ -383,7 +453,7 @@ export function logRows(events: Happening[], f: LogFilter, n: Names): LogRow[] {
     if (!text) continue;
     const key = `${h.turn}:${h.active}`;
     if (key !== shown) {
-      out.push({ head: { seat: h.active, turn: h.turn } });
+      out.push({ head: { seat: h.active, turn: tableTurn(n, h.turn) } });
       shown = key;
     }
     out.push({ item: h, text });
@@ -472,9 +542,10 @@ export function whyText(w: Why, n: Names): string {
 
 /** "Out on turn 9: 21 commander damage from your Éowyn", "Conceded on turn 7". */
 export function outText(o: Out, n: Names): string {
-  if (o.why.kind === "conceded") return `Conceded on turn ${o.turn}`;
+  const turn = tableTurn(n, o.turn);
+  if (o.why.kind === "conceded") return `Conceded on turn ${turn}`;
   const why = whyText(o.why, n);
-  return why ? `Out on turn ${o.turn}: ${why}` : `Out on turn ${o.turn}`;
+  return why ? `Out on turn ${turn}: ${why}` : `Out on turn ${turn}`;
 }
 
 /** Said beside a cause Yama read from the board rather than the engine stating it. */
@@ -564,7 +635,7 @@ export function inspectorFacts(card: CardView, view: View, n: Names, cardById: M
   const to = attachedTo(card, cardById, view, n);
   rows.push({ k: "Attached", v: to ? `Attached to ${to}${on.length ? `; ${list(on)} on it` : ""}` : on.length ? list(on) : "Nothing" });
   rows.push({ k: "Tapped", v: card.tapped ? "Tapped" : "Untapped" });
-  if (card.entered !== undefined) rows.push({ k: "Entered the battlefield", v: `Turn ${card.entered}${card.sick ? ", summoning sick" : ""}` });
+  if (card.entered !== undefined) rows.push({ k: "Entered the battlefield", v: `Turn ${tableTurn(n, card.entered)}${card.sick ? ", summoning sick" : ""}` });
   return rows;
 }
 

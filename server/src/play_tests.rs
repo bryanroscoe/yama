@@ -2508,3 +2508,54 @@ async fn a_computers_seat_is_given_the_combos_kept_for_the_list_it_plays() {
     let planned = seat_combos(&st, &e, &computer, &cards).await;
     assert_eq!(planned[0].plan, Some(yama_play::ComboPlan::Wins { with: vec!["Fireball".into()], cast: vec![] }));
 }
+
+/// Bryan, 17 Nov 2026: on Slow a computer's attack still flashed by. With a pace asked for, the
+/// computer's moves go out one visible step at a time, each with a rest; without one they run in
+/// batches as before.
+#[test]
+fn a_paced_batch_stops_at_each_thing_worth_seeing() {
+    let e = engine();
+    let ai = [(0, Difficulty::Easy), (1, Difficulty::Easy)];
+    let decks = || vec![deck(&[("Mountain", 40), ("Opt", 20), ("Solemn Simulacrum", 20), ("Rampant Growth", 19)]), deck(&[("Forest", 40), ("Rampant Growth", 30), ("Solemn Simulacrum", 29)])];
+    let mut paced = e.new_match_first(9, decks(), &ai, Some(0)).unwrap();
+    paced.set_ai_fallback(true);
+    let mut steps = 0;
+    let mut rests = 0;
+    while paced.turn() < 6 && !paced.is_over() {
+        let before = paced.event_seq(Some(0));
+        let b = ai_batch(&mut paced, &[], Some(&[0]));
+        assert!(b.fault.is_none(), "{:?}", b.fault);
+        assert!(b.moved > 0, "the AI should keep playing");
+        steps += 1;
+        if b.beat > 0 {
+            rests += 1;
+            // It stopped because something worth seeing happened, and says how long to rest.
+            assert!(!paced.events_since(Some(0), before).is_empty());
+        }
+        assert!(steps < 2000, "the game should move on");
+    }
+    assert!(rests >= 6, "a pause at least at each turn: {rests} of {steps} batches");
+    // Unpaced: the same game goes in fewer, larger batches, with no rest asked.
+    let mut fast = e.new_match_first(9, decks(), &ai, Some(0)).unwrap();
+    fast.set_ai_fallback(true);
+    let mut batches = 0;
+    while fast.turn() < 6 && !fast.is_over() {
+        let b = ai_batch(&mut fast, &[], None);
+        assert_eq!(b.beat, 0);
+        batches += 1;
+        assert!(batches < 2000);
+    }
+    assert!(batches < steps, "{batches} unpaced batches, {steps} paced");
+}
+
+#[test]
+fn a_pace_comes_from_the_slowest_connection_and_instant_asks_for_none() {
+    assert_eq!(["slow", "normal", "fast", "instant", "warp"].map(pace_factor), [Some(2.0), Some(1.0), Some(0.6), Some(0.0), None]);
+    let mut p = Paces::default();
+    assert!(p.now().is_none(), "nobody connected: no rest");
+    p.0.insert(1, (0, 0.0));
+    assert!(p.now().is_none(), "Instant: no rest");
+    p.0.insert(2, (0, 2.0));
+    p.0.insert(3, (2, 1.0));
+    assert_eq!(p.now(), Some((2.0, vec![0, 2])));
+}
