@@ -63,6 +63,15 @@ it("never repeats a question that is the card's whole text", () => {
   expect(markup.replace(/aria-label="[^"]*"/g, "").split("Return target nonland permanent").length - 1).toBe(1);
   expect(markup).toContain('class="dw-question long"');
 });
+it("tells a target from tokens of the same name", () => {
+  const events: Happening[] = [
+    { kind: "cast", seq: 1, turn: 3, active: 1, seat: 1, card: { id: 40, name: "Path to Exile" } },
+    { kind: "moved", seq: 2, turn: 3, active: 1, card: { id: 9, name: "Treasure" }, owner: 0, from: "battlefield", to: "graveyard", how: "sacrificed" },
+    { kind: "moved", seq: 3, turn: 3, active: 1, card: { id: 8, name: "Treasure" }, owner: 0, from: "battlefield", to: "exile", how: "moved" },
+  ];
+  const story = sourceStory(events, { id: 40, name: "Path to Exile", controller: 1 }, [{ id: "8", name: "Treasure", controller: 0 }], { you: 0, Who: (n) => (n === 0 ? "You" : "Sam") });
+  expect(story).toEqual({ lead: "Sam cast Path to Exile targeting your Treasure.", lines: ["Treasure was exiled from the battlefield."] });
+});
 it("leaves out an old cast when a permanent's trigger asks", () => {
   const events: Happening[] = [
     { kind: "cast", seq: 1, turn: 2, active: 1, seat: 1, card: { id: 7, name: "Rhystic Study" } },

@@ -628,11 +628,25 @@ fn effect_text(vs: &GameState, source: &ObjectId, text: &str) -> String {
     }
 }
 
-/// What the spell or ability resolving from `source` targets, as `vs` may see it.
+/// What the spell resolving from `source` targets, as `vs` may see it, so the question can say
+/// "cast Chain of Vapor targeting your Swiftfoot Boots". Only a spell: a trigger's targets aren't
+/// what its card was cast at. A target since gone where `vs` can't see it is "a card".
 fn resolving_targets(vs: &GameState, source: &ObjectId, names: &[String]) -> Vec<Choice> {
-    let Some(entry) = vs.resolving_stack_entry.as_ref().filter(|e| e.source_id == *source) else { return vec![] };
+    let Some(entry) = vs.resolving_stack_entry.as_ref().filter(|e| e.source_id == *source && matches!(e.kind, engine::types::game_state::StackEntryKind::Spell { .. })) else { return vec![] };
     let Some(ability) = entry.ability() else { return vec![] };
-    ability.targets.iter().filter(|t| !matches!(t, TargetRef::Object(id) if !vs.objects.contains_key(id))).map(|t| target(vs, t, names)).collect()
+    ability
+        .targets
+        .iter()
+        .filter(|t| !matches!(t, TargetRef::Object(id) if !vs.objects.contains_key(id)))
+        .map(|t| {
+            let mut c = target(vs, t, names);
+            if c.name == "Hidden Card" || c.name.is_empty() {
+                c.name = "a card".into();
+                c.controller = None;
+            }
+            c
+        })
+        .collect()
 }
 
 /// A "may" in the middle of a longer spell or ability. The engine describes the whole of it
@@ -698,16 +712,22 @@ fn focus_may(text: &str, verb: &str) -> Option<(String, Option<String>)> {
     Some((question, (!detail.is_empty()).then_some(detail)))
 }
 
-/// "their choice" as said to the player being asked: "your choice".
+/// "their choice" as said to the player being asked: "your choice". "Them" and "their mana
+/// costs" are left alone: they're usually the cards ("cast them without paying their mana costs").
 fn second_person(text: &str) -> String {
-    text.split(' ')
-        .map(|word| {
+    let words: Vec<&str> = text.split(' ').collect();
+    words
+        .iter()
+        .enumerate()
+        .map(|(i, word)| {
+            if words.get(i + 1).is_some_and(|next| next.starts_with("mana")) {
+                return word.to_string();
+            }
             let end = word.find(|c: char| !c.is_alphabetic()).unwrap_or(word.len());
             let (w, rest) = word.split_at(end);
             let to = match w {
                 "they" => "you",
                 "They" => "You",
-                "them" => "you",
                 "their" => "your",
                 "Their" => "Your",
                 "theirs" => "yours",
@@ -3388,5 +3408,10 @@ mod tests {
         // A verb the text doesn't say after "may", or says twice, leaves the question alone.
         assert_eq!(focus_may(chain, "return"), None);
         assert_eq!(focus_may("You may draw a card. Then you may draw a card.", "draw"), None);
+        // "Their mana costs" are the cards'.
+        assert_eq!(
+            focus_may("Exile the top five cards of your library. You may cast up to two of them without paying their mana costs.", "cast"),
+            Some(("Cast up to two of them without paying their mana costs?".into(), None))
+        );
     }
 }

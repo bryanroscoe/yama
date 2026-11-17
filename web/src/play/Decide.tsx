@@ -237,7 +237,8 @@ export function YesNoStrip({ p, draft, onDraft, ctx, compact, disabled }: Props)
   const remember = draft.kind === "yesno" ? draft.remember : "ask";
   const labels = rememberLabels(p);
   const { handlers } = useRead(() => s && ctx.onRead(s.name, s.id));
-  const story = ctx.story?.(p) ?? null;
+  // Only a "may" in the middle of something happening; a payment or the command zone is about the card itself.
+  const story = p.purpose === "may" ? (ctx.story?.(p) ?? null) : null;
   const image = s ? (s.image ?? ctx.meta[s.name]?.image ?? null) : null;
   const art = !image ? (s?.art ?? null) : null;
   const oracle = p.oracle && !sameText(p.oracle, question) ? p.oracle : null;

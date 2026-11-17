@@ -179,7 +179,8 @@ export function sourceStory(
         : `${source.controller === n.you ? "Your" : `${n.Who(source.controller)}'s`} ${source.name}${aim ? ` is${aim}` : ""}.`;
   const ids = new Set(targets.filter((t) => t.zone !== "player").map((t) => t.id));
   const names = new Set(targets.filter((t) => t.zone !== "player").map((t) => t.name));
-  const aimed = (c: Seen) => (c.id !== undefined && ids.has(String(c.id))) || (!!c.name && names.has(c.name));
+  // By id where the card has one here; by name only where it went out of sight (a hand you can't see).
+  const aimed = (c: Seen) => (c.id !== undefined ? ids.has(String(c.id)) : !!c.name && names.has(c.name));
   const lines = events
     .slice(at + 1)
     .filter((h) => {
