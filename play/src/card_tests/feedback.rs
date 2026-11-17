@@ -463,3 +463,22 @@ fn solo_go_back_from_cleanup_discard_can_walk_back_to_main_phase() {
         assert_eq!(t.hand(0).len(), 8);
     });
 }
+
+/// Bryan, 17 Nov 2026, on Chain of Vapor: the "may" question showed the spell's whole text as
+/// the question and again beneath it. A "may" in the middle of a spell asks only its own part.
+#[test]
+fn a_may_in_the_middle_of_a_spell_asks_only_that_part() {
+    big_stack(|| {
+        let mut t = Board::new(2).basics(0, 1).hand(0, "Pursue the Past").hand(0, "Opt").build();
+        solo(&mut t);
+        t.cast(t.id("Pursue the Past"));
+        let mut asked = None;
+        t.drive_answering(|_, seat, d| {
+            let p = d.pending.as_ref().filter(|p| seat == 0 && p.purpose == "may")?;
+            asked = Some((p.prompt.clone(), p.detail.clone()));
+            Some(Act::DecideOptionalEffect { accept: false })
+        })
+        .unwrap();
+        assert_eq!(asked, Some(("Discard a card?".to_string(), Some("If you do, draw two cards.".to_string()))));
+    });
+}

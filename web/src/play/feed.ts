@@ -140,6 +140,77 @@ export function lineText(h: Happening, n: Names): string | null {
   }
 }
 
+/** Who the spell or ability asking a question is aimed at: "your Swiftfoot Boots", "Sam". */
+function aimText(t: { name: string; zone?: string; controller?: number }, n: Names): string {
+  if (t.zone === "player") return t.controller === n.you ? "you" : t.controller === undefined ? t.name : n.Who(t.controller);
+  return t.controller === undefined ? t.name : `${whose(t.controller, n)} ${t.name}`;
+}
+
+/**
+ * What a spell or ability asking you something has done so far, for the question (GYesNo): who
+ * cast it and at what ("Kraum cast Chain of Vapor targeting your Swiftfoot Boots."), then what
+ * happened to those targets or by its hand since ("Swiftfoot Boots returned to your hand.").
+ * Only facts the feed holds; nothing when it holds none.
+ */
+export function sourceStory(
+  events: Happening[],
+  source: { id: number; name: string; controller: number },
+  targets: { id: string; name: string; zone?: string; controller?: number }[],
+  n: Names,
+): { lead: string; lines: string[] } {
+  const isSource = (c: Seen) => (c.id !== undefined ? c.id === source.id : c.name === source.name);
+  let at = -1;
+  for (let i = events.length - 1; i >= 0; i--) {
+    const h = events[i]!;
+    if ((h.kind === "cast" || h.kind === "activated") && isSource(h.card)) {
+      at = i;
+      break;
+    }
+  }
+  // A permanent's trigger now, cast turns ago: the old cast isn't what's happening.
+  if (at >= 0 && events[at]!.turn !== events[events.length - 1]!.turn) at = -1;
+  const started = at >= 0 ? events[at]! : null;
+  const aim = targets.length ? ` targeting ${list(targets.map((t) => aimText(t, n)))}` : "";
+  const lead =
+    started?.kind === "cast"
+      ? `${subject(started.seat, n)} cast ${source.name}${aim}.`
+      : started?.kind === "activated"
+        ? `${subject(started.seat, n)} activated ${source.name}${aim}.`
+        : `${source.controller === n.you ? "Your" : `${n.Who(source.controller)}'s`} ${source.name}${aim ? ` is${aim}` : ""}.`;
+  const ids = new Set(targets.filter((t) => t.zone !== "player").map((t) => t.id));
+  const names = new Set(targets.filter((t) => t.zone !== "player").map((t) => t.name));
+  // By id where the card has one here; by name only where it went out of sight (a hand you can't see).
+  const aimed = (c: Seen) => (c.id !== undefined ? ids.has(String(c.id)) : !!c.name && names.has(c.name));
+  // A copy (Chain of Vapor copied) was never cast: what happened this turn to the cards it targets,
+  // by id only, since there's no cast to count from.
+  const thisTurn = events.length ? events[events.length - 1]!.turn : -1;
+  const from = at >= 0 ? at + 1 : events.findIndex((h) => h.turn === thisTurn);
+  const lines = events
+    .slice(Math.max(from, 0))
+    .filter((h) => {
+      if (at < 0) {
+        if (!ids.size || from < 0) return false;
+        return (h.kind === "moved" || h.kind === "control" || h.kind === "counters" || h.kind === "transformed") && h.card.id !== undefined && ids.has(String(h.card.id));
+      }
+      switch (h.kind) {
+        case "moved":
+          return aimed(h.card) || (!!h.by && isSource(h.by));
+        case "damage":
+          return isSource(h.source);
+        case "control":
+        case "counters":
+        case "transformed":
+          return aimed(h.card);
+        default:
+          return false;
+      }
+    })
+    .map((h) => lineText(h, n))
+    .filter((t): t is string => !!t)
+    .slice(-4);
+  return { lead, lines };
+}
+
 function movedText(h: Extract<Happening, { kind: "moved" }>, n: Names): string | null {
   const card = cardName(h.card);
   const by = h.by ? ` by ${cardName(h.by)}` : "";
