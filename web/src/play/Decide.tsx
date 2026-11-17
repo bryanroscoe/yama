@@ -88,6 +88,8 @@ export interface WidgetContext {
   library?: (n: number) => number | undefined;
   /** Everyone else at the table, by seat: "What Sam and Jules see" (GRareCards). */
   others?: number[];
+  /** What the card asking has done so far, from the game's feed (GYesNo): who cast it at what, and what happened. */
+  story?: (p: Pending) => { lead: string; lines: string[] } | null;
 }
 
 interface Props {
@@ -219,7 +221,15 @@ function Head({ p, ctx, count, compact, image = false, extra }: { p: Pending; ct
 
 // ── yes or no (GYesNo) ─────────────────────────────────────────────────────
 
-/** The strip over the live board for a "may"; the rail's buttons answer it. */
+/** The same words, whatever the spacing and closing mark: a question that is the card's whole text. */
+const sameText = (a: string, b: string) => a.replace(/\s+/g, " ").replace(/[.?]$/, "").trim() === b.replace(/\s+/g, " ").replace(/[.?]$/, "").trim();
+
+/**
+ * The strip over the live board for a "may"; the rail's buttons answer it. It reads top to
+ * bottom as what happened and then what you decide: the card asking (whole, so its name and
+ * type show), who cast it at what and what it did so far, then the question in the size of a
+ * question, what a yes leads to, and the card's full text folded away when the question isn't it.
+ */
 export function YesNoStrip({ p, draft, onDraft, ctx, compact, disabled }: Props) {
   const s = p.source;
   const presentation = yesNoPresentation(p);
@@ -227,25 +237,38 @@ export function YesNoStrip({ p, draft, onDraft, ctx, compact, disabled }: Props)
   const remember = draft.kind === "yesno" ? draft.remember : "ask";
   const labels = rememberLabels(p);
   const { handlers } = useRead(() => s && ctx.onRead(s.name, s.id));
+  const story = ctx.story?.(p) ?? null;
+  const image = s ? (s.image ?? ctx.meta[s.name]?.image ?? null) : null;
+  const art = !image ? (s?.art ?? null) : null;
+  const oracle = p.oracle && !sameText(p.oracle, question) ? p.oracle : null;
   return (
     <section className={`dw-strip${compact ? " compact" : ""}`} role="alertdialog" aria-label={question}>
-      {s?.art && (
-        <details className="dw-card-art">
-          <summary>Card art</summary>
-          <img src={s.art} alt={s.name} {...handlers} />
-          {s.artist && <span className="dw-credit">Art: {s.artist}, {COPYRIGHT}</span>}
-        </details>
+      {s && (image || art) && (
+        <span className="dw-strip-card">
+          <img src={(image ?? art)!} alt={s.name} className={image ? "whole" : "crop"} draggable={false} {...handlers} />
+          {art && s.artist && !compact && <span className="dw-credit">Art: {s.artist}, {COPYRIGHT}</span>}
+        </span>
       )}
       <span className="dw-strip-body">
         {s && (
-          <span className="dw-source-line" style={seatDot(ctx.tone(s.controller))}>
-            <span className="seat-dot" aria-hidden="true" />
-            {sourceLine(p, ctx)}
+          <span className="dw-story" style={seatDot(ctx.tone(s.controller))}>
+            <span className="dw-source-line">
+              <span className="seat-dot" aria-hidden="true" />
+              {story?.lead ?? sourceLine(p, ctx)}
+            </span>
+            {story?.lines.map((line, i) => <span key={i} className="dw-story-line">{line}</span>)}
           </span>
         )}
-        <b className="dw-question">{question}</b>
-        {presentation && <span className="dw-note">{presentation.detail}</span>}
-        {p.oracle && <span className="dw-oracle"><SymbolText text={p.oracle} /></span>}
+        <span className="dw-ask">
+          <b className={`dw-question${question.length > 60 ? " long" : ""}`}>{question}</b>
+          {presentation && <span className="dw-note">{presentation.detail}</span>}
+        </span>
+        {oracle && (
+          <details className="dw-oracle-more">
+            <summary>{s ? `${s.name}'s full text` : "Full text"}</summary>
+            <span className="dw-oracle"><SymbolText text={oracle} /></span>
+          </details>
+        )}
         <Warn text={p.warn} />
         {/* Where the engine can remember the answer, or Yama can (an unless-cost, the command zone). */}
         {p.remember && draft.kind === "yesno" && (
@@ -266,7 +289,8 @@ export function YesNoStrip({ p, draft, onDraft, ctx, compact, disabled }: Props)
         {p.remember === "yama" && (
           <span className="dw-note">{remember === "ask" ? "You'll be asked each time." : "Yama answers this for you for the rest of the game. Each answer shows in your log, where you can turn it off."}</span>
         )}
-        {compact && s?.artist && <span className="dw-credit">Art: {s.artist}, {COPYRIGHT}</span>}
+        {compact && art && s?.artist && <span className="dw-credit">Art: {s.artist}, {COPYRIGHT}</span>}
+        {image && <span className="dw-credit">{compact ? "Long-press" : "Right-click"} the card to read it. {IMAGES}</span>}
       </span>
     </section>
   );

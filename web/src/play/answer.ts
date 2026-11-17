@@ -589,7 +589,11 @@ export function yesNoPresentation(p: Pending): { question: string; detail: strin
   // Match the complete instruction, not a card name or an arbitrary "may" inside Oracle text.
   const path = /^Exile target creature\. Its controller may search their library for a basic land card, put (?:that card|it) onto the battlefield tapped, then shuffle[.?]?$/i.test(text);
   const search = /^Search your library for a basic land card, put (?:that card|it) onto the battlefield tapped, then shuffle\?$/i.test(text);
-  if (!path && !search) return null;
+  if (!path && !search) {
+    // The server narrowed a "may" in a longer spell to the part being asked (act.rs, with_optional_focus).
+    if (p.detail) return { question: p.prompt, detail: p.detail, ...yesNoWords(p.prompt) };
+    return null;
+  }
   return {
     question: "Search your library for a basic land?",
     detail: path
@@ -598,6 +602,15 @@ export function yesNoPresentation(p: Pending): { question: string; detail: strin
     yes: "Search for a basic land",
     no: "Skip search",
   };
+}
+
+/** The buttons for a narrowed question: "Yes, copy this spell" or "Sacrifice" and "Don't sacrifice". */
+function yesNoWords(question: string): { yes: string; no: string } {
+  const p = { prompt: question } as Pending;
+  const q = shortQuestion(p);
+  if (q) return { yes: `Yes, ${q}`, no: "No" };
+  const first = question.split(/[\s,]/)[0] ?? "";
+  return /^[A-Za-z]+$/.test(first) ? { yes: first, no: `Don't ${first.toLowerCase()}` } : { yes: "Yes", no: "No" };
 }
 
 /** A one-sentence question ("Draw a card?") as words for buttons ("draw a card"), else null. */

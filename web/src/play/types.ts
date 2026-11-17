@@ -325,6 +325,10 @@ export interface Pending {
   prompt: string;
   /** The source's Oracle text. */
   oracle?: string;
+  /** A "may" narrowed to the part being asked: what follows a yes ("If you do, you may copy this spell…"). */
+  detail?: string;
+  /** What the spell or ability asking targets (newer servers), so the question can say what it did. */
+  targets?: DecisionOption[];
   options: DecisionOption[];
   min: number;
   max: number;
