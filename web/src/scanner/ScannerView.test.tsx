@@ -91,6 +91,33 @@ async function typeName(name = "Arcane Signet") {
 }
 
 describe("ScannerView after a printing is chosen", () => {
+  it("keeps Copies beside the printings to tap, with no Add, and the tap files that many (Codex review, 16 Nov 2026)", async () => {
+    const accepted: [ScanCandidate, number][] = [];
+    act(() =>
+      root.render(
+        <ScannerView
+          onAccept={async (c, n) => {
+            accepted.push([c, n]);
+            return true;
+          }}
+          acceptLabel="Add and scan next"
+        />,
+      ),
+    );
+    await typeName();
+    const options = await until(() => (document.querySelectorAll('[role="option"]').length === 3 ? document.querySelectorAll<HTMLElement>('[role="option"]') : null), "the printings");
+    expect(button("Add and scan next")).toBeUndefined();
+    const select = document.querySelector<HTMLSelectElement>(".scan-copies select")!;
+    expect(select).not.toBeNull();
+    act(() => {
+      select.value = "3";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await click(options[1]!);
+    expect(accepted).toHaveLength(1);
+    expect(accepted[0]![1]).toBe(3);
+  });
+
   it("files a tapped printing at once, offers Undo, then Scan anyway files one more of it", async () => {
     const accepted: [ScanCandidate, number, boolean][] = [];
     const undone: ScanCandidate[] = [];
@@ -358,12 +385,15 @@ describe("with the strip, what just happened is said beside the card (design pas
 
   function stripHost(accept: (c: ScanCandidate, n: number) => Promise<boolean>, undone: ScanCandidate[], props: Partial<Parameters<typeof ScannerView>[0]> = {}) {
     let n = 0;
+    // Like Collection's `filedAs`: the entry each card handed to onAccept went into.
+    const keys = new WeakMap<ScanCandidate, string>();
     function Host() {
       const [cards, setCards] = useState<ScanCandidate[]>([]);
       return (
         <ScannerView
           // Like Collection: the entry goes into the strip at once, before its save comes back.
           onAccept={(c) => {
+            keys.set(c, `k${n}`);
             setCards((a) => [c, ...a]);
             return accept(c, n++);
           }}
@@ -371,7 +401,8 @@ describe("with the strip, what just happened is said beside the card (design pas
             undone.push(c);
           }}
           onCorrect={async () => "changed"}
-          recentCards={cards.map((c, i) => ({ key: `k${cards.length - i}`, name: c.name, set: c.set, number: c.number, finish: "nonfoil", copies: 1, prices: c.prices, image: null, oracleId: c.oracle_id }))}
+          entryOf={(c) => keys.get(c)}
+          recentCards={cards.map((c) => ({ key: keys.get(c)!, name: c.name, set: c.set, number: c.number, finish: "nonfoil", copies: 1, prices: c.prices, image: null, oracleId: c.oracle_id }))}
           {...props}
         />
       );
@@ -396,6 +427,23 @@ describe("with the strip, what just happened is said beside the card (design pas
     await click(options[2]!);
     await until(() => (document.querySelectorAll(".scan-tile").length === 2 ? true : null), "the second card in the strip");
     // The head no longer offers Undo: it would have taken out the first card, not the one named.
+    expect(head().querySelector(".scan-tray-do")).toBeNull();
+    expect(undone).toHaveLength(0);
+  });
+
+  it("puts no Undo beside a +1 copy of the same printing while it saves: Undo would take out the earlier entry (Codex review, 16 Nov 2026)", async () => {
+    const undone: ScanCandidate[] = [];
+    // The first save comes back; the extra copy's never does.
+    stripHost((_, n) => (n === 0 ? Promise.resolve(true) : new Promise<boolean>(() => {})), undone);
+    await typeName();
+    const options = await until(() => (document.querySelectorAll('[role="option"]').length === 3 ? document.querySelectorAll<HTMLElement>('[role="option"]') : null), "the printings");
+    await click(options[1]!);
+    const head = () => document.querySelector(".scan-tray-head")!;
+    await until(() => (head().querySelector(".scan-tray-do") ? true : null), "Undo for the first copy");
+    const chip = () => document.querySelector(".scan-chip")!;
+    await click(await until(() => [...chip().querySelectorAll("button")].find((b) => b.textContent === "+1 copy"), "+1 copy"));
+    await until(() => (document.querySelectorAll(".scan-tile").length === 2 ? true : null), "the extra copy in the strip");
+    // Same name, set and number as the newest tile, but not its entry: no Undo or Wrong printing.
     expect(head().querySelector(".scan-tray-do")).toBeNull();
     expect(undone).toHaveLength(0);
   });

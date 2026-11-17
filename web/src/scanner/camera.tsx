@@ -313,10 +313,17 @@ export function CameraControls({ c, live }: { c: CameraControlState; live: boole
   // The scanner zooms by itself and a pinch zooms too, so zoom is one small button showing the
   // level; a tap opens + and − (Bryan, 16 Nov 2026: too busy).
   const [zoomOpen, setZoomOpen] = useState(false);
-  // + and − fold away again a few seconds after the last zoom.
+  const levelRef = useRef<HTMLButtonElement>(null);
+  const groupRef = useRef<HTMLDivElement>(null);
+  // + and − fold away again a few seconds after the last zoom. Focus on one of them goes back to
+  // the level button rather than to the page (Codex review, 16 Nov 2026).
   useEffect(() => {
     if (!zoomOpen) return;
-    const t = window.setTimeout(() => setZoomOpen(false), 4000);
+    const t = window.setTimeout(() => {
+      const at = document.activeElement;
+      if (at && at !== levelRef.current && groupRef.current?.contains(at)) levelRef.current?.focus();
+      setZoomOpen(false);
+    }, 4000);
     return () => window.clearTimeout(t);
   }, [zoomOpen, c.zoom]);
   if (!live) return null;
@@ -331,13 +338,13 @@ export function CameraControls({ c, live }: { c: CameraControlState; live: boole
         </Button>
       )}
       {(c.canZoomIn || c.canZoomOut) && (
-        <div className={`scan-zoom-buttons${zoomOpen ? " is-open" : ""}`} role="group" aria-label="Zoom">
+        <div ref={groupRef} className={`scan-zoom-buttons${zoomOpen ? " is-open" : ""}`} role="group" aria-label="Zoom">
           {zoomOpen && (
             <Button className="scan-tool" onClick={c.zoomIn} disabled={!c.canZoomIn} aria-label="Zoom in">
               +
             </Button>
           )}
-          <Button className="scan-tool scan-zoom-level" onClick={() => setZoomOpen((o) => !o)} aria-expanded={zoomOpen} aria-label={`Zoom ${fmt(c.zoom)}${zoomOpen ? "" : ", change it"}`}>
+          <Button ref={levelRef} className="scan-tool scan-zoom-level" onClick={() => setZoomOpen((o) => !o)} aria-expanded={zoomOpen} aria-label={`Zoom ${fmt(c.zoom)}${zoomOpen ? "" : ", change it"}`}>
             {fmt(c.zoom)}
           </Button>
           {/* A pinch or the scanner's own zoom, said too: the button's label alone isn't announced. */}

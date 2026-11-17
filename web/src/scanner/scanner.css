@@ -345,10 +345,20 @@
   background: var(--ground);
   color: var(--text);
 }
-/* While the suggestions are open the sheet lets them out, over the strip above it. */
+/* In the sheet the suggestions are pinned beside the box (NameEntry places them), over the strip
+   above it, so the sheet keeps scrolling while they're open. */
 .scan-panel:has(.scan-name-list) {
-  overflow: visible;
   z-index: 3;
+}
+.scan-panel .scan-name-list {
+  position: fixed;
+  left: var(--name-left, 16px);
+  right: auto;
+  top: var(--name-top, auto);
+  bottom: var(--name-bottom, auto);
+  width: var(--name-width, auto);
+  max-height: var(--name-max, 50dvh);
+  overflow-y: auto;
 }
 .scan-name-list {
   position: absolute;

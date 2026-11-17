@@ -4,7 +4,7 @@
 // without, must not set that camera's digital zoom.
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { CameraControls, clampZoom, useCameraControls, type CameraControlState } from "./camera";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -130,5 +130,24 @@ describe("CameraControls: zoom is one button (16 Nov 2026)", () => {
     expect(host.querySelector(".scan-zoom-buttons")).toBeNull();
     act(() => root.unmount());
     host.remove();
+  });
+
+  it("folds + and − away after a few seconds, handing focus on one of them back to the level button (Codex review, 16 Nov 2026)", () => {
+    vi.useFakeTimers();
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const c = { zoom: 1, canZoomIn: true, canZoomOut: true, zoomIn: () => {}, zoomOut: () => {}, caps: { torch: false }, torch: false, setTorch: () => {}, error: null } as unknown as CameraControlState;
+    act(() => root.render(<CameraControls c={c} live />));
+    act(() => host.querySelector<HTMLButtonElement>(".scan-zoom-level")!.click());
+    const zoomIn = [...host.querySelectorAll("button")].find((b) => b.getAttribute("aria-label") === "Zoom in")!;
+    zoomIn.focus();
+    expect(document.activeElement).toBe(zoomIn);
+    act(() => vi.advanceTimersByTime(4000));
+    expect(host.querySelectorAll("button")).toHaveLength(1);
+    expect(document.activeElement).toBe(host.querySelector(".scan-zoom-level"));
+    act(() => root.unmount());
+    host.remove();
+    vi.useRealTimers();
   });
 });

@@ -116,6 +116,13 @@ export interface ScannerViewProps {
    * without prices give `recent` (names) instead.
    */
   recentCards?: RecentCard[];
+  /**
+   * The `recentCards` key of the entry a card given to `onAccept` (or `onCorrect`'s `to`) went
+   * into. The receipt's Undo and Wrong printing stand beside the newest tile only when it is that
+   * card's entry: two entries of the same printing (a "+1 copy" still saving) look alike by name.
+   * Without it the scanner compares name, set and number.
+   */
+  entryOf?: (card: ScanCandidate) => string | undefined;
   /** Open one card of the strip large, by its key (the host's ScannedCard). Without it the tiles are pictures only. */
   onOpenCard?: (key: string) => void;
   /** The scanner's own sounds (sounds.ts), as well as vibration. Default on; off where the host plays its own (the deck check). */
@@ -453,6 +460,7 @@ export function ScannerView({
   recent = [],
   finish = "nonfoil",
   recentCards,
+  entryOf,
   onOpenCard,
   sounds: soundsProp = true,
   onPrinting,
@@ -1970,6 +1978,9 @@ export function ScannerView({
   // "Read the collector number up close", in the found card's More.
   const upClose = live && !identityOnly && !closeup && !chosen && !!found && !found.outside && !!options && options.length > 1 && !found.reading;
   const showPicker = !identityOnly && !!found && !found.outside && !!options && options.length > 1 && !found.reading && (found.picking || !chosen);
+  // Add stands beside Copies once the printing is settled, or while one is still being found.
+  const addable = !!found && (ready || (!showPicker && !found.outside && !(options && options.length === 0)));
+  const copiesOffered = !!found && !identityOnly && !single && !found.correcting;
   const range = !identityOnly && found && !chosen && options && options.length > 1 ? priceRange(options, finish) : null;
   const suggested = lockOffered && !lockOpen && lockCodes.length === 0 ? suggestLock(filedSets, new Set(lockCodes)) : null;
   const suggestedName = suggested ? (filedSetNames.current.get(suggested) ?? suggested.toUpperCase()) : null;
@@ -2018,7 +2029,8 @@ export function ScannerView({
   // is that card: a second card filed inside the Undo window (or saved out of order) is named there
   // without them, rather than with an Undo that would take out the other one (review, 16 Nov 2026).
   const jc = justAdded?.card;
-  const sameAsNewest = !!jc && !!newest && jc.name === newest.name && (jc.set ?? "") === (newest.set ?? "") && (jc.number ?? "") === (newest.number ?? "");
+  const sameAsNewest =
+    !!jc && !!newest && (entryOf ? entryOf(jc) === newest.key : jc.name === newest.name && (jc.set ?? "") === (newest.set ?? "") && (jc.number ?? "") === (newest.number ?? ""));
   const undoable = !!jc && !justAdded!.busy && sameAsNewest && (!!onUndo || (!!onCorrect && !!justAdded!.printing));
   const dupeHere = !!dupe && !!onAccept && !!newest && dupe.found.name === newest.name;
   // Wrong printing beside Undo only when the scanner read the printing itself: one you tapped is
@@ -2417,10 +2429,11 @@ export function ScannerView({
             )}
             {/* The decision, on one row; everything lesser on one quiet row under it. */}
             <div className="scan-buttons">
-              {/* No Add while the printings are there to tap, or when there's no printing to add. */}
-              {onAccept && (ready || (!showPicker && !found.outside && !(options && options.length === 0))) && (
+              {/* No Add while the printings are there to tap (a tap files it), or when there's no
+                  printing to add. Copies stays, so 2–10 can be chosen before the tap (Codex review). */}
+              {onAccept && (addable || (showPicker && copiesOffered)) && (
                 <div className="scan-accept">
-                  {!identityOnly && !single && !found.correcting && (
+                  {copiesOffered && (
                     <Field className="scan-copies" label="Copies">
                       <select value={copies} onChange={(e) => setCopies(Number(e.target.value))}>
                         {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
@@ -2431,9 +2444,11 @@ export function ScannerView({
                       </select>
                     </Field>
                   )}
-                  <Button variant="primary" disabled={!ready} onClick={() => file(found, chosen, copies, false)}>
-                    {!ready ? "Finding the printing…" : found.correcting ? "Change to this printing" : acceptLabel}
-                  </Button>
+                  {addable && (
+                    <Button variant="primary" disabled={!ready} onClick={() => file(found, chosen, copies, false)}>
+                      {!ready ? "Finding the printing…" : found.correcting ? "Change to this printing" : acceptLabel}
+                    </Button>
+                  )}
                 </div>
               )}
               <Button className="scan-skip" onClick={() => again()}>

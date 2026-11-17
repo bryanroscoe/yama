@@ -1,8 +1,9 @@
 # Scanner design pass: what just happened first, options out of the way
 
-**Status:** In progress, 16 Nov 2026. Built on branch `design/scanner-receipt` (4 commits on
-main `48fd697`); reviewed by Fable 5.2 (code and design); **not yet** reviewed by Codex, pushed,
-PR'd, merged or tried on a real phone.
+**Status:** Built and landing, 16 Nov 2026: the receipt, compact and review commits below, an
+adversarial Codex review (GPT-6.1 Sol, max effort) and its fixes, on branch
+`t3/implement-scanner-design-pass`. The three open decisions below wait on Bryan. Not yet tried
+on a real phone.
 
 **Asked for:** Bryan, 16 Nov 2026: "We're in desperate need of a fixup of the scanning
 interface … It really needs a design pass for usability, getting stuff out of the way, and making
@@ -74,6 +75,13 @@ the sheet asks only for what it **needs**, and everything lesser is one tap away
    once (camera only); Undo sits right after the card's name, away from Review all; on a laptop
    the previous card's name dims while deciding; corners go white when a card is seen; the
    filing line is one left-aligned line with a chevron.
+
+5. **Codex review fixes** (adversarial, GPT-6.1 Sol at max effort, 4 findings): the receipt's
+   Undo and Wrong printing are tied to the strip entry the card went into (the host's new
+   `entryOf`), not its name, set and number, so a "+1 copy" still saving never gets an Undo that
+   would take out the earlier copies; Copies stays beside the printings to tap (the tap files that
+   many, as on main); the name suggestions are pinned beside the box so the sheet keeps scrolling
+   while they're open; and when + and − fold away, focus on one goes back to the zoom button.
 
 Files: `web/src/scanner/{ScannerView,ScanTray,camera}.tsx`, `scanner.css`, their tests,
 `docs/features.md` (Scanner). All web tests, typecheck and build pass on `b992aaa` (cloud

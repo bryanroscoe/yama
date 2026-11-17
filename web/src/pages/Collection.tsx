@@ -975,6 +975,7 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
           closeups={closeups}
           paused={reviewing || closing || openedEntry != null}
           recentCards={added.map((a) => ({ key: a.key, name: a.name, set: a.set, number: a.number, finish: a.finish, copies: a.copies, prices: a.prices, image: a.image, oracleId: a.oracle_id, state: entryState(a) }))}
+          entryOf={(c) => filedAs.current.get(c)}
           onOpenCard={setOpened}
           finish={finish}
           onPrinting={setPrinting}
