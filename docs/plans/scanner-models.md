@@ -18,9 +18,8 @@ goes into the repository with it. This page records what was measured and what c
 
 ## What real scans look like (measured)
 
-The test set is Bryan's 125 saved scan photos from production's `scan_samples` (15 to 17 Nov 2026,
-Pixel 10 Pro at 2160 × 3840). They are all his (production has five accounts). Only five had been shared,
-because sharing started on 15 Nov. 124 have a known artwork; 120 have a known printing.
+The test set is one tester's 125 saved scan photos (`scan_samples`, mid-November 2026, Pixel 10 Pro at
+2160 × 3840), used with their consent. 124 have a known artwork; 120 have a known printing.
 
 - **They're sleeved.** Close up, the art shows a textured matte sleeve: a fine diamond mesh or stipple, a
   glint on every bump, and a white haze that washes out contrast. Most were shot down in a blue deck box:
@@ -145,5 +144,5 @@ Next attempt, in order:
   the scanner's code and model are downloaded to people's phones, which is distribution, so all of Yama
   would have to be AGPL. It also offers a free licence for noncommercial projects on request (name, email,
   intended use). That would let Yama use its whole-card printing model now (90.8% right or twin among the
-  siblings on Bryan's photos, against our 81.6%) while ours catches up. It needs Bryan's name and email, so it's his to send.
+  siblings on the test photos, against our 81.6%) while ours catches up. It needs Bryan's name and email, so it's his to send.
 - **The server fallback** sends a card photo to Yama's server when it's on. Off by default, as he said.
