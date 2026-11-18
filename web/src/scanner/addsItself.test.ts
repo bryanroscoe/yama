@@ -30,6 +30,9 @@ describe("Keep adding when only the card matters (scanning a deck)", () => {
   it("adds art that looks like another card once a clear title read named it", () => {
     expect(addsByIdentity({ method: "art", confidence: 0.66, others: [{ name: "Other" } as never], titled: true })).toBe(true);
   });
+  it("adds art that leads every other card by 0.10, though another scores within 0.2", () => {
+    expect(addsByIdentity({ method: "art", confidence: 0.72, others: [{ name: "Other" } as never], leads: true })).toBe(true);
+  });
 });
 
 describe("lookalikes", () => {
