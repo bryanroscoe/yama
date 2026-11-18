@@ -119,6 +119,7 @@ Four kinds of page live in this folder, and it helps to know which you are readi
 |---|---|
 | [plans/README.md](plans/README.md) | What goes in the plans folder, and every plan with its status. |
 | [plans/forge-in-multiplayer.md](plans/forge-in-multiplayer.md) | Choosing Forge or Phase when hosting a game, then moving a game between them. Proposed. |
+| [plans/scanner-models.md](plans/scanner-models.md) | The scanner's own models: what real sleeved scans showed, the art model and lead lock that shipped, the printing model still to build, and an optional server fallback. In progress. |
 
 ## Dated reports
 
