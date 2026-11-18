@@ -280,6 +280,8 @@ const TEXT_VETO = 0.6;
 const SLOW_FIND_MS = 3000;
 /** Frames written down while looking for one card. */
 const SEEK_FRAMES = 60;
+/** Slow-find records kept per scanner session (the server keeps 200 records per account). */
+const SLOW_KEPT = 25;
 /** For reading text: extra frame kept around the on-screen guide, and the longest side read. */
 const MARGIN = 0.12;
 const MAX_SIDE = 1500;
@@ -543,7 +545,9 @@ export function ScannerView({
    */
   const filedName = useRef<string | null>(null);
   /** With Scanner diagnostics on: when the scanner started looking at the card now in view, and what each frame read. */
-  const seek = useRef<{ started: number; frames: Record<string, unknown>[] } | null>(null);
+  const seek = useRef<{ rec: ScanRecord; started: number; frames: Record<string, unknown>[] } | null>(null);
+  /** Records kept for a slow find this session: a cap, so they don't push every other kind out. */
+  const slowKept = useRef(0);
   const foundSeq = useRef(0);
   const [phase, setPhase] = useState<Phase>("loading");
   const [status, setStatus] = useState(WAITING);
@@ -632,8 +636,10 @@ export function ScannerView({
     seek.current = null;
     if (carry) return carry;
     if (!diagRef.current) return undefined;
-    const rec = baseRecord();
-    if (looked && Date.now() - looked.started >= SLOW_FIND_MS) {
+    // Started with the look: the account and the switch as they were then (diagnostics.ts).
+    const rec = looked?.rec ?? baseRecord();
+    if (looked && Date.now() - looked.started >= SLOW_FIND_MS && slowKept.current < SLOW_KEPT) {
+      slowKept.current += 1;
       rec.reasons.add("slow-find");
       rec.note("seek", { ms: Date.now() - looked.started, frames: looked.frames });
     }
@@ -659,7 +665,7 @@ export function ScannerView({
    */
   const seekFrame = (note: Record<string, unknown>): Record<string, unknown> | null => {
     if (!diagRef.current) return null;
-    seek.current ??= { started: Date.now(), frames: [] };
+    seek.current ??= { rec: baseRecord(), started: Date.now(), frames: [] };
     if (seek.current.frames.length >= SEEK_FRAMES) return null;
     const frame = { t: Date.now() - seek.current.started, ...note };
     seek.current.frames.push(frame);
@@ -672,8 +678,9 @@ export function ScannerView({
   const endSeek = () => {
     const looked = seek.current;
     seek.current = null;
-    if (!looked || !diagRef.current || Date.now() - looked.started < SLOW_FIND_MS) return;
-    const rec = baseRecord();
+    if (!looked || !diagRef.current || Date.now() - looked.started < SLOW_FIND_MS || slowKept.current >= SLOW_KEPT) return;
+    slowKept.current += 1;
+    const rec = looked.rec;
     rec.reasons.add("slow-find");
     rec.note("seek", { ms: Date.now() - looked.started, frames: looked.frames });
     void rec.send("left");
@@ -1271,7 +1278,7 @@ export function ScannerView({
           }
           // Not while a card filed by its name is held: it may be that card, still in view.
           if (!blockedName.current) setStatus(READING);
-          const seen = seekFrame({ art: artNote.art.slice(0, 3), cardPx: artNote.cardPx });
+          const seen = blockedName.current ? null : seekFrame({ art: artNote.art.slice(0, 3), cardPx: artNote.cardPx });
           // A match that is at least fair is read on every frame; a card the art index plainly
           // doesn't know (a battle, a weak match) after a few frames, as before.
           if (top.score >= ART_UNKNOWN || artUnknown || ++unknownFrames >= 3) {
@@ -1289,7 +1296,10 @@ export function ScannerView({
             const titles = await readTitles(hi.image, hi.quad, reader.ocr);
             if (stop) return;
             const title = titleRead(titles, reader);
-            const fused = fuseTitle(artUnknown ? [] : ranked, title);
+            // A fairly clear title agreeing with the art only where just the card matters (in the
+            // collection a lookalike with one printing would be filed by itself), and not while a
+            // card filed by its name is held (one read mustn't file a lookalike of it).
+            const fused = fuseTitle(artUnknown ? [] : ranked, title, { agree: identityOnly && !blockedName.current });
             // The title overruled the art: it named a card other than the art's best match.
             scanCtx.current = { ...artNote, titles, title, fused: fused.kind, artUnknown, overruled: fused.kind === "title" && !!top && !sameCardName(top.name, fused.name) };
             if (seen) Object.assign(seen, { titles, title, fused: fused.kind });
@@ -1318,14 +1328,17 @@ export function ScannerView({
             if (stop) return;
             const said = res.candidates[0];
             if (seen) seen.text = said ? { name: said.name, confidence: Math.round(said.confidence * 1000) / 1000 } : null;
-            // The card's text names one of the art's matches, fairly surely: the two agree.
-            const agreed = said && said.confidence >= TEXT_VETO && !artUnknown && !isHeld(said.name) ? artHas(ranked, said.name) : undefined;
+            // The card's text names one of the art's matches, fairly surely: the two agree. Only where
+            // just the card matters, and not while a card filed by its name is held (as above).
+            const agreed = identityOnly && said && said.confidence >= TEXT_VETO && !artUnknown && !blockedName.current ? artHas(ranked, said.name) : undefined;
             if (agreed) {
               showArt(r, agreed, read(hi), { titled: true });
               return;
             }
             if (handleText(res, false, false, hi)) return;
-            const vetoed = !!said && said.confidence >= TEXT_VETO;
+            // Where only the card matters a weak read is noise; elsewhere any read still holds the
+            // art back, as before (the collection files a printing the art settles by itself).
+            const vetoed = !!said && (!identityOnly || said.confidence >= TEXT_VETO);
             // No title at all. Art sure on its own (0.82) still decides. Fairly sure on two frames
             // (0.62) only once the title has had its chance (Bryan's phone, 15 Nov 2026: right cards
             // scored 0.64 to 0.70, and a foil Westvale Abbey locked as Wei Night Raiders at 0.658 on
@@ -1333,6 +1346,7 @@ export function ScannerView({
             // title couldn't be read. Never when its art is unknown, nor while a card filed by its
             // name is held.
             untitled = prev ? untitled + 1 : 1;
+            if (!prev) failedReads = 0;
             const artLocks = top.score >= LOCK_ONCE || (top.score >= LOCK_TWICE && prev && untitled >= UNTITLED_FRAMES);
             if (!stop && artLocks && !artUnknown && !vetoed && !blockedName.current) {
               showArt(r, top, read(hi));
@@ -1340,7 +1354,9 @@ export function ScannerView({
             }
             // Still nothing: ask for a close-up of the name.
             // (Not while the card just added is held: that would read it again.)
-            if (!stop && closeups && !vetoed && !blockedName.current && ++failedReads >= TITLE_AFTER) {
+            // Where only the card matters, a fair match (LOCK_TWICE) gets its UNTITLED_FRAMES first.
+            const artWaits = identityOnly && top.score >= LOCK_TWICE && !artUnknown && untitled < UNTITLED_FRAMES;
+            if (!stop && closeups && !vetoed && !blockedName.current && ++failedReads >= TITLE_AFTER && !artWaits) {
               setCloseup("title");
               return;
             }
@@ -1373,6 +1389,8 @@ export function ScannerView({
       readers.current.delete(halt);
       stop = true;
       clearTimeout(timer);
+      // The look ends with the loop (a pause, the set picker, a close-up), or is the found card's.
+      endSeek();
     };
   }, [phase, mode, live, closeup, photoBusy, paused, lockOpen, identityOnly, closeups, showArt, handleText, textReader]);
 
@@ -2040,7 +2058,11 @@ export function ScannerView({
           setDiagnosticsOn(on);
           setDiag(on);
           // Off means off now: the card in hand keeps nothing more and sends nothing.
-          if (!on) foundRef.current?.rec?.cancel();
+          if (!on) {
+            foundRef.current?.rec?.cancel();
+            seek.current?.rec.cancel();
+            seek.current = null;
+          }
         }}
       />
       {soundsProp && (
