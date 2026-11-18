@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Printing } from "../api";
-import { addsByIdentity, addsItself } from "./ScannerView";
+import { addsByIdentity, addsItself, lookalikes } from "./ScannerView";
 
 const p = { scryfall_id: "x" } as Printing;
 
@@ -26,5 +26,16 @@ describe("Keep adding when only the card matters (scanning a deck)", () => {
     expect(addsByIdentity({ method: "name", confidence: 0.65, others: [] })).toBe(false); // read the same way twice, not sure
     expect(addsByIdentity({ method: "collector", confidence: 0.7, others: [] })).toBe(false);
     expect(addsByIdentity({ method: "art", confidence: 0.7, others: [{ name: "Other" } as never] })).toBe(false);
+  });
+  it("adds art that looks like another card once a clear title read named it", () => {
+    expect(addsByIdentity({ method: "art", confidence: 0.66, others: [{ name: "Other" } as never], titled: true })).toBe(true);
+  });
+});
+
+describe("lookalikes", () => {
+  it("lists other cards within 0.2 of the top match, once per name", () => {
+    const top = { index: 1, name: "Sol Ring", score: 0.68 };
+    const matches = [top, { index: 2, name: "Sol Ring", score: 0.6 }, { index: 3, name: "Mind Stone", score: 0.5 }, { index: 4, name: "Mind Stone", score: 0.49 }, { index: 5, name: "Arcane Signet", score: 0.47 }];
+    expect(lookalikes(matches, top).map((m) => m.index)).toEqual([3]);
   });
 });

@@ -10,8 +10,9 @@
 //   - the camera (name, delivered size, zoom, torch, settings and capabilities) and the text reader;
 //   - how it ended: what was chosen, and how.
 // Kept when: the printing list was used, Wrong card, Wrong printing, a read that gave up, the
-// close-up took over, or a title overruled the art. Best effort: a record that can't be sent is
-// dropped. Server: server/src/scan_diagnostics.rs. Replay: eval/real.test.ts.
+// close-up took over, a title overruled the art, or the card took over 3 s to find (with what
+// each frame read while looking, kept with no card when it was never found; since 17 Nov 2026).
+// Best effort: a record that can't be sent is dropped. Server: server/src/scan_diagnostics.rs. Replay: eval/real.test.ts.
 
 import { accountSignal, api } from "../api";
 import { warpRegionRgba, type CardRegion } from "./image";
@@ -55,7 +56,7 @@ export function setDiagnosticsOn(on: boolean) {
 }
 
 /** Why a record is kept. */
-export type Reason = "picked" | "wrong-card" | "wrong-printing" | "hold-gave-up" | "closeup" | "title-overruled";
+export type Reason = "picked" | "wrong-card" | "wrong-printing" | "hold-gave-up" | "closeup" | "title-overruled" | "slow-find";
 export type Outcome = "filed" | "picked" | "wrong" | "skipped" | "left";
 
 /** A card in view and the image it's in. */

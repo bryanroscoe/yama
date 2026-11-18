@@ -5,7 +5,7 @@ import { researchWhere } from "./buildCatalog";
 import { CURRENT, cardsTarget, entryWhere, listTarget, placesText, swapPool, targetOptions } from "./checkTargets";
 import { BUZZ, TONES } from "./checkSound";
 import {
-  cardKey, classify, insteadOf, loadCheck, newCheck, shownVerdict, stillMissing, storeCheck, takeOut, tally, toScanDraft, verdictText,
+  cardKey, classify, insteadOf, loadCheck, newCheck, shownVerdict, stillMissing, storeCheck, takeOut, tally, toScanDraft, verdictText, VERDICT_SHOWN_MS,
   type CheckDraft, type CheckTarget,
 } from "./deckCheck";
 import { addCard, fixCard, removeCard } from "./deckScan";
@@ -46,10 +46,21 @@ describe("checking a deck", () => {
   it("shows the card waiting to be counted over the camera, not the previous card", () => {
     const cards = check(["Sol Ring"]).cards;
     expect(shownVerdict(target, cards, null)).toMatchObject({ name: "Sol Ring", kind: "belongs" });
+    expect(shownVerdict(target, cards, null, { another: false, now: 1000 })).toMatchObject({ name: "Sol Ring", kind: "belongs" });
     // Ancient Tomb is found but not counted yet (Keep going off, or it looks like another card).
     expect(shownVerdict(target, cards, "Ancient Tomb")).toMatchObject({ name: "Ancient Tomb", kind: "out" });
     expect(shownVerdict(target, cards, "Sol Ring")).toMatchObject({ kind: "duplicate", copy: 2 });
     expect(shownVerdict(target, [], null)).toBeNull();
+  });
+
+  it("takes a counted card's verdict down after a moment, or once the scanner reads another card", () => {
+    const cards = check(["Sol Ring"]).cards; // counted at 0
+    expect(shownVerdict(target, cards, null, { another: false, now: VERDICT_SHOWN_MS - 1 })).toMatchObject({ name: "Sol Ring" });
+    expect(shownVerdict(target, cards, null, { another: false, now: VERDICT_SHOWN_MS })).toBeNull();
+    // The scanner is reading the next card: the last one's "Belongs" goes at once.
+    expect(shownVerdict(target, cards, null, { another: true, now: 10 })).toBeNull();
+    // A card waiting to be counted always shows.
+    expect(shownVerdict(target, cards, "Ancient Tomb", { another: true, now: 99_999 })).toMatchObject({ name: "Ancient Tomb", kind: "out" });
   });
 
   it("counts basics against the list's quantity", () => {

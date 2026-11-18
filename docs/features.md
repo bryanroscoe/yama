@@ -210,6 +210,7 @@ Camera scanning in Collection: the card is found by its art, and its printing an
 - Version history with a diff between any two versions
 - Commander validation
 - Check cards: compare physical cards with the saved list without changes, scan a new version, or find cards missing from your collection; each menu action has its description on a separate line
+- Deck checks, deck scans, box scans and swap checks (since 17 Nov 2026): with Keep going on, a card counts by itself when its art and name agree, even if its art looks like other cards, and a name read short of clear counts when it names one of the art's guesses; a half-legible name no longer leaves the scanner on "Hold still". These scans use a 1080p camera and a smaller cut of the card, since only the name is read. Over the camera, the last card's verdict shows for a moment after it's counted and goes as soon as the scanner reads another card. Scanner diagnostics also keep cards that took over 3 s to find, or were never found, with what each frame read ([scanner.md](scanner.md))
 - Owned/needed with cheapest market price
 - The Cards tab shows the list as pictures, stacks (each group a column of overlapping cards with their name bars showing; pointing at or focusing one shows it whole), a list or a table, grouped by type or mana value
 - Sample hands with mulligans
