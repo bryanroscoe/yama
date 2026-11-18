@@ -37,12 +37,18 @@ because sharing started on 15 Nov. 124 have a known artwork; 120 have a known pr
 
 ## Results
 
+These are offline measurements on one saved photo per card. "Qualify" means that photo's art scores meet the
+rule. The live camera settles on a lead only when the same card leads on two frames in a row (`LEAD_FRAMES`
+in `fuse.ts`); a still photo settles on one. So the live gain is "settled after two art-only frames, with no
+title read" for most cards, not "on the first frame". It hasn't been timed on a phone; Scanner diagnostics
+now record which rule settled each card, which will measure it.
+
 | Experiment | Result on the real photos | Verdict |
 |---|---|---|
-| Lock on the art's lead: top ≥ 0.65 and ≥ 0.10 ahead of the next different card | Locks on the first frame for 84.7% (36% before), 0 wrong; 0 of 124 unknown cards | Shipped, PR #166 |
+| Lock on the art's lead: top ≥ 0.65 and ≥ 0.10 ahead of the next different card | One photo's scores qualify for 84.7% (36% reached 0.82), 0 wrong; 0 of 124 unknown cards | Shipped, PR #166 |
 | White balance, contrast stretch, blur, anti-aliasing before the model | Within ±0.01 of the median | Rejected |
 | Averaging the embedding over shifted or scaled quads | +0.005 | Rejected |
-| **Our art model**: the bundle's embedder fine-tuned on simulated sleeved captures (see below) | Lead-rule locks 94.4%, 0 wrong; right card 96.8% | Shipped, PR #167 |
+| **Our art model**: the bundle's embedder fine-tuned on simulated sleeved captures (see below) | One photo's scores qualify for the lead rule on 94.4%, 0 wrong; right card 96.8% | Shipped, PR #167 |
 | CollectorVision (AGPL; run privately, never in Yama) | Card 95%. Among the art's siblings: exact printing 75.5%, right printing or a visual twin 90.8% | The bar for a printing model |
 | **Our printing model**, whole card (320 × 448, MobileNetV3 Small, 4 epochs) | Exact 38.8%, right or twin 59.2% (chance 24.7%). On simulated captures of the same cards: 50.8% exact | Not good enough |
 | **Our printing model**, set-symbol area only (the type line's right end, 160 × 80) | Untrained already 48.0% / 69.4%; trained (5 epochs) 60.2% / 79.6% | The right idea |
@@ -82,7 +88,8 @@ photos' 0.78.
 - **Training:** 24,000 Scryfall card images, 49,240 simulated captures cut by the bundle's own warp graph,
   8 epochs, about 6 minutes on this Mac's GPU. The real-photo cards were held out.
 - **Measured:**
-  - 124 real photos: lead-rule locks 84.7% → 94.4%, 0 wrong, 0 unknown locked; p10 score 0.654 → 0.688.
+  - 124 real photos: one photo's scores qualify for the lead rule on 84.7% → 94.4%, 0 wrong, 0 unknown
+    locked; p10 score 0.654 → 0.688.
   - Held-out simulated sleeved, hard: right card 83.8% → 95.8%.
   - Bare cards: right 99.5% → 100%, locks at 0.82 94.8% → 97.2%.
   - The details, the training code (`scanner-lab/`) and the switch (`YAMA_SCAN_QUERY_MODEL`) are in
