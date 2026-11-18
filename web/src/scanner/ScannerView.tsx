@@ -546,6 +546,8 @@ export function ScannerView({
   const filedName = useRef<string | null>(null);
   /** With Scanner diagnostics on: when the scanner started looking at the card now in view, and what each frame read. */
   const seek = useRef<{ rec: ScanRecord; started: number; frames: Record<string, unknown>[] } | null>(null);
+  /** The read loop handed the card to the title close-up: the look goes on there (Codex review of #165). */
+  const lookGoesOn = useRef(false);
   /** Records kept for a slow find this session: a cap, so they don't push every other kind out. */
   const slowKept = useRef(0);
   const foundSeq = useRef(0);
@@ -1357,6 +1359,7 @@ export function ScannerView({
             // Where only the card matters, a fair match (LOCK_TWICE) gets its UNTITLED_FRAMES first.
             const artWaits = identityOnly && top.score >= LOCK_TWICE && !artUnknown && untitled < UNTITLED_FRAMES;
             if (!stop && closeups && !vetoed && !blockedName.current && ++failedReads >= TITLE_AFTER && !artWaits) {
+              lookGoesOn.current = true;
               setCloseup("title");
               return;
             }
@@ -1389,8 +1392,10 @@ export function ScannerView({
       readers.current.delete(halt);
       stop = true;
       clearTimeout(timer);
-      // The look ends with the loop (a pause, the set picker, a close-up), or is the found card's.
-      endSeek();
+      // The look ends with the loop (a pause, the set picker), or is the found card's. Into the
+      // title close-up it goes on: the card it names gets the record, or the next loop ends it.
+      if (lookGoesOn.current) lookGoesOn.current = false;
+      else endSeek();
     };
   }, [phase, mode, live, closeup, photoBusy, paused, lockOpen, identityOnly, closeups, showArt, handleText, textReader]);
 
