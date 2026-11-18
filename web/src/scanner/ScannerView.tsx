@@ -32,7 +32,7 @@ import type { ArtMatch, Recognition } from "./recognizer";
 import { deleteSamples, keepSample, sampleSummary, savingPhotos, setSavingPhotos, type SampleLabel, type SampleSummary, type Shot } from "./samples";
 import { SetLockPicker } from "./SetLockPicker";
 import { treatmentOf } from "./session";
-import { artInSets, inLockedSets, KNOWN_ART, knownArtShare, POOL_MARGIN, judgeLocked, lockedNames, lockedSet, poolKeys, readTitleFirst, savedLock, saveLock, suggestLock, type LockedSet } from "./setlock";
+import { artInSets, inLockedSets, KNOWN_ART, knownArtShare, leadCounts, POOL_MARGIN, judgeLocked, lockedNames, lockedSet, poolKeys, readTitleFirst, savedLock, saveLock, suggestLock, type LockedSet } from "./setlock";
 import { CameraControls, cameraInfo, digitalRegion, useCameraControls, type CameraInfo } from "./camera";
 import { defaultCamera, nameCameras, resolveSaved, saveCamera, savedCamera, type NamedCamera } from "./cameras";
 import { AUTO_MAX, AutoZoom, LENS_SWITCH, maySwitchLens } from "./zoomPolicy";
@@ -41,7 +41,7 @@ import { createServerCatalog } from "./serverCatalog";
 import { createScannerOcr, ENGINE_LABEL, plannedEngine, type ScannerOcr } from "./ocrEngine";
 import { HeldRead, type HeldVerdict } from "./heldRead";
 import { Evidence, progressLine, proofOf } from "./evidence";
-import { artDecides, artHas, artLead, fuseTitle, leadRun, leads, needsTitle, titleRead, type Fused, type LockRule } from "./fuse";
+import { artDecides, artHas, artLead, fuseTitle, LeadRun, leads, needsTitle, titleRead, type Fused, type LockRule } from "./fuse";
 import { worthReading } from "./quality";
 import { pickHeldQuad, sameHeldCard } from "./heldCard";
 import { VersionLine } from "../version";
@@ -1194,8 +1194,8 @@ export function ScannerView({
     let textFrame = 0;
     /** Frames in a row this art match's title couldn't be read (see UNTITLED_FRAMES). */
     let untitled = 0;
-    /** Frames in a row this artwork has led every other card (fuse.ts, LEAD_FRAMES). */
-    let leadFrames = 0;
+    /** Frames in a row one card has led every other card (fuse.ts, LEAD_FRAMES). */
+    const leadRun = new LeadRun();
     setStatus(mode === "art" ? WAITING : "Line the card up with the frame");
     const next = (ms: number) => {
       if (!stop) timer = setTimeout(tick, ms);
@@ -1242,6 +1242,7 @@ export function ScannerView({
             last.current = undefined;
             lastText.current = undefined;
             unknownFrames = 0;
+            leadRun.step(null);
             setStatus(blocked.current || blockedName.current ? NEXT : WAITING);
             return next(60);
           }
@@ -1264,20 +1265,20 @@ export function ScannerView({
           const heldName = blockedName.current?.name;
           const isHeld = (name: string) => !!heldName && sameCardName(name, heldName);
           if (isHeld(top.name)) {
-            leadFrames = 0;
+            leadRun.step(null);
             setStatus(NEXT);
             return next(60);
           }
           // Art that leads every other card (fuse.ts: at least LEAD_FLOOR, LEAD_MARGIN ahead) settles
-          // which card without the title, like a sure match, once the same artwork has led
+          // which card without the title, like a sure match, once the same card has led
           // LEAD_FRAMES frames in a row (Bryan, 18 Nov 2026: stuck about half the time; right cards
-          // score a median 0.78 on real photos). Never when its art is unknown, nor while a card
-          // filed by its name is held. The search lists its best 5 artworks: anything unlisted
-          // scores at most the 5th.
+          // score a median 0.78 on real photos). Never when its art is unknown, or locked to sets
+          // whose art the index mostly lacks, nor while a card filed by its name is held. The
+          // search lists its best 5 artworks: anything unlisted scores at most the 5th.
           const unlisted = r.matches[r.matches.length - 1]?.score;
           const lead = artLead(ranked, top, unlisted);
-          const leading = !artUnknown && !blockedName.current && leads(top.score, lead);
-          leadFrames = leadRun(leadFrames, leading, !!prev);
+          const leading = !artUnknown && leadCounts({ locked: !!locked, share: poolShare.current }) && !blockedName.current && leads(top.score, lead);
+          const leadFrames = leadRun.step(leading ? top.name : null);
           // A strong match decides by art, unless another card scores close to it. Otherwise the
           // title is read first (Bryan, 15 Nov 2026: no Star Trek card scanned; their art isn't in
           // the bundle, so lookalikes scored 0.5 to 0.8 and the scanner named them, or waited on
@@ -1312,7 +1313,7 @@ export function ScannerView({
           }
           // Not while a card filed by its name is held: it may be that card, still in view.
           if (!blockedName.current) setStatus(READING);
-          const seen = blockedName.current ? null : seekFrame({ art: artNote.art.slice(0, 3), cardPx: artNote.cardPx });
+          const seen = blockedName.current ? null : seekFrame({ art: artNote.art.slice(0, 3), lead: artNote.lead, cardPx: artNote.cardPx });
           // A match that is at least fair is read on every frame; a card the art index plainly
           // doesn't know (a battle, a weak match) after a few frames, as before.
           if (top.score >= ART_UNKNOWN || artUnknown || ++unknownFrames >= 3) {
@@ -1468,11 +1469,12 @@ export function ScannerView({
           // Art that leads every other card (fuse.ts) decides too, on the photo's one frame.
           const unlisted = r.matches[r.matches.length - 1]?.score;
           const lead = artLead(ranked, top, unlisted);
-          const leading = !artUnknown && leads(top.score, lead);
+          const leading = !artUnknown && leadCounts({ locked: !!locked, share: poolShare.current }) && leads(top.score, lead);
+          const photoCtx = (lock: LockRule) => ({ photo: true, lead: Math.round(lead * 1000) / 1000, lock });
           if (!artUnknown && (top.score >= LOCK_ONCE || leading) && !needsTitle(ranked, unlisted)) {
             bmp.close();
             if (current()) {
-              scanCtx.current = { photo: true, lead: Math.round(lead * 1000) / 1000, lock: artDecides(top.score, 1, 1) };
+              scanCtx.current = photoCtx(artDecides(top.score, 1, 1) ?? "sure");
               showArt(r, top, read, { leads: leading });
             }
             return;
@@ -1481,12 +1483,18 @@ export function ScannerView({
           const fused = fuseTitle(ranked, titleRead(await readTitles(hi.image, hi.quad, reader.ocr), reader));
           if (fused.kind === "art") {
             bmp.close();
-            if (current()) showArt(r, fused.match, read);
+            if (current()) {
+              scanCtx.current = photoCtx("title");
+              showArt(r, fused.match, read);
+            }
             return;
           }
           if (fused.kind === "title") {
             bmp.close();
-            if (current()) fromName(fused.name, "name", { shot: hi });
+            if (current()) {
+              scanCtx.current = photoCtx("title");
+              fromName(fused.name, "name", { shot: hi });
+            }
             return;
           }
           // No clear title: read the rest of the card's text below, as for unknown art.
@@ -2064,12 +2072,15 @@ export function ScannerView({
     setDupe((d) => (d && d.settings !== fileSettings ? null : d));
   }, [fileSettings]);
   /**
-   * Whether Keep adding files this card by itself. Not a card found by art and title, or by its
-   * art's lead, under the name filed last while the view hasn't been clear since: it may be that
-   * card still in view.
+   * Whether Keep adding files this card by itself. Not a card counted on the strength of a title
+   * read, or of its art's lead over lookalikes, under the name filed last while the view hasn't
+   * been clear since: it may be that card still in view.
    */
-  const autoFiles = (f: Found) =>
-    identityOnly ? addsByIdentity(f) && !((f.titled || f.leads) && !!filedName.current && sameCardName(f.name, filedName.current)) : addsItself(f);
+  const autoFiles = (f: Found) => {
+    if (!identityOnly) return addsItself(f);
+    const vouched = f.titled || (f.leads && f.others.length > 0);
+    return addsByIdentity(f) && !(vouched && !!filedName.current && sameCardName(f.name, filedName.current));
+  };
   useEffect(() => {
     // A printing the person said was misread, or a correction, waits for a tap.
     if (!autoAdd || !onAccept || paused || phase !== "found" || !found || found.misread || found.correcting || !autoFiles(found)) return;

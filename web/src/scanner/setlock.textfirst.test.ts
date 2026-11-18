@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { KNOWN_ART, knownArtShare, readTitleFirst } from "./setlock";
+import { KNOWN_ART, knownArtShare, leadCounts, readTitleFirst } from "./setlock";
 
 describe("knownArtShare", () => {
   it("is the share of the asked artworks the index found", () => {
@@ -22,10 +22,15 @@ describe("readTitleFirst", () => {
     expect(readTitleFirst({ ...base, score: 0.55 })).toBe(true);
     expect(readTitleFirst({ ...base, score: 0.7 })).toBe(true);
   });
-  it("trusts a fair match that leads every other card, but not for a set the art index doesn't know", () => {
+  it("trusts a fair match that leads every other card, but not locked to sets the art index mostly lacks", () => {
     expect(readTitleFirst({ ...base, score: 0.7, leads: true })).toBe(false);
-    expect(readTitleFirst({ ...base, locked: true, inSet: true, share: 0.3, score: 0.7, leads: true })).toBe(false);
+    expect(readTitleFirst({ ...base, locked: true, inSet: true, share: 1, score: 0.7, leads: true })).toBe(false);
+    // A card from the same set can lead for one the index doesn't know: the title decides there.
+    expect(readTitleFirst({ ...base, locked: true, inSet: true, share: 0.3, score: 0.7, leads: true })).toBe(true);
     expect(readTitleFirst({ ...base, locked: true, inSet: false, share: 0.3, score: 0.7, leads: true })).toBe(true);
+    expect(leadCounts({ locked: true, share: KNOWN_ART - 0.01 })).toBe(false);
+    expect(leadCounts({ locked: true, share: KNOWN_ART })).toBe(true);
+    expect(leadCounts({ locked: false, share: 0 })).toBe(true);
   });
   it("reads the title for a set the art index doesn't know, even on a strong outside match", () => {
     expect(readTitleFirst({ ...base, locked: true, inSet: false, share: 0, score: 0.95 })).toBe(true);

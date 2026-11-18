@@ -163,10 +163,17 @@ export const KNOWN_ART = 0.9;
  * card scanned; their art isn't in the bundle, so the recognizer named lookalikes or waited on
  * "Hold still" for ever). The title is read first when the art match isn't strong (under
  * `lockOnce`) and doesn't lead every other card (`leads`, fuse.ts), or when locked to sets whose
- * art is partly unknown and the match isn't one of theirs. A strong or leading match among the
- * locked sets', or one with no lock, still decides.
+ * art is partly unknown and the match isn't one of theirs. A strong match among the locked sets',
+ * or one with no lock, still decides; a leading one only where the index knows the locked sets'
+ * art (`leadCounts`).
  */
 export function readTitleFirst(o: { score: number; lockOnce: number; locked: boolean; inSet: boolean; share: number; leads?: boolean }): boolean {
   if (o.locked && !o.inSet && o.share < KNOWN_ART) return true;
-  return o.score < o.lockOnce && !o.leads;
+  return o.score < o.lockOnce && !(o.leads && leadCounts(o));
 }
+
+/**
+ * Whether a match leading every other card (fuse.ts) may settle the card: not when locked to sets
+ * whose art the index mostly lacks, where a card from the same set can lead for one it doesn't know.
+ */
+export const leadCounts = (o: { locked: boolean; share: number }) => !o.locked || o.share >= KNOWN_ART;

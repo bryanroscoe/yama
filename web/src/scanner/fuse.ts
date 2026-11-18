@@ -39,7 +39,9 @@ export const AGREE_MARGIN = 0.04;
  * card scored a median 0.584 (max 0.726) with a median lead of 0.018 (max 0.102), and 0 of 124
  * would lock. Looser rules locked more and went wrong: 0.62 and 0.08 locked 2 of the 124 unknown
  * cards, 0.60 and 0.05 one known card wrongly. The live camera also asks for LEAD_FRAMES frames in
- * a row. One person's single session of successful scans, so biased toward easier cards.
+ * a row. One person's single session of successful scans, so biased toward easier cards. Not with
+ * the set lock on sets whose art the index mostly lacks: a card from the same set can lead there
+ * for one it doesn't know (review, 18 Nov 2026), so the title is read as before.
  */
 export const LEAD_FLOOR = 0.65;
 export const LEAD_MARGIN = 0.1;
@@ -96,17 +98,27 @@ export function needsTitle(matches: readonly ArtCandidate[], unlisted?: number):
   return !!rival && top.score - rival.score < ART_CLOSE;
 }
 
-/** Frames in a row the same artwork must lead before the live camera takes it (a still photo has one). */
+/** Frames in a row the same card must lead before the live camera takes it (a still photo has one). */
 export const LEAD_FRAMES = 2;
 
 /** Which rule decided the card: the art alone (sure, leads, twice: see ScannerView), a title read, or the card's text. */
 export type LockRule = "sure" | "leads" | "twice" | "title" | "text";
 
 /**
- * Frames in a row the same artwork has led, counting this one: `before` the count so far, `same`
- * whether this frame's best match is the artwork the last frame's was.
+ * Frames in a row one card has led every other card, frame by frame. By card, not artwork: with
+ * the set lock the best match can swap between the card's in-set and outside artworks, and a run
+ * that started again on each swap would wait for ever with no title read.
  */
-export const leadRun = (before: number, leading: boolean, same: boolean): number => (leading ? (same ? before + 1 : 1) : 0);
+export class LeadRun {
+  private card: string | null = null;
+  private frames = 0;
+  /** This frame's leading card (its name), or null when no card leads: the frames in a row it has led. */
+  step(leader: string | null): number {
+    this.frames = leader === null ? 0 : this.card !== null && sameCard(this.card, leader) ? this.frames + 1 : 1;
+    this.card = leader;
+    return this.frames;
+  }
+}
 
 /**
  * When the title isn't needed (needsTitle false): whether the art decides on this frame, and by

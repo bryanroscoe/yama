@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { NameIndex } from "./fuzzy";
-import { artDecides, artLead, fuseTitle, LEAD_FRAMES, leadRun, leads, needsTitle, titleRead } from "./fuse";
+import { artDecides, artLead, fuseTitle, LEAD_FRAMES, LeadRun, leads, needsTitle, titleRead } from "./fuse";
 
 const m = (name: string, score: number) => ({ name, score });
 
@@ -51,10 +51,10 @@ describe("art and title together", () => {
   });
 
   // Bryan's foil Westvale Abbey, 15 Nov 2026: the art locked Wei Night Raiders at 0.658 on two
-  // frames; the title "Westvale Abbey" was perfectly readable. On his saved photo of it the next
-  // card, Honor the Fallen, scored 0.034 behind: no lead.
+  // frames; the title "Westvale Abbey" was perfectly readable. His saved photo of it, scored
+  // offline: Wei Night Raiders 0.645, then Honor the Fallen 0.611, a lead of 0.034 (no lead).
   it("lets a readable title overrule a weak art lock, matching the two-faced card by its front face", () => {
-    const matches = [m("Wei Night Raiders", 0.658), m("Honor the Fallen", 0.624)];
+    const matches = [m("Wei Night Raiders", 0.645), m("Honor the Fallen", 0.611)];
     expect(needsTitle(matches)).toBe(true);
     expect(fuseTitle(matches, { name: "Westvale Abbey // Ormendahl, Profane Prince", score: 1, margin: 0.4 })).toEqual({ kind: "title", name: "Westvale Abbey // Ormendahl, Profane Prince" });
   });
@@ -133,17 +133,25 @@ describe("art that leads every other card", () => {
     expect(artDecides(0.85, 0)).toBe("sure");
   });
 
-  it("decides on the live camera only once the same artwork has led two frames in a row", () => {
+  it("decides on the live camera only once the same card has led two frames in a row", () => {
     expect(LEAD_FRAMES).toBe(2);
-    let run = leadRun(0, true, false);
-    expect(artDecides(0.7, run)).toBeNull();
-    run = leadRun(run, true, true);
-    expect(artDecides(0.7, run)).toBe("leads");
-    // Another artwork leading starts the count again; a frame that doesn't lead ends it.
-    expect(leadRun(1, true, false)).toBe(1);
-    expect(leadRun(1, false, true)).toBe(0);
-    expect(artDecides(0.7, leadRun(leadRun(1, false, true), true, true))).toBeNull();
+    const run = new LeadRun();
+    expect(artDecides(0.7, run.step("Sol Ring"))).toBeNull();
+    expect(artDecides(0.7, run.step("Sol Ring"))).toBe("leads");
+    // A frame that doesn't lead (or sees no card) ends the run; another card leading starts it again.
+    run.step(null);
+    expect(artDecides(0.7, run.step("Sol Ring"))).toBeNull();
+    expect(artDecides(0.7, run.step("Mind Stone"))).toBeNull();
+    expect(artDecides(0.7, run.step("Mind Stone"))).toBe("leads");
     // A still photo has one frame, and one is enough.
     expect(artDecides(0.7, 1, 1)).toBe("leads");
+  });
+
+  it("counts the run by card, so artworks of one card swapping between frames still settle it", () => {
+    // With the set lock, the best match can swap between a card's in-set and outside artworks, or
+    // either face of a two-faced card: a run by artwork would start again on every frame.
+    const run = new LeadRun();
+    run.step("Westvale Abbey // Ormendahl, Profane Prince");
+    expect(run.step("Ormendahl, Profane Prince")).toBe(2);
   });
 });
