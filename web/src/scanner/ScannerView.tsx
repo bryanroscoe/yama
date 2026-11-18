@@ -147,8 +147,9 @@ export interface ScannerViewProps {
   single?: boolean;
   /** Shown over the camera view, under the top buttons (the deck check's verdict). A function is
    * given the card found and waiting to be accepted, else null, so the overlay never shows an
-   * older card while a new one waits. */
-  overlay?: ReactNode | ((pending: ScanCandidate | null) => ReactNode);
+   * older card while a new one waits, and told when the scanner is reading another card (not the
+   * one just filed), so the host can take an older card's word down. */
+  overlay?: ReactNode | ((pending: ScanCandidate | null, scanner: { another: boolean }) => ReactNode);
   /** The word for what accepting does, in the camera's chips: "Added" unless set ("Checked"). */
   addedWord?: string;
   /** Buzz on a find, an add or a needed tap (where the browser can). Default on. */
@@ -191,6 +192,9 @@ interface Found {
   guess?: Pick<SampleLabel, "guess_name" | "guess_scryfall_id" | "guess_illustration_id" | "method" | "score">;
   /** The scanner settled the printing itself, with proof (not a guess, not a tap). */
   sure?: boolean;
+  /** Found by its art and a clear title read naming the same card (fuse.ts): lookalike art
+   * doesn't make it a guess. */
+  titled?: boolean;
   /**
    * The printing the scanner settled and the person said was wrong ("Wrong printing"): marked
    * "Read as" in the list, and never filed again by itself.
@@ -289,6 +293,8 @@ interface JustAdded {
 /** What the scanner says while it simply waits for a card: once the strip has cards, the camera keeps quiet. */
 const WAITING = "Hold a card in view";
 const NEXT = "Ready for the next card";
+/** A card other than the one just filed is in view and being read. */
+const READING = "Hold still, reading the name";
 /**
  * While reading a held card: how far below the best match in view the held card's art may score.
  * With the set lock, as far as judgeLocked lets an in-set match trail the best one anywhere.
@@ -988,7 +994,7 @@ export function ScannerView({
 
   /** Show a card recognised by its art. `read` is a sharp view of it for the collector line. */
   const showArt = useCallback(
-    (r: Recognition, top: ArtMatch, read: { image: RgbaImage; quad: Quad } | null, carry: Pick<Found, "shot" | "guess" | "unlocked" | "rec"> = {}) => {
+    (r: Recognition, top: ArtMatch, read: { image: RgbaImage; quad: Quad } | null, carry: Pick<Found, "shot" | "guess" | "unlocked" | "rec" | "titled"> = {}) => {
       const seq = ++foundSeq.current;
       const rec = newRecord(carry.rec);
       rec?.setShot(read);
@@ -1005,7 +1011,7 @@ export function ScannerView({
         confidence: top.score,
         art: top,
         // Every other match, including the best anywhere when the set lock chose an in-set one.
-        others: [...r.matches, ...(r.pool ?? [])].filter((m, i, all) => m.index !== top.index && m.name !== top.name && m.score >= top.score - 0.2 && all.findIndex((x) => x.name === m.name) === i),
+        others: lookalikes([...r.matches, ...(r.pool ?? [])], top),
         options: null,
         sameArt: true,
         chosen: null,
@@ -1087,7 +1093,7 @@ export function ScannerView({
       const lock = single || best.confidence >= 0.95 || (best.confidence >= 0.6 && sameCard(best, seen));
       lastText.current = { card: best, at: Date.now() };
       if (lock) showText(res, shot);
-      else setStatus("Hold still, reading the name");
+      else setStatus(READING);
       return lock;
     },
     [showText],
@@ -1181,13 +1187,17 @@ export function ScannerView({
           // "Hold still" for ever).
           // For a diagnostic record of the card found next (diagnostics.ts): what the art said.
           const artNote = { art: ranked.slice(0, 5).map((m) => ({ name: m.name, set: m.set, number: m.number, score: Math.round(m.score * 1000) / 1000 })), cardPx: Math.round(cardHeight(toVideo(r.quad))) };
-          if (!readTitleFirst({ score: top.score, lockOnce: LOCK_ONCE, locked: !!locked, inSet: judged?.kind === "in-set", share: poolShare.current }) && !needsTitle(ranked)) {
+          // Only the card matters (a deck scan or check): art that looks like another card would
+          // wait for a tap, so read the title too, and a clear one lets Keep going count it.
+          const rivalled = identityOnly && lookalikes(ranked, top).length > 0;
+          const readFirst = readTitleFirst({ score: top.score, lockOnce: LOCK_ONCE, locked: !!locked, inSet: judged?.kind === "in-set", share: poolShare.current }) || needsTitle(ranked);
+          if (!readFirst && !rivalled) {
             unknownFrames = 0;
             scanCtx.current = artNote;
             showArt(r, top, read());
             return;
           }
-          setStatus("Hold still, reading the name");
+          setStatus(READING);
           // A match that is at least fair is read on every frame; a card the art index plainly
           // doesn't know (a battle, a weak match) after a few frames, as before.
           if (top.score >= ART_UNKNOWN || artUnknown || ++unknownFrames >= 3) {
@@ -1214,11 +1224,17 @@ export function ScannerView({
               return next(60);
             }
             if (fused.kind === "art") {
-              showArt(r, fused.match, read(hi));
+              showArt(r, fused.match, read(hi), { titled: true });
               return;
             }
             if (fused.kind === "title") {
               fromName(fused.name, "name", { shot: hi });
+              return;
+            }
+            // Art sure on its own, read only for its lookalikes: no clear title leaves it as it
+            // was, found by its art and waiting for a tap.
+            if (rivalled && !readFirst) {
+              showArt(r, top, read(hi));
               return;
             }
             // No clear title upright: the whole card's text, one orientation per attempt (sideways
@@ -2122,7 +2138,7 @@ export function ScannerView({
           </Button>
         )}
         <CameraControls c={cam} live={live} />
-        {typeof overlay === "function" ? overlay(isFound && found ? candidateOf(found, chosen) : null) : overlay}
+        {typeof overlay === "function" ? overlay(isFound && found ? candidateOf(found, chosen) : null, { another: phase === "scanning" && (status === READING || closeup === "title") }) : overlay}
         {(stillInView || flashing) && !tapNeeded ? (
           <div className={`scan-chip has-action${flashing ? " found" : ""}`}>
             <span>
@@ -2509,13 +2525,20 @@ export function addsItself(f: Pick<Found, "sure" | "chosen" | "method" | "confid
 
 /**
  * Keep adding when only the card matters (scanning a deck): a card the camera found by its art is
- * added by itself unless the art looks like another card too; one read as text only when the read
- * was sure. A typed name, or a less certain read, waits for Add.
+ * added by itself unless the art looks like another card too and no clear title read settled it
+ * (Bryan, 17 Nov 2026: right cards score 0.64 to 0.70 on his phone, so nearly every card had a
+ * lookalike and Keep going stopped on each); one read as text only when the read was sure. A
+ * typed name, or a less certain read, waits for Add.
  */
-export function addsByIdentity(f: Pick<Found, "method" | "confidence" | "others">): boolean {
+export function addsByIdentity(f: Pick<Found, "method" | "confidence" | "others" | "titled">): boolean {
   const typed = f.method === "name" && f.confidence === 1;
   if (typed) return false;
-  return f.method === "art" ? f.others.length === 0 : f.confidence >= SURE;
+  return f.method === "art" ? f.others.length === 0 || !!f.titled : f.confidence >= SURE;
+}
+
+/** Other cards whose art scores near the top match's (within 0.2), one per name, for "Not this card?". */
+export function lookalikes<M extends Pick<ArtMatch, "index" | "name" | "score">>(matches: readonly M[], top: M): M[] {
+  return matches.filter((m, i, all) => m.index !== top.index && m.name !== top.name && m.score >= top.score - 0.2 && all.findIndex((x) => x.name === m.name) === i);
 }
 
 function explain(f: Found, identityOnly: boolean, lockName = ""): string {
