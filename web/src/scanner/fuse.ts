@@ -17,6 +17,13 @@ export const ART_FLOOR = 0.5;
 /** A title read is clear at this name-match score, this far ahead of the next name. */
 export const TITLE_CLEAR = 0.85;
 export const TITLE_MARGIN = 0.08;
+/**
+ * A title read short of clear still settles the card when it names one of the art's own matches:
+ * two weak reads that agree (Bryan, 17 Nov 2026: deck checks sat on "Hold still" with right cards
+ * scoring 0.64 to 0.70 by art and titles read just short of clear). [inferred]
+ */
+export const TITLE_AGREES = 0.7;
+export const AGREE_MARGIN = 0.04;
 
 export interface ArtCandidate {
   name: string;
@@ -49,14 +56,21 @@ export function needsTitle(matches: readonly ArtCandidate[]): boolean {
 
 export const clearTitle = (t: TitleRead | null): t is TitleRead => !!t && t.score >= TITLE_CLEAR && t.margin >= TITLE_MARGIN;
 
+/** The art match (at least ART_FLOOR) that names this card, if any. */
+export function artHas<M extends ArtCandidate>(matches: readonly M[], name: string): M | undefined {
+  return matches.find((m) => m.score >= ART_FLOOR && sameCard(m.name, name));
+}
+
 /**
- * The card from the art matches (best first) and a title read: the art match the title names, the
- * title's card when the art has no such match, or nothing when the title isn't clear.
+ * The card from the art matches (best first) and a title read: the art match the title names
+ * (when the title is clear, or fairly clear and agreeing: TITLE_AGREES), the title's card when a
+ * clear title names a card the art doesn't have, or nothing.
  */
 export function fuseTitle<M extends ArtCandidate>(matches: readonly M[], title: TitleRead | null): Fused<M> {
-  if (!clearTitle(title)) return { kind: "none" };
-  const match = matches.find((m) => m.score >= ART_FLOOR && sameCard(m.name, title.name));
-  return match ? { kind: "art", match } : { kind: "title", name: title.name };
+  if (!title) return { kind: "none" };
+  const match = artHas(matches, title.name);
+  if (title.score >= TITLE_CLEAR && title.margin >= TITLE_MARGIN) return match ? { kind: "art", match } : { kind: "title", name: title.name };
+  return match && title.score >= TITLE_AGREES && title.margin >= AGREE_MARGIN ? { kind: "art", match } : { kind: "none" };
 }
 
 /**

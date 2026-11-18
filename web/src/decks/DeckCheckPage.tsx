@@ -414,11 +414,15 @@ function Camera({ deck, target, draft, verdicts, setDraft, muted, onMute, onClos
   const lastAt = draft.cards.reduce((m, c) => Math.max(m, c.at), 0);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
+    // Also when the newest card was removed, so an older one isn't shown for good.
+    setNow(Date.now());
     const left = lastAt + VERDICT_SHOWN_MS - Date.now();
     if (left <= 0) return;
     const timer = setTimeout(() => setNow(Date.now()), left);
     return () => clearTimeout(timer);
   }, [lastAt]);
+  // Once the scanner has gone on to another card, the last card's verdict stays down.
+  const movedOn = useRef<number | null>(null);
   const recent = [...draft.cards].sort((a, b) => b.at - a.at).map((c) => c.name);
   /** What a card would be if counted now, before Keep adding or Count it puts it in. */
   const preview = (name: string) => classify(target, [...draft.cards, { key: "preview", name, at: Number.MAX_SAFE_INTEGER }])[draft.cards.length]!;
@@ -473,7 +477,8 @@ function Camera({ deck, target, draft, verdicts, setDraft, muted, onMute, onClos
             overlay={(pending, { another }) => {
               // A card waiting for Count it shows its own verdict, never the previous card's; the
               // last card counted shows for a moment, and not once the scanner is on another card.
-              const v = shownVerdict(target, draft.cards, pending?.name ?? null, { another, now });
+              if (another) movedOn.current = lastAt;
+              const v = shownVerdict(target, draft.cards, pending?.name ?? null, { another: another || movedOn.current === lastAt, now });
               return v ? <div className="deck-check-overlay"><VerdictCard v={v} pending={!!pending} /></div> : null;
             }}
           />

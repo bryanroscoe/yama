@@ -41,7 +41,7 @@ import { createServerCatalog } from "./serverCatalog";
 import { createScannerOcr, ENGINE_LABEL, plannedEngine, type ScannerOcr } from "./ocrEngine";
 import { HeldRead, type HeldVerdict } from "./heldRead";
 import { Evidence, progressLine, proofOf } from "./evidence";
-import { fuseTitle, needsTitle, titleRead, type Fused } from "./fuse";
+import { artHas, fuseTitle, needsTitle, titleRead, type Fused } from "./fuse";
 import { worthReading } from "./quality";
 import { pickHeldQuad, sameHeldCard } from "./heldCard";
 import { VersionLine } from "../version";
@@ -269,6 +269,17 @@ const LOCK_TWICE = 0.62;
 const UNTITLED_FRAMES = 4;
 /** Below this the art is probably not in the bundle; after a few such frames, read text instead. */
 const ART_UNKNOWN = 0.5;
+/**
+ * A whole-card text read at least this sure, naming a card the art doesn't have, keeps the art
+ * from deciding (handleText's own two-frame bar). A weaker one is noise: it used to hold the art
+ * and the close-up back for as long as the card was held (Bryan, 17 Nov 2026: stuck on "Hold
+ * still"). [inferred]
+ */
+const TEXT_VETO = 0.6;
+/** A card that takes longer than this to find is kept by Scanner diagnostics ("slow-find"). */
+const SLOW_FIND_MS = 3000;
+/** Frames written down while looking for one card. */
+const SEEK_FRAMES = 60;
 /** For reading text: extra frame kept around the on-screen guide, and the longest side read. */
 const MARGIN = 0.12;
 const MAX_SIDE = 1500;
@@ -324,7 +335,14 @@ function smallRegion(source: CanvasImageSource, r: { x: number; y: number; w: nu
 }
 
 /** The part of the source around a card quad (source pixels), at full resolution, and the quad within it. */
-function around(source: CanvasImageSource, width: number, height: number, quad: Quad, canvas: HTMLCanvasElement): { image: RgbaImage; quad: Quad } {
+/**
+ * The longest side a card is cut at for reading its title when only the card matters (a deck scan
+ * or check): the title is read at NAME_DENSITY anyway, and a 2400 px cut (the collector line's) was
+ * most of each frame's time on a phone (Bryan, 17 Nov 2026: "crazy laggy"). [inferred]
+ */
+const IDENTITY_SIDE = 1200;
+
+function around(source: CanvasImageSource, width: number, height: number, quad: Quad, canvas: HTMLCanvasElement, maxSide = 2400): { image: RgbaImage; quad: Quad } {
   const xs = quad.map((p) => p[0]);
   const ys = quad.map((p) => p[1]);
   const pad = 0.08 * Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
@@ -332,7 +350,7 @@ function around(source: CanvasImageSource, width: number, height: number, quad: 
   const y0 = Math.max(0, Math.floor(Math.min(...ys) - pad));
   const x1 = Math.min(width, Math.ceil(Math.max(...xs) + pad));
   const y1 = Math.min(height, Math.ceil(Math.max(...ys) + pad));
-  const k = Math.min(1, 2400 / Math.max(x1 - x0, y1 - y0));
+  const k = Math.min(1, maxSide / Math.max(x1 - x0, y1 - y0));
   const image = draw(source, x0, y0, x1 - x0, y1 - y0, (x1 - x0) * k, (y1 - y0) * k, canvas);
   return { image, quad: quad.map(([x, y]) => [(x - x0) * k, (y - y0) * k]) as Quad };
 }
@@ -518,6 +536,14 @@ export function ScannerView({
   const noCard = useRef(0);
   /** The same for a card found by its text (no art match); see hold.ts. The detector seeing no card also ends it. */
   const blockedName = useRef<Hold | null>(null);
+  /**
+   * The name of the card filed last, until the view is clear of cards: a card found by its art
+   * and title again under that name isn't filed by itself (the art hold can let go on one blurry
+   * frame while the card is still there; review of 17 Nov 2026).
+   */
+  const filedName = useRef<string | null>(null);
+  /** With Scanner diagnostics on: when the scanner started looking at the card now in view, and what each frame read. */
+  const seek = useRef<{ started: number; frames: Record<string, unknown>[] } | null>(null);
   const foundSeq = useRef(0);
   const [phase, setPhase] = useState<Phase>("loading");
   const [status, setStatus] = useState(WAITING);
@@ -601,12 +627,16 @@ export function ScannerView({
   const ocrNameRef = useRef<string | null>(null);
   /** A record for a card just found, when diagnostics are on (or the one carried from the card before). */
   const newRecord = (carry?: ScanRecord): ScanRecord | undefined => {
+    // The looking that led to this card ends here.
+    const looked = seek.current;
+    seek.current = null;
     if (carry) return carry;
     if (!diagRef.current) return undefined;
-    const rec = new ScanRecord();
-    const c = camRef.current;
-    rec.camera = { ...(cameraNowRef.current ?? {}), zoom: c.zoom, torch: c.torch, digital: c.digital };
-    rec.engine = ocrNameRef.current;
+    const rec = baseRecord();
+    if (looked && Date.now() - looked.started >= SLOW_FIND_MS) {
+      rec.reasons.add("slow-find");
+      rec.note("seek", { ms: Date.now() - looked.started, frames: looked.frames });
+    }
     const ctx = scanCtx.current;
     scanCtx.current = null;
     if (ctx) {
@@ -614,6 +644,39 @@ export function ScannerView({
       if (ctx.overruled) rec.reasons.add("title-overruled");
     }
     return rec;
+  };
+  /** A fresh record with the camera and text reader in use. */
+  const baseRecord = () => {
+    const rec = new ScanRecord();
+    const c = camRef.current;
+    rec.camera = { ...(cameraNowRef.current ?? {}), zoom: c.zoom, torch: c.torch, digital: c.digital };
+    rec.engine = ocrNameRef.current;
+    return rec;
+  };
+  /**
+   * One frame read while looking for a card not yet found (with Scanner diagnostics on): what the
+   * art said, filled in with the title and text reads as they come. Null when diagnostics are off.
+   */
+  const seekFrame = (note: Record<string, unknown>): Record<string, unknown> | null => {
+    if (!diagRef.current) return null;
+    seek.current ??= { started: Date.now(), frames: [] };
+    if (seek.current.frames.length >= SEEK_FRAMES) return null;
+    const frame = { t: Date.now() - seek.current.started, ...note };
+    seek.current.frames.push(frame);
+    return frame;
+  };
+  /**
+   * The card being looked for left the view (or the scanner closed) without being found: a long
+   * look is kept as a record with no card ("slow-find", outcome "left"), so the stall can be seen.
+   */
+  const endSeek = () => {
+    const looked = seek.current;
+    seek.current = null;
+    if (!looked || !diagRef.current || Date.now() - looked.started < SLOW_FIND_MS) return;
+    const rec = baseRecord();
+    rec.reasons.add("slow-find");
+    rec.note("seek", { ms: Date.now() - looked.started, frames: looked.frames });
+    void rec.send("left");
   };
   /** The card is done with: send its record, if it was kept for anything. */
   const endRecord = (outcome: Outcome, f: Found | null | undefined = foundRef.current) => {
@@ -623,7 +686,10 @@ export function ScannerView({
   ocrNameRef.current = ocrName;
   // Closing the scanner with a card still in hand ends its record ("left").
   useEffect(
-    () => () => endRecord("left"),
+    () => () => {
+      endRecord("left");
+      endSeek();
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
@@ -830,8 +896,9 @@ export function ScannerView({
       return;
     }
     // As sharp as the camera allows: the collector line is tiny. Frames are scaled down for
-    // recognition anyway; only the crops read as text use the full resolution.
-    const size = { width: { ideal: 3840 }, height: { ideal: 2160 } };
+    // recognition anyway; only the crops read as text use the full resolution. When only the card
+    // matters nothing reads the collector line, and a 4K stream only slows the phone: 1080p.
+    const size = identityOnly ? { width: { ideal: 1920 }, height: { ideal: 1080 } } : { width: { ideal: 3840 }, height: { ideal: 2160 } };
     /** Ask for a camera, unless this effect is already done with; a stream that arrives too late is stopped. */
     const open = async (id: string | null): Promise<MediaStream | null> => {
       if (stopped) return null;
@@ -1152,7 +1219,11 @@ export function ScannerView({
           const stillHeld = r.quad && heldIndex != null ? [...r.matches, ...(r.pool ?? [])].find((m) => m.index === heldIndex && m.score >= ART_UNKNOWN) : undefined;
           if (blocked.current && artHoldFrame(blocked.current, r.quad ? (stillHeld ?? top ?? null) : null, ART_UNKNOWN, LOCK_TWICE) === "free") blocked.current = null;
           if (!r.quad || !top) {
-            if (++noCard.current >= AWAY_FRAMES) blockedName.current = null;
+            if (++noCard.current >= AWAY_FRAMES) {
+              blockedName.current = null;
+              filedName.current = null;
+              endSeek();
+            }
             if (!blocked.current && !blockedName.current) setDupe(null);
             last.current = undefined;
             lastText.current = undefined;
@@ -1172,7 +1243,8 @@ export function ScannerView({
           // Locked to sets the art index only partly knows (a set newer than the bundle), and this
           // match isn't one of theirs: its art says nothing about which card this is.
           const artUnknown = !!locked && judged?.kind !== "in-set" && poolShare.current < KNOWN_ART;
-          const read = (at?: { image: RgbaImage; quad: Quad }) => (identityOnly && !savingPhotos() ? null : (at ?? around(v, v.videoWidth, v.videoHeight, toVideo(r.quad!), hiCanvasRef.current!)));
+          const side = identityOnly ? IDENTITY_SIDE : undefined;
+          const read = (at?: { image: RgbaImage; quad: Quad }) => (identityOnly && !savingPhotos() ? null : (at ?? around(v, v.videoWidth, v.videoHeight, toVideo(r.quad!), hiCanvasRef.current!, side)));
           // A card just filed by its name stays held (hold.ts): its art mustn't file it again, by
           // art, by a title read or by the two-frame fallback below.
           const heldName = blockedName.current?.name;
@@ -1197,7 +1269,9 @@ export function ScannerView({
             showArt(r, top, read());
             return;
           }
-          setStatus(READING);
+          // Not while a card filed by its name is held: it may be that card, still in view.
+          if (!blockedName.current) setStatus(READING);
+          const seen = seekFrame({ art: artNote.art.slice(0, 3), cardPx: artNote.cardPx });
           // A match that is at least fair is read on every frame; a card the art index plainly
           // doesn't know (a battle, a weak match) after a few frames, as before.
           if (top.score >= ART_UNKNOWN || artUnknown || ++unknownFrames >= 3) {
@@ -1208,7 +1282,7 @@ export function ScannerView({
             // doesn't know yet are usually in the set being scanned).
             const reader = lockRef.current?.names ? { ...full, names: lockRef.current.names } : full;
             const quad = toVideo(r.quad);
-            const hi = around(v, v.videoWidth, v.videoHeight, quad, hiCanvasRef.current);
+            const hi = around(v, v.videoWidth, v.videoHeight, quad, hiCanvasRef.current, side);
             // The card from title and art together (fuse.ts): a clear title settles the card when
             // the art has it among its matches, and overrules the art when it doesn't. Matches from
             // art the index doesn't know for the locked sets count for nothing.
@@ -1218,6 +1292,7 @@ export function ScannerView({
             const fused = fuseTitle(artUnknown ? [] : ranked, title);
             // The title overruled the art: it named a card other than the art's best match.
             scanCtx.current = { ...artNote, titles, title, fused: fused.kind, artUnknown, overruled: fused.kind === "title" && !!top && !sameCardName(top.name, fused.name) };
+            if (seen) Object.assign(seen, { titles, title, fused: fused.kind });
             // The card just filed, by its art or its title: still held.
             if (fusedHeld(fused, heldName)) {
               setStatus(NEXT);
@@ -1240,7 +1315,17 @@ export function ScannerView({
             // No clear title upright: the whole card's text, one orientation per attempt (sideways
             // battles, upside down), so the camera stays responsive.
             const res = await readAt(hi.image, hi.quad, reader, [quarterTurns(hi.quad)[textFrame++ % 3]!]);
-            if (!stop && handleText(res, false, false, hi)) return;
+            if (stop) return;
+            const said = res.candidates[0];
+            if (seen) seen.text = said ? { name: said.name, confidence: Math.round(said.confidence * 1000) / 1000 } : null;
+            // The card's text names one of the art's matches, fairly surely: the two agree.
+            const agreed = said && said.confidence >= TEXT_VETO && !artUnknown && !isHeld(said.name) ? artHas(ranked, said.name) : undefined;
+            if (agreed) {
+              showArt(r, agreed, read(hi), { titled: true });
+              return;
+            }
+            if (handleText(res, false, false, hi)) return;
+            const vetoed = !!said && said.confidence >= TEXT_VETO;
             // No title at all. Art sure on its own (0.82) still decides. Fairly sure on two frames
             // (0.62) only once the title has had its chance (Bryan's phone, 15 Nov 2026: right cards
             // scored 0.64 to 0.70, and a foil Westvale Abbey locked as Wei Night Raiders at 0.658 on
@@ -1249,13 +1334,13 @@ export function ScannerView({
             // name is held.
             untitled = prev ? untitled + 1 : 1;
             const artLocks = top.score >= LOCK_ONCE || (top.score >= LOCK_TWICE && prev && untitled >= UNTITLED_FRAMES);
-            if (!stop && artLocks && !artUnknown && !res.candidates[0] && !blockedName.current) {
+            if (!stop && artLocks && !artUnknown && !vetoed && !blockedName.current) {
               showArt(r, top, read(hi));
               return;
             }
             // Still nothing: ask for a close-up of the name.
             // (Not while the card just added is held: that would read it again.)
-            if (!stop && closeups && !res.candidates[0] && !blockedName.current && ++failedReads >= TITLE_AFTER) {
+            if (!stop && closeups && !vetoed && !blockedName.current && ++failedReads >= TITLE_AFTER) {
               setCloseup("title");
               return;
             }
@@ -1839,6 +1924,7 @@ export function ScannerView({
       filedSetNames.current.set(c.set_code, c.set_name);
       setFiledSets((s) => [c.set_code, ...s].slice(0, 10));
     }
+    filedName.current = f.name;
     const saved = onAccept(card, n, auto);
     // The card stays in the session list either way (a failed save can be tried again there), so
     // scanning goes on; "Added" waits for the save.
@@ -1910,9 +1996,15 @@ export function ScannerView({
   useEffect(() => {
     setDupe((d) => (d && d.settings !== fileSettings ? null : d));
   }, [fileSettings]);
+  /**
+   * Whether Keep adding files this card by itself. Not a card found by art and title under the
+   * name filed last while the view hasn't been clear since: it may be that card still in view.
+   */
+  const autoFiles = (f: Found) =>
+    identityOnly ? addsByIdentity(f) && !(f.titled && !!filedName.current && sameCardName(f.name, filedName.current)) : addsItself(f);
   useEffect(() => {
     // A printing the person said was misread, or a correction, waits for a tap.
-    if (!autoAdd || !onAccept || paused || phase !== "found" || !found || found.misread || found.correcting || !(identityOnly ? addsByIdentity(found) : addsItself(found))) return;
+    if (!autoAdd || !onAccept || paused || phase !== "found" || !found || found.misread || found.correcting || !autoFiles(found)) return;
     file(found, identityOnly ? null : found.chosen!, 1, true);
     // file() is a plain function of this render; only these decide whether to add.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1924,7 +2016,7 @@ export function ScannerView({
   // A hidden sheet comes back whenever the person has something to do in it: a card found that
   // Keep adding won't file by itself, or the set picker opened.
   const { setHidden: showSheet } = sheet;
-  const filesItself = !!found && autoAdd && !!onAccept && !found.misread && !found.correcting && (identityOnly ? addsByIdentity(found) : addsItself(found));
+  const filesItself = !!found && autoAdd && !!onAccept && !found.misread && !found.correcting && autoFiles(found);
   const needsSheet = (phase === "found" && !!found && !filesItself) || lockOpen;
   useEffect(() => {
     if (needsSheet) showSheet(false);
