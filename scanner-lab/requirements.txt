@@ -1,0 +1,9 @@
+# The versions yama-art-20261118 was trained and exported with (Python 3.12, macOS arm64 with MPS).
+# export.py reproduces its exact bytes from the epoch-6 checkpoint with these; other versions may
+# export a different but equivalent graph.
+numpy==2.5.5
+opencv-python-headless==5.1.0.95
+onnx==1.23.2
+onnxruntime==1.32.0
+torch==2.15.0
+torchvision==0.29.2

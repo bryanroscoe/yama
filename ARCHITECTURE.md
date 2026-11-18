@@ -72,6 +72,7 @@ flowchart LR
     scryfall["Scryfall<br/>card data and images"]
     feeds["MTGJSON, TCGCSV,<br/>Commander Spellbook,<br/>deck and store sites"]
     google["Google sign-in"]
+    ghrel["GitHub releases<br/>scanner models"]
   end
 
   app -->|HTTPS, WebSocket| tunnel
@@ -89,6 +90,7 @@ flowchart LR
   server --> scryfall
   server --> feeds
   server --> google
+  server --> ghrel
 ```
 
 The home server runs three containers under Docker Compose: `yama`, and two sidecars that only
@@ -124,8 +126,10 @@ Three things run on the device so that game night needs no connection:
 - **An offline card store** (a 5 MB download, about 24 MB in IndexedDB) answers card searches
   and lookups in a web worker. It is refreshed with a conditional request about once a day.
 - **The scanner** recognises a card by its art with ONNX models in a web worker
-  (`onnxruntime-web`), and reads the collector line with Tesseract when the art is not enough.
-  Besides the pinned art bundle it loads the server's small supplement of newer artworks.
+  (`onnxruntime-web`), and reads the collector line when the art is not enough (PaddleOCR in
+  browsers, ML Kit in the Android app). Besides the pinned art bundle it loads the server's small
+  supplement of newer artworks, and embeds what the camera sees with Yama's own fine-tuned query
+  model in place of the bundle's embedding graph.
 
 Card images load from Scryfall's CDN straight to the device, where the service worker may keep
 a bounded cache of them. Yama's server never stores, proxies or alters them.
@@ -156,6 +160,9 @@ command-line tool for imports, invites and account management. As a server it ha
   deck is saved, the Lab's scheduler, and the scanner's art supplement: after each card import
   it downloads Scryfall's art crops of artworks the scanner's bundle lacks, embeds them with the
   bundle's own model (tract, in process) and keeps only the vectors (`server/src/scan_art.rs`).
+  The scanner's models themselves are downloaded once from GitHub releases and checked against
+  pinned SHA-256 sums: ManaVault's bundle, and Yama's own query model from this repository's
+  `scanner-art-…` releases (`server/src/scan.rs`). Phones get them from the server, never GitHub.
 
 Sign-in, searches, imports, new games and the other costly routes are rate-limited per account
 or per client address (`server/src/limits.rs`). With `YAMA_LOG_DIR` set, as in production, every
@@ -385,6 +392,11 @@ After each successful deploy, `android-release.yml` publishes the Android app's 
 commit the deploy's receipt names (and a new signed APK when the native code changed) to the repository's `android-app` release on GitHub;
 installed apps fetch them from there ([The Android app, sideloaded (13 November 2026)](#the-android-app-sideloaded-13-november-2026)).
 
+Scanner models are released by hand. Yama's query model is trained with `scanner-lab/` on a
+developer's machine and published as an asset of a `scanner-art-<date>` release, never marked
+latest; a pull request then pins its URL, size and SHA-256 in `server/src/scan.rs`, and the server
+downloads it after the deploy ([Yama's own query embedder for the scanner (18 November 2026)](#yamas-own-query-embedder-for-the-scanner-18-november-2026)).
+
 ## Decision record
 
 Everything below is the plan of record. Sections 1 to 12 are the proposal of 17 October 2026
@@ -404,7 +416,7 @@ section 4 is the first sketch; the current system is [above](#the-system-at-a-gl
 - **Shopping:** [Live store stock (13 November 2026)](#live-store-stock-13-november-2026).
 - **The Android app:** [The Android app, sideloaded (13 November 2026)](#the-android-app-sideloaded-13-november-2026), [Which build each device runs (15 November 2026)](#which-build-each-device-runs-15-november-2026).
 - **Game night:** [Table and playgroup stats (2026-10-19)](#table-and-playgroup-stats-2026-10-19).
-- **The scanner:** [Scan photos shared with the developer (15 November 2026)](#scan-photos-shared-with-the-developer-15-november-2026), [The scanner's own art supplement (15 November 2026)](#the-scanners-own-art-supplement-15-november-2026), [Scanner diagnostics (15 November 2026)](#scanner-diagnostics-15-november-2026).
+- **The scanner:** [Scan photos shared with the developer (15 November 2026)](#scan-photos-shared-with-the-developer-15-november-2026), [The scanner's own art supplement (15 November 2026)](#the-scanners-own-art-supplement-15-november-2026), [Yama's own query embedder for the scanner (18 November 2026)](#yamas-own-query-embedder-for-the-scanner-18-november-2026), [Scanner diagnostics (15 November 2026)](#scanner-diagnostics-15-november-2026).
 - **Cards, collection and prices:** [Mana symbols (2026-11-12)](#mana-symbols-2026-11-12), [Release calendar and What's new (2026-10-19)](#release-calendar-and-whats-new-2026-10-19), [A deck's cards in the collection, and Mythic re-imports (2026-10-23)](#a-decks-cards-in-the-collection-and-mythic-re-imports-2026-10-23), [Deck market values (2026-10-27)](#deck-market-values-2026-10-27), [Scan this deck (2026-10-29)](#scan-this-deck-2026-10-29), [Mythic Tools bridge (2026-10-31, proposal)](#mythic-tools-bridge-2026-10-31-proposal), [Store trips (2026-11-01)](#store-trips-2026-11-01), [Deleting collection containers (2026-11-02)](#deleting-collection-containers-2026-11-02), [Sell lists for store buylists (2026-11-02)](#sell-lists-for-store-buylists-2026-11-02), [Local buylist offers (2026-11-02)](#local-buylist-offers-2026-11-02), [Price history (2026-11-02)](#price-history-2026-11-02), [Recording printed copies in a deck box (2026-11-02)](#recording-printed-copies-in-a-deck-box-2026-11-02), [Sections in boxes, and scanning a box (16 November 2026)](#sections-in-boxes-and-scanning-a-box-16-november-2026).
 - **Decks, plans and sharing:** [Swappable spares in the deck box (15 November 2026)](#swappable-spares-in-the-deck-box-15-november-2026), [Brackets, deck stats and exports (2026-10-19)](#brackets-deck-stats-and-exports-2026-10-19), [Deck import (2026-10-22)](#deck-import-2026-10-22), [Sharing and deck configurations (2026-10-28)](#sharing-and-deck-configurations-2026-10-28), [Review, installed decks and the Lab tab (2026-10-28)](#review-installed-decks-and-the-lab-tab-2026-10-28), [Check this deck (2026-11-01)](#check-this-deck-2026-11-01), [Deck configurations and quieter editing (2026-11-03)](#deck-configurations-and-quieter-editing-2026-11-03), [One plan page (2026-11-04)](#one-plan-page-2026-11-04), [Printing with MakePlayingCards (2026-11-05)](#printing-with-makeplayingcards-2026-11-05), [Plans: one plan per deck (2026-11-06)](#plans-one-plan-per-deck-2026-11-06), [Site design pass (2026-11-08)](#site-design-pass-2026-11-08), [Public by default and the navigation (2026-11-12)](#public-by-default-and-the-navigation-2026-11-12), [Check a deck without an account (2026-11-12)](#check-a-deck-without-an-account-2026-11-12).
 - **Assistants:** [Ask Claude, the advisor (2026-10-22)](#ask-claude-the-advisor-2026-10-22), [Yama's tools for Claude (MCP, 2026-10-22)](#yamas-tools-for-claude-mcp-2026-10-22).
@@ -514,6 +526,51 @@ set from waiting. Yama now extends the gallery itself (docs/scanner.md, "Extendi
   a run without charging any artwork (review of #147).
 - **Switch:** `YAMA_SCAN_SUPPLEMENT=0` stops the job and the scanner stops loading it. On by
   default, after the held-out eval in docs/scanner.md.
+
+## Yama's own query embedder for the scanner (18 November 2026)
+
+Bryan's real scans are mostly sleeved cards in a blue deck box, and the bundle's model scores them
+far lower than the synthetic eval (median 0.78 against 0.97; docs/scanner.md, "Art that leads
+settles the card"). The lead rule shipped the same day (PR #166) locks 84.7% of his 124 photos on
+the first frame. Yama now trains a model of its own for the phone's side of the match, the first
+model Yama makes and publishes (docs/scanner.md, "Yama's query embedder").
+
+- **Query side only.** `yama-art-20261118.onnx` is the bundle's `embed.onnx` with its embedding
+  half fine-tuned on simulated sleeved, glare and blue-box captures, against the bundle's frozen
+  gallery vectors. Same inputs and output, same front half (warp and frame cuts). The gallery side
+  stays the bundle's: `search.onnx`, `arts.json`, and the art supplement, which keeps embedding new
+  art with the bundle's original `embed.onnx` because its vectors stand in gallery rows. On the
+  real photos it locks 94.4% on the first frame, none wrong; on 1,840 held-out simulated captures
+  scored as the phone scores them, the lead rule's wrong locks go from 10 to 0 and its locks of
+  unknown cards from 28 to 9, so the lead rule is safer with it than with the bundle's model.
+  Bare cards are no worse.
+- **A new artifact and download source.** Published as an asset of this repository's release
+  `scanner-art-20261118`, not marked latest (the Android app reads its `android-app` release by
+  tag, so nothing there changes). `server/src/scan.rs` pins its URL, size and SHA-256
+  (`QUERY_MODEL`), downloads it once into the bundle's folder as `query-<sha>.onnx` (never over
+  `embed.onnx`), checks it as it checks the bundle, and drops the files of earlier pins. Phones
+  still fetch only from Yama's server.
+- **Served only where it fits.** `GET /api/scan/bundle` names it as `files.embed` when the
+  bundle's manifest names the recogniser checkpoint it was trained against (`recogniser.sha256`
+  `eb655846…`; moving the pin to a bundle from a newer checkpoint, such as ManaVault's
+  `retrain-20261117…`, turns it off until it's trained again), `YAMA_SCAN_QUERY_MODEL` allows it
+  (on by default; `0` turns it off) and it's downloaded. Otherwise, as before, the bundle's
+  `embed.onnx`. A failed download only means the bundle's model a while longer; the next scanner
+  open (or server start) at least ten minutes later tries again. The phone's cache is keyed by
+  URL, so it downloads the new file once, and the art worker, once a load has succeeded, drops
+  cached files the server no longer names (and only then keeps the bundle info for offline use).
+  Kept scan photos and diagnostics carry the bundle and embed file the phone's recognizer ran,
+  and the server records them as `<version>+yama-art-20261118` for the query model, to tell the
+  models apart later.
+- **Reproducible in the repository.** `scanner-lab/` holds the simulation, training, export and
+  evaluation scripts with their pinned package versions; from the run's checkpoint they make the
+  published file byte for byte. The real photos and the database copy they're measured with are
+  people's data and stay outside the repository. CollectorVision (AGPL), used once for a private
+  comparison, is not in it.
+- **Licence.** Derived from ManaVault's MPL-2.0 weights, so the model file is MPL-2.0; the release
+  notes carry the notice and the link to ManaVault.
+- **Not yet measured:** a live phone check. Speed should be unchanged (the same architecture and
+  size).
 
 ## Sections in boxes, and scanning a box (16 November 2026)
 

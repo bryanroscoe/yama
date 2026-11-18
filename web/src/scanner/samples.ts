@@ -55,6 +55,8 @@ export interface SampleLabel {
   method?: string;
   score?: number;
   camera?: string;
+  /** The art model's embed graph that ran (`ArtRecognizer.embed`), or "none" reading text only; the server records the model by it. */
+  embed?: string;
 }
 
 /** How far past the detected corners the kept photo reaches, as a share of the card's size. */

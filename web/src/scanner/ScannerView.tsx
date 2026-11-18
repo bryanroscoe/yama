@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { api, type Printing } from "../api";
-import { loadArtRecognizer, RECOGNIZER_SHORT_SIDE, type ArtRecognizer, type LoadState } from "./artClient";
+import { loadArtRecognizer, NO_ART_MODEL, RECOGNIZER_SHORT_SIDE, type ArtRecognizer, type LoadState } from "./artClient";
 import { NameIndex } from "./fuzzy";
 import { normaliseName } from "./parse";
 import { applyH, rectQuad, squareToQuad } from "./image";
@@ -662,6 +662,7 @@ export function ScannerView({
     const c = camRef.current;
     rec.camera = { ...(cameraNowRef.current ?? {}), zoom: c.zoom, torch: c.torch, digital: c.digital };
     rec.engine = ocrNameRef.current;
+    rec.embed = artRef.current?.embed ?? NO_ART_MODEL;
     return rec;
   };
   /**
@@ -1609,6 +1610,7 @@ export function ScannerView({
       label_name: label?.name,
       label_scryfall_id: label?.scryfall_id,
       camera: camera ?? undefined,
+      embed: artRef.current?.embed ?? NO_ART_MODEL,
     });
   };
 

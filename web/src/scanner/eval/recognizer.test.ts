@@ -5,11 +5,13 @@
 //   SCANNER_RECOGNIZER_EVAL=1 YAMA_DB=../yama/data/yama.db npx vitest run web/src/scanner/eval/recognizer.test.ts
 //
 // Needs the scanner bundle unpacked in SCANNER_BUNDLE_DIR (default /tmp/yama-scan-bundle: the
-// server's data/scan-bundle/<version> works) and the fixtures eval.test.ts uses.
+// server's data/scan-bundle/<version> works) and the fixtures eval.test.ts uses. SCANNER_EMBED
+// names another embed graph to run in place of the bundle's embed.onnx (a file in the bundle
+// folder or a path), e.g. Yama's query model (docs/scanner.md, "Yama's query embedder").
 
 import jpeg from "jpeg-js";
 import { readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { normaliseName } from "../parse";
 import { createRecognizer, parseArts, type OrtLike } from "../recognizer";
@@ -19,6 +21,7 @@ import { DB_PATH, ensureFixtures, FIXTURES, readFixture, SPIKE_DIR } from "./fix
 import { FREEHAND, renderScene, VARIANTS } from "./simulate";
 
 const BUNDLE = process.env.SCANNER_BUNDLE_DIR ?? "/tmp/yama-scan-bundle";
+const EMBED = process.env.SCANNER_EMBED ?? "embed.onnx";
 /** The app hands the recognizer frames with this short side. */
 const SHORT = 640;
 
@@ -69,7 +72,8 @@ describe.skipIf(!process.env.SCANNER_RECOGNIZER_EVAL)("art recognizer (simulated
     const manifest = JSON.parse(readFileSync(join(BUNDLE, "manifest.json"), "utf8"));
     const arts = parseArts(JSON.parse(readFileSync(join(BUNDLE, "arts.json"), "utf8")));
     const t0 = performance.now();
-    const recognizer = await createRecognizer(ort, { detector: read("detector.onnx"), embed: read("embed.onnx"), search: read("search.onnx") }, manifest.constants, arts);
+    const embed = new Uint8Array(readFileSync(resolve(BUNDLE, EMBED)));
+    const recognizer = await createRecognizer(ort, { detector: read("detector.onnx"), embed, search: read("search.onnx") }, manifest.constants, arts);
     const loadMs = performance.now() - t0;
 
     const catalog = openDbCatalog(DB_PATH);
@@ -99,7 +103,7 @@ describe.skipIf(!process.env.SCANNER_RECOGNIZER_EVAL)("art recognizer (simulated
     }
     const pct = (n: number, d: number) => (d ? `${Math.round((100 * n) / d)}%` : "n/a");
     const med = (xs: number[]) => [...xs].filter((x) => !Number.isNaN(x)).sort((a, b) => a - b)[Math.floor(xs.length / 2)] ?? NaN;
-    const lines = [`Loaded in ${loadMs.toFixed(0)} ms (${arts.length} arts).`, "", "| Variant | Scans | Card found | Right card | Wrong with score ≥ 0.8 | Median corner error | Median ms |", "|---|---|---|---|---|---|---|"];
+    const lines = [`Embed graph ${EMBED}. Loaded in ${loadMs.toFixed(0)} ms (${arts.length} arts).`, "", "| Variant | Scans | Card found | Right card | Wrong with score ≥ 0.8 | Median corner error | Median ms |", "|---|---|---|---|---|---|---|"];
     for (const v of [...Object.keys(variants), "all"]) {
       const rs = rows.filter((r) => v === "all" || r.variant === v);
       lines.push(`| ${v} | ${rs.length} | ${pct(rs.filter((r) => r.found).length, rs.length)} | ${pct(rs.filter((r) => r.ok).length, rs.length)} | ${rs.filter((r) => !r.ok && r.score >= 0.8).length} | ${(100 * med(rs.map((r) => r.err))).toFixed(1)}% | ${med(rs.map((r) => r.ms)).toFixed(0)} |`);

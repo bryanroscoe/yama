@@ -7,6 +7,7 @@ import * as ort from "onnxruntime-web/wasm";
 import wasmUrl from "onnxruntime-web/ort-wasm-simd-threaded.wasm?url";
 import { createRecognizer, parseArts, parseSupplement, poolIndices, type Art, type BundleConstants, type OrtLike, type Recognizer, type Supplement } from "./recognizer";
 import type { ArtWorkerReply, ArtWorkerRequest, BundleInfo } from "./artClient";
+import { isStale, namedPaths } from "./bundleCache";
 
 /** Also listed in public/sw.js, so the service worker's clean-up keeps it. */
 const CACHE = "yama-scan-v1";
@@ -56,18 +57,7 @@ async function file(url: string, size: number, onBytes: (n: number, total: numbe
 async function load(info: BundleInfo, base: string) {
   const t0 = performance.now();
   const urls = { detector: info.files.detector, embed: info.files.embed, search: info.files.search, arts: info.files.arts, runtime: wasmUrl };
-  // Drop files of older bundles, and supplements other than this one.
   const supplementUrl = info.files.supplement ?? null;
-  const supplementPath = supplementUrl ? new URL(supplementUrl, base || self.location.origin).pathname : null;
-  const cache = await caches.open(CACHE).catch(() => null);
-  if (cache) {
-    for (const req of await cache.keys()) {
-      const path = new URL(req.url).pathname;
-      const otherBundle = path.startsWith("/scan-bundle/") && !path.startsWith(`/scan-bundle/${info.version}/`);
-      const otherSupplement = /\/supplement-[^/]*\.json$/.test(path) && path !== supplementPath;
-      if (otherBundle || otherSupplement) await cache.delete(req);
-    }
-  }
   const progress = new Map<string, [number, number]>();
   let lastReport = 0;
   const report = () => {
@@ -116,6 +106,16 @@ async function load(info: BundleInfo, base: string) {
   recognizer = await createRecognizer(ort as unknown as OrtLike, { detector, embed, search }, info.constants as unknown as BundleConstants, gallery, supplement);
   // Gallery order, then the supplement's rows: the indices the recognizer reports.
   arts = supplement ? gallery.concat(supplement.arts) : gallery;
+  // Only now that this bundle's files are here (and cached) and the recognizer runs, drop the ones
+  // the server no longer names: older bundles, a replaced embed graph, other supplements. Dropping
+  // them first, a cut-short download could leave the phone with neither embed graph offline.
+  const cache = await caches.open(CACHE).catch(() => null);
+  if (cache) {
+    const named = namedPaths(info, base || self.location.origin);
+    for (const req of await cache.keys()) {
+      if (isStale(req.url, named)) await cache.delete(req);
+    }
+  }
   reply({ type: "ready", ms: performance.now() - t0, arts: arts.length });
 }
 
