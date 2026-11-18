@@ -85,6 +85,34 @@ async function bundleInfo(): Promise<BundleInfo | null> {
   }
 }
 
+/** How long a load waits for another tab's before going ahead without the lock. */
+const LOAD_LOCK_WAIT_MS = 60_000;
+
+/**
+ * Run `load` holding a lock shared by this browser's tabs (the Web Locks API), waiting at most
+ * `wait` ms for another tab's load; without the API, or after that, it runs anyway.
+ */
+export async function oneLoadAtATime<T>(load: () => Promise<T>, wait = LOAD_LOCK_WAIT_MS): Promise<T> {
+  const locks = typeof navigator === "undefined" ? undefined : navigator.locks;
+  if (!locks) return load();
+  const gaveUp = new AbortController();
+  const timer = setTimeout(() => gaveUp.abort(), wait);
+  let started = false;
+  try {
+    return await locks.request(INFO_KEY, { signal: gaveUp.signal }, () => {
+      started = true;
+      clearTimeout(timer);
+      return load();
+    });
+  } catch (e) {
+    // Gave up waiting (the lock never came): load anyway. A failure of the load itself stands.
+    if (!started) return load();
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * Start the recognizer. Resolves null when the server doesn't have the bundle yet (it starts
  * downloading it; the scanner reads text meanwhile). Rejects on a real failure.
@@ -99,24 +127,29 @@ export async function loadArtRecognizer(onState?: (s: LoadState) => void): Promi
   let nextId = 1;
   let disposed = false;
 
-  await new Promise<void>((resolve, reject) => {
-    worker.onmessage = (e: MessageEvent<ArtWorkerReply>) => {
-      const m = e.data;
-      if (m.type === "progress") onState?.(m.loaded >= m.total ? { kind: "preparing" } : { kind: "downloading", loaded: m.loaded, total: m.total });
-      else if (m.type === "ready") resolve();
-      else if (m.type === "error") reject(new Error(m.message));
-    };
-    worker.onerror = (e) => reject(new Error(e.message || "The card recognizer stopped"));
-    worker.postMessage({ type: "load", info, base: API_BASE || location.origin } satisfies ArtWorkerRequest);
-  }).catch((e: unknown) => {
-    worker.terminate();
-    throw e;
+  // The worker drops cached files this info doesn't name, then the info is kept for offline use:
+  // one load at a time across this browser's tabs, so two tabs loading different bundle info (the
+  // server just switched) can't each drop the files the other cached.
+  await oneLoadAtATime(async () => {
+    await new Promise<void>((resolve, reject) => {
+      worker.onmessage = (e: MessageEvent<ArtWorkerReply>) => {
+        const m = e.data;
+        if (m.type === "progress") onState?.(m.loaded >= m.total ? { kind: "preparing" } : { kind: "downloading", loaded: m.loaded, total: m.total });
+        else if (m.type === "ready") resolve();
+        else if (m.type === "error") reject(new Error(m.message));
+      };
+      worker.onerror = (e) => reject(new Error(e.message || "The card recognizer stopped"));
+      worker.postMessage({ type: "load", info, base: API_BASE || location.origin } satisfies ArtWorkerRequest);
+    }).catch((e: unknown) => {
+      worker.terminate();
+      throw e;
+    });
+    try {
+      localStorage.setItem(INFO_KEY, JSON.stringify(info));
+    } catch {
+      /* storage off: offline opens need the server */
+    }
   });
-  try {
-    localStorage.setItem(INFO_KEY, JSON.stringify(info));
-  } catch {
-    /* storage off: offline opens need the server */
-  }
 
   worker.onmessage = (e: MessageEvent<ArtWorkerReply>) => {
     const m = e.data;

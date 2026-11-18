@@ -77,7 +77,11 @@ PYTHON=.venv/bin/python sh <lab>/gen_loop.sh # download.py into data/cards/ (~8 
   minutes on an M3 Pro's GPU (MPS).
 - **Pick the checkpoint by the sweep**, not the loss: the lead rule (top ≥ 0.65 and ≥ 0.10 ahead of
   any other card) should lock more real photos with none wrong, and lock fewer unknown cards (the
-  right card's name hidden from the gallery). Epochs 4, 6 and 7 were close; 6 shipped.
+  right card's name hidden from the gallery). Epochs 4, 6 and 7 were close; 6 shipped. `sweep.py`'s
+  simulated half scores one crop per card (its own frame's cut) against every row, which is quick
+  but leaves out wrong matches through other frames' cuts; its real-photo half uses all 17 cuts.
+  Check the exported file with `fullsweep.py bundle/embed.onnx models/<name>.onnx`, which renders
+  the held-out captures again and scores them as the phone does (several minutes on 6 cores).
 - `calib.py LEVEL N [SLEEVE_P]` scores held-out simulated captures at one roughness (`EMBED=` another
   model); `realeval.py DATA_DIR` scores the bundle's model on the real photos with preprocessing
   variants.
@@ -89,4 +93,5 @@ PYTHON=.venv/bin/python sh <lab>/gen_loop.sh # download.py into data/cards/ (~8 
 training run's own data and checkpoints, which aren't published): `split.py` gives the
 `front.onnx` and `back.onnx` the run used, byte for byte; `export.py runs/art1/ep6.pt` gives
 `yama-art-20261118.onnx` byte for byte (sha256 `52420d90…`); and `sweep.py runs/art1 bundle ep6.pt`
-prints the same table as the run did for both. Training itself wasn't run again.
+prints the same table as the run did for both. Training itself wasn't run again. `fullsweep.py` on
+the bundle's `embed.onnx` and the exported file gave the whole-capture table in docs/scanner.md.

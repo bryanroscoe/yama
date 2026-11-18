@@ -379,16 +379,16 @@ Measured [ran] on Bryan's 124 real scan photos (Pixel 10 Pro, sleeved, mostly in
 | Locked on frame 1 by the lead rule (≥ 0.65, ≥ 0.10 ahead of another card) | 84.7%, 0 wrong | **94.4%, 0 wrong** |
 | Unknown card (its name hidden) locked by the lead rule | 0 / 124 | 0 / 124 |
 
-On the 1,874 held-out simulated captures (roughness U(0.2, 2.0)):
+On 1,840 held-out simulated captures (the 920 held-out cards, two captures each at roughness U(0.2, 2.0), the scenes the training's held-out crops came from), each run through the whole embed graph and scored as the phone's search graph scores it, every gallery row against the cut for its own frame (`fullsweep.py`) [ran, 18 Nov 2026]:
 
 | | bundle | yama-art-20261118 |
 |---|---|---|
-| Right card | 91.7% | 98.3% |
-| Lead rule: right / wrong | 85.4% / 8 | 96.2% / 0 |
-| Lead rule: unknown cards locked | 25 (1.3%) | 6 (0.3%) |
-| Old 0.82 rule: right / wrong / unknown locked | 70.3% / 7 / 7 | 84.3% / 0 / 0 |
+| Right card | 91.4% | 98.2% |
+| Lead rule: right / wrong | 85.4% / 10 | 96.2% / **0** |
+| Lead rule: unknown cards locked | 28 (1.5%) | 9 (0.5%) |
+| Old 0.82 rule: right / wrong / unknown locked | 70.4% / 7 / 7 | 84.1% / 0 / 0 |
 
-The lead rule shipped earlier the same day is **less safe for unknown cards with the bundle's model** than with this one: on simulated captures it would lock 25 of 1,874 cards the gallery doesn't have as some other card, against 6 with this model (none on the real photos with either).
+The run's own sweep (`sweep.py`, which picked the checkpoint) scored one crop per card, the cut for the card's own frame, against every row, which leaves out wrong matches through other frames' cuts; it gave 8 and 0 wrong, and 25 and 6 unknown cards locked, of 1,874 crops. The whole-capture figures above are the ones to go by; the conclusion is the same. The lead rule shipped earlier the same day is **less safe for unknown cards with the bundle's model** than with this one: on simulated captures it would lock 28 of 1,840 cards the gallery doesn't have as some other card, against 9 with this model (none on the real photos with either).
 
 400 held-out simulated captures per row (`calib.py`):
 
@@ -398,7 +398,7 @@ The lead rule shipped earlier the same day is **less safe for unknown cards with
 | Bare cards, handheld (1.0) | 99.0%, 90.2%, 0.825 | 100%, 95.8%, 0.849 |
 | Sleeved, hard (1.5) | 83.8%, 44.2%, 0.452 | 95.8%, 70.8%, 0.690 |
 
-Top scores are a little lower on easy bare cards (median 0.92 against 0.97), but every rule locks more of them. The full sweep (every rule from 0.60 to 0.70 and leads 0.06 to 0.14, each epoch) and the per-epoch log stay with the training run; `sweep.py` prints them again.
+Top scores are a little lower on easy bare cards (median 0.92 against 0.97), but every rule locks more of them. The full sweeps (every rule from 0.60 to 0.70 and leads 0.06 to 0.14; each epoch by `sweep.py`, the shipped file by `fullsweep.py`) and the per-epoch log stay with the training run; the scripts print them again.
 
 The repository's synthetic eval (`eval/recognizer.test.ts`, the 26 eval cards in 208 free-hand and guided captures, the same seeds for both; run with `SCANNER_EMBED=<file>` and a read-only immutable copy of production's database for the fixtures' image addresses) [ran, 18 Nov 2026, M3 Pro, one WASM thread, the machine busy with a Rust build, so the times are high for both]:
 

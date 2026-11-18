@@ -540,9 +540,10 @@ model Yama makes and publishes (docs/scanner.md, "Yama's query embedder").
   gallery vectors. Same inputs and output, same front half (warp and frame cuts). The gallery side
   stays the bundle's: `search.onnx`, `arts.json`, and the art supplement, which keeps embedding new
   art with the bundle's original `embed.onnx` because its vectors stand in gallery rows. On the
-  real photos it locks 94.4% on the first frame, none wrong; on 1,874 held-out simulated captures
-  the lead rule's wrong locks go from 8 to 0 and its locks of unknown cards from 25 to 6, so the
-  lead rule is safer with it than with the bundle's model. Bare cards are no worse.
+  real photos it locks 94.4% on the first frame, none wrong; on 1,840 held-out simulated captures
+  scored as the phone scores them, the lead rule's wrong locks go from 10 to 0 and its locks of
+  unknown cards from 28 to 9, so the lead rule is safer with it than with the bundle's model.
+  Bare cards are no worse.
 - **A new artifact and download source.** Published as an asset of this repository's release
   `scanner-art-20261118`, not marked latest (the Android app reads its `android-app` release by
   tag, so nothing there changes). `server/src/scan.rs` pins its URL, size and SHA-256
