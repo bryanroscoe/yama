@@ -6,7 +6,6 @@
 // sent is dropped, and nothing is kept while the switch is off. Server: server/src/scan_samples.rs.
 
 import { api } from "../api";
-import { loadedEmbed } from "./artClient";
 import type { Quad, RgbaImage } from "./types";
 
 /**
@@ -56,6 +55,8 @@ export interface SampleLabel {
   method?: string;
   score?: number;
   camera?: string;
+  /** The art model's embed graph that ran (`ArtRecognizer.embed`), or "none" reading text only; the server records the model by it. */
+  embed?: string;
 }
 
 /** How far past the detected corners the kept photo reaches, as a share of the card's size. */
@@ -112,8 +113,7 @@ export async function keepSample(shot: Shot | null | undefined, label: SampleLab
     if (!encoded) return;
     // `shared`: this scanner tells the person, next to the switch, that saved photos are shared
     // with Yama's developer (server/src/scan_samples.rs keeps older photos out of that).
-    // `embed`: which art model ran, so the photo can be told apart by model later.
-    await api("/api/scan/samples", { method: "POST", json: { ...label, ...encoded, embed: loadedEmbed() ?? undefined, shared: true } });
+    await api("/api/scan/samples", { method: "POST", json: { ...label, ...encoded, shared: true } });
   } catch (e) {
     console.warn("Couldn't keep the scan photo", e);
   }

@@ -67,9 +67,13 @@ describe("scanner diagnostics", () => {
     rec.reasons.add("hold-gave-up");
     rec.note("options", [{ id: "a" }]);
     rec.frame({ source: "hold", reads: ["x"] });
+    // The art model that ran goes with the record, and with what follows it.
+    rec.embed = "query-52420d900728.onnx";
     await rec.send("filed");
+    expect((posted.bodies[0] as { embed?: string }).embed).toBe("query-52420d900728.onnx");
     const next = rec.continued();
     expect(next).not.toBe(rec);
+    expect(next.embed).toBe("query-52420d900728.onnx");
     expect(next.reasons.size).toBe(0);
     expect(next.facts.options).toEqual([{ id: "a" }]);
     expect(next.frames).toHaveLength(1);

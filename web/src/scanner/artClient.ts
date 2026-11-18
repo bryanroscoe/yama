@@ -51,21 +51,20 @@ export interface ArtRecognizer {
    */
   setPool(keys: PoolKeys | null): Promise<number>;
   dispose(): void;
+  /**
+   * The embed graph's file name this recognizer runs (`files.embed`): the bundle's `embed.onnx` or
+   * Yama's query model. Kept photos and diagnostics carry it, so the server records the model.
+   */
+  readonly embed: string;
 }
+
+/** What kept photos and diagnostics say ran when the scanner read text only, with no art model. */
+export const NO_ART_MODEL = "none";
 
 export type LoadState = { kind: "downloading"; loaded: number; total: number } | { kind: "preparing" };
 
 /** The last ready bundle's info, kept on the device: the API isn't cached, the bundle files are. */
 const INFO_KEY = "yama-scan-bundle";
-
-/** The embed graph's file name the art recognizer last loaded: the bundle's `embed.onnx` or Yama's query model. */
-let loadedEmbedFile: string | null = null;
-
-/**
- * Which embed graph this device's art recognizer ran, for kept scan photos and diagnostics
- * (the server records the model with them; server/src/scan.rs). Null before one has loaded.
- */
-export const loadedEmbed = (): string | null => loadedEmbedFile;
 
 /** The server's bundle info, or when it can't be reached (offline), the last one seen here. */
 async function bundleInfo(): Promise<BundleInfo | null> {
@@ -107,7 +106,6 @@ export async function loadArtRecognizer(onState?: (s: LoadState) => void): Promi
     worker.terminate();
     throw e;
   });
-  loadedEmbedFile = info.files.embed.split("/").pop() || null;
 
   worker.onmessage = (e: MessageEvent<ArtWorkerReply>) => {
     const m = e.data;
@@ -128,6 +126,7 @@ export async function loadArtRecognizer(onState?: (s: LoadState) => void): Promi
   };
 
   return {
+    embed: info.files.embed.split("/").pop() || info.files.embed,
     identify(image) {
       if (disposed) return Promise.reject(new Error("The scanner is closed"));
       const id = nextId++;
