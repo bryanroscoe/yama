@@ -761,6 +761,15 @@ export function ScannerView({
   const lockRef = useRef<{ codes: Set<string>; names: NameIndex | null; inSets: (m: ArtMatch) => boolean; label: string } | null>(null);
   /** Share of the locked sets' artworks the art index knows (setlock.ts, knownArtShare); 1 unlocked. */
   const poolShare = useRef(1);
+  /**
+   * Whether `poolShare` is measured for the lock in force: false while its pool is still being set
+   * (until then it reads 1), when a lead mustn't count (leadCounts; Codex review of #166).
+   */
+  const poolReady = useRef(true);
+  /** Bumped by each pool request: an older one's answer is dropped. */
+  const poolGen = useRef(0);
+  /** The locked sets' known share for deciding by a lead: none while it isn't measured yet. */
+  const leadShare = () => (poolReady.current ? poolShare.current : 0);
   useEffect(() => {
     if (!lockOffered) return;
     let live = true;
@@ -891,9 +900,13 @@ export function ScannerView({
     const art = artRef.current;
     if (mode !== "art" || !art) return;
     const keys = lockOn ? poolKeys(lock) : null;
+    const gen = ++poolGen.current;
     poolShare.current = 1;
+    poolReady.current = !keys;
     void art.setPool(keys).then((n) => {
+      if (gen !== poolGen.current) return;
       if (keys) poolShare.current = knownArtShare(n, keys);
+      poolReady.current = true;
     });
   }, [mode, lock, lockOn]);
 
@@ -1277,7 +1290,7 @@ export function ScannerView({
           // search lists its best 5 artworks: anything unlisted scores at most the 5th.
           const unlisted = r.matches[r.matches.length - 1]?.score;
           const lead = artLead(ranked, top, unlisted);
-          const leading = !artUnknown && leadCounts({ locked: !!locked, share: poolShare.current }) && !blockedName.current && leads(top.score, lead);
+          const leading = !artUnknown && leadCounts({ locked: !!locked, share: leadShare() }) && !blockedName.current && leads(top.score, lead);
           const leadFrames = leadRun.step(leading ? top.name : null);
           // A strong match decides by art, unless another card scores close to it. Otherwise the
           // title is read first (Bryan, 15 Nov 2026: no Star Trek card scanned; their art isn't in
@@ -1469,7 +1482,7 @@ export function ScannerView({
           // Art that leads every other card (fuse.ts) decides too, on the photo's one frame.
           const unlisted = r.matches[r.matches.length - 1]?.score;
           const lead = artLead(ranked, top, unlisted);
-          const leading = !artUnknown && leadCounts({ locked: !!locked, share: poolShare.current }) && leads(top.score, lead);
+          const leading = !artUnknown && leadCounts({ locked: !!locked, share: leadShare() }) && leads(top.score, lead);
           const photoCtx = (lock: LockRule) => ({ photo: true, lead: Math.round(lead * 1000) / 1000, lock });
           if (!artUnknown && (top.score >= LOCK_ONCE || leading) && !needsTitle(ranked, unlisted)) {
             bmp.close();
