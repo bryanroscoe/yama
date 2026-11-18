@@ -39,8 +39,10 @@ The test set is one tester's 125 saved scan photos (`scan_samples`, mid-November
 These are offline measurements on one saved photo per card. "Qualify" means that photo's art scores meet the
 rule. The live camera settles on a lead only when the same card leads on two frames in a row (`LEAD_FRAMES`
 in `fuse.ts`); a still photo settles on one. So the live gain is "settled after two art-only frames, with no
-title read" for most cards, not "on the first frame". It hasn't been timed on a phone; Scanner diagnostics
-now record which rule settled each card, which will measure it.
+title read" for most cards, not "on the first frame". It hasn't been timed on a phone. Scanner diagnostics
+keep only scans that struggle (over 3 s to find, or corrected), with the rule that settled each, so they
+show what still stalls but can't measure the overall gain. That needs a sample of smooth scans too (their
+time to settle and rule), which nothing records yet: a small follow-up to the diagnostics.
 
 | Experiment | Result on the real photos | Verdict |
 |---|---|---|
