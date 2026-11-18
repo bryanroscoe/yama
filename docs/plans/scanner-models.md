@@ -132,7 +132,9 @@ Next attempt, in order:
 
 ## Stages, and a fallback on the server (proposed)
 
-1. Phone: the art model with the lead lock. Most cards stop here.
+1. Phone: the art model with the lead lock. Identity-only scans (deck checks, box scans) mostly stop
+   here. In the collection only cards whose art has one printing do: 22 of the 120 test photos. The
+   other 98 need stage 2 or 3 for the printing.
 2. Phone: when the art is shared, the printing model chooses among the siblings (once it's good enough).
 3. Phone: the collector line and title OCR, as now, when 2 isn't sure.
 4. Server, optional: the card photo goes to the server, which runs bigger versions of the same models (a
