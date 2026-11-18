@@ -1,5 +1,7 @@
 # Card scanner
 
+Status (2026-11-18): phones embed what the camera sees with Yama's own query model, `yama-art-20261118`, fine-tuned on simulated sleeved, glare and blue-box captures, in place of the bundle's `embed.onnx`; the gallery stays the bundle's. On Bryan's 124 real sleeved photos the first frame settles 94.4% of cards instead of 84.7%, none wrong. See "Yama's query embedder"; `YAMA_SCAN_QUERY_MODEL=0` turns it off.
+
 Status (2026-11-15): cards newer than the art bundle are recognised by their art too: the server embeds their artworks with the bundle's own model after each card import, and the scanner searches them alongside (see "Extending the gallery: Yama's art supplement"). The art bundle is `gallery-20261106T183001884398Z`, which knows Star Trek and Star Trek Commander; see "Bundle gallery-20261106 (2026-11-15)".
 
 Status (2026-11-13): inside the Android app the scanner reads text with **ML Kit** (`mlkit.ts`, `TextReaderPlugin.java`; picked by `ocrEngine.ts`); in browsers it reads with PaddleOCR's PP-OCRv5 models (ONNX Runtime, in a worker), with Tesseract as the fallback (see "Browser OCR: PP-OCRv5"). On the Android 16 emulator ML Kit read the collector line of five Scryfall scans (MOM 214, WOC 145, ECC 57, DMU 107, CMM 1) and each parsed to the right set and number, in 7 to 66 ms per read [ran]; a phone check with real cards is still to do ("Left for a real phone test", item 5). ML Kit reads lower case as printed, so for the capitals-only collector whitelist its text is raised to capitals before filtering. See docs/mobile.md.
@@ -360,6 +362,61 @@ The 21 Star Trek cards are ones Bryan owns (the coordinator's list from `t3/trk-
 - **The same misses** as the bundle alone: the battle (Invasion of Tolvada, not in either; it reads its name) and two "no card" frames on the full-art Forest. The battle's best wrong match was a supplement row (Pattern Buffer Preservation, 0.58), below the 0.62 two-frame lock.
 - Not measured: real phone captures of a set newer than the bundle (none has reached Scryfall since 6 November), and the job against production's database (it runs on the first start after the deploy: with the 6 Nov bundle, only artworks printed since).
 
+### Yama's query embedder (2026-11-18)
+
+The bundle's model scores Bryan's real scans far lower than the synthetic eval (median 0.78 against 0.97; "Art that leads settles the card", above): they are mostly sleeved cards in a blue deck box, with matte-sleeve sparkle, glare and colour casts the bundle never trained on. So Yama trains the phone's side of the match itself. `yama-art-20261118.onnx` (sha256 `52420d900728e25e2c4733c7fce45dbea0ae7f4f244fa027421a0f00cdd8faee`, 5,139,404 bytes):
+
+- **What it is.** A drop-in for the bundle's `embed.onnx`: the same inputs (`scene` uint8 H × W × 4, `quad` float32 4 × 2) and output (`embeddings` F × 128, L2-normalised). Its front half, the warp and the 17 frame cuts up to `/Div_5`, is the bundle's graph byte for byte. Its embedding half (MobileNetV3-Small with folded BN, the 576 → 128 head, L2 norm) is fine-tuned from the bundle's weights.
+- **Query side only.** The gallery vectors (in `search.onnx`), `arts.json` and the art supplement stay as they are. The supplement keeps embedding new art with the bundle's **original** `embed.onnx` (`scan_art.rs`): its vectors stand in gallery rows, and the fine-tuning moved only the query side towards them. The model is valid only with galleries made by the recogniser `retrain-20261026T052522727512Z` (manifest `recogniser.sha256` `eb6558461672b30c8b699570cc1669c4baa1a31d5fd28d617800e8a1f4d2e2c3`); a `retrain-…` bundle needs it trained again.
+- **How it was trained** (18 Nov 2026, M3 Pro GPU, about 6 minutes; `scanner-lab/`, below). 24,000 Scryfall `normal` card images, random gallery rows in the modern, old, extended, tall, token and token_tall frames, with every card name in Bryan's real photos held out. Each rendered 2 to 4 times as a phone capture at roughness U(0.2, 2.0) by `sim.py`: sleeves (75%: textured matte, a mesh or stipple sparkle with haze following a glare field, or glossy specular blobs, with a coloured sleeve edge), foil sheen, a blue box with cards behind, a table, a mat, paper or a hand, casts, exposure, defocus, motion blur, noise, sharpening, JPEG and the downscale to 640 px; the quad is the detector's with its error, or the sleeve's edge. The crops are cut by the bundle's own front graph, so training saw exactly what the phone sees: 49,240 crops, 1,874 of them (cards whose id's md5 % 25 is 0) held out. Loss: CosFace (scale 30, margin 0.15) of the query embedding against all 52,350 frozen gallery vectors, with the 990 rows of the test card names masked. AdamW, lr 2e-4, weight decay 1e-4, batch 256, cosine schedule after a 300-step warm-up, 8 epochs, light brightness and contrast jitter and a random occluding patch (30%). Epoch 6 of 0 to 7 shipped, chosen by the safety sweep below; 4, 6 and 7 were close.
+
+Measured [ran] on Bryan's 124 real scan photos (Pixel 10 Pro, sleeved, mostly in a blue deck box; none of their card names in training), run through both graphs offline:
+
+| | bundle `embed.onnx` | yama-art-20261118 |
+|---|---|---|
+| Right card first | 96.0% | 96.8% |
+| Right score median / 10th percentile | 0.781 / 0.654 | 0.786 / 0.688 |
+| Locked on frame 1 by the lead rule (≥ 0.65, ≥ 0.10 ahead of another card) | 84.7%, 0 wrong | **94.4%, 0 wrong** |
+| Unknown card (its name hidden) locked by the lead rule | 0 / 124 | 0 / 124 |
+
+On the 1,874 held-out simulated captures (roughness U(0.2, 2.0)):
+
+| | bundle | yama-art-20261118 |
+|---|---|---|
+| Right card | 91.7% | 98.3% |
+| Lead rule: right / wrong | 85.4% / 8 | 96.2% / 0 |
+| Lead rule: unknown cards locked | 25 (1.3%) | 6 (0.3%) |
+| Old 0.82 rule: right / wrong / unknown locked | 70.3% / 7 / 7 | 84.3% / 0 / 0 |
+
+The lead rule shipped earlier the same day is **less safe for unknown cards with the bundle's model** than with this one: on simulated captures it would lock 25 of 1,874 cards the gallery doesn't have as some other card, against 6 with this model (none on the real photos with either).
+
+400 held-out simulated captures per row (`calib.py`):
+
+| Capture | bundle: right, ≥ 0.82, 10th percentile | yama-art-20261118: right, ≥ 0.82, 10th percentile |
+|---|---|---|
+| Bare cards, gentle (roughness 0.3) | 99.5%, 94.8%, 0.872 | 100%, 97.2%, 0.861 |
+| Bare cards, handheld (1.0) | 99.0%, 90.2%, 0.825 | 100%, 95.8%, 0.849 |
+| Sleeved, hard (1.5) | 83.8%, 44.2%, 0.452 | 95.8%, 70.8%, 0.690 |
+
+Top scores are a little lower on easy bare cards (median 0.92 against 0.97), but every rule locks more of them. The full sweep (every rule from 0.60 to 0.70 and leads 0.06 to 0.14, each epoch) and the per-epoch log stay with the training run; `sweep.py` prints them again.
+
+The repository's synthetic eval (`eval/recognizer.test.ts`, the 26 eval cards in 208 free-hand and guided captures, the same seeds for both; run with `SCANNER_EMBED=<file>` and a read-only immutable copy of production's database for the fixtures' image addresses) [ran, 18 Nov 2026, M3 Pro, one WASM thread, the machine busy with a Rust build, so the times are high for both]:
+
+| Embed graph | Scans | Card found | Right card | Wrong with score ≥ 0.8 | Right scores (median) | Wrong scores at most | Median ms |
+|---|---|---|---|---|---|---|---|
+| bundle `embed.onnx` | 208 | 99% | 96% | 0 | 0.76 to 0.99 (0.97) | 0.58 | 263 |
+| yama-art-20261118 | 208 | 99% | 96% | 0 | 0.75 to 0.96 (0.92) | 0.55 | 256 |
+
+The same nine misses for both: the battle (Invasion of Tolvada, in neither gallery; it goes to text), seven times, and two frames on the full-art Forest where no card was found. Every variant's row (off-centre, tilted, sideways, upside down, small, rough, steady, far) is identical between the two. As on the simulated bare cards, right answers score a little lower on clean synthetic cards (median 0.92 against 0.97) while wrong ones score lower too.
+
+- **Served** (`server/src/scan.rs`, `QUERY_MODEL`). Published as an asset of this repository's release [`scanner-art-20261118`](https://github.com/bryanroscoe/yama/releases/tag/scanner-art-20261118), not marked latest (the Android app's updater reads its `android-app` release by tag). The server pins its URL, size and SHA-256, downloads it once into the bundle's folder as `query-52420d900728.onnx` (never over `embed.onnx`), checks it the way it checks the bundle's files, and drops the query files of earlier pins. `GET /api/scan/bundle` names it as `files.embed` (and its size as `bytes.embed`) only when the bundle's manifest names the recogniser above, `YAMA_SCAN_QUERY_MODEL` allows it, and it's downloaded; otherwise the bundle's `embed.onnx`, as before. A failed download is logged and tried again after ten minutes; meanwhile phones get the bundle's model. It's fetched at start (with `YAMA_AUTO_IMPORT=1`) or on the first scanner open once the bundle is there.
+- **On the phone** nothing changes but the file: the art worker loads whatever `files.embed` names, and since its cache is keyed by URL it downloads the new 5.1 MB once. It now also drops cached files under `/scan-bundle/` that the server no longer names (`bundleCache.ts`), so the bundle's `embed.onnx` doesn't linger.
+- **Telling the models apart.** Kept scan photos and scanner diagnostics record the bundle as `gallery-20261106T183001884398Z+yama-art-20261118` while the server serves the query model (the model a phone opening the scanner now gets; a phone that opened it before keeps what it loaded until it reopens it).
+- **Switch:** `YAMA_SCAN_QUERY_MODEL=0` serves the bundle's `embed.onnx` again (on by default). Phones then download that once more.
+- **Retraining:** `scanner-lab/README.md`. The scripts (`sim.py`, `train.py`, `export.py`, `sweep.py`, `calib.py` and the rest), their package versions, and how to get the inputs. Bryan's photos and the database copy they're labelled with are people's data and stay outside the repository; anyone retraining uses their own (`yama-server scan-samples-export`). Checked 18 Nov 2026: from the run's epoch-6 checkpoint the repository's scripts export the published file byte for byte and print the same sweep. To ship a new one: a new `scanner-art-<date>` release, all five fields of `QUERY_MODEL`, and the recognizer eval with `SCANNER_EMBED`.
+- **Licence:** derived from ManaVault's MPL-2.0 weights, so the model file is MPL-2.0; the release notes carry the notice and the link to ManaVault.
+- **Not measured:** a live phone check (left for Bryan's phone, "Left for a real phone test"); speed (same architecture and size, so expected unchanged); battles (sideways cards are in neither gallery and still go to text).
+
 ### Measured [ran]
 
 Node 26, onnxruntime-web 1.31.1 WASM on one thread, M3 Pro. The 26 eval cards rendered into 1080 × 1440 phone frames with **no guide to line up with**, scaled to a 640 px short side as the app does (`eval/recognizer.test.ts`):
@@ -468,6 +525,7 @@ Every miss with an upright card is the battle (Invasion of Tolvada, printed side
 | onnxruntime-web 1.31.1 | MIT [read: npm] | dependency of `web`; its WASM runtime is a build asset |
 | cfbender/oracle code and `models/*.pt` | MPL-2.0 [read: repo licence] | not used directly |
 | ManaVault scanner bundle (ONNX weights, gallery) | MPL-2.0 (published as releases of `cfbender/manavault`, an MPL-2.0 repo; the bundle has no separate licence file) [read] | downloaded by the server, served unmodified to the app (the artwork index reduced to fewer fields); source: <https://github.com/cfbender/manavault/releases> and <https://github.com/cfbender/oracle> |
+| Yama's query model `yama-art-20261118.onnx` | MPL-2.0: a modification of the bundle's `embed.onnx` (its embedding weights fine-tuned) | published as an asset of this repository's release `scanner-art-20261118`, with the MPL-2.0 notice and a link to ManaVault; downloaded by the server and served to the app in place of `embed.onnx`; made by `scanner-lab/` (Yama's own scripts) |
 | Oracle's recogniser starting point | torchvision MobileNetV3-Small `IMAGENET1K_V1` weights, fine-tuned on Scryfall art crops and the author's captures [read: `cardid/model.py`, CONTRIBUTING] | |
 | CollectorVision code and `milo` model | AGPL-3.0 [read: GitHub, Hugging Face model card] | not used |
 | Scryfall images | Wizards' copyright, served under Scryfall's guidelines | 26 test images in /tmp, never committed |
@@ -539,7 +597,8 @@ SCANNER_RECOGNIZER_EVAL=1 SCANNER_BUNDLE_DIR=data/scan-bundle/<version> npx vite
 2. **A real eval set.** Photograph real cards (the October purchases give set and number for each), sleeved, under room light, foils included, and rerun `recognizer.test.ts` and `eval.test.ts` on them. Retune the thresholds there.
 3. **Collector-line reads on real cards.** Commander precon reprints share art (32 English Arcane Signets), so the printing often rests on reading the set code, from the whole card or the close-up. Note the camera resolution the phone reports. If reads still fail often, the next step is a native app (below).
 4. **Newer bundles.** Cards printed after the pinned bundle go to OCR. Bump the bundle when a set Bryan buys is out.
-5. **Native app (ML Kit built 2026-11-13; sideloaded, docs/mobile.md).** Compare collector-line reads in the app against the browser on the same real cards. The plan, as written before: a native scanner plugin would get the full-resolution camera with proper focus and zoom, and on-device text recognition far better on small print than Tesseract (ML Kit) behind the existing `OcrEngine` seam; the art recognizer can stay as it is. Decide after the phone test.
+5. **Yama's query model on a phone (2026-11-18).** Measured only offline (real photos run through the graphs on a Mac, and simulated captures). Check on Bryan's phone that the scanner downloads `query-52420d900728.onnx` once, that frame time is unchanged, and that sleeved cards settle on the first frame; the kept scan photos record `+yama-art-20261118` in their bundle for that comparison.
+6. **Native app (ML Kit built 2026-11-13; sideloaded, docs/mobile.md).** Compare collector-line reads in the app against the browser on the same real cards. The plan, as written before: a native scanner plugin would get the full-resolution camera with proper focus and zoom, and on-device text recognition far better on small print than Tesseract (ML Kit) behind the existing `OcrEngine` seam; the art recognizer can stay as it is. Decide after the phone test.
 
 ## Sources
 

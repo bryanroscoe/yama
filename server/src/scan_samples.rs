@@ -91,6 +91,8 @@ async fn add(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(s)
     let score = s.score.filter(|v| v.is_finite());
     let id = crate::util::new_id();
     let bytes = image.len() as i64;
+    // The bundle and the query model the server is serving (scan.rs), to tell models apart later.
+    let bundle = crate::scan::served_version(&st.cfg).await;
     let mut tx = st.pool.begin().await?;
     sqlx::query(
         "INSERT INTO scan_samples (id, owner_id, created_at, kind, label_scryfall_id, label_name, guess_name, guess_scryfall_id,
@@ -110,7 +112,7 @@ async fn add(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(s)
     .bind(score)
     .bind(quad)
     .bind(text(s.camera))
-    .bind(crate::scan::BUNDLE_VERSION)
+    .bind(bundle)
     .bind(image)
     .bind(bytes)
     .bind(s.shared)

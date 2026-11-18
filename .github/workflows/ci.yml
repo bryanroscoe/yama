@@ -359,6 +359,8 @@ jobs:
         run: python3 -m unittest discover -s scripts/research -p 'test_*.py'
       - name: Test dataset recovery conversion
         run: python3 -m unittest discover -s scripts/datasets -p 'test_*.py'
+      - name: Check the scanner lab's scripts
+        run: python3 -m unittest discover -s scanner-lab -p 'test_*.py'
       - name: Test list validation with Python optimization enabled
         run: python3 -O -m unittest discover -s scripts/research -p 'test_*.py'
 

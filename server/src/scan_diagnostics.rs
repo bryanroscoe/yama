@@ -180,6 +180,7 @@ async fn add(State(st): State<AppState>, CurrentUser(user): CurrentUser, req: Re
         remove_record_files(&st.cfg.data_dir, &user.id, &id);
         return Err(anyhow::Error::from(e).context("writing scanner diagnostic images").into());
     }
+    let bundle = crate::scan::served_version(&st.cfg).await;
     let saved = async {
         let mut tx = st.pool.begin().await?;
         sqlx::query(
@@ -194,7 +195,7 @@ async fn add(State(st): State<AppState>, CurrentUser(user): CurrentUser, req: Re
         .bind(text(d.engine))
         .bind(camera)
         .bind(detail)
-        .bind(crate::scan::BUNDLE_VERSION)
+        .bind(&bundle)
         .bind(Value::Array(listed).to_string())
         .bind(total as i64)
         .execute(&mut *tx)

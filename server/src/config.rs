@@ -49,6 +49,10 @@ pub struct Config {
     /// The scanner's art supplement (scan_art.rs): embed artworks the pinned bundle doesn't know
     /// from Scryfall's art crops, and offer them to the scanner. On unless `YAMA_SCAN_SUPPLEMENT=0`.
     pub scan_supplement: bool,
+    /// Yama's own query embedder for the scanner's art match (scan.rs, `QUERY_MODEL`): served as
+    /// the bundle's embed graph when it fits the bundle's gallery. On unless
+    /// `YAMA_SCAN_QUERY_MODEL=0`, which serves the bundle's own `embed.onnx`.
+    pub scan_query_model: bool,
     /// The Mythic Tools bridge (`bridges/mythic`): import games from Mythic Tools. Off unless
     /// `YAMA_MYTHIC_BRIDGE=1`; Mythic's API is private and can change, and the bridge may go.
     pub mythic_bridge: bool,
@@ -352,6 +356,7 @@ impl Config {
             deck_checks: !off("YAMA_DECK_CHECKS") && !flag("YAMA_OFFLINE"),
             ai_combos: !off("YAMA_AI_COMBOS"),
             scan_supplement: !off("YAMA_SCAN_SUPPLEMENT"),
+            scan_query_model: !off("YAMA_SCAN_QUERY_MODEL"),
             mythic_bridge: flag("YAMA_MYTHIC_BRIDGE"),
             engine_card_data: Some(engine_card_data),
             cf_access_team: std::env::var("YAMA_CF_ACCESS_TEAM").ok().filter(|s| !s.is_empty()),

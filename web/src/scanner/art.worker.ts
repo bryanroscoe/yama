@@ -7,6 +7,7 @@ import * as ort from "onnxruntime-web/wasm";
 import wasmUrl from "onnxruntime-web/ort-wasm-simd-threaded.wasm?url";
 import { createRecognizer, parseArts, parseSupplement, poolIndices, type Art, type BundleConstants, type OrtLike, type Recognizer, type Supplement } from "./recognizer";
 import type { ArtWorkerReply, ArtWorkerRequest, BundleInfo } from "./artClient";
+import { isStale, namedPaths } from "./bundleCache";
 
 /** Also listed in public/sw.js, so the service worker's clean-up keeps it. */
 const CACHE = "yama-scan-v1";
@@ -56,16 +57,13 @@ async function file(url: string, size: number, onBytes: (n: number, total: numbe
 async function load(info: BundleInfo, base: string) {
   const t0 = performance.now();
   const urls = { detector: info.files.detector, embed: info.files.embed, search: info.files.search, arts: info.files.arts, runtime: wasmUrl };
-  // Drop files of older bundles, and supplements other than this one.
+  // Drop files the server no longer names: older bundles, a replaced embed graph, other supplements.
   const supplementUrl = info.files.supplement ?? null;
-  const supplementPath = supplementUrl ? new URL(supplementUrl, base || self.location.origin).pathname : null;
+  const named = namedPaths(info, base || self.location.origin);
   const cache = await caches.open(CACHE).catch(() => null);
   if (cache) {
     for (const req of await cache.keys()) {
-      const path = new URL(req.url).pathname;
-      const otherBundle = path.startsWith("/scan-bundle/") && !path.startsWith(`/scan-bundle/${info.version}/`);
-      const otherSupplement = /\/supplement-[^/]*\.json$/.test(path) && path !== supplementPath;
-      if (otherBundle || otherSupplement) await cache.delete(req);
+      if (isStale(req.url, named)) await cache.delete(req);
     }
   }
   const progress = new Map<string, [number, number]>();

@@ -84,7 +84,8 @@ Deploys use the Cloudflare backend in
   Resource usage, process timing and tested Yama/Phase revisions are recorded.
 - **Python tests:** release/host guards, portable worker/build identity, the Forge worker, the
   CI gate and local scripts, commander evidence/list validation (also under Python
-  optimization), and dataset recovery. They need no Rust build, so they run on their own in
+  optimization), dataset recovery, and the scanner lab's scripts (they compile, import only the
+  lab, the standard library or `requirements.txt`, and never CollectorVision). They need no Rust build, so they run on their own in
   about a minute (until November 2026 they ran after `cargo test` in one "Rust and Python
   tests" job).
 - **Record the passed tree:** a PR run whose needed jobs all passed names an artifact after the

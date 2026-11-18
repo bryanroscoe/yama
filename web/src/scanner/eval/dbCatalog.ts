@@ -1,5 +1,6 @@
 /// <reference types="node" />
-// A ScanCatalog over the server's SQLite file, read-only, for the offline eval.
+// A ScanCatalog over the server's SQLite file, read-only, for the offline eval. `path` may be a
+// `file:` URI, e.g. `file:///…/copy.db?immutable=1` for a copy of production's database.
 
 import { DatabaseSync } from "node:sqlite";
 import type { CatalogPrinting, ScanCatalog } from "../types";
@@ -7,7 +8,7 @@ import type { CatalogPrinting, ScanCatalog } from "../types";
 const SKIP_LAYOUTS = new Set(["token", "double_faced_token", "emblem", "vanguard", "scheme", "planar", "art_series"]);
 
 export function openDbCatalog(path: string): ScanCatalog & { imageUrl(set: string, number: string): string | null; close(): void } {
-  const db = new DatabaseSync(path, { readOnly: true });
+  const db = new DatabaseSync(path.startsWith("file:") ? new URL(path) : path, { readOnly: true });
   const sets = new Set((db.prepare("SELECT DISTINCT set_code AS s FROM printings").all() as { s: string }[]).map((r) => r.s));
   const lookupQ = db.prepare(
     "SELECT scryfall_id, name, set_code, collector_number, lang, image_normal FROM printings WHERE set_code = ? AND collector_number = ? ORDER BY (lang = ?) DESC LIMIT 1",

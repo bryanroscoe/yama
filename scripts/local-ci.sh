@@ -180,6 +180,7 @@ else
   python3 forge-worker/test_worker.py
   python3 -m unittest discover -s scripts/research -p 'test_*.py'
   python3 -m unittest discover -s scripts/datasets -p 'test_*.py'
+  python3 -m unittest discover -s scanner-lab -p 'test_*.py'
   python3 -O -m unittest discover -s scripts/research -p 'test_*.py'
   python3 -m unittest discover -s scripts/ci -p 'test_*.py'
   python3 -m unittest discover -s scripts/history -p 'test_*.py'
