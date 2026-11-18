@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { embedIdentity } from "./artClient";
 import { isStale, namedPaths } from "./bundleCache";
 
 const V = "gallery-20261106T183001884398Z";
@@ -36,5 +37,10 @@ describe("the art worker's cache clean-up", () => {
     expect(isStale(`https://yama.ing/scan-bundle/${V}/embed.onnx`, named)).toBe(false);
     expect(isStale(`https://yama.ing/scan-bundle/${V}/query-52420d900728.onnx`, named)).toBe(true);
     expect(isStale(`https://yama.ing/scan-bundle/${V}/supplement-b.json`, named)).toBe(true);
+  });
+
+  it("names the bundle and embed graph a recognizer runs, for kept photos and diagnostics", () => {
+    expect(embedIdentity({ version: V, files: files("query-52420d900728.onnx", null) })).toBe(`${V}/query-52420d900728.onnx`);
+    expect(embedIdentity({ version: V, files: files("embed.onnx", null) })).toBe(`${V}/embed.onnx`);
   });
 });

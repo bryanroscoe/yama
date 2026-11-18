@@ -281,11 +281,11 @@ mod tests {
 
         // Each says which art model the phone ran; the server records it with the bundle.
         let mut added = body("added");
-        added["embed"] = json!(crate::scan::QUERY_MODEL.file());
+        added["embed"] = json!(format!("{}/{}", crate::scan::BUNDLE_VERSION, crate::scan::QUERY_MODEL.file()));
         let (status, res) = testutil::send(&app, Method::POST, "/api/scan/samples", Some(&mine), Some(added)).await;
         assert_eq!(status, StatusCode::OK, "{res}");
         let mut wrong = body("wrong");
-        wrong["embed"] = json!("embed.onnx");
+        wrong["embed"] = json!(format!("{}/embed.onnx", crate::scan::BUNDLE_VERSION));
         let (status, _) = testutil::send(&app, Method::POST, "/api/scan/samples", Some(&mine), Some(wrong)).await;
         assert_eq!(status, StatusCode::OK);
         let bundles: Vec<(String, String)> = sqlx::query_as("SELECT kind, bundle FROM scan_samples ORDER BY kind").fetch_all(&pool).await.unwrap();

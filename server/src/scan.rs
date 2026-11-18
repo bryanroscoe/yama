@@ -310,32 +310,43 @@ async fn serves_query(cfg: &crate::config::Config, dir: &Path, manifest: &serde_
     cfg.scan_query_model && QUERY_MODEL.fits(manifest) && QUERY_MODEL.is_in(dir).await
 }
 
-/// The bundle a kept scan photo or diagnostic is recorded with: the pinned version, plus
-/// `+<query model>` when the phone ran one of Yama's query models. `embed` is the embed graph's
-/// file name the phone's art recognizer runs (`ArtRecognizer.embed`), or "none" while it reads
-/// text only:
-/// - the bundle's `embed.onnx` or "none": the version alone;
-/// - this pin's query model: `+yama-art-…`; an earlier pin's (a tab open across the change):
+/// The bundle a kept scan photo or diagnostic is recorded with: the bundle version the phone ran,
+/// plus `+<query model>` when it ran one of Yama's query models. `embed` is what the phone's art
+/// recognizer says it runs (`ArtRecognizer.embed`: `<bundle version>/<embed file>`), or "none"
+/// while it reads text only (recorded with the pinned version):
+/// - the bundle's `embed.onnx`: the version alone;
+/// - this pin's query model: `+yama-art-…`; another pin's (a tab open across a change):
 ///   `+query-<sha>`, never relabelled as the current one;
-/// - anything else: `+unknown`;
-/// - not said (a web build from before it was sent): what the server serves now, the best guess.
+/// - anything else, or a version that isn't a plain name: `+unknown`;
+/// - not said (a web build from before it was sent): the pinned version, and the query model if
+///   the server serves it now, the best guess.
 pub(crate) async fn recorded_version(cfg: &crate::config::Config, embed: Option<&str>) -> String {
-    let query = format!("{BUNDLE_VERSION}+{}", QUERY_MODEL.name);
-    let earlier = |name: &str| {
-        let sha = name.strip_prefix("query-")?.strip_suffix(".onnx")?;
-        (sha.len() == 12 && sha.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))).then(|| format!("{BUNDLE_VERSION}+query-{sha}"))
+    let plain = |v: &str| {
+        (1..=64).contains(&v.len()) && v.starts_with(|c: char| c.is_ascii_alphanumeric()) && v.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
+    };
+    let model = |file: &str| -> Option<String> {
+        if file == "embed.onnx" {
+            return Some(String::new());
+        }
+        if file == QUERY_MODEL.file() {
+            return Some(format!("+{}", QUERY_MODEL.name));
+        }
+        let sha = file.strip_prefix("query-")?.strip_suffix(".onnx")?;
+        (sha.len() == 12 && sha.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))).then(|| format!("+query-{sha}"))
     };
     match embed {
-        Some("embed.onnx" | "none") => BUNDLE_VERSION.to_string(),
-        Some(name) if name == QUERY_MODEL.file() => query,
-        Some(name) => earlier(name).unwrap_or_else(|| format!("{BUNDLE_VERSION}+unknown")),
+        Some("none") => BUNDLE_VERSION.to_string(),
+        Some(said) => match said.split_once('/') {
+            Some((version, file)) if plain(version) => format!("{version}{}", model(file).unwrap_or_else(|| "+unknown".into())),
+            _ => format!("{BUNDLE_VERSION}+unknown"),
+        },
         None => {
             let dir = bundle_dir(&cfg.data_dir);
             if is_ready(&dir)
                 && let Some(manifest) = read_manifest(&dir).await
                 && serves_query(cfg, &dir, &manifest).await
             {
-                return query;
+                return format!("{BUNDLE_VERSION}+{}", QUERY_MODEL.name);
             }
             BUNDLE_VERSION.to_string()
         }
@@ -644,14 +655,21 @@ mod tests {
         ready_bundle(data.path(), QUERY_MODEL.recogniser);
         assert_eq!(recorded_version(&cfg, None).await, with_query);
         // What the phone says it ran wins over what the server serves now.
-        assert_eq!(recorded_version(&cfg, Some("embed.onnx")).await, BUNDLE_VERSION);
+        let said = |file: &str| format!("{BUNDLE_VERSION}/{file}");
+        assert_eq!(recorded_version(&cfg, Some(said("embed.onnx").as_str())).await, BUNDLE_VERSION);
         assert_eq!(recorded_version(&cfg, Some("none")).await, BUNDLE_VERSION);
         cfg.scan_query_model = false;
-        assert_eq!(recorded_version(&cfg, Some(QUERY_MODEL.file().as_str())).await, with_query);
+        assert_eq!(recorded_version(&cfg, Some(said(&QUERY_MODEL.file()).as_str())).await, with_query);
         cfg.scan_query_model = true;
-        // An earlier pin's model keeps its own name; anything else is unknown, never a guess.
-        assert_eq!(recorded_version(&cfg, Some("query-0123456789ab.onnx")).await, format!("{BUNDLE_VERSION}+query-0123456789ab"));
-        for odd in ["query-../x.onnx", "query-0123456789AB.onnx", "something.onnx", ""] {
+        // Another pin's model keeps its own name, and a tab open across a bundle change its own
+        // bundle; anything else is unknown, never a guess.
+        assert_eq!(recorded_version(&cfg, Some(said("query-0123456789ab.onnx").as_str())).await, format!("{BUNDLE_VERSION}+query-0123456789ab"));
+        assert_eq!(recorded_version(&cfg, Some("gallery-20261018T0Z/query-52420d900728.onnx")).await, "gallery-20261018T0Z+yama-art-20261118");
+        assert_eq!(recorded_version(&cfg, Some("gallery-20261018T0Z/embed.onnx")).await, "gallery-20261018T0Z");
+        for odd in [said("query-../x.onnx"), said("query-0123456789AB.onnx"), said("something.onnx"), said("")] {
+            assert_eq!(recorded_version(&cfg, Some(odd.as_str())).await, format!("{BUNDLE_VERSION}+unknown"), "{odd}");
+        }
+        for odd in ["embed.onnx", "", "../../etc/embed.onnx", "a b/embed.onnx"] {
             assert_eq!(recorded_version(&cfg, Some(odd)).await, format!("{BUNDLE_VERSION}+unknown"), "{odd}");
         }
         // A bundle that isn't ready yet.
@@ -737,7 +755,8 @@ mod tests {
         let file = model("/good").file();
         std::fs::write(dir.path().join("embed.onnx"), b"bundle").unwrap();
         let day = std::time::Duration::from_secs(24 * 3600);
-        for (name, age) in [("query-000000000000.onnx", 2), ("query-aaaaaaaaaaaa.onnx", 1)] {
+        // The pin just before is the newest file, though not the last name, so only time order keeps it.
+        for (name, age) in [("query-aaaaaaaaaaaa.onnx", 2), ("query-000000000000.onnx", 1)] {
             let f = std::fs::File::create(dir.path().join(name)).unwrap();
             std::io::Write::write_all(&mut &f, b"older pin").unwrap();
             f.set_modified(std::time::SystemTime::now() - day * age).unwrap();
@@ -757,8 +776,8 @@ mod tests {
         download_query(&http, &model("/good"), dir.path()).await.unwrap();
         assert_eq!(std::fs::read(dir.path().join(&file)).unwrap(), b"model");
         // The pin just before stays for phones that still name it; older ones and leftovers go.
-        assert!(dir.path().join("query-aaaaaaaaaaaa.onnx").exists());
-        assert!(!dir.path().join("query-000000000000.onnx").exists());
+        assert!(dir.path().join("query-000000000000.onnx").exists());
+        assert!(!dir.path().join("query-aaaaaaaaaaaa.onnx").exists());
         assert!(!dir.path().join("query-111111111111.onnx.part").exists());
         assert_eq!(std::fs::read(dir.path().join("embed.onnx")).unwrap(), b"bundle");
         assert!(dir.path().join("supplement-abc.json").exists());

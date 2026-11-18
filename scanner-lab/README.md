@@ -58,8 +58,8 @@ python3.12 -m venv .venv && .venv/bin/pip install -r <lab>/requirements.txt
 export SCANNER_REAL_DIR=… YAMA_DB=…          # see Inputs
 .venv/bin/python <lab>/split.py              # models/front.onnx, models/back.onnx from bundle/embed.onnx
 .venv/bin/python <lab>/pick_train.py         # data/train_rows.json: 24,000 rows in common frames, test names held out
-.venv/bin/python <lab>/download.py &         # data/cards/: ~8 requests a second, about 50 minutes
-sh <lab>/gen_loop.sh                         # data/crops/: 2 captures per card (K=2) while the download runs
+PYTHON=.venv/bin/python sh <lab>/gen_loop.sh # download.py into data/cards/ (~8 requests a second, about 50
+                                             # minutes) and gen.py's crops into data/crops/ (K=2) alongside
 .venv/bin/python <lab>/train.py art1 8 2e-4  # runs/art1/ep0..7.pt, with the held-out and real-photo scores per epoch
 .venv/bin/python <lab>/sweep.py runs/art1    # the lock-rule safety table for the bundle's model and each epoch
 .venv/bin/python <lab>/export.py runs/art1/ep6.pt models/yama-art-YYYYMMDD.onnx

@@ -93,16 +93,6 @@ async function load(info: BundleInfo, base: string) {
       })
     : Promise.resolve(null);
   const [runtime, detector, embed, search, artsFile, supplementFile] = await Promise.all([get("runtime"), get("detector"), get("embed"), get("search"), get("arts"), extra]);
-  // Only now that this bundle's files are here (and cached), drop the ones the server no longer
-  // names: older bundles, a replaced embed graph, other supplements. Dropping them first, a
-  // cut-short download could leave the phone with neither embed graph for scanning offline.
-  const cache = await caches.open(CACHE).catch(() => null);
-  if (cache) {
-    const named = namedPaths(info, base || self.location.origin);
-    for (const req of await cache.keys()) {
-      if (isStale(req.url, named)) await cache.delete(req);
-    }
-  }
   ort.env.wasm.wasmBinary = runtime;
   const gallery = parseArts(JSON.parse(new TextDecoder().decode(artsFile)));
   let supplement: Supplement | null = null;
@@ -116,6 +106,16 @@ async function load(info: BundleInfo, base: string) {
   recognizer = await createRecognizer(ort as unknown as OrtLike, { detector, embed, search }, info.constants as unknown as BundleConstants, gallery, supplement);
   // Gallery order, then the supplement's rows: the indices the recognizer reports.
   arts = supplement ? gallery.concat(supplement.arts) : gallery;
+  // Only now that this bundle's files are here (and cached) and the recognizer runs, drop the ones
+  // the server no longer names: older bundles, a replaced embed graph, other supplements. Dropping
+  // them first, a cut-short download could leave the phone with neither embed graph offline.
+  const cache = await caches.open(CACHE).catch(() => null);
+  if (cache) {
+    const named = namedPaths(info, base || self.location.origin);
+    for (const req of await cache.keys()) {
+      if (isStale(req.url, named)) await cache.delete(req);
+    }
+  }
   reply({ type: "ready", ms: performance.now() - t0, arts: arts.length });
 }
 

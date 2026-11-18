@@ -557,9 +557,10 @@ model Yama makes and publishes (docs/scanner.md, "Yama's query embedder").
   `embed.onnx`. A failed download only means the bundle's model a while longer; the next scanner
   open (or server start) at least ten minutes later tries again. The phone's cache is keyed by
   URL, so it downloads the new file once, and the art worker, once a load has succeeded, drops
-  cached files the server no longer names. Kept scan photos and diagnostics carry the embed file
-  the phone's recognizer ran, and the server records the bundle as `<version>+yama-art-20261118`
-  for the query model, to tell the models apart later.
+  cached files the server no longer names (and only then keeps the bundle info for offline use).
+  Kept scan photos and diagnostics carry the bundle and embed file the phone's recognizer ran,
+  and the server records them as `<version>+yama-art-20261118` for the query model, to tell the
+  models apart later.
 - **Reproducible in the repository.** `scanner-lab/` holds the simulation, training, export and
   evaluation scripts with their pinned package versions; from the run's checkpoint they make the
   published file byte for byte. The real photos and the database copy they're measured with are
