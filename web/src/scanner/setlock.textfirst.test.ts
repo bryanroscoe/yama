@@ -22,6 +22,11 @@ describe("readTitleFirst", () => {
     expect(readTitleFirst({ ...base, score: 0.55 })).toBe(true);
     expect(readTitleFirst({ ...base, score: 0.7 })).toBe(true);
   });
+  it("trusts a fair match that leads every other card, but not for a set the art index doesn't know", () => {
+    expect(readTitleFirst({ ...base, score: 0.7, leads: true })).toBe(false);
+    expect(readTitleFirst({ ...base, locked: true, inSet: true, share: 0.3, score: 0.7, leads: true })).toBe(false);
+    expect(readTitleFirst({ ...base, locked: true, inSet: false, share: 0.3, score: 0.7, leads: true })).toBe(true);
+  });
   it("reads the title for a set the art index doesn't know, even on a strong outside match", () => {
     expect(readTitleFirst({ ...base, locked: true, inSet: false, share: 0, score: 0.95 })).toBe(true);
     expect(readTitleFirst({ ...base, locked: true, inSet: false, share: KNOWN_ART - 0.01, score: 0.95 })).toBe(true);

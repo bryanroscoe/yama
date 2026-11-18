@@ -41,7 +41,7 @@ import { createServerCatalog } from "./serverCatalog";
 import { createScannerOcr, ENGINE_LABEL, plannedEngine, type ScannerOcr } from "./ocrEngine";
 import { HeldRead, type HeldVerdict } from "./heldRead";
 import { Evidence, progressLine, proofOf } from "./evidence";
-import { artHas, fuseTitle, needsTitle, titleRead, type Fused } from "./fuse";
+import { artDecides, artHas, artLead, fuseTitle, leadRun, leads, needsTitle, titleRead, type Fused, type LockRule } from "./fuse";
 import { worthReading } from "./quality";
 import { pickHeldQuad, sameHeldCard } from "./heldCard";
 import { VersionLine } from "../version";
@@ -195,6 +195,9 @@ interface Found {
   /** Found by its art and a clear title read naming the same card (fuse.ts): lookalike art
    * doesn't make it a guess. */
   titled?: boolean;
+  /** Found by art that leads every other card by LEAD_MARGIN (fuse.ts): lookalike art further
+   * behind doesn't make it a guess either. */
+  leads?: boolean;
   /**
    * The printing the scanner settled and the person said was wrong ("Wrong printing"): marked
    * "Read as" in the list, and never filed again by itself.
@@ -1070,7 +1073,7 @@ export function ScannerView({
 
   /** Show a card recognised by its art. `read` is a sharp view of it for the collector line. */
   const showArt = useCallback(
-    (r: Recognition, top: ArtMatch, read: { image: RgbaImage; quad: Quad } | null, carry: Pick<Found, "shot" | "guess" | "unlocked" | "rec" | "titled"> = {}) => {
+    (r: Recognition, top: ArtMatch, read: { image: RgbaImage; quad: Quad } | null, carry: Pick<Found, "shot" | "guess" | "unlocked" | "rec" | "titled" | "leads"> = {}) => {
       const seq = ++foundSeq.current;
       const rec = newRecord(carry.rec);
       rec?.setShot(read);
@@ -1191,6 +1194,8 @@ export function ScannerView({
     let textFrame = 0;
     /** Frames in a row this art match's title couldn't be read (see UNTITLED_FRAMES). */
     let untitled = 0;
+    /** Frames in a row this artwork has led every other card (fuse.ts, LEAD_FRAMES). */
+    let leadFrames = 0;
     setStatus(mode === "art" ? WAITING : "Line the card up with the frame");
     const next = (ms: number) => {
       if (!stop) timer = setTimeout(tick, ms);
@@ -1259,23 +1264,50 @@ export function ScannerView({
           const heldName = blockedName.current?.name;
           const isHeld = (name: string) => !!heldName && sameCardName(name, heldName);
           if (isHeld(top.name)) {
+            leadFrames = 0;
             setStatus(NEXT);
             return next(60);
           }
+          // Art that leads every other card (fuse.ts: at least LEAD_FLOOR, LEAD_MARGIN ahead) settles
+          // which card without the title, like a sure match, once the same artwork has led
+          // LEAD_FRAMES frames in a row (Bryan, 18 Nov 2026: stuck about half the time; right cards
+          // score a median 0.78 on real photos). Never when its art is unknown, nor while a card
+          // filed by its name is held. The search lists its best 5 artworks: anything unlisted
+          // scores at most the 5th.
+          const unlisted = r.matches[r.matches.length - 1]?.score;
+          const lead = artLead(ranked, top, unlisted);
+          const leading = !artUnknown && !blockedName.current && leads(top.score, lead);
+          leadFrames = leadRun(leadFrames, leading, !!prev);
           // A strong match decides by art, unless another card scores close to it. Otherwise the
           // title is read first (Bryan, 15 Nov 2026: no Star Trek card scanned; their art isn't in
           // the bundle, so lookalikes scored 0.5 to 0.8 and the scanner named them, or waited on
           // "Hold still" for ever).
           // For a diagnostic record of the card found next (diagnostics.ts): what the art said.
-          const artNote = { art: ranked.slice(0, 5).map((m) => ({ name: m.name, set: m.set, number: m.number, score: Math.round(m.score * 1000) / 1000 })), cardPx: Math.round(cardHeight(toVideo(r.quad))) };
+          const artNote = {
+            art: ranked.slice(0, 5).map((m) => ({ name: m.name, set: m.set, number: m.number, score: Math.round(m.score * 1000) / 1000 })),
+            lead: Math.round(lead * 1000) / 1000,
+            cardPx: Math.round(cardHeight(toVideo(r.quad))),
+          };
+          // Which rule settled the card, for its record (diagnostics.ts).
+          const lockBy = (how: LockRule) => {
+            scanCtx.current = { ...(scanCtx.current ?? artNote), lock: how };
+          };
           // Only the card matters (a deck scan or check): art that looks like another card would
-          // wait for a tap, so read the title too, and a clear one lets Keep going count it.
-          const rivalled = identityOnly && lookalikes(ranked, top).length > 0;
-          const readFirst = readTitleFirst({ score: top.score, lockOnce: LOCK_ONCE, locked: !!locked, inSet: judged?.kind === "in-set", share: poolShare.current }) || needsTitle(ranked);
+          // wait for a tap, so read the title too, and a clear one lets Keep going count it. Art
+          // that leads has no lookalike close enough to need it.
+          const rivalled = identityOnly && !leading && lookalikes(ranked, top).length > 0;
+          const readFirst = readTitleFirst({ score: top.score, lockOnce: LOCK_ONCE, locked: !!locked, inSet: judged?.kind === "in-set", share: poolShare.current, leads: leading }) || needsTitle(ranked, unlisted);
           if (!readFirst && !rivalled) {
             unknownFrames = 0;
-            scanCtx.current = artNote;
-            showArt(r, top, read());
+            const by = artDecides(top.score, leadFrames);
+            // It leads on its first frame: one more, with no title read between.
+            if (!by) {
+              setStatus(READING);
+              seekFrame({ art: artNote.art.slice(0, 3), lead: artNote.lead, cardPx: artNote.cardPx });
+              return next(30);
+            }
+            lockBy(by);
+            showArt(r, top, read(), { leads: leading });
             return;
           }
           // Not while a card filed by its name is held: it may be that card, still in view.
@@ -1311,16 +1343,19 @@ export function ScannerView({
               return next(60);
             }
             if (fused.kind === "art") {
+              lockBy("title");
               showArt(r, fused.match, read(hi), { titled: true });
               return;
             }
             if (fused.kind === "title") {
+              lockBy("title");
               fromName(fused.name, "name", { shot: hi });
               return;
             }
             // Art sure on its own, read only for its lookalikes: no clear title leaves it as it
             // was, found by its art and waiting for a tap.
             if (rivalled && !readFirst) {
+              lockBy("sure");
               showArt(r, top, read(hi));
               return;
             }
@@ -1334,6 +1369,7 @@ export function ScannerView({
             // just the card matters, and not while a card filed by its name is held (as above).
             const agreed = identityOnly && said && said.confidence >= TEXT_VETO && !artUnknown && !blockedName.current ? artHas(ranked, said.name) : undefined;
             if (agreed) {
+              lockBy("text");
               showArt(r, agreed, read(hi), { titled: true });
               return;
             }
@@ -1351,6 +1387,7 @@ export function ScannerView({
             if (!prev) failedReads = 0;
             const artLocks = top.score >= LOCK_ONCE || (top.score >= LOCK_TWICE && prev && untitled >= UNTITLED_FRAMES);
             if (!stop && artLocks && !artUnknown && !vetoed && !blockedName.current) {
+              lockBy(top.score >= LOCK_ONCE ? "sure" : "twice");
               showArt(r, top, read(hi));
               return;
             }
@@ -1428,9 +1465,16 @@ export function ScannerView({
           const ranked = artUnknown ? [] : [...r.matches, ...(r.pool ?? [])].sort((a, b) => b.score - a.score);
           const hi = around(bmp, bmp.width, bmp.height, scaleQuad(r.quad, 1 / k), hiCanvasRef.current);
           const read = identityOnly && !savingPhotos() ? null : hi;
-          if (!artUnknown && top.score >= LOCK_ONCE && !needsTitle(ranked)) {
+          // Art that leads every other card (fuse.ts) decides too, on the photo's one frame.
+          const unlisted = r.matches[r.matches.length - 1]?.score;
+          const lead = artLead(ranked, top, unlisted);
+          const leading = !artUnknown && leads(top.score, lead);
+          if (!artUnknown && (top.score >= LOCK_ONCE || leading) && !needsTitle(ranked, unlisted)) {
             bmp.close();
-            if (current()) showArt(r, top, read);
+            if (current()) {
+              scanCtx.current = { photo: true, lead: Math.round(lead * 1000) / 1000, lock: artDecides(top.score, 1, 1) };
+              showArt(r, top, read, { leads: leading });
+            }
             return;
           }
           const reader = await textReader();
@@ -2020,11 +2064,12 @@ export function ScannerView({
     setDupe((d) => (d && d.settings !== fileSettings ? null : d));
   }, [fileSettings]);
   /**
-   * Whether Keep adding files this card by itself. Not a card found by art and title under the
-   * name filed last while the view hasn't been clear since: it may be that card still in view.
+   * Whether Keep adding files this card by itself. Not a card found by art and title, or by its
+   * art's lead, under the name filed last while the view hasn't been clear since: it may be that
+   * card still in view.
    */
   const autoFiles = (f: Found) =>
-    identityOnly ? addsByIdentity(f) && !(f.titled && !!filedName.current && sameCardName(f.name, filedName.current)) : addsItself(f);
+    identityOnly ? addsByIdentity(f) && !((f.titled || f.leads) && !!filedName.current && sameCardName(f.name, filedName.current)) : addsItself(f);
   useEffect(() => {
     // A printing the person said was misread, or a correction, waits for a tap.
     if (!autoAdd || !onAccept || paused || phase !== "found" || !found || found.misread || found.correcting || !autoFiles(found)) return;
@@ -2644,15 +2689,16 @@ export function addsItself(f: Pick<Found, "sure" | "chosen" | "method" | "confid
 
 /**
  * Keep adding when only the card matters (scanning a deck): a card the camera found by its art is
- * added by itself unless the art looks like another card too and no clear title read settled it
- * (Bryan, 17 Nov 2026: right cards score 0.64 to 0.70 on his phone, so nearly every card had a
- * lookalike and Keep going stopped on each); one read as text only when the read was sure. A
- * typed name, or a less certain read, waits for Add.
+ * added by itself unless the art looks like another card too and neither a clear title read nor a
+ * clear lead over every other card (fuse.ts, 18 Nov 2026) settled it (Bryan, 17 Nov 2026: right
+ * cards score 0.64 to 0.70 on his phone, so nearly every card had a lookalike and Keep going
+ * stopped on each); one read as text only when the read was sure. A typed name, or a less certain
+ * read, waits for Add.
  */
-export function addsByIdentity(f: Pick<Found, "method" | "confidence" | "others" | "titled">): boolean {
+export function addsByIdentity(f: Pick<Found, "method" | "confidence" | "others" | "titled" | "leads">): boolean {
   const typed = f.method === "name" && f.confidence === 1;
   if (typed) return false;
-  return f.method === "art" ? f.others.length === 0 || !!f.titled : f.confidence >= SURE;
+  return f.method === "art" ? f.others.length === 0 || !!f.titled || !!f.leads : f.confidence >= SURE;
 }
 
 /** Other cards whose art scores near the top match's (within 0.2), one per name, for "Not this card?". */
