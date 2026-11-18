@@ -550,13 +550,16 @@ model Yama makes and publishes (docs/scanner.md, "Yama's query embedder").
   `embed.onnx`), checks it as it checks the bundle, and drops the files of earlier pins. Phones
   still fetch only from Yama's server.
 - **Served only where it fits.** `GET /api/scan/bundle` names it as `files.embed` when the
-  bundle's manifest names the recogniser it was trained against (`recogniser.sha256`
-  `eb655846…`; a `retrain-…` bundle changes it), `YAMA_SCAN_QUERY_MODEL` allows it (on by default;
-  `0` turns it off) and it's downloaded. Otherwise, as before, the bundle's `embed.onnx`. A failed
-  download only means the bundle's model a while longer, retried after ten minutes. The phone's
-  cache is keyed by URL, so it downloads the new file once, and the art worker drops cached files
-  the server no longer names. Kept scan photos and diagnostics record the bundle as
-  `<version>+yama-art-20261118` while it's served, to tell the models apart later.
+  bundle's manifest names the recogniser checkpoint it was trained against (`recogniser.sha256`
+  `eb655846…`; moving the pin to a bundle from a newer checkpoint, such as ManaVault's
+  `retrain-20261117…`, turns it off until it's trained again), `YAMA_SCAN_QUERY_MODEL` allows it
+  (on by default; `0` turns it off) and it's downloaded. Otherwise, as before, the bundle's
+  `embed.onnx`. A failed download only means the bundle's model a while longer; the next scanner
+  open (or server start) at least ten minutes later tries again. The phone's cache is keyed by
+  URL, so it downloads the new file once, and the art worker, once a load has succeeded, drops
+  cached files the server no longer names. Kept scan photos and diagnostics record the bundle as
+  `<version>+yama-art-20261118` when the phone says it ran that model, to tell the models apart
+  later.
 - **Reproducible in the repository.** `scanner-lab/` holds the simulation, training, export and
   evaluation scripts with their pinned package versions; from the run's checkpoint they make the
   published file byte for byte. The real photos and the database copy they're measured with are

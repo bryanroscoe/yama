@@ -15,6 +15,7 @@
 // Best effort: a record that can't be sent is dropped. Server: server/src/scan_diagnostics.rs. Replay: eval/real.test.ts.
 
 import { accountSignal, api } from "../api";
+import { loadedEmbed } from "./artClient";
 import { warpRegionRgba, type CardRegion } from "./image";
 import type { Gray, Quad, RgbaImage } from "./types";
 
@@ -289,7 +290,7 @@ export class ScanRecord {
       await api("/api/scan/diagnostics", {
         method: "POST",
         signal: this.account,
-        json: { outcome, card_name: this.cardName ?? undefined, engine: this.engine ?? undefined, camera: this.camera ?? undefined, detail: this.detail(outcome), images },
+        json: { outcome, card_name: this.cardName ?? undefined, engine: this.engine ?? undefined, camera: this.camera ?? undefined, detail: this.detail(outcome), images, embed: loadedEmbed() ?? undefined },
       });
       return true;
     } catch (e) {

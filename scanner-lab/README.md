@@ -39,9 +39,9 @@ Card images are Scryfall's, fetched for training and never published: delete `da
 - **The bundle.** A server that has opened the scanner keeps it in `data/scan-bundle/<version>/`
   (`manifest.json`, `embed.onnx`, `search.onnx`, `arts.slim.json`); copy that folder to `bundle/`.
   ManaVault's release page has the same files (`arts.json` there; the server's `slim_arts` makes the
-  slim one). The model fits only bundles whose `manifest.json` names the recogniser
-  `retrain-20261026T052522727512Z` (`recogniser.sha256` `eb655846…`): a `retrain-…` bundle needs
-  the model trained again from its own `embed.onnx`.
+  slim one). The model fits only bundles whose `manifest.json` names the recogniser checkpoint
+  `retrain-20261026T052522727512Z` (`recogniser.sha256` `eb655846…`): a bundle from a newer
+  checkpoint needs the model trained again from its own `embed.onnx`.
 - **Real scan photos** (`SCANNER_REAL_DIR`, default `data/own`): `<id>.jpg` and `manifest.jsonl`,
   as `yama-server scan-samples-export DIR --owner <your user id>` writes them on a server where you
   scanned with "Save scan photos" on (docs/scanner.md, "Scan photos"). Use your own: they are

@@ -61,6 +61,8 @@ struct NewSample {
     score: Option<f64>,
     quad: Option<[[f64; 2]; 4]>,
     camera: Option<String>,
+    /// The embed graph's file name the phone's art recognizer loaded (`files.embed`), if any.
+    embed: Option<String>,
     /// The scanner told the person that saved photos are shared with Yama's developer.
     #[serde(default)]
     shared: bool,
@@ -91,8 +93,8 @@ async fn add(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(s)
     let score = s.score.filter(|v| v.is_finite());
     let id = crate::util::new_id();
     let bytes = image.len() as i64;
-    // The bundle and the query model the server is serving (scan.rs), to tell models apart later.
-    let bundle = crate::scan::served_version(&st.cfg).await;
+    // The bundle, and Yama's query model if the phone ran it (scan.rs), to tell models apart later.
+    let bundle = crate::scan::recorded_version(&st.cfg, s.embed.as_deref()).await;
     let mut tx = st.pool.begin().await?;
     sqlx::query(
         "INSERT INTO scan_samples (id, owner_id, created_at, kind, label_scryfall_id, label_name, guess_name, guess_scryfall_id,
@@ -277,10 +279,18 @@ mod tests {
         let (me, mine) = testutil::user(&pool, "me@example.com").await;
         let (_, theirs) = testutil::user(&pool, "them@example.com").await;
 
-        let (status, res) = testutil::send(&app, Method::POST, "/api/scan/samples", Some(&mine), Some(body("added"))).await;
+        // Each says which art model the phone ran; the server records it with the bundle.
+        let mut added = body("added");
+        added["embed"] = json!(crate::scan::QUERY_MODEL.file());
+        let (status, res) = testutil::send(&app, Method::POST, "/api/scan/samples", Some(&mine), Some(added)).await;
         assert_eq!(status, StatusCode::OK, "{res}");
-        let (status, _) = testutil::send(&app, Method::POST, "/api/scan/samples", Some(&mine), Some(body("wrong"))).await;
+        let mut wrong = body("wrong");
+        wrong["embed"] = json!("embed.onnx");
+        let (status, _) = testutil::send(&app, Method::POST, "/api/scan/samples", Some(&mine), Some(wrong)).await;
         assert_eq!(status, StatusCode::OK);
+        let bundles: Vec<(String, String)> = sqlx::query_as("SELECT kind, bundle FROM scan_samples ORDER BY kind").fetch_all(&pool).await.unwrap();
+        let bundle = crate::scan::BUNDLE_VERSION;
+        assert_eq!(bundles, [("added".to_string(), format!("{bundle}+yama-art-20261118")), ("wrong".to_string(), bundle.to_string())]);
         let (_, s) = testutil::send(&app, Method::GET, "/api/scan/samples", Some(&mine), None).await;
         assert_eq!(s["count"], 2);
         assert_eq!(s["bytes"], 2 * JPEG.len() as i64);

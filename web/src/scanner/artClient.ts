@@ -58,6 +58,15 @@ export type LoadState = { kind: "downloading"; loaded: number; total: number } |
 /** The last ready bundle's info, kept on the device: the API isn't cached, the bundle files are. */
 const INFO_KEY = "yama-scan-bundle";
 
+/** The embed graph's file name the art recognizer last loaded: the bundle's `embed.onnx` or Yama's query model. */
+let loadedEmbedFile: string | null = null;
+
+/**
+ * Which embed graph this device's art recognizer ran, for kept scan photos and diagnostics
+ * (the server records the model with them; server/src/scan.rs). Null before one has loaded.
+ */
+export const loadedEmbed = (): string | null => loadedEmbedFile;
+
 /** The server's bundle info, or when it can't be reached (offline), the last one seen here. */
 async function bundleInfo(): Promise<BundleInfo | null> {
   try {
@@ -98,6 +107,7 @@ export async function loadArtRecognizer(onState?: (s: LoadState) => void): Promi
     worker.terminate();
     throw e;
   });
+  loadedEmbedFile = info.files.embed.split("/").pop() || null;
 
   worker.onmessage = (e: MessageEvent<ArtWorkerReply>) => {
     const m = e.data;

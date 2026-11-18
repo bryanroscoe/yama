@@ -96,6 +96,8 @@ struct NewDiagnostic {
     detail: Value,
     #[serde(default)]
     images: Vec<NewImage>,
+    /// The embed graph's file name the phone's art recognizer loaded (`files.embed`), if any.
+    embed: Option<String>,
 }
 
 fn text(v: Option<String>) -> Option<String> {
@@ -180,7 +182,7 @@ async fn add(State(st): State<AppState>, CurrentUser(user): CurrentUser, req: Re
         remove_record_files(&st.cfg.data_dir, &user.id, &id);
         return Err(anyhow::Error::from(e).context("writing scanner diagnostic images").into());
     }
-    let bundle = crate::scan::served_version(&st.cfg).await;
+    let bundle = crate::scan::recorded_version(&st.cfg, d.embed.as_deref()).await;
     let saved = async {
         let mut tx = st.pool.begin().await?;
         sqlx::query(

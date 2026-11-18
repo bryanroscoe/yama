@@ -57,15 +57,7 @@ async function file(url: string, size: number, onBytes: (n: number, total: numbe
 async function load(info: BundleInfo, base: string) {
   const t0 = performance.now();
   const urls = { detector: info.files.detector, embed: info.files.embed, search: info.files.search, arts: info.files.arts, runtime: wasmUrl };
-  // Drop files the server no longer names: older bundles, a replaced embed graph, other supplements.
   const supplementUrl = info.files.supplement ?? null;
-  const named = namedPaths(info, base || self.location.origin);
-  const cache = await caches.open(CACHE).catch(() => null);
-  if (cache) {
-    for (const req of await cache.keys()) {
-      if (isStale(req.url, named)) await cache.delete(req);
-    }
-  }
   const progress = new Map<string, [number, number]>();
   let lastReport = 0;
   const report = () => {
@@ -101,6 +93,16 @@ async function load(info: BundleInfo, base: string) {
       })
     : Promise.resolve(null);
   const [runtime, detector, embed, search, artsFile, supplementFile] = await Promise.all([get("runtime"), get("detector"), get("embed"), get("search"), get("arts"), extra]);
+  // Only now that this bundle's files are here (and cached), drop the ones the server no longer
+  // names: older bundles, a replaced embed graph, other supplements. Dropping them first, a
+  // cut-short download could leave the phone with neither embed graph for scanning offline.
+  const cache = await caches.open(CACHE).catch(() => null);
+  if (cache) {
+    const named = namedPaths(info, base || self.location.origin);
+    for (const req of await cache.keys()) {
+      if (isStale(req.url, named)) await cache.delete(req);
+    }
+  }
   ort.env.wasm.wasmBinary = runtime;
   const gallery = parseArts(JSON.parse(new TextDecoder().decode(artsFile)));
   let supplement: Supplement | null = null;

@@ -68,7 +68,7 @@ pub(crate) struct QueryModel {
     pub bytes: u64,
     pub sha256: &'static str,
     /// The bundle manifest's `recogniser.sha256`: the checkpoint whose gallery it was trained
-    /// against. A `retrain-…` bundle has another, and gets its own `embed.onnx`.
+    /// against. A bundle from a newer checkpoint names another, and gets its own `embed.onnx`.
     pub recogniser: &'static str,
 }
 
@@ -226,7 +226,8 @@ async fn fetch_checked(http: &reqwest::Client, url: &str, dir: &Path, name: &str
 /// Download Yama's query model into the bundle's folder in the background, unless it's there,
 /// already downloading, failed recently, or the bundle (its manifest) isn't here or isn't the one
 /// it fits. The caller checks the switch. A failure only means phones get the bundle's own
-/// `embed.onnx` a while longer; it's logged and tried again after `RETRY_AFTER`.
+/// `embed.onnx` a while longer; it's logged, and the next call at least `RETRY_AFTER` later
+/// tries again (a scanner open, or the server's start).
 pub async fn ensure_query(data_dir: PathBuf, http: reqwest::Client) {
     let dir = bundle_dir(&data_dir);
     if QUERY_MODEL.is_in(&dir).await {
@@ -259,7 +260,7 @@ pub async fn ensure_query(data_dir: PathBuf, http: reqwest::Client) {
     });
 }
 
-/// Fetch `model` into `dir` and drop the query models of earlier pins there.
+/// Fetch `model` into `dir` and drop the query models of pins before the last there.
 async fn download_query(http: &reqwest::Client, model: &QueryModel, dir: &Path) -> anyhow::Result<()> {
     let file = model.file();
     fetch_checked(http, model.url, dir, &file, model.bytes, model.sha256).await?;
@@ -267,17 +268,34 @@ async fn download_query(http: &reqwest::Client, model: &QueryModel, dir: &Path) 
     Ok(())
 }
 
-/// Delete `query-*.onnx` files (and unfinished `.part` downloads of them) other than `keep`.
+/// Delete the `query-*.onnx` files of earlier pins, and unfinished `.part` downloads, but keep
+/// `keep` and the newest other one: a phone that read the bundle info just before the pin moved
+/// may still ask for it (as scan_art.rs keeps the supplement it replaced).
 async fn remove_other_queries(dir: &Path, keep: &str) {
     let Ok(mut entries) = tokio::fs::read_dir(dir).await else { return };
+    let mut older = Vec::new();
     while let Ok(Some(entry)) = entries.next_entry().await {
         let name = entry.file_name().to_string_lossy().into_owned();
-        let base = name.strip_suffix(".part").unwrap_or(&name);
-        if base.starts_with("query-") && base.ends_with(".onnx") && name != keep {
-            match tokio::fs::remove_file(entry.path()).await {
-                Ok(()) => tracing::info!(file = %name, "removed an older scanner query model"),
-                Err(e) => tracing::warn!(file = %name, error = %e, "couldn't remove an older scanner query model"),
-            }
+        if !name.starts_with("query-") || name == keep {
+            continue;
+        }
+        if name.ends_with(".onnx") {
+            let modified = entry.metadata().await.and_then(|m| m.modified()).unwrap_or(std::time::UNIX_EPOCH);
+            older.push((modified, entry.path(), name));
+        } else if name.ends_with(".onnx.part") {
+            older.push((std::time::UNIX_EPOCH, entry.path(), name));
+        }
+    }
+    // Newest first; the first complete one stays.
+    older.sort_by(|a, b| b.0.cmp(&a.0));
+    let previous = older.iter().position(|(_, _, name)| name.ends_with(".onnx"));
+    for (i, (_, path, name)) in older.into_iter().enumerate() {
+        if Some(i) == previous {
+            continue;
+        }
+        match tokio::fs::remove_file(&path).await {
+            Ok(()) => tracing::info!(file = %name, "removed an older scanner query model"),
+            Err(e) => tracing::warn!(file = %name, error = %e, "couldn't remove an older scanner query model"),
         }
     }
 }
@@ -293,17 +311,25 @@ async fn serves_query(cfg: &crate::config::Config, dir: &Path, manifest: &serde_
 }
 
 /// The bundle a kept scan photo or diagnostic is recorded with: the pinned version, plus
-/// `+<query model>` while the server names Yama's query model as the embed graph. That is what a
-/// phone opening the scanner now runs; one that opened it before keeps what it loaded.
-pub(crate) async fn served_version(cfg: &crate::config::Config) -> String {
-    let dir = bundle_dir(&cfg.data_dir);
-    if is_ready(&dir)
-        && let Some(manifest) = read_manifest(&dir).await
-        && serves_query(cfg, &dir, &manifest).await
-    {
-        return format!("{BUNDLE_VERSION}+{}", QUERY_MODEL.name);
+/// `+<query model>` when the phone ran Yama's query model. `embed` is the embed graph's file name
+/// the phone says it loaded (`files.embed`); a client that doesn't say (one built before it was
+/// sent, or one reading text only) gets what the server serves now, the best guess.
+pub(crate) async fn recorded_version(cfg: &crate::config::Config, embed: Option<&str>) -> String {
+    let query = format!("{BUNDLE_VERSION}+{}", QUERY_MODEL.name);
+    match embed {
+        Some("embed.onnx") => BUNDLE_VERSION.to_string(),
+        Some(name) if name == QUERY_MODEL.file() => query,
+        _ => {
+            let dir = bundle_dir(&cfg.data_dir);
+            if is_ready(&dir)
+                && let Some(manifest) = read_manifest(&dir).await
+                && serves_query(cfg, &dir, &manifest).await
+            {
+                return query;
+            }
+            BUNDLE_VERSION.to_string()
+        }
     }
-    BUNDLE_VERSION.to_string()
 }
 
 /// Once this version is ready, drop the folders of earlier pinned bundles (about 45 MB each). They
@@ -591,24 +617,30 @@ mod tests {
         let with_query = format!("{BUNDLE_VERSION}+{}", QUERY_MODEL.name);
         assert_eq!(QUERY_MODEL.file(), "query-52420d900728.onnx");
 
+        // What the server would serve (a client that doesn't say what it loaded).
         // Not downloaded yet, or cut short: the bundle's own.
-        assert_eq!(served_version(&cfg).await, BUNDLE_VERSION);
+        assert_eq!(recorded_version(&cfg, None).await, BUNDLE_VERSION);
         std::fs::write(dir.join(QUERY_MODEL.file()), b"short").unwrap();
-        assert_eq!(served_version(&cfg).await, BUNDLE_VERSION);
+        assert_eq!(recorded_version(&cfg, None).await, BUNDLE_VERSION);
         std::fs::write(dir.join(QUERY_MODEL.file()), vec![0u8; QUERY_MODEL.bytes as usize]).unwrap();
-        assert_eq!(served_version(&cfg).await, with_query);
+        assert_eq!(recorded_version(&cfg, None).await, with_query);
         // Switched off.
         cfg.scan_query_model = false;
-        assert_eq!(served_version(&cfg).await, BUNDLE_VERSION);
+        assert_eq!(recorded_version(&cfg, None).await, BUNDLE_VERSION);
         cfg.scan_query_model = true;
-        // A bundle from another recogniser (a `retrain-…` release): its own embed graph.
+        // A bundle from another recogniser checkpoint: its own embed graph.
         ready_bundle(data.path(), "0000000000000000000000000000000000000000000000000000000000000000");
-        assert_eq!(served_version(&cfg).await, BUNDLE_VERSION);
+        assert_eq!(recorded_version(&cfg, None).await, BUNDLE_VERSION);
         ready_bundle(data.path(), QUERY_MODEL.recogniser);
-        assert_eq!(served_version(&cfg).await, with_query);
+        assert_eq!(recorded_version(&cfg, None).await, with_query);
+        // What the phone says it ran wins over what the server serves now.
+        assert_eq!(recorded_version(&cfg, Some("embed.onnx")).await, BUNDLE_VERSION);
+        cfg.scan_query_model = false;
+        assert_eq!(recorded_version(&cfg, Some(QUERY_MODEL.file().as_str())).await, with_query);
+        cfg.scan_query_model = true;
         // A bundle that isn't ready yet.
         std::fs::remove_file(dir.join("search.onnx")).unwrap();
-        assert_eq!(served_version(&cfg).await, BUNDLE_VERSION);
+        assert_eq!(recorded_version(&cfg, None).await, BUNDLE_VERSION);
     }
 
     #[tokio::test]
@@ -669,7 +701,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_query_download_is_checked_and_replaces_older_pins_only() {
+    async fn the_query_download_is_checked_and_keeps_only_the_pin_before() {
         let served = axum::Router::new()
             .route("/good", get(|| async { "model" }))
             .route("/bad", get(|| async { "modem" }))
@@ -688,7 +720,12 @@ mod tests {
         let http = crate::routes::http_client();
         let file = model("/good").file();
         std::fs::write(dir.path().join("embed.onnx"), b"bundle").unwrap();
-        std::fs::write(dir.path().join("query-000000000000.onnx"), b"older pin").unwrap();
+        let day = std::time::Duration::from_secs(24 * 3600);
+        for (name, age) in [("query-000000000000.onnx", 2), ("query-aaaaaaaaaaaa.onnx", 1)] {
+            let f = std::fs::File::create(dir.path().join(name)).unwrap();
+            std::io::Write::write_all(&mut &f, b"older pin").unwrap();
+            f.set_modified(std::time::SystemTime::now() - day * age).unwrap();
+        }
         std::fs::write(dir.path().join("query-111111111111.onnx.part"), b"older, unfinished").unwrap();
         std::fs::write(dir.path().join("supplement-abc.json"), b"{}").unwrap();
 
@@ -703,6 +740,8 @@ mod tests {
 
         download_query(&http, &model("/good"), dir.path()).await.unwrap();
         assert_eq!(std::fs::read(dir.path().join(&file)).unwrap(), b"model");
+        // The pin just before stays for phones that still name it; older ones and leftovers go.
+        assert!(dir.path().join("query-aaaaaaaaaaaa.onnx").exists());
         assert!(!dir.path().join("query-000000000000.onnx").exists());
         assert!(!dir.path().join("query-111111111111.onnx.part").exists());
         assert_eq!(std::fs::read(dir.path().join("embed.onnx")).unwrap(), b"bundle");
