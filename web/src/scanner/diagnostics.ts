@@ -13,8 +13,14 @@
 // close-up took over, a title overruled the art, or the card took over 3 s to find (with what
 // each frame read while looking, kept with no card when it was never found; since 17 Nov 2026).
 // Best effort: a record that can't be sent is dropped. Server: server/src/scan_diagnostics.rs. Replay: eval/real.test.ts.
+//
+// Since 20 Nov 2026 a struggle record also keeps the set symbol's area at full resolution
+// (`symbol`, `SYMBOL`), and every card the scanner settles, struggled with or not, sends a small
+// timing record with no images (`TimingRecord`, server/src/scan_timings.rs): how long it took to
+// name the card and by which rule, then how its printing was settled and how long that took.
 
 import { accountSignal, api } from "../api";
+import type { LockRule } from "./fuse";
 import { warpRegionRgba, type CardRegion } from "./image";
 import type { Gray, Quad, RgbaImage } from "./types";
 
@@ -28,6 +34,13 @@ const CARD_SIDE = 640;
 const WHOLE: CardRegion = { x0: 0, y0: 0, x1: 1, y1: 1 };
 /** A strip is never drawn wider than this (a card nearly filling a 4K frame). */
 const STRIP_MAX = 2400;
+/**
+ * The set symbol's area: the type line's right end, with room for a card cut a little off (card
+ * y 0.50 to 0.63, x 0.70 to 1). What a printing model looks at (docs/plans/scanner-models.md).
+ */
+export const SYMBOL: CardRegion = { x0: 0.7, y0: 0.5, x1: 1, y1: 0.63 };
+/** A symbol crop is never drawn wider than this. */
+const SYMBOL_MAX = 800;
 /** Frames written down per record, and the longest text kept per read. */
 const MAX_FRAMES = 120;
 const MAX_TEXT = 200;
@@ -96,6 +109,20 @@ export function stripSize(quad: Quad): { width: number; height: number } {
 export function stripOf(shot: Shot): RgbaImage {
   const { width, height } = stripSize(shot.quad);
   return warpRegionRgba(shot.image, shot.quad, STRIP, width, height);
+}
+
+/** Pixels across the set symbol's area at the card's own resolution (never enlarged, at most SYMBOL_MAX), and its height. */
+export function symbolSize(quad: Quad): { width: number; height: number } {
+  const cardW = Math.max(Math.hypot(quad[1][0] - quad[0][0], quad[1][1] - quad[0][1]), Math.hypot(quad[2][0] - quad[3][0], quad[2][1] - quad[3][1]));
+  const width = Math.max(32, Math.min(SYMBOL_MAX, Math.round(cardW * (SYMBOL.x1 - SYMBOL.x0))));
+  const height = Math.max(8, Math.round((width * ((SYMBOL.y1 - SYMBOL.y0) * 88)) / ((SYMBOL.x1 - SYMBOL.x0) * 63)));
+  return { width, height };
+}
+
+/** The set symbol's area, warped upright at the card's own resolution in the frame: only the card. */
+export function symbolOf(shot: Shot): RgbaImage {
+  const { width, height } = symbolSize(shot.quad);
+  return warpRegionRgba(shot.image, shot.quad, SYMBOL, width, height);
 }
 
 /**
@@ -179,6 +206,7 @@ export class ScanRecord {
   cardName: string | null = null;
   private card: RgbaImage | null = null;
   private strip: RgbaImage | null = null;
+  private symbol: RgbaImage | null = null;
   private stripLast: RgbaImage | null = null;
   private sent = false;
   private cancelled = false;
@@ -207,6 +235,7 @@ export class ScanRecord {
     this.cancelled = true;
     this.card = null;
     this.strip = null;
+    this.symbol = null;
     this.stripLast = null;
     this.frames.length = 0;
   }
@@ -230,16 +259,18 @@ export class ScanRecord {
     r.cardName = this.cardName;
     r.card = this.card;
     r.strip = this.strip;
+    r.symbol = this.symbol;
     r.stripLast = this.stripLast;
     r.frames.push(...this.frames);
     return r;
   }
 
-  /** The card as first found: its photo and full-resolution strip. */
+  /** The card as first found: its photo, full-resolution strip and set symbol. */
   setShot(shot: Shot | null | undefined) {
     if (!shot || this.card || this.cancelled) return;
     this.card = cardOf(shot);
     this.strip = stripOf(shot);
+    this.symbol = symbolOf(shot);
   }
 
   /** The latest frame read while the card was held: its strip, kept as "strip-last". */
@@ -286,6 +317,7 @@ export class ScanRecord {
         if (enc) images.push({ name, image: enc.data, width: enc.width, height: enc.height });
       };
       await add("strip", this.strip, STRIP_MAX);
+      await add("symbol", this.symbol, SYMBOL_MAX);
       await add("strip-last", this.stripLast, STRIP_MAX);
       await add("card", this.card, CARD_SIDE);
       if (!this.allowed()) return false;
@@ -302,11 +334,126 @@ export class ScanRecord {
   }
 }
 
+/** The rule that named a card: the art (sure, leads, twice), a title read, the card's text, the title close-up, or a typed name. */
+export type SettleRule = LockRule | "closeup" | "typed";
+/** How a printing was settled: the only one (or the only one in the locked sets), the collector line, a pick, or a correction. */
+export type PrintingWay = "only" | "set" | "collector" | "picked" | "corrected";
+
+/** What was known when a card was named, for its timing record. */
+export interface Named {
+  rule: SettleRule;
+  /** "printing": the collection, where the printing is settled too; "identity": deck and box scans. */
+  mode: "printing" | "identity";
+  photo?: boolean;
+  /** ms from the card appearing in view to the card being named, on the live camera. */
+  ms?: number;
+  /** Frames read in that time. */
+  frames?: number;
+  /** The art's score for the card named, and its lead over the next different card. */
+  top?: number;
+  lead?: number;
+  /** The camera's delivered resolution, "2160×3840". */
+  camera?: string;
+  /** The art model that ran (`ArtRecognizer.embed`), or "none". */
+  embed?: string;
+}
+
+const round3 = (n: number | undefined) => (n == null || !Number.isFinite(n) ? undefined : Math.round(n * 1000) / 1000);
+
+/**
+ * Every card the scanner settles, with Scanner diagnostics on (Bryan, 20 Nov 2026: the struggle
+ * records can't say how fast ordinary scans settle): a small record with no images, made when
+ * the card is named, given its printing as that's settled, and sent once when the card is done
+ * with. The same account and switch rules as ScanRecord. Server: server/src/scan_timings.rs.
+ */
+export class TimingRecord {
+  private readonly named = Date.now();
+  private printing: { how: PrintingWay; ms: number } | null = null;
+  private sent = false;
+  /** Small facts beside the fixed fields (filed by itself, the card corrected). */
+  readonly detail: Record<string, unknown> = {};
+  private readonly account: AbortSignal;
+  private readonly generation: number;
+
+  constructor(
+    readonly what: Named,
+    account: AbortSignal = accountSignal(),
+    gen: number = generation,
+  ) {
+    this.account = account;
+    this.generation = gen;
+  }
+
+  get isSent() {
+    return this.sent;
+  }
+
+  get printedAs(): PrintingWay | null {
+    return this.printing?.how ?? null;
+  }
+
+  /** The printing was settled: the first way counts, unless it was then corrected. */
+  printed(how: PrintingWay) {
+    if (this.printing && how !== "corrected") return;
+    this.printing = { how, ms: Date.now() - this.named };
+  }
+
+  /**
+   * Wrong printing after the card was filed and its record sent: a new record for the
+   * correction, marked so (the summary counts it apart rather than as a second card).
+   */
+  afterFiling(): TimingRecord {
+    if (!this.sent) return this;
+    const r = new TimingRecord(this.what, this.account, this.generation);
+    Object.assign(r.detail, this.detail, { after_filing: true });
+    return r;
+  }
+
+  private allowed(): boolean {
+    return !this.account.aborted && this.generation === generation && diagnosticsOn();
+  }
+
+  /** The JSON sent. */
+  body(outcome: Outcome): Record<string, unknown> {
+    const w = this.what;
+    return {
+      outcome,
+      rule: w.rule,
+      mode: w.mode,
+      photo: !!w.photo,
+      ms: w.ms != null ? Math.round(w.ms) : undefined,
+      frames: w.frames,
+      top: round3(w.top),
+      lead: round3(w.lead),
+      printing: this.printing?.how,
+      printing_ms: this.printing?.ms,
+      camera: w.camera,
+      embed: w.embed,
+      detail: this.detail,
+    };
+  }
+
+  /** Send it, once, if it may still be sent. Never throws. */
+  async send(outcome: Outcome): Promise<boolean> {
+    if (this.sent || !this.allowed()) return false;
+    this.sent = true;
+    try {
+      await api("/api/scan/diagnostics/timings", { method: "POST", signal: this.account, json: this.body(outcome) });
+      return true;
+    } catch (e) {
+      console.warn("Couldn't keep the scanner timing", e);
+      return false;
+    }
+  }
+}
+
 export interface DiagnosticsSummary {
   count: number;
   bytes: number;
   keep: number;
+  /** Timing records kept beside the struggle records (deleted with them). */
+  timings?: number;
 }
 
 export const diagnosticsSummary = () => api<DiagnosticsSummary>("/api/scan/diagnostics?limit=1");
-export const deleteDiagnostics = () => api<{ deleted: number }>("/api/scan/diagnostics", { method: "DELETE" });
+export const deleteDiagnostics = () => api<{ deleted: number; timings?: number }>("/api/scan/diagnostics", { method: "DELETE" });

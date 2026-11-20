@@ -4,7 +4,7 @@
 //! **What goes.** Every row the account owns: sessions and the Yama builds its devices reported, script keys, OAuth connections (grants,
 //! their tokens and codes), its invite, decks and their
 //! versions and checks, the collection and containers, synced ops, plans (every `plan_*` table),
-//! lab runs, experiments and usage, scan photos, advisor keys, settings, conversations, usage and its shared-key grant, online-play settings, calendar
+//! lab runs, experiments and usage, scan photos (and their crops' files), scanner diagnostics (files and timings), advisor keys, settings, conversations, usage and its shared-key grant, online-play settings, calendar
 //! watches, bug reports, records of table games it deleted, "View as" sessions of it or by it (the audit rows go too), and the account itself. Its watched games stop, any live online game it is in
 //! ends, and its shared-table sockets close (tables it hosts end for their guests).
 //!
@@ -107,6 +107,7 @@ pub const USER_COLUMNS: &[(&str, &str)] = &[
     ("research_reviews", "owner_id"),
     ("scan_diagnostics", "owner_id"),
     ("scan_samples", "owner_id"),
+    ("scan_timings", "owner_id"),
     ("sealed_quote_ids", "owner_id"),
     ("sealed_quotes", "owner_id"),
     ("sell_offers", "owner_id"),
@@ -148,9 +149,10 @@ const OWNED_DELETES: &[(&str, &str)] = &[
     ("deleted_games", "deleted_by"),
     // Bug reports it sent.
     ("bug_reports", "owner_id"),
-    // Scan photos it kept for improving the scanner.
+    // Scan photos it kept for improving the scanner, and its scanner diagnostics.
     ("scan_diagnostics", "owner_id"),
     ("scan_samples", "owner_id"),
+    ("scan_timings", "owner_id"),
     // Online play: saved stops and full control.
     ("play_prefs", "user_id"),
     ("assistant_changes", "owner_id"),
@@ -245,8 +247,10 @@ pub async fn delete_account(st: &AppState, id: &str) -> AppResult<DeleteReport> 
     // After the commit, so a table socket that subscribes too late to hear this finds the account
     // gone instead (`table_rooms::connect`).
     st.rooms.end_for(id);
-    // Scanner diagnostics keep their images as files (scan_diagnostics.rs): they go too.
+    // Scanner diagnostics keep their images as files (scan_diagnostics.rs), and scan photos their
+    // full-resolution crops (scan_samples.rs): they go too.
     crate::scan_diagnostics::remove_owner_files(&st.cfg.data_dir, id);
+    crate::scan_samples::remove_owner_files(&st.cfg.data_dir, id);
     report.email = email;
     Ok(report)
 }

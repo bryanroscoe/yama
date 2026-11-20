@@ -13,6 +13,10 @@
 //! [`KEEP_BYTES`] of images (oldest go first), uploads are rate limited, and they're deleted on
 //! request (one, or all) and with the account (admin/delete.rs). The owner reads them here and
 //! through the MCP tools `list_scan_diagnostics` and `get_scan_diagnostic`.
+//!
+//! Since 20 Nov 2026 the scanner also sends a small timing record, with no images, for every card
+//! it settles, struggled with or not (scan_timings.rs, `/api/scan/diagnostics/timings`): kept
+//! apart from these under their own cap, and deleted with them by "Delete them".
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
@@ -245,6 +249,7 @@ pub fn image_url(id: &str, name: &str) -> String {
 pub async fn list(pool: &SqlitePool, owner: &str, offset: i64, limit: i64) -> AppResult<Value> {
     let (count, bytes): (i64, Option<i64>) =
         sqlx::query_as("SELECT COUNT(*), SUM(bytes) FROM scan_diagnostics WHERE owner_id = ?").bind(owner).fetch_one(pool).await?;
+    let timings: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM scan_timings WHERE owner_id = ?").bind(owner).fetch_one(pool).await?;
     let rows: Vec<(String, String, String, Option<String>, Option<String>, String, String, i64)> = sqlx::query_as(
         "SELECT id, created_at, outcome, card_name, engine, detail, images, bytes FROM scan_diagnostics
           WHERE owner_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?",
@@ -267,7 +272,8 @@ pub async fn list(pool: &SqlitePool, owner: &str, offset: i64, limit: i64) -> Ap
             })
         })
         .collect();
-    Ok(json!({ "count": count, "bytes": bytes.unwrap_or(0), "keep": KEEP, "keep_bytes": KEEP_BYTES, "items": items }))
+    // The timing records kept beside these (scan_timings.rs), read with get_scan_timings.
+    Ok(json!({ "count": count, "bytes": bytes.unwrap_or(0), "keep": KEEP, "keep_bytes": KEEP_BYTES, "timings": timings, "items": items }))
 }
 
 /// One record in full (without image bytes), or None when it isn't this account's.
@@ -353,7 +359,9 @@ async fn delete_all(State(st): State<AppState>, CurrentUser(user): CurrentUser) 
     for id in gone.iter().filter(|id| valid_id(id)) {
         remove_record_files(&st.cfg.data_dir, &user.id, id);
     }
-    Ok(Json(json!({ "deleted": gone.len() })))
+    // and the timing records, kept apart from these but deleted with them.
+    let timings = crate::scan_timings::delete_all(&st.pool, &user.id).await?;
+    Ok(Json(json!({ "deleted": gone.len(), "timings": timings })))
 }
 
 #[cfg(test)]

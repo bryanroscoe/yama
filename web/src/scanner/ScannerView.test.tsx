@@ -520,6 +520,21 @@ describe("scan photos of corrections", () => {
   });
 });
 
+describe("diagnostics' timing records", () => {
+  it("say how the printing filed was settled", async () => {
+    const { printingWay } = await import("./ScannerView");
+    const sol = { scryfall_id: "sol-en" };
+    expect(printingWay({ how: "only", settledId: "sol-en" }, sol)).toBe("only");
+    expect(printingWay({ how: "collector", settledId: "sol-en" }, sol)).toBe("collector");
+    expect(printingWay({ how: "set", settledId: "sol-en" }, sol)).toBe("set");
+    expect(printingWay({ how: "picked" }, sol)).toBe("picked");
+    expect(printingWay({ how: null }, sol)).toBe("picked");
+    // Another printing than the scanner settled, or after Wrong printing: a correction.
+    expect(printingWay({ how: "picked", settledId: "sol-ja" }, sol)).toBe("corrected");
+    expect(printingWay({ how: "collector", misread: { scryfall_id: "sol-ja" } as never }, sol)).toBe("corrected");
+  });
+});
+
 describe("the card just filed by its name stays held (with the title-first change)", () => {
   it("knows a two-faced card by either face, from art or a title read", async () => {
     const { fusedHeld, sameCardName } = await import("./ScannerView");

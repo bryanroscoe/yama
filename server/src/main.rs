@@ -50,6 +50,7 @@ mod scan;
 mod scan_art;
 mod scan_diagnostics;
 mod scan_samples;
+mod scan_timings;
 mod sell;
 mod sharing;
 #[cfg(test)]
@@ -319,7 +320,7 @@ async fn main() -> anyhow::Result<()> {
         }
         Some("precon-evidence") => precon_evidence::cli(&pool, &args[1..]).await,
         // Every scan photo shared with Yama's developer, as JPEGs and a manifest (scan_samples.rs).
-        Some("scan-samples-export") => scan_samples::export_cli(&pool, &args[1..]).await,
+        Some("scan-samples-export") => scan_samples::export_cli(&pool, &cfg.data_dir, &args[1..]).await,
         Some("commander-evidence") => public_commanders::cli(&pool, &args[1..]).await,
         // Scores the precon catalog and a folder of lists; changes no data (docs/deck-analysis.md).
         Some("power-eval") => analysis::eval::cli(&pool, &args[1..]).await,

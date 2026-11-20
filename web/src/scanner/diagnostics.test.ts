@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { applyH, rectQuad, squareToQuad, warpRegion } from "./image";
-import { DIAGNOSTICS_KEY, STRIP, ScanRecord, cardOf, setDiagnosticsOn, stripQuad, stripSize } from "./diagnostics";
+import { DIAGNOSTICS_KEY, STRIP, SYMBOL, ScanRecord, TimingRecord, cardOf, setDiagnosticsOn, stripQuad, stripSize, symbolOf, symbolSize } from "./diagnostics";
 import { COLLECTOR_REGION, RIGHT_COLLECTOR_REGION } from "./pipeline";
 
 const posted = vi.hoisted(() => ({ bodies: [] as unknown[] }));
@@ -160,5 +160,98 @@ describe("scanner diagnostics", () => {
     expect(at(card.width - 6, card.height - 6)).toBe(250);
     // Never enlarged past CARD_SIDE.
     expect(cardOf({ image: { width, height, data }, quad: rectQuad(0, 0, 1000, 1000) }).height).toBe(640);
+  });
+
+  it("keeps the set symbol's area at the card's own resolution, never enlarged, at most 800 px wide", () => {
+    // The type line's right end: card y 0.50 to 0.63, x 0.70 to 1.
+    expect(SYMBOL).toEqual({ x0: 0.7, y0: 0.5, x1: 1, y1: 0.63 });
+    // A card 1,500 px wide: a 450 px symbol crop, in the card's own proportions.
+    expect(symbolSize(rectQuad(0, 0, 1500, 2095))).toEqual({ width: 450, height: Math.round((450 * 0.13 * 88) / (0.3 * 63)) });
+    // A card filling a 4K frame and more: capped.
+    expect(symbolSize(rectQuad(0, 0, 3000, 4190)).width).toBe(800);
+    // Only the card: a card whose right edge is red, on a grey frame, gives a crop of the card alone.
+    const width = 1000;
+    const height = 1000;
+    const data = new Uint8ClampedArray(width * height * 4).fill(90);
+    const quad = rectQuad(100, 100, 630, 880);
+    for (let y = 100; y < 980; y += 1) for (let x = 100; x < 730; x += 1) data.set([250, 20, 20, 255], (y * width + x) * 4);
+    const crop = symbolOf({ image: { width, height, data }, quad });
+    expect(crop.width).toBe(189);
+    for (let i = 0; i < crop.data.length; i += 4) expect(crop.data[i]).toBe(250);
+  });
+});
+
+describe("scanner timing records", () => {
+  beforeEach(() => {
+    posted.bodies.length = 0;
+    setDiagnosticsOn(true);
+  });
+
+  const named = { rule: "leads" as const, mode: "printing" as const, ms: 640.4, frames: 3, top: 0.78123, lead: 0.1412, camera: "2160×3840", embed: "gallery/query.onnx" };
+
+  it("sends every card it's made for, once, with no images", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-20T10:00:00Z"));
+    const t = new TimingRecord(named);
+    vi.setSystemTime(new Date("2026-11-20T10:00:01.200Z"));
+    t.printed("collector");
+    vi.setSystemTime(new Date("2026-11-20T10:00:03Z"));
+    // A later tap on the same printing doesn't change how it was settled.
+    t.printed("picked");
+    t.detail.auto = true;
+    vi.useRealTimers();
+    expect(await t.send("filed")).toBe(true);
+    expect(await t.send("filed")).toBe(false);
+    expect(posted.bodies).toEqual([
+      {
+        path: "/api/scan/diagnostics/timings",
+        outcome: "filed",
+        rule: "leads",
+        mode: "printing",
+        photo: false,
+        ms: 640,
+        frames: 3,
+        top: 0.781,
+        lead: 0.141,
+        printing: "collector",
+        printing_ms: 1200,
+        camera: "2160×3840",
+        embed: "gallery/query.onnx",
+        detail: { auto: true },
+      },
+    ]);
+  });
+
+  it("a correction replaces how the printing was settled", () => {
+    const t = new TimingRecord(named);
+    t.printed("collector");
+    t.printed("corrected");
+    expect(t.printedAs).toBe("corrected");
+    expect(t.body("filed").printing).toBe("corrected");
+  });
+
+  it("a correction after filing is a record of its own, marked so", async () => {
+    const t = new TimingRecord(named);
+    expect(t.afterFiling()).toBe(t);
+    await t.send("filed");
+    const next = t.afterFiling();
+    expect(next).not.toBe(t);
+    next.printed("corrected");
+    expect(await next.send("filed")).toBe(true);
+    expect(posted.bodies[1]).toMatchObject({ rule: "leads", printing: "corrected", detail: { after_filing: true } });
+  });
+
+  it("is never sent once the switch was turned off, or under another account", async () => {
+    const t = new TimingRecord(named);
+    setDiagnosticsOn(false);
+    setDiagnosticsOn(true);
+    expect(await t.send("filed")).toBe(false);
+    const account = new AbortController();
+    const u = new TimingRecord(named, account.signal);
+    account.abort();
+    expect(await u.send("filed")).toBe(false);
+    setDiagnosticsOn(false);
+    expect(await new TimingRecord(named).send("filed")).toBe(false);
+    expect(posted.bodies).toHaveLength(0);
   });
 });

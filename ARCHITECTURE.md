@@ -182,11 +182,14 @@ would make a later move a rewrite. The schema is the numbered migrations in
   a value changes. A missing price is `NULL` and is shown as "no price", never as 0.
 - **Games are event logs.** An in-person game is a list of table events; an online game is a
   seed and an action log. Both use the same `games` table, so stats cover both.
-- **Files beside the database: scanner diagnostics only.** Their images (a card's full-resolution
-  bottom strip and a 640 px photo, per record) are files under the data directory,
-  `scan-diagnostics/<owner>/<id>/`, with a metadata row in `scan_diagnostics`; deleting the row,
-  the record or the account removes them
-  ([Scanner diagnostics](#scanner-diagnostics-15-november-2026)).
+- **Files beside the database: scanner diagnostics and scan photo crops only.** Diagnostics'
+  images (a card's full-resolution bottom strip and set symbol, and a 640 px photo, per record)
+  are files under the data directory, `scan-diagnostics/<owner>/<id>/`, with a metadata row in
+  `scan_diagnostics`; a scan photo's full-resolution crops (its set symbol and collector strip)
+  are files under `scan-samples/<owner>/<id>/`, listed in its `scan_samples` row (the photo
+  itself stays in the database). Deleting the row, the record, the photo or the account removes
+  them ([Scanner diagnostics](#scanner-diagnostics-15-november-2026),
+  [Scanner timings and full-resolution crops](#scanner-timings-and-full-resolution-crops-20-november-2026)).
 - **Backups.** The release gate copies an existing database before every activation. A nightly job on
   the host keeps verified snapshots for 14 days, and another copies the live database offsite.
 
@@ -340,8 +343,10 @@ into `/mcp` with a token scoped to that one question. Details:
   per account and sign-in for its assistant (`list_devices`) and admins, never shown publicly
   ([Which build each device runs](#which-build-each-device-runs-15-november-2026)).
 - **Scanner diagnostics are their owner's alone.** Opt-in per device; owner-only routes and MCP
-  tools; never shared with an admin, unlike shared scan photos
-  ([Scanner diagnostics](#scanner-diagnostics-15-november-2026)).
+  tools; never shared with an admin, unlike shared scan photos. Their timing records (one per card
+  settled) are the same
+  ([Scanner diagnostics](#scanner-diagnostics-15-november-2026),
+  [Scanner timings and full-resolution crops](#scanner-timings-and-full-resolution-crops-20-november-2026)).
 - **A list checked without an account belongs to nobody.** `POST /api/public/deck-check` takes
   no session, reads card data and market prices only, stores nothing and sends the list to no
   other service ([Check a deck without an account](#check-a-deck-without-an-account-2026-11-12)).
@@ -416,7 +421,7 @@ section 4 is the first sketch; the current system is [above](#the-system-at-a-gl
 - **Shopping:** [Live store stock (13 November 2026)](#live-store-stock-13-november-2026).
 - **The Android app:** [The Android app, sideloaded (13 November 2026)](#the-android-app-sideloaded-13-november-2026), [Which build each device runs (15 November 2026)](#which-build-each-device-runs-15-november-2026).
 - **Game night:** [Table and playgroup stats (2026-10-19)](#table-and-playgroup-stats-2026-10-19).
-- **The scanner:** [Scan photos shared with the developer (15 November 2026)](#scan-photos-shared-with-the-developer-15-november-2026), [The scanner's own art supplement (15 November 2026)](#the-scanners-own-art-supplement-15-november-2026), [Yama's own query embedder for the scanner (18 November 2026)](#yamas-own-query-embedder-for-the-scanner-18-november-2026), [Scanner diagnostics (15 November 2026)](#scanner-diagnostics-15-november-2026).
+- **The scanner:** [Scan photos shared with the developer (15 November 2026)](#scan-photos-shared-with-the-developer-15-november-2026), [The scanner's own art supplement (15 November 2026)](#the-scanners-own-art-supplement-15-november-2026), [Yama's own query embedder for the scanner (18 November 2026)](#yamas-own-query-embedder-for-the-scanner-18-november-2026), [Scanner diagnostics (15 November 2026)](#scanner-diagnostics-15-november-2026), [Scanner timings and full-resolution crops (20 November 2026)](#scanner-timings-and-full-resolution-crops-20-november-2026).
 - **Cards, collection and prices:** [Mana symbols (2026-11-12)](#mana-symbols-2026-11-12), [Release calendar and What's new (2026-10-19)](#release-calendar-and-whats-new-2026-10-19), [A deck's cards in the collection, and Mythic re-imports (2026-10-23)](#a-decks-cards-in-the-collection-and-mythic-re-imports-2026-10-23), [Deck market values (2026-10-27)](#deck-market-values-2026-10-27), [Scan this deck (2026-10-29)](#scan-this-deck-2026-10-29), [Mythic Tools bridge (2026-10-31, proposal)](#mythic-tools-bridge-2026-10-31-proposal), [Store trips (2026-11-01)](#store-trips-2026-11-01), [Deleting collection containers (2026-11-02)](#deleting-collection-containers-2026-11-02), [Sell lists for store buylists (2026-11-02)](#sell-lists-for-store-buylists-2026-11-02), [Local buylist offers (2026-11-02)](#local-buylist-offers-2026-11-02), [Price history (2026-11-02)](#price-history-2026-11-02), [Recording printed copies in a deck box (2026-11-02)](#recording-printed-copies-in-a-deck-box-2026-11-02), [Sections in boxes, and scanning a box (16 November 2026)](#sections-in-boxes-and-scanning-a-box-16-november-2026).
 - **Decks, plans and sharing:** [Swappable spares in the deck box (15 November 2026)](#swappable-spares-in-the-deck-box-15-november-2026), [Brackets, deck stats and exports (2026-10-19)](#brackets-deck-stats-and-exports-2026-10-19), [Deck import (2026-10-22)](#deck-import-2026-10-22), [Sharing and deck configurations (2026-10-28)](#sharing-and-deck-configurations-2026-10-28), [Review, installed decks and the Lab tab (2026-10-28)](#review-installed-decks-and-the-lab-tab-2026-10-28), [Check this deck (2026-11-01)](#check-this-deck-2026-11-01), [Deck configurations and quieter editing (2026-11-03)](#deck-configurations-and-quieter-editing-2026-11-03), [One plan page (2026-11-04)](#one-plan-page-2026-11-04), [Printing with MakePlayingCards (2026-11-05)](#printing-with-makeplayingcards-2026-11-05), [Plans: one plan per deck (2026-11-06)](#plans-one-plan-per-deck-2026-11-06), [Site design pass (2026-11-08)](#site-design-pass-2026-11-08), [Public by default and the navigation (2026-11-12)](#public-by-default-and-the-navigation-2026-11-12), [Check a deck without an account (2026-11-12)](#check-a-deck-without-an-account-2026-11-12).
 - **Assistants:** [Ask Claude, the advisor (2026-10-22)](#ask-claude-the-advisor-2026-10-22), [Yama's tools for Claude (MCP, 2026-10-22)](#yamas-tools-for-claude-mcp-2026-10-22).
@@ -3056,6 +3061,44 @@ collector line at about 7 px, too small to replay a printing read. So, a new dat
 - **Replay.** `web/src/scanner/eval/real.test.ts` replays exported records (and kept photos with
   their art scores) through today's evidence, hold budgets, collector-line crops and title/art
   fusion, and reports right, wrong and filed, unsettled, and frames to settle.
+
+Since 20 November 2026 a record also keeps the set symbol's area, and a timing record is sent
+for every card settled, not only the struggles: see
+[Scanner timings and full-resolution crops](#scanner-timings-and-full-resolution-crops-20-november-2026).
+
+## Scanner timings and full-resolution crops (20 November 2026)
+
+Bryan, 20 Nov 2026: "We can get more. I think we should… get all of these merged and move it
+along." Two things blocked measuring and training the scanner's next models
+(docs/plans/scanner-models.md): the diagnostics kept only scans that struggled, so nothing
+measured how fast ordinary scans settle (the lead rule and Yama's art model couldn't be measured
+live); and the kept scan photos are 640 px, so the set symbol a printing model needs is about
+20 px. So, two data flows:
+
+- **A timing record for every card settled, under Scanner diagnostics.** While the switch is on,
+  each card the scanner names sends one small record with no images (`POST
+  /api/scan/diagnostics/timings`, `scan_timings`, migration 0101): the time from the card
+  appearing to it being named and the frames read, the rule that named it, the art's top score
+  and lead, how the printing was settled and how long that took, the camera's resolution and the
+  art model. Same privacy as the struggle records: owner-only routes and the MCP tool
+  `get_scan_timings` (a summary: medians, the share settled by each rule, by art model), refused
+  to View as (they're under `/api/scan/diagnostics`), sent only under the account that started
+  them while the switch is on, deleted by "Delete them" and with the account. Their own cap
+  (2,000 records and 2 MB per account, 2,000 uploads an hour), so they never push the struggle
+  records out. The scanner notes when a card appeared only while the switch is on: nothing extra
+  per frame otherwise.
+- **Full-resolution crops with each scan photo.** When a scan photo is kept, the scanner also cuts
+  the set symbol's area (card y 0.50 to 0.63, x 0.70 to 1, at most 800 px wide) and the collector
+  strip from the frame the card was found in, warped upright from its corners at the card's own
+  resolution there: only the card, once per photo kept. They follow their photo exactly: the same
+  switch, the same sharing with Yama's developer (`/api/admin/scan-samples/{id}/crops/{name}`, the
+  Scan photos page, and `yama-server scan-samples-export`, which writes them with their sizes in
+  the manifest), deleted with it by the caps, "Delete them" and account deletion. They're files
+  beside the database (`scan-samples/<owner>/<id>/<name>.jpg`), written before the row and removed
+  if it isn't committed. The caps count them: 2,000 photos, 100 MB of photos in the database as
+  before, and 400 MB of photos and crops together, as a crop pair is estimated at two to four times
+  a photo (docs/scanner.md, "Full-resolution crops with each scan photo"). The switch and the
+  privacy page say so. Struggle records keep the same symbol crop as `symbol`, beside `strip`.
 
 ## Swappable spares in the deck box (15 November 2026)
 

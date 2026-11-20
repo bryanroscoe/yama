@@ -4,8 +4,14 @@
 // default and the photos it saves are shared with Yama's developer (Bryan: "I want them to send it
 // to me"); the switch says so. Best effort: a photo that can't be
 // sent is dropped, and nothing is kept while the switch is off. Server: server/src/scan_samples.rs.
+//
+// Since 20 Nov 2026 each photo also keeps two full-resolution crops of the card, warped upright
+// from its corners (Bryan: a printing model needs the set symbol, about 20 px in the 640 px
+// photo): the set symbol's area and the collector strip (`cropsOf`). Only the card; made once per
+// photo kept, never per frame.
 
 import { api } from "../api";
+import { encodeJpeg, stripOf, symbolOf } from "./diagnostics";
 import type { Quad, RgbaImage } from "./types";
 
 /**
@@ -105,15 +111,46 @@ export async function encodeShot(shot: Shot): Promise<{ image: string; quad: Qua
   return { image: btoa(bin), quad: shot.quad.map(([x, y]) => [x * k, y * k]) as Quad };
 }
 
+/** A crop kept with a photo: base64 JPEG and its size. */
+export interface Crop {
+  name: "symbol" | "strip";
+  image: string;
+  width: number;
+  height: number;
+}
+
+/** JPEG quality of the crops: what a model or a replay reads, so a little above the photo's. */
+const CROP_QUALITY = 0.85;
+
+/**
+ * The card's set symbol area and collector strip, warped upright from its corners at the card's
+ * own resolution in the shot (never enlarged): what a printing model and a collector-line replay
+ * read. Only the card, never the frame around it.
+ */
+export async function cropsOf(shot: Shot): Promise<Crop[]> {
+  const out: Crop[] = [];
+  for (const [name, img] of [
+    ["symbol", symbolOf(shot)],
+    ["strip", stripOf(shot)],
+  ] as const) {
+    const enc = await encodeJpeg(img, Math.max(img.width, img.height), CROP_QUALITY);
+    if (enc) out.push({ name, image: enc.data, width: enc.width, height: enc.height });
+  }
+  return out;
+}
+
 /** Keep a photo with its label, if the person has Save scan photos on. Never throws. */
 export async function keepSample(shot: Shot | null | undefined, label: SampleLabel): Promise<void> {
   if (!shot || !savingPhotos()) return;
   try {
     const encoded = await encodeShot(shot);
     if (!encoded) return;
+    const crops = await cropsOf(shot);
+    // Turned off while the crops were made: nothing is sent.
+    if (!savingPhotos()) return;
     // `shared`: this scanner tells the person, next to the switch, that saved photos are shared
     // with Yama's developer (server/src/scan_samples.rs keeps older photos out of that).
-    await api("/api/scan/samples", { method: "POST", json: { ...label, ...encoded, shared: true } });
+    await api("/api/scan/samples", { method: "POST", json: { ...label, ...encoded, crops, shared: true } });
   } catch (e) {
     console.warn("Couldn't keep the scan photo", e);
   }
@@ -122,6 +159,7 @@ export async function keepSample(shot: Shot | null | undefined, label: SampleLab
 export interface SampleSummary {
   count: number;
   bytes: number;
+  crop_bytes?: number;
   keep: number;
 }
 

@@ -16,7 +16,7 @@ import { loadArtRecognizer, NO_ART_MODEL, RECOGNIZER_SHORT_SIDE, type ArtRecogni
 import { NameIndex } from "./fuzzy";
 import { normaliseName } from "./parse";
 import { applyH, rectQuad, squareToQuad } from "./image";
-import { deleteDiagnostics, diagnosticsOn, diagnosticsSummary, setDiagnosticsOn, ScanRecord, type DiagnosticsSummary, type Outcome, type Reason } from "./diagnostics";
+import { deleteDiagnostics, diagnosticsOn, diagnosticsSummary, setDiagnosticsOn, ScanRecord, TimingRecord, type DiagnosticsSummary, type Outcome, type PrintingWay, type Reason, type SettleRule } from "./diagnostics";
 import type { StripQuality } from "./quality";
 import { readCloseup, readCollectorLines, readTitles, scanFrame, SURE } from "./pipeline";
 import { artHoldFrame, AWAY_FRAMES, hold, holdRead, type ArtHold, type Hold } from "./hold";
@@ -207,6 +207,8 @@ interface Found {
   correcting?: ScanCandidate;
   /** Scanner diagnostics (diagnostics.ts): this card's record, when they're on. Carried through Wrong card and Wrong printing. */
   rec?: ScanRecord;
+  /** Scanner diagnostics' timing record for this card (diagnostics.ts, `TimingRecord`): every card settled, when they're on. */
+  timing?: TimingRecord;
   /** The person asked to see the other printings. */
   picking: boolean;
   /** Reading the collector line to tell printings apart. */
@@ -423,6 +425,12 @@ const optionsNote = (printings: Printing[]) =>
 /** A strip's sharpness and glare, rounded, for a frame note. */
 const qualityNote = (q: StripQuality | null) => (q ? { sharpness: Math.round(q.sharpness), clipped: Math.round(q.clipped * 1000) / 1000 } : {});
 
+/** A card's timing record once the person said it's another card (Wrong card): the same record, marked. */
+function cardCorrected(t: TimingRecord | undefined): TimingRecord | undefined {
+  if (t) t.detail.card_corrected = true;
+  return t;
+}
+
 /** A card's record with one more reason it's kept (a fresh one when the record was already sent). */
 function withReason(rec: ScanRecord | undefined, reason: Reason): ScanRecord | undefined {
   const r = rec?.continued();
@@ -553,6 +561,12 @@ export function ScannerView({
   const lookGoesOn = useRef(false);
   /** Records kept for a slow find this session: a cap, so they don't push every other kind out. */
   const slowKept = useRef(0);
+  /**
+   * With Scanner diagnostics on: when the card now in view first appeared, and the frames read
+   * since, for its timing record. Kept only while diagnostics are on, so it costs nothing per
+   * frame otherwise.
+   */
+  const appeared = useRef<{ at: number; frames: number } | null>(null);
   const foundSeq = useRef(0);
   const [phase, setPhase] = useState<Phase>("loading");
   const [status, setStatus] = useState(WAITING);
@@ -583,6 +597,8 @@ export function ScannerView({
   foundRef.current = found;
   /** What the camera actually delivers, e.g. "3840×2160". */
   const [camera, setCamera] = useState<string | null>(null);
+  const cameraLabel = useRef(camera);
+  cameraLabel.current = camera;
   /** The cameras on this device, named (cameras.ts); empty until the camera is allowed (labels are blank before). */
   const [cameras, setCameras] = useState<NamedCamera[]>([]);
   /** The camera chosen to open: a device id, or null for the browser's back camera. */
@@ -656,6 +672,31 @@ export function ScannerView({
     }
     return rec;
   };
+  /**
+   * A timing record for a card just named (with diagnostics on), or the one carried from the card
+   * before (Wrong card). `fallback` is the rule when the frame didn't say (a text read, the title
+   * close-up); `top`, the art's score for the card when the frame didn't give its matches. Before
+   * `newRecord`, which takes the frame's note.
+   */
+  const newTiming = (carry: TimingRecord | undefined, fallback: SettleRule, top?: number): TimingRecord | undefined => {
+    const seen = appeared.current;
+    appeared.current = null;
+    if (carry) return carry;
+    if (!diagRef.current) return undefined;
+    const ctx = scanCtx.current as { lock?: SettleRule; photo?: boolean; art?: { score: number }[]; lead?: number; top?: number } | null;
+    const photo = !!ctx?.photo;
+    return new TimingRecord({
+      rule: fallback === "typed" ? "typed" : (ctx?.lock ?? fallback),
+      mode: identityOnly ? "identity" : "printing",
+      photo,
+      ms: seen && !photo ? Date.now() - seen.at : undefined,
+      frames: photo ? 1 : seen?.frames,
+      top: ctx?.art?.[0]?.score ?? ctx?.top ?? top,
+      lead: ctx?.lead,
+      camera: cameraLabel.current ?? undefined,
+      embed: artRef.current?.embed ?? NO_ART_MODEL,
+    });
+  };
   /** A fresh record with the camera and text reader in use. */
   const baseRecord = () => {
     const rec = new ScanRecord();
@@ -691,9 +732,10 @@ export function ScannerView({
     rec.note("seek", { ms: Date.now() - looked.started, frames: looked.frames });
     void rec.send("left");
   };
-  /** The card is done with: send its record, if it was kept for anything. */
+  /** The card is done with: send its record, if it was kept for anything, and its timing record. */
   const endRecord = (outcome: Outcome, f: Found | null | undefined = foundRef.current) => {
     if (f?.rec) void f.rec.send(outcome);
+    if (f?.timing) void f.timing.send(outcome);
   };
   cameraNowRef.current = cameraNow as Record<string, unknown> | null;
   ocrNameRef.current = ocrName;
@@ -1087,8 +1129,9 @@ export function ScannerView({
 
   /** Show a card recognised by its art. `read` is a sharp view of it for the collector line. */
   const showArt = useCallback(
-    (r: Recognition, top: ArtMatch, read: { image: RgbaImage; quad: Quad } | null, carry: Pick<Found, "shot" | "guess" | "unlocked" | "rec" | "titled" | "leads"> = {}) => {
+    (r: Recognition, top: ArtMatch, read: { image: RgbaImage; quad: Quad } | null, carry: Pick<Found, "shot" | "guess" | "unlocked" | "rec" | "timing" | "titled" | "leads"> = {}) => {
       const seq = ++foundSeq.current;
+      const timing = newTiming(carry.timing, "sure", top.score);
       const rec = newRecord(carry.rec);
       rec?.setShot(read);
       if (rec) {
@@ -1099,6 +1142,7 @@ export function ScannerView({
         shot: read,
         ...carry,
         rec,
+        timing,
         name: top.name,
         method: "art",
         confidence: top.score,
@@ -1128,6 +1172,7 @@ export function ScannerView({
     (res: ScanResult, shot: Shot | null = null) => {
       const best = res.candidates[0]!;
       const seq = ++foundSeq.current;
+      const timing = newTiming(undefined, "text");
       const rec = newRecord();
       rec?.setShot(shot);
       if (rec) {
@@ -1138,6 +1183,7 @@ export function ScannerView({
       // reader's confidence is about the card, not proof of the printing).
       const f: Found = {
         rec,
+        timing,
         shot,
         known: { set: best.set, number: best.number, text: res.raw.collector },
         name: best.name,
@@ -1251,6 +1297,7 @@ export function ScannerView({
               blockedName.current = null;
               filedName.current = null;
               endSeek();
+              appeared.current = null;
             }
             if (!blocked.current && !blockedName.current) setDupe(null);
             last.current = undefined;
@@ -1282,6 +1329,11 @@ export function ScannerView({
             leadRun.step(null);
             setStatus(NEXT);
             return next(60);
+          }
+          // Diagnostics' timing record: the card in view appeared on this frame, or one more frame read.
+          if (diagRef.current) {
+            appeared.current ??= { at: Date.now(), frames: 0 };
+            appeared.current.frames += 1;
           }
           // Art that leads every other card (fuse.ts: at least LEAD_FLOOR, LEAD_MARGIN ahead) settles
           // which card without the title, like a sure match, once the same card has led
@@ -1430,6 +1482,11 @@ export function ScannerView({
         const flip = textFrame++ % 2 === 1;
         const guide: Quad = flip ? [upright[2], upright[3], upright[0], upright[1]] : upright;
         const res = await scanFrame(image, { ...reader, guide, tryUpsideDown: false });
+        // Diagnostics' timing record: with no detector, the card appeared when text was first read.
+        if (diagRef.current && res.candidates[0]) {
+          appeared.current ??= { at: Date.now(), frames: 0 };
+          appeared.current.frames += 1;
+        }
         if (!stop && handleText(res, false, true, { image, quad: res.quad })) return;
         if (!stop && !res.candidates[0]) setStatus("Line the card up with the frame");
         next(250);
@@ -1484,7 +1541,7 @@ export function ScannerView({
           const unlisted = r.matches[r.matches.length - 1]?.score;
           const lead = artLead(ranked, top, unlisted);
           const leading = !artUnknown && leadCounts({ locked: !!locked, share: leadShare() }) && leads(top.score, lead);
-          const photoCtx = (lock: LockRule) => ({ photo: true, lead: Math.round(lead * 1000) / 1000, lock });
+          const photoCtx = (lock: LockRule) => ({ photo: true, top: Math.round(top.score * 1000) / 1000, lead: Math.round(lead * 1000) / 1000, lock });
           if (!artUnknown && (top.score >= LOCK_ONCE || leading) && !needsTitle(ranked, unlisted)) {
             bmp.close();
             if (current()) {
@@ -1520,7 +1577,10 @@ export function ScannerView({
           const res = await readAt(hi.image, hi.quad, reader);
           if ((res.candidates[0]?.confidence ?? 0) >= SURE) {
             bmp.close();
-            if (current()) handleText(res, true, false, hi);
+            if (current()) {
+              scanCtx.current = { photo: true, lock: "text" };
+              handleText(res, true, false, hi);
+            }
             return;
           }
         }
@@ -1542,6 +1602,7 @@ export function ScannerView({
         if ((res.candidates[0]?.confidence ?? 0) >= SURE) break;
       }
       if (!current()) return;
+      scanCtx.current = { photo: true, lock: "text" };
       if (!res || !handleText(res, true, false, { image, quad: res.quad })) setStatus("Couldn't read that photo. Fill the photo with the card, or type the name.");
     } catch (err) {
       if (current()) setStatus(err instanceof Error ? err.message : String(err));
@@ -1552,15 +1613,17 @@ export function ScannerView({
   };
 
   /** A card typed by name: straight to its printings. */
-  const fromName = (name: string, how: "typed" | "name" = "typed", carry: Pick<Found, "shot" | "guess" | "rec"> = {}) => {
+  const fromName = (name: string, how: "typed" | "name" = "typed", carry: Pick<Found, "shot" | "guess" | "rec" | "timing"> = {}) => {
     const seq = ++foundSeq.current;
+    // A title read names the card ("title", from the frame), or the title close-up does.
+    const timing = newTiming(carry.timing, how === "typed" ? "typed" : "closeup");
     const rec = newRecord(carry.rec);
     rec?.setShot(carry.shot);
     if (rec) {
       rec.cardName = name;
       rec.note(carry.rec ? "renamed" : "found", { method: how === "typed" ? "typed" : "title", name });
     }
-    const f: Found = { name, method: "name", confidence: how === "typed" ? 1 : 0.9, others: [], options: null, sameArt: false, chosen: null, how: null, picking: false, ...carry, rec };
+    const f: Found = { name, method: "name", confidence: how === "typed" ? 1 : 0.9, others: [], options: null, sameArt: false, chosen: null, how: null, picking: false, ...carry, rec, timing };
     setFound(f);
     setShowAll(false);
     setWrongOpen(false);
@@ -1598,6 +1661,7 @@ export function ScannerView({
       guess: found.guess ?? guessOf(found),
       unlocked: found.unlocked,
       rec: withReason(found.rec, "wrong-card"),
+      timing: cardCorrected(found.timing),
     });
   };
 
@@ -1954,7 +2018,10 @@ export function ScannerView({
   onPrintingRef.current = onPrinting;
   useEffect(() => {
     onPrintingRef.current?.(chosen);
-  }, [chosen]);
+    // Diagnostics' timing record: the scanner settled the printing (the only one, or read), now.
+    const f = foundRef.current;
+    if (chosen && f?.timing && f.chosen === chosen && !identityOnly && (f.how === "only" || f.how === "set" || f.how === "collector")) f.timing.printed(f.misread ? "corrected" : f.how);
+  }, [chosen, identityOnly]);
   const ready = identityOnly || !!chosen;
   // When the next step is a tap, not the camera, say so on the camera view, buzz, and bring it into view.
   const tapNeeded: string | null =
@@ -1981,6 +2048,11 @@ export function ScannerView({
     const label = c ? `${c.name} (${c.set_code.toUpperCase()} ${c.collector_number})` : f.name;
     const card = candidateOf(f, c);
     keep(f, "added", card);
+    // Diagnostics' timing record: how the printing was settled, and whether Keep adding filed it.
+    if (f.timing) {
+      if (!identityOnly && c) f.timing.printed(printingWay(f, c));
+      f.timing.detail.auto = auto;
+    }
     // Diagnostics: how the card ended, and its record goes (when it was kept for anything).
     f.rec?.note("final", { id: c?.scryfall_id, set: c?.set_code, number: c?.collector_number, how: f.how, sure: !!f.sure, correcting: !!f.correcting, misread: f.misread?.scryfall_id });
     endRecord(f.how === "picked" ? "picked" : "filed", f);
@@ -2041,7 +2113,9 @@ export function ScannerView({
    * changes that copy. A scan photo is kept as a correction of the misread.
    */
   const wrongPrinting = (f: Found, misread: Printing, filed?: ScanCandidate) => {
-    const base: Found = { ...f, guess: f.guess ?? guessOf(f), misread, correcting: filed, chosen: null, how: null, sure: false, picking: false, error: undefined, rec: withReason(f.rec, "wrong-printing") };
+    // After filing the card's timing record has gone: the correction gets one of its own, marked so.
+    const timing = filed ? f.timing?.afterFiling() : f.timing;
+    const base: Found = { ...f, guess: f.guess ?? guessOf(f), misread, correcting: filed, chosen: null, how: null, sure: false, picking: false, error: undefined, rec: withReason(f.rec, "wrong-printing"), timing };
     base.rec?.note("misread", { id: misread.scryfall_id, set: misread.set_code, number: misread.collector_number, how: f.how });
     setJustAdded(null);
     setWrongOpen(false);
@@ -2628,7 +2702,7 @@ export function ScannerView({
                   </div>
                 )}
                 <div className="scan-other-ways">
-                  <NameEntry onPick={(n) => fromName(n, "typed", { shot: found.shot, guess: found.guess ?? guessOf(found), rec: withReason(found.rec, "wrong-card") })} />
+                  <NameEntry onPick={(n) => fromName(n, "typed", { shot: found.shot, guess: found.guess ?? guessOf(found), rec: withReason(found.rec, "wrong-card"), timing: cardCorrected(found.timing) })} />
                   <Button onClick={wrongAgain}>Scan it again</Button>
                 </div>
               </div>
@@ -2691,6 +2765,16 @@ export function ScannerView({
       {settingsBox}
     </div>
   );
+}
+
+/**
+ * How the printing filed was settled, for the timing record (diagnostics.ts): a correction when
+ * the person said the scanner's printing was wrong or filed another than it settled; otherwise how
+ * the scanner settled it (the only one, the locked sets' only one, the collector line), or a pick.
+ */
+export function printingWay(f: Pick<Found, "how" | "misread" | "settledId">, filed: Pick<Printing, "scryfall_id">): PrintingWay {
+  if (f.misread || (f.settledId && f.settledId !== filed.scryfall_id)) return "corrected";
+  return f.how === "only" || f.how === "set" || f.how === "collector" ? f.how : "picked";
 }
 
 /**
@@ -2782,7 +2866,7 @@ function SavePhotosSwitch() {
       />
       <span>
         <label htmlFor="scan-save-photos">
-          <strong>Save scan photos.</strong> Keep a small photo of each card you add or correct, with what it was, and share it with Yama's developer to test and improve the scanner. Only the card is kept, not the rest of the camera's view, and it's shown to no one else. On unless you turn it off; turning it off stops it.
+          <strong>Save scan photos.</strong> Keep a small photo of each card you add or correct, with what it was and two close-ups of the card from the camera (its set symbol and its bottom edge), and share them with Yama's developer to test and improve the scanner. Only the card is kept, not the rest of the camera's view, and it's shown to no one else. On unless you turn it off; turning it off stops it.
         </label>{" "}
         {on && summary && summary.count > 0 && (
           <>
@@ -2832,18 +2916,18 @@ function DiagnosticsSwitch({ on, onChange }: { on: boolean; onChange: (on: boole
       <input id="scan-diagnostics" type="checkbox" checked={on} onChange={(e) => onChange(e.target.checked)} />
       <span>
         <label htmlFor="scan-diagnostics">
-          <strong>Scanner diagnostics.</strong> When the scanner struggles with a card (you pick the printing, say it's the wrong card or printing, or it gives up), keep what it saw: the bottom edge of the card at the camera's full resolution, a small photo, everything it read and the camera's settings. Kept in your account only, for checking and improving the scanner; not shared. On this device.
+          <strong>Scanner diagnostics.</strong> When the scanner struggles with a card (you pick the printing, say it's the wrong card or printing, or it gives up), keep what it saw: the card's bottom edge and set symbol at the camera's full resolution, a small photo, everything it read and the camera's settings. For every card it settles, keep how long that took and how, with no pictures. Kept in your account only, for checking and improving the scanner; not shared. On this device.
         </label>{" "}
-        {summary && summary.count > 0 && (
+        {summary && (summary.count > 0 || (summary.timings ?? 0) > 0) && (
           <>
-            {summary.count} kept.{" "}
+            {summary.count} kept{summary.timings ? `, and ${summary.timings} timings` : ""}.{" "}
             <Button
               className="scan-alt"
               onClick={() =>
                 deleteDiagnostics().then(
                   (r) => {
-                    setSummary({ ...summary, count: 0, bytes: 0 });
-                    setNote(`Deleted ${r.deleted}.`);
+                    setSummary({ ...summary, count: 0, bytes: 0, timings: 0 });
+                    setNote(`Deleted ${r.deleted}${r.timings ? `, and ${r.timings} timings` : ""}.`);
                   },
                   (e: unknown) => setNote(e instanceof Error ? e.message : String(e)),
                 )

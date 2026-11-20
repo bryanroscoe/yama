@@ -1494,7 +1494,7 @@ pub(super) const TOOLS: &[Tool] = &[
         name: "list_scan_diagnostics",
         aliases: &[],
         title: "Your scanner diagnostics",
-        description: "The scanner diagnostics this account kept (Scan settings, off by default): one per card the scanner struggled with, newest first, with how it ended, why it was kept and its images. Read one with get_scan_diagnostic.",
+        description: "The scanner diagnostics this account kept (Scan settings, off by default): one per card the scanner struggled with, newest first, with how it ended, why it was kept and its images. Read one with get_scan_diagnostic. The timing records kept for every card settled (timings, the count) are summarised by get_scan_timings.",
         schema: || json!({"type": "object", "properties": {
             "limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Records per page, default 20."},
             "cursor": {"type": "string", "maxLength": 200, "description": "next_cursor from the answer before."}}, "additionalProperties": false}),
@@ -1524,6 +1524,27 @@ pub(super) const TOOLS: &[Tool] = &[
         handler: run!(run_scan_diagnostic),
         stages: None,
         output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
+    },
+    Tool {
+        name: "get_scan_timings",
+        aliases: &[],
+        title: "How fast your scans settle",
+        description: "The timing records Scanner diagnostics keeps (Scan settings, off by default): one for every card the scanner settled, struggled with or not, with no images. Gives how long cards took from appearing to being named (median, 90th percentile, frames read), the share named by each rule (sure art, leads, twice, title, text, closeup, typed), how printings were settled (only, set, collector, picked, corrected) and how long that took, and the same by art model and by mode (printing: the collection; identity: deck and box scans). Then the newest records, a page at a time. Live camera times only: photos and typed names aren't timed.",
+        schema: || json!({"type": "object", "properties": {
+            "since": {"type": "string", "maxLength": 40, "description": "Only records from this date or moment (2026-11-20)."},
+            "model": {"type": "string", "maxLength": 200, "description": "Only records from this art model, as the answer's models list names it."},
+            "mode": {"type": "string", "enum": ["printing", "identity"], "description": "Only the collection (printing) or deck and box scans (identity)."},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Records per page, default 20."},
+            "cursor": {"type": "string", "maxLength": 200, "description": "next_cursor from the answer before."}}, "additionalProperties": false}),
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_scan_timings),
+        stages: None,
+        output: Some(registry::paged),
         untrusted: None,
         renamed: &[],
         needs: Needs::Nothing,
@@ -1615,6 +1636,20 @@ async fn run_scan_diagnostic(c: Ctx<'_>, args: &Value) -> AppResult<String> {
     }
     let one = crate::scan_diagnostics::one(pool, &c.user.id, id).await?.ok_or_else(|| AppError::bad(format!("No scan diagnostic {id} on this account. list_scan_diagnostics lists them.")))?;
     Ok(serde_json::to_string_pretty(&one).map_err(anyhow::Error::from)?)
+}
+
+async fn run_scan_timings(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let arg = |k: &str| args.get(k).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned);
+    let filter = crate::scan_timings::Filter { since: arg("since"), model: arg("model"), mode: arg("mode") };
+    if filter.mode.as_deref().is_some_and(|m| !crate::scan_timings::MODES.contains(&m)) {
+        return Err(AppError::bad("mode is printing or identity"));
+    }
+    let scope = super::page::scope("scan_timings", &[filter.since.as_deref().unwrap_or(""), filter.model.as_deref().unwrap_or(""), filter.mode.as_deref().unwrap_or("")]);
+    let page = super::page::page(args, &scope, 20, 100)?;
+    let mut out = crate::scan_timings::summary(&c.st.pool, &c.user.id, &filter, page.offset, page.limit).await?;
+    let total = out["count"].as_u64().unwrap_or(0) as usize;
+    out["next_cursor"] = json!(page.next(&scope, total));
+    Ok(out.to_string())
 }
 
 #[allow(unused_variables)]

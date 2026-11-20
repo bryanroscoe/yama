@@ -258,6 +258,9 @@ export interface SharedScanSample {
   camera: string | null;
   bundle: string | null;
   bytes: number;
+  /** Full-resolution crops of the card kept with the photo (since 20 Nov 2026; none before). */
+  crops?: { name: "symbol" | "strip"; width: number | null; height: number | null; bytes: number; url: string }[];
+  crop_bytes?: number;
 }
 
 export interface SharedScanPage {

@@ -8,7 +8,8 @@ import { adminApi, type SharedScanSample } from "./api";
 /**
  * Scan photos people's scanners shared with Yama's developer (server/src/scan_samples.rs;
  * ARCHITECTURE.md, "Scan photos shared with the developer"), newest first. Only photos saved
- * since the switch said they're shared appear here. For bulk work, `yama-server
+ * since the switch said they're shared appear here, with their full-resolution crops of the card
+ * (the set symbol and the collector strip, since 20 Nov 2026). For bulk work, `yama-server
  * scan-samples-export` on the server writes them all with a manifest.
  */
 export function ScanPhotosPage() {
@@ -52,7 +53,10 @@ function SampleRow({ s }: { s: SharedScanSample }) {
   const said = s.label_name ?? (s.kind === "wrong" ? "not said" : "unknown");
   return (
     <li className="scan-sample-row">
-      <SamplePhoto id={s.id} alt={`Scan photo of ${said}`} />
+      <SamplePhoto path={`/api/admin/scan-samples/${encodeURIComponent(s.id)}/image`} alt={`Scan photo of ${said}`} width={120} />
+      {s.crops?.map((c) => (
+        <SamplePhoto key={c.name} path={c.url} alt={`${c.name === "symbol" ? "Set symbol" : "Collector strip"} of ${said}, ${c.width} × ${c.height}`} width={c.name === "symbol" ? 120 : 200} />
+      ))}
       <div className="admin-text">
         <b>
           {KIND[s.kind]}: {said}
@@ -75,13 +79,13 @@ function SampleRow({ s }: { s: SharedScanSample }) {
  * The photo, fetched with the same sign-in as the rest of the API (a bearer token in the Android
  * app, where a plain image URL would carry none), shown from a blob URL that's released after.
  */
-function SamplePhoto({ id, alt }: { id: string; alt: string }) {
+function SamplePhoto({ path, alt, width }: { path: string; alt: string; width: number }) {
   const [url, setUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
     let live = true;
     let made: string | null = null;
-    apiBlob(`/api/admin/scan-samples/${encodeURIComponent(id)}/image`).then(
+    apiBlob(path).then(
       (b) => {
         if (!live) return;
         made = URL.createObjectURL(b);
@@ -93,12 +97,12 @@ function SamplePhoto({ id, alt }: { id: string; alt: string }) {
       live = false;
       if (made) URL.revokeObjectURL(made);
     };
-  }, [id]);
+  }, [path]);
   if (failed) return <span className="dim small">Photo didn't load</span>;
   if (!url) return <span className="scan-sample-blank" aria-hidden="true" />;
   return (
     <a href={url} target="_blank" rel="noreferrer">
-      <img src={url} alt={alt} width={120} />
+      <img src={url} alt={alt} width={width} />
     </a>
   );
 }
