@@ -6,6 +6,7 @@
 //
 // The page is served cross-origin isolated (COOP and COEP), so threads above 1 work; Yama itself isn't,
 // so its scanner runs one thread. Chrome is the installed one (playwright-core's "chrome" channel).
+import { createHash } from "node:crypto";
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
@@ -27,6 +28,18 @@ const embedFile = path.resolve(opt("embed", path.join(bundleDir, "embed.onnx")))
 const framesDir = path.resolve(opt("frames", "speed/frames"));
 const outFile = opt("out", null);
 const configs = args.length ? args : ["ep=wasm&threads=1"];
+
+// What was measured, so saved results can't be credited to other inputs: the bundle's version, and the
+// SHA-256 of each graph and of the frame set's index (its cards and true quads).
+const sha = (file) => createHash("sha256").update(fs.readFileSync(file)).digest("hex");
+const inputs = {
+  bundle: JSON.parse(fs.readFileSync(path.join(bundleDir, "manifest.json"), "utf8")).version ?? null,
+  detector: sha(path.join(bundleDir, "detector.onnx")),
+  embed: { file: path.basename(embedFile), sha256: sha(embedFile) },
+  search: sha(path.join(bundleDir, "search.onnx")),
+  frames: sha(path.join(framesDir, "index.json")),
+};
+console.log(`bundle ${inputs.bundle}, embed ${inputs.embed.file} ${inputs.embed.sha256.slice(0, 12)}, frames ${inputs.frames.slice(0, 12)}`);
 
 const built = await build({ input: path.join(here, "entry.ts"), write: false, output: { format: "esm" } });
 const recognizerJs = built.output[0].code;
@@ -59,6 +72,7 @@ for (const q of configs) {
   await page.goto(`${base}/bench/bench.html?${q}`);
   await page.waitForFunction(() => window.__bench, null, { timeout: 600_000 });
   const r = await page.evaluate(() => window.__bench);
+  r.inputs = inputs;
   await page.close();
   all.push(r);
   if (r.loadError) {
