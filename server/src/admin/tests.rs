@@ -557,6 +557,8 @@ async fn deleting_an_account_leaves_nothing_of_it() {
     let b_diag = fill(&pool, "scan_diagnostics", &[("owner_id", t(&b)), ("outcome", t("wrong")), ("detail", t("{}")), ("images", t("[]"))]).await;
     let v_timing = fill(&pool, "scan_timings", &[("owner_id", t(&v))]).await;
     let b_timing = fill(&pool, "scan_timings", &[("owner_id", t(&b))]).await;
+    let v_speed = fill(&pool, "scan_speed_tests", &[("owner_id", t(&v))]).await;
+    let b_speed = fill(&pool, "scan_speed_tests", &[("owner_id", t(&b))]).await;
     // When each last used "Delete them" (scan_clears.rs).
     fill(&pool, "scan_clears", &[("owner_id", t(&v)), ("kind", t("samples"))]).await;
     fill(&pool, "scan_clears", &[("owner_id", t(&b)), ("kind", t("samples"))]).await;
@@ -771,6 +773,8 @@ async fn deleting_an_account_leaves_nothing_of_it() {
     assert_eq!(count(&pool, "scan_diagnostics", "id", &b_diag).await, 1);
     assert_eq!(count(&pool, "scan_timings", "id", &v_timing).await, 0);
     assert_eq!(count(&pool, "scan_timings", "id", &b_timing).await, 1);
+    assert_eq!(count(&pool, "scan_speed_tests", "id", &v_speed).await, 0);
+    assert_eq!(count(&pool, "scan_speed_tests", "id", &b_speed).await, 1);
     assert_eq!(count(&pool, "lab_runs", "id", &global_run).await, 1);
     assert_eq!(count(&pool, "lab_worker_jobs", "run_id", &execution).await, 0);
     for ((table, column), before) in USER_COLUMNS.iter().zip(bystander_before) {

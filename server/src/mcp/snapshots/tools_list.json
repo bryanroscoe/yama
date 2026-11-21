@@ -2828,6 +2828,49 @@
     },
     {
       "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Scanner speed tests run on this account's devices (Scan settings, Test scanner speed), newest first: per model choice (the device's, the defaults, the faster options) median and p90 ms of a card finder pass, art embedding, search and a whole frame, the warm-up and the printing look, with the browser's cores, threads and WebGPU.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "cursor": {
+            "description": "next_cursor from the answer before.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "limit": {
+            "description": "Tests per page, default 5.",
+            "maximum": 20,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "name": "get_scan_speed_tests",
+      "outputSchema": {
+        "properties": {
+          "next_cursor": {
+            "description": "Pass as cursor, with the same other arguments, for the next page. Absent or null on the last page.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "title": "Scanner speed on your devices"
+    },
+    {
+      "annotations": {
         "destructiveHint": true,
         "idempotentHint": true,
         "openWorldHint": false,

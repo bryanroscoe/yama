@@ -131,7 +131,7 @@
 
     <section id="catalog">
       <h2>The complete tool catalog</h2>
-      <p>75 tools, checked November 20, 2026. Availability depends on the caller and the account: Ask Claude omits apply and discard, a read-only connection omits everything that writes, and the store, dataset and lab tools are listed once your account has stores, a dataset or lab runs. Expand a group for the tool names your client may display.</p>
+      <p>76 tools, checked November 21, 2026. Availability depends on the caller and the account: Ask Claude omits apply and discard, a read-only connection omits everything that writes, and the store, dataset and lab tools are listed once your account has stores, a dataset or lab runs. Expand a group for the tool names your client may display.</p>
       <details><summary>Cards, rules and sources (7)</summary><dl>
         <dt><code>search_cards</code></dt><dd>Search Yama's local card catalog with its supported Scryfall-style grammar; answers with rows of data, a page at a time.</dd>
         <dt><code>get_cards</code></dt><dd>Read Oracle text, legality, rulings, dated prices and your owned copies.</dd>
@@ -218,11 +218,12 @@
         <dt><code>save_research</code></dt><dd>Store or refresh private research for review; never alters installed decks or orders, and won't stop a plan that tracks it without your say.</dd>
         <dt><code>review_research</code></dt><dd>Record your stated preferred build, swap answer or note with retry and stale-answer checks.</dd>
       </dl></details>
-      <details><summary>Your devices and scanner diagnostics (4)</summary><dl>
+      <details><summary>Your devices and scanner diagnostics (5)</summary><dl>
         <dt><code>list_devices</code></dt><dd>See which Yama build each of your signed-in devices last reported: the Android app's version, the web build and when it was last seen.</dd>
         <dt><code>list_scan_diagnostics</code></dt><dd>List the scanner diagnostics you kept (off unless you turn on "Scanner diagnostics" in Scan settings): one per card the scanner struggled with, newest first.</dd>
         <dt><code>get_scan_diagnostic</code></dt><dd>Read one: what the camera delivered, every read and how it ended, and see its images (the card's full-resolution bottom edge, its set symbol and the card itself).</dd>
         <dt><code>get_scan_timings</code></dt><dd>How fast your scans settle: with Scanner diagnostics on, a small record (no images) is kept for every card the scanner settles. Gives the median time to name a card, the share named by each rule, how printings were settled and how long that took, by art model, then the records themselves.</dd>
+        <dt><code>get_scan_speed_tests</code></dt><dd>How fast the scanner runs on your devices: each time you press "Test scanner speed" in Scan settings, the result is kept. Gives the median and slowest times of each part of a frame with your models, the defaults and the faster ones, the printing look, and what the browser offers (processor threads, WebGPU).</dd>
       </dl></details>
       <details><summary>Pending changes (3)</summary><dl>
         <dt><code>list_changes</code></dt><dd>List proposals waiting for review, a page at a time.</dd>

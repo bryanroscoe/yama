@@ -282,13 +282,27 @@ export interface LookDone {
   ms: number;
 }
 
+/** One timing of the look (the speed test, speed.ts): a printing's picture and a frame, embedded once each. */
+export interface LookTiming {
+  fetchMs: number;
+  decodeMs: number;
+  /** Embedding the printing's picture with its own corners as the quad. */
+  pictureMs: number;
+  /** Embedding the card in a frame (null when no frame was given). */
+  frameMs: number | null;
+}
+
 export type LookWorkerRequest =
-  | { type: "model"; id: number; url: string; bytes: number }
+  /** `cache: false` (the speed test): load the model and leave the printings' cache as it is. */
+  | { type: "model"; id: number; url: string; bytes: number; cache?: boolean }
   | { type: "look"; id: number; frames: WireFrame[]; candidates: LookCandidate[] }
-  | { type: "stop"; id: number };
+  | { type: "stop"; id: number }
+  /** Time the look on this picture and frame, keeping nothing (the speed test). */
+  | { type: "time"; id: number; url: string; frame: WireFrame | null };
 
 export type LookWorkerReply =
   | { type: "ready"; id: number; error: string | null }
   | { type: "score"; id: number; candidate: string; score: number }
-  | ({ type: "done"; id: number; error: string | null } & LookDone);
+  | ({ type: "done"; id: number; error: string | null } & LookDone)
+  | ({ type: "timed"; id: number; error: string | null } & LookTiming);
 

@@ -1530,6 +1530,24 @@ pub(super) const TOOLS: &[Tool] = &[
         needs: Needs::Nothing,
     },
     Tool {
+        name: "get_scan_speed_tests",
+        aliases: &[],
+        title: "Scanner speed on your devices",
+        description: "Scanner speed tests run on this account's devices (Scan settings, Test scanner speed), newest first: per model choice (the device's, the defaults, the faster options) median and p90 ms of a card finder pass, art embedding, search and a whole frame, the warm-up and the printing look, with the browser's cores, threads and WebGPU.",
+        schema: || json!({"type": "object", "properties": {
+            "limit": {"type": "integer", "minimum": 1, "maximum": 20, "description": "Tests per page, default 5."},
+            "cursor": {"type": "string", "maxLength": 200, "description": "next_cursor from the answer before."}}, "additionalProperties": false}),
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_scan_speed_tests),
+        stages: None,
+        output: Some(registry::paged),
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
+    },
+    Tool {
         name: "apply_change",
         aliases: &[],
         title: "Apply a staged change",
@@ -1629,6 +1647,14 @@ async fn run_scan_timings(c: Ctx<'_>, args: &Value) -> AppResult<String> {
     let mut out = crate::scan_timings::summary(&c.st.pool, &c.user.id, &filter, page.offset, page.limit).await?;
     let total = out["records"].as_u64().unwrap_or(0) as usize;
     out["next_cursor"] = json!(page.next(&scope, total));
+    Ok(out.to_string())
+}
+
+async fn run_scan_speed_tests(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let page = super::page::page(args, "scan_speed_tests", 5, 20)?;
+    let mut out = crate::scan_speed::list(&c.st.pool, &c.user.id, page.offset, page.limit).await?;
+    let total = out["count"].as_u64().unwrap_or(0) as usize;
+    out["next_cursor"] = json!(page.next("scan_speed_tests", total));
     Ok(out.to_string())
 }
 

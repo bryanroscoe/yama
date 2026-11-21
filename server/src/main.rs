@@ -51,6 +51,7 @@ mod scan_art;
 mod scan_clears;
 mod scan_diagnostics;
 mod scan_samples;
+mod scan_speed;
 mod scan_timings;
 mod sell;
 mod sharing;
