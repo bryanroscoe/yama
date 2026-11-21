@@ -337,7 +337,7 @@ public class UpdaterPlugin extends Plugin {
     public void installApk(PluginCall call) {
         String url = call.getString("url");
         String sha = lower(call.getString("sha256"));
-        Long versionCode = call.getLong("versionCode");
+        Long versionCode = wholeNumber(call.getData().opt("versionCode"));
         if (!allowed(url) || sha == null || !SHA256.matcher(sha).matches() || versionCode == null) {
             call.reject("An APK needs an update address, its SHA-256 and a version code", "bad-request");
             return;
@@ -395,6 +395,16 @@ public class UpdaterPlugin extends Plugin {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    /**
+     * A whole number from a call's data. Capacitor's `getLong` answers only for a `Long`, and a
+     * number that fits an int arrives from the page as an `Integer`, so `getLong` gave null for
+     * every version code and no APK was ever downloaded (found 21 Nov 2026).
+     */
+    static Long wholeNumber(Object value) {
+        if (value instanceof Long || value instanceof Integer) return ((Number) value).longValue();
+        return null;
     }
 
     private static String lower(String s) {

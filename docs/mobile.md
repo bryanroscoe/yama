@@ -61,6 +61,11 @@ check or system notification). The banner and Settings' "Yama app" row share tha
   an APK not signed with the app's key. The first time, Android sends the person to "Install
   unknown apps" for Yama; coming back with it allowed carries the install on by itself, and coming
   back without it says so.
+  Versions up to 0.2.101 could not do this: the installer refused every request before
+  downloading ("The update didn't download"), because it read the version code with Capacitor's
+  `getLong`, which answers only for a `Long` (fixed 21 Nov 2026). A phone on one of those versions
+  installs the current `yama.apk` from the release page once by hand; it updates in place and keeps
+  its data.
 - **A web build for this native code** (`nativeHash` equal to the app's): downloaded quietly,
   checked against its SHA-256, unpacked into the app's files, and started the next time the app
   opens, or at once from the banner's Reload. Capacitor serves it in place of the built-in copy
