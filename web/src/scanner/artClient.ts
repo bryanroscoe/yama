@@ -5,6 +5,7 @@ import { api, API_BASE } from "../api";
 import type { LookCandidate, LookDone, LookWorkerReply, LookWorkerRequest, WireFrame } from "./look";
 import type { ModelOption, ModelsInfo } from "./models";
 import type { Located, Recognition } from "./recognizer";
+import type { SpeedCard } from "./speed";
 import type { Quad, RgbaImage } from "./types";
 
 export interface BundleInfo {
@@ -37,6 +38,8 @@ export type ArtWorkerRequest =
   | { type: "reset"; frames?: boolean }
   | { type: "detector"; id: number; file: EmbedFile }
   | { type: "pool"; id: number; keys: PoolKeys | null }
+  /** A few of the bundle gallery's cards, for the speed test (speed.ts, `speedCards`). */
+  | { type: "sample"; id: number; count: number }
   /** `quad`: the card's corners in this frame, from a `locate` of it: the finder isn't run again. */
   | { type: "identify"; id: number; width: number; height: number; buffer: ArrayBuffer; quad?: Quad | null }
   /** The card finder alone (the placement gate, gate.ts). */
@@ -52,6 +55,7 @@ export type ArtWorkerReply =
   /** Where the card finder placed the card in an `identify` frame, sent before its art is matched. */
   | { type: "seen"; id: number; quad: Quad | null }
   | { type: "located"; id: number; located: Located; buffer: ArrayBuffer }
+  | { type: "sampled"; id: number; cards: SpeedCard[] }
   | { type: "result"; id: number; result: Recognition; buffer: ArrayBuffer }
   | { type: "failed"; id: number; message: string; buffer: ArrayBuffer };
 
@@ -114,6 +118,8 @@ export interface ArtRecognizer {
   readonly detector: string;
   /** Find cards with this card finder from now on, as useArt does for the art model. */
   useDetector(option: ModelOption): Promise<void>;
+  /** `count` of the bundle gallery's cards for the speed test (speed.ts, `speedCards`); none from fakes. */
+  sample?(count: number): Promise<SpeedCard[]>;
 }
 
 /** What kept photos and diagnostics say ran when the scanner read text only, with no art model. */
@@ -221,6 +227,7 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
   const pooling = new Map<number, (arts: number) => void>();
   const embedding = new Map<number, (error: string | null) => void>();
   const framing = new Map<number, (frames: WireFrame[]) => void>();
+  const sampling = new Map<number, (cards: SpeedCard[]) => void>();
   // The printing look's own worker (look.worker.ts), started when a look model is chosen.
   let lookWorker: Worker | null = null;
   const lookLoads = new Map<number, (error: string | null) => void>();
@@ -320,6 +327,11 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
       seeing.get(m.id)?.(m.quad);
       return;
     }
+    if (m.type === "sampled") {
+      sampling.get(m.id)?.(m.cards);
+      sampling.delete(m.id);
+      return;
+    }
     if (m.type !== "result" && m.type !== "failed") return;
     if (m.type === "failed" && locating.has(m.id)) {
       locating.get(m.id)!.reject(new Error(m.message));
@@ -342,6 +354,8 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
     embedding.clear();
     for (const p of framing.values()) p([]);
     framing.clear();
+    for (const p of sampling.values()) p([]);
+    sampling.clear();
   };
 
   return {
@@ -492,6 +506,14 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
     reset(opts) {
       if (!disposed) worker.postMessage({ type: "reset", frames: opts?.frames } satisfies ArtWorkerRequest);
     },
+    sample(count) {
+      if (disposed) return Promise.resolve([]);
+      const id = nextId++;
+      return new Promise<SpeedCard[]>((resolve) => {
+        sampling.set(id, resolve);
+        worker.postMessage({ type: "sample", id, count } satisfies ArtWorkerRequest);
+      });
+    },
     setPool(keys) {
       if (disposed) return Promise.resolve(-1);
       const id = nextId++;
@@ -517,6 +539,8 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
       lookWorker = null;
       for (const p of framing.values()) p([]);
       framing.clear();
+      for (const p of sampling.values()) p([]);
+      sampling.clear();
     },
   };
 }

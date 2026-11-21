@@ -108,6 +108,7 @@ pub const USER_COLUMNS: &[(&str, &str)] = &[
     ("scan_clears", "owner_id"),
     ("scan_diagnostics", "owner_id"),
     ("scan_samples", "owner_id"),
+    ("scan_speed_tests", "owner_id"),
     ("scan_timings", "owner_id"),
     ("sealed_quote_ids", "owner_id"),
     ("sealed_quotes", "owner_id"),
@@ -154,6 +155,8 @@ const OWNED_DELETES: &[(&str, &str)] = &[
     ("scan_diagnostics", "owner_id"),
     ("scan_samples", "owner_id"),
     ("scan_timings", "owner_id"),
+    // and its scanner speed tests (scan_speed.rs).
+    ("scan_speed_tests", "owner_id"),
     ("scan_clears", "owner_id"),
     // Online play: saved stops and full control.
     ("play_prefs", "user_id"),
