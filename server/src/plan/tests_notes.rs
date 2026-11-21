@@ -279,7 +279,7 @@ async fn claude_sees_notes_as_deck_plans_and_tracks_them_straight_away() {
     let (err, text) = call(&app, key, "track_build", asked).await;
     assert!(!err && text.contains("What they asked was already in the plan's history"), "{text}");
     let (err, text) = call(&app, key, "get_plan_history", json!({"plan": "energy"})).await;
-    assert!(!err && text.contains("is the plan (it already was). They asked: \"Make Bracket 3 the plan\" Conversation: T3 thread: Energy."), "{text}");
+    assert!(!err && text.contains("is the plan. They asked: \"Make Bracket 3 the plan\" Conversation: T3 thread: Energy."), "{text}");
     let (yama_deck, _) = deck(&pool, &a, "Energy box").await;
     let (err, text) = call(&app, key, "track_build", json!({"note": "audit", "deck": "energy", "build": "b3", "yama_deck": yama_deck})).await;
     assert!(!err && text.contains("is now Energy's plan") && text.contains("Nothing new went in"), "the same build with another deck relinks: {text}");

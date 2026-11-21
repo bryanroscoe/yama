@@ -118,9 +118,9 @@ pub async fn record(pool: &SqlitePool, owner: &str, plan: &str, e: &Entry, op_id
     if what.is_empty() {
         return Err(AppError::bad("what is missing: say what happened"));
     }
-    let (plan_id, deck_key, deck) = plan_of(pool, owner, plan).await?;
     // A retry with its op_id is the entry already stored, even if the plan has changed since and
-    // would no longer take the group or cards as given (they were checked the first time).
+    // would no longer take its key, group or cards as given (they were checked the first time):
+    // an import can move a plan to another key (`notes::make_room`) or rename a card.
     if let Some(op) = op_id {
         #[allow(clippy::type_complexity)]
         let stored: Option<(String, String, String, String, Option<String>, Option<String>, Option<String>, Option<String>, String)> = sqlx::query_as(
@@ -131,6 +131,14 @@ pub async fn record(pool: &SqlitePool, owner: &str, plan: &str, e: &Entry, op_id
         .fetch_optional(pool)
         .await?;
         if let Some((id, p, on_date, w, asked, conversation, work, g, c)) = stored {
+            let (deck_key, deck): (String, String) =
+                sqlx::query_as("SELECT key, name FROM plan_decks WHERE id = ? AND owner_id = ?").bind(&p).bind(owner).fetch_one(pool).await?;
+            // The plan it names now, if any, must be that one.
+            let same_plan = match plan_of(pool, owner, plan).await {
+                Ok((now, _, _)) => now == p,
+                Err(AppError::NotFound(_)) => true,
+                Err(e) => return Err(e),
+            };
             let given_group = e.group.as_deref().map(str::trim).filter(|g| !g.is_empty());
             let same_group = match (given_group, g.as_deref()) {
                 (None, None) => true,
@@ -144,7 +152,7 @@ pub async fn record(pool: &SqlitePool, owner: &str, plan: &str, e: &Entry, op_id
             given.sort();
             given.dedup();
             kept.sort();
-            let same = p == plan_id
+            let same = same_plan
                 && on_date == e.on
                 && w == e.what.trim()
                 && asked == e.asked
@@ -158,6 +166,7 @@ pub async fn record(pool: &SqlitePool, owner: &str, plan: &str, e: &Entry, op_id
             return Ok(Recorded { id, deck_key, deck, again: true, group: g, cards: stored_cards });
         }
     }
+    let (plan_id, deck_key, deck) = plan_of(pool, owner, plan).await?;
     let group = match e.group.as_deref().map(str::trim).filter(|g| !g.is_empty()) {
         None => None,
         Some(g) => {
