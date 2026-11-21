@@ -548,12 +548,18 @@ async fn a_connection_limited_to_staging_stages_tracking_as_before() {
     let who = crate::auth::user_by_id(&st, &a).await.unwrap().unwrap();
     let args = json!({"note": "audit", "deck": "energy", "build": "b3"});
     // The person agreed to "nothing staged is applied": the plan waits as a staged change.
-    for via in [crate::mcp::Via::OAuthLimited(crate::oauth::Access::Stage), crate::mcp::Via::Question(Default::default())] {
+    for (via, said) in [
+        (crate::mcp::Via::OAuthLimited(crate::oauth::Access::Stage), "Staged for their review"),
+        (crate::mcp::Via::Question(Default::default()), "Already staged"),
+    ] {
         let text = crate::mcp::changes::track_build(&st, &who, &via, &args).await.unwrap();
-        assert!(text.contains("Track Bracket 3 as Energy's plan"), "{text}");
+        assert!(text.contains("Track Bracket 3 as Energy's plan") && text.contains(said), "{text}");
     }
     let plans: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM plan_decks WHERE owner_id = ?").bind(&a).fetch_one(&pool).await.unwrap();
     assert_eq!(plans, 0, "staging changes nothing");
+    // A retry (the second caller asked for the same change) finds it instead of staging another.
+    let staged: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM assistant_changes WHERE owner_id = ? AND kind = 'track_build'").bind(&a).fetch_one(&pool).await.unwrap();
+    assert_eq!(staged, 1);
     let change: String = sqlx::query_scalar("SELECT id FROM assistant_changes WHERE owner_id = ? AND kind = 'track_build' ORDER BY created_at LIMIT 1")
         .bind(&a)
         .fetch_one(&pool)

@@ -294,6 +294,24 @@ async fn stage(st: &AppState, user: &User, via: &Via, args: &Value, s: Staged) -
     Ok(out)
 }
 
+/// Stage a change unless the same one is already waiting: for a tool that writes directly and
+/// stages only for a caller that may not apply (`track_build`), which has no `op_id` in its
+/// schema, so a retried call after a lost answer finds the change it staged instead of a second.
+async fn stage_once(st: &AppState, user: &User, via: &Via, args: &Value, s: Staged) -> AppResult<String> {
+    let waiting: Option<(String, String)> = sqlx::query_as(
+        "SELECT id, summary FROM assistant_changes WHERE owner_id = ? AND kind = ? AND status = 'pending' AND payload = ? ORDER BY created_at LIMIT 1",
+    )
+    .bind(&user.id)
+    .bind(s.kind)
+    .bind(s.payload.to_string())
+    .fetch_optional(&st.pool)
+    .await?;
+    match waiting {
+        Some((id, summary)) => Ok(format!("Already staged; nothing new was staged.\nChange: {summary}\nChange id: {id}\n{}", next_step(st, via))),
+        None => stage(st, user, via, args, s).await,
+    }
+}
+
 /// Names to oracle ids and canonical names. Any name Yama doesn't know is an error naming close
 /// ones, so Claude can correct it.
 async fn known_cards(pool: &SqlitePool, names: &[String]) -> AppResult<HashMap<String, (String, String)>> {
@@ -918,7 +936,7 @@ pub async fn track_build(st: &AppState, user: &User, via: &Via, args: &Value) ->
             return Ok(format!("No build of {deck_name} in \"{title}\" is tracked, so there's nothing to stop."));
         };
         if !via.may_apply() {
-            return stage(st, user, via, args, Staged {
+            return stage_once(st, user, via, args, Staged {
                     kind: "track_build",
                     summary: format!("Stop tracking {deck_name}'s plan"),
                     detail: "Its swaps, marks and answers are kept; tracking a build again brings them back.".into(),
@@ -955,7 +973,7 @@ pub async fn track_build(st: &AppState, user: &User, via: &Via, args: &Value) ->
             None => format!("Track {label} as {deck_name}'s plan"),
         };
         let n = build["swaps"].as_array().map_or(0, Vec::len);
-        return stage(st, user, via, args, Staged {
+        return stage_once(st, user, via, args, Staged {
                 kind: "track_build",
                 summary,
                 detail: format!("From the note \"{title}\": {n} swap{}. Once applied, its changes go straight into the plan.", if n == 1 { "" } else { "s" }),
