@@ -1,4 +1,4 @@
-import { count } from "@yama/core";
+import { count, plural, usd, usdWhole } from "@yama/core";
 import type { CollectionItem } from "../api";
 // The Collection page's filters (set, color, type, rarity, finish) and the totals of what they
 // leave. The page has every row of the current view already, so filtering happens on the device.
@@ -119,4 +119,38 @@ export function totalsText(t: Totals, money: (v: number) => string): string {
   if (t.unpriced) out.push(`${count(t.unpriced)} ${t.unpriced === 1 ? "has" : "have"} no price and ${t.unpriced === 1 ? "isn't" : "aren't"} counted.`);
   if (t.proxies) out.push(`${count(t.proxies)} ${t.proxies === 1 ? "proxy isn't" : "proxies aren't"} counted.`);
   return out.join(" ");
+}
+
+/** A total for a head or a tile: cents while it is small ("$4.50"), whole dollars from $100 ("$1,631"). */
+export function money(v: number): string {
+  return Math.abs(v) < 100 ? usd(v) : usdWhole(v);
+}
+
+/**
+ * Most valuable first, by the price of one real copy. A proxy has no value of its own (its price
+ * is the real card's), so proxies come after every priced real card, the dearest to replace
+ * first; copies with no price at all go last, by name.
+ */
+export function byValue(a: Pick<CollectionItem, "name" | "proxy" | "unit_price_usd">, b: Pick<CollectionItem, "name" | "proxy" | "unit_price_usd">): number {
+  const rank = (i: typeof a) => (i.unit_price_usd == null ? 2 : i.proxy ? 1 : 0);
+  if (rank(a) !== rank(b)) return rank(a) - rank(b);
+  if (a.unit_price_usd != null && b.unit_price_usd != null && a.unit_price_usd !== b.unit_price_usd) return b.unit_price_usd - a.unit_price_usd;
+  return (a.name ?? "").localeCompare(b.name ?? "");
+}
+
+/**
+ * "5 cards and 1 proxy": how many real cards and how many proxies, said the same way in the
+ * page's head and on each tile. Nothing at all is "Empty".
+ */
+export function cardsAndProxies(copies: number, proxies = 0): string {
+  const real = copies - proxies;
+  if (copies <= 0) return "Empty";
+  if (proxies <= 0) return plural(real, "card");
+  if (real <= 0) return plural(proxies, "proxy", "proxies");
+  return `${plural(real, "card")} and ${plural(proxies, "proxy", "proxies")}`;
+}
+
+/** What a search found, said under the search box: "15 cards called “sol ring”", "in Trade bulk" inside a box. */
+export function foundText(copies: number, query: string, place?: string | null): string {
+  return `${plural(copies, "card")} called “${query}”${place ? ` in ${place}` : ""}`;
 }

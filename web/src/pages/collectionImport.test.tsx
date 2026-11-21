@@ -14,7 +14,9 @@ import {
   resultLines,
   runImport,
   unmatchedList,
+  swapName,
   unmatchedText,
+  writtenName,
   type ImportLine,
   type ImportReport,
 } from "./collectionImport";
@@ -187,11 +189,56 @@ describe("importing a collection: the sheet", () => {
     }
   });
 
+  it("makes each name a line might have meant a button, in a preview of a line it can change", () => {
+    const r = report({ unmatched: [{ ...lotus, suggestions: ["Black Lotus", "Blacker Lotus"] }], unmatched_copies: 3 });
+    const picked: string[] = [];
+    const html = renderToStaticMarkup(<ImportReportView report={r} done={false} canSwap={(_, n) => n === "Black Lotus"} onSwap={(_, n) => picked.push(n)} />);
+    expect(html).toMatch(/Did you mean.*<button[^>]*aria-label="Use Black Lotus for this line"[^>]*>Black Lotus<\/button>/s);
+    // A name Yama can't put into the line stays words.
+    expect(html).not.toContain('aria-label="Use Blacker Lotus for this line"');
+    expect(html).toContain("Blacker Lotus");
+    // After the import nothing can be swapped: the sentence is plain again.
+    const after = renderToStaticMarkup(<ImportReportView report={{ ...r, dry_run: false }} done />);
+    expect(after).toContain("Did you mean Black Lotus or Blacker Lotus?");
+    expect(after).not.toContain("Use Black Lotus");
+  });
+
   it("draws a long list in part and says how much is left", () => {
     const many = Array.from({ length: 320 }, (_, i) => line({ name: `Card ${i}` }));
     const html = renderToStaticMarkup(<ImportReportView report={report({ added_cards: many, added: 320, copies: 320 })} done={false} />);
     expect(html).toContain("Card 299");
     expect(html).not.toContain("Card 300");
     expect(html).toContain("and 20 more lines");
+  });
+});
+
+describe("swapping a suggested name into a line", () => {
+  const u = (text: string) => ({ text });
+  it("reads the name a line wrote, without its count, printing or finish", () => {
+    expect(writtenName(u("3 Lightnig Bolt"))).toBe("Lightnig Bolt");
+    expect(writtenName(u("2 Sol Rnig (C21) 263 *F*"))).toBe("Sol Rnig");
+    expect(writtenName(u("1 Storm Crow (XYZ)"))).toBe("Storm Crow");
+    expect(writtenName(u("1 Sol Ring (Extended Art)"))).toBe("Sol Ring (Extended Art)");
+  });
+
+  it("changes only that line of a pasted list, keeping its count and printing", () => {
+    const list = "4x Forest\n3 Lightnig Bolt\n1 Lightnig Bolt (M11) 149 *F*\nCounterspell";
+    expect(swapName(list, u("3 Lightnig Bolt"), "Lightning Bolt")).toBe("4x Forest\n3 Lightning Bolt\n1 Lightnig Bolt (M11) 149 *F*\nCounterspell");
+    expect(swapName("4x Forrest\n1 Sol Ring", u("4 Forrest"), "Forest")).toBe("4x Forest\n1 Sol Ring");
+    // A line with no count.
+    expect(swapName("Sol Ring\nCounterspel", u("1 Counterspel"), "Counterspell")).toBe("Sol Ring\nCounterspell");
+  });
+
+  it("never changes a longer name that only contains it", () => {
+    expect(swapName("1 Lightning Bolt\n1 Bolt", u("1 Bolt"), "Shock")).toBe("1 Lightning Bolt\n1 Shock");
+    expect(swapName("1 Lightning Bolt", u("1 Bolt"), "Shock")).toBeNull();
+  });
+
+  it("changes a whole field of a CSV row, and leaves a row alone where the new name would break it", () => {
+    const csv = 'Name,Quantity\nBlak Lotus,3\n"Jace the Mind Sculptor",1';
+    expect(swapName(csv, u("3 Blak Lotus"), "Black Lotus")).toBe('Name,Quantity\nBlack Lotus,3\n"Jace the Mind Sculptor",1');
+    expect(swapName(csv, u("1 Jace the Mind Sculptor"), "Jace, the Mind Sculptor")).toBeNull();
+    // In a pasted list a comma in the name is fine.
+    expect(swapName("1 Jace the Mind Sculptor", u("1 Jace the Mind Sculptor"), "Jace, the Mind Sculptor")).toBe("1 Jace, the Mind Sculptor");
   });
 });

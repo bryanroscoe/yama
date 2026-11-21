@@ -43,7 +43,9 @@ import { marketSentence } from "./marks";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
 import { TripHowTo } from "./howto";
 import type { PlanView } from "./view";
-import { fmtDate, usd, NO_PRICE, fmtDateTime } from "@yama/core";
+import { fmtDate, shortDate, usd, NO_PRICE, fmtDateTime } from "@yama/core";
+import { useDebounced } from "../useDebounced";
+import "./wishlist.css";
 
 const CHOICES: StorePreference[] = ["favorite", "ok", "maybe", "never"];
 
@@ -442,9 +444,37 @@ function StockCheck({ stores, going, view, userId }: { stores: Store[]; going: s
   );
 }
 
+/** "Nov 2", with the year only when it isn't this one. */
+function dayOf(date: string, now: Date): string {
+  const day = date.slice(0, 10);
+  return day.startsWith(`${now.getFullYear()}-`) ? (shortDate(day) ?? day) : fmtDate(day);
+}
+
+/**
+ * What a wish list row says under its name: what it is, how much it's wanted, the deck it's for,
+ * the reason given, and where it came from. Dates written as 2026-10-31 in a reason read as the
+ * rest of the app writes them. "Only if you're there anyway, for Riders of Rohan. For the new build."
+ */
+export function wantReason(w: Pick<ShoppingWant, "kind" | "priority" | "deck_name" | "why" | "source"> & { added_at?: string }, now: Date = new Date()): string {
+  const facts = [w.kind === "sealed" ? "sealed product" : null, w.priority === "along" ? "only if you're there anyway" : null, w.deck_name ? `for ${w.deck_name}` : null].filter(Boolean).join(", ");
+  const why = w.why?.trim().replace(/\b\d{4}-\d{2}-\d{2}\b/g, (d) => dayOf(d, now)) ?? "";
+  const added = w.added_at ? dayOf(w.added_at, now) : null;
+  const from = w.source === "assistant" ? `Added by a change from Claude${added ? `, ${added}` : ""}` : added ? `Added ${added}` : "";
+  return [facts ? facts[0]!.toUpperCase() + facts.slice(1) : "", why, from]
+    .filter(Boolean)
+    .map((part) => (/[.!?]$/.test(part) ? part : `${part}.`))
+    .join(" ");
+}
+
+/** The row already on the list for the same thing: the same card or product, for the same deck. */
+export function sameWant<W extends Pick<ShoppingWant, "kind" | "name" | "deck_id">>(wants: W[], kind: ShoppingWant["kind"], name: string, deckId: string | null): W | undefined {
+  const wanted = name.trim().toLowerCase();
+  return wants.find((w) => w.kind === kind && w.name.trim().toLowerCase() === wanted && (w.deck_id ?? null) === deckId);
+}
+
 /**
  * Your wish list (Collection, Wish list shows it too): cards and sealed products you added to
- * your list by hand. Needed ones decide the stores like planned buys; "along the way" ones only come from a store already on the trip. A deck that isn't
+ * your list by hand. Needed ones decide the stores like planned buys; "only if I'm there anyway" ones only come from a store already on the trip. A deck that isn't
  * in a plan says which of its cards your collection lacks, so you can add the ones to buy here.
  */
 export function MyList({ view, userId }: { view: PlanView; userId: string }) {
@@ -456,64 +486,99 @@ export function MyList({ view, userId }: { view: PlanView; userId: string }) {
   const [priority, setPriority] = useState<ShoppingWant["priority"]>("need");
   const [deckId, setDeckId] = useState("");
   const [why, setWhy] = useState("");
+  /** Why the last add wasn't sent: it's on the list already. */
+  const [refused, setRefused] = useState<string | null>(null);
   const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
   const gaps = useQuery({ queryKey: ["deck-gaps", userId, deckId], queryFn: () => deckGaps(deckId), enabled: !!deckId });
+  // Card names as they're typed, from the same lookup as the Cards page's search box.
+  const term = useDebounced(kind === "card" ? name.trim() : "", 180);
+  const names = useQuery({
+    queryKey: ["card-names", term.toLowerCase(), false],
+    queryFn: ({ signal }) => api<string[]>(`/api/cards/autocomplete?q=${encodeURIComponent(term)}`, { signal }),
+    enabled: term.length >= 2,
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
   const done = () => void qc.invalidateQueries({ queryKey: ["plan", userId] });
   const add = useMutation({ mutationFn: addWant, onSuccess: () => setName(""), onSettled: done });
   const remove = useMutation({ mutationFn: removeWant, onSettled: done });
   const deckName = decks.data?.find((d) => d.id === deckId)?.name ?? null;
-  const submit = (card: string, n: number, as: ShoppingWant["kind"] = kind) =>
+  const submit = (card: string, n: number, as: ShoppingWant["kind"] = kind) => {
+    // The list keeps one row for a card: a second add is refused, said plainly, not made a second row.
+    const there = sameWant(wants, as, card, deckId || null);
+    if (there) {
+      add.reset();
+      setRefused(`${there.name} is already on your wish list${there.qty > 1 ? ` (×${there.qty})` : ""}${there.deck_name ? ` for ${there.deck_name}` : ""}. To change how many, remove it and add it again.`);
+      return;
+    }
+    setRefused(null);
     add.mutate({ kind: as, name: card.trim(), qty: n, priority, deck_id: deckId || null, deck_name: null, why: why.trim() || null });
+  };
   return (
     <section className="plan-section" aria-labelledby="trip-list">
       <h2 id="trip-list" className="plan-section-head">
-        Your list <span className="num dim">{wants.length}</span>
+        Your wish list <span className="num dim">{wants.length}</span>
       </h2>
+      {wants.length === 0 && <EmptyState variant="compact">Nothing on your wish list yet. Add a card you want, or a sealed product such as a precon.</EmptyState>}
       {wants.length > 0 && (
-        <ul className="small">
-          {wants.map((w) => (
-            <li key={w.id}>
-              {w.kind === "card" ? <CardRef name={w.name} oracleId={view.oracleId(w.name)} image={view.card(w.name)?.image_normal} /> : w.name}
-              {w.qty > 1 ? ` ×${w.qty}` : ""}
-              <span className="dim">
-                {w.kind === "sealed" ? ", sealed" : ""}
-                {w.priority === "along" ? ", only along the way" : ""}
-                {w.deck_name ? `, for ${w.deck_name}` : ""}
-                {w.why ? `. ${w.why}` : ""}
-                {w.source === "assistant" ? " (added by a change from Claude)" : ""}
-              </span>{" "}
-              <Button variant="outline" size="small" disabled={remove.isPending} onClick={() => remove.mutate(w.id)}>
-                Remove
-              </Button>
-            </li>
-          ))}
+        <ul className="wish-rows">
+          {wants.map((w) => {
+            const reason = wantReason(w);
+            return (
+              <li key={w.id} className="wish-row">
+                <span className="wish-row-text">
+                  <span className="wish-row-name">
+                    {w.kind === "card" ? <CardRef name={w.name} oracleId={view.oracleId(w.name)} image={view.card(w.name)?.image_normal} /> : w.name}
+                    {w.qty > 1 ? <span className="num dim"> ×{w.qty}</span> : null}
+                  </span>
+                  {reason && <span className="small dim">{reason}</span>}
+                </span>
+                <Button variant="outline" size="small" disabled={remove.isPending} aria-label={`Remove ${w.name} from your wish list`} onClick={() => remove.mutate(w.id)}>
+                  Remove
+                </Button>
+              </li>
+            );
+          })}
         </ul>
       )}
       <form
-        className="trip-add"
+        className="wish-add"
         onSubmit={(e) => {
           e.preventDefault();
           if (name.trim()) submit(name, qty);
         }}
       >
-        <label>
-          {kind === "card" ? "Card" : "Product"} <input value={name} onChange={(e) => setName(e.target.value)} maxLength={200} required />
-        </label>
+        <Field label={kind === "card" ? "Card" : "Product"} className="wish-add-name">
+          <input
+            value={name}
+            onChange={(e) => {
+              setName(e.target.value);
+              setRefused(null);
+            }}
+            maxLength={200}
+            required
+            list={kind === "card" ? "wish-card-names" : undefined}
+            autoComplete="off"
+            placeholder={kind === "card" ? "Start typing a card's name" : "A precon or other sealed product"}
+          />
+        </Field>
+        {/* The names offered while typing, picked from the browser's own list. */}
+        <datalist id="wish-card-names">{(names.data ?? []).slice(0, 12).map((n) => <option key={n} value={n} />)}</datalist>
         <Field label="How many"><input type="number" min={1} max={99} value={qty} onChange={(e) => setQty(Math.max(1, Math.min(99, Number(e.target.value) || 1)))} />
         </Field>
-        <label>
-          <select aria-label="A card or a sealed product" value={kind} onChange={(e) => setKind(e.target.value as ShoppingWant["kind"])}>
+        <Field label="What it is">
+          <select value={kind} onChange={(e) => setKind(e.target.value as ShoppingWant["kind"])}>
             <option value="card">A card</option>
             <option value="sealed">A sealed product</option>
           </select>
-        </label>
-        <label>
-          <select aria-label="How much you want it" value={priority} onChange={(e) => setPriority(e.target.value as ShoppingWant["priority"])}>
-            <option value="need">{kind === "sealed" ? "Worth a trip for it" : "To buy: worth a trip"}</option>
-            <option value="along">Only along the way</option>
+        </Field>
+        <Field label="How much you want it">
+          <select value={priority} onChange={(e) => setPriority(e.target.value as ShoppingWant["priority"])}>
+            <option value="need">Want it</option>
+            <option value="along">Only if I'm there anyway</option>
           </select>
-        </label>
-        <Field label="For">
+        </Field>
+        <Field label="For a deck (optional)">
           <select value={deckId} onChange={(e) => setDeckId(e.target.value)}>
             <option value="">No deck</option>
             {(decks.data ?? []).map((d) => (
@@ -523,12 +588,13 @@ export function MyList({ view, userId }: { view: PlanView; userId: string }) {
             ))}
           </select>
         </Field>
-        <Field label="Why"><input value={why} onChange={(e) => setWhy(e.target.value)} maxLength={500} />
+        <Field label="Why (optional)" className="wish-add-why"><input value={why} onChange={(e) => setWhy(e.target.value)} maxLength={500} />
         </Field>
-        <Button type="submit" variant="primary" disabled={add.isPending}>
-          Add to the list
+        <Button type="submit" variant="primary" className="wish-add-go" disabled={add.isPending}>
+          Add to the wish list
         </Button>
       </form>
+      {refused && <p className="wish-refused" role="status">{refused}</p>}
       <ErrorText error={add.error ?? remove.error} />
       {deckId && (
         <details className="plan-fold" open>
@@ -546,9 +612,13 @@ export function MyList({ view, userId }: { view: PlanView; userId: string }) {
                   {c.real ? `${c.real} of ${c.need} real` : c.need > 1 ? `${c.need} needed` : "none real"}
                   {c.proxy ? `, ${c.proxy} ${c.proxy === 1 ? "proxy" : "proxies"}` : ""}
                 </span>{" "}
-                <Button variant="outline" size="small" disabled={add.isPending} onClick={() => submit(c.name, Math.max(1, c.need - c.real), "card")}>
-                  Add
-                </Button>
+                {sameWant(wants, "card", c.name, deckId) ? (
+                  <span className="dim">on your wish list</span>
+                ) : (
+                  <Button variant="outline" size="small" disabled={add.isPending} onClick={() => submit(c.name, Math.max(1, c.need - c.real), "card")}>
+                    Add
+                  </Button>
+                )}
               </li>
             ))}
           </ul>

@@ -38,7 +38,7 @@ export interface ImportReport {
   top_up: boolean;
   /** The person asked for a list imported before to be added again. */
   again: boolean;
-  /** "a ManaBox export", "a plain list". */
+  /** "a ManaBox export", "a list". */
   source: string;
   /** When this exact list was imported before; its lines aren't added again (one that matched no card then, and does now, is). */
   already_imported: string | null;
@@ -88,9 +88,41 @@ export function lineText(l: ImportLine): string {
 export function unmatchedText(u: UnmatchedLine): string {
   const where = u.row ? `Row ${u.row}: ` : "";
   // The server's reason may already name the card a set and number point at.
-  const others = u.suggestions.filter((s) => !u.reason.includes(s));
+  const others = otherSuggestions(u);
   const meant = others.length ? ` Did you mean ${others.join(" or ")}?` : "";
   return `${where}${u.text}. ${u.reason}${meant}`;
+}
+
+/** The card names a line that matched nothing might have meant, without any its reason already names. */
+export function otherSuggestions(u: UnmatchedLine): string[] {
+  return u.suggestions.filter((s) => !u.reason.includes(s));
+}
+
+/** The name as an unmatched line wrote it: "2 Sol Rnig (C21) 263 *F*" is "Sol Rnig". */
+export function writtenName(u: Pick<UnmatchedLine, "text">): string {
+  return u.text
+    .replace(/^\d+ /, "")
+    .replace(/ \*[FE]\*$/, "")
+    .replace(/ \([A-Z0-9]{2,6}\)( \S+)?$/, "")
+    .trim();
+}
+
+/**
+ * The list or file with the name of one unmatched line swapped for a suggestion, to check again.
+ * Only the first line that writes that name as a whole name is changed (after a count at the
+ * start of a line, or as a whole field of a CSV row). Null when the name can't be found as
+ * written: the line is then left to fix by hand.
+ */
+export function swapName(text: string, u: Pick<UnmatchedLine, "text">, to: string): string | null {
+  const name = writtenName(u);
+  if (!name || name === "(no name)") return null;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const whole = new RegExp(`(^[ \\t]*(?:\\d+[xX]?[ \\t]+)?|[,;\\t"])${escaped}(?=[ \\t]*$|[,;\\t"]|[ \\t]+[(*\\[#^]|[ \\t]+[xX]\\d)`, "m");
+  if (!whole.test(text)) return null;
+  // A name with a comma or a quote in it would break a CSV row; those rows are fixed by hand.
+  const csvField = /[,;\t"]/.test(to) && new RegExp(`[,;\\t"]${escaped}`, "m").test(text);
+  if (csvField) return null;
+  return text.replace(whole, (_, before: string) => `${before}${to}`);
 }
 
 /** The unmatched lines as a list to copy, fix and paste again. */

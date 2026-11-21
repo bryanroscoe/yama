@@ -22,9 +22,9 @@ vi.mock("../api", async (original) => ({
 }));
 beforeEach(() => { vi.clearAllMocks(); state.busy = false; state.error = null; });
 
-function confirmation(kind: string, copies: number) {
+function confirmation(kind: string, copies: number, sections = 0) {
   const client = new QueryClient();
-  const container = { id: "box-1", name: "Reality lab", kind, copies } as Container;
+  const container = { id: "box-1", name: "Reality lab", kind, copies, sections } as Container;
   const html = renderToStaticMarkup(<QueryClientProvider client={client}>
     <DeleteContainer container={container} onClose={() => undefined} onDeleted={() => undefined} />
   </QueryClientProvider>);
@@ -43,6 +43,19 @@ describe("deleting a collection container", () => {
     expect(html).toContain(">Cancel</button>");
     expect(api).not.toHaveBeenCalled();
     client.clear();
+  });
+
+  it("says a box with sections can't be deleted yet, and offers no Delete", () => {
+    const { html, client } = confirmation("box", 0, 1);
+    expect(html).toContain("“Reality lab” still has 1 section");
+    expect(html).toContain("Move or delete it first.");
+    expect(html).not.toContain(">Delete box</button>");
+    expect(html).not.toContain("will stay in your collection as loose cards");
+    const two = confirmation("box", 0, 2);
+    expect(two.html).toContain("still has 2 sections");
+    expect(two.html).toContain("Move or delete them first.");
+    client.clear();
+    two.client.clear();
   });
 
   it("also preserves contents of full deck boxes and names the kind", () => {

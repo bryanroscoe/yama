@@ -24,10 +24,24 @@ export function CollectionGrid<T extends CollectionItem>({ items, onOpen }: { it
               {i.proxy && <Tag>Proxy</Tag>}
               {markWords(i).map((w) => <Tag key={w}>{w[0]!.toUpperCase() + w.slice(1)}</Tag>)}
             </span>
-            <span className="num coll-tile-price">{usd(i.unit_price_usd)}</span>
+            <CopyPrice item={i} className="coll-tile-price" />
           </span>
         </li>
       ))}
     </ul>
+  );
+}
+
+/**
+ * The price of one copy. A proxy has no value of its own, so it shows the real card's price said
+ * as such ("real copy $1,653.09"), and nothing when that card has no price.
+ */
+export function CopyPrice({ item, className }: { item: Pick<CollectionItem, "proxy" | "unit_price_usd">; className: string }) {
+  if (!item.proxy) return <span className={`${className} num`}>{usd(item.unit_price_usd)}</span>;
+  if (item.unit_price_usd == null) return <span className={`${className} coll-real-price`} />;
+  return (
+    <span className={`${className} coll-real-price`}>
+      <span>real copy</span> <span className="num">{usd(item.unit_price_usd)}</span>
+    </span>
   );
 }

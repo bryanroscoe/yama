@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
-import { CardInDecksView, checkedSpan, deckUseWords, templateWords, type CardInDecksData, type DeckCombo } from "./CardInDecks";
+import { CardInDecksView, checkedSpan, deckUseWords, groupDecks, templateWords, type CardInDecksData, type DeckCombo, type DeckUse } from "./CardInDecks";
 
 const combo = (over: Partial<DeckCombo> = {}): DeckCombo => ({
   id: "1-2", cards: ["Sol Ring", "Dramatic Reversal"], templates: [], results: ["Infinite colorless mana"], definitely_two_card: true, arguably_two_card: true,
@@ -60,6 +60,34 @@ describe("a card's place in your decks", () => {
     expect(html).toContain("Not checked for combos yet: Brand new.");
     expect(view(data)).not.toContain("Not checked");
     expect(view(data)).not.toContain("more combo");
+  });
+
+  it("puts a deck's other lists on its line, and shows five decks until asked for all", () => {
+    const use = (deck_id: string, name: string, board: DeckUse["board"] = "main"): DeckUse => ({ deck_id, name, qty: 1, board, checked: true });
+    const decks = [
+      use("a", "Ahoy Mateys"), use("a2", "Ahoy Mateys (Bracket 2)"), use("a3", "Ahoy Mateys (Bracket 3)", "side"), use("as", "Ahoy Mateys (stock)"),
+      // A deck whose own name ends in a parenthesis, and its list.
+      use("b", "Berserk (custom, B3)"), use("b2", "Berserk (custom, B3) (Bracket 2)"),
+      // Only its other lists run the card: still one line. A lone name in parentheses is a deck.
+      use("e3", "Eternal Might (Bracket 3)"), use("e4", "Eternal Might (Bracket 4)"),
+      use("k", "Kraum & Tymna (cEDH)"),
+    ];
+    const groups = groupDecks(decks);
+    expect(groups.map((g) => [g.name, g.main?.deck_id ?? null, g.lists.map((l) => l.label).join("|")])).toEqual([
+      ["Ahoy Mateys", "a", "Bracket 2|Bracket 3|stock"],
+      ["Berserk (custom, B3)", "b", "Bracket 2"],
+      ["Eternal Might", null, "Bracket 3|Bracket 4"],
+      ["Kraum & Tymna (cEDH)", "k", ""],
+    ]);
+    const html = view({ decks, combos: [], more_combos: 0 });
+    expect(html).toMatch(/<a [^>]*href="\/decks\/a"[^>]*>Ahoy Mateys<\/a><span class="cp-deck-lists">Also in its lists: <a [^>]*href="\/decks\/a2"[^>]*>Bracket 2<\/a> \(main deck\), <a [^>]*href="\/decks\/a3"[^>]*>Bracket 3<\/a> \(sideboard\), /);
+    expect(html).toMatch(/<span class="cp-deck-name">Eternal Might<\/span><span class="cp-deck-lists">In its lists: <a [^>]*href="\/decks\/e3"[^>]*>Bracket 3<\/a>, <a [^>]*href="\/decks\/e4"[^>]*>Bracket 4<\/a><\/span>/);
+    // Four decks: no button. Seven: five, and the rest behind "Show all 7 decks".
+    expect(html).not.toContain("Show all");
+    const many = view({ decks: ["A", "B", "C", "D", "E", "F", "G"].map((n) => use(n, `Deck ${n}`)), combos: [], more_combos: 0 });
+    expect(many).toContain("Show all 7 decks");
+    expect(many).toContain("Deck E");
+    expect(many).not.toContain("Deck F");
   });
 
   it("draws nothing when no deck runs the card, and no combo heading without combos", () => {

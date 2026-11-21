@@ -22,3 +22,6 @@
 .trade-row > div { min-width: 0; }
 .trade-row p { margin: 4px 0 0; overflow-wrap: anywhere; }
 .trade-row .thumb { flex: none; }
+.trade-you { margin: 16px 0 0; }
+.trade-steps { margin: 8px 0 0; padding-left: 1.4em; display: grid; gap: 4px; }
+.trade-steps a { display: inline; }

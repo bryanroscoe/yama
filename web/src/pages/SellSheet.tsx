@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { SellOffers } from "./SellOffers";
+import type { Store } from "@yama/core/plan";
+import { buylistName, SellOffers } from "./SellOffers";
 import { saveFile } from "../download";
 import { Button, CopyButton, Details, Dialog, EmptyState, ErrorText, Segmented, Tag } from "../components/ui";
 import { leftOut, overLimit, SELL_FORMATS, sellable, sellText, special, type SellCard, type SellFormat } from "./sellList";
@@ -18,8 +19,11 @@ function storedFormat(): SellFormat {
   return f && f in SELL_FORMATS ? (f as SellFormat) : "sortswift";
 }
 
-/** Cards in the current view, narrowed and ticked, written out for a store's buylist. */
-export function SellSheet({ items, from, inDeckBox, onClose }: { items: SellItem[]; from: string; inDeckBox: boolean; onClose: () => void }) {
+/**
+ * Cards in the current view, narrowed and ticked, written out for a store's buylist. `buylist` is
+ * the account's own store whose online buylist Yama can ask (SellOffers), when it has that store.
+ */
+export function SellSheet({ items, from, inDeckBox, buylist, onClose }: { items: SellItem[]; from: string; inDeckBox: boolean; buylist?: Pick<Store, "name" | "short"> | null; onClose: () => void }) {
   const [format, setFormatState] = useState<SellFormat>(storedFormat);
   const setFormat = (f: SellFormat) => {
     setFormatState(f);
@@ -73,7 +77,7 @@ export function SellSheet({ items, from, inDeckBox, onClose }: { items: SellItem
     <Dialog title="Sell list" onClose={onClose}>
       <div className="stack sell-sheet">
         <p className="dim">
-          From {from}. To choose cards by hand, move them into a list (New, then List) and open it here. Proxies are never included.
+          From {from}. Untick what you're keeping. Proxies are never included.
         </p>
 
         <Segmented className="sell-formats" label="Format" value={format} onChange={setFormat} options={(Object.keys(SELL_FORMATS) as SellFormat[]).map((f) => [f, SELL_FORMATS[f].label] as const)} />
@@ -146,7 +150,11 @@ export function SellSheet({ items, from, inDeckBox, onClose }: { items: SellItem
           </Details>
         )}
 
-        <Details label="Local buylist offers"><SellOffers cards={shown.filter((c) => qty(c) > 0)} qty={qty} onChoose={(counts) => { setRest("none"); setCounts(new Map(counts)); setFormat("storepass"); }} /></Details>
+        {buylist && (
+          <Details label={`Buylist offers from ${buylistName(buylist)}`}>
+            <SellOffers store={buylist} cards={shown.filter((c) => qty(c) > 0)} qty={qty} onChoose={(counts) => { setRest("none"); setCounts(new Map(counts)); setFormat("storepass"); }} />
+          </Details>
+        )}
 
         {cards.length > 0 && (
           <>

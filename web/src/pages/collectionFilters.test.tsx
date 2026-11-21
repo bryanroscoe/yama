@@ -4,9 +4,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 import type { CollectionItem } from "../api";
-import { CollectionPage } from "./Collection";
+import { CollectionPage, tileMeta } from "./Collection";
 import { CollectionGrid } from "./CollectionGrid";
-import { activeFilters, clampFilters, filterOptions, NO_FILTERS, passes, totals, totalsText } from "./collectionFilters";
+import { activeFilters, byValue, cardsAndProxies, clampFilters, filterOptions, foundText, money, NO_FILTERS, passes, totals, totalsText } from "./collectionFilters";
 
 let n = 0;
 function item(over: Partial<CollectionItem> & { name: string }): CollectionItem {
@@ -141,9 +141,84 @@ describe("the Collection page", () => {
     const open = render("/collection?box=b1");
     expect(open).not.toContain("container-tiles");
     expect(open).not.toContain("Bulk box");
-    expect(open).toMatch(/<h2 class="ct-name">Trade binder<\/h2>/);
+    expect(open).toMatch(/<h1 class="ct-name">Trade binder<\/h1>/);
     expect(open).toContain('aria-label="Back to every binder, box and deck"');
-    expect(open).toContain("Delete binder");
+    expect(open).toContain(">Scan this binder<");
     expect(render("/collection?box=gone")).toContain("No such binder or box");
+  });
+});
+
+describe("the by-value order, counts and totals", () => {
+  it("puts proxies after priced real cards: their price is the real card's, not theirs", () => {
+    const cradle = item({ name: "Gaea's Cradle", proxy: true, unit_price_usd: 1653.09 });
+    const order = [cradle, bolt, ring, atraxa, dryad].sort(byValue).map((i) => i.name);
+    // Real cards by price, then proxies by what the real card costs, then cards with no price.
+    expect(order).toEqual(["Atraxa, Praetors' Voice", "Sol Ring", "Gaea's Cradle", "Dryad Arbor", "Lightning Bolt"]);
+  });
+
+  it("shows a proxy's price as the real copy's, in the list and in pictures", () => {
+    const cradle = item({ name: "Gaea's Cradle", proxy: true, unit_price_usd: 1653.09 });
+    const html = renderToStaticMarkup(<CollectionGrid items={[cradle, ring]} onOpen={() => undefined} />);
+    expect(html).toMatch(/coll-real-price"><span>real copy<\/span> <span class="num">\$1,653\.09<\/span>/);
+    expect(html).toContain('<span class="coll-tile-price num">$1.50</span>');
+    // A proxy of a card with no price shows no price at all.
+    const none = renderToStaticMarkup(<CollectionGrid items={[item({ name: "Odd", proxy: true, unit_price_usd: null })]} onOpen={() => undefined} />);
+    expect(none).not.toContain("No price");
+    expect(none).not.toContain("real copy");
+  });
+
+  it("counts real cards and proxies apart, the same way in the head and on a tile", () => {
+    expect(cardsAndProxies(6, 1)).toBe("5 cards and 1 proxy");
+    expect(cardsAndProxies(40)).toBe("40 cards");
+    expect(cardsAndProxies(3, 3)).toBe("3 proxies");
+    expect(cardsAndProxies(0)).toBe("Empty");
+    expect(tileMeta(6, 1, 4.5, 2)).toBe("5 cards and 1 proxy, $4.50, 2 with no price");
+    expect(tileMeta(146, 0, 402.4, 0)).toBe("146 cards, $402");
+    // Nothing in it, or nothing with a price: no "$0".
+    expect(tileMeta(0, 0, 0, 0)).toBe("Empty");
+    expect(tileMeta(3, undefined, 0, 3)).toBe("3 cards, 3 with no price");
+  });
+
+  it("shows cents while a total is small", () => {
+    expect(money(4.5)).toBe("$4.50");
+    expect(money(99.99)).toBe("$99.99");
+    expect(money(100)).toBe("$100");
+    expect(money(1768.6)).toBe("$1,769");
+  });
+
+  it("says what a search found", () => {
+    expect(foundText(15, "sol ring")).toBe("15 cards called “sol ring”");
+    expect(foundText(1, "bolt", "Trade binder")).toBe("1 card called “bolt” in Trade binder");
+  });
+});
+
+describe("the Collection page with nothing in it", () => {
+  const render = (boxes: unknown[]) => {
+    const client = new QueryClient();
+    client.setQueryData(["me"], { id: "u1", email: "me@example.com", display_name: "Me", power: false });
+    client.setQueryData(["collection-summary"], { copies: 0, proxies: 0, distinct_printings: 0, market_value_usd: 0, copies_without_price: 0, price_date: null, purchase_total_usd: 0 });
+    client.setQueryData(["containers"], boxes);
+    client.setQueryData(["decks"], []);
+    client.setQueryData(["collection", "", "", "all"], []);
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={["/collection"]}><CollectionPage /></MemoryRouter>
+      </QueryClientProvider>,
+    );
+    client.clear();
+    return html;
+  };
+  it("is only its empty state: what the collection is for and the three ways to start", () => {
+    const html = render([]);
+    expect(html).toContain("Keep track of the cards you own");
+    for (const label of ["Scan cards", "Import a list", "Add from card search"]) expect(html.split(`>${label}<`)).toHaveLength(2);
+    for (const gone of ["Most valuable", "By value", "Export CSV", "Search your collection", "$0", "No cards yet", "Where they live"]) expect(html).not.toContain(gone);
+    expect(html).toContain("Make a binder, box or deck");
+  });
+  it("still shows a box made before any card, as empty", () => {
+    const html = render([{ id: "b1", kind: "box", name: "Bulk", copies: 0, market_value_usd: 0, copies_without_price: 0 }]);
+    expect(html).toContain("container-tiles");
+    expect(html).toMatch(/<span class="ct-meta num">Empty<\/span>/);
+    expect(html).not.toContain("$0");
   });
 });

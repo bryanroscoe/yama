@@ -26,10 +26,13 @@ function page(path: string, node: ReactNode, data: [unknown[], unknown][]): stri
 const links = (html: string) => [...html.matchAll(/<a [^>]*href="([^"]+)"[^>]*>(.*?)<\/a>/g)].map((m) => `${m[2]!.replace(/<[^>]+>/g, "")} -> ${m[1]}`);
 
 describe("empty pages lead somewhere", () => {
-  it("Decks offers importing a list or starting from a precon", () => {
+  it("Decks offers adding a deck or starting from a precon, with one primary button", () => {
     const html = page("/decks", <DecksPage />, [[["decks"], []]]);
     expect(html).toContain("No decks yet.");
-    expect(links(html)).toEqual(expect.arrayContaining(["Import a list -> /decks/import", "Start from a precon -> /lab"]));
+    // One name for the action; the precon link says it is a newcomer looking for their deck.
+    expect(links(html)).toEqual(expect.arrayContaining(["Add a deck -> /decks/import", "Start from a precon -> /lab?start=1"]));
+    expect(html).not.toContain("Import a list");
+    expect(html.match(/class="button primary"/g) ?? []).toHaveLength(1);
   });
 
   it("Collection offers import, scanning and card search", () => {
@@ -40,8 +43,8 @@ describe("empty pages lead somewhere", () => {
       [["collection", "", "", "all"], []],
     ]);
     // The actions sit with the message, not only in the page head.
-    const empty = html.slice(html.indexOf("No cards yet."));
-    expect(empty).toMatch(/<button[^>]*>Import a list or a file<\/button>/);
+    const empty = html.slice(html.indexOf("Keep track of the cards you own"));
+    expect(empty).toMatch(/<button[^>]*>Import a list<\/button>/);
     expect(empty).toMatch(/<button[^>]*>Scan cards<\/button>/);
     expect(links(empty)).toContain("Add from card search -> /cards");
   });
@@ -49,14 +52,23 @@ describe("empty pages lead somewhere", () => {
   it("Play says where to get a deck", () => {
     const html = page("/play", <PlayHome />, [[["decks"], []], [["play"], []], [["play-status"], { enabled: true, reason: null }]]);
     expect(html).toContain("Add a deck to start playing.");
-    expect(links(html)).toEqual(expect.arrayContaining(["Add a deck -> /decks/import", "Start from a precon -> /lab"]));
+    expect(links(html)).toContain("Add a deck -> /decks/import");
+    // With or without ?start=1 (the Precons page's line for someone looking for their own deck).
+    expect(links(html).some((l) => /^Start from a precon -> \/lab(\?start=1)?$/.test(l))).toBe(true);
   });
 
   it("Group puts starting or joining a playgroup first, once", () => {
     const html = page("/group", <GroupPage />, [[["playgroups"], []]]);
     expect(html.match(/Start or join a playgroup/g)).toHaveLength(1);
-    expect(html.indexOf("Start or join a playgroup")).toBeLessThan(html.indexOf("Export games"));
+    // It says what a playgroup is, labels both fields, and offers no export to someone with no games.
+    expect(html).toContain("A playgroup keeps your table&#x27;s games and stats together.");
+    expect(html).toContain("Name a new playgroup");
+    expect(html).toContain("Code a friend shared");
+    expect(html).not.toContain("Export games");
     expect(html).not.toContain("No playgroup yet.");
+    // Someone who has played without a playgroup still gets the export, under the form.
+    const played = page("/group", <GroupPage />, [[["playgroups"], []], [["games"], [{ id: "g1" }]]]);
+    expect(played.indexOf("Start or join a playgroup")).toBeLessThan(played.indexOf("Export games"));
   });
 
   it("Group keeps the form out of the page until it knows where it goes", () => {
@@ -64,7 +76,9 @@ describe("empty pages lead somewhere", () => {
     // someone had typed.
     expect(page("/group", <GroupPage />, [])).not.toContain("Start or join a playgroup");
     const group = { id: "g1", name: "Friday pod", join_code: "ABC123", role: "owner", members: [] };
-    const html = page("/group", <GroupPage />, [[["playgroups"], [group]]]);
+    // Export waits for a game to export; a playgroup that has one shows it above the form.
+    expect(page("/group", <GroupPage />, [[["playgroups"], [group]]])).not.toContain("Export games");
+    const html = page("/group", <GroupPage />, [[["playgroups"], [group]], [["games", "group", "g1"], [{ id: "x", status: "finished", started_at: "2026-11-01T19:00:00Z", seats: [] }]]]);
     expect(html.match(/Start or join a playgroup/g)).toHaveLength(1);
     expect(html.indexOf("Export games")).toBeLessThan(html.indexOf("Start or join a playgroup"));
   });
@@ -82,6 +96,6 @@ describe("empty pages lead somewhere", () => {
       </QueryClientProvider>,
     );
     expect(html.match(/Start or join a playgroup/g)).toHaveLength(1);
-    expect(html.indexOf("Start or join a playgroup")).toBeLessThan(html.indexOf("Export games"));
+    expect(html).not.toContain("Export games");
   });
 });

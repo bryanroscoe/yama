@@ -2,39 +2,46 @@ import { HelpPopover } from "../components/HelpPopover";
 import { CardHover } from "../components/CardRef";
 import { CollectionItemSheet } from "./CollectionItemSheet";
 import { ImportCollectionSheet } from "./ImportCollectionSheet";
-import { CollectionGrid } from "./CollectionGrid";
-import { markWords } from "./collectionEdit";
+import { CollectionGrid, CopyPrice } from "./CollectionGrid";
+import { conditionWord, markWords } from "./collectionEdit";
 import { UnsavedPrompt, useUnsavedChanges } from "../unsaved";
 import { closeQuestion, unsavedScans } from "./scanClose";
 import { SellSheet } from "./SellSheet";
+import { buylistStore } from "./SellOffers";
+import { usePlan } from "../plan/store";
+import { useMe } from "../auth";
 import { ContainerSections, Breadcrumb } from "./ContainerSections";
-import { optionLabel, pathLabel, placeLabel, treeOrder } from "./containerTree";
+import { optionLabel, pathLabel, placeLabel, subtreeIds, treeOrder } from "./containerTree";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { exportLink } from "../download";
 import { api, API_BASE, ApiError, placeName, type CollectionItem, type CollectionSummary, type Container, type DeckSummary, type Printing } from "../api";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
-import { BackLink, Button, ButtonLink, CardImage, CardThumb, Details, Dialog, EmptyState, ErrorText, Field, Loading, Segmented, Tag } from "../components/ui";
+import { ActionBar, BackLink, Button, ButtonLink, CardImage, CardThumb, Details, Dialog, EmptyState, ErrorText, Field, Loading, Segmented, Tag } from "../components/ui";
 import "./collection.css";
 import "../decks/collect.css";
 import { changeText, keptText, missingLabel, missingText, previewLines, resultLines, type MythicReport } from "./mythicImport";
-import { activeFilters, clampFilters, COLOR_OPTIONS, filterOptions, FINISH_LABEL, NO_FILTERS, passes, rarityLabel, totals, totalsText, type Filters } from "./collectionFilters";
+import { activeFilters, byValue, cardsAndProxies, clampFilters, COLOR_OPTIONS, filterOptions, FINISH_LABEL, foundText, money, NO_FILTERS, passes, rarityLabel, totals, totalsText, type Filters } from "./collectionFilters";
 
 const KIND_LABEL: Record<string, string> = { binder: "Binder", box: "Box", deck: "Deck box", list: "List" };
 
-/** "146 cards, $402" for a tile; copies without a price are said, not counted as $0. */
-function tileMeta(copies: number, value: number | undefined, unpriced: number | undefined): string {
-  const cards = plural(copies, "card");
-  if (value === undefined) return cards;
-  return `${cards}, ${usdWhole(value)}${unpriced ? `, ${unpriced} with no price` : ""}`;
+/**
+ * "146 cards, $402" for a tile, "5 cards and 1 proxy" where some are proxies, "Empty" for none.
+ * Copies without a price are said, not counted as $0, and no value is printed when nothing has one.
+ */
+export function tileMeta(copies: number, proxies: number | undefined, value: number | undefined, unpriced: number | undefined): string {
+  const cards = cardsAndProxies(copies, proxies);
+  if (copies <= 0) return cards;
+  return `${cards}${value ? `, ${money(value)}` : ""}${unpriced ? `, ${unpriced} with no price` : ""}`;
 }
 import type { Added, Finish, Fix, RecentCard, ScanCandidate } from "../scanner";
 import { useOpenedEntry } from "../scanner/opened";
 import { useDebounced } from "../useDebounced";
 // The scan choices and their notes, shown here outside the scanner too.
 import "../scanner/scanner.css";
-import { priceSource, shortDate, usd, count, plural, usdWhole, treatmentLabel, finishName, finishesOf, pickFinish } from "@yama/core";
+import { priceSource, shortDate, count, plural, usdWhole, treatmentLabel, finishName, finishesOf, pickFinish } from "@yama/core";
+import { BugButton } from "../bugs/BugButton";
 
 // The scanner pulls in OCR; load it only when someone opens it.
 const scanner = () => import("../scanner");
@@ -49,7 +56,6 @@ const CLOSEUPS = "yama.scan.closeups";
 
 /** A collection row with its printing's art crop and artist, for the art thumbnails. */
 type Item = CollectionItem & { image_art_crop?: string | null; artist?: string | null };
-const CONDITIONS: Record<string, string> = { NM: "near mint", LP: "lightly played", MP: "moderately played", HP: "heavily played", DMG: "damaged" };
 /** Rows shown at first, and how many more each "Show more" adds: a collection can run to thousands,
  *  and drawing every row at once made the page crawl. */
 const SHOW = 24;
@@ -75,14 +81,6 @@ function storedView(): "list" | "grid" {
   } catch {
     return "list";
   }
-}
-
-/** Most valuable first (by the price of one copy); copies with no price go last, by name. */
-function byValue(a: Item, b: Item): number {
-  if (a.unit_price_usd == null && b.unit_price_usd == null) return (a.name ?? "").localeCompare(b.name ?? "");
-  if (a.unit_price_usd == null) return 1;
-  if (b.unit_price_usd == null) return -1;
-  return b.unit_price_usd - a.unit_price_usd;
 }
 
 export function CollectionPage() {
@@ -164,12 +162,16 @@ export function CollectionPage() {
   };
   const [selling, setSelling] = useState(false);
   const [deleting, setDeleting] = useState<Container | null>(null);
+  /** The phone's filters, folded behind one button until asked for. */
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const s = summary.data;
   const proxies = s?.proxies ?? 0;
   const real = (s?.copies ?? 0) - proxies;
+  /** Nothing in the collection at all: the page is its empty state. */
+  const empty = !!s && s.copies === 0;
   // A deck box shows its deck's commander; anything else, the most valuable card inside.
-  const all = containers.data ?? [];
+  const all = useMemo(() => containers.data ?? [], [containers.data]);
   // The tiles are the top-level containers; a section shows inside its box.
   const tiles = all.filter((c) => !c.parent_id).map((c) => {
     const deck = decks.data?.find((d) => d.container_id === c.id && d.commander_image);
@@ -177,6 +179,27 @@ export function CollectionPage() {
   });
   const filed = (containers.data ?? []).reduce((a, c) => a + c.copies, 0);
   const loose = s ? s.copies - filed : 0;
+  // Which place each proxy is in, so a tile counts them apart from real cards as the head does.
+  // The same rows (and the same cache) as this page's own "Proxies" view.
+  const proxyRows = useQuery({
+    queryKey: ["collection", "", "", "proxy"],
+    queryFn: ({ signal }) => api<Item[]>("/api/collection?proxy=only", { signal }),
+    enabled: proxies > 0,
+  });
+  /** The proxies in a place (its sections included), or undefined until they're known. */
+  const proxiesIn = useMemo(() => {
+    const own = new Map<string, number>();
+    for (const i of proxyRows.data ?? []) own.set(i.container_id ?? "none", (own.get(i.container_id ?? "none") ?? 0) + i.qty);
+    const known = proxies === 0 || !!proxyRows.data;
+    return (id: string): number | undefined => {
+      if (!known) return undefined;
+      if (id === "none") return own.get("none") ?? 0;
+      let n = 0;
+      for (const x of subtreeIds(id, all)) n += own.get(x) ?? 0;
+      return n;
+    };
+  }, [proxyRows.data, proxies, all]);
+  const boxMeta = (c: Container) => tileMeta(c.total_copies ?? c.copies, proxiesIn(c.id), c.total_market_value_usd ?? c.market_value_usd, c.total_copies_without_price ?? c.copies_without_price);
   const chosen = containers.data?.find((c) => c.id === container);
   const hasSections = !!chosen?.sections;
   const priced = priceSource(s?.price_date);
@@ -202,7 +225,20 @@ export function CollectionPage() {
   }
   const shown = sorted.slice(0, limit);
   const left = sorted.length - shown.length;
-  const heading = container ? "Cards" : sort === "value" ? "Most valuable" : "Every card";
+  // A search says what it found where the heading was: the rows under it are the answer.
+  const searching = filter.trim() !== "";
+  /** The rows on the page are the answer to what is typed (not the last search's, still on its way out). */
+  const settled = !!items.data && !items.isPlaceholderData && filter.trim() === query;
+  const where = chosen ? chosen.name : container === "none" ? "loose cards" : null;
+  const heading = searching
+    ? settled
+      ? foundText(totals(sorted).copies, query, where)
+      : `Cards called “${filter.trim()}”`
+    : container
+      ? "Cards"
+      : sort === "value"
+        ? "Most valuable"
+        : "Every card";
   // The list shows art crops (credited under it); the pictures are whole cards, which name their artist.
   const thumbArtists = show === "list" ? shown.filter((i) => i.image_art_crop).map((i) => i.artist) : [];
   const places = tiles.length + (loose > 0 ? 1 : 0);
@@ -210,74 +246,100 @@ export function CollectionPage() {
   const choices = all.length + (loose > 0 ? 1 : 0);
   const showTiles = (placesChoice ?? (places > FEW_PLACES ? "folded" : "tiles")) === "tiles";
   const searchLabel = chosen ? `Search ${chosen.name}` : container === "none" ? "Search loose cards" : "Search your collection";
+  /** How many choices narrow the list, for the phone's Filter button. */
+  const narrowed = activeFilters(filters) + (kind !== "all" ? 1 : 0);
+  // An id that names no box (deleted, or a stale link) says so rather than passing for loose cards.
+  const openName = chosen ? chosen.name : container === "none" ? "Loose cards" : containers.data ? "No such binder or box" : "";
+  const openTile = tiles.find((x) => x.c.id === container);
+  // What the last change did (a deleted row or box). It sits over the cards and stays in view
+  // while they scroll: the change was made from a row that may be far down the list.
+  const doneLine = done && (
+    <p className="coll-done" role="status">
+      {done} <Button variant="quiet" size="small" onClick={() => setDone(null)}>OK</Button>
+    </p>
+  );
   return (
     <main className="page coll-page">
-      <div className="coll-head">
-        <div className="coll-title">
-          <h1>Collection</h1>
-          {s && s.copies > 0 && (
-            <span className="coll-value">
-              <b className="num">{usdWhole(s.market_value_usd)}</b>
-              <span className="coll-wide">
-                {plural(real, "card")}, market value on {day}
-                {/* In brackets: after the date, ", 25 with no price" read as the year. */}
-                {s.copies_without_price > 0 ? ` (${count(s.copies_without_price)} with no price)` : ""}
-              </span>
-              <span className="coll-narrow">
-                {plural(real, "card")}, {day}
-              </span>
-              <HelpPopover label="About this total">
-                <p>
-                  TCGplayer market value of your real cards on {day}, per copy in its finish. It is not a store quote or a resale offer.
-                  {s.copies_without_price > 0 ? ` ${count(s.copies_without_price)} ${s.copies_without_price === 1 ? "card has no price and isn't" : "cards have no price and aren't"} counted.` : ""}
-                  {proxies > 0 ? ` Your ${count(proxies)} ${proxies === 1 ? "proxy isn't" : "proxies aren't"} counted.` : ""}
-                </p>
-                {s.purchase_total_usd > 0 && (
+      {/* With a box open, the box is the page: the way back, then its name as the heading. */}
+      {!container && (
+        <div className="coll-head">
+          <div className="coll-title">
+            <div className="head-with-bug"><h1>Collection</h1><BugButton /></div>
+            {s && s.copies > 0 && (
+              <span className="coll-value">
+                {/* Proxies have no market value: with no real card there is no total to print. */}
+                {real > 0 && <b className="num">{money(s.market_value_usd)}</b>}
+                <span className="coll-wide">
+                  {cardsAndProxies(s.copies, proxies)}
+                  {real > 0 ? `, market value on ${day}` : ""}
+                  {/* In brackets: after the date, ", 25 with no price" read as the year. */}
+                  {s.copies_without_price > 0 ? ` (${count(s.copies_without_price)} with no price)` : ""}
+                </span>
+                <span className="coll-narrow">
+                  {cardsAndProxies(s.copies, proxies)}
+                  {real > 0 ? `, ${day}` : ""}
+                </span>
+                <HelpPopover label="About this total">
                   <p>
-                    You paid {usdWhole(s.purchase_total_usd)}, where recorded{s.copies_without_purchase_price ? ` (${count(s.copies_without_purchase_price)} ${s.copies_without_purchase_price === 1 ? "copy has" : "copies have"} no purchase price)` : ""}
-                    {s.copies_paid_in_other_currency ? `; ${count(s.copies_paid_in_other_currency)} paid in another currency ${s.copies_paid_in_other_currency === 1 ? "isn't" : "aren't"} added in` : ""}.
+                    TCGplayer market value of your real cards on {day}, per copy in its finish. It is not a store quote or a resale offer.
+                    {s.copies_without_price > 0 ? ` ${count(s.copies_without_price)} ${s.copies_without_price === 1 ? "card has no price and isn't" : "cards have no price and aren't"} counted.` : ""}
+                    {proxies > 0 ? ` Your ${count(proxies)} ${proxies === 1 ? "proxy isn't" : "proxies aren't"} counted.` : ""}
                   </p>
-                )}
-              </HelpPopover>
-            </span>
+                  {s.purchase_total_usd > 0 && (
+                    <p>
+                      You paid {usdWhole(s.purchase_total_usd)}, where recorded{s.copies_without_purchase_price ? ` (${count(s.copies_without_purchase_price)} ${s.copies_without_purchase_price === 1 ? "copy has" : "copies have"} no purchase price)` : ""}
+                      {s.copies_paid_in_other_currency ? `; ${count(s.copies_paid_in_other_currency)} paid in another currency ${s.copies_paid_in_other_currency === 1 ? "isn't" : "aren't"} added in` : ""}.
+                    </p>
+                  )}
+                </HelpPopover>
+              </span>
+            )}
+          </div>
+          {/* An empty collection offers these once, in its empty state. */}
+          {!empty && (
+            <div className="coll-actions">
+              <Button variant="outline" className="coll-import" onClick={() => setImporting("cards")}>Import</Button>
+              <ButtonLink variant="outline" className="coll-export" {...exportLink("/api/collection/export.csv", "yama-collection.csv")}>Export CSV</ButtonLink>
+              <Button variant="primary" className="coll-scan" onClick={() => setScanning(true)}>Scan cards</Button>
+            </div>
           )}
-        </div>
-        <div className="coll-actions">
-          <Button variant="outline" className="coll-import" onClick={() => setImporting("cards")}>Import</Button>
-          <ButtonLink variant="outline" className="coll-export" {...exportLink("/api/collection/export.csv", "yama-collection.csv")}>Export CSV</ButtonLink>
-          <Button variant="primary" className="coll-scan" onClick={() => setScanning(true)}>Scan cards</Button>
-        </div>
-      </div>
-
-      {/* The search sits under the head, above the boxes, so it's always near the top. */}
-      {!(s && s.copies === 0) && (
-        <div className="coll-filter" role="search">
-          <input type="search" aria-label={`${searchLabel} by name`} placeholder={`${searchLabel} by name`} value={filter} onChange={(e) => setFilter(e.target.value)} />
         </div>
       )}
 
       {container && (
         <section className="containers coll-open" aria-label={chosen ? chosen.name : "Loose cards"}>
           <BackLink inline to="/collection" text="Every binder, box and deck" label="Back to every binder, box and deck" />
-          {(() => {
-            const t = tiles.find((x) => x.c.id === container);
-            // An id that names no box (deleted, or a stale link) says so rather than passing for loose cards.
-            const c = chosen;
-            const name = c ? c.name : container === "none" ? "Loose cards" : containers.data ? "No such binder or box" : "";
-            return (
-              <ArtPanel art={t?.art ?? c?.art ?? null} artist={t?.artist ?? c?.artist ?? null} wash="bottom" empty={!(t?.art ?? c?.art)} className="coll-open-art">
-                <span className="ct-kind">{c ? (c.spares_of_deck ? `${c.spares_of_deck}'s box (swappable)` : c.parent_id ? "Section" : (KIND_LABEL[c.kind] ?? c.kind)) : container === "none" ? "Not filed" : ""}</span>
-                <h2 className="ct-name">{name}</h2>
-                <span className="ct-meta num">{c ? tileMeta(c.total_copies ?? c.copies, c.total_market_value_usd ?? c.market_value_usd, c.total_copies_without_price ?? c.copies_without_price) : container === "none" && s ? tileMeta(loose, undefined, undefined) : ""}</span>
-              </ArtPanel>
-            );
-          })()}
+          <ArtPanel art={openTile?.art ?? chosen?.art ?? null} artist={openTile?.artist ?? chosen?.artist ?? null} wash="bottom" empty={!(openTile?.art ?? chosen?.art)} className="coll-open-art">
+            <span className="ct-kind">{chosen ? (chosen.spares_of_deck ? `${chosen.spares_of_deck}'s box (swappable)` : chosen.parent_id ? "Section" : (KIND_LABEL[chosen.kind] ?? chosen.kind)) : container === "none" ? "Not filed" : ""}</span>
+            <h1 className="ct-name">{openName}</h1>
+            <span className="ct-meta num">{chosen ? boxMeta(chosen) : container === "none" && s ? tileMeta(loose, proxiesIn("none"), undefined, undefined) : ""}</span>
+          </ArtPanel>
           {chosen && <Breadcrumb id={chosen.id} all={all} onOpen={setContainer} />}
-          {chosen && <ContainerSections key={chosen.id} container={chosen} all={all} onOpen={setContainer} onDone={setDone} />}
         </section>
       )}
+
+      {/* The search sits under the head (or the open box's name), above everything a search hides. */}
+      {!empty && (
+        <div className="coll-filter" role="search">
+          <input type="search" aria-label={`${searchLabel} by name`} placeholder={`${searchLabel} by name`} value={filter} onChange={(e) => setFilter(e.target.value)} />
+        </div>
+      )}
+
+      {/* The open box's sections and what can be done with it. A search hides them (kept as they
+          are, with any form half filled in), so its rows come straight under the search. */}
+      {chosen && (
+        <div className="coll-open" hidden={searching}>
+          <ContainerSections key={chosen.id} container={chosen} all={all} onOpen={setContainer} onDone={setDone} onDelete={() => setDeleting(chosen)} onImport={() => setImporting("cards")} />
+        </div>
+      )}
+      {container === "none" && !searching && (
+        <ActionBar>
+          <Button variant="primary" size="small" onClick={() => setScanning(true)}>Scan cards</Button>
+          <Button size="small" onClick={() => setImporting("cards")}>Import</Button>
+        </ActionBar>
+      )}
       {/* Only once the containers are in: before, every card counts as loose and a lone tile flashes. */}
-      {!container && containers.data && (tiles.length > 0 || loose > 0) && (
+      {!container && !searching && containers.data && (tiles.length > 0 || loose > 0) && (
         <section className={showTiles ? "containers" : "containers coll-folded"} aria-labelledby="where">
           <div className="section-head">
             <h2 id="where">
@@ -325,7 +387,7 @@ export function CollectionPage() {
                     <span className="ct-kind">{c.spares_of_deck ? `${c.spares_of_deck}'s box (swappable)` : (KIND_LABEL[c.kind] ?? c.kind)}</span>
                     <span className="ct-name">{c.name}</span>
                     <span className="ct-meta num">
-                      {tileMeta(c.total_copies ?? c.copies, c.total_market_value_usd ?? c.market_value_usd, c.total_copies_without_price ?? c.copies_without_price)}
+                      {boxMeta(c)}
                       {c.sections ? `, ${plural(c.sections, "section")}` : ""}
                     </span>
                   </ArtPanel>
@@ -341,94 +403,117 @@ export function CollectionPage() {
                       <span className="coll-wide">Loose cards</span>
                       <span className="coll-narrow">Not filed</span>
                     </span>
-                    <span className="ct-meta num">{tileMeta(loose, undefined, undefined)}</span>
+                    <span className="ct-meta num">{tileMeta(loose, proxiesIn("none"), undefined, undefined)}</span>
                   </ArtPanel>
                 </Button>
               </li>
             )}
           </ul>
-          <p className="small dim coll-note">
-            {priced}.{" "}
-            {tiles.some((t) => t.art) ? artCredits(tiles.filter((t) => t.art).map((t) => t.artist)) : ""}
-          </p>
+          {/* The date and source of the tiles' values: said only where a tile shows one. */}
+          {(!empty || tiles.some((t) => t.art)) && (
+            <p className="small dim coll-note">
+              {empty ? "" : `${priced}. `}
+              {tiles.some((t) => t.art) ? artCredits(tiles.filter((t) => t.art).map((t) => t.artist)) : ""}
+            </p>
+          )}
           </>
           )}
         </section>
       )}
-      {tiles.length === 0 && loose === 0 && newContainer && <NewContainer onClose={() => setNewContainer(false)} />}
 
-      <section className="coll-cards" aria-labelledby="coll-cards-h">
-        <div className="coll-cards-head">
-          <h2 id="coll-cards-h">{heading}</h2>
-          {chosen && <Button variant="outline" size="small" onClick={() => setDeleting(chosen)}>Delete {chosen.parent_id ? "section" : (KIND_LABEL[chosen.kind] ?? "container").toLowerCase()}</Button>}
-          {hasSections && (
-            <label className="coll-with-sections small">
-              <input type="checkbox" checked={withSections} onChange={(e) => setWithSections(e.target.checked)} />
-              <span>Include its sections</span>
-            </label>
-          )}
-          <Segmented className="coll-sort" label="Order" value={sort} onChange={setSort} options={[["value", "By value"], ["name", "By name"]]} />
-          {(proxies > 0 || kind !== "all") && (
-            <Segmented className="coll-kind" label="Real cards or proxies" value={kind} onChange={setKind} options={[["all", "All"], ["real", "Real"], ["proxy", "Proxies"]]} />
-          )}
-          {!!items.data?.length && !items.isPlaceholderData && filter.trim() === query && (
-            <Button variant="outline" className="coll-sell" onClick={() => setSelling(true)}>Sell list</Button>
-          )}
-          {tiles.length === 0 && loose === 0 && <Button onClick={() => setNewContainer(true)}>New binder, box or deck</Button>}
-        </div>
-
-        {!!items.data?.length && (
-          <div className="coll-filters" role="group" aria-label="Filter and view">
-            <select aria-label="Set" value={filters.set} onChange={(e) => filter1({ set: e.target.value })}>
-              <option value="">Any set</option>
-              {options.sets.map((s) => <option key={s.code} value={s.code}>{s.name} ({s.code.toUpperCase()})</option>)}
-            </select>
-            <select aria-label="Color" value={filters.color} onChange={(e) => filter1({ color: e.target.value })}>
-              <option value="">Any color</option>
-              {COLOR_OPTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
-            </select>
-            <select aria-label="Card type" value={filters.type} onChange={(e) => filter1({ type: e.target.value })}>
-              <option value="">Any type</option>
-              {options.types.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
-            <select aria-label="Rarity" value={filters.rarity} onChange={(e) => filter1({ rarity: e.target.value })}>
-              <option value="">Any rarity</option>
-              {options.rarities.map((r) => <option key={r} value={r}>{rarityLabel(r)}</option>)}
-            </select>
-            <select aria-label="Finish" value={filters.finish} onChange={(e) => filter1({ finish: e.target.value })}>
-              <option value="">Any finish</option>
-              {options.finishes.map((x) => <option key={x} value={x}>{FINISH_LABEL[x] ?? x}</option>)}
-            </select>
-            {filtering && <Button variant="quiet" size="small" onClick={() => setFilters(NO_FILTERS)}>Clear filters</Button>}
-            <Segmented className="coll-show" label="Show as" value={show} onChange={showAs} options={[["list", "List"], ["grid", "Pictures"]]} />
-          </div>
-        )}
-        {filtering && sorted.length > 0 && (
-          <p className="small dim coll-note" role="status">{totalsText(totals(sorted), usdWhole)}</p>
-        )}
-
-        {done && (
-          <p className="coll-done" role="status">
-            {done} <Button variant="quiet" size="small" onClick={() => setDone(null)}>OK</Button>
-          </p>
-        )}
-        <ErrorText error={items.error ?? summary.error} />
-        {items.data && items.data.length === 0 && !query && !container && kind === "all" && (
+      {empty && !container ? (
+        <section className="coll-cards" aria-label="Start your collection">
+          {doneLine}
+          <ErrorText error={items.error ?? summary.error} />
           <EmptyState
             action={
               <>
-                <Button variant="outline" onClick={() => setImporting("cards")}>Import a list or a file</Button>
-                <Button variant="outline" onClick={() => setScanning(true)}>Scan cards</Button>
+                <Button variant="primary" onClick={() => setScanning(true)}>Scan cards</Button>
+                <Button variant="outline" onClick={() => setImporting("cards")}>Import a list</Button>
                 <ButtonLink variant="outline" to="/cards">Add from card search</ButtonLink>
               </>
             }
           >
-            No cards yet.
+            Keep track of the cards you own: what they're worth, where each one is kept, and which cards your decks still need.
           </EmptyState>
+          {tiles.length === 0 &&
+            (newContainer ? (
+              <NewContainer onClose={() => setNewContainer(false)} />
+            ) : (
+              <p className="small dim coll-note">
+                Sorting them as you go? <Button variant="quiet" size="small" onClick={() => setNewContainer(true)}>Make a binder, box or deck</Button> first.
+              </p>
+            ))}
+        </section>
+      ) : (
+      <section className="coll-cards" aria-labelledby="coll-cards-h">
+        <div className="coll-cards-top">
+          <div className="coll-cards-head">
+            {/* While a search is on, the heading is its count, read out as it changes. */}
+            <h2 id="coll-cards-h" className={searching ? "coll-found" : undefined} aria-live={searching ? "polite" : undefined}>{heading}</h2>
+            {hasSections && (
+              <label className="coll-with-sections small">
+                <input type="checkbox" checked={withSections} onChange={(e) => setWithSections(e.target.checked)} />
+                <span>Include its sections</span>
+              </label>
+            )}
+            <Segmented className="coll-sort" label="Order" value={sort} onChange={setSort} options={[["value", "By value"], ["name", "By name"]]} />
+            {/* On a laptop these two sit in the heading's row; a phone has them in its Filter fold. */}
+            {(proxies > 0 || kind !== "all") && (
+              <Segmented className="coll-kind coll-only-wide" label="Real cards or proxies" value={kind} onChange={setKind} options={[["all", "All"], ["real", "Real"], ["proxy", "Proxies"]]} />
+            )}
+            {!!items.data?.length && settled && (
+              <Button variant="outline" className="coll-sell coll-only-wide" onClick={() => setSelling(true)}>Sell list</Button>
+            )}
+          </div>
+          {(!!items.data?.length || kind !== "all") && (
+            <div className="coll-tools">
+              {/* Phones fold the filters behind one button, so the cards stay near the top. */}
+              <Button className="coll-filters-toggle" aria-expanded={filtersOpen} aria-controls="coll-filters" onClick={() => setFiltersOpen(!filtersOpen)}>
+                {narrowed > 0 ? `Filter (${narrowed})` : "Filter"}
+              </Button>
+              <Segmented className="coll-show" label="Show as" value={show} onChange={showAs} options={[["list", "List"], ["grid", "Pictures"]]} />
+              <div id="coll-filters" className={filtersOpen ? "coll-filters is-open" : "coll-filters"} role="group" aria-label="Filter">
+                {(proxies > 0 || kind !== "all") && (
+                  <Segmented className="coll-kind coll-only-narrow" label="Real cards or proxies" value={kind} onChange={setKind} options={[["all", "All"], ["real", "Real"], ["proxy", "Proxies"]]} />
+                )}
+                <select aria-label="Set" value={filters.set} onChange={(e) => filter1({ set: e.target.value })}>
+                  <option value="">Any set</option>
+                  {options.sets.map((s) => <option key={s.code} value={s.code}>{s.name} ({s.code.toUpperCase()})</option>)}
+                </select>
+                <select aria-label="Color" value={filters.color} onChange={(e) => filter1({ color: e.target.value })}>
+                  <option value="">Any color</option>
+                  {COLOR_OPTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+                </select>
+                <select aria-label="Card type" value={filters.type} onChange={(e) => filter1({ type: e.target.value })}>
+                  <option value="">Any type</option>
+                  {options.types.map((t) => <option key={t} value={t}>{t}</option>)}
+                </select>
+                <select aria-label="Rarity" value={filters.rarity} onChange={(e) => filter1({ rarity: e.target.value })}>
+                  <option value="">Any rarity</option>
+                  {options.rarities.map((r) => <option key={r} value={r}>{rarityLabel(r)}</option>)}
+                </select>
+                <select aria-label="Finish" value={filters.finish} onChange={(e) => filter1({ finish: e.target.value })}>
+                  <option value="">Any finish</option>
+                  {options.finishes.map((x) => <option key={x} value={x}>{FINISH_LABEL[x] ?? x}</option>)}
+                </select>
+                {filtering && <Button variant="quiet" size="small" onClick={() => setFilters(NO_FILTERS)}>Clear filters</Button>}
+                {!!items.data?.length && settled && (
+                  <Button variant="outline" className="coll-sell coll-only-narrow" onClick={() => setSelling(true)}>Sell list</Button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+        {filtering && sorted.length > 0 && (
+          <p className="small dim coll-note" role="status">{totalsText(totals(sorted), money)}</p>
         )}
-        {items.data && items.data.length === 0 && (query || container || kind !== "all") && (
-          <EmptyState>
-            {kind === "proxy" ? "No proxies" : kind === "real" ? "No real cards" : "Nothing"} here{query ? ` called "${query}"` : ""}.
+        {doneLine}
+
+        <ErrorText error={items.error ?? summary.error} />
+        {items.data && items.data.length === 0 && (
+          <EmptyState action={query && settled ? <Link to={`/cards?q=${encodeURIComponent(query)}`}>Look it up in card search</Link> : undefined}>
+            {kind === "proxy" ? "No proxies" : kind === "real" ? "No real cards" : "Nothing"} {where ? `in ${where}` : "in your collection"}{query ? ` called “${query}”` : ""}.
           </EmptyState>
         )}
         {!!items.data?.length && sorted.length === 0 && (
@@ -441,7 +526,7 @@ export function CollectionPage() {
         <ul className="coll-list">
           {shown.map((i) => {
             const place = i.spares_of_deck ? placeName(i) : (placeLabel(i.container_id, all) ?? placeName(i));
-            const cond = CONDITIONS[i.condition] ?? i.condition;
+            const cond = conditionWord(i.condition);
             // "Surge foil", "Showcase": what makes this copy's printing special.
             const special = treatmentLabel(i, i.finish);
             return (
@@ -459,15 +544,22 @@ export function CollectionPage() {
                     <span className="coll-row-where coll-wide">
                       {place}, {i.set_name ?? "unknown set"} #{i.collector_number}{special ? `, ${special}` : ""}, {cond}
                     </span>
+                    {/* The phone's line names the printing by its code: two printings in one place read apart. */}
                     <span className="coll-row-where coll-narrow">
-                      {place}
-                      {special ? `, ${special}` : ""}
-                      {i.condition !== "NM" ? `, ${cond}` : ""}
-                      {i.qty > 1 ? `, ${i.qty} copies` : ""}
+                      {[
+                        // Inside one box every row is in it: the place is said only where rows differ.
+                        container && !openSections ? null : place,
+                        i.set_code ? `${i.set_code.toUpperCase()} ${i.collector_number ?? ""}`.trim() : null,
+                        special,
+                        i.condition !== "NM" ? cond : null,
+                        i.qty > 1 ? `${i.qty} copies` : null,
+                      ]
+                        .filter(Boolean)
+                        .join(", ")}
                     </span>
                   </span>
                   <span className="coll-qty num">×{i.qty}</span>
-                  <span className="coll-price num">{usd(i.unit_price_usd)}</span>
+                  <CopyPrice item={i} className="coll-price" />
                 </Button>
               </li>
             );
@@ -490,8 +582,9 @@ export function CollectionPage() {
             {thumbArtists.length > 0 ? <span>{artCredits(thumbArtists)}</span> : null}
           </div>
         )}
-        <ButtonLink variant="outline" className="coll-export-narrow" {...exportLink("/api/collection/export.csv", "yama-collection.csv")}>Export CSV</ButtonLink>
+        {!container && <ButtonLink variant="outline" className="coll-export-narrow" {...exportLink("/api/collection/export.csv", "yama-collection.csv")}>Export CSV</ButtonLink>}
       </section>
+      )}
 
       {open && (
         <CollectionItemSheet
@@ -505,7 +598,7 @@ export function CollectionPage() {
         />
       )}
       {selling && (
-        <SellSheet
+        <AccountSellSheet
           items={sorted}
           from={(chosen ? pathLabel(chosen, all) : container === "none" ? "loose cards" : "every card") + (query ? ` called "${query}"` : "") + (filtering ? ", filtered" : "")}
           inDeckBox={chosen?.kind === "deck"}
@@ -518,11 +611,21 @@ export function CollectionPage() {
         const parent = placeLabel(deleting.parent_id, all);
         setDone(`Deleted “${pathLabel(deleting, all)}”. ${parent ? `Its cards are now in ${parent}.` : "Its cards are still in your collection as loose cards."}`);
       }} />}
-      {importing === "cards" && <ImportCollectionSheet containers={containers.data ?? []} onClose={() => setImporting(null)} onMythic={() => setImporting("mythic")} />}
+      {importing === "cards" && <ImportCollectionSheet containers={containers.data ?? []} place={chosen?.id} onClose={() => setImporting(null)} onMythic={() => setImporting("mythic")} />}
       {importing === "mythic" && <MythicImportSheet onClose={() => setImporting(null)} />}
       {scanning && <ScanToCollection containers={containers.data ?? []} onClose={() => setScanning(false)} />}
     </main>
   );
+}
+
+/**
+ * The sell list with the account's own stores: a store's buylist check is offered only to an
+ * account that has that store. The stores are read when the sheet opens, not with the page.
+ */
+function AccountSellSheet(props: Omit<Parameters<typeof SellSheet>[0], "buylist">) {
+  const me = useMe().data;
+  const plan = usePlan(me && !me.viewing ? me.id : undefined);
+  return <SellSheet {...props} buylist={buylistStore(plan.bundle)} />;
 }
 
 /** A Mythic Tools export, brought up to date with its boxes and decks (the other import takes any list or file). */
@@ -627,7 +730,7 @@ function MythicImportSheet({ onClose }: { onClose: () => void }) {
 
 export function DeleteContainer({ container, parent, onClose, onDeleted }: { container: Container; parent?: string | null; onClose: () => void; onDeleted: () => void }) {
   const qc = useQueryClient();
-  const label = (KIND_LABEL[container.kind] ?? "container").toLowerCase();
+  const label = container.parent_id ? "section" : (KIND_LABEL[container.kind] ?? "container").toLowerCase();
   const remove = useMutation({
     // Not found means it is already deleted (a second try after a lost reply): the same outcome.
     mutationFn: () => api(`/api/containers/${encodeURIComponent(container.id)}`, { method: "DELETE" }).catch((e: unknown) => { if (!(e instanceof ApiError && e.status === 404)) throw e; }),
@@ -636,6 +739,21 @@ export function DeleteContainer({ container, parent, onClose, onDeleted }: { con
       onDeleted();
     },
   });
+  // The server refuses a container that still has sections, so the dialog says so instead of
+  // promising what can't happen.
+  if (container.sections) {
+    return (
+      <Dialog label={`Delete ${label}`} onClose={onClose}>
+        <div className="stack">
+          <h2>“{container.name}” still has {plural(container.sections, "section")}</h2>
+          <p>Move or delete {container.sections === 1 ? "it" : "them"} first. Then this {label} can be deleted, and any cards inside stay in your collection.</p>
+          <div className="row">
+            <Button variant="primary" onClick={onClose}>OK</Button>
+          </div>
+        </div>
+      </Dialog>
+    );
+  }
   return (
     <Dialog label={`Delete ${label}`} onClose={() => { if (!remove.isPending) onClose(); }}>
       <div className="stack">
@@ -669,7 +787,7 @@ function NewContainer({ onClose }: { onClose: () => void }) {
         <select value={kind} onChange={(e) => setKind(e.target.value)}>
           <option value="binder">Binder</option>
           <option value="box">Box</option>
-          <option value="deck">Deck</option>
+          <option value="deck">Deck box</option>
           <option value="list">List</option>
         </select>
       </label>
@@ -679,6 +797,10 @@ function NewContainer({ onClose }: { onClose: () => void }) {
       </label>
       <Button type="submit" variant="primary" disabled={create.isPending}>Create</Button>
       <Button variant="quiet" onClick={onClose}>Cancel</Button>
+      {/* The two kinds that aren't plain storage, said where they're chosen. */}
+      <p className="small dim coll-kind-help">
+        A deck box holds the cards of a deck you play, so a sell list leaves it out unless you ask. A list is a group of cards you pick by hand, such as a pile to sell or trade.
+      </p>
       <ErrorText error={create.error} />
     </form>
   );

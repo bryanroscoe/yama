@@ -104,3 +104,11 @@ export function moveTargets<T extends Node>(id: string, all: T[]): T[] {
   const mine = subtreeIds(id, all);
   return treeOrder(all).filter((c) => !mine.has(c.id));
 }
+
+const KIND_WORDS: Record<string, string> = { binder: "binder", box: "box", deck: "deck box", list: "list" };
+
+/** What a container is called in a sentence or on a button: "binder", "deck box", "section" for one inside another. */
+export function kindWord(c: Pick<Node, "kind" | "parent_id">): string {
+  if (c.parent_id) return "section";
+  return KIND_WORDS[c.kind ?? ""] ?? "box";
+}

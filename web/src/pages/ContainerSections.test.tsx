@@ -54,12 +54,45 @@ describe("sections on the Collection page", () => {
     expect(html).toContain("Plains");
     expect(html).toContain('href="/collection/check/bb"');
     expect(html).toContain("Scan this section");
-    for (const label of ["New section", "Rename", "Move", "Delete section"]) expect(html).toContain(`>${label}<`);
+    // One primary action; New section, Rename, Move and Delete wait behind More.
+    expect(html).toMatch(/<div class="more-menu"><button[^>]*aria-expanded="false"[^>]*>More</);
+    for (const label of ["New section", "Rename", "Move", "Delete section"]) expect(html).not.toContain(`>${label}<`);
+    // The box is the page: its name is the heading, and the collection's own head is gone.
+    expect(html).toContain('<h1 class="ct-name">Bulk Basic</h1>');
+    expect(html).not.toContain(">Collection</h1>");
+    expect(html).not.toContain(">Scan cards<");
     expect(html).toContain("Include its sections");
   });
 
   it("says a section's own and rolled-up cards", () => {
-    expect(sectionMeta(boxes[1]!)).toBe("10 cards here, 300 in all, $30");
-    expect(sectionMeta(boxes[2]!)).toBe("290 cards, $29");
+    expect(sectionMeta(boxes[1]!)).toBe("10 cards here, 300 in all, $30.00");
+    expect(sectionMeta(boxes[2]!)).toBe("290 cards, $29.00");
+    // Nothing in it: "Empty", never "0 cards, $0".
+    expect(sectionMeta(box({ id: "e", name: "New" }))).toBe("Empty");
+    expect(sectionMeta(box({ id: "p", name: "Parent", sections: 1, total_copies: 12, total_market_value_usd: 140 }))).toBe("12 cards in its sections, $140");
+    // Cards with no price are counted, and no value is printed for them.
+    expect(sectionMeta(box({ id: "u", name: "Unpriced", copies: 3, total_copies: 3 }))).toBe("3 cards");
+  });
+});
+
+describe("a container's kind on its scan button", () => {
+  const scan = (c: Container) => {
+    const client = new QueryClient();
+    client.setQueryData(["collection-summary"], { copies: 4, proxies: 0, distinct_printings: 1, market_value_usd: 20, copies_without_price: 0, price_date: "2026-11-10", purchase_total_usd: 0 });
+    client.setQueryData(["containers"], [c]);
+    client.setQueryData(["decks"], []);
+    client.setQueryData(["collection", c.id, "", "all"], []);
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={[`/collection?box=${c.id}`]}><CollectionPage /></MemoryRouter>
+      </QueryClientProvider>,
+    );
+    client.clear();
+    return html;
+  };
+  it("names what is scanned: a binder, a deck box, a box", () => {
+    expect(scan(box({ id: "t", name: "Trade", kind: "binder", copies: 4 }))).toContain(">Scan this binder<");
+    expect(scan(box({ id: "d", name: "Atraxa", kind: "deck", copies: 4 }))).toContain(">Scan this deck box<");
+    expect(scan(box({ id: "b", name: "Bulk", copies: 4 }))).toContain(">Scan this box<");
   });
 });

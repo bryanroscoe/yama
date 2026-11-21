@@ -1315,7 +1315,14 @@ export function ScannerView({
       } catch (e) {
         if (stopped) return;
         setPhase("no-camera");
-        setError(e instanceof Error ? `No camera: ${e.message}` : "No camera");
+        // Refused (or blocked for the site) is the usual reason, and the one a person can fix: say
+        // how, not the browser's "Permission denied". Anything else keeps the browser's words.
+        const refused = e instanceof Error && (e.name === "NotAllowedError" || e.name === "SecurityError");
+        setError(
+          refused
+            ? "Yama can't use the camera. Allow it for this site in your browser's settings, then open the scanner again. Or type the card's name below."
+            : `Yama can't open a camera here${e instanceof Error && e.message ? ` (${e.message})` : ""}. Type the card's name below, or use a photo.`,
+        );
       }
     })();
     return () => {
@@ -3008,7 +3015,8 @@ export function ScannerView({
           )}
           <CardOutline tracker={outlines} show={phase === "scanning" && mode === "art" && live && !closeup && !photoBusy && !paused && !lockOpen} />
         </div>
-        <div className="scan-frame" aria-hidden="true">
+        {/* With no camera there is nothing to line a card up with: the guide is put away. */}
+        <div className="scan-frame" aria-hidden="true" style={phase === "no-camera" ? { display: "none" } : undefined}>
           {closeup ? (
             <div ref={closeRef} className={`scan-closeup is-${closeup}`} />
           ) : (
@@ -3094,7 +3102,7 @@ export function ScannerView({
                   ? "Found it"
                   : lockOpen
                     ? "Choose the sets"
-                    : ((receipt ? null : justAdded?.text) ?? (mode ? status : loadingText)))}
+                    : ((receipt ? null : justAdded?.text) ?? (phase === "no-camera" ? "No camera" : mode ? status : loadingText)))}
         </span>
         )}
       </div>

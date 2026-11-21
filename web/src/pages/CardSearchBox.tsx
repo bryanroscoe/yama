@@ -1,8 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { api } from "../api";
+import { api, type SearchResult } from "../api";
 import { useDebounced } from "../useDebounced";
-import { moveSuggestion, nameBeingTyped, suggestionsFor } from "./cardQuery";
+import { moveSuggestion, nameBeingTyped, nameQuery, suggestionsFor } from "./cardQuery";
 
 /** Names offered at once: enough to find a card, few enough to fit above a phone's keyboard. */
 const SUGGESTIONS = 8;
@@ -20,17 +20,24 @@ function SearchIcon() {
  * The Cards page's search box. While the box holds plain words it offers card names that start
  * with or contain them (GET /api/cards/autocomplete, a moment after typing stops): Down and Up
  * move through them, Enter or a tap picks one, Escape puts them away. Once the box holds search
- * syntax, nothing is offered. `suggest` is off for guests, who have no account to ask as.
+ * syntax, nothing is offered.
+ *
+ * `guest`: the name lookup needs an account, so someone signed out gets their names from the
+ * guest card search instead (most played first). That search is limited per address and shared
+ * with the searches themselves, so it waits for a longer pause and a third letter.
  */
-export function CardSearchBox({ value, onChange, onPick, suggest }: { value: string; onChange: (v: string) => void; onPick: (name: string) => void; suggest: boolean }) {
+export function CardSearchBox({ value, onChange, onPick, suggest, guest = false }: { value: string; onChange: (v: string) => void; onPick: (name: string) => void; suggest: boolean; guest?: boolean }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const typed = nameBeingTyped(value);
-  const term = useDebounced(typed ?? "", 180);
+  const term = useDebounced(typed ?? "", guest ? 350 : 180);
   const names = useQuery({
-    queryKey: ["card-names", term.toLowerCase()],
-    queryFn: ({ signal }) => api<string[]>(`/api/cards/autocomplete?q=${encodeURIComponent(term)}`, { signal }),
-    enabled: suggest && term.length >= 2,
+    queryKey: ["card-names", term.toLowerCase(), guest],
+    queryFn: async ({ signal }) =>
+      guest
+        ? (await api<SearchResult>(`/api/guest/cards/search?q=${encodeURIComponent(nameQuery(term))}&order=edhrec&page=1`, { signal })).cards.map((c) => c.name)
+        : api<string[]>(`/api/cards/autocomplete?q=${encodeURIComponent(term)}`, { signal }),
+    enabled: suggest && term.length >= (guest ? 3 : 2),
     staleTime: 5 * 60_000,
     retry: false,
   });
@@ -85,6 +92,7 @@ export function CardSearchBox({ value, onChange, onPick, suggest }: { value: str
         autoComplete="off"
         autoCapitalize="off"
         autoCorrect="off"
+        spellCheck={false}
         enterKeyHint="search"
       />
       {showing && (

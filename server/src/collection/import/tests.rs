@@ -279,7 +279,9 @@ fn reads_each_apps_columns() {
 
     // A list with a comma in a name is a list, not a CSV.
     let src = read("1 Jace, the Mind Sculptor\n2 Sol Ring\n", None);
-    assert_eq!((src.label.as_str(), src.rows.len(), src.rows[0].name.as_str()), ("a plain list", 2, "Jace, the Mind Sculptor"));
+    assert_eq!((src.label.as_str(), src.rows.len(), src.rows[0].name.as_str()), ("a list", 2, "Jace, the Mind Sculptor"));
+    // Lines written the way Moxfield writes them are still "a list", typed by hand or not.
+    assert_eq!(read("4x Forest\n1 Sol Ring (C21) 263\n", None).label, "a list");
 
     // A CSV with no card column says so rather than reading nothing quietly.
     let src = read("Quantity,Price\n1,2\n", Some("prices.csv"));
