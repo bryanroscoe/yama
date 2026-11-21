@@ -79,6 +79,7 @@ function fakeOrt() {
     InferenceSession: {
       async create(model) {
         const kind = model.length > 1 ? 3 : model[0];
+        if (kind === 5) throw new Error("not a graph");
         return {
           inputNames: kind === 3 ? ["embeddings", "mask"] : ["x"],
           async run(feeds: Record<string, unknown>): Promise<Record<string, { data: unknown }>> {
@@ -90,9 +91,11 @@ function fakeOrt() {
                 short: { data: Float32Array.from([120]) },
               };
             }
-            if (kind === 2) {
+            // Embed graphs: 2 (the bundle's) puts the frame-0 cut at [1, 0, 0, 0]; 4 (another
+            // art model) at [0, 0, 0, 1].
+            if (kind === 2 || kind === 4) {
               const e = new Float32Array(17 * D);
-              e[0] = 1;
+              e[kind === 2 ? 0 : 3] = 1;
               return { embeddings: { data: e } };
             }
             fed.push(feeds);
@@ -190,5 +193,19 @@ describe("the artwork supplement", () => {
     const r = await recognizer.identify(frame());
     expect(r.matches.map((m) => m.name)).toEqual(["Tricorder", "Forest"]);
     expect(r.pool!.map((m) => m.name)).toEqual(["Forest"]);
+  });
+
+  it("runs another art model once it's loaded, keeping the rest, and keeps the one before if it fails", async () => {
+    const { ort } = fakeOrt();
+    const recognizer = await createRecognizer(ort, graphs, constants, arts, parseSupplement(supplementJson(), "v1"));
+    const best = async () => (await recognizer.identify(frame())).matches.find((m) => m.set === "trk" || m.set === "trc")?.name;
+    expect(await best()).toBe("Tricorder");
+    // The other model embeds the card where Gorn Captain's vector is.
+    await recognizer.setEmbed(Uint8Array.of(4));
+    expect(await best()).toBe("Gorn Captain");
+    await expect(recognizer.setEmbed(Uint8Array.of(5))).rejects.toThrow("not a graph");
+    expect(await best()).toBe("Gorn Captain");
+    await recognizer.setEmbed(Uint8Array.of(2));
+    expect(await best()).toBe("Tricorder");
   });
 });

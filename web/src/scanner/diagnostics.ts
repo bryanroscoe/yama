@@ -176,6 +176,8 @@ export class ScanRecord {
   engine: string | null = null;
   /** The art model's embed graph running when the record started (`ArtRecognizer.embed`), or "none". */
   embed: string | null = null;
+  /** The option each slot ran when the record started (models.ts): art, look, text and lock. */
+  models: Record<string, string> | null = null;
   cardName: string | null = null;
   private card: RgbaImage | null = null;
   private strip: RgbaImage | null = null;
@@ -227,6 +229,7 @@ export class ScanRecord {
     r.camera = this.camera;
     r.engine = this.engine;
     r.embed = this.embed;
+    r.models = this.models;
     r.cardName = this.cardName;
     r.card = this.card;
     r.strip = this.strip;
@@ -292,7 +295,7 @@ export class ScanRecord {
       await api("/api/scan/diagnostics", {
         method: "POST",
         signal: this.account,
-        json: { outcome, card_name: this.cardName ?? undefined, engine: this.engine ?? undefined, camera: this.camera ?? undefined, detail: this.detail(outcome), images, embed: this.embed ?? undefined },
+        json: { outcome, card_name: this.cardName ?? undefined, engine: this.engine ?? undefined, camera: this.camera ?? undefined, detail: this.detail(outcome), images, embed: this.embed ?? undefined, models: this.models ?? undefined },
       });
       return true;
     } catch (e) {

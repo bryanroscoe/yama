@@ -6,7 +6,7 @@
 import * as ort from "onnxruntime-web/wasm";
 import wasmUrl from "onnxruntime-web/ort-wasm-simd-threaded.wasm?url";
 import { createRecognizer, parseArts, parseSupplement, poolIndices, type Art, type BundleConstants, type OrtLike, type Recognizer, type Supplement } from "./recognizer";
-import type { ArtWorkerReply, ArtWorkerRequest, BundleInfo } from "./artClient";
+import type { ArtWorkerReply, ArtWorkerRequest, BundleInfo, EmbedFile } from "./artClient";
 import { isStale, namedPaths } from "./bundleCache";
 
 /** Also listed in public/sw.js, so the service worker's clean-up keeps it. */
@@ -54,9 +54,9 @@ async function file(url: string, size: number, onBytes: (n: number, total: numbe
   return bytes;
 }
 
-async function load(info: BundleInfo, base: string) {
+async function load(info: BundleInfo, base: string, embedFile: EmbedFile) {
   const t0 = performance.now();
-  const urls = { detector: info.files.detector, embed: info.files.embed, search: info.files.search, arts: info.files.arts, runtime: wasmUrl };
+  const urls = { detector: info.files.detector, embed: embedFile.url, search: info.files.search, arts: info.files.arts, runtime: wasmUrl };
   const supplementUrl = info.files.supplement ?? null;
   const progress = new Map<string, [number, number]>();
   let lastReport = 0;
@@ -75,7 +75,7 @@ async function load(info: BundleInfo, base: string) {
   const get = (key: keyof typeof urls) => {
     const url = new URL(urls[key], key === "runtime" ? self.location.href : base || self.location.origin).href;
     // The WASM runtime's size isn't in the bundle info; about 15 MB.
-    const size = key === "runtime" ? 15_000_000 : info.bytes?.[key] ?? 0;
+    const size = key === "runtime" ? 15_000_000 : key === "embed" ? embedFile.bytes : (info.bytes?.[key] ?? 0);
     return file(url, size, (l, t) => {
       progress.set(key, [l, t]);
       report();
@@ -116,13 +116,32 @@ async function load(info: BundleInfo, base: string) {
       if (isStale(req.url, named)) await cache.delete(req);
     }
   }
+  base_ = base;
   reply({ type: "ready", ms: performance.now() - t0, arts: arts.length });
+}
+
+/** The server's origin the bundle files are fetched from (set by `load`). */
+let base_ = "";
+
+/** Swap the art match's query model for another (Scan settings): the rest stays loaded. */
+async function useEmbed(embedFile: EmbedFile) {
+  if (!recognizer) throw new Error("The card recognizer isn't loaded");
+  const graph = await file(new URL(embedFile.url, base_ || self.location.origin).href, embedFile.bytes, () => undefined);
+  await recognizer.setEmbed(graph);
 }
 
 self.onmessage = async (event: MessageEvent<ArtWorkerRequest>) => {
   const m = event.data;
   try {
-    if (m.type === "load") await load(m.info, m.base);
+    if (m.type === "load") await load(m.info, m.base, m.embed);
+    else if (m.type === "embed") {
+      try {
+        await useEmbed(m.embed);
+        reply({ type: "embedded", id: m.id, error: null });
+      } catch (e) {
+        reply({ type: "embedded", id: m.id, error: e instanceof Error ? e.message : String(e) });
+      }
+    }
     else if (m.type === "reset") recognizer?.reset();
     else if (m.type === "pool") {
       if (!recognizer) throw new Error("The card recognizer isn't loaded");

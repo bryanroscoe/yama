@@ -129,7 +129,8 @@ Three things run on the device so that game night needs no connection:
   (`onnxruntime-web`), and reads the collector line when the art is not enough (PaddleOCR in
   browsers, ML Kit in the Android app). Besides the pinned art bundle it loads the server's small
   supplement of newer artworks, and embeds what the camera sees with Yama's own fine-tuned query
-  model in place of the bundle's embedding graph.
+  model in place of the bundle's embedding graph. Each of its models can be switched on a device
+  from the options the server lists, and the server can withdraw a broken one.
 
 Card images load from Scryfall's CDN straight to the device, where the service worker may keep
 a bounded cache of them. Yama's server never stores, proxies or alters them.
@@ -396,6 +397,9 @@ Scanner models are released by hand. Yama's query model is trained with `scanner
 developer's machine and published as an asset of a `scanner-art-<date>` release, never marked
 latest; a pull request then pins its URL, size and SHA-256 in `server/src/scan.rs`, and the server
 downloads it after the deploy ([Yama's own query embedder for the scanner (18 November 2026)](#yamas-own-query-embedder-for-the-scanner-18-november-2026)).
+A model that breaks is withdrawn without new code: `YAMA_SCAN_WITHDRAW=<option id>` in the
+server's `yama.env` and a container restart put every phone that chose it back on its slot's
+default ([Scanner models you can switch (20 November 2026)](#scanner-models-you-can-switch-20-november-2026)).
 
 ## Decision record
 
@@ -416,7 +420,7 @@ section 4 is the first sketch; the current system is [above](#the-system-at-a-gl
 - **Shopping:** [Live store stock (13 November 2026)](#live-store-stock-13-november-2026).
 - **The Android app:** [The Android app, sideloaded (13 November 2026)](#the-android-app-sideloaded-13-november-2026), [Which build each device runs (15 November 2026)](#which-build-each-device-runs-15-november-2026).
 - **Game night:** [Table and playgroup stats (2026-10-19)](#table-and-playgroup-stats-2026-10-19).
-- **The scanner:** [Scan photos shared with the developer (15 November 2026)](#scan-photos-shared-with-the-developer-15-november-2026), [The scanner's own art supplement (15 November 2026)](#the-scanners-own-art-supplement-15-november-2026), [Yama's own query embedder for the scanner (18 November 2026)](#yamas-own-query-embedder-for-the-scanner-18-november-2026), [Scanner diagnostics (15 November 2026)](#scanner-diagnostics-15-november-2026).
+- **The scanner:** [Scan photos shared with the developer (15 November 2026)](#scan-photos-shared-with-the-developer-15-november-2026), [The scanner's own art supplement (15 November 2026)](#the-scanners-own-art-supplement-15-november-2026), [Yama's own query embedder for the scanner (18 November 2026)](#yamas-own-query-embedder-for-the-scanner-18-november-2026), [Scanner models you can switch (20 November 2026)](#scanner-models-you-can-switch-20-november-2026), [Scanner diagnostics (15 November 2026)](#scanner-diagnostics-15-november-2026).
 - **Cards, collection and prices:** [Mana symbols (2026-11-12)](#mana-symbols-2026-11-12), [Release calendar and What's new (2026-10-19)](#release-calendar-and-whats-new-2026-10-19), [A deck's cards in the collection, and Mythic re-imports (2026-10-23)](#a-decks-cards-in-the-collection-and-mythic-re-imports-2026-10-23), [Deck market values (2026-10-27)](#deck-market-values-2026-10-27), [Scan this deck (2026-10-29)](#scan-this-deck-2026-10-29), [Mythic Tools bridge (2026-10-31, proposal)](#mythic-tools-bridge-2026-10-31-proposal), [Store trips (2026-11-01)](#store-trips-2026-11-01), [Deleting collection containers (2026-11-02)](#deleting-collection-containers-2026-11-02), [Sell lists for store buylists (2026-11-02)](#sell-lists-for-store-buylists-2026-11-02), [Local buylist offers (2026-11-02)](#local-buylist-offers-2026-11-02), [Price history (2026-11-02)](#price-history-2026-11-02), [Recording printed copies in a deck box (2026-11-02)](#recording-printed-copies-in-a-deck-box-2026-11-02), [Sections in boxes, and scanning a box (16 November 2026)](#sections-in-boxes-and-scanning-a-box-16-november-2026).
 - **Decks, plans and sharing:** [Swappable spares in the deck box (15 November 2026)](#swappable-spares-in-the-deck-box-15-november-2026), [Brackets, deck stats and exports (2026-10-19)](#brackets-deck-stats-and-exports-2026-10-19), [Deck import (2026-10-22)](#deck-import-2026-10-22), [Sharing and deck configurations (2026-10-28)](#sharing-and-deck-configurations-2026-10-28), [Review, installed decks and the Lab tab (2026-10-28)](#review-installed-decks-and-the-lab-tab-2026-10-28), [Check this deck (2026-11-01)](#check-this-deck-2026-11-01), [Deck configurations and quieter editing (2026-11-03)](#deck-configurations-and-quieter-editing-2026-11-03), [One plan page (2026-11-04)](#one-plan-page-2026-11-04), [Printing with MakePlayingCards (2026-11-05)](#printing-with-makeplayingcards-2026-11-05), [Plans: one plan per deck (2026-11-06)](#plans-one-plan-per-deck-2026-11-06), [Site design pass (2026-11-08)](#site-design-pass-2026-11-08), [Public by default and the navigation (2026-11-12)](#public-by-default-and-the-navigation-2026-11-12), [Check a deck without an account (2026-11-12)](#check-a-deck-without-an-account-2026-11-12).
 - **Assistants:** [Ask Claude, the advisor (2026-10-22)](#ask-claude-the-advisor-2026-10-22), [Yama's tools for Claude (MCP, 2026-10-22)](#yamas-tools-for-claude-mcp-2026-10-22).
@@ -571,6 +575,32 @@ model Yama makes and publishes (docs/scanner.md, "Yama's query embedder").
   notes carry the notice and the link to ManaVault.
 - **Not yet measured:** a live phone check. Speed should be unchanged (the same architecture and
   size).
+
+## Scanner models you can switch (20 November 2026)
+
+Bryan (20 Nov 2026): "We should have the ability to switch scanners on the fly if need be by the
+way we want to be able to try a lot of things here and switch between models when things break."
+More models are coming (a printing look model, possibly CollectorVision's once its licence is
+granted, models made to match CardVision), so the server keeps a registry of them rather than one
+pin and one switch each (docs/scanner.md, "Models you can switch").
+
+- **Slots and options.** The scanner's parts are slots: the art match's query model, the printing
+  look, the text reader and the rule that settles a card by its art. `MODELS` in
+  `server/src/scan.rs` lists each slot's options with their pinned files (URL, size, SHA-256),
+  licence, label and note, the bundle recogniser a query model fits, a default and a base (what
+  the slot does with nothing of ours, never withdrawn). The server downloads and checks each file
+  as it did the one query model, into the bundle's folder, and `GET /api/scan/bundle` lists the
+  options on offer and each slot's default; `files.embed` stays the art default for older builds.
+- **Chosen per device, applied at once.** Scan settings' "Models" part offers each slot's default
+  or a named option, kept on the device like the other scan settings. The art worker swaps its
+  embed graph without reloading the rest, the text reader restarts with the next read, and the
+  lock rule applies from the next frame; the scan in progress is kept.
+- **Withdrawn without new code.** `YAMA_SCAN_WITHDRAW=<ids>` takes options off offer (and
+  `YAMA_SCAN_QUERY_MODEL=0` every art model of ours): phones that chose one run the slot's default
+  until it's listed again. A recreated container, not a deploy.
+- **Recorded.** Kept scan photos and diagnostics carry each slot's choice (`models`, a column next
+  to `bundle`), so results can be compared by model later. No new data leaves the phone: the
+  choice names options, not anything about the person.
 
 ## Sections in boxes, and scanning a box (16 November 2026)
 

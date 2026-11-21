@@ -86,6 +86,11 @@ describe("art that leads every other card", () => {
     expect(leads(0.7, artLead(matches))).toBe(true);
     expect(leads(0.65, 0.1)).toBe(true);
     expect(needsTitle(matches)).toBe(false);
+    // The lock rule "sure scores only" (Scan settings, models.ts): a lead below 0.82 reads the title,
+    // as before the lead rule; a sure match still doesn't.
+    expect(needsTitle(matches, undefined, { lead: false })).toBe(true);
+    expect(needsTitle([m("Sol Ring", 0.9), m("Mind Stone", 0.4)], undefined, { lead: false })).toBe(false);
+    expect(needsTitle(matches, undefined, { lead: true })).toBe(false);
   });
 
   it("doesn't count other printings or illustrations of the same card as rivals", () => {

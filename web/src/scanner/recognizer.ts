@@ -68,6 +68,12 @@ export interface Recognizer {
    * stops. False when the bundle's search graph can't be read for this (then nothing is pooled).
    */
   setPool(indices: number[] | null): boolean;
+  /**
+   * Match with this embed graph from now on (another art query model with the same inputs and
+   * output: models.ts). It's compiled and warmed before it takes over, so frames meanwhile use the
+   * one before; a graph that fails to load leaves that one running.
+   */
+  setEmbed(graph: Uint8Array): Promise<void>;
 }
 
 /** Pool matches kept per frame. */
@@ -81,6 +87,7 @@ export interface OrtLike {
 interface Session {
   readonly inputNames: readonly string[];
   run(feeds: Record<string, unknown>): Promise<Record<string, { data: unknown }>>;
+  release?(): Promise<void>;
 }
 
 /** Detector votes below this saw nothing card-like (empty tables vote under 0.2, cards over 0.9). */
@@ -242,7 +249,7 @@ export async function createRecognizer(
   const options = { executionProviders: ["wasm"], graphOptimizationLevel: "all" };
   // One at a time: three parallel compiles peak higher in memory, which phones notice.
   const detector = await ort.InferenceSession.create(graphs.detector, options);
-  const embed = await ort.InferenceSession.create(graphs.embed, options);
+  let embed = await ort.InferenceSession.create(graphs.embed, options);
   const search = await ort.InferenceSession.create(graphs.search, options);
   // Bundles since gallery-20261106 (manifest `search_mask`) also take `mask`, one value per
   // artwork in arts.json order: above 0 competes, 0 scores -3. Ones search the whole gallery,
@@ -284,9 +291,12 @@ export async function createRecognizer(
     side: Math.max((d.short * constants.card_aspect) / constants.refine_fill, constants.refine_min_side),
   });
 
-  const match = async (frame: RgbaImage, quad: Quad): Promise<{ matches: ArtMatch[]; pool?: ArtMatch[] }> => {
+  const embedRun = (session: Session, frame: RgbaImage, quad: Quad) => {
     const scene = new ort.Tensor("uint8", new Uint8Array(frame.data.buffer, frame.data.byteOffset, frame.data.byteLength), [frame.height, frame.width, 4]);
-    const vectors = await embed.run({ scene, quad: new ort.Tensor("float32", Float32Array.from(quad.flat()), [4, 2]) });
+    return session.run({ scene, quad: new ort.Tensor("float32", Float32Array.from(quad.flat()), [4, 2]) });
+  };
+  const match = async (frame: RgbaImage, quad: Quad): Promise<{ matches: ArtMatch[]; pool?: ArtMatch[] }> => {
+    const vectors = await embedRun(embed, frame, quad);
     const embedding = Object.values(vectors)[0]!;
     const ranked = await search.run(everyArt ? { embeddings: embedding, mask: everyArt } : { embeddings: embedding });
     const indices = ranked.indices!.data as BigInt64Array | Int32Array;
@@ -350,7 +360,8 @@ export async function createRecognizer(
   const blank: RgbaImage = { width: constants.scene, height: constants.scene, data: new Uint8ClampedArray(constants.scene ** 2 * 4).fill(255) };
   await identify(blank);
   const h = constants.scene / 2;
-  await match(blank, [[h - 125, h - 175], [h + 125, h - 175], [h + 125, h + 175], [h - 125, h + 175]]);
+  const blankQuad: Quad = [[h - 125, h - 175], [h + 125, h - 175], [h + 125, h + 175], [h - 125, h + 175]];
+  await match(blank, blankQuad);
   tracked = null;
 
   return {
@@ -366,6 +377,14 @@ export async function createRecognizer(
       }
       pool = indices;
       return true;
+    },
+    async setEmbed(graph) {
+      const next = await ort.InferenceSession.create(graph, options);
+      await embedRun(next, blank, blankQuad);
+      const old = embed;
+      embed = next;
+      // A frame already being matched may still be running the old one: let it finish first.
+      setTimeout(() => void old.release?.().catch(() => undefined), 5000);
     },
   };
 }

@@ -49,10 +49,14 @@ pub struct Config {
     /// The scanner's art supplement (scan_art.rs): embed artworks the pinned bundle doesn't know
     /// from Scryfall's art crops, and offer them to the scanner. On unless `YAMA_SCAN_SUPPLEMENT=0`.
     pub scan_supplement: bool,
-    /// Yama's own query embedder for the scanner's art match (scan.rs, `QUERY_MODEL`): served as
-    /// the bundle's embed graph when it fits the bundle's gallery. On unless
-    /// `YAMA_SCAN_QUERY_MODEL=0`, which serves the bundle's own `embed.onnx`.
+    /// Yama's own query embedders for the scanner's art match (scan.rs, `QUERY_MODEL`): offered,
+    /// and the art slot's default, when they fit the bundle's gallery. On unless
+    /// `YAMA_SCAN_QUERY_MODEL=0`, which withdraws every art model of ours (the bundle's own
+    /// `embed.onnx` runs).
     pub scan_query_model: bool,
+    /// Scanner model options withdrawn by id (`YAMA_SCAN_WITHDRAW=look-v0,paddle`; scan.rs,
+    /// `MODELS`): not offered, so phones that chose one run its slot's default, until it's put back.
+    pub scan_withdrawn: Vec<String>,
     /// The Mythic Tools bridge (`bridges/mythic`): import games from Mythic Tools. Off unless
     /// `YAMA_MYTHIC_BRIDGE=1`; Mythic's API is private and can change, and the bridge may go.
     pub mythic_bridge: bool,
@@ -357,6 +361,7 @@ impl Config {
             ai_combos: !off("YAMA_AI_COMBOS"),
             scan_supplement: !off("YAMA_SCAN_SUPPLEMENT"),
             scan_query_model: !off("YAMA_SCAN_QUERY_MODEL"),
+            scan_withdrawn: list("YAMA_SCAN_WITHDRAW"),
             mythic_bridge: flag("YAMA_MYTHIC_BRIDGE"),
             engine_card_data: Some(engine_card_data),
             cf_access_team: std::env::var("YAMA_CF_ACCESS_TEAM").ok().filter(|s| !s.is_empty()),
