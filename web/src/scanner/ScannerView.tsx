@@ -1277,6 +1277,10 @@ export function ScannerView({
       hiCanvasRef.current ??= document.createElement("canvas");
       try {
         if (mode === "art" && art) {
+          // When this frame was taken, before it's read: a card first seen on it appeared then
+          // (the timing record; Codex review of #171: stamped after recognition, a one-frame
+          // settle measured nothing of its own read).
+          const frameAt = Date.now();
           // A digital zoom gives the recognizer the middle of the frame, at more of its pixels.
           const box = v.closest(".scan-camera")?.getBoundingClientRect();
           const zone = digitalRegion(v.videoWidth, v.videoHeight, digitalRef.current, box);
@@ -1340,7 +1344,7 @@ export function ScannerView({
           }
           // Diagnostics' timing record: the card in view appeared on this frame, or one more frame read.
           if (diagRef.current) {
-            appeared.current ??= { at: Date.now(), frames: 0 };
+            appeared.current ??= { at: frameAt, frames: 0 };
             appeared.current.frames += 1;
           }
           // Art that leads every other card (fuse.ts: at least LEAD_FLOOR, LEAD_MARGIN ahead) settles
@@ -1494,6 +1498,7 @@ export function ScannerView({
         // Alternate upright and upside-down reads across frames rather than both in one frame.
         const flip = textFrame++ % 2 === 1;
         const guide: Quad = flip ? [upright[2], upright[3], upright[0], upright[1]] : upright;
+        const frameAt = Date.now();
         const res = await scanFrame(image, { ...reader, guide, tryUpsideDown: false });
         // Diagnostics' timing record: with no detector, the card appeared when text was first read
         // (not the card just filed, still held by its name), and has gone after AWAY_FRAMES reads
@@ -1504,7 +1509,7 @@ export function ScannerView({
           const held = !!said && !!blockedName.current && sameCardName(said.name, blockedName.current.name);
           if (held || emptyReads >= AWAY_FRAMES) appeared.current = null;
           else if (said) {
-            appeared.current ??= { at: Date.now(), frames: 0 };
+            appeared.current ??= { at: frameAt, frames: 0 };
             appeared.current.frames += 1;
           }
         }
