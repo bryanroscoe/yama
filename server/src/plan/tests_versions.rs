@@ -307,6 +307,25 @@ async fn a_future_clear_under_an_alias_waits_instead_of_future_dating_the_plan()
 }
 
 #[tokio::test]
+async fn a_future_want_under_an_alias_keeps_its_cut() {
+    let (app, pool, owner, token) = setup().await;
+    // Two of beta's proposals cut Sol Ring; the later one in plan order is wanted, under an old key,
+    // by a device a few minutes fast.
+    let mut d = doc_with_beta_plan();
+    let swaps = d["plan"]["swaps"].as_array_mut().unwrap();
+    swaps.push(json!({"key": "beta-ring-a", "deck": "beta", "stage": "proposed", "role": "swap", "src": "buy", "out": "Sol Ring", "in": "First Card"}));
+    swaps.push(json!({"key": "beta-ring-b", "deck": "beta", "stage": "proposed", "role": "swap", "src": "buy", "out": "Sol Ring", "in": "Second Card",
+                      "was": ["old-ring-b"]}));
+    let ahead = (chrono::Utc::now() + chrono::Duration::minutes(4)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    d["plan"]["reviews"] = json!({"old-ring-b": {"decision": "want", "note": null, "cut": null, "at": ahead}});
+    import(&app, &token, &d).await;
+    // The wanted one keeps Sol Ring; the other is left out, and only one change cuts it.
+    assert_eq!(decision(&pool, &owner, "beta-ring-a").await.as_deref(), Some("unsure"));
+    let beta = deck(&bundle(&app, &token).await, "beta")["plan"].clone();
+    assert_eq!((beta["changes"].as_i64(), beta["next"].is_null()), (Some(3), true), "{beta}");
+}
+
+#[tokio::test]
 async fn a_want_you_gave_before_the_first_version_stands() {
     let (app, pool, owner, token) = setup().await;
     let mut d = doc_with_beta_plan();

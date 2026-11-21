@@ -781,10 +781,16 @@ async fn take_in(conn: &mut SqliteConnection, owner: &str, plan_id: &str, deck_k
         }
         at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
     };
+    // A want under an alias is in force whatever settling writes, so it never waits: it's taken in
+    // now and keeps its cut (below).
     let later: HashSet<&String> = next
         .keys
         .iter()
-        .filter(|k| found.get(*k).is_some_and(|p| p.aliased && parse(&p.at).zip(parse(&at)).is_some_and(|(a, now)| a >= now)))
+        .filter(|k| {
+            found.get(*k).is_some_and(|p| {
+                p.aliased && p.decision.as_deref() != Some("want") && parse(&p.at).zip(parse(&at)).is_some_and(|(a, now)| a >= now)
+            })
+        })
         .collect();
     if next.keys.iter().all(|k| later.contains(k)) {
         return Ok(None);
