@@ -224,12 +224,19 @@ describe("scanner timing records", () => {
     ]);
   });
 
-  it("a correction replaces how the printing was settled", () => {
+  it("a correction replaces how the printing was settled, and the first correction's time stands", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-20T10:00:00Z"));
     const t = new TimingRecord(named);
     t.printed("collector");
+    vi.setSystemTime(new Date("2026-11-20T10:00:02Z"));
     t.printed("corrected");
+    // Add, a while after the retry settled it.
+    vi.setSystemTime(new Date("2026-11-20T10:00:09Z"));
+    t.printed("corrected");
+    vi.useRealTimers();
     expect(t.printedAs).toBe("corrected");
-    expect(t.body("filed").printing).toBe("corrected");
+    expect(t.body("filed")).toMatchObject({ printing: "corrected", printing_ms: 2000 });
   });
 
   it("Wrong card keeps the record, marked, without the wrong card's printing", async () => {

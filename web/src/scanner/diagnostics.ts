@@ -401,9 +401,13 @@ export class TimingRecord {
     return this.printing?.how ?? null;
   }
 
-  /** The printing was settled: the first way counts, unless it was then corrected. */
+  /**
+   * The printing was settled: the first way counts, unless it was then corrected, and the first
+   * correction's time stands (Codex review of #171: Add after a retry settled it would otherwise
+   * count the wait for the tap).
+   */
   printed(how: PrintingWay) {
-    if (this.printing && how !== "corrected") return;
+    if (this.printing && (how !== "corrected" || this.printing.how === "corrected")) return;
     this.printing = { how, ms: Date.now() - this.named };
   }
 
