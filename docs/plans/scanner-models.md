@@ -157,8 +157,9 @@ Next, in order:
    collector-line settle with Wrong printing, never against a collector-line read pointing to another
    printing. On these photos no pick with a strict twin led by that much. Not the default: 0 wrong of
    45 on 98 photos still allows about one in 15 wrong. **Still to do:** measure it on real scans. The
-   timing records keep each look's lead (`look_lead`) and whether its closest printing was filed
-   (`look_top_filed`) under any look option, and mark look settles and their corrections;
+   timing records keep, under any look option, each look's lead (`look_lead`), what the rule said
+   (`look_sure`) and whether its closest printing was filed (`look_top_filed`), and mark look settles
+   and their corrections;
    `get_scan_timings`' `looks` compares the default and the option. Make it the default once those
    support it.
 2. **The look as evidence for the collector line.** A look leader that the collector line half-read

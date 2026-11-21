@@ -1341,29 +1341,49 @@ export function ScannerView({
   // printing" offered, Keep adding files it), and the collector line stops reading. Never against
   // anything the collector line has read pointing to another printing, so not while its first read
   // is under way; never once the person said the scanner's printing was wrong; not while they're
-  // saying it's another card or the scanner is paused (it's weighed when that ends). A printing the
-  // collector line settled first stays its.
-  const lookSettlesHere = !!look?.option && !!modelsInfo?.look.options.find((o) => o.id === look.option)?.settles;
+  // saying it's another card or the scanner is paused (it's weighed when that ends); never once
+  // they've touched the list (they're choosing). A printing the collector line settled first stays
+  // its. The rule is weighed under every look option, for the records (what it would have done
+  // under the default too); only the option running now that settles, on the model the look ran
+  // on, acts on it (a switch takes effect at once: Codex review of #178).
   useEffect(() => {
     const f = found;
-    if (identityOnly || !lookSettlesHere || !look?.complete || look.seq !== foundSeq.current || lookWeighed.current === look.seq) return;
+    if (identityOnly || !look?.complete || look.seq !== foundSeq.current || lookWeighed.current === look.seq) return;
     if (!f || phase !== "found" || f.chosen || f.reading || f.misread || f.correcting || f.outside || !f.options || f.options.length < 2 || wrongOpen || paused) return;
     lookWeighed.current = look.seq;
     const seq = look.seq;
     const got = lookSettles(f.options, look.scores, (id) => readsOther(seq, id));
     const lead = got.lead == null ? null : Math.round(got.lead * 1000) / 1000;
-    if (!got.settled) {
-      f.rec?.note("lookSettle", { settled: false, why: got.why, lead });
+    const optionOf = (id: string | undefined) => (id ? modelsInfo?.look.options.find((o) => o.id === id) : undefined);
+    const now = optionOf(lookNow);
+    const ran = optionOf(look.option);
+    const acts = !!now?.settles && !!ran?.file && ran.file === now.file;
+    // The timing record: the look option whose rule this was, and what the rule said on the raw lead.
+    if (f.timing) {
+      f.timing.detail.look_option = lookNow;
+      f.timing.detail.look_sure = got.settled;
+    }
+    const why = !got.settled ? got.why : !acts ? "option" : lookTouched === seq ? "touched" : null;
+    if (why || !got.settled) {
+      f.rec?.note("lookSettle", { settled: false, option: lookNow, why, lead });
       return;
     }
-    const hit = f.options.find((p) => p.scryfall_id === got.id)!;
-    f.rec?.note("lookSettle", { settled: true, id: hit.scryfall_id, set: hit.set_code, number: hit.collector_number, lead });
-    setFound((cur) => (cur && cur === f ? { ...cur, chosen: hit, how: "look", sure: true, settledId: hit.scryfall_id, picking: false } : cur));
+    const id = got.id;
+    setFound((cur) => {
+      const hit = cur?.options?.find((p) => p.scryfall_id === id);
+      // The card changed in between (a read settled it, Wrong printing): weighed again with it.
+      if (!cur || !hit || foundSeq.current !== seq || cur.chosen || cur.reading || cur.misread || cur.correcting) {
+        lookWeighed.current = null;
+        return cur;
+      }
+      cur.rec?.note("lookSettle", { settled: true, option: lookNow, id: hit.scryfall_id, set: hit.set_code, number: hit.collector_number, lead });
+      return { ...cur, chosen: hit, how: "look", sure: true, settledId: hit.scryfall_id, picking: false };
+    });
     setCloseup((c) => (c === "collector" ? null : c));
     buzz(30);
     // buzz and readsOther read refs; the rest is listed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [look, lookSettlesHere, found, phase, wrongOpen, paused, identityOnly]);
+  }, [look, found, phase, wrongOpen, paused, identityOnly, lookNow, lookTouched, modelsInfo]);
 
   /** Settle the printing of what was found (not needed when only the card's identity matters). */
   const settle = useCallback(

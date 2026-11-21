@@ -71,6 +71,8 @@ const look = vi.hoisted(() => ({
   line: "",
   /** Holds the text reader's reads back while set. */
   ocrGate: null as Promise<void> | null,
+  /** Holds the look back while set. */
+  gate: null as Promise<void> | null,
 }));
 vi.mock("./artClient", async (original) => ({
   ...(await original<typeof import("./artClient")>()),
@@ -87,6 +89,7 @@ vi.mock("./artClient", async (original) => ({
       useLook: async (o) => void (look.loaded = o?.id ?? "off"),
       async lookAt(index, candidates, onScore) {
         look.asked.push({ index, candidates });
+        await look.gate;
         let scored = 0;
         for (const c of candidates) {
           const s = look.scores[c.id];
@@ -161,6 +164,7 @@ beforeEach(() => {
   look.scores = { "p-old": 0.9, "p-mid": 0.5, "p-new": 0.2 };
   look.line = "";
   look.ocrGate = null;
+  look.gate = null;
   timings.length = 0;
   setDiagnosticsOn(true);
 });
@@ -218,7 +222,55 @@ describe("settling by look, when chosen", () => {
     expect(look.asked[0]!.candidates.map((c) => c.id)).toEqual(["p-new", "p-mid", "p-old"]);
     const t = await until(() => timings[0], "the timing record");
     expect(t).toMatchObject({ outcome: "filed", printing: "look", mode: "printing", models: expect.objectContaining({ look: "look-v1-sure" }) });
-    expect(t.detail).toMatchObject({ look_lead: 0.4, look_top_filed: true, auto: true });
+    expect(t.detail).toMatchObject({ look_lead: 0.4, look_sure: true, look_option: "look-v1-sure", look_top_filed: true, auto: true });
+  });
+
+  it("doesn't settle once the person has touched the list, before the look finished", async () => {
+    saveModel("look", "look-v1-sure");
+    let release!: () => void;
+    look.gate = new Promise((r) => (release = r));
+    const accepted = scanner({ autoAdd: true });
+    await scanPhoto("look-v1-sure");
+    await until(() => (order().length === 3 && look.asked.length ? true : null), "the printings");
+    await act(async () => document.querySelector(".scan-printings")!.dispatchEvent(new Event("pointerdown", { bubbles: true })));
+    await act(async () => release());
+    await wait(100);
+    expect(document.querySelector(".scan-printing.is-chosen")).toBeNull();
+    expect(order()).toEqual(["EOC", "WOC", "C19"]);
+    expect(accepted).toEqual([]);
+  });
+
+  it("follows a switch to plain v1 made while the look runs: nothing settles", async () => {
+    let release!: () => void;
+    look.gate = new Promise((r) => (release = r));
+    saveModel("look", "look-v1-sure");
+    const accepted = scanner({ autoAdd: true });
+    await scanPhoto("look-v1-sure");
+    await until(() => (look.asked.length ? true : null), "the look");
+    act(() => saveModel("look", "look-v1"));
+    await until(() => (look.loaded === "look-v1" ? true : null), "the switch");
+    await act(async () => release());
+    await until(() => (order()[0] === "C19" ? true : null), "the look's order");
+    await wait(60);
+    expect(accepted).toEqual([]);
+    expect(document.querySelector(".scan-printing.is-chosen")).toBeNull();
+  });
+
+  it("settles when switched to the option while the look runs on v1's model", async () => {
+    let release!: () => void;
+    look.gate = new Promise((r) => (release = r));
+    const accepted = scanner({ autoAdd: true });
+    await scanPhoto("look-v1");
+    await until(() => (look.asked.length ? true : null), "the look");
+    act(() => saveModel("look", "look-v1-sure"));
+    await until(() => (look.loaded === "look-v1-sure" ? true : null), "the switch");
+    await act(async () => release());
+    await until(() => (accepted.length ? accepted : null), "the card filed by itself");
+    expect(accepted[0]).toMatchObject({ scryfall_id: "p-old" });
+    const t = await until(() => timings[0], "the timing record");
+    // Named under v1, weighed and settled under the option: the record says which rule applied.
+    expect(t).toMatchObject({ printing: "look", models: expect.objectContaining({ look: "look-v1" }) });
+    expect(t.detail).toMatchObject({ look_option: "look-v1-sure", look_sure: true });
   });
 
   it("shows a look settle like the scanner's other settles: chosen, with Wrong printing under More", async () => {
@@ -292,6 +344,11 @@ describe("settling by look, when chosen", () => {
     await wait(100);
     expect(document.querySelector(".scan-printing.is-chosen")).toBeNull();
     expect(accepted).toEqual([]);
+    // Recorded as a lead the rule refused, for the default's comparison too.
+    const options = document.querySelectorAll<HTMLElement>('[role="option"]');
+    await click([...options].find((o) => o.textContent?.includes("WOC"))!);
+    const t = await until(() => timings[0], "the timing record");
+    expect(t.detail).toMatchObject({ look_lead: 0.4, look_sure: false });
   });
 
   it("waits for the collector line's first read before settling: a look done first doesn't settle against what it then reads", async () => {
@@ -361,7 +418,8 @@ describe("the look's default, and scanners where only the card matters", () => {
     expect(accepted[0]).toMatchObject({ scryfall_id: "p-mid" });
     const t = await until(() => timings[0], "the timing record");
     expect(t).toMatchObject({ printing: "picked", models: expect.objectContaining({ look: "look-v1" }) });
-    expect(t.detail).toMatchObject({ look_lead: 0.4, look_top_filed: false });
+    // What the rule would have done here: settled C19, which wasn't the printing filed.
+    expect(t.detail).toMatchObject({ look_lead: 0.4, look_sure: true, look_option: "look-v1", look_top_filed: false });
   });
 
   it("runs no look in an identity-only scanner, whatever was chosen", async () => {

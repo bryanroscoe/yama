@@ -633,7 +633,7 @@ newest-first order the list had.
   the sure ones (below, "Settling the printing by look, opt-in").
 - **Models of Yama's, pinned like the art model** (`look-v1`, the look slot's default, and
   `look-v0` in `MODELS`, `scanner-look-20261120` release assets);
-  `YAMA_SCAN_WITHDRAW=look-v0,look-v1` withdraws them (`look-v1` alone puts the default back on
+  `YAMA_SCAN_WITHDRAW=look-v0,look-v1,look-v1-sure` withdraws them (`look-v1` alone puts the default back on
   v0, which also stands in while v1 downloads). Their base weights are torchvision's
   (BSD-3-Clause); the notice is in COPYRIGHT and docs/scanner.md.
 
@@ -654,11 +654,16 @@ next by 0.10 or more, it was right on all 45 of the 98 shared-art test photos it
   needs every printing in the list scored. A look settle is shown and filed like a collector-line
   settle, with Wrong printing, and stops the collector line's reading.
 - **Measured before it's the default.** Scanner diagnostics' timing records mark a look settle
-  (`printing: "look"`) with its lead, keep every look's lead and whether its closest printing was
-  filed, and count corrections of look settles; `get_scan_timings` compares look options. It
-  becomes the default only once those records from real scans support it.
-- **Old builds aren't offered it** (`?can=settle`), so a record naming it always ran the rule. No
-  new data leaves the phone beyond the lead and that yes or no, under the same owner-only rules.
+  (`printing: "look"`) with its lead; under every look option they keep what the rule said and
+  whether the look's closest printing was filed, and they count corrections of look settles;
+  `get_scan_timings` compares look options. It becomes the default only once those records from
+  real scans support it.
+- **The option running now decides.** A switch in Scan settings while a look runs applies to that
+  card: only an option that settles, on the model the look ran on, settles it.
+- **Old builds aren't offered it** (`?can=settle`), so a record naming it ran the rule, except on
+  an older build opened offline from bundle info a newer one kept on the device (an Android app
+  rolled back), which would run it as plain v1. No new data leaves the phone beyond the lead, the
+  rule's yes or no and whether the look's closest was filed, under the same owner-only rules.
 
 ## Sections in boxes, and scanning a box (16 November 2026)
 
