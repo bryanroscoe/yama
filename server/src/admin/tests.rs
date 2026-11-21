@@ -557,6 +557,9 @@ async fn deleting_an_account_leaves_nothing_of_it() {
     let b_diag = fill(&pool, "scan_diagnostics", &[("owner_id", t(&b)), ("outcome", t("wrong")), ("detail", t("{}")), ("images", t("[]"))]).await;
     let v_timing = fill(&pool, "scan_timings", &[("owner_id", t(&v))]).await;
     let b_timing = fill(&pool, "scan_timings", &[("owner_id", t(&b))]).await;
+    // When each last used "Delete them" (scan_clears.rs).
+    fill(&pool, "scan_clears", &[("owner_id", t(&v)), ("kind", t("samples"))]).await;
+    fill(&pool, "scan_clears", &[("owner_id", t(&b)), ("kind", t("samples"))]).await;
 
     // Playgroups: one it owns with the bystander in it (passes on), one with only a guest
     // (deleted), and the bystander's with the victim in it (membership becomes a guest).

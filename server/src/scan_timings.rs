@@ -18,7 +18,8 @@
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
 use crate::routes::AppState;
-use axum::extract::{DefaultBodyLimit, Query, State};
+use axum::extract::{DefaultBodyLimit, FromRequest, Query, Request, State};
+use axum::response::IntoResponse;
 use axum::routing::post;
 use axum::{Json, Router};
 use serde::Deserialize;
@@ -77,10 +78,16 @@ fn score(v: Option<f64>) -> Option<f64> {
     v.filter(|n| n.is_finite() && (-2.0..=2.0).contains(n)).map(|n| (n * 1000.0).round() / 1000.0)
 }
 
-async fn add(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(t): Json<NewTiming>) -> AppResult<Json<Value>> {
+async fn add(State(st): State<AppState>, CurrentUser(user): CurrentUser, req: Request) -> AppResult<axum::response::Response> {
     st.limits.scan_timings.check_user(&user)?;
-    // When it began, against "Delete them" (scan_clears.rs).
+    // When it began, against "Delete them" (scan_clears.rs): before its body is read (Codex review
+    // of #171: stamped after, a deletion during the read would predate it).
     let started = crate::scan_clears::stamp();
+    let Json(t) = match Json::<NewTiming>::from_request(req, &st).await {
+        Ok(json) => json,
+        // Axum's own answer: 413 for too large, 400/415/422 for the rest.
+        Err(rejection) => return Ok(rejection.into_response()),
+    };
     if !crate::scan_diagnostics::OUTCOMES.contains(&t.outcome.as_str()) {
         return Err(AppError::bad(format!("outcome is one of {}", crate::scan_diagnostics::OUTCOMES.join(", "))));
     }
@@ -150,7 +157,7 @@ async fn add(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(t)
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
-    Ok(Json(json!({ "id": id })))
+    Ok(Json(json!({ "id": id })).into_response())
 }
 
 /// Which records a summary or page covers: from a date, one art model (the recorded bundle), one
