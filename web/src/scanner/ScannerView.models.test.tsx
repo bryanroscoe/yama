@@ -74,6 +74,7 @@ vi.mock("./artClient", async (original) => ({
         art.detector = o.id;
       },
       identify: () => new Promise(() => undefined),
+      locate: () => new Promise(() => undefined),
       reset: () => undefined,
       setPool: async () => -1,
       dispose: () => undefined,

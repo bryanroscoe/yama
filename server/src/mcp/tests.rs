@@ -1881,3 +1881,50 @@ async fn scan_timings_are_summarised_for_their_owner_only() {
     assert_eq!(s["count"], 0);
     assert_eq!(s["kept"], 0);
 }
+
+#[tokio::test]
+async fn scan_speed_tests_are_read_by_their_owner_only() {
+    let (app, pool) = app().await;
+    let (_, session) = user(&pool, "bryan@example.com").await;
+    let (_, other) = user(&pool, "other@example.com").await;
+    for (yours, faster) in [(150.0, Some(50.0)), (140.0, None), (130.0, Some(45.0))] {
+        let (status, made) = send(&app, Method::POST, "/api/scan/speed-tests", Some(&session), Some(crate::scan_speed::tests::report(yours, faster))).await;
+        assert_eq!(status, StatusCode::OK, "{made}");
+    }
+    let mine = key(&app, &session, Some("mcp")).await;
+    let (err, text) = call(&app, &mine, "get_scan_speed_tests", json!({})).await;
+    assert!(!err, "{text}");
+    let s: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(s["count"], 3);
+    let items = s["items"].as_array().unwrap();
+    assert_eq!(items.len(), 3);
+    assert_eq!(items[0]["frame_ms"], 130.0, "newest first");
+    assert_eq!(items[0]["fast_ms"], 45.0);
+    assert_eq!(items[0]["device"], "Pixel 10 Pro, Android 16, Chrome 142");
+    assert_eq!(items[0]["report"]["configs"][0]["stats"]["tracked"]["p90"], 150.0);
+    assert_eq!(items[0]["report"]["env"]["webgpu"]["f16"], true);
+    // The per-frame times only when asked.
+    assert!(items[0]["report"]["configs"][0].get("frames").is_none());
+    assert!(s["next_cursor"].is_null());
+    let (_, text) = call(&app, &mine, "get_scan_speed_tests", json!({"frames": true, "limit": 1})).await;
+    let s: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(s["items"][0]["report"]["configs"][0]["frames"][0]["fresh"], true);
+    // Paged.
+    let (_, text) = call(&app, &mine, "get_scan_speed_tests", json!({"limit": 2})).await;
+    let s: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(s["items"].as_array().unwrap().len(), 2);
+    let (_, text) = call(&app, &mine, "get_scan_speed_tests", json!({"limit": 2, "cursor": s["next_cursor"]})).await;
+    let s: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(s["items"].as_array().unwrap().len(), 1);
+    assert_eq!(s["items"][0]["frame_ms"], 150.0);
+    let (err, _) = call(&app, &mine, "get_scan_speed_tests", json!({"limit": 50})).await;
+    assert!(err);
+
+    // Someone else's tools see none of them.
+    let theirs = key(&app, &other, Some("mcp")).await;
+    let (err, text) = call(&app, &theirs, "get_scan_speed_tests", json!({})).await;
+    assert!(!err, "{text}");
+    let s: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(s["count"], 0);
+    assert_eq!(s["items"], json!([]));
+}

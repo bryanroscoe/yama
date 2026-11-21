@@ -154,4 +154,23 @@ describe("the embed cascade", () => {
     expect(cutsFed).toEqual([null]);
     expect(r.timings.cuts).toBe(3);
   });
+
+  it("times each graph run by graph, for the speed test: passes, the stages' embeddings and searches", async () => {
+    const fake = fakeOrt([[0, 0.7], [1, 0.65]], [[2, 0.95], [0, 0.7]]);
+    const recognizer = await createRecognizer(fake.ort, graphs, constants, arts);
+    // A new card: a pass over the middle, then one around the card; both stages and their searches.
+    const fresh = await recognizer.identify(frame());
+    expect(fresh.timings.runs?.detector).toHaveLength(2);
+    expect(fresh.timings.runs?.embed).toHaveLength(2);
+    expect(fresh.timings.runs?.search).toHaveLength(2);
+    expect([...fresh.timings.runs!.detector, ...fresh.timings.runs!.embed, ...fresh.timings.runs!.search].every((ms) => ms >= 0)).toBe(true);
+    // The same card again: tracked, one pass. A model switch warming up never counts in a frame's runs.
+    await recognizer.setEmbed(Uint8Array.of(2));
+    await recognizer.setDetector(Uint8Array.of(1));
+    const tracked = await recognizer.identify(frame());
+    const again = await recognizer.identify(frame());
+    expect(tracked.timings.runs?.detector).toHaveLength(2);
+    expect(again.timings.runs?.detector).toHaveLength(1);
+    expect(again.timings.runs?.embed).toHaveLength(2);
+  });
 });

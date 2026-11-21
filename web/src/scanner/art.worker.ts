@@ -10,6 +10,7 @@ import type { ArtWorkerReply, ArtWorkerRequest, BundleInfo, EmbedFile } from "./
 import { isStale, namedPaths } from "./bundleCache";
 import { leadingCard, LookFrames, lookTops } from "./look";
 import { cachedFile, SCAN_CACHE } from "./scanCache";
+import { speedCards } from "./speed";
 
 ort.env.wasm.wasmPaths = { wasm: wasmUrl };
 ort.env.wasm.numThreads = 1;
@@ -17,6 +18,8 @@ ort.env.logLevel = "warning";
 
 let recognizer: Recognizer | null = null;
 let arts: Art[] = [];
+/** The bundle's own gallery (without the supplement), for the speed test's cards. */
+let bundleArts: Art[] = [];
 const reply = (m: ArtWorkerReply, transfer: Transferable[] = []) => (self as DedicatedWorkerGlobalScope).postMessage(m, transfer);
 
 const file = cachedFile;
@@ -74,6 +77,7 @@ async function load(info: BundleInfo, base: string, embedFile: EmbedFile, detect
   recognizer = await createRecognizer(ort as unknown as OrtLike, { detector, embed, search }, info.constants as unknown as BundleConstants, gallery, supplement);
   // Gallery order, then the supplement's rows: the indices the recognizer reports.
   arts = supplement ? gallery.concat(supplement.arts) : gallery;
+  bundleArts = gallery;
   // Only now that this bundle's files are here (and cached) and the recognizer runs, drop the ones
   // the server no longer names: older bundles, a replaced embed graph, other supplements. Dropping
   // them first, a cut-short download could leave the phone with neither embed graph offline.
@@ -153,15 +157,23 @@ self.onmessage = async (event: MessageEvent<ArtWorkerRequest>) => {
         framesOf = null;
       }
     }
+    else if (m.type === "sample") reply({ type: "sampled", id: m.id, cards: speedCards(bundleArts, m.count) });
     else if (m.type === "pool") {
       if (!recognizer) throw new Error("The card recognizer isn't loaded");
       const indices = m.keys ? poolIndices(arts, m.keys) : null;
       const ok = recognizer.setPool(indices);
       reply({ type: "pooled", id: m.id, arts: ok ? (indices?.length ?? 0) : -1 });
     }
+    else if (m.type === "locate") {
+      // The placement gate's pass: the card finder alone. The frame goes back with the answer,
+      // for the gate to keep while it may be the sharpest of the placement.
+      if (!recognizer) throw new Error("The card recognizer isn't loaded");
+      const located = await recognizer.locate({ width: m.width, height: m.height, data: new Uint8ClampedArray(m.buffer) });
+      reply({ type: "located", id: m.id, located, buffer: m.buffer }, [m.buffer]);
+    }
     else if (m.type === "identify") {
       if (!recognizer) throw new Error("The card recognizer isn't loaded");
-      const result = await recognizer.identify({ width: m.width, height: m.height, data: new Uint8ClampedArray(m.buffer) }, (quad) => reply({ type: "seen", id: m.id, quad }));
+      const result = await recognizer.identify({ width: m.width, height: m.height, data: new Uint8ClampedArray(m.buffer) }, (quad) => reply({ type: "seen", id: m.id, quad }), m.quad);
       // With the look on, keep a copy of a frame with a card in it, for the look's side of the
       // comparison: the frame and quad this match used, under every artwork it matched (a title
       // read or Not this card can settle on one that wasn't the best). Copied into reused buffers.
@@ -179,8 +191,9 @@ self.onmessage = async (event: MessageEvent<ArtWorkerRequest>) => {
     }
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    if (m.type === "identify") reply({ type: "failed", id: m.id, message, buffer: m.buffer }, [m.buffer]);
+    if (m.type === "identify" || m.type === "locate") reply({ type: "failed", id: m.id, message, buffer: m.buffer }, [m.buffer]);
     else if (m.type === "pool") reply({ type: "pooled", id: m.id, arts: -1 });
+    else if (m.type === "sample") reply({ type: "sampled", id: m.id, cards: [] });
     else reply({ type: "error", message });
   }
 };

@@ -724,9 +724,10 @@ fn descriptions_are_short_and_written_for_anyone() {
     // (15 Nov 2026) to 25,921; a deck's swappable spares (move_cards, get_deck and
     // list_collection_cards, 15 Nov 2026) to about 26,320; sections (update_container, paths and
     // batch moves, 16 Nov 2026) to about 26,800; delete_container (16 Nov 2026) to about 26,950;
-    // get_scan_timings (20 Nov 2026) to about 27,200; a plan's history (get_plan_history and
-    // record_plan_history, 21 Nov 2026) to about 27,370.
-    assert!(total <= 27_400, "the descriptions are {total} characters in all");
+    // get_scan_timings (20 Nov 2026) to about 27,200; get_scan_speed_tests (21 Nov 2026) to
+    // about 27,550; a plan's history (get_plan_history and record_plan_history, 21 Nov 2026) to
+    // about 27,700.
+    assert!(total <= 27_750, "the descriptions are {total} characters in all");
     let instructions = super::SERVER_INSTRUCTIONS;
     assert!(instructions.chars().count() <= 2_600, "the instructions are {} characters", instructions.chars().count());
     for word in his {

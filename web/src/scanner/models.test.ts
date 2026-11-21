@@ -2,7 +2,7 @@
 // The scanner's switchable models (models.ts): what each slot runs from the server's list and this
 // device's choice, and what happens when the server takes an option off offer.
 import { afterEach, describe, expect, it } from "vitest";
-import { canRun, defaultOption, modelFiles, modelsOf, MODELS_KEY, onModelsChange, running, runningAll, saveModel, savedModels, type ModelsInfo } from "./models";
+import { canRun, defaultOption, GATE_LOCK, usesLead, modelFiles, modelsOf, MODELS_KEY, onModelsChange, running, runningAll, saveModel, savedModels, type ModelsInfo } from "./models";
 import { engineOrder } from "./ocrEngine";
 
 const V = "/scan-bundle/gallery-20261106T183001884398Z";
@@ -60,6 +60,9 @@ describe("what a slot runs", () => {
     // A text reader or lock rule a newer server lists that this build has no code for stays hidden.
     expect(canRun("text", { id: "doctr", label: "", note: "" }, app)).toBe(false);
     expect(canRun("lock", { id: "vote", label: "", note: "" }, app)).toBe(false);
+    // The placement gate's option is a lock rule this build runs, settling by the lead rule.
+    expect(canRun("lock", { id: GATE_LOCK, label: "", note: "" }, app)).toBe(true);
+    expect([usesLead("lead"), usesLead(GATE_LOCK), usesLead(undefined), usesLead("sure")]).toEqual([true, true, true, false]);
     // Any art model the server pins has the embed graph's interface: it needs only its file.
     expect(canRun("art", { id: "cardvision-1", label: "", note: "", file: `${V}/query-0123456789ab.onnx` }, app)).toBe(true);
     expect(canRun("art", { id: "broken", label: "", note: "" }, app)).toBe(false);

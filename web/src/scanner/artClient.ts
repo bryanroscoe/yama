@@ -4,7 +4,8 @@
 import { api, API_BASE } from "../api";
 import type { LookCandidate, LookDone, LookWorkerReply, LookWorkerRequest, WireFrame } from "./look";
 import type { ModelOption, ModelsInfo } from "./models";
-import type { Recognition } from "./recognizer";
+import type { Located, Recognition } from "./recognizer";
+import type { SpeedCard } from "./speed";
 import type { Quad, RgbaImage } from "./types";
 
 export interface BundleInfo {
@@ -37,7 +38,12 @@ export type ArtWorkerRequest =
   | { type: "reset"; frames?: boolean }
   | { type: "detector"; id: number; file: EmbedFile }
   | { type: "pool"; id: number; keys: PoolKeys | null }
-  | { type: "identify"; id: number; width: number; height: number; buffer: ArrayBuffer };
+  /** A few of the bundle gallery's cards, for the speed test (speed.ts, `speedCards`). */
+  | { type: "sample"; id: number; count: number }
+  /** `quad`: the card's corners in this frame, from a `locate` of it: the finder isn't run again. */
+  | { type: "identify"; id: number; width: number; height: number; buffer: ArrayBuffer; quad?: Quad | null }
+  /** The card finder alone (the placement gate, gate.ts). */
+  | { type: "locate"; id: number; width: number; height: number; buffer: ArrayBuffer };
 
 export type ArtWorkerReply =
   | { type: "progress"; loaded: number; total: number }
@@ -48,6 +54,8 @@ export type ArtWorkerReply =
   | { type: "frames"; id: number; frames: WireFrame[] }
   /** Where the card finder placed the card in an `identify` frame, sent before its art is matched. */
   | { type: "seen"; id: number; quad: Quad | null }
+  | { type: "located"; id: number; located: Located; buffer: ArrayBuffer }
+  | { type: "sampled"; id: number; cards: SpeedCard[] }
   | { type: "result"; id: number; result: Recognition; buffer: ArrayBuffer }
   | { type: "failed"; id: number; message: string; buffer: ArrayBuffer };
 
@@ -68,7 +76,13 @@ export interface ArtRecognizer {
    * Takes ownership of `image.data`'s buffer. `onSeen` hears where the card finder placed the card
    * (or null) before the art is matched, for the outline (outline.ts).
    */
-  identify(image: RgbaImage, onSeen?: (quad: Quad | null) => void): Promise<Recognition>;
+  identify(image: RgbaImage, onSeen?: (quad: Quad | null) => void, at?: Quad | null): Promise<Recognition>;
+  /**
+   * The card finder alone, for the placement gate (gate.ts): where the card is in `image`, how
+   * sharp, and its thumbnail. Takes `image.data`'s buffer and hands the frame back as `image`,
+   * whole, so the gate can keep it and have it read later (`identify(image, undefined, quad)`).
+   */
+  locate(image: RgbaImage): Promise<Located & { image: RgbaImage }>;
   /** Forget the card being tracked (between photos, say). */
   reset(opts?: { frames?: boolean }): void;
   /**
@@ -104,6 +118,8 @@ export interface ArtRecognizer {
   readonly detector: string;
   /** Find cards with this card finder from now on, as useArt does for the art model. */
   useDetector(option: ModelOption): Promise<void>;
+  /** `count` of the bundle gallery's cards for the speed test (speed.ts, `speedCards`); none from fakes. */
+  sample?(count: number): Promise<SpeedCard[]>;
 }
 
 /** What kept photos and diagnostics say ran when the scanner read text only, with no art model. */
@@ -155,13 +171,18 @@ const LOAD_LOCK_WAIT_MS = 60_000;
 
 /**
  * Run `load` holding a lock shared by this browser's tabs (the Web Locks API), waiting at most
- * `wait` ms for another tab's load; without the API, or after that, it runs anyway.
+ * `wait` ms for another tab's load; without the API, or after that, it runs anyway. `signal`
+ * (the speed test's Stop) ends the wait, and then nothing is loaded.
  */
-export async function oneLoadAtATime<T>(load: () => Promise<T>, wait = LOAD_LOCK_WAIT_MS): Promise<T> {
+export async function oneLoadAtATime<T>(load: () => Promise<T>, wait = LOAD_LOCK_WAIT_MS, signal?: AbortSignal): Promise<T> {
+  if (signal?.aborted) throw new Error("Stopped");
   const locks = typeof navigator === "undefined" ? undefined : navigator.locks;
   if (!locks) return load();
   const gaveUp = new AbortController();
   const timer = setTimeout(() => gaveUp.abort(), wait);
+  // Aborting the request once the lock is held changes nothing; before, it ends the wait.
+  const stop = () => gaveUp.abort();
+  signal?.addEventListener("abort", stop, { once: true });
   let started = false;
   try {
     return await locks.request(INFO_KEY, { signal: gaveUp.signal }, () => {
@@ -171,10 +192,14 @@ export async function oneLoadAtATime<T>(load: () => Promise<T>, wait = LOAD_LOCK
     });
   } catch (e) {
     // Gave up waiting (the lock never came): load anyway. A failure of the load itself stands.
-    if (!started) return load();
+    if (!started) {
+      if (signal?.aborted) throw new Error("Stopped");
+      return load();
+    }
     throw e;
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", stop);
   }
 }
 
@@ -183,9 +208,13 @@ export async function oneLoadAtATime<T>(load: () => Promise<T>, wait = LOAD_LOCK
  * `files.embed` when not given), from `info` (fetched when not given). Resolves null when the
  * server doesn't have the bundle yet (it starts downloading it; the scanner reads text meanwhile).
  * Rejects on a real failure. A chosen art model that won't load (not cached, opening offline) gives
- * way to the bundle info's own embed graph.
+ * way to the bundle info's own embed graph, unless `fallback` is false (the speed test, which must
+ * time the models it names). `signal` ends a load under way, its worker with it.
  */
-export async function loadArtRecognizer(onState?: (s: LoadState) => void, opts: { info?: BundleInfo | null; art?: ModelOption | null; detector?: ModelOption | null } = {}): Promise<ArtRecognizer | null> {
+export async function loadArtRecognizer(
+  onState?: (s: LoadState) => void,
+  opts: { info?: BundleInfo | null; art?: ModelOption | null; detector?: ModelOption | null; fallback?: boolean; signal?: AbortSignal } = {},
+): Promise<ArtRecognizer | null> {
   if (typeof Worker === "undefined" || typeof WebAssembly === "undefined") return null;
   const info = opts.info !== undefined ? opts.info : await scanBundleInfo();
   if (!info?.ready || !info.constants) return null;
@@ -194,22 +223,35 @@ export async function loadArtRecognizer(onState?: (s: LoadState) => void, opts: 
   const bundleFinder = { id: defaultDetectorId(info), file: info.files.detector, bytes: info.bytes.detector };
   const finder = opts.detector?.file ? { id: opts.detector.id, file: opts.detector.file, bytes: opts.detector.bytes ?? 0 } : bundleFinder;
   try {
-    return await startRecognizer(info, art, finder, onState);
+    return await startRecognizer(info, art, finder, onState, opts.signal);
   } catch (e) {
-    if (art.file === fallback.file && finder.file === bundleFinder.file) throw e;
+    if ((art.file === fallback.file && finder.file === bundleFinder.file) || opts.fallback === false || opts.signal?.aborted) throw e;
     console.warn(`The models chosen (${art.id}, ${finder.id}) didn't load; running the defaults`, e);
-    return startRecognizer(info, fallback, bundleFinder, onState);
+    return startRecognizer(info, fallback, bundleFinder, onState, opts.signal);
   }
 }
 
-async function startRecognizer(info: BundleInfo, art: { id: string; file: string; bytes: number }, detector: { id: string; file: string; bytes: number }, onState?: (s: LoadState) => void): Promise<ArtRecognizer> {
+async function startRecognizer(
+  info: BundleInfo,
+  art: { id: string; file: string; bytes: number },
+  detector: { id: string; file: string; bytes: number },
+  onState?: (s: LoadState) => void,
+  signal?: AbortSignal,
+): Promise<ArtRecognizer> {
+  if (signal?.aborted) throw new Error("Stopped");
   const worker = new Worker(new URL("./art.worker.ts", import.meta.url), { type: "module" });
+  // Stopped before it's ready (waiting for another tab's load, downloading, compiling): the worker
+  // goes now. Once it's ready, its owner ends it (dispose).
+  const endOnStop = () => worker.terminate();
+  signal?.addEventListener("abort", endOnStop, { once: true });
   const pending = new Map<number, { resolve: (r: Recognition) => void; reject: (e: Error) => void }>();
+  const locating = new Map<number, { resolve: (l: Located & { buffer: ArrayBuffer }) => void; reject: (e: Error) => void }>();
   /** Who hears where the finder placed the card in each frame being identified. */
   const seeing = new Map<number, (quad: Quad | null) => void>();
   const pooling = new Map<number, (arts: number) => void>();
   const embedding = new Map<number, (error: string | null) => void>();
   const framing = new Map<number, (frames: WireFrame[]) => void>();
+  const sampling = new Map<number, (cards: SpeedCard[]) => void>();
   // The printing look's own worker (look.worker.ts), started when a look model is chosen.
   let lookWorker: Worker | null = null;
   const lookLoads = new Map<number, (error: string | null) => void>();
@@ -262,26 +304,36 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
   // The worker drops cached files this info doesn't name, then the info is kept for offline use:
   // one load at a time across this browser's tabs, so two tabs loading different bundle info (the
   // server just switched) can't each drop the files the other cached.
-  await oneLoadAtATime(async () => {
-    await new Promise<void>((resolve, reject) => {
-      worker.onmessage = (e: MessageEvent<ArtWorkerReply>) => {
-        const m = e.data;
-        if (m.type === "progress") onState?.(m.loaded >= m.total ? { kind: "preparing" } : { kind: "downloading", loaded: m.loaded, total: m.total });
-        else if (m.type === "ready") resolve();
-        else if (m.type === "error") reject(new Error(m.message));
-      };
-      worker.onerror = (e) => reject(new Error(e.message || "The card recognizer stopped"));
-      worker.postMessage({ type: "load", info, base, embed: { url: art.file, bytes: art.bytes }, detector: { url: detector.file, bytes: detector.bytes } } satisfies ArtWorkerRequest);
-    }).catch((e: unknown) => {
-      worker.terminate();
-      throw e;
-    });
-    try {
-      localStorage.setItem(INFO_KEY, JSON.stringify(info));
-    } catch {
-      /* storage off: offline opens need the server */
-    }
-  });
+  await oneLoadAtATime(
+    async () => {
+      let stopLoad = () => undefined as void;
+      await new Promise<void>((resolve, reject) => {
+        worker.onmessage = (e: MessageEvent<ArtWorkerReply>) => {
+          const m = e.data;
+          if (m.type === "progress") onState?.(m.loaded >= m.total ? { kind: "preparing" } : { kind: "downloading", loaded: m.loaded, total: m.total });
+          else if (m.type === "ready") resolve();
+          else if (m.type === "error") reject(new Error(m.message));
+        };
+        worker.onerror = (e) => reject(new Error(e.message || "The card recognizer stopped"));
+        stopLoad = () => reject(new Error("Stopped"));
+        signal?.addEventListener("abort", stopLoad, { once: true });
+        if (signal?.aborted) return reject(new Error("Stopped"));
+        worker.postMessage({ type: "load", info, base, embed: { url: art.file, bytes: art.bytes }, detector: { url: detector.file, bytes: detector.bytes } } satisfies ArtWorkerRequest);
+      })
+        .catch((e: unknown) => {
+          worker.terminate();
+          throw e;
+        })
+        .finally(() => signal?.removeEventListener("abort", stopLoad));
+      try {
+        localStorage.setItem(INFO_KEY, JSON.stringify(info));
+      } catch {
+        /* storage off: offline opens need the server */
+      }
+    },
+    undefined,
+    signal,
+  ).finally(() => signal?.removeEventListener("abort", endOnStop));
 
   worker.onmessage = (e: MessageEvent<ArtWorkerReply>) => {
     const m = e.data;
@@ -300,11 +352,26 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
       framing.delete(m.id);
       return;
     }
+    if (m.type === "located") {
+      locating.get(m.id)?.resolve({ ...m.located, buffer: m.buffer });
+      locating.delete(m.id);
+      return;
+    }
     if (m.type === "seen") {
       seeing.get(m.id)?.(m.quad);
       return;
     }
+    if (m.type === "sampled") {
+      sampling.get(m.id)?.(m.cards);
+      sampling.delete(m.id);
+      return;
+    }
     if (m.type !== "result" && m.type !== "failed") return;
+    if (m.type === "failed" && locating.has(m.id)) {
+      locating.get(m.id)!.reject(new Error(m.message));
+      locating.delete(m.id);
+      return;
+    }
     const p = pending.get(m.id);
     pending.delete(m.id);
     seeing.delete(m.id);
@@ -315,10 +382,14 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
     for (const p of pending.values()) p.reject(new Error(e.message || "The card recognizer stopped"));
     pending.clear();
     seeing.clear();
+    for (const p of locating.values()) p.reject(new Error(e.message || "The card recognizer stopped"));
+    locating.clear();
     for (const p of embedding.values()) p(e.message || "The card recognizer stopped");
     embedding.clear();
     for (const p of framing.values()) p([]);
     framing.clear();
+    for (const p of sampling.values()) p([]);
+    sampling.clear();
   };
 
   return {
@@ -446,18 +517,36 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
       switching = done.catch(() => undefined);
       return done;
     },
-    identify(image, onSeen) {
+    locate(image) {
+      if (disposed) return Promise.reject(new Error("The scanner is closed"));
+      const id = nextId++;
+      const { width, height } = image;
+      const buffer = image.data.buffer as ArrayBuffer;
+      return new Promise<Located & { image: RgbaImage }>((resolve, reject) => {
+        locating.set(id, { resolve: ({ buffer: back, ...l }) => resolve({ ...l, image: { width, height, data: new Uint8ClampedArray(back) } }), reject });
+        worker.postMessage({ type: "locate", id, width, height, buffer } satisfies ArtWorkerRequest, [buffer]);
+      });
+    },
+    identify(image, onSeen, at) {
       if (disposed) return Promise.reject(new Error("The scanner is closed"));
       const id = nextId++;
       if (onSeen) seeing.set(id, onSeen);
       const buffer = image.data.buffer as ArrayBuffer;
       return new Promise<Recognition>((resolve, reject) => {
         pending.set(id, { resolve, reject });
-        worker.postMessage({ type: "identify", id, width: image.width, height: image.height, buffer } satisfies ArtWorkerRequest, [buffer]);
+        worker.postMessage({ type: "identify", id, width: image.width, height: image.height, buffer, quad: at ?? undefined } satisfies ArtWorkerRequest, [buffer]);
       });
     },
     reset(opts) {
       if (!disposed) worker.postMessage({ type: "reset", frames: opts?.frames } satisfies ArtWorkerRequest);
+    },
+    sample(count) {
+      if (disposed) return Promise.resolve([]);
+      const id = nextId++;
+      return new Promise<SpeedCard[]>((resolve) => {
+        sampling.set(id, resolve);
+        worker.postMessage({ type: "sample", id, count } satisfies ArtWorkerRequest);
+      });
     },
     setPool(keys) {
       if (disposed) return Promise.resolve(-1);
@@ -473,6 +562,8 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
       for (const p of pending.values()) p.reject(new Error("The scanner is closed"));
       pending.clear();
       seeing.clear();
+      for (const p of locating.values()) p.reject(new Error("The scanner is closed"));
+      locating.clear();
       for (const p of pooling.values()) p(-1);
       pooling.clear();
       for (const p of embedding.values()) p("The scanner is closed");
@@ -482,6 +573,8 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
       lookWorker = null;
       for (const p of framing.values()) p([]);
       framing.clear();
+      for (const p of sampling.values()) p([]);
+      sampling.clear();
     },
   };
 }

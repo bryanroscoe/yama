@@ -10,12 +10,13 @@
 //
 // Needs a secure context for the camera (https or localhost). "Use a photo" works anywhere.
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import { api, type Printing } from "../api";
 import { loadArtRecognizer, NO_ART_MODEL, RECOGNIZER_SHORT_SIDE, scanBundleInfo, type ArtRecognizer, type LoadState, type LookDone } from "./artClient";
 import { lookBest, lookCandidates, lookLead, lookOrder, lookSettles, withoutMisread, type LookScores } from "./look";
-import { modelsOf, onModelsChange, running, runningAll, saveModel, savedModels, type DeviceCan, type ModelChoices, type ModelSlot, type ModelsInfo, type Running } from "./models";
+import { GATE_LOCK, modelsOf, onModelsChange, running, runningAll, saveModel, savedModels, usesLead, type DeviceCan, type ModelChoices, type ModelSlot, type ModelsInfo, type Running } from "./models";
 import { ModelsSetting } from "./ModelsSetting";
+import { scannerSettled, SpeedTest } from "./SpeedTest";
 import { NameIndex } from "./fuzzy";
 import { normaliseName } from "./parse";
 import { applyH, rectQuad, squareToQuad } from "./image";
@@ -41,7 +42,12 @@ import { saysCardBack } from "./cardBack";
 import { CardOutline } from "./CardOutline";
 import { ask60, askUsualRate, fps60On, FrameRateMeter, setFps60, watchFrameRate } from "./frameRate";
 import { OutlineTracker } from "./outline";
+import { GATE_DEFAULTS, Motion, PlacementGate } from "./gate";
+import { BACK_KEY, GATE_PASS_MS, GATE_SAYS, gateStatus, type GateFrame, type GateRead } from "./gateLoop";
 import { defaultCamera, nameCameras, resolveSaved, saveCamera, savedCamera, type NamedCamera } from "./cameras";
+import { browserCameraSource, draw, sourceLabel, type CameraSource, type SourceInfo } from "./cameraSource";
+import { nativeCameraAvailable, openNativeCamera, saveNativeCamera, savedNativeCamera, type NativeCamera } from "./nativeCamera";
+import { NativeCameraSetting } from "./NativeCameraSetting";
 import { AUTO_MAX, AutoZoom, LENS_SWITCH, maySwitchLens } from "./zoomPolicy";
 import { cardHeight, tooFar } from "./closer";
 import { createServerCatalog } from "./serverCatalog";
@@ -334,12 +340,12 @@ const textChoice = (slots: Record<ModelSlot, Running>, info: ModelsInfo | null):
   allowed: info?.text.options.map((o) => o.id),
 });
 
-const WAITING = "Hold a card in view";
-const NEXT = "Ready for the next card";
+const WAITING: string = GATE_SAYS.waiting;
+const NEXT: string = GATE_SAYS.next;
 /** The card in view is face down (cardBack.ts). */
-export const CARD_BACK = "Card back, turn the card over";
+export const CARD_BACK: string = GATE_SAYS.back;
 /** A card other than the one just filed is in view and being read. */
-const READING = "Hold still, reading the name";
+const READING: string = GATE_SAYS.reading;
 /**
  * While reading a held card: how far below the best match in view the held card's art may score.
  * With the set lock, as far as judgeLocked lets an in-set match trail the best one anywhere.
@@ -347,14 +353,6 @@ const READING = "Hold still, reading the name";
 const SAME_CARD_MARGIN = 0.02;
 
 const sameCard = (a: ScanCandidate | undefined, b: ScanCandidate | undefined) => !!a && !!b && a.name === b.name && a.set === b.set && a.number === b.number;
-
-function draw(source: CanvasImageSource, sx: number, sy: number, sw: number, sh: number, w: number, h: number, canvas: HTMLCanvasElement): RgbaImage {
-  canvas.width = Math.max(1, Math.round(w));
-  canvas.height = Math.max(1, Math.round(h));
-  const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
-  ctx.drawImage(source, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-  return ctx.getImageData(0, 0, canvas.width, canvas.height);
-}
 
 /** The whole source with its short side at RECOGNIZER_SHORT_SIDE (never enlarged), and the scale used. */
 function small(source: CanvasImageSource, width: number, height: number, canvas: HTMLCanvasElement): { image: RgbaImage; k: number } {
@@ -600,6 +598,8 @@ export function ScannerView({
   const [found, setFound] = useState<Found | null>(null);
   /** The outline over each card the finder sees (outline.ts), drawn by CardOutline. */
   const [outlines] = useState(() => new OutlineTracker());
+  /** The placement gate (gate.ts): kept across the read loop's restarts, so a card read stays read. */
+  const [gate] = useState(() => new PlacementGate<GateFrame>());
   /** Frames a second the camera actually delivers (frameRate.ts), for Scanner diagnostics. */
   const [fpsMeter] = useState(() => new FrameRateMeter());
   const [error, setError] = useState<string | null>(null);
@@ -678,6 +678,17 @@ export function ScannerView({
   /** Wrong card was tapped: the other cards it might be, a name box, or just scan again. */
   const [wrongOpen, setWrongOpen] = useState(false);
   const cam = useCameraControls();
+  /**
+   * The app's own camera (nativeCamera.ts): the option on this device, why it didn't open this
+   * time (the browser's camera is used instead), and the camera while it's the one open.
+   */
+  const [nativeOpt, setNativeOpt] = useState(savedNativeCamera);
+  const [nativeFailed, setNativeFailed] = useState<string | null>(null);
+  const useNative = nativeOpt.on && !nativeFailed && nativeCameraAvailable();
+  const nativeCam = useRef<NativeCamera | null>(null);
+  const browserCam = useRef<CameraSource | null>(null);
+  /** The camera frames are read from (cameraSource.ts): the app's own while it's open, else the browser's video. */
+  const camSrc = (): CameraSource => nativeCam.current ?? (browserCam.current ??= browserCameraSource(() => videoRef.current));
   /** Scan settings are open over the scanner: it stops reading, as for anything else shown over it. */
   const [settingsOpen, setSettingsOpen] = useState(false);
   const paused = pausedProp || settingsOpen;
@@ -702,7 +713,9 @@ export function ScannerView({
   /** A model switch under way, or one that failed, by slot, for Scan settings. */
   const [modelNotes, setModelNotes] = useState<Partial<Record<ModelSlot, string>>>({});
   /** The lock rule in force (models.ts): "lead", or "sure" for sure scores only. */
-  const leadRule = () => (slotsRef.current.lock.option?.id ?? "lead") === "lead";
+  const leadRule = () => usesLead(slotsRef.current.lock.option?.id);
+  /** Whether the placement gate decides when a card is read (the lock option "lead-gate"; gate.ts). */
+  const gateOn = () => slotsRef.current.lock.option?.id === GATE_LOCK;
   /** The option each slot runs now, for kept photos and diagnostics. */
   const modelsNow = (): Record<string, string> => {
     const now = slotsRef.current;
@@ -776,6 +789,8 @@ export function ScannerView({
     const fps = fpsMeter.fps();
     if (fps != null) timing.detail.fps = fps;
     if (camRef.current.focus != null) timing.detail.focus_pinned = camRef.current.focus;
+    // With the placement gate: which try named the card (gate.ts).
+    if (gateOn() && timed && gate.attempts > 0) timing.detail.gate_attempts = gate.attempts;
     return timing;
   };
   /** A fresh record with the camera and text reader in use. */
@@ -857,7 +872,9 @@ export function ScannerView({
    * step toward the card filling the view (the view the camera box shows, at the camera's zoom).
    */
   const seeCard = (quad: Quad | null, v: HTMLVideoElement) => {
-    setFar(!!quad && tooFar(quad));
+    // By the card's size in the camera's full frame (the app's own camera hands frames over smaller).
+    const full = camSrc().fullScale();
+    setFar(!!quad && tooFar(full === 1 ? quad : (quad.map(([x, y]) => [x * full, y * full]) as Quad)));
     const az = autoZoomRef.current;
     const c = camRef.current;
     if (!az || c.userZoomed()) return;
@@ -1187,6 +1204,44 @@ export function ScannerView({
     let stream: MediaStream | null = null;
     let stopped = false;
     let stopFps = () => undefined as void;
+    if (useNative) {
+      // The app's own camera: its frames arrive in the canvas that stands where the video does.
+      const el = videoRef.current as unknown as HTMLCanvasElement | null;
+      if (!el) return;
+      const told = (info: SourceInfo) => {
+        if (stopped) return;
+        setCameraNow(info);
+        setCamera(sourceLabel(info));
+      };
+      // The same sizes the browser's camera is asked for, below.
+      const size = identityOnly ? { width: 1920, height: 1080 } : { width: 3840, height: 2160 };
+      const native = openNativeCamera(el, { lens: nativeOpt.lens, fps: nativeOpt.fps, ...size, torchLevel: nativeOpt.torchLevel }, { onInfo: told });
+      nativeCam.current = native;
+      native.ready.then(
+        (info) => {
+          if (stopped) return;
+          cam.attach(native.track());
+          console.info("Scanner camera", info);
+          told(info);
+          setCameras([]);
+          setLive(true);
+          setPhase((p) => (p === "loading" ? "scanning" : p));
+        },
+        (e: unknown) => {
+          // It won't open here: the camera as before, and Scan settings say why.
+          if (!stopped) setNativeFailed(e instanceof Error ? e.message : "it didn't open");
+        },
+      );
+      return () => {
+        stopped = true;
+        haltReaders();
+        gate.reset();
+        setLive(false);
+        cam.attach(null);
+        native.close();
+        if (nativeCam.current === native) nativeCam.current = null;
+      };
+    }
     if (!navigator.mediaDevices?.getUserMedia) {
       setPhase("no-camera");
       setError("This browser can't open the camera here (it needs https). Use a photo instead.");
@@ -1268,6 +1323,7 @@ export function ScannerView({
       // Every loop reading this camera stops now, before any result from it is used, and what an
       // attempt had read is dropped (review of #145): a switch starts reading afresh.
       haltReaders();
+      gate.reset();
       stopFps();
       setLive(false);
       const v = videoRef.current;
@@ -1275,9 +1331,10 @@ export function ScannerView({
       cam.attach(null);
       stream?.getTracks().forEach((t) => t.stop());
     };
-    // cam.attach and haltReaders are stable for this purpose.
+    // cam.attach and haltReaders are stable for this purpose. The app's camera reopens for a new
+    // lens or capture rate; its flashlight strength changes as it runs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cameraId]);
+  }, [cameraId, useNative, nativeOpt.lens, nativeOpt.fps]);
 
   /** The look at the found card's printings under way (look.ts): stopped when the card is done with or its printing chosen. */
   const lookRun = useRef<{ seq: number; stop: AbortController } | null>(null);
@@ -1643,7 +1700,22 @@ export function ScannerView({
     const next = (ms: number) => {
       if (!stop) timer = setTimeout(tick, ms);
     };
+    /** The read the gate asked for on this frame, to be answered when the frame is done (gate.ts). */
+    let gateRead: GateRead | null = null;
     const tick = async () => {
+      const seq = foundSeq.current;
+      gateRead = null;
+      await frame();
+      const asked = gateRead as GateRead | null;
+      gateRead = null;
+      if (!asked) return;
+      // Named (a card was found, or it's the card already held), or not: the gate then asks again,
+      // up to its five tries. A frame cut short by a pause doesn't count.
+      if (foundSeq.current !== seq || asked.held) gate.named(asked.key, performance.now(), asked.placement);
+      else if (stop) gate.dropped(asked.placement);
+      else gate.missed(performance.now(), asked.placement);
+    };
+    const frame = async () => {
       if (stop) return;
       const v = videoRef.current;
       const art = artRef.current;
@@ -1665,15 +1737,56 @@ export function ScannerView({
           const box = v.closest(".scan-camera")?.getBoundingClientRect();
           const zone = digitalRegion(v.videoWidth, v.videoHeight, digitalRef.current, box);
           const { image, k } = smallRegion(v, zone, canvasRef.current);
-          const toVideo = (q: Quad) => q.map(([x, y]) => [x / k + zone.x, y / k + zone.y]) as Quad;
+          let toVideo = (q: Quad) => q.map(([x, y]) => [x / k + zone.x, y / k + zone.y]) as Quad;
           // The outline follows the card finder, which answers before the art is matched.
           const outlined = (q: Quad | null) => {
             if (!stop) outlines.see(q ? [toVideo(q)] : [], { w: v.videoWidth, h: v.videoHeight });
           };
-          const r = await art.identify(image, outlined);
-          if (stop) return;
-          outlined(r.quad);
-          seeCard(r.quad ? toVideo(r.quad) : null, v);
+          const gated = gateOn();
+          let r: Recognition;
+          if (gated) {
+            // The placement gate (gate.ts): every frame goes to the card finder alone; the art is
+            // matched only when the gate says the card has come to rest, on the sharpest frame of
+            // its stay, and not again while it lies there.
+            const seen = await art.locate(image);
+            if (stop) return;
+            outlined(seen.quad);
+            seeCard(seen.quad ? toVideo(seen.quad) : null, v);
+            const at = performance.now();
+            const d = gate.observe({ at, cards: seen.quad ? [{ quad: seen.quad, sharpness: seen.sharpness, thumb: seen.thumb, frame: { image: seen.image, toVideo } }] : [] });
+            if (d.kind !== "read") {
+              // The view has been empty long enough: the card just filed has gone, as without the gate.
+              if (d.kind === "none" && d.since == null) {
+                blocked.current = null;
+                blockedName.current = null;
+                filedName.current = null;
+                endSeek();
+                appeared.current = null;
+              }
+              if (d.kind === "none") {
+                last.current = undefined;
+                lastText.current = undefined;
+              }
+              // A lead counts over reads in a row of one card at rest: anything else between ends it.
+              if (d.kind !== "steadying" && d.kind !== "reading") leadRun.step(null);
+              const holding = !!blocked.current || !!blockedName.current;
+              if (!holding) setDupe(null);
+              setStatus(gateStatus(d, holding));
+              return next(d.kind === "none" ? 60 : GATE_PASS_MS);
+            }
+            const kept = d.frame!;
+            gateRead = { placement: d.placement, key: "", held: false };
+            toVideo = kept.toVideo;
+            // Diagnostics' timing record: the card appeared when the gate first saw it, not at this read.
+            if (diagRef.current && !appeared.current && d.since != null) appeared.current = { at: Date.now() - (at - d.since), frames: 0 };
+            r = await art.identify(kept.image, undefined, d.quad);
+            if (stop) return;
+          } else {
+            r = await art.identify(image, outlined);
+            if (stop) return;
+            outlined(r.quad);
+            seeCard(r.quad ? toVideo(r.quad) : null, v);
+          }
           // What this frame knew is for a card found from this frame only.
           scanCtx.current = null;
           // Locked to sets: go on the best match among their art while it's about as good as the
@@ -1688,6 +1801,7 @@ export function ScannerView({
           const heldIndex = blocked.current?.index;
           const stillHeld = r.quad && heldIndex != null ? [...r.matches, ...(r.pool ?? [])].find((m) => m.index === heldIndex && m.score >= ART_UNKNOWN) : undefined;
           if (blocked.current && artHoldFrame(blocked.current, r.quad ? (stillHeld ?? top ?? null) : null, ART_UNKNOWN, LOCK_TWICE) === "free") blocked.current = null;
+          if (gateRead && top) gateRead.key = top.name;
           if (!r.quad || !top) {
             if (++noCard.current >= AWAY_FRAMES) {
               blockedName.current = null;
@@ -1706,6 +1820,9 @@ export function ScannerView({
           noCard.current = 0;
           if (!blocked.current && !blockedName.current) setDupe(null);
           if (blocked.current) {
+            // With the gate: the card just added, seen again, is latched; a read that didn't show
+            // it (a weak match) is a miss, tried again, and the hold ends by its own rule (hold.ts).
+            if (gateRead) gateRead.held = !!stillHeld;
             setStatus(NEXT);
             return next(60);
           }
@@ -1716,12 +1833,16 @@ export function ScannerView({
           // match isn't one of theirs: its art says nothing about which card this is.
           const artUnknown = !!locked && judged?.kind !== "in-set" && poolShare.current < KNOWN_ART;
           const side = identityOnly ? IDENTITY_SIDE : undefined;
-          const read = (at?: { image: RgbaImage; quad: Quad }) => (identityOnly && !savingPhotos() ? null : (at ?? around(v, v.videoWidth, v.videoHeight, toVideo(r.quad!), hiCanvasRef.current!, side)));
+          // The view of the card kept with it: none where only the card matters and photos aren't saved.
+          const keepsView = !(identityOnly && !savingPhotos());
+          const read = (at: { image: RgbaImage; quad: Quad }) => (keepsView ? at : null);
           // A card just filed by its name stays held (hold.ts): its art mustn't file it again, by
           // art, by a title read or by the two-frame fallback below.
           const heldName = blockedName.current?.name;
           const isHeld = (name: string) => !!heldName && sameCardName(name, heldName);
-          if (isHeld(top.name)) {
+          // (With the gate: also a card named again within 3 s that never left the view, gate.ts.)
+          if (isHeld(top.name) || (gated && gate.suppresses(top.name, performance.now()))) {
+            if (gateRead) gateRead.held = true;
             leadRun.step(null);
             setStatus(NEXT);
             return next(60);
@@ -1744,6 +1865,7 @@ export function ScannerView({
           const lead = artLead(ranked, top, unlisted);
           const leadOn = leadRule();
           const leading = leadOn && !artUnknown && leadCounts({ locked: !!locked, share: leadShare() }) && !blockedName.current && leads(top.score, lead);
+          // (With the gate too: a lead settles on its second read in a row, 50 ms after the first.)
           const leadFrames = leadRun.step(leading ? top.name : null);
           // A strong match decides by art, unless another card scores close to it. Otherwise the
           // title is read first (Bryan, 15 Nov 2026: no Star Trek card scanned; their art isn't in
@@ -1755,7 +1877,7 @@ export function ScannerView({
             // The match the lead is for (the in-set one with the set lock).
             top: Math.round(top.score * 1000) / 1000,
             lead: Math.round(lead * 1000) / 1000,
-            cardPx: Math.round(cardHeight(toVideo(r.quad))),
+            cardPx: Math.round(cardHeight(toVideo(r.quad)) * camSrc().fullScale()),
           };
           // Which rule settled the card, for its record (diagnostics.ts).
           const lockBy = (how: LockRule) => {
@@ -1775,8 +1897,10 @@ export function ScannerView({
               seekFrame({ art: artNote.art.slice(0, 3), lead: artNote.lead, cardPx: artNote.cardPx });
               return next(30);
             }
+            const view = keepsView ? await camSrc().around(toVideo(r.quad), hiCanvasRef.current, side) : null;
+            if (stop) return;
             lockBy(by);
-            showArt(r, top, read(), { leads: leading });
+            showArt(r, top, view, { leads: leading });
             return;
           }
           // Not while a card filed by its name is held: it may be that card, still in view.
@@ -1785,7 +1909,7 @@ export function ScannerView({
           const seen = blockedName.current || faceDown ? null : seekFrame({ art: artNote.art.slice(0, 3), lead: artNote.lead, cardPx: artNote.cardPx });
           // A match that is at least fair is read on every frame; a card the art index plainly
           // doesn't know (a battle, a weak match) after a few frames, as before.
-          if (top.score >= ART_UNKNOWN || artUnknown || ++unknownFrames >= 3) {
+          if (top.score >= ART_UNKNOWN || artUnknown || gated || ++unknownFrames >= 3) {
             unknownFrames = 0;
             const full = await textReader();
             if (stop) return;
@@ -1793,7 +1917,8 @@ export function ScannerView({
             // doesn't know yet are usually in the set being scanned).
             const reader = lockRef.current?.names ? { ...full, names: lockRef.current.names } : full;
             const quad = toVideo(r.quad);
-            const hi = around(v, v.videoWidth, v.videoHeight, quad, hiCanvasRef.current, side);
+            const hi = await camSrc().around(quad, hiCanvasRef.current, side);
+            if (stop) return;
             // The card from title and art together (fuse.ts): a clear title settles the card when
             // the art has it among its matches, and overrules the art when it doesn't. Matches from
             // art the index doesn't know for the locked sets count for nothing.
@@ -1809,6 +1934,7 @@ export function ScannerView({
             if (seen) Object.assign(seen, { titles, title, fused: fused.kind });
             // The card just filed, by its art or its title: still held. Not a new card appearing.
             if (fusedHeld(fused, heldName)) {
+              if (gateRead) gateRead.held = true;
               appeared.current = null;
               setStatus(NEXT);
               return next(60);
@@ -1847,6 +1973,8 @@ export function ScannerView({
             if (handleText(res, false, false, hi)) return;
             // Face down, and nothing on it read as a card: that's all there is to say.
             if (faceDown) {
+              // (With the gate: read once, and said for as long as it lies there.)
+              if (gateRead) Object.assign(gateRead, { key: BACK_KEY, held: true });
               appeared.current = null;
               // (Not over "Ready for the next card" while a card filed by its name is held.)
               if (!blockedName.current) setStatus(CARD_BACK);
@@ -1873,7 +2001,8 @@ export function ScannerView({
             // (Not while the card just added is held: that would read it again.)
             // Where only the card matters, a fair match (LOCK_TWICE) gets its UNTITLED_FRAMES first.
             const artWaits = identityOnly && top.score >= LOCK_TWICE && !artUnknown && untitled < UNTITLED_FRAMES;
-            if (!stop && closeups && !vetoed && !blockedName.current && ++failedReads >= TITLE_AFTER && !artWaits) {
+            // (With the gate there's no close-up asked here: five tries, then "No match, move the card".)
+            if (!stop && closeups && !gated && !vetoed && !blockedName.current && ++failedReads >= TITLE_AFTER && !artWaits) {
               lookGoesOn.current = true;
               setCloseup("title");
               return;
@@ -1888,8 +2017,10 @@ export function ScannerView({
         const reader = await textReader();
         if (stop || !g) return next(200);
         const { sx, sy, sw, sh, gx, gy, gw, gh } = boxInVideo(v, g, MARGIN);
-        const k = Math.min(1, MAX_SIDE / Math.max(sw, sh));
-        const image = draw(v, sx, sy, sw, sh, sw * k, sh * k, canvasRef.current);
+        // From the camera's full frame, never enlarged (the app's own camera hands `v` over smaller).
+        const k = Math.min(camSrc().fullScale(), MAX_SIDE / Math.max(sw, sh));
+        const image = await camSrc().region({ x: sx, y: sy, w: sw, h: sh }, sw * k, sh * k, canvasRef.current);
+        if (stop) return;
         const upright: Quad = rectQuad((gx - sx) * k, (gy - sy) * k, gw * k, gh * k);
         // Alternate upright and upside-down reads across frames rather than both in one frame.
         const flip = textFrame++ % 2 === 1;
@@ -2075,6 +2206,8 @@ export function ScannerView({
     setWrongOpen(false);
     setDupe(null);
     blocked.current = held?.art ? { index: held.art.index, away: 0 } : null;
+    // Nothing held (Scan it again): the gate reads the card lying there once more.
+    if (!held) gate.unlatch();
     noCard.current = 0;
     blockedName.current = held && !held.art ? hold(held.name, Date.now()) : null;
     last.current = undefined;
@@ -2237,7 +2370,9 @@ export function ScannerView({
     };
     /** Read one image of the card into the evidence; true when that settled it. */
     const readInto = async (src: CanvasImageSource, w: number, h: number, quad: Quad, f: Found, source: "hold" | "still" = "hold"): Promise<"settled" | "read" | "blurred"> => {
-      const read = around(src, w, h, quad, hiCanvasRef.current!);
+      // A still is cut from itself; a camera frame, by the camera (at its full resolution).
+      const read = source === "still" ? around(src, w, h, quad, hiCanvasRef.current!) : await camSrc().around(quad, hiCanvasRef.current!);
+      if (stop) return "read";
       setLiveShot(read);
       f.rec?.latestShot(read);
       const ocr = await ocrEngine();
@@ -2249,7 +2384,7 @@ export function ScannerView({
         if (stop) return "read";
         reads.push(text);
       }
-      const note = { source, ...qualityNote(quality), cardPx: Math.round(cardHeight(quad)), zoom: camRef.current.zoom };
+      const note = { source, ...qualityNote(quality), cardPx: Math.round(cardHeight(quad) * (source === "still" ? 1 : camSrc().fullScale())), zoom: camRef.current.zoom };
       if (!sharp) {
         f.rec?.frame({ ...note, reads: [], skipped: true });
         return "blurred";
@@ -2277,7 +2412,8 @@ export function ScannerView({
      */
     let stillTaken = false;
     const tryStill = async (f: Found): Promise<boolean> => {
-      if (stillTaken || !artRef.current) return false;
+      // The app's own camera has no still to take (its reads are already cut from the full frame).
+      if (stillTaken || !artRef.current || nativeCam.current) return false;
       const track = cam.track();
       const IC = (window as unknown as { ImageCapture?: new (t: MediaStreamTrack) => { takePhoto(): Promise<Blob> } }).ImageCapture;
       if (!IC || !track) return false;
@@ -2298,6 +2434,7 @@ export function ScannerView({
       }
     };
     let focused = false;
+    const holdMotion = new Motion();
     /** What every verdict does, from a frame, a skipped frame or a miss alike. */
     const act = (verdict: HeldVerdict, wait: number) => {
       switch (verdict) {
@@ -2340,7 +2477,12 @@ export function ScannerView({
             const [x, y] = applyH(squareToQuad(quad), 0.25, 0.95);
             cam.focusAt(x / v.videoWidth, y / v.videoHeight);
           }
-          const got = await readInto(v, v.videoWidth, v.videoHeight, quad, f);
+          // With the placement gate, the collector line is read only while the card is at rest
+          // (gate.ts, `Motion`): a frame of a moving card counts as skipped, like a blurred one.
+          const speed = gateOn() ? holdMotion.speed(performance.now(), quad) : 0;
+          const got = speed == null || speed > GATE_DEFAULTS.stillSpeed ? "blurred" : await readInto(v, v.videoWidth, v.videoHeight, quad, f);
+          // (A read that took a while leaves nothing recent to measure from: `Motion` then goes by
+          // whether the card is where it was.)
           if (got === "settled" || stop) return;
           verdict = got === "blurred" ? held.skipped(clock()) : held.frame(clock());
           // Stalled (several frames read, not settled): one still photo, read the same way, alongside
@@ -2396,7 +2538,8 @@ export function ScannerView({
         const { sx, sy, sw, sh } = boxInVideo(v, box);
         if (sw < 8 || sh < 8) return next(200);
         const h = CLOSEUP_HEIGHT[closeup];
-        const image = draw(v, sx, sy, sw, sh, (sw * h) / sh, h, hiCanvasRef.current);
+        const image = await camSrc().region({ x: sx, y: sy, w: sw, h: sh }, (sw * h) / sh, h, hiCanvasRef.current);
+        if (stop) return;
         const text = await readCloseup(image, closeup, await ocrEngine());
         if (stop) return;
         setCloseupRead(text.replace(/\s+/g, " ").trim());
@@ -2640,6 +2783,19 @@ export function ScannerView({
   const settingsBox = settingsOpen && (
     <ScanSettings onClose={() => setSettingsOpen(false)}>
       {settings}
+      {nativeCameraAvailable() && (
+        <NativeCameraSetting
+          option={nativeOpt}
+          onChange={(o) => {
+            saveNativeCamera(o);
+            setNativeOpt(o);
+            setNativeFailed(null);
+          }}
+          info={useNative ? (cameraNow as SourceInfo | null) : null}
+          camera={useNative ? nativeCam.current : null}
+          failed={nativeOpt.on ? nativeFailed : null}
+        />
+      )}
       <CameraSetting
         cameras={cameras}
         current={cameraNow}
@@ -2704,6 +2860,7 @@ export function ScannerView({
           onChoose={(slot, id) => saveModel(slot, id)}
         />
       )}
+      {modelsInfo && <SpeedTest ready={scannerSettled(mode, loadState, modelNotes)} alongside={mode === "art" ? { detector: detectorNow, art: artNow, look: lookNow } : null} />}
       {mode === "text" && <p className="scan-note">Card recognition isn't available right now, so the scanner reads the card's text: line the card up with the frame.</p>}
       <p className="scan-note">Reads text with {ENGINE_LABEL[ocrName ?? plannedEngine(ocrChoice.current)]}{ocrName ? "" : " (starts with the first read)"}.</p>
       <VersionLine className="scan-note" />
@@ -2840,7 +2997,13 @@ export function ScannerView({
     <div className={`scan${needsSheet ? " is-deciding" : ""}`} onPointerDown={soundsProp && soundsSwitch ? () => void unlockSound() : undefined}>
       <div ref={cameraRef} className="scan-camera">
         <div className="scan-zoom" style={cam.digital > 1 ? { transform: `scale(${cam.digital})` } : undefined}>
-          <video ref={videoRef} className="scan-video" playsInline muted autoPlay aria-hidden="true" />
+          {useNative ? (
+            // The app's own camera: its preview is drawn behind the page, and this canvas (not
+            // painted) holds the frames the scanner reads, where the video would be.
+            <canvas ref={videoRef as unknown as Ref<HTMLCanvasElement>} className="scan-video is-native" aria-hidden="true" />
+          ) : (
+            <video ref={videoRef} className="scan-video" playsInline muted autoPlay aria-hidden="true" />
+          )}
           <CardOutline tracker={outlines} show={phase === "scanning" && mode === "art" && live && !closeup && !photoBusy && !paused && !lockOpen} />
         </div>
         <div className="scan-frame" aria-hidden="true">

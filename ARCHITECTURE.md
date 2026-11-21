@@ -127,7 +127,10 @@ Three things run on the device so that game night needs no connection:
   and lookups in a web worker. It is refreshed with a conditional request about once a day.
 - **The scanner** recognises a card by its art with ONNX models in a web worker
   (`onnxruntime-web`), and reads the collector line when the art is not enough (PaddleOCR in
-  browsers, ML Kit in the Android app). Besides the pinned art bundle it loads the server's small
+  browsers, ML Kit in the Android app). Its frames come from a camera source: the browser's
+  camera, or, as an option inside the Android app, the app's own camera (a CameraX plugin that
+  draws the preview behind a transparent web view and hands frames to the page in memory; the
+  recognition stays in the web build). Besides the pinned art bundle it loads the server's small
   supplement of newer artworks, and embeds what the camera sees with Yama's own fine-tuned query
   model in place of the bundle's embedding graph. Each of its models can be switched on a device
   from the options the server lists, and the server can withdraw a broken one. When several
@@ -351,6 +354,8 @@ into `/mcp` with a token scoped to that one question. Details:
   settled) are the same
   ([Scanner diagnostics](#scanner-diagnostics-15-november-2026),
   [Scanner timings and full-resolution crops](#scanner-timings-and-full-resolution-crops-20-november-2026)).
+  So are scanner speed tests, sent only when the person presses Test scanner speed
+  ([The scanner speed test](#the-scanner-speed-test-21-november-2026)).
 - **A list checked without an account belongs to nobody.** `POST /api/public/deck-check` takes
   no session, reads card data and market prices only, stores nothing and sends the list to no
   other service ([Check a deck without an account](#check-a-deck-without-an-account-2026-11-12)).
@@ -428,7 +433,7 @@ section 4 is the first sketch; the current system is [above](#the-system-at-a-gl
 - **Shopping:** [Live store stock (13 November 2026)](#live-store-stock-13-november-2026).
 - **The Android app:** [The Android app, sideloaded (13 November 2026)](#the-android-app-sideloaded-13-november-2026), [Which build each device runs (15 November 2026)](#which-build-each-device-runs-15-november-2026).
 - **Game night:** [Table and playgroup stats (2026-10-19)](#table-and-playgroup-stats-2026-10-19).
-- **The scanner:** [Scan photos shared with the developer (15 November 2026)](#scan-photos-shared-with-the-developer-15-november-2026), [The scanner's own art supplement (15 November 2026)](#the-scanners-own-art-supplement-15-november-2026), [Yama's own query embedder for the scanner (18 November 2026)](#yamas-own-query-embedder-for-the-scanner-18-november-2026), [Scanner models you can switch (20 November 2026)](#scanner-models-you-can-switch-20-november-2026), [The scanner's printing look (20 November 2026)](#the-scanners-printing-look-20-november-2026), [Scanner diagnostics (15 November 2026)](#scanner-diagnostics-15-november-2026), [Scanner timings and full-resolution crops (20 November 2026)](#scanner-timings-and-full-resolution-crops-20-november-2026).
+- **The scanner:** [Scan photos shared with the developer (15 November 2026)](#scan-photos-shared-with-the-developer-15-november-2026), [The scanner's own art supplement (15 November 2026)](#the-scanners-own-art-supplement-15-november-2026), [Yama's own query embedder for the scanner (18 November 2026)](#yamas-own-query-embedder-for-the-scanner-18-november-2026), [Scanner models you can switch (20 November 2026)](#scanner-models-you-can-switch-20-november-2026), [The scanner's printing look (20 November 2026)](#the-scanners-printing-look-20-november-2026), [Scanner diagnostics (15 November 2026)](#scanner-diagnostics-15-november-2026), [Scanner timings and full-resolution crops (20 November 2026)](#scanner-timings-and-full-resolution-crops-20-november-2026), [The scanner speed test (21 November 2026)](#the-scanner-speed-test-21-november-2026).
 - **Cards, collection and prices:** [Mana symbols (2026-11-12)](#mana-symbols-2026-11-12), [Release calendar and What's new (2026-10-19)](#release-calendar-and-whats-new-2026-10-19), [A deck's cards in the collection, and Mythic re-imports (2026-10-23)](#a-decks-cards-in-the-collection-and-mythic-re-imports-2026-10-23), [Deck market values (2026-10-27)](#deck-market-values-2026-10-27), [Scan this deck (2026-10-29)](#scan-this-deck-2026-10-29), [Mythic Tools bridge (2026-10-31, proposal)](#mythic-tools-bridge-2026-10-31-proposal), [Store trips (2026-11-01)](#store-trips-2026-11-01), [Deleting collection containers (2026-11-02)](#deleting-collection-containers-2026-11-02), [Sell lists for store buylists (2026-11-02)](#sell-lists-for-store-buylists-2026-11-02), [Local buylist offers (2026-11-02)](#local-buylist-offers-2026-11-02), [Price history (2026-11-02)](#price-history-2026-11-02), [Recording printed copies in a deck box (2026-11-02)](#recording-printed-copies-in-a-deck-box-2026-11-02), [Sections in boxes, and scanning a box (16 November 2026)](#sections-in-boxes-and-scanning-a-box-16-november-2026).
 - **Decks, plans and sharing:** [Where a plan came from (21 November 2026)](#where-a-plan-came-from-21-november-2026), [Plans don't wait for approval (20 November 2026)](#plans-dont-wait-for-approval-20-november-2026), [Swappable spares in the deck box (15 November 2026)](#swappable-spares-in-the-deck-box-15-november-2026), [Brackets, deck stats and exports (2026-10-19)](#brackets-deck-stats-and-exports-2026-10-19), [Deck import (2026-10-22)](#deck-import-2026-10-22), [Sharing and deck configurations (2026-10-28)](#sharing-and-deck-configurations-2026-10-28), [Review, installed decks and the Lab tab (2026-10-28)](#review-installed-decks-and-the-lab-tab-2026-10-28), [Check this deck (2026-11-01)](#check-this-deck-2026-11-01), [Deck configurations and quieter editing (2026-11-03)](#deck-configurations-and-quieter-editing-2026-11-03), [One plan page (2026-11-04)](#one-plan-page-2026-11-04), [Printing with MakePlayingCards (2026-11-05)](#printing-with-makeplayingcards-2026-11-05), [Plans: one plan per deck (2026-11-06)](#plans-one-plan-per-deck-2026-11-06), [Site design pass (2026-11-08)](#site-design-pass-2026-11-08), [Public by default and the navigation (2026-11-12)](#public-by-default-and-the-navigation-2026-11-12), [Check a deck without an account (2026-11-12)](#check-a-deck-without-an-account-2026-11-12).
 - **Assistants:** [Ask Claude, the advisor (2026-10-22)](#ask-claude-the-advisor-2026-10-22), [Yama's tools for Claude (MCP, 2026-10-22)](#yamas-tools-for-claude-mcp-2026-10-22).
@@ -698,6 +703,31 @@ frame still wasn't settled while the set code was misread.
 - **Not measured on real strips:** there are no full-resolution collector strips to replay yet
   (kept photos are 640 px, where the line is about 7 px). The rule is covered by `evidence.test.ts`;
   Scanner diagnostics' records from real scans are what to check it against.
+
+## The scanner speed test (21 November 2026)
+
+Bryan, 21 Nov 2026: the scanner should be as fast as CardVision, and "It should work on any phone
+but mostly [care] about the Pixel one for now". Every speed number so far came from Chrome on an
+M3 Pro (`scanner-lab/speed/`); the phone's were guesses, and a stack of scans would measure the
+camera loop, not each model.
+
+- **One tap, no camera.** "Test scanner speed" in Scan settings draws synthetic 640 × 1138 frames
+  of eight gallery cards' Scryfall pictures (fetched at runtime, never shipped) and runs them
+  through a fresh art worker, the scanner's own code and messaging, for the device's model
+  choices, the defaults and the faster options in turn, one worker at a time, then times the
+  printing look in a look worker of its own that leaves the printings' cache alone. Scan settings
+  holds the scanner's loop paused, and closing it stops the test.
+- **Per graph.** `recognizer.ts` now times each graph run of a frame (`timings.runs`), so the test
+  reports a card finder pass, the art embedding and the search apart, as the lab bench does, as
+  well as the whole frame from the page.
+- **Kept for the owner, by a press only.** The report (`scan_speed_tests`, migration 0103: the
+  stats, the frames' times, the browser's user agent and hints, cores, memory, threads and WebGPU
+  adapter) goes to `POST /api/scan/speed-tests` when the test ends, never in the background.
+  Owner-only routes and the MCP tool `get_scan_speed_tests`, refused to View as, the newest 50
+  per account, deleted by the owner and with the account. No pictures leave the phone.
+- **Only reported, not used: WebGPU.** The test says whether the browser offers WebGPU and its
+  adapter, to judge the GPU route on a phone; the scanner still runs onnxruntime-web's WASM build
+  on one thread.
 
 ## Sections in boxes, and scanning a box (16 November 2026)
 
@@ -3345,7 +3375,7 @@ future, maybe record where these plans came from. Maybe update the MCP to make s
 can have the history of that and the ability to find it in the future easily and quickly, right?
 We've kind of got too messy in a lot of these."
 
-- **A plan has a history.** `plan_history` (migration 0103) holds what an assistant recorded about
+- **A plan has a history.** `plan_history` (migration 0104) holds what an assistant recorded about
   a plan: what happened, the person's request in their own words, the day it happened, where the
   conversation is (a thread's link or title, a session id) and where the work is (a commit, a file,
   a note), and optionally the proposal group and the changes (by card) it's about. Group and card

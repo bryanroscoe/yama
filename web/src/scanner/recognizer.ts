@@ -10,6 +10,7 @@
 
 import { isCardBack } from "./cardBack";
 import { artLead, LEAD_MARGIN } from "./fuse";
+import { cardThumb, frameSharpness } from "./gateFrame";
 import { fromBase64, galleryOf, readGallery, upTo, type Gallery } from "./gallery";
 import type { Point, Quad, RgbaImage } from "./types";
 
@@ -62,16 +63,44 @@ export interface Recognition {
   pool?: ArtMatch[];
   /** The card in view looks like a standard card back (cardBack.ts): it's face down. */
   back?: boolean;
-  /** `cuts`: frame cuts the art model embedded (all of them, or fewer when the first stage of a cascade settled it). */
-  timings: { detectMs: number; embedMs: number; totalMs: number; cuts?: number };
+  /**
+   * `cuts`: frame cuts the art model embedded (all of them, or fewer when the first stage of a cascade
+   * settled it). `runs`: each graph run's milliseconds this frame, by graph (the speed test, speed.ts,
+   * reads them: a detector pass, the art embedding, the search).
+   */
+  timings: { detectMs: number; embedMs: number; totalMs: number; cuts?: number; runs?: GraphRuns };
+}
+
+/** Milliseconds of each graph run in one frame, in the order they ran. */
+export interface GraphRuns {
+  detector: number[];
+  embed: number[];
+  search: number[];
+}
+
+/** Where the card is in a frame and what the placement gate needs of it (gate.ts), with no art match. */
+export interface Located {
+  /** The card's corners in frame pixels, or null when no card is in view. */
+  quad: Quad | null;
+  upright: number;
+  /** The card looks like a standard card back (cardBack.ts). */
+  back?: boolean;
+  /** How sharp the card is in this frame (gateFrame.ts), and its thumbnail. With a card only. */
+  sharpness?: number;
+  thumb?: Uint8Array;
+  detectMs: number;
 }
 
 export interface Recognizer {
   /**
    * `onSeen` is told where the card finder placed the card (or null) as soon as it has, before the
-   * art is matched: the outline over the camera doesn't wait for the card to be named.
+   * art is matched: the outline over the camera doesn't wait for the card to be named. With `at`
+   * (a quad `locate` gave for this very frame) the finder isn't run again: the art at those
+   * corners is matched.
    */
-  identify(frame: RgbaImage, onSeen?: (quad: Quad | null) => void): Promise<Recognition>;
+  identify(frame: RgbaImage, onSeen?: (quad: Quad | null) => void, at?: Quad | null): Promise<Recognition>;
+  /** The card finder alone: where the card is, how sharp, and its thumbnail. For the placement gate. */
+  locate(frame: RgbaImage): Promise<Located>;
   /** Forget the tracked card (after it was accepted, say). */
   reset(): void;
   /**
@@ -345,8 +374,19 @@ export async function createRecognizer(
   const size = constants.det_input;
   const now = () => performance.now();
 
-  const detect = async (frame: RgbaImage, w: Window, session: Session = detector): Promise<Detection> => {
-    const out = await session.run({ window: new ort.Tensor("uint8", sampleWindow(frame, w, size), [size, size, 4]) });
+  // Each graph run's time, into the frame's own record (Recognition.timings.runs): passed down, so a
+  // model switch warming up meanwhile never counts in a frame's.
+  const noRuns = (): GraphRuns => ({ detector: [], embed: [], search: [] });
+  const timed = async <T>(into: GraphRuns, graph: keyof GraphRuns, run: () => Promise<T>): Promise<T> => {
+    const t = now();
+    const out = await run();
+    into[graph].push(now() - t);
+    return out;
+  };
+
+  const detect = async (frame: RgbaImage, w: Window, session: Session = detector, into: GraphRuns = noRuns()): Promise<Detection> => {
+    const window = new ort.Tensor("uint8", sampleWindow(frame, w, size), [size, size, 4]);
+    const out = await timed(into, "detector", () => session.run({ window }));
     const q = out.quad!.data as Float32Array;
     const up = out.up!.data as Float32Array;
     const c = out.centre!.data as Float32Array;
@@ -374,7 +414,7 @@ export async function createRecognizer(
   /** The first stage settles the frame: a card FIRST_FLOOR or more, LEAD_MARGIN ahead of every other card listed. */
   const settles = (out: ArtMatch[]) => !!out[0] && out[0].score >= FIRST_FLOOR && artLead(out) >= LEAD_MARGIN;
   /** The embed graph's output for these cuts (every cut when it takes `cuts` and none are named). */
-  const embedRun = async (session: Session, whole: RgbaImage, at: Quad, cuts?: number[]) => {
+  const embedRun = async (session: Session, whole: RgbaImage, at: Quad, cuts?: number[], into: GraphRuns = noRuns()) => {
     const takesCuts = session.inputNames.includes("cuts");
     if (takesCuts && !frameNames.length) throw new Error("This art model needs the bundle's frame names");
     const { frame, quad } = cardWindow(whole, at);
@@ -384,13 +424,13 @@ export async function createRecognizer(
       const c = cuts ?? allCuts;
       feeds.cuts = new ort.Tensor("int64", BigInt64Array.from(c, (i) => BigInt(i)), [c.length]);
     }
-    return Object.values(await session.run(feeds))[0]!;
+    return Object.values(await timed(into, "embed", () => session.run(feeds)))[0]!;
   };
-  const match = async (frame: RgbaImage, quad: Quad): Promise<{ matches: ArtMatch[]; pool?: ArtMatch[]; cuts?: number }> => {
+  const match = async (frame: RgbaImage, quad: Quad, into: GraphRuns = noRuns()): Promise<{ matches: ArtMatch[]; pool?: ArtMatch[]; cuts?: number }> => {
     const fromExtra = (vector: Float32Array, local: Iterable<number>, k: number): ArtMatch[] =>
       extra ? extra.gallery.search(vector, local, k).flatMap(({ index, score }) => (extra.arts[index] ? [{ ...extra.arts[index]!, index: bundleCount + index, score }] : [])) : [];
     const rank = async (embedding: unknown): Promise<ArtMatch[]> => {
-      const ranked = await search.run(everyArt ? { embeddings: embedding, mask: everyArt } : { embeddings: embedding });
+      const ranked = await timed(into, "search", () => search.run(everyArt ? { embeddings: embedding, mask: everyArt } : { embeddings: embedding }));
       const indices = ranked.indices!.data as BigInt64Array | Int32Array;
       const scores = ranked.scores!.data as Float32Array;
       const graphTop: ArtMatch[] = [];
@@ -409,12 +449,12 @@ export async function createRecognizer(
     const session = embed;
     const lockPool = pool;
     const cascade = lockPool ? null : stagesFor(session);
-    let embedding: unknown = await embedRun(session, frame, quad, cascade?.first);
+    let embedding: unknown = await embedRun(session, frame, quad, cascade?.first, into);
     let out = await rank(embedding);
     let cuts = cascade ? cascade.first.length : frameNames.length || undefined;
     if (cascade && !settles(out)) {
       const first = (embedding as { data: Float32Array }).data;
-      const rest = ((await embedRun(session, frame, quad, cascade.rest)) as { data: Float32Array }).data;
+      const rest = ((await embedRun(session, frame, quad, cascade.rest, into)) as { data: Float32Array }).data;
       // Each stage fills only its own cuts' rows, so the whole embedding is their sum.
       const sum = Float32Array.from(first, (v, i) => v + rest[i]!);
       embedding = new ort.Tensor("float32", sum, [frameNames.length, sum.length / frameNames.length]);
@@ -436,12 +476,12 @@ export async function createRecognizer(
   let tracked: Window | null = null;
   let trackedFor = 0;
 
-  const identify = async (frame: RgbaImage, onSeen?: (quad: Quad | null) => void): Promise<Recognition> => {
-    const t0 = now();
+  /** The card finder's passes on a frame: the detection, and whether it is a card in view; each pass timed into `runs`. */
+  const find = async (frame: RgbaImage, runs: GraphRuns = noRuns()): Promise<{ fine: Detection; inView: boolean }> => {
     let fine: Detection | null = null;
     // While the card stays put, one pass on last frame's card window is enough.
     if (tracked && trackedFor < RETRACK_EVERY) {
-      const d = await detect(frame, tracked);
+      const d = await detect(frame, tracked, detector, runs);
       const next = around(d);
       const moved = Math.hypot(next.cx - tracked.cx, next.cy - tracked.cy);
       const ratio = next.side / tracked.side;
@@ -450,21 +490,37 @@ export async function createRecognizer(
     const wasTracking = !!fine;
     if (!fine) {
       const centre = { cx: frame.width / 2, cy: frame.height / 2 };
-      let coarse = await detect(frame, { ...centre, side: constants.scene });
+      let coarse = await detect(frame, { ...centre, side: constants.scene }, detector, runs);
       // A card held close can overflow the middle square; look at the whole frame too.
       const whole = Math.max(frame.width, frame.height);
-      if (coarse.vote < EMPTY && whole > constants.scene * 1.1) coarse = await detect(frame, { ...centre, side: whole });
-      fine = coarse.vote >= EMPTY ? await detect(frame, around(coarse)) : coarse;
+      if (coarse.vote < EMPTY && whole > constants.scene * 1.1) coarse = await detect(frame, { ...centre, side: whole }, detector, runs);
+      fine = coarse.vote >= EMPTY ? await detect(frame, around(coarse), detector, runs) : coarse;
     }
-    const t1 = now();
     const inView = fine.vote >= IN_VIEW && shortSide(fine.quad) >= MIN_SHORT && cardDetail(frame, fine.quad) >= MIN_DETAIL;
     tracked = inView ? around(fine) : null;
     trackedFor = inView && wasTracking ? trackedFor + 1 : 0;
+    return { fine, inView };
+  };
+
+  const locate = async (frame: RgbaImage): Promise<Located> => {
+    const t0 = now();
+    const { fine, inView } = await find(frame);
+    if (!inView) return { quad: null, upright: fine.vote, detectMs: now() - t0 };
+    const back = isCardBack(frame, fine.quad);
+    return { quad: fine.quad, upright: fine.vote, ...(back ? { back } : {}), sharpness: frameSharpness(frame, fine.quad), thumb: cardThumb(frame, fine.quad), detectMs: now() - t0 };
+  };
+
+  const identify = async (frame: RgbaImage, onSeen?: (quad: Quad | null) => void, at?: Quad | null): Promise<Recognition> => {
+    const t0 = now();
+    const runs = noRuns();
+    // The gate's read: the finder already placed the card in this frame (`locate`).
+    const { fine, inView } = at ? { fine: { quad: at, vote: 1 }, inView: true } : await find(frame, runs);
+    const t1 = now();
     onSeen?.(inView ? fine.quad : null);
     const back = inView && isCardBack(frame, fine.quad);
-    const { cuts, ...found } = inView ? await match(frame, fine.quad) : { matches: [], pool: pool && gallery ? [] : undefined, cuts: 0 };
+    const { cuts, ...found } = inView ? await match(frame, fine.quad, runs) : { matches: [], pool: pool && gallery ? [] : undefined, cuts: 0 };
     const t2 = now();
-    return { quad: inView ? fine.quad : null, upright: fine.vote, ...found, ...(back ? { back } : {}), timings: { detectMs: t1 - t0, embedMs: t2 - t1, totalMs: t2 - t0, cuts } };
+    return { quad: inView ? fine.quad : null, upright: fine.vote, ...found, ...(back ? { back } : {}), timings: { detectMs: t1 - t0, embedMs: t2 - t1, totalMs: t2 - t0, cuts, runs } };
   };
 
   // Each graph's first run sets up its kernels; pay that before the first real frame.
@@ -477,6 +533,7 @@ export async function createRecognizer(
 
   return {
     identify,
+    locate,
     reset() {
       tracked = null;
       trackedFor = 0;
