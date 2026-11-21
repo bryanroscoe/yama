@@ -78,7 +78,7 @@ app only), or **both** (shared logic in TypeScript, fed by either camera).
 
 | # | What CardVision does | Yama today | Where |
 |---|---|---|---|
-| 17 | One embedding of one crop per read | 2 cuts first, 15 more when unsure (option) | models thread |
+| 17 | One embedding of one crop per read | 2 cuts first, 15 more when unsure (option). One crop needs a new art model with its own gallery: today's gallery holds one vector per artwork per frame style | models thread |
 | 18 | Says "card back, turn the card over" | Nothing | both |
 | 19 | Trims a sleeve's edge and reads once more when a read is refused | Art model trained on sleeves | both |
 | 20 | Reads upside down only when upright is doubtful | Detector tries four turns every pass (default finder) | both |
@@ -120,6 +120,23 @@ to 11), the search, the printing rules and everything on screen below the camera
 one implementation that takes its frames from either the browser camera or the plugin. That seam is the
 first thing built, so the gate is written once.
 
+What the models are, for the native side (from the models thread, 21 Nov 2026):
+
+- **Card finder** (`yama-corners-20261120.onnx`): a fixed 256 × 256 RGBA window in, the four corners,
+  an "up" vector (its length is how sure it is that a card is there), the centre and the short side out.
+  ONNX Runtime for Android runs it as it is. The window logic around it (a tracked frame reuses the last
+  card's box, a fresh one searches in two passes) is code in `recognizer.ts` and has to be written
+  natively too. A 320 px input would mean retraining, not a re-export.
+- **Art model:** the shipped files take the whole frame and the corners and do the cut inside the graph,
+  so stage 4 can start with them unchanged on the CPU and match the web scanner exactly. The models
+  thread can also export the network alone (128 × 128 crops in, 128 numbers out) with the crop recipe
+  written in docs/scanner.md.
+- **GPU:** ONNX Runtime for Android has no general GPU backend, so the GPU route is LiteRT's GPU
+  delegate with the models converted to `.tflite` by the models thread. Measured on a Mac, the
+  accelerator is worth little while the models are this small (38.5 ms a frame to 30 to 33); the native
+  gain comes first from dropping the canvas copy and the WebView. The Pixel's own ML chip is not
+  pursued, and its terms forbid publishing timings for it (docs/plans/scanner-models.md).
+
 A change to native code changes the app's native hash, so each stage that touches it ships as a new APK
 through the app's own updater (docs/mobile.md).
 
@@ -133,7 +150,8 @@ through the app's own updater (docs/mobile.md).
    sharper frames.
 3. **Native finder and outline:** the card finder and the outline in native code (1 to 4), corners sent
    to the web gate.
-4. **Native art read:** cut and embed natively, GPU with a CPU check (17, 30). The web side searches.
+4. **Native art read:** cut and embed natively, first on the CPU with the shipped files, then on the
+   GPU through LiteRT with a CPU check if a phone's numbers ask for it (17, 30). The web side searches.
 5. **Printing after the row** (22, 24), then feedback by price (28).
 
 Each stage is its own PR with a phone check on Bryan's Pixel recorded by Scanner diagnostics' timing
