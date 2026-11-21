@@ -10,7 +10,7 @@ import { usePlayerId } from "../guestPlay";
 import { ArtPanel, artCredit } from "../components/ArtPanel";
 import { ask } from "../components/confirm";
 import { queryFailure, RefreshFailed } from "../components/QueryError";
-import { BackLink, Button, ErrorText, Pips } from "../components/ui";
+import { BackLink, Button, ErrorText, Loading, Pips } from "../components/ui";
 import { AlphaTag, ALPHA_NOTE } from "../components/AlphaTag";
 import { BracketChips } from "../components/Bracket";
 import { useCardArt } from "../components/useCardArt";
@@ -43,7 +43,8 @@ export function PlayGame() {
       </main>
     );
   }
-  if (!game.data) return <main className="page" />;
+  // Not an empty page while it's on its way: on a slow connection that looked broken.
+  if (!game.data) return <Loading page>Loading the game…</Loading>;
   if (game.data.runtime_error) return <Stranded game={game.data} reason={game.data.runtime_error} />;
   if (game.data.status === "lobby") return <Lobby game={game.data} notice={<RefreshFailed query={game} what="this game" />} />;
   // Keyed by game, so a rematch starts with a fresh board (nothing carried over from the last one).
@@ -64,7 +65,8 @@ function Stranded({ game, reason }: { game: OnlineGame; reason: string }) {
   });
   return (
     <main className="page">
-      <Link to="/play">Play online</Link>
+      <BackLink inline to="/play" label="Back to Play online" text="Play online" />
+      <h1>This game's board can't be opened</h1>
       <p role="alert">{reason}</p>
       {game.stranded && (
         <>
@@ -147,7 +149,10 @@ function Lobby({ game, notice }: { game: OnlineGame; notice?: ReactNode }) {
             {title}
             <AlphaTag />
           </h1>
-          <p className="dim">Friends open Play online, enter the code and pick a deck. Their seat fills in here. {goesFirst} {ALPHA_NOTE}</p>
+          <p className="dim">
+            {open > 0 ? "Friends open Play online, enter the code and pick a deck. Their seat fills in here." : isHost ? "Every seat is taken: start the game when you're ready." : "Every seat is taken."}{" "}
+            {goesFirst} {ALPHA_NOTE}
+          </p>
         </div>
         <div className="lobby-code" role="group" aria-label="Table code">
           <span className="lobby-code-text">

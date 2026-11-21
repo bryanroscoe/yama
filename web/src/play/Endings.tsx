@@ -196,7 +196,9 @@ export function GameOver(props: {
     };
   }, [id, host]);
   const outs = view.outs ?? [];
-  const rows = standings(view.players, outs, view.winner, !view.abandoned, names).map((r) => view.abandoned ? { ...r, place: "", how: r.out ? r.how : "Game ended" } : r);
+  // A game that was ended has no places; the heading says it ended, so a row only says how
+  // someone went out before that.
+  const rows = standings(view.players, outs, view.winner, !view.abandoned, names).map((r) => view.abandoned ? { ...r, place: "", how: r.out ? r.how : "" } : r);
   const winner = view.winner;
   const hero = winner === null ? art(rows[0]?.seat ?? 0) : art(winner);
   const title = view.abandoned ? "Game ended" : winner === null ? GAME_WORDS.draw : wonText(winner === names.you ? "You" : names.Who(winner));
@@ -212,11 +214,17 @@ export function GameOver(props: {
     mine ? (mine.commander_damage > 0 ? { v: `${mine.commander_damage}`, k: "Commander damage you dealt" } : { v: `${mine.damage}`, k: "Damage you dealt" }) : null,
     mine ? { v: `${mine.spells}`, k: "Spells you cast" } : null,
   ].filter((t): t is { v: string; k: string } => !!t);
+  // Nobody else to wait for: you against the computer.
+  const alone = seats.filter((s) => !s.ai).length <= 1;
   const rematch = async () => {
     setBusy(true);
     setError(null);
     try {
       const made = await api<{ id: string }>(`/api/play/${id}/rematch`, { method: "POST" });
+      // A rematch is a table with a code for the others to join. Against only the computer every
+      // seat is already taken, so start it, as a new game with no friends starts at once. If that
+      // is refused the table's own page has Start the game.
+      if (alone) await api(`/api/play/${made.id}/start`, { method: "POST" }).catch(() => undefined);
       navigate(`/play/${made.id}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -401,12 +409,16 @@ export function GameOver(props: {
             <Button variant="outline" onClick={props.onBoard}>See the final board</Button>
             <ButtonLink to="/play" variant="outline">Back to Play online</ButtonLink>
             {host ? (
-              <Button variant="primary" onClick={rematch} disabled={busy}>Set up rematch</Button>
+              <Button variant="primary" onClick={rematch} disabled={busy}>{alone ? (busy ? "Starting…" : "Play again") : "Set up rematch"}</Button>
             ) : game?.rematch ? (
               <Button variant="primary" onClick={join} disabled={busy}>Join the rematch</Button>
             ) : null}
           </div>
-          {host && <span className="small dim">Rematch makes a new table with the same seats and decks; the others join it from here or with its code.</span>}
+          {host && (
+            <span className="small dim">
+              {alone ? "Play again starts a new game with the same seats and decks." : "Rematch makes a new table with the same seats and decks; the others join it from here or with its code."}
+            </span>
+          )}
           {host && (
             <Button variant="quiet" size="small" style={{ alignSelf: "flex-start" }} onClick={remove} disabled={busy}>
               Delete this game

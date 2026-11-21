@@ -5,7 +5,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { shortDate } from "@yama/core";
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { api } from "../api";
 import { SignInForm, signInPath } from "../auth";
 import { AlphaTag, ALPHA_NOTE } from "../components/AlphaTag";
@@ -48,6 +48,10 @@ function loadTurnstile(): Promise<void> {
 /** /play signed out: the guest's Play page, or the way in as a guest or with an account. */
 export function GuestPlayHome() {
   const session = useGuestSession();
+  // A friend's join link, opened signed out: say what it was for. The address keeps the code, so
+  // it is filled in once they have signed in here.
+  const [params] = useSearchParams();
+  const code = (params.get("code") ?? "").toUpperCase();
   if (session.data?.guest) return <PlayHome guest={session.data} />;
   return (
     <main className="page play-home guest-play">
@@ -59,6 +63,13 @@ export function GuestPlayHome() {
         <p className="dim">{ALPHA_NOTE}</p>
       </div>
       <ErrorText error={session.error} />
+      {code && (
+        <div className="gp-note" role="note">
+          <p>
+            You were invited to a friend's table, code <b>{code}</b>. Sign in to join it with one of your decks.
+          </p>
+        </div>
+      )}
       <div className="gp-ways">
         {session.data?.enabled && session.data.site_key && (
           <section className="gp-guest" aria-labelledby="gp-guest-h">

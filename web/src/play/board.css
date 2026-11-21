@@ -1410,6 +1410,10 @@ button.pile-chip:hover {
 }
 .hand-grid .hc {
   width: 100%;
+  /* The card, then its caption under it: a button lays its children out in a row, which pushed a
+     captioned card (the commander) out of its cell. */
+  flex-direction: column;
+  gap: 0;
 }
 .hand-grid .hc-caption {
   position: static;
@@ -8116,6 +8120,12 @@ button.dw-pile2:disabled {
 .opp-row { flex-shrink: 0; }
 .opp-row:has(.ft-under) { min-height: calc(var(--tile) + 76px); }
 .pb.phone .pb-row:has(.ft-under) { min-height: calc(var(--tile) + 72px); padding-bottom: 56px; flex-shrink: 0; }
+/* A phone's board scrolls rather than squeezing a row away: under the lane of creatures attacking
+   you, your own creatures shrank to a sliver just as you chose blockers. The lane keeps to what
+   its attackers need, and they don't step up over its heading. */
+.pb.phone .pb-mine > * { flex-shrink: 0; }
+.pb.phone .pb-lane .pb-row:has(.ft-under) { min-height: calc(var(--tile) + 40px); padding-bottom: 28px; }
+.pb.phone .pb-mine .pb-lane .ft.attacking { transform: none; }
 .pb-engine { color: var(--dim); font-size: 13px; margin-right: auto; }
 
 /* Playing feedback: reserve room for decisions and keep every battlefield row scrollable. */
@@ -8231,8 +8241,11 @@ button.dw-pile2:disabled {
 .wh-list-head { display: block; color: var(--text); font-weight: 700; margin-bottom: 2px; }
 .wh-rewind { margin: 0; }
 @media (max-width: 999px) {
-  .wh { left: 16px; right: 16px; width: auto; top: 12px; bottom: auto; max-height: 45dvh; }
-  .wh-card img { width: 84px; }
+  /* A phone: a smaller card and a little more height, so the list of steps under Earlier and
+     Later keeps a few lines (it was squeezed to nothing); on a very short screen the panel scrolls. */
+  .wh { left: 16px; right: 16px; width: auto; top: 12px; bottom: auto; max-height: 56dvh; overflow-y: auto; }
+  .wh-card img { width: 64px; }
+  .wh-list { min-height: 96px; }
 }
 
 /* An attack still being built: dotted, like the line that follows the pointer after a click on an

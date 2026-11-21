@@ -368,6 +368,22 @@
   min-height: 52px;
   padding: 0 20px;
 }
+/* Why a join was refused, under the code it is about. */
+.ph-join-form > .error {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  margin: 0;
+}
+.ph-join-form:has(> .error) .ph-join-deck {
+  grid-row: 3;
+}
+.ph-join-kept {
+  font-family: var(--display);
+  letter-spacing: 0.12em;
+}
+.ph-join p {
+  margin: 0;
+}
 
 /* Your games. */
 .ph-games {
@@ -432,6 +448,10 @@
   font-size: var(--t-sm);
   color: var(--dim);
   white-space: nowrap;
+}
+/* A laptop says when at the end of the line of names instead (below). */
+.ph-game-who-when {
+  display: none;
 }
 
 @media (min-width: 900px) {
@@ -602,7 +622,9 @@
     font-size: 38px;
     letter-spacing: 0.2em;
   }
-  .ph-join-deck {
+  .ph-join-deck,
+  .ph-join-form > .error,
+  .ph-join-form:has(> .error) .ph-join-deck {
     grid-row: auto;
   }
   .ph-join-go {
@@ -621,8 +643,14 @@
     display: inline;
   }
 }
-.ph-game-who-when {
-  display: none;
+/* Someone here by a friend's link: on a phone the join panel comes before the new-game form. */
+@media (max-width: 899px) {
+  .ph-cols.invited .ph-side {
+    display: contents;
+  }
+  .ph-cols.invited .ph-join {
+    order: -1;
+  }
 }
 
 /* ── lobby ──────────────────────────────────────────────────────────────── */
