@@ -141,7 +141,11 @@ export function withoutTotals(text: string): string {
 }
 
 /** Language codes a set code can be glued to ("MOMEEN", "MOMENJRYAN": the bullet, or the artist's brush, read as a letter). */
-const GLUED_LANG = /^([A-Z0-9]{3,5}?)[EO]?(EN|DE|FR|IT|ES|PT|JP|JA|KO|RU)/;
+const GLUED_LANG = new RegExp(
+  `^([A-Z0-9]{3,5}?)[EO]?(${Object.keys(LANGS)
+    .sort((a, b) => b.length - a.length)
+    .join("|")})`,
+);
 
 /**
  * The upper-case letter and digit runs of one read ("0145 C", "WOC • EN"), totals and P/T taken
@@ -320,10 +324,19 @@ export type Verdict =
 /** Evidence for one card's printings over one attempt (first read, hold and read, or the close-up). */
 export class Evidence {
   private readonly tallies: Tally[];
+  /** Printings sharing the art that aren't candidates (left out by the set lock): numberAlone checks against them too. */
+  private readonly beside: Expected[];
   private frames = 0;
 
-  constructor(printings: readonly PrintingLine[]) {
+  /**
+   * `beside`: the printings sharing the card's art that the candidates leave out (the set lock's
+   * others). The card may be one of them, so the number alone settles a candidate only when no
+   * printing among them has a number like it either (Codex reviews of #180).
+   */
+  constructor(printings: readonly PrintingLine[], beside: readonly PrintingLine[] = []) {
     this.tallies = printings.map((p) => ({ e: expectedOf(p), total: 0, number: 0, set: 0, suffixRead: false, exactNumber: false, exactSet: false, exactNumberFrames: 0, setAgainst: false }));
+    const ids = new Set(printings.map((p) => p.scryfall_id));
+    this.beside = beside.filter((p) => !ids.has(p.scryfall_id)).map(expectedOf);
   }
 
   /** Add one frame: the text read from each of its crops. */
@@ -385,10 +398,7 @@ export class Evidence {
     const alone =
       lead.e.printsSet &&
       lead.exactNumberFrames >= NUMBER_ALONE_FRAMES &&
-      numberAlone(
-        this.tallies.map((t) => t.e),
-        lead.e,
-      ) &&
+      numberAlone([...this.tallies.map((t) => t.e), ...this.beside], lead.e) &&
       !lead.setAgainst &&
       !this.tallies.some((t) => t !== lead && ((t.set >= LOOKALIKE && t.e.set !== lead.e.set) || (t.exactNumber && t.e.base !== lead.e.base)));
     const setOk = !lead.e.printsSet || lead.set >= SETTLE.fieldMin || alone;
@@ -423,8 +433,8 @@ export class Evidence {
  * lookalike-only line ("O14S W0C • EN" under "Arcane Signet": 0.97 from decide) proves nothing.
  * The evidence carries on into hold and read.
  */
-export function proofOf(printings: readonly PrintingLine[], text: string): { proven: string | null; ev: Evidence } {
-  const ev = new Evidence(printings);
+export function proofOf(printings: readonly PrintingLine[], text: string, beside: readonly PrintingLine[] = []): { proven: string | null; ev: Evidence } {
+  const ev = new Evidence(printings, beside);
   ev.add([text]);
   const v = ev.verdict();
   return { proven: v.kind === "settled" ? v.id : null, ev };

@@ -103,6 +103,18 @@ describe("collector-line evidence", () => {
     expect(verdict([p("abc", "abc", "145"), p("def", "def", "390")], Array(2).fill(["0145 C\nAB C • EN"])).kind).toBe("settled");
     // The leader's own set code glued on doesn't count against it.
     expect(verdict([p("abc", "abc", "145"), p("def", "def", "390")], Array(2).fill(["0145 C\nABCENJRYAN VALLE"])).kind).toBe("settled");
+    // Glued to any language code the scanner knows (SP, ZHS…), not only the common ones.
+    expect(verdict([p("abc", "abc", "145"), p("def", "def", "390")], Array(2).fill(["0145 C\nQRSSPJRYAN VALLE"])).kind).toBe("unsure");
+    // Under the set lock, a printing it left out with a number like the leader's holds it back,
+    // whatever was or wasn't read of the set code.
+    const e = new Evidence([p("abc", "abc", "145"), p("def", "def", "390")], [p("qrs", "qrs", "145")]);
+    e.add(["0145 C"]);
+    e.add(["0145 C"]);
+    expect(e.verdict().kind).toBe("unsure");
+    const clear = new Evidence([p("abc", "abc", "145"), p("def", "def", "390")], [p("qrs", "qrs", "77")]);
+    clear.add(["0145 C"]);
+    clear.add(["0145 C"]);
+    expect(clear.verdict()).toMatchObject({ kind: "settled", id: "abc", alone: true });
     // An artist's name later on the line isn't a glued set code and language.
     expect(tokens("DMU • EN DOMENICO CAVA")).not.toContain("DOM");
   });

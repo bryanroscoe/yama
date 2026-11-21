@@ -177,6 +177,8 @@ interface Found {
   others: ArtMatch[];
   /** Printings to choose from; null while loading. */
   options: Printing[] | null;
+  /** Printings sharing the art that the set lock left out of `options`: the collector line's number alone is checked against them too (evidence.ts). */
+  lockedOut?: Printing[];
   /** How many of `options`, at the top, the collector line's reads put there (printings.ts, `Choice.readFirst`). */
   readFirst?: number;
   sameArt: boolean;
@@ -1414,6 +1416,7 @@ export function ScannerView({
         // Locked to sets: choose among the printings in them. None there: ask (outside).
         const lockNow = f.unlocked ? null : lockRef.current;
         let bySet = false;
+        let lockedOut: Printing[] = [];
         if (lockNow) {
           const inSets = inLockedSets(opts.printings, lockNow.codes);
           // A name typed by the person is what they say it is: no need to ask about the set.
@@ -1423,6 +1426,7 @@ export function ScannerView({
             return;
           }
           if (inSets.length > 0) {
+            lockedOut = opts.printings.filter((p) => !inSets.includes(p));
             opts = { sameArt: opts.sameArt, printings: inSets };
             bySet = true;
           }
@@ -1436,7 +1440,7 @@ export function ScannerView({
         // read as the first frame.
         if (!choice.chosen && known?.set && known.number) {
           const hit = opts.printings.find((p) => p.set_code === known.set && p.collector_number === known.number);
-          const { proven, ev } = proofOf(opts.printings, known.text ?? "");
+          const { proven, ev } = proofOf(opts.printings, known.text ?? "", lockedOut);
           noteReads(seq, ev);
           f.rec?.frame({ source: "first", reads: [known.text ?? ""], verdict: ev.verdict() });
           if (sameCamera() && hit && proven === hit.scryfall_id) choice = { chosen: hit, how: "collector", options: [hit, ...choice.options.filter((p) => p !== hit)], readFirst: 1, certain: true };
@@ -1448,7 +1452,7 @@ export function ScannerView({
         const how: Found["how"] = bySet && choice.how === "only" ? "set" : choice.how;
         const reading = !choice.chosen && !!read && sameCamera();
         const sure = choice.how === "only" || !!choice.certain;
-        update({ options: choice.options, readFirst: choice.readFirst ?? 0, sameArt: opts.sameArt, outside: false, chosen: choice.chosen, how, sure, settledId: sure ? choice.chosen?.scryfall_id : undefined, reading });
+        update({ options: choice.options, lockedOut, readFirst: choice.readFirst ?? 0, sameArt: opts.sameArt, outside: false, chosen: choice.chosen, how, sure, settledId: sure ? choice.chosen?.scryfall_id : undefined, reading });
         // Several printings share the art and none is settled: the look compares them (look.ts),
         // alongside the collector line's read, to order the list should a tap be needed.
         if (!choice.chosen && opts.sameArt) startLook.current(seq, f, opts.printings);
@@ -1456,7 +1460,7 @@ export function ScannerView({
         // Several printings share the art: read the collector line to tell them apart, trying a
         // few cuts of the corner until one settles it.
         // The crops' reads are one frame of evidence (evidence.ts); it carries on into hold and read.
-        const ev = new Evidence(opts.printings);
+        const ev = new Evidence(opts.printings, lockedOut);
         noteReads(seq, ev);
         const reads: string[] = [];
         let quality: StripQuality | null = null;
@@ -2144,7 +2148,7 @@ export function ScannerView({
     // The first read's evidence carries on into the first attempt; a retry starts afresh.
     const first = firstEvidence.current;
     firstEvidence.current = null;
-    const ev = first && first.seq === foundSeq.current ? first.ev : new Evidence(start.options);
+    const ev = first && first.seq === foundSeq.current ? first.ev : new Evidence(start.options, start.lockedOut);
     noteReads(foundSeq.current, ev);
     setReadProgress(null);
     const heldArt = start.art?.index ?? null;
@@ -2374,7 +2378,7 @@ export function ScannerView({
           if (!f?.options) return next(200);
           // Weighed as the held card's reads are: set code and number adding up across frames, and
           // never proof against a twin (The List, a promo suffix).
-          if (closeEv?.options !== f.options) closeEv = { options: f.options, ev: new Evidence(f.options) };
+          if (closeEv?.options !== f.options) closeEv = { options: f.options, ev: new Evidence(f.options, f.lockedOut) };
           noteReads(foundSeq.current, closeEv.ev);
           closeEv.ev.add([text]);
           const weighed = closeEv.ev.verdict();
