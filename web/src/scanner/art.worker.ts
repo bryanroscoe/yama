@@ -8,9 +8,8 @@ import wasmUrl from "onnxruntime-web/ort-wasm-simd-threaded.wasm?url";
 import { createRecognizer, parseArts, parseSupplement, poolIndices, type Art, type BundleConstants, type OrtLike, type Recognizer, type Supplement } from "./recognizer";
 import type { ArtWorkerReply, ArtWorkerRequest, BundleInfo, EmbedFile } from "./artClient";
 import { isStale, namedPaths } from "./bundleCache";
-
-/** Also listed in public/sw.js, so the service worker's clean-up keeps it. */
-const CACHE = "yama-scan-v1";
+import { leadingCard, LookFrames, lookTops } from "./look";
+import { cachedFile, SCAN_CACHE } from "./scanCache";
 
 ort.env.wasm.wasmPaths = { wasm: wasmUrl };
 ort.env.wasm.numThreads = 1;
@@ -20,39 +19,8 @@ let recognizer: Recognizer | null = null;
 let arts: Art[] = [];
 const reply = (m: ArtWorkerReply, transfer: Transferable[] = []) => (self as DedicatedWorkerGlobalScope).postMessage(m, transfer);
 
-/** A file from the cache, or downloaded (with progress) and cached. */
-async function file(url: string, size: number, onBytes: (n: number, total: number) => void): Promise<Uint8Array> {
-  const cache = await caches.open(CACHE).catch(() => null);
-  const hit = await cache?.match(url);
-  if (hit) {
-    const bytes = new Uint8Array(await hit.arrayBuffer());
-    onBytes(bytes.length, bytes.length);
-    return bytes;
-  }
-  // The Android app fetches from the server's origin with no cookie (api.ts, FETCH_CREDENTIALS).
-  const res = await fetch(url, { credentials: new URL(url).origin === self.location.origin ? "include" : "omit" });
-  if (!res.ok || !res.body) throw new Error(`Couldn't download ${url.split("/").pop()} (${res.status})`);
-  // Content-Length is the zipped size when the server compresses; the manifest's is the real one.
-  const total = size || Number(res.headers.get("content-length") ?? 0);
-  const reader = res.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let got = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    got += value.length;
-    onBytes(got, Math.max(total, got));
-  }
-  const bytes = new Uint8Array(got);
-  let at = 0;
-  for (const c of chunks) {
-    bytes.set(c, at);
-    at += c.length;
-  }
-  await cache?.put(url, new Response(bytes, { headers: { "content-type": res.headers.get("content-type") ?? "application/octet-stream" } })).catch(() => undefined);
-  return bytes;
-}
+const file = cachedFile;
+const CACHE = SCAN_CACHE;
 
 async function load(info: BundleInfo, base: string, embedFile: EmbedFile) {
   const t0 = performance.now();
@@ -130,6 +98,14 @@ async function useEmbed(embedFile: EmbedFile) {
   await recognizer.setEmbed(graph);
 }
 
+// The printing look (look.ts) runs in its own worker (look.worker.ts), so comparing printings never
+// holds up the camera's frames here. This one keeps the last few frames with a card in them while
+// the look is on, for the card's side of the comparison.
+let keepFrames = false;
+const lookFrames = new LookFrames(3);
+/** The card the last kept frame was led by: when another card leads, the frames before are another card's. */
+let framesOf: string | null = null;
+
 self.onmessage = async (event: MessageEvent<ArtWorkerRequest>) => {
   const m = event.data;
   try {
@@ -142,7 +118,26 @@ self.onmessage = async (event: MessageEvent<ArtWorkerRequest>) => {
         reply({ type: "embedded", id: m.id, error: e instanceof Error ? e.message : String(e) });
       }
     }
-    else if (m.type === "reset") recognizer?.reset();
+    else if (m.type === "keep-frames") {
+      keepFrames = m.on;
+      if (!m.on) {
+        lookFrames.clear();
+        framesOf = null;
+      }
+    } else if (m.type === "frames") {
+      // Copies, handed over: the ring keeps its own for another look at the same card.
+      const frames = lookFrames.of(m.index).map((f) => ({ width: f.image.width, height: f.image.height, quad: f.quad, buffer: f.image.data.slice().buffer as ArrayBuffer }));
+      reply({ type: "frames", id: m.id, frames }, frames.map((f) => f.buffer));
+    }
+    // The frames kept for the look stay: a card filed and then said to be the wrong printing is
+    // still in view (Codex review of #172). A frame with no card ends them, or a photo (`frames`).
+    else if (m.type === "reset") {
+      recognizer?.reset();
+      if (m.frames) {
+        lookFrames.clear();
+        framesOf = null;
+      }
+    }
     else if (m.type === "pool") {
       if (!recognizer) throw new Error("The card recognizer isn't loaded");
       const indices = m.keys ? poolIndices(arts, m.keys) : null;
@@ -152,6 +147,19 @@ self.onmessage = async (event: MessageEvent<ArtWorkerRequest>) => {
     else if (m.type === "identify") {
       if (!recognizer) throw new Error("The card recognizer isn't loaded");
       const result = await recognizer.identify({ width: m.width, height: m.height, data: new Uint8ClampedArray(m.buffer) });
+      // With the look on, keep a copy of a frame with a card in it, for the look's side of the
+      // comparison: the frame and quad this match used, under every artwork it matched (a title
+      // read or Not this card can settle on one that wasn't the best). Copied into reused buffers.
+      // A frame with no card ends the ones kept: the next card may be another copy of the same art.
+      // Another card leading (one slid in with no empty frame between) ends them too.
+      if (keepFrames) {
+        const all = [...result.matches, ...(result.pool ?? [])];
+        const leader = result.quad ? leadingCard(all) : null;
+        if (!leader || leader !== framesOf) lookFrames.clear();
+        framesOf = leader;
+        const tops = leader ? lookTops(all) : [];
+        if (tops.length > 0) lookFrames.add(m.width, m.height, new Uint8ClampedArray(m.buffer), result.quad!, tops);
+      }
       reply({ type: "result", id: m.id, result, buffer: m.buffer }, [m.buffer]);
     }
   } catch (e) {

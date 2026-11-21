@@ -63,8 +63,9 @@ describe("what a slot runs", () => {
     expect(canRun("art", { id: "cardvision-1", label: "", note: "", file: `${V}/query-0123456789ab.onnx` }, app)).toBe(true);
     expect(canRun("art", { id: "broken", label: "", note: "" }, app)).toBe(false);
     expect(canRun("look", { id: "off", label: "", note: "" }, app)).toBe(true);
-    // No look stage in this build: a look model the server lists isn't shown, run or recorded.
-    expect(canRun("look", { id: "look-v0", label: "", note: "", file: `${V}/look-58acfa166105.onnx` }, app)).toBe(false);
+    // A look model has look.ts's interface: it needs only its file.
+    expect(canRun("look", { id: "look-v0", label: "", note: "", file: `${V}/look-58acfa166105.onnx` }, app)).toBe(true);
+    expect(canRun("look", { id: "look-v9", label: "", note: "" }, app)).toBe(false);
     expect(defaultOption(info, "text", browser)?.id).toBe("auto");
   });
 
