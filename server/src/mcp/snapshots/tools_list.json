@@ -2876,7 +2876,7 @@
             "type": "string"
           },
           "model": {
-            "description": "Only records from this art model, as the answer's models list names it.",
+            "description": "Only records from this art model, as the answer's art_models list names it.",
             "maxLength": 200,
             "type": "string"
           },

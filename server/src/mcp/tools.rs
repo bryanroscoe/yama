@@ -1535,7 +1535,7 @@ pub(super) const TOOLS: &[Tool] = &[
         description: "How fast scans settle: Scanner diagnostics' timing records, one per card settled. Median and p90 time to name a card, the share named by each rule, how printings were settled and how long that took, by art model and mode; then the records.",
         schema: || json!({"type": "object", "properties": {
             "since": {"type": "string", "maxLength": 40, "description": "Only records from this date or moment (2026-11-20)."},
-            "model": {"type": "string", "maxLength": 200, "description": "Only records from this art model, as the answer's models list names it."},
+            "model": {"type": "string", "maxLength": 200, "description": "Only records from this art model, as the answer's art_models list names it."},
             "mode": {"type": "string", "enum": ["printing", "identity"], "description": "Only the collection (printing) or deck and box scans (identity)."},
             "limit": {"type": "integer", "minimum": 1, "maximum": 50, "description": "Records per page, default 20."},
             "cursor": {"type": "string", "maxLength": 200, "description": "next_cursor from the answer before."}}, "additionalProperties": false}),

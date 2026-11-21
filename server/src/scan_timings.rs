@@ -351,7 +351,7 @@ mod tests {
         json!({
             "outcome": "filed", "rule": rule, "mode": "printing", "ms": ms, "frames": 2, "top": 0.7812, "lead": 0.14,
             "printing": "collector", "printing_ms": 900, "camera": "2160×3840",
-            "embed": format!("{}/{}", crate::scan::BUNDLE_VERSION, crate::scan::QUERY_MODEL.file()),
+            "embed": format!("{}/{}", crate::scan::BUNDLE_VERSION, crate::scan::QUERY_MODEL.file().unwrap()),
             "models": {"art": "yama-art-20261118", "look": "off", "text": "auto", "lock": rule_lock(rule)},
             "detail": {"auto": true},
         })
