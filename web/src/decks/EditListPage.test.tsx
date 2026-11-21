@@ -8,10 +8,10 @@ import { EditListPage } from "./EditListPage";
 
 const entry = (name: string, board: "commander" | "main") => ({ oracle_id: name, name, qty: 1, board, card: null }) as unknown as DeckView["cards"][number];
 
-/** `failed`: the deck's last request failed, with the deck already loaded ("refresh") or not ("load"). */
-function page(failed?: "refresh" | "load" | "gone") {
+/** `failed`: the deck's last request failed, with the deck already loaded ("refresh") or not ("load"). `box`: the deck has a box in the collection. */
+function page(failed?: "refresh" | "load" | "gone", box: string | null = null) {
   const deck = {
-    id: "d1", name: "Alpha Deck", version_id: "v1", parent_id: null, configuration: null,
+    id: "d1", name: "Alpha Deck", version_id: "v1", parent_id: null, configuration: null, container_id: box,
     configurations: [{ id: "d1", name: "Alpha Deck", configuration: null }],
     cards: [entry("Test Commander", "commander"), entry("Sol Ring", "main")],
   } as unknown as DeckView;
@@ -36,11 +36,21 @@ describe("Edit the list", () => {
   it("opens the editor on the deck", () => {
     const html = page();
     expect(html).toContain("<h1>Edit the list</h1>");
-    expect(html).toContain("The list in the box");
+    // A deck that is only a list: nothing is called "the box".
+    expect(html).toContain(">This deck</button>");
+    expect(html).toContain(">Save changes</button>");
+    expect(html).not.toContain("in the box");
     // The card search sits above the list, with nothing under it until something is typed.
     expect(html).toContain(">Add cards</h2>");
     expect(html).toContain('aria-label="Search cards to add"');
     expect(html).not.toContain("Couldn&#x27;t refresh");
+  });
+
+  it("calls the deck's own list the list in the box once the deck has a box", () => {
+    const html = page(undefined, "c1");
+    expect(html).toContain(">The list in the box</button>");
+    expect(html).toContain(">Save the list in the box</button>");
+    expect(html).not.toContain(">This deck</button>");
   });
 
   it("keeps the editor when a refresh of the deck fails, with a way to retry", () => {
@@ -62,6 +72,8 @@ describe("Edit the list", () => {
     const html = page("gone");
     expect(html).not.toContain("Edit the list");
     expect(html).not.toContain("<textarea");
-    expect(html).toContain("No such deck");
+    // What a missing deck's page says is the shared LoadFailed's to word (components/QueryError.tsx).
+    expect(html).toContain("Not here");
+    expect(html).not.toContain(">Try again</button>");
   });
 });

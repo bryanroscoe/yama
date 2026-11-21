@@ -23,6 +23,8 @@ const server = vi.hoisted(() => ({
   watchers: new Set<() => void>(),
   /** Reading those settings fails. */
   sharingFails: false,
+  /** What the import preview was asked for "Did you mean" (the unmatched names, signed in only). */
+  hinted: [] as unknown[],
   /** The signed-in account's sharing settings (`GET /api/me/sharing`). */
   sharing: { handle: null as string | null, new_deck_visibility: "private", public_listed_at: null as string | null, collection_public: false, wants_public: false, wants_include_pending: false, share_lab_results: false, decks: { private: 0, link: 0, public: 0 } },
 }));
@@ -71,6 +73,13 @@ vi.mock("../api", async (original) => ({
     // The account's setting for new decks, which the page reads to say what a saved deck starts
     // as (and holds Save until it has). Not one of the calls these tests count.
     if (path === "/api/me/sharing" && init?.method !== "PUT") return server.sharingFails ? Promise.reject(new Error("Yama didn't answer.")) : Promise.resolve({ ...server.sharing });
+    // "Did you mean" for the lines that matched no card: the import preview, asked about those
+    // names alone. Not one of the calls these tests count either.
+    if (path === "/api/decks/import/preview") {
+      server.hinted.push(init?.json);
+      const suggestion = { oracle_id: "o-Mystic Remora", name: "Mystic Remora" };
+      return Promise.resolve({ format: "text", format_label: "a plain list", link: null, skipped: [], decks: [{ name: null, cards: [], commander_marked: false, commander_guessed: false, unknown: [{ name: "Mystery Card", qty: 1, board: "main", maybe: false, set_code: null, collector_number: null, finish: null, suggestions: [suggestion] }] }] });
+    }
     server.calls.push({ path, method: init?.method, json: init?.json });
     // Choosing a handle with a first public deck.
     if (path === "/api/me/sharing") return Promise.resolve({ ...server.sharing, ...(init?.json as object) });
@@ -143,6 +152,7 @@ describe("Check a deck", () => {
 
   beforeEach(() => {
     server.calls.length = 0;
+    server.hinted.length = 0;
     server.me = null;
     server.refuse = null;
     server.marked = false;
@@ -196,12 +206,17 @@ describe("Check a deck", () => {
     expect(text()).toContain("Another problem");
     const tiles = [...document.querySelectorAll(".deck-head-tiles")][0]!.textContent!;
     expect(tiles).toContain("Plays like bracket2 to 3");
-    expect(tiles).toContain("Card rules allow 2 or higher");
+    // The card rules ask for no more than it plays like here, so the tile doesn't bring them up.
+    expect(tiles).toContain("From its cards, not declared");
+    expect(tiles).not.toContain("rules");
     expect(tiles).toContain("Value$1.50");
     expect(tiles).toContain("Partial, 99 without a price. TCGplayer market via Scryfall, Nov 10");
     expect(tiles).toContain("Power5.4");
     // Lines that matched no card are named, not dropped silently.
     expect(text()).toContain("One line matched no card and isn't counted: Mystery Card.");
+    // Signed out there is no "Did you mean": the suggestions need an account.
+    expect(server.hinted).toEqual([]);
+    expect(text()).not.toContain("Did you mean");
     // The cards, with nothing about owning them.
     expect(text()).toContain("Sol Ring");
     expect(text()).not.toContain("Still need");
@@ -333,6 +348,62 @@ describe("Check a deck", () => {
     expect((saves()[0]!.json as { name: string }).name).toBe("Omo, Queen of Vesuva");
     expect(router.state.location.pathname).toBe("/decks/d-new");
     expect(readGuestDeck()).toBeNull();
+  });
+
+  it("signed in, reads in order: the unmatched line, who can see the deck, Save, and a refused save's reason right under it", async () => {
+    server.sharing = { ...server.sharing, new_deck_visibility: "public", public_listed_at: "2026-11-12T17:00:00Z" };
+    writeGuestDeck(newGuestDeck(LIST));
+    server.me = { id: "u1" };
+    await show();
+    const before = (a: Element, b: Element) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const note = document.querySelector(".check-unknown")!;
+    const who = document.querySelector(".visibility-choice")!;
+    const handle = document.querySelector(".import-handle")!;
+    const save = button("Save to your decks")!;
+    expect(before(note, who)).toBe(true);
+    expect(before(who, handle)).toBe(true);
+    expect(before(handle, save)).toBe(true);
+    // Nothing about signing in or needing no account, for someone who is signed in.
+    expect(text()).not.toContain("Sign in to save");
+    expect(text()).not.toContain("Signing in doesn't save");
+    // A refused save: its reason is the next thing after the bar that holds the button.
+    server.refuse = "That handle is taken. Pick another.";
+    await press(save);
+    const alert = [...document.querySelectorAll('[role="alert"]')].find((e) => e.textContent!.includes("That handle is taken"))!;
+    expect(document.querySelector(".deck-actionbar")!.nextElementSibling).toBe(alert);
+    expect(router.state.location.pathname).toBe("/check");
+  });
+
+  it("signed in, offers the card an unmatched line was meant to be, and a press respells that line and checks again", async () => {
+    writeGuestDeck({ ...newGuestDeck(LIST, "Lands matter"), commanders: ["o-Tana, the Bloodsower"] });
+    server.me = { id: "u1" };
+    await show();
+    // Only the unmatched names are asked about, never the list.
+    expect(server.hinted).toEqual([{ text: "1 Mystery Card", file_name: null }]);
+    expect(text()).toContain("Mystery Card Did you mean:");
+    await press(button("Mystic Remora"));
+    const fixed = LIST.replace("1 Mystery Card", "1 Mystic Remora");
+    expect(checks().at(-1)!.json).toEqual({ text: fixed, commanders: ["o-Tana, the Bloodsower"] });
+    // The same deck, respelt: its name and commander pick stay.
+    expect(readGuestDeck()).toMatchObject({ text: fixed, name: "Lands matter", commanders: ["o-Tana, the Bloodsower"] });
+  });
+
+  it("the form says nothing about accounts to someone signed in", async () => {
+    server.me = { id: "u1" };
+    await show();
+    expect(text()).not.toContain("No account needed");
+    expect(text()).not.toContain("Sign in to save it as a deck");
+    expect(text()).toContain("the list isn't sent to any other service.");
+  });
+
+  it("a saved deck opens with the offer to add its cards to the collection, as Add a deck does", async () => {
+    writeGuestDeck(newGuestDeck(LIST));
+    server.me = { id: "u1" };
+    await show();
+    await press(button("Save to your decks"));
+    expect(router.state.location.pathname).toBe("/decks/d-new");
+    expect(router.state.location.search).toBe("?collect=1");
+    expect(router.state.location.state).toEqual({ collectAfter: "import" });
   });
 
   it("signed out, offers to sign in to save and says that signing in saves nothing by itself", async () => {

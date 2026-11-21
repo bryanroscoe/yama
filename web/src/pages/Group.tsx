@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router";
-import { api, API_BASE, type GameRow, type PlaygroupStats, type Playgroup } from "../api";
+import { api, ApiError, API_BASE, errorMessage, type GameRow, type PlaygroupStats, type Playgroup } from "../api";
 import { useAdvanced, useMe } from "../auth";
-import { Button, ButtonLink, CardThumb, ErrorText } from "../components/ui";
+import { Button, ButtonLink, CardThumb, ErrorText, Field } from "../components/ui";
+import { ShowMore } from "../components/Pager";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { GroupStats } from "../components/GroupStats";
 import { Members } from "./GroupMembers";
@@ -14,21 +15,28 @@ import { MythicImportEntry } from "../bridges/mythic/MythicImport";
 import { HelpPopover } from "../components/HelpPopover";
 import { exportLink } from "../download";
 import { percent, fmtMonth } from "@yama/core";
-import { playerKeys, readGames, type Rival } from "./groupGames";
+import { foldCommanders, playerKeys, readGames, type Rival } from "./groupGames";
+import { BugButton } from "../bugs/BugButton";
 
 export function GroupPage() {
   const groups = useQuery({ queryKey: ["playgroups"], queryFn: ({ signal }) => api<Playgroup[]>("/api/playgroups", { signal }) });
   const [selected, setSelected] = useState<string | null>(null);
   const group = groups.data?.find((g) => g.id === selected) ?? groups.data?.[0];
   const advanced = useAdvanced();
+  const none = groups.data?.length === 0;
+  // Export is offered once there is a game to export: one of yours, or one of this playgroup's
+  // (the same lists the life counter and the stats below read).
+  const myGames = useQuery({ queryKey: ["games"], queryFn: ({ signal }) => api<GameRow[]>("/api/games", { signal }), enabled: !groups.isPending });
+  const groupGames = useQuery({ queryKey: ["games", "group", group?.id], queryFn: ({ signal }) => api<GameRow[]>(`/api/games?playgroup=${group!.id}`, { signal }), enabled: !!group });
 
   return (
     <main className="page group-page">
       <Link to="/table/games">Game history</Link>
       <ErrorText error={groups.error} />
-      {groups.data?.length === 0 && (
+      {none && (
         <>
-          <h1>Playgroup</h1>
+          <div className="head-with-bug"><h1>Playgroup</h1><BugButton /></div>
+          <p className="grp-intro">A playgroup keeps your table's games and stats together. Start one and share its code, or enter a friend's code.</p>
           <GroupActions />
         </>
       )}
@@ -47,9 +55,10 @@ export function GroupPage() {
       <div className="grp-pair">
         {/* Keyed by group: a name being typed or an error shown never carries over to another group. */}
         {group && <Members key={group.id} group={group} />}
-        <section className="grp-section" id="sharing"><h2>You</h2><ButtonLink variant="outline" to="/profile">Your profile and account</ButtonLink></section>
+        {/* Beside the members; with no playgroup the page is only about starting or joining one. */}
+        {!none && <section className="grp-section" id="sharing"><h2>You</h2><ButtonLink variant="outline" to="/profile">Your profile and account</ButtonLink></section>}
       </div>
-      <ExportGames group={group} />
+      {(!!myGames.data?.length || !!groupGames.data?.length) && <ExportGames group={group} />}
       {/* Mythic Tools is a Workshop page: offered here only with Advanced on. */}
       {advanced && <MythicImportEntry />}
       {/* With no playgroup, starting or joining one sits at the top instead. While the list is
@@ -76,18 +85,24 @@ function GroupDetail({ group, switcher }: { group: Playgroup; switcher: ReactNod
   const playerKey = keys.player;
   const favourites = new Map((s?.players ?? []).map((p) => [p.key, read.favourite(playerKey(p))]));
   const rivalArt = (r?: Rival) => (r ? read.favourite(r.key) : null);
-  const art = useCardArt([...favourites.values(), ...(s?.commanders ?? []).map((c) => c.commander), rivalArt(read.beatsMe), rivalArt(read.iBeat)]);
-  const artOf = (name: string | null | undefined) => (name ? art.get(name) : undefined);
   // Too few to say (design/tokens.md): players under 10 games, commanders under 5, or the server's
   // provisional floor if that's higher.
   const under = Math.max(10, s?.provisional_under ?? 0);
   const commanderFloor = Math.max(5, s?.provisional_under ?? 0);
+  // Commanders with enough games to have a win rate come first; the rest ("Too few") wait behind
+  // a button, so two dozen rows that say nothing don't sit above the rest of the page. A group
+  // where none has enough yet shows its first few.
+  const [allCommanders, setAllCommanders] = useState(false);
+  const { shown: commanders, more: moreCommanders, enough: enoughCommanders } = foldCommanders(s?.commanders ?? [], commanderFloor, allCommanders);
+  // Art for what the page shows: the commanders behind the fold are looked up when it opens.
+  const art = useCardArt([...favourites.values(), ...commanders.map((c) => c.commander), rivalArt(read.beatsMe), rivalArt(read.iBeat)]);
+  const artOf = (name: string | null | undefined) => (name ? art.get(name) : undefined);
   // The first game the list goes back to, when it holds every game (the server sends up to 200).
   const first = games.data && games.data.length < 200 ? games.data.filter((g) => g.status === "finished").at(-1)?.started_at : undefined;
   const since = first ? fmtMonth(first) : null;
   const credited = [
     ...[...favourites.values()].map(artOf),
-    ...(s?.commanders ?? []).map((c) => artOf(c.commander)),
+    ...commanders.map((c) => artOf(c.commander)),
     artOf(rivalArt(read.beatsMe)),
     artOf(rivalArt(read.iBeat)),
   ].filter((a) => !!a);
@@ -111,6 +126,7 @@ function GroupDetail({ group, switcher }: { group: Playgroup; switcher: ReactNod
           <div className="grp-name">
             <h1>{group.name}</h1>
             {switcher}
+            <BugButton className="head-bug" />
           </div>
           {s && s.games > 0 && (
             <div className="grp-figures">
@@ -128,10 +144,11 @@ function GroupDetail({ group, switcher }: { group: Playgroup; switcher: ReactNod
                   <span><span className="grp-wide">player turns on average online</span><span className="grp-narrow">player turns, online</span></span>
                 </span>
               )}
+              {/* The median, not the mean (stats.rs): a game left open overnight would count as a day long. */}
               {s.average_minutes && (
-                <span className="grp-figure" title={`From ${s.average_minutes.games} timed games`}>
+                <span className="grp-figure" title={`The middle length of ${s.average_minutes.games} timed ${s.average_minutes.games === 1 ? "game" : "games"}`}>
                   <b className="num">{Math.round(s.average_minutes.value)}</b>
-                  <span><span className="grp-wide">minutes on average</span><span className="grp-narrow">minutes, average</span></span>
+                  <span><span className="grp-wide">minutes for a typical game</span><span className="grp-narrow">minutes, typical</span></span>
                 </span>
               )}
             </div>
@@ -211,7 +228,7 @@ function GroupDetail({ group, switcher }: { group: Playgroup; switcher: ReactNod
                   </tr>
                 </thead>
                 <tbody>
-                  {s.commanders.map((c) => {
+                  {commanders.map((c) => {
                     const a = artOf(c.commander);
                     const few = c.games < commanderFloor;
                     const who = listNames(read.players(c.commander));
@@ -239,6 +256,12 @@ function GroupDetail({ group, switcher }: { group: Playgroup; switcher: ReactNod
                   })}
                 </tbody>
               </table>
+              {moreCommanders > 0 && (
+                <p className="grp-more">
+                  {enoughCommanders && !allCommanders && <span>{moreCommanders} more with fewer than {commanderFloor} games.</span>}
+                  <ShowMore total={s.commanders.length} noun="commanders" expanded={allCommanders} onToggle={() => setAllCommanders((v) => !v)} />
+                </p>
+              )}
             </section>
 
             <section className="grp-section grp-rivals" aria-labelledby="grp-rivals">
@@ -316,25 +339,55 @@ function ExportGames({ group }: { group?: Playgroup }) {
   );
 }
 
+/** Start a playgroup by naming it, or join one with a friend's code: each with its own label and its own error. */
 function GroupActions() {
   const qc = useQueryClient();
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
+  // The field left empty when its button was pressed: said under it, instead of nothing happening.
+  const [blank, setBlank] = useState<"name" | "code" | null>(null);
   const done = () => void qc.invalidateQueries({ queryKey: ["playgroups"] });
   const create = useMutation({ mutationFn: () => api("/api/playgroups", { method: "POST", json: { name } }), onSuccess: () => { setName(""); done(); } });
   const join = useMutation({ mutationFn: () => api("/api/playgroups/join", { method: "POST", json: { code } }), onSuccess: () => { setCode(""); done(); } });
+  const start = () => {
+    join.reset();
+    if (!name.trim()) return setBlank("name");
+    setBlank(null);
+    create.mutate();
+  };
+  const enter = () => {
+    create.reset();
+    if (!code.trim()) return setBlank("code");
+    setBlank(null);
+    join.mutate();
+  };
+  const nameError = blank === "name" ? "Give the playgroup a name first." : create.error ? errorMessage(create.error) : null;
+  // The server's own words for a code nobody has are "playgroup with that code not found".
+  const codeError =
+    blank === "code"
+      ? "Enter the code a friend shared."
+      : join.error instanceof ApiError && join.error.status === 404
+        ? "No playgroup has that code. Check it with whoever shared it."
+        : join.error
+          ? errorMessage(join.error)
+          : null;
   return (
-    <section className="stack" style={{ marginBottom: "2.5rem" }}>
+    <section className="stack grp-start">
       <h2>Start or join a playgroup</h2>
-      <form className="row" onSubmit={(e) => { e.preventDefault(); create.mutate(); }}>
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Playgroup name" aria-label="Playgroup name" maxLength={60} required style={{ flex: "1 1 12rem" }} />
+      <form className="grp-guest" noValidate onSubmit={(e) => { e.preventDefault(); start(); }}>
+        <Field label="Name a new playgroup">
+          <input value={name} onChange={(e) => { setName(e.target.value); if (blank === "name") setBlank(null); }} placeholder="Thursday night" maxLength={60} aria-invalid={nameError ? true : undefined} />
+        </Field>
         <Button type="submit" disabled={create.isPending}>Start playgroup</Button>
+        <ErrorText small error={nameError} />
       </form>
-      <form className="row" onSubmit={(e) => { e.preventDefault(); join.mutate(); }}>
-        <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="Join code" aria-label="Join code" required style={{ flex: "1 1 12rem" }} autoCapitalize="characters" />
+      <form className="grp-guest" noValidate onSubmit={(e) => { e.preventDefault(); enter(); }}>
+        <Field label="Code a friend shared">
+          <input value={code} onChange={(e) => { setCode(e.target.value); if (blank === "code") setBlank(null); }} placeholder="ABC234" autoCapitalize="characters" autoComplete="off" spellCheck={false} aria-invalid={codeError ? true : undefined} />
+        </Field>
         <Button type="submit" disabled={join.isPending}>Join</Button>
+        <ErrorText small error={codeError} />
       </form>
-      <ErrorText error={create.error ?? join.error} />
     </section>
   );
 }

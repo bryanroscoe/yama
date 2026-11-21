@@ -10,6 +10,7 @@ import {
   newGuestDeck,
   playsLikeRange,
   readGuestDeck,
+  rewriteLine,
   rulesNote,
   saveRequest,
   writeGuestDeck,
@@ -179,7 +180,46 @@ describe("the list as the deck page's parts read it", () => {
     expect(playsLikeRange(analysis(5.4))).toBe("2 to 3");
     expect(playsLikeRange(analysis(3))).toBe("2");
     expect(playsLikeRange({ power_bracket: 4, bracket: undefined })).toBe("4");
-    expect(rulesNote(analysis(5.4))).toBe("Card rules allow 2 or higher");
     expect(rulesNote({ bracket: { plays_like: [2, 3], rules: null, flags: [] } })).toBeNull();
+  });
+
+  it("brings up the card rules only when they ask for more than the list plays like, and says why", () => {
+    // The rules allow what it plays like: nothing to add.
+    expect(rulesNote(analysis(5.4))).toBeNull();
+    expect(rulesNote({ bracket: { plays_like: [3, 4], rules: 3, flags: ["2 Game Changers: Demonic Tutor, Rhystic Study"] } })).toBeNull();
+    // One Game Changer in a list that plays like 2 to 3: the rules' number, named as theirs.
+    expect(rulesNote({ bracket: { plays_like: [2, 3], rules: 3, flags: ["1 Game Changer: Demonic Tutor"] } })).toBe("The rules say 3 or higher: 1 Game Changer");
+    expect(rulesNote({ bracket: { plays_like: [2, 2], rules: 4, flags: ["5 Game Changers: A, B, C, D, E"] } })).toBe("The rules say 4 or higher: 5 Game Changers");
+    // Several reasons don't fit the tile; the Bracket panel lists them.
+    expect(rulesNote({ bracket: { plays_like: [2, 2], rules: 4, flags: ["1 Game Changer: A", "Mass land denial: Armageddon"] } })).toBe("The rules say 4 or higher");
+    // The range itself is never moved by the rules.
+    expect(playsLikeRange({ power_bracket: 2, bracket: { plays_like: [2, 3], rules: 3, flags: [] } })).toBe("2 to 3");
+  });
+});
+
+describe("respelling an unmatched line", () => {
+  it("replaces the name on that line and keeps its count, printing and marks", () => {
+    const text = "Commander\n1 Meren of Clan Nel Toth\n\n1 Arcane Signt\n2x Arcane Signt (ELD) 331 *F*\nArcane Signt\n1 Sol Ring";
+    expect(rewriteLine(text, "Arcane Signt", "Arcane Signet")).toBe("Commander\n1 Meren of Clan Nel Toth\n\n1 Arcane Signet\n2x Arcane Signet (ELD) 331 *F*\nArcane Signet\n1 Sol Ring");
+  });
+
+  it("leaves a longer name that starts the same way, and other lines, as typed", () => {
+    const text = "1 Sol\r\n1 Sol Ring\r\n1 Solemn Simulacrum";
+    expect(rewriteLine(text, "Sol", "Sol Ring")).toBe("1 Sol Ring\r\n1 Sol Ring\r\n1 Solemn Simulacrum");
+    expect(rewriteLine(text, "Mystery", "Sol Ring")).toBe(text);
+    expect(rewriteLine(text, " ", "Sol Ring")).toBe(text);
+  });
+
+  it("takes a count written after the name with the name", () => {
+    expect(rewriteLine("Rampant Growth x1\n1 Forest", "Rampant Growth x1", "Rampant Growth")).toBe("Rampant Growth\n1 Forest");
+  });
+
+  it("respells a line whose count follows the name, keeping the count where it is", () => {
+    // The check reads "Arcane Signt x2" as two copies of "Arcane Signt": that is the name to respell.
+    const text = "Arcane Signt x2\nArcane Signt X3 (ELD) 331 *F*\r\nArcane Signt x4 #ramp\n1 Sol Ring";
+    expect(rewriteLine(text, "Arcane Signt", "Arcane Signet")).toBe("Arcane Signet x2\nArcane Signet X3 (ELD) 331 *F*\r\nArcane Signet x4 #ramp\n1 Sol Ring");
+    // A line that leads with its count has the x2 in its name: another line, left as typed.
+    expect(rewriteLine("2 Arcane Signt x2\nArcane Signt x2 more", "Arcane Signt", "Arcane Signet")).toBe("2 Arcane Signt x2\nArcane Signt x2 more");
+    expect(rewriteLine("2 Arcane Signt x2", "Arcane Signt x2", "Arcane Signet")).toBe("2 Arcane Signet");
   });
 });

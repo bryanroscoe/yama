@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DeckSummary, ProfileDeck } from "../api";
 import type { PreconItem } from "../lab/api";
-import { canPair, deckPicks, deckScopes, handlePrefix, type DeckPick } from "./pickers";
+import { canPair, deckPicks, deckScopes, guestNote, handlePrefix, type DeckPick } from "./pickers";
 import type { PlayedDeck } from "./playedDecks";
 
 const mine = (name: string, commanders: string[]) => ({ id: name, name, commanders, color_identity: "W", commander_image: null, commander_artist: null }) as unknown as DeckSummary;
@@ -76,6 +76,18 @@ describe("handlePrefix", () => {
     expect(handlePrefix(" @SaG")).toBe("sag");
     expect(handlePrefix("s")).toBeNull();
     expect(handlePrefix("Sam Smith")).toBeNull();
+  });
+});
+
+describe("guestNote", () => {
+  it("says a name nobody matches plays as a guest, and nothing once someone can be picked", () => {
+    expect(guestNote(" Dana ", 0, false)).toBe("Dana plays as a guest.");
+    expect(guestNote("Dana", 2, false)).toBeNull();
+    expect(guestNote("  ", 0, false)).toBeNull();
+  });
+
+  it("says nothing without an account, where every seat is a guest", () => {
+    expect(guestNote("Dana", 0, true)).toBeNull();
   });
 });
 

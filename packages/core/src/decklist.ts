@@ -36,23 +36,85 @@ export interface ListLine {
   board: string;
 }
 
-/** What one line of a list is: a section heading, a card, or nothing to read (blank, a comment). */
-type ReadLine = { kind: "header"; board: string } | { kind: "card"; qty: number; name: string } | { kind: "skip" };
+/**
+ * What one line of a list is: a section heading, a card, or nothing to read (blank, a comment).
+ * A heading says whether it names the main deck itself (`deck`: Deck, Main, Mainboard, Maindeck)
+ * and not a group of it (Creatures, Lands). A card says where its count is written (`counted`:
+ * before the name, after it, or nowhere: a bare name is one copy).
+ */
+type ReadLine =
+  | { kind: "header"; board: string; deck: boolean }
+  | { kind: "card"; qty: number; name: string; counted: "before" | "after" | null }
+  | { kind: "skip" };
+
+/** Where a card's name ends in the rest of its line: at a set code, a foil mark or a tag, or the line's end. */
+function nameEnd(rest: string): number {
+  const marks = [" (", " *", " #"].map((m) => rest.indexOf(m)).filter((i) => i >= 0);
+  return marks.length ? Math.min(...marks) : rest.length;
+}
 
 /** One line of a list, as server/src/decks.rs::parse_list reads it. */
 function readLine(raw: string): ReadLine {
   const line = raw.trim();
   if (!line) return { kind: "skip" };
   const header = line.replace(/^(?:\/\/)+/, "").replace(/^#+/, "").trim().replace(/:+$/, "").toLowerCase().split(/[ (]/)[0] ?? "";
-  if (["commander", "commanders"].includes(header)) return { kind: "header", board: "commander" };
-  if (["deck", "main", "mainboard", "maindeck", "creatures", "lands", "spells"].includes(header)) return { kind: "header", board: "main" };
-  if (["sideboard", "side"].includes(header)) return { kind: "header", board: "side" };
-  if (["maybeboard", "maybe", "considering"].includes(header)) return { kind: "header", board: MAYBE };
+  if (["commander", "commanders"].includes(header)) return { kind: "header", board: "commander", deck: false };
+  if (["deck", "main", "mainboard", "maindeck"].includes(header)) return { kind: "header", board: "main", deck: true };
+  if (["creatures", "lands", "spells"].includes(header)) return { kind: "header", board: "main", deck: false };
+  if (["sideboard", "side"].includes(header)) return { kind: "header", board: "side", deck: false };
+  if (["maybeboard", "maybe", "considering"].includes(header)) return { kind: "header", board: MAYBE, deck: false };
   if (line.startsWith("//") || line.startsWith("#")) return { kind: "skip" };
   const match = line.match(/^([+-]?\d+)[xX]* (.*)$/);
-  const qty = match ? Number(match[1]) : 1;
-  const name = (match?.[2] ?? line).split(" (")[0]!.split(" *")[0]!.split(" #")[0]!.trim();
-  return name && Number.isSafeInteger(qty) && qty > 0 ? { kind: "card", qty, name } : { kind: "skip" };
+  const rest = match?.[2] ?? line;
+  const written = rest.slice(0, nameEnd(rest)).trim();
+  // "Rampant Growth x1": the count after the name, on a line that didn't lead with one. It counts
+  // only straight after the name: in "Sol Ring (C21) x2" and "Forest *F* x2" the x2 isn't one.
+  const after = match ? null : written.match(TRAILING_COUNT);
+  const qty = match ? Number(match[1]) : after ? Number(after[2]) : 1;
+  const name = after ? after[1]!.trim() : written;
+  if (!name || !Number.isSafeInteger(qty) || qty <= 0) return { kind: "skip" };
+  return { kind: "card", qty, name, counted: match ? "before" : after ? "after" : null };
+}
+
+/** A name with its count after it: "Forest x12". */
+const TRAILING_COUNT = /^(.*) [xX](\d+)$/;
+
+/**
+ * Reads a list's lines in order and says which board each is on, as `parse_list` has it: a
+ * heading starts its board, and a blank line after the Commander heading's cards ends that
+ * section (a hand-typed list often has no Deck heading; without this every card under the
+ * commander led the deck too). A list that names its main deck further down (a Deck heading) says
+ * itself where the commanders end, so there the blank line ends nothing: two partners with a
+ * blank line between them both lead. `lines` is the whole list; the reader is then given each of
+ * them, first to last.
+ */
+function boardReader(lines: string[]): (raw: string) => { line: ReadLine; board: string; fell: boolean } {
+  // The last line that names the main deck: no blank line before it ends the Commander section.
+  let lastDeck = -1;
+  lines.forEach((raw, i) => {
+    const line = readLine(raw);
+    if (line.kind === "header" && line.deck) lastDeck = i;
+  });
+  let at = -1;
+  let board = "main";
+  let commanders = 0;
+  // Whether the main deck was reached by the blank line after a commander, not by a heading.
+  let fell = false;
+  return (raw) => {
+    at += 1;
+    const line = readLine(raw);
+    if (line.kind === "header") {
+      board = line.board;
+      fell = false;
+      if (board === "commander") commanders = 0;
+    } else if (line.kind === "card") {
+      if (board === "commander") commanders += 1;
+    } else if (!raw.trim() && board === "commander" && commanders > 0 && at > lastDeck) {
+      board = "main";
+      fell = true;
+    }
+    return { line, board, fell };
+  };
 }
 
 /**
@@ -62,11 +124,11 @@ function readLine(raw: string): ReadLine {
  */
 export function parseDeckList(text: string): ListLine[] {
   const out: ListLine[] = [];
-  let board = "main";
-  for (const raw of text.split(/\r?\n/)) {
-    const line = readLine(raw);
-    if (line.kind === "header") board = line.board;
-    else if (line.kind === "card") out.push({ qty: line.qty, name: line.name, board });
+  const lines = text.split(/\r?\n/);
+  const read = boardReader(lines);
+  for (const raw of lines) {
+    const { line, board } = read(raw);
+    if (line.kind === "card") out.push({ qty: line.qty, name: line.name, board });
   }
   return out;
 }
@@ -110,15 +172,29 @@ export function countInList(text: string, name: string, board?: string): number 
     .reduce((n, l) => n + l.qty, 0);
 }
 
-/** The line with its count changed by `by`, or null when no copies are left. Everything after the count stays. */
-function recount(raw: string, qty: number, by: number): string | null {
-  const next = qty + by;
+/**
+ * A card's line with its count changed by `by`, or null when no copies are left. The count
+ * changes where `readLine` read it, so the edit is always one the list is then read with;
+ * everything else on the line stays.
+ */
+function recount(raw: string, line: Extract<ReadLine, { kind: "card" }>, by: number): string | null {
+  const next = line.qty + by;
   if (next <= 0) return null;
-  const counted = raw.match(/^(\s*)[+-]?\d+([xX]*) (.*)$/);
-  if (counted) return `${counted[1]}${next}${counted[2]} ${counted[3]}`;
-  // A bare name is one copy.
   const indent = raw.match(/^\s*/)![0];
-  return `${indent}${next} ${raw.trim()}`;
+  const body = raw.slice(indent.length);
+  if (line.counted === "before") {
+    const counted = body.match(/^[+-]?\d+([xX]*) (.*)$/s);
+    if (counted) return `${indent}${next}${counted[1]} ${counted[2]}`;
+  }
+  if (line.counted === "after") {
+    // The count after the name ("Forest x12 (FDN) 280"): the last word before the printing.
+    const end = nameEnd(body);
+    const after = body.slice(0, end).match(/^(.*) ([xX])\d+(\s*)$/s);
+    if (after) return `${indent}${after[1]} ${after[2]}${next}${after[3]}${body.slice(end)}`;
+  }
+  // A bare name is one copy. An "x2" further along the line (after a set code or a foil mark)
+  // was never its count, and stays as written.
+  return `${indent}${next} ${body.trimEnd()}`;
 }
 
 const HEADINGS: Record<string, string> = { commander: "Commander", main: "Deck", side: "Sideboard", [MAYBE]: "Considering" };
@@ -132,17 +208,21 @@ const HEADINGS: Record<string, string> = { commander: "Commander", main: "Deck",
 export function addToList(text: string, name: string, board = "main"): string {
   const nl = eol(text);
   const lines = text.split(/\r?\n/);
+  const read = boardReader(lines);
   let at = "main";
+  // The list ended on the blank line after its commander: the deck's first card needs its heading.
+  let afterCommander = false;
   /** Index of the last line belonging to `board`: a card, or failing that its heading. */
   let last = -1;
   for (let i = 0; i < lines.length; i++) {
-    const line = readLine(lines[i]!);
+    const { line, board: on, fell } = read(lines[i]!);
+    at = on;
+    afterCommander = fell;
     if (line.kind === "header") {
-      at = line.board;
       if (at === board) last = i;
     } else if (line.kind === "card" && at === board) {
       if (names(line.name, name)) {
-        lines[i] = recount(lines[i]!, line.qty, 1)!;
+        lines[i] = recount(lines[i]!, line, 1)!;
         return lines.join(nl);
       }
       last = i;
@@ -158,7 +238,7 @@ export function addToList(text: string, name: string, board = "main"): string {
   // The list ends as it did: with a line break if it had one.
   const end = /\n\s*$/.test(text) ? nl : "";
   // No line of that board yet. A list that ends in the main deck with no heading just takes the line.
-  if (board === "main" && at === "main") return `${body}${nl}${row}${end}`;
+  if (board === "main" && at === "main" && !afterCommander) return `${body}${nl}${row}${end}`;
   return `${body}${nl}${nl}${HEADINGS[board] ?? "Deck"}${nl}${row}${end}`;
 }
 
@@ -169,18 +249,17 @@ export function addToList(text: string, name: string, board = "main"): string {
  */
 export function removeFromList(text: string, name: string, board?: string): string {
   const lines = text.split(/\r?\n/);
-  let at = "main";
-  const found: { index: number; board: string; qty: number }[] = [];
+  const read = boardReader(lines);
+  const found: { index: number; board: string; line: Extract<ReadLine, { kind: "card" }> }[] = [];
   lines.forEach((raw, index) => {
-    const line = readLine(raw);
-    if (line.kind === "header") at = line.board;
-    else if (line.kind === "card" && names(line.name, name) && (board === undefined || at === board)) found.push({ index, board: at, qty: line.qty });
+    const { line, board: at } = read(raw);
+    if (line.kind === "card" && names(line.name, name) && (board === undefined || at === board)) found.push({ index, board: at, line });
   });
   const order = ["main", "side", MAYBE, "commander"];
   // The last matching line of the first board that has one.
   const hit = found.sort((a, b) => order.indexOf(a.board) - order.indexOf(b.board) || b.index - a.index)[0];
   if (!hit) return text;
-  const next = recount(lines[hit.index]!, hit.qty, -1);
+  const next = recount(lines[hit.index]!, hit.line, -1);
   if (next === null) lines.splice(hit.index, 1);
   else lines[hit.index] = next;
   return lines.join(eol(text));

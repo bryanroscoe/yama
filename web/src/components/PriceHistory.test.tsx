@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { historyView, PriceHistory } from "./PriceHistory";
+import { historyView, PriceHistory, priceDay } from "./PriceHistory";
 
 function history(state: "failed" | "empty" | "one") {
   const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false, retryOnMount: false } } });
@@ -26,7 +26,17 @@ describe("a printing's price history", () => {
 
   it("says no price is recorded only when the server answered with none", () => {
     expect(history("empty")).toContain("No market price recorded for Commander Masters.");
-    expect(history("one")).toContain("$1.50 on 2026-11-10");
+    // The day as the rest of the app writes it, not the stored ISO date.
+    expect(history("one")).toContain(`$1.50 on ${priceDay("2026-11-10")}`);
+    expect(history("one")).not.toContain("2026-11-10");
+  });
+
+  it("writes a price's day short, with the year only when it isn't this year", () => {
+    const now = new Date(2026, 10, 21);
+    expect(priceDay("2026-11-20", now)).toBe("Nov 20");
+    expect(priceDay("2025-12-31", now)).toBe("Dec 31, 2025");
+    // Not a date: as given.
+    expect(priceDay("soon", now)).toBe("soon");
   });
 
   it("keeps the failure on screen while it tries again", () => {

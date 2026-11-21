@@ -122,6 +122,91 @@ fn plain_lists_and_headers() {
     assert_eq!(p.decks[0].name.as_deref(), Some("my deck"));
 }
 
+/// A hand-typed list: the commander under its heading, a blank line, then the deck with no
+/// heading of its own. Only the cards before the blank line lead the deck.
+#[test]
+fn a_blank_line_ends_the_commander_section() {
+    let p = parse_text("Commander\n1 Meren of Clan Nel Toth\n\n1 Sol Ring\n1 Llanowar Elves\n1 Forest");
+    assert_eq!(board_of(&p, "Meren of Clan Nel Toth").unwrap().board, Board::Commander);
+    for name in ["Sol Ring", "Llanowar Elves", "Forest"] {
+        let line = board_of(&p, name).unwrap();
+        assert_eq!((line.board.clone(), line.marked_commander), (Board::Main, false), "{name}");
+    }
+    assert!(p.decks[0].commander_marked);
+    // Two partners on adjoining lines both lead, and a blank line right under the heading
+    // doesn't end the section before it has a card.
+    let p = parse_text("Commander\n\n1 Thrasios, Triton Hero\n1 Tymna the Weaver\n\n1 Sol Ring\n\nSideboard\n1 Lightning Bolt");
+    assert_eq!(board_of(&p, "Thrasios, Triton Hero").unwrap().board, Board::Commander);
+    assert_eq!(board_of(&p, "Tymna the Weaver").unwrap().board, Board::Commander);
+    assert_eq!(board_of(&p, "Sol Ring").unwrap().board, Board::Main);
+    assert_eq!(board_of(&p, "Lightning Bolt").unwrap().board, Board::Side);
+}
+
+/// A list that names its main deck further down says itself where the commanders end, so a
+/// blank line between two partners doesn't send the second one to the deck.
+#[test]
+fn a_deck_heading_further_down_keeps_the_commander_section_open() {
+    for heading in ["Deck", "Main", "Mainboard:", "// Maindeck", "Main deck", "Deck (98)", "Library"] {
+        let p = parse_text(&format!("Commander\n1 Thrasios, Triton Hero\n\n1 Tymna the Weaver\n\n{heading}\n1 Sol Ring\n1 Forest"));
+        assert_eq!(board_of(&p, "Thrasios, Triton Hero").unwrap().board, Board::Commander, "{heading}");
+        let tymna = board_of(&p, "Tymna the Weaver").unwrap();
+        assert_eq!((tymna.board.clone(), tymna.marked_commander), (Board::Commander, true), "{heading}");
+        assert_eq!(board_of(&p, "Sol Ring").unwrap().board, Board::Main, "{heading}");
+        assert_eq!(board_of(&p, "Forest").unwrap().board, Board::Main, "{heading}");
+    }
+    // A group of the deck (Lands) or a sideboard further down doesn't say where the deck starts:
+    // the blank line still ends the section.
+    let p = parse_text("Commander\n1 Meren of Clan Nel Toth\n\n1 Sol Ring\n\nLands\n1 Forest\n\nSideboard\n1 Negate");
+    assert_eq!(board_of(&p, "Meren of Clan Nel Toth").unwrap().board, Board::Commander);
+    assert_eq!(board_of(&p, "Sol Ring").unwrap().board, Board::Main);
+    assert_eq!(board_of(&p, "Forest").unwrap().board, Board::Main);
+    assert_eq!(board_of(&p, "Negate").unwrap().board, Board::Side);
+    // A Deck heading above the commander says nothing about what follows it.
+    let p = parse_text("Deck\n1 Sol Ring\n\nCommander\n1 Meren of Clan Nel Toth\n\n1 Forest");
+    assert_eq!(board_of(&p, "Meren of Clan Nel Toth").unwrap().board, Board::Commander);
+    assert_eq!(board_of(&p, "Forest").unwrap().board, Board::Main);
+}
+
+#[test]
+fn a_count_may_follow_the_name() {
+    let p = parse_text("Rampant Growth x1\nForest X12\n2 Sol Ring\nArcane Signet x2 (C21) 234 *F*\nMox x");
+    assert_eq!(board_of(&p, "Rampant Growth").unwrap().qty, 1);
+    assert_eq!(board_of(&p, "Forest").unwrap().qty, 12);
+    assert_eq!(board_of(&p, "Sol Ring").unwrap().qty, 2);
+    let signet = board_of(&p, "Arcane Signet").unwrap();
+    assert_eq!((signet.qty, signet.set_code.as_deref(), signet.finish.as_deref()), (2, Some("c21"), Some("foil")));
+    // "x" alone isn't a count: the line is kept as written, to be matched or shown as unknown.
+    assert_eq!(board_of(&p, "Mox x").unwrap().qty, 1);
+    assert!(p.skipped.is_empty());
+}
+
+/// The count sits straight after the name, as `decks::parse_list` and the web's list reader have
+/// it. After a printing or a marker an "x2" is no count: the line is one copy.
+#[test]
+fn a_count_after_the_name_comes_before_any_printing_or_marker() {
+    let p = parse_text("Forest x2 (FDN) 280 *F*\nOpt x3 #draw\nNegate x4 [MOM]\nSol Ring (C21) x2\nIsland *F* x2\n[C21#263] Arcane Signet x2");
+    let forest = board_of(&p, "Forest").unwrap();
+    assert_eq!(
+        (forest.qty, forest.set_code.as_deref(), forest.collector_number.as_deref(), forest.finish.as_deref()),
+        (2, Some("fdn"), Some("280"), Some("foil"))
+    );
+    assert_eq!(board_of(&p, "Opt").unwrap().qty, 3);
+    let negate = board_of(&p, "Negate").unwrap();
+    assert_eq!((negate.qty, negate.set_code.as_deref()), (4, Some("mom")));
+    // After the set code: one Sol Ring, as lists read before counts could follow a name.
+    let sol = board_of(&p, "Sol Ring").unwrap();
+    assert_eq!((sol.qty, sol.set_code.as_deref()), (1, Some("c21")));
+    // After the foil mark: not two Islands. The line stays one copy of the name as written,
+    // to be matched or shown as unknown.
+    assert!(board_of(&p, "Island").is_none());
+    let island = board_of(&p, "Island x2").unwrap();
+    assert_eq!((island.qty, island.finish.as_deref()), (1, Some("foil")));
+    // Deckstats writes the printing first: the count still follows the name.
+    let signet = board_of(&p, "Arcane Signet").unwrap();
+    assert_eq!((signet.qty, signet.set_code.as_deref(), signet.collector_number.as_deref()), (2, Some("c21"), Some("263")));
+    assert!(p.skipped.is_empty());
+}
+
 #[test]
 fn csv_exports_by_their_columns() {
     let p = parse_any(include_str!("fixtures/moxfield.csv"), Some("deck.csv"));
@@ -356,4 +441,22 @@ async fn a_proxy_is_kept_with_the_deck_even_without_a_printing() {
     // With no printing named, exports fall back as before.
     let (_, deck) = send(&app, Method::GET, &format!("/api/decks/{id}"), Some(&token), None).await;
     assert_ne!(deck["cards"][0]["printing"]["from"], "chosen");
+}
+
+/// Only plain Partner pairs with any other partner: the import page guesses a second commander
+/// from it, so the named kinds must not count.
+#[test]
+fn plain_partner_is_the_keyword_alone() {
+    use super::plain_partner;
+    assert!(plain_partner("Partner (You can have two commanders if both have partner.)\n{T}: Draw a card."));
+    assert!(plain_partner("Flying\nPartner"));
+    for other in [
+        "Partner with Pir, Imaginative Rascal (When this creature enters, target player may put Pir into their hand from their library, then shuffle.)",
+        "Partner—Friends forever (You can have two commanders if both have friends forever.)",
+        "Choose a Background (You can have a Background as a second commander.)",
+        "Commander creatures you own have \"partner\" in their rules text.",
+        "",
+    ] {
+        assert!(!plain_partner(other), "{other}");
+    }
 }

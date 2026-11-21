@@ -10,6 +10,16 @@ const NAME_MAX = 60;
 const GUEST_NAME_MAX = 40;
 
 /**
+ * Whoever is already in the group under this name, guest or member, case and outer spaces aside:
+ * two people with one name can't be told apart in a seat picker. The server refuses it the same
+ * way (playgroups.rs, `add_guest`).
+ */
+export function guestTaken(members: Member[], name: string): Member | undefined {
+  const wanted = name.trim().toLowerCase();
+  return wanted ? members.find((m) => m.display_name.trim().toLowerCase() === wanted) : undefined;
+}
+
+/**
  * Who is in a playgroup, and what each person may do about it. Any member adds guests and may
  * leave; the owner also renames the group, makes a new join code, removes people, hands the group
  * on and deletes it (server/src/playgroups.rs has the rules).
@@ -33,7 +43,12 @@ export function Members({ group }: { group: Playgroup }) {
   };
   const [guest, setGuest] = useState("");
   const addGuest = useMutation({
-    mutationFn: () => api(`/api/playgroups/${group.id}/guests`, { method: "POST", json: { name: guest } }),
+    mutationFn: async () => {
+      // Said here, without a round trip; the server has the same rule for a list that's out of date.
+      const taken = guestTaken(group.members, guest);
+      if (taken) throw new Error(`${taken.display_name} is already in this playgroup.`);
+      return api(`/api/playgroups/${group.id}/guests`, { method: "POST", json: { name: guest } });
+    },
     onSuccess: () => {
       setGuest("");
       refresh();

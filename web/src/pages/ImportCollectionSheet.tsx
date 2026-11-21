@@ -14,13 +14,16 @@ import {
   NEW_BOX,
   newAgain,
   nextCheck,
+  otherSuggestions,
   previewImport,
   previewLines,
   resultLines,
   runImport,
+  swapName,
   unmatchedList,
   unmatchedText,
   type ImportReport,
+  type UnmatchedLine,
 } from "./collectionImport";
 
 /** Lines of a long list drawn at first: an export can run to thousands. */
@@ -30,12 +33,13 @@ const SHOWN = 300;
  * Import cards from a pasted list or a file exported by another app. The preview is a dry run
  * (the server matches everything and writes nothing); what matches nothing stays listed, before
  * and after. `onMythic` opens the Mythic Tools import, which also brings that app's boxes and decks.
+ * `place` is the box the import was opened from, offered as where the cards go.
  */
-export function ImportCollectionSheet({ containers, onClose, onMythic }: { containers: Container[]; onClose: () => void; onMythic: () => void }) {
+export function ImportCollectionSheet({ containers, place: from, onClose, onMythic }: { containers: Container[]; place?: string; onClose: () => void; onMythic: () => void }) {
   const qc = useQueryClient();
   const [pasted, setPasted] = useState("");
   const [file, setFile] = useState<{ name: string; text: string } | null>(null);
-  const [place, setPlace] = useState("");
+  const [place, setPlace] = useState(from ?? "");
   const [newName, setNewName] = useState("");
   const [topUp, setTopUp] = useState(false);
   const [tooBig, setTooBig] = useState<Error | null>(null);
@@ -78,6 +82,16 @@ export function ImportCollectionSheet({ containers, onClose, onMythic }: { conta
     const text = await f.text();
     setFile({ name: f.name, text });
     start(text, f.name);
+  };
+  /** A line that matched nothing, with one of the names it might have meant: the text with that name in it, or null. */
+  const swapped = (u: UnmatchedLine, name: string) => (check ? swapName(check.text, u, name) : null);
+  /** Put the suggested name in that line and check the list again. */
+  const swap = (u: UnmatchedLine, name: string) => {
+    const text = swapped(u, name);
+    if (text == null || !check) return;
+    if (file) setFile({ name: file.name, text });
+    else setPasted(text);
+    start(text, check.fileName);
   };
   const needsName = place === NEW_BOX && !newName.trim();
   // The preview doesn't depend on where the copies go, so the place is worded here.
@@ -155,7 +169,7 @@ export function ImportCollectionSheet({ containers, onClose, onMythic }: { conta
         )}
         {preview.isFetching && <Loading>Matching the cards…</Loading>}
         <ErrorText error={tooBig ?? preview.error ?? apply.error} retry={!tooBig && preview.error ? () => void preview.refetch() : undefined} />
-        {r && <ImportReportView report={r} done={!!result} />}
+        {r && <ImportReportView report={r} done={!!result} canSwap={result ? undefined : (u, name) => swapped(u, name) != null} onSwap={swap} />}
         {r && !result && r.source === "a Mythic Tools export" && (
           <p>
             This is a Mythic Tools export. Its own import also keeps its boxes and decks.{" "}
@@ -190,8 +204,22 @@ export function ImportCollectionSheet({ containers, onClose, onMythic }: { conta
   );
 }
 
-/** What an import would do (a preview) or did: the counts, what matched nothing, and the cards. */
-export function ImportReportView({ report: r, done }: { report: ImportReport; done: boolean }) {
+/**
+ * What an import would do (a preview) or did: the counts, what matched nothing, and the cards.
+ * In a preview, a name a line might have meant is a button where `canSwap` says the line can be
+ * changed: `onSwap` puts that name in the line and checks the list again.
+ */
+export function ImportReportView({
+  report: r,
+  done,
+  canSwap,
+  onSwap,
+}: {
+  report: ImportReport;
+  done: boolean;
+  canSwap?: (u: UnmatchedLine, name: string) => boolean;
+  onSwap?: (u: UnmatchedLine, name: string) => void;
+}) {
   const more = r.added_cards.length - SHOWN;
   return (
     <>
@@ -207,7 +235,32 @@ export function ImportReportView({ report: r, done }: { report: ImportReport; do
       {r.unmatched.length > 0 && (
         <section className="stack" aria-label="Lines that aren't added">
           <h3>Not added</h3>
-          <ul className="collect-cards small">{r.unmatched.map((u, i) => <li key={i}>{unmatchedText(u)}</li>)}</ul>
+          <ul className="collect-cards small">
+            {r.unmatched.map((u, i) => {
+              const names = otherSuggestions(u);
+              // Plain text where nothing can be tapped: after the import, or a line Yama can't find to change.
+              if (!onSwap || !canSwap || names.length === 0 || !names.some((n) => canSwap(u, n))) return <li key={i}>{unmatchedText(u)}</li>;
+              return (
+                <li key={i}>
+                  <span>{unmatchedText({ ...u, suggestions: [] })}</span>
+                  <span className="import-meant">
+                    Did you mean
+                    {names.map((n, j) => (
+                      <span key={n} className="import-meant">
+                        {j > 0 ? "or " : ""}
+                        {canSwap(u, n) ? (
+                          <Button variant="outline" size="small" aria-label={`Use ${n} for this line`} onClick={() => onSwap(u, n)}>{n}</Button>
+                        ) : (
+                          n
+                        )}
+                        {j === names.length - 1 ? "?" : ""}
+                      </span>
+                    ))}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
           <div className="row">
             <CopyButton variant="outline" size="small" text={unmatchedList(r)} label={r.unmatched.length === 1 ? "Copy this line" : "Copy these lines"} />
           </div>

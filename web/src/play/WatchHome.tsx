@@ -13,6 +13,7 @@ import { BackLink, Button, CheckRow, ErrorText, Field, Segmented } from "../comp
 import type { PreconItem, PreconList } from "../lab/api";
 import { shortName } from "./text";
 import { LEVELS, SPEEDS, statusLine, tableNames, watchAllowanceText, watchRequest, type Level, type WatchAllowance, type WatchSeatPlan, type WatchSummary } from "./watch";
+import { recentDecks } from "./setup";
 import type { Speed } from "./types";
 import { SavedDeckPicker, PreconPicker } from "../components/DeckPicker";
 import "./play.css";
@@ -62,7 +63,7 @@ export function WatchHome() {
           <section className="ph-games" aria-labelledby="wh-games-h">
             <h2 id="wh-games-h">Your watched games</h2>
             <ErrorText error={games.error} />
-            {games.data && games.data.length === 0 && <p className="dim">No games to watch.</p>}
+            {games.data && games.data.length === 0 && <p className="dim">None yet. A finished game stays here for 30 minutes after you last looked at it.</p>}
             <ul className="ph-game-list">
               {(games.data ?? []).map((g) => {
                 const left = Object.values(g.missing_cards).reduce((n, c) => n + c.length, 0);
@@ -98,10 +99,13 @@ function WatchSetup({ decks, precons, usedUp }: { decks: DeckSummary[]; precons:
   // Repeats of an earlier list are left out; sorted by name with the set for twins of a name.
   const choices = precons.filter((p) => !p.same_list_as).sort((a, b) => a.name.localeCompare(b.name));
   const pick = (i: number) => choices.length ? choices[(i * 37 + 11) % choices.length]!.id : "";
+  // A seat's deck of yours: the most recently changed first, a different one per seat (the list
+  // arrives by name), as Play online's seats start.
+  const order = recentDecks(decks);
   const [seats, setSeats] = useState<WatchSeatPlan[]>(() =>
     [0, 1, 2, 3].map((i) => ({
       source: i === 0 && decks.length ? "deck" : "precon",
-      deckId: decks[i % Math.max(1, decks.length)]?.id ?? "",
+      deckId: order[i % Math.max(1, order.length)] ?? "",
       preconId: pick(i),
       level: "Medium" as Level,
     })),
@@ -215,7 +219,7 @@ function WatchSetup({ decks, precons, usedUp }: { decks: DeckSummary[]; precons:
       <div className="ph-new-foot">
         <span className="ph-seat-buttons">
           {seats.length < 4 && (
-            <Button variant="outline" className="ph-add" onClick={() => setSeats((a) => [...a, { source: "precon", deckId: decks[0]?.id ?? "", preconId: pick(a.length), level: "Medium" }])}>
+            <Button variant="outline" className="ph-add" onClick={() => setSeats((a) => [...a, { source: "precon", deckId: order[a.length % Math.max(1, order.length)] ?? "", preconId: pick(a.length), level: "Medium" }])}>
               Add a seat
             </Button>
           )}

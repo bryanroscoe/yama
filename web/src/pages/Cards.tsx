@@ -3,17 +3,18 @@ import { CardHover } from "../components/CardRef";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
-import { api, type Card, type SearchResult } from "../api";
+import { api, ApiError, errorMessage, unanswered, type Card, type SearchResult } from "../api";
 import { isNetworkError } from "../cardDetail";
 import { isGuest } from "../guest";
-import { Button, ButtonLink, CardImage, Dialog, ErrorText, Pager } from "../components/ui";
-import { offlineSearch } from "../offline/cards";
+import { Button, ButtonLink, CardImage, Details, Dialog, ErrorText, Pager } from "../components/ui";
+import { offlineCardNames, offlineSearch } from "../offline/cards";
 import { ReleaseCalendar } from "../components/Upcoming";
-import { cardNamed, exactNameQuery, nameQuery, queryChips, withoutTerm } from "./cardQuery";
+import { cardNamed, didYouMean, exactNameQuery, nameBeingTyped, nameQuery, queryChips, searchableNames, searchErrorWords, withoutTerm, wordsToLookUp } from "./cardQuery";
 import { CardSearchBox } from "./CardSearchBox";
 import { CardView } from "./CardView";
 import "./cards.css";
 import { orderUsed, priceSource, usd, plural } from "@yama/core";
+import { BugButton } from "../bugs/BugButton";
 
 const EXAMPLES = [
   { q: "id<=ug is:commander", label: "Simic commanders" },
@@ -35,6 +36,42 @@ const ORDERS = [
   { value: "released", label: "Newest" },
   { value: "released_asc", label: "Oldest" },
 ];
+
+/** What the search understands: behind the "?" by the heading, and under a search that found nothing or couldn't be read. */
+const SYNTAX = (
+  <>
+    <p>Search works like Scryfall: <code>o:</code> rules text, <code>t:</code> type, <code>id&lt;=</code> fits a commander, <code>mv</code>, <code>pow</code>, <code>f:commander</code>, <code>is:gamechanger</code>, <code>-</code> to exclude, <code>or</code> and parentheses.</p>
+    <p>Also <code>set:cmm</code>, <code>a:</code> artist, <code>year&gt;=2020</code>, <code>usd&lt;5</code> (a card with no price never matches a price; <code>set:</code>, <code>a:</code> and <code>year</code> side by side are about the same printing) and <code>is:reserved</code>, <code>is:partner</code>, <code>is:mdfc</code>.</p>
+  </>
+);
+
+/**
+ * Names to look for a misspelled one among. An account's device keeps the name of every card (the
+ * offline copy): all of them. Without that copy, the most played cards that share a long word with
+ * what was typed, from the search itself ("bolt" finds Lightning Bolt for "lightnig bolt").
+ */
+async function nameCandidates(typed: string, guest: boolean, signal: AbortSignal): Promise<string[]> {
+  const saved = await offlineCardNames().catch(() => null);
+  if (saved?.length) return searchableNames(saved);
+  const pages = await Promise.all(
+    wordsToLookUp(typed).map((w) => api<SearchResult>(`/api/${guest ? "guest/" : ""}cards/search?q=${encodeURIComponent(w)}&order=edhrec&page=1`, { signal }).catch(() => null)),
+  );
+  return pages.flatMap((p) => p?.cards.map((c) => c.name) ?? []);
+}
+
+/**
+ * A search that couldn't be read, as a sentence; null when the failure isn't about the query (no
+ * answer, too many searches), which says its own piece.
+ */
+export function searchProblem(e: unknown): string | null {
+  if (!e || unanswered(e)) return null;
+  const message = errorMessage(e);
+  const known = searchErrorWords(message);
+  if (known) return known;
+  // Any other "bad request" is still about the query: its own words when they are a sentence.
+  if (e instanceof ApiError && e.status === 400) return /^[A-Z].*[.!?]$/.test(message) ? message : "Yama couldn't read that search.";
+  return null;
+}
 
 export function CardsPage() {
   const [params, setParams] = useSearchParams();
@@ -84,13 +121,16 @@ export function CardsPage() {
   // card is then the results for the name. The card is found by its exact name, on its own, not
   // in the results: they may be sorted another way, or run past the first page.
   const [picked, setPicked] = useState<string | null>(null);
+  // The card that lookup found, kept for the card page: signed out, the page is drawn from a
+  // search hit, and the results on screen may not have this card on their first page.
+  const [pickedHit, setPickedHit] = useState<Card | null>(null);
   const pickName = (name: string) => {
     setPicked(name);
     set({ q: nameQuery(name), page: "1" });
   };
   const pickedCard = useQuery({
     queryKey: ["card-named", picked],
-    queryFn: ({ signal }) => api<SearchResult>(`/api/cards/search?q=${encodeURIComponent(exactNameQuery(picked!))}&order=name&page=1`, { signal }),
+    queryFn: ({ signal }) => api<SearchResult>(`/api/${guest ? "guest/" : ""}cards/search?q=${encodeURIComponent(exactNameQuery(picked!))}&order=name&page=1`, { signal }),
     enabled: !!picked,
     retry: false,
     staleTime: 5 * 60_000,
@@ -102,7 +142,9 @@ export function CardsPage() {
     if (!pickedCard.data) return;
     setPicked(null);
     const card = cardNamed(pickedCard.data.cards, picked);
-    if (card) openCard(card.oracle_id);
+    if (!card) return;
+    setPickedHit(card);
+    openCard(card.oracle_id);
     // Once per pick, when the card is found; openCard reads the address as it is then.
   }, [picked, q, pickedCard.data, pickedCard.isError]);
   // Closing the card page puts focus back on the card it came from.
@@ -117,18 +159,48 @@ export function CardsPage() {
   const pages = results.data ? Math.ceil(results.data.total / results.data.page_size) : 0;
   const chips = queryChips(q);
   const priceDate = results.data?.cards.find((c) => c.price_date)?.price_date;
+  // A page turn starts at the top of the new page: the pager is under the last card, and the
+  // address changing doesn't move the scroll. Only when the summary is off-screen, so a new search
+  // typed at the top (which also goes back to page 1) stays where it is.
+  const summary = useRef<HTMLDivElement>(null);
+  const turned = useRef(page);
+  useEffect(() => {
+    if (turned.current === page) return;
+    turned.current = page;
+    const el = summary.current;
+    if (!el) return;
+    const top = el.getBoundingClientRect().top;
+    if (top < 0 || top > window.innerHeight) el.scrollIntoView({ block: "start" });
+  }, [page]);
+  // Nothing found for plain words is most often a misspelled name: offer the nearest ones.
+  const queryNote = searchProblem(results.error);
+  const none = !!q && !!results.data && !results.isPlaceholderData && results.data.total === 0;
+  const typedName = nameBeingTyped(q);
+  const meant = useQuery({
+    queryKey: ["did-you-mean", typedName?.toLowerCase(), guest],
+    queryFn: async ({ signal }) => didYouMean(typedName!, await nameCandidates(typedName!, guest, signal)),
+    enabled: none && !!typedName && !results.data?.offline,
+    staleTime: Infinity,
+    retry: false,
+  });
+  const sort = (
+    <label className="cards-sort">
+      Sort
+      <select className="cards-chip outline cards-order-chip" value={order} onChange={(e) => set({ order: e.target.value, page: "1" })} aria-label="Sort by">
+        {ORDERS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+    </label>
+  );
 
   return (
     <>
       <main className="page cards-page" aria-hidden={open ? true : undefined}>
         <div className="help-heading">
           <h1>Cards</h1>
-          <HelpPopover label="Search syntax">
-            <p>Search works like Scryfall: <code>o:</code> rules text, <code>t:</code> type, <code>id&lt;=</code> fits a commander, <code>mv</code>, <code>pow</code>, <code>f:commander</code>, <code>is:gamechanger</code>, <code>-</code> to exclude, <code>or</code> and parentheses.</p>
-            <p>Also <code>set:cmm</code>, <code>a:</code> artist, <code>year&gt;=2020</code>, <code>usd&lt;5</code> (a card with no price never matches a price; <code>set:</code>, <code>a:</code> and <code>year</code> side by side are about the same printing) and <code>is:reserved</code>, <code>is:partner</code>, <code>is:mdfc</code>.</p>
-          </HelpPopover>
+          <HelpPopover label="Search syntax">{SYNTAX}</HelpPopover>
           {/* Cards in hand go straight to the collection's scanner. */}
           {!guest && <ButtonLink variant="outline" size="small" className="cards-scan" to="/collection?scan=1">Scan my cards</ButtonLink>}
+          <BugButton />
         </div>
         <form
           className="cards-search"
@@ -147,7 +219,8 @@ export function CardsPage() {
               setPicked(null);
             }}
             onPick={pickName}
-            suggest={!guest}
+            suggest
+            guest={guest}
           />
           <select className="cards-order" value={order} onChange={(e) => set({ order: e.target.value, page: "1" })} aria-label="Sort by">
             {ORDERS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -167,30 +240,71 @@ export function CardsPage() {
           </div>
         )}
 
-        <ErrorText error={results.error} />
+        {queryNote ? (
+          <div className="cards-problem">
+            <p className="error" role="alert">{queryNote}</p>
+            <Details label="Search syntax">{SYNTAX}</Details>
+          </div>
+        ) : (
+          <ErrorText error={results.error} />
+        )}
+        {/* A search that couldn't be read keeps its chips, so the term at fault can be taken out. */}
+        {q && !results.data && results.error && chips.length > 0 && (
+          <div className="cards-summary">
+            <div className="cards-chips-row">
+              {/* As typed, not in words: a term the search can't read has no meaning to put into words. */}
+              {chips.map((c) => (
+                <span key={c.raw} className="cards-chip term">
+                  {c.raw}
+                  <Button aria-label={`Remove ${c.raw}`} onClick={() => set({ q: withoutTerm(q, c.raw), page: "1" })}>×</Button>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
         {q && results.data && (
           <>
-            <div className="cards-summary">
-              <span className="cards-count">
-                {plural(results.data.total, "card")}
-                {results.data.offline ? ", searched on this device while offline" : ""}
-                {results.data.offline && orderUsed(order) !== order ? ", in name order (prices and release dates aren't kept on the device)" : ""}
-                <span className="cards-narrow">{priceDate ? `. Prices: ${priceSource(priceDate)}.` : ""}</span>
-              </span>
-              <div className="cards-chips-row">
-                {chips.map((c) => (
-                  <span key={c.raw} className="cards-chip term">
-                    {c.label}
-                    <Button aria-label={`Remove ${c.label}`} onClick={() => set({ q: withoutTerm(q, c.raw), page: "1" })}>×</Button>
-                  </span>
-                ))}
-                {/* Phones: the sort order is the last chip. */}
-                <select className="cards-chip outline cards-order-chip" value={order} onChange={(e) => set({ order: e.target.value, page: "1" })} aria-label="Sort by">
-                  {ORDERS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              </div>
+            <div className="cards-summary" ref={summary}>
+              {/* Phones: the count with the sort at its right, always on screen (the chips above it scroll sideways). */}
+              {/* Nothing found says so in words below: no "0 cards" over it (offline, the line still says where it searched). */}
+              {(!none || results.data.offline) && <div className="cards-count-line">
+                <span className="cards-count">
+                  {plural(results.data.total, "card")}
+                  {results.data.offline ? ", searched on this device while offline" : ""}
+                  {results.data.offline && orderUsed(order) !== order ? ", in name order (prices and release dates aren't kept on the device)" : ""}
+                  <span className="cards-narrow">{priceDate ? `. Prices: ${priceSource(priceDate)}.` : ""}</span>
+                </span>
+                {results.data.total > 1 && sort}
+              </div>}
+              {chips.length > 0 && (
+                <div className="cards-chips-row">
+                  {chips.map((c) => (
+                    <span key={c.raw} className="cards-chip term">
+                      {c.label}
+                      <Button aria-label={`Remove ${c.label}`} onClick={() => set({ q: withoutTerm(q, c.raw), page: "1" })}>×</Button>
+                    </span>
+                  ))}
+                </div>
+              )}
               {priceDate && <span className="cards-prices">Prices: {priceSource(priceDate)}</span>}
             </div>
+            {none && (
+              <div className="cards-none">
+                <p className="cards-none-head">No card matches{typedName ? ` "${typedName}"` : " that search"}.</p>
+                {(meant.data?.length ?? 0) > 0 && (
+                  <div className="cards-meant">
+                    <span>Did you mean</span>
+                    {meant.data!.map((name) => (
+                      <Button key={name} className="cards-chip" onClick={() => set({ q: nameQuery(name), page: "1" })}>{name}</Button>
+                    ))}
+                  </div>
+                )}
+                <p className="dim">
+                  {typedName ? "Check the spelling, or type just part of the name." : chips.length > 1 ? "Take one of the filters above off (its ×) to find more." : "Nothing fits that filter."}
+                </p>
+                <Details label="Search syntax">{SYNTAX}</Details>
+              </div>
+            )}
             <ul className="cards-grid">
               {results.data.cards.map((c) => {
                 const owned = c.owned ?? 0;
@@ -219,7 +333,7 @@ export function CardsPage() {
           </>
         )}
       </main>
-      {open && <CardPage oracleId={open} onClose={closeCard} backLabel={q ? "Search results" : "Cards"} hit={results.data?.cards.find((c) => c.oracle_id === open)} />}
+      {open && <CardPage oracleId={open} onClose={closeCard} backLabel={q ? "Search results" : "Cards"} hit={results.data?.cards.find((c) => c.oracle_id === open) ?? (pickedHit?.oracle_id === open ? pickedHit : undefined)} />}
     </>
   );
 }

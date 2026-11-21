@@ -797,6 +797,12 @@ a.choice-chip {
 }
 
 .site-footer { max-width: calc(var(--content-w) + 2 * var(--page-pad)); padding: 20px var(--page-pad) 32px; margin: 0 auto; border-top: 1px solid var(--line); }
+/* About, Help, Privacy, Terms: the public pages' footer links (components/siteFrame.ts), quiet
+   words that are each a 44 px target, a short one (About, Terms) across as well as down. The
+   words keep to the left of their target, so the row starts on the page's edge. */
+.site-footer nav { display: flex; flex-wrap: wrap; gap: 0 24px; margin-top: -8px; }
+.site-footer nav a { display: inline-flex; align-items: center; min-width: var(--target); min-height: var(--target); color: var(--dim); font-size: var(--t-sm); text-decoration: none; }
+.site-footer nav a:hover { color: var(--text); text-decoration: underline; text-underline-offset: 4px; text-decoration-thickness: 1px; }
 .site-notice { color: var(--dim); font-size: var(--t-sm); line-height: 1.5; }
 .site-notice p { margin: 12px 0 0; }
 
@@ -846,6 +852,42 @@ body::before {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+}
+/* The bug sits level with the title, as it does in the area heads (components/deck-area.css):
+   in the middle of it on a phone, on its foot on a laptop. Under a title with a line below it
+   the row's foot is that line's, and the bug sat down there beside it: there the end of the row
+   is one title line tall and starts at the top, so the bug stays beside the title. */
+.page-head > .page-head-end {
+  align-self: center;
+}
+.page-head > div:first-child + .page-head-end {
+  align-self: flex-start;
+  min-height: calc(var(--t-title) * 0.9);
+}
+@media (min-width: 900px) {
+  .page-head > .page-head-end {
+    align-self: flex-end;
+  }
+  .page-head > div:first-child + .page-head-end {
+    align-self: flex-start;
+    align-items: flex-end;
+  }
+}
+/* A page that draws its own title row (Collection, Cards, Playgroup, Game history, New game)
+   ends it with the bug too, level with the title. */
+.head-with-bug {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.head-with-bug > h1 {
+  margin: 0;
+  min-width: 0;
+}
+.head-bug {
+  margin-left: auto;
+  align-self: flex-start;
 }
 /* With the bug at its end the title takes the room left over, so a long one wraps beside the bug
    rather than pushing it to a row of its own. */
@@ -931,6 +973,9 @@ body::before {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  /* Never squeezed: a row wider than the screen scrolls. (With the min-width below an entry could
+     shrink under its own words, which then ran into the next entry on a phone.) */
+  flex: none;
   /* A short word (Cards, Watch) still gets a full target. */
   min-width: var(--target);
   min-height: var(--target);
@@ -2121,18 +2166,22 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   }
 }
 .deck-tile {
-  display: block;
+  /* A grid, so the art panel fills a tile stretched to its row's tallest neighbour. */
+  display: grid;
+  height: 100%;
   color: inherit;
   text-decoration: none;
   border-radius: var(--r-panel);
 }
+/* At least this tall: a tile grows for what it has to say rather than cutting its last line. */
 .deck-tile .art-panel {
-  height: 200px;
+  min-height: 200px;
   display: grid;
 }
 .deck-tile .art-body {
   align-self: end;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 4px;
   padding: 12px;
 }
@@ -2148,6 +2197,13 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   line-height: 0.95;
   text-shadow: var(--art-shadow);
   text-wrap: balance;
+  /* Two lines on a phone, three on a laptop; a longer name ends in an ellipsis and is whole on
+     the deck's page. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 .deck-tile-meta {
   display: flex;
@@ -2157,8 +2213,14 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   font-size: var(--t-sm);
   color: var(--on-art-dim);
 }
-.deck-tile-cmdr {
-  display: none;
+.deck-tile-meta.deck-tile-cmdr {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* Full strength with a shadow: it sits straight on the art, above the darkest part of the wash. */
+  color: var(--on-art);
+  text-shadow: var(--art-shadow);
 }
 .deck-tile-foot {
   display: flex;
@@ -2199,7 +2261,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
 }
 @media (min-width: 900px) {
   .deck-tile .art-panel {
-    height: 300px;
+    min-height: 300px;
   }
   .deck-tile .art-body {
     gap: 6px;
@@ -2207,9 +2269,9 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   }
   .deck-tile-name {
     font-size: var(--t-xl);
+    -webkit-line-clamp: 3;
   }
-  .deck-tile-cmdr {
-    display: flex;
+  .deck-tile-meta.deck-tile-cmdr {
     font-size: var(--t-label);
   }
   .deck-tile-foot {

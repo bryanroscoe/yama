@@ -320,6 +320,45 @@
   flex: 1 1 300px;
 }
 
+/* Starting or joining a playgroup: each field under its label with its button beside it, and
+   what went wrong on the line below. */
+.group-page .grp-intro {
+  margin: 0;
+  max-width: 60ch;
+}
+.grp-start {
+  max-width: 560px;
+  margin-bottom: 2.5rem;
+}
+.grp-start .grp-guest {
+  align-items: end;
+}
+.group-page .grp-start .grp-guest label {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  font-weight: 700;
+  font-size: var(--t-label);
+}
+/* Both buttons one width, so the two fields line up. */
+.grp-start .grp-guest > button {
+  min-width: 9.5rem;
+}
+.group-page .grp-start .error {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+/* The fold under the Commanders table: how many it holds, and the button that opens it. */
+.group-page .grp-more {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin: 0;
+  color: var(--dim);
+  font-size: var(--t-sm);
+}
+
 /* Members and you */
 .grp-guest {
   display: grid;

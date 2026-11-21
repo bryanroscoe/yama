@@ -1,7 +1,8 @@
 import { renderToStaticMarkup } from "react-dom/server";
+import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 import { ApiError } from "../api";
-import { gone, LoadFailed, queryFailure, RefreshFailed } from "./QueryError";
+import { gone, LoadFailed, NotHere, queryFailure, RefreshFailed } from "./QueryError";
 
 const refetch = () => undefined;
 const failed = new Error("Server unavailable");
@@ -29,9 +30,26 @@ describe("a query that failed", () => {
       expect(gone(error)).toBe(false);
       expect(queryFailure({ error, data: { id: "d1" } })).toBe("notice");
     }
-    const html = renderToStaticMarkup(<LoadFailed query={{ error: new ApiError(404, "No such deck"), data: { id: "d1" }, refetch }} />);
-    expect(html).toContain("No such deck");
+    const html = renderToStaticMarkup(<MemoryRouter><LoadFailed query={{ error: new ApiError(404, "No such deck"), data: { id: "d1" }, refetch }} /></MemoryRouter>);
+    expect(html).toContain("Not here");
     expect(renderToStaticMarkup(<RefreshFailed query={{ error: new ApiError(404, "No such deck"), data: { id: "d1" }, refetch }} />)).toBe("");
+  });
+
+  it("says Not here, with a way home and no Try again, for an address that isn't this account's", () => {
+    for (const status of [403, 404, 410]) {
+      const html = renderToStaticMarkup(<MemoryRouter><LoadFailed query={{ error: new ApiError(status, "deck not found"), data: undefined, refetch }} /></MemoryRouter>);
+      expect(html).toContain("<h1>Not here</h1>");
+      expect(html).toContain("This isn&#x27;t in your account. It may have been deleted, or it&#x27;s someone else&#x27;s: ask them for its Share link.");
+      expect(html).toContain('<a class="button" href="/" data-discover="true">Go home</a>');
+      // The server's own words and a retry that can't work are gone.
+      expect(html).not.toContain("deck not found");
+      expect(html).not.toContain("Try again");
+    }
+    // A page for something that was never in an account says its own line.
+    const precon = renderToStaticMarkup(<MemoryRouter><NotHere>Yama has no precon at this address.</NotHere></MemoryRouter>);
+    expect(precon).toContain("Yama has no precon at this address.");
+    expect(precon).not.toContain("your account");
+    expect(renderToStaticMarkup(<MemoryRouter><LoadFailed notHere="Nobody has this handle." query={{ error: new ApiError(404, "profile not found"), data: undefined, refetch }} /></MemoryRouter>)).toContain("Nobody has this handle.");
   });
 
   it("shows the error with Try again when there is nothing else to show", () => {

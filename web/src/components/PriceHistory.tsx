@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "../api";
-import { usd } from "@yama/core";
+import { fmtDate, shortDate, usd } from "@yama/core";
 import { Button } from "./Button";
 
 interface Point {
@@ -29,8 +29,27 @@ export function historyView({ hasData, loading }: { hasData: boolean; loading: b
   return loading ? "wait" : "show";
 }
 
-/** Daily market price for one printing and finish, with a hover readout and a table view. */
-export function PriceHistory({ scryfallId, finish, setName }: { scryfallId: string; finish: "nonfoil" | "foil" | "etched"; setName: string }) {
+/** A price's day as the rest of the app writes it: "Nov 20", with the year only when it isn't this one ("Nov 20, 2025"). */
+export function priceDay(date: string, now: Date = new Date()): string {
+  return (date.startsWith(`${now.getFullYear()}-`) ? shortDate(date) : fmtDate(date)) || date;
+}
+
+/**
+ * Daily market price for one printing and finish, with a hover readout and a table view.
+ * `reveal`: it was opened by a tap further up the page (a printing's row), so once it has
+ * something to show it is brought into view.
+ */
+export function PriceHistory({ scryfallId, finish, setName, reveal = false }: { scryfallId: string; finish: "nonfoil" | "foil" | "etched"; setName: string; reveal?: boolean }) {
+  const root = useRef<HTMLElement | null>(null);
+  const setRoot = (el: HTMLElement | null) => {
+    root.current = el;
+  };
+  const revealed = useRef(false);
+  useEffect(() => {
+    if (!reveal || revealed.current || !root.current) return;
+    revealed.current = true;
+    root.current.scrollIntoView?.({ block: "nearest" });
+  });
   const history = useQuery({ queryKey: ["prices", scryfallId], queryFn: ({ signal }) => api<Point[]>(`/api/printings/${scryfallId}/prices`, { signal }) });
   const [hover, setHover] = useState<number | null>(null);
   const pick = (p: Point) => (finish === "foil" ? p.usd_foil : finish === "etched" ? p.usd_etched : p.usd);
@@ -47,15 +66,15 @@ export function PriceHistory({ scryfallId, finish, setName }: { scryfallId: stri
   // A request that failed says so: it isn't the same as a printing with no price on record.
   if (view === "failed") {
     return (
-      <p className="small" role="alert">
+      <p className="small" role="alert" ref={setRoot}>
         <span className="error">Couldn't load the price history for {label}: {errorMessage(failure.current)}</span>{" "}
         <Button size="small" disabled={history.isFetching} onClick={() => void history.refetch()}>{history.isFetching ? "Trying…" : "Try again"}</Button>
       </p>
     );
   }
-  if (points.length === 0) return <p className="small dim">No market price recorded for {label}.</p>;
+  if (points.length === 0) return <p className="small dim" ref={setRoot}>No market price recorded for {label}.</p>;
   if (points.length === 1) {
-    return <p className="small dim">{label}: {usd(points[0]!.value)} on {points[0]!.date}. The chart fills in as daily prices arrive.</p>;
+    return <p className="small dim" ref={setRoot}>{label}: {usd(points[0]!.value)} on {priceDay(points[0]!.date)}. The chart fills in as daily prices arrive.</p>;
   }
 
   const values = points.map((p) => p.value);
@@ -71,20 +90,20 @@ export function PriceHistory({ scryfallId, finish, setName }: { scryfallId: stri
   const change = last.value - first.value;
 
   return (
-    <figure className="price-history">
+    <figure className="price-history" ref={setRoot}>
       <figcaption className="small">
         <span className="dim">{label}, market price</span>{" "}
-        <b className="num">{usd(shown.value)}</b> <span className="dim num">{shown.date}</span>
+        <b className="num">{usd(shown.value)}</b> <span className="dim num">{priceDay(shown.date)}</span>
         {hover === null && (
           <span className="dim num">
-            {" "}({change === 0 ? "no change" : `${change > 0 ? "up" : "down"} ${usd(Math.abs(change))}`} since {first.date})
+            {" "}({change === 0 ? "no change" : `${change > 0 ? "up" : "down"} ${usd(Math.abs(change))}`} since {priceDay(first.date)})
           </span>
         )}
       </figcaption>
       <svg
         viewBox={`0 0 ${W} ${H}`}
         role="img"
-        aria-label={`Market price for ${label} from ${first.date} to ${last.date}: low ${usd(min)}, high ${usd(max)}, latest ${usd(last.value)}`}
+        aria-label={`Market price for ${label} from ${priceDay(first.date)} to ${priceDay(last.date)}: low ${usd(min)}, high ${usd(max)}, latest ${usd(last.value)}`}
         onPointerMove={(e) => {
           const r = e.currentTarget.getBoundingClientRect();
           const rel = ((e.clientX - r.left) / r.width) * W;
@@ -109,7 +128,7 @@ export function PriceHistory({ scryfallId, finish, setName }: { scryfallId: stri
           <thead><tr><th>Date</th><th className="r">Price</th></tr></thead>
           <tbody>
             {[...points].reverse().map((p) => (
-              <tr key={p.date}><td className="num">{p.date}</td><td className="r num">{usd(p.value)}</td></tr>
+              <tr key={p.date}><td className="num">{priceDay(p.date)}</td><td className="r num">{usd(p.value)}</td></tr>
             ))}
           </tbody>
         </table>

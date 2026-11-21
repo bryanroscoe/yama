@@ -415,8 +415,9 @@ export function useHosting() {
 }
 
 /**
- * "Everyone's phone", in the table menu: the code to scan, and the link for anyone who'd rather
- * tap. Sharing starts when someone asks for the code, not whenever the menu opens.
+ * "Everyone's phone", in the table menu: the QR code to scan, and the link for anyone who'd rather
+ * tap. Sharing starts when someone asks for the code, not whenever the menu opens. It's called a
+ * QR code everywhere: "join code" is the playgroup's typed code, a different thing.
  */
 export function ShareCard({ gameId, onBigger }: { gameId: string; onBigger?: () => void }) {
   const hosting = useHosting();
@@ -427,12 +428,12 @@ export function ShareCard({ gameId, onBigger }: { gameId: string; onBigger?: () 
     <section className="tm-share" aria-labelledby="tm-share-title">
       {sharing && svg ? (
         onBigger ? (
-          <Button className="tm-qr tm-qr-btn" onClick={onBigger} aria-label="Show the join code full size" dangerouslySetInnerHTML={{ __html: svg }} />
+          <Button className="tm-qr tm-qr-btn" onClick={onBigger} aria-label="Show the QR code full size" dangerouslySetInnerHTML={{ __html: svg }} />
         ) : (
-          <div className="tm-qr" dangerouslySetInnerHTML={{ __html: svg }} aria-label="Join code" role="img" />
+          <div className="tm-qr" dangerouslySetInnerHTML={{ __html: svg }} aria-label="QR code to join this game" role="img" />
         )
       ) : (
-        <Button className="tm-qr tm-qr-off" onClick={() => startHosting(gameId)} aria-label="Show the join code">
+        <Button className="tm-qr tm-qr-off" onClick={() => startHosting(gameId)} aria-label="Show the QR code">
           <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <rect x="3" y="3" width="7" height="7" rx="1" />
             <rect x="14" y="3" width="7" height="7" rx="1" />
@@ -459,7 +460,7 @@ export function ShareCard({ gameId, onBigger }: { gameId: string; onBigger?: () 
           </>
         ) : (
           <div className="tm-share-actions">
-            <Button size="small" onClick={() => startHosting(gameId)}>Show the code</Button>
+            <Button size="small" onClick={() => startHosting(gameId)}>Show the QR code</Button>
           </div>
         )}
       </div>
@@ -468,7 +469,7 @@ export function ShareCard({ gameId, onBigger }: { gameId: string; onBigger?: () 
 }
 
 /**
- * The join code as big as the sheet allows, for the table to scan at the start of a game (or a
+ * The QR code as big as the sheet allows, for the table to scan at the start of a game (or a
  * late arrival). Sharing starts when this opens.
  */
 export function JoinSheet({ gameId, onDone }: { gameId: string; onDone: () => void }) {
@@ -487,7 +488,7 @@ export function JoinSheet({ gameId, onDone }: { gameId: string; onDone: () => vo
       <p className="dim" style={{ margin: 0 }}>
         Scan this with a phone camera, pick your seat and keep your own totals.{hostRelay(gameId) === "edge" ? " No account needed." : " Everyone signs in to Yama with Google the first time."}
       </p>
-      {sharing && svg ? <div className="join-qr" dangerouslySetInnerHTML={{ __html: svg }} aria-label="Join code" role="img" /> : <div className="join-qr join-qr-wait" aria-hidden="true" />}
+      {sharing && svg ? <div className="join-qr" dangerouslySetInnerHTML={{ __html: svg }} aria-label="QR code to join this game" role="img" /> : <div className="join-qr join-qr-wait" aria-hidden="true" />}
       <p role="status" className="tm-status">
         <span className={`status-dot ${hosting.connected ? "good" : "warn"}`} aria-hidden="true" />
         {!sharing ? "Not sharing" : hosting.connected ? "Live: joined devices follow along" : "Connecting to Yama…"}
@@ -500,7 +501,7 @@ export function JoinSheet({ gameId, onDone }: { gameId: string; onDone: () => vo
           <Button onClick={() => startHosting(gameId)}>Share again</Button>
         )}
       </div>
-      <p className="small dim" style={{ margin: 0 }}>This device keeps the game, so it carries on if the signal drops. The code stays in the table menu.</p>
+      <p className="small dim" style={{ margin: 0 }}>This device keeps the game, so it carries on if the signal drops. The QR code stays in the table menu.</p>
     </div>
   );
 }

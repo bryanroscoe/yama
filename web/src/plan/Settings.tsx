@@ -12,6 +12,7 @@ import { SettingsHowTo } from "./howto";
 import { clearPlanData } from "./store";
 import { fmtDate, usd } from "@yama/core";
 import { ask } from "../components/confirm";
+import { useScrollToHash } from "../components/useScrollToHash";
 
 const VIA: Record<string, string> = { web: "uploaded in the browser", token: "sent by a script", cli: "imported on the server" };
 
@@ -19,6 +20,8 @@ const VIA: Record<string, string> = { web: "uploaded in the browser", token: "se
 export function PlanSettings() {
   const { view, userId } = usePlanOutlet();
   const { b } = view;
+  // Links from a shopping list open the rules: "#shopping-rules".
+  useScrollToHash();
   const managed = (rows: { origin: string }[]) => (rows.length && rows.every((r) => r.origin === "import") ? ` Managed by your ${view.app} export.` : "");
   const stores = b.stores.filter((s) => !s.retired);
   return (

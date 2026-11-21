@@ -43,13 +43,14 @@ import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState
 import { Navigate, useLocation, useNavigate } from "react-router";
 import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
 import { ActionBar, Button, CardThumb, Dialog, DialogHead, Pips, Segmented } from "../components/ui";
+import { DayNightIcon } from "../components/icons";
 import { useCardArt, type CardArt } from "../components/useCardArt";
 import { FirstPlayerPicker, FunPicker, NotePicker, WinConditionPicker } from "../components/GameCapture";
 import { panelArt, setShowArt, useShowArt } from "./art";
-import { seatCells, tableLayout, useLandscape, useLayoutChoice } from "./layouts";
+import { hubSide, seatCells, tableLayout, useLandscape, useLayoutChoice } from "./layouts";
 import { CommanderFields, resolveDraft, type CommanderDraft } from "./pickers";
 import { announceNext, JoinSheet, ShareCard, startHosting, useHosting, joinUrl } from "./share";
-import { canUndo, discardGame, dispatch, finishGame, redo, startGame, undo, useSyncStatus, useTable, type LocalGame, DISCARD_GAME } from "./store";
+import { canRedo, canUndo, discardGame, dispatch, finishGame, getGame, redo, startGame, undo, undoStuck, useSyncStatus, useTable, type LocalGame, DISCARD_GAME } from "./store";
 import { history } from "./history";
 import { DiceSheet, roll as rollDie } from "./DiceSheet";
 import { spinSchedule } from "./spin";
@@ -73,12 +74,21 @@ export { uprightLayout } from "./layouts";
 export function TablePlay() {
   const { game, state } = useTable();
   const hosting = useHosting();
+  const saved = useRef<SavedGame | null>(null);
   if (hosting.following) {
     const url = new URL(joinUrl(hosting.following));
     return <Navigate to={`${url.pathname}${url.hash}`} replace />;
   }
-  if (!game || !state) return <Navigate to="/play/table" replace />;
-  return <TableScreen game={game} state={state} />;
+  // Saving ends the game here, which sends this page back to setup before the save's own
+  // navigation lands: both carry what was saved, so the setup page can say so either way.
+  if (!game || !state) return <Navigate to="/play/table" replace state={saved.current ? { saved: saved.current } : null} />;
+  return <TableScreen game={game} state={state} onSaved={(s) => (saved.current = s)} />;
+}
+
+/** What the setup page is told about the game just saved: `winner` is a name, null for a draw. */
+export interface SavedGame {
+  gameId: string;
+  winner: string | null;
 }
 
 export interface FollowingTable {
@@ -91,7 +101,13 @@ export interface FollowingTable {
 }
 
 /** The same counter, panels and menu on the host and every phone following it. */
-export function TableScreen({ game, state, following }: { game: Pick<LocalGame, "setup" | "log"> & { owner?: string }; state: TableState; following?: FollowingTable }) {
+export function TableScreen({ game, state, following, onSaved }: {
+  game: Pick<LocalGame, "setup" | "log"> & { owner?: string };
+  state: TableState;
+  following?: FollowingTable;
+  /** The game was saved and the table is about to close. */
+  onSaved?: (saved: SavedGame) => void;
+}) {
   const [menu, setMenu] = useState(false);
   const [view, setView] = useState<"mine" | "table">(() => {
     const saved = localStorage.getItem("yama.table.view") ?? localStorage.getItem("yama.guest.view");
@@ -124,7 +140,7 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
   const [attack, setAttack] = useState<{ seat: number; partner: boolean } | null>(null);
   /** The player taking commander damage right now (Lifetap's way): tap the commander that hit them. */
   const [taking, setTaking] = useState<number | null>(null);
-  /** The join code, full screen: straight after setup when the table chose everyone's phones. */
+  /** The QR code, full screen: straight after setup when the table chose separate devices. */
   const location = useLocation();
   const opened = location.state as { share?: boolean; fresh?: boolean } | null;
   const [joining, setJoining] = useState(() => !following && !!opened?.share);
@@ -138,6 +154,9 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
   // "Show the code" and "who goes first" are one-offs: a reload of this page mustn't open them
   // (and start sharing) again.
   useEffect(() => {
+    // A playgroup's game is shared with its members from the start, with nothing to close first:
+    // they find it on their Life counter page. The QR sheet is for a table on separate devices.
+    if (opened?.fresh && !opened.share && !following && !isGuest() && game.setup.playgroupId) startHosting(game.setup.id);
     if (opened?.share || opened?.fresh) navigate(location.pathname, { replace: true, state: null });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -162,11 +181,14 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
   const counting = following?.countTurns ?? countTurns;
   const sharing = hosting.gameId === state.setup.id;
   const leave = () => navigate("/play/table");
+  // The strip under the bar: the clock, and day or night once the table has set it.
+  const strip = clock || state.dayNight !== null;
   const personal = view === "mine" && !!me && !attack && taking === null;
   const panel = (seat: number, rot: number, area: string, vertical = false) => {
     const p = state.players.find((x) => x.seat === seat);
     if (!p) return null;
-    return <Panel key={seat} p={p} rot={rot} area={area} vertical={vertical}
+    // "My seat" is one panel with no hub on it.
+    return <Panel key={seat} p={p} rot={rot} area={area} vertical={vertical} hub={vertical ? null : hubSide({ rot, area }, cols, rows)}
       active={counting && state.activeSeat === seat} state={state} pending={pendingDelta(game.log, seat)}
       fill={fills[state.players.indexOf(p)]!} artFor={artFor} showArt={showArt}
       onOpen={() => setSheetSeat(seat)} onKnockOut={() => setKnockSeat(seat)} attack={attack}
@@ -181,9 +203,20 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
         <Button variant="quiet" size="small" onClick={() => setChoosingSeat(true)}>{me ? "Change seat" : "Pick a seat"}</Button>
         <Button variant="quiet" size="small" onClick={() => setMenu(true)} aria-label="Table menu"><MenuIcon /></Button>
       </div>
-      {/* The clock is a strip of its own under the bar, and the table starts below it: it covers nothing. */}
-      {clock && <TableClock setup={game.setup} log={game.log} counting={counting} following={!!following} />}
-      <div className={`table with-view-switch${clock ? " with-clock" : ""}${personal ? " table-personal" : ""}${attack || taking !== null ? " attacking" : ""}`} style={{ gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${rows}, 1fr)` }}>
+      {/* The clock is a strip of its own under the bar, and the table starts below it: it covers nothing.
+          Day or night is spelled out there too once it's set (and in "My seat", which has no hub). */}
+      {strip && (
+        <div className="table-strip">
+          {clock && <TableClock setup={game.setup} log={game.log} counting={counting} following={!!following} />}
+          {state.dayNight && (
+            <span className="table-strip-day">
+              <DayNightIcon night={state.dayNight === "night"} />
+              {state.dayNight === "day" ? "Day" : "Night"}
+            </span>
+          )}
+        </div>
+      )}
+      <div className={`table with-view-switch${strip ? " with-clock" : ""}${personal ? " table-personal" : ""}${attack || taking !== null ? " attacking" : ""}`} style={{ gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${rows}, 1fr)` }}>
       {personal ? <>
         <ul className="personal-others" aria-label="Everyone else">
           {state.players.filter((p) => p.seat !== me.seat).map((p) => {
@@ -209,10 +242,12 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
         <Button
           className={`hub${counting ? "" : " hub-menu"}`}
           onClick={() => setMenu(true)}
-          aria-label={`${counting ? `Turn ${state.turn}. ` : ""}${sharing ? "Shared with other devices. " : ""}Open table menu`}
+          aria-label={`${counting ? `Turn ${state.turn}. ` : ""}${state.dayNight ? `It is ${state.dayNight}. ` : ""}${sharing ? "Shared with other devices. " : ""}Open table menu`}
         >
           {counting ? <span>{state.turn}</span> : <MenuIcon />}
-          {/* Shared: a small dot on the hub. The join code is at the top of the menu. */}
+          {/* Day or night for the whole table: a sun or a moon reads the same from every seat. */}
+          {state.dayNight && <span className="hub-day" aria-hidden="true"><DayNightIcon night={state.dayNight === "night"} /></span>}
+          {/* Shared: a small dot on the hub. The QR code is at the top of the menu. */}
           {sharing && <span className="hub-live" aria-hidden="true" />}
         </Button>
       )}
@@ -292,8 +327,15 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
               const id = crypto.randomUUID();
               // Phones following this game move to the next one with it.
               if (again && sharing) announceNext(id);
+              // The setup page says it saved, and who won (TableHome's savedFromState reads this shape).
+              const saved: SavedGame = { gameId: setup.id, winner: state.players.find((p) => p.seat === finishing.winner)?.name ?? null };
               finishGame(finishing.winner, details, first);
-              if (!again) return navigate("/play/table");
+              if (!again) {
+                // Only if it did end here: another window running the table keeps the game going.
+                const ended = getGame()?.setup.id !== setup.id;
+                if (ended) onSaved?.(saved);
+                return navigate("/play/table", ended ? { state: { saved } } : undefined);
+              }
               // The same seats and commanders, from the start. Commanders swapped mid-game come along,
               // and so do places swapped: seats are numbered again in the order people now sit.
               // In a match the next game carries the score; once the match is decided, "again" starts a new one.
@@ -520,6 +562,8 @@ export function Panel(props: {
   onKnockOut: () => void;
   /** A guest's own tall panel: + on the top half, − on the bottom half. */
   vertical?: boolean;
+  /** The corner or edge of this panel's frame the hub covers, if any: what sits there moves clear. */
+  hub?: ReturnType<typeof hubSide>;
   /** The commander dealing damage now, if any: other panels turn into its damage counters. */
   attack?: { seat: number; partner: boolean } | null;
   /** Start (or switch, or stop) dealing commander damage with this seat's commander. */
@@ -598,7 +642,7 @@ export function Panel(props: {
       style={style}
       aria-label={`${p.name}, ${p.life} life${danger ? `, ${danger.text}` : ""}`}
     >
-      <div className={`panel-inner${sideways ? " sideways" : ""}${vertical ? " vertical" : ""}`} style={{ transform: `translate(-50%, -50%) rotate(${rot}deg)` }}>
+      <div className={`panel-inner${sideways ? " sideways" : ""}${vertical ? " vertical" : ""}${props.hub ? ` hub-${props.hub.side}` : ""}`} style={{ transform: `translate(-50%, -50%) rotate(${rot}deg)`, ...(props.hub ? { "--hub-x": props.hub.x } : {}) } as CSSProperties}>
         {art && partnerArt ? (
           <div className="panel-art panel-art-pair art-has">
             <ArtPanel art={art.art} artist={art.artist} wash="center" credit={false} />
@@ -649,13 +693,16 @@ export function Panel(props: {
             </div>
           )}
         </div>
-        <Button className="who" onClick={onOpen}>
-          <span className="name">
-            {p.name}
-            {p.colorIdentity && <Pips identity={p.colorIdentity} label={false} />}
-          </span>
-          {p.commanderName ? <span className="cmdr">{p.commanderName}</span> : state.setup.format !== "commander" && p.colorIdentity && <span className="cmdr">{identityName(p.colorIdentity)}</span>}
-        </Button>
+        {/* A row of its own, so the name can keep clear of the buttons in its corner (table.css). */}
+        <div className="who-row">
+          <Button className="who" onClick={onOpen}>
+            <span className="name">
+              <span className="name-text">{p.name}</span>
+              {p.colorIdentity && <Pips identity={p.colorIdentity} label={false} />}
+            </span>
+            {p.commanderName ? <span className="cmdr">{p.commanderName}</span> : state.setup.format !== "commander" && p.colorIdentity && <span className="cmdr">{identityName(p.colorIdentity)}</span>}
+          </Button>
+        </div>
         {/* Scryfall asks for the artist and copyright wherever an art crop shows. */}
         {art && <span className="panel-credit">{artCredit(bothArtists(art.artist, partnerArt?.artist))}</span>}
         {loss && !busy && (
@@ -1339,7 +1386,7 @@ function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDic
   onClose: () => void;
   onLeave: () => void;
   onFinish: (winner: number | null) => void;
-  /** The join code, full size. */
+  /** The QR code, full size. */
   onJoin: () => void;
   onDice: () => void;
   aliveCount: number;
@@ -1425,10 +1472,11 @@ function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDic
         <Button className="tm-icon" onClick={undo} disabled={!canUndo()} aria-label="Undo">
           <UndoIcon />
         </Button>
-        <Button className="tm-icon" onClick={redo} aria-label="Redo">
+        <Button className="tm-icon" onClick={redo} disabled={!canRedo()} aria-label="Redo">
           <RedoIcon />
         </Button>
       </div>}
+      {!following && undoStuck() && <p className="small dim tm-undo-note">{undoStuck()}</p>}
       {confirmEnd && (
         <section className="tm-finish" aria-labelledby="tm-who-won">
           <h3 id="tm-who-won">{state.setup.match ? `Who won game ${state.setup.match.game}?` : "Who won?"}</h3>

@@ -57,6 +57,11 @@ pub struct CardInfo {
     pub any_number: bool,
     #[sqlx(skip)]
     pub partner: bool,
+    /// Plain Partner, which pairs with any other card that has it. Not "Partner with" a named
+    /// card, a Background or its chooser, or a named kind such as "Partner—Friends forever":
+    /// those pair only with their own.
+    #[sqlx(skip)]
+    pub partner_any: bool,
     #[serde(skip)]
     pub oracle_text: String,
     #[serde(skip)]
@@ -79,8 +84,19 @@ impl CardInfo {
             || text.contains("can be your commander");
         self.any_number = t.contains("Basic") && t.contains("Land") || text.contains("a deck can have any number of cards named") || text.contains("a deck can have up to");
         self.partner = text.contains("partner") || text.contains("choose a background") || self.keywords.to_lowercase().contains("partner") || front.contains("Background");
+        self.partner_any = plain_partner(&self.oracle_text);
         self
     }
+}
+
+/// Whether a card's text has plain Partner: a line that is the keyword alone, with or without
+/// its reminder text. "Partner with Pir", "Partner—Friends forever" and "Choose a Background"
+/// are other abilities.
+pub(crate) fn plain_partner(oracle_text: &str) -> bool {
+    oracle_text.lines().any(|line| {
+        let line = line.trim().to_lowercase();
+        line == "partner" || line.starts_with("partner (")
+    })
 }
 
 pub async fn card_info(pool: &SqlitePool, oracle_id: &str) -> AppResult<Option<CardInfo>> {
@@ -217,13 +233,14 @@ async fn preview(State(st): State<AppState>, CurrentUser(user): CurrentUser, Jso
     Ok(Json(Preview { format: Some(parsed.format), format_label: Some(parsed.format.label()), link, decks, skipped: parsed.skipped }))
 }
 
-/// What a pasted link gets instead of a deck.
+/// What a pasted link gets instead of a deck. Where the site's steps are is the page's to say:
+/// Add a deck and Edit the list keep them in different places.
 fn link_message(site: Site) -> String {
     match site {
-        Site::Moxfield => "Moxfield doesn't let other apps read its decks, so Yama can't open the link. Copy the list from Moxfield instead (steps below); it takes a few seconds.".into(),
-        Site::Archidekt => "Yama can't read Archidekt links yet: Archidekt's terms need its permission first. Copy the list from Archidekt instead (steps below).".into(),
+        Site::Moxfield => "Moxfield doesn't let other apps read its decks, so Yama can't open the link. Copy the list from Moxfield instead; it takes a few seconds.".into(),
+        Site::Archidekt => "Yama can't read Archidekt links yet: Archidekt's terms need its permission first. Copy the list from Archidekt instead.".into(),
         Site::Other => "Yama can't read decks from links. Copy the list from the deck's page and paste it here.".into(),
-        s => format!("Yama can't read {} links. Copy the list from {} instead (steps below).", s.name(), s.name()),
+        s => format!("Yama can't read {} links. Copy the list from {} instead.", s.name(), s.name()),
     }
 }
 

@@ -21,3 +21,13 @@
   margin: 0 0 16px;
   max-width: 60ch;
 }
+.browse-precon-note {
+  flex: 1 1 100%;
+  margin: 0;
+  max-width: 60ch;
+}
+/* The tile fills its column above "Save a copy" rather than the whole cell. */
+.browse-tiles .deck-tile {
+  flex: 1 1 auto;
+  height: auto;
+}

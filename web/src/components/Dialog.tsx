@@ -189,6 +189,18 @@ export function useModalLayer(root: RefObject<HTMLElement | null>, onClose: () =
 /** How many modal layers are open (for tests). */
 export const openLayers = () => layers.length;
 
+/**
+ * Android's Back with a layer open: the same as pressing Escape, so the top sheet closes (after
+ * a menu or preview open inside it, and through a sheet's unsaved-changes question) and the page
+ * under it stays. False with no layer open: Back then goes back a page. For the app's Back
+ * button (native.ts); a browser's own Back can't be answered this way.
+ */
+export function escapeTopLayer(): boolean {
+  if (layers.length === 0) return false;
+  (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+  return true;
+}
+
 /** The enclosing Dialog's onClose, for a DialogHead drawn by the dialog's content. */
 const DialogClose = createContext<(() => void) | null>(null);
 

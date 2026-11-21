@@ -733,9 +733,9 @@ pub(super) const TOOLS: &[Tool] = &[
         aliases: &["playgroups"],
         title: "Your playgroups and their stats",
         description: "The playgroups they own or are in, with each one's members, as the Playgroup page lists them. With id, that \
-                      group's stats from its finished games: games played, each player's and commander's record, average turns and \
-                      minutes, wins by seat, win conditions and head-to-head. Small samples are marked provisional; these are real \
-                      games, not simulations.",
+                      group's stats from its finished games: games played, each player's and commander's record, average turns, \
+                      typical (median) minutes, wins by seat, win conditions and head-to-head. Small samples are marked provisional; \
+                      these are real games, not simulations.",
         schema: || obj(&[("id", "string", "A playgroup's id, for its stats; omit to list playgroups.")], &[]),
         kind: Kind::Read,
         offer: Offer::Everyone,

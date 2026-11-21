@@ -128,7 +128,7 @@ pub struct ImportReport {
     pub top_up: bool,
     /// The person asked for a list imported before to be added again.
     pub again: bool,
-    /// What the text looks like: "a ManaBox export", "a plain list".
+    /// What the text looks like: "a ManaBox export", "a list".
     pub source: String,
     /// When this exact list was imported before. Its lines aren't added again.
     pub already_imported: Option<String>,
@@ -279,7 +279,13 @@ fn read(text: &str, file_name: Option<&str>) -> Source {
         Some(start) => read_csv(&start),
         None => {
             let parsed = formats::parse_any(text, file_name);
-            let mut src = Source { label: parsed.format.label().to_string(), skipped: parsed.skipped, ..Default::default() };
+            // Typed or pasted lines are "a list" here, whichever app's way of writing them they
+            // follow: a hand-typed "4x Forest" is not a Moxfield export.
+            let label = match parsed.format {
+                formats::Format::Text | formats::Format::Moxfield => "a list",
+                other => other.label(),
+            };
+            let mut src = Source { label: label.to_string(), skipped: parsed.skipped, ..Default::default() };
             // A collection has no boards: every card line of the list is a card to add.
             for l in parsed.decks.into_iter().flat_map(|d| d.lines) {
                 let mut row = Row::named(l.name.trim(), l.qty);

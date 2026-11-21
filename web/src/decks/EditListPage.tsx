@@ -16,8 +16,9 @@ import { SwapPair, Thumb } from "../plan/parts";
 import { usePlan } from "../plan/store";
 import { UnsavedPrompt, useUnsavedChanges } from "../unsaved";
 import { buildNotes, buildNotesKey } from "../research/api";
-import { buildFamilies, configurationLabel, resolveBuildFamily, type SwapPair as Hint } from "./buildCatalog";
-import { consideringChanged, consideringToSend, deckListText, withConsidering, newListName, otherLists, pairEdits, startButtons, type CardFacts, type StartList } from "./editList";
+import { buildFamilies, resolveBuildFamily, type SwapPair as Hint } from "./buildCatalog";
+import { collectState } from "./collect";
+import { consideringChanged, consideringToSend, deckListText, withConsidering, newListName, otherLists, ownListLabel, pairEdits, startButtons, type CardFacts, type StartList } from "./editList";
 import { CommanderPicker, GuideTabs, LinkNote, Skipped, UnknownLines } from "./ImportParts";
 import { checks, commanderChoices, commanders, diff, draftFrom, setCommanders, toSave } from "./importLogic";
 import { ask } from "../components/confirm";
@@ -112,7 +113,7 @@ function EditList({ id }: { id: string }) {
   const pick = (s: StartList) => (edited ? setReplacing(s) : load(s));
 
   // A link Yama can't read opens that site's steps.
-  const { preview, draft, setDraft, check } = list;
+  const { preview, draft, setDraft, rememberFix, rememberCommanders, check } = list;
   useEffect(() => {
     if (preview?.link && !preview.link.fetched) setGuides(true);
   }, [preview]);
@@ -170,9 +171,12 @@ function EditList({ id }: { id: string }) {
       void qc.invalidateQueries({ queryKey: ["deck"] });
       void qc.invalidateQueries({ queryKey: ["decks"] });
       void qc.invalidateQueries({ queryKey: ["deck-versions"] });
-      // The deck page then offers to add new cards to the collection (CollectSheet).
+      // What the deck's box is short of was worked out for the old list.
+      void qc.invalidateQueries({ queryKey: ["deck-collect"] });
+      // Back on the deck page, a deck whose box already holds cards gets one line offering the
+      // cards the box is now short of (CollectSheet); the whole-deck question isn't asked again.
       guard.allow();
-      navigate(`/decks/${saved}?collect=1`);
+      navigate(`/decks/${saved}?collect=1`, { state: collectState("edit") });
     },
   });
   const restart = async () => {
@@ -198,7 +202,9 @@ function EditList({ id }: { id: string }) {
 
   const commander = d.cards.find((e) => e.board === "commander")?.card ?? null;
   const main = d.configurations[0];
-  const ownLabel = d.parent_id ? configurationLabel(d.configuration, d.name) : "The list in the box";
+  const ownLabel = ownListLabel(family, d);
+  // A deck that is only a list has no box to save into: its save is just "Save changes".
+  const saveOwn = d.parent_id ? `Save ${ownLabel}` : ownLabel === "This deck" ? "Save changes" : "Save the list in the box";
   const maybeChanges = consideringChanged(sentMaybe, d.maybe);
   const noChanges = !!changes && !changes.added.length && !changes.removed.length && !maybeChanges;
   const busy = list.sourceLoading || check.isPending;
@@ -266,7 +272,7 @@ function EditList({ id }: { id: string }) {
             </Button>
             {replacing && (
               <div className="edit-list-confirm" role="alert">
-                <span>Replace your edits with {replacing.label}?</span>
+                <span>Replace your edits with {replacing.label === "This deck" ? "this deck's saved list" : replacing.label}?</span>
                 <span className="row">
                   <Button onClick={() => load(replacing)}>Replace</Button>
                   <Button variant="quiet" onClick={() => setReplacing(null)}>Keep editing</Button>
@@ -321,12 +327,15 @@ function EditList({ id }: { id: string }) {
                 <span>Keep the deck's Considering list ({plural(d.maybe!.reduce((n, m) => n + m.qty, 0), "card")}). This list has no Considering section.</span>
               </label>
             )}
-            {draft && <UnknownLines draft={draft} setDraft={setDraft} />}
+            {draft && <UnknownLines draft={draft} setDraft={setDraft} onFix={rememberFix} />}
             {draft && (cmdrs.length === 0 || choosing) && (
               <CommanderPicker
                 choices={commanderChoices(draft)}
                 current={cmdrs.map((k) => k.oracle_id)}
+                unknown={draft.unknown}
+                unknownWhere="above"
                 onPick={(ids) => {
+                  rememberCommanders(ids);
                   setDraft(setCommanders(draft, ids));
                   setChoosing(false);
                 }}
@@ -354,7 +363,7 @@ function EditList({ id }: { id: string }) {
                   {c.problems.map((p) => <li key={p}>{p}</li>)}
                 </ul>
               ) : (
-                <p className="edit-list-ready"><b>Ready</b> {c.total} cards{cmdrs.length ? `, led by ${cmdrs.map((k) => k.name).join(" and ")}` : ""}.</p>
+                <p className="edit-list-ready"><b>Ready</b> {plural(c.total, "card")}{cmdrs.length ? `, led by ${cmdrs.map((k) => k.name).join(" and ")}` : ""}.</p>
               )
             )}
             {c && c.considering > 0 && <p className="small dim edit-list-considering">{plural(c.considering, "card")} under Considering, kept with the deck but not in it.</p>}
@@ -387,7 +396,7 @@ function EditList({ id }: { id: string }) {
             {!(mode === "box" && moved) && <ErrorText error={save.error} />}
             <div className="edit-list-save-row">
               <Button variant="primary" disabled={blocked} onClick={() => save.mutate()}>
-                {save.isPending ? "Saving…" : mode === "new" ? "Save as a new list" : d.parent_id ? `Save ${ownLabel}` : "Save the list in the box"}
+                {save.isPending ? "Saving…" : mode === "new" ? "Save as a new list" : saveOwn}
               </Button>
               {mode === "box" && <span className="small dim">The current list stays in History.</span>}
             </div>

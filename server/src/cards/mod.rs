@@ -378,6 +378,9 @@ pub struct Printing {
     #[sqlx(json)]
     pub finishes: Vec<String>,
     pub released_at: Option<String>,
+    /// Arena or MTGO only: not a card anyone holds. `None` until the printings import has read it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub digital: Option<bool>,
     pub image_normal: Option<String>,
     pub image_small: Option<String>,
     pub back_image_normal: Option<String>,
@@ -396,7 +399,7 @@ pub struct Printing {
 }
 
 pub const PRINTING_SELECT: &str = "SELECT p.scryfall_id, p.oracle_id, p.name, p.set_code, p.set_name, p.collector_number,
-    p.lang, p.rarity, p.finishes, p.released_at, p.image_normal, p.image_small, p.back_image_normal, p.artist,
+    p.lang, p.rarity, p.finishes, p.released_at, p.digital, p.image_normal, p.image_small, p.back_image_normal, p.artist,
     p.promo_types, p.frame_effects, p.border_color, p.full_art,
     ps.date AS price_date, ps.usd, ps.usd_foil, ps.usd_etched, ps.eur, ps.eur_foil
     FROM printings p
@@ -457,6 +460,15 @@ struct DeckUse {
     deck_id: String,
     /// The deck's name; a configuration's already says which ("Omo (stock)").
     name: String,
+    /// For one of a deck's other lists: the main deck it belongs to, that deck's name, and this
+    /// list's label ("stock"). The page gathers a deck's lists on one line by these, never by
+    /// what the names look like.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parent_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parent_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    configuration: Option<String>,
     /// Copies in the list, over every board.
     qty: i64,
     /// Where the list has it: "commander" if it is in the command zone, else "main", else "side".
@@ -513,7 +525,8 @@ async fn card_in_my_decks(State(st): State<AppState>, CurrentUser(user): Current
 async fn card_in_decks(pool: &SqlitePool, owner: &str, oracle_id: &str) -> AppResult<CardInDecks> {
     let name: String = sqlx::query_scalar("SELECT name FROM cards WHERE oracle_id = ?").bind(oracle_id).fetch_optional(pool).await?.ok_or(AppError::NotFound("card"))?;
     let mut decks: Vec<DeckUse> = sqlx::query_as(
-        "SELECT d.id AS deck_id, d.name, v.id AS version_id,
+        "SELECT d.id AS deck_id, d.name, v.id AS version_id, d.parent_id, d.configuration,
+                (SELECT p.name FROM decks p WHERE p.id = d.parent_id AND p.owner_id = ?1) AS parent_name,
                 SUM(json_extract(je.value, '$.qty')) AS qty,
                 CASE WHEN SUM(json_extract(je.value, '$.board') = 'commander') > 0 THEN 'commander'
                      WHEN SUM(json_extract(je.value, '$.board') = 'main') > 0 THEN 'main' ELSE 'side' END AS board,
@@ -1200,6 +1213,7 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
+        sqlx::query("UPDATE decks SET parent_id = 'd1', configuration = 'stock' WHERE id = 'd7'").execute(&pool).await.unwrap();
         sqlx::query("INSERT INTO deck_versions (id, deck_id, cards, created_at) VALUES ('v-d7', 'd7', ?, 'now')").bind(format!("[{ring},{reversal}]")).execute(&pool).await.unwrap();
         // Spellbook's kept answers: alpha's list has a combo with the ring and one without; so has their deck.
         let found = r#"[{"id":"1-2","cards":["Sol Ring","Dramatic Reversal"],"results":["Infinite colorless mana"]},{"id":"3-4","cards":["Dramatic Reversal","Isochron Scepter"],"results":["Infinite untaps"]}]"#;
@@ -1224,6 +1238,9 @@ mod tests {
             vec![("alpha".to_string(), "commander".to_string(), 3), ("Zeta".to_string(), "main".to_string(), 1), ("Zeta (stock)".to_string(), "main".to_string(), 1)]
         );
         assert_eq!(body["decks"][0]["deck_id"], "d2");
+        // A deck's other list says whose it is; a deck of its own carries none of that.
+        assert_eq!((&body["decks"][2]["parent_id"], &body["decks"][2]["parent_name"], &body["decks"][2]["configuration"]), (&serde_json::json!("d1"), &serde_json::json!("Zeta"), &serde_json::json!("stock")));
+        assert!(body["decks"][1].get("parent_id").is_none() && body["decks"][1].get("parent_name").is_none(), "{body}");
         assert!(body["decks"][0].get("version_id").is_none() && body["decks"][0].get("listed_name").is_none(), "{body}");
         // Which lists Spellbook has answered for: Zeta's hasn't been checked, which isn't "no combos".
         assert_eq!(body["decks"].as_array().unwrap().iter().map(|d| d["checked"].as_bool().unwrap()).collect::<Vec<_>>(), [true, false, true]);

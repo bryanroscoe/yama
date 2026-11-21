@@ -534,3 +534,82 @@
   gap: 2px;
   min-width: 0;
 }
+
+/* ── the Decks list: a tile's unfinished-list count, and the one price note under the grid ── */
+.deck-own.bad {
+  color: var(--bad);
+}
+.deck-tiles-prices {
+  margin: 12px 0 0;
+  max-width: 70ch;
+}
+
+/* The deck's name on its page: at most three lines, stepped down when it is long (the full name
+   is the title's tooltip and the sheet titles). styles.css sets the size after this file loads,
+   so these carry the page and hero classes to stay ahead of it. */
+.deck-page .deck-hero .hero-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+.deck-page .deck-hero .hero-title.is-long {
+  font-size: var(--t-2xl);
+  line-height: 0.95;
+}
+.deck-page .deck-hero .hero-title.is-longer {
+  font-size: var(--t-xl);
+  line-height: 1;
+}
+/* A laptop has the width: only a very long name steps down, and by one size. */
+@media (min-width: 900px) {
+  .deck-page .deck-hero .hero-title.is-long {
+    font-size: var(--t-hero);
+    line-height: 0.9;
+  }
+  .deck-page .deck-hero .hero-title.is-longer {
+    font-size: var(--t-2xl);
+    line-height: 0.95;
+  }
+}
+
+/* "Own these cards? Add them to your collection": one quiet line for an account with no collection. */
+.deck-collect-offer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 6px;
+  margin: 0 0 8px;
+  color: var(--dim);
+}
+/* Its button reads as a link in the sentence, and keeps a full-height touch target. */
+.deck-page .deck-collect-offer button {
+  min-height: var(--target);
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* The search with, on a phone, the one button that opens the filters and the sort under it. */
+.deck-index-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.deck-index-top .deck-index-search {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.deck-index-tools .deck-index-more {
+  flex: none;
+  white-space: nowrap;
+}
+@media (max-width: 899px) {
+  .deck-index-tools:not(.is-open) .deck-index-fields {
+    display: none;
+  }
+}

@@ -9,7 +9,7 @@ import { setGuestActive } from "./guest";
 import { AppFailed, reloadOnStaleCode } from "./lazyPages";
 import { followMe, signInEnded, startSession, watchOtherTabs } from "./session";
 import { keepStorage } from "./storage";
-import { selectSlot } from "./table/store";
+import { refreshOnSave, selectSlot } from "./table/store";
 import "@fontsource/big-shoulders-display/500";
 import "@fontsource/big-shoulders-display/700";
 import "@fontsource/big-shoulders-display/800";
@@ -63,6 +63,8 @@ if (saved) followAccount(saved);
 startSession(queryClient, saved?.id ?? null);
 followMe(queryClient, followAccount);
 watchOtherTabs(queryClient);
+// Finished games upload from the store, outside any page: it tells the lists of games to read again.
+refreshOnSave(queryClient);
 
 // One catch-all route around the app's own <Routes>: a data router, which is what lets a page
 // stop a navigation to ask about unsaved work (unsaved.tsx, useBlocker).

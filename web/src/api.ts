@@ -305,6 +305,8 @@ export interface Printing {
   rarity: string | null;
   finishes: string[];
   released_at: string | null;
+  /** Arena or MTGO only; absent where the server doesn't know. */
+  digital?: boolean;
   image_normal: string | null;
   image_small: string | null;
   back_image_normal: string | null;

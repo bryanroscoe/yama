@@ -37,7 +37,8 @@ export function LayoutPicker({ n, art, className = "" }: { n: number; art?: (sea
   const about = options.find((o) => o.key === chosen)?.about;
   return (
     <div className={`layout-picker ${className}`}>
-      <span id={`layout-${n}`} className="field-label">Panels</span>
+      {/* One name everywhere: setup's heading for this control says "Table layout" too. */}
+      <span id={`layout-${n}`} className="field-label">Table layout</span>
       <div className="layout-options" role="group" aria-labelledby={`layout-${n}`}>
         {options.map((o) => (
           <Button key={o.key} className="layout-option" aria-pressed={o.key === chosen} onClick={() => setLayout(n, o.key)}>

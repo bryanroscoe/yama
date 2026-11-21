@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GameRow, GameSeat, Member, PlayerStat } from "../api";
-import { playerKeys, readGames } from "./groupGames";
+import { foldCommanders, playerKeys, readGames } from "./groupGames";
 
 const members: Member[] = [
   { id: "m-me", user_id: "u-me", guest_name: null, display_name: "Bryan", handle: null },
@@ -98,5 +98,30 @@ describe("playgroup rivalries", () => {
     expect(keys.player(stat("u:u-me", "m-me"))).toBe("m-me");
     expect(keys.account("u-visitor")).toBe("u:u-visitor");
     expect(keys.account(undefined)).toBeUndefined();
+  });
+});
+
+describe("the Commanders table's fold", () => {
+  const c = (commander: string, games: number) => ({ commander, games });
+  const list = [c("Atraxa", 7), c("Omo", 2), c("Terra", 5), c("Meren", 1), c("Kraum", 4)];
+
+  it("shows commanders with enough games and holds the rest back, in their order", () => {
+    const folded = foldCommanders(list, 5, false);
+    expect(folded.shown.map((x) => x.commander)).toEqual(["Atraxa", "Terra"]);
+    expect([folded.more, folded.enough]).toEqual([3, true]);
+    // Open, the ones already shown stay where they were and the rest follow.
+    expect(foldCommanders(list, 5, true).shown.map((x) => x.commander)).toEqual(["Atraxa", "Terra", "Omo", "Meren", "Kraum"]);
+  });
+
+  it("shows the first few when none has enough games yet", () => {
+    const few = [1, 2, 3, 4, 5, 6, 7].map((n) => c(`C${n}`, 1));
+    const folded = foldCommanders(few, 5, false);
+    expect(folded.shown).toHaveLength(5);
+    expect([folded.more, folded.enough]).toEqual([2, false]);
+    expect(foldCommanders(few.slice(0, 3), 5, false)).toMatchObject({ more: 0, enough: false });
+  });
+
+  it("folds nothing when every commander has enough games", () => {
+    expect(foldCommanders([c("Atraxa", 7), c("Terra", 5)], 5, false)).toMatchObject({ more: 0, enough: true });
   });
 });

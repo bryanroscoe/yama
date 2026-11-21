@@ -4,18 +4,18 @@
 // counter's setup, which used to be this page, is at /play/table.
 import { useQuery } from "@tanstack/react-query";
 import { fmtDateTime } from "@yama/core";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Link, Navigate } from "react-router";
 import { api, publicOrigin, type DeckSummary, type GameRow } from "../api";
-import { useMe } from "../auth";
+import { accountDeletedSaid, accountJustDeleted, useMe } from "../auth";
 import { artCredits } from "../components/ArtPanel";
-import { ButtonLink, CardThumb, EmptyState, Loading } from "../components/ui";
+import { ButtonLink, CardThumb, EmptyState, Loading, PageHeader } from "../components/ui";
 import { gameSummary } from "../table/history";
 import { RecentGameRows } from "../table/RecentGameRows";
 import { isOpening, opened, resumesOnOpen } from "../table/resume";
 import { SharedTables } from "../table/SharedTables";
 import { usePendingDeletes, useTable } from "../table/store";
-import { StartHere } from "./StartHere";
+import { StartHereList, stepOpen, useStartHere } from "./StartHere";
 import "./homePage.css";
 
 /**
@@ -75,8 +75,16 @@ function useGoing(): boolean {
 
 function SignedOutHome() {
   const going = useGoing();
+  // Arriving from "Delete my account" (auth.tsx): this page says that it happened, once. The mark
+  // is read and cleared here, where the line shows: Home going straight to a game in progress
+  // (HomePage) used to clear it unsaid, and the line now waits for the way back from the game.
+  const [deleted] = useState(accountJustDeleted);
+  useEffect(() => {
+    if (deleted) accountDeletedSaid();
+  }, [deleted]);
   return (
     <main className="page home-page">
+      {deleted && <p className="home-status" role="status">Your account and everything in it were deleted.</p>}
       <header className="home-intro">
         <h1>Commander, at your table.</h1>
         <p className="home-lede">Yama is a free Magic: The Gathering app for Commander players. Count life, check a deck, look up cards and compare precons without an account. Sign in to keep your decks, your collection and your playgroup's games.</p>
@@ -107,6 +115,9 @@ function SignedOutHome() {
 
 function SignedInHome({ userId }: { userId: string }) {
   const { game } = useTable();
+  // Someone has signed in since an account was deleted in this tab: the line that says so was
+  // for whoever deleted it, and must not greet this account's sign-out.
+  useEffect(accountDeletedSaid, []);
   const going = useGoing();
   const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
   const games = useQuery({ queryKey: ["games"], queryFn: ({ signal }) => api<GameRow[]>("/api/games", { signal }) });
@@ -116,14 +127,20 @@ function SignedInHome({ userId }: { userId: string }) {
   const recent = decks.data?.filter((d) => !d.parent_id).sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, RECENT_DECKS);
   const latest = games.data?.filter((g) => !deleting.includes(g.id)).slice(0, LATEST_GAMES);
   const pictured = recent?.filter((d) => d.commander_image) ?? [];
+  const start = useStartHere({ userId, decks, games });
+  // Nothing here yet: one sentence on what Yama is for, gone with the first deck or game.
+  const brandNew = decks.data?.length === 0 && games.data?.length === 0;
+  // Step 1 of Start here already offers "Add a deck" and "Start from a precon": the empty
+  // decks section under it would offer both again on the same screen.
+  const decksOffered = stepOpen(start, "deck") && recent?.length === 0;
   return (
     <main className="page home-page">
-      <h1>Home</h1>
+      <PageHeader className="home-head" title="Home" sub={brandNew && <p className="home-lede">Count life at your table, keep your decks and collection, and track your playgroup's games.</p>} />
       {/* A table followed from another device, and the playgroup's shared tables under way. */}
       <SharedTables localGameId={game?.setup.id} />
       <GameCard />
       {/* The first steps, until they are done: on top for a new account, gone for everyone else. */}
-      <StartHere userId={userId} decks={decks} games={games} />
+      {start && <StartHereList {...start} />}
       <section aria-labelledby="home-start-title">
         <h2 id="home-start-title">Start a game</h2>
         <div className="home-start">
@@ -133,7 +150,7 @@ function SignedInHome({ userId }: { userId: string }) {
           <ButtonLink variant="outline" to="/play/table" state={{ log: true }}>Log a game you played</ButtonLink>
         </div>
       </section>
-      <section aria-labelledby="home-decks-title">
+      {!decksOffered && <section aria-labelledby="home-decks-title">
         <h2 id="home-decks-title">Your recent decks</h2>
         {decks.isPending && <Loading>Loading your decks…</Loading>}
         {/* Home opens offline too: a quiet line, not an alarm, when Yama can't be reached. */}
@@ -144,7 +161,7 @@ function SignedInHome({ userId }: { userId: string }) {
             action={
               <>
                 <ButtonLink to="/decks/import">Add a deck</ButtonLink>
-                <ButtonLink variant="outline" to="/lab">Start from a precon</ButtonLink>
+                <ButtonLink variant="outline" to="/lab?start=1">Start from a precon</ButtonLink>
               </>
             }
           >
@@ -170,7 +187,7 @@ function SignedInHome({ userId }: { userId: string }) {
             <p className="home-more"><Link to="/decks">All your decks</Link></p>
           </>
         )}
-      </section>
+      </section>}
       <section aria-labelledby="home-games-title">
         <h2 id="home-games-title">Your latest games</h2>
         {games.isPending && <Loading>Loading your games…</Loading>}

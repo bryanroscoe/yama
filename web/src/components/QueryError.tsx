@@ -5,8 +5,11 @@
 //   if (queryFailure(deck) === "page") return <main className="page"><LoadFailed query={deck} /></main>;
 //   ...
 //   <RefreshFailed query={deck} />   // inside the page, which stays as it is
+import type { ReactNode } from "react";
 import { ApiError, errorMessage } from "../api";
-import { Button } from "./Button";
+import { Button, ButtonLink } from "./Button";
+import { PageHeader } from "./PageHeader";
+import { usePageTitle } from "../pageTitle";
 
 /** What a query's error means for its page: nothing loaded yet, or a refresh of data still shown. */
 interface Failing {
@@ -32,9 +35,30 @@ export function queryFailure(query: Pick<Failing, "error" | "data">): "none" | "
   return query.data === undefined || gone(query.error) ? "page" : "notice";
 }
 
-/** Nothing to show: the error, with a way to try again. */
-export function LoadFailed({ query }: { query: Failing }) {
+/**
+ * The page for an address whose thing isn't this account's to open: deleted, or someone else's
+ * (a friend pasting their own deck's address instead of its Share link is the likeliest first
+ * link a newcomer gets). It used to be the server's words ("deck not found") over a Try again
+ * that could never work. The line fits anything kept in an account; a page for something else
+ * (a precon, a profile) passes its own.
+ */
+export function NotHere({ children = "This isn't in your account. It may have been deleted, or it's someone else's: ask them for its Share link." }: { children?: ReactNode }) {
+  usePageTitle("Not here");
+  return (
+    <div className="stack">
+      <PageHeader title="Not here" />
+      <p className="dim" role="alert">{children}</p>
+      <div className="row">
+        <ButtonLink to="/">Go home</ButtonLink>
+      </div>
+    </div>
+  );
+}
+
+/** Nothing to show: the error, with a way to try again; or Not here when asking again can't help. */
+export function LoadFailed({ query, notHere }: { query: Failing; notHere?: ReactNode }) {
   if (queryFailure(query) !== "page") return null;
+  if (gone(query.error)) return <NotHere>{notHere}</NotHere>;
   return (
     <div className="stack" role="alert">
       <p className="error">{errorMessage(query.error)}</p>

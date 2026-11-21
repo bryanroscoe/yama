@@ -19,6 +19,21 @@ interface DeckRef {
   name: string;
   parent_id: string | null;
   configuration: string | null;
+  /** The deck's box in the collection, if it has one. */
+  container_id?: string | null;
+  /** The main deck and every other list of it. */
+  configurations?: readonly unknown[];
+}
+
+/**
+ * What the deck's own list is called. A deck with a box, or with other lists beside this one,
+ * has "the list in the box" (the cards as they physically are) to tell apart from the others.
+ * A deck that is only a list has nothing to tell it apart from: it is "This deck".
+ */
+export function ownListLabel(family: BuildFamily | undefined, deck: DeckRef): string {
+  if (deck.parent_id) return configurationLabel(deck.configuration, deck.name);
+  const others = (deck.configurations?.length ?? 0) > 1 || !!family?.choices.some((c) => c.savedDeck && c.savedDeck !== deck.id);
+  return deck.container_id || others ? "The list in the box" : "This deck";
 }
 
 /** Plan swap bags first, then a saved list of that bracket, then a build you can make now, then any other. */
@@ -30,15 +45,16 @@ function bracketRank(c: BuildChoice): number {
 }
 
 /**
- * The start buttons (SPEC section 3): this list (the list in the box for a main deck), the list in
- * the box when this is another list of it, Stock, Bracket 3 and Bracket 2, only those that exist.
+ * The start buttons (SPEC section 3): this list (`ownListLabel`: the list in the box for a main
+ * deck that has a box or other lists, else "This deck"), the list in the box when this is another
+ * list of it, Stock, Bracket 3 and Bracket 2, only those that exist.
  */
 export function startButtons(family: BuildFamily | undefined, deck: DeckRef): StartList[] {
   const choices = family?.choices ?? [];
   const own = choices.find((c) => c.savedDeck === deck.id);
   const out: StartList[] = [{
     id: own?.id ?? `saved:${deck.id}`,
-    label: deck.parent_id ? configurationLabel(deck.configuration, deck.name) : "The list in the box",
+    label: ownListLabel(family, deck),
     choice: own ?? { id: `saved:${deck.id}`, label: deck.name, kind: "current", savedDeck: deck.id, source: "", href: `/decks/${deck.id}`, warnings: [] },
   }];
   const add = (c: BuildChoice | undefined, label: string) => {

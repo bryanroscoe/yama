@@ -63,3 +63,10 @@
   width: 14px;
   height: 14px;
 }
+
+/* The player field with its one line of help under it ("Dana plays as a guest."). */
+.player-search {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}

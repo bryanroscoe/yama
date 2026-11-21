@@ -44,7 +44,40 @@ describe("the Cards tab's Stacks view", () => {
     expect(render("pictures", new Set(["Sol Ring"]))).toContain('card-chip out">Out at Bracket 3<');
   });
 
+  it("gives a marked card its own class, so its marks get room under the name bar", () => {
+    const html = render("stacks");
+    expect(html).toMatch(/class="cards-stack-card is-marked"[^>]*aria-label="Sol Ring, proxy"/);
+    expect(html).toMatch(/class="cards-stack-card is-marked"[^>]*aria-label="3 Plains"/);
+    expect(html).toMatch(/class="cards-stack-card"[^>]*aria-label="Bear 1"/);
+  });
+
   it("keeps the other views out of the stacks wrapper", () => {
     expect(render("pictures")).not.toContain("cards-stacks");
+  });
+});
+
+describe("the Cards tab's total", () => {
+  const tab = (show: "all" | "need" | "proxy", valueShown = false) =>
+    renderToStaticMarkup(<DeckCardsTab deck={deck} controls={{ ...controls("list"), show }} outAt={new Set()} atBracket={null} status={() => null} onOpen={() => {}} valueShown={valueShown} />);
+
+  it("prices what is showing, with the source and date", () => {
+    expect(tab("all")).toMatch(/class="cards-total"><b class="num">\$25\.00<\/b><span class="dim">TCGplayer market via Scryfall, Nov 11</);
+    expect(tab("proxy")).toMatch(/class="cards-total"><b class="num">\$1\.00</);
+  });
+
+  it("isn't repeated while the page's own Value tile shows the whole deck", () => {
+    expect(tab("all", true)).not.toContain("cards-total");
+    expect(tab("proxy", true)).toContain("cards-total");
+  });
+
+  it("has no total for a view with no cards, where No price would read as unknown", () => {
+    const html = tab("need");
+    expect(html).toContain("Nothing to get.");
+    expect(html).not.toContain("cards-total");
+    expect(html).not.toContain("No price");
+  });
+
+  it("offers one View button for a phone to open the layout, grouping and sort", () => {
+    expect(tab("all")).toMatch(/aria-expanded="false"[^>]*>View: List<\/button>/);
   });
 });

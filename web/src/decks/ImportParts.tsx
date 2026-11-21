@@ -3,7 +3,7 @@ import { useState } from "react";
 import { CardHover } from "../components/CardRef";
 import { Button, CardImage } from "../components/ui";
 import { GUIDES, guideFor } from "./guides";
-import { dropUnknown, fixUnknown, type Draft, type ImportCard, type ImportPreview } from "./importLogic";
+import { dropUnknown, fixUnknown, type Draft, type ImportCard, type ImportCardInfo, type ImportPreview } from "./importLogic";
 
 /** Where a list can come from (Moxfield, Archidekt, a file…), each with its steps. */
 export function GuideTabs({ guideKey, setGuideKey }: { guideKey: string | null; setGuideKey: (k: string | null) => void }) {
@@ -39,8 +39,12 @@ export function GuideTabs({ guideKey, setGuideKey }: { guideKey: string | null; 
   );
 }
 
-/** Lines that matched no card: pick a suggestion ("did you mean") or leave the line out. Saving waits for these. */
-export function UnknownLines({ draft, setDraft }: { draft: Draft; setDraft: (d: Draft) => void }) {
+/**
+ * Lines that matched no card: pick a suggestion ("did you mean") or leave the line out. Saving
+ * waits for these. `onFix` is told each answer (null: left out), by the name as written, so the
+ * page can make it again when the list is read again (useListImport `rememberFix`).
+ */
+export function UnknownLines({ draft, setDraft, onFix }: { draft: Draft; setDraft: (d: Draft) => void; onFix?: (written: string, pick: ImportCardInfo | null) => void }) {
   if (!draft.unknown.length) return null;
   return (
     <div className="import-unknown" role="group" aria-label="Lines that didn't match a card">
@@ -54,11 +58,23 @@ export function UnknownLines({ draft, setDraft }: { draft: Draft; setDraft: (d: 
             </p>
             <div className="import-suggest">
               {u.suggestions.map((s) => (
-                <Button key={s.oracle_id} onClick={() => setDraft(fixUnknown(draft, i, s))}>
+                <Button
+                  key={s.oracle_id}
+                  onClick={() => {
+                    onFix?.(u.name, s);
+                    setDraft(fixUnknown(draft, i, s));
+                  }}
+                >
                   {s.name}
                 </Button>
               ))}
-              <Button variant="quiet" onClick={() => setDraft(dropUnknown(draft, i))}>
+              <Button
+                variant="quiet"
+                onClick={() => {
+                  onFix?.(u.name, null);
+                  setDraft(dropUnknown(draft, i));
+                }}
+              >
                 Leave it out
               </Button>
             </div>
@@ -69,10 +85,21 @@ export function UnknownLines({ draft, setDraft }: { draft: Draft; setDraft: (d: 
   );
 }
 
-export function CommanderPicker({ choices, current, onPick }: { choices: ImportCard[]; current: string[]; onPick: (ids: string[]) => void }) {
+/** Why the picker has nothing to offer, in words: the commander's own line may be among those that matched no card. */
+export function noCommanderText(unknown: Pick<Draft["unknown"][number], "board">[], where: "above" | "below"): string {
+  if (unknown.some((u) => u.board === "commander")) return `Your commander's line didn't match a card: fix it ${where}.`;
+  if (unknown.length) return `No card read so far can lead a deck. If your commander is one of the lines that didn't match, fix it ${where}.`;
+  return 'No card in this list can lead a deck. Add your commander to the list (a line like "Commander" then "1 Name") and Yama reads it again.';
+}
+
+/**
+ * `unknown`: the draft's lines that matched no card, and `unknownWhere`: where the page lists
+ * them, so an empty picker can say the commander is waiting there.
+ */
+export function CommanderPicker({ choices, current, onPick, unknown = [], unknownWhere = "below" }: { choices: ImportCard[]; current: string[]; onPick: (ids: string[]) => void; unknown?: Draft["unknown"]; unknownWhere?: "above" | "below" }) {
   const [picked, setPicked] = useState<string[]>(current);
   if (!choices.length) {
-    return <p className="small import-warn">No card in this list can lead a deck. Add your commander to the list (a line like "Commander" then "1 Name") and Yama reads it again.</p>;
+    return <p className="small import-warn">{noCommanderText(unknown, unknownWhere)}</p>;
   }
   const toggle = (id: string) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : p.length >= 2 ? [p[1]!, id] : [...p, id]));
   return (

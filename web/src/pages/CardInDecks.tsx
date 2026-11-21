@@ -1,14 +1,19 @@
 import { plural, shortDate } from "@yama/core";
 import { useQuery } from "@tanstack/react-query";
-import { Fragment } from "react";
+import { Fragment, useState } from "react";
 import { Link } from "react-router";
 import { api, type Combo } from "../api";
+import { ShowMore } from "../components/ui";
 
 /** One of your decks whose current list has the card (GET /api/cards/{id}/mine). */
 export interface DeckUse {
   deck_id: string;
   /** The deck's name; a configuration's already says which ("Omo (stock)"). */
   name: string;
+  /** For one of a deck's other lists: the deck it belongs to, that deck's name, and this list's label ("stock"). */
+  parent_id?: string | null;
+  parent_name?: string | null;
+  configuration?: string | null;
   /** Copies in the list, over every board. */
   qty: number;
   board: "commander" | "main" | "side";
@@ -48,6 +53,45 @@ export function templateWords(templates: string[]): string {
   return templates.map((t) => (t ? t[0]!.toLowerCase() + t.slice(1) : t)).join(", ");
 }
 
+/** A deck with its other lists that run the card, as one line of "In your decks". */
+export interface DeckGroup {
+  /** The deck's own name. */
+  name: string;
+  /** The deck itself, when its own list runs the card. */
+  main: DeckUse | null;
+  /** Its other lists that do, each by what the list is called ("stock", "Bracket 3"). */
+  lists: { label: string; use: DeckUse }[];
+}
+
+/**
+ * The decks with each deck's lists gathered under it, in the order given. A list says which deck
+ * it belongs to (`parent_id`), so nothing is read from what names look like: two decks called
+ * "Atraxa (Poison)" and "Atraxa (Counters)" are two decks. When only one of a deck's other lists
+ * runs the card, and the deck itself doesn't, that list is a line of its own under its full name.
+ */
+export function groupDecks(decks: DeckUse[]): DeckGroup[] {
+  const groups: DeckGroup[] = [];
+  const byDeck = new Map<string, DeckGroup>();
+  for (const d of decks) {
+    const root = d.parent_id ?? d.deck_id;
+    let g = byDeck.get(root);
+    if (!g) {
+      g = { name: d.parent_id ? (d.parent_name ?? d.name) : d.name, main: null, lists: [] };
+      byDeck.set(root, g);
+      groups.push(g);
+    }
+    if (d.parent_id) g.lists.push({ label: d.configuration?.trim() || d.name, use: d });
+    else {
+      g.main = d;
+      g.name = d.name;
+    }
+  }
+  return groups.map((g) => (!g.main && g.lists.length === 1 ? { name: g.lists[0]!.use.name, main: g.lists[0]!.use, lists: [] } : g));
+}
+
+/** Decks listed before "Show all": a staple is in every deck, and the price and printings sit below. */
+const DECKS_SHOWN = 5;
+
 /**
  * On a card's page: which of your decks run it, and the combos it is part of in them. The
  * combos are the ones Commander Spellbook found when each deck's list was last checked (kept
@@ -65,20 +109,45 @@ export function CardInDecks({ oracleId }: { oracleId: string }) {
 
 export function CardInDecksView({ data }: { data: CardInDecksData }) {
   const { decks, combos } = data;
+  // Before the early return: the card can come into a deck, or leave its last one, while the page is open.
+  const [all, setAll] = useState(false);
   if (decks.length === 0) return null;
   // A deck with no answer from Spellbook yet shows no combos: say so, so it doesn't read as "none".
   const unchecked = decks.filter((d) => !d.checked);
+  const groups = groupDecks(decks);
   return (
     <section className="cp-decks" aria-label="In your decks">
       <h2>In your decks</h2>
       <ul className="cp-deck-list">
-        {decks.map((d) => (
-          <li key={d.deck_id}>
-            <Link to={`/decks/${encodeURIComponent(d.deck_id)}`}>{d.name}</Link>
-            <span className="cp-deck-use">{deckUseWords(d)}</span>
-          </li>
-        ))}
+        {groups.slice(0, all ? undefined : DECKS_SHOWN).map((g) => {
+          const first = g.main ?? g.lists[0]!.use;
+          const use = deckUseWords(first);
+          // Lists that use it another way (one has it in the sideboard) say so beside their name.
+          const same = g.lists.every((l) => deckUseWords(l.use) === use);
+          const deck = g.main ? <Link to={`/decks/${encodeURIComponent(g.main.deck_id)}`}>{g.name}</Link> : <span className="cp-deck-name">{g.name}</span>;
+          return (
+            <li key={first.deck_id}>
+              {g.lists.length === 0 ? deck : (
+                <span className="cp-deck-names">
+                  {deck}
+                  <span className="cp-deck-lists">
+                    {g.main ? "Also in its lists: " : "In its lists: "}
+                    {g.lists.map((l, i) => (
+                      <Fragment key={l.use.deck_id}>
+                        {i > 0 ? ", " : ""}
+                        <Link to={`/decks/${encodeURIComponent(l.use.deck_id)}`} aria-label={l.use.name}>{l.label}</Link>
+                        {same ? "" : ` (${deckUseWords(l.use)})`}
+                      </Fragment>
+                    ))}
+                  </span>
+                </span>
+              )}
+              <span className="cp-deck-use">{use}</span>
+            </li>
+          );
+        })}
       </ul>
+      {groups.length > DECKS_SHOWN && <ShowMore total={groups.length} noun="decks" expanded={all} onToggle={() => setAll((a) => !a)} />}
       {combos.length > 0 && (
         <>
           <h3>Combos with it in your decks</h3>

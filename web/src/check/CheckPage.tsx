@@ -4,7 +4,9 @@
 // Changers, the power level, stats, sample hands and market value. The list stays in this browser
 // (guestDeck.ts). Saving it makes it an ordinary deck of the account: signed in, the page asks
 // who can see it (Public, Link only or Private, the save step's own choice) and saves only when
-// Save is pressed; signing in never saves by itself.
+// Save is pressed; signing in never saves by itself. What is in the way of a good save comes
+// first on the page, in the order it is read: lines that matched no card, then who can see the
+// deck (and the handle), then Save with its error right under it.
 //
 // What isn't here is what needs an account or an outside service: the cards you own, a declared
 // bracket, history, plans, and Commander Spellbook's combos (a list is sent there only once it is
@@ -25,7 +27,9 @@ import { PageTabs } from "../components/SectionTabs";
 import { useScrollToHash } from "../components/useScrollToHash";
 import { Button, ButtonLink, ErrorText, Loading, PageHeader, Pips, StatusPill } from "../components/ui";
 import { handleProblem, HANDLE_HINT, typedHandle, useSaveHandle } from "../decks/ChooseHandle";
+import { collectState } from "../decks/collect";
 import { DeckCardsTab, useCardControls } from "../decks/DeckCardsTab";
+import type { ImportPreview } from "../decks/importLogic";
 import { ColorSection, CurveSection, FlagsSection, PowerSection, ThemesSection } from "../decks/DeckStatsTab";
 import { SampleHand } from "../decks/SampleHand";
 import { reachOf, useNewDeckSetting, VisibilityChoice } from "../decks/VisibilityChoice";
@@ -42,6 +46,7 @@ import {
   newGuestDeck,
   playsLikeRange,
   readGuestDeck,
+  rewriteLine,
   rulesNote,
   saveRequest,
   writeGuestDeck,
@@ -89,6 +94,7 @@ export function CheckPage() {
 
 /** The box: paste a list, choose a file or drop one, and check it. */
 function CheckForm({ deck, onCheck, onCancel }: { deck: GuestDeck | null; onCheck: (text: string, name: string) => void; onCancel?: () => void }) {
+  const signedIn = !!useMe().data;
   const [text, setText] = useState(deck?.text ?? "");
   const [name, setName] = useState(deck?.name ?? "");
   const [problem, setProblem] = useState<string | null>(null);
@@ -128,7 +134,7 @@ function CheckForm({ deck, onCheck, onCancel }: { deck: GuestDeck | null; onChec
   };
   return (
     <main className="page check-page">
-      <PageHeader title="Check a deck" sub={<p className="dim">Paste a Commander list to see if it's legal, what bracket it plays like, its power level, stats and market value. No account needed.</p>} />
+      <PageHeader title="Check a deck" sub={<p className="dim">Paste a Commander list to see if it's legal, what bracket it plays like, its power level, stats and market value.{signedIn ? "" : " No account needed."}</p>} />
       <form
         className="check-form"
         onSubmit={(e) => {
@@ -172,16 +178,16 @@ function CheckForm({ deck, onCheck, onCancel }: { deck: GuestDeck | null; onChec
           {onCancel && <Button variant="quiet" onClick={onCancel}>Cancel</Button>}
         </ActionBar>
       </form>
-      <KeptHere />
+      <KeptHere signedIn={signedIn} />
     </main>
   );
 }
 
 /** Where the list is kept and where it goes: said on the box and under the result. */
-function KeptHere({ kept = true }: { kept?: boolean }) {
+function KeptHere({ kept = true, signedIn }: { kept?: boolean; signedIn: boolean }) {
   return (
     <p className="small dim check-kept">
-      {kept ? "Your list is kept in this browser only, so it's still here next time." : "This browser isn't keeping the list, so it's gone once this page is closed or reloaded."} Yama's server checks it and keeps neither the list nor the result, and the list isn't sent to any other service. Sign in to save it as a deck. <a href="/privacy/">Privacy</a>
+      {kept ? "Your list is kept in this browser only, so it's still here next time." : "This browser isn't keeping the list, so it's gone once this page is closed or reloaded."} Yama's server checks it and keeps neither the list nor the result, and the list isn't sent to any other service.{signedIn ? "" : " Sign in to save it as a deck."} <a href="/privacy/">Privacy</a>
     </p>
   );
 }
@@ -238,7 +244,8 @@ function CheckedDeck({ deck, kept, setDeck, onEdit }: { deck: GuestDeck; kept: b
       // list kept since (another tab) is a different one and stays.
       if (readGuestDeck()?.opId === deck.opId) writeGuestDeck(null);
       void qc.invalidateQueries({ queryKey: ["decks"] });
-      navigate(`/decks/${made.id}`);
+      // As after Add a deck: the deck page offers to add the cards to the collection (CollectSheet).
+      navigate(`/decks/${made.id}?collect=1`, { state: collectState("import") });
     },
   });
   // While a save is on its way the list can't be edited, cleared or given another commander:
@@ -248,6 +255,17 @@ function CheckedDeck({ deck, kept, setDeck, onEdit }: { deck: GuestDeck; kept: b
   // "Sign in to save this deck" lands here, on the choice, and saves nothing by itself.
   const signedIn = !!me.data;
   const canSave = !saving && !check.isPlaceholderData && !!visibility && !badHandle;
+  // "Did you mean" for the lines that matched no card. The check's own answer names them and no
+  // more; the import preview suggests cards for a name, so signed in the page asks it about
+  // those names alone (it needs an account; signed out there is Fix the list).
+  const unknown = r?.unknown ?? [];
+  const hints = useQuery({
+    queryKey: ["check-suggestions", unknown],
+    queryFn: ({ signal }) => api<ImportPreview>("/api/decks/import/preview", { method: "POST", json: { text: unknown.map((u) => `1 ${u}`).join("\n"), file_name: null }, signal }),
+    enabled: signedIn && unknown.length > 0,
+    staleTime: Infinity,
+    retry: false,
+  });
 
   if (!r || !view) {
     return (
@@ -305,6 +323,32 @@ function CheckedDeck({ deck, kept, setDeck, onEdit }: { deck: GuestDeck; kept: b
 
       <div className="page deck-body" aria-busy={check.isPlaceholderData}>
         <div className="phone-only"><CheckTiles view={view} analysis={a} hrefFor={tabHref} /></div>
+        {/* First what is wrong with the reading: it changes what Save would save. */}
+        {unknown.length > 0 && (
+          <UnknownNames
+            names={unknown}
+            hints={hints.data ?? null}
+            disabled={saving}
+            onEdit={onEdit}
+            // The same deck with one line respelt: its commander pick and name stay.
+            onFix={(written, name) => setDeck({ ...newGuestDeck(rewriteLine(deck.text, written, name), deck.name), commanders: deck.commanders })}
+          />
+        )}
+        {!v.ok && v.errors.length > 1 && <ul className="small deck-errors">{v.errors.map((e) => <li key={e}>{e}</li>)}</ul>}
+        {/* Then the save step's choice, for the deck Save is about to make: above the button, so
+            it is read before the press. Signed out there is nothing to choose yet: the page says
+            the choice comes after signing in, and that signing in saves nothing. */}
+        {signedIn && visibility && startsAs.setting && (
+          <div className="check-save">
+            <VisibilityChoice value={visibility} onChange={setPicked} disabled={saving} reach={reachOf(startsAs.setting)} />
+            {needsHandle && (
+              <Field className="import-handle" label="Your handle" error={badHandle} hint={`Public decks are listed on your profile. ${HANDLE_HINT} Leave it blank and the deck is public by link until you pick one.`}>
+                <input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="yourname" maxLength={31} autoCapitalize="none" autoCorrect="off" spellCheck={false} disabled={saving} />
+              </Field>
+            )}
+          </div>
+        )}
+        {signedIn && <ErrorText error={startsAs.error} retry={startsAs.retry} />}
         <div className="deck-actionbar">
           <div className="deck-actions" role="toolbar" aria-label="Deck actions">
             {signedIn ? (
@@ -317,28 +361,10 @@ function CheckedDeck({ deck, kept, setDeck, onEdit }: { deck: GuestDeck; kept: b
             <Button variant="quiet" disabled={saving} onClick={() => void startOver()}>Clear</Button>
           </div>
         </div>
-        {/* The save step's choice, for the deck Save is about to make. Signed out there is nothing
-            to choose yet: the page says the choice comes after signing in, and that signing in saves nothing. */}
-        {signedIn && visibility && startsAs.setting && (
-          <div className="check-save">
-            <VisibilityChoice value={visibility} onChange={setPicked} disabled={saving} reach={reachOf(startsAs.setting)} />
-            {needsHandle && (
-              <Field className="import-handle" label="Your handle" error={badHandle} hint={`Public decks are listed on your profile. ${HANDLE_HINT} Leave it blank and the deck is public by link until you pick one.`}>
-                <input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="yourname" maxLength={31} autoCapitalize="none" autoCorrect="off" spellCheck={false} disabled={saving} />
-              </Field>
-            )}
-          </div>
-        )}
-        {signedIn && <ErrorText error={startsAs.error} retry={startsAs.retry} />}
-        {!signedIn && <p className="small dim">Signing in doesn't save the deck. Back here you choose who can see it (Public, Link only or Private), and it is saved when you press Save.</p>}
+        {/* A refused save says why right under the button that was pressed. */}
         <ErrorText error={save.error} />
+        {!signedIn && <p className="small dim">Signing in doesn't save the deck. Back here you choose who can see it (Public, Link only or Private), and it is saved when you press Save.</p>}
         <ErrorText error={check.error} retry={() => void check.refetch()} />
-        {!v.ok && v.errors.length > 1 && <ul className="small deck-errors">{v.errors.map((e) => <li key={e}>{e}</li>)}</ul>}
-        {r.unknown.length > 0 && (
-          <p className="check-note">
-            {r.unknown.length === 1 ? "One line matched no card and isn't counted" : `${r.unknown.length} lines matched no card and aren't counted`}: {r.unknown.join(", ")}. <Button variant="quiet" size="small" disabled={saving} onClick={onEdit}>Fix the list</Button>
-          </p>
-        )}
         <CommanderPick check={r} deck={deck} disabled={saving} onPick={(ids) => setDeck(changed(deck, { commanders: ids }))} />
 
         {goldfish && <SampleHand deck={view} art={commander?.image_art_crop ?? null} artist={commander?.artist ?? null} onClose={() => setGoldfish(false)} />}
@@ -388,10 +414,53 @@ function CheckedDeck({ deck, kept, setDeck, onEdit }: { deck: GuestDeck; kept: b
             )}
           </section>
         )}
-        <KeptHere kept={kept} />
+        <KeptHere kept={kept} signedIn={signedIn} />
         {open && <CardSheet oracleId={open} onClose={() => setOpen(null)} readOnly hit={view.cards.find((c) => c.oracle_id === open)?.card ?? undefined} />}
       </div>
     </main>
+  );
+}
+
+/**
+ * The lines that matched no card: named, never dropped silently, with Fix the list. Where the
+ * import preview has cards for a name (`hints`: asked only for someone signed in), each is a
+ * "Did you mean" button that respells that line, and the list is checked again.
+ */
+function UnknownNames({ names, hints, disabled, onEdit, onFix }: { names: string[]; hints: ImportPreview | null; disabled: boolean; onEdit: () => void; onFix: (written: string, name: string) => void }) {
+  const read = hints?.decks[0];
+  const meant = (written: string): string[] => {
+    // The preview is more forgiving than the check: a name it simply matched is the suggestion.
+    const matched = read?.cards.find((c) => c.written_as === written || c.name === written);
+    if (matched) return [matched.name];
+    return read?.unknown.find((u) => u.name === written)?.suggestions.map((s) => s.name) ?? [];
+  };
+  const suggested = names.map((written) => ({ written, cards: meant(written) })).filter((x) => x.cards.length > 0);
+  return (
+    <div className="check-unknown" role="group" aria-label="Lines that matched no card">
+      <p className="check-note">
+        {names.length === 1 ? "One line matched no card and isn't counted" : `${names.length} lines matched no card and aren't counted`}: {names.join(", ")}. <Button variant="quiet" size="small" disabled={disabled} onClick={onEdit}>Fix the list</Button>
+      </p>
+      {suggested.length > 0 && (
+        <div className="import-unknown">
+          <ul>
+            {suggested.map(({ written, cards }) => (
+              <li key={written}>
+                <p>
+                  <b>{written}</b> Did you mean:
+                </p>
+                <div className="import-suggest">
+                  {cards.map((name) => (
+                    <Button key={name} disabled={disabled} onClick={() => onFix(written, name)}>
+                      {name}
+                    </Button>
+                  ))}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
   );
 }
 

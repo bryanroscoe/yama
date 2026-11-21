@@ -434,8 +434,22 @@ pub fn average_online_turns(games: &[GameFacts]) -> Option<Average> {
     average(games.iter().filter(|g| g.counts_player_turns()).filter_map(|g| g.turns).map(|t| t as f64))
 }
 
-pub fn average_minutes(games: &[GameFacts]) -> Option<Average> {
-    average(games.iter().filter_map(GameFacts::minutes))
+/// The middle value of the list (the mean of the middle two for an even count), and how many
+/// values it is from.
+fn median(values: impl Iterator<Item = f64>) -> Option<Average> {
+    let mut sorted: Vec<f64> = values.collect();
+    sorted.sort_by(f64::total_cmp);
+    let n = sorted.len();
+    let mid = n / 2;
+    let value = if n % 2 == 1 { *sorted.get(mid)? } else { (*sorted.get(mid.checked_sub(1)?)? + *sorted.get(mid)?) / 2.0 };
+    Some(Average { value, games: n as i64 })
+}
+
+/// How long a game typically takes: the median of the timed games, not their mean. A game left
+/// open overnight ends a day or two after it started, and a few of those pull a mean to several
+/// times the length of any real game; the median doesn't move.
+pub fn typical_minutes(games: &[GameFacts]) -> Option<Average> {
+    median(games.iter().filter_map(GameFacts::minutes))
 }
 
 /// Who knocked out whom, by player key: (knocker, knocked) → times. Self-knockouts, knockouts
@@ -849,7 +863,29 @@ pub(crate) mod tests {
         logged.ended_at = Some(logged.started_at.clone()); // logged afterwards: no length
         let games = vec![a, logged];
         assert_eq!(average_turns(&games), Some(Average { value: 8.0, games: 1 }));
-        assert_eq!(average_minutes(&games), Some(Average { value: 90.0, games: 1 }));
+        assert_eq!(typical_minutes(&games), Some(Average { value: 90.0, games: 1 }));
+    }
+
+    #[test]
+    fn typical_minutes_is_the_median_so_a_game_left_open_does_not_skew_it() {
+        // Minutes from 19:00 to the given end on 2 Oct (or a later day).
+        let timed = |id: &str, ended: &str| {
+            let mut g = game(id, &["a", "b"], Some(0));
+            g.started_at = "2026-10-02T19:00:00Z".into();
+            g.ended_at = Some(ended.into());
+            g
+        };
+        assert_eq!(typical_minutes(&[]), None);
+        let mut games = vec![timed("1", "2026-10-02T19:40:00Z"), timed("22", "2026-10-02T20:00:00Z"), timed("333", "2026-10-02T20:30:00Z")];
+        assert_eq!(typical_minutes(&games), Some(Average { value: 60.0, games: 3 }));
+        // Left open for two days: the mean would be over 12 hours, the median is between the middle two.
+        games.push(timed("4444", "2026-10-04T19:00:00Z"));
+        assert_eq!(typical_minutes(&games), Some(Average { value: 75.0, games: 4 }));
+        // A logged game has no length and isn't one of the timed games.
+        let mut logged = game("55555", &["a", "b"], Some(0));
+        logged.ended_at = Some(logged.started_at.clone());
+        games.push(logged);
+        assert_eq!(typical_minutes(&games).map(|m| m.games), Some(4));
     }
 
     /// Seats `ai` are the computer's, as an online game stores them: named after their commander.

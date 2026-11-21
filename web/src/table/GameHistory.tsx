@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { GAME_WORDS } from "@yama/core";
 import { Link, useSearchParams } from "react-router";
-import { api, type GameRow } from "../api";
+import { api, type GameRow, type GameSeat } from "../api";
 import { useMe } from "../auth";
 import { Button, ButtonLink, EmptyState, ErrorText, Field, Loading, Pager } from "../components/ui";
 import { usePendingDeletes } from "./store";
@@ -9,6 +9,7 @@ import { isPlaceholderName } from "./playerNames";
 import { recentGameText, turnsText } from "./recent";
 import "./gameHistory.css";
 import { fmtDate } from "@yama/core";
+import { BugButton } from "../bugs/BugButton";
 
 const FILTERS = [["all", "All games"], ["unfinished", "Unfinished"], ["unnamed", "Unnamed"]] as const;
 const PAGE_SIZE = 50;
@@ -20,6 +21,15 @@ const PAGE_SIZE = 50;
 export function emptyHistory({ filter, search, offset }: { filter: string; search: string; offset: number }): "none" | "no-match" | "past-end" {
   if (offset > 0) return "past-end";
   return filter !== "all" || search.trim() ? "no-match" : "none";
+}
+
+/**
+ * "Kelly (Atraxa)": a seat's player and what they played. The computer's seat online is named
+ * after its commander, so the commander isn't said twice.
+ */
+export function seatLine(s: Pick<GameSeat, "seat" | "display_name" | "commander_name">): string {
+  const who = s.display_name?.trim() || `Seat ${s.seat + 1}`;
+  return s.commander_name && s.commander_name.trim() !== who ? `${who} (${s.commander_name})` : who;
 }
 
 export function GameHistoryPage() {
@@ -54,7 +64,7 @@ export function GameHistoryPage() {
     <main className="page game-history">
       <header className="gh-head">
         <nav className="gh-crumbs" aria-label="Related pages"><Link to="/play/table">Life counter</Link><Link to="/group">Playgroup stats</Link></nav>
-        <h1>Game history</h1>
+        <div className="head-with-bug"><h1>Game history</h1><BugButton /></div>
       </header>
       <p className="dim">Review old games or delete ones you recorded.</p>
       <div className="gh-filters" role="group" aria-label="Show games">
@@ -99,7 +109,7 @@ export function GameHistoryPage() {
             <li key={g.id}>
               <Link className="gh-game" to={g.mode === "in_person" ? `/table/games/${g.id}` : `/play/${g.id}`} state={{ history: `/table/games?${params}` }}>
                 <span className="gh-game-head"><b>{g.status === "abandoned" ? GAME_WORDS.abandoned : text.title}{text.with ? ` with ${text.with}` : ""}</b><time dateTime={g.started_at}>{fmtDate(g.started_at)}</time></span>
-                <span className="gh-players">{g.seats.map((s) => `${s.display_name?.trim() || `Seat ${s.seat + 1}`}${s.commander_name ? ` (${s.commander_name})` : ""}`).join(", ")}</span>
+                <span className="gh-players">{g.seats.map(seatLine).join(", ")}</span>
                 <span className="gh-meta">{g.status === "in_progress" ? GAME_WORDS.going : g.status === "abandoned" ? GAME_WORDS.abandoned : GAME_WORDS.finished}{unnamed.length ? `, ${unnamed.length} unnamed ${unnamed.length === 1 ? "player" : "players"}` : ""}{g.turns ? `, ${turnsText(g)}` : ""}</span>
               </Link>
             </li>

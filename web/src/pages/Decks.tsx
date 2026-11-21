@@ -1,13 +1,14 @@
-import { SinglesPrice } from "../components/DeckPrices";
+import { SinglesAmount, singlesSourceLine } from "../components/DeckPrices";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { plural, priceSource } from "@yama/core";
+import { plural } from "@yama/core";
 import { deckCounts, deckLogs, swapSource, swapStatus, type PlanDeck, type Swap } from "@yama/core/plan";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
-import { api, type DeckEntry, type DeckSummary, type DeckView } from "../api";
+import { api, type CollectionSummary, type DeckEntry, type DeckSummary, type DeckView } from "../api";
 import { useMe } from "../auth";
 import { AreaHead } from "../components/DeckTabs";
 import { LoadFailed, queryFailure, RefreshFailed } from "../components/QueryError";
+import { usePageTitle } from "../pageTitle";
 import { BackLink, Button, ButtonLink, CardImage, EmptyState, ErrorText, Pips, StatusPill, toneOf } from "../components/ui";
 import { pct } from "../lab/logic";
 import { pairedFor, simShort, useRuns } from "../lab/paired";
@@ -33,7 +34,7 @@ import { DeleteDeck, deleteWording } from "../decks/DeleteDeck";
 import { NewConfiguration, ShareDeck, shareLabel } from "../decks/ShareDeck";
 import { PublicDefaultBanner } from "../decks/PublicDefaultPrompt";
 import { MythicSend, MythicSendButton } from "../bridges/mythic/MythicDeck";
-import { placesText } from "../decks/checkTargets";
+import { copiesWhere } from "../decks/checkTargets";
 import { groupConfigurations } from "../decks/configurations";
 import { arrangeDecks, folderOf, foldersOf, isFiltered, readFilter, writeFilter, type DeckFilter } from "../decks/deckIndex";
 import { CLEARED, DeckIndexTools } from "../decks/DeckIndexTools";
@@ -72,6 +73,49 @@ export function cardCount(n: number): string {
   return plural(n, "card");
 }
 
+/** A Commander deck is 100 cards with its commander. */
+const FULL = 100;
+
+/**
+ * The first thing a deck tile's foot says. A list that isn't 100 cards says how far along it is
+ * ("4 of 100 cards"), since "Need 4" would read as four cards from done. An account that keeps no
+ * collection gets the plain size: nothing about owning cards until it owns one.
+ */
+export function tileStatus(d: Pick<DeckSummary, "acquisition_status" | "format" | "card_count" | "owned" | "proxies">, collects: boolean): { text: string; short: string; tone: "good" | "warn" | "bad" | null } {
+  if (d.acquisition_status === "planned") return { text: "Planned deck", short: "Planned deck", tone: null };
+  if (d.format === "commander" && d.card_count !== FULL) {
+    const of = `${d.card_count} of ${FULL} cards`;
+    return { text: of, short: of, tone: "bad" };
+  }
+  const own = collects ? ownership(d.owned, d.card_count, d.proxies ?? 0) : null;
+  return own ?? { text: cardCount(d.card_count), short: cardCount(d.card_count), tone: null };
+}
+
+/**
+ * Whether the account keeps a collection, from its summary (a copy or a proxy of anything) or,
+ * until that is in, from `fallback` (what the decks on screen already say): an account with cards
+ * never sees its "Need 3" turn up late and a new one never sees "Need 100" flash. A summary that
+ * failed to load is not "owns nothing": the page then reads as it does for someone who collects.
+ */
+export function collectsFrom(summary: { data?: Pick<CollectionSummary, "copies" | "proxies">; isError: boolean }, fallback: boolean): boolean {
+  if (summary.data) return summary.data.copies + (summary.data.proxies ?? 0) > 0;
+  return summary.isError || fallback;
+}
+
+/** `collects` as above, and `known`: the summary itself has answered, so "no collection" is a fact and not a guess. */
+function useCollects(fallback: boolean): { collects: boolean; known: boolean } {
+  const summary = useQuery({ queryKey: ["collection-summary"], queryFn: ({ signal }) => api<CollectionSummary>("/api/collection/summary", { signal }) });
+  return { collects: collectsFrom(summary, fallback), known: !!summary.data };
+}
+
+/** How many decks it takes before search, filters and sorting earn their room above the tiles. */
+const TOOLS_FROM = 8;
+
+/** A long deck name steps the hero title down, so three lines hold more of it. */
+export function heroTitleSize(name: string): "" | " is-long" | " is-longer" {
+  return name.length > 56 ? " is-longer" : name.length > 28 ? " is-long" : "";
+}
+
 /** "6 wins, 3 losses" from finished games with the deck, or "Not played yet". */
 function record(d: Pick<DeckSummary, "games" | "wins" | "draws">): string | null {
   if (d.games === undefined) return null;
@@ -97,10 +141,14 @@ export function DecksPage() {
   const mains = useMemo(() => groups.map((g) => g.main), [groups]);
   const folders = useMemo(() => foldersOf(mains), [mains]);
   const shown = useMemo(() => arrangeDecks(groups, filter), [groups, filter]);
+  const { collects } = useCollects(!!decks.data?.some((d) => (d.owned ?? 0) + (d.proxies ?? 0) > 0));
   if (precon) return <Navigate to={`/decks/import?precon=${encodeURIComponent(precon)}`} replace />;
-  // Once shown the tools stay, so clearing the search of a one-deck list doesn't take the box away mid-typing.
+  // Once shown the tools stay, so clearing a search doesn't take the box away mid-typing. A short
+  // list is all on screen already: the tools wait until there are enough decks to need them.
   const tools = useRef(false);
-  if (groups.length > 1 || isFiltered(filter)) tools.current = true;
+  if (groups.length >= TOOLS_FROM || isFiltered(filter)) tools.current = true;
+  const priceLine = singlesSourceLine(shown.map((g) => g.main.singles_value));
+  const none = decks.data?.length === 0;
   // The router moves the address before React renders it. One change is laid over the filter the
   // address holds now, not the one last rendered, so quick typing never drops a letter and a
   // second change never puts back what the first one changed.
@@ -114,7 +162,8 @@ export function DecksPage() {
         index
         title="Decks"
         action={
-          <ButtonLink variant="primary" aria-label="Add a deck" to="/decks/import">
+          // With no decks the empty state below carries the one primary button.
+          <ButtonLink variant={none ? "outline" : "primary"} aria-label="Add a deck" to="/decks/import">
             <span className="wide-only">Add a deck</span>
             <span className="phone-only">Add</span>
           </ButtonLink>
@@ -123,16 +172,16 @@ export function DecksPage() {
       <ChangesBanner />
       <PublicDefaultBanner />
       <ErrorText error={decks.error} />
-      {decks.data?.length === 0 && (
+      {none && (
         <EmptyState
           action={
             <>
-              <ButtonLink variant="primary" to="/decks/import">Import a list</ButtonLink>
-              <ButtonLink variant="outline" to="/lab">Start from a precon</ButtonLink>
+              <ButtonLink variant="primary" to="/decks/import">Add a deck</ButtonLink>
+              <ButtonLink variant="outline" to="/lab?start=1">Start from a precon</ButtonLink>
             </>
           }
         >
-          No decks yet.
+          No decks yet. Paste a list from anywhere, or start from a precon you own.
         </EmptyState>
       )}
       {decks.data && tools.current && (
@@ -149,10 +198,12 @@ export function DecksPage() {
         {shown.map(({ main }) => (
           <li key={main.id}>
             {/* The folder shows on each tile unless the list is already down to one folder. */}
-            <DeckTile d={main} folder={filter.folder === null ? folderOf(main) : null} />
+            <DeckTile d={main} folder={filter.folder === null ? folderOf(main) : null} collects={collects} />
           </li>
         ))}
       </ul>
+      {/* The tiles show amounts only; where they come from and their dates are said once, here. */}
+      {priceLine && <p className="small dim deck-tiles-prices">{priceLine}</p>}
       {!!decks.data?.some((d) => d.commander_image) && (
         <ArtCredits artists={decks.data.filter((d) => d.commander_image).map((d) => d.commander_artist)} />
       )}
@@ -162,8 +213,8 @@ export function DecksPage() {
 
 const SHARED_LABEL: Record<string, string> = { link: "Link only", public: "Public" };
 
-function DeckTile({ d, folder = null }: { d: DeckSummary; folder?: string | null }) {
-  const own = d.acquisition_status === "planned" ? null : ownership(d.owned, d.card_count, d.proxies ?? 0);
+function DeckTile({ d, folder = null, collects }: { d: DeckSummary; folder?: string | null; collects: boolean }) {
+  const status = tileStatus(d, collects);
   const played = record(d);
   return (
     <Link to={`/decks/${d.id}`} className="deck-tile">
@@ -177,15 +228,15 @@ function DeckTile({ d, folder = null }: { d: DeckSummary; folder?: string | null
             <BracketChips declared={d.bracket} estimate={d.estimate} />
           </span>
         )}
-        <span className="deck-tile-meta"><SinglesPrice value={d.singles_value} /></span>
+        {d.singles_value && <span className="deck-tile-meta num"><SinglesAmount value={d.singles_value} /></span>}
         <span className="deck-tile-foot num">
-          {d.acquisition_status === "planned" ? <span>Planned deck</span> : own ? (
-            <span className={`deck-own ${own.tone}`}>
-              <span className="wide-only">{own.text}</span>
-              <span className="phone-only">{own.short}</span>
+          {status.tone ? (
+            <span className={`deck-own ${status.tone}`}>
+              <span className="wide-only">{status.text}</span>
+              <span className="phone-only">{status.short}</span>
             </span>
           ) : (
-            <span>{cardCount(d.card_count)}</span>
+            <span>{status.text}</span>
           )}
           {played && <span className="deck-record">{played}</span>}
           {folder && <span className="deck-folder">In {folder}</span>}
@@ -208,6 +259,7 @@ export function DeckPage() {
     queryFn: ({ signal }) => api<DeckView>(`/api/decks/${id}`, { signal }),
     placeholderData: (prev) => (prev?.configurations.some((c) => c.id === id) ? prev : undefined),
   });
+  usePageTitle(deck.data?.name);
   const prefetch = (other: string) => void qc.prefetchQuery({ queryKey: ["deck", other], queryFn: ({ signal }) => api<DeckView>(`/api/decks/${other}`, { signal }), staleTime: 30_000 });
   const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
   const cards = useCardControls();
@@ -230,9 +282,11 @@ export function DeckPage() {
   const tab = (["stats", "plan", "history"] as const).find((t) => pathname.endsWith(`/${t}`)) ?? "cards";
   const tabHref = (t: string) => `/decks/${id}${t === "cards" ? "" : `/${t}`}${search.size ? `?${search}` : ""}`;
   const offer = search.get("collect") === "1";
-  const [collecting, setCollecting] = useState(offer);
+  // "offer": the page opened it by itself (?collect=1). "asked": the person pressed Add to
+  // collection, which opens the whole sheet even while the offer's one line is on screen.
+  const [collecting, setCollecting] = useState<"offer" | "asked" | null>(offer ? "offer" : null);
   const closeCollect = () => {
-    setCollecting(false);
+    setCollecting(null);
     if (offer) setSearch((cur) => {
       const next = new URLSearchParams(cur);
       next.delete("collect");
@@ -243,12 +297,13 @@ export function DeckPage() {
   const variants = usePlaygroupVariants(deck.data?.id ?? id ?? "");
   const analysis = useDeckAnalysis(deck.data?.id ?? "", deck.data?.version_id ?? null);
   const measures = analysis.data?.current?.power_bracket ?? null;
+  const { collects, known: collectsKnown } = useCollects(!!deck.data && deck.data.ownership.owned + (deck.data.ownership.proxies ?? 0) > 0);
   // Another configuration: close any sheet opened on the one just left, so nothing saves to it.
   const shownId = useRef(id);
   useEffect(() => {
     if (shownId.current === id) return;
     shownId.current = id;
-    setCollecting(false);
+    setCollecting(null);
     setEditing(false);
     setGoldfish(false);
     setExporting(false);
@@ -270,13 +325,16 @@ export function DeckPage() {
   const commanderEntries = d.cards.filter((e) => e.board === "commander");
   const commander = commanderEntries.find((e) => e.card?.image_art_crop)?.card;
   const summary = decks.data?.find((x) => x.id === d.id);
-  const priced = priceSource(o.price_date);
+  const heroName = d.parent_id ? d.configurations.find((c) => c.id === d.parent_id)?.name ?? d.name : d.name;
   const openByName = (name: string) => {
     const hit = d.cards.find((c) => c.name === name);
     if (hit) setOpen(hit.oracle_id);
   };
 
-  const status = deckStatus(d);
+  const status = deckStatus(d, collects);
+  // An account with no collection, on its own deck's list in the box: one line offers to start one.
+  // Only once the summary says so: while it loads, or if it failed, nobody is told they own nothing.
+  const offerCollection = collectsKnown && !collects && v.ok && d.acquisition_status !== "planned" && !d.parent_id && o.cards > 0;
   // Play it at a lower bracket: the plan's swap bags, previewed from the List picker (?at=3).
   // Only a plan in force's bags are instructions for the box (as on Print swap cards).
   const planInForce = !!plan && ["in_progress", "done"].includes(plan.view.planOf(plan.deck).state);
@@ -293,7 +351,7 @@ export function DeckPage() {
   const checkActions = <>
     <Link className="deck-check-action" to={`/decks/${d.id}/check`}><span>Check physical cards</span><span className="more-menu-note">Compare with this list without saving changes</span></Link>
     <Link className="deck-check-action" to={`/decks/${d.id}/scan`}><span>Scan a new version</span><span className="more-menu-note">Save a list from your physical cards</span></Link>
-    <Button className="deck-check-action" onClick={() => { cards.setShow("need"); if (tab !== "cards") navigate(tabHref("cards")); }}><span>Find missing cards</span><span className="more-menu-note">Compare this list with my collection</span></Button>
+    {collects && <Button className="deck-check-action" onClick={() => { cards.setShow("need"); if (tab !== "cards") navigate(tabHref("cards")); }}><span>Find missing cards</span><span className="more-menu-note">Compare this list with my collection</span></Button>}
   </>;
   const moreActions = <>
     <Button onClick={() => navigate("/play/table", { state: { deckId: d.id } })}>Play</Button>
@@ -302,7 +360,7 @@ export function DeckPage() {
     <Button onClick={() => setExporting(true)}>Copy or export</Button>
     <MythicSendButton className="" onClick={() => setMythic(true)} />
     <MenuSeparator />
-    <Button onClick={() => setCollecting(true)}>Add to collection</Button>
+    <Button onClick={() => setCollecting("asked")}>Add to collection</Button>
     <Button onClick={() => setEditing(true)}>Deck settings</Button>
     <Button onClick={() => setDescribing(true)}>{d.description ? "Edit the description" : "Add a description"}</Button>
     {askOffered && <AskClaudeButton onClick={() => setAsking(true)} />}
@@ -326,7 +384,7 @@ export function DeckPage() {
               <Pips identity={v.color_identity} />
               <span>{commanderEntries.map((e) => e.name).join(" and ") || "No commander set"}</span>
             </span>
-            <h1 className="hero-title">{d.parent_id ? d.configurations.find((c) => c.id === d.parent_id)?.name ?? d.name : d.name}</h1>
+            <h1 className={`hero-title${heroTitleSize(heroName)}`} title={heroName.length > 28 ? heroName : undefined}>{heroName}</h1>
             <span className="hero-status">
               <StatusPill tone={toneOf(status.tone)}>{status.pill}</StatusPill>
               <span>{status.line}</span>
@@ -363,6 +421,11 @@ export function DeckPage() {
           )}
         </div>
         <SavedListBar deck={d} />
+        {offerCollection && (
+          <p className="deck-collect-offer">
+            Own these cards? <Button variant="quiet" onClick={() => setCollecting("asked")}>Add them to your collection</Button>
+          </p>
+        )}
         {!v.ok && v.errors.length > 1 && <ul className="small deck-errors">{v.errors.map((e) => <li key={e}>{e}</li>)}</ul>}
 
         <DeckAbout deck={d} onEdit={() => setDescribing(true)} />
@@ -375,7 +438,8 @@ export function DeckPage() {
         {sharing && <ShareDeck deck={d} onClose={() => setSharing(false)} />}
         {mythic && <MythicSend deck={d} onClose={() => setMythic(false)} />}
         {configuring && <NewConfiguration deck={d} onClose={() => setConfiguring(false)} />}
-        {collecting && <CollectSheet deckId={d.id} offer={offer} onClose={closeCollect} />}
+        {/* Keyed by who opened it: asking for the sheet replaces the offer's line with the sheet itself. */}
+        {collecting && <CollectSheet key={collecting} deckId={d.id} offer={collecting === "offer"} onClose={closeCollect} />}
 
         <PageTabs
           tabs={[
@@ -399,8 +463,10 @@ export function DeckPage() {
               controls={cards}
               outAt={outAt}
               atBracket={atSwaps?.bracket ?? null}
-              status={(e) => <CardStatus e={e} small plan={plan} />}
+              status={(e) => (collects ? <CardStatus e={e} deckName={d.name} small plan={plan} /> : null)}
               onOpen={setOpen}
+              plain={!collects}
+              valueShown
             />
             <WhyBracket deck={d} at={atSwaps?.bracket ?? null} outAt={outAt} onCard={openByName} />
           </div>
@@ -474,20 +540,17 @@ function PlanCardLine({ plan, name }: { plan: DeckPlanInfo; name: string }) {
   );
 }
 
-/** Where your copies are, or that you still need it (in the warn color), with what the plan
- *  says about a card you don't own yet. */
-function CardStatus({ e, small = false, plan }: { e: DeckEntry; small?: boolean; plan?: DeckPlanInfo | null }) {
+/** A card row's second line: where your real copies are, or what the plan says about a card you
+ *  don't own yet. A card that is only a proxy or still needed says so on its chip ("Proxy",
+ *  "Need"), so the line doesn't repeat it. */
+function CardStatus({ e, deckName, small = false, plan }: { e: DeckEntry; deckName: string; small?: boolean; plan?: DeckPlanInfo | null }) {
   const cls = small ? "small" : "";
   if (e.owned > 0) {
     const all = Object.entries(e.locations).map(([k, n]) => `${k}${n > 1 ? ` ×${n}` : ""}`).join(", ");
-    return <span className={`${cls} dim`} title={all}>Own {e.owned}: {placesText(e.locations)}</span>;
+    return <span className={`${cls} dim`} title={all}>{copiesWhere(e, deckName)}</span>;
   }
-  if (e.proxies > 0) return <span className={`${cls} dim`}>Proxy only</span>;
+  if (e.proxies > 0) return null;
   const s = plan?.swapsByIn.get(e.name);
   const status = s && plan ? swapStatus(s, deckLogs(plan.deck), plan.view.deckName, plan.view.ctx.orders) : null;
-  return (
-    <span className={`${cls} not-owned`}>
-      Not owned{status ? <span className="dim">. Plan: {status.label.charAt(0).toLowerCase()}{status.label.slice(1)}</span> : null}
-    </span>
-  );
+  return status ? <span className={`${cls} dim`}>Plan: {status.label.charAt(0).toLowerCase()}{status.label.slice(1)}</span> : null;
 }

@@ -76,11 +76,22 @@ describe("filters", () => {
     expect(names(DECKS, { colors: "R" })).toEqual(["Éowyn Humans", "Krenko"]);
   });
 
-  it("filters on the bracket the owner declared, never a suggestion", () => {
-    // Atraxa has no declared bracket (whatever Yama suggests for it), so it is under none.
+  it("filters on the bracket the tile shows: the declared one, else the suggestion", () => {
     expect(names(DECKS, { bracket: "2" })).toEqual(["Éowyn Humans"]);
     expect(names(DECKS, { bracket: "3" })).toEqual(["Omo Lands"]);
+    // None declared is about the owner's word, whatever Yama suggests.
     expect(names(DECKS, { bracket: "none" })).toEqual(["atraxa counters", "Krenko"]);
+    const suggested = (tag: string, bracket: number | null) => ({ tag, label: "", bracket, checked_at: null });
+    const some = [
+      group("Declared two", { bracket: 2, estimate: suggested("O", 4) }),
+      group("Suggested four", { estimate: suggested("O", 4) }),
+      group("Core start", { estimate: suggested("E", 1) }),
+      group("Banned", { estimate: suggested("B", null) }),
+    ];
+    expect(names(some, { bracket: "4" })).toEqual(["Suggested four"]);
+    // A declared bracket wins over the suggestion, and E is the provisional Core (2).
+    expect(names(some, { bracket: "2" })).toEqual(["Core start", "Declared two"]);
+    expect(names(some, { bracket: "none" })).toEqual(["Banned", "Core start", "Suggested four"]);
   });
 
   it("combines filters", () => {

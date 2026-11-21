@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { Playgroup } from "../api";
-import { Members } from "./GroupMembers";
+import { guestTaken, Members } from "./GroupMembers";
 
 const group: Playgroup = {
   id: "pg",
@@ -57,5 +57,14 @@ describe("the playgroup's members", () => {
     for (const text of ["Remove", "Make owner", "Rename", "New code", "Delete this playgroup"]) expect(html).not.toContain(text);
     expect(html).toContain("Leave this playgroup");
     expect(html).toContain("Add guest");
+  });
+
+  it("finds a guest already in the group under a name, whatever its case", () => {
+    expect(guestTaken(group.members, "sam")?.id).toBe("m3");
+    expect(guestTaken(group.members, "  SAM ")?.id).toBe("m3");
+    expect(guestTaken(group.members, "Sam B")).toBeUndefined();
+    expect(guestTaken(group.members, "  ")).toBeUndefined();
+    // Someone with an account holds their name too.
+    expect(guestTaken(group.members, "pat")?.id).toBe("m2");
   });
 });

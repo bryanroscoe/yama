@@ -81,7 +81,7 @@ export function SwapInSheet({ deckKey, deckName, onClose }: { deckKey: string; d
     onSuccess: (r) => {
       setResult(r);
       void qc.invalidateQueries({
-        predicate: (q) => ["plan", "deck", "decks", "containers", "plan-swap-in"].includes(String(q.queryKey[0])) || String(q.queryKey[0]).startsWith("collection"),
+        predicate: (q) => ["plan", "deck", "decks", "deck-collect", "containers", "plan-swap-in"].includes(String(q.queryKey[0])) || String(q.queryKey[0]).startsWith("collection"),
       });
     },
   });

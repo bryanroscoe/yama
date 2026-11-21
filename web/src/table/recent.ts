@@ -1,6 +1,6 @@
 // The words on a Recent games row (the Table tab): who won with what, and over whom.
 
-import { formatLabel, GAME_WORDS, noteText, winConditionLabel, wonText, type TableFormat } from "@yama/core";
+import { formatLabel, GAME_WORDS, noteText, replay, toServerFinish, winConditionLabel, wonText, type LoggedEvent, type TableFormat, type TableSetup } from "@yama/core";
 import type { GameRow, GameSeat } from "../api";
 
 /** "Terra" from "Terra, Herald of Hope": the name a table calls a commander by. */
@@ -56,6 +56,26 @@ export function turnsText(g: Pick<GameRow, "mode" | "turns">): string | null {
   return g.turns ? `${g.turns} ${g.mode === "online" ? "player turns" : "turns"}` : null;
 }
 
+/**
+ * How a seat's game ended, for its row on the game's page. A knockout is saved with its turn
+ * only when the table counted turns from the start, so "out" is also read from who did it and
+ * from the table's own record (`knocked`, the seat as the replayed log leaves it). The turn is
+ * named only when there is one.
+ */
+export function seatResultText(
+  s: Pick<GameSeat, "seat" | "final_life" | "eliminated_turn" | "eliminated_by_seat">,
+  o: { won: boolean; going: boolean; knocked?: { bySeat?: number } | null; name: (seat: number) => string | undefined },
+): string {
+  if (o.won) return "Won";
+  const bySeat = s.eliminated_by_seat ?? o.knocked?.bySeat;
+  // Knocking yourself out (a concession, your own combo) isn't "by" anyone.
+  const by = bySeat == null || bySeat === s.seat ? undefined : o.name(bySeat);
+  if (s.eliminated_turn != null) return `Out on turn ${s.eliminated_turn}${by ? `, by ${by}` : ""}`;
+  if (s.eliminated_by_seat != null || o.knocked) return by ? `Knocked out by ${by}` : "Knocked out";
+  if (s.final_life != null) return `${s.final_life} life at the end`;
+  return o.going ? "Still in" : "";
+}
+
 export interface RecentText {
   /** "Sam won", "A draw" or "Still going". */
   title: string;
@@ -83,4 +103,47 @@ export function recentGameText(g: GameRow & { note?: string | null }): RecentTex
   const sub = [type, how, people, noteText(g.note)].filter(Boolean).join(". ");
   const short = [cmdr && shortName(cmdr), type, turnsText(g)].filter(Boolean).join(", ") || sub;
   return { title, with: withCmdr, sub, short };
+}
+
+/**
+ * A game kept on this device (one counted without an account), in the shape Yama's server gives
+ * a game, so it reads the same in a list of recent games: the players as the table left them,
+ * and the result its finish recorded. A game with no finish yet is still going.
+ */
+export function localGameRow(setup: TableSetup, log: LoggedEvent[]): GameRow {
+  const state = replay(setup, log);
+  const finish = toServerFinish(setup, log);
+  return {
+    id: setup.id,
+    mode: "in_person",
+    playgroup_id: null,
+    format: setup.format,
+    starting_life: setup.startingLife,
+    note: finish?.note ?? null,
+    status: finish ? "finished" : "in_progress",
+    started_at: setup.startedAt,
+    ended_at: finish?.ended_at ?? null,
+    turns: finish?.turns ?? null,
+    winner_seat: finish?.winner_seat ?? null,
+    first_seat: finish?.first_seat ?? null,
+    win_condition: finish?.win_condition ?? null,
+    match_game: setup.match?.game ?? null,
+    match_best_of: setup.match?.bestOf ?? null,
+    seats: state.players.map((p) => {
+      const result = finish?.seats.find((s) => s.seat === p.seat);
+      return {
+        seat: p.seat,
+        member_id: null,
+        user_id: null,
+        guest_name: p.name,
+        deck_label: p.deckLabel ?? null,
+        commander_name: p.commanderName ?? null,
+        final_life: result?.final_life ?? null,
+        eliminated_turn: result?.eliminated_turn ?? null,
+        eliminated_by_seat: result?.eliminated_by_seat ?? null,
+        fun: result?.fun ?? null,
+        display_name: p.name,
+      };
+    }),
+  };
 }

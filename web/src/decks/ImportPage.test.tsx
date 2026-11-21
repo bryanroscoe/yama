@@ -19,6 +19,8 @@ const server = vi.hoisted(() => ({
   two: false,
   /** While set, a handle save waits for it. */
   hold: null as Promise<void> | null,
+  /** The commander's line is misspelt: it matches no card, and the preview suggests the card. */
+  typo: false,
 }));
 
 const card = (oracle_id: string, name: string, board: string, extra: object = {}) => ({
@@ -44,7 +46,12 @@ vi.mock("../api", async (original) => ({
     if (path === "/api/decks/import/preview")
       return Promise.resolve({
         format: null, format_label: null, link: null, skipped: [],
-        decks: (server.two ? ["Riders of Rohan", "Second deck"] : ["Riders of Rohan"]).map((name) => ({ name, unknown: [], commander_marked: true, commander_guessed: false, cards: [card("o-cmd", "Test Commander", "commander", { can_be_commander: true, type_line: "Legendary Creature" }), card("o-sol", "Sol Ring", "main")] })),
+        decks: server.typo
+          ? [{
+              name: null, commander_marked: true, commander_guessed: false, cards: [card("o-sol", "Sol Ring", "main")],
+              unknown: [{ name: "Test Comander", qty: 1, board: "commander", maybe: false, set_code: null, collector_number: null, finish: null, suggestions: [card("o-cmd", "Test Commander", "main", { can_be_commander: true, type_line: "Legendary Creature" })] }],
+            }]
+          : (server.two ? ["Riders of Rohan", "Second deck"] : ["Riders of Rohan"]).map((name) => ({ name, unknown: [], commander_marked: true, commander_guessed: false, cards: [card("o-cmd", "Test Commander", "commander", { can_be_commander: true, type_line: "Legendary Creature" }), card("o-sol", "Sol Ring", "main")] })),
       });
     if (path === "/api/decks" && method === "POST") return Promise.resolve({ id: "d1" });
     if (path === "/api/decks") return Promise.resolve([]);
@@ -65,6 +72,7 @@ beforeEach(() => {
   server.taken = false;
   server.two = false;
   server.hold = null;
+  server.typo = false;
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -242,5 +250,86 @@ describe("a first public deck's handle", () => {
     await until(() => !!button("Add the deck") && !!handleBox(), "the handle field");
     act(() => button("Link only")!.click());
     expect(handleBox()).toBeNull();
+  });
+});
+
+describe("what the person fixed in the reading", () => {
+  const nameBox = () => host.querySelector<HTMLInputElement>(".import-draft input")!;
+
+  it("is kept when the list is edited and read again: the card picked for a misspelt line, and a typed name", async () => {
+    server.typo = true;
+    const router = await open();
+    type("Commander\n1 Test Comander\n\nDeck\n1 Sol Ring");
+    await until(() => !!host.querySelector(".import-unknown"), "the list to be read");
+    // The commander's own line is the one that matched nothing: the page says so, not that no card can lead.
+    expect(host.textContent).toContain("Your commander's line didn't match a card: fix it below.");
+    expect(host.textContent).not.toContain("No card in this list can lead a deck");
+    expect(nameBox().value).toBe("");
+    act(() => button("Test Commander")!.click());
+    expect(host.querySelector(".import-unknown")).toBeNull();
+    // Named after the commander, as it would have been had the line been spelt right.
+    expect(nameBox().value).toBe("Test Commander");
+
+    // Another line typed in the box: the list is read again, and the fix is made again.
+    type("Commander\n1 Test Comander\n\nDeck\n1 Sol Ring\n");
+    await until(() => !!button("Add the deck"), "the edited list to be read");
+    expect(host.querySelector(".import-unknown")).toBeNull();
+    expect(host.querySelector(".import-cmdr")!.textContent).toContain("Test Commander");
+    expect(nameBox().value).toBe("Test Commander");
+
+    // A typed name stays the person's too.
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(nameBox(), "My deck");
+      nameBox().dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    type("Commander\n1 Test Comander\n\nDeck\n1 Sol Ring\n\n");
+    await until(() => !!button("Add the deck"), "the list to be read once more");
+    expect(nameBox().value).toBe("My deck");
+
+    // Saved with the fixed card, and the deck page is told a deck was just added (the collection offer).
+    await until(() => pressed().length === 1, "the choice");
+    await act(async () => button("Add the deck")!.click());
+    await until(() => router.state.location.pathname === "/decks/d1", "the save");
+    const sent = server.sent.find((c) => c.path === "/api/decks" && c.method === "POST")!.json as { name: string; cards: { oracle_id: string; board: string }[] };
+    expect(sent.name).toBe("My deck");
+    expect(sent.cards).toContainEqual(expect.objectContaining({ oracle_id: "o-cmd", board: "commander" }));
+    expect(router.state.location.search).toBe("?collect=1");
+    expect(router.state.location.state).toEqual({ collectAfter: "import" });
+  });
+
+  it("is forgotten when the box is emptied: the next list starts from its own reading", async () => {
+    server.typo = true;
+    await open();
+    type("Commander\n1 Test Comander\n\nDeck\n1 Sol Ring");
+    await until(() => !!host.querySelector(".import-unknown"), "the list to be read");
+    act(() => button("Leave it out")!.click());
+    expect(host.querySelector(".import-unknown")).toBeNull();
+    type("");
+    type("Commander\n1 Test Comander\n\nDeck\n1 Sol Ring");
+    await until(() => !!host.querySelector(".import-unknown"), "the new list to be read");
+    expect(host.textContent).toContain("Test Comander");
+  });
+});
+
+describe("the save bar", () => {
+  it("says who can see the new deck beside the button, and folds the card groups to their headings", async () => {
+    await open();
+    type("Commander\n1 Test Commander\n\nDeck\n1 Sol Ring");
+    await until(() => !!button("Add the deck") && pressed().length === 1, "the list to be read");
+    const bar = host.querySelector(".import-save-bar")!;
+    expect(bar.textContent).toContain("Public: anyone can see it. Change");
+    act(() => button("Private")!.click());
+    expect(bar.textContent).toContain("Private: only you can see it. Change");
+    // Each group is a disclosure with its count; a press opens or closes it, and it stays that way.
+    const group = host.querySelector<HTMLDetailsElement>("details.import-group")!;
+    expect(group.querySelector("summary")!.textContent).toBe("Artifacts 1");
+    const was = group.open;
+    act(() => {
+      group.open = !was;
+      group.dispatchEvent(new Event("toggle"));
+    });
+    type("Commander\n1 Test Commander\n\nDeck\n1 Sol Ring\n");
+    await until(() => !!button("Add the deck"), "the edited list to be read");
+    expect(host.querySelector<HTMLDetailsElement>("details.import-group")!.open).toBe(!was);
   });
 });

@@ -13,6 +13,8 @@ import { chooseGuest } from "./guest";
 import { isNative, nativeGoogleCredential } from "./native";
 import { ask } from "./components/confirm";
 import { accountConfirmed, ME_KEY, SIGN_IN_MUTATION, signingOut } from "./session";
+import { usePageTitle } from "./pageTitle";
+import { forgetJoinCode } from "./play/setup";
 
 /** The account this device last saw signed in, if any (kept by useMe). */
 export function savedMe(): User | undefined {
@@ -131,6 +133,7 @@ export function useLogout() {
         // told to reload yet, or the server would sign them straight back in.
         signingOut({ tellOtherTabs: false });
         localStorage.removeItem(ME_KEY);
+        forgetJoinCode(userId);
         location.href = "/cdn-cgi/access/logout";
       },
       finish: () => {
@@ -138,6 +141,8 @@ export function useLogout() {
         signingOut();
         setToken(null);
         localStorage.removeItem(ME_KEY);
+        // A table code kept for this tab (Play online) was this account's invitation.
+        forgetJoinCode(userId);
         // Not qc.clear(): it removes the "me" query out from under the mounted observer, which keeps
         // showing the signed-in user. Set "me" first, drop the rest, then load the page afresh so no
         // cache, socket or timer from the signed-in session survives.
@@ -174,8 +179,12 @@ export function useDeleteAccount() {
         qc.removeQueries({ queryKey: ["plan"] });
         qc.removeQueries({ queryKey: ["plan-cache"] });
       };
+      // Only the server's own yes: a retry answered 401 after a lost first try (below) signs this
+      // device out, but can't tell a deleted account from a sign-in that ran out meanwhile.
+      let deleted = false;
       try {
         await api("/api/me", { method: "DELETE", json: { confirm_email: confirmEmail } });
+        deleted = true;
       } catch (e) {
         if (!(e instanceof ApiError)) {
           answerLost.current = true;
@@ -191,9 +200,41 @@ export function useDeleteAccount() {
       localStorage.removeItem(ME_KEY);
       qc.setQueryData(["me"], null);
       qc.removeQueries({ predicate: (q) => q.queryKey[0] !== "me" });
+      forgetJoinCode(userId);
+      if (deleted) {
+        try {
+          sessionStorage.setItem(DELETED_KEY, "1");
+        } catch {
+          // Storage blocked: Home opens without the line that says it happened.
+        }
+      }
       window.location.replace("/");
     },
   });
+}
+
+/**
+ * Deleting an account ends on the signed-out Home, loaded afresh. This tab remembers that it
+ * just happened, so Home can say so once (pages/Home.tsx): after something that can't be undone,
+ * a person wants to see that it worked. Kept only when Yama's server said the account is gone.
+ */
+const DELETED_KEY = "yama.account.deleted";
+
+export function accountJustDeleted(): boolean {
+  try {
+    return sessionStorage.getItem(DELETED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** Said: a reload or the next visit to Home doesn't say it again. */
+export function accountDeletedSaid() {
+  try {
+    sessionStorage.removeItem(DELETED_KEY);
+  } catch {
+    // Nothing was kept.
+  }
 }
 
 /** The sign-in page, coming back to `from` (a path on Yama) once signed in. */
@@ -262,6 +303,7 @@ function loadGoogle(): Promise<void> {
  */
 export function Login() {
   const focused = useLocation().pathname !== "/signin";
+  usePageTitle("Sign in");
   return (
     <Landing focused={focused}>
       <SignInForm heading={focused ? "h1" : "h2"} countLife />
@@ -290,6 +332,8 @@ export function SignInForm({ heading: SignInTitle, title = "Sign in to Yama", co
     // Remembered now, not at the next check: games started or saved from here on are this account's.
     localStorage.setItem(ME_KEY, JSON.stringify(r.user));
     chooseGuest(false);
+    // "Your account was deleted" still waiting to be said in this tab was for whoever deleted it.
+    accountDeletedSaid();
     qc.setQueryData(["me"], r.user);
   };
 
@@ -422,7 +466,8 @@ export function SignInForm({ heading: SignInTitle, title = "Sign in to Yama", co
           </Button>
         </form>
       )}
-      <ErrorText error={error ?? config.error} />
+      {/* The ways in never arrived (no answer from Yama): asking again is the only move. */}
+      <ErrorText error={error ?? config.error} retry={!error && config.error ? () => void config.refetch() : undefined} />
     </>
   );
 }

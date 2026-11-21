@@ -156,14 +156,16 @@ function WinConditions({ s }: { s: PlaygroupStats }) {
 }
 
 function Rivalries({ s }: { s: PlaygroupStats }) {
-  const kg = s.knockout_games;
   const nemeses = s.players.filter((p) => p.archnemesis);
   const [allH2h, setAllH2h] = useState(false);
   const h2h = allH2h ? s.head_to_head : s.head_to_head.slice(0, H2H_PEEK);
+  // Who knocked out whom is saved without a turn unless the table counted turns, so rivalries
+  // don't wait on `knockout_games` (games that say on which turn): that count is only what
+  // First out and last out is out of.
   return (
     <section>
       <h2>Knockouts</h2>
-      {kg === 0 ? (
+      {s.head_to_head.length === 0 && nemeses.length === 0 ? (
         <p className="dim">No knockouts recorded yet. On the table, "Knock out" asks who did it, and online games save it where the rules engine can tell; that's where rivalries come from.</p>
       ) : (
         <div className="stack" style={{ gap: "1.25rem" }}>

@@ -396,14 +396,25 @@ export function PlayerSearch({ label = "Player", text, people, onText, onPick, p
     .filter((p) => !(p.name === text && matches.length === 1 && !p.memberId && !p.userId))
     .map((p) => ({ key: `${p.memberId ?? ""}:${p.userId ?? ""}:${p.handle ?? ""}:${p.name}`, value: p, label: p.name, sub: p.sub }));
   return (
-    <Combobox
-      label={label}
-      text={text}
-      onText={onText}
-      options={options}
-      onPick={onPick}
-      placeholder={placeholder}
-      empty={q ? `${text.trim()} plays as a guest.` : undefined}
-    />
+    <div className="player-search">
+      <Combobox
+        label={label}
+        text={text}
+        onText={onText}
+        options={options}
+        onPick={onPick}
+        placeholder={placeholder}
+      />
+      {/* Under the field, not in the list that drops over the next one: a list with nothing to
+          pick took the first tap meant for Deck. Without an account everyone is a guest, so it
+          says nothing there. */}
+      {guestNote(text, options.length, isGuest()) && <span className="small dim" role="status">{guestNote(text, options.length, isGuest())}</span>}
+    </div>
   );
+}
+
+/** "Dana plays as a guest.": a name typed that matches nobody this account knows, or null. */
+export function guestNote(text: string, matches: number, signedOut: boolean): string | null {
+  const name = text.trim();
+  return name && matches === 0 && !signedOut ? `${name} plays as a guest.` : null;
 }

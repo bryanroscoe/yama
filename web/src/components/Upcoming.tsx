@@ -8,7 +8,7 @@ import { api, type CalendarRun, type CalendarSet, type CalendarView, type DeckSu
 import { useMe } from "../auth";
 import { isNetworkError } from "../cardDetail";
 import { queryFailure, RefreshFailed } from "./QueryError";
-import { Details, ErrorText } from "./ui";
+import { ErrorText } from "./ui";
 import {
   daysBetween,
   headlined,
@@ -184,6 +184,8 @@ function UpcomingSets({ view }: { view: CalendarView }) {
               : " Ask whoever runs this server to turn on the daily check."}
         </p>
       )}
+      {/* What the Watch buttons are for, before the first of them. */}
+      {shown.length > 0 && <p className="cal-note">Watch a set to see its Commander precons here when their lists are published.</p>}
       {view.sets.error && <p className="cal-note cal-warn">The last check failed: {view.sets.error}</p>}
       {view.sets.checked_at && shown.length === 0 && <p className="cal-note">No sets announced past today.</p>}
       {shown.length > 0 && (
@@ -240,13 +242,10 @@ function UpcomingSets({ view }: { view: CalendarView }) {
       )}
       <p className="cal-note">
         {preconsChecked
-          ? `MTGJSON precon lists, checked ${preconsChecked}.`
-          : "MTGJSON precon lists not checked yet."}
+          ? `Precon lists come from MTGJSON, checked ${preconsChecked}.`
+          : "Precon lists come from MTGJSON, not checked yet."}
         {view.precons.error && " Its last check failed."}
       </p>
-      <Details label="About release tracking">
-        <p>Watch a set to see its Commander precons here once MTGJSON publishes their lists.</p>
-      </Details>
     </section>
   );
 }

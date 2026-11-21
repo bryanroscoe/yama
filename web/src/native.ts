@@ -4,6 +4,7 @@
 
 import { Capacitor } from "@capacitor/core";
 import { API_BASE } from "./api";
+import { escapeTopLayer } from "./components/Dialog";
 
 /** Inside the Android app rather than a browser. */
 export function isNative(): boolean {
@@ -49,6 +50,8 @@ export function installNative() {
   );
   void import("@capacitor/app").then(({ App }) =>
     App.addListener("backButton", ({ canGoBack }) => {
+      // With a sheet open, Back closes the sheet and the page under it stays.
+      if (escapeTopLayer()) return;
       if (canGoBack) history.back();
       else void App.exitApp();
     }),

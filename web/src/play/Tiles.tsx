@@ -120,11 +120,27 @@ export interface TileLook {
   will?: boolean;
 }
 
-/** Engine counter keys in words: "plus1plus1" is "+1/+1". */
+/** Keyword counters the server sends run together ("firststrike"). */
+const KEYWORD_COUNTERS: Record<string, string> = { firststrike: "first strike", doublestrike: "double strike" };
+
+/**
+ * Engine counter keys in words: "plus1plus1" is "+1/+1". The board and the feed send the engine's
+ * own print of the kind, lower-cased (play/src/lib.rs, feed.rs): `generic("charge")` is "charge",
+ * `keyword(flying)` is "flying", and `powertoughness { power: 0, toughness: -1 }` is "−0/−1".
+ */
 export function counterName(key: string): string {
-  const k = key.toLowerCase().replace(/_/g, " ");
+  const k = key.toLowerCase().replace(/_/g, " ").trim();
   if (k === "plus1plus1" || k === "p1p1") return "+1/+1";
   if (k === "minus1minus1" || k === "m1m1") return "−1/−1";
+  const pt = /^powertoughness\s*\{\s*power:\s*(-?\d+),\s*toughness:\s*(-?\d+)\s*\}$/.exec(k);
+  if (pt) {
+    const [power, toughness] = [Number(pt[1]), Number(pt[2])];
+    // "−0" beside a minus, as the cards print it (−0/−1).
+    const signed = (n: number, other: number) => (n < 0 || (n === 0 && other < 0) ? `−${Math.abs(n)}` : `+${n}`);
+    return `${signed(power, toughness)}/${signed(toughness, power)}`;
+  }
+  const wrapped = /^(generic|keyword)\(\s*"?(.*?)"?\s*\)$/.exec(k);
+  if (wrapped) return KEYWORD_COUNTERS[wrapped[2]!] ?? wrapped[2]!;
   return k;
 }
 
@@ -263,7 +279,8 @@ export function HandCard({ card, meta, look, h, style, caption }: {
 }) {
   const press = usePress(card, h);
   const pile: Pile = { key: String(card.id), card, ids: [card.id] };
-  const label = [card.name, look.tag, look.playable && "can play", look.pick && "can be chosen", look.picked && `chosen ${look.picked}`, caption && typeof caption === "string" ? caption : null]
+  // A caption that only repeats the tag ("Commander") is said once.
+  const label = [card.name, look.tag, look.playable && "can play", look.pick && "can be chosen", look.picked && `chosen ${look.picked}`, caption && typeof caption === "string" && caption !== look.tag ? caption : null]
     .filter(Boolean)
     .join(", ");
   return (

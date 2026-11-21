@@ -66,6 +66,8 @@ import { COLOR_NAME, counterName, FieldTile, HandCard, ManaDot, type TileHandler
 import type { Act, AttackAt, CardMeta, CardView, Decision, Happening, ManaSourceView, OptionView, PassMode, Pending, PlayerView, SeatInfo, ServerMessage, StackItem, TapMana, View, WatchStatus } from "./types";
 import { WatchControls, type WatchMessage } from "./WatchControls";
 import { seatLabel, seatName } from "./watch";
+import { plural } from "@yama/core";
+import { ask } from "../components/confirm";
 import { cancelAim, isLegal, legalDefenders, pressAttacker, pressDefender, type AimResult, type AimState, type AimWarn } from "./attackAim";
 import { attackDrop, blockDrop, centre, dragSlop, handDrop, movedPast, pastPlayLine, readDrop, targetDrop, targetIndex, type Point } from "./drag";
 import { DragLayer, PlanArrows, seatHeadOf, stackRowOf, tileOf, type ArrowTone, type DragLayerHandle, type PlanArrow } from "./DragLayer";
@@ -685,12 +687,16 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
   const meta = msg.cards ?? {};
   const bottom = watch ? pov : you ?? 0;
   const seatInfo = (n: number) => seats.find((s) => s.seat === n);
-  /** For headers and tabs: "You", a friend's name, or "Computer, easy" ("Éowyn, easy" when watching). */
+  /**
+   * For headers and standings: "You", a friend's name, or a computer by its commander, as the log,
+   * the turn strip and the attack buttons name it ("Éowyn, easy computer"; three seats that all
+   * read "Computer, easy" couldn't be told apart). Watching, every seat is one: just "Éowyn".
+   */
   const label = (n: number) => {
     if (n === you) return "You";
     const s = seatInfo(n);
     if (watch) return seatName(s, n);
-    if (s?.ai) return `Computer, ${s.ai.toLowerCase()}`;
+    if (s?.ai) return `${seatLabel(s, n)} computer`;
     return s?.name ?? `Seat ${n + 1}`;
   };
   const sendWatch = (m: WatchMessage) => {
@@ -1637,8 +1643,9 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
   const partnerControl = (p: Partner | null): Control | null => (p ? { label: p.label, run: () => runPartner(p), pressed: p.pressed } : null);
 
   // Reveals waiting to be shown (to everyone, or to you alone), oldest first (Reveal.tsx).
-  // Not over the game-over screen: the log keeps them.
-  const reveals = revealSeen === null || (view.over && !watch && !boardShown) ? [] : revealGroups(view.events ?? [], revealSeen);
+  // Not over the game-over screen, or once a watched game has ended (skipping to the end left a
+  // reveal from mid-game sitting over the result): the log keeps them.
+  const reveals = revealSeen === null || (view.over && (watch || !boardShown)) ? [] : revealGroups(view.events ?? [], revealSeen);
   const revealNow = reveals[0];
   const dismissReveal = () => revealNow && setRevealSeen(revealNow[revealNow.length - 1]!.seq);
   // Another player just went out (GKnockout): their note until dismissed.
@@ -1664,7 +1671,8 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
       const b = settingsButtons(settings!, solo);
       return {
         primary: { label: settings === "concede" && solo ? "End game" : b.primary, run: settings === "concede" ? (solo ? endSolo : concede) : settings === "rewind" ? () => { sendRaw({ type: "go_back", revision: view.revision, checkpoint: rewindCheckpoint }); setSettings(null); } : () => setSettings(null), disabled: endingSolo || (settings === "rewind" && (!view.can_go_back || pending || !connected || rewindCheckpoint !== view.rewind_checkpoint)) },
-        secondary: b.secondary ? { label: b.secondary, run: () => setSettings("yields") } : null,
+        // Cancel puts you back in the game, wherever End game or Rewind was opened from.
+        secondary: b.secondary ? { label: b.secondary, run: () => setSettings(null) } : null,
       };
     }
     if (!decision) {
@@ -2837,7 +2845,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
               {art(p.seat).art && <img src={art(p.seat).art!} alt="" />}
               <span className="tab-wash" aria-hidden="true" />
               <span className="tab-body">
-                <span className="tab-name"><span className="seat-dot" aria-hidden="true" />{p.seat === you ? "You" : seatInfo(p.seat)?.ai ? (watch ? seatName(seatInfo(p.seat), p.seat) : "Computer") : label(p.seat)}</span>
+                <span className="tab-name"><span className="seat-dot" aria-hidden="true" />{p.seat === you ? "You" : seatInfo(p.seat)?.ai ? seatName(seatInfo(p.seat), p.seat) : label(p.seat)}</span>
                 <b className="tab-life num" data-life-seat={p.eliminated ? undefined : p.seat}>{p.eliminated ? "Out" : <Tick value={p.life} />}</b>
               </span>
               {view.waiting_on.includes(p.seat) && !view.over ? (
@@ -2858,7 +2866,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
           p={focus}
           tone={tones.get(focus.seat)}
           label={label(focus.seat)}
-          commander={watch ? seatInfo(focus.seat)?.deck_name ?? null : seatInfo(focus.seat)?.commander ?? null}
+          commander={watch || seatInfo(focus.seat)?.ai ? seatInfo(focus.seat)?.deck_name ?? null : seatInfo(focus.seat)?.commander ?? null}
           toYou={damageFrom(focus.seat)}
           toWhom={watch ? seatName(seatInfo(bottom), bottom) : undefined}
           onHand={reveal ? () => setSheet({ seat: focus.seat, zone: "hand" }) : undefined}
@@ -3020,6 +3028,11 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
           {(playing || canEndSolo) && <button type="button" className="quiet" disabled={!view.can_go_back || pending || !connected} onClick={() => solo ? openRewind() : sendRaw({ type: "go_back", revision: view.revision })}>{solo ? "Rewind" : "Go back"}</button>}
           {(playing || canEndSolo) && <button type="button" className="quiet" onClick={() => setSettings("concede")}>{solo ? "End game" : "Concede"}</button>}
           {phaseButton}
+          {/* A phone's watch controls have no room for it, and the limit of one game at a time
+              tells you to stop the one playing: it goes where a game you play has End game. */}
+          {watch && watchStatus && !watchStatus.finished && (
+            <button type="button" className="quiet" onClick={async () => (await ask({ title: "Stop this game?", body: "You can still look at the board.", confirm: "Stop the game" })) && sendWatch({ type: "stop" })}>Stop the game</button>
+          )}
           {view.events && <button type="button" className="quiet" onClick={() => setReview({ at: null })}>What just happened</button>}
           <button type="button" className="quiet" onClick={() => setSheet("log")}>Game log</button>
         </div>
@@ -3266,13 +3279,13 @@ function LandRow({ piles, lands, meta, look, h, limit, open, onToggle, optionObj
 function LandSummaryTile({ lands, meta, onClick }: { lands: CardView[]; meta: Record<string, CardMeta>; onClick: () => void }) {
   const s = landSummary(lands, meta);
   return (
-    <button type="button" className="land-sum" onClick={onClick} aria-label={`${s.total} lands, ${s.untapped} untapped: ${s.groups.map((g) => `${g.count} ${COLOR_NAME[g.colors] ?? g.colors}`).join(", ")}. Show them all.`}>
+    <button type="button" className="land-sum" onClick={onClick} aria-label={`${plural(s.total, "land")}, ${s.untapped} untapped${s.groups.length ? `: ${s.groups.map((g) => `${g.count} ${COLOR_NAME[g.colors] ?? g.colors}`).join(", ")}` : ""}. Show them all.`}>
       <span className="land-dots">
         {s.groups.map((g) => (
           <span key={g.colors} className="land-dot"><ManaDot colors={g.colors} />{g.count}</span>
         ))}
       </span>
-      <span className="land-total">{s.untapped} untapped, {s.total} lands</span>
+      <span className="land-total">{s.untapped} untapped, {plural(s.total, "land")}</span>
     </button>
   );
 }
@@ -3285,10 +3298,11 @@ function LandChip({ lands, meta, open, onToggle }: { lands: CardView[]; meta: Re
       {s.groups.map((g) => (
         <span key={g.colors} className="land-dot"><ManaDot colors={g.colors} />{g.count}</span>
       ))}
-      <span>{s.untapped === 0 ? "all tapped" : "untapped"}, {s.total} lands</span>
+      <span>{s.untapped === 0 ? "all tapped" : "untapped"}, {plural(s.total, "land")}</span>
     </>
   );
-  const label = `${s.total} lands, ${s.untapped} untapped: ${s.groups.map((g) => `${g.count} ${COLOR_NAME[g.colors] ?? g.colors}`).join(", ")}`;
+  // With every land tapped there are no colours to list.
+  const label = `${plural(s.total, "land")}, ${s.untapped} untapped${s.groups.length ? `: ${s.groups.map((g) => `${g.count} ${COLOR_NAME[g.colors] ?? g.colors}`).join(", ")}` : ""}`;
   return onToggle ? (
     <button type="button" className="sum-chip" aria-expanded={open} aria-label={`${label}. ${open ? "Hide" : "Show"} them.`} onClick={onToggle}>{body}</button>
   ) : (
@@ -3459,7 +3473,7 @@ function LandChipBody({ lands, meta }: { lands: CardView[]; meta: Record<string,
       {s.groups.map((g) => (
         <span key={g.colors} className="land-dot"><ManaDot colors={g.colors} />{g.count}</span>
       ))}
-      <span>{s.total} lands{s.untapped === 0 ? ", all tapped" : ""}</span>
+      <span>{plural(s.total, "land")}{s.untapped === 0 ? ", all tapped" : ""}</span>
     </>
   );
 }

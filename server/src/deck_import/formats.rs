@@ -245,6 +245,25 @@ fn take_qty(line: &str) -> (Option<i64>, &str) {
     (None, l)
 }
 
+/// A quantity written after the name instead of before it: "Rampant Growth x1",
+/// "Forest x2 (FDN) 280 *F*". `rest` is the line as written (it led with no quantity); the answer
+/// is the quantity and the line without it. Only "xN" counts (a bare number at the end is a
+/// collector number or part of a name), and only straight after the name, before any printing,
+/// marker or tag, as `decks::parse_list` and the web's list reader have it: in
+/// "Sol Ring (C21) x2" and "Forest *F* x2" the x2 is no quantity, and stays where it is.
+fn take_trailing_qty(rest: &str) -> Option<(i64, String)> {
+    // Where the name ends: at a printing "(SET)" or "[SET]", a "*F*" marker, a "#tag" or an
+    // Archidekt "^label^".
+    let end = [" (", " [", " *", " #", " ^"].iter().filter_map(|mark| rest.find(*mark)).min().unwrap_or(rest.len());
+    let (front, tail) = rest[..end].trim_end().rsplit_once([' ', '\t'])?;
+    let digits = tail.strip_prefix(['x', 'X'])?;
+    if digits.is_empty() || !digits.chars().all(|c| c.is_ascii_digit()) || front.trim().is_empty() {
+        return None;
+    }
+    let qty: i64 = digits.parse().ok()?;
+    Some((qty, format!("{}{}", front.trim_end(), &rest[end..])))
+}
+
 /// Markers inside a line: TappedOut `*CMDR*`, foil `*F*`, etched `*E*`, Deckstats `#!Commander`,
 /// Archidekt `[Commander{top}]` categories and `^label^` labels. Returns the cleaned rest and what
 /// the markers said.
@@ -334,15 +353,33 @@ pub fn parse_text(text: &str) -> Parsed {
     // MTGO .txt: cards after the first blank line (with no header) are the sideboard.
     let mut blocks: Vec<Vec<usize>> = vec![vec![]];
     let mut blank_since_card = false;
-    for raw in text.lines() {
+    // Cards read under the Commander heading since it was last seen.
+    let mut commander_cards = 0;
+    // The last heading that names the main deck itself ("Deck", "Main", "Mainboard", "Main deck",
+    // "Maindeck", "Library"; not a group of it such as "Creatures"). A list that has one further
+    // down says itself where the commanders end, so no blank line before it ends the Commander
+    // section: two partners with a blank line between them both lead (as `decks::parse_list`
+    // and the web's list reader have it).
+    let names_the_deck = |line: &str| {
+        let word = line.trim_start_matches("//").trim_start_matches('#').trim().trim_start_matches('[').to_lowercase();
+        header(line) == Some(Section::Main) && ["deck", "main", "library"].iter().any(|h| word.starts_with(*h))
+    };
+    let last_deck_heading = text.lines().enumerate().filter(|(_, raw)| names_the_deck(raw.trim())).map(|(i, _)| i).last();
+    for (i, raw) in text.lines().enumerate() {
         let line = raw.trim();
         if line.is_empty() {
             blank_since_card = !lines.is_empty();
+            // A hand-typed list: the commander under its heading, a blank line, then the deck
+            // with no heading of its own. The blank line ends the Commander section.
+            if section == Section::Commander && commander_cards > 0 && last_deck_heading.is_none_or(|at| at < i) {
+                section = Section::Main;
+            }
             continue;
         }
         if let Some(h) = header(line) {
             section = h;
             saw_section = true;
+            commander_cards = 0;
             if h == Section::Commander {
                 commander_marked = true;
             }
@@ -368,6 +405,12 @@ pub fn parse_text(text: &str) -> Parsed {
             continue;
         }
         let (qty, rest) = take_qty(line);
+        // "Rampant Growth x1": the count after the name, on a line that didn't lead with one.
+        let trailing = if qty.is_none() { take_trailing_qty(rest) } else { None };
+        let (qty, rest) = match &trailing {
+            Some((n, without)) => (Some(*n), without.as_str()),
+            None => (qty, rest),
+        };
         let (rest, markers) = take_markers(rest);
         let (card, set_code, collector_number) = take_printing(&rest);
         let card = card.trim().trim_end_matches(['*']).trim().to_string();
@@ -416,6 +459,9 @@ pub fn parse_text(text: &str) -> Parsed {
         l.maybe = markers.maybe || section == Section::Maybe;
         l.marked_commander = l.board == Board::Commander;
         l.proxy = markers.proxy;
+        if section == Section::Commander {
+            commander_cards += 1;
+        }
         blocks.last_mut().unwrap().push(lines.len());
         lines.push(l);
     }

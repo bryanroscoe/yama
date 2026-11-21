@@ -61,6 +61,11 @@ fn clean_name(raw: &str, what: &str, max: usize) -> AppResult<String> {
     Ok(name.to_string())
 }
 
+/// The same name to a person reading a list: case and outer spaces aside.
+fn same_name(a: &str, b: &str) -> bool {
+    a.trim().to_lowercase() == b.trim().to_lowercase()
+}
+
 /// A join code no playgroup has. (The column is unique, so a clash that slipped past this check
 /// would fail the write rather than give two groups one code.)
 async fn fresh_code(conn: &mut SqliteConnection) -> AppResult<String> {
@@ -262,6 +267,19 @@ async fn add_guest(
     owner_for_member(&mut tx, &id, &user.id).await?;
     let name = clean_name(&body.name, "guest", GUEST_NAME_MAX)?;
     st.limits.playgroup_writes.check_user(&user)?;
+    // Two people with one name can't be told apart in a seat picker or when one is removed, be
+    // the other a guest or a member with an account (who is then most likely the same person).
+    // Compared here rather than in SQL: SQLite's lower() only folds ASCII.
+    let names: Vec<String> = sqlx::query_scalar(
+        "SELECT COALESCE(u.display_name, m.guest_name) FROM playgroup_members m LEFT JOIN users u ON u.id = m.user_id
+         WHERE m.playgroup_id = ? AND COALESCE(u.display_name, m.guest_name) IS NOT NULL",
+    )
+    .bind(&id)
+    .fetch_all(&mut *tx)
+    .await?;
+    if let Some(taken) = names.iter().find(|g| same_name(g, &name)) {
+        return Err(AppError::Conflict(format!("{taken} is already in this playgroup.")));
+    }
     let member_id = new_id();
     if member_count(&mut tx, &id).await? >= MEMBERS_MAX {
         return Err(full());
@@ -509,6 +527,8 @@ pub(crate) struct Stats {
     average_turns: Option<crate::stats::Average>,
     /// Every player's turn counted, from online games.
     average_online_turns: Option<crate::stats::Average>,
+    /// The typical length: the median of the timed games (`stats::typical_minutes`), under the
+    /// name the page and the MCP have always read.
     average_minutes: Option<crate::stats::Average>,
     seats: Vec<crate::stats::PodSeats>,
     seats_unknown: i64,
@@ -540,7 +560,7 @@ pub(crate) async fn stats_for(pool: &SqlitePool, user_id: &str, id: &str) -> App
         commanders: s::commanders(&games),
         average_turns: s::average_turns(&games),
         average_online_turns: s::average_online_turns(&games),
-        average_minutes: s::average_minutes(&games),
+        average_minutes: s::typical_minutes(&games),
         seats: s::seats(&games),
         seats_unknown: s::seats_unknown(&games),
         seat_reference: s::SEAT_REFERENCE,
@@ -693,6 +713,42 @@ mod tests {
         let (status, g) = send(&app, Method::PATCH, &format!("/api/playgroups/{id}"), Some(&bt), Some(json!({ "name": at_cap }))).await;
         assert_eq!((status, g["name"].as_str()), (StatusCode::OK, Some(at_cap.as_str())));
         assert_eq!(detail(&app, &bt, &id).await["members"].as_array().unwrap().len(), 2, "no guest was added");
+    }
+
+    #[tokio::test]
+    async fn a_guest_name_is_used_once_in_a_group_whatever_its_case() {
+        let (app, pool) = app().await;
+        let (_, bt) = user(&pool, "bryan@example.com").await;
+        let (_, pt) = user(&pool, "pat@example.com").await;
+        let (id, _) = group(&app, &bt, &pt).await;
+        let add = |token: String, name: &'static str| {
+            let (app, id) = (app.clone(), id.clone());
+            async move { send(&app, Method::POST, &format!("/api/playgroups/{id}/guests"), Some(&token), Some(json!({ "name": name }))).await }
+        };
+        let (status, _) = add(bt.clone(), "Dana").await;
+        assert_eq!(status, StatusCode::OK);
+        // The same name again, from either member, in any case and with spaces around it.
+        for (token, again) in [(&bt, "Dana"), (&pt, "dana"), (&bt, "  DANA ")] {
+            let (status, body) = add(token.clone(), again).await;
+            assert_eq!(status, StatusCode::CONFLICT, "{again:?}");
+            assert_eq!(body["error"], "Dana is already in this playgroup.");
+        }
+        let (status, _) = add(bt.clone(), "ÉOWYN").await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, _) = add(bt.clone(), "éowyn").await;
+        assert_eq!(status, StatusCode::CONFLICT, "case is folded beyond ASCII");
+        // A member with an account holds their name too: Pat is already here.
+        let (status, body) = add(bt.clone(), "PAT").await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(body["error"], "pat is already in this playgroup.");
+        // A different name is fine, and so is the same name in another group.
+        let (status, _) = add(bt.clone(), "Dana B").await;
+        assert_eq!(status, StatusCode::OK);
+        let (other, _) = group(&app, &bt, &pt).await;
+        let (status, _) = send(&app, Method::POST, &format!("/api/playgroups/{other}/guests"), Some(&bt), Some(json!({ "name": "Dana" }))).await;
+        assert_eq!(status, StatusCode::OK);
+        // Bryan, Pat and three guests: nothing was added by a refused request.
+        assert_eq!(detail(&app, &bt, &id).await["members"].as_array().unwrap().len(), 5);
     }
 
     /// A group can pass to an account that is turned off only when its owner's account is

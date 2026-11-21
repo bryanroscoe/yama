@@ -21,7 +21,8 @@ const item = (over: Partial<SellItem> = {}): SellItem => ({
   price_date: null,
   ...over,
 });
-const html = (items: SellItem[]) => renderToStaticMarkup(<SellSheet items={items} from="Trade binder" inDeckBox={false} onClose={() => undefined} />);
+const mothership = { name: "Mothership Books and Games", short: "Mothership" };
+const html = (items: SellItem[], buylist: typeof mothership | null = null) => renderToStaticMarkup(<SellSheet items={items} from="Trade binder" inDeckBox={false} buylist={buylist} onClose={() => undefined} />);
 
 describe("the sell list sheet", () => {
   it("never shows a missing price as $0", () => {
@@ -49,10 +50,31 @@ describe("the sell list sheet", () => {
 it("checks etched copies at Mothership independently of Card Kingdom's export restrictions", () => {
   vi.stubGlobal("localStorage", { getItem: () => "cardkingdom", setItem: () => undefined });
   try {
-    const h=html([item({name:"Panharmonicon",finish:"etched"})]);
-    expect(h).toContain("Check Mothership (1)");
+    const h=html([item({name:"Panharmonicon",finish:"etched"})], mothership);
+    expect(h).toContain("Check 1 card with Mothership");
     expect(h).toContain("Card Kingdom");
   } finally {
     vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => undefined });
   }
+});
+
+it("offers a store's buylist check only to an account that has that store, under one heading", () => {
+  const without = html([item()]);
+  // No store: nothing offers to ask it, but checks saved on the account before can still be read.
+  expect(without).not.toMatch(/Check \d+ cards? with/);
+  expect(without).not.toContain("Buylist offers from");
+  expect(without).not.toContain("buylist offers");
+  expect(without).not.toContain("One request to the store");
+  expect(without).toContain("<summary>Saved buylist checks</summary>");
+  expect(without).toContain("Nothing is asked of the store here.");
+  expect(without).toMatch(/<button[^>]*>Saved checks<\/button>/);
+  const withStore = html([item()], mothership);
+  expect(withStore.split("Buylist offers from Mothership Books and Games (Austin, TX)")).toHaveLength(3); // the fold's label and the section's name
+  expect(withStore).not.toContain("Local buylist offers");
+});
+
+it("says the tick boxes are how cards are chosen", () => {
+  const h = html([item()]);
+  expect(h).toContain("From Trade binder. Untick what you&#x27;re keeping. Proxies are never included.");
+  expect(h).not.toContain("move them into a list");
 });

@@ -27,7 +27,7 @@ export function startSteps(has: { decks: number; copies: number; playgroups: num
       done: has.decks > 0,
       links: [
         { to: "/decks/import", label: "Add a deck" },
-        { to: "/lab", label: "Start from a precon" },
+        { to: "/lab?start=1", label: "Start from a precon" },
       ],
     },
     { id: "collection", title: "Bring your collection", text: "Import a file from another app, or add cards from search.", done: has.copies > 0, links: [{ to: "/collection", label: "Open Collection" }] },
@@ -69,12 +69,13 @@ interface Asked {
 export const answered = (q: Pick<Asked, "isSuccess" | "isFetchedAfterMount">, freshAtOpen: boolean): boolean => q.isSuccess && (q.isFetchedAfterMount || freshAtOpen);
 
 /**
- * The list, for the signed-in Home. Home passes its decks and games questions, which it has
- * already asked. Nothing shows until all four have a current answer, so the list never flashes
- * for an account that finished it, on this device or another, and nothing shows if one can't be
- * had (offline): it is a prompt, not a status.
+ * The list, for the signed-in Home: its steps and how to hide it, or null while it doesn't show.
+ * Home passes its decks and games questions, which it has already asked. Nothing shows until all
+ * four have a current answer, so the list never flashes for an account that finished it, on this
+ * device or another, and nothing shows if one can't be had (offline): it is a prompt, not a
+ * status. Home reads the steps too, so it doesn't offer "Add a deck" a second time under them.
  */
-export function StartHere({ userId, decks, games }: { userId: string; decks: Asked & { data: DeckSummary[] | undefined }; games: Asked & { data: GameRow[] | undefined } }) {
+export function useStartHere({ userId, decks, games }: { userId: string; decks: Asked & { data: DeckSummary[] | undefined }; games: Asked & { data: GameRow[] | undefined } }): { steps: StartStep[]; onHide?: () => void } | null {
   const viewing = !!useMe().data?.viewing;
   const collection = useQuery({ queryKey: ["collection-summary"], queryFn: ({ signal }) => api<CollectionSummary>("/api/collection/summary", { signal }) });
   const groups = useQuery({ queryKey: ["playgroups"], queryFn: ({ signal }) => api<Playgroup[]>("/api/playgroups", { signal }) });
@@ -95,7 +96,12 @@ export function StartHere({ userId, decks, games }: { userId: string; decks: Ask
     }
     setHidden(true);
   };
-  return <StartHereList steps={steps} onHide={viewing ? undefined : hide} />;
+  return { steps, onHide: viewing ? undefined : hide };
+}
+
+/** Whether the list is showing with this step still to do. */
+export function stepOpen(list: { steps: StartStep[] } | null, id: StartStep["id"]): boolean {
+  return !!list?.steps.some((s) => s.id === id && !s.done);
 }
 
 /** The list as drawn. `onHide`: absent where hiding isn't offered. */
@@ -113,7 +119,8 @@ export function StartHereList({ steps, onHide }: { steps: StartStep[]; onHide?: 
             <span className="home-step-mark num" aria-hidden="true">{s.done ? "✓" : i + 1}</span>
             <span className="home-step-text">
               <b>{s.title}</b>
-              <span>{s.done ? "Done." : s.text}</span>
+              {/* A done step is one ticked line: its name and "Done", no card around it. */}
+              <span>{s.done ? "Done" : s.text}</span>
             </span>
             {!s.done && (
               <span className="home-step-links">

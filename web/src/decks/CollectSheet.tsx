@@ -3,15 +3,75 @@ import { CardRef } from "../components/CardRef";
 // with copies of the same printing elsewhere, then add (server/src/collection/deck_box.rs).
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useLocation } from "react-router";
 import { api } from "../api";
 import { Button, Details, Dialog, ErrorText, Loading } from "../components/ui";
 import { isViewing } from "../viewingFlag";
-import { boxText, buttonText, groups, outcomeText, printingText, resultText, SAME_CHOICES, summary, type CollectPreview, type SamePrinting } from "./collect";
+import { boxText, buttonText, collectAfter, declineOffer, forgetDeclined, groups, offerDeclined, offerLine, offerMade, offerTitle, outcomeText, printingText, resultText, SAME_CHOICES, summary, type CollectPreview, type SamePrinting } from "./collect";
 import "./collect.css";
 
-/** `offer`: opened at the end of a deck import, so it asks rather than tells. */
+const previewPath = (deckId: string, same: SamePrinting, proxies: string[] | null) =>
+  `/api/decks/${deckId}/collect?same=${same}${proxies === null ? "" : `&proxies=${encodeURIComponent(proxies.join(","))}`}`;
+
+/**
+ * `offer`: opened by `?collect=1`, so it asks rather than tells. When the page got there by
+ * itself (the navigation's state says why, collect.ts `collectAfter`) the offer is kept small:
+ * after adding a deck it is the sheet, once; after saving an edit it is one line, and only for
+ * a deck whose box already holds cards. "Not now" is remembered for the deck on this device.
+ */
 export function CollectSheet({ deckId, offer = false, onClose }: { deckId: string; offer?: boolean; onClose: () => void }) {
+  const location = useLocation();
+  const after = offer ? collectAfter(location.state) : null;
+  // Decided once, as the sheet opens: answering "Not now" mustn't unmount what is on screen.
+  const [declined] = useState(() => after !== null && offerDeclined(deckId));
+  const [line, setLine] = useState(after === "edit");
+  useEffect(() => {
+    if (declined) onClose();
+    // Only as it opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  if (declined) return null;
+  const notNow = () => {
+    declineOffer(deckId);
+    onClose();
+  };
+  if (line) return <OfferLine deckId={deckId} onOpen={() => setLine(false)} onNotNow={notNow} onNothing={onClose} />;
+  return <Sheet deckId={deckId} offer={offer} onClose={onClose} onNotNow={after ? notNow : onClose} />;
+}
+
+/** After a saved edit: one line, where the deck's box is short of cards the list now has. */
+function OfferLine({ deckId, onOpen, onNotNow, onNothing }: { deckId: string; onOpen: () => void; onNotNow: () => void; onNothing: () => void }) {
+  const viewing = isViewing();
+  // The sheet's own first question, so opening it from here has its answer already.
+  const preview = useQuery({
+    queryKey: ["deck-collect", deckId, "move", null],
+    queryFn: ({ signal }) => api<CollectPreview>(previewPath(deckId, "move", null), { signal }),
+    enabled: !viewing,
+    // The list was just saved: an answer kept from before the save is about the old list.
+    refetchOnMount: "always",
+  });
+  // Only an answer that came after the save speaks for the new list: an older one neither shows
+  // the line nor closes it for good.
+  const fresh = preview.isFetchedAfterMount;
+  const text = fresh && !preview.isError && preview.data ? offerLine(preview.data) : null;
+  const nothing = viewing || (fresh && !text);
+  useEffect(() => {
+    if (nothing) onNothing();
+    // onNothing is the page's close: it is new on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nothing]);
+  if (!text) return null;
+  return (
+    <p className="collect-offer" role="status">
+      <span>{text.text}</span>
+      <Button variant="quiet" size="small" onClick={onOpen}>{text.action}</Button>
+      <Button variant="quiet" size="small" onClick={onNotNow}>Not now</Button>
+    </p>
+  );
+}
+
+function Sheet({ deckId, offer, onClose, onNotNow }: { deckId: string; offer: boolean; onClose: () => void; onNotNow: () => void }) {
   const qc = useQueryClient();
   const [same, setSame] = useState<SamePrinting>("move");
   // null preserves imported proxy flags until the owner makes a choice.
@@ -19,7 +79,7 @@ export function CollectSheet({ deckId, offer = false, onClose }: { deckId: strin
   const [result, setResult] = useState<CollectPreview | null>(null);
   const preview = useQuery({
     queryKey: ["deck-collect", deckId, same, proxies],
-    queryFn: ({ signal }) => api<CollectPreview>(`/api/decks/${deckId}/collect?same=${same}${proxies === null ? "" : `&proxies=${encodeURIComponent(proxies.join(","))}`}`, { signal }),
+    queryFn: ({ signal }) => api<CollectPreview>(previewPath(deckId, same, proxies), { signal }),
     enabled: !result,
     placeholderData: keepPreviousData,
   });
@@ -27,16 +87,23 @@ export function CollectSheet({ deckId, offer = false, onClose }: { deckId: strin
     mutationFn: () => api<CollectPreview>(`/api/decks/${deckId}/collect`, { method: "POST", json: { same, ...(proxies === null ? {} : { proxies }) } }),
     onSuccess: (r) => {
       setResult(r);
+      // The deck is in the collection now: an earlier "Not now" no longer speaks for it.
+      forgetDeclined(deckId);
       void qc.invalidateQueries({ predicate: (q) => ["deck", "decks", "containers", "deck-collect"].includes(String(q.queryKey[0])) || String(q.queryKey[0]).startsWith("collection") });
     },
   });
   const viewing = isViewing();
   const p = result ?? preview.data;
-  const title = offer && p && !result ? `Add these ${p.cards} cards to your collection?` : "Add to my collection";
+  const title = offer && p && !result ? offerTitle(p) : "Add to my collection";
   const g = p ? groups(p) : null;
+  // Closing an offer without adding is "Not now" too. After adding there is nothing to decline,
+  // and a sheet that never got as far as asking (still checking, failed, nothing to add) was
+  // only closed.
+  const close = !result && offerMade(preview.data) ? onNotNow : onClose;
+  const isProxy = (line: { oracle_id: string; proxy: boolean }) => (proxies === null ? line.proxy : proxies.includes(line.oracle_id));
 
   return (
-    <Dialog title={title} onClose={onClose}>
+    <Dialog title={title} onClose={close}>
       <div className="stack">
         <ErrorText error={preview.error} />
         {!p && !preview.error && <Loading>Checking your collection…</Loading>}
@@ -54,24 +121,6 @@ export function CollectSheet({ deckId, offer = false, onClose }: { deckId: strin
                 ))}
               </ul>
             )}
-            {!result && p.lines.length > 0 && (
-              <fieldset className="collect-choices" disabled={viewing || add.isPending}>
-                <legend>Which cards are printed proxies?</legend>
-                <p className="small dim">Saving a deck list doesn’t add collection copies. Mark your printed cards here; unmarked cards are added as real copies. Copies already in the box stay as they are.</p>
-                {p.lines.map((line) => (
-                  <label key={line.oracle_id}>
-                    <input type="checkbox" checked={proxies === null ? line.proxy : proxies.includes(line.oracle_id)} onChange={(event) => {
-                      const selected = new Set(proxies ?? p.lines.filter((l) => l.proxy).map((l) => l.oracle_id));
-                      if (event.target.checked) selected.add(line.oracle_id);
-                      else selected.delete(line.oracle_id);
-                      setProxies([...selected].sort());
-                    }} />
-                    {line.missing > 1 ? `${line.missing} ` : ""}{line.name}
-                    <span className="hint">{(proxies === null ? line.proxy : proxies.includes(line.oracle_id)) ? "Proxy" : "Real copy"}</span>
-                  </label>
-                ))}
-              </fieldset>
-            )}
             {!result && p.same_elsewhere > 0 && (
               <fieldset className="collect-choices" disabled={viewing || add.isPending}>
                 <legend>The copies you own in the same printing</legend>
@@ -86,6 +135,40 @@ export function CollectSheet({ deckId, offer = false, onClose }: { deckId: strin
                   </label>
                 ))}
               </fieldset>
+            )}
+            <ErrorText error={add.error} />
+            {/* The answer comes straight after the summary; what's below it is optional detail. It
+                stays in reach while the proxy list is open and scrolled. */}
+            {!result && (
+              <div className="row collect-answer">
+                <Button variant="primary" disabled={viewing || add.isPending || preview.isFetching || !!preview.error || p.added + p.moved === 0} onClick={() => add.mutate()}>
+                  {add.isPending ? "Adding…" : preview.isFetching ? "Checking…" : buttonText(p)}
+                </Button>
+                <Button variant="quiet" onClick={close}>
+                  {offer ? "Not now" : "Cancel"}
+                </Button>
+                {viewing && <span className="small dim">Read only while viewing as someone.</span>}
+              </div>
+            )}
+            {!result && p.lines.length > 0 && (
+              <Details className="collect-proxies" label={p.lines.length === 1 ? "It's a proxy (a printed stand-in)" : "Some of these are proxies (printed stand-ins)"}>
+                <fieldset className="collect-choices" disabled={viewing || add.isPending}>
+                  <legend className="visually-hidden">Which cards are proxies</legend>
+                  <p className="small dim">Tick each card you printed yourself or use a stand-in for. Yama adds those as proxies and the rest as real cards. Copies already in the box stay as they are.</p>
+                  {p.lines.map((line) => (
+                    <label key={line.oracle_id}>
+                      <input type="checkbox" checked={isProxy(line)} onChange={(event) => {
+                        const selected = new Set(proxies ?? p.lines.filter((l) => l.proxy).map((l) => l.oracle_id));
+                        if (event.target.checked) selected.add(line.oracle_id);
+                        else selected.delete(line.oracle_id);
+                        setProxies([...selected].sort());
+                      }} />
+                      {line.missing > 1 ? `${line.missing} ` : ""}{line.name}
+                      <span className="hint">{isProxy(line) ? "Proxy" : "Real card"}</span>
+                    </label>
+                  ))}
+                </fieldset>
+              </Details>
             )}
             {g && (g.add.length > 0 || g.move.length > 0 || g.leave.length > 0) && (
               <Details label={result ? "The cards" : "Which cards"}>
@@ -105,18 +188,6 @@ export function CollectSheet({ deckId, offer = false, onClose }: { deckId: strin
                   />
                 )}
               </Details>
-            )}
-            <ErrorText error={add.error} />
-            {!result && (
-              <div className="row">
-                <Button variant="primary" disabled={viewing || add.isPending || preview.isFetching || !!preview.error || p.added + p.moved === 0} onClick={() => add.mutate()}>
-                  {add.isPending ? "Adding…" : preview.isFetching ? "Checking…" : buttonText(p)}
-                </Button>
-                <Button variant="quiet" onClick={onClose}>
-                  {offer ? "Not now" : "Cancel"}
-                </Button>
-                {viewing && <span className="small dim">Read only while viewing as someone.</span>}
-              </div>
             )}
           </>
         )}

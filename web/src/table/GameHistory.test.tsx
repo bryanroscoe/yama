@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 import type { GameRow } from "../api";
-import { emptyHistory, GameHistoryPage } from "./GameHistory";
+import { emptyHistory, GameHistoryPage, seatLine } from "./GameHistory";
 
 vi.mock("../auth", () => ({ useMe: () => ({ data: { id: "me" } }) }));
 vi.mock("./store", () => ({ usePendingDeletes: () => ["deleted"] }));
@@ -31,6 +31,15 @@ describe("game history", () => {
     // One page of games has nothing to page through.
     expect(html).not.toContain("Previous");
     expect(html).not.toContain("Page 1");
+  });
+
+  it("doesn't repeat the computer's name as its commander", () => {
+    // An online game's computer seat is named after its commander.
+    expect(seatLine({ seat: 1, display_name: "Valgavoth, Harrower of Souls", commander_name: "Valgavoth, Harrower of Souls" })).toBe("Valgavoth, Harrower of Souls");
+    expect(seatLine({ seat: 0, display_name: "Kelly", commander_name: "Atraxa" })).toBe("Kelly (Atraxa)");
+    expect(seatLine({ seat: 2, display_name: " ", commander_name: null })).toBe("Seat 3");
+    const html = page("", [game("online", { mode: "online", seats: [{ seat: 0, display_name: "Kelly", commander_name: "Atraxa" }, { seat: 1, display_name: "Commander Spock", commander_name: "Commander Spock", ai_kind: "easy" }] as GameRow["seats"] })]);
+    expect(html).toContain("Kelly (Atraxa), Commander Spock<");
   });
 
   it("gives an account with no games a next step, and no filters' worth of dead ends", () => {

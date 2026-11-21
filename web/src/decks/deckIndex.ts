@@ -3,6 +3,7 @@
 // (?q=…&folder=…&colors=UG&bracket=3&sort=recent), so Back and a reload keep them.
 import { identityKeys } from "@yama/core";
 import type { DeckSummary } from "../api";
+import { suggestedBracket } from "../components/deckCheck";
 
 export type DeckSort = "name" | "recent" | "record";
 export const SORTS: { value: DeckSort; label: string }[] = [
@@ -21,12 +22,18 @@ export interface DeckFilter {
   folder: string | null;
   /** Colors the deck's identity must include, in WUBRG order ("" for any). */
   colors: string;
-  /** The bracket the owner declared, "1" to "5"; "none" for decks with none declared; "" for any. */
+  /** The bracket on the deck's tile, "1" to "5": the one its owner declared, else Yama's
+   *  suggestion; "none" for decks with none declared; "" for any. */
   bracket: string;
   sort: DeckSort;
 }
 
-type Deck = Pick<DeckSummary, "id" | "name" | "folder" | "commanders" | "color_identity" | "bracket" | "updated_at" | "games" | "wins" | "configuration">;
+type Deck = Pick<DeckSummary, "id" | "name" | "folder" | "commanders" | "color_identity" | "bracket" | "updated_at" | "games" | "wins" | "configuration"> & Partial<Pick<DeckSummary, "estimate">>;
+
+/** The bracket a deck's tile shows: the declared one, else the suggestion (2 to 4) when there is one. */
+export function tileBracket(d: Pick<Deck, "bracket" | "estimate">): number | null {
+  return d.bracket ?? (d.estimate ? suggestedBracket(d.estimate.tag, d.estimate.bracket) : null);
+}
 export interface DeckGroup<T extends Deck = Deck> {
   main: T;
   configurations: T[];
@@ -105,8 +112,10 @@ function matches(g: DeckGroup, f: DeckFilter): boolean {
     const identity = identityKeys(d.color_identity).join("");
     if (![...f.colors].every((k) => identity.includes(k))) return false;
   }
-  // The declared bracket only: a suggestion isn't the owner's word, and the tile shows both.
-  if (f.bracket && (f.bracket === "none" ? d.bracket != null : String(d.bracket) !== f.bracket)) return false;
+  // The bracket the tile shows: most decks have none declared, and a filter that only knew
+  // declared ones found nothing on a list where every tile shows a number. "None declared" still
+  // means the owner hasn't said.
+  if (f.bracket && (f.bracket === "none" ? d.bracket != null : String(tileBracket(d)) !== f.bracket)) return false;
   const words = fold(f.q).split(/\s+/).filter(Boolean);
   if (words.length) {
     // A deck's own name and commanders, and those of its other lists ("Stock", "Bracket 3").

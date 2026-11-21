@@ -141,9 +141,142 @@ export function suggestionsFor(typed: string | null, fetchedFor: string): boolea
   return typed !== null && typed.toLowerCase() === fetchedFor.toLowerCase();
 }
 
+/** Whether what is typed is already, in full, one of the names just offered: nothing more to look up. */
+export function alreadyOffered(typed: string, offered: string[]): boolean {
+  const t = typed.trim().toLowerCase();
+  return t !== "" && offered.some((n) => n.toLowerCase() === t);
+}
+
+/** The names just offered that still fit what is typed, the one typed out in full first. */
+export function offeredFor(typed: string, offered: string[]): string[] {
+  const t = typed.trim().toLowerCase();
+  const fits = offered.filter((n) => n.toLowerCase().includes(t));
+  return [...fits.filter((n) => n.toLowerCase() === t), ...fits.filter((n) => n.toLowerCase() !== t)];
+}
+
 /** The suggestion Up or Down moves to, wrapping; -1 is the box itself (nothing chosen). */
 export function moveSuggestion(active: number, count: number, step: 1 | -1): number {
   if (count === 0) return -1;
   const next = active + step;
   return next >= count ? -1 : next < -1 ? count - 1 : next;
+}
+
+// ── when a search finds nothing, or can't be read ──────────────────────────
+
+/** A name as compared for "Did you mean": lower case, no accents, punctuation as spaces. */
+const plainName = (s: string) =>
+  s
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+/**
+ * How many slips turn `a` into `b`: a letter added, dropped or changed, or two neighbours swapped
+ * ("fier" for "fire" is one). More than `max` comes back as `max + 1`.
+ */
+export function editDistance(a: string, b: string, max: number): number {
+  if (Math.abs(a.length - b.length) > max) return max + 1;
+  let before: number[] = [];
+  let row = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const next = [i];
+    let best = i;
+    for (let j = 1; j <= b.length; j++) {
+      let v = Math.min(row[j]! + 1, next[j - 1]! + 1, row[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1));
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) v = Math.min(v, before[j - 2]! + 1);
+      next.push(v);
+      if (v < best) best = v;
+    }
+    if (best > max) return max + 1;
+    before = row;
+    row = next;
+  }
+  return Math.min(row[b.length]!, max + 1);
+}
+
+/**
+ * The card names closest to a misspelled one ("lightnig bolt" → "Lightning Bolt"), nearest first,
+ * at most `limit`: names within a letter for every four typed (at least one). A two-faced card
+ * counts by its whole name and by each face. Names equally near keep the order they came in.
+ * A name whose search is the one just typed is never offered: it found nothing, and would again.
+ */
+export function didYouMean(typed: string, names: Iterable<string>, limit = 3): string[] {
+  const want = plainName(typed);
+  if (want.length < 3) return [];
+  const max = Math.max(1, Math.floor(want.length / 4));
+  const near: { name: string; d: number }[] = [];
+  const seen = new Set<string>();
+  const asTyped = typed.trim().toLowerCase();
+  for (const name of names) {
+    if (seen.has(name)) continue;
+    seen.add(name);
+    if (nameQuery(name).toLowerCase() === asTyped) continue;
+    let d = editDistance(want, plainName(name), max);
+    // A face sorts a touch behind a whole name as near: "Lightning Bolt" before "Emeritus of Conflict // Lightning Bolt".
+    if (name.includes(" // ")) for (const face of name.split(" // ")) d = Math.min(d, editDistance(want, plainName(face), max) + 0.5);
+    if (d <= max + 0.5) near.push({ name, d });
+  }
+  // Array sort is stable: names equally near stay in the order given (most played first, from the server).
+  return near.sort((a, b) => a.d - b.d).slice(0, limit).map((n) => n.name);
+}
+
+/**
+ * Layouts a search by name leaves out: tokens and emblems, and the oversized cards of other
+ * formats (planes, schemes, vanguards). The same six as `EXTRA_LAYOUTS` in
+ * server/src/cards/mod.rs and packages/core/src/search.ts: keep the three in step.
+ */
+const NOT_SEARCHED = new Set(["token", "double_faced_token", "emblem", "vanguard", "scheme", "planar"]);
+
+/**
+ * The names on the device's card list that a search by name can find (`n` the name, `y` the
+ * layout): "Did you mean" offers only these, since a tap on any other finds nothing again.
+ */
+export function searchableNames(cards: { n: string; y?: string | null }[]): string[] {
+  return cards.filter((c) => !NOT_SEARCHED.has(c.y ?? "")).map((c) => c.n);
+}
+
+/** The words of a name worth looking up on their own to find what was meant: the longest two of four letters or more. */
+export function wordsToLookUp(typed: string): string[] {
+  return [...new Set(plainName(typed).split(" ").filter((w) => w.length >= 4))].sort((a, b) => b.length - a.length).slice(0, 2);
+}
+
+/** ", like mv<=3" for a term left without its value ("mv<="), where there is a plain example. */
+function exampleFor(term: string): string {
+  const key = term.replace(/[^a-z]/gi, "").toLowerCase();
+  const value = NUMBERS[key] ? "3" : ["t", "type"].includes(key) ? "dragon" : ["o", "oracle"].includes(key) ? "draw" : ["id", "ci", "identity", "commander", "c", "color", "colour"].includes(key) ? "wu" : key === "usd" ? "5" : key === "year" ? "2020" : null;
+  return value ? `, like ${term}${value}` : "";
+}
+
+const SEARCH_ERRORS: [RegExp, (m: RegExpMatchArray) => string][] = [
+  [/^unclosed quote$/, () => 'A quote mark isn\'t closed. Add the closing " after the words.'],
+  [/^(\S+) needs a value$/, (m) => `${m[1]} needs something after it${exampleFor(m[1]!)}.`],
+  [/^unsupported keyword (\S+):$/, (m) => `Yama's search doesn't have "${m[1]}:".`],
+  [/^unsupported is:(.+)$/, (m) => `Yama's search doesn't have is:${m[1]}.`],
+  [/^unsupported operator (.+)$/, (m) => `${m[1]} can't be used with a color there. Use :, =, <= or >=.`],
+  [/^(\S+) takes : or =, not (.+)$/, (m) => `${m[1]} works with : or =, not ${m[2]}.`],
+  [/^unknown color '(.+)'$/, (m) => `"${m[1]}" isn't a color. Use the letters w, u, b, r, g and c.`],
+  [/^unknown rarity (.+)$/, (m) => `"${m[1]}" isn't a rarity. Use common, uncommon, rare or mythic.`],
+  [/^(.+) isn't a year$/, (m) => `"${m[1]}" isn't a year. Try year>=2020.`],
+  [/^(.+) isn't a price$/, (m) => `"${m[1]}" isn't a price. Try usd<5.`],
+  [/^(.+) isn't a number$/, (m) => `"${m[1]}" isn't a number. Try mv<=3.`],
+  [/^missing '\)'$/, () => "A ( isn't closed. Add the closing )."],
+  [/^unexpected '\)'$/, () => "There's a ) with no ( before it."],
+  [/^empty expression$/, () => 'Something is missing: an empty ( ), or an "or" with nothing on one side.'],
+  [/^unexpected (token|end)$/, () => "The search ends or breaks off where Yama expected more."],
+  [/^a search can be at most (\d+) characters$/, (m) => `A search can be at most ${m[1]} characters.`],
+];
+
+/**
+ * A search the grammar couldn't read, as a sentence: the server's and the device's parser both
+ * answer in a few fixed lower-case words ("mv<= needs a value", "unclosed quote"). Null for a
+ * message that isn't one of theirs (it may already be a sentence, or not about the query at all).
+ */
+export function searchErrorWords(message: string): string | null {
+  for (const [pattern, words] of SEARCH_ERRORS) {
+    const m = message.match(pattern);
+    if (m) return words(m);
+  }
+  return null;
 }

@@ -215,11 +215,14 @@ function saveState(state) {
  * `Authorization` (also skipped; the server takes the session from it as from the cookie). Only
  * ever sent to the host itself.
  */
-function sessionHeader() {
+function sessionHeader(token = null) {
   // Production over HTTPS only: never another host, which could be anyone's.
   if (base.protocol !== "https:" || base.hostname !== PRODUCTION_HOST) return {};
   const check = join(homedir(), ".config", "yama", "edge-check-header");
   const edge = existsSync(check) ? { "x-yama-check": readFileSync(check, "utf8").trim() } : {};
+  // A session being tried goes in place of the saved one: an expired saved session sent as
+  // Authorization would win over the new cookie, and no new session could ever be saved.
+  if (token) return { ...edge, authorization: `Bearer ${token}` };
   if (!existsSync(statePath)) return edge;
   try {
     const state = JSON.parse(readFileSync(statePath, "utf8"));
@@ -235,8 +238,8 @@ function sessionHeader() {
   }
 }
 
-async function whoAmI(request) {
-  const res = await request.get(new URL("/api/me", base).href, { failOnStatusCode: false, headers: sessionHeader() });
+async function whoAmI(request, token = null) {
+  const res = await request.get(new URL("/api/me", base).href, { failOnStatusCode: false, headers: sessionHeader(token) });
   if (res.status() !== 200) return null;
   const me = await res.json().catch(() => null);
   return me ? { name: me.name ?? me.user?.name ?? null, email: me.email ?? me.user?.email ?? null } : null;
@@ -288,7 +291,7 @@ async function saveToken(value) {
   const cookie = sessionCookie(value);
   const browser = await launch(false);
   const context = await browser.newContext({ storageState: { cookies: [cookie], origins: [] } });
-  const me = await whoAmI(context.request);
+  const me = await whoAmI(context.request, value);
   await browser.close();
   if (!me) throw new Error("That session didn't work: /api/me refused it");
   saveState({ cookies: [cookie] });

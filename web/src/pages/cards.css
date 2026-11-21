@@ -63,7 +63,7 @@
 .cards-suggest li[aria-selected="true"] {
   background: var(--surface);
 }
-/* Laptops: a pill beside the box. Phones: a chip after the query's chips. */
+/* Laptops: a pill beside the box. Phones: at the right of the count line (.cards-sort). */
 .cards-page .cards-order {
   display: none;
   width: auto;
@@ -75,8 +75,25 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+  /* A page turn scrolls here: not flush against the top of the screen. */
+  scroll-margin-top: 12px;
 }
-/* Phones: the query's chips on one line that scrolls sideways, then the count and prices. */
+/* Phones: the query's chips on one line that scrolls sideways, then the count and prices with
+   the sort at their right, where it can't be scrolled out of sight. */
+.cards-count-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.cards-sort {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--t-sm);
+  color: var(--dim);
+}
 .cards-chips-row {
   order: -1;
   display: flex;
@@ -88,8 +105,37 @@
   padding: 0 16px;
 }
 .cards-count {
+  flex: 1 1 auto;
+  min-width: 0;
   font-size: var(--t-label);
   color: var(--dim);
+}
+/* Nothing found, or a search that couldn't be read: what to try, and the syntax a tap away. */
+.cards-none,
+.cards-problem {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.cards-page .cards-none p,
+.cards-page .cards-problem p {
+  margin: 0;
+}
+.cards-none-head {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.cards-meant {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.cards-page .cards-meant .cards-chip {
+  font-weight: 700;
+  white-space: normal;
+  text-align: left;
 }
 .cards-page .cards-chip {
   flex: 0 0 auto;
@@ -222,6 +268,13 @@
   .cards-narrow {
     display: none;
   }
+  .cards-count-line {
+    display: contents;
+  }
+  .cards-count {
+    flex: 0 1 auto;
+  }
+  .cards-sort,
   .cards-page select.cards-order-chip {
     display: none;
   }
@@ -463,12 +516,33 @@
 .cp-wide {
   display: none;
 }
+/* Phones: Add to collection across the top, the two quieter adds side by side under it. */
 .cp-actions {
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 .cp .cp-actions .primary {
+  grid-column: 1 / -1;
   min-height: 52px;
+}
+.cp .cp-actions .cp-adds {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+/* Undo, at the end of the sentence that says what was added. */
+.cp .cp-undo {
+  min-height: 32px;
+  padding: 0 10px;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+/* "4, and 1 proxy": the proxies after the count of real cards, in the note's size. */
+.cp-fact-also {
+  font-family: var(--body);
+  font-size: var(--t-sm);
+  font-weight: 400;
+  color: var(--dim);
 }
 /* Your decks that run the card, and the combos it is part of in them. */
 .cp-decks {
@@ -502,8 +576,28 @@
 .cp-combo-list li:last-child {
   border-bottom: 1px solid var(--line);
 }
-.cp-deck-list a {
+.cp-deck-list a,
+.cp-deck-name {
   font-weight: 700;
+}
+/* A deck with its other lists that run the card: the deck, then the lists on a line under it. */
+.cp-deck-names {
+  flex: 1 1 60%;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.cp-deck-lists {
+  font-size: var(--t-sm);
+  color: var(--dim);
+}
+.cp-deck-lists a {
+  display: inline-block;
+  padding: 6px 0;
+  font-weight: 400;
+}
+.cp .cp-decks > button {
+  align-self: start;
 }
 .cp-deck-use,
 .cp-combo-results,
@@ -554,6 +648,15 @@
 }
 .cp-table td.cp-add {
   grid-column: 2 / -1;
+}
+/* A printing's price history, in a row of its own under the printing. */
+.cp-table tr.cp-chart-row {
+  display: block;
+  padding: 0 0 12px;
+  border-top: none;
+}
+.cp-chart-row .price-history {
+  margin: 0;
 }
 .cp-pic-img,
 .cp-pic-none {
@@ -755,6 +858,9 @@
     min-height: 48px;
     padding: 0 22px;
   }
+  .cp .cp-actions .cp-adds {
+    flex: 1 0 100%;
+  }
   .cp .cp-printings h2 {
     font-size: 1.625rem;
   }
@@ -778,6 +884,12 @@
   }
   .cp-table thead tr {
     border-top: none;
+  }
+  .cp-table tr.cp-chart-row {
+    display: table-row;
+  }
+  .cp-table .cp-chart-row td {
+    padding: 0 6px 14px;
   }
   .cp-table th {
     padding: 8px 6px;

@@ -43,6 +43,24 @@
 .cards-tab .cards-copy {
   min-height: var(--target);
 }
+/* A phone: the Show filter, then "View: List" and Copy the list; the layout, grouping and sort
+   open from the View button. */
+@media (max-width: 899px) {
+  .cards-controls:not(.is-open) .cards-fold {
+    display: none;
+  }
+  .cards-controls {
+    gap: 8px;
+  }
+  .cards-controls-row {
+    gap: 8px;
+  }
+  .cards-total {
+    flex: 1 1 100%;
+    margin-left: 0;
+    order: 1;
+  }
+}
 .type-bar {
   display: flex;
   flex-direction: column;
@@ -77,6 +95,18 @@
   height: 10px;
   border-radius: 3px;
 }
+/* A phone: the jump links are one row that scrolls sideways (the group headings carry the counts too). */
+@media (max-width: 899px) {
+  .type-bar-links {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    white-space: nowrap;
+    scrollbar-width: none;
+  }
+  .type-bar-links a {
+    flex: none;
+  }
+}
 
 .cards-group {
   display: flex;
@@ -93,7 +123,7 @@
   align-items: baseline;
   gap: 10px;
   width: 100%;
-  min-height: 40px;
+  min-height: max(40px, var(--target));
   padding: 0;
   border: 0;
   border-radius: 0;
@@ -131,6 +161,8 @@
   position: relative;
   display: flex;
   flex-direction: column;
+  /* From the top: a card with no chip under it lines up with its neighbours that have one. */
+  justify-content: flex-start;
   gap: 6px;
   min-height: 0;
   padding: 0;
@@ -217,11 +249,19 @@
   aspect-ratio: 488 / 680;
   border-radius: var(--card-radius);
 }
-/* Marks sit at the name bar's right end, over the mana cost, small enough to fit the bar. */
+/* A card with a mark (a count, "Proxy", "Need", "Out") shows a little more of itself, and the
+   marks sit in that strip under the name bar, so they cover neither the name nor the mana cost.
+   Offsets in % of the card's height: the name bar ends about 8% down. */
+.cards-stack-card.is-marked + .cards-stack-card {
+  margin-top: calc(-139.34% + 27%);
+}
+.cards-stack-card.is-marked:is(:hover, :focus-visible) + .cards-stack-card {
+  margin-top: 0;
+}
 .cards-stack-marks {
   position: absolute;
-  top: 2px;
-  right: 4px;
+  top: 9.5%;
+  right: 6%;
   display: flex;
   gap: 4px;
   pointer-events: none;
@@ -293,6 +333,18 @@
 }
 .cards-row-name {
   overflow-wrap: anywhere;
+}
+.cards-row-sub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+}
+.cards-row-sub:empty {
+  display: none;
+}
+.cards-row-sub .card-chip {
+  align-self: center;
 }
 .cards-row-price {
   min-width: 56px;

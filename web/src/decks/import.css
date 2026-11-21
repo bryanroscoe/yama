@@ -31,6 +31,10 @@
   gap: 12px;
   align-content: start;
 }
+/* The reading is brought into view on a phone once a pasted list is read: leave it a little air. */
+.import-check {
+  scroll-margin-top: calc(12px + env(safe-area-inset-top));
+}
 .import-lede {
   margin: 0;
 }
@@ -222,15 +226,20 @@
   color: var(--warn);
   font-size: var(--t-15);
 }
+/* The bullet hangs in the margin, so a warning's second line starts under its first. */
+.import-problems li {
+  position: relative;
+  padding-left: 14px;
+}
 .import-problems li::before {
   content: "";
-  display: inline-block;
+  position: absolute;
+  left: 0;
+  top: calc(0.75em - 3px);
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: var(--warn);
-  margin-right: 8px;
-  vertical-align: middle;
 }
 
 /* Card groups: two columns on wide screens. */
@@ -246,6 +255,17 @@
 .import-group {
   break-inside: avoid;
   margin-bottom: 16px;
+}
+/* Each group folds to its heading ("Creatures 35"): closed at first on a phone, open on a laptop.
+   The disclosure's chevron and target are the shared ones (controls.css). */
+.import-group:not([open]) {
+  margin-bottom: 0;
+}
+.import-group:not([open]) > summary {
+  border-bottom: 1px solid var(--line);
+}
+.import-page .import-group > summary h3 {
+  margin: 0;
 }
 .import-card {
   display: grid;
@@ -328,15 +348,52 @@
   gap: 4px;
   max-width: 420px;
 }
+/* The save button's bar: it stays at the bottom of the window (above the tab bar on a phone)
+   while the page is longer than the screen, and rests under the save step at the page's end. */
+.import-save-bar {
+  position: sticky;
+  bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
+  z-index: var(--z-bar);
+  display: grid;
+  gap: 8px;
+  margin: 16px calc(-1 * var(--page-pad)) 0;
+  padding: 10px var(--page-pad);
+  background: var(--ground);
+  border-top: 1px solid var(--line);
+}
+@media (min-width: 900px) {
+  .import-save-bar {
+    bottom: 0;
+  }
+}
+.import-save-bar > .error {
+  margin: 0;
+}
 .import-save-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 4px 12px;
 }
 .import-save-row .primary {
   min-height: 52px;
   padding: 0 28px;
+}
+/* Beside the button: who can see the new deck (a press goes to the choice), then what is in the way. */
+.import-save-notes {
+  display: grid;
+  flex: 1 1 8rem;
+  min-width: 0;
+  justify-items: start;
+}
+.import-save-notes .linkish {
+  color: var(--dim);
+  text-align: left;
+  text-decoration: none;
+}
+.import-save-change {
+  color: var(--text);
+  text-decoration: underline;
 }
 .import-diff {
   display: grid;
@@ -347,3 +404,11 @@
   padding: 2px 0;
 }
 .import-page .import-drop textarea { min-height: 24rem; }
+/* A list that came in whole (a paste, a file, a precon): on a phone the box shrinks to about six
+   lines, so its reading is on the first screen. It still scrolls and takes edits. */
+@media (max-width: 899px) {
+  .import-page.import-compact .import-drop textarea {
+    min-height: 0;
+    height: calc(6 * 1.45em + 26px);
+  }
+}

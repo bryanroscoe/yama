@@ -86,7 +86,14 @@
 .coll-page .container-tiles {
   margin: 0;
 }
+/* A tile is at least its usual height and grows with a long name, so its count is never cut
+   off; the tiles of a row stay as tall as each other. */
+.coll-page .container-tile {
+  height: 100%;
+}
 .coll-page .container-tile .art-panel {
+  height: 100%;
+  min-height: 76px;
   border-radius: 16px;
 }
 .coll-page .container-tile .art-panel.art-empty {
@@ -101,7 +108,7 @@
 }
 /* One box, opened: its art across the top, the way back above it. */
 .coll-open .coll-open-art {
-  height: 120px;
+  min-height: 120px;
   display: grid;
   border-radius: 16px;
 }
@@ -125,6 +132,8 @@
 .coll-open .ct-name {
   margin: 0;
   font-size: var(--t-xl);
+  line-height: 1.1;
+  overflow-wrap: anywhere;
 }
 .coll-open .back-inline {
   align-self: start;
@@ -183,20 +192,50 @@
   flex-direction: column;
   gap: 8px;
 }
-.coll-cards-head {
+/* The cards' heading, then their order, filters and view. On a phone the heading takes a line
+   and the three controls share the next one: the filters fold behind one button, so the rows
+   start near the top. On a laptop the heading row and the filter row are rows of their own. */
+.coll-cards-top {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 12px;
+  gap: 8px 6px;
+}
+.coll-cards-head,
+.coll-tools {
+  display: contents;
 }
 .coll-page .coll-cards-head h2 {
-  margin: 0 auto 0 0;
+  flex: 1 1 100%;
+  margin: 0;
+}
+/* A search's count stands where the heading was, in a size a long name still fits. */
+.coll-page .coll-cards-head h2.coll-found {
+  font-size: var(--t-md);
+  overflow-wrap: anywhere;
+}
+.coll-page .coll-with-sections {
+  flex: 1 1 100%;
 }
 .coll-page .coll-sort > button,
 .coll-page .coll-kind > button {
   min-height: var(--target);
-  padding: 0 0.9rem;
+  padding: 0 0.6rem;
   font-size: var(--t-sm);
+}
+.coll-page .coll-filters-toggle {
+  min-height: var(--target);
+  padding: 0 10px;
+  font-size: var(--t-sm);
+}
+/* Real or proxy and the sell list are drawn twice: in the heading's row on a laptop, in the
+   Filter fold on a phone. Only one of each is ever shown. */
+.coll-page .coll-only-wide {
+  display: none;
+}
+.coll-page .coll-kind-help {
+  flex: 1 1 100%;
+  margin: 0;
 }
 .coll-page .coll-filter {
   display: block;
@@ -224,12 +263,18 @@
   flex: 1 1 100%;
   min-height: var(--target);
 }
-/* Set, color, type, rarity and finish, then list or pictures. */
+/* Real or proxy, set, color, type, rarity and finish, then the sell list made from what's left.
+   Folded on a phone until Filter is pressed. */
 .coll-filters {
-  display: flex;
+  display: none;
+  flex: 1 1 100%;
+  order: 1;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+}
+.coll-filters.is-open {
+  display: flex;
 }
 .coll-page .coll-filters select {
   flex: 1 1 8.5rem;
@@ -243,7 +288,10 @@
 }
 .coll-page .coll-show > button {
   min-height: var(--target);
-  padding: 0 0.9rem;
+  /* "List" is a short word: the segment is still a full target wide. */
+  min-width: var(--target);
+  justify-content: center;
+  padding: 0 0.6rem;
   font-size: var(--t-sm);
 }
 /* Pictures: the whole card, as printed. What Yama adds (copies, finish, price) sits under it, never over it. */
@@ -295,9 +343,61 @@
   flex: none;
   font-weight: 700;
 }
+/* A proxy's price is the real card's: said as such, and quieter than a price that counts. */
+.coll-real-price {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.25;
+  font-size: var(--t-12);
+  font-weight: 400;
+  color: var(--dim);
+}
 @media (min-width: 900px) {
+  .coll-cards-top {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .coll-cards-head,
+  .coll-tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+  }
+  .coll-page .coll-cards-head h2 {
+    flex: 0 1 auto;
+    margin: 0 auto 0 0;
+  }
+  .coll-page .coll-with-sections {
+    flex: 0 0 auto;
+  }
+  .coll-page .coll-sort > button,
+  .coll-page .coll-kind > button,
+  .coll-page .coll-show > button {
+    padding: 0 0.9rem;
+  }
+  .coll-page .coll-filters-toggle,
+  .coll-page .coll-only-narrow {
+    display: none;
+  }
+  .coll-page .coll-only-wide {
+    display: inline-flex;
+  }
+  .coll-filters {
+    display: flex;
+    flex: 1 1 auto;
+    order: 0;
+  }
+  .coll-page .coll-show {
+    order: 1;
+  }
+  /* A set width, not a flex basis: the row then measures itself by the selects as drawn, and
+     stays on one line beside List and Pictures. */
   .coll-page .coll-filters select {
-    flex: 0 1 11rem;
+    flex: 0 1 auto;
+    width: 11rem;
   }
   .coll-grid {
     grid-template-columns: repeat(auto-fill, minmax(min(172px, 100%), 1fr));
@@ -446,13 +546,14 @@
     font-size: var(--t-xl);
   }
   .coll-page .container-tile .art-panel {
+    min-height: 96px;
     border-radius: 18px;
   }
   .coll-page .ct-kind {
     display: block;
   }
   .coll-open .coll-open-art {
-    height: 168px;
+    min-height: 168px;
     border-radius: 18px;
   }
   .coll-cards {
@@ -543,6 +644,40 @@
   padding: 8px 12px;
   border-radius: 8px;
   background: var(--good-tint);
+}
+/* On the Collection page it is kept in view under the top bar while the cards scroll, over an
+   opaque ground so the rows passing under it don't show through the tint. */
+.coll-page .coll-done {
+  position: sticky;
+  top: calc(var(--sticky-top) + 8px);
+  z-index: 2;
+  background: var(--ground);
+  box-shadow: inset 0 0 0 100vmax var(--good-tint);
+}
+/* How many copies and what one is worth, then which copy it is. */
+.coll-sheet-about {
+  display: grid;
+  gap: 2px;
+}
+.coll-sheet-about p,
+.coll-sheet-scope p {
+  margin: 0;
+}
+.coll-sheet-scope {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+}
+/* What the last change did: kept in view at the bottom of the sheet, over an opaque ground so
+   the fields scrolling under it don't show through the tint. */
+.coll-sheet-said {
+  position: sticky;
+  bottom: 0;
+  margin: 16px 0 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 100vmax var(--good-tint);
 }
 .coll-printing-price {
   display: flex;
@@ -660,4 +795,12 @@
   gap: 8px 12px;
   flex-wrap: wrap;
   padding: 4px 0;
+}
+
+/* Import (ImportCollectionSheet): the names a line that matched nothing might have meant, each a button. */
+.import-meant {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
 }

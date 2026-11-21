@@ -1,5 +1,5 @@
-import { useEffect, useRef, type ReactNode } from "react";
-import { Link, Navigate, Outlet, Route, Routes, useLocation, useMatch, useNavigate } from "react-router";
+import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
+import { Link, Navigate, Outlet, Route, Routes, useLocation, useMatch, useNavigate, useNavigationType } from "react-router";
 import { chooseGuest, useGuestChosen } from "./guest";
 import { advancedOf, afterSignIn, Login, useMe } from "./auth";
 import { useGuestSession } from "./guestPlay";
@@ -9,6 +9,7 @@ import { RailMe, TopBarMe } from "./components/RailMe";
 import { TabSections } from "./components/TabSections";
 import { InstallBanner } from "./components/InstallBanner";
 import { AppUpdate } from "./components/AppUpdate";
+import { SITE_FOOT } from "./components/siteFrame";
 import { SiteNotice } from "./components/SiteNotice";
 import { StandIn } from "./components/StandIn";
 import { SearchIcon } from "./components/icons";
@@ -17,7 +18,8 @@ import { Wordmark } from "./components/Wordmark";
 import { ViewBanner } from "./components/ViewBanner";
 import { VIEWING_KEY } from "./viewingFlag";
 import { area, Framed, Paged } from "./lazyPages";
-import { MAIN_TABS, tab, tabOf } from "./nav";
+import { MAIN_TABS, tab, tabOf, titleOf } from "./nav";
+import { useFrameTitle, usePageTitle } from "./pageTitle";
 import { CardsPage } from "./pages/Cards";
 import { OldLabRedirect } from "./lab/OldLabRedirect";
 import { OldPlanRedirect } from "./plan/OldPlanRedirect";
@@ -117,6 +119,35 @@ const GameDetailPage = gameDetail.page("GameDetailPage");
 const GameHistoryPage = gameHistory.page("GameHistoryPage");
 const TablePlay = tablePlay.page("TablePlay");
 
+/** A deck's tabs (Cards, Stats, Plan, History) are one page at four addresses: its strip of tabs
+ *  keeps its own place as they change (components/SectionTabs.tsx, PageTabs). Only a deck's:
+ *  `/decks/plans/<key>` and `/decks/browse/<…>` are pages of their own, whatever they are called
+ *  (a plan whose key is "history" opened from Plans without going to the top). */
+export const scrollPageOf = (pathname: string) => pathname.replace(/^(\/decks\/(?!(?:plans|browse)\/)[^/]+)\/(?:stats|plan|history)\/?$/, "$1");
+
+/**
+ * A link opens its page at the top. Nothing else did: the window kept the last page's scroll, so
+ * "All games" from the foot of Home opened Game history at its oldest game. Not on Back or
+ * Forward (the browser puts the page where it was), and not when only the `?query` or the
+ * `#section` changed (a filter, a tab, the pager or a section of the same page).
+ *
+ * A link to another page's `#section` goes to the top too, and then to its section: this runs as
+ * the page is drawn, and whatever scrolls to a section (components/useScrollToHash.ts, WhyBracket,
+ * Profile, Sharing) runs after that, when the section is there. A page with nothing to scroll it
+ * (Plan settings' `#shopping-rules`) used to be left wherever the last page had been.
+ */
+function useOpenAtTop() {
+  const { pathname } = useLocation();
+  const type = useNavigationType();
+  const last = useRef(pathname);
+  useLayoutEffect(() => {
+    const from = last.current;
+    last.current = pathname;
+    if (scrollPageOf(from) === scrollPageOf(pathname) || type === "POP") return;
+    window.scrollTo(0, 0);
+  }, [pathname, type]);
+}
+
 /**
  * The app's frame (nav.tsx has the tabs): on a laptop a left rail with the wordmark, the tabs and
  * you at its foot; on a phone a top bar with the wordmark, search and you, and five tabs along
@@ -167,7 +198,14 @@ function Shell({ pending = false }: { pending?: boolean }) {
       {!pending && <InstallBanner />}
       {!pending && <TabSections />}
       {pending ? <StandIn /> : <Outlet />}
-      <footer className="site-footer"><SiteNotice /></footer>
+      {/* The public pages' footer links (About, Help, Privacy, Terms): Home is a public site's
+          front door too. Plain links: the server draws those pages. */}
+      <footer className="site-footer">
+        <nav aria-label="About Yama">
+          {SITE_FOOT.map(([href, label]) => <a key={href} href={href}>{label}</a>)}
+        </nav>
+        <SiteNotice />
+      </footer>
     </div>
   );
 }
@@ -176,10 +214,12 @@ export function App() {
   const me = useMe();
   useRestoreHosting(me.data?.id ?? null);
   const guestChosen = useGuestChosen();
-  const { search } = useLocation();
+  const { pathname, search } = useLocation();
   const navigate = useNavigate();
   const answered = useRef(false);
   if (!me.isPending) answered.current = true;
+  useOpenAtTop();
+  useFrameTitle(titleOf(pathname));
   // An account's cached data leaves this tab when the account signs out or another signs in
   // (session.ts does it as /api/me answers, before any page renders as someone else). A page
   // waiting for its account to sign in again keeps that data until it stops waiting: render
@@ -206,7 +246,7 @@ export function App() {
   if (joining && joinLink(joining.params.gameId ?? "").relay === "edge") {
     return (
       <Routes>
-        <Route path="/table/join/:gameId" element={<Paged page={GuestTable} kind="counter" />} />
+        <Route path="/table/join/:gameId" element={<Paged page={GuestTable} kind="counter" title="Life counter" />} />
       </Routes>
     );
   }
@@ -224,7 +264,7 @@ export function App() {
             <Wordmark />
           </h1>
           <ErrorText error={me.error} />
-          <p className="dim">The server didn't answer. If you're offline, the life counter still works: signed in on this device before, or without an account.</p>
+          <p className="dim">If you're offline, the life counter still works: signed in on this device before, or without an account.</p>
           {/* Counting without an account needs nothing from the server: straight to the life
               counter's setup, not Home, whose way in can't work offline. */}
           <Button
@@ -235,6 +275,10 @@ export function App() {
             }}
           >
             Count life without an account
+          </Button>
+          {/* The error says "try again": this is how, without reloading the page. */}
+          <Button aria-disabled={me.isFetching || undefined} onClick={() => !me.isFetching && void me.refetch()}>
+            {me.isFetching ? "Trying…" : "Try again"}
           </Button>
         </div>
       </main>
@@ -251,13 +295,13 @@ export function App() {
       {/* An app (Claude Code, a claude.ai connector) asking to use Yama's tools as you. */}
       <Route path="/oauth/authorize" element={signedIn ? <Paged page={OAuthConsent} kind="detail" /> : <Login />} />
       {/* The live counter takes the whole screen. */}
-      <Route path="/table/play" element={<Paged page={TablePlay} kind="counter" />} />
+      <Route path="/table/play" element={<Paged page={TablePlay} kind="counter" title="Life counter" />} />
       {/* Full-screen pages that need an account: the focused sign-in page in front, and the same
           address opens once signed in. */}
-      <Route path="/table/join/:gameId" element={signedIn ? <Paged page={GuestTable} kind="counter" /> : <Login />} />
+      <Route path="/table/join/:gameId" element={signedIn ? <Paged page={GuestTable} kind="counter" title="Life counter" /> : <Login />} />
       {/* A guest player (guests.rs) plays its own games without an account. */}
-      <Route path="/play/:id" element={signedIn ? <Paged page={PlayGame} kind="board" /> : <GuestOrSignIn><Paged page={PlayGame} kind="board" /></GuestOrSignIn>} />
-      <Route path="/play/watch/:id" element={signedIn ? <Paged page={WatchGame} kind="board" /> : <Login />} />
+      <Route path="/play/:id" element={signedIn ? <Paged page={PlayGame} kind="board" title="Play online" /> : <GuestOrSignIn><Paged page={PlayGame} kind="board" title="Play online" /></GuestOrSignIn>} />
+      <Route path="/play/watch/:id" element={signedIn ? <Paged page={WatchGame} kind="board" title="Watch the computer play" /> : <Login />} />
       <Route element={<Shell />}>
         {/* Home: where Yama opens and the wordmark goes. Keyed by who's signed in, so one
             account's decks and games never stay on screen as the next one's. */}
@@ -368,6 +412,7 @@ export function App() {
 
 /** An address Yama doesn't have (an old or mistyped link): say so inside the app's frame, not a blank page. */
 function NotFound() {
+  usePageTitle("Not found");
   return (
     <main className="page">
       <h1>Not found</h1>

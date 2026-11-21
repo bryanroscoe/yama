@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CollectionItem } from "../api";
-import { finishChoices, finishFor, finishWord, languageChoices, languageName, markDone, markOps, markWords, opIds, ownedFinishes, printingLabel, reprintOps } from "./collectionEdit";
+import { changeDone, changeOps, conditionLabel, conditionWord, finishChoices, finishFor, finishWord, landedRow, languageChoices, languageName, markDone, markOps, markWords, opIds, ownedFinishes, printingLabel, reprintOps, sameCopy, worthLine } from "./collectionEdit";
 
 const row: CollectionItem = {
   id: "row",
@@ -167,5 +167,76 @@ describe("a copy's language, signed and altered", () => {
     expect(markDone({ ...row, qty: 1 }, { signed: true, altered: false }, "all")).toBe("Mount Doom is now signed and is no longer altered.");
     expect(markWords(row)).toEqual([]);
     expect(markWords({ lang: "ja", signed: true, altered: true })).toEqual(["Japanese", "signed", "altered"]);
+  });
+});
+
+describe("changing where a row's copies are kept, their condition, finish or proxy", () => {
+  it("changes the whole row, or splits one copy off it", () => {
+    expect(changeOps(row, { container_id: "trade" }, "all", () => "op-1")).toEqual([{ op_id: "op-1", kind: "update", item_id: "row", container_id: "trade" }]);
+    expect(changeOps(row, { condition: "NM" }, "one", () => "op-2")).toEqual([{ op_id: "op-2", kind: "update", item_id: "row", condition: "NM", split: 1 }]);
+    // A row of one has nothing to split.
+    expect(changeOps({ ...row, qty: 1 }, { proxy: true }, "one", () => "op-3")).toEqual([{ op_id: "op-3", kind: "update", item_id: "row", proxy: true }]);
+    // Not filed anywhere is said as null, not left out.
+    expect(changeOps(row, { container_id: null }, "all", () => "op-4")[0]).toMatchObject({ container_id: null });
+  });
+
+  it("says what a saved change did, and what it left alone", () => {
+    expect(changeDone(row, { container_id: "trade" }, "one", "Trade binder")).toBe("One Mount Doom is now in Trade binder. The other 2 are unchanged.");
+    expect(changeDone(row, { container_id: "trade" }, "all", "Trade binder")).toBe("All 3 copies of Mount Doom are now in Trade binder.");
+    expect(changeDone(row, { container_id: null }, "all")).toBe("All 3 copies of Mount Doom are now not filed anywhere.");
+    expect(changeDone({ ...row, qty: 2 }, { condition: "NM" }, "one")).toBe("One Mount Doom is now near mint. The other one is unchanged.");
+    expect(changeDone({ ...row, qty: 1 }, { finish: "etched" }, "all")).toBe("Mount Doom is now etched foil.");
+    expect(changeDone(row, { proxy: true }, "all")).toBe("All 3 copies of Mount Doom are now marked as proxies.");
+    expect(changeDone(row, { proxy: false }, "one")).toBe("One Mount Doom is now marked as a real card. The other 2 are unchanged.");
+  });
+
+  it("writes a condition out", () => {
+    expect(conditionWord("LP")).toBe("lightly played");
+    expect(conditionLabel("NM")).toBe("Near mint (NM)");
+    expect(conditionLabel("DMG")).toBe("Damaged (DMG)");
+    // A code Yama has no words for is shown as it is.
+    expect(conditionLabel("PO")).toBe("PO");
+  });
+
+  it("says what a row is worth, with the price's source and date", () => {
+    expect(worthLine({ qty: 6, proxy: false, unit_price_usd: 0.19, price_date: "2026-11-20" })).toBe("6 copies, $0.19 each (TCGplayer market via Scryfall, Nov 20)");
+    expect(worthLine({ qty: 1, proxy: false, unit_price_usd: 2, price_date: null })).toBe("1 copy, $2.00 (TCGplayer market via Scryfall, date unknown)");
+    expect(worthLine({ qty: 2, proxy: false, unit_price_usd: null, price_date: null })).toBe("2 copies, no market price");
+    expect(worthLine({ qty: 1, proxy: true, unit_price_usd: 1653.09, price_date: "2026-11-20" })).toBe("1 proxy. A real copy is $1,653.09 (TCGplayer market via Scryfall, Nov 20)");
+    expect(worthLine({ qty: 2, proxy: true, unit_price_usd: null, price_date: null })).toBe("2 proxies");
+  });
+
+  it("works out a landed change from the row as it is now, and leaves a price it can't know blank", () => {
+    // The row was read again while the save was out (it had merged: 7 copies, not the 3 the tap saw).
+    const newest: CollectionItem = { ...row, id: "merged", qty: 7 };
+    expect(landedRow(newest, (cur) => ({ qty: cur.qty + 1 })).row.qty).toBe(8);
+    // One copy split off: the row only loses it.
+    expect(landedRow(newest, null)).toEqual({ row: { ...newest, qty: 6 }, priced: true });
+    // Condition, place and proxy keep the price; the newest row's other fields stay.
+    const moved = landedRow(newest, { container_id: "binder", container_name: "Binder", spares_of_deck: null });
+    expect(moved.priced).toBe(true);
+    expect(moved.row).toMatchObject({ id: "merged", qty: 7, container_id: "binder", unit_price_usd: 5.94, price_date: "2026-10-31", spares_of_deck: null });
+    // Another finish is another price, which only the server has: blank, never the old one.
+    const foil = landedRow(newest, { finish: "foil" });
+    expect(foil.priced).toBe(false);
+    expect(foil.row).toMatchObject({ finish: "foil", unit_price_usd: null, price_date: null, qty: 7 });
+    expect(worthLine(foil.row, foil.priced)).toBe("7 copies");
+    expect(worthLine({ ...foil.row, proxy: true }, false)).toBe("7 proxies");
+    // The same finish chosen again changes nothing about the price.
+    expect(landedRow(newest, { finish: "nonfoil" }).priced).toBe(true);
+    // Another printing picked from the list comes with that printing's own price and day.
+    const reprint = landedRow(newest, { scryfall_id: "ltr-750", unit_price_usd: null, price_date: "2026-11-20" });
+    expect(reprint.priced).toBe(true);
+    expect(reprint.row).toMatchObject({ scryfall_id: "ltr-750", unit_price_usd: null, price_date: "2026-11-20" });
+    expect(landedRow(newest, { scryfall_id: "ltr-750" }).priced).toBe(false);
+  });
+
+  it("finds a row again by what its copies are and where they're kept", () => {
+    const other: CollectionItem = { ...row, id: "other", qty: 9 };
+    expect(sameCopy(row, other)).toBe(true);
+    expect(sameCopy(row, { ...row, signed: false, altered: undefined })).toBe(true);
+    for (const change of [{ condition: "NM" }, { finish: "foil" }, { proxy: true }, { container_id: null }, { signed: true }, { lang: "ja" }, { scryfall_id: "x" }]) {
+      expect(sameCopy(row, { ...row, ...change })).toBe(false);
+    }
   });
 });

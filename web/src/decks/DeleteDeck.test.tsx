@@ -3,11 +3,11 @@ import { deleteWording } from "./DeleteDeck";
 
 const ref = (id: string, name: string, configuration: string | null = null) => ({ id, name, configuration, visibility: "private" as const, share_token: null });
 
-describe("deleting a deck or a configuration", () => {
-  it("names a configuration as one and goes back to its main deck", () => {
+describe("deleting a deck or one of its lists", () => {
+  it("names a list as one and goes back to its main deck", () => {
     const w = deleteWording({ id: "s", name: "Riders (stock)", parent_id: "m", configuration: "stock", configurations: [ref("m", "Riders"), ref("s", "Riders (stock)", "stock")] });
-    expect(w.action).toBe("Delete configuration");
-    expect(w.what).toContain("The Stock configuration of Riders leaves your decks");
+    expect(w.action).toBe("Delete list");
+    expect(w.what).toContain("The Stock list of Riders is deleted. Riders and its other lists stay.");
     expect(w.configurations).toEqual([]);
     expect(w.after).toBe("/decks/m");
   });

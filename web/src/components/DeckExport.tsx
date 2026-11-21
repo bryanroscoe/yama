@@ -46,16 +46,18 @@ export function DeckExport({ deck, onClose }: { deck: DeckView; onClose: () => v
   return (
     <Dialog title="Export deck" onClose={onClose}>
       <div className="stack deck-export">
-        <fieldset className="formats" style={{ border: 0, padding: 0, margin: 0 }}>
-          <legend className="small dim" style={{ marginBottom: "0.4rem" }}>Format</legend>
-          {EXPORT_FORMATS.map((f) => (
-            <label key={f.value}>
-              <input type="radio" name="export-format" checked={format === f.value} onChange={() => pick(f.value)} />
-              {f.label}
-              <span className="hint">{f.hint}</span>
-            </label>
-          ))}
-        </fieldset>
+        {/* Copy first: most people want the list on the clipboard in the format they used last. */}
+        <div className="row">
+          <CopyButton variant="primary" text={text} label="Copy" />
+          <Button onClick={download}>Download .{fileName.split(".").pop()}</Button>
+        </div>
+        <Field label="Format" hint={EXPORT_FORMATS.find((f) => f.value === format)?.hint}>
+          <select name="export-format" value={format} onChange={(e) => pick(e.target.value as ExportFormat)}>
+            {EXPORT_FORMATS.map((f) => (
+              <option key={f.value} value={f.value}>{f.label}</option>
+            ))}
+          </select>
+        </Field>
         {(format === "moxfield" || format === "archidekt" || format === "csv") && (fromDefault > 0 || noPrinting > 0) && (
           <p className="small dim" style={{ margin: 0 }}>
             {fromDefault > 0 && `${fromDefault} ${fromDefault === 1 ? "card isn't" : "cards aren't"} in your collection, so ${fromDefault === 1 ? "it names a paper printing" : "they name paper printings"}, Scryfall's default where that is one. `}
@@ -65,10 +67,6 @@ export function DeckExport({ deck, onClose }: { deck: DeckView; onClose: () => v
         <Field label="List">
           <textarea readOnly value={text} onFocus={(e) => e.currentTarget.select()} aria-label="Deck list to copy" spellCheck={false} />
         </Field>
-        <div className="row">
-          <CopyButton variant="primary" text={text} label="Copy" />
-          <Button onClick={download}>Download .{fileName.split(".").pop()}</Button>
-        </div>
       </div>
     </Dialog>
   );

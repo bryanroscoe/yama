@@ -8,6 +8,7 @@ import * as apiModule from "../api";
 import { searchOffline, type OfflineCard } from "@yama/core";
 import { deckLabel } from "./store";
 import { uprightLayout } from "./TablePlay";
+import { hubSide, tableLayout } from "./layouts";
 import type { GameDetail } from "../api";
 
 const setup: TableSetup = {
@@ -139,6 +140,15 @@ describe("table history", () => {
     ]);
   });
 
+  it("tells the city's blessing as something a player has, not a count", () => {
+    const got: TableEvent = { type: "counter", seat: 1, counter: "blessing", delta: 1 };
+    expect(history(setup, log([got, got, { ...got, delta: -1 }, { type: "counter", seat: 0, counter: "energy", delta: 2 }])).map((l) => l.text)).toEqual([
+      "Sam got the city's blessing.",
+      "The city's blessing was taken back from Sam.",
+      "Bryan got 2 energy, now 2.",
+    ]);
+  });
+
   it("sums up a game in progress without middle dots", () => {
     const s = replay(setup, log([{ type: "pass_turn" }]));
     expect(gameSummary(s)).toBe("Commander game on turn 1. Sam's turn.");
@@ -256,6 +266,30 @@ describe("a commander changed mid-game", () => {
       "Bryan is playing Krenko, Mob Boss now.",
     ]);
     expect(replay(setup, log).players[0]!.commanderName).toBe("Krenko, Mob Boss");
+  });
+});
+
+describe("where the hub meets each panel", () => {
+  const sides = (n: number, key: Parameters<typeof tableLayout>[1], landscape = false) => {
+    const l = tableLayout(n, key, landscape);
+    return l.cells.map((c) => hubSide(c, l.cols, l.rows)?.side ?? null);
+  };
+
+  it("is a corner of each of four panels, in the frame its player sees", () => {
+    // All upright: the two top panels meet it at their bottom corners, the two below at their top corners.
+    expect(sides(4, "upright").sort()).toEqual(["bl", "br", "tl", "tr"]);
+    // Two a side, turned to face their players: the middle of the table is at the top of every frame.
+    expect(sides(4, "sides").sort()).toEqual(["tl", "tl", "tr", "tr"]);
+  });
+
+  it("is the middle of an edge for a panel that spans the table's middle, and nothing for one it doesn't touch", () => {
+    const six = sides(6, "upright");
+    expect(six.filter((s) => s === "bm")).toHaveLength(1);
+    expect(six.filter((s) => s === "tm")).toHaveLength(1);
+    expect(six.filter((s) => s === null)).toHaveLength(4);
+    // Five upright: the last panel is two wide, and the hub is a quarter of the way along its top.
+    const five = tableLayout(5, "upright");
+    expect(hubSide(five.cells[4]!, five.cols, five.rows)).toEqual({ side: "tm", x: 0.25 });
   });
 });
 

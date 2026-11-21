@@ -3,13 +3,47 @@ import { api, ApiError } from "../api";
 import { Button, ErrorText } from "../components/ui";
 import type { SellCard } from "./sellList";
 import { canCheck, currentOffer, offerKey, offerTotals, type BuylistOffer } from "./buylistOffers";
-import { usd, fmtDateTime } from "@yama/core";
+import { usd, fmtDateTime, plural } from "@yama/core";
+import { storePreference, type PlanBundle, type Store } from "@yama/core/plan";
 
 const LABELS: Record<BuylistOffer["status"], string> = {
   accepting: "Online offer", not_accepting: "Not currently accepting", unmatched: "No exact match",
   check_printing: "Check printing", ambiguous: "Check printing", unknown: "Offer unknown",
 };
 function url(c: SellCard) { return `/api/sell/mothership/${encodeURIComponent(c.scryfall_id)}`; }
+
+// The one store whose online buylist Yama can ask: a shop in Austin, Texas. Asking it is offered
+// only to an account that has that store among its own (and hasn't said it won't go there): to
+// anyone else it is another city's shop. Checks already saved on an account are that account's
+// to read whatever its stores are now.
+const BUYLIST_HOST = "mothershipatx.com";
+/** The store by name, for an account that doesn't (or no longer does) have it among its own. */
+export const BUYLIST_SHOP: Pick<Store, "name" | "short"> = { name: "Mothership Books and Games", short: "Mothership" };
+const BUYLIST_CITY = "Austin, TX";
+const BUYLIST_URL = "https://buylist.mothershipatx.com/retailer/buylist";
+
+function hostOf(link: string | null): string | null {
+  try {
+    return link ? new URL(link).hostname.toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The account's own store whose buylist can be checked here, if it has it. */
+export function buylistStore(bundle: Pick<PlanBundle, "stores" | "store_prefs"> | null | undefined): Store | null {
+  if (!bundle) return null;
+  const store = bundle.stores.find((s) => {
+    const host = hostOf(s.homepage);
+    return !s.retired && !!host && (host === BUYLIST_HOST || host.endsWith(`.${BUYLIST_HOST}`));
+  });
+  return store && storePreference(bundle, store.key) !== "never" ? store : null;
+}
+
+/** "Mothership Books and Games (Austin, TX)": the store by its name and city. */
+export function buylistName(store: Pick<Store, "name">): string {
+  return `${store.name} (${BUYLIST_CITY})`;
+}
 
 export function OfferSummary({ total }: { total: ReturnType<typeof offerTotals> }) {
   return <p>
@@ -22,8 +56,14 @@ export function OfferSummary({ total }: { total: ReturnType<typeof offerTotals> 
   </p>;
 }
 
-/** An explicit check, saved on the account; no cart submission or collection mutation. */
-export function SellOffers({ cards, qty, onChoose }: { cards: SellCard[]; qty: (c: SellCard) => number; onChoose: (counts: Map<string, number>) => void }) {
+/**
+ * An explicit check of one store's buylist, saved on the account; no cart submission or
+ * collection mutation. `store` is the store being asked: the account's own (`buylistStore`).
+ * `check` false (the account doesn't have that store): nothing here asks the store. What is
+ * left is each card's saved checks, read from the account when its button is tapped.
+ */
+export function SellOffers({ store, cards, qty, onChoose, check: mayCheck = true }: { store: Pick<Store, "name" | "short">; cards: SellCard[]; qty: (c: SellCard) => number; onChoose: (counts: Map<string, number>) => void; check?: boolean }) {
+  const short = store.short ?? store.name;
   const [offers, setOffers] = useState(new Map<string, BuylistOffer>());
   const [histories, setHistories] = useState(new Map<string, BuylistOffer[]>());
   const [running, setRunning] = useState(false);
@@ -68,20 +108,27 @@ export function SellOffers({ cards, qty, onChoose }: { cards: SellCard[]; qty: (
     } catch (e) { setError(e); }
   };
   return (
-    <section className="stack sell-offers" aria-label="Local buylist offers">
-      <h3>Local buylist offers</h3>
-      <div className="row">
-        <Button variant="outline" disabled={running || unique.length === 0} onClick={() => void check()}>Check Mothership ({unique.length})</Button>
-        {running && <Button variant="quiet" onClick={() => { controller.current?.abort(); setRunning(false); }}>Stop</Button>}
-        <a href="https://buylist.mothershipatx.com/retailer/buylist" target="_blank" rel="noreferrer">Open buylist</a>
-      </div>
-      <p className="small dim">Exact printing, condition and finish. Checks are saved to your account and reused for six hours. Leaving this sheet stops further checks.</p>
-      {skipped > 0 && <p className="small dim">{skipped} copies excluded: non-English, proxies, signed, altered or misprinted.</p>}
+    <section className="stack sell-offers" aria-label={mayCheck ? `Buylist offers from ${buylistName(store)}` : `Saved buylist checks from ${buylistName(store)}`}>
+      {mayCheck ? (
+        <>
+          <div className="row">
+            <Button variant="outline" disabled={running || unique.length === 0} onClick={() => void check()}>Check {plural(unique.length, "card")} with {short}</Button>
+            {running && <Button variant="quiet" onClick={() => { controller.current?.abort(); setRunning(false); }}>Stop</Button>}
+            <a href={BUYLIST_URL} target="_blank" rel="noreferrer">Open {short}'s buylist</a>
+          </div>
+          <p className="small dim">One request to the store for each card: its exact printing, condition and finish. Checks are saved to your account and reused for six hours. Leaving this sheet stops further checks.</p>
+        </>
+      ) : (
+        <p className="small dim">
+          What {buylistName(store)} offered when you checked its buylist before, kept on your account. Nothing is asked of the store here.{unique.length === 0 ? " Tick a card to see its saved checks." : ""}
+        </p>
+      )}
+      {mayCheck && skipped > 0 && <p className="small dim">{skipped} copies excluded: non-English, proxies, signed, altered or misprinted.</p>}
       {(running || done > 0) && <p role="status">{done} checks completed{running ? "; checking selected cards…" : "."}</p>}
       <ErrorText error={error} />
       {offers.size > 0 && <OfferSummary total={total} />}
       {total.copies > 0 && <Button variant="outline" disabled={running} onClick={() => onChoose(offerTotals(selected, offers, qty).quantities)}>Use offered copies for the Storepass list</Button>}
-      <p className="small dim">Online offers are indicative. Mothership confirms grading, quantity and acceptance. No sale is submitted here.</p>
+      {mayCheck && <p className="small dim">Online offers are indicative. {short} confirms grading, quantity and acceptance. No sale is submitted here.</p>}
       <ul className="sell-list">
         {unique.slice(0, show).map((c) => {
           const key = offerKey(c), o = offers.get(key), rows = histories.get(key);
@@ -93,7 +140,7 @@ export function SellOffers({ cards, qty, onChoose }: { cards: SellCard[]; qty: (
             </>}
             <Button variant="quiet" size="small" onClick={() => void history(c)}>Saved checks</Button>
             {rows && <div className="small">
-              {rows.length === 0 ? "No saved checks for this printing yet." : <ul>{rows.map((r) => <li key={r.checked_at}>{fmtDateTime(r.checked_at)}: {LABELS[r.status]}, cash {usd(r.cash_usd)}, credit {usd(r.credit_usd)}</li>)}</ul>}
+              {rows.length === 0 ? (mayCheck ? "No saved checks for this printing yet." : "No saved checks for this printing.") : <ul>{rows.map((r) => <li key={r.checked_at}>{fmtDateTime(r.checked_at)}: {LABELS[r.status]}, cash {usd(r.cash_usd)}, credit {usd(r.credit_usd)}</li>)}</ul>}
             </div>}
           </li>;
         })}

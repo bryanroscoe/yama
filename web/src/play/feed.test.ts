@@ -29,6 +29,13 @@ describe("lines in the log", () => {
     expect(lineText(at(8, 1, { kind: "token", seat: 1, card: seen("Zombie"), count: 2 }), n)).toBe("Sam created 2 Zombie tokens.");
     expect(lineText(at(8, 1, { kind: "token", seat: 1, card: seen("Elf Warrior"), count: 1 }), n)).toBe("Sam created an Elf Warrior token.");
     expect(lineText(at(8, 1, { kind: "counters", card: seen("Servant of the Scale"), counter: "plus1plus1", delta: 2 }), n)).toBe("Servant of the Scale got 2 +1/+1 counters.");
+    // The engine's own print of a counter kind never reaches the player.
+    expect(lineText(at(8, 1, { kind: "counters", card: seen("Boros Signet"), counter: 'generic("charge")', delta: 2 }), n)).toBe("Boros Signet got 2 charge counters.");
+    expect(lineText(at(8, 1, { kind: "counters", card: seen("Wall of Roots"), counter: "powertoughness { power: 0, toughness: -1 }", delta: 1 }), n)).toBe("Wall of Roots got 1 −0/−1 counter.");
+    expect(lineText(at(8, 1, { kind: "counters", card: seen("Bears"), counter: "powertoughness { power: 1, toughness: 0 }", delta: 1 }), n)).toBe("Bears got 1 +1/+0 counter.");
+    expect(lineText(at(8, 1, { kind: "counters", card: seen("Bears"), counter: "keyword(firststrike)", delta: 1 }), n)).toBe("Bears got 1 first strike counter.");
+    expect(lineText(at(8, 1, { kind: "counters", card: seen("Bears"), counter: "keyword(flying)", delta: 1 }), n)).toBe("Bears got 1 flying counter.");
+    expect(lineText(at(8, 1, { kind: "counters", card: seen("Saga"), counter: "lore", delta: 1 }), n)).toBe("Saga got 1 lore counter.");
     expect(lineText(at(8, 1, { kind: "revealed", seat: 2, cards: [seen("Monastery Mentor")] }), n)).toBe("Jules revealed Monastery Mentor.");
     expect(lineText(at(8, 1, { kind: "looked", seat: 0, whose: 1, cards: [seen("Sol Ring"), seen("Counterspell")] }), n)).toBe("You looked at Sol Ring and Counterspell, from Sam's cards.");
     expect(lineText(at(8, 1, { kind: "automatic", seat: 0, name: "Rhystic Study", accept: true, answer: "m1" }), n)).toBe("Yama answered yes for Rhystic Study, as you asked.");
