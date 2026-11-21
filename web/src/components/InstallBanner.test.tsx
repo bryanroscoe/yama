@@ -2,6 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ANDROID_APP_URL } from "../install";
 import { InstallBanner } from "./InstallBanner";
 
 const device = vi.hoisted(() => ({ native: false, standalone: false }));
@@ -46,6 +47,21 @@ describe("mobile app installation offer", () => {
     await act(async () => host.querySelector("button")!.click());
     expect(prompt).toHaveBeenCalledOnce();
     expect(host.textContent).toBe("");
+  });
+  it("offers the Android app beside the browser prompt, and alone where there is no prompt", () => {
+    browser("Mozilla/5.0 (Linux; Android 15) Firefox/130 Mobile");
+    draw();
+    expect(host.textContent).toContain("Get the Android app");
+    expect(host.querySelector("a")!.getAttribute("href")).toBe(ANDROID_APP_URL);
+    expect(host.querySelectorAll("button")).toHaveLength(1);
+    offer();
+    expect(host.textContent).toContain("home screen, or get the Android app");
+    expect(host.querySelectorAll("button")).toHaveLength(2);
+    act(() => host.querySelector("button")!.click()); // uses up the prompt for the tests after
+  });
+  it("offers no Android app on iPhone", () => {
+    browser("Mozilla/5.0 (iPhone) Version/18 Safari/605", 5); draw();
+    expect(host.querySelector("a")).toBeNull();
   });
   it("explains the Share menu on iPhone and on iPadOS with a desktop user agent", () => {
     for (const [ua, touch] of [["Mozilla/5.0 (iPhone) Version/18 Safari/605", 5], ["Mozilla/5.0 (Macintosh) Version/18 Safari/605", 5]] as const) {

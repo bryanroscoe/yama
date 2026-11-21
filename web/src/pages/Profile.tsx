@@ -7,6 +7,7 @@ import { contactHref } from "../components/PowerOnly";
 import { Button, ButtonLink, ErrorText, Loading } from "../components/ui";
 import { tab } from "../nav";
 import { useCopy } from "../decks/ShareDeck";
+import { isNative } from "../native";
 import { AccountSettings } from "./AccountSettings";
 import "./profile.css";
 
@@ -61,6 +62,7 @@ export function ProfilePage() {
 
     <nav className="profile-library" aria-label="You">
       {!me.viewing && <Link to="/sharing"><b>Sharing settings</b><span>Your handle, what your profile shows and everything you've shared.</span></Link>}
+      {!isNative() && <a href="#install"><b>Get the app</b><span>Install Yama on your phone or computer, or get the Android app.</span></a>}
       <a href="#grp-you"><b>Settings</b><span>Your name, cards saved on this device and your account.</span></a>
       <a href={`${publicOrigin()}/docs/mcp/`}><b>Connect an assistant</b><span>Use Yama from Claude or Codex.</span></a>
       <Link to="/new"><b>What's new</b><span>What has changed in Yama lately.</span></Link>

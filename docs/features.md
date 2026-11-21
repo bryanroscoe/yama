@@ -114,6 +114,13 @@ Installable web app (home screen, offline shell). An Android app, installed from
 (`yama.apk` on the `android-app` release), that updates itself after every production deploy and
 reads the scanner's text with ML Kit on the phone ([mobile.md](mobile.md)).
 
+Where to get it (since 21 Nov 2026, Bryan: link the APK so people can install either way): on an
+Android phone's browser the install card offers both, Install (the home-screen web app, where the
+browser has a prompt) and Get the Android app (the APK download), and shows the app link even in
+browsers with no prompt, such as Firefox. Settings has an "Install Yama" row in every browser with
+the same choices (on a computer, the APK link for a phone), and the You page links to it as "Get
+the app"; it stays after the card is dismissed.
+
 Which build is running (since 15 Nov 2026, `web/src/version.tsx`): one line at the foot of
 Settings on the profile page and in Scan settings, such as "Yama app 0.2.100 (100), web 6389543,
 built Nov 15, 2026". The app part is the installed APK's version; the web part is the commit the
