@@ -2763,7 +2763,7 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
-      "description": "The scanner diagnostics this account kept (Scan settings, off by default): one per card the scanner struggled with, newest first, with how it ended, why it was kept and its images. Read one with get_scan_diagnostic. The timing records kept for every card settled (timings, the count) are summarised by get_scan_timings.",
+      "description": "The scanner diagnostics this account kept (Scan settings, off by default): one per card the scanner struggled with, newest first, with how it ended, why it was kept and its images. Read one with get_scan_diagnostic.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2847,7 +2847,7 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
-      "description": "The timing records Scanner diagnostics keeps (Scan settings, off by default): one for every card the scanner settled, struggled with or not, with no images. Gives how long cards took from appearing to being named (median, 90th percentile, frames read), the share named by each rule (sure art, leads, twice, title, text, closeup, typed), how printings were settled (only, set, collector, picked, corrected) and how long that took, and the same by art model and by mode (printing: the collection; identity: deck and box scans). Then the newest records, a page at a time. Live camera times only: photos and typed names aren't timed.",
+      "description": "How fast scans settle: Scanner diagnostics' timing records, one per card settled. Median and p90 time to name a card, the share named by each rule, how printings were settled and how long that took, by art model and mode; then the records.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2863,7 +2863,7 @@
           },
           "limit": {
             "description": "Records per page, default 20.",
-            "maximum": 100,
+            "maximum": 50,
             "minimum": 1,
             "type": "integer"
           },

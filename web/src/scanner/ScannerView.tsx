@@ -646,9 +646,12 @@ export function ScannerView({
   const ocrNameRef = useRef<string | null>(null);
   /** A record for a card just found, when diagnostics are on (or the one carried from the card before). */
   const newRecord = (carry?: ScanRecord): ScanRecord | undefined => {
-    // The looking that led to this card ends here.
+    // The looking that led to this card ends here, and so does what the frame knew: it's this
+    // card's whether or not anything is kept, so it can't label a later one (Codex review of #171).
     const looked = seek.current;
     seek.current = null;
+    const ctx = scanCtx.current;
+    scanCtx.current = null;
     if (carry) return carry;
     if (!diagRef.current) return undefined;
     // Started with the look: the account and the switch as they were then (diagnostics.ts).
@@ -658,8 +661,6 @@ export function ScannerView({
       rec.reasons.add("slow-find");
       rec.note("seek", { ms: Date.now() - looked.started, frames: looked.frames });
     }
-    const ctx = scanCtx.current;
-    scanCtx.current = null;
     if (ctx) {
       rec.note("scan", ctx);
       if (ctx.overruled) rec.reasons.add("title-overruled");
@@ -1480,7 +1481,9 @@ export function ScannerView({
           }
           return next(30);
         }
-        // Text only: read the part of the frame around the on-screen guide.
+        // Text only: read the part of the frame around the on-screen guide. What a frame knew is
+        // for a card found from that frame only, as above.
+        scanCtx.current = null;
         const g = guideRef.current;
         const reader = await textReader();
         if (stop || !g) return next(200);
