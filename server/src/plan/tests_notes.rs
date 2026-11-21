@@ -276,16 +276,20 @@ async fn claude_sees_notes_as_deck_plans_and_tracks_them_straight_away() {
     assert!(!err && text.contains("is now Energy's plan") && text.contains("Nothing new went in"), "the same build with another deck relinks: {text}");
     let linked: Option<String> = sqlx::query_scalar("SELECT deck_id FROM plan_decks WHERE owner_id = ? AND key = 'energy'").bind(&a).fetch_one(&pool).await.unwrap();
     assert_eq!(linked.as_deref(), Some(yama_deck.as_str()));
-    // A plan another one replaced isn't current: the same build again brings it back.
+    // A plan another one replaced isn't current: the same build again brings it back, with its
+    // version in force current again.
     sqlx::query("UPDATE plan_decks SET archived_at = '2026-11-20T00:00:00Z', archived_note = 'Replaced by version 9' WHERE owner_id = ? AND key = 'energy'")
         .bind(&a)
         .execute(&pool)
         .await
         .unwrap();
+    sqlx::query("UPDATE plan_versions SET superseded_at = '2026-11-20T00:00:00Z' WHERE owner_id = ?").bind(&a).execute(&pool).await.unwrap();
     let (err, text) = call(&app, key, "track_build", json!({"note": "audit", "deck": "energy", "build": "b3"})).await;
     assert!(!err && text.contains("is now Energy's plan") && !text.contains("nothing changed"), "{text}");
     let back: Option<String> = sqlx::query_scalar("SELECT archived_at FROM plan_decks WHERE owner_id = ? AND key = 'energy'").bind(&a).fetch_one(&pool).await.unwrap();
     assert_eq!(back, None);
+    let current: Option<String> = sqlx::query_scalar("SELECT superseded_at FROM plan_versions WHERE owner_id = ? ORDER BY n DESC LIMIT 1").bind(&a).fetch_one(&pool).await.unwrap();
+    assert_eq!(current, None, "the version in force isn't an earlier one");
     // Another build switches the plan to it, straight away too.
     let (err, text) = call(&app, key, "track_build", json!({"note": "audit", "deck": "energy", "build": "b4"})).await;
     assert!(!err && text.contains("Bracket 4 is now Energy's plan") && text.contains("version 2: 1 change went in"), "{text}");

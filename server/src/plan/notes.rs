@@ -218,6 +218,18 @@ pub async fn track(pool: &SqlitePool, owner: &str, req: &TrackRequest) -> AppRes
     // settling its new version does (and when it brought nothing new, nothing else would).
     if req.proposed {
         super::versions::replace_others(&mut *conn, owner, &plan_id, &name, "Replaced by a newer plan", &stamp).await?;
+        // Brought back unchanged after another plan replaced it: no new version went in, so its
+        // version in force is current again, not an earlier one.
+        if !settled.iter().any(|v| v.deck_key == key) {
+            sqlx::query(
+                "UPDATE plan_versions SET superseded_at = NULL WHERE owner_id = ?1 AND plan_deck_id = ?2 AND status = 'approved'
+                   AND n = (SELECT MAX(n) FROM plan_versions WHERE owner_id = ?1 AND plan_deck_id = ?2 AND status = 'approved')",
+            )
+            .bind(owner)
+            .bind(&plan_id)
+            .execute(&mut *conn)
+            .await?;
+        }
     }
     let result = Tracked {
         link: super::page_link(&key),
@@ -291,6 +303,16 @@ pub async fn would_stop(conn: &mut SqliteConnection, owner: &str, note_id: &str,
 /// (archived, its swaps retired) rather than keeping a plan the note doesn't describe. Returns how
 /// many plans now follow the note and how many stopped.
 pub async fn rederive(conn: &mut SqliteConnection, owner: &str, note_id: &str, doc: &Value) -> AppResult<(usize, usize)> {
+    let counts = rederive_note(&mut *conn, owner, note_id, doc).await?;
+    if counts != (0, 0) {
+        super::versions::settle(&mut *conn, owner).await?;
+    }
+    Ok(counts)
+}
+
+/// `rederive` without settling: `rederive_all` settles once every note is current, so a backup's
+/// older copy of one note's proposals is never taken in before that note is derived again.
+async fn rederive_note(conn: &mut SqliteConnection, owner: &str, note_id: &str, doc: &Value) -> AppResult<(usize, usize)> {
     let rows: Vec<(String, String, String)> = sqlx::query_as(
         "SELECT id, note_deck_key, note_build_id FROM plan_decks WHERE owner_id = ? AND note_id = ? AND status != 'archived'",
     )
@@ -336,7 +358,6 @@ pub async fn rederive(conn: &mut SqliteConnection, owner: &str, note_id: &str, d
         }
     }
     bump(&mut *conn, owner, &stamp).await?;
-    super::versions::settle(&mut *conn, owner).await?;
     Ok((rows.len() - stopped, stopped))
 }
 
@@ -350,8 +371,9 @@ pub async fn rederive_all(conn: &mut SqliteConnection, owner: &str) -> AppResult
             .await?;
     for id in notes {
         let (doc, _) = note_document(&mut *conn, owner, &id).await?;
-        rederive(&mut *conn, owner, &id, &doc).await?;
+        rederive_note(&mut *conn, owner, &id, &doc).await?;
     }
+    super::versions::settle(&mut *conn, owner).await?;
     Ok(())
 }
 
