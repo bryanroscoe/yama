@@ -566,3 +566,28 @@ async fn a_connection_limited_to_staging_stages_tracking_as_before() {
     let energy = b["decks"].as_array().unwrap().iter().find(|d| d["key"] == "energy").unwrap();
     assert_eq!((energy["plan"]["state"].as_str(), energy["plan"]["changes"].as_i64()), (Some("in_progress"), Some(3)), "applied, it goes straight in");
 }
+
+#[tokio::test]
+async fn a_change_the_plan_left_out_isnt_in_the_lists_swap_in_reads() {
+    let (app, pool) = app().await;
+    let (_a, session) = user(&pool, "a@example.com").await;
+    // Arcane Signet now cuts the card Thought Monitor cuts: settling leaves it out.
+    let mut doc = note();
+    doc["decks"][0]["builds"][0]["swaps"][1]["card_out"] = json!("Glimmer of Genius");
+    save_note(&app, &session, &doc).await;
+    let (status, r) = send(&app, Method::POST, "/api/plan/from-note", Some(&session),
+        Some(json!({"note_id": "audit", "deck_key": "energy", "build_id": "b3", "proposed": true}))).await;
+    assert_eq!(status, StatusCode::OK, "{r}");
+    assert!(r["settled"][0]["left_out"][0].as_str().unwrap().starts_with("Arcane Signet for Glimmer of Genius"), "{r}");
+    let b = bundle(&app, &session).await;
+    let energy = b["decks"].as_array().unwrap().iter().find(|d| d["key"] == "energy").unwrap();
+    // The after list (what Swap in the prints puts in, and Copy the finished deck) keeps its cut.
+    let after = names(&energy["states"]["after"]);
+    assert!(after.contains(&"Thought Monitor".to_string()) && !after.contains(&"Arcane Signet".to_string()), "{after:?}");
+    assert!(after.contains(&"Glimmer of Genius".to_string()), "{after:?}");
+    // Saving the note again, unchanged, keeps it that way.
+    save_note(&app, &session, &doc).await;
+    let b = bundle(&app, &session).await;
+    let energy = b["decks"].as_array().unwrap().iter().find(|d| d["key"] == "energy").unwrap();
+    assert!(!names(&energy["states"]["after"]).contains(&"Arcane Signet".to_string()));
+}

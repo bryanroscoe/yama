@@ -257,6 +257,25 @@ pub async fn approved_proposals(conn: &mut SqliteConnection, owner: &str) -> App
         .collect())
 }
 
+/// One plan deck's proposals that aren't in its plan: answered no or unsure since they last changed
+/// (aliases followed). A note plan's now and after lists leave them out (`notes::derive`).
+pub async fn kept_out(conn: &mut SqliteConnection, owner: &str, plan_id: &str) -> AppResult<HashSet<String>> {
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT ext_key, updated_at FROM plan_swaps WHERE owner_id = ? AND plan_deck_id = ? AND retired_at IS NULL AND stage = 'proposed'",
+    )
+    .bind(owner)
+    .bind(plan_id)
+    .fetch_all(&mut *conn)
+    .await?;
+    let live: HashSet<String> = rows.iter().map(|r| r.0.clone()).collect();
+    let answers = decisions(&mut *conn, owner, &live).await?;
+    Ok(rows
+        .into_iter()
+        .filter(|(k, updated)| answers.get(k).is_some_and(|(d, at)| matches!(d.as_deref(), Some("no" | "unsure")) && updated.as_str() <= at.as_str()))
+        .map(|(k, _)| k)
+        .collect())
+}
+
 /// Every plan deck's state and every decided version, for one owner.
 pub async fn load(conn: &mut SqliteConnection, owner: &str, installs: Option<&Installs>) -> AppResult<Plans> {
     let decks: Vec<DeckRow> = sqlx::query_as(
