@@ -155,7 +155,8 @@ pub async fn record(pool: &SqlitePool, owner: &str, plan: &str, e: &Entry, op_id
         }
     }
     let cards_json = Value::from(cards.clone()).to_string();
-    let mut tx = pool.begin().await?;
+    // A write from the start, so a retry racing the first call waits for it and finds its row.
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
     #[allow(clippy::type_complexity)]
     let same: Option<(String, String, String, String, Option<String>, Option<String>, Option<String>, Option<String>, String)> = match op_id {
         Some(op) => {
@@ -167,6 +168,8 @@ pub async fn record(pool: &SqlitePool, owner: &str, plan: &str, e: &Entry, op_id
             .fetch_optional(&mut *tx)
             .await?
         }
+        // A correction always goes in: the entry it replaces may say the same.
+        None if replaces.is_some() => None,
         None => {
             sqlx::query_as(
                 "SELECT id, plan_deck_id, on_date, what, asked, conversation, work, group_label, cards FROM plan_history
@@ -336,9 +339,12 @@ fn list(s: &str) -> Vec<Value> {
 }
 
 /// The answer that stands for a change now: one given after it last changed.
-fn standing(answers: &HashMap<String, (Option<String>, Option<String>, String)>, s: &SwapRow) -> Option<String> {
+/// A change's newest answer: decision, note, time and origin (`import`: the plan file's own).
+type Answer = (Option<String>, Option<String>, String, String);
+
+fn standing(answers: &HashMap<String, Answer>, s: &SwapRow) -> Option<String> {
     match answers.get(&s.ext_key) {
-        Some((d, _, at)) if s.updated_at.as_str() <= at.as_str() => d.clone(),
+        Some((d, _, at, _)) if s.updated_at.as_str() <= at.as_str() => d.clone(),
         _ => None,
     }
 }
@@ -352,10 +358,29 @@ fn short_sha(sha: &str) -> &str {
     sha.get(..9).unwrap_or(sha)
 }
 
-/// Plan file imports by the time they arrived: (meta, id).
-async fn imports(pool: &SqlitePool, owner: &str) -> AppResult<HashMap<String, Value>> {
-    let rows: Vec<(String, String)> = sqlx::query_as("SELECT imported_at, meta FROM plan_imports WHERE owner_id = ?").bind(owner).fetch_all(pool).await?;
-    Ok(rows.into_iter().map(|(at, meta)| (at, serde_json::from_str(&meta).unwrap_or(Value::Null))).collect())
+/// The owner's plan file imports: each one's meta by its id, and by the second it arrived, for
+/// rows that kept only the time (a swap's or deck's first import, versions from before 21 Nov
+/// 2026). Two imports in one second can't be told apart by time: that time names neither.
+struct Imports {
+    by_id: HashMap<String, Value>,
+    by_time: HashMap<String, Option<Value>>,
+}
+
+impl Imports {
+    fn at(&self, at: &str) -> Option<&Value> {
+        self.by_time.get(at).and_then(Option::as_ref)
+    }
+}
+
+async fn imports(pool: &SqlitePool, owner: &str) -> AppResult<Imports> {
+    let rows: Vec<(String, String, String)> = sqlx::query_as("SELECT id, imported_at, meta FROM plan_imports WHERE owner_id = ?").bind(owner).fetch_all(pool).await?;
+    let mut out = Imports { by_id: HashMap::new(), by_time: HashMap::new() };
+    for (id, at, meta) in rows {
+        let meta: Value = serde_json::from_str(&meta).unwrap_or(Value::Null);
+        out.by_time.entry(at).and_modify(|m| *m = None).or_insert_with(|| Some(meta.clone()));
+        out.by_id.insert(id, meta);
+    }
+    Ok(out)
 }
 
 /// "the commander-decks plan file, guide version 35 (commit abc123456)" from an import's meta.
@@ -378,10 +403,16 @@ fn plan_file_words(meta: &Value) -> String {
 }
 
 /// Where a version came from, in words.
-fn source_words(source: &Value, imports: &HashMap<String, Value>) -> String {
+fn source_words(source: &Value, imports: &Imports) -> String {
     match source["kind"].as_str() {
         Some("plan_file") => {
-            let meta = source["imported_at"].as_str().and_then(|at| imports.get(at)).cloned().unwrap_or_else(|| source.clone());
+            // By the import's id when the version kept it, else by the time it arrived.
+            let meta = source["import_id"]
+                .as_str()
+                .and_then(|id| imports.by_id.get(id))
+                .or_else(|| source["imported_at"].as_str().and_then(|at| imports.at(at)))
+                .cloned()
+                .unwrap_or_else(|| source.clone());
             let mut s = format!("from {}", plan_file_words(&meta));
             if let Some(at) = source["imported_at"].as_str() {
                 let _ = write!(s, ", imported {}", day(at));
@@ -461,17 +492,24 @@ pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>
     .await?;
     // Each change's newest answer, followed through renamed keys as the plan's state reads them
     // (`versions::answers`): on a tie one made in Yama wins, then the larger op id.
-    let keys: std::collections::HashSet<String> = swaps.iter().map(|s| s.ext_key.clone()).collect();
+    // Live keys only, as the state reads them: a renamed change's old row stays, retired, and an
+    // answer under its key reaches the live change through the alias. A retired change keeps the
+    // answers saved under its own key.
+    let live_keys: std::collections::HashSet<String> = swaps.iter().filter(|s| s.retired_at.is_none()).map(|s| s.ext_key.clone()).collect();
+    let retired: std::collections::HashSet<&str> = swaps.iter().filter(|s| s.retired_at.is_some()).map(|s| s.ext_key.as_str()).collect();
     let aliases = super::aliases(pool, owner).await?;
-    let mut answers: HashMap<String, (Option<String>, Option<String>, String)> = HashMap::new();
-    let rows: Vec<(String, Option<String>, Option<String>, String)> =
-        sqlx::query_as("SELECT swap_key, decision, note, at FROM plan_reviews WHERE owner_id = ? ORDER BY at, origin = 'yama', IFNULL(op_id, ''), swap_key")
-            .bind(owner)
-            .fetch_all(pool)
-            .await?;
-    for (key, decision, note, at) in rows {
-        if let Some(k) = super::resolve_key(&key, &keys, &aliases) {
-            answers.insert(k, (decision, note, at));
+    let mut answers: HashMap<String, Answer> = HashMap::new();
+    let rows: Vec<(String, Option<String>, Option<String>, String, String)> = sqlx::query_as(
+        "SELECT swap_key, decision, note, at, origin FROM plan_reviews WHERE owner_id = ? ORDER BY at, origin = 'yama', IFNULL(op_id, ''), swap_key",
+    )
+    .bind(owner)
+    .fetch_all(pool)
+    .await?;
+    for (key, decision, note, at, origin) in rows {
+        if let Some(k) = super::resolve_key(&key, &live_keys, &aliases) {
+            answers.insert(k, (decision, note, at, origin));
+        } else if retired.contains(key.as_str()) {
+            answers.insert(key, (decision, note, at, origin));
         }
     }
     let imports = imports(pool, owner).await?;
@@ -515,13 +553,22 @@ pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>
                 let _ = write!(out, ", gone from the plan since {}", day(r));
             }
             out.push_str("):\n");
-            let first = imports.get(&s.created_at).map(|m| format!(", from {}", plan_file_words(m))).unwrap_or_default();
+            let first = imports.at(&s.created_at).map(|m| format!(", from {}", plan_file_words(m))).unwrap_or_default();
             let _ = writeln!(out, "- First in Yama {}{first}; last changed {}.", day(&s.created_at), day(&s.updated_at));
             if let Some(w) = &s.when_text {
                 let _ = writeln!(out, "- When (as the plan says): {}", w.trim());
             }
+            // The change's keys: its own and every older one an alias brings to it.
+            let own_keys: Vec<String> = sqlx::query_scalar(
+                "WITH RECURSIVE keys(k) AS (SELECT ?2 UNION SELECT a.old_key FROM plan_key_aliases a JOIN keys ON a.owner_id = ?1 AND a.new_key = keys.k)
+                 SELECT k FROM keys",
+            )
+            .bind(owner)
+            .bind(&s.ext_key)
+            .fetch_all(pool)
+            .await?;
             for v in &versions {
-                let has = |l: Vec<Value>| l.into_iter().find(|c| c["key"].as_str() == Some(s.ext_key.as_str()));
+                let has = |l: Vec<Value>| l.into_iter().find(|c| c["key"].as_str().is_some_and(|k| own_keys.iter().any(|o| o == k)));
                 if v.status == "approved" && has(list(&v.changes)).is_some() {
                     let _ = writeln!(out, "- Version {} ({}) took it in, {}.", v.n, day(&v.decided_at), source_words(&serde_json::from_str(&v.source).unwrap_or(Value::Null), &imports));
                 } else if let Some(c) = has(list(&v.skipped)) {
@@ -531,18 +578,18 @@ pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>
             }
             // Its answers, oldest first, as they arrived (under this key or an older one).
             let trail: Vec<(String, Option<String>, String, String)> = sqlx::query_as(
-                "WITH RECURSIVE keys(k) AS (SELECT ?2 UNION SELECT a.old_key FROM plan_key_aliases a JOIN keys ON a.owner_id = ?1 AND a.new_key = keys.k)
-                 SELECT i.op_id, i.device_id, i.payload, i.client_at FROM plan_inputs i
-                 WHERE i.owner_id = ?1 AND i.kind = 'review' AND i.status = 'applied' AND i.swap_key IN (SELECT k FROM keys)
+                "SELECT i.op_id, i.device_id, i.payload, i.client_at FROM plan_inputs i
+                 WHERE i.owner_id = ? AND i.kind = 'review' AND i.status = 'applied' AND i.swap_key IN (SELECT value FROM json_each(?))
                  ORDER BY i.client_at, i.seq",
             )
             .bind(owner)
-            .bind(&s.ext_key)
+            .bind(Value::from(own_keys.clone()).to_string())
             .fetch_all(pool)
             .await?;
+            let current = answers.get(&s.ext_key);
             if trail.is_empty() {
-                match answers.get(&s.ext_key) {
-                    Some((Some(d), note, at)) => {
+                match current {
+                    Some((Some(d), note, at, _)) => {
                         let note = note.as_deref().map(|n| format!(", note \"{n}\"")).unwrap_or_default();
                         let _ = writeln!(out, "- Their answer: {d}{note} ({}).", day(at));
                     }
@@ -550,7 +597,7 @@ pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>
                     _ => {}
                 }
             } else {
-                let said: Vec<String> = trail
+                let mut said: Vec<String> = trail
                     .iter()
                     .map(|(op, device, payload, at)| {
                         let p: Value = serde_json::from_str(payload).unwrap_or(Value::Null);
@@ -566,6 +613,14 @@ pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>
                         format!("{} {decision}{note} ({who})", day(at))
                     })
                     .collect();
+                // A plan file's own answer (its review site's) is written straight to the answers,
+                // never as an op: when it's the one that stands, it comes last.
+                if let Some((d, note, at, origin)) = current
+                    && origin == "import"
+                {
+                    let note = note.as_deref().filter(|n| !n.trim().is_empty()).map(|n| format!(" \"{n}\"")).unwrap_or_default();
+                    said.push(format!("{} {}{note} (from the plan file)", day(at), d.as_deref().unwrap_or("cleared")));
+                }
                 let _ = writeln!(out, "- Answers, oldest first: {}.", said.join("; "));
             }
             let about: Vec<&EntryRow> = entries
@@ -604,12 +659,33 @@ pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>
             );
         }
         (None, "import") => {
-            let first = imports.get(&created_at).map(plan_file_words).unwrap_or_else(|| "a plan file".into());
+            let first = imports.at(&created_at).map(plan_file_words).unwrap_or_else(|| "a plan file".into());
             let _ = write!(out, "{first}, first imported {}.", day(&created_at));
         }
         _ => {
             let _ = write!(out, "made in Yama on {}.", day(&created_at));
         }
+    }
+    // Other plans for the same deck (one replaced another, or a note's took over a plan file's):
+    // their history is under their own keys.
+    let others: Vec<(String, String, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT key, status, archived_at, archived_note FROM plan_decks WHERE owner_id = ? AND lower(name) = lower(?) AND id != ? ORDER BY created_at, key",
+    )
+    .bind(owner)
+    .bind(&name)
+    .bind(&plan_id)
+    .fetch_all(pool)
+    .await?;
+    if !others.is_empty() {
+        let said: Vec<String> = others
+            .iter()
+            .map(|(k, status, at, note)| match (status.as_str(), at, note) {
+                (_, Some(_), Some(n)) | ("archived", _, Some(n)) => format!("{k} ({n})"),
+                ("archived", _, None) | (_, Some(_), None) => format!("{k} (archived)"),
+                _ => k.clone(),
+            })
+            .collect();
+        let _ = write!(out, " Other plans for {name}, with their own history: {}.", said.join(", "));
     }
     let plan_level: Vec<&EntryRow> = entries.iter().filter(|e| e.group_label.is_none() && e.cards().is_empty()).collect();
     match plan_level.first() {
@@ -663,7 +739,7 @@ pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>
     let mut events: Vec<(String, u8, String)> = Vec::new();
     let came = match (&note_id, source.as_str()) {
         (Some(_), _) => "The plan was made from a note's build.".to_string(),
-        (None, "import") => format!("The plan came into Yama from {}.", imports.get(&created_at).map(plan_file_words).unwrap_or_else(|| "a plan file".into())),
+        (None, "import") => format!("The plan came into Yama from {}.", imports.at(&created_at).map(plan_file_words).unwrap_or_else(|| "a plan file".into())),
         _ => "The plan was made in Yama.".to_string(),
     };
     events.push((day(&created_at).to_string(), 0, came));

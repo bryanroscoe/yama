@@ -3305,9 +3305,11 @@ We've kind of got too messy in a lot of these."
   its owner, cascades with its plan and goes with the account.
 - **Yama's own record isn't copied.** `plan::history` reads the rest from where it already lives:
   the plan's first import or note, each version (`plan_versions`, whose source now also keeps the
-  plan file's commit and date) with what it took in and what it left out and why, every answer as
-  it arrived (`plan_inputs`, aliases included, with who gave it: the person in Yama, an assistant,
-  or Yama taking a version in), and archiving. One timeline puts the two together.
+  plan file's commit and date) with what it took in and what it left out and why, every answer that
+  came through Yama as it arrived (`plan_inputs`, renamed keys followed, with who gave it: the
+  person in Yama, an assistant, or Yama taking a version in) and the plan file's own answer when
+  it's the one that stands, archiving, and the deck's other plans (one replaced by another). One
+  timeline puts the two together.
 - **The MCP.** `get_plan_history` answers where a plan came from (the request behind it, its
   groups with what's recorded about each, and the timeline), or with `card`, one change's whole
   story. `record_plan_history` saves an entry directly, as notes are saved (`Write`, offered to

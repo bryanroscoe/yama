@@ -141,8 +141,20 @@ async fn the_history_follows_renamed_keys_and_knows_the_cards_a_change_cuts() {
     let (app, pool, owner, session) = setup().await;
     import(&app, &session, &doc()).await;
     let key = mcp_key(&app, &session).await;
-    // An answer saved under an older key of alpha-idea, newer than the one settling wrote: the
-    // plan's state follows it, and so do the history's counts.
+    // alpha-idea was renamed from old-idea: the old row stays, retired, as an import leaves it.
+    {
+        let mut conn = pool.acquire().await.unwrap();
+        sqlx::query("CREATE TEMP TABLE renamed AS SELECT * FROM plan_swaps WHERE owner_id = ? AND ext_key = 'alpha-idea'")
+            .bind(&owner)
+            .execute(&mut *conn)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE renamed SET id = 'old-idea-row', ext_key = 'old-idea', retired_at = '2026-11-01T00:00:00Z'").execute(&mut *conn).await.unwrap();
+        sqlx::query("INSERT INTO plan_swaps SELECT * FROM renamed").execute(&mut *conn).await.unwrap();
+        sqlx::query("DROP TABLE renamed").execute(&mut *conn).await.unwrap();
+    }
+    // An answer saved under the older key, newer than the one settling wrote: the plan's state
+    // follows the alias to the live change, and so do the history's counts.
     sqlx::query("INSERT INTO plan_key_aliases (owner_id, old_key, new_key, created_at) VALUES (?, 'old-idea', 'alpha-idea', '2026-11-01T00:00:00Z')")
         .bind(&owner)
         .execute(&pool)
@@ -157,7 +169,19 @@ async fn the_history_follows_renamed_keys_and_knows_the_cards_a_change_cuts() {
     .await
     .unwrap();
     let (err, text) = call(&app, &key, "get_plan_history", json!({"plan": "alpha"})).await;
-    assert!(!err && text.contains("- Core: 1 change, 0 in the plan, 1 left out."), "{text}");
+    assert!(!err && text.contains("- Core: 1 change, 0 in the plan, 1 left out.") && !text.contains("not taken in yet"), "{text}");
+    // The plan file's own answer (its review site's) is never an op: when it stands, the change's
+    // story still ends with it.
+    sqlx::query(
+        "UPDATE plan_reviews SET decision = 'want', note = 'From the review site', at = '2098-06-01T00:00:00Z', origin = 'import'
+         WHERE owner_id = ? AND swap_key = 'alpha-owned'",
+    )
+    .bind(&owner)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let (err, text) = call(&app, &key, "get_plan_history", json!({"plan": "alpha", "card": "Spare Card"})).await;
+    assert!(!err && text.contains("(Yama, taking a version in); 2098-06-01 want \"From the review site\" (from the plan file)."), "{text}");
     // An entry naming the card a change takes out is part of that change's story.
     let (err, text) = call(&app, &key, "record_plan_history", json!({"plan": "alpha", "on": "2026-10-20", "what": "Sol Ring comes out for a proposal.", "cards": ["sol ring"]})).await;
     assert!(!err && text.contains("It is about Sol Ring."), "{text}");
