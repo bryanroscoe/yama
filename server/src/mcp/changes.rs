@@ -298,6 +298,8 @@ async fn stage(st: &AppState, user: &User, via: &Via, args: &Value, s: Staged) -
 /// stages only for a caller that may not apply (`track_build`), which has no `op_id` in its
 /// schema, so a retried call after a lost answer finds the change it staged instead of a second.
 async fn stage_once(st: &AppState, user: &User, via: &Via, args: &Value, s: Staged) -> AppResult<String> {
+    // One look-and-stage at a time per account, so two calls at once can't both miss the other.
+    let _one = owner_lock(&user.id).await;
     let waiting: Option<(String, String)> = sqlx::query_as(
         "SELECT id, summary FROM assistant_changes WHERE owner_id = ? AND kind = ? AND status = 'pending' AND payload = ? ORDER BY created_at LIMIT 1",
     )

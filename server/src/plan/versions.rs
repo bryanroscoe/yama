@@ -223,10 +223,12 @@ async fn decisions(conn: &mut SqliteConnection, owner: &str, live: &HashSet<Stri
 /// The newest answer per live swap key, aliases followed: decision, time and the cut you chose.
 async fn answers(conn: &mut SqliteConnection, owner: &str, live: &HashSet<String>) -> AppResult<HashMap<String, (Option<String>, String, Option<String>)>> {
     let aliases = super::aliases(&mut *conn, owner).await?;
-    // The newest answer reaching a key wins, an answer made in Yama on a tie: as the pages read
-    // them (core `answerIndex`). Rows come oldest first, so a later one replaces an earlier one.
+    // The newest answer reaching a key wins; on a tie one made in Yama, then the larger op id (so a
+    // person's answer beats settling's `!settle-` ops), also across an alias and its live key: as
+    // the pages read them (core `answerIndex`). Rows come oldest first, so a later one replaces an
+    // earlier one.
     let rows: Vec<(String, Option<String>, String, Option<String>)> =
-        sqlx::query_as("SELECT swap_key, decision, at, cut FROM plan_reviews WHERE owner_id = ? ORDER BY at, origin = 'yama', swap_key")
+        sqlx::query_as("SELECT swap_key, decision, at, cut FROM plan_reviews WHERE owner_id = ? ORDER BY at, origin = 'yama', IFNULL(op_id, ''), swap_key")
             .bind(owner)
             .fetch_all(&mut *conn)
             .await?;
@@ -542,7 +544,7 @@ async fn priors(conn: &mut SqliteConnection, owner: &str, keys: &[String]) -> Ap
         origin: String,
         op_id: Option<String>,
     }
-    let rows: Vec<Row> = sqlx::query_as("SELECT swap_key, decision, note, cut, at, origin, op_id FROM plan_reviews WHERE owner_id = ? ORDER BY at, origin = 'yama', swap_key")
+    let rows: Vec<Row> = sqlx::query_as("SELECT swap_key, decision, note, cut, at, origin, op_id FROM plan_reviews WHERE owner_id = ? ORDER BY at, origin = 'yama', IFNULL(op_id, ''), swap_key")
         .bind(owner)
         .fetch_all(&mut *conn)
         .await?;
