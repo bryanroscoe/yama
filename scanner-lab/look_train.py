@@ -4,7 +4,10 @@ One item = one artwork: a simulated capture of one printing (shifted crop of its
 clean symbol of up to MAX of its printings (InfoNCE across the batch, MoCo key encoder). Real-photo eval
 uses the graph's centre crops (look_crops.py), so it scores what the exported graph will do.
 About 7 minutes for 8 epochs on an M3 Pro's GPU (MPS), 20 Nov 2026. MAXSTEPS ends the run after that many
-steps, with that epoch saved and scored (a smoke test).
+steps, with that epoch saved and scored (a smoke test). SEED (default 0) seeds Python, NumPy, Torch and the
+loader's workers; runs/<run>/run.json records it with the arguments and the groups file's SHA-256. The GPU's
+own arithmetic isn't bit-for-bit repeatable, so a rerun matches closely, not exactly. Every training
+printing must have its crops (look_gen.py); ALLOW_INCOMPLETE=1 trains without the missing ones.
 python <lab>/look_train.py RUN [epochs] [batch]"""
 import sys, os, json, random, time, hashlib, copy
 import numpy as np, torch, torch.nn.functional as F, cv2
@@ -25,11 +28,17 @@ def shifted(patch, rng):
     return patch[dy:dy + SH, dx:dx + SW]
 
 
+def seed_worker(_):
+    """Each loader worker's Python and NumPy streams from Torch's per-worker seed (itself from SEED)."""
+    seed = torch.initial_seed() % 2 ** 32
+    random.seed(seed); np.random.seed(seed)
+
+
 class Groups(Dataset):
     def __init__(self, groups): self.groups = groups
     def __len__(self): return len(self.groups)
     def __getitem__(self, k):
-        rng = np.random.default_rng()
+        rng = np.random.default_rng(np.random.randint(2 ** 31))
         members = self.groups[k][:]; random.shuffle(members); members = members[:MAX]
         q = random.choice(members)
         qimg = photometric(rng, shifted(load(f"data/pq2/{q}_{rng.integers(0, 2)}.jpg"), rng))
@@ -88,19 +97,30 @@ def main():
     run = sys.argv[1]; epochs = int(sys.argv[2]) if len(sys.argv) > 2 else 8; bs = int(sys.argv[3]) if len(sys.argv) > 3 else 64
     os.makedirs(f"runs/{run}", exist_ok=True)
     dev = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
-    d = json.load(open("data/look_groups.json"))
-    groups, val = [], []
+    seed = int(os.environ.get("SEED", 0))
+    random.seed(seed); np.random.seed(seed); torch.manual_seed(seed)
+    raw = open("data/look_groups.json", "rb").read()
+    d = json.loads(raw)
+    groups, val, missing = [], [], 0
     for g in d["train"]:
         ms = [p["id"] for p in g["printings"] if os.path.exists(f"data/pk2/{p['id']}.jpg") and os.path.exists(f"data/pq2/{p['id']}_1.jpg")]
+        missing += len(g["printings"]) - len(ms)
         if len(ms) < 2: continue
         (val if int(hashlib.md5(g["ill"].encode()).hexdigest(), 16) % 50 == 0 else groups).append(ms)
+    if missing and os.environ.get("ALLOW_INCOMPLETE") != "1":
+        raise SystemExit(f"{missing} training printings have no crops: run look_download.py and look_gen.py again, or set ALLOW_INCOMPLETE=1.")
+    json.dump({"run": run, "epochs": epochs, "batch": bs, "seed": seed, "maxsteps": os.environ.get("MAXSTEPS"),
+               "groups_sha256": hashlib.sha256(raw).hexdigest(), "train_groups": len(groups), "held_out": len(val),
+               "missing_printings": missing, "started": time.strftime("%Y-%m-%dT%H:%M:%S%z")},
+              open(f"runs/{run}/run.json", "w"), indent=1)
     real = real_cases()
     print(f"{len(groups)} training groups ({sum(map(len, groups))} printings), {len(val)} held out, {len(real)} real photos", flush=True)
     model = PrintNet("small").to(dev)
     keyenc = copy.deepcopy(model).eval()
     for p_ in keyenc.parameters(): p_.requires_grad_(False)
     print("before training:", flush=True); evaluate(model, dev, real, val)
-    dl = DataLoader(Groups(groups), batch_size=bs, shuffle=True, num_workers=3, collate_fn=collate, drop_last=True, persistent_workers=True)
+    dl = DataLoader(Groups(groups), batch_size=bs, shuffle=True, num_workers=3, collate_fn=collate, drop_last=True,
+                    persistent_workers=True, worker_init_fn=seed_worker, generator=torch.Generator().manual_seed(seed))
     opt = torch.optim.AdamW(model.parameters(), lr=3e-4, weight_decay=1e-4)
     steps = epochs * len(dl)
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=3e-4, total_steps=steps, pct_start=0.05)

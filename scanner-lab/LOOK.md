@@ -72,8 +72,12 @@ pass them to `look_export.py` (it makes the output's folder, and needs no ImageN
 - `look_export.py yama-look-v1-symbol.pt yama-look-v1-card.pt` gives `yama-look-v1.onnx` byte for byte
   (sha256 `152f52c1…`).
 - `look_eval.py` gives the figures below.
-- `look_train.py` ran a smoke test (MAXSTEPS=30). It is the script that trained `sym3`, with the paths
-  and the smoke-test cap changed; the training wasn't run again in full.
+- `look_train.py` ran a smoke test (MAXSTEPS=30). It is the script that trained `sym3`, with the paths,
+  the smoke-test cap, seeding and the run record added; the training wasn't run again in full. `sym3`
+  itself wasn't seeded, so it can't be replayed exactly: its checkpoint is the published one. Two seeded
+  smoke runs gave the same loss.
+- `look_download.py` fails while any image is missing, and `look_train.py` while any training printing
+  has no crops (ALLOW_INCOMPLETE=1 to go on). In the 20 Nov run none were missing.
 - `look_groups.py` rebuilt from Scryfall's bulk data on 20 Nov has the same 23,996 training artworks and
   the same 92 test artworks; 3 of the test artworks differ by a printing from the database copy the run
   used. Its hold-out compares every name a printing goes by (the card's and each face's); the run used

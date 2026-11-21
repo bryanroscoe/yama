@@ -36,6 +36,9 @@ def main():
     print("starting", len(todo), time.strftime("%H:%M:%S"), flush=True)
     with ThreadPoolExecutor(4) as ex: list(ex.map(get, todo))
     print("finished; failed:", len(failed), failed[:10], flush=True)
+    if failed:
+        # A missing printing would silently drop out of look_gen.py's and look_train.py's cohort.
+        raise SystemExit(f"{len(failed)} images not downloaded: run again (it skips what's there), or check those IDs on Scryfall.")
 
 
 if __name__ == "__main__":
