@@ -16,7 +16,7 @@ import { loadArtRecognizer, NO_ART_MODEL, RECOGNIZER_SHORT_SIDE, scanBundleInfo,
 import { lookBest, lookCandidates, lookLead, lookOrder, lookSettles, withoutMisread, type LookScores } from "./look";
 import { modelsOf, onModelsChange, running, runningAll, saveModel, savedModels, type DeviceCan, type ModelChoices, type ModelSlot, type ModelsInfo, type Running } from "./models";
 import { ModelsSetting } from "./ModelsSetting";
-import { SpeedTest } from "./SpeedTest";
+import { scannerSettled, SpeedTest } from "./SpeedTest";
 import { NameIndex } from "./fuzzy";
 import { normaliseName } from "./parse";
 import { applyH, rectQuad, squareToQuad } from "./image";
@@ -2655,7 +2655,7 @@ export function ScannerView({
           onChoose={(slot, id) => saveModel(slot, id)}
         />
       )}
-      {modelsInfo && <SpeedTest />}
+      {modelsInfo && <SpeedTest ready={scannerSettled(mode, loadState, modelNotes)} />}
       {mode === "text" && <p className="scan-note">Card recognition isn't available right now, so the scanner reads the card's text: line the card up with the frame.</p>}
       <p className="scan-note">Reads text with {ENGINE_LABEL[ocrName ?? plannedEngine(ocrChoice.current)]}{ocrName ? "" : " (starts with the first read)"}.</p>
       <VersionLine className="scan-note" />

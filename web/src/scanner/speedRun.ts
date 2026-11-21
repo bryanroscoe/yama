@@ -26,7 +26,9 @@ import {
   SPEED_CARDS,
   SPEED_FRAME,
   SPEED_REPORT_VERSION,
+  SPEED_RUNTIME,
   stat,
+  within,
   type ConfigResult,
   type FrameTime,
   type LookResult,
@@ -67,10 +69,11 @@ export interface SpeedDeps {
   env(): Promise<SpeedEnv>;
   bundleInfo(): Promise<BundleInfo | null>;
   choices(): ModelChoices;
-  loadRecognizer(info: BundleInfo, art: ModelOption, detector: ModelOption, onState: (s: LoadState) => void): Promise<ArtRecognizer | null>;
-  picture(card: SpeedCard): Promise<CardPicture>;
+  /** Exactly these models (no falling back to the defaults); `signal` ends a load under way. */
+  loadRecognizer(info: BundleInfo, art: ModelOption, detector: ModelOption, onState: (s: LoadState) => void, signal?: AbortSignal): Promise<ArtRecognizer | null>;
+  picture(card: SpeedCard, signal?: AbortSignal): Promise<CardPicture>;
   frame(picture: CardPicture, p: Placement): RgbaImage;
-  lookTimer(option: ModelOption): Promise<LookTimer>;
+  lookTimer(option: ModelOption, signal?: AbortSignal): Promise<LookTimer>;
 }
 
 /** The art slot and card finder have files: the text reader's list doesn't matter here. */
@@ -133,11 +136,18 @@ const isRight = (r: Recognition, card: SpeedCard) => {
   return !!top && (top.id === card.id || (!!card.illustrationId && top.illustrationId === card.illustrationId));
 };
 
-/** Run the test. Resolves with the report (whatever part of it ran); rejects only when nothing could run. */
+/**
+ * Run the test: the stats and the device's environment, as a report (whatever part of it ran).
+ * Rejects only when nothing could run, or when `signal` stops it, which ends any worker under way
+ * at once. Reusable: the panel in Scan settings runs it on a tap, and a later scanner may run it
+ * quietly at start to say when a phone is slow (docs/plans/scanner-match-cardvision.md, item 29).
+ */
 export async function runSpeedTest(onProgress: (p: SpeedProgress) => void, signal?: AbortSignal, deps: SpeedDeps = browserDeps()): Promise<SpeedReport> {
   const t0 = deps.now();
   const startedAt = new Date().toISOString();
-  const envP = deps.env();
+  // The device first, so asking for a WebGPU adapter never overlaps a timed load.
+  const env = await deps.env();
+  stopped(signal);
   const info = await deps.bundleInfo();
   if (!info?.ready || !info.constants) throw new Error("Card recognition isn't ready on the server yet, so there's nothing to time.");
   const models = modelsOf(info);
@@ -157,28 +167,40 @@ export async function runSpeedTest(onProgress: (p: SpeedProgress) => void, signa
   for (const p of plan) {
     stopped(signal);
     const name = `${p.detector.label} and ${p.art.label}`;
-    const result: ConfigResult = { roles: p.roles, wanted: pair(p.detector, p.art), ran: null, loadMs: null, downloaded: false, firstFrameMs: null, stats: null, found: 0, right: 0, frames: [], error: null };
+    const result: ConfigResult = { roles: p.roles, runtime: SPEED_RUNTIME, wanted: pair(p.detector, p.art), ran: null, loadMs: null, downloaded: false, firstFrameMs: null, stats: null, found: 0, right: 0, frames: [], error: null };
     configs.push(result);
     let rec: ArtRecognizer | null = null;
+    // Stopped: the worker goes at once (a frame under way is refused), not at the next step.
+    const end = () => rec?.dispose();
+    signal?.addEventListener("abort", end, { once: true });
     try {
       say(`Loading ${name}`);
       const l0 = deps.now();
-      rec = await deps.loadRecognizer(info, p.art, p.detector, (s) => {
-        if (s.kind === "downloading") {
-          result.downloaded = true;
-          say(`Downloading ${name}: ${Math.round((100 * s.loaded) / Math.max(1, s.total))}%`);
-        }
-      });
+      rec = await deps.loadRecognizer(
+        info,
+        p.art,
+        p.detector,
+        (s) => {
+          if (s.kind === "downloading") {
+            result.downloaded = true;
+            say(`Downloading ${name}: ${Math.round((100 * s.loaded) / Math.max(1, s.total))}%`);
+          }
+        },
+        signal,
+      );
       if (!rec) throw new Error("Card recognition can't run in this browser");
+      stopped(signal);
       result.loadMs = round(deps.now() - l0);
       result.ran = { detector: rec.detector, art: rec.art };
+      // Never another model's times under this one's name.
+      if (rec.detector !== p.detector.id || rec.art !== p.art.id) throw new Error(`${name} didn't load (${rec.detector} and ${rec.art} ran instead), so it wasn't timed`);
       say(`Loaded ${name}`, 1);
       if (!pictures) {
         stopped(signal);
         const cards = (await rec.sample?.(SPEED_CARDS)) ?? [];
         if (cards.length === 0) throw new Error("The card recognizer gave no cards to show");
         say("Getting the cards' pictures from Scryfall");
-        const got = await Promise.allSettled(cards.map((c) => deps.picture(c)));
+        const got = await Promise.allSettled(cards.map((c) => deps.picture(c, signal)));
         const ok = got.flatMap((g) => (g.status === "fulfilled" ? [g.value] : []));
         if (ok.length < 2) throw new Error("Couldn't get the cards' pictures from Scryfall");
         pictures = ok;
@@ -221,6 +243,7 @@ export async function runSpeedTest(onProgress: (p: SpeedProgress) => void, signa
       result.error = message(e);
       if (result.frames.length) result.stats = configStats(result.frames);
     } finally {
+      signal?.removeEventListener("abort", end);
       rec?.dispose();
     }
     // Without the cards' pictures nothing else can be timed.
@@ -233,7 +256,6 @@ export async function runSpeedTest(onProgress: (p: SpeedProgress) => void, signa
     look = await timeLook(lookOption, pictures, deps, signal, (text) => say(text, 1));
   }
   say("Done", 1);
-  const env = await envP;
   return {
     version: SPEED_REPORT_VERSION,
     startedAt,
@@ -259,11 +281,14 @@ async function timeLook(
   signal: AbortSignal | undefined,
   say: (text: string) => void,
 ): Promise<LookResult> {
-  const out: LookResult = { option: option.id, label: option.label, loadMs: null, firstMs: null, picture: stat([]), frame: stat([]), fetch: stat([]), decode: stat([]), error: null };
+  const out: LookResult = { runtime: SPEED_RUNTIME, option: option.id, label: option.label, loadMs: null, firstMs: null, picture: stat([]), frame: stat([]), fetch: stat([]), decode: stat([]), error: null };
   let timer: LookTimer | null = null;
+  const end = () => timer?.dispose();
+  signal?.addEventListener("abort", end, { once: true });
   try {
     const l0 = deps.now();
-    timer = await deps.lookTimer(option);
+    timer = await deps.lookTimer(option, signal);
+    stopped(signal);
     out.loadMs = round(deps.now() - l0);
     const times: LookTiming[] = [];
     for (const [i, pic] of pictures.entries()) {
@@ -284,6 +309,7 @@ async function timeLook(
     if (signal?.aborted) throw e;
     out.error = message(e);
   } finally {
+    signal?.removeEventListener("abort", end);
     timer?.dispose();
   }
   return out;
@@ -330,7 +356,7 @@ async function appVersion(): Promise<SpeedEnv["app"]> {
   let native: SpeedEnv["app"]["native"] = null;
   if (isNative()) {
     try {
-      const v = await Updater.info();
+      const v = await within(Updater.info(), 3000);
       native = { versionName: v.versionName, versionCode: v.versionCode };
     } catch {
       native = null;
@@ -339,8 +365,8 @@ async function appVersion(): Promise<SpeedEnv["app"]> {
   return { web: BUILD_COMMIT, built: BUILD_TIME, native };
 }
 
-/** A look worker that loads `option` without touching the printings' cache, for timing. */
-function startLookTimer(option: ModelOption): Promise<LookTimer> {
+/** A look worker that loads `option` without touching the printings' cache, for timing; `signal` ends it. */
+function startLookTimer(option: ModelOption, signal?: AbortSignal): Promise<LookTimer> {
   const w = new Worker(new URL("./look.worker.ts", import.meta.url), { type: "module" });
   type Answer = Extract<LookWorkerReply, { type: "ready" | "timed" }>;
   const waiting = new Map<number, (m: Answer) => void>();
@@ -353,11 +379,16 @@ function startLookTimer(option: ModelOption): Promise<LookTimer> {
       waiting.delete(m.id);
     }
   };
-  w.onerror = (e) => {
-    failed = e.message || "The printing look stopped";
-    for (const p of waiting.values()) p({ type: "ready", id: 0, error: failed });
+  /** The worker is gone: everything waiting on it fails. */
+  const fail = (why: string) => {
+    failed ??= why;
+    w.terminate();
+    for (const p of waiting.values()) p({ type: "ready", id: 0, error: why });
     waiting.clear();
   };
+  w.onerror = (e) => fail(e.message || "The printing look stopped");
+  signal?.addEventListener("abort", () => fail("Stopped"), { once: true });
+  if (signal?.aborted) fail("Stopped");
   const ask = (m: LookWorkerRequest, transfer: Transferable[] = []) =>
     new Promise<Answer>((resolve) => {
       if (failed) return resolve({ type: "ready", id: 0, error: failed });
@@ -367,7 +398,7 @@ function startLookTimer(option: ModelOption): Promise<LookTimer> {
   const base = API_BASE || location.origin;
   return ask({ type: "model", id: nextId++, url: new URL(option.file!, base).href, bytes: option.bytes ?? 0, cache: false }).then((r) => {
     if (r.error) {
-      w.terminate();
+      fail(r.error);
       throw new Error(r.error);
     }
     return {
@@ -377,7 +408,7 @@ function startLookTimer(option: ModelOption): Promise<LookTimer> {
         if (r.type !== "timed") throw new Error("The printing look didn't answer");
         return { fetchMs: r.fetchMs, decodeMs: r.decodeMs, pictureMs: r.pictureMs, frameMs: r.frameMs };
       },
-      dispose: () => w.terminate(),
+      dispose: () => fail("The look timer was closed"),
     };
   });
 }
@@ -391,11 +422,11 @@ export function browserDeps(): SpeedDeps {
     env: async () => captureEnv(navigator as unknown as Parameters<typeof captureEnv>[0], globalThis as Parameters<typeof captureEnv>[1], await appVersion()),
     bundleInfo: scanBundleInfo,
     choices: savedModels,
-    loadRecognizer: (info, art, detector, onState) => loadArtRecognizer(onState, { info, art, detector }),
-    async picture(card) {
+    loadRecognizer: (info, art, detector, onState, signal) => loadArtRecognizer(onState, { info, art, detector, fallback: false, signal }),
+    async picture(card, signal) {
       const url = await pictureUrl(card);
       // cards.scryfall.io sends Access-Control-Allow-Origin: *, so the picture's pixels can be read.
-      const res = await fetch(url, { mode: "cors", credentials: "omit", cache: "no-store" });
+      const res = await fetch(url, { mode: "cors", credentials: "omit", cache: "no-store", signal });
       if (!res.ok) throw new Error(`Couldn't fetch ${card.name}'s picture (${res.status})`);
       const image = await createImageBitmap(await res.blob());
       return { card, url, image };
@@ -417,6 +448,11 @@ export function browserDeps(): SpeedDeps {
 /** Keep a finished test on the account (POST /api/scan/speed-tests). */
 export async function saveSpeedTest(report: SpeedReport): Promise<{ id: string }> {
   return api<{ id: string }>("/api/scan/speed-tests", { method: "POST", json: report });
+}
+
+/** How many speed tests the account keeps. */
+export async function speedTestCount(): Promise<number> {
+  return (await api<{ count: number }>("/api/scan/speed-tests?limit=0")).count;
 }
 
 /** Delete every speed test kept on the account. */

@@ -886,19 +886,18 @@ button.scan-count {
   margin: 0;
   font-size: var(--t-base);
 }
-.scan-speed-progress {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.scan-speed-progress progress {
+.scan-speed-bar {
   width: 100%;
   height: 6px;
   accent-color: var(--text);
 }
-.scan-speed-progress p,
-.scan-speed-result p {
+.scan-speed p {
   margin: 0;
+}
+.scan-speed-status {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 .scan-speed-result {
   display: flex;

@@ -6,8 +6,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ActionBar, Button } from "../components/ui";
-import { configFor, speedSummary, type ConfigResult, type SpeedReport, type SpeedRole, type Stat } from "./speed";
-import { deleteSpeedTests, runSpeedTest, saveSpeedTest, type SpeedProgress } from "./speedRun";
+import { speedSummary, type ConfigResult, type SpeedReport, type SpeedRole, type Stat } from "./speed";
+import { deleteSpeedTests, runSpeedTest, saveSpeedTest, speedTestCount, type SpeedProgress } from "./speedRun";
 
 const ROLE_NAME: Record<SpeedRole, string> = { yours: "Your models", defaults: "The defaults", faster: "The faster ones" };
 
@@ -39,13 +39,11 @@ export function webGpuWords(r: SpeedReport): string {
   return `WebGPU is available${name ? ` (${name})` : ""}${g.f16 ? ", with 16-bit floats" : ""}${g.fallback ? ", on a software fallback" : ""}.`;
 }
 
-export function SpeedResult({ report, saved, kept, onDelete }: { report: SpeedReport; saved: string | null; kept?: boolean; onDelete?: () => void }) {
+export function SpeedResult({ report }: { report: SpeedReport }) {
   const ran = report.configs.filter((c) => c.stats || c.error);
   const look = report.look;
-  const yours = configFor(report, "yours");
   return (
     <div className="scan-speed-result">
-      <p className="scan-speed-summary">{speedSummary(report)}</p>
       {ran.some((c) => c.stats) && (
         <table className="scan-speed-table">
           <caption className="scan-note">Milliseconds: the median, with the 90th percentile under it.</caption>
@@ -111,107 +109,121 @@ export function SpeedResult({ report, saved, kept, onDelete }: { report: SpeedRe
         {report.device}. {webGpuWords(report)} {report.env.isolated ? "Several processor threads could be used." : "One processor thread (the page isn't cross-origin isolated)"}
         {report.env.cores ? `, of ${report.env.cores} cores` : ""}.
       </p>
-      {saved && (
-        <p className="scan-note scan-model-runs">
-          {saved}
-          {kept && onDelete && (
-            <>
-              {" "}
-              <Button className="scan-alt" onClick={onDelete}>
-                Delete saved tests
-              </Button>
-            </>
-          )}
-        </p>
-      )}
-      {yours?.ran && (yours.ran.art !== yours.wanted.art.id || yours.ran.detector !== yours.wanted.detector.id) && (
-        <p className="scan-note">Your models didn't load, so the defaults ran in their place.</p>
-      )}
     </div>
   );
 }
 
-export function SpeedTest() {
+/**
+ * Whether the scanner's own recognizer is done loading and switching models (ScannerView's state:
+ * its mode is known, nothing is downloading, and no Models note says "Loading …"), so a speed test
+ * started now doesn't time against that work.
+ */
+export const scannerSettled = (mode: string | null, loading: unknown, notes: Partial<Record<string, string | undefined>>): boolean =>
+  mode !== null && !loading && !Object.values(notes).some((n) => n?.startsWith("Loading "));
+
+const say = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/**
+ * The Speed part of Scan settings. `ready` is false while the scanner's own recognizer is still
+ * loading or switching a model, so the test never times against that work.
+ */
+export function SpeedTest({ ready = true }: { ready?: boolean }) {
   const [progress, setProgress] = useState<SpeedProgress | null>(null);
+  const [busy, setBusy] = useState(false);
   const [report, setReport] = useState<SpeedReport | null>(null);
-  const [saved, setSaved] = useState<string | null>(null);
-  const [kept, setKept] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [count, setCount] = useState<number | null>(null);
   const run = useRef<AbortController | null>(null);
-  // Closing Scan settings stops a test under way: the scanner reads again then.
-  useEffect(() => () => run.current?.abort(), []);
+  useEffect(() => {
+    let live = true;
+    speedTestCount().then(
+      (n) => live && setCount(n),
+      () => undefined,
+    );
+    // Closing Scan settings stops a test under way, its workers at once: the scanner reads again then.
+    return () => {
+      live = false;
+      run.current?.abort();
+    };
+  }, []);
   const start = () => {
-    if (run.current) return;
+    if (run.current || !ready) return;
     const stop = new AbortController();
     run.current = stop;
+    setBusy(true);
     setReport(null);
-    setSaved(null);
-    setKept(false);
+    setStatus(null);
     setError(null);
     setProgress({ text: "Starting", done: 0, total: 1 });
     runSpeedTest((p) => !stop.signal.aborted && setProgress(p), stop.signal)
       .then(async (r) => {
         if (stop.signal.aborted) return;
         setReport(r);
-        setProgress(null);
         if (!r.configs.some((c) => c.stats)) return;
-        setSaved("Keeping it on your account…");
+        setStatus("Keeping it on your account…");
         try {
           await saveSpeedTest(r);
           if (stop.signal.aborted) return;
-          setSaved("Kept on your account.");
-          setKept(true);
+          setStatus("Kept on your account.");
+          setCount((n) => (n ?? 0) + 1);
         } catch (e) {
-          if (!stop.signal.aborted) setSaved(`Not kept: ${e instanceof Error ? e.message : String(e)}`);
+          if (!stop.signal.aborted) setStatus(`Not kept: ${say(e)}`);
         }
       })
-      .catch((e: unknown) => {
-        if (stop.signal.aborted) return;
-        setProgress(null);
-        setError(e instanceof Error ? e.message : String(e));
-      })
+      .catch((e: unknown) => setError(stop.signal.aborted ? "Stopped." : say(e)))
+      // Another test can start only once this one has ended, its workers gone.
       .finally(() => {
         if (run.current === stop) run.current = null;
+        setProgress(null);
+        setBusy(false);
       });
+  };
+  const cancel = () => {
+    run.current?.abort();
+    setProgress((p) => (p ? { ...p, text: "Stopping" } : p));
   };
   const remove = () =>
     deleteSpeedTests().then(
       (d) => {
-        setKept(false);
-        setSaved(`Deleted ${d.deleted} saved ${d.deleted === 1 ? "test" : "tests"}.`);
+        setCount(0);
+        setStatus(`Deleted ${d.deleted} saved ${d.deleted === 1 ? "test" : "tests"}.`);
       },
-      (e: unknown) => setSaved(`Not deleted: ${e instanceof Error ? e.message : String(e)}`),
+      (e: unknown) => setStatus(`Not deleted: ${say(e)}`),
     );
-  const cancel = () => {
-    run.current?.abort();
-    run.current = null;
-    setProgress(null);
-    setError("Stopped.");
-  };
   return (
     <section className="scan-speed" aria-labelledby="scan-speed-title">
       <h3 id="scan-speed-title">Speed</h3>
       <p className="scan-note">
-        Times the scanner on this device, with a few cards' pictures from Scryfall instead of the camera: your models, the defaults and the faster ones. It takes about a minute, and may download the faster models. The result is kept on your account, so Yama can see how fast the scanner is on this device.
+        Times the scanner on this device, with a few cards' pictures from Scryfall instead of the camera: your models, the defaults and the faster ones, and the printing look. It takes about a minute, and may download the faster models and the look's model. The result is kept on your account, so Yama can see how fast the scanner is on this device.
       </p>
       <ActionBar>
-        <Button onClick={start} disabled={!!progress}>
+        <Button onClick={start} disabled={busy || !ready}>
           Test scanner speed
         </Button>
-        {progress && (
-          <Button variant="quiet" onClick={cancel}>
+        {busy && (
+          <Button variant="quiet" onClick={cancel} disabled={!!run.current?.signal.aborted}>
             Stop
           </Button>
         )}
       </ActionBar>
-      {progress && (
-        <div className="scan-speed-progress" aria-live="polite">
-          <progress max={progress.total} value={progress.done} aria-label="Speed test progress" />
-          <p className="scan-note">{progress.text}</p>
-        </div>
+      {!ready && !busy && <p className="scan-note">The scanner is still loading its models; the test can start once it's done.</p>}
+      {busy && progress && <progress className="scan-speed-bar" max={progress.total} value={progress.done} aria-label="Speed test progress" />}
+      <div className="scan-speed-status" aria-live="polite">
+        {busy && progress && <p className="scan-note">{progress.text}</p>}
+        {error && <p className="scan-note">{error}</p>}
+        {report && <p className="scan-speed-summary">{speedSummary(report)}</p>}
+        {status && <p className="scan-note scan-model-runs">{status}</p>}
+      </div>
+      {report && <SpeedResult report={report} />}
+      {!busy && !!count && (
+        <p className="scan-note">
+          {count === 1 ? "1 test" : `${count} tests`} saved on your account.{" "}
+          <Button className="scan-alt" onClick={remove}>
+            Delete saved tests
+          </Button>
+        </p>
       )}
-      {error && <p className="scan-note">{error}</p>}
-      {report && <SpeedResult report={report} saved={saved} kept={kept} onDelete={remove} />}
     </section>
   );
 }

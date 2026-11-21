@@ -1903,7 +1903,12 @@ async fn scan_speed_tests_are_read_by_their_owner_only() {
     assert_eq!(items[0]["device"], "Pixel 10 Pro, Android 16, Chrome 142");
     assert_eq!(items[0]["report"]["configs"][0]["stats"]["tracked"]["p90"], 150.0);
     assert_eq!(items[0]["report"]["env"]["webgpu"]["f16"], true);
+    // The per-frame times only when asked.
+    assert!(items[0]["report"]["configs"][0].get("frames").is_none());
     assert!(s["next_cursor"].is_null());
+    let (_, text) = call(&app, &mine, "get_scan_speed_tests", json!({"frames": true, "limit": 1})).await;
+    let s: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(s["items"][0]["report"]["configs"][0]["frames"][0]["fresh"], true);
     // Paged.
     let (_, text) = call(&app, &mine, "get_scan_speed_tests", json!({"limit": 2})).await;
     let s: Value = serde_json::from_str(&text).unwrap();

@@ -184,9 +184,13 @@ export async function oneLoadAtATime<T>(load: () => Promise<T>, wait = LOAD_LOCK
  * `files.embed` when not given), from `info` (fetched when not given). Resolves null when the
  * server doesn't have the bundle yet (it starts downloading it; the scanner reads text meanwhile).
  * Rejects on a real failure. A chosen art model that won't load (not cached, opening offline) gives
- * way to the bundle info's own embed graph.
+ * way to the bundle info's own embed graph, unless `fallback` is false (the speed test, which must
+ * time the models it names). `signal` ends a load under way, its worker with it.
  */
-export async function loadArtRecognizer(onState?: (s: LoadState) => void, opts: { info?: BundleInfo | null; art?: ModelOption | null; detector?: ModelOption | null } = {}): Promise<ArtRecognizer | null> {
+export async function loadArtRecognizer(
+  onState?: (s: LoadState) => void,
+  opts: { info?: BundleInfo | null; art?: ModelOption | null; detector?: ModelOption | null; fallback?: boolean; signal?: AbortSignal } = {},
+): Promise<ArtRecognizer | null> {
   if (typeof Worker === "undefined" || typeof WebAssembly === "undefined") return null;
   const info = opts.info !== undefined ? opts.info : await scanBundleInfo();
   if (!info?.ready || !info.constants) return null;
@@ -195,15 +199,22 @@ export async function loadArtRecognizer(onState?: (s: LoadState) => void, opts: 
   const bundleFinder = { id: defaultDetectorId(info), file: info.files.detector, bytes: info.bytes.detector };
   const finder = opts.detector?.file ? { id: opts.detector.id, file: opts.detector.file, bytes: opts.detector.bytes ?? 0 } : bundleFinder;
   try {
-    return await startRecognizer(info, art, finder, onState);
+    return await startRecognizer(info, art, finder, onState, opts.signal);
   } catch (e) {
-    if (art.file === fallback.file && finder.file === bundleFinder.file) throw e;
+    if ((art.file === fallback.file && finder.file === bundleFinder.file) || opts.fallback === false || opts.signal?.aborted) throw e;
     console.warn(`The models chosen (${art.id}, ${finder.id}) didn't load; running the defaults`, e);
-    return startRecognizer(info, fallback, bundleFinder, onState);
+    return startRecognizer(info, fallback, bundleFinder, onState, opts.signal);
   }
 }
 
-async function startRecognizer(info: BundleInfo, art: { id: string; file: string; bytes: number }, detector: { id: string; file: string; bytes: number }, onState?: (s: LoadState) => void): Promise<ArtRecognizer> {
+async function startRecognizer(
+  info: BundleInfo,
+  art: { id: string; file: string; bytes: number },
+  detector: { id: string; file: string; bytes: number },
+  onState?: (s: LoadState) => void,
+  signal?: AbortSignal,
+): Promise<ArtRecognizer> {
+  if (signal?.aborted) throw new Error("Stopped");
   const worker = new Worker(new URL("./art.worker.ts", import.meta.url), { type: "module" });
   const pending = new Map<number, { resolve: (r: Recognition) => void; reject: (e: Error) => void }>();
   const pooling = new Map<number, (arts: number) => void>();
@@ -263,6 +274,7 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
   // one load at a time across this browser's tabs, so two tabs loading different bundle info (the
   // server just switched) can't each drop the files the other cached.
   await oneLoadAtATime(async () => {
+    const stopped = () => worker.terminate();
     await new Promise<void>((resolve, reject) => {
       worker.onmessage = (e: MessageEvent<ArtWorkerReply>) => {
         const m = e.data;
@@ -271,9 +283,12 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
         else if (m.type === "error") reject(new Error(m.message));
       };
       worker.onerror = (e) => reject(new Error(e.message || "The card recognizer stopped"));
+      // Stopped while loading: the worker goes now, downloads and compiling with it.
+      signal?.addEventListener("abort", () => reject(new Error("Stopped")), { once: true });
+      if (signal?.aborted) return reject(new Error("Stopped"));
       worker.postMessage({ type: "load", info, base, embed: { url: art.file, bytes: art.bytes }, detector: { url: detector.file, bytes: detector.bytes } } satisfies ArtWorkerRequest);
     }).catch((e: unknown) => {
-      worker.terminate();
+      stopped();
       throw e;
     });
     try {

@@ -21,6 +21,11 @@ export const FAST_DETECTOR = "yama-corners-20261120";
 export const FAST_ART = "yama-art-20261118-cascade";
 /** The report's form, for readers of saved tests. */
 export const SPEED_REPORT_VERSION = 1;
+/**
+ * What ran the models: onnxruntime-web's WASM build on one thread, as the scanner does. Native runs
+ * (ONNX Runtime for Android) and GPU ones will say otherwise, so they can be told apart.
+ */
+export const SPEED_RUNTIME = "wasm-1-thread";
 
 /** A card the test shows: a gallery artwork with a printing to fetch the picture of. */
 export interface SpeedCard {
@@ -203,6 +208,8 @@ export type SpeedRole = "yours" | "defaults" | "faster";
 
 export interface ConfigResult {
   roles: SpeedRole[];
+  /** What ran the models (SPEED_RUNTIME). */
+  runtime: string;
   /** What was asked for, and what the worker ran (a model that doesn't load gives way to the defaults). */
   wanted: ModelPair;
   ran: { detector: string; art: string } | null;
@@ -220,6 +227,8 @@ export interface ConfigResult {
 }
 
 export interface LookResult {
+  /** What ran the model (SPEED_RUNTIME). */
+  runtime: string;
   option: string;
   label: string;
   loadMs: number | null;
@@ -281,7 +290,7 @@ interface GpuAdapterLike {
 const HINTS = ["model", "platform", "platformVersion", "architecture", "bitness", "fullVersionList", "mobile"];
 
 /** At most `ms` for a browser call that might never answer. */
-const within = <T>(p: Promise<T>, ms: number): Promise<T> =>
+export const within = <T>(p: Promise<T>, ms: number): Promise<T> =>
   Promise.race([p, new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`no answer in ${ms} ms`)), ms))]);
 
 const short = (v: unknown, n = 120) => (typeof v === "string" ? v.slice(0, n) : undefined);

@@ -22,6 +22,7 @@ vi.mock("./speedRun", () => ({
     run.saved.push(r);
     return { id: "t1" };
   },
+  speedTestCount: async () => run.saved.length,
   deleteSpeedTests: async () => {
     const deleted = run.saved.length;
     run.saved.length = 0;
@@ -29,11 +30,12 @@ vi.mock("./speedRun", () => ({
   },
 }));
 
-const { SpeedTest, configName } = await import("./SpeedTest");
+const { SpeedTest, configName, scannerSettled } = await import("./SpeedTest");
 
 const stat = (median: number) => ({ median, p90: median + 10, n: 21 });
 const config = (roles: ConfigResult["roles"], tracked: number, over: Partial<ConfigResult> = {}): ConfigResult => ({
   roles,
+  runtime: "wasm-1-thread",
   wanted: { detector: { id: "bundle-detector", label: "ManaVault's card finder" }, art: { id: "yama-art-20261118", label: "Yama's art model" } },
   ran: { detector: "bundle-detector", art: "yama-art-20261118" },
   loadMs: 2100,
@@ -57,7 +59,7 @@ const report = (): SpeedReport => ({
   choices: {},
   cards: [],
   configs: [config(["yours", "defaults"], 142), config(["faster"], 48, { downloaded: true, right: 30 })],
-  look: { option: "look-v1", label: "Yama's look model v1", loadMs: 800, firstMs: 900, picture: stat(70), frame: stat(65), fetch: stat(300), decode: stat(12), error: null },
+  look: { runtime: "wasm-1-thread", option: "look-v1", label: "Yama's look model v1", loadMs: 800, firstMs: 900, picture: stat(70), frame: stat(65), fetch: stat(300), decode: stat(12), error: null },
 });
 
 let root: Root;
@@ -102,6 +104,7 @@ describe("Test scanner speed", () => {
     expect(run.saved).toHaveLength(1);
     expect(button("Test scanner speed")!.disabled).toBe(false);
     // and they can be deleted from here.
+    expect(host.textContent).toContain("1 test saved on your account.");
     await act(async () => button("Delete saved tests")!.click());
     expect(run.saved).toHaveLength(0);
     expect(host.textContent).toContain("Deleted 1 saved test.");
@@ -124,7 +127,12 @@ describe("Test scanner speed", () => {
     await act(async () => button("Test scanner speed")!.click());
     await act(async () => button("Stop")!.click());
     expect(run.calls[0]!.signal!.aborted).toBe(true);
+    // Not startable again until the stopped run has ended.
+    expect(host.textContent).toContain("Stopping");
+    expect(button("Test scanner speed")!.disabled).toBe(true);
+    await act(async () => run.calls[0]!.fail(new Error("Stopped")));
     expect(host.textContent).toContain("Stopped.");
+    expect(button("Test scanner speed")!.disabled).toBe(false);
     await act(async () => button("Test scanner speed")!.click());
     expect(run.calls).toHaveLength(2);
     act(() => root.unmount());
@@ -133,6 +141,21 @@ describe("Test scanner speed", () => {
     root = createRoot(host);
     await act(async () => run.calls[1]!.finish(report()));
     expect(run.saved).toHaveLength(0);
+  });
+
+  it("waits for the scanner's own models, and shows the tests kept with a way to delete them", async () => {
+    run.saved.push(report(), report());
+    await act(async () => root.render(<SpeedTest ready={false} />));
+    expect(button("Test scanner speed")!.disabled).toBe(true);
+    expect(host.textContent).toContain("still loading its models");
+    expect(host.textContent).toContain("2 tests saved on your account.");
+    await act(async () => button("Delete saved tests")!.click());
+    expect(host.textContent).toContain("Deleted 2 saved tests.");
+    expect(scannerSettled("art", null, {})).toBe(true);
+    expect(scannerSettled(null, null, {})).toBe(false);
+    expect(scannerSettled("art", { kind: "preparing" }, {})).toBe(false);
+    expect(scannerSettled("art", null, { art: "Loading Yama's art model…" })).toBe(false);
+    expect(scannerSettled("text", null, { art: "Couldn't load it, so the one before still runs." })).toBe(true);
   });
 
   it("names a configuration by every role it fills", () => {
