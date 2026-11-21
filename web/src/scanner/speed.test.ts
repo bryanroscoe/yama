@@ -206,6 +206,7 @@ describe("what's recorded about the device", () => {
 describe("the summary", () => {
   const config = (roles: ConfigResult["roles"], tracked: number | null, error: string | null = null): ConfigResult => ({
     roles,
+    runtime: "wasm-1-thread",
     wanted: { detector: { id: "d", label: "D" }, art: { id: "a", label: "A" } },
     ran: { detector: "d", art: "a" },
     loadMs: 1000,

@@ -40,6 +40,8 @@ interface World {
   loads: { art: string; detector: string }[];
   disposed: number;
   looks: { option: string; times: { url: string; quad: unknown }[]; disposed: boolean }[];
+  /** What was asked for, in order. */
+  calls: string[];
 }
 
 /**
@@ -47,31 +49,39 @@ interface World {
  * 30 with Yama's; loading 2 s), recognizers that track a card after its first frame and find the
  * card shown, pictures for every card, and a look timer.
  */
-function world(opts: { choices?: ModelChoices; info?: BundleInfo; failLoad?: string; failPictures?: number; wrongOn?: string; abortAfter?: { controller: AbortController; frames: number } } = {}): World {
+function world(
+  opts: { choices?: ModelChoices; info?: BundleInfo; failLoad?: string; failPictures?: number; wrongOn?: string; abortAfter?: { controller: AbortController; frames: number }; hangOn?: number; runsInstead?: string } = {},
+): World {
   let clock = 0;
-  const w: World = { deps: undefined as unknown as SpeedDeps, loads: [], disposed: 0, looks: [] };
+  const w: World = { deps: undefined as unknown as SpeedDeps, loads: [], disposed: 0, looks: [], calls: [] };
   let framesSeen = 0;
   w.deps = {
     now: () => clock,
-    env: async () => ({ userAgent: "UA", hints: { model: "Pixel 10 Pro", platform: "Android", platformVersion: "16" }, app: { web: "abc", built: "", native: null }, cores: 8, memory: 8, isolated: false, sharedMemory: false, webgpu: { api: false, adapter: false } }),
-    bundleInfo: async () => opts.info ?? info(),
+    env: async () => (w.calls.push("env"), { userAgent: "UA", hints: { model: "Pixel 10 Pro", platform: "Android", platformVersion: "16" }, app: { web: "abc", built: "", native: null }, cores: 8, memory: 8, isolated: false, sharedMemory: false, webgpu: { api: false, adapter: false } }),
+    bundleInfo: async () => (w.calls.push("info"), opts.info ?? info()),
     choices: () => opts.choices ?? {},
     async loadRecognizer(_info, art, detector, onState) {
       if (art.id === opts.failLoad) throw new Error("out of memory");
       w.loads.push({ art: art.id, detector: detector.id });
+      w.calls.push(`load ${art.id}`);
       if (art.id === "yama-art-20261118-cascade") onState({ kind: "downloading", loaded: 50, total: 100 });
       clock += 2000;
       let tracking = false;
       let shown: SpeedCard | null = null;
+      let gone = false;
+      let hung: ((e: Error) => void) | null = null;
       const per = detector.id === "yama-corners-20261120" ? 10 : 50;
       const rec: ArtRecognizer = {
         embed: `${V}/${art.id}`,
-        art: art.id,
+        art: art.id === opts.runsInstead ? "bundle" : art.id,
         detector: detector.id,
         look: "off",
         async identify(image) {
+          if (gone) throw new Error("The scanner is closed");
           framesSeen += 1;
           if (opts.abortAfter && framesSeen === opts.abortAfter.frames) opts.abortAfter.controller.abort();
+          // A frame that never answers until its worker is ended.
+          if (framesSeen === opts.hangOn) await new Promise((_, reject) => (hung = reject));
           const passes = tracking ? 1 : 2;
           tracking = true;
           const embed = art.id === "yama-art-20261118-cascade" ? [15] : [60];
@@ -98,7 +108,10 @@ function world(opts: { choices?: ModelChoices; info?: BundleInfo; failLoad?: str
         },
         setPool: async () => -1,
         dispose() {
+          if (gone) return;
+          gone = true;
           w.disposed += 1;
+          hung?.(new Error("The scanner is closed"));
         },
         useArt: async () => undefined,
         useLook: async () => undefined,
@@ -242,6 +255,34 @@ describe("a speed test", () => {
     expect(w.loads).toHaveLength(1);
     expect(w.disposed).toBe(1);
     expect(w.looks).toHaveLength(0);
+  });
+
+  it("ends the worker at once when stopped mid-frame, not at the next step", async () => {
+    const controller = new AbortController();
+    const w = world({ hangOn: 3 });
+    const run = runSpeedTest(() => undefined, controller.signal, w.deps);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(w.disposed).toBe(0);
+    controller.abort();
+    await expect(run).rejects.toThrow();
+    expect(w.disposed).toBe(1);
+  });
+
+  it("asks about the device before timing anything", async () => {
+    const w = world();
+    await runSpeedTest(() => undefined, undefined, w.deps);
+    expect(w.calls.slice(0, 3)).toEqual(["env", "info", "load yama-art-20261118"]);
+  });
+
+  it("never files the defaults' times under models that didn't load", async () => {
+    const w = world({ runsInstead: "yama-art-20261118-cascade" });
+    const r = await runSpeedTest(() => undefined, undefined, w.deps);
+    const fast = r.configs.find((c) => c.roles.includes("faster"))!;
+    expect(fast.stats).toBeNull();
+    expect(fast.frames).toEqual([]);
+    expect(fast.error).toContain("didn't load");
+    expect(fast.runtime).toBe("wasm-1-thread");
+    expect(r.look?.runtime).toBe("wasm-1-thread");
   });
 
   it("says why when nothing can be timed", async () => {

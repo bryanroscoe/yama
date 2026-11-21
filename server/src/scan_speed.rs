@@ -103,9 +103,21 @@ struct Row {
     report: String,
 }
 
+/// Each configuration's per-frame times out of a report (most of its size), for a shorter answer.
+fn without_frames(mut report: Value) -> Value {
+    if let Some(configs) = report.get_mut("configs").and_then(Value::as_array_mut) {
+        for c in configs {
+            if let Some(c) = c.as_object_mut() {
+                c.remove("frames");
+            }
+        }
+    }
+    report
+}
+
 /// The account's speed tests, newest first, from `offset`: each with its device, the headline frame
-/// times and the whole report.
-pub async fn list(pool: &SqlitePool, owner: &str, offset: usize, limit: usize) -> AppResult<Value> {
+/// times and the report, with each configuration's per-frame times only when `frames` is set.
+pub async fn list(pool: &SqlitePool, owner: &str, offset: usize, limit: usize, frames: bool) -> AppResult<Value> {
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM scan_speed_tests WHERE owner_id = ?").bind(owner).fetch_one(pool).await?;
     let rows: Vec<Row> = sqlx::query_as(
         "SELECT id, created_at, device, frame_ms, fast_ms, report FROM scan_speed_tests WHERE owner_id = ?
@@ -121,7 +133,7 @@ pub async fn list(pool: &SqlitePool, owner: &str, offset: usize, limit: usize) -
         .map(|r| {
             json!({
                 "id": r.id, "created_at": r.created_at, "device": r.device, "frame_ms": r.frame_ms, "fast_ms": r.fast_ms,
-                "report": serde_json::from_str::<Value>(&r.report).unwrap_or(Value::Null),
+                "report": serde_json::from_str::<Value>(&r.report).map(|v| if frames { v } else { without_frames(v) }).unwrap_or(Value::Null),
             })
         })
         .collect();
@@ -132,10 +144,13 @@ pub async fn list(pool: &SqlitePool, owner: &str, offset: usize, limit: usize) -
 struct GetQuery {
     offset: Option<usize>,
     limit: Option<usize>,
+    /// Each configuration's per-frame times too (false leaves them out).
+    frames: Option<bool>,
 }
 
 async fn get_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, Query(q): Query<GetQuery>) -> AppResult<Json<Value>> {
-    Ok(Json(list(&st.pool, &user.id, q.offset.unwrap_or(0).min(1_000_000), q.limit.unwrap_or(20).clamp(0, KEEP as usize)).await?))
+    let limit = q.limit.unwrap_or(20).clamp(0, KEEP as usize);
+    Ok(Json(list(&st.pool, &user.id, q.offset.unwrap_or(0).min(1_000_000), limit, q.frames.unwrap_or(true)).await?))
 }
 
 async fn delete_route(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Value>> {
@@ -157,7 +172,7 @@ pub(crate) mod tests {
             json!({"roles": roles, "wanted": {"detector": {"id": "bundle-detector", "label": "ManaVault's card finder"}, "art": {"id": "yama-art-20261118", "label": "Yama's art model"}},
                    "ran": {"detector": "bundle-detector", "art": "yama-art-20261118"}, "loadMs": 2100.0, "downloaded": false, "firstFrameMs": 300.0,
                    "stats": {"detector": {"median": 50.0, "p90": 60.0, "n": 40}, "tracked": {"median": tracked, "p90": tracked + 20.0, "n": 21}, "fresh": {"median": tracked + 50.0, "p90": tracked + 80.0, "n": 7}},
-                   "found": 32, "right": 32, "frames": [], "error": null})
+                   "found": 32, "right": 32, "frames": [{"card": 0, "frame": 0, "fresh": true, "roundMs": 200.0}], "error": null})
         };
         let mut configs = vec![config(&["yours", "defaults"], yours)];
         if let Some(f) = faster {
@@ -191,6 +206,11 @@ pub(crate) mod tests {
         assert_eq!(items[1]["device"], "Pixel 10 Pro, Android 16, Chrome 142");
         assert_eq!(items[1]["report"]["env"]["webgpu"]["vendor"], "imagination");
         assert_eq!(items[1]["report"]["look"]["option"], "look-v1");
+        assert_eq!(items[1]["report"]["configs"][0]["frames"][0]["roundMs"], 200.0);
+        // Without the per-frame times, when asked.
+        let (_, s) = testutil::send(&app, Method::GET, &format!("{PATH}?frames=false"), Some(&mine), None).await;
+        assert!(s["items"][1]["report"]["configs"][0].get("frames").is_none(), "{s}");
+        assert_eq!(s["items"][1]["report"]["configs"][0]["stats"]["tracked"]["median"], 142.4);
 
         // Someone else sees none of them, and their delete deletes none.
         let (_, s) = testutil::send(&app, Method::GET, PATH, Some(&theirs), None).await;

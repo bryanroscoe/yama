@@ -1535,7 +1535,8 @@ pub(super) const TOOLS: &[Tool] = &[
         title: "Scanner speed on your devices",
         description: "Scanner speed tests run on this account's devices (Scan settings, Test scanner speed), newest first: per model choice (the device's, the defaults, the faster options) median and p90 ms of a card finder pass, art embedding, search and a whole frame, the warm-up and the printing look, with the browser's cores, threads and WebGPU.",
         schema: || json!({"type": "object", "properties": {
-            "limit": {"type": "integer", "minimum": 1, "maximum": 20, "description": "Tests per page, default 5."},
+            "frames": {"type": "boolean", "description": "Also each configuration's per-frame times (large). Default false."},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 20, "description": "Tests per page, default 3."},
             "cursor": {"type": "string", "maxLength": 200, "description": "next_cursor from the answer before."}}, "additionalProperties": false}),
         kind: Kind::Read,
         offer: Offer::Everyone,
@@ -1651,10 +1652,12 @@ async fn run_scan_timings(c: Ctx<'_>, args: &Value) -> AppResult<String> {
 }
 
 async fn run_scan_speed_tests(c: Ctx<'_>, args: &Value) -> AppResult<String> {
-    let page = super::page::page(args, "scan_speed_tests", 5, 20)?;
-    let mut out = crate::scan_speed::list(&c.st.pool, &c.user.id, page.offset, page.limit).await?;
+    let frames = args.get("frames").and_then(Value::as_bool).unwrap_or(false);
+    let scope = super::page::scope("scan_speed_tests", &[if frames { "frames" } else { "" }]);
+    let page = super::page::page(args, &scope, 3, 20)?;
+    let mut out = crate::scan_speed::list(&c.st.pool, &c.user.id, page.offset, page.limit, frames).await?;
     let total = out["count"].as_u64().unwrap_or(0) as usize;
-    out["next_cursor"] = json!(page.next("scan_speed_tests", total));
+    out["next_cursor"] = json!(page.next(&scope, total));
     Ok(out.to_string())
 }
 
