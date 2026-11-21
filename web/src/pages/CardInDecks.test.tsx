@@ -64,12 +64,18 @@ describe("a card's place in your decks", () => {
 
   it("puts a deck's other lists on its line, and shows five decks until asked for all", () => {
     const use = (deck_id: string, name: string, board: DeckUse["board"] = "main"): DeckUse => ({ deck_id, name, qty: 1, board, checked: true });
+    // One of a deck's other lists: the server says whose it is and what it is called.
+    const list = (deck_id: string, parent_id: string, parent_name: string, configuration: string, board: DeckUse["board"] = "main"): DeckUse => ({
+      ...use(deck_id, `${parent_name} (${configuration})`, board), parent_id, parent_name, configuration,
+    });
     const decks = [
-      use("a", "Ahoy Mateys"), use("a2", "Ahoy Mateys (Bracket 2)"), use("a3", "Ahoy Mateys (Bracket 3)", "side"), use("as", "Ahoy Mateys (stock)"),
+      use("a", "Ahoy Mateys"), list("a2", "a", "Ahoy Mateys", "Bracket 2"), list("a3", "a", "Ahoy Mateys", "Bracket 3", "side"), list("as", "a", "Ahoy Mateys", "stock"),
       // A deck whose own name ends in a parenthesis, and its list.
-      use("b", "Berserk (custom, B3)"), use("b2", "Berserk (custom, B3) (Bracket 2)"),
-      // Only its other lists run the card: still one line. A lone name in parentheses is a deck.
-      use("e3", "Eternal Might (Bracket 3)"), use("e4", "Eternal Might (Bracket 4)"),
+      use("b", "Berserk (custom, B3)"), list("b2", "b", "Berserk (custom, B3)", "Bracket 2"),
+      // Only its other lists run the card: still one line, under the deck's name.
+      list("e3", "e", "Eternal Might", "Bracket 3"), list("e4", "e", "Eternal Might", "Bracket 4"),
+      // Only one of a deck's other lists runs it: a line of its own.
+      list("o2", "o", "Omo", "stock"),
       use("k", "Kraum & Tymna (cEDH)"),
     ];
     const groups = groupDecks(decks);
@@ -77,9 +83,10 @@ describe("a card's place in your decks", () => {
       ["Ahoy Mateys", "a", "Bracket 2|Bracket 3|stock"],
       ["Berserk (custom, B3)", "b", "Bracket 2"],
       ["Eternal Might", null, "Bracket 3|Bracket 4"],
+      ["Omo (stock)", "o2", ""],
       ["Kraum & Tymna (cEDH)", "k", ""],
     ]);
-    const html = view({ decks, combos: [], more_combos: 0 });
+    const html = view({ decks: decks.filter((d) => d.deck_id !== "o2"), combos: [], more_combos: 0 });
     expect(html).toMatch(/<a [^>]*href="\/decks\/a"[^>]*>Ahoy Mateys<\/a><span class="cp-deck-lists">Also in its lists: <a [^>]*href="\/decks\/a2"[^>]*>Bracket 2<\/a> \(main deck\), <a [^>]*href="\/decks\/a3"[^>]*>Bracket 3<\/a> \(sideboard\), /);
     expect(html).toMatch(/<span class="cp-deck-name">Eternal Might<\/span><span class="cp-deck-lists">In its lists: <a [^>]*href="\/decks\/e3"[^>]*>Bracket 3<\/a>, <a [^>]*href="\/decks\/e4"[^>]*>Bracket 4<\/a><\/span>/);
     // Four decks: no button. Seven: five, and the rest behind "Show all 7 decks".
@@ -90,14 +97,20 @@ describe("a card's place in your decks", () => {
     expect(many).not.toContain("Deck F");
   });
 
-  it("keeps two decks of one name apart", () => {
+  it("keeps decks apart whatever their names look like", () => {
     const use = (deck_id: string, name: string): DeckUse => ({ deck_id, name, qty: 1, board: "main", checked: true });
     // Two decks both called "Elves", one with a list; the list arrives before its deck.
-    const groups = groupDecks([use("e1s", "Elves (stock)"), use("e1", "Elves"), use("e2", "Elves"), use("x", "Other")]);
+    const stock: DeckUse = { ...use("e1s", "Elves (stock)"), parent_id: "e1", parent_name: "Elves", configuration: "stock" };
+    const groups = groupDecks([stock, use("e1", "Elves"), use("e2", "Elves"), use("x", "Other")]);
     expect(groups.map((g) => [g.name, g.main?.deck_id ?? null, g.lists.map((l) => l.use.deck_id).join("|")])).toEqual([
       ["Elves", "e1", "e1s"],
       ["Elves", "e2", ""],
       ["Other", "x", ""],
+    ]);
+    // Unrelated decks whose names share a start and end in a parenthesis are not one deck's lists.
+    expect(groupDecks([use("p", "Atraxa (Poison)"), use("c", "Atraxa (Counters)")]).map((g) => [g.name, g.main?.deck_id, g.lists.length])).toEqual([
+      ["Atraxa (Poison)", "p", 0],
+      ["Atraxa (Counters)", "c", 0],
     ]);
     const html = view({ decks: [use("e1", "Elves"), use("e2", "Elves")], combos: [], more_combos: 0 });
     expect(html).toMatch(/href="\/decks\/e1"[^>]*>Elves</);

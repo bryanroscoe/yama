@@ -442,3 +442,21 @@ async fn a_proxy_is_kept_with_the_deck_even_without_a_printing() {
     let (_, deck) = send(&app, Method::GET, &format!("/api/decks/{id}"), Some(&token), None).await;
     assert_ne!(deck["cards"][0]["printing"]["from"], "chosen");
 }
+
+/// Only plain Partner pairs with any other partner: the import page guesses a second commander
+/// from it, so the named kinds must not count.
+#[test]
+fn plain_partner_is_the_keyword_alone() {
+    use super::plain_partner;
+    assert!(plain_partner("Partner (You can have two commanders if both have partner.)\n{T}: Draw a card."));
+    assert!(plain_partner("Flying\nPartner"));
+    for other in [
+        "Partner with Pir, Imaginative Rascal (When this creature enters, target player may put Pir into their hand from their library, then shuffle.)",
+        "Partner—Friends forever (You can have two commanders if both have friends forever.)",
+        "Choose a Background (You can have a Background as a second commander.)",
+        "Commander creatures you own have \"partner\" in their rules text.",
+        "",
+    ] {
+        assert!(!plain_partner(other), "{other}");
+    }
+}

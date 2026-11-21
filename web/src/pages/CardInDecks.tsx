@@ -10,6 +10,10 @@ export interface DeckUse {
   deck_id: string;
   /** The deck's name; a configuration's already says which ("Omo (stock)"). */
   name: string;
+  /** For one of a deck's other lists: the deck it belongs to, that deck's name, and this list's label ("stock"). */
+  parent_id?: string | null;
+  parent_name?: string | null;
+  configuration?: string | null;
   /** Copies in the list, over every board. */
   qty: number;
   board: "commander" | "main" | "side";
@@ -60,45 +64,29 @@ export interface DeckGroup {
 }
 
 /**
- * The decks with each deck's lists gathered under it, in the order given. The answer names a
- * list "Deck (label)" and doesn't say which deck it belongs to, so the name decides: a list goes
- * under the deck of that name when it is here too; when it isn't (only its other lists run the
- * card), two or more names that differ only in their last parenthesis are one deck's lists. A lone
- * "Kraum & Tymna (cEDH)" stays a deck of its own. Two decks may share a name: each keeps its own
- * line (a deck is its id, not its name), and lists of that name go under the first.
+ * The decks with each deck's lists gathered under it, in the order given. A list says which deck
+ * it belongs to (`parent_id`), so nothing is read from what names look like: two decks called
+ * "Atraxa (Poison)" and "Atraxa (Counters)" are two decks. When only one of a deck's other lists
+ * runs the card, and the deck itself doesn't, that list is a line of its own under its full name.
  */
 export function groupDecks(decks: DeckUse[]): DeckGroup[] {
-  const names = new Set(decks.map((d) => d.name));
-  const split = (name: string): { base: string; label: string; known: boolean } | null => {
-    let base: string | null = null;
-    for (const n of names) if (n !== name && name.endsWith(")") && name.startsWith(`${n} (`) && (!base || n.length > base.length)) base = n;
-    if (base) return { base, label: name.slice(base.length + 2, -1), known: true };
-    const m = /^(.+) \(([^()]+)\)$/.exec(name);
-    return m ? { base: m[1]!, label: m[2]!, known: false } : null;
-  };
-  const parts = decks.map((d) => split(d.name));
-  const guessed = new Map<string, number>();
-  for (const p of parts) if (p && !p.known) guessed.set(p.base, (guessed.get(p.base) ?? 0) + 1);
   const groups: DeckGroup[] = [];
-  // The first line of each name: where that name's lists go.
-  const named = new Map<string, DeckGroup>();
-  const add = (name: string, main: DeckUse | null) => {
-    const g: DeckGroup = { name, main, lists: [] };
-    groups.push(g);
-    if (!named.has(name)) named.set(name, g);
-    return g;
-  };
-  decks.forEach((d, i) => {
-    const p = parts[i];
-    if (p && (p.known || guessed.get(p.base)! > 1)) (named.get(p.base) ?? add(p.base, null)).lists.push({ label: p.label, use: d });
-    else {
-      // A line a list of this name started is waiting for its deck; any other deck is its own line.
-      const waiting = named.get(d.name);
-      if (waiting && !waiting.main) waiting.main = d;
-      else add(d.name, d);
+  const byDeck = new Map<string, DeckGroup>();
+  for (const d of decks) {
+    const root = d.parent_id ?? d.deck_id;
+    let g = byDeck.get(root);
+    if (!g) {
+      g = { name: d.parent_id ? (d.parent_name ?? d.name) : d.name, main: null, lists: [] };
+      byDeck.set(root, g);
+      groups.push(g);
     }
-  });
-  return groups;
+    if (d.parent_id) g.lists.push({ label: d.configuration?.trim() || d.name, use: d });
+    else {
+      g.main = d;
+      g.name = d.name;
+    }
+  }
+  return groups.map((g) => (!g.main && g.lists.length === 1 ? { name: g.lists[0]!.use.name, main: g.lists[0]!.use, lists: [] } : g));
 }
 
 /** Decks listed before "Show all": a staple is in every deck, and the price and printings sit below. */

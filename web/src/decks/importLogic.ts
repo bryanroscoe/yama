@@ -19,6 +19,8 @@ export interface ImportCardInfo {
   /** A basic land, or a card a deck may run any number of. */
   any_number: boolean;
   partner: boolean;
+  /** Plain Partner, which pairs with any other card that has it (not "Partner with", a Background or a named kind). */
+  partner_any?: boolean;
 }
 
 export interface ImportCard extends ImportCardInfo {
@@ -78,17 +80,19 @@ function leaderName(cards: ImportCard[]): string {
 
 /**
  * The server guesses one commander for a list with no Commander heading: its first card. When
- * that card has Partner and the next line is another single card that has it too, the list
- * opens with a pair, so both lead (still a guess the person can change).
+ * that card has plain Partner and the next line is another single card that has it too, the list
+ * opens with a pair, so both lead (still a guess the person can change). Only plain Partner:
+ * "Partner with" a named card, a Background and the named kinds pair only with their own, and
+ * the page can't tell which goes with which.
  */
 function withGuessedPartner(d: PreviewDeck): ImportCard[] {
   if (d.commander_marked || !d.commander_guessed) return d.cards;
   const leaders = d.cards.filter((c) => c.board === "commander");
   const first = leaders[0];
-  if (leaders.length !== 1 || !first?.partner) return d.cards;
+  if (leaders.length !== 1 || !first?.partner_any) return d.cards;
   const at = d.cards.indexOf(first) + 1;
   const next = d.cards[at];
-  if (!next || next.board !== "main" || next.maybe || next.qty !== 1 || !next.can_be_commander || !next.partner) return d.cards;
+  if (!next || next.board !== "main" || next.maybe || next.qty !== 1 || !next.can_be_commander || !next.partner_any) return d.cards;
   return d.cards.map((c, i) => (i === at ? { ...c, board: "commander" as Board } : c));
 }
 

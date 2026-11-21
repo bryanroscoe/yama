@@ -233,8 +233,8 @@ describe("fixes kept while the list is read again", () => {
 });
 
 describe("two partners at the top of a list with no heading", () => {
-  const thrasios = info("o-thrasios", "Thrasios, Triton Hero", "UG", { can_be_commander: true, partner: true, type_line: "Legendary Creature" });
-  const tymna = info("o-tymna", "Tymna the Weaver", "WB", { can_be_commander: true, partner: true, type_line: "Legendary Creature" });
+  const thrasios = info("o-thrasios", "Thrasios, Triton Hero", "UG", { can_be_commander: true, partner: true, partner_any: true, type_line: "Legendary Creature" });
+  const tymna = info("o-tymna", "Tymna the Weaver", "WB", { can_be_commander: true, partner: true, partner_any: true, type_line: "Legendary Creature" });
   const leaders = (d: PreviewDeck) => draftFrom(d).cards.filter((c) => c.board === "commander").map((c) => c.name);
 
   it("both lead, as a guess, and name the deck", () => {
@@ -250,6 +250,15 @@ describe("two partners at the top of a list with no heading", () => {
     expect(leaders(deck([card(atraxa, 1, "commander"), card(tymna), card(sol)], { commander_guessed: true }))).toEqual(["Atraxa, Praetors' Voice"]);
     expect(leaders(deck([card(thrasios, 1, "commander"), card(tymna), card(sol)], { commander_marked: true }))).toEqual(["Thrasios, Triton Hero"]);
     expect(leaders(deck([card(thrasios, 1, "commander"), card(tymna, 1, "side"), card(sol)], { commander_guessed: true }))).toEqual(["Thrasios, Triton Hero"]);
+  });
+
+  it("not for a Background or a card that partners with a named one: they pair only with their own", () => {
+    // Both carry the server's broad `partner` flag; neither has plain Partner.
+    const background = info("o-bg", "Raised by Giants", "G", { can_be_commander: true, partner: true, type_line: "Legendary Enchantment — Background" });
+    const pir = info("o-pir", "Pir, Imaginative Rascal", "G", { can_be_commander: true, partner: true, type_line: "Legendary Creature" });
+    expect(leaders(deck([card(thrasios, 1, "commander"), card(background), card(sol)], { commander_guessed: true }))).toEqual(["Thrasios, Triton Hero"]);
+    expect(leaders(deck([card(thrasios, 1, "commander"), card(pir), card(sol)], { commander_guessed: true }))).toEqual(["Thrasios, Triton Hero"]);
+    expect(leaders(deck([card(pir, 1, "commander"), card(tymna), card(sol)], { commander_guessed: true }))).toEqual(["Pir, Imaginative Rascal"]);
   });
 });
 
