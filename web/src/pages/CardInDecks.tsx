@@ -109,11 +109,12 @@ export function CardInDecks({ oracleId }: { oracleId: string }) {
 
 export function CardInDecksView({ data }: { data: CardInDecksData }) {
   const { decks, combos } = data;
+  // Before the early return: the card can come into a deck, or leave its last one, while the page is open.
+  const [all, setAll] = useState(false);
   if (decks.length === 0) return null;
   // A deck with no answer from Spellbook yet shows no combos: say so, so it doesn't read as "none".
   const unchecked = decks.filter((d) => !d.checked);
   const groups = groupDecks(decks);
-  const [all, setAll] = useState(false);
   return (
     <section className="cp-decks" aria-label="In your decks">
       <h2>In your decks</h2>
