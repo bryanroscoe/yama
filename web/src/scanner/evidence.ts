@@ -250,6 +250,22 @@ export class Evidence {
     return this.tallies.filter((t) => t !== lead && (t.e.unknownLine || (t.e.set === lead.e.set && t.e.base === lead.e.base)));
   }
 
+  /**
+   * Whether what has been read so far points to a printing other than `id` (settling by look, which
+   * never settles against it; look.ts `lookSettles`): another printing's set code or number read
+   * exactly as printed where `id`'s differs, or the evidence settled on another. Lookalike-only
+   * reads point nowhere. Nothing read, nothing pointed to.
+   */
+  pointsAway(id: string): boolean {
+    if (this.frames === 0) return false;
+    const me = this.tallies.find((t) => t.e.id === id);
+    // Read against other printings than these: it can't vouch for this one.
+    if (!me) return true;
+    const v = this.verdict();
+    if (v.kind === "settled" && v.id !== id) return true;
+    return this.tallies.some((t) => t !== me && ((t.exactSet && t.e.set !== me.e.set) || (t.exactNumber && t.e.number !== me.e.number)));
+  }
+
   verdict(): Verdict {
     const ranked = [...this.tallies].sort((a, b) => b.total - a.total);
     const lead = ranked[0];

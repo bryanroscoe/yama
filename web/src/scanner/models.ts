@@ -35,6 +35,11 @@ export interface ModelOption {
   /** Where its file is served, when it has one (immutable; the art worker caches it by URL). */
   file?: string | null;
   bytes?: number | null;
+  /**
+   * A look option that also settles the printing by itself when it's sure (look.ts,
+   * `lookSettles`). The server lists one only to builds that run the rule (`?can=settle`).
+   */
+  settles?: boolean;
 }
 
 export interface SlotInfo {

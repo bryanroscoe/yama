@@ -119,6 +119,23 @@ describe("the printing look, beside the art worker", () => {
     expect(lookWorker.terminated).toBe(true);
   });
 
+  it("switches between options on one model file (v1, and v1 that settles when sure) without loading it again", async () => {
+    const art = (await loadArtRecognizer(undefined, { info }))!;
+    const v1 = { id: "look-v1", label: "Yama's look model v1", note: "", file: `/scan-bundle/${V}/look-152f52c100f0.onnx`, bytes: 9_292_149 };
+    const sure = { ...v1, id: "look-v1-sure", label: "Yama's look model v1, settles when sure", settles: true };
+    await art.useLook(v1);
+    await art.useLook(sure);
+    expect(art.look).toBe("look-v1-sure");
+    const lookWorker = workers[1]!;
+    expect(lookWorker.asked.filter((m) => m.type === "model")).toHaveLength(1);
+    expect(lookWorker.terminated).toBe(false);
+    // Another file is loaded as before.
+    await art.useLook(lookV0);
+    expect(art.look).toBe("look-v0");
+    expect(lookWorker.asked.filter((m) => m.type === "model")).toHaveLength(2);
+    art.dispose();
+  });
+
   it("ends the look's worker when its model won't load, and keeps no frames for it", async () => {
     const art = (await loadArtRecognizer(undefined, { info }))!;
     failModel = true;

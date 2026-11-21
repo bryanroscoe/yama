@@ -121,6 +121,10 @@ pub(crate) struct ModelOption {
     /// web build from before it can't run (an Android app can run last deploy's build for a session).
     /// Never a default, and never served as `files.embed`.
     pub needs: Option<&'static str>,
+    /// A look option that also settles the printing by itself when it's sure (look.ts,
+    /// `lookSettles`: every printing scored, the closest `LOOK_SETTLE_LEAD` ahead of the next, and
+    /// nothing the collector line read pointing to another). Sent to the app as `settles`.
+    pub settles: bool,
 }
 
 const RECOGNISER_20261026: &str = "eb6558461672b30c8b699570cc1669c4baa1a31d5fd28d617800e8a1f4d2e2c3";
@@ -137,6 +141,7 @@ const BUNDLE_ART: ModelOption = ModelOption {
     default: false,
     base: true,
     needs: None,
+    settles: false,
 };
 
 /// Yama's own query embedder (docs/scanner.md, "Yama's query embedder", 18 Nov 2026): the bundle's
@@ -164,6 +169,7 @@ pub(crate) const QUERY_MODEL: ModelOption = ModelOption {
     default: true,
     base: false,
     needs: None,
+    settles: false,
 };
 
 /// The same weights as QUERY_MODEL, with an extra `cuts` input (int64) naming the frame cuts to embed;
@@ -189,6 +195,7 @@ pub(crate) const QUERY_CASCADE: ModelOption = ModelOption {
     default: false,
     base: false,
     needs: Some("cuts"),
+    settles: false,
 };
 
 /// The bundle's own `detector.onnx` (ManaVault, MPL-2.0): four turned views of each window a look.
@@ -203,6 +210,7 @@ const BUNDLE_DETECTOR: ModelOption = ModelOption {
     default: true,
     base: true,
     needs: None,
+    settles: false,
 };
 
 /// Yama's own card finder (docs/scanner.md, "Speed"; scanner-lab/corners_*.py): torchvision's
@@ -227,6 +235,7 @@ pub(crate) const CORNERS_MODEL: ModelOption = ModelOption {
     default: false,
     base: false,
     needs: None,
+    settles: false,
 };
 
 const LOOK_OFF: ModelOption = ModelOption {
@@ -240,6 +249,7 @@ const LOOK_OFF: ModelOption = ModelOption {
     default: false,
     base: true,
     needs: None,
+    settles: false,
 };
 
 /// Yama's printing look models (docs/scanner.md, "The printing look", 20 Nov 2026): compare the
@@ -248,8 +258,9 @@ const LOOK_OFF: ModelOption = ModelOption {
 /// (`scene`, `quad`), outputs `symbol` and `card` (1 × 128, L2-normalised); they warp the card
 /// themselves. Trained by Yama from torchvision's ImageNet MobileNetV3-Small weights
 /// (BSD-3-Clause); release assets of this repository. They only order the list: they never file
-/// a printing. v0, the first; v1 (the default) has a set-symbol network trained on the graph's own
-/// crops over all 78,063 English paper printings that share an artwork, and v0's whole-card one.
+/// a printing (`LOOK_V1_SURE` below, an option, does when it's sure). v0, the first; v1 (the
+/// default) has a set-symbol network trained on the graph's own crops over all 78,063 English
+/// paper printings that share an artwork, and v0's whole-card one.
 const LOOK_V0: ModelOption = ModelOption {
     slot: Slot::Look,
     id: "look-v0",
@@ -266,6 +277,7 @@ const LOOK_V0: ModelOption = ModelOption {
     default: false,
     base: false,
     needs: None,
+    settles: false,
 };
 
 const LOOK_V1: ModelOption = ModelOption {
@@ -284,6 +296,30 @@ const LOOK_V1: ModelOption = ModelOption {
     default: true,
     base: false,
     needs: None,
+    settles: false,
+};
+
+/// v1 that also settles the printing by itself when it's sure (docs/scanner.md, "Settling by
+/// look", 20 Nov 2026): once it has scored every printing that shares the art and the closest
+/// leads the next by 0.10 or more, the app settles that printing as the collector line would
+/// (look.ts, `lookSettles`), unless the collector line has read something pointing to another
+/// printing. v1's own pinned file, so nothing more to download and the same embedding cache. Not
+/// the default: on one tester's 98 real sleeved photos (640 px) that lead settled 45 alone, none
+/// wrong, which still allows about one in 15 wrong. Listed only to apps that run the rule
+/// (`can=settle`): an older build would run it as plain v1 and record it as this. Withdrawing
+/// `look-v1` doesn't withdraw this (the same weights): withdraw both if the weights are at fault.
+const LOOK_V1_SURE: ModelOption = ModelOption {
+    slot: Slot::Look,
+    id: "look-v1-sure",
+    label: "Yama's look model v1, settles when sure",
+    note: "v1, and when the closest printing is well ahead of the next it settles that printing by itself, with Wrong printing to change it: on real sleeved photos it settled 45 of 98 alone with none wrong. Otherwise it lists the closest first, as v1 does.",
+    licence: LOOK_V1.licence,
+    source: LOOK_V1.source,
+    recogniser: None,
+    default: false,
+    base: false,
+    needs: Some("settle"),
+    settles: true,
 };
 
 const TEXT_AUTO: ModelOption = ModelOption {
@@ -297,6 +333,7 @@ const TEXT_AUTO: ModelOption = ModelOption {
     default: true,
     base: true,
     needs: None,
+    settles: false,
 };
 
 const TEXT_MLKIT: ModelOption = ModelOption {
@@ -310,6 +347,7 @@ const TEXT_MLKIT: ModelOption = ModelOption {
     default: false,
     base: false,
     needs: None,
+    settles: false,
 };
 
 const TEXT_PADDLE: ModelOption = ModelOption {
@@ -323,6 +361,7 @@ const TEXT_PADDLE: ModelOption = ModelOption {
     default: false,
     base: false,
     needs: None,
+    settles: false,
 };
 
 const TEXT_TESSERACT: ModelOption = ModelOption {
@@ -336,6 +375,7 @@ const TEXT_TESSERACT: ModelOption = ModelOption {
     default: false,
     base: false,
     needs: None,
+    settles: false,
 };
 
 /// The lead rule (fuse.ts, `leads`; 18 Nov 2026, PR #166).
@@ -350,6 +390,7 @@ const LOCK_LEAD: ModelOption = ModelOption {
     default: true,
     base: false,
     needs: None,
+    settles: false,
 };
 
 /// The rule before the lead rule: sure scores only.
@@ -364,10 +405,11 @@ const LOCK_SURE: ModelOption = ModelOption {
     default: false,
     base: true,
     needs: None,
+    settles: false,
 };
 
 /// Every option the server knows, by slot. The app is offered those on offer (`offered`).
-pub(crate) const MODELS: &[&ModelOption] = &[&BUNDLE_DETECTOR, &CORNERS_MODEL, &BUNDLE_ART, &QUERY_MODEL, &QUERY_CASCADE, &LOOK_OFF, &LOOK_V0, &LOOK_V1, &TEXT_AUTO, &TEXT_MLKIT, &TEXT_PADDLE, &TEXT_TESSERACT, &LOCK_LEAD, &LOCK_SURE];
+pub(crate) const MODELS: &[&ModelOption] = &[&BUNDLE_DETECTOR, &CORNERS_MODEL, &BUNDLE_ART, &QUERY_MODEL, &QUERY_CASCADE, &LOOK_OFF, &LOOK_V0, &LOOK_V1, &LOOK_V1_SURE, &TEXT_AUTO, &TEXT_MLKIT, &TEXT_PADDLE, &TEXT_TESSERACT, &LOCK_LEAD, &LOCK_SURE];
 
 impl ModelOption {
     /// Its file in the bundle's folder, if it has one. A file of ours is never `embed.onnx`, which
@@ -633,9 +675,21 @@ pub async fn ensure_models(data_dir: PathBuf, http: reqwest::Client, off: Withdr
 }
 
 /// The options whose files `ensure_models` fetches for the bundle this manifest describes: ours,
-/// not withdrawn, and fitting its gallery.
+/// not withdrawn, and fitting its gallery; one per file (`look-v1-sure` runs v1's), so a file is
+/// never downloaded twice at once into the same `.part`.
 fn wanted(off: &Withdrawn, manifest: &serde_json::Value) -> Vec<&'static ModelOption> {
-    MODELS.iter().copied().filter(|o| matches!(o.source, Source::File { .. }) && !off.has(o) && o.fits(manifest)).collect()
+    let mut files: Vec<String> = Vec::new();
+    MODELS
+        .iter()
+        .copied()
+        .filter(|o| matches!(o.source, Source::File { .. }) && !off.has(o) && o.fits(manifest))
+        .filter(|o| {
+            let file = o.file().unwrap_or_default();
+            let first = !files.contains(&file);
+            files.push(file);
+            first
+        })
+        .collect()
 }
 
 /// Fetch one pinned file into `dir` as `file`, then tidy the folder (`remove_unpinned`).
@@ -850,6 +904,9 @@ struct OptionInfo {
     /// Where the app fetches its file (immutable), when it has one.
     file: Option<String>,
     bytes: Option<u64>,
+    /// A look option that settles the printing when it's sure (`ModelOption::settles`); left out when not.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    settles: bool,
 }
 
 #[derive(Serialize)]
@@ -873,7 +930,8 @@ struct BundleFiles {
 
 #[derive(Deserialize, Default)]
 struct BundleQuery {
-    /// What the app can run, comma-separated: `cuts`, an art model's `cuts` input (recognizer.ts).
+    /// What the app can run, comma-separated: `cuts`, an art model's `cuts` input (recognizer.ts);
+    /// `settle`, a look option that settles when sure (look.ts, `lookSettles`).
     can: Option<String>,
 }
 
@@ -906,7 +964,7 @@ async fn bundle_info(State(st): State<AppState>, _user: CurrentUser, Query(q): Q
             let options = listed
                 .iter()
                 .filter(|o| o.slot == slot)
-                .map(|o| OptionInfo { id: o.id, label: o.label, note: o.note, licence: o.licence, file: o.file().map(|f| url(&f)), bytes: o.bytes() })
+                .map(|o| OptionInfo { id: o.id, label: o.label, note: o.note, licence: o.licence, file: o.file().map(|f| url(&f)), bytes: o.bytes(), settles: o.settles })
                 .collect();
             (slot.key(), SlotInfo { default: default_of(slot, &listed).map(|o| o.id), options })
         })
@@ -1093,6 +1151,11 @@ mod tests {
         QUERY_MODEL.bytes().unwrap()
     }
 
+    /// An option marked to settle that isn't a look option, or that an app from before the rule would be offered.
+    fn o_settles_wrongly(o: &ModelOption) -> bool {
+        o.settles && (o.slot != Slot::Look || o.needs != Some("settle") || o.default || o.base)
+    }
+
     #[test]
     fn every_slot_has_one_base_at_most_one_default_and_pinned_files() {
         let mut ids = std::collections::HashSet::new();
@@ -1114,8 +1177,19 @@ mod tests {
             // Some apps can't run it, so it can't be what a slot runs by default.
             assert!(o.needs.is_none() || !(o.default || o.base), "{} needs {:?} and is a default", o.id, o.needs);
         }
-        let files = pinned_files();
-        assert_eq!(files.len(), files.iter().collect::<std::collections::HashSet<_>>().len(), "two options share a file");
+        // Two options share a file only as the same pin (look-v1-sure runs look-v1's), never two
+        // pins under one name.
+        for a in MODELS {
+            for b in MODELS {
+                if let (Source::File { url: ua, bytes: ba, sha256: sa, .. }, Source::File { url: ub, bytes: bb, sha256: sb, .. }) = (&a.source, &b.source) {
+                    if a.file() == b.file() {
+                        assert!(ua == ub && ba == bb && sa == sb && a.slot == b.slot, "{} and {} share a file name but not a pin", a.id, b.id);
+                    }
+                }
+            }
+            // Only a look option settles a printing, and only for apps that run the rule.
+            assert!(!o_settles_wrongly(a), "{} settles but isn't a look option listed to apps that can", a.id);
+        }
         // What stands in for a default is another option of the same slot, and the chain ends.
         for (from, to) in STANDS_IN {
             let (a, b) = (MODELS.iter().find(|o| o.id == *from).unwrap(), MODELS.iter().find(|o| o.id == *to).unwrap());
@@ -1343,6 +1417,63 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_look_that_settles_when_sure_shares_v1s_file_and_is_an_option_never_the_default() {
+        let data = tempfile::tempdir().unwrap();
+        let dir = ready_bundle(data.path(), RECOGNISER);
+        let pool = crate::db::test_pool().await;
+        let (_, token) = testutil::user(&pool, "sure@example.com").await;
+        let app_with = |withdrawn: &[&str]| {
+            let pool = pool.clone();
+            let mut cfg = testutil::config();
+            cfg.data_dir = data.path().to_path_buf();
+            cfg.offline = true;
+            cfg.scan_withdrawn = withdrawn.iter().map(|s| s.to_string()).collect();
+            async move { crate::routes::app(testutil::state_with(cfg, pool).await) }
+        };
+        let ids = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        // v1's own file: nothing more to download, and the app's embedding cache is the same.
+        assert_eq!(LOOK_V1_SURE.file(), LOOK_V1.file());
+        assert_eq!(LOOK_V1_SURE.bytes(), LOOK_V1.bytes());
+        assert!(LOOK_V1_SURE.settles && !LOOK_V1.settles && !LOOK_V1_SURE.default && !LOOK_V1_SURE.base);
+        let app = app_with(&[]).await;
+        // Not downloaded yet: not on offer, like v1.
+        let (_, info) = testutil::send(&app, Method::GET, "/api/scan/bundle?can=cuts,settle", Some(&token), None).await;
+        assert_eq!(slot(&info, "look"), (ids(&["off"]), "off".into()));
+        for o in [&LOOK_V0, &LOOK_V1] {
+            std::fs::write(dir.join(o.file().unwrap()), vec![3u8; o.bytes().unwrap() as usize]).unwrap();
+        }
+        // An app from before the rule isn't offered it (it would run it as plain v1).
+        let (_, info) = testutil::send(&app, Method::GET, "/api/scan/bundle?can=cuts", Some(&token), None).await;
+        assert_eq!(slot(&info, "look"), (ids(&["off", "look-v0", "look-v1"]), "look-v1".into()));
+        assert!(info["models"]["look"]["options"].as_array().unwrap().iter().all(|o| o.get("settles").is_none()));
+        // One that runs it: listed after v1, with v1's file, marked to settle; v1 stays the default.
+        let (_, info) = testutil::send(&app, Method::GET, "/api/scan/bundle?can=cuts,settle", Some(&token), None).await;
+        assert_eq!(slot(&info, "look"), (ids(&["off", "look-v0", "look-v1", "look-v1-sure"]), "look-v1".into()));
+        let sure = &info["models"]["look"]["options"][3];
+        assert_eq!(sure["file"], info["models"]["look"]["options"][2]["file"]);
+        assert_eq!(sure["file"], format!("/scan-bundle/{BUNDLE_VERSION}/look-152f52c100f0.onnx").as_str());
+        assert_eq!(sure["bytes"], 9_292_149);
+        assert_eq!(sure["settles"], true);
+        assert_eq!(sure["label"], "Yama's look model v1, settles when sure");
+        assert!(sure["note"].as_str().unwrap().contains("45 of 98"));
+        assert!(info["models"]["look"]["options"][2].get("settles").is_none());
+        // Withdrawn like any option, by its id alone: v1 stays.
+        let no_sure = app_with(&["look-v1-sure"]).await;
+        let (_, info) = testutil::send(&no_sure, Method::GET, "/api/scan/bundle?can=settle", Some(&token), None).await;
+        assert_eq!(slot(&info, "look"), (ids(&["off", "look-v0", "look-v1"]), "look-v1".into()));
+        // Withdrawing v1 alone leaves it (the default falls back to v0); both, and only v0 is left.
+        let no_v1 = app_with(&["look-v1"]).await;
+        let (_, info) = testutil::send(&no_v1, Method::GET, "/api/scan/bundle?can=settle", Some(&token), None).await;
+        assert_eq!(slot(&info, "look"), (ids(&["off", "look-v0", "look-v1-sure"]), "look-v0".into()));
+        let neither = app_with(&["look-v1", "look-v1-sure"]).await;
+        let (_, info) = testutil::send(&neither, Method::GET, "/api/scan/bundle?can=settle", Some(&token), None).await;
+        assert_eq!(slot(&info, "look"), (ids(&["off", "look-v0"]), "look-v0".into()));
+        // Recorded by its own id.
+        let kept = recorded_models(Some(&serde_json::json!({"look": "look-v1-sure"}))).unwrap();
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&kept).unwrap(), serde_json::json!({"look": "look-v1-sure"}));
+    }
+
+    #[tokio::test]
     async fn a_phone_that_ran_the_cascade_is_recorded_with_it() {
         let said = |file: &str| format!("{BUNDLE_VERSION}/{file}");
         let cfg = testutil::config();
@@ -1357,9 +1488,15 @@ mod tests {
         let fits = serde_json::json!({"recogniser": {"sha256": RECOGNISER}, "constants": {"det_input": 256, "rotations": 4}});
         let other = serde_json::json!({"recogniser": {"sha256": "0".repeat(64)}, "constants": {"det_input": 256, "rotations": 4}});
         let ids = |v: Vec<&'static ModelOption>| v.iter().map(|o| o.id).collect::<Vec<_>>();
-        let all: Vec<&str> = MODELS.iter().filter(|o| matches!(o.source, Source::File { .. })).map(|o| o.id).collect();
-        assert!(all.contains(&QUERY_MODEL.id));
+        // One option per file: look-v1-sure runs look-v1's, downloaded once.
+        let all: Vec<&str> = MODELS.iter().filter(|o| matches!(o.source, Source::File { .. }) && o.id != LOOK_V1_SURE.id).map(|o| o.id).collect();
+        assert!(all.contains(&QUERY_MODEL.id) && all.contains(&LOOK_V1.id));
         assert_eq!(ids(wanted(&Withdrawn::default(), &fits)), all);
+        // With v1 withdrawn, the option that settles still has its file fetched (by its own id).
+        let mut v1_off = testutil::config();
+        v1_off.scan_withdrawn = vec![LOOK_V1.id.into()];
+        let got = ids(wanted(&Withdrawn::of(&v1_off), &fits));
+        assert!(got.contains(&LOOK_V1_SURE.id) && !got.contains(&LOOK_V1.id), "{got:?}");
         // A bundle from another checkpoint: no art model of ours (anything else of ours still).
         assert!(!ids(wanted(&Withdrawn::default(), &other)).contains(&QUERY_MODEL.id));
         let mut cfg = testutil::config();

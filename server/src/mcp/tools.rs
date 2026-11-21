@@ -1512,7 +1512,7 @@ pub(super) const TOOLS: &[Tool] = &[
         name: "get_scan_timings",
         aliases: &[],
         title: "How fast your scans settle",
-        description: "How fast scans settle: Scanner diagnostics' timing records, one per card settled. Median and p90 time to name a card, the share named by each rule, how printings were settled and how long that took, by art model and mode; then the records.",
+        description: "How fast scans settle: Scanner diagnostics' timing records, one per card. Median and p90 time to name a card, the share named by each rule, how printings were settled and in how long, by art model, look option and mode; then the records.",
         schema: || json!({"type": "object", "properties": {
             "since": {"type": "string", "maxLength": 40, "description": "Only records from this date or moment (2026-11-20)."},
             "model": {"type": "string", "maxLength": 200, "description": "Only records from this art model, as the answer's art_models list names it."},

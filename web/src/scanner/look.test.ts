@@ -1,7 +1,7 @@
 // The printing look (look.ts): its score, the card's side averaged over frames, the list's order,
 // its best guess, and comparing printings a few at a time.
 import { describe, expect, it } from "vitest";
-import { cornersOf, leadingCard, lookBest, lookCandidates, LookFrames, lookOrder, lookScore, lookTops, meanEmbedding, packLook, scoreCandidates, unpackLook, withoutMisread, type LookEmbedding } from "./look";
+import { cornersOf, leadingCard, LOOK_SETTLE_LEAD, lookBest, lookCandidates, LookFrames, lookLead, lookOrder, lookScore, lookSettles, lookTops, meanEmbedding, packLook, scoreCandidates, unpackLook, withoutMisread, type LookEmbedding } from "./look";
 
 const v = (...xs: number[]) => Float32Array.from(xs);
 const emb = (symbol: number[], card: number[]): LookEmbedding => ({ symbol: v(...symbol), card: v(...card) });
@@ -71,6 +71,35 @@ describe("the printing list in look order", () => {
       { id: "b", url: "https://cards.scryfall.io/normal/front/b.jpg" },
     ]);
     expect(lookCandidates(printings, true)).toEqual([{ id: "a", url: "https://cards.scryfall.io/normal/back/a.jpg" }]);
+  });
+});
+
+describe("settling by look (the option that settles when sure)", () => {
+  const options = ["a", "b", "c"].map(p);
+  const nothingRead = () => false;
+  it("settles at a lead of 0.10 over the next printing, the lab's rule", () => {
+    expect(LOOK_SETTLE_LEAD).toBe(0.1);
+    expect(lookSettles(options, { a: 0.62, b: 0.91, c: 0.4 }, nothingRead)).toEqual({ settled: true, id: "b", lead: expect.closeTo(0.29, 9) });
+    expect(lookSettles(options, { a: 0.8, b: 0.69, c: 0.1 }, nothingRead)).toMatchObject({ settled: true, id: "a" });
+    // 0.08 settled one wrong of 54 in the lab: not enough.
+    expect(lookSettles(options, { a: 0.8, b: 0.72, c: 0.1 }, nothingRead)).toEqual({ settled: false, why: "lead", lead: expect.closeTo(0.08, 9) });
+  });
+  it("leaves strict visual twins to the collector line: a tiny lead never settles", () => {
+    expect(lookSettles(options, { a: 0.931, b: 0.927, c: 0.2 }, nothingRead)).toMatchObject({ settled: false, why: "lead" });
+  });
+  it("settles only once every printing in the list is scored: one whose picture couldn't be had means no settle", () => {
+    expect(lookSettles(options, { a: 0.95, b: 0.2 }, nothingRead)).toEqual({ settled: false, why: "unscored", lead: null });
+    expect(lookSettles(options, { a: 0.95, b: 0.2, c: Number.NaN }, nothingRead)).toMatchObject({ settled: false, why: "unscored" });
+    expect(lookSettles(options, undefined, nothingRead)).toMatchObject({ settled: false, why: "unscored" });
+    expect(lookSettles([p("a")], { a: 0.95 }, nothingRead)).toMatchObject({ settled: false, why: "unscored" });
+    expect(lookLead(options, { a: 0.95, b: 0.2, c: 0.1 })).toEqual({ id: "a", lead: expect.closeTo(0.75, 9) });
+  });
+  it("never settles against a collector-line read pointing to another printing, and asks only about its own pick", () => {
+    const asked: string[] = [];
+    const readOther = (id: string) => (asked.push(id), id !== "c");
+    expect(lookSettles(options, { a: 0.95, b: 0.3, c: 0.1 }, readOther)).toEqual({ settled: false, why: "read-other", lead: expect.closeTo(0.65, 9) });
+    expect(lookSettles(options, { a: 0.1, b: 0.3, c: 0.95 }, readOther)).toMatchObject({ settled: true, id: "c" });
+    expect(asked).toEqual(["a", "c"]);
   });
 });
 

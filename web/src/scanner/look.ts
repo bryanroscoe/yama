@@ -1,8 +1,9 @@
 // The printing look (docs/scanner.md, "The printing look", 20 Nov 2026): most collection scans need
 // the printing among several that share one artwork. A look model (the look slot, models.ts)
 // embeds the card the camera saw and each candidate printing's own Scryfall picture, and the
-// printing list puts the closest first, after any the collector line read. It never settles a
-// printing by itself: one person's 640 px photos are too little evidence for that.
+// printing list puts the closest first, after any the collector line read. The default never
+// settles a printing by itself: one person's 640 px photos are too little evidence for that. The
+// option that settles when sure (`look-v1-sure`, opt-in) does, by `lookSettles` below.
 //
 // The model has the bundle's embed.onnx interface: `scene` (H × W × 4 RGBA uint8) and `quad`
 // (4 × 2 float32, the card's corners from top-left, clockwise, in scene pixels); it warps the card
@@ -88,6 +89,48 @@ export function lookBest(scores: LookScores | undefined): string | null {
   const ids = Object.keys(scores ?? {});
   if (ids.length < 2) return null;
   return ids.reduce((best, id) => (scores![id]! > scores![best]! ? id : best));
+}
+
+/**
+ * Settling by look (docs/scanner.md, "Settling by look", 20 Nov 2026): the look option that settles
+ * when sure files the closest printing once it leads the next by this much. The raw lead over the
+ * next printing, visual twins included, as the lab measured it (scanner-lab/look_eval.py's first
+ * table): at 0.10 v1 settled 45 of one tester's 98 real sleeved photos alone, none wrong; at 0.08,
+ * 54 with one wrong.
+ */
+export const LOOK_SETTLE_LEAD = 0.1;
+
+/**
+ * The closest printing and its lead over the next, once every printing in `options` has a score;
+ * null while any hasn't (its picture couldn't be had, or the look stopped) or with fewer than two.
+ */
+export function lookLead(options: readonly { scryfall_id: string }[], scores: LookScores | undefined): { id: string; lead: number } | null {
+  if (!scores || options.length < 2) return null;
+  const scored = options.map((p) => ({ id: p.scryfall_id, score: scores[p.scryfall_id] }));
+  if (scored.some((s) => s.score === undefined || !Number.isFinite(s.score))) return null;
+  scored.sort((a, b) => b.score! - a.score!);
+  return { id: scored[0]!.id, lead: scored[0]!.score! - scored[1]!.score! };
+}
+
+/** Why the look didn't settle a printing: not every printing scored, too small a lead, or the collector line read another. */
+export type LookUnsettled = "unscored" | "lead" | "read-other";
+
+/**
+ * Whether the look settles the printing by itself (the option that settles when sure): every
+ * printing in `options` (the pool the list orders) scored, the closest LOOK_SETTLE_LEAD or more
+ * ahead of the next, twins included, and nothing the collector line read pointing to another
+ * printing (`readsOther`, evidence.ts `pointsAway`). The lead is given either way, when known.
+ */
+export function lookSettles(
+  options: readonly { scryfall_id: string }[],
+  scores: LookScores | undefined,
+  readsOther: (id: string) => boolean,
+): { settled: true; id: string; lead: number } | { settled: false; why: LookUnsettled; lead: number | null } {
+  const top = lookLead(options, scores);
+  if (!top) return { settled: false, why: "unscored", lead: null };
+  if (top.lead < LOOK_SETTLE_LEAD) return { settled: false, why: "lead", lead: top.lead };
+  if (readsOther(top.id)) return { settled: false, why: "read-other", lead: top.lead };
+  return { settled: true, id: top.id, lead: top.lead };
 }
 
 /** A printing to compare: its Scryfall ID and the picture of the face that was recognised. */

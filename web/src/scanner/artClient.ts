@@ -134,9 +134,10 @@ const INFO_KEY = "yama-scan-bundle";
  */
 export async function scanBundleInfo(): Promise<BundleInfo | null> {
   try {
-    // can=cuts: this build feeds an art model's `cuts` input (recognizer.ts, the embed cascade), so the
-    // server lists models that need it.
-    return await api<BundleInfo>("/api/scan/bundle?can=cuts");
+    // can=cuts: this build feeds an art model's `cuts` input (recognizer.ts, the embed cascade);
+    // can=settle: it runs the rule of a look option that settles when sure (look.ts, `lookSettles`).
+    // So the server lists the options that need them.
+    return await api<BundleInfo>("/api/scan/bundle?can=cuts,settle");
   } catch (e) {
     const kept = localStorage.getItem(INFO_KEY);
     if (!kept) throw e;
@@ -207,6 +208,8 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
   const lookLoads = new Map<number, (error: string | null) => void>();
   const looks = new Map<number, { onScore: (id: string, score: number) => void; done: (r: LookDone | null, error: string | null) => void }>();
   let lookNow = "off";
+  /** The look model file loaded in its worker, for the option running now. */
+  let lookFile: string | null = null;
   let lookSwitching: Promise<unknown> = Promise.resolve();
   const lookStopped = (error: string) => {
     for (const p of lookLoads.values()) p(error);
@@ -234,6 +237,7 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
       w.terminate();
       if (lookWorker === w) lookWorker = null;
       lookNow = "off";
+      lookFile = null;
       worker.postMessage({ type: "keep-frames", on: false } satisfies ArtWorkerRequest);
     };
     lookWorker = w;
@@ -341,6 +345,12 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
       const run = () => {
         if (disposed) return Promise.reject(new Error("The scanner is closed"));
         if ((want?.id ?? "off") === lookNow) return Promise.resolve();
+        // Another option on the model already loaded (v1, and v1 that settles when sure): only
+        // what it's called changes, with nothing to load and the same frames.
+        if (want && lookWorker && lookNow !== "off" && want.file === lookFile) {
+          lookNow = want.id;
+          return Promise.resolve();
+        }
         if (!want) {
           // Off: the look's worker goes, and with it its model and the frames kept for it.
           worker.postMessage({ type: "keep-frames", on: false } satisfies ArtWorkerRequest);
@@ -348,6 +358,7 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
           lookWorker?.terminate();
           lookWorker = null;
           lookNow = "off";
+          lookFile = null;
           return Promise.resolve();
         }
         const w = startLookWorker();
@@ -358,6 +369,7 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
               // No model: the worker and its runtime go (and any look on it ends), and nothing
               // keeps frames for it.
               lookNow = "off";
+              lookFile = null;
               for (const l of looks.values()) l.done(null, error);
               looks.clear();
               worker.postMessage({ type: "keep-frames", on: false } satisfies ArtWorkerRequest);
@@ -366,6 +378,7 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
               return reject(new Error(error));
             }
             lookNow = want.id;
+            lookFile = want.file;
             // Frames are kept (copied in the art worker) only once there's a model to use them.
             worker.postMessage({ type: "keep-frames", on: true } satisfies ArtWorkerRequest);
             resolve();
