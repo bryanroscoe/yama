@@ -2,9 +2,10 @@
 - data/pk2/<id>.jpg: each printing's clean set-symbol patch, from its Scryfall `normal` image and corners;
 - data/pq2/<id>_<k>.jpg: K simulated phone captures of it (sim.render, at the recogniser's 640 px), cut
   to the symbol patch at the capture's noisy quad, as the phone would cut it.
-Run again to finish (it skips what exists). About 1.9 GB for 78,700 printings, two to three hours on
+Run again to finish (it skips what exists). Writes data/look_gen.json: the code and library versions
+that made the crops, which look_train.py records with each run. About 1.9 GB for 78,700 printings, two to three hours on
 5 cores (20 Nov 2026). python <lab>/look_gen.py   (K=2, WORKERS=5)"""
-import glob, json, os
+import glob, hashlib, json, os, time
 import numpy as np, cv2
 from multiprocessing import Pool
 
@@ -40,6 +41,10 @@ def main():
     with Pool(int(os.environ.get("WORKERS", 5))) as p:
         for n, _ in enumerate(p.imap_unordered(work, files, chunksize=8)):
             if n % 5000 == 0: print(n, "printings", flush=True)
+    lab = os.path.dirname(os.path.abspath(__file__))
+    code = {f: hashlib.sha256(open(os.path.join(lab, f), "rb").read()).hexdigest() for f in ("look_gen.py", "look_crops.py", "sim.py")}
+    json.dump({"k": K, "printings": len(files), "code_sha256": code, "opencv": cv2.__version__, "numpy": np.__version__,
+               "finished": time.strftime("%Y-%m-%dT%H:%M:%S%z")}, open("data/look_gen.json", "w"), indent=1)
     print("done", len(files), flush=True)
 
 

@@ -5,7 +5,9 @@ clean symbol of up to MAX of its printings (InfoNCE across the batch, MoCo key e
 uses the graph's centre crops (look_crops.py), so it scores what the exported graph will do.
 About 7 minutes for 8 epochs on an M3 Pro's GPU (MPS), 20 Nov 2026. MAXSTEPS ends the run after that many
 steps, with that epoch saved and scored (a smoke test). SEED (default 0) seeds Python, NumPy, Torch and the
-loader's workers; runs/<run>/run.json records it with the arguments and the groups file's SHA-256. The GPU's
+loader's workers. runs/<run>/run.json records it with the arguments, the groups file's SHA-256, look_gen.py's
+manifest (data/look_gen.json), a fingerprint of the crop files (names and sizes), and this code's and the
+libraries' versions. The GPU's
 own arithmetic isn't bit-for-bit repeatable, so a rerun matches closely, not exactly. Every training
 printing must have its crops (look_gen.py); ALLOW_INCOMPLETE=1 trains without the missing ones.
 python <lab>/look_train.py RUN [epochs] [batch]"""
@@ -26,6 +28,15 @@ def load(path):
 def shifted(patch, rng):
     dy, dx = rng.integers(0, 2 * MY + 1), rng.integers(0, 2 * MX + 1)
     return patch[dy:dy + SH, dx:dx + SW]
+
+
+def fingerprint(*dirs):
+    """SHA-256 over every crop file's name and size: changes when the crops are made again differently."""
+    h = hashlib.sha256()
+    for d in dirs:
+        for e in sorted(os.scandir(d), key=lambda e: e.name):
+            h.update(f"{d}/{e.name} {e.stat().st_size}\n".encode())
+    return h.hexdigest()
 
 
 def seed_worker(_):
@@ -113,8 +124,14 @@ def main():
         (val if int(hashlib.md5(g["ill"].encode()).hexdigest(), 16) % 50 == 0 else groups).append(ms)
     if missing and os.environ.get("ALLOW_INCOMPLETE") != "1":
         raise SystemExit(f"{missing} training printings have no crops: run look_download.py and look_gen.py again, or set ALLOW_INCOMPLETE=1.")
+    import torchvision
+    lab = os.path.dirname(os.path.abspath(__file__))
+    code = {f: hashlib.sha256(open(os.path.join(lab, f), "rb").read()).hexdigest() for f in ("look_train.py", "look_net.py", "look_crops.py")}
+    gen = json.load(open("data/look_gen.json")) if os.path.exists("data/look_gen.json") else None
     json.dump({"run": run, "epochs": epochs, "batch": bs, "seed": seed, "maxsteps": os.environ.get("MAXSTEPS"),
-               "groups_sha256": hashlib.sha256(raw).hexdigest(), "train_groups": len(groups), "held_out": len(val),
+               "groups_sha256": hashlib.sha256(raw).hexdigest(), "crops_fingerprint": fingerprint("data/pk2", "data/pq2"),
+               "look_gen": gen, "code_sha256": code, "torch": torch.__version__, "torchvision": torchvision.__version__,
+               "numpy": np.__version__, "opencv": cv2.__version__, "train_groups": len(groups), "held_out": len(val),
                "missing_printings": missing, "started": time.strftime("%Y-%m-%dT%H:%M:%S%z")},
               open(f"runs/{run}/run.json", "w"), indent=1)
     real = real_cases()
