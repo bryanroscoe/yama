@@ -45,6 +45,8 @@ export interface GateSource<F = unknown> {
 }
 
 export const THUMB_SIDE = 48;
+/** Passes in a row a latched card's thumbnail must differ before it's taken for another card in its place. */
+export const SWAP_PASSES = 2;
 
 export interface GateOptions {
   /** The window the card's speed is measured over. */
@@ -250,6 +252,8 @@ export class PlacementGate<F = unknown> {
   private lastAt: number | null = null;
   private emptyFor = 0;
   private placements = 0;
+  /** Passes in a row on which the card at rest hasn't looked like the latched one. */
+  private unlike = 0;
   private placement: Placement<F> | null = null;
   /** The placement that was named: its key and thumbnail, until the card leaves or another takes its place. */
   private latch: { key: string; thumb: Uint8Array | Uint8ClampedArray | null } | null = null;
@@ -340,7 +344,15 @@ export class PlacementGate<F = unknown> {
       // The card that was named, come to rest again: still latched. Another card: the latch is over.
       if (this.latch && !this.sameCard(this.latch.thumb, card.thumb)) this.release();
     }
-    if (this.latch) return this.decide({ kind: "latched", key: this.latch.key });
+    if (this.latch) {
+      // Another card in the very same place (swapped with no movement the finder saw): its
+      // thumbnail says so. Two passes in a row, so a hand passing over the card isn't one.
+      this.unlike = this.sameCard(this.latch.thumb, card.thumb) ? 0 : this.unlike + 1;
+      if (this.unlike < SWAP_PASSES) return this.decide({ kind: "latched", key: this.latch.key });
+      this.release();
+      p = this.placement = { id: (this.placements += 1), since: o.at, attempts: 0, frames: 0, best: null, lastRead: null, reading: false, gaveUp: false, thumb: card.thumb ?? null };
+    }
+    this.unlike = 0;
     if (p.gaveUp) return this.decide({ kind: "no-match" });
     if (p.reading) return this.decide({ kind: "reading" });
     p.frames += 1;

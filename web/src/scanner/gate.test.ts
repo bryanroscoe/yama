@@ -226,6 +226,24 @@ describe("a card that was read stays read", () => {
     expect(decisions.findIndex((d) => d.released)).toBeLessThanOrEqual(decisions.indexOf(read!));
   });
 
+  it("reads another card swapped into the very same place, though nothing was seen to move", () => {
+    const { pass, untilRead, gate, now } = bench();
+    untilRead(() => seen(card(0, 0)));
+    gate.named("Sol Ring", now());
+    expect(pass(seen(card(0, 0))).kind).toBe("latched");
+    // One pass that looks different (a hand over the card) isn't another card.
+    expect(pass(seen(card(0, 0), { thumb: thumb(7) })).kind).toBe("latched");
+    expect(pass(seen(card(0, 0))).kind).toBe("latched");
+    // Two in a row are: the latch is over and the card there is read.
+    expect(pass(seen(card(0, 0), { thumb: thumb(2) })).kind).toBe("latched");
+    const d = pass(seen(card(0, 0), { thumb: thumb(2) }));
+    expect(d.released).toBe(true);
+    expect(untilRead(() => seen(card(0, 0), { thumb: thumb(2) }), 4)).toMatchObject({ kind: "read", attempt: 1 });
+    // Named, it is latched as itself.
+    gate.named("Arcane Signet", now());
+    expect(pass(seen(card(0, 0), { thumb: thumb(2) }))).toMatchObject({ kind: "latched", key: "Arcane Signet" });
+  });
+
   it("is let go when the view has been empty long enough, and the same card set down again is read again", () => {
     const { pass, untilRead, gate, now } = bench();
     untilRead(() => seen(card(0, 0)));
