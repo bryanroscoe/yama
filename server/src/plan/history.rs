@@ -812,6 +812,12 @@ pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>
                         let whose = if origin == "import" { "The plan file's answer" } else { "Their answer" };
                         let _ = writeln!(out, "- {whose}: {d}{note} ({}){}.", day(at), stale(s, at));
                     }
+                    // A cleared answer (no decision) is an answer too: the plan file's own is never
+                    // an op, so this is the only place it shows.
+                    Some((None, _, at, origin, _)) => {
+                        let whose = if origin == "import" { "The plan file cleared its answer" } else { "Their answer was cleared" };
+                        let _ = writeln!(out, "- {whose} ({}); no answer stands.", day(at));
+                    }
                     _ if s.stage == "proposed" => out.push_str("- No answer yet.\n"),
                     _ => {}
                 }
