@@ -945,7 +945,11 @@ pub async fn track_build(st: &AppState, user: &User, via: &Via, args: &Value) ->
                 && via.may_apply()
                 && let Some(e) = stopped_entry(&note_id, &title, asked, conversation)
             {
-                match crate::plan::history::record_once(pool, &user.id, key, &e, via.as_str()).await {
+                let recorded = match note_plan(pool, &user.id, &note_id, &deck_key).await {
+                    Ok(id) => crate::plan::history::record_once(pool, &user.id, crate::plan::history::PlanRef::Id(&id), &e, via.as_str()).await,
+                    Err(err) => Err(err),
+                };
+                match recorded {
                     Ok(r) => {
                         let _ = write!(out, "\nWhat they asked is in the plan's history (plan key {key}, entry {}).", r.id);
                     }
@@ -974,7 +978,11 @@ pub async fn track_build(st: &AppState, user: &User, via: &Via, args: &Value) ->
              marks and answers are kept; tracking a build again brings them back."
         );
         if let Some(e) = stopped_entry(&note_id, &title, asked, conversation) {
-            if let Err(err) = crate::plan::history::record_once(pool, &user.id, key, &e, via.as_str()).await {
+            let recorded = match note_plan(pool, &user.id, &note_id, &deck_key).await {
+                Ok(id) => crate::plan::history::record_once(pool, &user.id, crate::plan::history::PlanRef::Id(&id), &e, via.as_str()).await,
+                Err(err) => Err(err),
+            };
+            if let Err(err) = recorded {
                 let _ = write!(out, "\nThe plan's history didn't take what they asked ({err}); record it with `record_plan_history`.");
             }
         }
@@ -999,7 +1007,11 @@ pub async fn track_build(st: &AppState, user: &User, via: &Via, args: &Value) ->
         if !via.may_apply() && (asked.is_some() || conversation.is_some()) {
             out.push_str("\nRecord what they asked with `record_plan_history`; nothing is staged for a plan that didn't change.");
         } else if let Some(e) = tracked_entry(&note_id, &title, &build_id, &label, asked, conversation) {
-            match crate::plan::history::record_once(pool, &user.id, key, &e, via.as_str()).await {
+            let recorded = match note_plan(pool, &user.id, &note_id, &deck_key).await {
+                Ok(id) => crate::plan::history::record_once(pool, &user.id, crate::plan::history::PlanRef::Id(&id), &e, via.as_str()).await,
+                Err(err) => Err(err),
+            };
+            match recorded {
                 Ok(r) if r.again => {
                     let _ = write!(out, "\nWhat they asked was already in the plan's history (entry {}).", r.id);
                 }
@@ -1047,7 +1059,11 @@ pub async fn track_build(st: &AppState, user: &User, via: &Via, args: &Value) ->
     let mut out = format!("{label} is now {}'s plan (plan key {}), from the note \"{title}\": {} swaps.", t.name, t.plan_deck_key, t.swaps);
     if let Some(e) = tracked_entry(&req.note_id, &title, &req.build_id, &label, asked, conversation) {
         // The plan is tracked either way: a history entry that can't be saved is said, not fatal.
-        match crate::plan::history::record_once(pool, &user.id, &t.plan_deck_key, &e, via.as_str()).await {
+        let recorded = match note_plan(pool, &user.id, &req.note_id, &req.deck_key).await {
+            Ok(id) => crate::plan::history::record_once(pool, &user.id, crate::plan::history::PlanRef::Id(&id), &e, via.as_str()).await,
+            Err(err) => Err(err),
+        };
+        match recorded {
             Ok(r) => {
                 let _ = write!(out, "\nWhat they asked is in the plan's history (entry {}; `get_plan_history`).", r.id);
             }
@@ -1081,6 +1097,18 @@ pub async fn track_build(st: &AppState, user: &User, via: &Via, args: &Value) ->
 
 /// The history entry for tracking a note's build, when they said what they asked for or where the
 /// conversation is (the version itself already says which note it came from).
+/// The plan a note's deck is tracked as, by its row's id: the note's link stays when an import
+/// moves the plan to another key (`notes::make_room`), so its history never lands on another plan.
+async fn note_plan(pool: &SqlitePool, owner: &str, note_id: &str, deck_key: &str) -> AppResult<String> {
+    sqlx::query_scalar("SELECT id FROM plan_decks WHERE owner_id = ? AND note_id = ? AND note_deck_key = ?")
+        .bind(owner)
+        .bind(note_id)
+        .bind(deck_key)
+        .fetch_optional(pool)
+        .await?
+        .ok_or(AppError::NotFound("plan deck"))
+}
+
 /// The history entry for stopping a note's plan, when they said what they asked for or where the
 /// conversation is: the same words for the stop and for a retry that finds it stopped.
 fn stopped_entry(note_id: &str, title: &str, asked: Option<String>, conversation: Option<String>) -> Option<crate::plan::history::Entry> {
@@ -1136,7 +1164,12 @@ async fn apply_track_build(st: &AppState, user: &User, id: &str, p: &Value) -> A
                     e.on = on;
                 }
                 // Tracked either way; the history entry is a note on it.
-                if let Err(err) = crate::plan::history::record(&st.pool, &user.id, &t.plan_deck_key, &e, Some(&format!("{DEVICE}-{id}")), None, "staged").await {
+                let op = format!("{DEVICE}-{id}");
+                let recorded = match note_plan(&st.pool, &user.id, &req.note_id, &req.deck_key).await {
+                    Ok(plan) => crate::plan::history::record(&st.pool, &user.id, crate::plan::history::PlanRef::Id(&plan), &e, Some(&op), None, "staged").await,
+                    Err(err) => Err(err),
+                };
+                if let Err(err) = recorded {
                     tracing::warn!("plan history for a staged track_build: {err}");
                 }
             }
@@ -1163,7 +1196,12 @@ async fn apply_track_build(st: &AppState, user: &User, id: &str, p: &Value) -> A
                     group: None,
                     cards: vec![],
                 };
-                if let Err(err) = crate::plan::history::record(&st.pool, &user.id, &key, &e, Some(&format!("{DEVICE}-{id}")), None, "staged").await {
+                let op = format!("{DEVICE}-{id}");
+                let recorded = match note_plan(&st.pool, &user.id, &note_id, &deck_key).await {
+                    Ok(plan) => crate::plan::history::record(&st.pool, &user.id, crate::plan::history::PlanRef::Id(&plan), &e, Some(&op), None, "staged").await,
+                    Err(err) => Err(err),
+                };
+                if let Err(err) = recorded {
                     tracing::warn!("plan history for a staged stop: {err}");
                 }
             }

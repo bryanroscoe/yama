@@ -96,6 +96,26 @@ pub async fn plan_of(pool: &SqlitePool, owner: &str, wanted: &str) -> AppResult<
     }
 }
 
+/// Which plan an entry goes on: as a caller names it (a key or a deck's name), or by its row's id,
+/// which never changes (a tool that just tracked a note's build knows its plan by the note's link).
+#[derive(Debug, Clone, Copy)]
+pub enum PlanRef<'a> {
+    Named(&'a str),
+    Id(&'a str),
+}
+
+async fn resolve(pool: &SqlitePool, owner: &str, plan: PlanRef<'_>) -> AppResult<(String, String, String)> {
+    match plan {
+        PlanRef::Named(wanted) => plan_of(pool, owner, wanted).await,
+        PlanRef::Id(id) => sqlx::query_as("SELECT id, key, name FROM plan_decks WHERE id = ? AND owner_id = ?")
+            .bind(id)
+            .bind(owner)
+            .fetch_optional(pool)
+            .await?
+            .ok_or(AppError::NotFound("plan deck")),
+    }
+}
+
 /// The plan's proposal groups, in its order: the groups it declares, then any other a swap names.
 async fn group_labels(pool: &SqlitePool, owner: &str, plan_id: &str) -> AppResult<Vec<String>> {
     let declared: String = sqlx::query_scalar("SELECT groups FROM plan_decks WHERE id = ? AND owner_id = ?").bind(plan_id).bind(owner).fetch_one(pool).await?;
@@ -125,7 +145,7 @@ fn today() -> chrono::NaiveDate {
 
 /// Record an entry in a plan's history. `replaces` names an earlier entry of the same plan that
 /// this one corrects: it goes, in the same transaction.
-pub async fn record(pool: &SqlitePool, owner: &str, plan: &str, e: &Entry, op_id: Option<&str>, replaces: Option<&str>, via: &str) -> AppResult<Recorded> {
+pub async fn record(pool: &SqlitePool, owner: &str, plan: PlanRef<'_>, e: &Entry, op_id: Option<&str>, replaces: Option<&str>, via: &str) -> AppResult<Recorded> {
     if !super::model::is_date(&e.on) {
         return Err(AppError::bad(format!("on: \"{}\" isn't a YYYY-MM-DD date", e.on)));
     }
@@ -188,7 +208,7 @@ pub async fn record(pool: &SqlitePool, owner: &str, plan: &str, e: &Entry, op_id
             return Ok(Recorded { id, deck_key, deck, again: true, group: g, cards: stored_cards });
         }
     }
-    let (plan_id, deck_key, deck) = plan_of(pool, owner, plan).await?;
+    let (plan_id, deck_key, deck) = resolve(pool, owner, plan).await?;
     let group = match e.group.as_deref().map(str::trim).filter(|g| !g.is_empty()) {
         None => None,
         Some(g) => {
@@ -323,8 +343,8 @@ const RETRY_WINDOW_MINUTES: i64 = 60;
 /// last hour: a retry after a lost reply has no op_id of its own and can come after midnight, so
 /// it can't be found by its day. Later, the same words are a new event (tracked again after a
 /// stop) and are recorded with their own day.
-pub async fn record_once(pool: &SqlitePool, owner: &str, plan: &str, e: &Entry, via: &str) -> AppResult<Recorded> {
-    let (plan_id, deck_key, deck) = plan_of(pool, owner, plan).await?;
+pub async fn record_once(pool: &SqlitePool, owner: &str, plan: PlanRef<'_>, e: &Entry, via: &str) -> AppResult<Recorded> {
+    let (plan_id, deck_key, deck) = resolve(pool, owner, plan).await?;
     let since = (chrono::Utc::now() - chrono::Duration::minutes(RETRY_WINDOW_MINUTES)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
     let found: Option<String> = sqlx::query_scalar(
         "SELECT id FROM plan_history WHERE owner_id = ? AND plan_deck_id = ? AND what = ? AND IFNULL(asked, '') = IFNULL(?, '')
@@ -343,7 +363,7 @@ pub async fn record_once(pool: &SqlitePool, owner: &str, plan: &str, e: &Entry, 
     .await?;
     match found {
         Some(id) => Ok(Recorded { id, deck_key, deck, again: true, group: None, cards: vec![] }),
-        None => record(pool, owner, &deck_key, e, None, None, via).await,
+        None => record(pool, owner, PlanRef::Id(&plan_id), e, None, None, via).await,
     }
 }
 
@@ -559,7 +579,7 @@ fn names_of(list: &[Value], at_most: usize) -> String {
 pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>) -> AppResult<String> {
     let (plan_id, key, name) = plan_of(pool, owner, plan).await?;
     #[allow(clippy::type_complexity)]
-    let (source, status, created_at, archived_at, archived_note, note_id, note_deck, note_build): (
+    let (source, status, created_at, archived_at, archived_note, note_id, note_deck, note_build, updated_at): (
         String,
         String,
         String,
@@ -568,8 +588,10 @@ pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>
         Option<String>,
         Option<String>,
         Option<String>,
+        String,
     ) = sqlx::query_as(
-        "SELECT source, status, created_at, archived_at, archived_note, note_id, note_deck_key, note_build_id FROM plan_decks WHERE id = ? AND owner_id = ?",
+        "SELECT source, status, created_at, archived_at, archived_note, note_id, note_deck_key, note_build_id, updated_at FROM plan_decks
+         WHERE id = ? AND owner_id = ?",
     )
     .bind(&plan_id)
     .bind(owner)
@@ -957,6 +979,11 @@ pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>
     }
     if let Some(at) = &archived_at {
         events.push((day(at).to_string(), 3, format!("Archived{}.", archived_note.as_deref().map(|n| format!(": {n}")).unwrap_or_default())));
+    } else if status == "archived" {
+        // Stopping a note's plan, or a plan file or note that no longer has it, archives the plan
+        // by its status alone: the day is when the plan last changed.
+        let why = if note_id.is_some() { "its note's build stopped being tracked, or the note no longer has it" } else { "the plan file no longer has it" };
+        events.push((day(&updated_at).to_string(), 3, format!("Archived: {why} (the day the plan last changed).")));
     }
     events.sort_by(|a, b| (a.0.as_str(), a.1).cmp(&(b.0.as_str(), b.1)));
     out.push_str("\nTimeline, oldest first:\n");

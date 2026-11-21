@@ -1918,7 +1918,7 @@ async fn run_plan_history(c: Ctx<'_>, args: &Value) -> AppResult<String> {
 }
 
 async fn run_record_plan_history(c: Ctx<'_>, args: &Value) -> AppResult<String> {
-    use crate::plan::history::{ASKED_MAX, CARDS_MAX, Entry, WHAT_MAX, WHERE_MAX, record};
+    use crate::plan::history::{ASKED_MAX, CARDS_MAX, Entry, PlanRef, WHAT_MAX, WHERE_MAX, record};
     let Ctx { st, user, via } = c;
     let entry = Entry {
         on: arg::text_max(args, "on", 10)?.to_string(),
@@ -1937,7 +1937,7 @@ async fn run_record_plan_history(c: Ctx<'_>, args: &Value) -> AppResult<String> 
     }
     let replaces = arg::opt_text(args, "replaces", 64)?;
     st.limits.deck_writes.check_user(user)?;
-    let r = record(&st.pool, &user.id, arg::text(args, "plan")?, &entry, op_id, replaces, via.as_str()).await?;
+    let r = record(&st.pool, &user.id, PlanRef::Named(arg::text(args, "plan")?), &entry, op_id, replaces, via.as_str()).await?;
     let about = match (&r.group, r.cards.is_empty()) {
         (Some(g), true) => format!(" It is about the group \"{g}\"."),
         (Some(g), false) => format!(" It is about the group \"{g}\": {}.", r.cards.join(", ")),
