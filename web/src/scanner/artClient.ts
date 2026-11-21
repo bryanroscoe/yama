@@ -5,7 +5,7 @@ import { api, API_BASE } from "../api";
 import type { LookCandidate, LookDone, LookWorkerReply, LookWorkerRequest, WireFrame } from "./look";
 import type { ModelOption, ModelsInfo } from "./models";
 import type { Recognition } from "./recognizer";
-import type { RgbaImage } from "./types";
+import type { Quad, RgbaImage } from "./types";
 
 export interface BundleInfo {
   version: string;
@@ -46,6 +46,8 @@ export type ArtWorkerReply =
   | { type: "pooled"; id: number; arts: number }
   | { type: "embedded"; id: number; error: string | null }
   | { type: "frames"; id: number; frames: WireFrame[] }
+  /** Where the card finder placed the card in an `identify` frame, sent before its art is matched. */
+  | { type: "seen"; id: number; quad: Quad | null }
   | { type: "result"; id: number; result: Recognition; buffer: ArrayBuffer }
   | { type: "failed"; id: number; message: string; buffer: ArrayBuffer };
 
@@ -62,8 +64,11 @@ export interface PoolKeys {
 }
 
 export interface ArtRecognizer {
-  /** Takes ownership of `image.data`'s buffer. */
-  identify(image: RgbaImage): Promise<Recognition>;
+  /**
+   * Takes ownership of `image.data`'s buffer. `onSeen` hears where the card finder placed the card
+   * (or null) before the art is matched, for the outline (outline.ts).
+   */
+  identify(image: RgbaImage, onSeen?: (quad: Quad | null) => void): Promise<Recognition>;
   /** Forget the card being tracked (between photos, say). */
   reset(opts?: { frames?: boolean }): void;
   /**
@@ -200,6 +205,8 @@ export async function loadArtRecognizer(onState?: (s: LoadState) => void, opts: 
 async function startRecognizer(info: BundleInfo, art: { id: string; file: string; bytes: number }, detector: { id: string; file: string; bytes: number }, onState?: (s: LoadState) => void): Promise<ArtRecognizer> {
   const worker = new Worker(new URL("./art.worker.ts", import.meta.url), { type: "module" });
   const pending = new Map<number, { resolve: (r: Recognition) => void; reject: (e: Error) => void }>();
+  /** Who hears where the finder placed the card in each frame being identified. */
+  const seeing = new Map<number, (quad: Quad | null) => void>();
   const pooling = new Map<number, (arts: number) => void>();
   const embedding = new Map<number, (error: string | null) => void>();
   const framing = new Map<number, (frames: WireFrame[]) => void>();
@@ -293,15 +300,21 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
       framing.delete(m.id);
       return;
     }
+    if (m.type === "seen") {
+      seeing.get(m.id)?.(m.quad);
+      return;
+    }
     if (m.type !== "result" && m.type !== "failed") return;
     const p = pending.get(m.id);
     pending.delete(m.id);
+    seeing.delete(m.id);
     if (m.type === "result") p?.resolve(m.result);
     else p?.reject(new Error(m.message));
   };
   worker.onerror = (e) => {
     for (const p of pending.values()) p.reject(new Error(e.message || "The card recognizer stopped"));
     pending.clear();
+    seeing.clear();
     for (const p of embedding.values()) p(e.message || "The card recognizer stopped");
     embedding.clear();
     for (const p of framing.values()) p([]);
@@ -433,9 +446,10 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
       switching = done.catch(() => undefined);
       return done;
     },
-    identify(image) {
+    identify(image, onSeen) {
       if (disposed) return Promise.reject(new Error("The scanner is closed"));
       const id = nextId++;
+      if (onSeen) seeing.set(id, onSeen);
       const buffer = image.data.buffer as ArrayBuffer;
       return new Promise<Recognition>((resolve, reject) => {
         pending.set(id, { resolve, reject });
@@ -458,6 +472,7 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
       worker.terminate();
       for (const p of pending.values()) p.reject(new Error("The scanner is closed"));
       pending.clear();
+      seeing.clear();
       for (const p of pooling.values()) p(-1);
       pooling.clear();
       for (const p of embedding.values()) p("The scanner is closed");

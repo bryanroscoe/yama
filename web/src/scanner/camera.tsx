@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../components/ui";
+import { clampFocus, distanceToSlider, fmtFocus, focusRange, saveFocus, savedFocus, sliderToDistance, type FocusRange } from "./cameraFocus";
 
 export interface CameraCaps {
   torch: boolean;
@@ -38,7 +39,8 @@ export function serialApplier(apply: (t: MediaStreamTrack, all: Record<string, u
     set(t: MediaStreamTrack, patch: Record<string, unknown>): Promise<boolean> {
       const run = async () => {
         if (current() !== t) return false;
-        const next = { ...applied, ...patch };
+        // A setting given as undefined is taken out (a pinned focus distance, once focus is automatic).
+        const next = Object.fromEntries(Object.entries({ ...applied, ...patch }).filter(([, v]) => v !== undefined));
         await apply(t, next);
         if (current() !== t) return false;
         applied = next;
@@ -118,6 +120,8 @@ export interface CameraInfo {
   width?: number;
   height?: number;
   frameRate?: number;
+  /** The most frames a second the camera says it can deliver (at some size). */
+  maxFrameRate?: number;
   zoom?: number;
   zoomRange?: [number, number];
   facing?: string;
@@ -148,6 +152,7 @@ export function cameraInfo(track: MediaStreamTrack): CameraInfo {
     width: st.width,
     height: st.height,
     frameRate: st.frameRate,
+    maxFrameRate: caps.frameRate?.max,
     zoom: st.zoom,
     zoomRange: range(caps.zoom),
     facing: st.facingMode,
@@ -177,6 +182,10 @@ export function useCameraControls() {
   const [torch, setTorchState] = useState(false);
   const [zoom, setZoomState] = useState(1);
   const [error, setError] = useState<string | null>(null);
+  /** Where the lens can be pinned on this camera (cameraFocus.ts), and where it is pinned now (null: autofocus). */
+  const [focusCaps, setFocusCaps] = useState<FocusRange | null>(null);
+  const [focus, setFocusState] = useState<number | null>(null);
+  const focusRef = useRef<{ range: FocusRange | null; pinned: number | null }>({ range: null, pinned: null });
   /** Every setting applied so far, sent together (one applyConstraints can replace the last), one change at a time. */
   const applier = useRef(serialApplier((t, all) => t.applyConstraints({ advanced: [all as MediaTrackConstraintSet] }), () => track.current));
   const apply = (t: MediaStreamTrack, patch: Record<string, unknown>) => applier.current.set(t, patch);
@@ -187,8 +196,15 @@ export function useCameraControls() {
   const attach = useCallback((t: MediaStreamTrack | null) => {
     track.current = t;
     const caps = (t?.getCapabilities?.() ?? {}) as { focusMode?: string[] };
-    // Continuous focus, where offered, goes with every later setting too, and is applied now.
-    const focus = caps.focusMode?.includes("continuous") ? { focusMode: "continuous" } : {};
+    // The lens pinned on this device before stays pinned, where this camera can (cameraFocus.ts).
+    const range = focusRange(t);
+    const saved = range ? savedFocus() : null;
+    const pinned = range && saved?.pinned ? clampFocus(range, saved.distance) : null;
+    focusRef.current = { range, pinned };
+    setFocusCaps(range);
+    setFocusState(pinned);
+    // Else continuous focus, where offered. Either goes with every later setting too, and is applied now.
+    const focus: Record<string, unknown> = pinned != null ? { focusMode: "manual", focusDistance: pinned } : caps.focusMode?.includes("continuous") ? { focusMode: "continuous" } : {};
     applier.current.reset({});
     if (t && focus.focusMode) void apply(t, focus).catch(() => undefined);
     capsRef.current = t ? readCaps(t) : NO_CAPS;
@@ -276,10 +292,54 @@ export function useCameraControls() {
     },
     [caps.zoom, setZoom],
   );
-  /** Focus on a point of the frame (0 to 1 across and down), where the browser lets it; else nothing. */
+  /**
+   * Pin the lens at `d` (the browser's units, metres), or hand focus back to the camera with null.
+   * Remembered on this device. Calls from a dragged slider are queued, newest wins, as a pinch's are.
+   */
+  const focusQueue = useRef<{ busy: boolean; next: { d: number | null } | null }>({ busy: false, next: null });
+  const setFocus = useCallback((d: number | null) => {
+    const q = focusQueue.current;
+    q.next = { d };
+    if (q.busy) return;
+    q.busy = true;
+    void (async () => {
+      while (q.next) {
+        const want = q.next.d;
+        q.next = null;
+        const t = track.current;
+        const range = focusRef.current.range;
+        if (!t || !range) continue;
+        const pinned = want == null ? null : clampFocus(range, want);
+        try {
+          if (!(await apply(t, pinned == null ? { focusMode: range.auto, focusDistance: undefined } : { focusMode: "manual", focusDistance: pinned }))) continue;
+        } catch {
+          if (track.current === t) setError(pinned == null ? "The camera didn't go back to autofocus" : "The camera didn't hold that focus");
+          continue;
+        }
+        if (track.current !== t) continue;
+        const last = savedFocus();
+        saveFocus({ pinned: pinned != null, distance: pinned ?? focusRef.current.pinned ?? last?.distance ?? range.near });
+        focusRef.current.pinned = pinned;
+        setFocusState(pinned);
+        setError(null);
+      }
+      q.busy = false;
+    })();
+  }, []);
+  /** Turn the pin on (where it was last, else where the camera is focused now, else the middle of the slider) or off. */
+  const pinFocus = useCallback(
+    (on: boolean) => {
+      const range = focusRef.current.range;
+      if (!on || !range) return setFocus(null);
+      const now = (track.current?.getSettings?.() as { focusDistance?: number } | undefined)?.focusDistance;
+      setFocus(savedFocus()?.distance ?? (typeof now === "number" && now > 0 ? now : sliderToDistance(range, 0.5)));
+    },
+    [setFocus],
+  );
+  /** Focus on a point of the frame (0 to 1 across and down), where the browser lets it; else nothing. Never while the lens is pinned. */
   const focusAt = useCallback((x: number, y: number) => {
     const t = track.current;
-    if (!t || !pointsOfInterestSupported()) return;
+    if (!t || !pointsOfInterestSupported() || focusRef.current.pinned != null) return;
     void apply(t, { pointsOfInterest: [{ x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)) }] }).catch(() => undefined);
   }, []);
   return {
@@ -290,6 +350,12 @@ export function useCameraControls() {
     zoom,
     autoZoom,
     focusAt,
+    /** Where the lens can be pinned on this camera, or null where the browser doesn't offer it. */
+    focusCaps,
+    /** Where the lens is pinned (metres), or null on autofocus. */
+    focus,
+    setFocus,
+    pinFocus,
     /** The camera's track, for a still photo (ImageCapture). */
     track: () => track.current,
     /** Whether the person has zoomed by hand this session. */
@@ -314,6 +380,8 @@ export function CameraControls({ c, live }: { c: CameraControlState; live: boole
   // level; a tap opens + and − (Bryan, 16 Nov 2026: too busy).
   const [zoomOpen, setZoomOpen] = useState(false);
   const levelRef = useRef<HTMLButtonElement>(null);
+  // The focus slider while it's being dragged: the lens follows a moment behind (camera calls queue).
+  const [slide, setSlide] = useState<number | null>(null);
   const groupRef = useRef<HTMLDivElement>(null);
   // + and − fold away again a few seconds after the last zoom. Focus on one of them goes back to
   // the level button rather than to the page (Codex review, 16 Nov 2026).
@@ -355,6 +423,42 @@ export function CameraControls({ c, live }: { c: CameraControlState; live: boole
             <Button className="scan-tool" onClick={c.zoomOut} disabled={!c.canZoomOut} aria-label="Zoom out">
               −
             </Button>
+          )}
+        </div>
+      )}
+      {c.focusCaps && (
+        <div className="scan-focus">
+          <Button
+            className={`scan-tool${c.focus != null ? " is-on" : ""}`}
+            onClick={() => c.pinFocus(c.focus == null)}
+            aria-pressed={c.focus != null}
+            aria-label={c.focus != null ? "Focus is pinned. Go back to autofocus" : "Pin the focus"}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4" />
+              <circle cx="12" cy="12" r="2.5" />
+            </svg>
+          </Button>
+          {c.focus != null && (
+            <label className="scan-focus-slider">
+              <span>Focus {fmtFocus(slide != null ? sliderToDistance(c.focusCaps, slide) : c.focus)}</span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={slide ?? distanceToSlider(c.focusCaps, c.focus)}
+                onChange={(e) => {
+                  const t = Number(e.target.value);
+                  setSlide(t);
+                  c.setFocus(sliderToDistance(c.focusCaps!, t));
+                }}
+                onPointerUp={() => setSlide(null)}
+                onBlur={() => setSlide(null)}
+                aria-label="Focus distance, near to far"
+                aria-valuetext={fmtFocus(c.focus)}
+              />
+            </label>
           )}
         </div>
       )}
