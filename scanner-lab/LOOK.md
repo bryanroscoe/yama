@@ -19,7 +19,7 @@ like the rest of the lab, from a work directory outside the repository (README.m
 - **Where it is:** release `scanner-look-20261120` of this repository: `yama-look-v1.onnx` (sha256
   `152f52c1…`), and the two networks' checkpoints it was exported from, `yama-look-v1-symbol.pt` (sha256
   `e0cf5773…`) and `yama-look-v1-card.pt` (`ca2f9304…`). The model registry (`MODELS` in
-  `server/src/scan.rs`) pins v0 as of 20 Nov 2026; pinning v1 as the default is the next PR.
+  `server/src/scan.rs`) pins v1 as the look's default since 20 Nov 2026 (PR #175), with v0 as an option.
 
 ## Layout (on top of README.md's)
 
