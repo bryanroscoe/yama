@@ -340,7 +340,9 @@ pub(crate) fn answers<'a>(b: &'a Value, live: &HashSet<&str>) -> HashMap<String,
     let mut latest: HashMap<String, &Value> = HashMap::new();
     for (key, r) in obj(b, "reviews").into_iter().flatten() {
         let Some(to) = resolve(key, live, obj(b, "aliases")) else { continue };
-        let rank = |v: &Value| (s(v, "at").unwrap_or_default(), s(v, "origin") == Some("yama"), s(v, "op_id").unwrap_or_default());
+        fn rank(v: &Value) -> (&str, bool, &str) {
+            (s(v, "at").unwrap_or_default(), s(v, "origin") == Some("yama"), s(v, "op_id").unwrap_or_default())
+        }
         let replace = match latest.get(to) {
             None => true,
             Some(p) => rank(r) > rank(p),
