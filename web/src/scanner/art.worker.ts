@@ -22,9 +22,9 @@ const reply = (m: ArtWorkerReply, transfer: Transferable[] = []) => (self as Ded
 const file = cachedFile;
 const CACHE = SCAN_CACHE;
 
-async function load(info: BundleInfo, base: string, embedFile: EmbedFile) {
+async function load(info: BundleInfo, base: string, embedFile: EmbedFile, detectorFile: EmbedFile) {
   const t0 = performance.now();
-  const urls = { detector: info.files.detector, embed: embedFile.url, search: info.files.search, arts: info.files.arts, runtime: wasmUrl };
+  const urls = { detector: detectorFile.url, embed: embedFile.url, search: info.files.search, arts: info.files.arts, runtime: wasmUrl };
   const supplementUrl = info.files.supplement ?? null;
   const progress = new Map<string, [number, number]>();
   let lastReport = 0;
@@ -43,7 +43,7 @@ async function load(info: BundleInfo, base: string, embedFile: EmbedFile) {
   const get = (key: keyof typeof urls) => {
     const url = new URL(urls[key], key === "runtime" ? self.location.href : base || self.location.origin).href;
     // The WASM runtime's size isn't in the bundle info; about 15 MB.
-    const size = key === "runtime" ? 15_000_000 : key === "embed" ? embedFile.bytes : (info.bytes?.[key] ?? 0);
+    const size = key === "runtime" ? 15_000_000 : key === "embed" ? embedFile.bytes : key === "detector" ? detectorFile.bytes : (info.bytes?.[key] ?? 0);
     return file(url, size, (l, t) => {
       progress.set(key, [l, t]);
       report();
@@ -106,13 +106,28 @@ const lookFrames = new LookFrames(3);
 /** The card the last kept frame was led by: when another card leads, the frames before are another card's. */
 let framesOf: string | null = null;
 
+/** Swap the card finder (detector) for another (Scan settings): the rest stays loaded. */
+async function useDetector(f: EmbedFile) {
+  if (!recognizer) throw new Error("The card recognizer isn't loaded");
+  const graph = await file(new URL(f.url, base_ || self.location.origin).href, f.bytes, () => undefined);
+  await recognizer.setDetector(graph);
+}
+
 self.onmessage = async (event: MessageEvent<ArtWorkerRequest>) => {
   const m = event.data;
   try {
-    if (m.type === "load") await load(m.info, m.base, m.embed);
+    if (m.type === "load") await load(m.info, m.base, m.embed, m.detector);
     else if (m.type === "embed") {
       try {
         await useEmbed(m.embed);
+        reply({ type: "embedded", id: m.id, error: null });
+      } catch (e) {
+        reply({ type: "embedded", id: m.id, error: e instanceof Error ? e.message : String(e) });
+      }
+    }
+    else if (m.type === "detector") {
+      try {
+        await useDetector(m.file);
         reply({ type: "embedded", id: m.id, error: null });
       } catch (e) {
         reply({ type: "embedded", id: m.id, error: e instanceof Error ? e.message : String(e) });

@@ -9,6 +9,7 @@ const V = "/scan-bundle/gallery-20261106T183001884398Z";
 
 /** What `GET /api/scan/bundle` lists, as server/src/scan.rs builds it. */
 const served = (): ModelsInfo => ({
+  detector: { default: "bundle-detector", options: [{ id: "bundle-detector", label: "ManaVault's card finder", note: "", file: `${V}/detector.onnx`, bytes: 12_576_317 }] },
   art: {
     default: "yama-art-20261118",
     options: [
@@ -83,7 +84,7 @@ describe("what a slot runs", () => {
   });
 
   it("names every option's file, so the art worker's cache keeps them all for switching back", () => {
-    expect(modelFiles({ models: served() })).toEqual([`${V}/embed.onnx`, `${V}/query-52420d900728.onnx`]);
+    expect(modelFiles({ models: served() })).toEqual([`${V}/detector.onnx`, `${V}/embed.onnx`, `${V}/query-52420d900728.onnx`]);
     expect(modelFiles({})).toEqual([]);
   });
 });

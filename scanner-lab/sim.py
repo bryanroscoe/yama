@@ -93,7 +93,9 @@ def place(rng, dst, src, quad_dst, alpha=None):
     return dst * (1 - wa) + warped * wa, M
 
 
-def render(card_rgb: np.ndarray, rng: np.random.Generator, level: float = 1.0, sleeve_p: float = 0.75):
+def render(card_rgb: np.ndarray, rng: np.random.Generator, level: float = 1.0, sleeve_p: float = 0.75, room=(1.15, 1.4)):
+    """`room`: how much bigger than the card the scene is (a range). The defaults draw exactly what the
+    shipped models were trained on; meta["card_quad"] is the card's true corners, for training a detector."""
     L = level
     # Working scale: twice the recognizer's, so textures alias on the way down as a 4K frame does.
     final_h = rng.uniform(300, 640)
@@ -140,7 +142,7 @@ def render(card_rgb: np.ndarray, rng: np.random.Generator, level: float = 1.0, s
         unit = unit + rng.uniform(0.2, 0.8) * L * blobs[..., None]
 
     # The scene: the card unit on a background, a bit of room around it.
-    room = rng.uniform(1.15, 1.4)
+    room = rng.uniform(*room)
     H, W = int(sh * room), int(sw * room * rng.uniform(0.9, 1.3))
     scene, kind = background(rng, H, W)
     cx, cy = W / 2 + rng.uniform(-0.08, 0.08) * W, H / 2 + rng.uniform(-0.08, 0.08) * H
@@ -203,4 +205,4 @@ def render(card_rgb: np.ndarray, rng: np.random.Generator, level: float = 1.0, s
     if sleeved and rng.random() < 0.3:
         q = cv2.perspectiveTransform(np.float32([[0, 0], [sw, 0], [sw, sh], [0, sh]])[None], M)[0] * f
     q = q + rng.normal(0, rng.uniform(0.005, 0.025) * width, (4, 2)).astype(np.float32)
-    return img, q.astype(np.float32), {"sleeved": sleeved, "background": str(kind), "cast": str(cast)}
+    return img, q.astype(np.float32), {"sleeved": sleeved, "background": str(kind), "cast": str(cast), "card_quad": card_q.astype(np.float32).tolist()}

@@ -118,3 +118,51 @@ A configuration is the page's query: `build` (an `onnxruntime-web/dist` bundle, 
 `ep` (`wasm` or `webgpu`), `threads`, `detector=wasm` (or `embed=`, `search=`) to keep one graph on WASM,
 `embedFile=/bundle/embed.onnx` for the bundle's own embedder, `n` to run fewer frames. `HEADED=1` shows the
 browser. The frames are made from Scryfall images, so like `data/cards/` they stay out of the repository.
+
+## Two cuts first (`yama-art-20261118-cascade.onnx`)
+
+`cascade.py` adds an int64 `cuts` input to an art model: only the named frame cuts go through the
+network, and the output keeps all 17 rows (zeros for the rest). `recognizer.ts` embeds the modern and old
+cuts first and the others only when those don't settle the frame (docs/scanner.md, "Faster options").
+`cuts` is a required input (onnxruntime-web won't take a feed for an initializer), so only an app that
+knows it loads this file. `cascade.py models/yama-art-20261118.onnx models/yama-art-20261118-cascade.onnx`
+gives the published file byte for byte (sha256 `103b3d9a…`); with all 17 cuts fed it gives the original's
+output exactly.
+
+## Yama's card finder (`yama-corners-20261120.onnx`)
+
+A corner detector with the bundle detector's input and outputs, one view a window (docs/scanner.md,
+"Faster options"). From the work directory, with `data/cards/` (README "Layout"):
+
+```sh
+for i in 0 1 2 3 4 5; do                       # general windows, 2 a render (labels every 250 renders; the
+                                               # shipped model's run was stopped at 20,172 from ~10,500)
+  .venv/bin/python <lab>/corners_gen.py data/corners/train $((i*4000)) 4000 $((100+i)) & done; wait
+SPLIT=val .venv/bin/python <lab>/corners_gen.py data/corners/val 0 1000 999      # held-out cards
+for i in 0 1 2 3; do                           # tight photos of the card, windowed as the scanner does
+  MODE=photo .venv/bin/python <lab>/corners_gen.py data/corners/train_photo $((100000+i*1000)) 1000 $((300+i)) & done; wait
+.venv/bin/python <lab>/corners_train.py c1 18 2e-3                                  # runs/c1/epN.pt
+ROOTS=train,train_photo .venv/bin/python <lab>/corners_train.py c2 8 1e-3 runs/c1/ep8.pt
+.venv/bin/python <lab>/corners_export.py runs/c2/ep5.pt models/yama-corners-20261120.onnx
+EMBED=models/yama-art-20261118.onnx .venv/bin/python <lab>/corners_eval.py bundle models/yama-corners-20261120.onnx
+```
+
+- `corners_gen.py` renders with `sim.py` (its `room` range and the true corners in `meta["card_quad"]`; the
+  defaults draw what the art model was trained on, byte for byte) and cuts the recognizer's 256 px windows:
+  coarse ones with the card at 28 to 98% of the side, fine ones near 60%, any rotation, 0 to 2 fingers or a
+  thumb (skin tones, shading, a nail), a second card half in view (10%), empty windows (8%). Labels are the
+  card's corners as printed, top-left first, covered or not.
+- `corners_train.py`: MobileNetV3-Small from torchvision's ImageNet weights, a small FPN to a 64 × 64 grid,
+  per corner a softmax over the cells of (cell centre + offset), so a covered corner is voted for by the
+  edges around it; a presence head on the pooled features. Loss: L1 on the corners (over the window) +
+  0.2 × cross-entropy to a Gaussian at each corner + 0.3 × presence. AdamW, batch 96, random quarter turns.
+  The first run (18 epochs) stopped after epoch 9 (`ep8.pt`, 2.0% median corner error on held-out windows);
+  the second fine-tuned it with the tight photos; its `ep5.pt` shipped (1.4%). About 50 minutes in all on an
+  M3 Pro's GPU. **Don't edit it while it trains**: macOS DataLoader workers import it afresh.
+- `corners_eval.py` runs `identify()`'s coarse and fine passes (ported) with each detector, then the art
+  model and the lead rule, on the held-out windows, simulated frames with and without fingers, and the real
+  photos. `corners_export.py runs/c2/ep5.pt` gives the published file byte for byte (sha256 `18f9d6aa…`).
+- Inputs and outputs: `window` uint8 256 × 256 × 4 → `quad` 4 × 2, `up` 2 (`[0, -4p]`, so the recognizer's
+  vote is the presence probability p), `centre` 2, `short` (the bundle's formula). Its licence: Yama's own
+  model; torchvision's code is BSD-3-Clause, and the ImageNet starting weights and Scryfall training images
+  are the usual grey areas (docs/scanner.md, "Licences").
