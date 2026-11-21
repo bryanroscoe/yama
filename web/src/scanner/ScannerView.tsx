@@ -1234,6 +1234,7 @@ export function ScannerView({
       return () => {
         stopped = true;
         haltReaders();
+        gate.reset();
         setLive(false);
         cam.attach(null);
         native.close();
