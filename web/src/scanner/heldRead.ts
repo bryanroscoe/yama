@@ -10,6 +10,10 @@
 // 40 to give up, 4 missed frames to stop) came to one to two seconds, ten at most, and under a
 // second without the card on a phone reading three crops a frame. These are guesses too
 // [inferred], to retune from real attempts (docs/scanner.md).
+//
+// Longer since 21 Nov 2026 (Bryan: "it also seems to give up really fast"): the card can leave
+// the finder's view for 6 s, not 2.5 s, while it's brought close to read its corner (the art half
+// out of the frame isn't found as the card), and the close-up box waits 12 s, not 8 s.
 
 export interface HoldBudget {
   /** With Close-ups on: read this long (and at least `closeupFrames`) before the close-up box takes over. */
@@ -31,11 +35,11 @@ export interface HoldBudget {
 
 /** Every hold-and-read time and count, in one place. */
 export const HOLD_BUDGET: HoldBudget = {
-  closeupAfterMs: 8_000,
+  closeupAfterMs: 12_000,
   closeupFrames: 6,
   giveUpAfterMs: 25_000,
   giveUpFrames: 12,
-  awayMs: 2_500,
+  awayMs: 6_000,
   findMs: 10_000,
   failures: 8,
 };

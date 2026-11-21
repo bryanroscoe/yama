@@ -16,7 +16,7 @@ describe("HeldRead, the outer cap on reading a held card", () => {
   it("on a slow phone, waits for enough frames as well as the time", () => {
     const h = new HeldRead(true, 0);
     expect(run(h, HOLD_BUDGET.closeupFrames - 1, 2000)).not.toContain("closeup");
-    expect(h.frame(20_000)).toBe("closeup");
+    expect(h.frame(2 * HOLD_BUDGET.closeupAfterMs - 1)).toBe("closeup");
   });
 
   it("keeps reading much longer with Close-ups off, then stops", () => {
@@ -49,9 +49,10 @@ describe("HeldRead, the outer cap on reading a held card", () => {
     const h = new HeldRead(false, 0);
     h.frame(100);
     for (let t = 300; t < 100 + HOLD_BUDGET.awayMs; t += 300) expect(h.missed(t)).toBe("again");
-    expect(h.frame(2500)).toBe("again");
-    for (let t = 2700; t < 2500 + HOLD_BUDGET.awayMs; t += 300) expect(h.missed(t)).toBe("again");
-    expect(h.missed(2500 + HOLD_BUDGET.awayMs)).toBe("stop");
+    const back = 100 + HOLD_BUDGET.awayMs - 50;
+    expect(h.frame(back)).toBe("again");
+    for (let t = back + 200; t < back + HOLD_BUDGET.awayMs; t += 300) expect(h.missed(t)).toBe("again");
+    expect(h.missed(back + HOLD_BUDGET.awayMs)).toBe("stop");
     expect(h.summary()).toMatchObject({ ended: "stop", why: "away" });
   });
 
@@ -76,12 +77,13 @@ describe("HeldRead, the outer cap on reading a held card", () => {
 
   it("a fresh attempt gets the whole budget again", () => {
     const first = new HeldRead(true, 0);
-    run(first, 40, 250);
+    const end = HOLD_BUDGET.closeupAfterMs + 2000;
+    run(first, end / 250, 250);
     expect(first.summary().ended).toBe("closeup");
     // Keep reading, Wrong printing or leaving the close-up start a new HeldRead from that moment.
-    const again = new HeldRead(true, 10_000);
-    expect(run(again, 20, 250, 10_000)).not.toContain("closeup");
-    expect(again.frame(15_100)).toBe("again");
+    const again = new HeldRead(true, end);
+    expect(run(again, 20, 250, end)).not.toContain("closeup");
+    expect(again.frame(end + 5100)).toBe("again");
   });
 
   it("answers the same once ended", () => {

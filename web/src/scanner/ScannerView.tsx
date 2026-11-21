@@ -590,7 +590,20 @@ export function ScannerView({
   const [phase, setPhase] = useState<Phase>("loading");
   const [status, setStatus] = useState(WAITING);
   const [found, setFound] = useState<Found | null>(null);
-  const [outline, setOutline] = useState<{ quad: Quad; w: number; h: number } | null>(null);
+  /**
+   * The card's outline over the camera, drawn straight onto the SVG every frame rather than through
+   * state (Bryan, 21 Nov 2026: "it feels a teeny bit laggy still when it's identifying the corners
+   * of the card and drawing that little box"): finding the corners is the art recognizer's own first
+   * step, so it costs nothing extra, but a state change re-rendered the whole scanner each frame.
+   */
+  const outlineRef = useRef<SVGSVGElement>(null);
+  const setOutline = useCallback((o: { quad: Quad; w: number; h: number } | null) => {
+    const svg = outlineRef.current;
+    const polygon = svg?.firstElementChild;
+    if (!svg || !polygon) return;
+    if (o) svg.setAttribute("viewBox", `0 0 ${o.w} ${o.h}`);
+    polygon.setAttribute("points", o ? o.quad.map((p) => p.join(",")).join(" ") : "");
+  }, []);
   const [error, setError] = useState<string | null>(null);
   /** "art": recognising artwork. "text": reading text only. null: still starting. */
   const [mode, setMode] = useState<"art" | "text" | null>(null);
@@ -2791,9 +2804,9 @@ export function ScannerView({
       <div ref={cameraRef} className="scan-camera">
         <div className="scan-zoom" style={cam.digital > 1 ? { transform: `scale(${cam.digital})` } : undefined}>
           <video ref={videoRef} className="scan-video" playsInline muted autoPlay aria-hidden="true" />
-          {outline && phase === "scanning" && !closeup && (
-            <svg className="scan-outline" viewBox={`0 0 ${outline.w} ${outline.h}`} preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-              <polygon points={outline.quad.map((p) => p.join(",")).join(" ")} />
+          {phase === "scanning" && !closeup && (
+            <svg ref={outlineRef} className="scan-outline" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+              <polygon />
             </svg>
           )}
         </div>
@@ -3041,8 +3054,10 @@ export function ScannerView({
                 <p>
                   <strong>Step 2: the printing.</strong> Hold the phone close to the card's bottom-left corner, so the set code and number fill the box. Or tap the printing below.
                 </p>
-                {closeupRead && <p className="scan-note">Reading: {closeupRead}</p>}
+                {/* What the reader made of it, not the raw text, which changes with every stray space
+                    (Bryan, 21 Nov 2026); the raw text only with Scanner diagnostics on. */}
                 {readProgress && <p className="scan-note">{readProgress}.</p>}
+                {diag && closeupRead && <p className="scan-note dim">Raw: {closeupRead}</p>}
                 <div className="scan-other-ways">
                   <Button onClick={() => setCloseup(null)}>Back to reading the whole card</Button>
                 </div>
@@ -3100,8 +3115,15 @@ export function ScannerView({
                     }}
                   >
                     <CardThumb src={p.image_small} fallback={<span className="card-fallback" aria-hidden="true" />} />
+                    {/* The number first, as it's what tells printings apart on the card's corner, then
+                        the set code and year (Bryan, 21 Nov 2026: "I always find it hard to know what
+                        is the number that matters"). */}
                     <span className="scan-printing-set">
-                      {p.set_code.toUpperCase()} #{p.collector_number}
+                      <span className="scan-printing-number">#{p.collector_number}</span>
+                      <span className="scan-printing-code">
+                        {p.set_code.toUpperCase()}
+                        {p.released_at ? ` ${p.released_at.slice(0, 4)}` : ""}
+                      </span>
                     </span>
                     {p.scryfall_id === lookGuess && <span className="scan-printing-look">Looks closest</span>}
                     {found.misread?.scryfall_id === p.scryfall_id && <span className="scan-misread">{found.correcting ? "Added as this" : "Read as this"}</span>}

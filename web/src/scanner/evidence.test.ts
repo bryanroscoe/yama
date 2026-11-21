@@ -58,8 +58,36 @@ describe("collector-line evidence", () => {
     const sameSet = [p("a", "sld", "100"), p("b", "sld", "200"), p("c", "sld", "300")];
     const v = verdict(sameSet, Array(10).fill(["SLD • EN"]));
     expect(v).toMatchObject({ kind: "unsure", setRead: "SLD", numberRead: null });
-    // And a number read again and again, with no set code, on a frame that prints one.
-    expect(verdict(signets, Array(10).fill(["0145"])).kind).toBe("unsure");
+    // And a number read again and again, with no set code, when another printing's number reads like it.
+    const near = [p("a", "woc", "145"), p("b", "cmm", "146"), p("c", "c21", "45")];
+    expect(verdict(near, Array(10).fill(["0145"])).kind).toBe("unsure");
+  });
+
+  // Bryan, 21 Nov 2026: "even though it sees the number, like the 286, if that's enough to know
+  // for a particular card, we're good."
+  it("settles on the number alone when no other printing's number reads like it, on two exact frames", () => {
+    expect(verdict(signets, [["0145"]]).kind).toBe("unsure");
+    expect(verdict(signets, [["0145"], ["0145 C"]])).toMatchObject({ kind: "settled", id: "woc", alone: true });
+    // With the set code read too it's an ordinary settle.
+    expect(verdict(signets, [["0145 C", "WOC • EN"]])).not.toHaveProperty("alone");
+    // Lookalike-only reads of it don't count as exact.
+    expect(verdict(signets, Array(4).fill(["O14S"])).kind).toBe("unsure");
+    // A frame reading another printing's set code exactly leaves it to the set code.
+    expect(verdict(signets, [["0145"], ["0145"], ["CMM • EN"]]).kind).toBe("unsure");
+    // The twin guards still hold: The List prints the same number.
+    const withList = [p("orig", "mom", "286"), p("list", "plst", "MOM-286"), p("other", "one", "12")];
+    expect(verdict(withList, Array(4).fill(["0286 M"]))).toMatchObject({ kind: "unsure" });
+  });
+
+  it("reads through stray spaces, a glued rarity letter and the brush mark", () => {
+    const cards = [p("mom", "mom", "286", { rarity: "mythic" }), p("one", "one", "12", { rarity: "mythic" }), p("woe", "woe", "331", { rarity: "mythic" })];
+    expect(tokens("02 86 M")).toContain("0286");
+    expect(tokens("M 19 • EN")).toContain("M19");
+    expect(tokens("MOMEENJRYAN VALLE")).toEqual(expect.arrayContaining(["MOM", "EN"]));
+    expect(verdict(cards, [["0286M", "MOM•ENJRYAN VALLE"]])).toMatchObject({ kind: "settled", id: "mom" });
+    expect(verdict(cards, [["02 86 M\nMOMEEN/RYAN VALLE"]])).toMatchObject({ kind: "settled", id: "mom" });
+    // A glued letter that isn't the printing's rarity stays part of the number.
+    expect(verdict([p("plain", "10e", "139"), p("star", "10e", "139s")], Array(2).fill(["139S", "10E • EN"]))).toMatchObject({ kind: "settled", id: "star" });
   });
 
   it("needs only the number on frames before 2014, which print no set code (over two frames: a number alone is less evidence)", () => {
