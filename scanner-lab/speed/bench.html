@@ -1,0 +1,77 @@
+<!doctype html><meta charset="utf-8"><title>Scanner speed bench</title><body><pre id="log"></pre>
+<script type="module">
+// Runs web/src/scanner/recognizer.ts (createRecognizer, as the art worker does) on the bench frames and
+// records every graph run's time. Query: build (an onnxruntime-web bundle), ep (wasm or webgpu), threads,
+// and per graph (detector, embed, search) "wasm" to keep that one on WASM. drive.mjs serves and reads it.
+const P = new URLSearchParams(location.search);
+const ort = await import("/ort/" + (P.get("build") ?? "ort.all.min.mjs"));
+const { createRecognizer, parseArts } = await import("/bench/recognizer.js");
+const ep = P.get("ep") ?? "wasm";
+const threads = Number(P.get("threads") ?? 1);
+ort.env.wasm.wasmPaths = "/ort/";
+ort.env.wasm.numThreads = threads;
+ort.env.logLevel = "error";
+const order = ["detector", "embed", "search"];
+const times = { detector: [], embed: [], search: [] };
+let made = 0;
+const timed = {
+  Tensor: ort.Tensor,
+  InferenceSession: {
+    async create(model, options) {
+      const which = order[made++];
+      const on = ep === "webgpu" ? (P.get(which) ?? "webgpu") : "wasm";
+      const s = await ort.InferenceSession.create(model, { ...options, executionProviders: on === "webgpu" ? ["webgpu", "wasm"] : ["wasm"] });
+      return {
+        inputNames: s.inputNames,
+        async run(feeds) {
+          const t = performance.now();
+          const out = await s.run(feeds);
+          times[which].push(performance.now() - t);
+          return out;
+        },
+      };
+    },
+  },
+};
+const bytes = async (u) => new Uint8Array(await (await fetch(u)).arrayBuffer());
+const [detector, embed, search, artsJson, manifest, index] = await Promise.all([
+  bytes("/bundle/detector.onnx"), bytes(P.get("embedFile") ?? "/embed.onnx"), bytes("/bundle/search.onnx"),
+  fetch("/bundle/arts.slim.json").then((r) => r.json()), fetch("/bundle/manifest.json").then((r) => r.json()), fetch("/frames/index.json").then((r) => r.json()),
+]);
+const arts = parseArts(artsJson);
+const illustration = new Map(arts.map((a) => [a.id, a.illustrationId]));
+const t0 = performance.now();
+let rec = null, loadError = null;
+try { rec = await createRecognizer(timed, { detector, embed, search }, manifest.constants, arts); } catch (e) { loadError = String(e); }
+const loadMs = performance.now() - t0;
+for (const k of order) times[k].length = 0;
+const canvas = document.createElement("canvas");
+const ctx = canvas.getContext("2d", { willReadFrequently: true });
+const results = [];
+for (const r of rec ? index.slice(0, Number(P.get("n") ?? index.length)) : []) {
+  if (r.frame === 0) rec.reset();
+  const bmp = await createImageBitmap(await (await fetch("/frames/" + r.file)).blob());
+  canvas.width = bmp.width; canvas.height = bmp.height; ctx.drawImage(bmp, 0, 0);
+  const img = ctx.getImageData(0, 0, bmp.width, bmp.height);
+  const before = Object.fromEntries(order.map((k) => [k, times[k].length]));
+  const out = await rec.identify({ width: img.width, height: img.height, data: img.data });
+  const top = out.matches[0];
+  results.push({
+    file: r.file, frame: r.frame, card: r.card, top: top?.id ?? null, score: top?.score ?? null,
+    right: !!top && (top.id === r.card || (illustration.get(r.card) != null && illustration.get(r.card) === top.illustrationId)),
+    timings: out.timings, runs: Object.fromEntries(order.map((k) => [k, times[k].slice(before[k])])),
+  });
+}
+// Reading a frame back, roughly as the camera loop does: a synthetic 2160 x 3840 canvas (not a camera's video
+// element, whose read can cost more) drawn at 640 x 1138 and read back.
+const src = new OffscreenCanvas(2160, 3840);
+const sx = src.getContext("2d"); sx.fillStyle = "#357"; sx.fillRect(0, 0, 2160, 3840); sx.fillStyle = "#c93"; sx.fillRect(400, 800, 1300, 1900);
+const grab = [];
+for (let i = 0; i < 30; i++) {
+  const t = performance.now(); canvas.width = 640; canvas.height = 1138; ctx.drawImage(src, 0, 0, 2160, 3840, 0, 0, 640, 1138); ctx.getImageData(0, 0, 640, 1138); grab.push(performance.now() - t);
+}
+let gpu = null;
+try { const a = await navigator.gpu?.requestAdapter(); gpu = a ? `${a.info?.vendor ?? ""} ${a.info?.architecture ?? ""}`.trim() : null; } catch { gpu = null; }
+window.__bench = { query: location.search, isolated: crossOriginIsolated, cores: navigator.hardwareConcurrency, gpu, loadError, loadMs, results, grab, ua: navigator.userAgent };
+document.getElementById("log").textContent = "done";
+</script>

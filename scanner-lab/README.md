@@ -30,9 +30,10 @@ Run every script from a work directory **outside the repository**: `python <lab>
 | `data/real_crops.npz` | the real photos' crops, cached by `evalreal.py` (people's data) | 200 MB |
 | `runs/<run>/epN.pt` | a checkpoint per epoch (`train.py`) | 4 MB each |
 | `out/` | `realeval.py`'s per-photo scores | small |
+| `speed/frames/` | the speed bench's frames, made from Scryfall images (`speed_frames.py`) | 100 MB |
 
-Card images are Scryfall's, fetched for training and never published: delete `data/cards/` and
-`data/crops/` when you're done.
+Card images are Scryfall's, fetched for training and never published: delete `data/cards/`,
+`data/crops/` and `speed/frames/` when you're done.
 
 ## Inputs
 
@@ -95,3 +96,24 @@ training run's own data and checkpoints, which aren't published): `split.py` giv
 `yama-art-20261118.onnx` byte for byte (sha256 `52420d90…`); and `sweep.py runs/art1 bundle ep6.pt`
 prints the same table as the run did for both. Training itself wasn't run again. `fullsweep.py` on
 the bundle's `embed.onnx` and the exported file gave the whole-capture table in docs/scanner.md.
+
+## Speed
+
+`speed/drive.mjs` times the scanner's art recognizer in Chrome: it bundles `web/src/scanner/recognizer.ts`,
+serves a bench page cross-origin isolated (so WASM may use threads), runs every frame through
+`createRecognizer` as the art worker does, and prints each graph's median time per configuration
+(docs/scanner.md, "Speed"). It needs the repository's `npm ci` (playwright-core, rolldown, onnxruntime-web)
+(`rolldown` comes with Vite) and an installed Google Chrome. From the bundle it reads `detector.onnx`, `search.onnx`,
+`arts.slim.json` and `manifest.json`; `--embed` is the art model to time.
+
+```sh
+.venv/bin/python <lab>/speed_frames.py 40    # speed/frames/: 160 frames of 40 held-out cards (needs data/cards/)
+node <repo>/scanner-lab/speed/drive.mjs --bundle bundle --embed models/yama-art-20261118.onnx \
+  --frames speed/frames --out out/speed.json \
+  "ep=wasm&threads=1" "ep=wasm&threads=4" "build=ort.webgpu.min.mjs&ep=webgpu" "build=ort.jspi.min.mjs&ep=webgpu"
+```
+
+A configuration is the page's query: `build` (an `onnxruntime-web/dist` bundle, default `ort.all.min.mjs`),
+`ep` (`wasm` or `webgpu`), `threads`, `detector=wasm` (or `embed=`, `search=`) to keep one graph on WASM,
+`embedFile=/bundle/embed.onnx` for the bundle's own embedder, `n` to run fewer frames. `HEADED=1` shows the
+browser. The frames are made from Scryfall images, so like `data/cards/` they stay out of the repository.
