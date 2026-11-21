@@ -44,6 +44,8 @@ export function NativeCameraSetting({
   const d = camera?.described() ?? null;
   const offered = LENSES.filter((l) => l === "auto" || l === option.lens || !d || d.lenses.some((x) => x.lens === l));
   const levels = d?.torchLevels ?? 0;
+  // The strength chosen here, else the one the camera says it's at (the phone's own default, not always its brightest).
+  const level = Math.min(levels, option.torchLevel ?? d?.torchLevel ?? levels);
   return (
     <div className="scan-native-camera">
       <div className="scan-keep">
@@ -76,13 +78,13 @@ export function NativeCameraSetting({
           </Field>
           {levels > 1 && (
             <label className="scan-native-range">
-              <span className="dim">Flashlight strength {option.torchLevel ?? levels} of {levels}</span>
+              <span className="dim">Flashlight strength {level} of {levels}</span>
               <input
                 type="range"
                 min={1}
                 max={levels}
                 step={1}
-                value={option.torchLevel ?? levels}
+                value={level}
                 onChange={(e) => {
                   const torchLevel = Number(e.target.value);
                   onChange({ ...option, torchLevel });

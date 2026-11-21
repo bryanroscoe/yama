@@ -5,7 +5,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { inUseLine, NativeCameraSetting, RATES } from "./NativeCameraSetting";
-import type { NativeCameraOption } from "./nativeCamera";
+import type { NativeCamera, NativeCameraOption } from "./nativeCamera";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -71,6 +71,17 @@ describe("NativeCameraSetting", () => {
       lens!.dispatchEvent(new Event("change", { bubbles: true }));
     });
     expect(changes[0]).toMatchObject({ lens: "main", fps: 60, on: true });
+  });
+
+  it("shows the flashlight at the strength the camera reports until one is chosen (Codex review)", () => {
+    const camera = { described: () => ({ lenses: [], fpsRanges: [], torchLevels: 5, torchLevel: 2 }), setTorchLevel: async () => undefined } as unknown as NativeCamera;
+    const changes: NativeCameraOption[] = [];
+    act(() => root.render(<NativeCameraSetting option={{ ...OFF, on: true }} onChange={(o) => changes.push(o)} info={null} camera={camera} />));
+    expect(host.textContent).toContain("Flashlight strength 2 of 5");
+    const slider = host.querySelector<HTMLInputElement>('input[type="range"]')!;
+    expect(slider.value).toBe("2");
+    act(() => root.render(<NativeCameraSetting option={{ ...OFF, on: true, torchLevel: 4 }} onChange={() => undefined} info={null} camera={camera} />));
+    expect(host.textContent).toContain("Flashlight strength 4 of 5");
   });
 
   it("says when the app's camera didn't open", () => {

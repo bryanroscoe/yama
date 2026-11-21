@@ -798,7 +798,10 @@ public class ScannerCameraPlugin extends Plugin {
         // How many strengths the torch has: 1 is on or off only.
         int levels = info.hasFlashUnit() ? (info.isTorchStrengthSupported() ? info.getMaxTorchStrengthLevel() : 1) : 0;
         ret.put("torchLevels", levels);
-        if (torchLevel > 0) ret.put("torchLevel", torchLevel);
+        // The strength the torch is at (the phone's own until one is chosen), where it has strengths.
+        Integer strength = levels > 1 ? info.getTorchStrengthLevel().getValue() : null;
+        if (strength != null && strength > 0) ret.put("torchLevel", strength);
+        else if (torchLevel > 0) ret.put("torchLevel", torchLevel);
         ret.put("focusMode", focusMode);
         if (focusDistance > 0) ret.put("focusDistance", focusDistance);
         if (o.nearestDiopters > 0) {
