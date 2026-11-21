@@ -106,6 +106,16 @@ async fn a_plans_history_says_where_it_and_each_change_came_from() {
     )
     .await;
     assert!(!err && text.contains("already in Alpha Deck's history"), "{text}");
+    // The same op_id for a correction of another entry is another operation: refused.
+    let (err, text) = call(
+        &app,
+        &key,
+        "record_plan_history",
+        json!({"plan": "alpha", "on": "2026-10-02", "what": "The precon upgrade began.", "asked": "Upgrade Alpha, please", "replaces": "another-entry",
+               "op_id": "history-fix1"}),
+    )
+    .await;
+    assert!(err && text.contains("op_id history-fix1 was used for another entry"), "{text}");
     let all = entries(&pool, &owner).await;
     assert_eq!(all.iter().map(|e| e.0.as_str()).collect::<Vec<_>>(), vec!["2026-10-02", "2026-10-18"], "the corrected entry replaced the first");
 

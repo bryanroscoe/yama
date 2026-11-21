@@ -19,6 +19,7 @@ CREATE TABLE plan_history (
     cards         TEXT NOT NULL DEFAULT '[]',    -- JSON [card name]: the changes it is about, by the card each puts in
     via           TEXT NOT NULL,                 -- how the assistant got in: key | oauth | question, or staged (a staged track_build applied)
     op_id         TEXT,                          -- the caller's id: a retry with the same id records nothing new
+    replaces      TEXT,                          -- the entry this one corrected (deleted then), so a retry of the correction is the same one
     recorded_at   TEXT NOT NULL,
     UNIQUE (owner_id, op_id),
     FOREIGN KEY (plan_deck_id, owner_id) REFERENCES plan_decks(id, owner_id) ON DELETE CASCADE

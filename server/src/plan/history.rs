@@ -61,34 +61,38 @@ pub struct Recorded {
 /// plan, or its only plan; several plans with the name and none live (one replaced another, then
 /// that one was archived) need the key, as do several partial matches.
 pub async fn plan_of(pool: &SqlitePool, owner: &str, wanted: &str) -> AppResult<(String, String, String)> {
-    let rows: Vec<(String, String, String, bool)> = sqlx::query_as(
-        "SELECT id, key, name, status = 'archived' OR archived_at IS NOT NULL FROM plan_decks WHERE owner_id = ?1
-           AND (key = ?2 OR lower(name) = lower(?2) OR instr(lower(name), lower(?2)) > 0)
-         ORDER BY key LIMIT 50",
-    )
-    .bind(owner)
-    .bind(wanted)
-    .fetch_all(pool)
-    .await?;
-    let pick = |r: &(String, String, String, bool)| (r.0.clone(), r.1.clone(), r.2.clone());
-    if let Some(r) = rows.iter().find(|r| r.1 == wanted) {
-        return Ok(pick(r));
-    }
-    let named: Vec<&(String, String, String, bool)> = rows.iter().filter(|r| r.2.eq_ignore_ascii_case(wanted)).collect();
-    let live: Vec<&&(String, String, String, bool)> = named.iter().filter(|r| !r.3).collect();
-    let several = |list: Vec<&(String, String, String, bool)>| {
+    type Row = (String, String, String, bool);
+    const COLS: &str = "SELECT id, key, name, status = 'archived' OR archived_at IS NOT NULL FROM plan_decks WHERE owner_id = ?1";
+    let several = |list: &[Row]| {
         AppError::bad(format!("Several plans match \"{wanted}\": {}. Give the plan key.", list.iter().map(|r| r.1.as_str()).collect::<Vec<_>>().join(", ")))
     };
+    // A key first, then the exact name, then a part of a name: each found in full before the next.
+    let by_key: Option<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!("{COLS} AND key = ?2"))).bind(owner).bind(wanted).fetch_optional(pool).await?;
+    if let Some(r) = by_key {
+        return Ok((r.0, r.1, r.2));
+    }
+    let named: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!("{COLS} AND lower(name) = lower(?2) ORDER BY key")))
+        .bind(owner)
+        .bind(wanted)
+        .fetch_all(pool)
+        .await?;
+    let live: Vec<&Row> = named.iter().filter(|r| !r.3).collect();
+    let pick = |r: &Row| (r.0.clone(), r.1.clone(), r.2.clone());
     match (named.as_slice(), live.as_slice()) {
         (_, [one]) => return Ok(pick(one)),
         ([one], _) => return Ok(pick(one)),
         ([], _) => {}
-        _ => return Err(several(named)),
+        _ => return Err(several(&named)),
     }
-    match rows.as_slice() {
+    let partial: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!("{COLS} AND instr(lower(name), lower(?2)) > 0 ORDER BY key LIMIT 10")))
+        .bind(owner)
+        .bind(wanted)
+        .fetch_all(pool)
+        .await?;
+    match partial.as_slice() {
         [] => Err(AppError::NotFound("plan deck")),
         [one] => Ok(pick(one)),
-        _ => Err(several(rows.iter().collect())),
+        _ => Err(several(&partial)),
     }
 }
 
@@ -144,14 +148,15 @@ pub async fn record(pool: &SqlitePool, owner: &str, plan: &str, e: &Entry, op_id
     // an import can move a plan to another key (`notes::make_room`) or rename a card.
     if let Some(op) = op_id {
         #[allow(clippy::type_complexity)]
-        let stored: Option<(String, String, String, String, Option<String>, Option<String>, Option<String>, Option<String>, String)> = sqlx::query_as(
-            "SELECT id, plan_deck_id, on_date, what, asked, conversation, work, group_label, cards FROM plan_history WHERE owner_id = ? AND op_id = ?",
-        )
-        .bind(owner)
-        .bind(op)
-        .fetch_optional(pool)
-        .await?;
-        if let Some((id, p, on_date, w, asked, conversation, work, g, c)) = stored {
+        let stored: Option<(String, String, String, String, Option<String>, Option<String>, Option<String>, Option<String>, String, Option<String>)> =
+            sqlx::query_as(
+                "SELECT id, plan_deck_id, on_date, what, asked, conversation, work, group_label, cards, replaces FROM plan_history WHERE owner_id = ? AND op_id = ?",
+            )
+            .bind(owner)
+            .bind(op)
+            .fetch_optional(pool)
+            .await?;
+        if let Some((id, p, on_date, w, asked, conversation, work, g, c, replaced)) = stored {
             let (deck_key, deck): (String, String) =
                 sqlx::query_as("SELECT key, name FROM plan_decks WHERE id = ? AND owner_id = ?").bind(&p).bind(owner).fetch_one(pool).await?;
             // The stored plan is the one it was recorded on: the key given may name another plan
@@ -169,7 +174,8 @@ pub async fn record(pool: &SqlitePool, owner: &str, plan: &str, e: &Entry, op_id
             given.sort();
             given.dedup();
             kept.sort();
-            let same = on_date == e.on
+            let same = replaced.as_deref() == replaces
+                && on_date == e.on
                 && w == e.what.trim()
                 && asked == e.asked
                 && conversation == e.conversation
@@ -283,8 +289,8 @@ pub async fn record(pool: &SqlitePool, owner: &str, plan: &str, e: &Entry, op_id
     }
     let id = new_id();
     sqlx::query(
-        "INSERT INTO plan_history (id, owner_id, plan_deck_id, on_date, what, asked, conversation, work, group_label, cards, via, op_id, recorded_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO plan_history (id, owner_id, plan_deck_id, on_date, what, asked, conversation, work, group_label, cards, via, op_id, replaces, recorded_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(owner)
@@ -298,6 +304,7 @@ pub async fn record(pool: &SqlitePool, owner: &str, plan: &str, e: &Entry, op_id
     .bind(&cards_json)
     .bind(via)
     .bind(op_id)
+    .bind(replaces)
     .bind(crate::util::now())
     .execute(&mut *tx)
     .await?;
