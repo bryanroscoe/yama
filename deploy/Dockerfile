@@ -94,6 +94,8 @@ COPY docs/local-shopping-workflow.md docs/local-shopping-workflow.md
 COPY docs/mcp-tool-notes.md docs/mcp-tool-notes.md
 # The public Rust renderer embeds these shared web inputs at compile time.
 COPY web/src/styles.css web/src/controls.css web/src/art-framing.css web/src/
+# The printing look's parity files: the server checks its look runner against them (scan_look.rs).
+COPY web/src/scanner/eval/look-parity-*.json web/src/scanner/eval/
 COPY web/public/precons.css web/public/site-frame-v1.css web/public/site-notice.html web/public/public-list-v1.js web/public/
 # The commit this image is built from (the build context has no .git); server/build.rs stamps it.
 ARG YAMA_GIT_SHA=

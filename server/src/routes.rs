@@ -81,6 +81,7 @@ pub fn app(state: AppState) -> Router {
         .merge(crate::public_precons::router())
         .merge(crate::public_commanders::router())
         .merge(crate::scan::router(&state.cfg.data_dir))
+        .merge(crate::scan_look::router())
         .merge(crate::scan_samples::router())
         .merge(crate::scan_diagnostics::router())
         .merge(crate::scan_timings::router())
@@ -232,6 +233,10 @@ pub async fn serve(cfg: Config, pool: SqlitePool) -> anyhow::Result<()> {
         // Artworks the bundle doesn't know yet, embedded here after each card import (scan_art.rs).
         if cfg.scan_supplement {
             crate::scan_art::spawn(pool.clone(), cfg.data_dir.clone(), http_client());
+        }
+        // Each printing's look vectors, so phones needn't fetch and embed its picture (scan_look.rs).
+        if cfg.scan_looks {
+            crate::scan_look::spawn(pool.clone(), cfg.data_dir.clone(), http_client(), crate::scan::Withdrawn::of(&cfg));
         }
     }
     // Research answers are kept in the database (research_cache) so restarts reuse them; the deck

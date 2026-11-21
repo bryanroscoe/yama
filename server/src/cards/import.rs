@@ -259,8 +259,10 @@ pub fn spawn_scheduler(pool: SqlitePool, data_dir: PathBuf) {
                             tracing::info!(kind, "imported fresh Scryfall data");
                             crate::db::after_import(&pool).await;
                             // New printings may bring artworks the scanner's bundle lacks (scan_art.rs).
+                            // And printings whose look vectors aren't made yet (scan_look.rs).
                             if kind == "default_cards" {
                                 crate::scan_art::nudge();
+                                crate::scan_look::nudge();
                             }
                             // New names, art and prices for the public pages.
                             crate::derived::nudge();
