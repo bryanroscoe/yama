@@ -14,7 +14,7 @@
 .sharing-item a { overflow-wrap: anywhere; }
 .sharing-item p { margin: 4px 0 0; }
 .sharing-item .row { flex-wrap: wrap; }
-.sharing-page #sharing { scroll-margin-top: 24px; }
+.sharing-page :is(#sharing, h2[id]) { scroll-margin-top: calc(var(--sticky-top) + 24px); }
 .sharing-compare { margin-top: 16px; }
 .sharing-compare label { display: flex; flex-direction: column; gap: 4px; }
 .sharing-compare input { flex: 1 1 12rem; min-width: 0; }
