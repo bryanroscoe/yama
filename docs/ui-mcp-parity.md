@@ -102,9 +102,8 @@ part of it). "Gap" rows are the backlog, in rough priority order inside each are
 | Capability | UI | MCP | Status |
 |---|---|---|---|
 | Plans overview, one plan | Plans, plan page | `get_overview`, `get_plan` | Both |
-| Use a note's build as the plan | Build choices, "Use a deck from it" | `track_build` (staged) | Both |
-| Approve a plan version, or keep the earlier one | Plan page | `approve_plan` (staged, `action` keep) | Both |
-| Archive, restore or undo a plan; clear refused decisions | Plan page | — | **Gap (MCP).** Stage plan actions |
+| Use a note's build as the plan | Build choices, "Use a deck from it" | `track_build` (direct; staged on a stage-only connection) | Both |
+| Archive or restore a plan; clear refused decisions | Plan page | — | **Gap (MCP).** Stage plan actions |
 | Link a plan to a Yama deck | Plan page | `track_build` links its own; none for imported plans | **Gap (MCP)** |
 | Review queue, answer a swap | Plan page, Changes | `get_review_queue`, `answer_review` | Both |
 | Propose a swap | Plan page | `propose_swap` | Both |

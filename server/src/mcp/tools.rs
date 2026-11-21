@@ -880,7 +880,8 @@ pub(super) const TOOLS: &[Tool] = &[
                       the same deck. A change whose cut clashes (no card named to cut, a cut the plan already makes, two changes cutting \
                       one card) is left out, and the answer names it. Another build of the same deck switches to it; build null stops it \
                       (archived, kept for a return). Saving the note again updates the plan. Do it when they ask for a plan or agree to \
-                      one. Give the note id and deck key from `get_overview` or `get_research`. Nothing is bought until they mark it.",
+                      one. Give the note id and deck key from `get_overview` or `get_research`. Nothing is bought until they mark it. On a \
+                      connection they limited to staging, it stages the change for them to apply instead.",
         schema: || {
             json!({"type":"object","properties":{
                 "note":{"type":"string","description":"The note's id."},
@@ -1651,7 +1652,7 @@ async fn run_save_research(c: Ctx<'_>, args: &Value) -> AppResult<String> {
 }
 
 async fn run_track_build(c: Ctx<'_>, args: &Value) -> AppResult<String> {
-    changes::track_build(c.st, c.user, args).await
+    changes::track_build(c.st, c.user, c.via, args).await
 }
 
 #[allow(unused_variables)]

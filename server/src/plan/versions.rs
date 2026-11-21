@@ -466,17 +466,11 @@ pub async fn load(conn: &mut SqliteConnection, owner: &str, installs: Option<&In
 
 // ── the plan op ────────────────────────────────────────────────────────────
 
-/// A checked `plan` op (inputs.rs parses it): what to do to one deck's plan.
+/// A checked `plan` op (inputs.rs parses it): what to do to one deck's plan. Its other fields
+/// (version, keys, skips, hash, answers) are only for the export side's record now.
 #[derive(Debug, Clone)]
 pub struct PlanOp {
     pub action: String,
-    pub version: Option<i64>,
-    pub keys: Vec<String>,
-    pub skip: Vec<String>,
-    /// The waiting version's `hash` as the page or the staged change saw it.
-    pub hash: Option<String>,
-    /// (question, answer)
-    pub answers: Vec<(String, String)>,
 }
 
 /// Every action a plan op has had, so the export side can still read older ones. Only archive and
@@ -675,11 +669,8 @@ pub async fn settle(conn: &mut SqliteConnection, owner: &str) -> AppResult<Vec<S
         done.insert(id.clone());
         out.push(take_in(&mut *conn, owner, id, key, name, source, &next).await?);
     }
-    if !out.is_empty() {
-        let at = crate::util::now();
-        sqlx::query("INSERT INTO plan_meta (owner_id, updated_at) VALUES (?, ?) ON CONFLICT(owner_id) DO NOTHING").bind(owner).bind(&at).execute(&mut *conn).await?;
-        sqlx::query("UPDATE plan_meta SET revision = revision + 1, updated_at = ? WHERE owner_id = ?").bind(&at).bind(owner).execute(&mut *conn).await?;
-    }
+    // The caller's write moves the plan revision (an import's head, a note's bump, a batch of ops),
+    // so the pages fetch again; `settle_all` moves it itself.
     Ok(out)
 }
 
@@ -693,8 +684,14 @@ pub async fn settle_all(pool: &sqlx::SqlitePool) -> AppResult<usize> {
     let mut n = 0;
     for owner in owners {
         let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
-        n += settle(&mut tx, &owner).await?.len();
+        let settled = settle(&mut tx, &owner).await?.len();
+        if settled > 0 {
+            let at = crate::util::now();
+            sqlx::query("INSERT INTO plan_meta (owner_id, updated_at) VALUES (?, ?) ON CONFLICT(owner_id) DO NOTHING").bind(&owner).bind(&at).execute(&mut *tx).await?;
+            sqlx::query("UPDATE plan_meta SET revision = revision + 1, updated_at = ? WHERE owner_id = ?").bind(&at).bind(&owner).execute(&mut *tx).await?;
+        }
         tx.commit().await?;
+        n += settled;
     }
     Ok(n)
 }
@@ -703,16 +700,34 @@ pub async fn settle_all(pool: &sqlx::SqlitePool) -> AppResult<usize> {
 /// for each one `left_out` names (your note, if you wrote one, is kept), the version recorded, and for
 /// a plan file's deck the answers and the plan op in the export side's inbox.
 async fn take_in(conn: &mut SqliteConnection, owner: &str, plan_id: &str, deck_key: &str, name: &str, source: &str, next: &Next) -> AppResult<Settled> {
-    let at = crate::util::now();
     let op_id = format!("yama-settle-{}", new_id());
     let for_export = source != "yama";
-    let swaps: Vec<(String, String, Option<String>, String, Option<String>)> = sqlx::query_as(
-        "SELECT ext_key, in_name, out_name, src, why FROM plan_swaps WHERE owner_id = ? AND plan_deck_id = ? AND retired_at IS NULL ORDER BY sort, ext_key",
+    let rows: Vec<(String, String, Option<String>, String, Option<String>, String)> = sqlx::query_as(
+        "SELECT ext_key, in_name, out_name, src, why, updated_at FROM plan_swaps WHERE owner_id = ? AND plan_deck_id = ? AND retired_at IS NULL ORDER BY sort, ext_key",
     )
     .bind(owner)
     .bind(plan_id)
     .fetch_all(&mut *conn)
     .await?;
+    let found = priors(&mut *conn, owner, &next.keys).await?;
+    // The answers have to count as given after each change last changed, and be the newest word
+    // on it (an answer under an alias, or a device's clock a little ahead, can be later than now):
+    // else the change stays new and every write would take it in again. So they're stamped now,
+    // or later than anything they answer.
+    let at = {
+        let parse = |t: &str| chrono::DateTime::parse_from_rfc3339(t).ok().map(|d| d.with_timezone(&chrono::Utc));
+        let mut at = chrono::Utc::now();
+        for (k, .., updated) in rows.iter().filter(|r| next.keys.contains(&r.0)) {
+            if let Some(u) = parse(updated) {
+                at = at.max(u);
+            }
+            if let Some(a) = found.get(k).and_then(|p| parse(&p.at)) {
+                at = at.max(a + chrono::Duration::seconds(1));
+            }
+        }
+        at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+    };
+    let swaps: Vec<(String, String, Option<String>, String, Option<String>)> = rows.into_iter().map(|(k, i, o, src, w, _)| (k, i, o, src, w)).collect();
     let cards: HashMap<String, String> = swaps.iter().map(|(k, i, ..)| (k.clone(), i.clone())).collect();
     let cut_of = |k: &str| next.cuts.iter().find(|c| c.key == k).and_then(|c| c.out.clone());
     let change = |k: &str, why: Option<&str>| {
@@ -733,23 +748,40 @@ async fn take_in(conn: &mut SqliteConnection, owner: &str, plan_id: &str, deck_k
             None => card,
         }
     };
-    let why: HashMap<String, String> = left_out(next).into_iter().collect();
-    let found = priors(&mut *conn, owner, &next.keys).await?;
+    // A no or unsure a person gave stays, even when the change was edited after it (a plan file's
+    // new wording, a note saved again): nobody looks at it before it goes in now, so it never goes
+    // in over their word. Only Yama's own left-outs (settle's ops) are looked at again.
+    let theirs = |k: &String| {
+        found.get(k).is_some_and(|p| {
+            matches!(p.decision.as_deref(), Some("no" | "unsure")) && !p.op_id.as_deref().is_some_and(|o| o.starts_with("yama-settle-"))
+        })
+    };
+    let held: Vec<String> = next.keys.iter().filter(|k| next.skipped.contains(k) || theirs(k)).cloned().collect();
+    let why: HashMap<String, String> = left_out(&Next { skipped: held.clone(), ..next.clone() }).into_iter().collect();
     let mut before = serde_json::Map::new();
     let (mut writes, mut kept, mut skipped, mut skip_keys, mut said) = (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for k in &next.keys {
         let p = found.get(k).cloned();
-        if next.skipped.contains(k) {
-            // You already answered it: no or unsure stays as it is.
-            let w = if p.as_ref().and_then(|p| p.decision.as_deref()) == Some("unsure") { "You weren't sure about it." } else { "You said no to it." };
-            skipped.push(change(k, Some(w)));
+        if held.contains(k) {
+            let unsure = p.as_ref().and_then(|p| p.decision.as_deref()) == Some("unsure");
+            skipped.push(change(k, Some(if unsure { "You weren't sure about it." } else { "You said no to it." })));
             skip_keys.push(k.clone());
+            // Edited since: the same answer again, so it counts for what the change says now.
+            if !next.skipped.contains(k)
+                && let Some(p) = &p
+            {
+                before.insert(k.clone(), serde_json::to_value(p).unwrap_or(Value::Null));
+                writes.push(Write { key: k.clone(), decision: p.decision.clone(), note: p.note.clone(), cut: p.cut.clone() });
+            }
             continue;
         }
         let (note, mut cut) = p.as_ref().map(|p| (p.note.clone(), p.cut.clone())).unwrap_or_default();
         before.insert(k.clone(), serde_json::to_value(&p).unwrap_or(Value::Null));
+        // Your note stays; the reason Yama wrote when it left this out before goes.
+        let ours = p.as_ref().is_some_and(|p| p.op_id.as_deref().is_some_and(|o| o.starts_with("yama-settle-")));
+        let note = note.filter(|n| !n.trim().is_empty() && !(ours && n.starts_with(LEFT_OUT)));
         if let Some(w) = why.get(k) {
-            let note = note.filter(|n| !n.trim().is_empty()).or_else(|| Some(format!("Yama left this out: {w}")));
+            let note = note.or_else(|| Some(format!("{LEFT_OUT}{w}")));
             writes.push(Write { key: k.clone(), decision: Some("unsure".into()), note, cut });
             skipped.push(change(k, Some(w)));
             skip_keys.push(k.clone());
@@ -769,34 +801,15 @@ async fn take_in(conn: &mut SqliteConnection, owner: &str, plan_id: &str, deck_k
     }
     write_answers(&mut *conn, owner, deck_key, name, for_export, &writes, &cards, &op_id, &at).await?;
     // The newest plan for a deck replaces every other live plan for it.
-    let others: Vec<(String, String)> = sqlx::query_as(
-        "SELECT id, key FROM plan_decks WHERE owner_id = ? AND id != ? AND lower(trim(name)) = ? AND status != 'archived' AND archived_at IS NULL",
-    )
-    .bind(owner)
-    .bind(plan_id)
-    .bind(name_key(name))
-    .fetch_all(&mut *conn)
-    .await?;
-    for (o, _) in &others {
-        sqlx::query("UPDATE plan_decks SET archived_at = ?, archived_note = ? WHERE id = ? AND owner_id = ?")
-            .bind(&at)
-            .bind(format!("Replaced by version {}", next.n))
-            .bind(o)
-            .bind(owner)
-            .execute(&mut *conn)
-            .await?;
-    }
+    let others = replace_others(&mut *conn, owner, plan_id, name, &format!("Replaced by version {}", next.n), &at).await?;
     let replaced: Vec<&String> = others.iter().map(|(id, _)| id).collect();
-    sqlx::query(
-        "UPDATE plan_versions SET superseded_at = ? WHERE owner_id = ? AND status = 'approved' AND superseded_at IS NULL
-         AND (plan_deck_id = ? OR plan_deck_id IN (SELECT value FROM json_each(?)))",
-    )
-    .bind(&at)
-    .bind(owner)
-    .bind(plan_id)
-    .bind(serde_json::to_string(&replaced).unwrap_or_default())
-    .execute(&mut *conn)
-    .await?;
+    // And this deck's version before is history now.
+    sqlx::query("UPDATE plan_versions SET superseded_at = ? WHERE owner_id = ? AND plan_deck_id = ? AND status = 'approved' AND superseded_at IS NULL")
+        .bind(&at)
+        .bind(owner)
+        .bind(plan_id)
+        .execute(&mut *conn)
+        .await?;
     sqlx::query(
         "INSERT INTO plan_versions (id, owner_id, plan_deck_id, deck_name, n, status, changes, skipped, answers, prior, source,
            proposed_at, decided_at, op_id)
@@ -841,4 +854,40 @@ async fn take_in(conn: &mut SqliteConnection, owner: &str, plan_id: &str, deck_k
         left_out: said,
         replaced: others.into_iter().map(|(_, k)| k).collect(),
     })
+}
+
+/// The note Yama writes on a change it leaves out, before the reason.
+const LEFT_OUT: &str = "Yama left this out: ";
+
+/// Archive every other live plan for the deck called `name` (`note` says why), and mark their
+/// versions superseded. Returns the plans it archived, as (id, key).
+pub async fn replace_others(conn: &mut SqliteConnection, owner: &str, plan_id: &str, name: &str, note: &str, at: &str) -> AppResult<Vec<(String, String)>> {
+    let others: Vec<(String, String)> = sqlx::query_as(
+        "SELECT id, key FROM plan_decks WHERE owner_id = ? AND id != ? AND lower(trim(name)) = ? AND status != 'archived' AND archived_at IS NULL",
+    )
+    .bind(owner)
+    .bind(plan_id)
+    .bind(name_key(name))
+    .fetch_all(&mut *conn)
+    .await?;
+    for (o, _) in &others {
+        sqlx::query("UPDATE plan_decks SET archived_at = ?, archived_note = ? WHERE id = ? AND owner_id = ?")
+            .bind(at)
+            .bind(note)
+            .bind(o)
+            .bind(owner)
+            .execute(&mut *conn)
+            .await?;
+    }
+    let ids: Vec<&String> = others.iter().map(|(id, _)| id).collect();
+    sqlx::query(
+        "UPDATE plan_versions SET superseded_at = ? WHERE owner_id = ? AND status = 'approved' AND superseded_at IS NULL
+         AND plan_deck_id IN (SELECT value FROM json_each(?))",
+    )
+    .bind(at)
+    .bind(owner)
+    .bind(serde_json::to_string(&ids).unwrap_or_default())
+    .execute(&mut *conn)
+    .await?;
+    Ok(others)
 }

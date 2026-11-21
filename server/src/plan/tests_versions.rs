@@ -177,6 +177,37 @@ async fn an_answer_you_give_stands_and_clearing_it_puts_the_change_back() {
 }
 
 #[tokio::test]
+async fn a_no_you_gave_stays_out_when_the_change_is_edited_later() {
+    let (app, pool, owner, token) = setup().await;
+    import(&app, &token, &doc_with_beta_plan()).await;
+    let r = ops(&app, &token, json!([{"op_id": "e1", "kind": "review", "swap_key": "beta-2", "decision": "no", "note": "Not this one", "at": crate::util::now()}])).await;
+    assert_eq!(r["results"][0]["status"], "applied", "{r}");
+    // The plan file rewords it: nobody looks before it would go in, so the no stands.
+    edit(&pool, &owner, "beta-2").await;
+    assert_eq!(super::super::versions::settle_all(&pool).await.unwrap(), 1);
+    assert_eq!(answer(&pool, &owner, "beta-2").await, (Some("no".into()), Some("Not this one".into()), None));
+    let beta = deck(&bundle(&app, &token).await, "beta")["plan"].clone();
+    assert_eq!((beta["changes"].as_i64(), beta["next"].is_null()), (Some(1), true), "{beta}");
+    assert_eq!(super::super::versions::settle_all(&pool).await.unwrap(), 0, "and it stays settled");
+}
+
+#[tokio::test]
+async fn yamas_own_left_out_is_looked_at_again_when_its_change_is_fixed() {
+    let (app, pool, owner, token) = setup().await;
+    import(&app, &token, &doc()).await;
+    assert_eq!(decision(&pool, &owner, "alpha-owned").await.as_deref(), Some("unsure"), "no card named to cut");
+    // The plan file gives it a cut.
+    sqlx::query("UPDATE plan_swaps SET out_name = 'Spare Cut', updated_at = '2099-01-01T00:00:00Z' WHERE owner_id = ? AND ext_key = 'alpha-owned'")
+        .bind(&owner)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(super::super::versions::settle_all(&pool).await.unwrap(), 1);
+    let (d, note, _) = answer(&pool, &owner, "alpha-owned").await;
+    assert_eq!((d.as_deref(), note), (Some("want"), None), "Yama's reason goes with it");
+}
+
+#[tokio::test]
 async fn a_change_edited_later_goes_in_again_keeping_the_note_and_cut() {
     let (app, pool, owner, token) = setup().await;
     import(&app, &token, &doc_with_cuts()).await;

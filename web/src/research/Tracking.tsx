@@ -128,9 +128,9 @@ export function TrackPanel({ bundle, deck, build }: { bundle: ResearchBundle; de
             {result.warnings.map((w) => (
               <li key={w}>{w}</li>
             ))}
-            {result.settled?.flatMap((v) => v.left_out).map((l) => (
-              <li key={l}>Left out: {l}</li>
-            ))}
+            {result.settled?.flatMap((v) => v.left_out.map((l, i) => (
+              <li key={`${v.deck_key}/${i}`}>Left out: {l}</li>
+            )))}
           </ul>
           <Link to={planHref(result.plan_deck_key)}>Open the plan</Link>
         </>

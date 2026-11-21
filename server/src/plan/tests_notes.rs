@@ -276,6 +276,16 @@ async fn claude_sees_notes_as_deck_plans_and_tracks_them_straight_away() {
     assert!(!err && text.contains("is now Energy's plan") && text.contains("Nothing new went in"), "the same build with another deck relinks: {text}");
     let linked: Option<String> = sqlx::query_scalar("SELECT deck_id FROM plan_decks WHERE owner_id = ? AND key = 'energy'").bind(&a).fetch_one(&pool).await.unwrap();
     assert_eq!(linked.as_deref(), Some(yama_deck.as_str()));
+    // A plan another one replaced isn't current: the same build again brings it back.
+    sqlx::query("UPDATE plan_decks SET archived_at = '2026-11-20T00:00:00Z', archived_note = 'Replaced by version 9' WHERE owner_id = ? AND key = 'energy'")
+        .bind(&a)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let (err, text) = call(&app, key, "track_build", json!({"note": "audit", "deck": "energy", "build": "b3"})).await;
+    assert!(!err && text.contains("is now Energy's plan") && !text.contains("already"), "{text}");
+    let back: Option<String> = sqlx::query_scalar("SELECT archived_at FROM plan_decks WHERE owner_id = ? AND key = 'energy'").bind(&a).fetch_one(&pool).await.unwrap();
+    assert_eq!(back, None);
     // Another build switches the plan to it, straight away too.
     let (err, text) = call(&app, key, "track_build", json!({"note": "audit", "deck": "energy", "build": "b4"})).await;
     assert!(!err && text.contains("Bracket 4 is now Energy's plan") && text.contains("version 2: 1 change went in"), "{text}");
@@ -523,4 +533,33 @@ async fn save_research_refuses_to_stop_a_plan_without_their_say() {
     assert_eq!(tool("save_research")["annotations"]["destructiveHint"], true);
     assert_eq!(tool("save_research")["inputSchema"]["properties"]["stop_plans"]["type"], "boolean");
     assert_eq!(tool("review_research")["annotations"]["destructiveHint"], false);
+}
+
+#[tokio::test]
+async fn a_connection_limited_to_staging_stages_tracking_as_before() {
+    let st = crate::testutil::state().await;
+    let pool = st.pool.clone();
+    let app = crate::routes::app(st.clone());
+    let (a, session) = user(&pool, "a@example.com").await;
+    save_note(&app, &session, &note()).await;
+    let who = crate::auth::user_by_id(&st, &a).await.unwrap().unwrap();
+    let args = json!({"note": "audit", "deck": "energy", "build": "b3"});
+    // The person agreed to "nothing staged is applied": the plan waits as a staged change.
+    for via in [crate::mcp::Via::OAuthLimited(crate::oauth::Access::Stage), crate::mcp::Via::Question(Default::default())] {
+        let text = crate::mcp::changes::track_build(&st, &who, &via, &args).await.unwrap();
+        assert!(text.contains("Track Bracket 3 as Energy's plan"), "{text}");
+    }
+    let plans: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM plan_decks WHERE owner_id = ?").bind(&a).fetch_one(&pool).await.unwrap();
+    assert_eq!(plans, 0, "staging changes nothing");
+    let change: String = sqlx::query_scalar("SELECT id FROM assistant_changes WHERE owner_id = ? AND kind = 'track_build' ORDER BY created_at LIMIT 1")
+        .bind(&a)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let (status, view) = send(&app, Method::POST, &format!("/api/assistant/changes/{change}/apply"), Some(&session), None).await;
+    assert_eq!(status, StatusCode::OK, "{view}");
+    assert_eq!(view["status"], "applied", "{view}");
+    let b = bundle(&app, &session).await;
+    let energy = b["decks"].as_array().unwrap().iter().find(|d| d["key"] == "energy").unwrap();
+    assert_eq!((energy["plan"]["state"].as_str(), energy["plan"]["changes"].as_i64()), (Some("in_progress"), Some(3)), "applied, it goes straight in");
 }

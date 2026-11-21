@@ -878,7 +878,9 @@ pub async fn swap_in_prints(st: &AppState, user: &User, via: &Via, args: &Value)
 /// plans don't wait for approval (Bryan, 20 Nov 2026: "Can the MCP just update the plans itself
 /// instead of having to have a useless UI do it?"). Applied through `plan::notes`, the same code as
 /// `POST /api/plan/from-note`, so the build's changes go into the plan now (`versions::settle`).
-pub async fn track_build(st: &AppState, user: &User, args: &Value) -> AppResult<String> {
+/// A connection the person limited to staging (Ask Claude, `mcp:stage`) stages it instead, as
+/// every tracking was before: "nothing staged is applied" is what they agreed to.
+pub async fn track_build(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
     use crate::plan::notes::{TrackRequest, find_build, find_deck, note_document, stop, track};
     let pool = &st.pool;
     let note_id = arg::text(args, "note")?.to_string();
@@ -899,18 +901,32 @@ pub async fn track_build(st: &AppState, user: &User, args: &Value) -> AppResult<
     let deck = find_deck(&doc, &deck_key)
         .ok_or_else(|| AppError::bad(format!("The note \"{title}\" has no deck \"{deck_key}\"; its decks are {}.", keys(&doc, "decks", "key"))))?;
     let deck_name = deck["name"].as_str().unwrap_or(&deck_key).to_string();
-    let tracked: Option<(String, String, Option<String>, Option<String>)> =
-        sqlx::query_as("SELECT key, status, note_build_id, deck_id FROM plan_decks WHERE owner_id = ? AND note_id = ? AND note_deck_key = ?")
-            .bind(&user.id)
-            .bind(&note_id)
-            .bind(&deck_key)
-            .fetch_optional(pool)
-            .await?;
+    // A plan another one replaced (`archived_at`) isn't the deck's plan either: tracking its
+    // build again brings it back.
+    let tracked: Option<(String, String, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT key, CASE WHEN archived_at IS NULL THEN status ELSE 'archived' END, note_build_id, deck_id
+         FROM plan_decks WHERE owner_id = ? AND note_id = ? AND note_deck_key = ?",
+    )
+    .bind(&user.id)
+    .bind(&note_id)
+    .bind(&deck_key)
+    .fetch_optional(pool)
+    .await?;
     let active = tracked.as_ref().filter(|t| t.1 != "archived");
     let Some(build_id) = build_id else {
         let Some((key, _, _, _)) = active else {
             return Ok(format!("No build of {deck_name} in \"{title}\" is tracked, so there's nothing to stop."));
         };
+        if !via.may_apply() {
+            return stage(st, user, via, args, Staged {
+                    kind: "track_build",
+                    summary: format!("Stop tracking {deck_name}'s plan"),
+                    detail: "Its swaps, marks and answers are kept; tracking a build again brings them back.".into(),
+                    payload: json!({"note_id": note_id, "deck_key": deck_key, "build_id": null, "plan_deck_key": key, "deck": deck_name}),
+                },
+            )
+            .await;
+        }
         st.limits.deck_writes.check_user(user)?;
         stop(pool, &user.id, key).await?;
         return Ok(format!(
@@ -931,6 +947,23 @@ pub async fn track_build(st: &AppState, user: &User, args: &Value) -> AppResult<
         && (yama_deck.is_none() || yama_deck == *linked)
     {
         return Ok(format!("{label} is already {deck_name}'s plan (plan key {key}); nothing changed."));
+    }
+    if !via.may_apply() {
+        let summary = match active {
+            Some((_, _, Some(current), _)) if *current == build_id => format!("Link {deck_name}'s plan ({label}) to another Yama deck"),
+            Some(_) => format!("Switch {deck_name}'s plan to {label}"),
+            None => format!("Track {label} as {deck_name}'s plan"),
+        };
+        let n = build["swaps"].as_array().map_or(0, Vec::len);
+        return stage(st, user, via, args, Staged {
+                kind: "track_build",
+                summary,
+                detail: format!("From the note \"{title}\": {n} swap{}. Once applied, its changes go straight into the plan.", if n == 1 { "" } else { "s" }),
+                // The note as reviewed: applying refuses if it has changed since (plan::notes::track).
+                payload: json!({"note_id": note_id, "deck_key": deck_key, "build_id": build_id, "deck_id": yama_deck, "deck": deck_name, "label": label, "note_hash": note_hash}),
+            },
+        )
+        .await;
     }
     st.limits.deck_writes.check_user(user)?;
     let req = TrackRequest {
@@ -968,7 +1001,8 @@ pub async fn track_build(st: &AppState, user: &User, args: &Value) -> AppResult<
     Ok(out)
 }
 
-/// A `track_build` staged before 20 Nov 2026, when tracking was staged: applied as tracking is now.
+/// A staged `track_build` (from a connection limited to staging, or from before 20 Nov 2026, when
+/// every tracking was staged): applied as tracking is now.
 async fn apply_track_build(st: &AppState, user: &User, id: &str, p: &Value) -> AppResult<Value> {
     st.limits.deck_writes.check_user(user)?;
     let note_id = p["note_id"].as_str().unwrap_or_default().to_string();
@@ -2982,9 +3016,7 @@ pub async fn apply(st: &AppState, user: &User, id: &str) -> AppResult<ChangeView
     let p: Value = serde_json::from_str(&row.payload).map_err(anyhow::Error::from)?;
     let done = match super::registry::applier(&row.kind) {
         Some(apply) => apply(st, user, Pending { id: &row.id, summary: &row.summary }, &p).await,
-        // Kinds no tool stages since plans stopped waiting for approval (20 Nov 2026), for changes
-        // staged before then.
-        None if row.kind == "track_build" => apply_track_build(st, user, &row.id, &p).await,
+        // No tool stages it since plans stopped waiting for approval (20 Nov 2026).
         None if row.kind == "approve_plan" => {
             Err(AppError::Conflict("Plans don't wait for approval any more: its changes are already in the plan. Discard this one.".into()))
         }
@@ -3051,6 +3083,9 @@ pub(super) mod staging {
     pub const ANSWER_REVIEW: Staging = Staging { kind: "answer_review", apply: |st, user, change, p| Box::pin(apply_plan(st, user, "answer_review", change.id, p)) };
     pub const MARK_BOUGHT: Staging = Staging { kind: "mark_bought", apply: |st, user, change, p| Box::pin(apply_plan(st, user, "mark_bought", change.id, p)) };
     pub const MARK_INSTALLED: Staging = Staging { kind: "mark_installed", apply: |st, user, change, p| Box::pin(apply_plan(st, user, "mark_installed", change.id, p)) };
+    /// Not a staging tool's: `track_build` writes directly, and stages only for a connection that
+    /// may not apply (`registry::ALSO_STAGED`).
+    pub const TRACK_BUILD: Staging = Staging { kind: "track_build", apply: |st, user, change, p| Box::pin(apply_track_build(st, user, change.id, p)) };
     pub const SWAP_IN_PRINTS: Staging = Staging { kind: "swap_in_prints", apply: |st, user, _, p| Box::pin(apply_swap_in(st, user, p)) };
     pub const START_LAB_RUN: Staging = Staging { kind: "start_lab_run", apply: |st, user, change, p| Box::pin(apply_lab_run(st, user, change.id, p)) };
     pub const MORE_LAB_GAMES: Staging = Staging { kind: "more_lab_games", apply: |st, user, _, p| Box::pin(apply_more_games(st, user, p)) };

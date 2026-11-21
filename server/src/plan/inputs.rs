@@ -37,8 +37,9 @@ pub const MAX_OPS: usize = 500;
 const MAX_OP_BYTES: usize = 16 * 1024;
 /// A plan op lists every change in a plan by key (a hundred keys of a few dozen characters).
 const MAX_PLAN_OP_BYTES: usize = 128 * 1024;
-/// Keys in one plan op.
-const MAX_PLAN_KEYS: usize = 400;
+/// Keys in one plan op. A page sends none now (archive and restore); the inbox reads the approve
+/// ops `versions::settle` records with this too, and a deck can have hundreds of changes.
+const MAX_PLAN_KEYS: usize = 2000;
 /// How far ahead of the server a device clock may be before its time is clamped.
 const FUTURE_SECONDS: i64 = 300;
 /// Inbox ops per page.
@@ -271,7 +272,7 @@ fn parse(op: &Map<String, Value>) -> Result<Parsed, String> {
                 "answers": answers.iter().map(|(q, a)| json!({"question": q, "answer": a})).collect::<Vec<_>>(),
                 "auto": matches!(field(op, "auto"), Some(Value::Bool(true))),
             });
-            let plan = super::versions::PlanOp { action, version, keys: included, skip, hash, answers };
+            let plan = super::versions::PlanOp { action };
             return Ok(Parsed { kind, swap_key: None, deck_key, device_id, record, plan: Some(plan) });
         }
         _ => {

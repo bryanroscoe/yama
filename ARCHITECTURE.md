@@ -3168,16 +3168,28 @@ the approval step of [Plans: one plan per deck](#plans-one-plan-per-deck-2026-11
   out: …" in its note (a note you wrote is kept), the version lists it with the reason, and
   `track_build` names it. The first change in plan order keeps a shared cut, so nothing is bought
   twice for one slot. `unsure` rather than `no`, so the export side isn't told Bryan rejected it.
-- **Your answers stand.** A proposal answered no or unsure since it last changed stays out; one
-  edited later is new again and goes in. Open questions no longer block anything; they're shown
-  for the assistant to settle.
+- **Your answers stand.** A proposal answered no or unsure stays out, even when a plan file or a
+  saved note edits it later: nobody looks before it goes in now, so it never goes in over a
+  person's word (settle writes the same answer again for the new wording). Only Yama's own
+  left-outs are looked at again when their change is edited. To put one in, answer want on it
+  (`answer_review`, staged as before) or change it. Open questions no longer block anything;
+  they're shown for the assistant to settle.
+- **Answers count as fresh.** Settle stamps its answers now, or later than the change's last edit
+  and any answer it replaces (an alias's, or a device clock a little ahead), so a change it took in
+  is never new again on the next write and the export side keeps Yama's word as the newest.
 - **Newest wins.** Settling a deck's version replaces any other live plan for the same deck name,
-  as approving did, newest proposals first.
+  as approving did, newest proposals first; tracking a build does too, even when it brought
+  nothing new. A plan another one replaced isn't current, so tracking its build again brings it
+  back.
 - **The MCP updates plans itself.** `track_build` applies directly (a `Write` tool, like
   `save_research`) and answers with what went in and what was left out; stopping is direct too.
+  On a connection the person limited to staging (`mcp:stage`, and Ask Claude) it still stages,
+  because that consent says nothing staged is applied (`registry::ALSO_STAGED` keeps its applier).
   `approve_plan` is gone. A `track_build` staged before still applies; a staged `approve_plan` is
   refused with a reason to discard it. `answer_review`, `propose_swap`, the marks and Swap in the
   prints stay staged: they record the person's own word or change a deck and the collection.
+  Saving a note (`save_research`, allowed at the staging level) still moves the plans that follow
+  it, and their new changes now go in.
 - **The pages.** The plan page shows the plan in force, what's left to do, and a Left out list with
   each reason; Approve, Skip, Keep version N, Undo, the Plans page's Waiting for your OK section,
   the Workshop's count badge and the deck page's Up next are gone. A page from before that sends

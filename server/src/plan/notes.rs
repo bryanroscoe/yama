@@ -214,6 +214,11 @@ pub async fn track(pool: &SqlitePool, owner: &str, req: &TrackRequest) -> AppRes
     let derived = derive(&mut *conn, owner, &plan_id, &req.note_id, &title, &req.deck_key, deck, build, &stamp).await?;
     bump(&mut *conn, owner, &stamp).await?;
     let settled = super::versions::settle(&mut *conn, owner).await?;
+    // Using a build makes it the deck's plan: it replaces any other live plan for the deck, as
+    // settling its new version does (and when it brought nothing new, nothing else would).
+    if req.proposed {
+        super::versions::replace_others(&mut *conn, owner, &plan_id, &name, "Replaced by a newer plan", &stamp).await?;
+    }
     let result = Tracked {
         link: super::page_link(&key),
         plan_deck_key: key,
