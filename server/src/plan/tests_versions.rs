@@ -259,6 +259,30 @@ async fn settling_never_dates_its_answer_after_a_fast_device_clock() {
 }
 
 #[tokio::test]
+async fn a_future_clear_under_an_alias_waits_instead_of_future_dating_the_plan() {
+    let (app, pool, owner, token) = setup().await;
+    import(&app, &token, &doc_with_beta_plan()).await;
+    // An old key that reaches beta-1, cleared by a device a few minutes fast.
+    sqlx::query("INSERT INTO plan_key_aliases (owner_id, old_key, new_key, created_at) VALUES (?, 'old-beta', 'beta-1', '2026-11-01T00:00:00Z')")
+        .bind(&owner)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let ahead = (chrono::Utc::now() + chrono::Duration::minutes(4)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    sqlx::query("INSERT INTO plan_reviews (owner_id, swap_key, decision, at, origin, op_id) VALUES (?, 'old-beta', NULL, ?, 'yama', 'fast')")
+        .bind(&owner)
+        .bind(&ahead)
+        .execute(&pool)
+        .await
+        .unwrap();
+    // Nothing is written past now: the change waits for a later write.
+    assert_eq!(super::super::versions::settle_all(&pool).await.unwrap(), 0);
+    let at: String = sqlx::query_scalar("SELECT at FROM plan_reviews WHERE owner_id = ? AND swap_key = 'beta-1'").bind(&owner).fetch_one(&pool).await.unwrap();
+    assert!(at < ahead, "{at}");
+    let _ = (&app, &token);
+}
+
+#[tokio::test]
 async fn the_server_settles_what_was_waiting_when_it_starts() {
     let (app, pool, owner, token) = setup().await;
     import(&app, &token, &doc_with_beta_plan()).await;
