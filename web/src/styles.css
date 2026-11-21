@@ -931,6 +931,9 @@ body::before {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  /* Never squeezed: a row wider than the screen scrolls. (With the min-width below an entry could
+     shrink under its own words, which then ran into the next entry on a phone.) */
+  flex: none;
   /* A short word (Cards, Watch) still gets a full target. */
   min-width: var(--target);
   min-height: var(--target);

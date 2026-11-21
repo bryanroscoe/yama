@@ -69,6 +69,6 @@ describe("the collection's head keeps the search near the top", () => {
 
   it("says the total in one line, with its date and unpriced cards", () => {
     const html = render(1);
-    expect(html).toContain("40 cards, market value on Nov 15, 2 with no price");
+    expect(html).toContain("40 cards, market value on Nov 15 (2 with no price)");
   });
 });

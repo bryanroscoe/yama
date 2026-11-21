@@ -1028,8 +1028,9 @@
 .ph-seat-fields .combo input, .ph-join-deck .combo input { min-width: 0; }
 .ph-seat-fields .combo input, .ph-seat-fields .combo-field, .ph-join-deck .combo input, .ph-join-deck .combo-field { background-color: var(--ground); }
 
-/* Keep selected deck fields aligned when descriptions or names wrap. */
-.play-seat, .ph-seat { align-items: start; }
+/* Keep selected deck fields aligned when descriptions or names wrap. Not .ph-seat: on a laptop it
+   is a column, where this shrank its art header and fields to the width of their words. */
+.play-seat { align-items: start; }
 .play-seat .combo-wrap, .ph-seat .combo-wrap { min-width: 0; width: 100%; }
 @media (min-width: 900px) {
   .ph-seat-fields > .saved-deck-picker { min-width: 0; }

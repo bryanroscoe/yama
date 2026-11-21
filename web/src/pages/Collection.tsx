@@ -220,7 +220,8 @@ export function CollectionPage() {
               <b className="num">{usdWhole(s.market_value_usd)}</b>
               <span className="coll-wide">
                 {plural(real, "card")}, market value on {day}
-                {s.copies_without_price > 0 ? `, ${count(s.copies_without_price)} with no price` : ""}
+                {/* In brackets: after the date, ", 25 with no price" read as the year. */}
+                {s.copies_without_price > 0 ? ` (${count(s.copies_without_price)} with no price)` : ""}
               </span>
               <span className="coll-narrow">
                 {plural(real, "card")}, {day}
