@@ -28,45 +28,17 @@
   flex-wrap: wrap;
 }
 
-/* Where to start, and Get the cards */
+/* Get the cards */
 .plans-start {
   display: flex;
   flex-wrap: wrap;
   gap: 16px;
 }
-.plans-start-card,
 .plans-get-card {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 20px;
   padding: 20px;
-}
-.plans-start-card {
-  flex: 2 1 420px;
-  display: flex;
-  gap: 20px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-.plans-start-art {
-  margin: 0;
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-width: 132px;
-}
-.plans-start-art img {
-  width: 132px;
-  height: 96px;
-  object-fit: cover;
-  border-radius: 12px;
-}
-.plans-start-text {
-  flex: 1 1 220px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
 }
 .plans-card-title {
   margin: 0;
@@ -87,9 +59,6 @@
 .plans-tile:hover .plans-tile-art,
 .plans-list-row:is(a):hover {
   box-shadow: 0 0 0 2px var(--text);
-}
-.plans-big-button {
-  min-height: var(--target-primary);
 }
 
 /* Tiles */
@@ -129,13 +98,6 @@
   font-size: var(--t-28);
   line-height: 1;
   color: var(--on-art);
-}
-.plans-tile-cmdr {
-  font-size: var(--t-sm);
-  color: var(--on-art-dim);
-  display: flex;
-  gap: 6px;
-  align-items: center;
 }
 .plans-tile-body {
   padding: 14px 16px 16px;
@@ -350,42 +312,14 @@ button.link-button:hover {
 .plans-side h3:first-child {
   margin-top: 0;
 }
-.plans-total {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
 .plans-total-n {
   font-family: var(--display);
   font-weight: 800;
   font-size: var(--t-big);
   line-height: 1;
 }
-.plans-figures {
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-}
-.plans-figures > div {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 0;
-  border-top: 1px solid var(--line);
-}
-.plans-figures dt {
-  color: var(--dim);
-}
-.plans-figures dd {
-  margin: 0;
-  font-weight: 700;
-}
-.plans-wide-button,
-.plans-side .plans-big-button {
+.plans-wide-button {
   width: 100%;
-}
-.plans-version-head h2 {
-  margin: 8px 0 4px;
 }
 .plans-questions {
   background: var(--surface);
@@ -395,35 +329,6 @@ button.link-button:hover {
   display: flex;
   flex-direction: column;
   gap: 12px;
-}
-.plans-question {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.plans-question textarea {
-  width: 100%;
-}
-.plans-changes-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-bottom: 8px;
-}
-.plans-group {
-  margin-top: 16px;
-}
-.plans-group-head {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.plans-group-head h4 {
-  margin: 0;
-  font-size: var(--t-md);
 }
 .plans-rows {
   list-style: none;
@@ -456,18 +361,6 @@ button.link-button:hover {
   text-decoration: line-through;
   color: var(--dim);
 }
-.plans-row.skipped .plans-why {
-  color: var(--dim);
-}
-.plans-skip-pill {
-  margin-left: 8px;
-}
-.plans-row-meta {
-  flex: 0 1 auto;
-}
-.plans-skip {
-  min-width: 72px;
-}
 /* A change's two cards: in, an arrow, then the card it replaces (Bryan, 8 Nov 2026). */
 .plan-pair {
   display: inline-flex;
@@ -486,10 +379,6 @@ button.link-button:hover {
   border-radius: var(--card-radius);
   border: 2px dashed var(--line);
   box-sizing: border-box;
-}
-.plans-problem {
-  color: var(--warn);
-  font-weight: 700;
 }
 .plans-bag {
   display: grid;
@@ -535,7 +424,6 @@ button.link-button:hover {
   gap: 12px;
   flex-wrap: wrap;
 }
-.plans-approve,
 .plans-section {
   /* Below the sticky section tabs when a tab jumps here. */
   scroll-margin-top: calc(var(--sticky-top) + 64px);
@@ -573,13 +461,6 @@ button.link-button:hover {
   .plan-pair .card-fallback,
   .plan-pair-empty {
     width: 34px;
-  }
-  .plans-start-card {
-    padding: 16px;
-  }
-  .plans-row-meta {
-    flex-basis: 100%;
-    order: 3;
   }
 }
 

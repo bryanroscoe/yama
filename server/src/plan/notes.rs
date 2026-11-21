@@ -54,13 +54,13 @@ pub struct TrackRequest {
     #[serde(default)]
     pub op_id: Option<String>,
     /// The note's content hash when the person saw it (`content_hash` from the research APIs). When
-    /// set and the note has changed since, nothing is tracked (409): what they approved isn't what
-    /// would be applied. Claude's staged `track_build` always sets it.
+    /// set and the note has changed since, nothing is tracked (409): what they looked at isn't what
+    /// would be applied. The plan page's "Use a deck from it" sets it.
     #[serde(default)]
     pub expected_note_hash: Option<String>,
-    /// Make the build's changes proposals, waiting for your OK as the deck's next plan version
-    /// (versions.rs), instead of putting them straight into the plan. The plan pages ("Use a deck
-    /// from it") and Claude's `track_build` always set it.
+    /// Make the build's changes proposals, the deck's next plan version (versions.rs), which
+    /// `versions::settle` takes in before this returns, instead of planned swaps with no version.
+    /// The plan pages ("Use a deck from it") and Claude's `track_build` always set it.
     #[serde(default)]
     pub proposed: bool,
 }
@@ -89,6 +89,9 @@ pub struct Tracked {
     pub swaps: usize,
     pub warnings: Vec<String>,
     pub link: String,
+    /// The plan versions that went in with it (versions::settle): usually this deck's.
+    #[serde(default)]
+    pub settled: Vec<super::versions::Settled>,
 }
 
 async fn track_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(req): Json<TrackRequest>) -> AppResult<Json<Tracked>> {
@@ -157,30 +160,8 @@ pub async fn track(pool: &SqlitePool, owner: &str, req: &TrackRequest) -> AppRes
             }
         }
     };
-    // A plan in force from another build of this note keeps going until a new version is
-    // approved, but both builds would share this one plan row: switching would retire the plan
-    // you approved before you OK its replacement. Ask for it to be set aside first.
-    if req.proposed
-        && let Some((id, _, _)) = &existing
-    {
-        let (live, build_now, approved): (bool, Option<String>, bool) = sqlx::query_as(
-            "SELECT status != 'archived' AND archived_at IS NULL, note_build_id,
-                    EXISTS (SELECT 1 FROM plan_versions v WHERE v.plan_deck_id = plan_decks.id AND v.owner_id = plan_decks.owner_id AND v.status = 'approved')
-                    OR EXISTS (SELECT 1 FROM plan_swaps s WHERE s.plan_deck_id = plan_decks.id AND s.owner_id = plan_decks.owner_id
-                               AND s.retired_at IS NULL AND s.stage = 'planned')
-             FROM plan_decks WHERE id = ? AND owner_id = ?",
-        )
-        .bind(id)
-        .bind(owner)
-        .fetch_one(&mut *conn)
-        .await?;
-        if live && approved && build_now.as_deref() != Some(req.build_id.as_str()) {
-            return Err(AppError::Conflict(
-                "This deck's plan in progress came from another build of this note. Archive that plan first, or ask your assistant to propose the change as a new version."
-                    .into(),
-            ));
-        }
-    }
+    // Another build of the same note deck switches this plan row to it: the old build's swaps are
+    // retired (their marks and answers kept for a return) and the new build's go in (settle, below).
     let name = text(deck, "name").unwrap_or_else(|| req.deck_key.clone());
     let commander = json_text(&commanders(deck, build));
     let (plan_id, key) = match existing {
@@ -232,6 +213,7 @@ pub async fn track(pool: &SqlitePool, owner: &str, req: &TrackRequest) -> AppRes
     let title = text(&doc, "title").unwrap_or_else(|| req.note_id.clone());
     let derived = derive(&mut *conn, owner, &plan_id, &req.note_id, &title, &req.deck_key, deck, build, &stamp).await?;
     bump(&mut *conn, owner, &stamp).await?;
+    let settled = super::versions::settle(&mut *conn, owner).await?;
     let result = Tracked {
         link: super::page_link(&key),
         plan_deck_key: key,
@@ -243,6 +225,7 @@ pub async fn track(pool: &SqlitePool, owner: &str, req: &TrackRequest) -> AppRes
         deck_id,
         swaps: derived.swaps,
         warnings: derived.warnings,
+        settled,
     };
     if let Some(op) = req.op_id.as_deref().filter(|o| !o.trim().is_empty()) {
         let payload = json!({"request": req.identity(), "result": result});
@@ -298,10 +281,10 @@ pub async fn would_stop(conn: &mut SqliteConnection, owner: &str, note_id: &str,
     Ok(rows.into_iter().filter(|(_, _, deck, build)| find_deck(doc, deck).and_then(|d| find_build(d, build)).is_none()).map(|(key, name, _, _)| (key, name)).collect())
 }
 
-/// After a note is saved: derive every plan tracking one of its builds again. A tracked deck or
-/// build the note no longer has stops being tracked (archived, its swaps retired) rather than
-/// keeping a plan the note doesn't describe. Returns how many plans now follow the note and how
-/// many stopped.
+/// After a note is saved: derive every plan tracking one of its builds again, and take in what
+/// changed (versions::settle). A tracked deck or build the note no longer has stops being tracked
+/// (archived, its swaps retired) rather than keeping a plan the note doesn't describe. Returns how
+/// many plans now follow the note and how many stopped.
 pub async fn rederive(conn: &mut SqliteConnection, owner: &str, note_id: &str, doc: &Value) -> AppResult<(usize, usize)> {
     let rows: Vec<(String, String, String)> = sqlx::query_as(
         "SELECT id, note_deck_key, note_build_id FROM plan_decks WHERE owner_id = ? AND note_id = ? AND status != 'archived'",
@@ -348,6 +331,7 @@ pub async fn rederive(conn: &mut SqliteConnection, owner: &str, note_id: &str, d
         }
     }
     bump(&mut *conn, owner, &stamp).await?;
+    super::versions::settle(&mut *conn, owner).await?;
     Ok((rows.len() - stopped, stopped))
 }
 
@@ -521,7 +505,7 @@ async fn derive(
 ) -> AppResult<Derived> {
     let build_id = text(build, "id").unwrap_or_default();
     let mut warnings = Vec::new();
-    // A build taken up after plans were approved whole waits for your OK: its changes are proposals.
+    // A build taken up since plans had versions is one: its changes are proposals, settled after.
     let proposed: bool = sqlx::query_scalar("SELECT note_proposed FROM plan_decks WHERE id = ? AND owner_id = ?")
         .bind(plan_id)
         .bind(owner)

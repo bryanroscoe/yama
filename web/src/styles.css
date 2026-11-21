@@ -955,17 +955,6 @@ body::before {
 .tab-sections[data-more="start end"] {
   mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent);
 }
-/* The Plans count: a small warn pill. */
-.tab-sections-badge {
-  display: inline-block;
-  margin-left: 6px;
-  padding: 0 7px;
-  border-radius: var(--r-pill);
-  background: var(--warn);
-  color: var(--ground);
-  font-size: var(--t-12);
-  line-height: 1.5;
-}
 @media (max-width: 899px) {
   .tab-sections {
     gap: 0 18px;

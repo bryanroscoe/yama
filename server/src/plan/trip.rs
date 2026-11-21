@@ -388,8 +388,9 @@ fn wants(b: &Value, answers: &HashMap<String, &Value>, bought: &HashSet<String>)
         if s(deck, "status") == Some("archived") {
             continue;
         }
-        // Only plans in force (versions.rs): one waiting for their OK puts nothing on a trip, and
-        // in a plan in progress only its approved changes do (as Get the cards, `inForceBundle`).
+        // Only plans in force (versions.rs): one the server hasn't taken in yet puts nothing on a
+        // trip, and in a plan in progress only the changes it took in do (as Get the cards,
+        // `inForceBundle`).
         if let Some(state) = deck["plan"]["state"].as_str()
             && state != "in_progress"
             && state != "done"

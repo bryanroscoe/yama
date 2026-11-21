@@ -66,16 +66,8 @@ describe("the deck page's Plan tab", () => {
     expect(hub.current?.deck.key).toBe("terra");
     expect(hub.current?.steps.map((s) => s.step)).toEqual(["in", "in_hand", "to_buy"]);
     expect(hub.current?.installed).toBe(1);
-    // A new version waits: approving it comes first.
-    expect(hub.current?.next).toBe("OK the new version");
-  });
-
-  it("lists the new version and another build waiting for your OK, each with its changes", () => {
-    const hub = deckPlanHub(view, "d1");
-    expect(hub.upNext.map((u) => [u.label, u.changes, u.hash])).toEqual([
-      ["Version 2 of this plan", 1, "#new-version"],
-      ["A Bracket 3 build", 2, ""],
-    ]);
+    // Nobody approves a plan: proposals not taken in yet never come before the cards.
+    expect(hub.current?.next).toBe("put in 1 card you have");
   });
 
   it("counts archived plans, earlier versions and notes for this deck only", () => {
@@ -91,12 +83,10 @@ describe("the deck page's Plan tab", () => {
     expect(hub.ideas.map((i) => [i.op_id, i.seq])).toEqual([["i1", 1], ["q1", Number.POSITIVE_INFINITY]]);
   });
 
-  it("names a deck's only waiting plan a new plan, and says there's nothing for a deck with no plan", () => {
+  it("has no current plan while a deck's only plan is still going in, and nothing for a deck with no plan", () => {
     const only = planView(bundle([deck("solo", state({ state: "waiting", version: null, next: next(1, ["s"]) }), { bracket: { target: 3 } as PlanDeck["bracket"] })], [swap("s", "solo", { stage: "proposed" })]));
-    const hub = deckPlanHub(only, "d1");
-    expect(hub.current).toBeNull();
-    expect(hub.upNext.map((u) => u.label)).toEqual(["A new plan"]);
-    expect(deckPlanHub(only, "nobody")).toEqual({ current: null, upNext: [], ideas: [], earlier: 0 });
+    expect(deckPlanHub(only, "d1").current).toBeNull();
+    expect(deckPlanHub(only, "nobody")).toEqual({ current: null, ideas: [], earlier: 0 });
   });
 
   it("notes the tab with how many changes are in", () => {

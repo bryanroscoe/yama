@@ -241,7 +241,7 @@ async fn call(app: &Router, key: &str, tool: &str, args: Value) -> (bool, String
 }
 
 #[tokio::test]
-async fn claude_sees_notes_as_deck_plans_and_stages_tracking() {
+async fn claude_sees_notes_as_deck_plans_and_tracks_them_straight_away() {
     let (app, pool) = app().await;
     let (a, session) = user(&pool, "a@example.com").await;
     save_note(&app, &session, &note()).await;
@@ -255,48 +255,78 @@ async fn claude_sees_notes_as_deck_plans_and_stages_tracking() {
     let (err, text) = call(&app, key, "plan_deck", json!({"key": "energy"})).await;
     assert!(!err && text.starts_with("Not a plan yet"), "{text}");
 
+    // Nobody approves a plan (20 Nov 2026): tracking is direct, and its changes go in at once.
     let (err, text) = call(&app, key, "track_build", json!({"note": "audit", "deck": "energy", "build": "b3"})).await;
-    assert!(!err && text.contains("Track Bracket 3 as Energy's plan"), "{text}");
-    let plans: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM plan_decks WHERE owner_id = ?").bind(&a).fetch_one(&pool).await.unwrap();
-    assert_eq!(plans, 0, "staging changes nothing");
-    let change: String = sqlx::query_scalar("SELECT id FROM assistant_changes WHERE owner_id = ? AND kind = 'track_build'").bind(&a).fetch_one(&pool).await.unwrap();
-    let (status, applied) = send(&app, Method::POST, &format!("/api/assistant/changes/{change}/apply"), Some(&session), None).await;
-    assert_eq!(status, StatusCode::OK, "{applied}");
-    assert_eq!(applied["status"], "applied", "{applied}");
+    assert!(!err && text.contains("Bracket 3 is now Energy's plan (plan key energy)") && text.contains("version 1: 3 changes went in"), "{text}");
+    let staged: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM assistant_changes WHERE owner_id = ?").bind(&a).fetch_one(&pool).await.unwrap();
+    assert_eq!(staged, 0, "nothing waits in Suggested changes");
+    let b = bundle(&app, &session).await;
+    let energy = b["decks"].as_array().unwrap().iter().find(|d| d["key"] == "energy").unwrap();
+    assert_eq!((energy["plan"]["state"].as_str(), energy["plan"]["version"].as_i64(), energy["plan"]["changes"].as_i64()), (Some("in_progress"), Some(1), Some(3)), "{energy}");
 
     let (_, text) = call(&app, key, "overview", json!({})).await;
-    assert!(text.contains("tracking build b3 as plan key energy") && text.contains("Energy (plan key energy; build b3 of note audit): waiting for their OK; version 1 with 3 changes waiting"), "{text}");
+    assert!(text.contains("tracking build b3 as plan key energy") && text.contains("Energy (plan key energy; build b3 of note audit): in progress, version 1, 0 of 3 changes in the deck"), "{text}");
+    assert!(!text.contains("your OK") && !text.contains("approve_plan"), "{text}");
     let (err, text) = call(&app, key, "plan_deck", json!({"key": "energy"})).await;
-    assert!(!err && text.contains("Made from build b3 of deck energy in note audit"), "{text}");
+    assert!(!err && text.contains("Made from build b3 of deck energy in note audit") && text.contains("Nobody approves this plan"), "{text}");
     let (err, text) = call(&app, key, "track_build", json!({"note": "audit", "deck": "energy", "build": "b3"})).await;
     assert!(!err && text.contains("already"), "{text}");
     let (yama_deck, _) = deck(&pool, &a, "Energy box").await;
     let (err, text) = call(&app, key, "track_build", json!({"note": "audit", "deck": "energy", "build": "b3", "yama_deck": yama_deck})).await;
-    assert!(!err && text.contains("Link Energy's plan (Bracket 3) to another Yama deck"), "the same build with another deck relinks: {text}");
+    assert!(!err && text.contains("is now Energy's plan") && text.contains("Nothing new went in"), "the same build with another deck relinks: {text}");
+    let linked: Option<String> = sqlx::query_scalar("SELECT deck_id FROM plan_decks WHERE owner_id = ? AND key = 'energy'").bind(&a).fetch_one(&pool).await.unwrap();
+    assert_eq!(linked.as_deref(), Some(yama_deck.as_str()));
+    // Another build switches the plan to it, straight away too.
+    let (err, text) = call(&app, key, "track_build", json!({"note": "audit", "deck": "energy", "build": "b4"})).await;
+    assert!(!err && text.contains("Bracket 4 is now Energy's plan") && text.contains("version 2: 1 change went in"), "{text}");
     let (err, text) = call(&app, key, "track_build", json!({"note": "audit", "deck": "energy", "build": null})).await;
-    assert!(!err && text.contains("Stop tracking Energy's plan"), "{text}");
+    assert!(!err && text.contains("Stopped tracking Energy's plan"), "{text}");
+    let status: String = sqlx::query_scalar("SELECT status FROM plan_decks WHERE owner_id = ? AND key = 'energy'").bind(&a).fetch_one(&pool).await.unwrap();
+    assert_eq!(status, "archived");
+    // The tool that approved plans is gone.
+    let (status, r) = send(&app, Method::POST, "/mcp", Some(key), Some(rpc("approve_plan", json!({"plan": "energy"})))).await;
+    assert_eq!(status, StatusCode::OK, "{r}");
+    assert!(r["error"].is_object() || r["result"]["isError"] == true, "{r}");
 }
 
 #[tokio::test]
-async fn a_staged_build_is_not_applied_after_the_note_changes() {
+async fn a_track_build_staged_before_still_applies_unless_the_note_changed() {
     let (app, pool) = app().await;
     let (a, session) = user(&pool, "a@example.com").await;
     save_note(&app, &session, &note()).await;
-    let (_, made) = send(&app, Method::POST, "/api/me/tokens", Some(&session), Some(json!({"name": "Claude", "scope": "mcp"}))).await;
-    let key = made["token"].as_str().unwrap();
-    let (err, text) = call(&app, key, "track_build", json!({"note": "audit", "deck": "energy", "build": "b3"})).await;
-    assert!(!err, "{text}");
-    let change: String = sqlx::query_scalar("SELECT id FROM assistant_changes WHERE owner_id = ? AND kind = 'track_build'").bind(&a).fetch_one(&pool).await.unwrap();
-
-    let mut doc = note();
-    doc["decks"][0]["builds"][0]["swaps"][0]["card_in"] = json!("Mystic Remora");
-    save_note(&app, &session, &doc).await;
-    let (status, view) = send(&app, Method::POST, &format!("/api/assistant/changes/{change}/apply"), Some(&session), None).await;
+    let hash = {
+        let mut conn = pool.acquire().await.unwrap();
+        super::note_document(&mut conn, &a, "audit").await.unwrap().1
+    };
+    let stage = |id: &'static str, note_hash: String| {
+        let (pool, a) = (pool.clone(), a.clone());
+        async move {
+            let payload = json!({"note_id": "audit", "deck_key": "energy", "build_id": "b3", "deck_id": null, "deck": "Energy", "label": "Bracket 3", "note_hash": note_hash});
+            sqlx::query("INSERT INTO assistant_changes (id, owner_id, kind, summary, payload, via, created_at) VALUES (?, ?, 'track_build', 'Track Bracket 3', ?, 'key', '2026-11-19T00:00:00Z')")
+                .bind(id)
+                .bind(&a)
+                .bind(payload.to_string())
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+    };
+    // Staged against an older note: refused, and it stays waiting with the reason.
+    stage("old", "not-the-hash".into()).await;
+    let (status, view) = send(&app, Method::POST, "/api/assistant/changes/old/apply", Some(&session), None).await;
     assert_eq!(status, StatusCode::OK, "{view}");
     assert_eq!(view["status"], "pending", "{view}");
     assert!(view["error"].as_str().unwrap().contains("has changed since"), "{view}");
     let plans: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM plan_decks WHERE owner_id = ?").bind(&a).fetch_one(&pool).await.unwrap();
     assert_eq!(plans, 0, "what they reviewed isn't what would be applied");
+    // Staged against this note: it applies, and its changes are in the plan.
+    stage("now", hash).await;
+    let (status, view) = send(&app, Method::POST, "/api/assistant/changes/now/apply", Some(&session), None).await;
+    assert_eq!(status, StatusCode::OK, "{view}");
+    assert_eq!(view["status"], "applied", "{view}");
+    let b = bundle(&app, &session).await;
+    let energy = b["decks"].as_array().unwrap().iter().find(|d| d["key"] == "energy").unwrap();
+    assert_eq!((energy["plan"]["state"].as_str(), energy["plan"]["changes"].as_i64()), (Some("in_progress"), Some(3)), "{energy}");
 }
 
 #[tokio::test]

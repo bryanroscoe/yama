@@ -13,9 +13,9 @@ import type { Build, ResearchBundle, ResearchDeck } from "./api";
 import { fmtDate, usd } from "@yama/core";
 
 /**
- * A note's build as a deck's plan (server/src/plan/notes.rs): using it makes the build a plan
- * version waiting for your OK, which, once approved, is what Get the cards, installed ticks and
- * the assistant's plan tools work from. People never see "track" or "planner".
+ * A note's build as a deck's plan (server/src/plan/notes.rs): using it makes the build that deck's
+ * plan straight away (nobody approves a plan, 20 Nov 2026), which is what Get the cards, installed
+ * ticks and the assistant's plan tools work from. People never see "track" or "planner".
  */
 
 export interface Tracked {
@@ -27,6 +27,8 @@ export interface Tracked {
   swaps: number;
   warnings: string[];
   link: string;
+  /** What went in (server `versions::settle`); missing from an answer saved before 20 Nov 2026. */
+  settled?: { deck_key: string; deck: string; version: number; kept: number; left_out: string[]; replaced: string[] }[];
 }
 
 /** The plan deck tracking this note's deck, if any (stopped ones too), from the plan bundle. */
@@ -69,8 +71,8 @@ function conflictText(e: unknown): string | null {
 
 /**
  * A note is an archived plan (Bryan, 2026-11-06: one plan per deck): kept for reference, never a
- * current plan. "Use a deck from it" makes this build that deck's next plan version, waiting for
- * your OK on Plans (`POST /api/plan/from-note` with `proposed`). Owner only.
+ * current plan. "Use a deck from it" makes this build that deck's plan, straight away (`POST
+ * /api/plan/from-note` with `proposed`, which the server settles before it answers). Owner only.
  */
 export function TrackPanel({ bundle, deck, build }: { bundle: ResearchBundle; deck: ResearchDeck; build: Build }) {
   const qc = useQueryClient();
@@ -89,7 +91,7 @@ export function TrackPanel({ bundle, deck, build }: { bundle: ResearchBundle; de
     onSuccess: async (r) => {
       setResult(r);
       await refresh();
-      if (!r.warnings.length) navigate(planHref(r.plan_deck_key));
+      if (!r.warnings.length && !r.settled?.some((v) => v.left_out.length)) navigate(planHref(r.plan_deck_key));
     },
   });
   if (!ready) {
@@ -117,17 +119,20 @@ export function TrackPanel({ bundle, deck, build }: { bundle: ResearchBundle; de
           <Button variant="primary" disabled={use.isPending} onClick={() => use.mutate()}>
             {use.isPending ? "Adding…" : "Use a deck from it"}
           </Button>
-          <span className="small dim">Makes this build a new version of {deck.name}'s plan, waiting for your OK. Until you approve it, the plan you have keeps going.</span>
+          <span className="small dim">Makes this build {deck.name}'s plan now, in place of the plan it has. Its buys go on your shopping list; nothing is bought until you mark it.</span>
         </div>
       )}
-      {result && result.warnings.length > 0 && (
+      {result && (result.warnings.length > 0 || result.settled?.some((v) => v.left_out.length)) && (
         <>
           <ul className="small warn note-track-warnings" aria-label="Check these">
             {result.warnings.map((w) => (
               <li key={w}>{w}</li>
             ))}
+            {result.settled?.flatMap((v) => v.left_out).map((l) => (
+              <li key={l}>Left out: {l}</li>
+            ))}
           </ul>
-          <Link to={planHref(result.plan_deck_key)}>Open the plan waiting for your OK</Link>
+          <Link to={planHref(result.plan_deck_key)}>Open the plan</Link>
         </>
       )}
       {conflictText(use.error) ? <p className="small warn" role="alert">{conflictText(use.error)}</p> : <ErrorText error={use.error} />}

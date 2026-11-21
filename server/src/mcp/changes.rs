@@ -874,10 +874,12 @@ pub async fn swap_in_prints(st: &AppState, user: &User, via: &Via, args: &Value)
     .await
 }
 
-/// Track one build of a note's deck as that deck's plan, or stop tracking (`build` null). Applied
-/// through `plan::notes`, the same code as `POST /api/plan/from-note`.
-pub async fn track_build(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
-    use crate::plan::notes::{find_build, find_deck, note_document};
+/// Track one build of a note's deck as that deck's plan, or stop tracking (`build` null), directly:
+/// plans don't wait for approval (Bryan, 20 Nov 2026: "Can the MCP just update the plans itself
+/// instead of having to have a useless UI do it?"). Applied through `plan::notes`, the same code as
+/// `POST /api/plan/from-note`, so the build's changes go into the plan now (`versions::settle`).
+pub async fn track_build(st: &AppState, user: &User, args: &Value) -> AppResult<String> {
+    use crate::plan::notes::{TrackRequest, find_build, find_deck, note_document, stop, track};
     let pool = &st.pool;
     let note_id = arg::text(args, "note")?.to_string();
     let deck_key = arg::text(args, "deck")?.to_string();
@@ -909,14 +911,12 @@ pub async fn track_build(st: &AppState, user: &User, via: &Via, args: &Value) ->
         let Some((key, _, _, _)) = active else {
             return Ok(format!("No build of {deck_name} in \"{title}\" is tracked, so there's nothing to stop."));
         };
-        return stage(st, user, via, args, Staged {
-                kind: "track_build",
-                summary: format!("Stop tracking {deck_name}'s plan"),
-                detail: "Its swaps, marks and answers are kept; tracking a build again brings them back.".into(),
-                payload: json!({"note_id": note_id, "deck_key": deck_key, "build_id": null, "plan_deck_key": key, "deck": deck_name}),
-            },
-        )
-        .await;
+        st.limits.deck_writes.check_user(user)?;
+        stop(pool, &user.id, key).await?;
+        return Ok(format!(
+            "Stopped tracking {deck_name}'s plan (plan key {key}): it's archived, and nothing in it is on their shopping list. Its swaps, \
+             marks and answers are kept; tracking a build again brings them back."
+        ));
     };
     let build = find_build(deck, &build_id)
         .ok_or_else(|| AppError::bad(format!("{deck_name} in \"{title}\" has no build \"{build_id}\"; its builds are {}.", keys(deck, "builds", "id"))))?;
@@ -926,174 +926,49 @@ pub async fn track_build(st: &AppState, user: &User, via: &Via, args: &Value) ->
         None => None,
     };
     // The same build again is nothing to do, unless it asks for another Yama deck: then it relinks.
-    let relink = match active {
-        Some((key, _, Some(current), linked)) if *current == build_id => {
-            if yama_deck.is_none() || yama_deck == *linked {
-                return Ok(format!("{label} is already {deck_name}'s plan (plan key {key}); nothing to stage."));
-            }
-            true
+    if let Some((key, _, Some(current), linked)) = active
+        && *current == build_id
+        && (yama_deck.is_none() || yama_deck == *linked)
+    {
+        return Ok(format!("{label} is already {deck_name}'s plan (plan key {key}); nothing changed."));
+    }
+    st.limits.deck_writes.check_user(user)?;
+    let req = TrackRequest {
+        note_id,
+        deck_key,
+        build_id,
+        deck_id: yama_deck,
+        op_id: None,
+        // The note as read above: a save in between is refused rather than tracked unseen.
+        expected_note_hash: Some(note_hash),
+        proposed: true,
+    };
+    let t = track(pool, &user.id, &req).await?;
+    let mut out = format!("{label} is now {}'s plan (plan key {}), from the note \"{title}\": {} swaps.", t.name, t.plan_deck_key, t.swaps);
+    for v in &t.settled {
+        let whose = if v.deck_key == t.plan_deck_key { String::new() } else { format!("{}'s plan, ", v.deck) };
+        let _ = write!(out, "\n{whose}version {}: {} change{} went in.", v.version, v.kept, if v.kept == 1 { "" } else { "s" });
+        if !v.replaced.is_empty() {
+            let _ = write!(out, " It replaced the other plan for this deck ({}), now archived.", v.replaced.join(", "));
         }
-        _ => false,
-    };
-    let swaps = build["swaps"].as_array().cloned().unwrap_or_default();
-    let mut detail = format!("From the note \"{title}\": {} swap{}.\n", swaps.len(), if swaps.len() == 1 { "" } else { "s" });
-    for s in swaps.iter().take(40) {
-        let card_in = s["card_in"].as_str().unwrap_or_default();
-        let _ = match s["card_out"].as_str().filter(|o| !o.trim().is_empty()) {
-            Some(out) => writeln!(detail, "- {card_in} in, {out} out"),
-            None => writeln!(detail, "- add {card_in}"),
-        };
-    }
-    if swaps.len() > 40 {
-        writeln!(detail, "...and {} more.", swaps.len() - 40).ok();
-    }
-    let summary = match active {
-        Some(_) if relink => format!("Link {deck_name}'s plan ({label}) to another Yama deck"),
-        Some(_) => format!("Switch {deck_name}'s plan to {label}"),
-        None => format!("Track {label} as {deck_name}'s plan"),
-    };
-    stage(st, user, via, args, Staged {
-            kind: "track_build",
-            summary,
-            detail,
-            // The note as reviewed: applying refuses if it has changed since (plan::notes::track).
-            payload: json!({"note_id": note_id, "deck_key": deck_key, "build_id": build_id, "deck_id": yama_deck, "deck": deck_name, "label": label, "note_hash": note_hash}),
-        },
-    )
-    .await
-}
-
-/// Approve a deck's plan version whole, or keep the version before it (`plan::versions`). The
-/// version, its changes and the skips are fixed when staged; applying refuses if the plan has
-/// changed since, so what they approve is what they saw.
-pub async fn approve_plan(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
-    let pool = &st.pool;
-    let (key, name) = plan_deck(pool, &user.id, arg::text(args, "plan")?).await?;
-    let action = args.get("action").and_then(Value::as_str).unwrap_or("approve");
-    if !["approve", "keep"].contains(&action) {
-        return Err(AppError::bad("action is approve (the default) or keep (keep the version before it)"));
-    }
-    let id: String = sqlx::query_scalar("SELECT id FROM plan_decks WHERE owner_id = ? AND key = ?").bind(&user.id).bind(&key).fetch_one(pool).await?;
-    let plan = {
-        let mut conn = pool.acquire().await?;
-        crate::plan::versions::load(&mut conn, &user.id, None).await?.decks.remove(&id)
-    }
-    .ok_or(AppError::NotFound("plan deck"))?;
-    let Some(next) = plan.next.clone() else {
-        return Ok(format!("Nothing in {name}'s plan is waiting for their OK ({}).", crate::advisor::context::plan_state_text(&plan)));
-    };
-    let swaps: Vec<(String, String, Option<String>)> =
-        sqlx::query_as("SELECT s.ext_key, s.in_name, s.out_name FROM plan_swaps s WHERE s.owner_id = ? AND s.plan_deck_id = ? AND s.retired_at IS NULL")
-            .bind(&user.id)
-            .bind(&id)
-            .fetch_all(pool)
-            .await?;
-    // Each change as it will be approved: the cut the page shows (a chosen cut, or the plan's
-    // fallback when its cut is already going), else the plan's.
-    let label = |k: &str| {
-        let cut = next.cuts.iter().find(|c| c.key == k).map(|c| c.out.clone());
-        swaps
-            .iter()
-            .find(|s| s.0 == k)
-            .map(|(_, i, o)| cut.clone().unwrap_or_else(|| o.clone()).map(|o| format!("{i} for {o}")).unwrap_or_else(|| i.clone()))
-            .unwrap_or_else(|| k.to_string())
-    };
-    // Skips name a change by its key or by the card it puts in.
-    // The page's starting skips: answered no, and cuts the plan in force already makes.
-    let mut skip: Vec<String> = crate::plan::versions::start_skipped(&next);
-    for w in args.get("skip").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
-        let w = w.trim();
-        // A key names one change; a card name names every change that puts it in (each copy of a
-        // note swap is its own change), so skipping a card skips all of them.
-        let found: Vec<&String> = match next.keys.iter().find(|k| k.as_str() == w) {
-            Some(k) => vec![k],
-            None => next.keys.iter().filter(|k| swaps.iter().any(|s| &s.0 == *k && s.1.eq_ignore_ascii_case(w))).collect(),
-        };
-        if found.is_empty() {
-            return Err(AppError::bad(format!("\"{w}\" isn't one of the changes waiting in {name}'s version {}.", next.n)));
-        }
-        for k in found {
-            if !skip.contains(k) {
-                skip.push(k.clone());
+        if !v.left_out.is_empty() {
+            out.push_str("\nLeft out, because the cut clashes (fix the build in the note and save it again):");
+            for l in &v.left_out {
+                let _ = write!(out, "\n- {l}");
             }
         }
     }
-    // Keeping the version before answers no to every change waiting, so it names them all.
-    if action == "keep" {
-        skip.clear();
+    if t.settled.is_empty() {
+        out.push_str("\nNothing new went in: the plan already had these changes.");
     }
-    let keys: Vec<String> = if action == "keep" { next.keys.clone() } else { next.keys.iter().filter(|k| !skip.contains(k)).cloned().collect() };
-    let mut answers: Vec<Value> = Vec::new();
-    for a in args.get("answers").and_then(Value::as_array).into_iter().flatten() {
-        let (Some(q), Some(ans)) = (a.get("question").and_then(Value::as_str), a.get("answer").and_then(Value::as_str)) else {
-            return Err(AppError::bad("answers is a list of {question, answer}, the question as get_plan lists it"));
-        };
-        answers.push(json!({"question": q, "answer": ans}));
+    for w in &t.warnings {
+        let _ = write!(out, "\nWarning: {w}");
     }
-    if action == "approve" {
-        for q in &plan.questions {
-            if !answers.iter().any(|a| a["question"].as_str() == Some(q) && a["answer"].as_str().is_some_and(|x| !x.trim().is_empty())) {
-                return Err(AppError::bad(format!("Answer this open question first (their answer, in answers): {q}")));
-            }
-        }
-        if keys.is_empty() {
-            return Err(AppError::bad("Every change would be skipped; there's nothing to approve."));
-        }
-        // The page's checks: no card to cut, a cut already going, two changes cutting one card.
-        let problems = crate::plan::versions::problems(&next, &skip);
-        if !problems.is_empty() {
-            return Err(AppError::bad(format!(
-                "Settle these first (skip a change, or propose a fixed one):\n- {}",
-                problems.join("\n- ")
-            )));
-        }
-    }
-    let summary = if action == "approve" {
-        format!("Approve {name}'s plan, version {}: {} changes{}", next.n, keys.len(), if skip.is_empty() { String::new() } else { format!(", {} skipped", skip.len()) })
-    } else {
-        format!("Keep {name}'s plan at version {}, not version {}", plan.version.unwrap_or(1), next.n)
-    };
-    let mut detail = String::new();
-    if action == "approve" {
-        for k in keys.iter().take(60) {
-            let _ = writeln!(detail, "- {}", label(k));
-        }
-        if keys.len() > 60 {
-            let _ = writeln!(detail, "...and {} more.", keys.len() - 60);
-        }
-        for k in &skip {
-            let _ = writeln!(detail, "- skip {}", label(k));
-        }
-        for a in &answers {
-            let _ = writeln!(detail, "{} {}", a["question"].as_str().unwrap_or_default(), a["answer"].as_str().unwrap_or_default());
-        }
-    }
-    stage(st, user, via, args, Staged {
-            kind: "approve_plan",
-            summary,
-            detail,
-            payload: json!({"deck_key": key, "deck": name, "action": action, "version": next.n, "keys": keys, "skip": skip, "answers": answers, "hash": next.hash}),
-        },
-    )
-    .await
+    let _ = write!(out, "\nThe plan's page: {}. Its buys are on their shopping list and its prints on the next print order; nothing is bought until they mark it.", t.link);
+    Ok(out)
 }
 
-async fn apply_approve_plan(st: &AppState, user: &User, id: &str, p: &Value) -> AppResult<Value> {
-    let at = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
-    let op = json!({
-        "op_id": format!("{DEVICE}-{id}"), "device_id": DEVICE, "at": at, "kind": "plan", "deck_key": p["deck_key"],
-        "action": p["action"], "version": p["version"], "keys": p["keys"], "skip": p["skip"], "answers": p["answers"], "hash": p["hash"],
-    });
-    let reply = crate::plan::inputs::apply_ops(&st.pool, &user.id, vec![op], Utc::now()).await?;
-    let r = reply.results.first().ok_or_else(|| anyhow::anyhow!("the planner returned no result"))?;
-    if r.status == "rejected" || r.original.as_deref() == Some("rejected") {
-        return Err(AppError::Conflict(format!("The plan refused it: {}", r.error.clone().unwrap_or_default())));
-    }
-    let deck = p["deck"].as_str().unwrap_or("the deck");
-    let label = if p["action"] == "keep" { format!("Kept {deck}'s plan as it was") } else { format!("Approved {deck}'s plan, version {}", p["version"]) };
-    Ok(json!({"label": label, "link": crate::plan::page_link(p["deck_key"].as_str().unwrap_or_default())}))
-}
-
+/// A `track_build` staged before 20 Nov 2026, when tracking was staged: applied as tracking is now.
 async fn apply_track_build(st: &AppState, user: &User, id: &str, p: &Value) -> AppResult<Value> {
     st.limits.deck_writes.check_user(user)?;
     let note_id = p["note_id"].as_str().unwrap_or_default().to_string();
@@ -1107,11 +982,11 @@ async fn apply_track_build(st: &AppState, user: &User, id: &str, p: &Value) -> A
                 deck_id: p["deck_id"].as_str().map(String::from),
                 op_id: Some(format!("{DEVICE}-{id}")),
                 expected_note_hash: p["note_hash"].as_str().map(String::from),
-                // A build taken up from a note is a plan version waiting for their OK.
+                // A build taken up from a note is the deck's next plan version, settled straight away.
                 proposed: true,
             };
             let t = crate::plan::notes::track(&st.pool, &user.id, &req).await?;
-            Ok(json!({"label": format!("{} is {}'s next plan version, waiting for your OK ({} changes)", t.build_label, t.name, t.swaps), "link": t.link}))
+            Ok(json!({"label": format!("{} is {}'s plan ({} changes)", t.build_label, t.name, t.swaps), "link": t.link}))
         }
         None => {
             // Found by the note link: an import may have moved the plan to another key since.
@@ -3107,6 +2982,12 @@ pub async fn apply(st: &AppState, user: &User, id: &str) -> AppResult<ChangeView
     let p: Value = serde_json::from_str(&row.payload).map_err(anyhow::Error::from)?;
     let done = match super::registry::applier(&row.kind) {
         Some(apply) => apply(st, user, Pending { id: &row.id, summary: &row.summary }, &p).await,
+        // Kinds no tool stages since plans stopped waiting for approval (20 Nov 2026), for changes
+        // staged before then.
+        None if row.kind == "track_build" => apply_track_build(st, user, &row.id, &p).await,
+        None if row.kind == "approve_plan" => {
+            Err(AppError::Conflict("Plans don't wait for approval any more: its changes are already in the plan. Discard this one.".into()))
+        }
         None => Err(AppError::Other(anyhow::anyhow!("unknown change kind {}", row.kind))),
     };
     let at = now();
@@ -3170,8 +3051,6 @@ pub(super) mod staging {
     pub const ANSWER_REVIEW: Staging = Staging { kind: "answer_review", apply: |st, user, change, p| Box::pin(apply_plan(st, user, "answer_review", change.id, p)) };
     pub const MARK_BOUGHT: Staging = Staging { kind: "mark_bought", apply: |st, user, change, p| Box::pin(apply_plan(st, user, "mark_bought", change.id, p)) };
     pub const MARK_INSTALLED: Staging = Staging { kind: "mark_installed", apply: |st, user, change, p| Box::pin(apply_plan(st, user, "mark_installed", change.id, p)) };
-    pub const TRACK_BUILD: Staging = Staging { kind: "track_build", apply: |st, user, change, p| Box::pin(apply_track_build(st, user, change.id, p)) };
-    pub const APPROVE_PLAN: Staging = Staging { kind: "approve_plan", apply: |st, user, change, p| Box::pin(apply_approve_plan(st, user, change.id, p)) };
     pub const SWAP_IN_PRINTS: Staging = Staging { kind: "swap_in_prints", apply: |st, user, _, p| Box::pin(apply_swap_in(st, user, p)) };
     pub const START_LAB_RUN: Staging = Staging { kind: "start_lab_run", apply: |st, user, change, p| Box::pin(apply_lab_run(st, user, change.id, p)) };
     pub const MORE_LAB_GAMES: Staging = Staging { kind: "more_lab_games", apply: |st, user, _, p| Box::pin(apply_more_games(st, user, p)) };

@@ -25,9 +25,9 @@ import { ButtonLink, EmptyState, Segmented } from "../components/ui";
 const cardsWord = (n: number) => plural(n, "card");
 
 /**
- * `/decks/plans/get` (design board "GetCards"): everything your approved plans still need, in the
- * order you'd do it: buy, print, move between decks, put in. Only plans in force count; one
- * waiting for your OK puts nothing here. `?deck=` shows one plan's.
+ * `/decks/plans/get` (design board "GetCards"): everything your plans still need, in the order
+ * you'd do it: buy, print, move between decks, put in. Only plans in force count; an archived one
+ * puts nothing here. `?deck=` shows one plan's.
  */
 export function GetCards() {
   const { view, userId } = usePlanOutlet();
@@ -63,11 +63,11 @@ export function GetCards() {
   return (
     <>
       <PlansHead title="Get the cards" />
-      <p className="dim plans-lede">Everything your approved plans still need, in the order you'd do it.</p>
-      <p><Link to="/decks/plans/get/sourcing">Source cards across all decks</Link> — preview saved builds and optional real replacements together, including plans not yet approved.</p>
+      <p className="dim plans-lede">Everything your plans still need, in the order you'd do it.</p>
+      <p><Link to="/decks/plans/get/sourcing">Source cards across all decks</Link> — preview saved builds and optional real replacements together, including builds that aren't a plan yet.</p>
       {live.length === 0 ? (
         <EmptyState variant="panel">
-          Nothing to get yet. Approve a plan on <Link to="/decks/plans">Plans</Link> and its buys, prints and moves show up here.
+          Nothing to get yet. When a deck has a plan on <Link to="/decks/plans">Plans</Link>, its buys, prints and moves show up here.
           {(view.b.shopping_wants?.length ?? 0) > 0 && (
             <>
               {" "}Cards you added to your shopping list by hand are on the <Link to="/decks/plans/get/trip">store trip</Link>.
@@ -81,7 +81,7 @@ export function GetCards() {
             label="Show plans"
             value={deck?.key ?? null}
             onChange={pick}
-            options={[[null, "All approved plans"], ...live.map((d) => [d.key, d.name] as const)]}
+            options={[[null, "All plans"], ...live.map((d) => [d.key, d.name] as const)]}
           />
 
           <nav className="plans-steps" aria-label="Steps">

@@ -1,23 +1,9 @@
-import { identityName, usd, plural } from "@yama/core";
-import {
-  changeStep,
-  countChanges,
-  getLine,
-  inForce,
-  inForceSwaps,
-  nextStep,
-  planChange,
-  sourceText,
-  startSkipped,
-  waitingSwaps,
-  type DeckPlanState,
-  type PlanDeck,
-} from "@yama/core/plan";
+import { changeStep, inForce, inForceSwaps, nextStep, type DeckPlanState, type PlanDeck } from "@yama/core/plan";
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
 import { ConnectButton } from "../components/HowTo";
-import { Button, ButtonLink, CardThumb, EmptyState, Pips, StatusPill } from "../components/ui";
+import { Button, CardThumb, EmptyState } from "../components/ui";
 import { ImportSheet } from "./ImportSheet";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
 import type { PlanView } from "./view";
@@ -31,14 +17,6 @@ interface Row {
   plan: DeckPlanState;
 }
 
-/** The changes of a plan's waiting version that aren't skipped yet, counted by where they come from. */
-export function waitingCounts(view: PlanView, deck: PlanDeck, plan: DeckPlanState) {
-  // The same changes the plan's page starts skipped.
-  const skipped = plan.next ? startSkipped(plan.next) : new Set<string>();
-  const swaps = waitingSwaps(plan, view.swapsOf(deck.key)).filter((s) => !skipped.has(s.key));
-  return countChanges(swaps.map((s) => planChange(s, view.b, view.deckName)));
-}
-
 /** Where each change of a plan in progress stands, from its marks and orders. */
 export function progressSteps(view: PlanView, deck: PlanDeck, plan: DeckPlanState) {
   return inForceSwaps(deck, plan, view.b.swaps, view.answers).map((s) => ({
@@ -49,9 +27,10 @@ export function progressSteps(view: PlanView, deck: PlanDeck, plan: DeckPlanStat
   }));
 }
 
-const cardsWord = (n: number) => plural(n, "change");
-
-/** `/decks/plans`: every deck once, by its plan's state (design board "Main"). */
+/**
+ * `/decks/plans`: every deck once, by its plan's state (design board "Main"). Nobody approves a plan
+ * (20 Nov 2026), so there's no waiting list: a plan is in progress, done, empty or archived.
+ */
 export function Plans() {
   const { view } = usePlanOutlet();
   const [importing, setImporting] = useState(false);
@@ -60,27 +39,22 @@ export function Plans() {
     [view],
   );
   const have = (r: Row) => !!r.deck.yama_deck || !!r.deck.deck_id;
-  const waiting = rows.filter((r) => r.plan.state === "waiting");
-  const waitingMine = waiting.filter(have);
-  const notYet = waiting.filter((r) => !have(r));
-  const versions = rows.filter((r) => inForce(r.plan) && r.plan.next);
-  const progress = rows.filter((r) => r.plan.state === "in_progress");
+  // A plan the server is still taking in (only for a moment) shows with the plans in progress.
+  const progress = rows.filter((r) => r.plan.state === "in_progress" || r.plan.state === "waiting");
   const done = rows.filter((r) => r.plan.state === "done");
   // Decks with no changes yet: yours wait for a plan; one you don't have yet is listed with them.
   const empty = rows.filter((r) => r.plan.state === "empty" && !have(r));
   const noPlan = rows.filter((r) => r.plan.state === "empty" && have(r));
   const archived = rows.filter((r) => r.plan.state === "archived").length + new Set((view.b.versions ?? []).filter((v) => v.superseded_at || v.status === "kept").map((v) => `${v.deck}/${v.n}`)).size;
-  // Start with the plan that has waited longest.
-  const start = [...waitingMine].sort((a, b) => (a.plan.next?.proposed_at ?? "").localeCompare(b.plan.next?.proposed_at ?? ""))[0];
   const get = useMemo(() => {
     const steps = rows.filter((r) => inForce(r.plan)).flatMap((r) => progressSteps(view, r.deck, r.plan));
     const n = (k: string) => steps.filter((s) => s.step === k).length;
     return { buy: n("to_buy"), print: n("to_print"), move: n("to_move"), putIn: n("in_hand") };
   }, [rows, view]);
-  // Get the cards shows for any approved plan, and for cards added to the shopping list by hand.
-  const anyApproved = rows.some((r) => inForce(r.plan)) || (view.b.shopping_wants?.length ?? 0) > 0;
-  // The small art beside new versions and done plans, credited once under the page.
-  const thumbArtists = [...new Set([...versions, ...done].filter((r) => view.art(r.deck)).map((r) => view.card(r.deck.commander[0])?.artist))];
+  // Get the cards shows for any plan in force, and for cards added to the shopping list by hand.
+  const anyInForce = rows.some((r) => inForce(r.plan)) || (view.b.shopping_wants?.length ?? 0) > 0;
+  // The small art beside done plans, credited once under the page.
+  const thumbArtists = [...new Set(done.filter((r) => view.art(r.deck)).map((r) => view.card(r.deck.commander[0])?.artist))];
 
   return (
     <>
@@ -88,16 +62,13 @@ export function Plans() {
       {importing && <ImportSheet view={view} onClose={() => setImporting(false)} />}
       <p className="dim plans-lede">One plan per deck: a Bracket 4 build and the swaps back to Bracket 3 and 2.</p>
 
-      {(start || anyApproved) && (
-        <section className="plans-start" aria-labelledby="plans-start">
-          {start && <StartCard row={start} view={view} />}
-          {anyApproved && (
-            <Link to="/decks/plans/get" className="plans-get-card">
-              <span className="plans-card-title">Get the cards</span>
-              <span>{getSummary(get)}</span>
-              <span className="small dim">For every plan you've approved</span>
-            </Link>
-          )}
+      {anyInForce && (
+        <section className="plans-start" aria-label="Get the cards">
+          <Link to="/decks/plans/get" className="plans-get-card">
+            <span className="plans-card-title">Get the cards</span>
+            <span>{getSummary(get)}</span>
+            <span className="small dim">For every plan</span>
+          </Link>
         </section>
       )}
 
@@ -111,53 +82,15 @@ export function Plans() {
             </>
           }
         >
-          No plans yet. Ask your assistant for a plan for one of your decks, or import a plan file. Each plan waits here for your OK.
+          No plans yet. Ask your assistant for a plan for one of your decks, or import a plan file. Its changes go straight in.
         </EmptyState>
-      )}
-
-      {(waitingMine.length > 0 || versions.length > 0) && (
-        <section className="plans-section" aria-labelledby="plans-waiting">
-          <div className="plans-section-head">
-            <h2 id="plans-waiting">Waiting for your OK</h2>
-            <span className="dim">
-              {[waitingMine.length && (waitingMine.length === 1 ? "1 new plan" : `${waitingMine.length} new plans`), versions.length && (versions.length === 1 ? "1 new version" : `${versions.length} new versions`)]
-                .filter(Boolean)
-                .join(", ")}
-              . Nothing is bought or printed until you approve.
-            </span>
-          </div>
-          {waitingMine.length > 0 && (
-            <div className="plans-grid">
-              {waitingMine.map((r) => (
-                <WaitingTile key={r.deck.key} row={r} view={view} />
-              ))}
-            </div>
-          )}
-          {versions.length > 0 && (
-            <div className="plans-list">
-              {versions.map((r) => (
-                <Link key={r.deck.key} to={`${planHref(r.deck.key)}#new-version`} className="plans-list-row">
-                  <Thumb deck={r.deck} view={view} />
-                  <span className="plans-list-main">
-                    <b>{r.deck.name}: a new version</b>
-                    <span className="small dim">
-                      Adds {cardsWord(r.plan.next!.keys.length)}, {sourceText(r.plan.next!.source, r.plan.next!.proposed_at, view.b.head)}
-                    </span>
-                  </span>
-                  <span className="small dim">In progress meanwhile</span>
-                  <Chevron />
-                </Link>
-              ))}
-            </div>
-          )}
-        </section>
       )}
 
       {progress.length > 0 && (
         <section className="plans-section" aria-labelledby="plans-progress">
           <div className="plans-section-head">
             <h2 id="plans-progress">In progress</h2>
-            <span className="dim">Approved. Buying, printing and putting cards in.</span>
+            <span className="dim">Buying, printing and putting cards in.</span>
           </div>
           <div className="plans-grid">
             {progress.map((r) => (
@@ -182,20 +115,13 @@ export function Plans() {
         </section>
       )}
 
-      {(notYet.length > 0 || empty.length > 0) && (
+      {empty.length > 0 && (
         <section className="plans-section" aria-labelledby="plans-later">
           <div className="plans-section-head">
             <h2 id="plans-later">Decks you don't have yet</h2>
-            <span className="dim">Their plans wait here until the deck is in Yama. Approve one once it arrives.</span>
+            <span className="dim">No plan yet, and the deck isn't in Yama.</span>
           </div>
           <div className="plans-list">
-            {notYet.map((r) => (
-              <Link key={r.deck.key} to={planHref(r.deck.key)} className="plans-list-row">
-                <b className="plans-list-main">{r.deck.name}</b>
-                <span className="small dim">{cardsWord(waitingCounts(view, r.deck, r.plan).total)} waiting</span>
-                <Chevron />
-              </Link>
-            ))}
             {empty.map((r) => (
               <div key={r.deck.key} className="plans-list-row">
                 <b className="plans-list-main">{r.deck.name}</b>
@@ -210,7 +136,7 @@ export function Plans() {
         <section className="plans-section" aria-labelledby="plans-none">
           <div className="plans-section-head">
             <h2 id="plans-none">No plan yet</h2>
-            <span className="dim">Ask your assistant for a plan; it waits here for your OK.</span>
+            <span className="dim">Ask your assistant for a plan; it goes straight in.</span>
           </div>
           <div className="plans-list">
             {noPlan.map((r) => (
@@ -245,31 +171,7 @@ export function Plans() {
 
 function getSummary(g: { buy: number; print: number; move: number; putIn: number }): string {
   const parts = [g.buy && `${g.buy} to buy`, g.print && `${g.print} to print`, g.move && `${g.move} to move between decks`, g.putIn && `${g.putIn} to put in`].filter(Boolean);
-  return parts.length ? parts.join(", ") : "Everything you approved is in hand";
-}
-
-function StartCard({ row, view }: { row: Row; view: PlanView }) {
-  const c = waitingCounts(view, row.deck, row.plan);
-  const commander = view.card(row.deck.commander[0]);
-  const crop = view.art(row.deck);
-  const bits = [cardsWord(c.total), c.buy ? `${c.buyUsd != null ? usd(c.buyUsd) : `${c.buy} cards`} to buy` : null, c.print ? `${c.print} to print` : null].filter(Boolean);
-  return (
-    <div className="plans-start-card">
-      {crop && (
-        <figure className="plans-start-art">
-          <CardThumb src={crop} eager />
-          <figcaption className="small dim">{artCredit(commander?.artist)}</figcaption>
-        </figure>
-      )}
-      <div className="plans-start-text">
-        <h2 id="plans-start" className="plans-card-title">Start with {row.deck.name}</h2>
-        <span>Its plan is waiting for your OK: {bits.join(", ")}.</span>
-      </div>
-      <ButtonLink variant="primary" className="plans-big-button" to={planHref(row.deck.key)}>
-        Review the plan
-      </ButtonLink>
-    </div>
-  );
+  return parts.length ? parts.join(", ") : "Everything is in hand";
 }
 
 function TileArt({ deck, view, children, tall = false }: { deck: PlanDeck; view: PlanView; children: React.ReactNode; tall?: boolean }) {
@@ -282,28 +184,6 @@ function TileArt({ deck, view, children, tall = false }: { deck: PlanDeck; view:
   );
 }
 
-function WaitingTile({ row, view }: { row: Row; view: PlanView }) {
-  const { deck, plan } = row;
-  const c = waitingCounts(view, deck, plan);
-  return (
-    <Link to={planHref(deck.key)} className="plans-tile">
-      <TileArt deck={deck} view={view} tall>
-        <span className="plans-tile-name">{deck.name}</span>
-        <span className="plans-tile-cmdr">
-          <Pips identity={deck.color_identity ?? ""} /> {deck.commander.join(" and ")}
-          <span className="visually-hidden">, {identityName(deck.color_identity ?? "")}</span>
-        </span>
-      </TileArt>
-      <span className="plans-tile-body">
-        <b>{cardsWord(c.total)}</b>
-        <span className="small">{getLine(c)}</span>
-        {plan.questions.length > 0 && <span className="small warn">{plan.questions.length === 1 ? "1 question to answer" : `${plan.questions.length} questions to answer`}</span>}
-        <span className="small dim">{plan.next ? cap(sourceText(plan.next.source, plan.next.proposed_at, view.b.head)) : ""}</span>
-      </span>
-    </Link>
-  );
-}
-
 function ProgressTile({ row, view }: { row: Row; view: PlanView }) {
   const { deck, plan } = row;
   const steps = progressSteps(view, deck, plan);
@@ -311,7 +191,7 @@ function ProgressTile({ row, view }: { row: Row; view: PlanView }) {
   const total = steps.length;
   const pct = total ? Math.round((inDeck / total) * 100) : 0;
   const box = deck.bracket?.box ?? deck.bracket?.target ?? null;
-  const next = plan.next ? "OK the new version" : nextStep(steps.map((s) => s.step));
+  const next = nextStep(steps.map((s) => s.step));
   return (
     <Link to={planHref(deck.key)} className="plans-tile">
       <TileArt deck={deck} view={view}>
@@ -328,7 +208,6 @@ function ProgressTile({ row, view }: { row: Row; view: PlanView }) {
           <span style={{ width: `${pct}%` }} />
         </span>
         {next && <span className="small">Next: {next}</span>}
-        {plan.next && <StatusPill tone="warn">New version waiting for your OK</StatusPill>}
       </span>
     </Link>
   );
@@ -348,4 +227,3 @@ function Chevron() {
   );
 }
 
-const cap = (s: string) => (s ? s[0]!.toUpperCase() + s.slice(1) : s);

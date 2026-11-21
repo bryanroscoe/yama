@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { changeKind, changePrice, changeStep, countChanges, getLine, inForceSwaps, nextStep, overlayPlan, planChange, planOf, planProblems, sourceText, startSkipped, versionLine } from "./plans";
+import { changeKind, changePrice, changeStep, countChanges, getLine, inForceSwaps, leftOut, nextStep, overlayPlan, planChange, planOf, sourceText, versionLine } from "./plans";
 import { overlayReviews } from "./overlay";
 import type { DeckPlanState, PlanDeck, Review, Swap } from "./types";
 
@@ -63,12 +63,12 @@ describe("a plan's state", () => {
   });
 
   it("has a plain version line", () => {
-    expect(versionLine(plan())).toBe("Version 1, proposed Nov 5, 2026 in the commander-decks plan file, version 35");
-    expect(versionLine(plan({ state: "in_progress", version: 2, approved_at: "2026-11-06" }))).toBe("Version 2, approved Nov 6, 2026");
+    expect(versionLine(plan())).toBe("New changes proposed Nov 5, 2026 in the commander-decks plan file, version 35, going in now");
+    expect(versionLine(plan({ state: "in_progress", version: 2, approved_at: "2026-11-06" }))).toBe("Version 2, updated Nov 6, 2026");
     expect(sourceText({ kind: "note", note: "n", title: "Buildable now" }, null)).toBe("from your note “Buildable now”");
   });
 
-  it("counts the approved proposals in the plan in force", () => {
+  it("counts the proposals it took in as the plan in force", () => {
     const deck = { key: "blight" } as PlanDeck;
     const answers = new Map<string, Review>([["b", { decision: "want" } as Review]]);
     const swaps = [swap({ key: "a", stage: "planned" }), swap({ key: "b" }), swap({ key: "c" }), swap({ key: "s", stage: "planned", role: "standin" })];
@@ -86,62 +86,43 @@ describe("a plan's state", () => {
     expect(nextStep(["in"])).toBeNull();
   });
 
-  it("shows this device's decisions until the bundle has them", () => {
-    const approved = overlayPlan(plan(), [{ deck_key: "blight", action: "approve", version: 1 }]);
-    expect(approved).toMatchObject({ state: "in_progress", version: 1, next: null, changes: 2 });
-    expect(overlayPlan(plan(), [{ deck_key: "blight", action: "approve", version: 2 }]).state).toBe("waiting");
-    expect(overlayPlan(plan(), [{ deck_key: "blight", action: "archive", version: null }]).state).toBe("archived");
-    const reviews = overlayReviews({}, [{ local: "pending", op: { kind: "plan", op_id: "o", at: "2026-11-06T00:00:00Z", deck_key: "blight", action: "approve", version: 1, keys: ["a"], skip: ["b"], answers: [] } }]);
-    expect(reviews.a?.decision).toBe("want");
-    expect(reviews.b?.decision).toBe("no");
+  it("shows this device's archive until the bundle has it", () => {
+    expect(overlayPlan(plan({ state: "in_progress", version: 1, next: null }), [{ deck_key: "blight", action: "archive", version: null }]).state).toBe("archived");
+    expect(overlayPlan(plan({ state: "archived", next: null }), [{ deck_key: "blight", action: "restore", version: null }]).state).toBe("archived");
   });
-});
 
-describe("approval checks", () => {
-  // Riders of Rohan's version 2 as it waits on 8 Nov: two pairs share a cut, one names none, and
-  // Banishing Light's cut already goes out for Raise the Palisade.
-  const cuts = [
-    { key: "banish", in: "Banishing Light", out: "Earthquake", gone_for: "Raise the Palisade" },
-    { key: "archangel", in: "Archangel of Tithes", out: "Frontier Warmonger", gone_for: null },
-    { key: "aetherize", in: "Aetherize", out: null, gone_for: null },
-    { key: "borrower", in: "Brazen Borrower", out: "Wayfarer's Bauble", gone_for: null },
-    { key: "eomer", in: "Éomer, King of Rohan", out: "Wayfarer's Bauble", gone_for: null },
-    { key: "devotion", in: "Increasing Devotion", out: "frontier warmonger", gone_for: null },
-    { key: "land-1", in: "Tundra", out: "Plains", gone_for: null },
-    { key: "land-2", in: "Plateau", out: "Plains", gone_for: null },
-    { key: "n|x", in: "Rats", out: "Thing", gone_for: null },
-    { key: "n|x#2", in: "Rats", out: "Thing", gone_for: null },
-  ];
-  it("name each problem beside its change, and count a clash once", () => {
-    const p = planProblems(cuts, new Set());
-    expect(p.count).toBe(4);
-    expect(p.byKey.get("banish")).toBe("Out of date: Earthquake already goes out for Raise the Palisade.");
-    expect(p.byKey.get("aetherize")).toMatch(/^No card named to cut/);
-    expect(p.byKey.get("borrower")).toBe("Same cut as Éomer, King of Rohan. Keep one of them.");
-    expect(p.byKey.get("devotion")).toBe("Same cut as Archangel of Tithes. Keep one of them.");
-    expect(p.byKey.has("land-1") || p.byKey.has("n|x")).toBe(false);
-  });
-  it("are settled by skipping", () => {
-    const skipped = startSkipped({ n: 2, keys: [], skipped: ["aetherize"], proposed_at: null, source: { kind: "yama" }, hash: "h", cuts });
-    expect([...skipped].sort()).toEqual(["aetherize", "banish"]);
-    expect(planProblems(cuts, skipped).count).toBe(2);
-    skipped.add("eomer");
-    skipped.add("devotion");
-    expect(planProblems(cuts, skipped)).toEqual({ byKey: new Map(), count: 0 });
-  });
-  it("say when two changes put in the same card for the same cut", () => {
-    const twice = [
-      { key: "p", in: "Port Town", out: "Restless Anchorage", gone_for: null },
-      { key: "q", in: "Port Town", out: "Restless Anchorage", gone_for: null },
+  it("lists what it left out, with your answer or the server's reason", () => {
+    const deck = { key: "blight" } as PlanDeck;
+    const swaps = [
+      swap({ key: "in", sort: 1 }),
+      swap({ key: "clash", sort: 3, in: "Eomer" }),
+      swap({ key: "no", sort: 2 }),
+      swap({ key: "edited", sort: 4, updated_at: "2026-11-09T00:00:00Z" }),
+      swap({ key: "other", deck: "trance" }),
+      swap({ key: "planned", stage: "planned" }),
     ];
-    expect(planProblems(twice, new Set()).byKey.get("p")).toBe("Another change also puts in Port Town for Restless Anchorage. Keep one of them.");
+    const answers = new Map<string, Review>([
+      ["in", { decision: "want", at: "2026-11-08T00:00:00Z" } as Review],
+      ["clash", { decision: "unsure", note: "Yama left this out: Brazen Borrower already takes out Wayfarer's Bauble.", at: "2026-11-08T00:00:00Z" } as Review],
+      ["no", { decision: "no", note: null, at: "2026-11-08T00:00:00Z" } as Review],
+      // Answered before the proposal last changed: not left out, the server takes it in again.
+      ["edited", { decision: "no", at: "2026-11-08T00:00:00Z" } as Review],
+      ["other", { decision: "no", at: "2026-11-08T00:00:00Z" } as Review],
+      ["planned", { decision: "no", at: "2026-11-08T00:00:00Z" } as Review],
+    ]);
+    expect(leftOut(deck, swaps, answers).map((l) => [l.swap.key, l.decision, l.note])).toEqual([
+      ["no", "no", null],
+      ["clash", "unsure", "Yama left this out: Brazen Borrower already takes out Wayfarer's Bauble."],
+    ]);
   });
-  it("pass a bundle from before the checks", () => {
-    expect(planProblems(undefined, new Set()).count).toBe(0);
+
+  it("never lays an old page's approve over the answers", () => {
+    const op = { kind: "plan", op_id: "o", at: "2026-11-06T00:00:00Z", deck_key: "blight", action: "approve", version: 1, keys: ["a"], skip: ["b"], answers: [] } as unknown as Parameters<typeof overlayReviews>[1][number]["op"];
+    expect(overlayReviews({}, [{ local: "pending", op }])).toEqual({});
   });
 });
 
-describe("approving", () => {
+describe("taking a change in", () => {
   it("takes a want given after the change last changed", async () => {
     const { approves } = await import("./plans");
     const s = swap({ updated_at: "2026-11-05T00:00:00Z" });
@@ -153,7 +134,7 @@ describe("approving", () => {
 });
 
 describe("Get the cards", () => {
-  it("reads only the plans in force, and only what was approved in them", async () => {
+  it("reads only the plans in force, and only the changes they took in", async () => {
     const { inForceBundle } = await import("./plans");
     const decks = [
       { key: "a", status: "active", plan: plan({ state: "in_progress", version: 1, next: null }) },

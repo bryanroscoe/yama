@@ -45,7 +45,7 @@ export interface PlanView {
   art: (deck: PlanDeck) => string | null;
   /** Who picks answers up for imported decks, as the banner names it. */
   app: string;
-  /** The deck's plan state, with this device's own decisions (approve, keep, archive) laid over it. */
+  /** The deck's plan state, with this device's own archive laid over it. */
   planOf: (deck: PlanDeck) => DeckPlanState;
 }
 
