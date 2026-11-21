@@ -64,8 +64,18 @@ export interface GateOptions {
   maxAttempts: number;
   /** The same card isn't reported again within this, unless it left the view. */
   suppressMs: number;
-  /** The view has been empty this long: the card has left. */
+  /**
+   * The view has been empty this long, over passes that followed one another: the card has left.
+   * A gap between two passes (the scanner paused, a slow read) counts for at most `gapMs`, so one
+   * empty pass after a pause isn't the card leaving.
+   */
   awayMs: number;
+  gapMs: number;
+  /**
+   * With nothing recent to measure speed from (a read took longer than `staleMs`), the card is
+   * still where it was if no corner is further than this from its last sighting, in short sides.
+   */
+  stay: number;
   /**
    * Two thumbnails are the same card at this correlation or more (−1 to 1). High on purpose: taking
    * the same card for another only costs a read (the caller still knows the card it just filed by
@@ -85,6 +95,8 @@ export const GATE_DEFAULTS: GateOptions = {
   maxAttempts: 5,
   suppressMs: 3000,
   awayMs: 350,
+  gapMs: 150,
+  stay: 0.08,
   sameThumb: 0.85,
 };
 
@@ -94,7 +106,7 @@ export type GateDecision<F = unknown> = (
   /** At rest, and waiting: for a sharper frame, or between two reads. */
   | { kind: "steadying" }
   /** Read this frame now (the sharpest since the last read), then say `named` or `missed`. */
-  | { kind: "read"; attempt: number; quad: Quad; frame: F | undefined; sharpness: number | undefined }
+  | { kind: "read"; attempt: number; quad: Quad; frame: F | undefined; sharpness: number | undefined; placement: number }
   /** A read was asked for and hasn't been answered yet. */
   | { kind: "reading" }
   /** This placement was named already (as `key`): nothing to do while it lies there. */
@@ -117,6 +129,8 @@ interface Seen {
 }
 
 interface Placement<F> {
+  /** Which placement this is: a read is answered for the placement it was asked of. */
+  id: number;
   /** When the card came to rest. */
   since: number;
   attempts: number;
@@ -178,12 +192,21 @@ export function thumbLikeness(a: Uint8Array | Uint8ClampedArray, b: Uint8Array |
   return aa > 0 && bb > 0 ? ab / Math.sqrt(aa * bb) : 0;
 }
 
+/** How far the card's furthest corner is from where it was, in its own short sides. */
+export function cardShift(from: Quad, to: Quad): number {
+  const side = shortSide(to);
+  if (!(side > 0)) return Infinity;
+  const was = alignCorners(from, to);
+  return Math.max(...to.map((p, i) => dist(p, was[i]!))) / side;
+}
+
 /** Whether the card is at rest: its speed over the window, from sightings kept by the caller. */
 export class Motion {
   private seen: Seen[] = [];
   constructor(
     private readonly windowMs = GATE_DEFAULTS.speedWindowMs,
     private readonly staleMs = GATE_DEFAULTS.staleMs,
+    private readonly stay = GATE_DEFAULTS.stay,
   ) {}
 
   reset() {
@@ -192,7 +215,9 @@ export class Motion {
 
   /**
    * The card's speed now, in short sides a second, measured from the newest sighting at least the
-   * window ago; null while there is none that old, or only a stale one (so it can't be called still).
+   * window ago; null while there is none that old (so it can't be called still yet). When that
+   * sighting is stale (nothing was seen for a while: a read that took over `staleMs`), speed can't
+   * be measured, so the card counts as at rest (0) if it is where it was, and null if it isn't.
    */
   speed(at: number, quad: Quad): number | null {
     const now: Seen = { at, quad };
@@ -208,7 +233,8 @@ export class Motion {
     const ref = from >= 0 ? this.seen[from]! : null;
     if (from > 0) this.seen = this.seen.slice(from);
     this.seen.push(now);
-    if (!ref || at - ref.at > this.staleMs) return null;
+    if (!ref) return null;
+    if (at - ref.at > this.staleMs) return cardShift(ref.quad, quad) <= this.stay ? 0 : null;
     return cardSpeed(ref, now);
   }
 }
@@ -218,8 +244,12 @@ export class PlacementGate<F = unknown> {
   private readonly motion: Motion;
   /** When the card in view was first seen, this stay in the view. */
   private since: number | null = null;
-  /** When a card was last seen at all. */
-  private lastSeen: number | null = null;
+  /** Whether a card has been seen since the view was last empty for `awayMs`. */
+  private present = false;
+  /** The last observation's time, and how long the view has been empty over passes in a row. */
+  private lastAt: number | null = null;
+  private emptyFor = 0;
+  private placements = 0;
   private placement: Placement<F> | null = null;
   /** The placement that was named: its key and thumbnail, until the card leaves or another takes its place. */
   private latch: { key: string; thumb: Uint8Array | Uint8ClampedArray | null } | null = null;
@@ -229,14 +259,16 @@ export class PlacementGate<F = unknown> {
 
   constructor(options: Partial<GateOptions> = {}) {
     this.options = { ...GATE_DEFAULTS, ...options };
-    this.motion = new Motion(this.options.speedWindowMs, this.options.staleMs);
+    this.motion = new Motion(this.options.speedWindowMs, this.options.staleMs, this.options.stay);
   }
 
   /** Forget everything (another camera, the scanner reopened). */
   reset() {
     this.motion.reset();
     this.since = null;
-    this.lastSeen = null;
+    this.present = false;
+    this.lastAt = null;
+    this.emptyFor = 0;
     this.placement = null;
     this.latch = null;
     this.reported = null;
@@ -275,19 +307,24 @@ export class PlacementGate<F = unknown> {
   observe(o: GateObservation<F>): GateDecision<F> {
     const o_ = this.options;
     const card = PlacementGate.primary(o.cards);
+    const gap = this.lastAt == null ? 0 : Math.min(o_.gapMs, Math.max(0, o.at - this.lastAt));
+    this.lastAt = o.at;
     if (!card) {
-      // Nothing seen. A pass or two with nothing isn't the card leaving; `awayMs` of it is.
-      if (this.lastSeen != null && o.at - this.lastSeen >= o_.awayMs) {
+      // Nothing seen. A pass or two with nothing isn't the card leaving; `awayMs` of empty passes
+      // one after another is (the time before the first of them doesn't count).
+      this.emptyFor = this.emptyFor < 0 ? 0 : this.emptyFor + gap;
+      if (this.present && this.emptyFor >= o_.awayMs) {
         this.release();
         this.placement = null;
         this.since = null;
-        this.lastSeen = null;
+        this.present = false;
         this.motion.reset();
         if (this.reported) this.reported.left = true;
       }
       return this.decide({ kind: "none" });
     }
-    this.lastSeen = o.at;
+    this.emptyFor = -1;
+    this.present = true;
     this.since ??= o.at;
     const speed = this.motion.speed(o.at, card.quad);
     if (speed == null || speed > o_.stillSpeed) {
@@ -299,7 +336,7 @@ export class PlacementGate<F = unknown> {
     }
     let p = this.placement;
     if (!p) {
-      p = this.placement = { since: o.at, attempts: 0, frames: 0, best: null, lastRead: null, reading: false, gaveUp: false, thumb: card.thumb ?? null };
+      p = this.placement = { id: (this.placements += 1), since: o.at, attempts: 0, frames: 0, best: null, lastRead: null, reading: false, gaveUp: false, thumb: card.thumb ?? null };
       // The card that was named, come to rest again: still latched. Another card: the latch is over.
       if (this.latch && !this.sameCard(this.latch.thumb, card.thumb)) this.release();
     }
@@ -316,12 +353,22 @@ export class PlacementGate<F = unknown> {
     p.frames = 0;
     p.attempts += 1;
     p.reading = true;
-    return this.decide({ kind: "read", attempt: p.attempts, quad: best.quad, frame: best.frame, sharpness: best.sharpness });
+    return this.decide({ kind: "read", attempt: p.attempts, quad: best.quad, frame: best.frame, sharpness: best.sharpness, placement: p.id });
   }
 
-  /** Without thumbnails there's nothing to tell cards apart by: the card at rest is taken to be the same one. */
+  /**
+   * Without thumbnails there's nothing to tell cards apart by: the card at rest is taken to be the
+   * same one. Either way up: the finder may call the other end the top the next time it rests.
+   */
   private sameCard(a: Uint8Array | Uint8ClampedArray | null, b: Uint8Array | Uint8ClampedArray | null | undefined): boolean {
-    return !a || !b || thumbLikeness(a, b) >= this.options.sameThumb;
+    if (!a || !b) return true;
+    return Math.max(thumbLikeness(a, b), thumbLikeness(a, Uint8Array.from(b).reverse())) >= this.options.sameThumb;
+  }
+
+  /** The placement a read's answer is for: the one at rest now, unless the read was asked of another. */
+  private asked(placement?: number): Placement<F> | null {
+    const p = this.placement;
+    return p && (placement == null || placement === p.id) ? p : null;
   }
 
   /**
@@ -336,20 +383,24 @@ export class PlacementGate<F = unknown> {
   /**
    * The read named the card (or found it to be the card already held): the placement is latched
    * and won't be read again. Returns false when it's the same card again within `suppressMs` with
-   * no empty view between, which the caller doesn't report.
+   * no empty view between, which the caller doesn't report. `placement` is the read's own (from
+   * the "read" decision): an answer that comes after the card moved on latches nothing, since the
+   * card at rest now may be another.
    */
-  named(key: string, at: number): boolean {
+  named(key: string, at: number, placement?: number): boolean {
     const fresh = !this.suppresses(key, at);
-    const p = this.placement;
-    if (p) p.reading = false;
-    this.latch = { key, thumb: p?.thumb ?? null };
+    const p = this.asked(placement);
+    if (p) {
+      p.reading = false;
+      this.latch = { key, thumb: p.thumb };
+    }
     if (fresh) this.reported = { key, at, left: false };
     return fresh;
   }
 
   /** The read named nothing: another is due after `retryMs`, until `maxAttempts`. */
-  missed(at: number) {
-    const p = this.placement;
+  missed(at: number, placement?: number) {
+    const p = this.asked(placement);
     if (!p) return;
     p.reading = false;
     p.lastRead = at;
@@ -357,8 +408,8 @@ export class PlacementGate<F = unknown> {
   }
 
   /** The read was dropped without an answer (the scanner paused): it doesn't count as a try. */
-  dropped() {
-    const p = this.placement;
+  dropped(placement?: number) {
+    const p = this.asked(placement);
     if (!p || !p.reading) return;
     p.reading = false;
     p.attempts = Math.max(0, p.attempts - 1);

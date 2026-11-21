@@ -53,7 +53,7 @@ import { createServerCatalog } from "./serverCatalog";
 import { availableEngines, createScannerOcr, ENGINE_LABEL, engineOrder, plannedEngine, type OcrChoice, type ScannerOcr } from "./ocrEngine";
 import { HeldRead, type HeldVerdict } from "./heldRead";
 import { Evidence, progressLine, proofOf } from "./evidence";
-import { artDecides, artHas, artLead, fuseTitle, LEAD_FRAMES, LeadRun, leads, needsTitle, titleRead, type Fused, type LockRule } from "./fuse";
+import { artDecides, artHas, artLead, fuseTitle, LeadRun, leads, needsTitle, titleRead, type Fused, type LockRule } from "./fuse";
 import { worthReading } from "./quality";
 import { pickHeldQuad, sameHeldCard } from "./heldCard";
 import { VersionLine } from "../version";
@@ -1709,9 +1709,9 @@ export function ScannerView({
       if (!asked) return;
       // Named (a card was found, or it's the card already held), or not: the gate then asks again,
       // up to its five tries. A frame cut short by a pause doesn't count.
-      if (foundSeq.current !== seq || asked.held) gate.named(asked.key, performance.now());
-      else if (stop) gate.dropped();
-      else gate.missed(performance.now());
+      if (foundSeq.current !== seq || asked.held) gate.named(asked.key, performance.now(), asked.placement);
+      else if (stop) gate.dropped(asked.placement);
+      else gate.missed(performance.now(), asked.placement);
     };
     const frame = async () => {
       if (stop) return;
@@ -1771,7 +1771,7 @@ export function ScannerView({
               return next(d.kind === "none" ? 60 : GATE_PASS_MS);
             }
             const kept = d.frame!;
-            gateRead = { key: "", held: false };
+            gateRead = { placement: d.placement, key: "", held: false };
             toVideo = kept.toVideo;
             // Diagnostics' timing record: the card appeared when the gate first saw it, not at this read.
             if (diagRef.current && !appeared.current && d.since != null) appeared.current = { at: Date.now() - (at - d.since), frames: 0 };
@@ -1796,9 +1796,7 @@ export function ScannerView({
           // top match can flip between an in-set and an outside one while the card sits there).
           const heldIndex = blocked.current?.index;
           const stillHeld = r.quad && heldIndex != null ? [...r.matches, ...(r.pool ?? [])].find((m) => m.index === heldIndex && m.score >= ART_UNKNOWN) : undefined;
-          // With the gate a read is one deliberate look, not one of a run of frames: the card is the
-          // one just added if its art is still among the matches, and another card if it isn't.
-          if (blocked.current && (gated ? !stillHeld : artHoldFrame(blocked.current, r.quad ? (stillHeld ?? top ?? null) : null, ART_UNKNOWN, LOCK_TWICE) === "free")) blocked.current = null;
+          if (blocked.current && artHoldFrame(blocked.current, r.quad ? (stillHeld ?? top ?? null) : null, ART_UNKNOWN, LOCK_TWICE) === "free") blocked.current = null;
           if (gateRead && top) gateRead.key = top.name;
           if (!r.quad || !top) {
             if (++noCard.current >= AWAY_FRAMES) {
@@ -1818,7 +1816,9 @@ export function ScannerView({
           noCard.current = 0;
           if (!blocked.current && !blockedName.current) setDupe(null);
           if (blocked.current) {
-            if (gateRead) gateRead.held = true;
+            // With the gate: the card just added, seen again, is latched; a read that didn't show
+            // it (a weak match) is a miss, tried again, and the hold ends by its own rule (hold.ts).
+            if (gateRead) gateRead.held = !!stillHeld;
             setStatus(NEXT);
             return next(60);
           }
@@ -1861,9 +1861,8 @@ export function ScannerView({
           const lead = artLead(ranked, top, unlisted);
           const leadOn = leadRule();
           const leading = leadOn && !artUnknown && leadCounts({ locked: !!locked, share: leadShare() }) && !blockedName.current && leads(top.score, lead);
-          // With the gate the card is at rest and this is its sharpest frame: a lead on it decides,
-          // with no second frame to wait for.
-          const leadFrames = gated ? (leading ? LEAD_FRAMES : 0) : leadRun.step(leading ? top.name : null);
+          // (With the gate too: a lead settles on its second read in a row, 50 ms after the first.)
+          const leadFrames = leadRun.step(leading ? top.name : null);
           // A strong match decides by art, unless another card scores close to it. Otherwise the
           // title is read first (Bryan, 15 Nov 2026: no Star Trek card scanned; their art isn't in
           // the bundle, so lookalikes scored 0.5 to 0.8 and the scanner named them, or waited on
@@ -2478,6 +2477,8 @@ export function ScannerView({
           // (gate.ts, `Motion`): a frame of a moving card counts as skipped, like a blurred one.
           const speed = gateOn() ? holdMotion.speed(performance.now(), quad) : 0;
           const got = speed == null || speed > GATE_DEFAULTS.stillSpeed ? "blurred" : await readInto(v, v.videoWidth, v.videoHeight, quad, f);
+          // (A read that took a while leaves nothing recent to measure from: `Motion` then goes by
+          // whether the card is where it was.)
           if (got === "settled" || stop) return;
           verdict = got === "blurred" ? held.skipped(clock()) : held.frame(clock());
           // Stalled (several frames read, not settled): one still photo, read the same way, alongside

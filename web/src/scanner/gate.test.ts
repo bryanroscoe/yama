@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cardSpeed, GATE_DEFAULTS, Motion, PlacementGate, thumbLikeness, THUMB_SIDE, type GateCard, type GateDecision } from "./gate";
+import { cardShift, cardSpeed, GATE_DEFAULTS, Motion, PlacementGate, thumbLikeness, THUMB_SIDE, type GateCard, type GateDecision } from "./gate";
 import type { Quad } from "./types";
 
 // The placement gate (gate.ts): a card is read when it has come to rest, once, from the sharpest
@@ -58,9 +58,12 @@ describe("moving or still", () => {
     expect(m.speed(100, card(0, 0))).toBe(0);
     // Measured against the newest sighting at least 100 ms old.
     expect(m.speed(150, card(10, 0))).toBeCloseTo(0.5, 5);
-    // The finder stalled for a second: nothing recent enough to measure from.
-    expect(m.speed(1200, card(10, 0))).toBeNull();
+    // Nothing seen for a second (a slow read): speed can't be measured, so it goes by whether the
+    // card is where it was.
+    expect(m.speed(1200, card(10, 0))).toBe(0);
     expect(m.speed(1300, card(10, 0))).toBe(0);
+    expect(m.speed(2400, card(90, 0))).toBeNull();
+    expect(cardShift(card(0, 0), card(20, 0))).toBeCloseTo(0.1, 5);
   });
 
   it("says moving while the card moves, and reads nothing", () => {
@@ -125,6 +128,41 @@ describe("a placement", () => {
     for (let i = 1; i <= 4; i += 1) pass(seen(card(i * 40, 0)));
     const again = untilRead(() => seen(card(160, 0)));
     expect(again).toMatchObject({ kind: "read", attempt: 1 });
+  });
+
+  it("keeps its count of tries when each read takes longer than the gate can measure speed across", () => {
+    // A read with a title read on a phone: 600 ms with no pass of the finder.
+    const { pass, untilRead, gate, now, wait } = bench();
+    const attempts: number[] = [];
+    let d = untilRead(() => seen(card(0, 0)));
+    for (let i = 0; i < GATE_DEFAULTS.maxAttempts; i += 1) {
+      attempts.push(d.kind === "read" ? d.attempt : -1);
+      wait(600);
+      gate.missed(now());
+      if (i < GATE_DEFAULTS.maxAttempts - 1) d = untilRead(() => seen(card(1, 0)), 4);
+    }
+    expect(attempts).toEqual([1, 2, 3, 4, 5]);
+    expect(pass(seen(card(0, 0))).kind).toBe("no-match");
+    // A card somewhere else after such a gap isn't at rest yet.
+    expect(pass(seen(card(300, 0)), 700).kind).toBe("moving");
+  });
+
+  it("answers a read only for the placement it was asked of", () => {
+    const { pass, untilRead, gate, now } = bench();
+    const first = untilRead(() => seen(card(0, 0), { thumb: thumb(1) }));
+    // The card moved on and another came to rest before the answer (a source that keeps watching).
+    for (let i = 1; i <= 4; i += 1) pass(seen(card(i * 40, 0), { thumb: thumb(2) }));
+    const second = untilRead(() => seen(card(160, 0), { thumb: thumb(2) }));
+    expect(second.kind === "read" && first.kind === "read" && second.placement !== first.placement).toBe(true);
+    // The late answer for the first card latches nothing here, and counts no try.
+    gate.named("Sol Ring", now(), first.kind === "read" ? first.placement : -1);
+    expect(pass(seen(card(160, 0), { thumb: thumb(2) })).kind).toBe("reading");
+    gate.missed(now(), first.kind === "read" ? first.placement : -1);
+    expect(gate.attempts).toBe(1);
+    expect(pass(seen(card(160, 0), { thumb: thumb(2) })).kind).toBe("reading");
+    // Its own answer does.
+    gate.named("Arcane Signet", now(), second.kind === "read" ? second.placement : -1);
+    expect(pass(seen(card(160, 0), { thumb: thumb(2) }))).toMatchObject({ kind: "latched", key: "Arcane Signet" });
   });
 
   it("doesn't count a read that was dropped unanswered", () => {
@@ -202,6 +240,35 @@ describe("a card that was read stays read", () => {
     const d = untilRead(() => seen(card(0, 0)));
     expect(d.kind).toBe("read");
     expect(gate.named("Sol Ring", now())).toBe(true);
+  });
+
+  it("isn't let go by one empty pass after a pause, however long the pause", () => {
+    // The card was filed and its sheet shown for two seconds, with no pass of the finder; then
+    // the finder misses the card once. It hasn't left: only empty passes in a row say that.
+    const { pass, untilRead, gate, now } = bench();
+    untilRead(() => seen(card(0, 0)));
+    gate.named("Sol Ring", now());
+    const after = pass(null, 2000);
+    expect(after).toMatchObject({ kind: "none" });
+    expect(after.released).toBeUndefined();
+    expect(after.since).toBeDefined();
+    expect(pass(seen(card(0, 0))).kind).not.toBe("read");
+    expect(gate.suppresses("Sol Ring", now())).toBe(true);
+    for (let i = 0; i < 6; i += 1) expect(pass(seen(card(0, 0))).kind).toBe("latched");
+    // Empty passes with pauses between them count for little each: it takes several.
+    expect(pass(null, 2000).released).toBeUndefined();
+    expect(pass(null, 2000).released).toBeUndefined();
+    expect(pass(null, 2000).released).toBeUndefined();
+    expect(pass(null, 2000).released).toBe(true);
+  });
+
+  it("stays latched when the finder calls the card's other end the top", () => {
+    const { pass, untilRead, gate, now } = bench();
+    untilRead(() => seen(card(0, 0), { thumb: thumb(4) }));
+    gate.named("Sol Ring", now());
+    const turned = thumb(4).reverse();
+    for (let i = 1; i <= 4; i += 1) pass(seen(card(i * 25, 0), { thumb: turned }));
+    for (let i = 0; i < 6; i += 1) expect(pass(seen(card(100, 0), { thumb: turned })).kind).not.toBe("read");
   });
 
   it("without thumbnails takes the card at rest for the same one", () => {

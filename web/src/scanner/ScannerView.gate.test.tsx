@@ -42,7 +42,7 @@ vi.mock("../api", async (original) => ({
 }));
 
 /** The faked card finder and art match: where the card is on each pass, and what was asked. */
-const cam = vi.hoisted(() => ({ x: 100 as number | null, step: 0, located: 0, identified: [] as (unknown | undefined)[], score: 0.93 }));
+const cam = vi.hoisted(() => ({ x: 100 as number | null, step: 0, located: 0, identified: [] as (unknown | undefined)[], score: 0.93, others: 0 }));
 const quadAt = (x: number): Quad => [[x, 100], [x + 300, 100], [x + 300, 520], [x, 520]];
 vi.mock("./artClient", async (original) => ({
   ...(await original<typeof import("./artClient")>()),
@@ -50,7 +50,13 @@ vi.mock("./artClient", async (original) => ({
     const match = (quad: Quad | null) => ({
       quad,
       upright: 1,
-      matches: quad ? [{ index: 4, id: "p1", name: "Arcane Signet", set: "eoc", number: "101", illustrationId: "ill-signet", layout: "normal", printings: 1, score: cam.score }] : [],
+      // The card, then `others` other cards the search listed below it, at 0.45.
+      matches: quad
+        ? [
+            { index: 4, id: "p1", name: "Arcane Signet", set: "eoc", number: "101", illustrationId: "ill-signet", layout: "normal", printings: 1, score: cam.score },
+            ...Array.from({ length: cam.others }, (_, i) => ({ index: 10 + i, id: `o${i}`, name: `Other card ${i}`, set: "fdn", number: String(i), illustrationId: `ill-${i}`, layout: "normal", printings: 1, score: 0.45 })),
+          ]
+        : [],
       timings: { detectMs: 1, embedMs: 1, totalMs: 2 },
     });
     const here = () => {
@@ -130,7 +136,7 @@ beforeEach(() => {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-  Object.assign(cam, { x: 100, step: 0, located: 0, identified: [], score: 0.93 });
+  Object.assign(cam, { x: 100, step: 0, located: 0, identified: [], score: 0.93, others: 0 });
 });
 afterEach(() => {
   act(() => root.unmount());
@@ -179,6 +185,23 @@ describe("the placement gate in the live scanner", () => {
     // And however long the card lies there, it isn't matched again.
     await wait(500);
     expect(cam.identified).toHaveLength(1);
+  });
+
+  it("with it, a card whose art only leads still settles on its second read in a row, as without it", async () => {
+    localStorage.setItem("yama.scan.models", JSON.stringify({ lock: "lead-gate" }));
+    Object.assign(cam, { score: 0.72, others: 4 });
+    act(() => root.render(<ScannerView identityOnly onAccept={async () => true} />));
+    await until(() => (foundName().includes("Arcane Signet") ? true : null), "the card found");
+    expect(cam.identified).toHaveLength(2);
+  });
+
+  it("with it, a fair match whose title can't be read still waits its four reads, as without it", async () => {
+    localStorage.setItem("yama.scan.models", JSON.stringify({ lock: "lead-gate" }));
+    // Nothing else listed, so nothing to lead: the title is read each time, and reads nothing.
+    cam.score = 0.72;
+    act(() => root.render(<ScannerView identityOnly closeups={false} onAccept={async () => true} />));
+    await until(() => (foundName().includes("Arcane Signet") ? true : null), "the card found");
+    expect(cam.identified).toHaveLength(4);
   });
 
   it("with it, gives up after five tries on a card it can't name, and says to move it", async () => {

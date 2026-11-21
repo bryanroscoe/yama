@@ -12,6 +12,8 @@ export interface GateFrame {
 
 /** A read the gate asked for, answered when the frame is done: the card it named, and whether it's a card already held. */
 export interface GateRead {
+  /** The placement the read was asked of (the gate's "read" decision). */
+  placement: number;
   key: string;
   held: boolean;
 }

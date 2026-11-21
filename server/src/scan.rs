@@ -401,7 +401,7 @@ const LOCK_LEAD_GATE: ModelOption = ModelOption {
     slot: Slot::Lock,
     id: "lead-gate",
     label: "Art that leads, read when the card is still",
-    note: "Reads a card once it has come to rest, from the sharpest frame, rather than on every frame: at most five tries, then \"No match, move the card\". Settles by the same lead rule, on one frame. To try on a phone.",
+    note: "Reads a card once it has come to rest, from the sharpest frame, rather than on every frame: at most five tries, then \"No match, move the card\". Settles by the same rules as Art that leads. To try on a phone.",
     licence: None,
     source: Source::App,
     recogniser: None,
