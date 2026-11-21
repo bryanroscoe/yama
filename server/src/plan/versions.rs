@@ -700,7 +700,7 @@ pub async fn settle_all(pool: &sqlx::SqlitePool) -> AppResult<usize> {
 /// for each one `left_out` names (your note, if you wrote one, is kept), the version recorded, and for
 /// a plan file's deck the answers and the plan op in the export side's inbox.
 async fn take_in(conn: &mut SqliteConnection, owner: &str, plan_id: &str, deck_key: &str, name: &str, source: &str, next: &Next) -> AppResult<Settled> {
-    let op_id = format!("yama-settle-{}", new_id());
+    let op_id = format!("{SETTLE_OP}{}", new_id());
     let for_export = source != "yama";
     let rows: Vec<(String, String, Option<String>, String, Option<String>, String)> = sqlx::query_as(
         "SELECT ext_key, in_name, out_name, src, why, updated_at FROM plan_swaps WHERE owner_id = ? AND plan_deck_id = ? AND retired_at IS NULL ORDER BY sort, ext_key",
@@ -753,7 +753,7 @@ async fn take_in(conn: &mut SqliteConnection, owner: &str, plan_id: &str, deck_k
     // in over their word. Only Yama's own left-outs (settle's ops) are looked at again.
     let theirs = |k: &String| {
         found.get(k).is_some_and(|p| {
-            matches!(p.decision.as_deref(), Some("no" | "unsure")) && !p.op_id.as_deref().is_some_and(|o| o.starts_with("yama-settle-"))
+            matches!(p.decision.as_deref(), Some("no" | "unsure")) && !p.op_id.as_deref().is_some_and(|o| o.starts_with(SETTLE_OP))
         })
     };
     let held: Vec<String> = next.keys.iter().filter(|k| next.skipped.contains(k) || theirs(k)).cloned().collect();
@@ -778,7 +778,7 @@ async fn take_in(conn: &mut SqliteConnection, owner: &str, plan_id: &str, deck_k
         let (note, mut cut) = p.as_ref().map(|p| (p.note.clone(), p.cut.clone())).unwrap_or_default();
         before.insert(k.clone(), serde_json::to_value(&p).unwrap_or(Value::Null));
         // Your note stays; the reason Yama wrote when it left this out before goes.
-        let ours = p.as_ref().is_some_and(|p| p.op_id.as_deref().is_some_and(|o| o.starts_with("yama-settle-")));
+        let ours = p.as_ref().is_some_and(|p| p.op_id.as_deref().is_some_and(|o| o.starts_with(SETTLE_OP)));
         let note = note.filter(|n| !n.trim().is_empty() && !(ours && n.starts_with(LEFT_OUT)));
         if let Some(w) = why.get(k) {
             let note = note.or_else(|| Some(format!("{LEFT_OUT}{w}")));
@@ -858,6 +858,11 @@ async fn take_in(conn: &mut SqliteConnection, owner: &str, plan_id: &str, deck_k
 
 /// The note Yama writes on a change it leaves out, before the reason.
 const LEFT_OUT: &str = "Yama left this out: ";
+
+/// How settle's ops are named. Answers made in Yama at the same second go to the larger op id
+/// (`inputs.rs`, core `wins`); `!` sorts before any id a page or an assistant sends, so a person's
+/// answer at the same second as settling wins it.
+pub const SETTLE_OP: &str = "!settle-";
 
 /// Archive every other live plan for the deck called `name` (`note` says why), and mark their
 /// versions superseded. Returns the plans it archived, as (id, key).

@@ -1509,7 +1509,7 @@
         "openWorldHint": false,
         "readOnlyHint": false
       },
-      "description": "Make one build of a deck in one of their saved notes that deck's plan, straight away: nobody approves a plan. Its changes go in now and feed the shopping list, prints, marks and the plan tools, and it replaces any other plan for the same deck. A change whose cut clashes (no card named to cut, a cut the plan already makes, two changes cutting one card) is left out, and the answer names it. Another build of the same deck switches to it; build null stops it (archived, kept for a return). Saving the note again updates the plan. Do it when they ask for a plan or agree to one. Give the note id and deck key from `get_overview` or `get_research`. Nothing is bought until they mark it. On a connection they limited to staging, it stages the change for them to apply instead.",
+      "description": "Make one build of a deck in one of their saved notes that deck's plan, straight away: nobody approves a plan. Its changes go into the plan and its shopping list now, replacing any other plan for the deck; a change whose cut clashes is left out, and the answer names it. Another build switches to it; build null stops it. Saving the note again updates the plan. Do it when they ask for a plan or agree to one. On a connection limited to staging, it stages instead.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {

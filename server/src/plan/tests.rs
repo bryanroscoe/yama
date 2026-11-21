@@ -1262,13 +1262,15 @@ async fn installed_is_read_from_the_decks_current_list() {
     assert!(find(&b["decks"], "key", "alpha")["yama_deck"].is_null());
 
     // A main deck with the plan deck's name holding the "now" list: the bought swap and the
-    // stand-in are in, the print isn't. Proposals are never judged.
+    // stand-in are in, the print isn't. A proposal the plan took in is judged too (not in yet);
+    // one it left out isn't.
     let main = crate::decks::create_deck_with_cards(&pool, &owner, "Alpha Deck", None, alpha_deck(("o-stand", "Stand Card"), ("o-bought", "Bought Card"))).await.unwrap();
     let b = bundle(&app, &token).await;
     assert_eq!(swap_of(&b, bought)["deck_installed"], true);
     assert_eq!(swap_of(&b, stand)["deck_installed"], true);
     assert_eq!(swap_of(&b, print)["deck_installed"], false);
-    assert!(swap_of(&b, "alpha-idea")["deck_installed"].is_null());
+    assert_eq!(swap_of(&b, "alpha-idea")["deck_installed"], false);
+    assert!(swap_of(&b, "alpha-owned")["deck_installed"].is_null());
     let yd = &find(&b["decks"], "key", "alpha")["yama_deck"];
     assert_eq!(yd["id"], main.as_str());
     assert_eq!(yd["linked"], false);

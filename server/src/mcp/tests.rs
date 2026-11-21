@@ -500,7 +500,7 @@ async fn plan_and_collection_changes_apply_through_their_own_ops() {
     }
     // The answer also settles the deck's first version (`versions::settle`), which records its own ops.
     let ops: Vec<(String, String, String)> =
-        sqlx::query_as("SELECT kind, op_id, status FROM plan_inputs WHERE op_id NOT LIKE 'yama-settle-%' ORDER BY seq").fetch_all(&pool).await.unwrap();
+        sqlx::query_as("SELECT kind, op_id, status FROM plan_inputs WHERE op_id NOT LIKE '!settle-%' ORDER BY seq").fetch_all(&pool).await.unwrap();
     assert_eq!(ops.len(), 3);
     assert!(ops.iter().all(|(_, op, status)| op.starts_with("claude-") && status == "applied"), "{ops:?}");
     let decision: String = sqlx::query_scalar("SELECT decision FROM plan_reviews WHERE swap_key = 'plan|Elf Ball|Arcane Signet|Sol Ring'").fetch_one(&pool).await.unwrap();

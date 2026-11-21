@@ -283,7 +283,7 @@ async fn claude_sees_notes_as_deck_plans_and_tracks_them_straight_away() {
         .await
         .unwrap();
     let (err, text) = call(&app, key, "track_build", json!({"note": "audit", "deck": "energy", "build": "b3"})).await;
-    assert!(!err && text.contains("is now Energy's plan") && !text.contains("already"), "{text}");
+    assert!(!err && text.contains("is now Energy's plan") && !text.contains("nothing changed"), "{text}");
     let back: Option<String> = sqlx::query_scalar("SELECT archived_at FROM plan_decks WHERE owner_id = ? AND key = 'energy'").bind(&a).fetch_one(&pool).await.unwrap();
     assert_eq!(back, None);
     // Another build switches the plan to it, straight away too.
