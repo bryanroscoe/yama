@@ -414,6 +414,8 @@ export function CameraControls({ c, live }: { c: CameraControlState; live: boole
   useEffect(() => {
     if (slide != null && !sliding && (caught || c.focus == null || c.error)) setSlide(null);
   }, [slide, sliding, caught, c.focus, c.error]);
+  // Another camera: what was dragged on the last one means nothing here.
+  useEffect(() => setSlide(null), [c.focusCaps]);
   const groupRef = useRef<HTMLDivElement>(null);
   // + and − fold away again a few seconds after the last zoom. Focus on one of them goes back to
   // the level button rather than to the page (Codex review, 16 Nov 2026).

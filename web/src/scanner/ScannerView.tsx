@@ -1848,7 +1848,8 @@ export function ScannerView({
             // Face down, and nothing on it read as a card: that's all there is to say.
             if (faceDown) {
               appeared.current = null;
-              setStatus(CARD_BACK);
+              // (Not over "Ready for the next card" while a card filed by its name is held.)
+              if (!blockedName.current) setStatus(CARD_BACK);
               return next(60);
             }
             // Where only the card matters a weak read is noise; elsewhere any read still holds the
