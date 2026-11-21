@@ -118,6 +118,11 @@ pub async fn record(pool: &SqlitePool, owner: &str, plan: &str, e: &Entry, op_id
     if what.is_empty() {
         return Err(AppError::bad("what is missing: say what happened"));
     }
+    // A correction deletes the entry it replaces: only its op_id can tell a retry after a lost
+    // reply from a correction of an entry that's gone.
+    if replaces.is_some() && op_id.is_none() {
+        return Err(AppError::bad("replaces needs an op_id, so a retry of the correction is recognised"));
+    }
     // A retry with its op_id is the entry already stored, even if the plan has changed since and
     // would no longer take its key, group or cards as given (they were checked the first time):
     // an import can move a plan to another key (`notes::make_room`) or rename a card.
@@ -284,14 +289,21 @@ pub async fn record(pool: &SqlitePool, owner: &str, plan: &str, e: &Entry, op_id
     Ok(Recorded { id, deck_key, deck, again: false, group, cards })
 }
 
-/// Record an entry a tool writes itself (`track_build`) unless the plan already has it, on any
-/// day: a retry after a lost reply can come after midnight, and has no op_id of its own.
+/// How long a tool's own entry counts as a retry of an identical one (`record_once`).
+const RETRY_WINDOW_MINUTES: i64 = 60;
+
+/// Record an entry a tool writes itself (`track_build`) unless the plan got the same one in the
+/// last hour: a retry after a lost reply has no op_id of its own and can come after midnight, so
+/// it can't be found by its day. Later, the same words are a new event (tracked again after a
+/// stop) and are recorded with their own day.
 pub async fn record_once(pool: &SqlitePool, owner: &str, plan: &str, e: &Entry, via: &str) -> AppResult<Recorded> {
     let (plan_id, deck_key, deck) = plan_of(pool, owner, plan).await?;
+    let since = (chrono::Utc::now() - chrono::Duration::minutes(RETRY_WINDOW_MINUTES)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
     let found: Option<String> = sqlx::query_scalar(
         "SELECT id FROM plan_history WHERE owner_id = ? AND plan_deck_id = ? AND what = ? AND IFNULL(asked, '') = IFNULL(?, '')
            AND IFNULL(conversation, '') = IFNULL(?, '') AND IFNULL(work, '') = IFNULL(?, '') AND group_label IS NULL AND cards = '[]'
-         ORDER BY on_date LIMIT 1",
+           AND recorded_at >= ?
+         ORDER BY recorded_at DESC LIMIT 1",
     )
     .bind(owner)
     .bind(&plan_id)
@@ -299,6 +311,7 @@ pub async fn record_once(pool: &SqlitePool, owner: &str, plan: &str, e: &Entry, 
     .bind(&e.asked)
     .bind(&e.conversation)
     .bind(&e.work)
+    .bind(&since)
     .fetch_optional(pool)
     .await?;
     match found {

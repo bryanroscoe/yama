@@ -74,7 +74,8 @@ async fn a_plans_history_says_where_it_and_each_change_came_from() {
         (json!({"plan": "alpha", "on": "2026-10-18", "what": "x", "cards": ["Not A Card"]}), "no change in Alpha Deck's plan puts in or takes out Not A Card"),
         (json!({"plan": "alpha", "on": "2099-01-01", "what": "x"}), "is in the future"),
         (json!({"plan": "alpha", "on": "18 Oct", "what": "x"}), "isn't a YYYY-MM-DD date"),
-        (json!({"plan": "alpha", "on": "2026-10-18", "what": "x", "replaces": "no-such-entry"}), "has no entry no-such-entry"),
+        (json!({"plan": "alpha", "on": "2026-10-18", "what": "x", "replaces": "no-such-entry", "op_id": "history-x001"}), "has no entry no-such-entry"),
+        (json!({"plan": "alpha", "on": "2026-10-18", "what": "x", "replaces": "no-such-entry"}), "replaces needs an op_id"),
         (json!({"plan": "nobody", "on": "2026-10-18", "what": "x"}), "not found"),
     ] {
         let (err, text) = call(&app, &key, "record_plan_history", args.clone()).await;
@@ -90,10 +91,21 @@ async fn a_plans_history_says_where_it_and_each_change_came_from() {
         &app,
         &key,
         "record_plan_history",
-        json!({"plan": "alpha", "on": "2026-10-02", "what": "The precon upgrade began.", "asked": "Upgrade Alpha, please", "replaces": plan_entry}),
+        json!({"plan": "alpha", "on": "2026-10-02", "what": "The precon upgrade began.", "asked": "Upgrade Alpha, please", "replaces": plan_entry,
+               "op_id": "history-fix1"}),
     )
     .await;
     assert!(!err && text.contains(&format!("replacing entry {plan_entry}")), "{text}");
+    // Its retry after a lost reply is recognised, though the entry it replaced is gone.
+    let (err, text) = call(
+        &app,
+        &key,
+        "record_plan_history",
+        json!({"plan": "alpha", "on": "2026-10-02", "what": "The precon upgrade began.", "asked": "Upgrade Alpha, please", "replaces": plan_entry,
+               "op_id": "history-fix1"}),
+    )
+    .await;
+    assert!(!err && text.contains("already in Alpha Deck's history"), "{text}");
     let all = entries(&pool, &owner).await;
     assert_eq!(all.iter().map(|e| e.0.as_str()).collect::<Vec<_>>(), vec!["2026-10-02", "2026-10-18"], "the corrected entry replaced the first");
 

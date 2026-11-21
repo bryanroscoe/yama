@@ -447,7 +447,7 @@
             "type": "string"
           },
           "replaces": {
-            "description": "Optional: the id of an earlier entry of this plan that this one corrects; it goes.",
+            "description": "Optional, with op_id: the id of an earlier entry of this plan that this one corrects; it goes.",
             "maxLength": 64,
             "type": "string"
           },

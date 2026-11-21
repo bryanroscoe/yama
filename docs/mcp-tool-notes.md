@@ -105,6 +105,6 @@ to dig through old conversations:
   `work` where the work is (a commit, a file, a note id).
 - `group` and `cards` tie it to a proposal group or to changes, as `get_plan` names them; a name
   the plan doesn't have is refused with the ones it does.
-- `replaces` with an entry's id corrects it; `op_id` makes a retry record it once.
+- `replaces` with an entry's id corrects it, and needs an `op_id`; `op_id` makes a retry record it once.
 
 `track_build` takes `asked` and `conversation` and records them with the build it tracks.

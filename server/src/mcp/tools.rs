@@ -239,7 +239,7 @@ pub(super) const TOOLS: &[Tool] = &[
                 "work":{"type":"string","maxLength":500,"description":"Optional: where the work is: a commit, a file, a note."},
                 "group":{"type":"string","maxLength":300,"description":"Optional: the plan's proposal group it is about, as get_plan names it."},
                 "cards":{"type":"array","maxItems":60,"items":{"type":"string","maxLength":200},"description":"Optional: the changes it is about, by a card each puts in or takes out."},
-                "replaces":{"type":"string","maxLength":64,"description":"Optional: the id of an earlier entry of this plan that this one corrects; it goes."},
+                "replaces":{"type":"string","maxLength":64,"description":"Optional, with op_id: the id of an earlier entry of this plan that this one corrects; it goes."},
                 "op_id":{"type":"string","minLength":8,"maxLength":64,"pattern":"^[A-Za-z0-9_-]+$","description":"Optional: your own id for this entry, so a retry records it once."}
             },"required":["plan","on","what"],"additionalProperties":false})
         },
