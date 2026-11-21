@@ -7,7 +7,10 @@ import android.graphics.Color;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CameraMetadata;
+import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CaptureRequest;
+import android.hardware.camera2.CaptureResult;
+import android.hardware.camera2.TotalCaptureResult;
 import android.hardware.display.DisplayManager;
 import android.os.Build;
 import android.os.Handler;
@@ -109,9 +112,16 @@ public class ScannerCameraPlugin extends Plugin {
     private DisplayManager.DisplayListener displayListener;
     /** What was asked for and what the phone gave, as the page is told (`describe`). */
     private Opened opened;
+    /** Counts the cameras opened, so a check scheduled for one never acts on the next. */
+    private int session;
+    /** Counts opens and closes, so a camera closed while it waited to open isn't opened after all. */
+    private int opening;
+    private CameraSelector selector;
     private String focusMode = "continuous";
     private double focusDistance;
     private int torchLevel;
+    /** The lens the phone is really using, as each frame's result says (Android 10 on), or null. */
+    private volatile String activePhysicalId;
 
     /** Frames are copied only while the page is asking for them. */
     private volatile long wantedUntil;
@@ -168,7 +178,13 @@ public class ScannerCameraPlugin extends Plugin {
 
     @Override
     protected void handleOnDestroy() {
-        main.post(this::shut);
+        main.post(() -> {
+            try {
+                shut();
+            } catch (RuntimeException e) {
+                Logger.warn(TAG, "Closing the camera as the app ends: " + e.getMessage());
+            }
+        });
         reader.shutdown();
         cameraThread.shutdown();
     }
@@ -268,15 +284,71 @@ public class ScannerCameraPlugin extends Plugin {
             () -> {
                 try {
                     provider = future.get();
-                    bind(call);
+                    // Whatever this plugin had open is closed first, so the wait below is only
+                    // for someone else's hold on the camera.
+                    provider.unbindAll();
+                    CameraManager manager = (CameraManager) context.getSystemService(Context.CAMERA_SERVICE);
+                    int mine = ++opening;
+                    whenFree(manager, backCamera(manager), () -> {
+                        // Closed while it waited: the camera stays shut.
+                        if (mine != opening) {
+                            call.reject("The camera closed", "closed");
+                            return;
+                        }
+                        try {
+                            bind(call);
+                        } catch (Exception e) {
+                            failed(call, e);
+                        }
+                    });
                 } catch (Exception e) {
-                    Logger.error(TAG, "The camera didn't open", e);
-                    shut();
-                    call.reject("The camera didn't open: " + e.getMessage(), "failed");
+                    failed(call, e);
                 }
             },
             ContextCompat.getMainExecutor(context)
         );
+    }
+
+    private void failed(PluginCall call, Exception e) {
+        Logger.error(TAG, "The camera didn't open", e);
+        shut();
+        call.reject("The camera didn't open: " + e.getMessage(), "failed");
+    }
+
+    /** The longest the camera is waited for while someone else holds it. */
+    private static final long FREE_WAIT_MS = 3000;
+
+    /**
+     * Run `then` once the camera is free. The web view's own camera (the scanner's, until the
+     * option was turned on) lets go a moment after the page stops it; opened before that, Android
+     * evicts it, and on the emulator that left the camera service stuck [ran, 21 Nov 2026]. Not
+     * free within {@link #FREE_WAIT_MS}: opened anyway.
+     */
+    private void whenFree(CameraManager manager, String cameraId, Runnable then) {
+        if (cameraId == null) {
+            then.run();
+            return;
+        }
+        long asked = System.nanoTime();
+        boolean[] done = { false };
+        CameraManager.AvailabilityCallback[] holder = new CameraManager.AvailabilityCallback[1];
+        Runnable go = () -> {
+            if (done[0]) return;
+            done[0] = true;
+            manager.unregisterAvailabilityCallback(holder[0]);
+            long waited = (System.nanoTime() - asked) / 1_000_000;
+            if (waited > 50) Logger.info(TAG, "Waited " + waited + " ms for the camera to be free");
+            then.run();
+        };
+        holder[0] = new CameraManager.AvailabilityCallback() {
+            @Override
+            public void onCameraAvailable(String id) {
+                if (id.equals(cameraId)) go.run();
+            }
+        };
+        // Registering reports each camera's state now, then every change.
+        manager.registerAvailabilityCallback(holder[0], main);
+        main.postDelayed(go, FREE_WAIT_MS);
     }
 
     @SuppressWarnings("unchecked")
@@ -314,7 +386,6 @@ public class ScannerCameraPlugin extends Plugin {
         o.fpsRanges = logical.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES);
         o.fpsRange = pickRate(o.fpsRanges, fpsAsked);
 
-        provider.unbindAll();
         frames.clear();
         synchronized (arrivals) {
             arrivalCount = 0;
@@ -323,8 +394,9 @@ public class ScannerCameraPlugin extends Plugin {
         focusDistance = 0;
         torchLevel = 0;
 
-        CameraSelector.Builder selector = new CameraSelector.Builder().requireLensFacing(CameraSelector.LENS_FACING_BACK);
-        if (o.physicalId != null) selector.setPhysicalCameraId(o.physicalId);
+        CameraSelector.Builder chosenCamera = new CameraSelector.Builder().requireLensFacing(CameraSelector.LENS_FACING_BACK);
+        if (o.physicalId != null) chosenCamera.setPhysicalCameraId(o.physicalId);
+        selector = chosenCamera.build();
 
         // Both streams 16:9, so the preview and the frames the scanner reads show the same view.
         ResolutionSelector frameSize = new ResolutionSelector.Builder()
@@ -340,22 +412,66 @@ public class ScannerCameraPlugin extends Plugin {
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
             .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
             .setTargetRotation(rotation());
+        Camera2Interop.Extender<Preview> previewExtras = new Camera2Interop.Extender<>(previewBuilder);
         if (o.fpsRange != null) {
-            // The capture rate, with the exposure held under it (a normal session, never a
-            // high-speed one: those can't feed the scanner frames).
-            new Camera2Interop.Extender<>(previewBuilder).setCaptureRequestOption(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, o.fpsRange);
+            // The capture rate, with the exposure held under it. An ordinary session only: 120 and
+            // 240 are high-speed video sessions, which can't feed the scanner frames.
+            previewExtras.setCaptureRequestOption(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, o.fpsRange);
             new Camera2Interop.Extender<>(analysisBuilder).setCaptureRequestOption(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, o.fpsRange);
+        }
+        // Which lens the phone is using for each frame: whether "Automatic" changes lens up close
+        // is the phone maker's choice, so it is reported, never assumed.
+        activePhysicalId = null;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            previewExtras.setSessionCaptureCallback(
+                new CameraCaptureSession.CaptureCallback() {
+                    @Override
+                    public void onCaptureCompleted(CameraCaptureSession s, CaptureRequest request, TotalCaptureResult result) {
+                        activePhysicalId = result.get(CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID);
+                    }
+                }
+            );
         }
         preview = previewBuilder.build();
         analysis = analysisBuilder.build();
         analysis.setAnalyzer(cameraThread, this::keep);
 
         showPreview(call.getObject("rect"));
-        camera = provider.bindToLifecycle(getActivity(), selector.build(), preview, analysis);
+        camera = provider.bindToLifecycle(getActivity(), selector, preview, analysis);
         preview.setSurfaceProvider(previewView.getSurfaceProvider());
         opened = o;
         watchRotation();
+        int mine = ++session;
+        main.postDelayed(() -> reopenIfSilent(mine, 1), SILENT_MS);
         call.resolve(describe());
+    }
+
+    /** How long a camera may deliver nothing after opening before it is opened again: longer than CameraX's own retries take. */
+    private static final long SILENT_MS = 12000;
+
+    /**
+     * A camera that was bound and still delivers no frame after CameraX's own retries (seen on
+     * the emulator when the open timed out for good) is bound again, twice at most.
+     */
+    private void reopenIfSilent(int mine, int attempt) {
+        if (mine != session || camera == null || provider == null || getActivity().isFinishing()) return;
+        // The app is away: nothing is expected until it's back, and the camera starts again by itself.
+        if (!getActivity().getLifecycle().getCurrentState().isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) {
+            main.postDelayed(() -> reopenIfSilent(mine, attempt), SILENT_MS);
+            return;
+        }
+        synchronized (arrivals) {
+            if (arrivalCount > 0) return;
+        }
+        Logger.warn(TAG, "The camera delivered no frame; opening it again (" + attempt + ")");
+        try {
+            provider.unbindAll();
+            camera = provider.bindToLifecycle(getActivity(), selector, preview, analysis);
+            preview.setSurfaceProvider(previewView.getSurfaceProvider());
+        } catch (RuntimeException e) {
+            Logger.warn(TAG, "Opening the camera again: " + e.getMessage());
+        }
+        if (attempt < 2) main.postDelayed(() -> reopenIfSilent(mine, attempt + 1), SILENT_MS);
     }
 
     /** Close the camera, take the preview away and give the web view its ground back. */
@@ -372,6 +488,8 @@ public class ScannerCameraPlugin extends Plugin {
                 Logger.warn(TAG, "Closing the camera: " + e.getMessage());
             }
         }
+        session++;
+        opening++;
         camera = null;
         preview = null;
         analysis = null;
@@ -461,6 +579,9 @@ public class ScannerCameraPlugin extends Plugin {
 
     // ---- Lenses and capture rates ----
 
+    /** The fastest capture rate asked of the camera. */
+    private static final int MAX_FPS = 60;
+
     private static String backCamera(CameraManager manager) throws Exception {
         for (String id : manager.getCameraIdList()) {
             Integer facing = manager.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING);
@@ -529,8 +650,10 @@ public class ScannerCameraPlugin extends Plugin {
      * it, else the range that tops out there with the highest floor, else the fastest range under
      * it. Null when the camera lists none.
      */
-    static Range<Integer> pickRate(Range<Integer>[] ranges, int fps) {
+    static Range<Integer> pickRate(Range<Integer>[] ranges, int asked) {
         if (ranges == null) return null;
+        // 30 or 60: anything faster is a high-speed session.
+        int fps = Math.min(MAX_FPS, asked);
         Range<Integer> best = null;
         for (Range<Integer> r : ranges) {
             if (r.getUpper() > fps) continue;
@@ -623,6 +746,11 @@ public class ScannerCameraPlugin extends Plugin {
         if (o.lensNote != null) ret.put("lensNote", o.lensNote);
         ret.put("cameraId", o.cameraId);
         if (o.physicalId != null) ret.put("physicalId", o.physicalId);
+        String active = activePhysicalId;
+        if (active != null) {
+            ret.put("activePhysicalId", active);
+            for (Lens l : o.lenses) if (active.equals(l.id)) ret.put("activeLens", l.name);
+        }
         JSArray lenses = new JSArray();
         for (Lens l : o.lenses) {
             JSObject lens = new JSObject();
@@ -748,13 +876,20 @@ public class ScannerCameraPlugin extends Plugin {
 
     /** The reader thread: make the frame or region a request asks for. */
     private Reply render(JSONObject q) throws Failure, InterruptedException {
-        if (opened == null) throw new Failure("closed", "The camera isn't open");
-        wantedUntil = System.currentTimeMillis() + 1000;
         boolean region = "region".equals(q.optString("op"));
         long waitStart = System.nanoTime();
-        ScannerFrames.Frame f = region ? frames.pinned() : null;
-        if (f == null) f = frames.next(region ? 500 : 1500);
-        if (f == null) throw new Failure("no-frame", "The camera has no frame yet");
+        ScannerFrames.Frame f;
+        if (q.optBoolean("synthetic")) {
+            // A made-up frame the size of the one asked for, so the crossing can be timed with no
+            // camera (Scan settings, "Time the camera's frames", where the camera gives none).
+            f = synthetic(q.optInt("fullWidth", 3840), q.optInt("fullHeight", 2160));
+        } else {
+            if (opened == null) throw new Failure("closed", "The camera isn't open");
+            wantedUntil = System.currentTimeMillis() + 1000;
+            f = region ? frames.pinned() : null;
+            if (f == null) f = frames.next(region ? 500 : 1500);
+            if (f == null) throw new Failure("no-frame", "The camera has no frame yet");
+        }
         long start = System.nanoTime();
         int uw = f.uprightWidth();
         int uh = f.uprightHeight();
@@ -805,6 +940,32 @@ public class ScannerCameraPlugin extends Plugin {
         r.convertMs = (done - start) / 1e6f;
         r.sentAt = System.currentTimeMillis();
         return r;
+    }
+
+    private ScannerFrames.Frame syntheticFrame;
+
+    /** A grey ramp as the camera would deliver it: landscape, a quarter turn from upright. */
+    private ScannerFrames.Frame synthetic(int width, int height) {
+        int w = Math.max(320, Math.min(3840, Math.max(width, height)));
+        int h = Math.max(240, Math.min(2160, Math.min(width, height)));
+        ScannerFrames.Frame f = syntheticFrame;
+        if (f != null && f.cropWidth == w && f.cropHeight == h) return f;
+        f = new ScannerFrames.Frame();
+        f.y = new byte[w * h];
+        for (int i = 0; i < f.y.length; i++) f.y[i] = (byte) ((i % w) * 255 / w);
+        // Chroma as phones deliver it: one byte pair for each two-by-two block, interleaved.
+        f.u = new byte[w * (h / 2)];
+        java.util.Arrays.fill(f.u, (byte) 128);
+        f.v = f.u;
+        f.yRowStride = w;
+        f.uvRowStride = w;
+        f.uvPixelStride = 2;
+        f.cropWidth = w;
+        f.cropHeight = h;
+        f.rotation = 90;
+        f.seq = 1;
+        syntheticFrame = f;
+        return f;
     }
 
     private static ByteBuffer header(byte[] bytes, int id, int status) {

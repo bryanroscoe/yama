@@ -132,8 +132,8 @@ final class ScannerFrames {
 
     /**
      * The region (rx, ry, rw, rh), in pixels of the upright frame, as outW × outH RGBA written to
-     * `out` from `offset`. Scaled down by 1.5 or more, each pixel is the mean of four samples
-     * spread over what it covers; otherwise the nearest one.
+     * `out` from `offset`. Scaled down by 1.5 or more, each pixel's brightness is the mean of four
+     * samples spread over what it covers; otherwise the nearest one.
      */
     static void toRgba(Frame f, double rx, double ry, double rw, double rh, int outW, int outH, byte[] out, int offset) {
         int uw = f.uprightWidth();
@@ -205,20 +205,12 @@ final class ScannerFrames {
             int j0 = j * 2;
             for (int i = 0; i < outW; i++) {
                 int i0 = i * 2;
-                int lum = 0;
-                int d = 0;
-                int e = 0;
-                for (int s = 0; s < 4; s++) {
-                    int a = i0 + (s & 1);
-                    int b = j0 + (s >> 1);
-                    int c = yc[b] + xc[a];
-                    lum += yp[yy[b] + xy[a]] & 0xff;
-                    d += up[Math.min(c, uLast)] & 0xff;
-                    e += vp[Math.min(c, vLast)] & 0xff;
-                }
-                lum = (lum + 2) >> 2;
-                d = ((d + 2) >> 2) - 128;
-                e = ((e + 2) >> 2) - 128;
+                // Brightness from all four samples; colour from one (it is stored at half the
+                // detail anyway, and this loop is most of what a frame costs).
+                int lum = ((yp[yy[j0] + xy[i0]] & 0xff) + (yp[yy[j0] + xy[i0 + 1]] & 0xff) + (yp[yy[j0 + 1] + xy[i0]] & 0xff) + (yp[yy[j0 + 1] + xy[i0 + 1]] & 0xff) + 2) >> 2;
+                int c = yc[j0] + xc[i0];
+                int d = (up[Math.min(c, uLast)] & 0xff) - 128;
+                int e = (vp[Math.min(c, vLast)] & 0xff) - 128;
                 out[o++] = (byte) byteOf(lum + ((359 * e) >> 8));
                 out[o++] = (byte) byteOf(lum - ((88 * d + 183 * e) >> 8));
                 out[o++] = (byte) byteOf(lum + ((454 * d) >> 8));

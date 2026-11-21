@@ -4,7 +4,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { inUseLine, NativeCameraSetting, rateChoices } from "./NativeCameraSetting";
+import { inUseLine, NativeCameraSetting, RATES } from "./NativeCameraSetting";
 import type { NativeCameraOption } from "./nativeCamera";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -23,12 +23,9 @@ afterEach(() => {
 
 const OFF: NativeCameraOption = { on: false, lens: "auto", fps: 30, focus: null, torchLevel: null };
 
-describe("rateChoices", () => {
-  it("offers 30 and 60, and a faster rate only where the camera lists one for an ordinary session", () => {
-    expect(rateChoices(undefined, 30)).toEqual([30, 60]);
-    expect(rateChoices([[15, 30], [30, 30], [60, 60], [120, 120]], 30)).toEqual([30, 60, 120]);
-    // A rate chosen before stays choosable, so the select shows what's saved.
-    expect(rateChoices([[30, 30]], 120)).toEqual([30, 60, 120]);
+describe("the capture rates", () => {
+  it("are 30 and 60 only: faster ones are high-speed sessions the scanner can't read from", () => {
+    expect(RATES).toEqual([30, 60]);
   });
 });
 
@@ -36,6 +33,8 @@ describe("inUseLine", () => {
   it("says the lens, the frame and the rate asked for and delivered", () => {
     expect(inUseLine({ source: "native", lens: "main", width: 2160, height: 3840, fpsAsked: 60, frameRate: 58.94 })).toBe("In use: Main lens, 2160 × 3840, 60 a second asked for, 58.9 delivered.");
     expect(inUseLine({ source: "native", lens: "auto", fpsAsked: 30 })).toBe("In use: Automatic lens, 30 a second asked for.");
+    // Which lens Automatic is on is what the phone reports, never assumed.
+    expect(inUseLine({ source: "native", lens: "auto", activeLens: "ultrawide", fpsAsked: 30 })).toBe("In use: Automatic lens, the phone is using its ultra-wide lens now, 30 a second asked for.");
   });
 });
 

@@ -11,17 +11,19 @@ const LENSES: NativeLens[] = ["auto", "main", "ultrawide", "telephoto"];
 const PIN_NEAR_CM = 5;
 const PIN_FAR_CM = 60;
 
-/** The capture rates to offer: 30 and 60, and any faster one the camera lists for an ordinary session. */
-export function rateChoices(ranges: readonly [number, number][] | undefined, chosen: number): number[] {
-  const faster = (ranges ?? []).map((r) => r[1]).filter((n) => n > 60);
-  return [...new Set([30, 60, ...faster, chosen])].sort((a, b) => a - b);
-}
+/**
+ * The capture rates offered: 30 and 60. Faster ones (120, 240) are high-speed video sessions,
+ * which can't hand the scanner frames, so they aren't asked for.
+ */
+export const RATES = [30, 60];
 
 /** "In use: Main lens, 2160 × 3840, 60 a second asked for, 58.9 delivered." */
 export function inUseLine(info: SourceInfo): string {
   const lens = LENS_NAMES[info.lens as NativeLens] ?? info.lens ?? "Automatic";
   const parts = [`${lens} lens`];
   if (info.width && info.height) parts.push(`${info.width} × ${info.height}`);
+  // What the phone is really using, where it says: whether Automatic changes lens up close is the phone's choice.
+  if (info.activeLens && info.activeLens !== info.lens) parts.push(`the phone is using its ${(LENS_NAMES[info.activeLens as NativeLens] ?? info.activeLens).toLowerCase()} lens now`);
   if (info.fpsAsked) parts.push(`${info.fpsAsked} a second asked for${info.frameRate ? `, ${Math.round(info.frameRate * 10) / 10} delivered` : ""}`);
   return `In use: ${parts.join(", ")}.`;
 }
@@ -63,14 +65,14 @@ export function NativeCameraSetting({
             <select value={option.lens} onChange={(e) => onChange({ ...option, lens: e.target.value as NativeLens })}>
               {offered.map((l) => (
                 <option key={l} value={l}>
-                  {l === "auto" ? "Automatic (the camera switches lens by distance)" : LENS_NAMES[l]}
+                  {l === "auto" ? "Automatic (the phone chooses)" : LENS_NAMES[l]}
                 </option>
               ))}
             </select>
           </Field>
           <Field label="Frames a second">
-            <select value={option.fps} onChange={(e) => onChange({ ...option, fps: Number(e.target.value) })}>
-              {rateChoices(d?.fpsRanges, option.fps).map((n) => (
+            <select value={RATES.includes(option.fps) ? option.fps : 30} onChange={(e) => onChange({ ...option, fps: Number(e.target.value) })}>
+              {RATES.map((n) => (
                 <option key={n} value={n}>
                   {n}
                 </option>

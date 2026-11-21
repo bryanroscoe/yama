@@ -210,7 +210,7 @@ describe("the app's camera as a source", () => {
   it("opens, takes frames into the canvas and answers as the video would", async () => {
     const { plugin, channel, calls } = fakes();
     const el = document.createElement("canvas");
-    const cam = openNativeCamera(el, { lens: "main", fps: 60, width: 3840, height: 2160 }, { plugin, channel });
+    const cam = openNativeCamera(el, { lens: "main", fps: 60, width: 3840, height: 2160 }, { plugin, channel, settleMs: 0 });
     // Nothing to read before the first frame.
     expect(cam.frame()).toBeNull();
     expect((el as unknown as HTMLVideoElement).videoWidth).toBe(0);
@@ -225,15 +225,17 @@ describe("the app's camera as a source", () => {
     expect(info).toMatchObject({ source: "native", lens: "main", lensAsked: "main", width: 2160, height: 3840, fpsAsked: 60, fpsRange: [60, 60], frameWidth: 360, frameHeight: 640, transport: "binary", zoomRange: [0.5, 8], torch: true });
     expect(info.bridge).toMatchObject({ frames: 1, convert: 3.5, bytes: 360 * 640 * 4 });
     cam.close();
-    expect(calls).toEqual(["open", "close"]);
+    // The page has its ground back at once; the camera is closed in its turn.
     expect(document.documentElement.classList.contains(NATIVE_CLASS)).toBe(false);
     expect(cam.frame()).toBeNull();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls).toEqual(["open", "close"]);
     expect(cam.track()).toBeNull();
   });
 
   it("cuts a card from the full frame: the box as fractions, the quad in the cut's pixels", async () => {
     const { plugin, channel, requests } = fakes();
-    const cam = openNativeCamera(document.createElement("canvas"), { lens: "auto", fps: 30, width: 3840, height: 2160 }, { plugin, channel });
+    const cam = openNativeCamera(document.createElement("canvas"), { lens: "auto", fps: 30, width: 3840, height: 2160 }, { plugin, channel, settleMs: 0 });
     await cam.ready;
     const cut = await cam.around(quad, document.createElement("canvas"), 2400);
     const q = requests.find((r) => r.op === "region")!;
@@ -257,20 +259,43 @@ describe("the app's camera as a source", () => {
 
   it("falls back to base64 frames where the web view has no binary channel", async () => {
     const { plugin } = fakes({ ...DESCRIBED, binary: false });
-    const cam = openNativeCamera(document.createElement("canvas"), { lens: "auto", fps: 30, width: 1920, height: 1080 }, { plugin, channel: null });
+    const cam = openNativeCamera(document.createElement("canvas"), { lens: "auto", fps: 30, width: 1920, height: 1080 }, { plugin, channel: null, settleMs: 0 });
     const info = await cam.ready;
     expect(info.transport).toBe("base64");
     expect([info.frameWidth, info.frameHeight]).toEqual([2, 1]);
     cam.close();
   });
 
-  it("closes the camera that arrives after it was closed, and says it didn't open", async () => {
+  it("never reaches the camera when it is closed at once (a scanner mounted and unmounted)", async () => {
     const { plugin, channel, calls } = fakes();
-    const cam = openNativeCamera(document.createElement("canvas"), { lens: "auto", fps: 30, width: 1920, height: 1080 }, { plugin, channel });
+    const cam = openNativeCamera(document.createElement("canvas"), { lens: "auto", fps: 30, width: 1920, height: 1080 }, { plugin, channel, settleMs: 0 });
     cam.close();
     await expect(cam.ready).rejects.toThrow("closed");
-    expect(calls).toEqual(["open", "close"]);
+    expect(calls).toEqual([]);
     expect(document.documentElement.classList.contains(NATIVE_CLASS)).toBe(false);
+  });
+
+  it("closes a camera closed while it was opening, before the next one opens", async () => {
+    const { plugin, channel, calls } = fakes();
+    let opening!: () => void;
+    const slow = new Promise<void>((r) => (opening = r));
+    const open = plugin.open;
+    plugin.open = async (o) => {
+      const d = await open(o);
+      if (calls.length === 1) await slow;
+      return d;
+    };
+    const first = openNativeCamera(document.createElement("canvas"), { lens: "auto", fps: 30, width: 1920, height: 1080 }, { plugin, channel, settleMs: 0 });
+    await new Promise((r) => setTimeout(r, 5));
+    first.close();
+    const second = openNativeCamera(document.createElement("canvas"), { lens: "main", fps: 30, width: 1920, height: 1080 }, { plugin, channel, settleMs: 0 });
+    opening();
+    await expect(first.ready).rejects.toThrow("closed");
+    await second.ready;
+    // The first camera's close lands before the second's open, never after it.
+    expect(calls).toEqual(["open", "close", "open"]);
+    expect(document.documentElement.classList.contains(NATIVE_CLASS)).toBe(true);
+    second.close();
   });
 
   it("passes on the reason the camera wouldn't open", async () => {
@@ -278,7 +303,7 @@ describe("the app's camera as a source", () => {
     plugin.open = async () => {
       throw new Error("The camera isn't allowed.");
     };
-    await expect(openNativeCamera(document.createElement("canvas"), { lens: "auto", fps: 30, width: 1920, height: 1080 }, { plugin, channel }).ready).rejects.toThrow("isn't allowed");
+    await expect(openNativeCamera(document.createElement("canvas"), { lens: "auto", fps: 30, width: 1920, height: 1080 }, { plugin, channel, settleMs: 0 }).ready).rejects.toThrow("isn't allowed");
   });
 
   it("learns the capture rate delivered a moment after opening", async () => {
@@ -286,9 +311,10 @@ describe("the app's camera as a source", () => {
     try {
       const { plugin, channel } = fakes();
       const told: (number | undefined)[] = [];
-      const cam = openNativeCamera(document.createElement("canvas"), { lens: "main", fps: 60, width: 3840, height: 2160 }, { plugin, channel, onInfo: (i) => told.push(i.frameRate) });
+      const cam = openNativeCamera(document.createElement("canvas"), { lens: "main", fps: 60, width: 3840, height: 2160 }, { plugin, channel, settleMs: 0, onInfo: (i) => told.push(i.frameRate) });
       await vi.advanceTimersByTimeAsync(50);
-      expect((await cam.ready).frameRate).toBe(60);
+      // Not known until the camera has run: the rate asked for is never passed off as delivered.
+      expect((await cam.ready).frameRate).toBeUndefined();
       await vi.advanceTimersByTimeAsync(3000);
       expect(told).toEqual([58.9]);
       cam.close();
@@ -301,7 +327,7 @@ describe("the app's camera as a source", () => {
 describe("the app's camera's controls, as a track", () => {
   async function opened(req: { focus?: number | null; torchLevel?: number | null } = {}) {
     const f = fakes();
-    const cam = openNativeCamera(document.createElement("canvas"), { lens: "main", fps: 30, width: 3840, height: 2160, ...req }, { plugin: f.plugin, channel: f.channel });
+    const cam = openNativeCamera(document.createElement("canvas"), { lens: "main", fps: 30, width: 3840, height: 2160, ...req }, { plugin: f.plugin, channel: f.channel, settleMs: 0 });
     await cam.ready;
     return { cam, track: cam.track()!, ...f };
   }
@@ -358,7 +384,7 @@ describe("timing the bridge", () => {
   it("times each way a frame can cross, and a card's cut", async () => {
     vi.stubGlobal("createImageBitmap", async () => ({ close: () => undefined }));
     const { plugin, channel } = fakes();
-    const cam = openNativeCamera(document.createElement("canvas"), { lens: "auto", fps: 30, width: 3840, height: 2160 }, { plugin, channel });
+    const cam = openNativeCamera(document.createElement("canvas"), { lens: "auto", fps: 30, width: 3840, height: 2160 }, { plugin, channel, settleMs: 0 });
     await cam.ready;
     const rows = await cam.bench(2);
     expect(rows.map((r) => r.what)).toEqual(["ArrayBuffer, RGBA", "ArrayBuffer, JPEG", "base64, RGBA", "base64, JPEG", "ArrayBuffer, RGBA, a card at 1200", "ArrayBuffer, RGBA, a card at 2400"]);

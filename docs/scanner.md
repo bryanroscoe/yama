@@ -279,6 +279,45 @@ Bryan (21 Nov 2026), after trying CardVision's Android beta: "It's by far the be
 
 Checked [ran]: unit tests for each part, and the outline, the focus slider and the message drawn over a still picture in Chrome at phone size. Not checked: a phone camera. Whether Chrome on Android keeps 60 frames a second (and the size asked as the least) after a later flashlight, zoom or focus change, which replaces the constraints, is not known, which is what the measured rate in the records is for.
 
+## The camera source, and the app's own camera (2026-11-21)
+
+Bryan, 21 Nov 2026, after trying CardVision's Android beta: "Maybe we need to make a better app here, like a native app for that portion of the app instead of the web view… The rest of it might be able to be a web app." This is the first native stage: the Android app can open the camera itself. Finding the card, naming it and everything on screen are still the web scanner; only where the frames come from changed. No model runs in native code yet.
+
+**The seam** (`cameraSource.ts`). The scanner asks a camera source for four things and doesn't care which camera answers:
+
+- `frame()`: the frame to look at now. Something it can draw from, with `videoWidth` and `videoHeight`, standing in the camera box so on-screen boxes map into it.
+- `around(quad, …)` and `region(box, …)`: part of that frame at the camera's full resolution. Text is read from these.
+- `track()`: the camera's capabilities and controls as a `MediaStreamTrack`, so zoom, flashlight and focus go through `camera.tsx` as they always did.
+- `info()` and `fullScale()`: what the camera is and delivers (for Scan settings and Scanner diagnostics), and how many full-resolution pixels one frame pixel stands for.
+
+Two cameras answer. `browserCameraSource` is the `<video>` fed by `getUserMedia`: its frames are already full resolution, so a region is drawn from the video, exactly as before. `openNativeCamera` (`nativeCamera.ts`) is the app's own.
+
+**The app's own camera** (`ScannerCameraPlugin.java`, `ScannerFrames.java`; CameraX 1.6 with Camera2 interop). An option in Scan settings, "Use the app's own camera": shown only inside the Android app whose native code has the plugin, off unless turned on, kept on the device (`yama.scan.nativeCamera`). With it on:
+
+- **Preview.** Drawn by the app in a view behind the web view. While the camera is open the web view has no background and the page lets it through: `html.native-camera` (scanner.css) clears the grounds of the page, `.scan` and `.scan-camera`, and hides everything but the scanner and dialogs. The sheet, the strip and the controls sit over the preview unchanged. Closing the camera takes the view away and puts the web view's ground back. The preview follows the camera box as the sheet moves or the phone turns.
+- **Frames.** One camera stream at full size (3840 × 2160 asked for; 1920 × 1080 where only the card matters) feeds both. The newest frame is kept in memory as the camera delivered it (YUV), and only while the page is asking. The page pulls a small frame (short side 640, what the recognizer reads) up to 20 times a second into a canvas that stands where the `<video>` does and isn't painted. When the scanner wants the card or a close-up at full resolution, native code cuts that region from the frame last pulled, so the cut is of the very frame the card was found in. Nothing is written to a file.
+- **Lens.** Automatic is the phone's back camera as Android presents it; whether it changes lens when a card is close is the phone maker's choice, so nothing here assumes it. Scan settings says which lens the phone is really using where Android reports it (Android 10 on). Main, Ultra-wide and Telephoto choose that lens by itself, where the phone lists its lenses: named by focal length as a 35 mm camera's (under 20 mm ultra-wide, over 40 mm telephoto, nearest 26 mm of the rest main) [inferred from focal lengths, not checked on a phone]. A lens the phone doesn't offer falls back to Automatic and says so.
+- **Capture rate.** 30 or 60 frames a second, as the exposure's frame-rate range in an ordinary session. 120 and 240 are high-speed video sessions, which can't hand the scanner frames, so they aren't offered. Scan settings shows the rate asked for and the rate the camera delivers, measured from the frames arriving.
+- **Focus.** Continuous autofocus unless "Held at a distance" is chosen, which pins the lens at 5 to 60 cm (never nearer than the lens can focus). A tap-to-focus point from the scanner is passed on while focus is automatic.
+- **Flashlight.** On or off, and its strength where the phone offers one (CameraX's torch strength; Android 15 hardware support).
+- **Zoom.** The camera's own zoom ratio, through the same + and −, pinch and auto-zoom as the browser camera.
+- **If it won't open** (refused permission, a camera that fails), the scanner goes back to the browser's camera for that visit and Scan settings says why.
+
+**Why frames cross as they do.** Capacitor's bridge carries JSON, so a frame through a plugin call is base64. Where the web view supports it (WebView 111 or so and later [read: androidx.webkit's `WEB_MESSAGE_ARRAY_BUFFER`]), the plugin instead answers over a web message channel with one ArrayBuffer per frame: a 48-byte header and RGBA pixels. Measured in the Android 16 emulator on an M3 Pro, 21 Nov 2026 [ran], with "Time the camera's frames" in Scan settings on a made-up 3840 × 2160 frame (the emulator's camera delivered no frames that day), medians of 15, for a 640 × 1138 frame:
+
+| How it crosses | Size | Native convert | Crossing | Into the canvas |
+|---|---|---|---|---|
+| ArrayBuffer, RGBA (used) | 2.9 MB | 35 ms | 3 ms | 0.2 ms |
+| ArrayBuffer, JPEG | 17 kB | 29 ms | 1 ms | 2.2 ms |
+| base64, RGBA (fallback) | 2.9 MB | 25 ms | 125 ms | 0.2 ms |
+| base64, JPEG | 17 kB | 27 ms | 1 ms | 2.1 ms |
+
+A card cut from the full frame over the ArrayBuffer channel: 1200 px tall, 2.4 MB, 19 ms to convert and 2 ms to cross; 2400 px tall, 9.7 MB, 33 ms and 5 ms. So raw pixels over the ArrayBuffer channel cost about 3 ms to cross and nothing to decode, and base64 costs forty times that; JPEG crosses fastest but adds a compress and a decode and loses detail the recognizer was trained with (and the made-up frame, a plain ramp, compresses far better than a real one). The cost that matters is not the crossing but scaling the 4K frame down in Java, and these convert times are an emulator under load, before the loop was trimmed to read colour once per pixel: read the real ones on a phone with the same button. Stage 3 of the plan (the card finder in native code) removes the small frame's crossing altogether.
+
+**Records.** A timing record's camera reads "2160×3840 native main 60fps" (the full frame, the lens, the rate delivered) against "2160×3840" for the browser's camera, and a diagnostics record's camera carries `source`, `lens`, `activeLens`, `fpsAsked`, `frameRate`, `frameWidth` and `frameHeight`, the transport and the bridge's cost per frame. So the same stack of cards scanned each way can be compared with `get_scan_timings`.
+
+**Checked** [ran], 21 Nov 2026, Android 16 emulator: the option appears in Scan settings, Android's own camera prompt comes from the plugin, the camera opens, the page goes clear with the scanner's controls and sheet over the preview, frame requests and their refusals cross the ArrayBuffer channel, and the timings above. The emulator's camera delivered no frames that day, to the web view's camera or to this one, so a live picture, recognition through it and turning the phone were not seen. **Not checked, needs a phone:** every lens, whether Automatic changes lens up close, 60 a second, pinned focus, flashlight strength, and whether cards scan faster or more surely than with the browser's camera ("Left for a real phone test", 8).
+
 ## Set lock, Skip, flashlight and zoom, scan photos (2026-11-06)
 
 Bryan (2026-11-06), after trying Convoke's webcam scanner: the scanner should be "more consistent, less finicky, and a little bit more user-friendly"; the close-up step for the printing "was just not good". Convoke publishes nothing about its recognition beyond marketing (100,000+ labelled real game frames, retrained from players' reports); its model is paid and closed (DeckCheck licenses it). So we build on what we have, and start collecting our own labelled photos.
@@ -755,6 +794,8 @@ SCANNER_RECOGNIZER_EVAL=1 SCANNER_BUNDLE_DIR=data/scan-bundle/<version> npx vite
 4. **Newer bundles.** Cards printed after the pinned bundle go to OCR. Bump the bundle when a set Bryan buys is out.
 5. **Yama's query model on a phone (2026-11-18).** Measured only offline (real photos run through the graphs on a Mac, and simulated captures). Check on Bryan's phone that the scanner downloads `query-52420d900728.onnx` once, that frame time is unchanged, and how fast sleeved cards settle (the lead rule needs two leading frames): with Scanner diagnostics on, `get_scan_timings` gives the time to name each card and the share settled by each rule, by art model (since 20 Nov 2026); the kept scan photos record `+yama-art-20261118` in their bundle for the same comparison.
 6. **Native app (ML Kit built 2026-11-13; sideloaded, docs/mobile.md).** Compare collector-line reads in the app against the browser on the same real cards. The plan, as written before: a native scanner plugin would get the full-resolution camera with proper focus and zoom, and on-device text recognition far better on small print than Tesseract (ML Kit) behind the existing `OcrEngine` seam; the art recognizer can stay as it is. Decide after the phone test.
+
+8. **The app's own camera (2026-11-21).** In the Android app (an APK from 21 Nov 2026 or later), Scan settings, turn on "Use the app's own camera" and Scanner diagnostics. Check: the picture shows behind the controls and follows the sheet; "In use" names the lens, the frame size and the rate delivered; hold a card closer than 15 cm on Automatic and read which lens the phone says it is using; choose Main, Ultra-wide and Telephoto in turn; choose 60 frames a second and read the rate delivered; set Focus to "Held at a distance" and move the slider; turn the flashlight on and move its strength; turn the phone; leave the app and come back; press "Time the camera's frames" and note the lines. Then scan the same 20 sleeved cards with the option on and off and compare `get_scan_timings` by camera.
 
 7. **The faster models on a phone (2026-11-20).** In Scan settings, Models, choose Yama's card finder and Yama's art model with two cuts first, scan a stack of sleeved cards in the box, then the same stack with the defaults, with Scanner diagnostics on, and compare their timing records. Hold some cards by a corner. Kept photos and diagnostics record the choices (`models`).
 

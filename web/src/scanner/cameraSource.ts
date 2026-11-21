@@ -39,6 +39,8 @@ export interface SourceInfo extends CameraInfo {
   lensAsked?: string;
   /** Native: why the lens in use isn't the one asked for. */
   lensNote?: string;
+  /** Native: the lens the phone is using now, where it says (so "auto" can be checked, not assumed). */
+  activeLens?: string;
   /** Native: the capture rate asked for, and the exposure's range the camera was given. */
   fpsAsked?: number;
   fpsRange?: [number, number];

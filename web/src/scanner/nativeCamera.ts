@@ -29,7 +29,7 @@ export interface NativeCameraOption {
   /** Use the app's own camera. */
   on: boolean;
   lens: NativeLens;
-  /** Frames a second to ask the camera for. */
+  /** Frames a second to ask the camera for: 30 or 60 (faster is a high-speed session, which can't feed the scanner). */
   fps: number;
   /** Metres the focus is pinned at, or null for autofocus. */
   focus: number | null;
@@ -50,7 +50,7 @@ export function savedNativeCamera(): NativeCameraOption {
   try {
     const v = JSON.parse(localStorage.getItem(NATIVE_CAMERA_KEY) ?? "null") as Partial<NativeCameraOption> | null;
     if (!v || typeof v !== "object") return { ...OFF };
-    return { on: v.on === true, lens: isLens(v.lens) ? v.lens : "auto", fps: positive(v.fps) ? Math.round(v.fps) : 30, focus: positive(v.focus) ? v.focus : null, torchLevel: positive(v.torchLevel) ? Math.round(v.torchLevel) : null };
+    return { on: v.on === true, lens: isLens(v.lens) ? v.lens : "auto", fps: v.fps === 60 ? 60 : 30, focus: positive(v.focus) ? v.focus : null, torchLevel: positive(v.torchLevel) ? Math.round(v.torchLevel) : null };
   } catch {
     return { ...OFF };
   }
@@ -81,6 +81,8 @@ export interface NativeDescribed {
   lensAsked: string;
   lens: string;
   lensNote?: string;
+  /** The lens the phone is using now, where it says (Android 10 on, a lens it lists). */
+  activeLens?: string;
   lenses: { lens: string; equivalent: number }[];
   fpsAsked: number;
   fpsRange?: [number, number];
@@ -135,6 +137,10 @@ export interface FrameRequest {
   maxSide?: number;
   format?: "rgba" | "jpeg";
   quality?: number;
+  /** Time the crossing on a made-up frame of this size, with no camera. */
+  synthetic?: boolean;
+  fullWidth?: number;
+  fullHeight?: number;
 }
 
 interface Base64Frame {
@@ -361,11 +367,28 @@ export interface NativeCameraDeps {
   onInfo?: (info: SourceInfo) => void;
   /** The most frames a second pulled for the recognizer. */
   pullRate?: number;
+  /** How long to wait before asking for the camera (tests: 0). */
+  settleMs?: number;
 }
 
 /** The class on <html> while the native preview shows through the page (scanner.css). */
 export const NATIVE_CLASS = "native-camera";
 
+/**
+ * The camera is opened and closed one call at a time, in the order asked, whichever scanner asked:
+ * a camera closing (a new lens, the scanner remounting) is closed before the next one opens.
+ */
+let calls: Promise<unknown> = Promise.resolve();
+function inTurn<T>(fn: () => Promise<T>): Promise<T> {
+  const p = calls.then(fn, fn);
+  calls = p.catch(() => undefined);
+  return p;
+}
+
+/** How often the camera is asked what it delivers. */
+const STATUS_MS = 2500;
+/** How long a new camera waits before it's asked for (see `ready`). */
+const SETTLE_MS = 30;
 /** Frames are pulled no faster than this: the recognizer reads fewer than that a second. */
 const PULL_RATE = 20;
 /** Frames timed for `bridge`. */
@@ -379,6 +402,8 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
   const plugin = deps.plugin ?? ScannerCamera;
   const el = canvas as HTMLCanvasElement & FrameElement & { readyState?: number; srcObject?: unknown };
   let closed = false;
+  /** The plugin was asked to open this camera, so closing it is owed. */
+  let asked = false;
   let described: NativeDescribed | null = null;
   let transport: FrameTransport | null = null;
   let full: { w: number; h: number } | null = null;
@@ -488,9 +513,12 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
     return {
       ...cameraInfo(track),
       source: "native",
+      // The rate the camera delivers, once measured (never the rate asked for).
+      frameRate: d.fps,
       lens: d.lens,
       lensAsked: d.lensAsked,
       lensNote: d.lensNote,
+      activeLens: d.activeLens,
       fpsAsked: d.fpsAsked,
       fpsRange: d.fpsRange,
       frameWidth: hasFrame ? el.width : undefined,
@@ -530,12 +558,16 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
   };
 
   const ready = (async (): Promise<SourceInfo> => {
-    const d = await plugin.open({ lens: req.lens, fps: req.fps, width: req.width, height: req.height, rect: rect() });
-    if (closed) {
-      // Closed while it was opening: `close` couldn't know the camera would still arrive.
-      void plugin.close().catch(() => undefined);
-      throw new Error("The camera closed");
-    }
+    // A scanner mounted and unmounted at once (React's strict mode) never reaches the camera.
+    // (The plugin itself waits for the web view's own camera to let go before it opens.)
+    await sleep(deps.settleMs ?? SETTLE_MS);
+    const d = await inTurn(async () => {
+      if (closed) throw new Error("The camera closed");
+      asked = true;
+      return plugin.open({ lens: req.lens, fps: req.fps, width: req.width, height: req.height, rect: rect() });
+    });
+    // Closed while it was opening: `close` has already asked for it to be closed, in turn.
+    if (closed) throw new Error("The camera closed");
     described = d;
     const channel = deps.channel === undefined ? frameChannel() : deps.channel;
     transport = d.binary && channel ? binaryTransport(channel) : base64Transport(plugin);
@@ -564,19 +596,23 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
     });
     await first;
     if (closed) throw new Error("The camera closed");
-    // The capture rate the camera really delivers is known once it has run a moment.
-    const later = setTimeout(() => {
+    // The capture rate the camera really delivers, and the lens the phone is using, are known
+    // once it has run a moment, and can change: asked now and then, told when they differ.
+    let told = "";
+    const later = setInterval(() => {
       void plugin.status().then(
         (s) => {
           if (closed) return;
           described = { ...(described as NativeDescribed), ...s };
+          const now = `${s.fps == null ? "" : Math.round(s.fps)}|${s.activeLens ?? ""}`;
           const i = info();
-          if (i) deps.onInfo?.(i);
+          if (i && now !== told) deps.onInfo?.(i);
+          told = now;
         },
         () => undefined,
       );
-    }, 2500);
-    cleanups.push(() => clearTimeout(later));
+    }, STATUS_MS);
+    cleanups.push(() => clearInterval(later));
     return info()!;
   })();
   // A camera closed before anyone listened mustn't report an unhandled rejection.
@@ -650,7 +686,12 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
       ways.push({ name: "base64", t: transport?.kind === "base64" ? transport : base64Transport(plugin) });
       const scratch = document.createElement("canvas");
       const rows: BenchRow[] = [];
-      const run = async (what: string, t: FrameTransport, q: FrameRequest) => {
+      // Where the camera delivers nothing (an emulator), the crossing is timed on a made-up frame
+      // the size the camera was asked for.
+      const made: FrameRequest = hasFrame ? {} as FrameRequest : ({ synthetic: true, fullWidth: req.width, fullHeight: req.height } as FrameRequest);
+      const run = async (label: string, t: FrameTransport, ask: FrameRequest) => {
+        const q = { ...ask, ...made };
+        const what = hasFrame ? label : `${label}, made-up frame`;
         const got: Awaited<ReturnType<typeof timeOne>>[] = [];
         for (let i = 0; i < frames && !closed; i += 1) got.push(await timeOne(t, q, scratch));
         if (!got.length) return;
@@ -686,8 +727,7 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
       for (const c of cleanups) c();
       transport?.close();
       document.documentElement.classList.remove(NATIVE_CLASS);
-      // Before it opened, `ready` closes it when it arrives.
-      if (described) void plugin.close().catch(() => undefined);
+      if (asked) void inTurn(() => plugin.close()).catch(() => undefined);
     },
   };
 }
