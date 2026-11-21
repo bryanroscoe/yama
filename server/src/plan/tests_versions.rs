@@ -268,8 +268,17 @@ async fn the_server_settles_what_was_waiting_when_it_starts() {
     assert_eq!(super::super::versions::settle_all(&pool).await.unwrap(), 1);
     let beta = deck(&bundle(&app, &token).await, "beta")["plan"].clone();
     assert_eq!((beta["version"].as_i64(), beta["changes"].as_i64(), beta["next"].is_null()), (Some(2), Some(2), true), "{beta}");
-    // Again, nothing to do.
+    // Again, nothing to do, and a settled account isn't even read.
     assert_eq!(super::super::versions::settle_all(&pool).await.unwrap(), 0);
+    let waiting: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM plan_swaps s WHERE s.owner_id = ? AND s.stage = 'proposed' AND s.retired_at IS NULL
+           AND NOT EXISTS (SELECT 1 FROM plan_reviews r WHERE r.owner_id = s.owner_id AND r.swap_key = s.ext_key AND r.decision IS NOT NULL AND r.at >= s.updated_at)",
+    )
+    .bind(&owner)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(waiting, 0, "every proposal has an answer since it last changed");
 }
 
 #[tokio::test]

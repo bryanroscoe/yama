@@ -701,9 +701,22 @@ pub async fn settle(conn: &mut SqliteConnection, owner: &str) -> AppResult<Vec<S
 /// plans that were waiting for an OK before 20 Nov 2026 and anything a failed write left. Returns
 /// how many versions went in.
 pub async fn settle_all(pool: &sqlx::SqlitePool) -> AppResult<usize> {
-    let owners: Vec<String> = sqlx::query_scalar("SELECT DISTINCT owner_id FROM plan_swaps WHERE retired_at IS NULL AND stage = 'proposed' ORDER BY owner_id")
-        .fetch_all(pool)
-        .await?;
+    // Only accounts with something to settle, so a start reads nobody's whole plans for nothing: a
+    // live proposal on a live deck with no answer since it last changed, or a deck that has
+    // proposals and no version yet. (An answer held only under an alias makes a false positive,
+    // which settling then finds nothing in; settled answers are written under the live key.)
+    let owners: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT s.owner_id FROM plan_swaps s JOIN plan_decks d ON d.id = s.plan_deck_id AND d.owner_id = s.owner_id
+         WHERE s.retired_at IS NULL AND s.stage = 'proposed' AND d.status != 'archived' AND d.archived_at IS NULL
+           AND (NOT EXISTS (SELECT 1 FROM plan_reviews r WHERE r.owner_id = s.owner_id AND r.swap_key = s.ext_key
+                              AND r.decision IS NOT NULL AND r.at >= s.updated_at)
+                OR (NOT EXISTS (SELECT 1 FROM plan_versions v WHERE v.owner_id = d.owner_id AND v.plan_deck_id = d.id)
+                    AND NOT EXISTS (SELECT 1 FROM plan_swaps p WHERE p.owner_id = d.owner_id AND p.plan_deck_id = d.id
+                                      AND p.retired_at IS NULL AND p.stage = 'planned' AND p.role != 'standin')))
+         ORDER BY s.owner_id",
+    )
+    .fetch_all(pool)
+    .await?;
     let mut n = 0;
     for owner in owners {
         let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
