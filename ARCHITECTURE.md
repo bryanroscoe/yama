@@ -616,8 +616,9 @@ for the newest-first order the list had.
   hands them over; so comparing never slows the camera loop. Identity-only scanners don't start it.
 - **The phone fetches each candidate printing's `normal` picture from Scryfall's CDN** (as the
   list's thumbnails already come from there; cards.scryfall.io allows CORS), a few at a time, and
-  keeps only a 1 KB embedding per printing and model in the scanner's Cache API. Nothing goes to
-  Yama's server but the scores in a diagnostics record, when the owner has those on.
+  keeps only a 1 KB embedding per printing and model in a capped Cache API of its own (the
+  pictures themselves aren't added to the offline image cache). Nothing goes to Yama's server but
+  the scores in a diagnostics record, when the owner has those on.
 - **Ordering only.** It never settles a printing or overrides the collector line; the evidence
   for that would be full-resolution scans, measured first.
 - **A model of Yama's, pinned like the art model** (`look-v0` in `MODELS`, a

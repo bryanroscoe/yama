@@ -8,7 +8,7 @@ import wasmUrl from "onnxruntime-web/ort-wasm-simd-threaded.wasm?url";
 import { createRecognizer, parseArts, parseSupplement, poolIndices, type Art, type BundleConstants, type OrtLike, type Recognizer, type Supplement } from "./recognizer";
 import type { ArtWorkerReply, ArtWorkerRequest, BundleInfo, EmbedFile } from "./artClient";
 import { isStale, namedPaths } from "./bundleCache";
-import { LookFrames } from "./look";
+import { LookFrames, lookTops } from "./look";
 import { cachedFile, SCAN_CACHE } from "./scanCache";
 
 ort.env.wasm.wasmPaths = { wasm: wasmUrl };
@@ -137,11 +137,14 @@ self.onmessage = async (event: MessageEvent<ArtWorkerRequest>) => {
     else if (m.type === "identify") {
       if (!recognizer) throw new Error("The card recognizer isn't loaded");
       const result = await recognizer.identify({ width: m.width, height: m.height, data: new Uint8ClampedArray(m.buffer) });
-      // With the look on, keep a copy of a frame with a card in it for the look's side of the
-      // comparison: the frame and quad this match used.
-      const tops = [result.matches[0]?.index, result.pool?.[0]?.index].filter((n): n is number => n !== undefined);
-      if (keepFrames && result.quad && tops.length > 0) {
-        lookFrames.add({ image: { width: m.width, height: m.height, data: new Uint8ClampedArray(m.buffer.slice(0)) }, quad: result.quad, tops });
+      // With the look on, keep a copy of a frame with a card whose art several printings share, for
+      // the look's side of the comparison: the frame and quad this match used, under every such
+      // artwork it matched (a title read or Not this card can settle on one that wasn't the best).
+      // A frame with no card ends the ones kept: the next card may be another copy of the same art.
+      if (keepFrames) {
+        const tops = result.quad ? lookTops([...result.matches, ...(result.pool ?? [])]) : [];
+        if (!result.quad) lookFrames.clear();
+        else if (tops.length > 0) lookFrames.add(m.width, m.height, new Uint8ClampedArray(m.buffer), result.quad, tops);
       }
       reply({ type: "result", id: m.id, result, buffer: m.buffer }, [m.buffer]);
     }

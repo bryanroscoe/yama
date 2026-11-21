@@ -56,6 +56,7 @@ export const cornersOf = (width: number, height: number): Quad => [
 /** The parts of onnxruntime-web the look uses (the worker passes it in; Node's eval passes its own). */
 export interface LookSession {
   run(feeds: Record<string, unknown>): Promise<Record<string, { data: unknown }>>;
+  release?(): Promise<void>;
 }
 export type LookTensor = new (type: "uint8" | "float32", data: Uint8Array | Float32Array, dims: readonly number[]) => unknown;
 
@@ -137,30 +138,42 @@ export async function scoreCandidates(
   return scored;
 }
 
-/** A frame kept for the look's query: the recognizer's 640 px frame, the card's quad, and which artworks led there. */
+/** A frame kept for the look's query: the recognizer's 640 px frame, the card's quad, and which artworks it matched. */
 export interface LookFrame {
   image: RgbaImage;
   quad: Quad;
-  /** Gallery indices of the best match anywhere and the best in the set lock's pool. */
+  /** Gallery indices of every artwork it matched (anywhere and in the set lock's pool) that several printings share. */
   tops: number[];
 }
 
-/** The last few frames with a card in them, for the look's query. */
+/**
+ * The last few frames with a card in them, for the look's query. Copies go into buffers it reuses,
+ * so keeping frames at camera rate makes no garbage once the ring is full.
+ */
 export class LookFrames {
   private frames: LookFrame[] = [];
+  private spare: Uint8ClampedArray[] = [];
   constructor(private readonly keep = 3) {}
-  add(f: LookFrame) {
-    this.frames.push(f);
-    if (this.frames.length > this.keep) this.frames.shift();
+  /** Keep a copy of this frame (`data`, RGBA) with the card at `quad` and the artworks it matched. */
+  add(width: number, height: number, data: Uint8ClampedArray, quad: Quad, tops: number[]) {
+    let buf = this.frames.length >= this.keep ? this.frames.shift()!.image.data : this.spare.pop();
+    if (!buf || buf.length !== data.length) buf = new Uint8ClampedArray(data.length);
+    buf.set(data);
+    this.frames.push({ image: { width, height, data: buf }, quad, tops });
   }
+  /** No card in view: the frames kept are of a card that has gone (the next may be another copy of the same art). */
   clear() {
+    for (const f of this.frames) if (this.spare.length < this.keep) this.spare.push(f.image.data);
     this.frames = [];
   }
-  /** Newest last: the frames whose best match was this artwork. */
+  /** Newest last: the frames that matched this artwork. */
   of(index: number): LookFrame[] {
     return this.frames.filter((f) => f.tops.includes(index));
   }
 }
+
+/** The artworks a frame matched that a look could be asked about: those several printings share. */
+export const lookTops = (matches: readonly { index: number; printings: number }[]): number[] => [...new Set(matches.filter((m) => m.printings > 1).map((m) => m.index))];
 
 /** Embeddings packed as one buffer for the Cache API (symbol then card), and back. */
 export const packLook = (e: LookEmbedding): Float32Array => {

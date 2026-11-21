@@ -179,11 +179,6 @@ interface Found {
   options: Printing[] | null;
   /** How many of `options`, at the top, the collector line's reads put there (printings.ts, `Choice.readFirst`). */
   readFirst?: number;
-  /**
-   * The printing look (look.ts): each printing's score so far against the card seen, by Scryfall
-   * ID, which orders the list after `readFirst` and marks its best guess. It never files one.
-   */
-  look?: { model: string; scores: LookScores; done: boolean };
   sameArt: boolean;
   chosen: Printing | null;
   /** "set": the only printing of it in the locked sets. */
@@ -1170,28 +1165,31 @@ export function ScannerView({
     lookRun.current = null;
   };
   /**
+   * The printing look's scores for the found card (look.ts), by its `foundSeq`: kept apart from
+   * `found`, whose changes restart the hold-and-read loop (review of #172). `complete` once every
+   * printing it could compare is scored and the look wasn't stopped: only then does it order the
+   * list, once, so a printing doesn't move under a finger.
+   */
+  const [look, setLook] = useState<{ seq: number; scores: LookScores; complete: boolean } | null>(null);
+  /** The found card (its seq) whose list was touched before the look finished: its order stays. */
+  const [lookTouched, setLookTouched] = useState<number | null>(null);
+  /**
    * Compare the printings that share the found card's art with what the camera saw (the look slot,
-   * models.ts), a few at a time, so the list orders itself as the scores come in. Its scores and
-   * timings go in the card's diagnostics record. A ref, so `settle` (memoised) calls the latest.
+   * models.ts), a few at a time. Its scores and timings go in the card's diagnostics record as they
+   * come. A ref, so `settle` (memoised) calls the latest.
    */
   const startLook = useRef<(seq: number, f: Found, printings: Printing[]) => void>(() => undefined);
   startLook.current = (seq, f, printings) => {
+    stopLook();
     const art = artRef.current;
     if (!art || art.look === "off" || identityOnly || !f.art) return;
     const candidates = lookCandidates(printings, f.art.id.endsWith("-1"));
     if (candidates.length < 2) return;
-    stopLook();
     const stop = new AbortController();
     lookRun.current = { seq, stop };
     const model = art.look;
     const scores: LookScores = {};
-    let shown: ReturnType<typeof setTimeout> | undefined;
-    const show = (done: boolean) => {
-      clearTimeout(shown);
-      shown = undefined;
-      if (foundSeq.current === seq) setFound((cur) => (cur ? { ...cur, look: { model, scores: { ...scores }, done } } : cur));
-    };
-    const note = (done: Partial<LookDone> & { error?: string }) =>
+    const note = (done: Partial<LookDone> & { error?: string; stopped?: boolean }) =>
       f.rec?.note("look", {
         ...done,
         model,
@@ -1201,19 +1199,22 @@ export function ScannerView({
       f.art.index,
       candidates,
       (id, score) => {
+        // Another card since: this look is done with.
+        if (foundSeq.current !== seq) return stop.abort();
         scores[id] = score;
-        // A few at a time, not a render per printing.
-        shown ??= setTimeout(() => show(false), 60);
+        // Written as it comes, so a record sent before the look ends has what it had.
+        note({ stopped: true });
       },
       stop.signal,
     ).then(
       (done) => {
-        note(done);
-        show(true);
+        const complete = !stop.signal.aborted && done.scored >= 2;
+        note({ ...done, stopped: !complete });
+        if (foundSeq.current === seq) setLook({ seq, scores: { ...scores }, complete });
       },
       (e: unknown) => {
         note({ error: e instanceof Error ? e.message : String(e) });
-        show(true);
+        if (lookRun.current?.seq === seq) setLookNow(art.look);
       },
     );
   };
@@ -1316,6 +1317,7 @@ export function ScannerView({
   /** Show a card recognised by its art. `read` is a sharp view of it for the collector line. */
   const showArt = useCallback(
     (r: Recognition, top: ArtMatch, read: { image: RgbaImage; quad: Quad } | null, carry: Pick<Found, "shot" | "guess" | "unlocked" | "rec" | "titled" | "leads"> = {}) => {
+      stopLook();
       const seq = ++foundSeq.current;
       const rec = newRecord(carry.rec);
       rec?.setShot(read);
@@ -1783,6 +1785,7 @@ export function ScannerView({
 
   /** A card typed by name: straight to its printings. */
   const fromName = (name: string, how: "typed" | "name" = "typed", carry: Pick<Found, "shot" | "guess" | "rec"> = {}) => {
+    stopLook();
     const seq = ++foundSeq.current;
     const rec = newRecord(carry.rec);
     rec?.setShot(carry.shot);
@@ -2282,9 +2285,12 @@ export function ScannerView({
     // Read from the list it came from, unless that was only this printing (or only the locked
     // sets'): then every printing of the card.
     if (f.options && f.options.length > 1 && f.how !== "set") {
-      ++foundSeq.current;
-      setFound(base);
+      const seq = ++foundSeq.current;
+      // The printing just said to be wrong isn't kept first, and the look compares the list again.
+      const again: Found = { ...base, readFirst: 0 };
+      setFound(again);
       setHoldRun((n) => n + 1);
+      if (again.sameArt) startLook.current(seq, again, f.options);
       return;
     }
     const seq = ++foundSeq.current;
@@ -2428,8 +2434,9 @@ export function ScannerView({
   const options = found?.options ?? null;
   // The list as shown: the collector line's matches first, then the printing look's order (look.ts),
   // with its best guess marked once two are scored.
-  const listed = options && lookOrder(options, found?.readFirst ?? 0, found?.look?.scores);
-  const lookGuess = lookBest(found?.look?.scores);
+  const lookNowScores = look && look.complete && look.seq === foundSeq.current && lookTouched !== look.seq ? look.scores : undefined;
+  const listed = options && lookOrder(options, found?.readFirst ?? 0, lookNowScores);
+  const lookGuess = lookBest(lookNowScores);
   // The latest frame of the held card, else the one it was found in.
   const peekShot = liveShot ?? found?.shot ?? null;
   // "Read the collector number up close", in the found card's More.
@@ -2816,7 +2823,15 @@ export function ScannerView({
               </div>
             )}
             {showPicker && listed && (
-              <div className="scan-printings" role="listbox" aria-label="Printings">
+              <div
+                className="scan-printings"
+                role="listbox"
+                aria-label="Printings"
+                // Touched before the look finished: it won't reorder the list under the person.
+                onPointerDown={() => {
+                  if (!lookNowScores && lookTouched !== foundSeq.current) setLookTouched(foundSeq.current);
+                }}
+              >
                 {(showAll ? listed : listed.slice(0, PICKER_FIRST)).map((p) => (
                   <Button
                     key={p.scryfall_id}

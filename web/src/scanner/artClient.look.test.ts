@@ -18,6 +18,7 @@ const info: BundleInfo = {
 const lookV0 = { id: "look-v0", label: "Yama's look model, 20 Nov", note: "", file: `/scan-bundle/${V}/look-58acfa166105.onnx`, bytes: 9_292_149 };
 
 const workers: FakeWorker[] = [];
+let failModel = false;
 class FakeWorker {
   onmessage: ((e: MessageEvent) => void) | null = null;
   onerror: ((e: ErrorEvent) => void) | null = null;
@@ -40,7 +41,7 @@ class FakeWorker {
       if (m.type === "frames") this.say({ type: "frames", id: m.id, frames: [{ width: 2, height: 2, quad: [[0, 0], [2, 0], [2, 2], [0, 2]], buffer: new ArrayBuffer(16) }] });
       return;
     }
-    if (m.type === "model") this.say({ type: "ready", id: m.id, error: null });
+    if (m.type === "model") this.say({ type: "ready", id: m.id, error: failModel ? "This browser can't read the printings' pictures in the background" : null });
     // A slow look: it ends only when told to stop.
     if (m.type === "look" && m.candidates[0]?.url === "slow") return;
     if (m.type === "stop") this.say({ type: "done", id: m.id, error: null, model: "look-58acfa166105", frames: 1, queryMs: 1, scored: 0, cached: 0, fetchMs: 0, decodeMs: 0, embedMs: 0, ms: 5 });
@@ -70,7 +71,9 @@ describe("the printing look, beside the art worker", () => {
     expect(art.look).toBe("look-v0");
     const [artWorker, lookWorker] = workers;
     expect(lookWorker!.look).toBe(true);
+    // Frames are kept once the model is there, not while it downloads.
     expect(artWorker!.asked).toContainEqual({ type: "keep-frames", on: true });
+    expect(artWorker!.asked.findIndex((m) => m.type === "keep-frames")).toBeGreaterThan(-1);
     expect(lookWorker!.asked[0]).toMatchObject({ type: "model", url: `http://localhost:3000/scan-bundle/${V}/look-58acfa166105.onnx`, bytes: 9_292_149 });
     // Off: the look's worker goes, and the art worker stops keeping frames.
     await art.useLook(null);
@@ -114,5 +117,20 @@ describe("the printing look, beside the art worker", () => {
     expect(lookWorker.asked).toContainEqual({ type: "stop", id });
     art.dispose();
     expect(lookWorker.terminated).toBe(true);
+  });
+
+  it("ends the look's worker when its model won't load, and keeps no frames for it", async () => {
+    const art = (await loadArtRecognizer(undefined, { info }))!;
+    failModel = true;
+    await expect(art.useLook(lookV0)).rejects.toThrow("can't read");
+    failModel = false;
+    expect(art.look).toBe("off");
+    expect(workers[1]!.terminated).toBe(true);
+    expect(workers[0]!.asked).not.toContainEqual({ type: "keep-frames", on: true });
+    // A later try starts a new one.
+    await art.useLook(lookV0);
+    expect(workers).toHaveLength(3);
+    expect(art.look).toBe("look-v0");
+    art.dispose();
   });
 });

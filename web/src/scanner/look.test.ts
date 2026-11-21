@@ -1,8 +1,7 @@
 // The printing look (look.ts): its score, the card's side averaged over frames, the list's order,
 // its best guess, and comparing printings a few at a time.
 import { describe, expect, it } from "vitest";
-import { cornersOf, lookBest, lookCandidates, LookFrames, lookOrder, lookScore, meanEmbedding, packLook, scoreCandidates, unpackLook, type LookEmbedding } from "./look";
-import type { RgbaImage } from "./types";
+import { cornersOf, lookBest, lookCandidates, LookFrames, lookOrder, lookScore, lookTops, meanEmbedding, packLook, scoreCandidates, unpackLook, type LookEmbedding } from "./look";
 
 const v = (...xs: number[]) => Float32Array.from(xs);
 const emb = (symbol: number[], card: number[]): LookEmbedding => ({ symbol: v(...symbol), card: v(...card) });
@@ -119,17 +118,36 @@ describe("comparing printings", () => {
 });
 
 describe("the frames kept for the card's side", () => {
-  const frame = (n: number, tops: number[]) => ({ image: { width: n, height: 1, data: new Uint8ClampedArray(4 * n) } as RgbaImage, quad: cornersOf(n, 1), tops });
-  it("keeps the last few, and finds those whose best match was the card found", () => {
+  const add = (kept: LookFrames, n: number, tops: number[]) => kept.add(n, 1, new Uint8ClampedArray(4 * n).fill(n), cornersOf(n, 1), tops);
+  it("keeps the last few, and finds those that matched the card found", () => {
     const kept = new LookFrames(3);
-    kept.add(frame(1, [7]));
-    kept.add(frame(2, [9]));
-    kept.add(frame(3, [7, 12]));
-    kept.add(frame(4, [12]));
+    add(kept, 1, [7]);
+    add(kept, 2, [9]);
+    add(kept, 3, [7, 12]);
+    add(kept, 4, [12]);
     expect(kept.of(7).map((f) => f.image.width)).toEqual([3]);
     expect(kept.of(12).map((f) => f.image.width)).toEqual([3, 4]);
     expect(kept.of(9).map((f) => f.image.width)).toEqual([2]);
+    // Copies, not the caller's buffer.
+    expect(Array.from(kept.of(9)[0]!.image.data)).toEqual([2, 2, 2, 2, 2, 2, 2, 2]);
     kept.clear();
     expect(kept.of(12)).toEqual([]);
+  });
+
+  it("reuses its buffers once full, and forgets a card that left before the next copy comes", () => {
+    const kept = new LookFrames(2);
+    add(kept, 2, [5]);
+    add(kept, 2, [5]);
+    const first = kept.of(5)[0]!.image.data;
+    add(kept, 2, [5]);
+    expect(kept.of(5).map((f) => f.image.data)).toContain(first);
+    // The card left the view (a frame with no card): the next copy of the same art starts afresh.
+    kept.clear();
+    add(kept, 2, [5]);
+    expect(kept.of(5)).toHaveLength(1);
+  });
+
+  it("is asked only about artworks several printings share, each once", () => {
+    expect(lookTops([{ index: 3, printings: 4 }, { index: 8, printings: 1 }, { index: 3, printings: 4 }, { index: 11, printings: 2 }])).toEqual([3, 11]);
   });
 });

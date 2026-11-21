@@ -335,17 +335,20 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
           return Promise.resolve();
         }
         const w = startLookWorker();
-        // Frames from now on, so the first card found while the model loads can be compared.
-        worker.postMessage({ type: "keep-frames", on: true } satisfies ArtWorkerRequest);
         const id = nextId++;
         return new Promise<void>((resolve, reject) => {
           lookLoads.set(id, (error) => {
             if (error) {
+              // No model: the worker and its runtime go, and nothing keeps frames for it.
               lookNow = "off";
               worker.postMessage({ type: "keep-frames", on: false } satisfies ArtWorkerRequest);
+              w.terminate();
+              if (lookWorker === w) lookWorker = null;
               return reject(new Error(error));
             }
             lookNow = want.id;
+            // Frames are kept (copied in the art worker) only once there's a model to use them.
+            worker.postMessage({ type: "keep-frames", on: true } satisfies ArtWorkerRequest);
             resolve();
           });
           w.postMessage({ type: "model", id, url: new URL(want.file, base).href, bytes: want.bytes } satisfies LookWorkerRequest);

@@ -70,7 +70,7 @@ function worker(net: Net, { wait = (fn: () => void, ms: number) => setTimeout(fn
     setTimeout: wait,
   });
   /** Fire an event and wait for everything it started, as the browser keeps the worker alive. */
-  async function fire(name: string, request?: { url: string; mode: string; method?: string }) {
+  async function fire(name: string, request?: { url: string; mode: string; method?: string; cache?: string }) {
     const pending: Promise<unknown>[] = [];
     let response: Promise<Response> | undefined;
     listeners.get(name)!({
@@ -247,6 +247,18 @@ describe("the service worker", () => {
     // A second look comes from the device.
     const count = sw.fetched.length;
     await sw.fire("fetch", { url: img, mode: "no-cors" });
+    expect(sw.fetched.length).toBe(count);
+  });
+
+  it("serves the printing look's pictures without keeping them (no-store), but from what it keeps", async () => {
+    const sw = worker(async () => new Response("img", { status: 200, headers: { "content-type": "image/jpeg" } }));
+    const look = "https://cards.scryfall.io/normal/front/c/d/cd.jpg";
+    expect((await sw.fire("fetch", { url: look, mode: "cors", cache: "no-store" }))?.status).toBe(200);
+    expect(sw.cached("yama-images-v2", look)).toBe(false);
+    // One already kept is served from the device.
+    await sw.fire("fetch", { url: look, mode: "no-cors" });
+    const count = sw.fetched.length;
+    await sw.fire("fetch", { url: look, mode: "cors", cache: "no-store" });
     expect(sw.fetched.length).toBe(count);
   });
 
