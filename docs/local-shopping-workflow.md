@@ -65,8 +65,8 @@ playable double-faced card. Do not infer installation or order contents from adv
 ## Read the active shopping list and its limits
 
 Read `get_shopping_settings`, `get_shopping_list`, `get_shopping_trip` and `get_store_stock`.
-The trip uses approved, active plan buys without orders, plus explicit shopping
-wishes. Unapproved builds and archived plans do not become required purchases.
+The trip uses the buys of plans in force without orders, plus explicit shopping
+wishes. Research builds no plan tracks, and archived plans, do not become required purchases.
 Real-card wishlist entries only come along from stores already selected for the
 trip. An empty trip does not mean no local store sells the cards.
 
@@ -77,9 +77,9 @@ For an already tracked build, recognized acquisition offers and lists are rederi
 when its research is refreshed. That can update recorded plan quotes, but does not
 fetch fresh store stock. State which path was updated; do not claim a live refresh.
 
-To make a build the active plan, use `track_build` and the normal staged review,
-then the person's whole-plan approval with `approve_plan`. A shopping question is
-not permission to approve a plan. To price an unapproved alternative, read its
+To make a build the active plan, use `track_build` when the person asks for that
+plan or agrees to it: it applies straight away (nobody approves a plan). A shopping
+question is not permission to change a deck's plan. To price an alternative, read its
 exact research build and show its dated listings/searches as a separate preview;
 do not activate the plan merely to produce shopping links. There is currently no
 `get_shopping_trip` argument for an arbitrary research build.

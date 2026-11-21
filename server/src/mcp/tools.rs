@@ -98,7 +98,7 @@ pub(super) const TOOLS: &[Tool] = &[
         name: "save_research",
         aliases: &[],
         title: "Save private research for review in Yama",
-        description: "Store or refresh a yama-research/1 document (a note): a deck's builds, swaps with reasons and acquisition evidence, private to the caller. It saves directly, replacing the note's earlier revision; their review choices are kept and changed targets flagged. A plan tracking one of the note's builds follows the refreshed note. A document that drops a deck or build a plan tracks is refused unless stop_plans is true. It never changes a deck, the collection, an order or a game. To make a build the deck's plan, stage track_build.",
+        description: "Store or refresh a yama-research/1 document (a note): a deck's builds, swaps with reasons and acquisition evidence, private to the caller. It saves directly, replacing the note's earlier revision; their review choices are kept and changed targets flagged. A plan tracking one of the note's builds follows the refreshed note. A document that drops a deck or build a plan tracks is refused unless stop_plans is true. It never changes a deck, the collection, an order or a game. To make a build the deck's plan, use track_build.",
         schema: || json!({"type":"object","properties":{
             "document":{"type":"object","description":"A yama-research/1 report (up to 4 MiB), with id, title, generated_at, decks and exact proposed builds."},
             "stop_plans":{"type":"boolean","description":"Only when they asked to drop the plan: also archive each plan tracking a deck or build this document no longer has, and retire its swaps (default false: such a save is refused and names those plans)."}
@@ -875,7 +875,11 @@ pub(super) const TOOLS: &[Tool] = &[
         name: "track_build",
         aliases: &[],
         title: "Make a note's build the deck's plan",
-        description: staged!("Use one build of a deck in one of their saved notes as that deck's plan: its swaps become a plan version waiting for their OK. Once approved (in Yama, or approve_plan), the shopping list, prints, marks and the plan tools work on it, and it replaces any other plan for the same deck. Another build of the same deck switches to it; build null stops it. Give the note id and deck key from `get_overview` or `get_research`."),
+        description: "Make one build of a deck in one of their saved notes that deck's plan, straight away: nobody approves a plan. Its \
+                      changes go into the plan and its shopping list now, replacing any other plan for the deck; a change whose cut \
+                      clashes is left out, and the answer names it. Another build switches to it; build null stops it. Saving the note \
+                      again updates the plan. Do it when they ask for a plan or agree to one. On a connection limited to staging, it \
+                      stages instead.",
         schema: || {
             json!({"type":"object","properties":{
                 "note":{"type":"string","description":"The note's id."},
@@ -884,35 +888,11 @@ pub(super) const TOOLS: &[Tool] = &[
                 "yama_deck":{"type":"string","description":"Optional: the Yama deck (name or id) the plan is for. Default: the one already linked, else their only deck with the note deck's name."}
             },"required":["note","deck","build"],"additionalProperties":false})
         },
-        kind: Kind::Stage,
+        kind: Kind::Write { destroys: true },
         offer: Offer::Everyone,
         search: false,
-        handler: stage!(changes::track_build),
-        stages: Some(changes::staging::TRACK_BUILD),
-        output: None,
-        untrusted: None,
-        renamed: &[],
-        needs: Needs::Nothing,
-    },
-    Tool {
-        name: "approve_plan",
-        aliases: &[],
-        title: "Approve a deck's plan",
-        description: staged!("Approve a deck's waiting plan version whole: every change in it goes into the plan except those in skip, and the open questions get_plan lists need their answers first. action keep keeps the version before it instead. Nothing is bought or printed by approving: buys go on their shopping list and prints on the next print order. Only when they have said to."),
-        schema: || {
-            json!({"type":"object","properties":{
-                "plan":{"type":"string","description":"The plan key or deck name from `get_overview`."},
-                "action":{"type":"string","enum":["approve","keep"],"description":"approve (default) or keep the version before it."},
-                "skip":{"type":"array","items":{"type":"string"},"description":"Changes to leave out: a card name skips every change putting that card in; a swap key skips just that one."},
-                "answers":{"type":"array","items":{"type":"object","properties":{"question":{"type":"string","maxLength":2000},"answer":{"type":"string","maxLength":2000}},"required":["question","answer"],"additionalProperties":false},
-                           "description":"Their answer to each open question, the question exactly as get_plan lists it."}
-            },"required":["plan"],"additionalProperties":false})
-        },
-        kind: Kind::Stage,
-        offer: Offer::Everyone,
-        search: false,
-        handler: stage!(changes::approve_plan),
-        stages: Some(changes::staging::APPROVE_PLAN),
+        handler: run!(run_track_build),
+        stages: None,
         output: None,
         untrusted: None,
         renamed: &[],
@@ -1529,6 +1509,27 @@ pub(super) const TOOLS: &[Tool] = &[
         needs: Needs::Nothing,
     },
     Tool {
+        name: "get_scan_timings",
+        aliases: &[],
+        title: "How fast your scans settle",
+        description: "How fast scans settle: Scanner diagnostics' timing records, one per card settled. Median and p90 time to name a card, the share named by each rule, how printings were settled and how long that took, by art model and mode; then the records.",
+        schema: || json!({"type": "object", "properties": {
+            "since": {"type": "string", "maxLength": 40, "description": "Only records from this date or moment (2026-11-20)."},
+            "model": {"type": "string", "maxLength": 200, "description": "Only records from this art model, as the answer's art_models list names it."},
+            "mode": {"type": "string", "enum": ["printing", "identity"], "description": "Only the collection (printing) or deck and box scans (identity)."},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 50, "description": "Records per page, default 20."},
+            "cursor": {"type": "string", "maxLength": 200, "description": "next_cursor from the answer before."}}, "additionalProperties": false}),
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_scan_timings),
+        stages: None,
+        output: Some(registry::paged),
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
+    },
+    Tool {
         name: "apply_change",
         aliases: &[],
         title: "Apply a staged change",
@@ -1617,6 +1618,20 @@ async fn run_scan_diagnostic(c: Ctx<'_>, args: &Value) -> AppResult<String> {
     Ok(serde_json::to_string_pretty(&one).map_err(anyhow::Error::from)?)
 }
 
+async fn run_scan_timings(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let arg = |k: &str| args.get(k).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned);
+    let filter = crate::scan_timings::Filter { since: arg("since"), model: arg("model"), mode: arg("mode") };
+    if filter.mode.as_deref().is_some_and(|m| !crate::scan_timings::MODES.contains(&m)) {
+        return Err(AppError::bad("mode is printing or identity"));
+    }
+    let scope = super::page::scope("scan_timings", &[filter.since.as_deref().unwrap_or(""), filter.model.as_deref().unwrap_or(""), filter.mode.as_deref().unwrap_or("")]);
+    let page = super::page::page(args, &scope, 20, 50)?;
+    let mut out = crate::scan_timings::summary(&c.st.pool, &c.user.id, &filter, page.offset, page.limit).await?;
+    let total = out["records"].as_u64().unwrap_or(0) as usize;
+    out["next_cursor"] = json!(page.next(&scope, total));
+    Ok(out.to_string())
+}
+
 #[allow(unused_variables)]
 async fn run_datasets(c: Ctx<'_>, args: &Value) -> AppResult<String> {
     let Ctx { st, user, via } = c;
@@ -1667,6 +1682,10 @@ async fn run_save_research(c: Ctx<'_>, args: &Value) -> AppResult<String> {
             }
             Ok(crate::deck_research::save_guarded(pool, &user.id, document, stop_plans).await?.to_string())
         }
+}
+
+async fn run_track_build(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    changes::track_build(c.st, c.user, c.via, args).await
 }
 
 #[allow(unused_variables)]

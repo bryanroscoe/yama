@@ -34,8 +34,7 @@ get_precon	read
 list_changes	read
 edit_deck	write
 delete_deck	write
-track_build	write
-approve_plan	write
+track_build	destructive
 propose_swap	write
 answer_review	write
 mark_bought	write
@@ -57,6 +56,7 @@ remove_from_collection	write
 edit_copies	write
 list_scan_diagnostics	read
 get_scan_diagnostic	read
+get_scan_timings	read
 apply_change	destructive
 discard_change	destructive
 search_scryfall	read, reaches outside Yama
@@ -111,8 +111,7 @@ get_precon	read
 list_changes	read
 edit_deck	write
 delete_deck	write
-track_build	write
-approve_plan	write
+track_build	destructive
 propose_swap	write
 answer_review	write
 mark_bought	write
@@ -134,6 +133,7 @@ remove_from_collection	write
 edit_copies	write
 list_scan_diagnostics	read
 get_scan_diagnostic	read
+get_scan_timings	read
 apply_change	destructive
 discard_change	destructive
 search_scryfall	read, reaches outside Yama
@@ -188,8 +188,7 @@ get_precon	read
 list_changes	read
 edit_deck	write
 delete_deck	write
-track_build	write
-approve_plan	write
+track_build	destructive
 propose_swap	write
 answer_review	write
 mark_bought	write
@@ -211,6 +210,7 @@ remove_from_collection	write
 edit_copies	write
 list_scan_diagnostics	read
 get_scan_diagnostic	read
+get_scan_timings	read
 apply_change	destructive
 discard_change	destructive
 search_scryfall	read, reaches outside Yama
@@ -265,8 +265,7 @@ get_precon	read
 list_changes	read
 edit_deck	write
 delete_deck	write
-track_build	write
-approve_plan	write
+track_build	destructive
 propose_swap	write
 answer_review	write
 mark_bought	write
@@ -288,6 +287,7 @@ remove_from_collection	write
 edit_copies	write
 list_scan_diagnostics	read
 get_scan_diagnostic	read
+get_scan_timings	read
 apply_change	destructive
 discard_change	destructive
 search_scryfall	read, reaches outside Yama
@@ -342,8 +342,7 @@ get_precon	read
 list_changes	read
 edit_deck	write
 delete_deck	write
-track_build	write
-approve_plan	write
+track_build	destructive
 propose_swap	write
 answer_review	write
 mark_bought	write
@@ -365,6 +364,7 @@ remove_from_collection	write
 edit_copies	write
 list_scan_diagnostics	read
 get_scan_diagnostic	read
+get_scan_timings	read
 search_scryfall	read, reaches outside Yama
 list_card_printings	read
 get_commander_recommendations	read, reaches outside Yama
@@ -417,8 +417,7 @@ get_precon	read
 list_changes	read
 edit_deck	write
 delete_deck	write
-track_build	write
-approve_plan	write
+track_build	destructive
 propose_swap	write
 answer_review	write
 mark_bought	write
@@ -440,6 +439,7 @@ remove_from_collection	write
 edit_copies	write
 list_scan_diagnostics	read
 get_scan_diagnostic	read
+get_scan_timings	read
 search_scryfall	read, reaches outside Yama
 list_card_printings	read
 get_commander_recommendations	read, reaches outside Yama
@@ -456,7 +456,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## OAuth sign-in limited to reading, power user: 43 tools
+## OAuth sign-in limited to reading, power user: 44 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -486,6 +486,7 @@ get_precon	read
 list_changes	read
 list_scan_diagnostics	read
 get_scan_diagnostic	read
+get_scan_timings	read
 search_scryfall	read, reaches outside Yama
 list_card_printings	read
 get_commander_recommendations	read, reaches outside Yama
@@ -527,7 +528,6 @@ list_changes
 edit_deck
 delete_deck
 track_build
-approve_plan
 propose_swap
 answer_review
 mark_bought
@@ -545,6 +545,7 @@ remove_from_collection
 edit_copies
 list_scan_diagnostics
 get_scan_diagnostic
+get_scan_timings
 apply_change
 discard_change
 search_scryfall

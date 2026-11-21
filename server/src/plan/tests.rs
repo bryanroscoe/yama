@@ -547,7 +547,9 @@ async fn a_missing_deck_is_archived_with_its_lists_kept() {
 async fn yama_answer(pool: &SqlitePool, owner: &str, key: &str, decision: Option<&str>, at: &str) {
     sqlx::query(
         "INSERT INTO plan_reviews (owner_id, swap_key, decision, note, cut, deck_name, card, at, origin, op_id)
-         VALUES (?, ?, ?, NULL, NULL, 'Alpha Deck', 'Some card', ?, 'yama', 'op-1')",
+         VALUES (?, ?, ?, NULL, NULL, 'Alpha Deck', 'Some card', ?, 'yama', 'op-1')
+         ON CONFLICT(owner_id, swap_key) DO UPDATE SET decision = excluded.decision, note = NULL, cut = NULL, at = excluded.at,
+           origin = 'yama', op_id = 'op-1'",
     )
     .bind(owner)
     .bind(key)
@@ -577,6 +579,11 @@ async fn reviews_merge_newest_wins_and_aliases_carry_answers() {
     yama_answer(&pool, &owner, "plan|Alpha Deck|Stand Card|Old Name", Some("want"), "2026-10-19T01:00:00Z").await;
 
     let mut d = doc();
+    // Planned, so these are the answers the merge leaves: an import also answers each new
+    // proposal it brings (`versions::settle`, tested in `tests_versions.rs`).
+    for k in ["alpha-idea", "alpha-owned"] {
+        swap_mut(&mut d, k)["stage"] = json!("planned");
+    }
     d["plan"]["reviews"] = json!({
         // Older than the Yama answer: Yama's stays.
         "alpha-idea": {"decision": "want", "note": "", "cut": null, "deck": "Alpha Deck", "card": "Proposal Card", "at": "2026-10-19T01:00:00Z"},
@@ -1255,13 +1262,15 @@ async fn installed_is_read_from_the_decks_current_list() {
     assert!(find(&b["decks"], "key", "alpha")["yama_deck"].is_null());
 
     // A main deck with the plan deck's name holding the "now" list: the bought swap and the
-    // stand-in are in, the print isn't. Proposals are never judged.
+    // stand-in are in, the print isn't. A proposal the plan took in is judged too (not in yet);
+    // one it left out isn't.
     let main = crate::decks::create_deck_with_cards(&pool, &owner, "Alpha Deck", None, alpha_deck(("o-stand", "Stand Card"), ("o-bought", "Bought Card"))).await.unwrap();
     let b = bundle(&app, &token).await;
     assert_eq!(swap_of(&b, bought)["deck_installed"], true);
     assert_eq!(swap_of(&b, stand)["deck_installed"], true);
     assert_eq!(swap_of(&b, print)["deck_installed"], false);
-    assert!(swap_of(&b, "alpha-idea")["deck_installed"].is_null());
+    assert_eq!(swap_of(&b, "alpha-idea")["deck_installed"], false);
+    assert!(swap_of(&b, "alpha-owned")["deck_installed"].is_null());
     let yd = &find(&b["decks"], "key", "alpha")["yama_deck"];
     assert_eq!(yd["id"], main.as_str());
     assert_eq!(yd["linked"], false);
@@ -1382,10 +1391,13 @@ async fn using_a_list_stays_inside_the_owners_configuration_group() {
 async fn review_lists_unanswered_proposals_first_and_leaves_planned_swaps_out() {
     let (app, pool, owner, token) = setup().await;
     import(&app, &token, &doc()).await;
-    // "alpha-idea" (Proposal Card) comes before "alpha-owned" (Spare Card) in plan order; answer it.
-    yama_answer(&pool, &owner, "alpha-idea", Some("want"), "2026-10-28T10:00:00Z").await;
+    // The import settled both (alpha-idea in, alpha-owned left out as unsure: no card to cut).
+    // Clear alpha-owned's answer, so one proposal waits; "alpha-idea" (Proposal Card) comes before
+    // "alpha-owned" (Spare Card) in plan order and is answered.
+    sqlx::query("UPDATE plan_reviews SET decision = NULL, note = NULL WHERE owner_id = ? AND swap_key = 'alpha-owned'").bind(&owner).execute(&pool).await.unwrap();
+    yama_answer(&pool, &owner, "alpha-idea", Some("want"), "2099-10-28T10:00:00Z").await;
     let text = crate::advisor::context::review(&pool, &owner).await.unwrap();
-    assert!(text.contains("Want means an agent moves the swap into the plan"), "{text}");
+    assert!(text.contains("Nobody approves a plan") && text.contains("want puts it in the plan"), "{text}");
     assert!(text.contains("Alpha Deck: 1 waiting for an answer, 1 answered"), "{text}");
     let open = text.find("- Spare Card").expect("unanswered proposal listed");
     let answered = text.find("- Proposal Card").expect("answered proposal listed");
@@ -1398,7 +1410,7 @@ async fn review_lists_unanswered_proposals_first_and_leaves_planned_swaps_out() 
     let text = crate::advisor::context::review(&pool, &owner).await.unwrap();
     assert!(text.contains("Alpha Deck: 2 waiting for an answer, 0 answered"), "{text}");
     let deck = crate::advisor::context::plan_deck(&pool, &owner, "alpha").await.unwrap();
-    assert!(deck.contains("Proposed swaps waiting for their answer (2)"), "{deck}");
+    assert!(deck.contains("Proposed swaps not taken in yet (2)"), "{deck}");
 }
 
 #[tokio::test]

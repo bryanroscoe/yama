@@ -1,5 +1,6 @@
-//! One plan per deck, approved whole (`versions.rs`): states, versions, skips, open questions,
-//! keep, undo and archive, through the real router on the synthetic plan file in `tests.rs`.
+//! One plan per deck, and nobody approves it (`versions.rs`, 20 Nov 2026): changes go in when they
+//! arrive, clashing cuts are left out with why, answers and edits settle again, archive and restore,
+//! through the real router on the synthetic plan file in `tests.rs`.
 
 use super::*;
 
@@ -14,7 +15,7 @@ fn doc_with_beta_plan() -> Value {
     d
 }
 
-/// The fixture with a card to cut for alpha-owned, so alpha's version 2 passes the approval checks.
+/// The fixture with a card to cut for alpha-owned, so every one of alpha's proposals goes in.
 fn doc_with_cuts() -> Value {
     let mut d = doc();
     swap_mut(&mut d, "alpha-owned")["out"] = json!("Spare Cut");
@@ -25,164 +26,193 @@ fn deck<'a>(b: &'a Value, key: &str) -> &'a Value {
     b["decks"].as_array().unwrap().iter().find(|d| d["key"] == key).unwrap()
 }
 
-/// Post ops; an approve or keep without a hash gets the waiting version's, as the page sends it.
-async fn ops(app: &Router, token: &str, mut ops: Value) -> Value {
-    for op in ops.as_array_mut().unwrap() {
-        if op["kind"] == "plan" && (op["action"] == "approve" || op["action"] == "keep") && op.get("hash").is_none() {
-            let b = bundle(app, token).await;
-            let h = deck(&b, op["deck_key"].as_str().unwrap())["plan"]["next"]["hash"].clone();
-            op["hash"] = if h.is_null() { json!("none") } else { h };
-        }
-    }
+async fn ops(app: &Router, token: &str, ops: Value) -> Value {
     let (status, r) = send(app, Method::POST, "/api/plan/inputs", Some(token), Some(ops)).await;
     assert_eq!(status, StatusCode::OK, "{r}");
     r
 }
 
-fn plan_op(id: &str, deck: &str, action: &str, version: i64, keys: &[&str], skip: &[&str], answers: Value) -> Value {
-    json!({"op_id": id, "kind": "plan", "deck_key": deck, "action": action, "version": version, "keys": keys, "skip": skip,
-           "answers": answers, "at": crate::util::now()})
+fn plan_op(id: &str, deck: &str, action: &str, version: Option<i64>) -> Value {
+    json!({"op_id": id, "kind": "plan", "deck_key": deck, "action": action, "version": version, "keys": [], "skip": [], "answers": [],
+           "hash": "seen", "at": crate::util::now()})
+}
+
+async fn answer(pool: &SqlitePool, owner: &str, key: &str) -> (Option<String>, Option<String>, Option<String>) {
+    sqlx::query_as("SELECT decision, note, cut FROM plan_reviews WHERE owner_id = ? AND swap_key = ?")
+        .bind(owner)
+        .bind(key)
+        .fetch_optional(pool)
+        .await
+        .unwrap()
+        .unwrap_or((None, None, None))
 }
 
 async fn decision(pool: &SqlitePool, owner: &str, key: &str) -> Option<String> {
-    sqlx::query_scalar("SELECT decision FROM plan_reviews WHERE owner_id = ? AND swap_key = ?").bind(owner).bind(key).fetch_optional(pool).await.unwrap().flatten()
+    answer(pool, owner, key).await.0
+}
+
+/// Make a swap's content newer than its answer, as a plan file or note save editing it would.
+async fn edit(pool: &SqlitePool, owner: &str, key: &str) {
+    sqlx::query("UPDATE plan_swaps SET why = 'Edited', updated_at = '2099-01-01T00:00:00Z' WHERE owner_id = ? AND ext_key = ?")
+        .bind(owner)
+        .bind(key)
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE plan_meta SET revision = revision + 1 WHERE owner_id = ?").bind(owner).execute(pool).await.unwrap();
 }
 
 #[tokio::test]
-async fn a_plan_has_one_state_and_waits_for_your_ok() {
-    let (app, _pool, _owner, token) = setup().await;
+async fn a_plan_file_goes_straight_into_the_plan() {
+    let (app, pool, owner, token) = setup().await;
     import(&app, &token, &doc_with_beta_plan()).await;
     let b = bundle(&app, &token).await;
 
-    // Alpha has planned swaps from the plan file: version 1 in progress, its two unanswered
-    // proposals are version 2, waiting, with the deck's open question to answer first.
+    // Alpha had planned swaps from the plan file (version 1); its two proposals went in as
+    // version 2, except alpha-owned, which names no card to cut.
     let alpha = &deck(&b, "alpha")["plan"];
     assert_eq!(alpha["state"], "in_progress", "{alpha}");
-    assert_eq!(alpha["version"], 1);
-    assert_eq!(alpha["next"]["n"], 2);
-    assert_eq!(alpha["next"]["keys"], json!(["alpha-idea", "alpha-owned"]));
-    assert_eq!(alpha["questions"], json!(["Where did this come from?"]));
-    assert_eq!(alpha["next"]["source"]["app"], "commander-decks");
-    assert_eq!(alpha["changes"], 2, "planned swaps, not the stand-in");
+    assert_eq!(alpha["version"], 2);
+    assert_eq!(alpha["next"], Value::Null);
+    assert_eq!(alpha["changes"], 3, "two planned swaps and alpha-idea, not the stand-in: {alpha}");
+    assert_eq!(alpha["questions"], json!(["Where did this come from?"]), "open questions stay, for the assistant");
+    assert_eq!(decision(&pool, &owner, "alpha-idea").await.as_deref(), Some("want"));
+    let (d, note, _) = answer(&pool, &owner, "alpha-owned").await;
+    assert_eq!((d.as_deref(), note.as_deref()), (Some("unsure"), Some("Yama left this out: Spare Card names no card to cut.")));
 
-    // Beta is only proposals: version 1 waits for your OK, and nothing is approved yet.
-    let beta = &deck(&b, "beta")["plan"];
-    assert_eq!(beta["state"], "waiting", "{beta}");
-    assert_eq!(beta["version"], Value::Null);
-    assert_eq!(beta["next"]["n"], 1);
-    assert_eq!(beta["next"]["keys"], json!(["beta-1", "beta-2"]));
-    assert_eq!(b["versions"], json!([]));
-}
-
-#[tokio::test]
-async fn approving_writes_an_answer_per_change_and_a_version() {
-    let (app, pool, owner, token) = setup().await;
-    import(&app, &token, &doc_with_beta_plan()).await;
-
-    // A key list that isn't the plan's is refused: what you saw isn't what's waiting.
-    let r = ops(&app, &token, json!([plan_op("p0", "beta", "approve", 1, &["beta-1"], &[], json!([]))])).await;
-    assert_eq!(r["results"][0]["status"], "rejected", "{r}");
-    // The wrong version too.
-    let r = ops(&app, &token, json!([plan_op("p0b", "beta", "approve", 2, &["beta-1"], &["beta-2"], json!([]))])).await;
-    assert_eq!(r["results"][0]["status"], "rejected", "{r}");
-
-    let r = ops(&app, &token, json!([plan_op("p1", "beta", "approve", 1, &["beta-1"], &["beta-2"], json!([]))])).await;
-    assert_eq!(r["results"][0]["status"], "applied", "{r}");
-    assert_eq!(decision(&pool, &owner, "beta-1").await.as_deref(), Some("want"));
-    assert_eq!(decision(&pool, &owner, "beta-2").await.as_deref(), Some("no"));
-    // A retry is a no-op.
-    let r = ops(&app, &token, json!([plan_op("p1", "beta", "approve", 1, &["beta-1"], &["beta-2"], json!([]))])).await;
-    assert_eq!(r["results"][0]["status"], "duplicate", "{r}");
-
-    let b = bundle(&app, &token).await;
+    // Beta was only proposals: both went in as version 1 (two Island cuts don't clash).
     let beta = &deck(&b, "beta")["plan"];
     assert_eq!(beta["state"], "in_progress", "{beta}");
-    assert_eq!(beta["version"], 1);
+    assert_eq!((beta["version"].as_i64(), beta["changes"].as_i64()), (Some(1), Some(2)), "{beta}");
     assert_eq!(beta["next"], Value::Null);
-    assert_eq!(beta["changes"], 1);
-    let v = &b["versions"][0];
-    assert_eq!((v["deck"].as_str(), v["n"].as_i64(), v["status"].as_str()), (Some("beta"), Some(1), Some("approved")));
-    assert_eq!(v["changes"][0]["in"], "Proposal Card");
-    assert_eq!(v["skipped"][0]["key"], "beta-2");
-    // The answers reach the export side's inbox as review answers, then the plan op.
+    assert!(b["decks"].as_array().unwrap().iter().all(|d| d["plan"]["state"] != "waiting"), "nothing waits");
+
+    let versions = b["versions"].as_array().unwrap();
+    assert_eq!(versions.len(), 2, "{versions:?}");
+    let a = versions.iter().find(|v| v["deck"] == "alpha").unwrap();
+    assert_eq!((a["n"].as_i64(), a["status"].as_str()), (Some(2), Some("approved")));
+    assert_eq!(a["changes"][0]["in"], "Proposal Card");
+    assert_eq!(a["skipped"][0]["key"], "alpha-owned");
+    assert_eq!(a["skipped"][0]["left_out"], "Spare Card names no card to cut.");
+    assert_eq!(a["source"]["app"], "commander-decks");
+
+    // The export side's inbox has each answer, then the plan op, marked as Yama's own.
     let inbox = super::super::inputs::inbox(&pool, &owner, None).await.unwrap();
-    let kinds: Vec<(&str, Option<&str>)> = inbox.ops.iter().map(|o| (o.kind.as_str(), o.record["decision"].as_str())).collect();
-    assert_eq!(kinds, vec![("review", Some("want")), ("review", Some("no")), ("plan", None)]);
-    assert_eq!(inbox.ops[0].stage.as_deref(), Some("proposed"));
-    assert_eq!(inbox.ops[2].record["action"], "approve");
-    assert_eq!(b["reviews"]["beta-1"]["seq"], json!(inbox.ops[0].seq), "the answer knows its inbox op");
+    let plans: Vec<&super::super::inputs::InboxOp> = inbox.ops.iter().filter(|o| o.kind == "plan").collect();
+    assert_eq!(plans.len(), 2);
+    assert!(plans.iter().all(|o| o.record["action"] == "approve" && o.record["auto"] == true), "{:?}", plans[0].record);
+    let reviews: Vec<(Option<&str>, Option<&str>)> =
+        inbox.ops.iter().filter(|o| o.kind == "review").map(|o| (o.key.as_deref(), o.record["decision"].as_str())).collect();
+    for want in [(Some("alpha-idea"), Some("want")), (Some("alpha-owned"), Some("unsure")), (Some("beta-1"), Some("want")), (Some("beta-2"), Some("want"))] {
+        assert!(reviews.contains(&want), "{want:?} in {reviews:?}");
+    }
+    assert_eq!(b["reviews"]["beta-1"]["origin"], "yama");
+
+    // The same file again changes nothing: no new versions.
+    let mut again = doc_with_beta_plan();
+    again["meta"]["guide_version"] = json!(7);
+    import(&app, &token, &again).await;
+    assert_eq!(bundle(&app, &token).await["versions"].as_array().unwrap().len(), 2);
 }
 
 #[tokio::test]
-async fn open_questions_need_answers_and_undo_restores() {
+async fn approve_keep_and_undo_from_an_old_page_are_refused() {
     let (app, pool, owner, token) = setup().await;
-    import(&app, &token, &doc_with_cuts()).await;
-    let keys = ["alpha-idea", "alpha-owned"];
-    let r = ops(&app, &token, json!([plan_op("q1", "alpha", "approve", 2, &keys, &[], json!([]))])).await;
-    assert_eq!(r["results"][0]["status"], "rejected");
-    assert!(r["results"][0]["error"].as_str().unwrap().contains("Where did this come from?"), "{r}");
-    let answers = json!([{"question": "Where did this come from?", "answer": "A booster"}]);
-    let r = ops(&app, &token, json!([plan_op("q2", "alpha", "approve", 2, &keys, &[], answers.clone())])).await;
-    assert_eq!(r["results"][0]["status"], "applied", "{r}");
-    let b = bundle(&app, &token).await;
-    let alpha = &deck(&b, "alpha")["plan"];
-    assert_eq!((alpha["version"].as_i64(), alpha["changes"].as_i64()), (Some(2), Some(4)), "{alpha}");
-    assert_eq!(b["versions"][0]["answers"], answers);
-
-    // Undo the newest decision: the answers go back to none, and version 2 waits again.
-    let r = ops(&app, &token, json!([plan_op("q3", "alpha", "undo", 2, &[], &[], json!([]))])).await;
-    assert_eq!(r["results"][0]["status"], "applied", "{r}");
-    assert_eq!(decision(&pool, &owner, "alpha-idea").await, None);
-    let b = bundle(&app, &token).await;
-    assert_eq!(deck(&b, "alpha")["plan"]["next"]["n"], 2);
-    assert_eq!(b["versions"], json!([]));
-
-    // Keep version 1 instead: every proposal is a no, and nothing waits.
-    let r = ops(&app, &token, json!([plan_op("q4", "alpha", "keep", 2, &keys, &[], json!([]))])).await;
-    assert_eq!(r["results"][0]["status"], "applied", "{r}");
-    assert_eq!(decision(&pool, &owner, "alpha-owned").await.as_deref(), Some("no"));
-    let b = bundle(&app, &token).await;
-    assert_eq!(deck(&b, "alpha")["plan"]["next"], Value::Null);
-    assert_eq!(b["versions"][0]["status"], "kept");
+    import(&app, &token, &doc_with_beta_plan()).await;
+    for (id, action) in [("p1", "approve"), ("p2", "keep"), ("p3", "undo")] {
+        let r = ops(&app, &token, json!([plan_op(id, "beta", action, Some(1))])).await;
+        assert_eq!(r["results"][0]["status"], "rejected", "{action}: {r}");
+        assert!(r["results"][0]["error"].as_str().unwrap().contains("Plans don't wait for approval"), "{r}");
+    }
+    // Nothing changed: beta's changes are still in.
+    assert_eq!(decision(&pool, &owner, "beta-2").await.as_deref(), Some("want"));
+    assert_eq!(deck(&bundle(&app, &token).await, "beta")["plan"]["changes"], 2);
 }
 
 #[tokio::test]
-async fn archiving_takes_a_plan_out_until_you_bring_it_back() {
+async fn archiving_takes_a_plan_out_and_restoring_takes_in_what_came_meanwhile() {
     let (app, _pool, _owner, token) = setup().await;
     import(&app, &token, &doc_with_beta_plan()).await;
-    let r = ops(&app, &token, json!([{"op_id": "a1", "kind": "plan", "deck_key": "beta", "action": "archive", "at": "2026-11-06T10:00:00Z"}])).await;
+    let r = ops(&app, &token, json!([plan_op("a1", "beta", "archive", None)])).await;
     assert_eq!(r["results"][0]["status"], "applied", "{r}");
     let b = bundle(&app, &token).await;
     assert_eq!(deck(&b, "beta")["status"], "archived");
     assert_eq!(deck(&b, "beta")["plan"]["state"], "archived");
-    // An archived plan can't be approved; another import doesn't bring it back.
-    let r = ops(&app, &token, json!([plan_op("a2", "beta", "approve", 1, &["beta-1", "beta-2"], &[], json!([]))])).await;
-    assert_eq!(r["results"][0]["status"], "rejected");
+    // A later plan file brings a new proposal; the archived plan doesn't take it in or come back.
     let mut d = doc_with_beta_plan();
     d["meta"]["guide_version"] = json!(7);
+    d["plan"]["swaps"].as_array_mut().unwrap().push(json!({"key": "beta-3", "deck": "beta", "stage": "proposed", "role": "swap", "src": "buy",
+        "out": "Sol Ring", "in": "Third Card"}));
     import(&app, &token, &d).await;
-    assert_eq!(deck(&bundle(&app, &token).await, "beta")["plan"]["state"], "archived");
-    let r = ops(&app, &token, json!([{"op_id": "a3", "kind": "plan", "deck_key": "beta", "action": "restore", "at": "2026-11-06T10:00:00Z"}])).await;
+    let beta = deck(&bundle(&app, &token).await, "beta")["plan"].clone();
+    assert_eq!(beta["state"], "archived", "{beta}");
+    // Bring it back: the new proposal goes in with it.
+    let r = ops(&app, &token, json!([plan_op("a2", "beta", "restore", None)])).await;
     assert_eq!(r["results"][0]["status"], "applied", "{r}");
-    assert_eq!(deck(&bundle(&app, &token).await, "beta")["plan"]["state"], "waiting");
+    let beta = deck(&bundle(&app, &token).await, "beta")["plan"].clone();
+    assert_eq!((beta["state"].as_str(), beta["version"].as_i64(), beta["changes"].as_i64()), (Some("in_progress"), Some(2), Some(3)), "{beta}");
 }
 
 #[tokio::test]
-async fn keep_and_approve_refuse_changes_you_didnt_see() {
-    let (app, _pool, _owner, token) = setup().await;
-    import(&app, &token, &doc_with_cuts()).await;
-    // Keep with only one of the two waiting changes named: refused, nothing answered.
-    let r = ops(&app, &token, json!([plan_op("k1", "alpha", "keep", 2, &["alpha-idea"], &[], json!([]))])).await;
-    assert_eq!(r["results"][0]["status"], "rejected", "{r}");
-    let r = ops(&app, &token, json!([plan_op("k2", "alpha", "keep", 2, &["alpha-idea", "alpha-owned"], &[], json!([]))])).await;
+async fn an_answer_you_give_stands_and_clearing_it_puts_the_change_back() {
+    let (app, pool, owner, token) = setup().await;
+    import(&app, &token, &doc_with_beta_plan()).await;
+    // No to beta-2: it leaves the plan and stays out.
+    let r = ops(&app, &token, json!([{"op_id": "n1", "kind": "review", "swap_key": "beta-2", "decision": "no", "at": crate::util::now()}])).await;
     assert_eq!(r["results"][0]["status"], "applied", "{r}");
+    let b = bundle(&app, &token).await;
+    assert_eq!(deck(&b, "beta")["plan"]["changes"], 1);
+    assert_eq!(b["versions"].as_array().unwrap().iter().filter(|v| v["deck"] == "beta").count(), 1, "a no isn't a new version");
+    // Unsure keeps it out too.
+    let r = ops(&app, &token, json!([{"op_id": "n2", "kind": "review", "swap_key": "beta-2", "decision": "unsure", "at": "2099-01-01T00:00:00Z"}])).await;
+    assert_eq!(r["results"][0]["status"], "applied", "{r}");
+    assert_eq!(deck(&bundle(&app, &token).await, "beta")["plan"]["changes"], 1);
+    assert_eq!(decision(&pool, &owner, "beta-2").await.as_deref(), Some("unsure"));
+    // Clearing the answer makes it new again, and it goes back in as version 2.
+    let r = ops(&app, &token, json!([{"op_id": "n3", "kind": "review", "swap_key": "beta-2", "decision": null, "at": "2099-01-02T00:00:00Z"}])).await;
+    assert_eq!(r["results"][0]["status"], "applied", "{r}");
+    assert_eq!(decision(&pool, &owner, "beta-2").await.as_deref(), Some("want"));
+    let beta = deck(&bundle(&app, &token).await, "beta")["plan"].clone();
+    assert_eq!((beta["version"].as_i64(), beta["changes"].as_i64()), (Some(2), Some(2)), "{beta}");
 }
 
 #[tokio::test]
-async fn approving_keeps_an_answer_an_alias_holds_and_undo_brings_it_back() {
+async fn a_no_you_gave_stays_out_when_the_change_is_edited_later() {
+    let (app, pool, owner, token) = setup().await;
+    import(&app, &token, &doc_with_beta_plan()).await;
+    let r = ops(&app, &token, json!([{"op_id": "e1", "kind": "review", "swap_key": "beta-2", "decision": "no", "note": "Not this one", "at": crate::util::now()}])).await;
+    assert_eq!(r["results"][0]["status"], "applied", "{r}");
+    // The plan file rewords it: nobody looks before it would go in, so the no stands.
+    edit(&pool, &owner, "beta-2").await;
+    assert_eq!(super::super::versions::settle_all(&pool).await.unwrap(), 1);
+    assert_eq!(answer(&pool, &owner, "beta-2").await, (Some("no".into()), Some("Not this one".into()), None));
+    let beta = deck(&bundle(&app, &token).await, "beta")["plan"].clone();
+    assert_eq!((beta["changes"].as_i64(), beta["next"].is_null()), (Some(1), true), "{beta}");
+    assert_eq!(super::super::versions::settle_all(&pool).await.unwrap(), 0, "and it stays settled");
+}
+
+#[tokio::test]
+async fn yamas_own_left_out_is_looked_at_again_when_its_change_is_fixed() {
+    let (app, pool, owner, token) = setup().await;
+    import(&app, &token, &doc()).await;
+    assert_eq!(decision(&pool, &owner, "alpha-owned").await.as_deref(), Some("unsure"), "no card named to cut");
+    // The plan file gives it a cut.
+    sqlx::query("UPDATE plan_swaps SET out_name = 'Spare Cut', updated_at = '2099-01-01T00:00:00Z' WHERE owner_id = ? AND ext_key = 'alpha-owned'")
+        .bind(&owner)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(super::super::versions::settle_all(&pool).await.unwrap(), 1);
+    let (d, note, _) = answer(&pool, &owner, "alpha-owned").await;
+    assert_eq!((d.as_deref(), note), (Some("want"), None), "Yama's reason goes with it");
+}
+
+#[tokio::test]
+async fn a_change_edited_later_goes_in_again_keeping_the_note_and_cut() {
     let (app, pool, owner, token) = setup().await;
     import(&app, &token, &doc_with_cuts()).await;
-    // An answer saved under an old key that now reaches alpha-idea through an alias.
+    // An answer saved under an old key that reaches alpha-idea through an alias, with a note and
+    // a chosen cut, newer than what the import wrote.
     sqlx::query("INSERT INTO plan_key_aliases (owner_id, old_key, new_key, created_at) VALUES (?, 'old-idea', 'alpha-idea', '2026-11-01T00:00:00Z')")
         .bind(&owner)
         .execute(&pool)
@@ -190,144 +220,200 @@ async fn approving_keeps_an_answer_an_alias_holds_and_undo_brings_it_back() {
         .unwrap();
     sqlx::query(
         "INSERT INTO plan_reviews (owner_id, swap_key, decision, note, cut, at, origin, op_id)
-         VALUES (?, 'old-idea', 'unsure', 'Only if cheap', 'Other Card', '2026-11-01T00:00:00Z', 'yama', 'o-1')",
+         VALUES (?, 'old-idea', 'want', 'Only if cheap', 'Other Card', '2098-01-01T00:00:00Z', 'yama', 'o-1')",
     )
     .bind(&owner)
     .execute(&pool)
     .await
     .unwrap();
-    let answers = json!([{"question": "Where did this come from?", "answer": "A booster"}]);
-    let r = ops(&app, &token, json!([plan_op("al1", "alpha", "approve", 2, &["alpha-idea", "alpha-owned"], &[], answers)])).await;
-    assert_eq!(r["results"][0]["status"], "applied", "{r}");
-    let (d, note, cut): (Option<String>, Option<String>, Option<String>) =
-        sqlx::query_as("SELECT decision, note, cut FROM plan_reviews WHERE owner_id = ? AND swap_key = 'alpha-idea'").bind(&owner).fetch_one(&pool).await.unwrap();
+    // The plan file edits alpha-idea under the same key: its old answer no longer stands, so it
+    // is new again, and the next write takes it in as version 3.
+    edit(&pool, &owner, "alpha-idea").await;
+    let alpha = deck(&bundle(&app, &token).await, "alpha")["plan"].clone();
+    assert_eq!(alpha["next"]["keys"], json!(["alpha-idea"]), "{alpha}");
+    assert_eq!(alpha["changes"], 3, "alpha-idea is out until it's taken in again: {alpha}");
+    let mut conn = pool.acquire().await.unwrap();
+    let settled = super::super::versions::settle(&mut conn, &owner).await.unwrap();
+    drop(conn);
+    assert_eq!(settled.iter().map(|s| (s.deck_key.as_str(), s.version, s.kept)).collect::<Vec<_>>(), vec![("alpha", 3, 1)]);
+    let (d, note, cut) = answer(&pool, &owner, "alpha-idea").await;
     assert_eq!((d.as_deref(), note.as_deref(), cut.as_deref()), (Some("want"), Some("Only if cheap"), Some("Other Card")));
-    let r = ops(&app, &token, json!([plan_op("al2", "alpha", "undo", 2, &[], &[], json!([]))])).await;
-    assert_eq!(r["results"][0]["status"], "applied", "{r}");
-    let (d, note): (Option<String>, Option<String>) =
-        sqlx::query_as("SELECT decision, note FROM plan_reviews WHERE owner_id = ? AND swap_key = 'alpha-idea'").bind(&owner).fetch_one(&pool).await.unwrap();
-    assert_eq!((d.as_deref(), note.as_deref()), (Some("unsure"), Some("Only if cheap")));
+    let alpha = deck(&bundle(&app, &token).await, "alpha")["plan"].clone();
+    assert_eq!((alpha["version"].as_i64(), alpha["changes"].as_i64(), alpha["next"].is_null()), (Some(3), Some(4), true), "{alpha}");
 }
 
 #[tokio::test]
-async fn a_change_edited_after_you_looked_is_never_approved_unseen() {
+async fn settling_never_dates_its_answer_after_a_fast_device_clock() {
     let (app, pool, owner, token) = setup().await;
     import(&app, &token, &doc_with_beta_plan()).await;
-    let seen = deck(&bundle(&app, &token).await, "beta")["plan"]["next"]["hash"].as_str().unwrap().to_string();
-    // The plan file edits beta-1's cut under the same key.
-    let mut d = doc_with_beta_plan();
-    swap_mut(&mut d, "beta-1")["why"] = json!("Even faster");
-    import(&app, &token, &d).await;
-    let mut op = plan_op("h1", "beta", "approve", 1, &["beta-1", "beta-2"], &[], json!([]));
-    op["hash"] = json!(seen);
-    let r = ops(&app, &token, json!([op])).await;
-    assert_eq!(r["results"][0]["status"], "rejected", "{r}");
-    assert!(r["results"][0]["error"].as_str().unwrap().contains("edited since you opened it"), "{r}");
-
-    // Approved, then edited again: the change waits as a new version and leaves the plan in force.
-    let r = ops(&app, &token, json!([plan_op("h2", "beta", "approve", 1, &["beta-1", "beta-2"], &[], json!([]))])).await;
+    // A device a few minutes fast clears beta-2's answer; settling takes it in again, at now.
+    let ahead = (chrono::Utc::now() + chrono::Duration::minutes(4)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let r = ops(&app, &token, json!([{"op_id": "f1", "kind": "review", "swap_key": "beta-2", "decision": null, "at": ahead}])).await;
     assert_eq!(r["results"][0]["status"], "applied", "{r}");
-    sqlx::query("UPDATE plan_swaps SET why = 'Edited', updated_at = '2099-01-01T00:00:00Z' WHERE owner_id = ? AND ext_key = 'beta-1'")
+    let at: String = sqlx::query_scalar("SELECT at FROM plan_reviews WHERE owner_id = ? AND swap_key = 'beta-2'").bind(&owner).fetch_one(&pool).await.unwrap();
+    assert!(at < ahead, "{at} is not after the device's {ahead}");
+    // So a correctly timed answer right after still counts.
+    let r = ops(&app, &token, json!([{"op_id": "f2", "kind": "review", "swap_key": "beta-2", "decision": "no", "at": crate::util::now()}])).await;
+    assert_eq!(r["results"][0]["status"], "applied", "{r}");
+    assert_eq!(decision(&pool, &owner, "beta-2").await.as_deref(), Some("no"));
+}
+
+#[tokio::test]
+async fn a_future_clear_under_an_alias_waits_instead_of_future_dating_the_plan() {
+    let (app, pool, owner, token) = setup().await;
+    import(&app, &token, &doc_with_beta_plan()).await;
+    // An old key that reaches beta-1, cleared by a device a few minutes fast.
+    sqlx::query("INSERT INTO plan_key_aliases (owner_id, old_key, new_key, created_at) VALUES (?, 'old-beta', 'beta-1', '2026-11-01T00:00:00Z')")
+        .bind(&owner)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let ahead = (chrono::Utc::now() + chrono::Duration::minutes(4)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    sqlx::query("INSERT INTO plan_reviews (owner_id, swap_key, decision, at, origin, op_id) VALUES (?, 'old-beta', NULL, ?, 'yama', 'fast')")
+        .bind(&owner)
+        .bind(&ahead)
+        .execute(&pool)
+        .await
+        .unwrap();
+    // The clear is the newest word on beta-1, so it's new again.
+    assert_eq!(deck(&bundle(&app, &token).await, "beta")["plan"]["next"]["keys"], json!(["beta-1"]));
+    // Nothing is written past now: the change waits for a later write.
+    let mut conn = pool.acquire().await.unwrap();
+    assert!(super::super::versions::settle(&mut conn, &owner).await.unwrap().is_empty());
+    drop(conn);
+    let at: String = sqlx::query_scalar("SELECT at FROM plan_reviews WHERE owner_id = ? AND swap_key = 'beta-1'").bind(&owner).fetch_one(&pool).await.unwrap();
+    assert!(at < ahead, "{at}");
+    // Once the clock has passed it, a start finds it (the live key's answer is older) and takes it in.
+    sqlx::query("UPDATE plan_reviews SET at = '2026-06-01T00:00:00Z' WHERE owner_id = ? AND swap_key = 'old-beta'").bind(&owner).execute(&pool).await.unwrap();
+    sqlx::query("UPDATE plan_reviews SET at = '2026-01-01T00:00:00Z' WHERE owner_id = ? AND swap_key = 'beta-1'").bind(&owner).execute(&pool).await.unwrap();
+    sqlx::query("UPDATE plan_swaps SET updated_at = '2025-01-01T00:00:00Z' WHERE owner_id = ? AND ext_key = 'beta-1'").bind(&owner).execute(&pool).await.unwrap();
+    assert_eq!(super::super::versions::settle_all(&pool).await.unwrap(), 1);
+    assert_eq!(decision(&pool, &owner, "beta-1").await.as_deref(), Some("want"));
+    assert_eq!(super::super::versions::settle_all(&pool).await.unwrap(), 0);
+    // A clear in the same second as the live (settled) answer, with the larger op id, outranks it,
+    // and a start finds that too.
+    let op: String = sqlx::query_scalar("SELECT op_id FROM plan_reviews WHERE owner_id = ? AND swap_key = 'beta-1'").bind(&owner).fetch_one(&pool).await.unwrap();
+    assert!(op.starts_with(super::super::versions::SETTLE_OP), "{op}");
+    sqlx::query("UPDATE plan_reviews SET at = '2026-07-01T00:00:00Z' WHERE owner_id = ? AND swap_key = 'beta-1'").bind(&owner).execute(&pool).await.unwrap();
+    sqlx::query("UPDATE plan_reviews SET decision = NULL, at = '2026-07-01T00:00:00Z', op_id = 'zz-later' WHERE owner_id = ? AND swap_key = 'old-beta'")
         .bind(&owner)
         .execute(&pool)
         .await
         .unwrap();
     sqlx::query("UPDATE plan_meta SET revision = revision + 1 WHERE owner_id = ?").bind(&owner).execute(&pool).await.unwrap();
-    let b = bundle(&app, &token).await;
-    let beta = &deck(&b, "beta")["plan"];
-    assert_eq!(beta["next"]["keys"], json!(["beta-1"]), "{beta}");
-    assert_eq!(beta["changes"], 1, "only beta-2 is in force: {beta}");
+    assert_eq!(deck(&bundle(&app, &token).await, "beta")["plan"]["next"]["keys"], json!(["beta-1"]));
+    assert_eq!(super::super::versions::settle_all(&pool).await.unwrap(), 1);
+    assert_eq!(decision(&pool, &owner, "beta-1").await.as_deref(), Some("want"));
 }
 
 #[tokio::test]
-async fn an_archived_plans_decisions_stay_as_they_were() {
-    let (app, _pool, _owner, token) = setup().await;
+async fn a_future_want_under_an_alias_keeps_its_cut() {
+    let (app, pool, owner, token) = setup().await;
+    // Two of beta's proposals cut Sol Ring; the later one in plan order is wanted, under an old key,
+    // by a device a few minutes fast.
+    let mut d = doc_with_beta_plan();
+    let swaps = d["plan"]["swaps"].as_array_mut().unwrap();
+    swaps.push(json!({"key": "beta-ring-a", "deck": "beta", "stage": "proposed", "role": "swap", "src": "buy", "out": "Sol Ring", "in": "First Card"}));
+    swaps.push(json!({"key": "beta-ring-b", "deck": "beta", "stage": "proposed", "role": "swap", "src": "buy", "out": "Sol Ring", "in": "Second Card",
+                      "was": ["old-ring-b"]}));
+    let ahead = (chrono::Utc::now() + chrono::Duration::minutes(4)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    d["plan"]["reviews"] = json!({"old-ring-b": {"decision": "want", "note": null, "cut": null, "at": ahead}});
+    import(&app, &token, &d).await;
+    // The wanted one keeps Sol Ring; the other is left out, and only one change cuts it.
+    assert_eq!(decision(&pool, &owner, "beta-ring-a").await.as_deref(), Some("unsure"));
+    let beta = deck(&bundle(&app, &token).await, "beta")["plan"].clone();
+    assert_eq!((beta["changes"].as_i64(), beta["next"].is_null()), (Some(3), true), "{beta}");
+}
+
+#[tokio::test]
+async fn a_want_you_gave_before_the_first_version_stands() {
+    let (app, pool, owner, token) = setup().await;
+    let mut d = doc_with_beta_plan();
+    // A change that names no card to cut, which you already said you want (on the review site).
+    d["plan"]["swaps"].as_array_mut().unwrap().push(json!({"key": "beta-3", "deck": "beta", "stage": "proposed", "role": "swap", "src": "buy",
+        "out": null, "in": "Wanted Card"}));
+    d["plan"]["reviews"] = json!({"beta-3": {"decision": "want", "note": "Yes, this one", "cut": null, "deck": "Beta Deck", "card": "Wanted Card",
+        "at": "2099-01-01T00:00:00Z"}});
+    import(&app, &token, &d).await;
+    assert_eq!(answer(&pool, &owner, "beta-3").await, (Some("want".into()), Some("Yes, this one".into()), None));
+    assert_eq!(deck(&bundle(&app, &token).await, "beta")["plan"]["changes"], 3);
+}
+
+#[tokio::test]
+async fn the_server_settles_what_was_waiting_when_it_starts() {
+    let (app, pool, owner, token) = setup().await;
     import(&app, &token, &doc_with_beta_plan()).await;
-    let r = ops(&app, &token, json!([plan_op("u1", "beta", "approve", 1, &["beta-1", "beta-2"], &[], json!([]))])).await;
-    assert_eq!(r["results"][0]["status"], "applied", "{r}");
-    let r = ops(&app, &token, json!([{"op_id": "u2", "kind": "plan", "deck_key": "beta", "action": "archive", "at": crate::util::now()}])).await;
-    assert_eq!(r["results"][0]["status"], "applied", "{r}");
-    let r = ops(&app, &token, json!([plan_op("u3", "beta", "undo", 1, &[], &[], json!([]))])).await;
-    assert_eq!(r["results"][0]["status"], "rejected", "{r}");
+    // A proposal left unsettled, as every plan was before 20 Nov 2026.
+    edit(&pool, &owner, "beta-1").await;
+    assert_eq!(deck(&bundle(&app, &token).await, "beta")["plan"]["next"]["keys"], json!(["beta-1"]));
+    assert_eq!(super::super::versions::settle_all(&pool).await.unwrap(), 1);
+    let beta = deck(&bundle(&app, &token).await, "beta")["plan"].clone();
+    assert_eq!((beta["version"].as_i64(), beta["changes"].as_i64(), beta["next"].is_null()), (Some(2), Some(2), true), "{beta}");
+    // Again, nothing to do, and a settled account isn't even read.
+    assert_eq!(super::super::versions::settle_all(&pool).await.unwrap(), 0);
+    let waiting: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM plan_swaps s WHERE s.owner_id = ? AND s.stage = 'proposed' AND s.retired_at IS NULL
+           AND NOT EXISTS (SELECT 1 FROM plan_reviews r WHERE r.owner_id = s.owner_id AND r.swap_key = s.ext_key AND r.decision IS NOT NULL AND r.at >= s.updated_at)",
+    )
+    .bind(&owner)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(waiting, 0, "every proposal has an answer since it last changed");
 }
 
 #[tokio::test]
-async fn an_approval_made_before_a_newer_answer_is_refused() {
-    let (app, _pool, _owner, token) = setup().await;
-    import(&app, &token, &doc_with_beta_plan()).await;
-    let seen = deck(&bundle(&app, &token).await, "beta")["plan"]["next"]["hash"].as_str().unwrap().to_string();
-    // Another device says no to beta-2 after this page loaded.
-    let r = ops(&app, &token, json!([{"op_id": "n1", "kind": "review", "swap_key": "beta-2", "decision": "no", "at": crate::util::now()}])).await;
-    assert_eq!(r["results"][0]["status"], "applied", "{r}");
-    let mut op = plan_op("n2", "beta", "approve", 1, &["beta-1", "beta-2"], &[], json!([]));
-    op["hash"] = json!(seen);
-    let r = ops(&app, &token, json!([op])).await;
-    assert_eq!(r["results"][0]["status"], "rejected", "{r}");
-}
-
-#[tokio::test]
-async fn approving_waits_until_every_cut_is_settled() {
+async fn clashing_cuts_are_left_out_with_why() {
     let (app, pool, owner, token) = setup().await;
     let mut d = doc();
     let swaps = d["plan"]["swaps"].as_array_mut().unwrap();
-    // A cut the plan in force already takes out (Print Card replaces Old Card), and two more
-    // changes that both cut Sol Ring with alpha-idea. alpha-owned names no cut at all.
+    // A cut the plan in force already takes out (Print Card replaces Old Card), and a change that
+    // cuts Sol Ring after alpha-idea does. alpha-owned names no cut at all.
     swaps.push(json!({"key": "alpha-gone", "deck": "alpha", "stage": "proposed", "role": "swap", "src": "buy", "out": "Old Card", "in": "Late Card"}));
     swaps.push(json!({"key": "alpha-same", "deck": "alpha", "stage": "proposed", "role": "swap", "src": "buy", "out": "Sol Ring", "in": "Rival Card"}));
-    // A cut already made, with the plan file's fallback cut: the fallback is used, no problem.
+    // A cut already made, with the plan file's fallback cut: the fallback is used, and it goes in.
     swaps.push(json!({"key": "alpha-later", "deck": "alpha", "stage": "proposed", "role": "swap", "src": "buy", "out": "Old Card",
                       "later_out": "Fallback Card", "in": "Patient Card"}));
     // Basic lands: two changes may each take one out, and so may a change after the plan in force
-    // cut one (the fixture's planned Bought Card cuts Cut Card, not a basic, so add one that does).
+    // cut one.
     swaps.push(json!({"key": "alpha-basic-planned", "deck": "alpha", "stage": "planned", "role": "swap", "src": "buy", "out": "Island", "in": "Planned Land"}));
     swaps.push(json!({"key": "alpha-land-1", "deck": "alpha", "stage": "proposed", "role": "swap", "src": "buy", "out": "Island", "in": "Land One"}));
     swaps.push(json!({"key": "alpha-land-2", "deck": "alpha", "stage": "proposed", "role": "swap", "src": "buy", "out": "Island", "in": "Land Two"}));
+    // An optional extra cuts nothing: nothing is bought for a slot that isn't there.
+    swaps.push(json!({"key": "alpha-extra", "deck": "alpha", "stage": "proposed", "role": "optional", "src": "buy", "out": null, "in": "Extra Card"}));
     import(&app, &token, &d).await;
-    let b = bundle(&app, &token).await;
-    let next = &deck(&b, "alpha")["plan"]["next"];
-    let gone = next["cuts"].as_array().unwrap().iter().find(|c| c["key"] == "alpha-gone").unwrap();
-    assert_eq!((gone["out"].as_str(), gone["gone_for"].as_str()), (Some("Old Card"), Some("Print Card")), "{next}");
-    let basic = next["cuts"].as_array().unwrap().iter().find(|c| c["key"] == "alpha-land-1").unwrap();
-    assert_eq!(basic["gone_for"], Value::Null, "a basic is never already gone: {next}");
-    let later = next["cuts"].as_array().unwrap().iter().find(|c| c["key"] == "alpha-later").unwrap();
-    assert_eq!((later["out"].as_str(), later["instead_of"].as_str(), later["gone_for"].as_str()), (Some("Fallback Card"), Some("Old Card"), None), "{next}");
 
-    let all = ["alpha-idea", "alpha-owned", "alpha-gone", "alpha-same", "alpha-later", "alpha-land-1", "alpha-land-2"];
-    let answers = json!([{"question": "Where did this come from?", "answer": "A booster"}]);
-    let keep = |skip: &[&str]| all.iter().filter(|k| !skip.contains(k)).copied().collect::<Vec<_>>();
-    let try_approve = |id: &'static str, skip: &'static [&'static str]| {
-        let (app, token, answers) = (app.clone(), token.clone(), answers.clone());
-        let keys = keep(skip);
-        async move { ops(&app, &token, json!([plan_op(id, "alpha", "approve", 2, &keys, skip, answers)])).await }
-    };
-    let r = try_approve("c1", &[]).await;
-    assert_eq!(r["results"][0]["status"], "rejected", "{r}");
-    // Each problem on its own, the other two skipped.
-    let r = try_approve("c2", &["alpha-gone", "alpha-same"]).await;
-    assert!(r["results"][0]["error"].as_str().unwrap().contains("Spare Card names no card to cut"), "{r}");
-    let r = try_approve("c3", &["alpha-owned", "alpha-same"]).await;
-    assert!(r["results"][0]["error"].as_str().unwrap().contains("Old Card already goes out for Print Card"), "{r}");
-    let r = try_approve("c4", &["alpha-owned", "alpha-gone"]).await;
-    assert!(r["results"][0]["error"].as_str().unwrap().contains("Proposal Card and Rival Card both cut Sol Ring"), "{r}");
-    let r = try_approve("c5", &["alpha-owned", "alpha-gone", "alpha-same"]).await;
-    assert_eq!(r["results"][0]["status"], "applied", "two Island cuts are fine: {r}");
+    for key in ["alpha-idea", "alpha-later", "alpha-land-1", "alpha-land-2"] {
+        assert_eq!(decision(&pool, &owner, key).await.as_deref(), Some("want"), "{key}");
+    }
+    for (key, why) in [
+        ("alpha-owned", "Spare Card names no card to cut."),
+        ("alpha-gone", "Old Card already goes out for Print Card."),
+        ("alpha-same", "Proposal Card already takes out Sol Ring."),
+        ("alpha-extra", "Extra Card is an optional extra: it names no card to cut."),
+    ] {
+        let (d, note, _) = answer(&pool, &owner, key).await;
+        assert_eq!((d.as_deref(), note), (Some("unsure"), Some(format!("Yama left this out: {why}"))), "{key}");
+    }
     // The change kept on its fallback cut keeps that cut, so the plan in force reads it.
-    let cut: Option<String> = sqlx::query_scalar("SELECT cut FROM plan_reviews WHERE owner_id = ? AND swap_key = 'alpha-later'")
-        .bind(&owner)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-    assert_eq!(cut.as_deref(), Some("Fallback Card"));
+    assert_eq!(answer(&pool, &owner, "alpha-later").await.2.as_deref(), Some("Fallback Card"));
+    let b = bundle(&app, &token).await;
+    let alpha = &deck(&b, "alpha")["plan"];
+    assert_eq!((alpha["changes"].as_i64(), alpha["next"].is_null()), (Some(7), true), "three planned and four taken in: {alpha}");
+    let v = b["versions"].as_array().unwrap().iter().find(|v| v["deck"] == "alpha").unwrap();
+    let left: Vec<(&str, &str)> = v["skipped"].as_array().unwrap().iter().map(|s| (s["key"].as_str().unwrap(), s["left_out"].as_str().unwrap())).collect();
+    assert_eq!(left.len(), 4, "{left:?}");
+    assert!(left.contains(&("alpha-same", "Proposal Card already takes out Sol Ring.")), "{left:?}");
 }
 
 #[test]
-fn problems_name_each_clash_once_and_ignore_copies() {
-    use super::super::versions::{Cut, Next, problems};
+fn left_out_names_each_clash_and_ignores_copies_basics_and_answers() {
+    use super::super::versions::{Cut, Next, left_out};
     let cut = |key: &str, card_in: &str, out: Option<&str>| Cut { key: key.into(), card_in: card_in.into(), out: out.map(str::to_string), instead_of: None, gone_for: None };
     let next = Next {
         n: 1,
         keys: vec![],
-        skipped: vec![],
+        skipped: vec!["d".into()],
         proposed_at: None,
         source: json!({"kind": "yama"}),
         hash: String::new(),
@@ -335,47 +421,27 @@ fn problems_name_each_clash_once_and_ignore_copies() {
             cut("a", "One", Some("Thing")),
             cut("b", "Two", Some("thing")),
             cut("c", "Three", Some("Thing")),
+            // Answered already: it stays as answered, whatever it cuts.
+            cut("d", "Four", None),
             cut("n|x", "Copy", Some("Rats")),
             cut("n|x#2", "Copy", Some("Rats")),
             cut("s", "Snowy", Some("Snow-Covered Forest")),
             cut("t", "Snowy Two", Some("Snow-Covered Forest")),
+            cut("u", "Nothing", Some(" ")),
+            Cut { gone_for: Some("Earlier".into()), ..cut("g", "Gone", Some("Old")) },
         ],
     };
-    assert_eq!(problems(&next, &[]), vec!["One, Two and Three all cut Thing. Keep one of them."]);
-    assert_eq!(problems(&next, &["c".into()]), vec!["One and Two both cut Thing. Keep one of them."]);
-    assert!(problems(&next, &["b".into(), "c".into()]).is_empty());
-    // Two changes (not copies of one) putting in the same card for the same cut.
-    let twice = Next { cuts: vec![cut("p", "Port Town", Some("Restless Anchorage")), cut("q", "Port Town", Some("Restless Anchorage"))], ..next };
-    assert_eq!(problems(&twice, &[]), vec!["Two changes put in Port Town for Restless Anchorage. Keep one of them."]);
-}
-
-#[tokio::test]
-async fn the_approval_hash_covers_the_cuts_as_shown() {
-    let (app, pool, owner, token) = setup().await;
-    let mut d = doc_with_cuts();
-    d["plan"]["swaps"].as_array_mut().unwrap().push(json!({"key": "alpha-late", "deck": "alpha", "stage": "proposed", "role": "swap",
-        "src": "buy", "out": "Old Card", "later_out": "Fallback Card", "in": "Patient Card"}));
-    import(&app, &token, &d).await;
-    let seen = deck(&bundle(&app, &token).await, "alpha")["plan"]["next"]["hash"].as_str().unwrap().to_string();
-    // Another device chooses a different cut for the planned Print Card: Old Card is no longer going,
-    // so alpha-late's cut moves back from its fallback. A page that showed the fallback is stale.
-    sqlx::query(
-        "INSERT INTO plan_reviews (owner_id, swap_key, decision, note, cut, at, origin, op_id)
-         VALUES (?, 'plan|Alpha Deck|Print Card|Old Card', 'want', NULL, 'Other Cut', '2099-01-01T00:00:00Z', 'yama', 'h-cut')
-         ON CONFLICT(owner_id, swap_key) DO UPDATE SET cut = excluded.cut, at = excluded.at",
-    )
-    .bind(&owner)
-    .execute(&pool)
-    .await
-    .unwrap();
-    sqlx::query("UPDATE plan_meta SET revision = revision + 1 WHERE owner_id = ?").bind(&owner).execute(&pool).await.unwrap();
-    let next = deck(&bundle(&app, &token).await, "alpha")["plan"]["next"].clone();
-    let late = next["cuts"].as_array().unwrap().iter().find(|c| c["key"] == "alpha-late").unwrap().clone();
-    assert_eq!(late["out"], "Old Card", "{next}");
-    assert_ne!(next["hash"].as_str().unwrap(), seen, "{next}");
-    let answers = json!([{"question": "Where did this come from?", "answer": "A booster"}]);
-    let mut op = plan_op("hc1", "alpha", "approve", 2, &["alpha-idea", "alpha-owned", "alpha-late"], &[], answers);
-    op["hash"] = json!(seen);
-    let r = ops(&app, &token, json!([op])).await;
-    assert_eq!(r["results"][0]["status"], "rejected", "{r}");
+    let out = left_out(&next);
+    assert_eq!(
+        out,
+        vec![
+            ("b".to_string(), "One already takes out thing.".to_string()),
+            ("c".to_string(), "One already takes out Thing.".to_string()),
+            ("u".to_string(), "Nothing names no card to cut.".to_string()),
+            ("g".to_string(), "Old already goes out for Earlier.".to_string()),
+        ]
+    );
+    // Two changes (not copies of one) putting in the same card for the same cut: the second waits.
+    let twice = Next { skipped: vec![], cuts: vec![cut("p", "Port Town", Some("Restless Anchorage")), cut("q", "Port Town", Some("Restless Anchorage"))], ..next };
+    assert_eq!(left_out(&twice), vec![("q".to_string(), "Port Town already takes out Restless Anchorage.".to_string())]);
 }

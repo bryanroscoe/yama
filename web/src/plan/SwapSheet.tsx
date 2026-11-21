@@ -24,7 +24,7 @@ const SHEETS = [
  */
 export function SwapSheetPage() {
   const { view } = usePlanOutlet();
-  // Only plans in force: a plan waiting for your OK has nothing to swap in yet.
+  // Only plans in force: an archived plan has nothing to swap in.
   const b = useMemo(() => inForceBundle(view.b, view.planOf, view.answers), [view]);
   const sheet = useMemo(() => swapSheet({ ...b, marks: Object.fromEntries(view.markBy) }), [b, view.markBy]);
   const [swapping, setSwapping] = useState<SheetDeck | null>(null);

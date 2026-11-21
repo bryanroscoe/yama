@@ -92,7 +92,7 @@ owner-checked resources. `save_deck` stages a complete new/replacement list, nev
 Private research adds `get_research`, `save_research` and `review_research`; see
 [its format and review semantics](research-format.md). The latter two store advice and stated
 preferences directly, an explicit exception to staged execution writes. They never alter a deck,
-inventory, planner approval, order or game. A saved note does move the plans that track its
+inventory, order or game. A saved note does move the plans that track its
 builds: they follow the refreshed note. So `save_research` is annotated as able to destroy
 (it replaces the note's earlier revision), and a document that drops a deck or build a plan
 tracks, which would archive that plan and retire its swaps, is refused with the plans named and
@@ -102,8 +102,9 @@ returning every list to a client that only needs one decision.
 
 **Deck plans (2026-11-04).** Bryan: "I would expect plans to be part of the MCP." A deck plan is a
 note's deck (its builds, swaps and reasons) and, once one build is chosen, that build tracked as
-the deck's plan: `track_build` stages it, and applying makes a Yama-made plan deck that Buy, Trip,
-prints, marks and the plan tools work on (ARCHITECTURE.md, "Plans from notes"). `get_overview` counts the
+the deck's plan: `track_build` makes a Yama-made plan deck that Buy, Trip, prints, marks and the
+plan tools work on (ARCHITECTURE.md, "Plans from notes"). Since 20 Nov 2026 it applies directly and
+its changes go in at once: nobody approves a plan (ARCHITECTURE.md, "Plans don't wait for approval"). `get_overview` counts the
 notes and lists the newest few with their decks, builds and which one each tracks, beside the
 plans; its `notes` section lists every note deck. `get_plan` on an untracked note deck lists its
 builds. Saving the note again updates the plan.
@@ -136,8 +137,6 @@ Write (staged):
 |---|---|
 | `edit_deck` | A new version of a Yama deck: add, remove, replace cards (one version per change, with a note) |
 | `delete_deck` | Deletes (archives) a deck or one configuration, the deck page's Delete: its configurations become decks of their own unless `configurations` is true, which deletes the ones named when it was staged |
-| `track_build` | One build of a deck in a saved note becomes that deck's next plan version, waiting for their OK (`POST /api/plan/from-note` with `proposed: true`), or switches or stops it (`build: null`) |
-| `approve_plan` | Approves a deck's waiting plan version whole (skips and open-question answers included), or keeps the version before it: the `plan` op (`server/src/plan/versions.rs`) |
 | `propose_swap` | A planner idea for a plan deck (the existing `idea` op), so it goes through Review and the repo's pull |
 | `answer_review` | A review answer (`review` op) |
 | `mark_bought`, `mark_installed` | The existing `bought` and `installed` ops |

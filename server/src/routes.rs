@@ -83,6 +83,7 @@ pub fn app(state: AppState) -> Router {
         .merge(crate::scan::router(&state.cfg.data_dir))
         .merge(crate::scan_samples::router())
         .merge(crate::scan_diagnostics::router())
+        .merge(crate::scan_timings::router())
         .merge(crate::sharing::router())
         .merge(crate::moderation::router())
         .merge(crate::people::router())
@@ -190,6 +191,13 @@ pub async fn serve(cfg: Config, pool: SqlitePool) -> anyhow::Result<()> {
     // prices (prices/backfill.rs; under a minute, the first start after migration 0060). A
     // failure stops the start.
     crate::prices::backfill::run_before_serving(&pool).await?;
+    // Plans don't wait for approval (plan/versions.rs, 20 Nov 2026): take in any proposals still
+    // waiting, from before that or from a write that failed. A failure is logged; pages still work.
+    match crate::plan::versions::settle_all(&pool).await {
+        Ok(0) => {}
+        Ok(n) => tracing::info!(versions = n, "plans settled at start"),
+        Err(e) => tracing::error!(error = ?e, "settling plans at start failed"),
+    }
     // The public rankings and the Lab's precon list, built before the server listens so no
     // request waits for one (derived.rs), then kept up to date.
     crate::derived::prewarm(&pool).await;

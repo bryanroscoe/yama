@@ -498,7 +498,9 @@ async fn plan_and_collection_changes_apply_through_their_own_ops() {
         let (err, text) = call(&app, &mcp, "apply_change", json!({"id": id})).await;
         assert!(!err, "{text}");
     }
-    let ops: Vec<(String, String, String)> = sqlx::query_as("SELECT kind, op_id, status FROM plan_inputs ORDER BY seq").fetch_all(&pool).await.unwrap();
+    // The answer also settles the deck's first version (`versions::settle`), which records its own ops.
+    let ops: Vec<(String, String, String)> =
+        sqlx::query_as("SELECT kind, op_id, status FROM plan_inputs WHERE op_id NOT LIKE '!settle-%' ORDER BY seq").fetch_all(&pool).await.unwrap();
     assert_eq!(ops.len(), 3);
     assert!(ops.iter().all(|(_, op, status)| op.starts_with("claude-") && status == "applied"), "{ops:?}");
     let decision: String = sqlx::query_scalar("SELECT decision FROM plan_reviews WHERE swap_key = 'plan|Elf Ball|Arcane Signet|Sol Ring'").fetch_one(&pool).await.unwrap();
@@ -1029,7 +1031,7 @@ async fn a_staging_call_repeated_with_its_op_id_stages_once() {
     // and none for stores.
     let (_, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("tools/list", json!({})))).await;
     let with_lab = [
-        "add_wish", "edit_deck", "delete_deck", "track_build", "approve_plan", "propose_swap", "answer_review", "mark_bought", "swap_in_prints",
+        "add_wish", "edit_deck", "delete_deck", "propose_swap", "answer_review", "mark_bought", "swap_in_prints",
         "mark_installed", "start_lab_run", "add_lab_games", "rerun_lab_run", "cancel_lab_run", "add_to_collection", "move_cards", "set_condition",
         "update_deck", "remove_wish", "create_container", "update_container", "delete_container", "remove_from_collection", "edit_copies", "save_deck",
     ];
@@ -1830,4 +1832,52 @@ async fn scan_diagnostics_are_read_by_their_owner_with_images() {
     let (err, _) = call(&app, &theirs, "get_scan_diagnostic", json!({"id": id, "image": "strip"})).await;
     assert!(err);
     crate::scan_diagnostics::remove_owner_files(&std::env::temp_dir(), &me);
+}
+
+#[tokio::test]
+async fn scan_timings_are_summarised_for_their_owner_only() {
+    let (app, pool) = app().await;
+    let (_, session) = user(&pool, "bryan@example.com").await;
+    let (_, other) = user(&pool, "other@example.com").await;
+    for (rule, ms, mode) in [("leads", 700, "printing"), ("sure", 300, "printing"), ("title", 2100, "identity")] {
+        let body = json!({"outcome": "filed", "rule": rule, "mode": mode, "ms": ms, "frames": 2, "top": 0.71, "lead": 0.12,
+            "printing": if mode == "printing" { json!("collector") } else { Value::Null }, "printing_ms": 800, "camera": "2160×3840", "embed": "none"});
+        let (status, made) = send(&app, Method::POST, "/api/scan/diagnostics/timings", Some(&session), Some(body)).await;
+        assert_eq!(status, StatusCode::OK, "{made}");
+    }
+    let mine = key(&app, &session, Some("mcp")).await;
+    let (err, text) = call(&app, &mine, "get_scan_timings", json!({})).await;
+    assert!(!err, "{text}");
+    let s: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(s["count"], 3);
+    assert_eq!(s["settled"]["median_ms"], 700);
+    assert_eq!(s["rules"].as_array().unwrap().len(), 3);
+    assert_eq!(s["printings"][0]["printing"], "collector");
+    assert_eq!(s["printings"][0]["count"], 2);
+    assert_eq!(s["items"].as_array().unwrap().len(), 3);
+    assert!(s["next_cursor"].is_null());
+    // The list of struggle records counts them too.
+    let (_, listed) = call(&app, &mine, "list_scan_diagnostics", json!({})).await;
+    assert_eq!(serde_json::from_str::<Value>(&listed).unwrap()["timings"], 3);
+    // Filtered, and paged.
+    let (_, text) = call(&app, &mine, "get_scan_timings", json!({"mode": "identity"})).await;
+    let s: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(s["count"], 1);
+    assert_eq!(s["rules"][0]["rule"], "title");
+    let (_, text) = call(&app, &mine, "get_scan_timings", json!({"limit": 2})).await;
+    let s: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(s["items"].as_array().unwrap().len(), 2);
+    let (_, text) = call(&app, &mine, "get_scan_timings", json!({"limit": 2, "cursor": s["next_cursor"]})).await;
+    let s: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(s["items"].as_array().unwrap().len(), 1);
+    let (err, _) = call(&app, &mine, "get_scan_timings", json!({"mode": "deck"})).await;
+    assert!(err);
+
+    // Someone else's tools see none of it.
+    let theirs = key(&app, &other, Some("mcp")).await;
+    let (err, text) = call(&app, &theirs, "get_scan_timings", json!({})).await;
+    assert!(!err, "{text}");
+    let s: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(s["count"], 0);
+    assert_eq!(s["kept"], 0);
 }

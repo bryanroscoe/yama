@@ -258,11 +258,12 @@ async fn every_tool_answers_empty_and_wrong_arguments_cleanly() {
         let (err, text) = clean_call(&app, &plain, "find_cards", json!({"query": "t:artifact", "order": order})).await;
         assert!(!err, "{order}: {text}");
     }
-    // An open question can be long, and its answer too: the schema says what the plan takes.
+    // Nobody approves a plan (20 Nov 2026): there's no tool for it, and tracking a build is direct.
     let listed_tools = listed(&app, &plain).await;
-    let approve = listed_tools.iter().find(|t| t["name"] == "approve_plan").unwrap();
-    assert_eq!(approve["inputSchema"]["properties"]["answers"]["items"]["properties"]["question"]["maxLength"], 2000);
-    assert_eq!(approve["inputSchema"]["properties"]["answers"]["items"]["properties"]["answer"]["maxLength"], 2000);
+    assert!(!listed_tools.iter().any(|t| t["name"] == "approve_plan"));
+    let track = listed_tools.iter().find(|t| t["name"] == "track_build").unwrap();
+    assert_eq!(track["annotations"]["readOnlyHint"], false);
+    assert!(track["inputSchema"]["properties"].get("op_id").is_none(), "{track}");
     let (err, text) = clean_call(&app, &plain, "find_cards", json!({"query": "t:artifact", "page": 0})).await;
     assert!(!err, "page 0 is the first page, as before: {text}");
     let (err, text) = clean_call(&app, &plain, "deck", json!({"deck": "x".repeat(400)})).await;
@@ -418,7 +419,6 @@ fn isolation_cases(f: &Fixture) -> Vec<(&'static str, Value, ForOwner)> {
         ("mark_bought", json!({"plan": "plan-a", "card_in": "Arcane Signet"}), Unchecked),
         ("mark_installed", json!({"plan": "plan-a", "card_in": "Arcane Signet"}), Unchecked),
         ("swap_in_prints", json!({"plan": "plan-a"}), Unchecked),
-        ("approve_plan", json!({"plan": "plan-a"}), Unchecked),
         ("research", json!({"id": "note-a"}), Shows),
         ("research", json!({"id": "note-a", "deck": "energy"}), Shows),
         ("review_research", json!({"id": "note-a", "op_id": "op-1", "target": "deck:energy", "decision": "b3", "note": null, "expected_version": 0, "target_hash": "x"}), Unchecked),
@@ -720,8 +720,9 @@ fn descriptions_are_short_and_written_for_anyone() {
     // list_devices (15 Nov 2026) took it to about 25,450; the two scanner diagnostics tools
     // (15 Nov 2026) to 25,921; a deck's swappable spares (move_cards, get_deck and
     // list_collection_cards, 15 Nov 2026) to about 26,320; sections (update_container, paths and
-    // batch moves, 16 Nov 2026) to about 26,800; delete_container (16 Nov 2026) to about 26,950.
-    assert!(total <= 27_000, "the descriptions are {total} characters in all");
+    // batch moves, 16 Nov 2026) to about 26,800; delete_container (16 Nov 2026) to about 26,950;
+    // get_scan_timings (20 Nov 2026) to about 27,200.
+    assert!(total <= 27_250, "the descriptions are {total} characters in all");
     let instructions = super::SERVER_INSTRUCTIONS;
     assert!(instructions.chars().count() <= 2_600, "the instructions are {} characters", instructions.chars().count());
     for word in his {

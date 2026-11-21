@@ -131,7 +131,7 @@
 
     <section id="catalog">
       <h2>The complete tool catalog</h2>
-      <p>75 tools, checked November 16, 2026. Availability depends on the caller and the account: Ask Claude omits apply and discard, a read-only connection omits everything that writes, and the store, dataset and lab tools are listed once your account has stores, a dataset or lab runs. Expand a group for the tool names your client may display.</p>
+      <p>75 tools, checked November 20, 2026. Availability depends on the caller and the account: Ask Claude omits apply and discard, a read-only connection omits everything that writes, and the store, dataset and lab tools are listed once your account has stores, a dataset or lab runs. Expand a group for the tool names your client may display.</p>
       <details><summary>Cards, rules and sources (7)</summary><dl>
         <dt><code>search_cards</code></dt><dd>Search Yama's local card catalog with its supported Scryfall-style grammar; answers with rows of data, a page at a time.</dd>
         <dt><code>get_cards</code></dt><dd>Read Oracle text, legality, rulings, dated prices and your owned copies.</dd>
@@ -181,11 +181,10 @@
         <dt><code>update_container</code></dt><dd>Stage renaming a container or moving it, with its cards and sections, into another or to the top level.</dd>
         <dt><code>delete_container</code></dt><dd>Stage deleting an empty binder, box, list or section: one with cards or sections, or a deck box, is refused.</dd>
       </dl></details>
-      <details><summary>Upgrade plans and shopping (19)</summary><dl>
+      <details><summary>Upgrade plans and shopping (18)</summary><dl>
         <dt><code>get_plan</code></dt><dd>Read stock, current and after-prints lists, swaps, review answers, orders and prints.</dd>
         <dt><code>get_review_queue</code></dt><dd>Find swaps still waiting for your answer, a page at a time, for every plan or one.</dd>
-        <dt><code>track_build</code></dt><dd>Stage making one build from a saved note the deck's plan.</dd>
-        <dt><code>approve_plan</code></dt><dd>Stage approving a plan version whole, skipping the changes you name, once open questions are answered.</dd>
+        <dt><code>track_build</code></dt><dd>Make one build from a saved note the deck's plan, straight away: nobody approves a plan. A change whose cut clashes is left out, and the answer says why. A connection you limited to staging stages it instead.</dd>
         <dt><code>get_shopping_list</code></dt><dd>Read your one shopping list and where the store trip puts each card, or why it isn't on the trip.</dd>
         <dt><code>add_wish</code></dt><dd>Stage adding a card or sealed product to your shopping list.</dd>
         <dt><code>remove_wish</code></dt><dd>Stage taking something you added off your shopping list.</dd>
@@ -219,10 +218,11 @@
         <dt><code>save_research</code></dt><dd>Store or refresh private research for review; never alters installed decks or orders, and won't stop a plan that tracks it without your say.</dd>
         <dt><code>review_research</code></dt><dd>Record your stated preferred build, swap answer or note with retry and stale-answer checks.</dd>
       </dl></details>
-      <details><summary>Your devices and scanner diagnostics (3)</summary><dl>
+      <details><summary>Your devices and scanner diagnostics (4)</summary><dl>
         <dt><code>list_devices</code></dt><dd>See which Yama build each of your signed-in devices last reported: the Android app's version, the web build and when it was last seen.</dd>
         <dt><code>list_scan_diagnostics</code></dt><dd>List the scanner diagnostics you kept (off unless you turn on "Scanner diagnostics" in Scan settings): one per card the scanner struggled with, newest first.</dd>
-        <dt><code>get_scan_diagnostic</code></dt><dd>Read one: what the camera delivered, every read and how it ended, and see its images (the card's full-resolution bottom edge and the card itself).</dd>
+        <dt><code>get_scan_diagnostic</code></dt><dd>Read one: what the camera delivered, every read and how it ended, and see its images (the card's full-resolution bottom edge, its set symbol and the card itself).</dd>
+        <dt><code>get_scan_timings</code></dt><dd>How fast your scans settle: with Scanner diagnostics on, a small record (no images) is kept for every card the scanner settles. Gives the median time to name a card, the share named by each rule, how printings were settled and how long that took, by art model, then the records themselves.</dd>
       </dl></details>
       <details><summary>Pending changes (3)</summary><dl>
         <dt><code>list_changes</code></dt><dd>List proposals waiting for review, a page at a time.</dd>

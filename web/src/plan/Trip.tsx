@@ -91,7 +91,7 @@ export function Trip() {
   const deckFilter = params.get("deck") && view.deck(params.get("deck")!) ? params.get("deck") : null;
   const trip = useMemo(
     () =>
-      // Only approved plans: one waiting for your OK puts nothing on a trip.
+      // Only plans in force: an archived one puts nothing on a trip.
       // One deck's trip has only its plan's buys: no hand-added wants or wishlist.
       planTrip({ ...inForceBundle(view.b, view.planOf, view.answers, deckFilter), ...(deckFilter ? { shopping_wants: [], wishlist: [] } : {}) }, {
         today: view.today,

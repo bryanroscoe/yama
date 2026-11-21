@@ -1,5 +1,6 @@
 // List text for copying, list differences, review answers and the proposed build.
 
+import { wins } from "./overlay";
 import { newestChecks } from "./quotes";
 import type { PlanGroup, Quote, Review, Slot, Store, Swap } from "./types";
 
@@ -122,7 +123,9 @@ export function answerIndex(
       continue;
     }
     const prev = latest.get(to);
-    if (!prev || r.at > prev.at || (r.at === prev.at && r.origin === "yama")) latest.set(to, r);
+    // Newest wins; on a tie an import loses, then the larger op id (the server's rule), also between
+    // an alias and its live key.
+    if (wins(r, prev)) latest.set(to, r);
   }
   const answers = new Map([...latest].filter(([, r]) => isAnswer(r)));
   return { answers, orphans };

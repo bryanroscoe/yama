@@ -491,8 +491,12 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
 
 /// How a stored change of this kind is applied.
 pub fn applier(kind: &str) -> Option<Apply> {
-    all().filter_map(|t| t.stages.as_ref()).find(|s| s.kind == kind).map(|s| s.apply)
+    all().filter_map(|t| t.stages.as_ref()).chain(ALSO_STAGED).find(|s| s.kind == kind).map(|s| s.apply)
 }
+
+/// Kinds a tool that writes directly stages for a connection that may not apply (Ask Claude, a
+/// sign-in limited to staging): `track_build` since plans stopped waiting for approval (20 Nov 2026).
+const ALSO_STAGED: &[Staging] = &[changes::staging::TRACK_BUILD];
 
 #[cfg(test)]
 mod tests {

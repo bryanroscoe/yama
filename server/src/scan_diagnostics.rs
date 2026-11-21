@@ -13,6 +13,10 @@
 //! [`KEEP_BYTES`] of images (oldest go first), uploads are rate limited, and they're deleted on
 //! request (one, or all) and with the account (admin/delete.rs). The owner reads them here and
 //! through the MCP tools `list_scan_diagnostics` and `get_scan_diagnostic`.
+//!
+//! Since 20 Nov 2026 the scanner also sends a small timing record, with no images, for every card
+//! it settles, struggled with or not (scan_timings.rs, `/api/scan/diagnostics/timings`): kept
+//! apart from these under their own cap, and deleted with them by "Delete them".
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
@@ -120,6 +124,8 @@ async fn add(State(st): State<AppState>, CurrentUser(user): CurrentUser, req: Re
     // The rate limit before the body: a limited account isn't let make the server buffer and parse
     // another few megabytes first (the body is read only below, within DefaultBodyLimit).
     st.limits.scan_diagnostics.check_user(&user)?;
+    // When it began, against "Delete them" (scan_clears.rs).
+    let started = crate::scan_clears::stamp();
     let Json(d) = match Json::<NewDiagnostic>::from_request(req, &st).await {
         Ok(json) => json,
         // Axum's own answer: 413 for too large, 400/415/422 for the rest.
@@ -206,6 +212,8 @@ async fn add(State(st): State<AppState>, CurrentUser(user): CurrentUser, req: Re
         .bind(total as i64)
         .execute(&mut *tx)
         .await?;
+        // "Delete them" since it began: not kept (its files go below).
+        crate::scan_clears::refuse_if_cleared(&mut tx, &user.id, crate::scan_clears::DIAGNOSTICS, &started).await?;
         // Keep the newest KEEP, and no more than KEEP_BYTES of them.
         let gone: Vec<String> = sqlx::query_scalar(
             "SELECT id FROM (
@@ -249,6 +257,7 @@ pub fn image_url(id: &str, name: &str) -> String {
 pub async fn list(pool: &SqlitePool, owner: &str, offset: i64, limit: i64) -> AppResult<Value> {
     let (count, bytes): (i64, Option<i64>) =
         sqlx::query_as("SELECT COUNT(*), SUM(bytes) FROM scan_diagnostics WHERE owner_id = ?").bind(owner).fetch_one(pool).await?;
+    let timings: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM scan_timings WHERE owner_id = ?").bind(owner).fetch_one(pool).await?;
     let rows: Vec<(String, String, String, Option<String>, Option<String>, String, String, i64)> = sqlx::query_as(
         "SELECT id, created_at, outcome, card_name, engine, detail, images, bytes FROM scan_diagnostics
           WHERE owner_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?",
@@ -271,7 +280,8 @@ pub async fn list(pool: &SqlitePool, owner: &str, offset: i64, limit: i64) -> Ap
             })
         })
         .collect();
-    Ok(json!({ "count": count, "bytes": bytes.unwrap_or(0), "keep": KEEP, "keep_bytes": KEEP_BYTES, "items": items }))
+    // The timing records kept beside these (scan_timings.rs), read with get_scan_timings.
+    Ok(json!({ "count": count, "bytes": bytes.unwrap_or(0), "keep": KEEP, "keep_bytes": KEEP_BYTES, "timings": timings, "items": items }))
 }
 
 /// One record in full (without image bytes), or None when it isn't this account's.
@@ -354,15 +364,41 @@ async fn delete_all(State(st): State<AppState>, CurrentUser(user): CurrentUser) 
     // Only the folders of the rows this statement deleted: an upload still waiting to commit has
     // written its folder already, and removing the whole owner folder would leave its row without
     // images. (Account deletion, with no uploads to come, removes the whole folder.)
-    let gone: Vec<String> = sqlx::query_scalar("DELETE FROM scan_diagnostics WHERE owner_id = ? RETURNING id").bind(&user.id).fetch_all(&st.pool).await?;
+    // Its moment is recorded with it, so an upload that began before can't arrive after (scan_clears.rs).
+    let mut tx = st.pool.begin().await?;
+    crate::scan_clears::mark(&mut tx, &user.id, crate::scan_clears::DIAGNOSTICS, &crate::scan_clears::stamp()).await?;
+    let gone: Vec<String> = sqlx::query_scalar("DELETE FROM scan_diagnostics WHERE owner_id = ? RETURNING id").bind(&user.id).fetch_all(&mut *tx).await?;
+    // and the timing records, kept apart from these but deleted with them.
+    let timings = crate::scan_timings::delete_all(&mut tx, &user.id).await?;
+    tx.commit().await?;
     for id in gone.iter().filter(|id| valid_id(id)) {
         remove_record_files(&st.cfg.data_dir, &user.id, id);
     }
-    Ok(Json(json!({ "deleted": gone.len() })))
+    sweep_orphans(&st.pool, &st.cfg.data_dir, &user.id).await?;
+    Ok(Json(json!({ "deleted": gone.len(), "timings": timings })))
+}
+
+/// How old a record's folder with no row must be before Delete them takes it: an upload writes
+/// its images seconds before its row, so a younger one may be on its way.
+const ORPHAN_AGE: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
+/// Image folders of this account with no record row, older than ORPHAN_AGE (an upload dropped, or
+/// the server stopped, between its images and its row): removed.
+async fn sweep_orphans(pool: &SqlitePool, data_dir: &FsPath, owner: &str) -> AppResult<()> {
+    let Ok(entries) = std::fs::read_dir(owner_dir(data_dir, owner)) else { return Ok(()) };
+    let ids: std::collections::HashSet<String> = sqlx::query_scalar("SELECT id FROM scan_diagnostics WHERE owner_id = ?").bind(owner).fetch_all(pool).await?.into_iter().collect();
+    for e in entries.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let old = e.metadata().and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age >= ORPHAN_AGE);
+        if old && valid_id(&name) && !ids.contains(&name) {
+            remove_record_files(data_dir, owner, &name);
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::testutil;
     use axum::body::Body;
@@ -465,9 +501,15 @@ mod tests {
         let pending = owner_dir(&std::env::temp_dir(), &me).join(crate::util::new_id());
         std::fs::create_dir_all(&pending).unwrap();
         std::fs::write(pending.join("strip.jpg"), JPEG).unwrap();
+        // and a folder left long ago with no row (an upload dropped mid-way) goes.
+        let orphan = owner_dir(&std::env::temp_dir(), &me).join(crate::util::new_id());
+        std::fs::create_dir_all(&orphan).unwrap();
+        std::fs::write(orphan.join("strip.jpg"), JPEG).unwrap();
+        std::fs::File::open(&orphan).unwrap().set_modified(std::time::SystemTime::now() - 2 * ORPHAN_AGE).unwrap();
         let (_, d) = testutil::send(&app, Method::DELETE, "/api/scan/diagnostics", Some(&mine), None).await;
         assert_eq!(d["deleted"], 1);
         assert_eq!(files(&me), 1, "the in-flight upload's folder stays");
+        assert!(!orphan.exists());
         std::fs::remove_dir_all(&pending).unwrap();
         assert_eq!(files(&me), 0);
         let (status, _) = testutil::send(&app, Method::GET, "/api/scan/diagnostics", None, None).await;

@@ -216,6 +216,8 @@ async fn secrets_stay_hidden_while_viewing() {
         "/api/scan/diagnostics",
         "/api/scan/diagnostics/00000000-0000-0000-0000-000000000000",
         "/api/scan/diagnostics/00000000-0000-0000-0000-000000000000/images/strip",
+        // and their timing records.
+        "/api/scan/diagnostics/timings",
     ] {
         let (status, answer, _) = call(&w.app, Method::GET, path, Some(&w.admin), &cookies, None, false).await;
         assert_eq!(status, StatusCode::FORBIDDEN, "{path}: {answer}");

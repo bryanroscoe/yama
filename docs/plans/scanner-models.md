@@ -3,11 +3,13 @@
 Status: in progress, updated 20 Nov 2026.
 - **Shipped, 18 Nov:** locking on the art's lead (PR #166), and our own art model (PR #167,
   `yama-art-20261118`).
-- **Shipped, 20 Nov:** switching models per device in Scan settings, with a server switch to withdraw a
-  model (PR #170). The printing look now orders the printing list (PR #172).
+- **Shipped, 20 Nov:**
+  - switching models per device in Scan settings, with a server switch to withdraw a model (PR #170);
+  - the printing look ordering the printing list (PR #172);
+  - under Scanner diagnostics, a timing record for every card settled (PR #171);
+  - full-resolution set-symbol and collector-strip crops with each scan photo (PR #171).
 - **Pinning next:** the look model v1, which puts the right printing first on 86.7% of the test photos.
-- **In progress:** timings of smooth scans and full-resolution crops with scan photos (PR #171). Speed work
-  after CardVision (PRs #169 and #174).
+- **In progress:** speed work after CardVision (PRs #169 and #174).
 - **Waiting:** CollectorVision's licence, asked 20 Nov (now optional), and the server fallback; see
   "Decisions for Bryan".
 
@@ -52,8 +54,9 @@ rule. The live camera settles on a lead only when the same card leads on two fra
 in `fuse.ts`); a still photo settles on one. So the live gain is "settled after two art-only frames, with no
 title read" for most cards, not "on the first frame". It hasn't been timed on a phone. Scanner diagnostics
 keep only scans that struggle (over 3 s to find, or corrected), with the rule that settled each. They show
-what still stalls but can't measure the overall gain. PR #171 adds a light record of every settled scan,
-so it can be measured.
+what still stalls but can't measure the overall gain. Since 20 Nov 2026 they also keep a timing record for
+every card settled (`get_scan_timings`, PR #171), so it can be measured once someone scans with the switch
+on.
 
 | Experiment | Result on the real photos | Verdict |
 |---|---|---|
@@ -153,7 +156,9 @@ Next, in order:
 2. **The look as evidence for the collector line.** A look leader that the collector line half-read
    settles sooner. Visual twins go to the collector line, and the picker remains the last step.
 3. **Full resolution.** The 98 photos are 640 px and one person's, so differences under about 5 points are
-   noise. PR #171 keeps full-resolution set-symbol crops with scan photos; train and measure on those.
+   noise. Since 20 Nov 2026 (PR #171) each kept scan photo has its set symbol's area and collector strip at
+   full resolution (`scan-samples-export` writes them beside the photos), and Scanner diagnostics keep the
+   same `symbol` crop beside `strip`. Train and measure on those.
 4. **The card half** (weight 0.2) is v0's: retrain it the way the symbol half was.
 
 ## Matching CardVision (app.mtgscan.org)
