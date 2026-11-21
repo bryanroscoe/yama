@@ -16,7 +16,8 @@
 // - The server's vectors: with SCANNER_LOOK_SERVER too (`yama-server scan-looks --embed MODEL --out
 //   server.json <the printings' JPEGs>`, server/src/scan_look.rs), each photo is also scored with
 //   the server's vectors for its printings, and they must rank every photo's printings as the
-//   vectors made here do, each within a cosine of 0.999. Give SCANNER_LOOK_PRINTINGS as <id>.rgba
+//   vectors made here do (printings scored within 1e-3 of each other, such as a basic land's many
+//   printings of one picture, count as tied), each within a cosine of 0.999. Give SCANNER_LOOK_PRINTINGS as <id>.rgba
 //   decoded by libjpeg-turbo (Chrome, or OpenCV) for the phone's own pixels: jpeg-js decodes a little
 //   differently.
 // Skipped in `npm test`.
@@ -117,7 +118,9 @@ describe.skipIf(!MODEL)("the printing look model in onnxruntime-web", () => {
       }
       return d / Math.sqrt(na * nb);
     };
-    const order = (xs: number[]) => xs.map((_, i) => i).sort((a, b) => xs[b]! - xs[a]!);
+    /** Whether `there` puts two printings the other way round from `here`, where `here` doesn't tie them. */
+    const TIE = 1e-3;
+    const swapped = (here: number[], there: number[]) => here.some((a, i) => here.some((b, j) => a - b > TIE && there[i]! <= there[j]!));
     for (const c of cases) {
       const t0 = performance.now();
       const q = await embedLook(s, Tensor, picture(PHOTOS!, c.photo), c.quad);
@@ -144,11 +147,11 @@ describe.skipIf(!MODEL)("the printing look model in onnxruntime-web", () => {
           leastCosine = Math.min(leastCosine, cosine(keys.get(id)!.symbol, s!.symbol), cosine(keys.get(id)!.card, s!.card));
           return lookScore(q, { symbol: Float32Array.from(s!.symbol), card: Float32Array.from(s!.card) });
         });
-        if (order(theirs).join() === order(scores).join()) sameOrder += 1;
+        if (!swapped(scores, theirs)) sameOrder += 1;
       }
     }
     if (server) {
-      console.log(`Server's vectors: the same order of printings on ${sameOrder} of ${cases.length} photos; least cosine with those made here ${leastCosine.toFixed(6)}.`);
+      console.log(`Server's vectors: the same order of printings (ties within ${TIE} aside) on ${sameOrder} of ${cases.length} photos; least cosine with those made here ${leastCosine.toFixed(6)}.`);
       expect(leastCosine).toBeGreaterThanOrEqual(0.999);
       expect(sameOrder).toBe(cases.length);
     }

@@ -45,23 +45,47 @@ fn jpeg(w: u32, h: u32, shade: u8) -> Vec<u8> {
     out.into_inner()
 }
 
+/// A lossless WebP of this RGBA picture.
+fn webp(w: u32, h: u32, px: impl Fn(u32, u32) -> [u8; 4]) -> Vec<u8> {
+    let img = image::RgbaImage::from_fn(w, h, |x, y| image::Rgba(px(x, y)));
+    let mut out = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut out, image::ImageFormat::WebP).unwrap();
+    out.into_inner()
+}
+
+#[test]
+fn a_webp_comes_out_as_the_browsers_canvas_has_it() {
+    // Opaque, translucent and transparent pixels, as on a card's rounded corner.
+    let bytes = webp(4, 1, |x, _| [[200, 100, 50, 255], [17, 21, 24, 252], [7, 9, 200, 102], [80, 90, 100, 0]][x as usize]);
+    let (px, w, h) = decode_picture(&bytes).unwrap();
+    assert_eq!((w, h), (4, 1));
+    // Opaque: as stored. Translucent: premultiplied by libwebp's rule and back (Chrome's numbers
+    // for these, from its getImageData). Transparent: black.
+    assert_eq!(px, vec![200, 100, 50, 255, 16, 20, 23, 252, 5, 8, 200, 102, 0, 0, 0, 0]);
+    let mut one = [17u8, 21, 24, 30];
+    canvas_round_trip(&mut one);
+    assert_eq!(one, [17, 17, 17, 30]);
+    // Not a picture at all.
+    assert!(decode_picture(b"RIFF\x10\0\0\0WEBPVP8 broken").is_err());
+}
+
 #[test]
 fn pictures_are_decoded_to_rgba_and_broken_ones_refused() {
-    let (px, w, h) = decode_jpeg(&jpeg(48, 32, 200)).unwrap();
+    let (px, w, h) = decode_picture(&jpeg(48, 32, 200)).unwrap();
     assert_eq!((w, h, px.len()), (48, 32, 48 * 32 * 4));
     assert!(px.chunks_exact(4).all(|p| p[3] == 255 && p[0].abs_diff(200) < 8 && p[2].abs_diff(100) < 8));
     // A grey JPEG comes out as RGBA too.
     let grey = image::GrayImage::from_fn(16, 8, |_, _| image::Luma([90]));
     let mut out = std::io::Cursor::new(Vec::new());
     grey.write_to(&mut out, image::ImageFormat::Jpeg).unwrap();
-    let (px, w, h) = decode_jpeg(&out.into_inner()).unwrap();
+    let (px, w, h) = decode_picture(&out.into_inner()).unwrap();
     assert_eq!((w, h), (16, 8));
     assert!(px.chunks_exact(4).all(|p| p[0] == p[1] && p[1] == p[2] && p[0].abs_diff(90) < 4));
     // Not a JPEG, or one cut short: an error for that picture, never a crash.
-    assert!(decode_jpeg(b"GIF89a....").is_err());
+    assert!(decode_picture(b"GIF89a....").is_err());
     let whole = jpeg(64, 64, 10);
-    assert!(decode_jpeg(&whole[..40]).is_err());
-    assert!(decode_jpeg(&[0xFF, 0xD8, 0xFF, 0xE0, 0, 0]).is_err());
+    assert!(decode_picture(&whole[..40]).is_err());
+    assert!(decode_picture(&[0xFF, 0xD8, 0xFF, 0xE0, 0, 0]).is_err());
 }
 
 #[test]
@@ -160,7 +184,8 @@ fn fake(asked: Arc<StdMutex<Vec<String>>>, missing: &'static str, loads: Arc<Std
     Deps {
         fetch: Arc::new(move |u: String| {
             asked.lock().unwrap().push(u.clone());
-            Box::pin(async move { Ok(if u.contains(missing) { Fetched::Missing } else { Fetched::Image(jpeg(24, 32, if u.contains("/back/") { 220 } else { 30 })) }) })
+            // Back faces as Scryfall's WebP, fronts as the older JPEG.
+            Box::pin(async move { Ok(if u.contains(missing) { Fetched::Missing } else if u.contains("/back/") { Fetched::Image(webp(24, 32, |_, _| [220, 30, 30, 255])) } else { Fetched::Image(jpeg(24, 32, 30)) }) })
         }),
         load: Arc::new(move |path: &Path, sha: &str| {
             assert!(path.ends_with(format!("look-{}.onnx", &sha[..12])), "{path:?}");
@@ -413,7 +438,7 @@ fn the_real_model_matches_onnxruntime() {
         hex::encode(sha2::Sha256::digest(std::fs::read(&path).unwrap()))
     };
     let runner = LookRunner::load(Path::new(&path), &sha).unwrap();
-    let (rgba, w, h) = decode_jpeg(&jpeg(488, 680, 90)).unwrap();
+    let (rgba, w, h) = decode_picture(&jpeg(488, 680, 90)).unwrap();
     let v = runner.embed(&rgba, w, h).unwrap();
     let norm = |x: &[f32]| x.iter().map(|a| a * a).sum::<f32>().sqrt();
     assert!((norm(&v.symbol) - 1.0).abs() < 1e-4 && (norm(&v.card) - 1.0).abs() < 1e-4);

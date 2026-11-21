@@ -6,15 +6,21 @@
 //! picture once per look model and the phone asks for them first (`GET /api/scan/looks`), making
 //! only what's missing itself.
 //!
-//! - **Exactly the phone's numbers.** The phone decodes a picture with its browser (Chrome and
-//!   Android's WebView use libjpeg-turbo; Safari uses Apple's own decoder, which may differ a
-//!   little) and runs the model with onnxruntime-web. Here the JPEG is decoded by
-//!   libjpeg-turbo's own code (MozJPEG's decoder) and the model runs in tract. tract runs the look
+//! - **Exactly the phone's numbers.** The phone decodes a picture with its browser onto a canvas
+//!   and runs the model with onnxruntime-web. The card data's `normal` pictures are Scryfall's
+//!   WebP `grid` ones (since 14 Oct 2026; older rows are JPEG). Chrome, and so Android's WebView,
+//!   decodes WebP with libwebp and JPEG with libjpeg-turbo, and its canvas keeps pixels
+//!   premultiplied, which changes the colour of a translucent pixel (the card's rounded corners).
+//!   Here a WebP is decoded by the image crate's decoder (the same pixels as libwebp on every
+//!   picture measured) and put through that round trip ([`canvas_round_trip`]); a JPEG by
+//!   libjpeg-turbo's own code (MozJPEG's decoder). Safari decodes with Apple's own, which may
+//!   differ a little. The model runs in tract. tract runs the look
 //!   graph as it is, but its GridSample (the warp inside the graph) takes about 290 ms an image on
 //!   an M3 Pro against 10 ms for the networks, so the graph is split at its GridSample nodes: tract
 //!   computes their image and sampling grid from the model's own nodes, [`grid_sample`] samples as
-//!   onnxruntime's CPU kernel does, and tract runs the rest. Measured on 644 Scryfall pictures
-//!   against Chrome and onnxruntime-web: the same pixels and cosine 1.000000 (docs/scanner.md).
+//!   onnxruntime's CPU kernel does, and tract runs the rest. Measured on 644 Scryfall pictures,
+//!   WebP and JPEG, against Chrome and onnxruntime-web: the same pixels (a few corner pixels one
+//!   level off in the WebPs) and cosine 1.000000 (docs/scanner.md).
 //! - **Checked at every load:** a model's runner must reproduce onnxruntime's outputs on the
 //!   synthetic scenes in `web/src/scanner/eval/look-parity-*.json` (scanner-lab/look_parity.py)
 //!   within `PARITY_BOUND`, or it makes nothing (phones make their own). A look model without such a
@@ -304,10 +310,49 @@ fn parity_scene(w: usize, h: usize) -> Vec<u8> {
     d
 }
 
+/// A printing's picture as RGBA, as the phone's browser has it on its canvas (module notes): a
+/// WebP or a JPEG; anything else is refused.
+pub fn decode_picture(bytes: &[u8]) -> anyhow::Result<(Vec<u8>, usize, usize)> {
+    if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        return decode_webp(bytes);
+    }
+    decode_jpeg(bytes)
+}
+
+/// A WebP as RGBA through the browser's canvas: the image crate's decoder (image-webp, the same
+/// pixels as libwebp), then [`canvas_round_trip`].
+fn decode_webp(bytes: &[u8]) -> anyhow::Result<(Vec<u8>, usize, usize)> {
+    let reader = || image::ImageReader::with_format(std::io::Cursor::new(bytes), image::ImageFormat::WebP);
+    let (w, h) = reader().into_dimensions().context("reading the picture")?;
+    let (w, h) = (w as usize, h as usize);
+    anyhow::ensure!(w > 0 && h > 0 && w <= MAX_SIDE && h <= MAX_SIDE, "the picture is {w} × {h}");
+    let mut px = reader().decode().context("decoding the picture")?.to_rgba8().into_raw();
+    anyhow::ensure!(px.len() == w * h * 4, "the picture decoded short");
+    canvas_round_trip(&mut px);
+    Ok((px, w, h))
+}
+
+/// What a browser's canvas does to a translucent pixel's colour (Chrome's: measured on the
+/// rounded corners of 644 Scryfall WebPs, all but 0.0001% of values the same, the rest one level
+/// off): libwebp premultiplies it by its alpha (`(c × a × 32897) >> 23`) and `getImageData`
+/// divides it back out, rounded; a transparent one comes back black. Opaque pixels are untouched.
+pub fn canvas_round_trip(px: &mut [u8]) {
+    for p in px.chunks_exact_mut(4) {
+        let a = u32::from(p[3]);
+        if a == 255 {
+            continue;
+        }
+        for c in &mut p[..3] {
+            let pre = (u32::from(*c) * a * 32897) >> 23;
+            *c = if a == 0 { 0 } else { ((pre * 255 + a / 2) / a).min(255) as u8 };
+        }
+    }
+}
+
 /// A JPEG as RGBA, decoded by libjpeg-turbo's code (MozJPEG's decoder): the pixels a browser
 /// built on libjpeg-turbo gives (Chrome's; checked on 644 Scryfall pictures).
-pub fn decode_jpeg(bytes: &[u8]) -> anyhow::Result<(Vec<u8>, usize, usize)> {
-    anyhow::ensure!(bytes.starts_with(&[0xFF, 0xD8, 0xFF]), "not a JPEG");
+fn decode_jpeg(bytes: &[u8]) -> anyhow::Result<(Vec<u8>, usize, usize)> {
+    anyhow::ensure!(bytes.starts_with(&[0xFF, 0xD8, 0xFF]), "not a JPEG or WebP");
     // The decoder reports a broken file by unwinding; caught here, it's that file's failure.
     let decoded = std::panic::catch_unwind(|| -> std::io::Result<(Vec<u8>, usize, usize)> {
         let d = mozjpeg::Decompress::new_mem(bytes)?;
@@ -579,7 +624,7 @@ async fn make_one(url: &str, fetch: &Fetch, runner: &Arc<dyn LookEmbed>, pause: 
     };
     let runner = runner.clone();
     tokio::task::spawn_blocking(move || {
-        let (rgba, w, h) = decode_jpeg(&bytes)?;
+        let (rgba, w, h) = decode_picture(&bytes)?;
         runner.embed(&rgba, w, h)
     })
     .await
@@ -824,7 +869,7 @@ pub fn spawn(pool: SqlitePool, data_dir: PathBuf, http: reqwest::Client, off: Wi
 }
 
 /// `yama-server scan-looks [--limit N]`: a run by hand. `yama-server scan-looks --embed MODEL.onnx
-/// --out VECTORS.json PICTURE.jpg…`: the vectors this server makes for those pictures, by file
+/// --out VECTORS.json PICTURE…` (WebP or JPEG): the vectors this server makes for those pictures, by file
 /// name, for comparing with the phone's (web/src/scanner/eval/look.test.ts, `SCANNER_LOOK_SERVER`).
 pub async fn cli(pool: &SqlitePool, cfg: &crate::config::Config, args: &[String]) -> anyhow::Result<()> {
     let value = |flag: &str| args.iter().position(|a| a == flag).and_then(|i| args.get(i + 1)).cloned();
@@ -845,7 +890,7 @@ pub async fn cli(pool: &SqlitePool, cfg: &crate::config::Config, args: &[String]
                 continue;
             }
             let path = Path::new(&args[i]);
-            let (rgba, w, h) = decode_jpeg(&std::fs::read(path)?).with_context(|| path.display().to_string())?;
+            let (rgba, w, h) = decode_picture(&std::fs::read(path)?).with_context(|| path.display().to_string())?;
             let v = runner.embed(&rgba, w, h)?;
             let name = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
             vectors.insert(name, serde_json::json!({"symbol": v.symbol, "card": v.card}));

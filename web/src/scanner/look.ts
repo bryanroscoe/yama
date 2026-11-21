@@ -8,9 +8,10 @@
 // Each printing's picture is embedded once per look model by Yama's server too
 // (server/src/scan_look.rs, 21 Nov 2026): the look's worker asks it for the printings this device
 // hasn't embedded yet (`GET /api/scan/looks`, through artClient.ts) and makes only what it doesn't
-// have, so a phone rarely fetches a picture from Scryfall. The server decodes with libjpeg-turbo, as
-// Chrome and Android's WebView do, and gives the same numbers there (docs/scanner.md, "Vectors from
-// the server"); Safari decodes with Apple's own, which may differ a little.
+// have, so a phone rarely fetches a picture from Scryfall. The server decodes a picture as Chrome and
+// Android's WebView do onto a canvas (libwebp's pixels for a WebP, then the canvas's premultiplied
+// round trip; libjpeg-turbo for a JPEG) and gives the same numbers there (docs/scanner.md, "Vectors
+// from the server"); Safari decodes with Apple's own, which may differ a little.
 //
 // The model has the bundle's embed.onnx interface: `scene` (H × W × 4 RGBA uint8) and `quad`
 // (4 × 2 float32, the card's corners from top-left, clockwise, in scene pixels); it warps the card

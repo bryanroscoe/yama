@@ -749,10 +749,12 @@ the vectors (docs/scanner.md, "Vectors from the server").
   two, each 100 ms after the last ended), pictures dropped once embedded. About 80,000 pictures (some 10 GB downloaded
   once) and 40 MB of vectors per model (float16, `scan_looks`, keyed by the model file's SHA-256
   and the picture's URL). `YAMA_SCAN_LOOKS=0` stops making them.
-- **The same numbers as the phone.** The JPEG is decoded by libjpeg-turbo's code (MozJPEG's
-  decoder, built from source, no SIMD), as Chrome and Android's WebView decode it (Safari's own
-  decoder may differ a little); the image crate's decoder differs on
-  about 8% of values, enough to change one photo's ranking of 98. tract runs the model split at its
+- **The same numbers as the phone.** The pictures are Scryfall's WebP `grid` ones (older rows
+  JPEG). The server decodes them as Chrome and Android's WebView do, onto a canvas: a WebP with
+  libwebp's pixels, then the canvas's premultiply-and-back that changes the card's translucent
+  corners; a JPEG with libjpeg-turbo's code (MozJPEG's decoder, built from source, no SIMD), where
+  the image crate's decoder differs on about 8% of values, enough to change one photo's ranking of
+  98. Safari's own decoders may differ a little. tract runs the model split at its
   GridSample warp, which the server samples itself as onnxruntime's kernel does (tract's own takes
   about 290 ms an image, the rest 10 ms). Every load is checked against onnxruntime's outputs in
   the repository's parity files, and a model without one gets no vectors here. On 644 real
