@@ -683,9 +683,10 @@ frame still wasn't settled while the set code was misread.
   stay as they were (The List, a promo suffix and Mystery Booster still go to the picker). Such a
   settle is shown and filed like any other collector-line settle, with Wrong printing, and its
   verdict in Scanner diagnostics says `alone: true` so these can be counted apart.
-- **What OCR's spacing hides is read too:** a number split by a space ("02 86"), a set code split in
-  two, a set code glued to its language or the artist's name through the bullet or the brush mark
-  ("MOMEENJRYAN"), and a rarity letter glued to the number ("0286M").
+- **What OCR's spacing hides is read too:** a zero-padded number split by a space ("02 86") and a
+  rarity letter glued to the number ("0286M"). A set code split in two or glued to its language
+  through the bullet or the brush mark ("MOMEENJRYAN") is never proof (it could be the rarity and
+  number, or an artist's name); it only holds a number-only settle back when it names another set.
 - **The hold-and-read attempt waits longer:** 6 s without the card in view, not 2.5 s, before it
   stops, and 12 s, not 8 s, before the close-up box takes over (`HOLD_BUDGET`).
 - **The sheet shows what matters:** each printing to pick leads with its number, then its set code

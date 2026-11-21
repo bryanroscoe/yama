@@ -149,11 +149,16 @@ const GLUED_LANG = new RegExp(
 
 /**
  * The upper-case letter and digit runs of one read ("0145 C", "WOC • EN"), totals and P/T taken
- * out. Then what OCR's spacing hides (Bryan, 21 Nov 2026: "it struggles with the spaces and the
- * little brush stroke thing really throws it off"): a number split by a stray space ("02 86") is
- * also read whole, and so is a set code split in two on one line ("M 19"); a set code glued to
- * its language, or the language to the artist's name through the brush mark, gives its set code
- * and language too. The extra runs come after the read ones and never replace them.
+ * out, and a zero-padded number split by a stray space ("02 86", "0 286": Bryan, 21 Nov 2026, "it
+ * struggles with the spaces") read whole too, after the runs as read. Only a zero-padded one, as
+ * printed since 2015: two plain numbers side by side are more often power and toughness read
+ * without the slash ("2 2"). A merged number has no letters, so its parts can't prove the set code.
+ *
+ * Set codes split or glued by OCR ("M 19", "MOMEENJRYAN": the bullet or the artist's brush read as
+ * a letter) are not read here, as proof: built from runs that may be something else (the rarity
+ * letter and the number, an artist's name), they could prove a set code nobody read (Codex reviews
+ * of #180). They only hold a settle back (printedSets, FieldScores.setAgainst); a card whose set
+ * code is lost that way settles on its number when that's enough (numberAlone).
  */
 export const tokens = (text: string) => {
   const clean = withoutTotals(text).toUpperCase();
@@ -163,25 +168,18 @@ export const tokens = (text: string) => {
     const runs = line.split(/[^A-Z0-9]+/).filter(Boolean);
     for (let i = 0; i + 1 < runs.length; i += 1) {
       const [a, b] = [runs[i]!, runs[i + 1]!];
-      // Only a split zero-padded number ("02 86", "0 286"), as printed since 2015: two plain numbers
-      // side by side are more often power and toughness read without the slash ("2 2").
       if (/^0\d*$/.test(a) && /^\d+[A-Z]?$/.test(b) && a.length + b.length >= 3 && a.length + b.length <= 5) extra.push(a + b);
-      else if (a.length <= 2 && b.length <= 2 && a.length + b.length >= 3 && /[A-Z]/.test(a + b) && !(a in LANGS) && !(b in LANGS)) extra.push(a + b);
     }
-    // A glued set code and language starts its line, where the set code is printed: an artist's
-    // name later on the line ("DOMENICO", "JONES") isn't split into a set code and a language.
-    const first = runs[0];
-    const m = first && first.length >= 5 ? GLUED_LANG.exec(first) : null;
-    if (m) extra.push(m[1]!, m[2]!);
   }
   return [...read, ...extra.filter((t) => !read.includes(t))];
 };
 
 /**
- * What a line of the read shows where the set code is printed, before the language: the run before
- * it ("QRS • EN"), the two short runs before it read as one ("QR S • EN"), as tokens() reads them,
- * and a set code glued to its language at the line's start ("QRSENJRYAN"). For telling when the
- * line names a set code that isn't a printing's (FieldScores.setAgainst).
+ * What a line of the read may show where the set code is printed, before the language: the run
+ * before it ("QRS • EN"), the two short runs before it read as one ("QR S • EN"), and a set code
+ * glued to its language at the line's start ("QRSENJRYAN"). Only for holding a settle back when the
+ * line may name a set code that isn't a printing's (FieldScores.setAgainst), never as proof: an
+ * artist's name can look like one ("DOMENICO").
  */
 export function printedSets(line: string): string[] {
   const runs = line.toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean);

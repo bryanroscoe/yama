@@ -115,19 +115,29 @@ describe("collector-line evidence", () => {
     clear.add(["0145 C"]);
     clear.add(["0145 C"]);
     expect(clear.verdict()).toMatchObject({ kind: "settled", id: "abc", alone: true });
-    // An artist's name later on the line isn't a glued set code and language.
-    expect(tokens("DMU • EN DOMENICO CAVA")).not.toContain("DOM");
   });
 
   it("reads through stray spaces, a glued rarity letter and the brush mark", () => {
     const cards = [p("mom", "mom", "286", { rarity: "mythic" }), p("one", "one", "12", { rarity: "mythic" }), p("woe", "woe", "331", { rarity: "mythic" })];
     expect(tokens("02 86 M")).toContain("0286");
-    expect(tokens("M 19 • EN")).toContain("M19");
-    expect(tokens("MOMEENJRYAN VALLE")).toEqual(expect.arrayContaining(["MOM", "EN"]));
     expect(verdict(cards, [["0286M", "MOM•ENJRYAN VALLE"]])).toMatchObject({ kind: "settled", id: "mom" });
-    expect(verdict(cards, [["02 86 M\nMOMEEN/RYAN VALLE"]])).toMatchObject({ kind: "settled", id: "mom" });
+    // The set code lost to the brush mark ("MOMEEN"): the split number, read twice, is enough here.
+    expect(verdict(cards, Array(2).fill(["02 86 M\nMOMEEN/RYAN VALLE"]))).toMatchObject({ kind: "settled", id: "mom", alone: true });
     // A glued letter that isn't the printing's rarity stays part of the number.
     expect(verdict([p("plain", "10e", "139"), p("star", "10e", "139s")], Array(2).fill(["139S", "10E • EN"]))).toMatchObject({ kind: "settled", id: "star" });
+  });
+
+  // Codex reviews of #180: set codes made up from split or glued runs never prove anything.
+  it("never proves a set code from split or glued runs", () => {
+    // "M 19 • EN" as rarity M and number 19: not set M19.
+    expect(tokens("M 19 • EN")).not.toContain("M19");
+    const nineteen = [p("m19", "m19", "19"), p("ori", "ori", "19"), p("c21", "c21", "300")];
+    expect(verdict(nineteen, Array(6).fill(["M 19 • EN"])).kind).toBe("unsure");
+    // An artist's name first on a line isn't set DOM.
+    expect(tokens("DOMENICO CAVA")).not.toContain("DOM");
+    // (46 is one edit from 45, so the number alone can't settle it: only a made-up DOM could.)
+    const dom = [p("dom", "dom", "45"), p("m21", "m21", "46")];
+    expect(verdict(dom, Array(6).fill(["0045", "DOMENICO CAVA"])).kind).toBe("unsure");
   });
 
   it("needs only the number on frames before 2014, which print no set code (over two frames: a number alone is less evidence)", () => {
