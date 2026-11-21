@@ -945,7 +945,8 @@ pub async fn track_build(st: &AppState, user: &User, via: &Via, args: &Value) ->
                     kind: "track_build",
                     summary: format!("Stop tracking {deck_name}'s plan"),
                     detail: "Its swaps, marks and answers are kept; tracking a build again brings them back.".into(),
-                    payload: json!({"note_id": note_id, "deck_key": deck_key, "build_id": null, "plan_deck_key": key, "deck": deck_name}),
+                    payload: json!({"note_id": note_id, "deck_key": deck_key, "build_id": null, "plan_deck_key": key, "deck": deck_name, "title": title,
+                                    "asked": asked, "conversation": conversation, "asked_on": Utc::now().format("%Y-%m-%d").to_string()}),
                 },
             )
             .await;
@@ -1136,7 +1137,23 @@ async fn apply_track_build(st: &AppState, user: &User, id: &str, p: &Value) -> A
                 .bind(&deck_key)
                 .fetch_optional(&st.pool)
                 .await?;
-            crate::plan::notes::stop(&st.pool, &user.id, &key.ok_or(AppError::NotFound("plan deck"))?).await?;
+            let key = key.ok_or(AppError::NotFound("plan deck"))?;
+            crate::plan::notes::stop(&st.pool, &user.id, &key).await?;
+            let opt = |k: &str| p[k].as_str().map(String::from);
+            if opt("asked").is_some() || opt("conversation").is_some() {
+                let e = crate::plan::history::Entry {
+                    on: opt("asked_on").filter(|d| crate::plan::model::is_date(d)).unwrap_or_else(|| Utc::now().format("%Y-%m-%d").to_string()),
+                    what: format!("Stopped tracking the note \"{}\"; the plan is archived.", opt("title").unwrap_or_else(|| note_id.clone())),
+                    asked: opt("asked"),
+                    conversation: opt("conversation"),
+                    work: Some(format!("note {note_id}")),
+                    group: None,
+                    cards: vec![],
+                };
+                if let Err(err) = crate::plan::history::record(&st.pool, &user.id, &key, &e, Some(&format!("{DEVICE}-{id}")), None, "staged").await {
+                    tracing::warn!("plan history for a staged stop: {err}");
+                }
+            }
             Ok(json!({"label": format!("Stopped tracking {}'s plan", p["deck"].as_str().unwrap_or("the deck")), "link": "/decks/plans"}))
         }
     }

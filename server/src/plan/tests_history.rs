@@ -121,6 +121,9 @@ async fn a_plans_history_says_where_it_and_each_change_came_from() {
     assert!(!err, "{text}");
     let (_, text) = call(&app, &key, "get_plan_history", json!({"plan": "alpha", "card": "proposal"})).await;
     assert!(text.contains("want (Yama, taking a version in); ") && text.contains("no \"Superseded\" (through an assistant)"), "{text}");
+    let (_, text) = call(&app, &key, "get_plan_history", json!({"plan": "alpha"})).await;
+    assert!(text.contains(": Answered no on Proposal Card for Sol Ring: \"Superseded\" (through an assistant)."), "the plan's timeline has their answers too: {text}");
+    assert!(!text.contains("Answered want on"), "Yama's own answers are its versions: {text}");
     let (_, text) = call(&app, &key, "get_plan_history", json!({"plan": "alpha", "card": "Spare Card"})).await;
     assert!(text.contains("Spare Card (nothing named to cut)") && text.contains("left it out: Spare Card names no card to cut.") && text.contains("Nobody has recorded where this change came from"), "{text}");
 
@@ -182,9 +185,18 @@ async fn the_history_follows_renamed_keys_and_knows_the_cards_a_change_cuts() {
     .unwrap();
     let (err, text) = call(&app, &key, "get_plan_history", json!({"plan": "alpha", "card": "Spare Card"})).await;
     assert!(!err && text.contains("(Yama, taking a version in); 2098-06-01 want \"From the review site\" (from the plan file)."), "{text}");
+    let (_, text) = call(&app, &key, "get_plan_history", json!({"plan": "alpha"})).await;
+    assert!(text.contains("- 2098-06-01: The plan file's answer on Spare Card (nothing named to cut): want \"From the review site\"."), "{text}");
     // An entry naming the card a change takes out is part of that change's story.
     let (err, text) = call(&app, &key, "record_plan_history", json!({"plan": "alpha", "on": "2026-10-20", "what": "Sol Ring comes out for a proposal.", "cards": ["sol ring"]})).await;
     assert!(!err && text.contains("It is about Sol Ring."), "{text}");
     let (err, text) = call(&app, &key, "get_plan_history", json!({"plan": "alpha", "card": "Sol Ring"})).await;
     assert!(!err && text.contains("Proposal Card for Sol Ring (proposal") && text.contains("- Recorded 2026-10-20 (recorded ") && text.contains("Sol Ring comes out for a proposal."), "{text}");
+    // A retry with its op_id is the entry stored, even after the plan renamed a card it names.
+    let entry = json!({"plan": "alpha", "on": "2026-10-21", "what": "Before a rename.", "cards": ["Spare Card"], "op_id": "history-0002"});
+    let (err, text) = call(&app, &key, "record_plan_history", entry.clone()).await;
+    assert!(!err && text.contains("Recorded in"), "{text}");
+    sqlx::query("UPDATE plan_swaps SET in_name = 'Spare Card Renamed' WHERE owner_id = ? AND ext_key = 'alpha-owned'").bind(&owner).execute(&pool).await.unwrap();
+    let (err, text) = call(&app, &key, "record_plan_history", entry).await;
+    assert!(!err && text.contains("already in Alpha Deck's history"), "{text}");
 }

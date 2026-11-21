@@ -119,6 +119,45 @@ pub async fn record(pool: &SqlitePool, owner: &str, plan: &str, e: &Entry, op_id
         return Err(AppError::bad("what is missing: say what happened"));
     }
     let (plan_id, deck_key, deck) = plan_of(pool, owner, plan).await?;
+    // A retry with its op_id is the entry already stored, even if the plan has changed since and
+    // would no longer take the group or cards as given (they were checked the first time).
+    if let Some(op) = op_id {
+        #[allow(clippy::type_complexity)]
+        let stored: Option<(String, String, String, String, Option<String>, Option<String>, Option<String>, Option<String>, String)> = sqlx::query_as(
+            "SELECT id, plan_deck_id, on_date, what, asked, conversation, work, group_label, cards FROM plan_history WHERE owner_id = ? AND op_id = ?",
+        )
+        .bind(owner)
+        .bind(op)
+        .fetch_optional(pool)
+        .await?;
+        if let Some((id, p, on_date, w, asked, conversation, work, g, c)) = stored {
+            let given_group = e.group.as_deref().map(str::trim).filter(|g| !g.is_empty());
+            let same_group = match (given_group, g.as_deref()) {
+                (None, None) => true,
+                (Some(a), Some(b)) => a.eq_ignore_ascii_case(b),
+                _ => false,
+            };
+            let stored_cards: Vec<String> = serde_json::from_str(&c).unwrap_or_default();
+            let mut given: Vec<String> = e.cards.iter().map(|c| c.trim().to_lowercase()).collect();
+            given.dedup();
+            let mut kept: Vec<String> = stored_cards.iter().map(|c| c.to_lowercase()).collect();
+            given.sort();
+            given.dedup();
+            kept.sort();
+            let same = p == plan_id
+                && on_date == e.on
+                && w == e.what.trim()
+                && asked == e.asked
+                && conversation == e.conversation
+                && work == e.work
+                && same_group
+                && given == kept;
+            if !same {
+                return Err(AppError::Conflict(format!("op_id {op} was used for another entry; use a new op_id for a new one")));
+            }
+            return Ok(Recorded { id, deck_key, deck, again: true, group: g, cards: stored_cards });
+        }
+    }
     let group = match e.group.as_deref().map(str::trim).filter(|g| !g.is_empty()) {
         None => None,
         Some(g) => {
@@ -775,13 +814,63 @@ pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>
     for e in &entries {
         events.push((e.on_date.clone(), 2, format!("Recorded (entry {}, recorded {}): {}", e.id, day(&e.recorded_at), e.body())));
     }
+    // Answers as they arrived, by people (Yama's own, taking a version in, are the versions
+    // above), and the plan file's own answer where it stands: each with the change it's on.
+    let label_of: HashMap<&str, String> = swaps.iter().map(|s| (s.ext_key.as_str(), s.label())).collect();
+    let ops: Vec<(Option<String>, String, String, String)> = sqlx::query_as(
+        "SELECT device_id, swap_key, payload, client_at FROM plan_inputs
+         WHERE owner_id = ? AND kind = 'review' AND status = 'applied' AND substr(op_id, 1, 8) != '!settle-' ORDER BY client_at, seq",
+    )
+    .bind(owner)
+    .fetch_all(pool)
+    .await?;
+    let mut said: Vec<(String, String)> = Vec::new();
+    for (device, key, payload, at) in ops {
+        let change = match label_of.get(key.as_str()) {
+            Some(l) => l.clone(),
+            None => match super::resolve_key(&key, &live_keys, &aliases).and_then(|k| label_of.get(k.as_str()).cloned()) {
+                Some(l) => l,
+                None => continue,
+            },
+        };
+        let p: Value = serde_json::from_str(&payload).unwrap_or(Value::Null);
+        let note = p["note"].as_str().filter(|n| !n.trim().is_empty()).map(|n| format!(": \"{n}\"")).unwrap_or_default();
+        let who = if device.as_deref() == Some("claude") { "through an assistant" } else { "in Yama" };
+        let what = match p["decision"].as_str() {
+            Some(d) => format!("Answered {d} on {change}{note} ({who})."),
+            None => format!("Cleared the answer on {change} ({who})."),
+        };
+        said.push((day(&at).to_string(), what));
+    }
+    for s in &swaps {
+        if let Some((d, note, at, origin)) = answers.get(&s.ext_key)
+            && origin == "import"
+        {
+            let note = note.as_deref().filter(|n| !n.trim().is_empty()).map(|n| format!(" \"{n}\"")).unwrap_or_default();
+            said.push((day(at).to_string(), format!("The plan file's answer on {}: {}{note}.", s.label(), d.as_deref().unwrap_or("cleared"))));
+        }
+    }
+    said.sort_by(|a, b| a.0.cmp(&b.0));
+    const ANSWERS_SHOWN: usize = 60;
+    let more = said.len().saturating_sub(ANSWERS_SHOWN);
+    // The newest ones, when there are many.
+    for (on, what) in said.into_iter().skip(more) {
+        events.push((on, 2, what));
+    }
+    if more > 0 {
+        events.push((String::new(), 0, format!("{more} earlier answers aren't listed here; call again with card for one change's.")));
+    }
     if let Some(at) = &archived_at {
         events.push((day(at).to_string(), 3, format!("Archived{}.", archived_note.as_deref().map(|n| format!(": {n}")).unwrap_or_default())));
     }
     events.sort_by(|a, b| (a.0.as_str(), a.1).cmp(&(b.0.as_str(), b.1)));
     out.push_str("\nTimeline, oldest first:\n");
     for (on, _, what) in &events {
-        let _ = writeln!(out, "- {on}: {what}");
+        if on.is_empty() {
+            let _ = writeln!(out, "- {what}");
+        } else {
+            let _ = writeln!(out, "- {on}: {what}");
+        }
     }
     let unanswered = live.iter().filter(|s| s.stage == "proposed" && standing(&answers, s).is_none()).count();
     if unanswered > 0 {
