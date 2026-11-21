@@ -1158,6 +1158,7 @@ async fn apply_track_build(st: &AppState, user: &User, id: &str, p: &Value) -> A
             let t = crate::plan::notes::track(&st.pool, &user.id, &req).await?;
             let opt = |k: &str| p[k].as_str().map(String::from);
             let title = opt("title").unwrap_or_else(|| req.note_id.clone());
+            let mut unrecorded = String::new();
             if let Some(mut e) = tracked_entry(&req.note_id, &title, &req.build_id, &t.build_label, opt("asked"), opt("conversation")) {
                 // The day they asked, not the day it was applied.
                 if let Some(on) = opt("asked_on").filter(|d| crate::plan::model::is_date(d)) {
@@ -1169,11 +1170,13 @@ async fn apply_track_build(st: &AppState, user: &User, id: &str, p: &Value) -> A
                     Ok(plan) => crate::plan::history::record(&st.pool, &user.id, crate::plan::history::PlanRef::Id(&plan), &e, Some(&op), None, "staged").await,
                     Err(err) => Err(err),
                 };
+                // Said on the applied change, so it isn't lost: the plan is tracked either way.
                 if let Err(err) = recorded {
                     tracing::warn!("plan history for a staged track_build: {err}");
+                    unrecorded = format!("; what they asked wasn't recorded in the plan's history ({err})");
                 }
             }
-            Ok(json!({"label": format!("{} is {}'s plan ({} changes)", t.build_label, t.name, t.swaps), "link": t.link}))
+            Ok(json!({"label": format!("{} is {}'s plan ({} changes){unrecorded}", t.build_label, t.name, t.swaps), "link": t.link}))
         }
         None => {
             // Found by the note link: an import may have moved the plan to another key since.
@@ -1186,6 +1189,7 @@ async fn apply_track_build(st: &AppState, user: &User, id: &str, p: &Value) -> A
             let key = key.ok_or(AppError::NotFound("plan deck"))?;
             crate::plan::notes::stop(&st.pool, &user.id, &key).await?;
             let opt = |k: &str| p[k].as_str().map(String::from);
+            let mut unrecorded = String::new();
             if opt("asked").is_some() || opt("conversation").is_some() {
                 let e = crate::plan::history::Entry {
                     on: opt("asked_on").filter(|d| crate::plan::model::is_date(d)).unwrap_or_else(|| Utc::now().format("%Y-%m-%d").to_string()),
@@ -1203,9 +1207,10 @@ async fn apply_track_build(st: &AppState, user: &User, id: &str, p: &Value) -> A
                 };
                 if let Err(err) = recorded {
                     tracing::warn!("plan history for a staged stop: {err}");
+                    unrecorded = format!("; what they asked wasn't recorded in the plan's history ({err})");
                 }
             }
-            Ok(json!({"label": format!("Stopped tracking {}'s plan", p["deck"].as_str().unwrap_or("the deck")), "link": "/decks/plans"}))
+            Ok(json!({"label": format!("Stopped tracking {}'s plan{unrecorded}", p["deck"].as_str().unwrap_or("the deck")), "link": "/decks/plans"}))
         }
     }
 }

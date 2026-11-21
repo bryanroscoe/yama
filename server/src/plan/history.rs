@@ -274,10 +274,11 @@ pub async fn record(pool: &SqlitePool, owner: &str, plan: PlanRef<'_>, e: &Entry
     // A write from the start, so a retry racing the first call waits for it and finds its row.
     let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
     #[allow(clippy::type_complexity)]
-    let same: Option<(String, String, String, String, Option<String>, Option<String>, Option<String>, Option<String>, String, Option<String>)> = match op_id {
+    let same: Option<(String, String, String, String, Option<String>, Option<String>, Option<String>, Option<String>, String, Option<String>, String)> = match op_id {
         Some(op) => {
             sqlx::query_as(
-                "SELECT id, plan_deck_id, on_date, what, asked, conversation, work, group_label, cards, replaces FROM plan_history WHERE owner_id = ? AND op_id = ?",
+                "SELECT id, plan_deck_id, on_date, what, asked, conversation, work, group_label, cards, replaces, plan_named FROM plan_history
+                 WHERE owner_id = ? AND op_id = ?",
             )
             .bind(owner)
             .bind(op)
@@ -288,7 +289,7 @@ pub async fn record(pool: &SqlitePool, owner: &str, plan: PlanRef<'_>, e: &Entry
         None if replaces.is_some() => None,
         None => {
             sqlx::query_as(
-                "SELECT id, plan_deck_id, on_date, what, asked, conversation, work, group_label, cards, replaces FROM plan_history
+                "SELECT id, plan_deck_id, on_date, what, asked, conversation, work, group_label, cards, replaces, plan_named FROM plan_history
                  WHERE owner_id = ? AND plan_deck_id = ? AND on_date = ? AND what = ? AND IFNULL(asked, '') = IFNULL(?, '')
                    AND IFNULL(conversation, '') = IFNULL(?, '') AND IFNULL(work, '') = IFNULL(?, '')
                    AND IFNULL(group_label, '') = IFNULL(?, '') AND cards = ?",
@@ -307,9 +308,9 @@ pub async fn record(pool: &SqlitePool, owner: &str, plan: PlanRef<'_>, e: &Entry
         }
     };
     // Checked again under the write lock: a call racing the same op_id saw no row before.
-    if let Some((id, p, on_date, w, asked, conversation, work, g, c, replaced)) = same {
+    if let Some((id, p, on_date, w, asked, conversation, work, g, c, replaced, named)) = same {
         // Without an op_id this is the same words found again (no correction comes this way).
-        let matches = (op_id.is_none() || replaced.as_deref() == replaces)
+        let matches = (op_id.is_none() || (replaced.as_deref() == replaces && named == plan.named()))
             && p == plan_id
             && on_date == e.on && w == what && asked == e.asked && conversation == e.conversation && work == e.work && g == group && c == cards_json;
         if !matches {
