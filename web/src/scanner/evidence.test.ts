@@ -133,6 +133,10 @@ describe("collector-line evidence", () => {
     expect(tokens("M 19 • EN")).not.toContain("M19");
     const nineteen = [p("m19", "m19", "19"), p("ori", "ori", "19"), p("c21", "c21", "300")];
     expect(verdict(nineteen, Array(6).fill(["M 19 • EN"])).kind).toBe("unsure");
+    // A copyright year isn't a number alone (a Secret Lair #2023 needs its set code).
+    const sld = [p("sld", "sld", "2023"), p("woc", "woc", "145")];
+    expect(verdict(sld, Array(4).fill(["™ & © 2023 Wizards of the Coast"])).kind).toBe("unsure");
+    expect(verdict(sld, [["2023 R", "SLD • EN"]])).toMatchObject({ kind: "settled", id: "sld" });
     // An artist's name first on a line isn't set DOM.
     expect(tokens("DOMENICO CAVA")).not.toContain("DOM");
     // (46 is one edit from 45, so the number alone can't settle it: only a made-up DOM could.)

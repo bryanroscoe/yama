@@ -261,7 +261,10 @@ export function scoreFrame(e: Expected, reads: readonly string[]): FieldScores {
     const t = stripZeros(asNumber(toks[best.n]!));
     s.exactNumber = t === e.number || (!e.suffix && t === e.base);
     s.suffixRead = e.suffix && t === e.number;
-    s.printedNumber = s.exactNumber && asNumber(toks[best.n]!).length >= 3;
+    // A year ("© 2023", the copyright line in the same strip) is never a number by itself (Codex review
+    // of #180): a printing numbered 1900 to 2099 needs its set code read too.
+    const printed = asNumber(toks[best.n]!);
+    s.printedNumber = s.exactNumber && printed.length >= 3 && !/^(19|20)\d\d$/.test(printed);
   }
   if (best.s >= 0) {
     s.set = sets[best.s]!;
