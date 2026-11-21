@@ -6,6 +6,7 @@
 //
 // The page is served cross-origin isolated (COOP and COEP), so threads above 1 work; Yama itself isn't,
 // so its scanner runs one thread. Chrome is the installed one (playwright-core's "chrome" channel).
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import http from "node:http";
 import fs from "node:fs";
@@ -43,6 +44,17 @@ console.log(`bundle ${inputs.bundle}, --embed ${inputs.embed.file} ${inputs.embe
 
 const built = await build({ input: path.join(here, "entry.ts"), write: false, output: { format: "esm" } });
 const recognizerJs = built.output[0].code;
+// The recognizer's code this run bundled: the checkout's commit (and whether it had changes), and the
+// SHA-256 of the bundle itself, which also covers uncommitted edits.
+const git = (...a) => {
+  try {
+    return execFileSync("git", ["-C", repo, ...a], { encoding: "utf8" }).trim();
+  } catch {
+    return null;
+  }
+};
+inputs.recognizer = { commit: git("rev-parse", "HEAD"), dirty: git("status", "--porcelain", "--", "web/src/scanner") ? true : false, sha256: createHash("sha256").update(recognizerJs).digest("hex") };
+console.log(`recognizer ${inputs.recognizer.commit?.slice(0, 12) ?? "?"}${inputs.recognizer.dirty ? " (with changes)" : ""}, bundle ${inputs.recognizer.sha256.slice(0, 12)}`);
 const ortDir = path.join(repo, "node_modules/onnxruntime-web/dist");
 const types = { ".html": "text/html", ".mjs": "text/javascript", ".js": "text/javascript", ".wasm": "application/wasm", ".json": "application/json", ".png": "image/png" };
 const server = http.createServer((req, res) => {
