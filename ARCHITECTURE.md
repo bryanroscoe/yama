@@ -130,7 +130,9 @@ Three things run on the device so that game night needs no connection:
   browsers, ML Kit in the Android app). Besides the pinned art bundle it loads the server's small
   supplement of newer artworks, and embeds what the camera sees with Yama's own fine-tuned query
   model in place of the bundle's embedding graph. Each of its models can be switched on a device
-  from the options the server lists, and the server can withdraw a broken one.
+  from the options the server lists, and the server can withdraw a broken one. When several
+  printings share the art, a look model in a second worker orders the printing list by comparing
+  the card with each printing's Scryfall picture.
 
 Card images load from Scryfall's CDN straight to the device, where the service worker may keep
 a bounded cache of them. Yama's server never stores, proxies or alters them.
@@ -420,7 +422,7 @@ section 4 is the first sketch; the current system is [above](#the-system-at-a-gl
 - **Shopping:** [Live store stock (13 November 2026)](#live-store-stock-13-november-2026).
 - **The Android app:** [The Android app, sideloaded (13 November 2026)](#the-android-app-sideloaded-13-november-2026), [Which build each device runs (15 November 2026)](#which-build-each-device-runs-15-november-2026).
 - **Game night:** [Table and playgroup stats (2026-10-19)](#table-and-playgroup-stats-2026-10-19).
-- **The scanner:** [Scan photos shared with the developer (15 November 2026)](#scan-photos-shared-with-the-developer-15-november-2026), [The scanner's own art supplement (15 November 2026)](#the-scanners-own-art-supplement-15-november-2026), [Yama's own query embedder for the scanner (18 November 2026)](#yamas-own-query-embedder-for-the-scanner-18-november-2026), [Scanner models you can switch (20 November 2026)](#scanner-models-you-can-switch-20-november-2026), [Scanner diagnostics (15 November 2026)](#scanner-diagnostics-15-november-2026).
+- **The scanner:** [Scan photos shared with the developer (15 November 2026)](#scan-photos-shared-with-the-developer-15-november-2026), [The scanner's own art supplement (15 November 2026)](#the-scanners-own-art-supplement-15-november-2026), [Yama's own query embedder for the scanner (18 November 2026)](#yamas-own-query-embedder-for-the-scanner-18-november-2026), [Scanner models you can switch (20 November 2026)](#scanner-models-you-can-switch-20-november-2026), [The scanner's printing look (20 November 2026)](#the-scanners-printing-look-20-november-2026), [Scanner diagnostics (15 November 2026)](#scanner-diagnostics-15-november-2026).
 - **Cards, collection and prices:** [Mana symbols (2026-11-12)](#mana-symbols-2026-11-12), [Release calendar and What's new (2026-10-19)](#release-calendar-and-whats-new-2026-10-19), [A deck's cards in the collection, and Mythic re-imports (2026-10-23)](#a-decks-cards-in-the-collection-and-mythic-re-imports-2026-10-23), [Deck market values (2026-10-27)](#deck-market-values-2026-10-27), [Scan this deck (2026-10-29)](#scan-this-deck-2026-10-29), [Mythic Tools bridge (2026-10-31, proposal)](#mythic-tools-bridge-2026-10-31-proposal), [Store trips (2026-11-01)](#store-trips-2026-11-01), [Deleting collection containers (2026-11-02)](#deleting-collection-containers-2026-11-02), [Sell lists for store buylists (2026-11-02)](#sell-lists-for-store-buylists-2026-11-02), [Local buylist offers (2026-11-02)](#local-buylist-offers-2026-11-02), [Price history (2026-11-02)](#price-history-2026-11-02), [Recording printed copies in a deck box (2026-11-02)](#recording-printed-copies-in-a-deck-box-2026-11-02), [Sections in boxes, and scanning a box (16 November 2026)](#sections-in-boxes-and-scanning-a-box-16-november-2026).
 - **Decks, plans and sharing:** [Swappable spares in the deck box (15 November 2026)](#swappable-spares-in-the-deck-box-15-november-2026), [Brackets, deck stats and exports (2026-10-19)](#brackets-deck-stats-and-exports-2026-10-19), [Deck import (2026-10-22)](#deck-import-2026-10-22), [Sharing and deck configurations (2026-10-28)](#sharing-and-deck-configurations-2026-10-28), [Review, installed decks and the Lab tab (2026-10-28)](#review-installed-decks-and-the-lab-tab-2026-10-28), [Check this deck (2026-11-01)](#check-this-deck-2026-11-01), [Deck configurations and quieter editing (2026-11-03)](#deck-configurations-and-quieter-editing-2026-11-03), [One plan page (2026-11-04)](#one-plan-page-2026-11-04), [Printing with MakePlayingCards (2026-11-05)](#printing-with-makeplayingcards-2026-11-05), [Plans: one plan per deck (2026-11-06)](#plans-one-plan-per-deck-2026-11-06), [Site design pass (2026-11-08)](#site-design-pass-2026-11-08), [Public by default and the navigation (2026-11-12)](#public-by-default-and-the-navigation-2026-11-12), [Check a deck without an account (2026-11-12)](#check-a-deck-without-an-account-2026-11-12).
 - **Assistants:** [Ask Claude, the advisor (2026-10-22)](#ask-claude-the-advisor-2026-10-22), [Yama's tools for Claude (MCP, 2026-10-22)](#yamas-tools-for-claude-mcp-2026-10-22).
@@ -601,6 +603,26 @@ pin and one switch each (docs/scanner.md, "Models you can switch").
 - **Recorded.** Kept scan photos and diagnostics carry each slot's choice (`models`, a column next
   to `bundle`), so results can be compared by model later. No new data leaves the phone: the
   choice names options, not anything about the person.
+
+## The scanner's printing look (20 November 2026)
+
+When several printings share a card's art, a look model of Yama's compares the card with each
+printing's own Scryfall picture and orders the printing list by it (docs/scanner.md, "The printing
+look"). On 98 real sleeved photos the right printing comes first 57.1% of the time, against 40.8%
+for the newest-first order the list had.
+
+- **A second scanner worker.** The look runs in its own worker (`look.worker.ts`, onnxruntime-web)
+  beside the art worker, which only keeps copies of its last few frames with a card in them and
+  hands them over; so comparing never slows the camera loop. Identity-only scanners don't start it.
+- **The phone fetches each candidate printing's `normal` picture from Scryfall's CDN** (as the
+  list's thumbnails already come from there; cards.scryfall.io allows CORS), a few at a time, and
+  keeps only a 1 KB embedding per printing and model in the scanner's Cache API. Nothing goes to
+  Yama's server but the scores in a diagnostics record, when the owner has those on.
+- **Ordering only.** It never settles a printing or overrides the collector line; the evidence
+  for that would be full-resolution scans, measured first.
+- **A model of Yama's, pinned like the art model** (`look-v0` in `MODELS`, a
+  `scanner-look-20261120` release asset), and the look slot's default; `YAMA_SCAN_WITHDRAW=look-v0`
+  withdraws it. Its base weights are torchvision's (BSD-3-Clause); the notice is in docs/scanner.md.
 
 ## Sections in boxes, and scanning a box (16 November 2026)
 

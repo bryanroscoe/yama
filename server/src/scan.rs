@@ -165,8 +165,31 @@ const LOOK_OFF: ModelOption = ModelOption {
     licence: None,
     source: Source::App,
     recogniser: None,
-    default: true,
+    default: false,
     base: true,
+};
+
+/// Yama's printing look model, v0 (docs/scanner.md, "The printing look", 20 Nov 2026): compares
+/// the card in the camera's frame with each printing that shares its art, by that printing's own
+/// Scryfall picture, to order the printing list. Same interface as the bundle's `embed.onnx`
+/// (`scene`, `quad`), outputs `symbol` and `card` (1 × 128, L2-normalised); it warps the card
+/// itself. Trained by Yama from torchvision's ImageNet MobileNetV3-Small weights (BSD-3-Clause);
+/// a release asset of this repository. It only orders the list: it never files a printing.
+const LOOK_V0: ModelOption = ModelOption {
+    slot: Slot::Look,
+    id: "look-v0",
+    label: "Yama's look model, 20 Nov",
+    note: "Compares the card with each printing's own picture and lists the closest first: on real sleeved photos the right printing comes first 57% of the time, against 41% newest first. It never files a printing by itself.",
+    licence: Some("Yama's licence; base weights BSD-3-Clause (torchvision)"),
+    source: Source::File {
+        prefix: "look",
+        url: "https://github.com/bryanroscoe/yama/releases/download/scanner-look-20261120/yama-look-v0.onnx",
+        bytes: 9_292_149,
+        sha256: "58acfa166105c3001445589ec11db98d5ed61f1a70a63dc133dca00fa6bd271d",
+    },
+    recogniser: None,
+    default: true,
+    base: false,
 };
 
 const TEXT_AUTO: ModelOption = ModelOption {
@@ -244,7 +267,7 @@ const LOCK_SURE: ModelOption = ModelOption {
 };
 
 /// Every option the server knows, by slot. The app is offered those on offer (`offered`).
-pub(crate) const MODELS: &[&ModelOption] = &[&BUNDLE_ART, &QUERY_MODEL, &LOOK_OFF, &TEXT_AUTO, &TEXT_MLKIT, &TEXT_PADDLE, &TEXT_TESSERACT, &LOCK_LEAD, &LOCK_SURE];
+pub(crate) const MODELS: &[&ModelOption] = &[&BUNDLE_ART, &QUERY_MODEL, &LOOK_OFF, &LOOK_V0, &TEXT_AUTO, &TEXT_MLKIT, &TEXT_PADDLE, &TEXT_TESSERACT, &LOCK_LEAD, &LOCK_SURE];
 
 impl ModelOption {
     /// Its file in the bundle's folder, if it has one. A file of ours is never `embed.onnx`, which
@@ -514,6 +537,7 @@ fn pinned_files() -> Vec<String> {
 /// The file name prefixes of the options of ours (`query`, `look`).
 fn pinned_prefixes() -> Vec<&'static str> {
     let mut out: Vec<&'static str> = MODELS.iter().filter_map(|o| if let Source::File { prefix, .. } = o.source { Some(prefix) } else { None }).collect();
+    out.sort_unstable();
     out.dedup();
     out
 }
@@ -1059,7 +1083,8 @@ mod tests {
         assert_eq!(slot(&info, "art"), (ids(&["bundle"]), "bundle".into()));
         assert_eq!(info["models"]["art"]["options"][0]["file"], bundle_embed.as_str());
         assert_eq!(info["models"]["art"]["options"][0]["licence"], "MPL-2.0");
-        // The slots that need nothing downloaded are there whatever the bundle.
+        // The slots that need nothing downloaded are there whatever the bundle; the look model
+        // isn't downloaded yet, so its slot is off.
         assert_eq!(slot(&info, "look"), (ids(&["off"]), "off".into()));
         assert_eq!(slot(&info, "text"), (ids(&["auto", "mlkit", "paddle", "tesseract"]), "auto".into()));
         assert_eq!(slot(&info, "lock"), (ids(&["lead", "sure"]), "lead".into()));
@@ -1088,6 +1113,16 @@ mod tests {
         // The bundle's own stays where scan_art.rs reads it.
         assert_eq!(std::fs::read(dir.join("embed.onnx")).unwrap(), b"bundle");
 
+        // The look model once it's here: offered, and the look's default.
+        let look = LOOK_V0.file().unwrap();
+        std::fs::write(dir.join(&look), vec![1u8; LOOK_V0.bytes().unwrap() as usize]).unwrap();
+        let (_, info) = testutil::send(&app, Method::GET, "/api/scan/bundle", Some(&token), None).await;
+        assert_eq!(slot(&info, "look"), (ids(&["off", "look-v0"]), "look-v0".into()));
+        assert_eq!(info["models"]["look"]["options"][1]["file"], format!("/scan-bundle/{BUNDLE_VERSION}/look-58acfa166105.onnx").as_str());
+        assert_eq!(info["models"]["look"]["options"][1]["bytes"], 9_292_149);
+        // It doesn't replace the art model's file.
+        assert_eq!(info["files"]["embed"], query_embed.as_str());
+
         // Switched off, or withdrawn: the bundle's, and no other art option.
         for off in [app_with(false, &[]).await, app_with(true, &[QUERY_MODEL.id]).await] {
             let (_, info) = testutil::send(&off, Method::GET, "/api/scan/bundle", Some(&token), None).await;
@@ -1102,6 +1137,9 @@ mod tests {
         assert_eq!(slot(&info, "lock"), (ids(&["sure"]), "sure".into()));
         assert_eq!(slot(&info, "text"), (ids(&["auto", "mlkit", "tesseract"]), "auto".into()));
         assert_eq!(slot(&info, "art"), (ids(&["bundle", QUERY_MODEL.id]), QUERY_MODEL.id.into()));
+        assert_eq!(slot(&info, "look"), (ids(&["off", "look-v0"]), "look-v0".into()));
+        let no_look = app_with(true, &["look-v0"]).await;
+        let (_, info) = testutil::send(&no_look, Method::GET, "/api/scan/bundle", Some(&token), None).await;
         assert_eq!(slot(&info, "look"), (ids(&["off"]), "off".into()));
 
         // A bundle from another recogniser: the bundle's, though the file is here.
@@ -1179,6 +1217,9 @@ mod tests {
         // Another pinned option's download under way, and a pinned file whatever its age.
         std::fs::write(dir.path().join(format!("{}.part", query_file())), b"downloading").unwrap();
         std::fs::write(dir.path().join("supplement-abc.json"), b"{}").unwrap();
+        // Another kind of model keeps its own pin before, whatever the query models do.
+        let f = std::fs::File::create(dir.path().join("look-000000000000.onnx")).unwrap();
+        f.set_modified(std::time::SystemTime::now() - day * 3).unwrap();
 
         // Wrong bytes or too many: nothing named, nothing left over, older pins untouched.
         for path in ["/bad", "/long"] {
@@ -1198,6 +1239,7 @@ mod tests {
         assert!(dir.path().join(format!("{}.part", query_file())).exists(), "a pinned option's download under way stays");
         assert_eq!(std::fs::read(dir.path().join("embed.onnx")).unwrap(), b"bundle");
         assert!(dir.path().join("supplement-abc.json").exists());
+        assert!(dir.path().join("look-000000000000.onnx").exists());
         server.abort();
     }
 

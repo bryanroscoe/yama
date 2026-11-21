@@ -837,6 +837,18 @@ button.scan-count {
   grid-column: 1 / -1;
 }
 
+/* The printing look's best guess in the list (look.ts): said in words, with a quiet ring. */
+.scan .scan-printing.is-look:not(.is-chosen) {
+  border-color: rgb(255 255 255 / 0.45);
+}
+.scan-printing-look {
+  font-size: var(--t-sm);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Models (ModelsSetting.tsx): the whole row, one slot after another. */
 .scan-models {
   grid-column: 1 / -1;

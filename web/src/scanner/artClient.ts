@@ -2,6 +2,7 @@
 // and hands it frames one at a time.
 
 import { api, API_BASE } from "../api";
+import type { LookCandidate, LookDone, LookWorkerReply, LookWorkerRequest, WireFrame } from "./look";
 import type { ModelOption, ModelsInfo } from "./models";
 import type { Recognition } from "./recognizer";
 import type { RgbaImage } from "./types";
@@ -28,6 +29,10 @@ export interface EmbedFile {
 export type ArtWorkerRequest =
   | { type: "load"; info: BundleInfo; base: string; embed: EmbedFile }
   | { type: "embed"; id: number; embed: EmbedFile }
+  /** Keep the last few frames with a card in them, for the printing look (look.ts), or stop. */
+  | { type: "keep-frames"; on: boolean }
+  /** Copies of the kept frames whose best match was artwork `index`. */
+  | { type: "frames"; id: number; index: number }
   | { type: "reset" }
   | { type: "pool"; id: number; keys: PoolKeys | null }
   | { type: "identify"; id: number; width: number; height: number; buffer: ArrayBuffer };
@@ -38,8 +43,11 @@ export type ArtWorkerReply =
   | { type: "error"; message: string }
   | { type: "pooled"; id: number; arts: number }
   | { type: "embedded"; id: number; error: string | null }
+  | { type: "frames"; id: number; frames: WireFrame[] }
   | { type: "result"; id: number; result: Recognition; buffer: ArrayBuffer }
   | { type: "failed"; id: number; message: string; buffer: ArrayBuffer };
+
+export type { LookDone } from "./look";
 
 /** The short side of the frames the recognizer is given. The bundle's detector looks at 640 px. */
 export const RECOGNIZER_SHORT_SIDE = 640;
@@ -75,6 +83,16 @@ export interface ArtRecognizer {
    * being read finish with the one before. Rejects, keeping the one before, if it can't be loaded.
    */
   useArt(option: ModelOption): Promise<void>;
+  /** The look slot's option it runs ("off" for none). */
+  readonly look: string;
+  /** Load this look model (null: none). Rejects, keeping none, if it can't be loaded. */
+  useLook(option: ModelOption | null): Promise<void>;
+  /**
+   * Compare these printings' pictures with the last few frames whose best match was artwork
+   * `index` (the card found), reporting each score as it comes; stops with `signal`. Rejects when
+   * no look model is loaded or no frame of the card is kept.
+   */
+  lookAt(index: number, candidates: LookCandidate[], onScore: (id: string, score: number) => void, signal?: AbortSignal): Promise<LookDone>;
 }
 
 /** What kept photos and diagnostics say ran when the scanner read text only, with no art model. */
@@ -169,6 +187,44 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
   const pending = new Map<number, { resolve: (r: Recognition) => void; reject: (e: Error) => void }>();
   const pooling = new Map<number, (arts: number) => void>();
   const embedding = new Map<number, (error: string | null) => void>();
+  const framing = new Map<number, (frames: WireFrame[]) => void>();
+  // The printing look's own worker (look.worker.ts), started when a look model is chosen.
+  let lookWorker: Worker | null = null;
+  const lookLoads = new Map<number, (error: string | null) => void>();
+  const looks = new Map<number, { onScore: (id: string, score: number) => void; done: (r: LookDone | null, error: string | null) => void }>();
+  let lookNow = "off";
+  let lookSwitching: Promise<unknown> = Promise.resolve();
+  const lookStopped = (error: string) => {
+    for (const p of lookLoads.values()) p(error);
+    lookLoads.clear();
+    for (const l of looks.values()) l.done(null, error);
+    looks.clear();
+  };
+  const startLookWorker = (): Worker => {
+    if (lookWorker) return lookWorker;
+    const w = new Worker(new URL("./look.worker.ts", import.meta.url), { type: "module" });
+    w.onmessage = (e: MessageEvent<LookWorkerReply>) => {
+      const m = e.data;
+      if (m.type === "ready") {
+        lookLoads.get(m.id)?.(m.error);
+        lookLoads.delete(m.id);
+      } else if (m.type === "score") looks.get(m.id)?.onScore(m.candidate, m.score);
+      else if (m.type === "done") {
+        const { type: _type, id: _id, error, ...done } = m;
+        looks.get(m.id)?.done(error ? null : done, error);
+        looks.delete(m.id);
+      }
+    };
+    w.onerror = (e) => {
+      lookStopped(e.message || "The printing look stopped");
+      w.terminate();
+      if (lookWorker === w) lookWorker = null;
+      lookNow = "off";
+      worker.postMessage({ type: "keep-frames", on: false } satisfies ArtWorkerRequest);
+    };
+    lookWorker = w;
+    return w;
+  };
   let nextId = 1;
   let disposed = false;
   let now = art;
@@ -212,6 +268,11 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
       embedding.delete(m.id);
       return;
     }
+    if (m.type === "frames") {
+      framing.get(m.id)?.(m.frames);
+      framing.delete(m.id);
+      return;
+    }
     if (m.type !== "result" && m.type !== "failed") return;
     const p = pending.get(m.id);
     pending.delete(m.id);
@@ -223,6 +284,8 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
     pending.clear();
     for (const p of embedding.values()) p(e.message || "The card recognizer stopped");
     embedding.clear();
+    for (const p of framing.values()) p([]);
+    framing.clear();
   };
 
   return {
@@ -253,6 +316,64 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
       switching = done.catch(() => undefined);
       return done;
     },
+    get look() {
+      return lookNow;
+    },
+    useLook(option) {
+      if (disposed) return Promise.reject(new Error("The scanner is closed"));
+      const want = option?.file ? { id: option.id, file: option.file, bytes: option.bytes ?? 0 } : null;
+      const run = () => {
+        if (disposed) return Promise.reject(new Error("The scanner is closed"));
+        if ((want?.id ?? "off") === lookNow) return Promise.resolve();
+        if (!want) {
+          // Off: the look's worker goes, and with it its model and the frames kept for it.
+          worker.postMessage({ type: "keep-frames", on: false } satisfies ArtWorkerRequest);
+          lookStopped("The printing look is off");
+          lookWorker?.terminate();
+          lookWorker = null;
+          lookNow = "off";
+          return Promise.resolve();
+        }
+        const w = startLookWorker();
+        // Frames from now on, so the first card found while the model loads can be compared.
+        worker.postMessage({ type: "keep-frames", on: true } satisfies ArtWorkerRequest);
+        const id = nextId++;
+        return new Promise<void>((resolve, reject) => {
+          lookLoads.set(id, (error) => {
+            if (error) {
+              lookNow = "off";
+              worker.postMessage({ type: "keep-frames", on: false } satisfies ArtWorkerRequest);
+              return reject(new Error(error));
+            }
+            lookNow = want.id;
+            resolve();
+          });
+          w.postMessage({ type: "model", id, url: new URL(want.file, base).href, bytes: want.bytes } satisfies LookWorkerRequest);
+        });
+      };
+      const done = lookSwitching.then(run, run);
+      lookSwitching = done.catch(() => undefined);
+      return done;
+    },
+    async lookAt(index, candidates, onScore, signal) {
+      if (disposed) throw new Error("The scanner is closed");
+      const w = lookWorker;
+      if (!w) throw new Error("No look model is loaded");
+      // The card's side: the frames the art worker kept of it, handed over to the look's worker.
+      const fid = nextId++;
+      const frames = await new Promise<WireFrame[]>((resolve) => {
+        framing.set(fid, resolve);
+        worker.postMessage({ type: "frames", id: fid, index } satisfies ArtWorkerRequest);
+      });
+      if (signal?.aborted) throw new Error("The look was stopped");
+      if (lookWorker !== w) throw new Error("The printing look was switched");
+      const id = nextId++;
+      return new Promise<LookDone>((resolve, reject) => {
+        looks.set(id, { onScore, done: (r, error) => (r ? resolve(r) : reject(new Error(error ?? "The look stopped"))) });
+        signal?.addEventListener("abort", () => w.postMessage({ type: "stop", id } satisfies LookWorkerRequest), { once: true });
+        w.postMessage({ type: "look", id, frames, candidates } satisfies LookWorkerRequest, frames.map((f) => f.buffer));
+      });
+    },
     identify(image) {
       if (disposed) return Promise.reject(new Error("The scanner is closed"));
       const id = nextId++;
@@ -282,6 +403,11 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
       pooling.clear();
       for (const p of embedding.values()) p("The scanner is closed");
       embedding.clear();
+      lookStopped("The scanner is closed");
+      lookWorker?.terminate();
+      lookWorker = null;
+      for (const p of framing.values()) p([]);
+      framing.clear();
     },
   };
 }
