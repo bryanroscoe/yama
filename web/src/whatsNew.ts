@@ -15,6 +15,20 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-21-bug-bash",
+    date: "2026-11-21",
+    title: "About a hundred small fixes",
+    items: [
+      "Life counter: Undo still works after a change has been saved to Yama, Redo greys out when there's nothing to redo, day and night show on the table, names keep clear of the commander-damage buttons at five and six players, and a saved game says so (\"Saved: Matt S won\") and shows in Recent games at once. Choosing a playgroup no longer opens the QR code at every start.",
+      "A game's page says who was knocked out and by whom, Log a game fits a phone, and the playgroup page shows head-to-head and archnemesis without counted turns, a typical game length that a game left open overnight doesn't skew, and only the commanders with enough games until you ask for the rest.",
+      "Adding a deck on a phone: the list folds to its headings once it's read, the save bar stays in reach and says who can see the deck, and a fix to a misspelt line is kept when you type more. A list with a Commander heading and no Deck heading reads correctly, and \"Rampant Growth x1\" is understood.",
+      "Decks: tiles no longer cut off their last line and name the commander on a phone; a new account's first deck isn't a wall of \"Need\"; suggested changes that were waiting behind a hundred newer ones can be reached again; the bracket filter matches what the tiles show.",
+      "Collection: proxies no longer lead Most valuable with the real card's price, a search shows its results and their count right under the box, the card sheet stays open while you change a card and can change just one copy, and an open box is its own page.",
+      "Cards: a misspelt name gets \"Did you mean\", Next goes to the top of the new page, price history opens under the printing you tapped, and adding a card never files it under a set that isn't out yet.",
+      "Around the app: pages open at the top, browser tabs are named for their page, the sign-in form comes first on a phone, a link to something that isn't yours says so plainly, and in the Android app Back closes an open sheet.",
+    ],
+  },
+  {
     id: "2026-11-21-scanner-number",
     date: "2026-11-21",
     title: "Scanner: the number is enough",

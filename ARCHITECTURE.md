@@ -3451,3 +3451,45 @@ We've kind of got too messy in a lot of these."
   file renames a card. A plan archived by its status alone (a note's build stopped being tracked, or a
   plan file or note that dropped it or marked it archived) records no time of its own: the timeline
   dates it by the plan's last change, and an earlier such archive that was undone leaves no trace.
+
+## Bug bash (21 November 2026)
+
+Bryan (21 Nov 2026): "It's bug bash time. There's a lot of small rough edges in this app that need
+to be fixed, a lot of small things that need to be designed better. We need to think through human
+workflows and if people will be happy with the way things work." Five auditors walked the app on a
+phone and a laptop (game night, a new person's first hour, decks, cards and collection, online
+play) and about a hundred findings were fixed in one change; docs/features.md has them under each
+area ("since 21 Nov 2026"). The decisions in it that change how something works:
+
+- **Undo after sync.** The life counter's Undo used to stop at whatever the server already had.
+  An event the server has is still never rewritten: Undo now records its opposite as a new event
+  (`inverseOf` in web/src/table/store.ts), so the op log stays append-only and idempotent. Events
+  with no opposite (a passed turn, who goes first, a changed player or commander, a revive) stop
+  Undo, and the menu says why. An "un-pass" event would need `packages/core` and the server.
+- **A playgroup's game is shared without the QR sheet.** Choosing a playgroup still shares the
+  game with its members from the start; the QR code opens at start only for "Separate devices".
+- **Typical game length is a median** (`stats::typical_minutes`), under the JSON name
+  `average_minutes` the page and the MCP already read.
+- **A guest name is unique in a playgroup**, ignoring case (409 from `add_guest`).
+- **List reading.** A blank line after the Commander heading's cards ends that section, and a
+  count may follow the name ("Forest x12"), in `parse_list`, the import's `parse_text` and
+  `packages/core/src/decklist.ts` alike. A rule marker still sets no floor under "plays like"
+  (the 11 Nov decision stands); `/check` words the rule instead.
+- **The bracket filter** on Decks and Browse matches the declared bracket, or the suggested one
+  when none is declared (it used to match declared only, and found nothing for most accounts).
+- **Printing for an add by name.** `collection_printing` ranks a printing released after today
+  behind every one that is out; the card page does the same and prefers a priced printing.
+- **Public header.** The server-drawn pages' header ends with "Open Yama" to `/`, not "You": a
+  cached page can't know who is reading it.
+- **Install offer** on Home only, as a secondary button.
+- **Sell list store check** shows only to accounts that have that store among theirs.
+- **Android Back** closes the top open sheet before it goes back a page (`escapeTopLayer`). In a
+  browser, Back with a sheet open still leaves the page: answering it in the shared Dialog isn't
+  safe with the router's unsaved-changes blockers, and needs sheet state in the address.
+
+Left for Bryan to decide (not built): editing a table game's result, a guest taking over their
+history when they make an account, one front door for `/` and `/signin`, the order and retirement
+of Start here, one bracket number per deck, the Precons page as a picker, "Save a copy" defaulting
+to Private, a wish-list-only sharing choice, "from $X" prices in card search, and several online
+play choices (attack button, callouts, joining on a precon).
+

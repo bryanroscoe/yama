@@ -29,6 +29,8 @@ remembered on the device.
 Opening Yama with a life counter game touched in the last 12 hours goes straight to that game.
 The life counter's setup is at `/play/table` (it was `/`; `/table` redirects there).
 
+Since 21 Nov 2026: a page opened by a link starts at its top (Back still returns to where you were, and a deck's tabs or a search's filters don't jump); each page names the browser tab ("Decks | Yama", a deck's, card's or precon's own name); the app's footer carries About, Help, Privacy and Terms; a link to a deck, game, precon or profile that isn't there says "Not here" with a way home instead of an error and a retry; every page head has the bug-report button; and when the server doesn't answer the page says so once, with Try again.
+
 Five tabs: Play (the life counter, online play, watching, game history), Decks (your decks,
 precons, commanders), Cards, Collection (your cards, your wish list, trading with a friend) and Playgroup. A
 laptop has them in a left rail under the wordmark, which goes home, with you at the foot; a phone
@@ -64,9 +66,13 @@ Spellbook) come once it is saved. Saving makes it an ordinary deck: signed in, t
 reference and MCP guide, explains what an account adds, and keeps Google sign-in directly
 accessible. OAuth and private links use a focused sign-in view.
 
+Since 21 Nov 2026: on a phone the sign-in page leads with its form; the install offer shows on Home only, as a secondary button; a guest's life counter setup carries one quiet line about signing in instead of a banner, and lists the games saved on the device; deleting an account lands on Home with a line saying it was deleted; and the header of the server-drawn public pages ends with Open Yama (it said You, which a stranger read as theirs).
+
 ### Profile and sharing
 
 You (your avatar) opens your public profile, Sharing settings and account settings.
+
+Since 21 Nov 2026: Sharing settings checks a handle as it is typed and shows a refused one beside the field; the wish list has one name everywhere, its page says what friends see when sharing is on (the list plus the cards your decks and plans still need) with a link to the public page, and Trade with a friend shows your handle, the three steps both people take, and a plain line for a handle nobody has.
 
 Sharing settings (under You) brings together your public profile, shared decks and alternate
 configurations, shared plans (groups of builds), copyable links and the account-wide switches;
@@ -162,6 +168,8 @@ account when it is deleted.
 
 A page listing what has shipped, in plain sentences, with a notice on each device about what shipped since its first visit, until the page is opened (Account settings links to it too).
 
+Since 21 Nov 2026 the page opens with the newest ten entries (or all that are new to the device) and Show older brings twenty more.
+
 ## Cards and prices
 
 ### Card data
@@ -172,9 +180,13 @@ Scryfall bulk import: ~36.5k cards, ~116k printings, daily prices kept by date, 
 
 Subset of Scryfall syntax (`t:` `o:` `c:` `id<=` `mv` `pow` `f:` `kw:` `is:commander` `is:gamechanger`, `-`, `or`, parentheses; `set:` `a:` `year` `usd<` `is:reserved` and more `is:` values such as `is:partner` and `is:mdfc`; a card with no price never matches a price comparison). The search box suggests card names as you type, and picking one opens the card. Sorts by name, popularity, mana value, color, price or first release. Works offline from a 5 MB card bundle kept on the device, which has no printings or prices: there, searches by set, artist, year, price and the Reserve List say they need a connection.
 
+Since 21 Nov 2026: no results offers "Did you mean" names and the search syntax; a query the server can't read is explained in a sentence; signed-out typing suggests names (from the public search, after three letters); the sort stays on screen on a phone; and Next opens the new page at its top.
+
 ### Card sheet
 
 Oracle text, Commander legality, Game Changer tag, rulings with dates and sources, printings with market prices and price history. Each printing shows its own picture, which opens full size (as does the card at the top), and adds a copy of that printing in any finish it comes in, the button naming a special foil ("Surge foil"), or a proxy with its art (since 16 Nov 2026; before, +1 and +F buttons with no picture). Which of your decks run the card, and the combos it is part of in them (from each deck's kept Commander Spellbook check; nothing new is sent).
+
+Since 21 Nov 2026: the add buttons read "+ Regular", "+ Foil", "+ Proxy", each add can be undone from its status line, and the main button names the printing it adds; that printing is never one that isn't out yet or has no price when another has. "You own" counts real copies and names proxies apart; In your decks groups a deck's lists on one line and shows five decks until asked for all; a printing's price history opens under its row; and Add to wish list sits beside Add a proxy.
 
 ### Release calendar
 
@@ -206,6 +218,8 @@ Camera scanning in Collection: the card is found by its art, and its printing an
 - "Add to my collection" on a deck puts its cards in its deck box, in the printings the list names
 - A deck's swappable spares (2026-11-15): cards kept in its deck box on top of its 100, such as the bracket bag's cards and ready swaps. They live in a box of their own linked to the deck, shown as "<deck>'s box (swappable)", and count toward nothing in the deck (size, legality, stats, prices, exports). The deck page lists them with what each comes in for (the plan's bracket bags, or your own note), and sets up, changes or stops the box; copies go in and out with Move. The old "<deck> swap bag" boxes became those decks' spares
 
+Since 21 Nov 2026: proxies sort after priced real cards in Most valuable and show "real copy $X" rather than a price of their own; a search hides the places and heads the results with their count, and on a phone the filters fold behind one button; the card sheet stays open after each change with a line saying what happened, changes all copies or just one (kept in, condition, finish, proxy, printing), and shows the count and dated market price; an open box is its own page with one Scan button and the rest under More; an empty collection is one sentence and three ways to start; a box with sections says so before Delete; import suggestions are buttons that fix the line; and a card added by name is never filed under a printing that isn't out yet. The Sell list's store check shows only to accounts that have that store.
+
 ## Decks and plans
 
 ### Decks
@@ -225,6 +239,8 @@ Camera scanning in Collection: the card is found by its art, and its printing an
 - How many cards online play supports
 - Real-game results per version ("This version: 3-2, 5 games")
 
+Since 21 Nov 2026: deck tiles grow to fit, clamp long names, name the commander on a phone and show the price alone (its source and date once under the grid); an account that owns no cards sees a neutral "Commander-legal, 100 cards" deck with one line offering to add them, not "Need 100"; an unfinished list's tile reads "4 of 100 cards"; the bracket filter matches the declared bracket or else the suggested one; on a phone the list's filters and a deck's layout, group and sort each fold behind one button; a deck's alternates are "lists" and its history "versions" throughout; Back after deleting a deck stays on Decks; and Export leads with Copy and Download. Adding a deck: once a list is read the box shrinks and the groups fold on a phone, the save bar stays in reach and names who can see the deck, fixes to unmatched lines survive more typing, a blank line ends a Commander section that has no Deck heading after it, a count may follow the name ("Forest x12"), and two partners on the first two lines both lead. The collection sheet answers first (Add, Not now) with proxies behind a fold, and an edit offers only the new cards, once.
+
 ### Brackets
 
 A declared bracket per deck (chips on the deck list, table setup and online lobby), shown beside a starting suggestion from Commander Spellbook's card-list signals: Game Changers, mass land denial, extra turns and combos. Unflagged lists start provisionally at Core (2); Exhibition (1) and cEDH (5) are chosen by the owner. The deck page explains why beside the cards: the 1 to 10 power level (its dial is on the Stats tab), the Game Changers and the cards in each two-card combo with what the combo does (roll over a chip to see the card). On the Stats tab, the five scores compare with the deck's own stock list, any earlier version or another of your decks, showing how far power moved, as well as with a typical precon, Bracket 4 or cEDH. Checked in the background after a save; turn off with `YAMA_DECK_CHECKS=0`. The power level's text rules read what a card does for the whole team (lords, anthems, and keywords, mana or protection given to every creature of a kind), proliferate and planeswalker support, and the themes it names include planeswalkers, legends matter, and goad and politics ([method and measurements](deck-analysis.md)).
@@ -238,6 +254,8 @@ Mana curve (creatures and other spells), average mana value with and without lan
 ### Suggested changes
 
 Review suggestions from Yama’s assistant and external MCP apps before applying them. Deck proposals show separate cards in/out with quantities, card previews, readable reasons and deck checks; existing proposals use the same view.
+
+Since 21 Nov 2026 the page asks for the waiting changes by themselves, so they can't be pushed out of reach by a hundred newer decided ones (the server lists waiting ones first too).
 
 ### Plans
 
@@ -276,6 +294,8 @@ box. Older now/after-prints snapshots stay under Older snapshots.
 
 1–6 players, rotated panels with the commander's art behind each life total (artist and copyright credited on each panel; switch to mana colors per device), commander damage and tax, poison and counters, monarch, initiative, day/night, undo, works offline and syncs later. Roll for first or pick who goes first (passing the turn never guesses it); knocking someone out asks who did it; the finish sheet asks how the game was won and how fun it was, and takes a note (all optional). An optional clock (per device, off by default) shows how long the turn and the game have run; it reads the times the game already records, so it works offline and a finished game's page says how long it ran. If people sat down somewhere other than setup put them, Swap places in the table menu trades two players' panels mid-game; turns then go around in the new order, and each player keeps their totals and history.
 
+Since 21 Nov 2026: Undo reaches changes already saved to Yama by recording their opposite as a new event (life, poison, commander damage, counters, casts, monarch, initiative, day and night, swapped places, a knockout), and says why where it can't (a passed turn, who goes first, a changed player or commander); Redo is off with nothing to redo. Day or night shows on the hub and in the strip under the bar. Names sit on a row of their own clear of the commander-damage buttons and the hub at every player count; on the smallest panels those two buttons give way to the name, which opens the sheet that has both. Drawers open above the top bar on a laptop or tablet. Saving a game lands on setup with "Saved: X won" and the game already in Recent games. With a playgroup chosen the Devices choice stays, the game is shared with its members without the QR code opening, and the seat sheet has Next to move through the seats. A finished game's page says who was knocked out and by whom, and a logged game shows its day without an invented time.
+
 Game types are Commander, Constructed, Limited and Other (since 17 Nov 2026 Limited: draft and sealed, 20 life, two players). Outside Commander there's no commander to pick: a seat may tap its deck's colors instead, which fill its panel and name it (Azorius), and commander damage, tax and the commander-damage win don't show. Two players can play a best-of-three or best-of-five match (Limited starts on best of three): each panel shows its games won as rings, the table menu says where the match stands, finishing a game offers "Save and start game 2" (or Save and stop the match), and the player who lost picks who plays first in the next game. Each game is saved and counted as its own game; its page lists the match's other games and the score, and Recent games says "Limited, game 2 of 3".
 
 ### Shared table
@@ -286,6 +306,8 @@ Every phone joins the game by QR code; the host phone stays in charge and works 
 
 Join codes (the owner can make a new one, and removing an account changes it), guests without accounts, a members list where anyone can leave and the owner renames the group, removes people, hands it on or deletes it, game history, logging games played without Yama, offline too (with game type, starting life, first player, knockouts, win condition, fun and a note), win rates by player and commander beside the share they'd win by chance, win rate by turn order (with playgroup.gg's 4-player figures until the group has 20 games), how games were won, head to head, archnemesis, first out and last out, streaks, fun. Every rate shows its count, under 5 games it's marked provisional, and the page says when it was computed. The computer's seats and games against only the computer stay out of players' records, table rounds and online player turns are averaged apart, and the commander table reads Commander games only.
 
+Since 21 Nov 2026: head-to-head and archnemesis show whenever knockouts were recorded, with or without counted turns; the game length at the top is the typical one (the median of timed games); commanders with too few games fold behind Show more; a guest's name is used once in a group; and the empty page says what a playgroup is, labels its two fields and explains a wrong code.
+
 ### Game export
 
 Every finished game you played or recorded, or a whole playgroup's, as JSON (shaped for commander-decks' `data/games.json`) or CSV (one row per seat), with each game's format and starting life and whether the computer played a seat. Dates are the local day in your time zone; other people's deck names and notes stay private.
@@ -293,6 +315,8 @@ Every finished game you played or recorded, or a whole playgroup's, as JSON (sha
 ## Online play
 
 Commander on the [Phase](https://github.com/bryanroscoe/yama-phase) rules engine (`play/`), in alpha. It needs the engine card data ([engine integration](engine-integration.md)).
+
+Since 21 Nov 2026: seats start on different decks, most recently changed first, and the page remembers the table you last started; a join link works for an account with no decks (it says a deck is needed and offers two ways to get one) and is named when signed out; a computer is "Valgavoth, easy computer"; your creatures keep their size while you're attacked on a phone; counters read as words; a watched game can be stopped on a phone; a rematch against only computers starts at once; and a wrong join code is explained under the field.
 
 - An account can have 3 games open at a time (10 with an invite, 1 for a guest); the refusal at the limit says so and how to free a place.
 - A computer's seat knows the combos Commander Spellbook lists that are made only of cards on the list it plays, from Yama's weekly copy of Spellbook's combos (any list: a saved deck, a precon, a guest's; combos that also need something other than named cards are left out). Once it has every card of one, in its own main phase, it looks for a line that wins with them, on copies of the game, and plays it only if the engine carried it through to a won game; otherwise it plays as before. It also learns the deck before it plays: each list's combos (up to 40) are rehearsed once in a practice game of the list, and the answer is kept, so once that is done its tutors fetch the missing cards of the combos it can win with and it holds back the cards that finish them. The deck analysis (MCP `get_deck_analysis`) lists that plan. In online games, watched games and the lab's runs (each list is frozen with its combos when a run is made). `YAMA_AI_COMBOS=0` turns it off for new online and watched games ([how](../ARCHITECTURE.md#how-online-play-ended-up-working)).
