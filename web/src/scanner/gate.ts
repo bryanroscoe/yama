@@ -277,6 +277,7 @@ export class PlacementGate<F = unknown> {
     this.latch = null;
     this.reported = null;
     this.releasedPending = false;
+    this.unlike = 0;
   }
 
   /** The card the gate goes by when the finder sees several: the largest in the frame. */
@@ -346,7 +347,8 @@ export class PlacementGate<F = unknown> {
     }
     if (this.latch) {
       // Another card in the very same place (swapped with no movement the finder saw): its
-      // thumbnail says so. Two passes in a row, so a hand passing over the card isn't one.
+      // thumbnail says so. Two passes in a row, so one odd frame isn't one. (A hand held over the
+      // card will be: that costs a read, which the caller's hold on the card it filed absorbs.)
       this.unlike = this.sameCard(this.latch.thumb, card.thumb) ? 0 : this.unlike + 1;
       if (this.unlike < SWAP_PASSES) return this.decide({ kind: "latched", key: this.latch.key });
       this.release();

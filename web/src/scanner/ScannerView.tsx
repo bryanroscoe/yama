@@ -1765,6 +1765,8 @@ export function ScannerView({
                 last.current = undefined;
                 lastText.current = undefined;
               }
+              // A lead counts over reads in a row of one card at rest: anything else between ends it.
+              if (d.kind !== "steadying" && d.kind !== "reading") leadRun.step(null);
               const holding = !!blocked.current || !!blockedName.current;
               if (!holding) setDupe(null);
               setStatus(gateStatus(d, holding));
