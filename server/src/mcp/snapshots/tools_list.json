@@ -2770,7 +2770,7 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
-      "description": "How fast scans settle: Scanner diagnostics' timing records, one per card. Median and p90 time to name a card, the share named by each rule, how printings were settled and in how long, by art model, look option and mode; then the records.",
+      "description": "How fast scans settle: Scanner diagnostics' timing records, one per card. Median and p90 time to name a card, the share named by each rule, how printings were settled and in how long, by art model, look option and mode; each look option's look times and where its vectors came from (server, phone cache, made on the phone); then the records.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {

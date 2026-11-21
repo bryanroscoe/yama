@@ -49,6 +49,10 @@ pub struct Config {
     /// The scanner's art supplement (scan_art.rs): embed artworks the pinned bundle doesn't know
     /// from Scryfall's art crops, and offer them to the scanner. On unless `YAMA_SCAN_SUPPLEMENT=0`.
     pub scan_supplement: bool,
+    /// The printing look's vectors (scan_look.rs): embed each printing's Scryfall picture once per
+    /// look model, so phones ask for them instead of fetching and embedding every picture. On unless
+    /// `YAMA_SCAN_LOOKS=0`, which stops making them (those made are still served).
+    pub scan_looks: bool,
     /// Yama's own query embedders for the scanner's art match (scan.rs, `QUERY_MODEL`): offered,
     /// and the art slot's default, when they fit the bundle's gallery. On unless
     /// `YAMA_SCAN_QUERY_MODEL=0`, which withdraws every art model of ours (the bundle's own
@@ -360,6 +364,7 @@ impl Config {
             deck_checks: !off("YAMA_DECK_CHECKS") && !flag("YAMA_OFFLINE"),
             ai_combos: !off("YAMA_AI_COMBOS"),
             scan_supplement: !off("YAMA_SCAN_SUPPLEMENT"),
+            scan_looks: !off("YAMA_SCAN_LOOKS"),
             scan_query_model: !off("YAMA_SCAN_QUERY_MODEL"),
             scan_withdrawn: list("YAMA_SCAN_WITHDRAW"),
             mythic_bridge: flag("YAMA_MYTHIC_BRIDGE"),

@@ -55,5 +55,11 @@ fancy-regex = "0.20.0"
 tract-onnx = "=0.23.9"
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "webp"] }
 half = "2.7"
+# The printing look's vectors (scan_look.rs) decode Scryfall's older JPEG pictures with
+# libjpeg-turbo's own code (MozJPEG's decoder, built from its vendored C sources by the cc crate;
+# IJG, BSD-3-Clause and Zlib licences), so the pixels are the ones the phone's browser decodes
+# (Chrome uses libjpeg-turbo): the image crate's JPEG decoder differs on about 8% of values. Its
+# WebP decoder already gives libwebp's pixels. No SIMD, so no nasm is needed.
+mozjpeg = { version = "0.10.13", default-features = false }
 # Retry-After as an HTTP date (scan_art.rs); already in the tree through hyper.
 httpdate = "1.0.3"

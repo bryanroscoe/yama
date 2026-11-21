@@ -322,7 +322,8 @@ fn printing_timing(rows: &[&Row]) -> Value {
 /// any look option: every printing scored, the closest 0.10 ahead on the raw lead, no collector
 /// read pointing elsewhere), and of those how many ended as another printing than the look's
 /// closest (`detail.look_top_filed` false at the first filing, or a Wrong printing after filing
-/// one that was). So the option can be weighed against the default on real scans.
+/// one that was). So the option can be weighed against the default on real scans. With how long
+/// its looks took and where their printings' vectors came from (`look_time`, `vectors`).
 fn by_look(all: &[Row]) -> Vec<Value> {
     let mut groups: BTreeMap<String, Vec<&Row>> = BTreeMap::new();
     for r in all.iter().filter(|r| r.mode == "printing") {
@@ -349,11 +350,41 @@ fn by_look(all: &[Row]) -> Vec<Value> {
                 "printings_called_wrong": by(&judged, |r| r.printing_rejected(), "printing", |g| json!({"count": g.len()})),
                 "sure_leads": sure,
                 "sure_leads_filed_otherwise": otherwise,
+                "look_time": look_time(&cards),
+                "vectors": vectors(&cards),
             })
         })
         .collect();
     out.sort_by(|a, b| b["count"].as_u64().cmp(&a["count"].as_u64()));
     out
+}
+
+/// A whole number from a record's `detail`, if it said one.
+fn count(r: &Row, key: &str) -> Option<i64> {
+    r.said(key).and_then(|v| v.as_i64()).filter(|n| (0..=MAX_MS).contains(n))
+}
+
+/// How long the looks took (`detail.look_ms`, from the look starting to every printing scored),
+/// overall and split by where their vectors came from: none made on the phone (all the server's or
+/// the phone's own cache), or some fetched from Scryfall and embedded there. That split is the
+/// server's vectors' gain (docs/scanner.md, "Vectors from the server").
+fn look_time(rows: &[&Row]) -> Value {
+    let looked: Vec<&&Row> = rows.iter().filter(|r| count(r, "look_ms").is_some()).collect();
+    let times = |pick: &dyn Fn(&Row) -> bool| {
+        let mut ms: Vec<i64> = looked.iter().filter(|r| pick(r)).filter_map(|r| count(r, "look_ms")).collect();
+        json!({ "count": ms.len(), "median_ms": quantile(&mut ms, 0.5), "p90_ms": quantile(&mut ms, 0.9) })
+    };
+    let made = |r: &Row| count(r, "look_made").unwrap_or(0) > 0;
+    json!({ "all": times(&|_| true), "nothing_made": times(&|r| !made(r)), "some_made": times(&made) })
+}
+
+/// The printings' vectors of those looks, by where they came from: the server, the phone's own
+/// cache, or fetched and embedded on the phone; and the server's share.
+fn vectors(rows: &[&Row]) -> Value {
+    let sum = |key: &str| rows.iter().filter_map(|r| count(r, key)).sum::<i64>();
+    let (server, cached, made) = (sum("look_server"), sum("look_cached"), sum("look_made"));
+    let all = server + cached + made;
+    json!({ "server": server, "cached": cached, "made": made, "server_share": share(server as usize, all as usize) })
 }
 
 /// What the account's timing records say: how fast cards are named and by which rule, how their
@@ -624,6 +655,33 @@ mod tests {
         assert_eq!(s["items"][0]["models"]["look"], "off");
         let first = s["items"].as_array().unwrap().iter().find(|i| i["detail"]["look_lead"] == 0.142).unwrap();
         assert_eq!(first["printing"], "look");
+    }
+
+    #[tokio::test]
+    async fn looks_say_how_long_they_took_and_where_their_vectors_came_from() {
+        let (app, pool) = testutil::app().await;
+        let (_, token) = testutil::user(&pool, "me@example.com").await;
+        let looked = |ms: i64, server: i64, cached: i64, made: i64| {
+            let mut b = body("leads", 500);
+            b["models"]["look"] = json!("look-v1");
+            b["detail"] = json!({"look_ms": ms, "look_scored": server + cached + made, "look_server": server, "look_cached": cached, "look_made": made});
+            b
+        };
+        // Two looks all from the server, one from the phone's cache, two that fetched pictures.
+        for b in [looked(300, 4, 0, 0), looked(350, 3, 1, 0), looked(120, 0, 4, 0), looked(1600, 2, 0, 2), looked(2100, 0, 0, 5)] {
+            assert_eq!(testutil::send(&app, Method::POST, PATH, Some(&token), Some(b)).await.0, StatusCode::OK);
+        }
+        // A look from before 21 Nov says nothing of it and counts in neither.
+        let mut old = body("leads", 500);
+        old["models"]["look"] = json!("look-v1");
+        assert_eq!(testutil::send(&app, Method::POST, PATH, Some(&token), Some(old)).await.0, StatusCode::OK);
+        let (_, s) = testutil::send(&app, Method::GET, PATH, Some(&token), None).await;
+        let v1 = s["looks"].as_array().unwrap().iter().find(|l| l["look"] == "look-v1").unwrap().clone();
+        assert_eq!(v1["count"], 6);
+        assert_eq!(v1["look_time"]["all"], json!({"count": 5, "median_ms": 350, "p90_ms": 2100}));
+        assert_eq!(v1["look_time"]["nothing_made"], json!({"count": 3, "median_ms": 300, "p90_ms": 350}));
+        assert_eq!(v1["look_time"]["some_made"], json!({"count": 2, "median_ms": 1600, "p90_ms": 2100}));
+        assert_eq!(v1["vectors"], json!({"server": 9, "cached": 5, "made": 7, "server_share": 0.429}));
     }
 
     #[tokio::test]

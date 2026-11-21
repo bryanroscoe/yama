@@ -3,7 +3,7 @@
 // the art worker keep frames; a look hands the card's frames from one worker to the other, reports
 // each printing's score as it comes, and stops when asked; Off ends the look's worker.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { loadArtRecognizer, type ArtWorkerReply, type ArtWorkerRequest, type BundleInfo } from "./artClient";
+import { loadArtRecognizer, serverLooks, type ArtWorkerReply, type ArtWorkerRequest, type BundleInfo } from "./artClient";
 import type { LookWorkerReply, LookWorkerRequest } from "./look";
 
 const V = "gallery-20261106T183001884398Z";
@@ -149,5 +149,48 @@ describe("the printing look, beside the art worker", () => {
     expect(workers).toHaveLength(3);
     expect(art.look).toBe("look-v0");
     art.dispose();
+  });
+
+  it("asks the server for the printings the look's worker hasn't got, and hands it the answer", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        calls.push(url);
+        return new Response(JSON.stringify({ model: "152f…", looks: [{ id: "b-1", url: "https://cards.scryfall.io/b.jpg", vector: "AAA=" }], missing: 1 }), { headers: { "content-type": "application/json" } });
+      }),
+    );
+    const art = (await loadArtRecognizer(undefined, { info }))!;
+    await art.useLook(lookV0);
+    const lookWorker = workers[1]!;
+    // Nothing waits on the scan sheet: the worker says what it needs, by the model it runs.
+    lookWorker.onmessage?.({ data: { type: "need", id: 41, model: "look-58acfa166105", candidates: [{ id: "a", url: "https://cards.scryfall.io/a.jpg", back: false }, { id: "b", url: "https://cards.scryfall.io/b.jpg", back: true }] } } as MessageEvent);
+    for (let i = 0; i < 50 && !lookWorker.asked.some((m) => m.type === "keys"); i += 1) await new Promise((r) => setTimeout(r, 2));
+    expect(calls).toEqual(["/api/scan/looks?model=look-58acfa166105&ids=a%2Cb-1"]);
+    expect(lookWorker.asked.find((m) => m.type === "keys")).toMatchObject({ type: "keys", id: 41, looks: [{ id: "b-1", url: "https://cards.scryfall.io/b.jpg", vector: "AAA=" }] });
+    art.dispose();
+  });
+
+  it("gives the look nothing from the server offline, on a failure, or for a model it doesn't make", async () => {
+    const a = [{ id: "a", url: "https://cards.scryfall.io/a.jpg" }];
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("navigator", { onLine: false });
+    expect(await serverLooks("look-v", a)).toEqual({ looks: null, ms: null });
+    expect(fetchMock).not.toHaveBeenCalled();
+    vi.stubGlobal("navigator", { onLine: true });
+    fetchMock.mockResolvedValueOnce(new Response("{}", { status: 503 }));
+    expect(await serverLooks("look-v", a)).toEqual({ looks: null, ms: null });
+    fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    expect(await serverLooks("look-v", a)).toEqual({ looks: null, ms: null });
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ model: null, looks: [], missing: 0 }), { headers: { "content-type": "application/json" } }));
+    expect((await serverLooks("look-v", a)).looks).toEqual([]);
+    // A slow answer is given up on.
+    fetchMock.mockImplementationOnce((_: string, init: RequestInit) => new Promise((_, reject) => init.signal?.addEventListener("abort", () => reject(new DOMException("timed out", "TimeoutError")))));
+    expect(await serverLooks("look-v", a, 10)).toEqual({ looks: null, ms: null });
+    // Nothing to ask about: no request.
+    fetchMock.mockClear();
+    expect(await serverLooks("look-v", [])).toEqual({ looks: null, ms: null });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

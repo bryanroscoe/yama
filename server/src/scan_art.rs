@@ -21,7 +21,8 @@
 //! - **When:** after each card-data import (the scheduler and `import-cards`), when the server
 //!   starts, and every six hours; `yama-server scan-arts` runs it by hand. Off with
 //!   `YAMA_SCAN_SUPPLEMENT=0`.
-//! - **Scryfall:** one image request at a time, 100 ms apart, with Yama's User-Agent. Images are
+//! - **Scryfall:** one image request at a time, each 100 ms after the last ended (counting the
+//!   printing look's, scan_look.rs, which shares the pace), with Yama's User-Agent. Images are
 //!   decoded in memory and dropped; only the 128 numbers are kept. A 429, a 5xx or a network
 //!   failure says nothing about the artwork: the run backs off (Retry-After in seconds or as a
 //!   date, else doubling up to a minute) and stops after four in a row, charging nothing; the next run resumes. Only a missing
@@ -384,7 +385,7 @@ impl From<anyhow::Error> for Problem {
 }
 
 /// The wait before trying again after `streak` unavailable answers in a row, or None to end the run.
-fn backoff(streak: u32, retry_after: Option<Duration>, base: Duration) -> Option<Duration> {
+pub(crate) fn backoff(streak: u32, retry_after: Option<Duration>, base: Duration) -> Option<Duration> {
     if streak >= UNAVAILABLE_IN_A_ROW || retry_after.is_some_and(|r| r > RETRY_AFTER_CAP) {
         return None;
     }
@@ -392,12 +393,30 @@ fn backoff(streak: u32, retry_after: Option<Duration>, base: Duration) -> Option
     Some(retry_after.map_or(doubling, |r| r.max(doubling)))
 }
 
+/// Make one Scryfall image request (`request`) at least `pause` after the last one of this
+/// process ended, this job's or the printing look's (scan_look.rs): one at a time between the two.
+pub(crate) async fn paced<T>(pause: Duration, request: impl std::future::Future<Output = T>) -> T {
+    static LAST: OnceLock<tokio::sync::Mutex<Option<tokio::time::Instant>>> = OnceLock::new();
+    let mut last = LAST.get_or_init(|| tokio::sync::Mutex::new(None)).lock().await;
+    if let Some(at) = *last {
+        tokio::time::sleep_until(at + pause).await;
+    }
+    let out = request.await;
+    *last = Some(tokio::time::Instant::now());
+    out
+}
+
 /// The cross-process lock for one run (`flock`, released when the file closes), or None while
 /// another run holds it.
 pub(crate) fn lock_runs(data_dir: &Path) -> anyhow::Result<Option<std::fs::File>> {
+    lock_named(data_dir, LOCK)
+}
+
+/// The cross-process lock `name` in `data/scan-bundle/`, or None while another holds it.
+pub(crate) fn lock_named(data_dir: &Path, name: &str) -> anyhow::Result<Option<std::fs::File>> {
     let root = data_dir.join("scan-bundle");
     std::fs::create_dir_all(&root)?;
-    let file = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(root.join(LOCK))?;
+    let file = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(root.join(name))?;
     match file.try_lock() {
         Ok(()) => Ok(Some(file)),
         Err(std::fs::TryLockError::WouldBlock) => Ok(None),
@@ -651,8 +670,7 @@ async fn embed_one(c: &Candidate, fetch: &Fetch, embedder: &Arc<dyn Embed>, paus
     urls.extend(c.url.clone().filter(|u| !urls.contains(u)));
     let mut bytes = None;
     for url in urls {
-        tokio::time::sleep(pause).await;
-        match fetch(url).await? {
+        match paced(pause, fetch(url)).await? {
             Fetched::Image(b) => {
                 bytes = Some(b);
                 break;

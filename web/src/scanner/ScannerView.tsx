@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import { api, type Printing } from "../api";
 import { loadArtRecognizer, NO_ART_MODEL, RECOGNIZER_SHORT_SIDE, scanBundleInfo, type ArtRecognizer, type LoadState, type LookDone } from "./artClient";
-import { lookBest, lookCandidates, lookLead, lookOrder, lookSettles, withoutMisread, type LookScores } from "./look";
+import { lookBest, lookCandidates, lookLead, lookOrder, lookSettles, lookTimingDetail, withoutMisread, type LookScores } from "./look";
 import { GATE_LOCK, modelsOf, onModelsChange, running, runningAll, saveModel, savedModels, usesLead, type DeviceCan, type ModelChoices, type ModelSlot, type ModelsInfo, type Running } from "./models";
 import { ModelsSetting } from "./ModelsSetting";
 import { scannerSettled, SpeedTest } from "./SpeedTest";
@@ -1399,6 +1399,8 @@ export function ScannerView({
         const lead = complete ? lookLead(printings, scores) : null;
         note({ ...done, stopped: !complete, ...(lead ? { lead: Math.round(lead.lead * 1000) / 1000 } : {}) });
         if (lead && f.timing) f.timing.detail.look_lead = Math.round(lead.lead * 1000) / 1000;
+        // How long it took and where its printings' vectors came from (the server's, this device's cache, or made here).
+        if (complete && f.timing) Object.assign(f.timing.detail, lookTimingDetail(done));
         if (complete && f.shot) lookDone.current.set(f.shot, { ...scores });
         if (foundSeq.current === seq) setLook({ seq, scores: { ...scores }, complete, option: model });
       },
