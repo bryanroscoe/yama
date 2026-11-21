@@ -28,7 +28,7 @@ use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
 use crate::routes::AppState;
 use anyhow::Context;
-use axum::extract::{DefaultBodyLimit, Path, Query, State};
+use axum::extract::{DefaultBodyLimit, FromRequest, Path, Query, Request, State};
 use axum::http::header;
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
@@ -159,8 +159,15 @@ fn text(v: Option<String>) -> Option<String> {
     v.map(|s| s.trim().chars().take(MAX_TEXT).collect::<String>()).filter(|s| !s.is_empty())
 }
 
-async fn add(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(s): Json<NewSample>) -> AppResult<Json<Value>> {
+async fn add(State(st): State<AppState>, CurrentUser(user): CurrentUser, req: Request) -> AppResult<axum::response::Response> {
+    // The rate limit before the body: a limited account isn't let make the server buffer and parse
+    // another few megabytes of photo and crops first (Codex review of #171; as scan_diagnostics.rs).
     st.limits.scan_samples.check_user(&user)?;
+    let Json(s) = match Json::<NewSample>::from_request(req, &st).await {
+        Ok(json) => json,
+        // Axum's own answer: 413 for too large, 400/415/422 for the rest.
+        Err(rejection) => return Ok(rejection.into_response()),
+    };
     if !matches!(s.kind.as_str(), "added" | "corrected" | "wrong") {
         return Err(AppError::BadRequest("kind is added, corrected or wrong".into()));
     }
@@ -232,7 +239,7 @@ async fn add(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(s)
         }
     });
     let id = task.await.map_err(|e| AppError::from(anyhow::anyhow!("saving a scan photo: {e}")))??;
-    Ok(Json(json!({ "id": id })))
+    Ok(Json(json!({ "id": id })).into_response())
 }
 
 /// How old a crops folder with no row must be before Delete them takes it: an upload writes its
