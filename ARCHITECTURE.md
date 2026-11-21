@@ -398,7 +398,7 @@ developer's machine and published as an asset of a `scanner-art-<date>` release,
 latest; a pull request then pins its URL, size and SHA-256 in `server/src/scan.rs`, and the server
 downloads it after the deploy ([Yama's own query embedder for the scanner (18 November 2026)](#yamas-own-query-embedder-for-the-scanner-18-november-2026)).
 A model that breaks is withdrawn without new code: `YAMA_SCAN_WITHDRAW=<option id>` in the
-server's `yama.env` and a container restart put every phone that chose it back on its slot's
+server's `yama.env` and recreating the container (`docker compose up -d`) put every phone that chose it back on its slot's
 default ([Scanner models you can switch (20 November 2026)](#scanner-models-you-can-switch-20-november-2026)).
 
 ## Decision record
@@ -597,7 +597,7 @@ pin and one switch each (docs/scanner.md, "Models you can switch").
   lock rule applies from the next frame; the scan in progress is kept.
 - **Withdrawn without new code.** `YAMA_SCAN_WITHDRAW=<ids>` takes options off offer (and
   `YAMA_SCAN_QUERY_MODEL=0` every art model of ours): phones that chose one run the slot's default
-  until it's listed again. A recreated container, not a deploy.
+  until it's listed again. A recreated container (`docker compose up -d`), not a deploy.
 - **Recorded.** Kept scan photos and diagnostics carry each slot's choice (`models`, a column next
   to `bundle`), so results can be compared by model later. No new data leaves the phone: the
   choice names options, not anything about the person.

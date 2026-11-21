@@ -459,9 +459,9 @@ async fn fetch_checked(http: &reqwest::Client, url: &str, dir: &Path, name: &str
 pub async fn ensure_models(data_dir: PathBuf, http: reqwest::Client, off: Withdrawn) {
     let dir = bundle_dir(&data_dir);
     let Some(manifest) = read_manifest(&dir).await else { return };
-    for &o in MODELS {
+    for o in wanted(&off, &manifest) {
         let Source::File { url, bytes, sha256, .. } = o.source else { continue };
-        if off.has(o) || !o.fits(&manifest) || o.is_in(&dir).await {
+        if o.is_in(&dir).await {
             continue;
         }
         let mut states = model_state().lock().await;
@@ -489,6 +489,12 @@ pub async fn ensure_models(data_dir: PathBuf, http: reqwest::Client, off: Withdr
             states.insert(o.id, state);
         });
     }
+}
+
+/// The options whose files `ensure_models` fetches for the bundle this manifest describes: ours,
+/// not withdrawn, and fitting its gallery.
+fn wanted(off: &Withdrawn, manifest: &serde_json::Value) -> Vec<&'static ModelOption> {
+    MODELS.iter().copied().filter(|o| matches!(o.source, Source::File { .. }) && !off.has(o) && o.fits(manifest)).collect()
 }
 
 /// Fetch one pinned file into `dir` as `file`, then tidy the folder (`remove_unpinned`).
@@ -1110,6 +1116,24 @@ mod tests {
         assert_eq!(info["ready"], false);
         assert_eq!(slot(&info, "art"), (vec![], serde_json::Value::Null));
         assert_eq!(slot(&info, "text").1, "auto");
+    }
+
+    #[test]
+    fn only_files_of_ours_that_fit_and_arent_withdrawn_are_downloaded() {
+        let fits = serde_json::json!({"recogniser": {"sha256": RECOGNISER}});
+        let other = serde_json::json!({"recogniser": {"sha256": "0".repeat(64)}});
+        let ids = |v: Vec<&'static ModelOption>| v.iter().map(|o| o.id).collect::<Vec<_>>();
+        let all: Vec<&str> = MODELS.iter().filter(|o| matches!(o.source, Source::File { .. })).map(|o| o.id).collect();
+        assert!(all.contains(&QUERY_MODEL.id));
+        assert_eq!(ids(wanted(&Withdrawn::default(), &fits)), all);
+        // A bundle from another checkpoint: no art model of ours (anything else of ours still).
+        assert!(!ids(wanted(&Withdrawn::default(), &other)).contains(&QUERY_MODEL.id));
+        let mut cfg = testutil::config();
+        cfg.scan_withdrawn = vec![QUERY_MODEL.id.into()];
+        assert!(!ids(wanted(&Withdrawn::of(&cfg), &fits)).contains(&QUERY_MODEL.id));
+        cfg.scan_withdrawn = vec![];
+        cfg.scan_query_model = false;
+        assert!(!ids(wanted(&Withdrawn::of(&cfg), &fits)).contains(&QUERY_MODEL.id));
     }
 
     #[test]

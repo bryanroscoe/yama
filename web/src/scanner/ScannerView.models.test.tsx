@@ -37,11 +37,13 @@ vi.mock("../api", async (original) => ({
 }));
 
 /** The recognizer the scanner gets: which art model it was started with, and the switches since. */
-const art = vi.hoisted(() => ({ loads: [] as { art?: { id: string } | null }[], switches: [] as string[], now: "" }));
+const art = vi.hoisted(() => ({ loads: [] as { art?: { id: string } | null }[], switches: [] as string[], now: "", none: false }));
 vi.mock("./artClient", async (original) => ({
   ...(await original<typeof import("./artClient")>()),
   loadArtRecognizer: async (_: unknown, opts: { art?: { id: string } | null }) => {
     art.loads.push(opts);
+    // No recognizer (a bundle not ready yet): the scanner reads text.
+    if (art.none) return null;
     art.now = opts.art?.id ?? "?";
     const r: ArtRecognizer = {
       get embed() {
@@ -63,9 +65,15 @@ vi.mock("./artClient", async (original) => ({
   },
 }));
 vi.mock("./serverCatalog", () => ({ createServerCatalog: async () => ({ hasSet: () => false, lookup: async () => null, names: () => [] }) }));
+/** The text readers started: the choice each was given, and whether it was stopped. */
+const ocr = vi.hoisted(() => ({ started: [] as { choice: unknown; terminated: boolean }[] }));
 vi.mock("./ocrEngine", async (original) => ({
   ...(await original<typeof import("./ocrEngine")>()),
-  createScannerOcr: async () => ({ engine: "tesseract", read: async () => ({ text: "", confidence: 0 }), terminate: async () => undefined }),
+  createScannerOcr: async (_: unknown, choice: unknown) => {
+    const started = { choice, terminated: false };
+    ocr.started.push(started);
+    return { engine: "tesseract", read: async () => ({ text: "", confidence: 0 }), terminate: async () => void (started.terminated = true) };
+  },
 }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -84,6 +92,8 @@ beforeEach(() => {
   root = createRoot(host);
   art.loads.length = 0;
   art.switches.length = 0;
+  art.none = false;
+  ocr.started.length = 0;
   server.art = [bundleArt, yamaArt];
 });
 afterEach(() => {
@@ -155,14 +165,34 @@ describe("Models in Scan settings", () => {
     act(() => root.render(<ScannerView onAccept={async () => true} />));
     const models = await openSettings();
     expect(art.loads[0]!.art?.id).toBe("yama-art-20261118");
-    // Only one art model on offer: no choice shown for it, but the choice is kept for when it's back.
-    expect(select("Art match")).toBeNull();
+    // Only one art model on offer, but the one chosen here is gone: the slot says so, and the
+    // choice is kept for when it's back.
+    expect(select("Art match")!.value).toBe("bundle");
+    expect([...select("Art match")!.options].find((o) => o.value === "bundle")?.textContent).toBe("bundle (not on offer now)");
+    expect(models.textContent).toContain("isn't on offer now, so the default runs");
     expect(JSON.parse(localStorage.getItem("yama.scan.models")!)).toEqual({ art: "bundle" });
-    // With a choice still to make in another slot, a withdrawn one is shown as such.
+    // The same for a lock rule this build doesn't know.
     saveModel("lock", "vote");
     await wait(20);
     expect(select("Settling by art")!.value).toBe("vote");
     expect([...select("Settling by art")!.options].find((o) => o.value === "vote")?.textContent).toBe("vote (not on offer now)");
     expect(models.textContent).toContain("isn't on offer now, so the default runs");
+  });
+
+  it("starts a text-only scanner's reader with the server's readers, and lets one switched away finish its reads", async () => {
+    art.none = true;
+    act(() => root.render(<ScannerView onAccept={async () => true} />));
+    const models = await openSettings();
+    await until(() => ocr.started[0], "the text reader");
+    // Started once, knowing what the server offers (a withdrawn reader is never started).
+    expect(ocr.started).toHaveLength(1);
+    expect(ocr.started[0]!.choice).toEqual({ engine: "auto", allowed: ["auto", "mlkit", "tesseract"] });
+    expect(document.body.textContent).not.toContain("The text reader was switched");
+    expect(models.textContent).toContain("Card recognition isn't running.");
+    // Choosing another: the next read starts it; the one running isn't cut off mid-read.
+    await choose(select("Text reader")!, "tesseract");
+    await wait(30);
+    expect(ocr.started[0]!.terminated).toBe(false);
+    expect(JSON.parse(localStorage.getItem("yama.scan.models")!)).toEqual({ text: "tesseract" });
   });
 });

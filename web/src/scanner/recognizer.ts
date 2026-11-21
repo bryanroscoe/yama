@@ -380,7 +380,12 @@ export async function createRecognizer(
     },
     async setEmbed(graph) {
       const next = await ort.InferenceSession.create(graph, options);
-      await embedRun(next, blank, blankQuad);
+      try {
+        await embedRun(next, blank, blankQuad);
+      } catch (e) {
+        await next.release?.().catch(() => undefined);
+        throw e;
+      }
       const old = embed;
       embed = next;
       // A frame already being matched may still be running the old one: let it finish first.

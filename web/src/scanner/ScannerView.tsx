@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, type Printing } from "../api";
 import { loadArtRecognizer, NO_ART_MODEL, RECOGNIZER_SHORT_SIDE, scanBundleInfo, type ArtRecognizer, type LoadState } from "./artClient";
-import { modelsOf, onModelsChange, running, runningAll, saveModel, savedModels, type DeviceCan, type ModelChoices, type ModelSlot, type ModelsInfo } from "./models";
+import { modelsOf, onModelsChange, running, runningAll, saveModel, savedModels, type DeviceCan, type ModelChoices, type ModelSlot, type ModelsInfo, type Running } from "./models";
 import { ModelsSetting } from "./ModelsSetting";
 import { NameIndex } from "./fuzzy";
 import { normaliseName } from "./parse";
@@ -309,6 +309,17 @@ interface JustAdded {
   say?: boolean;
 }
 /** What the scanner says while it simply waits for a card: once the strip has cards, the camera keeps quiet. */
+/** A text reader started for a choice changed since (Scan settings): the next read starts the new one. */
+const TEXT_SWITCHED = "The text reader was switched";
+/** How long a text reader replaced in Scan settings keeps going, so the reads it has under way finish. */
+const OCR_RETIRE_MS = 10_000;
+
+/** The text slot's choice for the next reader started, with the readers the server offers. */
+const textChoice = (slots: Record<ModelSlot, Running>, info: ModelsInfo | null): OcrChoice => ({
+  engine: (slots.text.option?.id ?? "auto") as OcrChoice["engine"],
+  allowed: info?.text.options.map((o) => o.id),
+});
+
 const WAITING = "Hold a card in view";
 const NEXT = "Ready for the next card";
 /** A card other than the one just filed is in view and being read. */
@@ -637,6 +648,8 @@ export function ScannerView({
   slotsRef.current = slots;
   /** The art model the recognizer runs (its option id), once it's loaded. */
   const [artNow, setArtNow] = useState<string | null>(null);
+  /** Bumped by each recognizer loaded, so the art switch below follows the one now running. */
+  const [artGen, setArtGen] = useState(0);
   /** A model switch under way, or one that failed, by slot, for Scan settings. */
   const [modelNotes, setModelNotes] = useState<Partial<Record<ModelSlot, string>>>({});
   /** The lock rule in force (models.ts): "lead", or "sure" for sure scores only. */
@@ -843,7 +856,10 @@ export function ScannerView({
   const ocrRef = useRef<Promise<OcrEngine> | null>(null);
   /** The text slot's choice (models.ts), for the next reader started, and the server's text readers on offer. */
   const ocrChoice = useRef<OcrChoice>({});
-  ocrChoice.current = { engine: (slots.text.option?.id ?? "auto") as OcrChoice["engine"], allowed: modelsInfo?.text.options.map((o) => o.id) };
+  ocrChoice.current = textChoice(slots, modelsInfo);
+  /** The readers to try in order for the choice the running reader was started with (or will be). */
+  const textKey = engineOrder(ocrChoice.current).join(",");
+  const textStartedFor = useRef(textKey);
   /** The card names to read against, kept when the text reader is switched. */
   const catalogRef = useRef<Promise<{ catalog: ScanCatalog; names: NameIndex }> | null>(null);
   /** False once the scanner closes: work finishing after that must clean up after itself. */
@@ -862,7 +878,7 @@ export function ScannerView({
       : createScannerOcr({ workerPath: `${ocr}/worker.min.js`, corePath: `${ocr}/core`, langPath: `${ocr}/lang`, cachePath: `ocr-${import.meta.env.VITE_OCR_VERSION}` }, ocrChoice.current).then((o) => {
           if (!alive.current || ocrSession.current !== session) {
             void o.terminate();
-            throw new Error(alive.current ? "The text reader was switched" : "The scanner is closed");
+            throw new Error(alive.current ? TEXT_SWITCHED : "The scanner is closed");
           }
           setOcrName(o.engine);
           return (ownedOcr.current = o);
@@ -905,6 +921,10 @@ export function ScannerView({
         if (cancelled) return;
         const models = modelsOf(info);
         setModelsInfo(models);
+        // The text slot as the server lists it, before any reader starts (a withdrawn one isn't
+        // started and then stopped when the render with these models comes).
+        ocrChoice.current = textChoice(runningAll(models, savedModels(), deviceCan), models);
+        textStartedFor.current = engineOrder(ocrChoice.current).join(",");
         art = await loadArtRecognizer((s) => !cancelled && setLoadState(s), { info, art: running(models, "art", savedModels().art, deviceCan).option });
       } catch (e) {
         console.warn("Card recognizer unavailable", e);
@@ -912,14 +932,22 @@ export function ScannerView({
       if (cancelled) return art?.dispose();
       artRef.current = art;
       setArtNow(art?.art ?? null);
+      setArtGen((g) => g + 1);
       setLoadState(null);
       if (art) setMode("art");
       else {
-        try {
-          await textReader();
-          if (!cancelled) setMode("text");
-        } catch (e) {
-          if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+        // A reader switched while it started (Scan settings) starts again as the one now chosen.
+        for (let tries = 0; ; tries += 1) {
+          try {
+            await textReader();
+            if (!cancelled) setMode("text");
+            break;
+          } catch (e) {
+            if (cancelled) break;
+            if (tries < 2 && e instanceof Error && e.message === TEXT_SWITCHED) continue;
+            setError(e instanceof Error ? e.message : String(e));
+            break;
+          }
         }
       }
     })();
@@ -966,18 +994,18 @@ export function ScannerView({
     return () => {
       live = false;
     };
-    // By the option chosen, not the object (slots is rebuilt on every change).
+    // By the option chosen, not the object (slots is rebuilt on every change); and each recognizer
+    // loaded (artGen), which starts with the choice read when its load began.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, artWant?.id, artWant?.file]);
+  }, [mode, artGen, artWant?.id, artWant?.file]);
 
-  // Another text reader chosen (or one withdrawn): the one running stops, and the next read starts
-  // the new one. The card names stay loaded.
-  const textKey = engineOrder(ocrChoice.current).join(",");
-  const textStartedFor = useRef(textKey);
+  // Another text reader chosen (or one withdrawn): the next read starts the new one, and the one
+  // running is stopped once the reads it has under way are done (OCR_RETIRE_MS), so a collector
+  // line being read isn't cut short. The card names stay loaded.
   useEffect(() => {
     if (textStartedFor.current === textKey) return;
     textStartedFor.current = textKey;
-    if (ocrProp) return;
+    if (ocrProp || !ocrRef.current) return;
     const old = ownedOcr.current;
     ownedOcr.current = null;
     ocrRef.current = null;
@@ -985,7 +1013,7 @@ export function ScannerView({
     // A reader still starting for the old choice is stopped as it arrives (ocrEngine).
     ocrSession.current += 1;
     setOcrName(null);
-    void old?.terminate();
+    if (old) setTimeout(() => void old.terminate(), OCR_RETIRE_MS);
   }, [textKey, ocrProp]);
 
   // A new zoom moves everything in the recognizer's frame: drop the card it was tracking.

@@ -17,7 +17,8 @@ export interface ModelsSettingProps {
 }
 
 export function ModelsSetting({ info, slots, can, runs, notes, onChoose }: ModelsSettingProps) {
-  const shown = MODEL_SLOTS.filter((slot) => runnable(info, slot, can).length > 1);
+  // A slot with a choice to make, or whose choice here isn't on offer now (so it says so).
+  const shown = MODEL_SLOTS.filter((slot) => runnable(info, slot, can).length > 1 || slots[slot].fellBack);
   if (shown.length === 0) return null;
   return (
     <section className="scan-models" aria-labelledby="scan-models-title">
