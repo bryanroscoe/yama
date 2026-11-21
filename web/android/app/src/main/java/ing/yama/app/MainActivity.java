@@ -7,8 +7,9 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
-        // The app's own plugins: the scanner's text reader and the updater (docs/mobile.md).
+        // The app's own plugins: the scanner's text reader and camera, and the updater (docs/mobile.md).
         registerPlugin(TextReaderPlugin.class);
+        registerPlugin(ScannerCameraPlugin.class);
         registerPlugin(UpdaterPlugin.class);
         // Before the bridge reads its server path: drop a web build that never started.
         UpdaterPlugin.recoverOnLaunch(this);

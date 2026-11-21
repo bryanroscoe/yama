@@ -1581,3 +1581,39 @@ button.scan-count {
   color: var(--dim);
   font-weight: 400;
 }
+
+/* The app's own camera (nativeCamera.ts): its preview is drawn behind the web view, so while it
+   is open the page lets it through: only the scanner and dialogs paint, on no ground of their
+   own. The canvas standing where the video does holds frames for the scanner and isn't painted. */
+html.native-camera,
+html.native-camera body {
+  background: transparent;
+}
+html.native-camera #root {
+  visibility: hidden;
+}
+html.native-camera .scan,
+html.native-camera .dialog-layer {
+  visibility: visible;
+}
+html.native-camera .scan,
+html.native-camera .scan-camera {
+  background: transparent;
+}
+.scan-video.is-native {
+  visibility: hidden;
+}
+.scan-native-camera {
+  display: grid;
+  gap: 10px;
+}
+.scan-native-range {
+  display: grid;
+  gap: 4px;
+}
+.scan-native-bench {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--dim);
+  font-size: var(--t-sm);
+}
