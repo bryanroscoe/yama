@@ -3179,11 +3179,12 @@ the approval step of [Plans: one plan per deck](#plans-one-plan-per-deck-2026-11
   left-outs are looked at again when their change is edited. To put one in, answer want on it
   (`answer_review`, staged as before) or change it. Open questions no longer block anything;
   they're shown for the assistant to settle.
-- **Answers count as fresh.** Settle stamps its answers now, or at the change's last edit, or a
-  second after an answer held under an alias, so a change it took in is never new again on the
-  next write. It writes over the answer on the live key, so a device clock a few minutes fast never
-  dates settling's answer ahead of the next one a person gives. Its op ids (`!settle-…`) sort first,
-  so a person's answer in the same second wins.
+- **Answers count as fresh.** Settle stamps its answers now, or at the change's last edit, never
+  later, so a change it took in is never new again on the next write and a settled answer never
+  outranks the next one a person gives (a device clock may run a few minutes fast). It writes over
+  the answer on the live key; a change whose newest answer is a future-dated one under an alias
+  waits for a later write. Its op ids (`!settle-…`) sort first, so a person's answer in the same
+  second wins.
 - **Newest wins.** Settling a deck's version replaces any other live plan for the same deck name,
   as approving did, newest proposals first; tracking a build does too, even when it brought
   nothing new. A plan another one replaced isn't current, so tracking its build again brings it

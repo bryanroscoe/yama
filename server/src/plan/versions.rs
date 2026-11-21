@@ -690,7 +690,9 @@ pub async fn settle(conn: &mut SqliteConnection, owner: &str) -> AppResult<Vec<S
             .max_by(|a, b| a.1.proposed_at.cmp(&b.1.proposed_at).then_with(|| b.0.1.cmp(&a.0.1)));
         let Some(((id, key, name, source), next)) = pick else { break };
         done.insert(id.clone());
-        out.push(take_in(&mut *conn, owner, id, key, name, source, &next).await?);
+        if let Some(done) = take_in(&mut *conn, owner, id, key, name, source, &next).await? {
+            out.push(done);
+        }
     }
     // The caller's write moves the plan revision (an import's head, a note's bump, a batch of ops),
     // so the pages fetch again; `settle_all` moves it itself.
@@ -735,7 +737,7 @@ pub async fn settle_all(pool: &sqlx::SqlitePool) -> AppResult<usize> {
 /// Take one deck's unsettled version in: a want for each change that goes in, unsure with the reason
 /// for each one `left_out` names (your note, if you wrote one, is kept), the version recorded, and for
 /// a plan file's deck the answers and the plan op in the export side's inbox.
-async fn take_in(conn: &mut SqliteConnection, owner: &str, plan_id: &str, deck_key: &str, name: &str, source: &str, next: &Next) -> AppResult<Settled> {
+async fn take_in(conn: &mut SqliteConnection, owner: &str, plan_id: &str, deck_key: &str, name: &str, source: &str, next: &Next) -> AppResult<Option<Settled>> {
     let op_id = format!("{SETTLE_OP}{}", new_id());
     let for_export = source != "yama";
     let rows: Vec<(String, String, Option<String>, String, Option<String>, String, String)> = sqlx::query_as(
@@ -746,25 +748,30 @@ async fn take_in(conn: &mut SqliteConnection, owner: &str, plan_id: &str, deck_k
     .fetch_all(&mut *conn)
     .await?;
     let found = priors(&mut *conn, owner, &next.keys).await?;
-    // The answers have to count as given after each change last changed, and be the newest word
-    // on it: else the change stays new and every write would take it in again. So they're stamped
-    // now, or at the change's last edit, or a second after an answer held under an alias (which
-    // would otherwise win). An answer on the live key itself is written over, so its time (a
-    // device's clock can be a few minutes ahead) never pushes settling's answer into the future,
-    // where it would outrank the next answer a person gives.
+    // The answers have to count as given after each change last changed, so they're stamped now,
+    // or at the change's last edit: never later, so a settled answer never outranks the next one a
+    // person gives (a device's clock may run a few minutes ahead). An answer on the live key is
+    // written over. One held under an alias that is newer than that (a clear from a fast clock)
+    // would still be the newest word, so that change waits for a later write instead of being
+    // answered every time.
+    let parse = |t: &str| chrono::DateTime::parse_from_rfc3339(t).ok().map(|d| d.with_timezone(&chrono::Utc));
     let at = {
-        let parse = |t: &str| chrono::DateTime::parse_from_rfc3339(t).ok().map(|d| d.with_timezone(&chrono::Utc));
         let mut at = chrono::Utc::now();
-        for (k, .., updated, _) in rows.iter().filter(|r| next.keys.contains(&r.0)) {
+        for (.., updated, _) in rows.iter().filter(|r| next.keys.contains(&r.0)) {
             if let Some(u) = parse(updated) {
                 at = at.max(u);
-            }
-            if let Some(a) = found.get(k).filter(|p| p.aliased).and_then(|p| parse(&p.at)) {
-                at = at.max(a + chrono::Duration::seconds(1));
             }
         }
         at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
     };
+    let later: HashSet<&String> = next
+        .keys
+        .iter()
+        .filter(|k| found.get(*k).is_some_and(|p| p.aliased && parse(&p.at).zip(parse(&at)).is_some_and(|(a, now)| a > now)))
+        .collect();
+    if next.keys.iter().all(|k| later.contains(k)) {
+        return Ok(None);
+    }
     // Optional extras: changes that take nothing out (a note swap with no card_out).
     let extras: HashSet<String> = rows.iter().filter(|r| r.6 == "optional").map(|r| r.0.clone()).collect();
     let swaps: Vec<(String, String, Option<String>, String, Option<String>)> = rows.into_iter().map(|(k, i, o, src, w, ..)| (k, i, o, src, w)).collect();
@@ -797,7 +804,9 @@ async fn take_in(conn: &mut SqliteConnection, owner: &str, plan_id: &str, deck_k
         })
     };
     let held: Vec<String> = next.keys.iter().filter(|k| next.skipped.contains(k) || theirs(k)).cloned().collect();
-    let mut why: HashMap<String, String> = left_out(&Next { skipped: held.clone(), ..next.clone() }).into_iter().collect();
+    // What's held, or waits for a later write, takes no cut now.
+    let aside: Vec<String> = held.iter().cloned().chain(later.iter().map(|k| (*k).clone())).collect();
+    let mut why: HashMap<String, String> = left_out(&Next { skipped: aside, ..next.clone() }).into_iter().collect();
     // An optional extra names no card to cut either: it would buy a card with no slot, so it's left
     // out the same way until someone answers want.
     for k in next.keys.iter().filter(|k| extras.contains(*k) && !held.contains(k)) {
@@ -805,7 +814,7 @@ async fn take_in(conn: &mut SqliteConnection, owner: &str, plan_id: &str, deck_k
     }
     let mut before = serde_json::Map::new();
     let (mut writes, mut kept, mut skipped, mut skip_keys, mut said) = (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
-    for k in &next.keys {
+    for k in next.keys.iter().filter(|k| !later.contains(k)) {
         let p = found.get(k).cloned();
         if held.contains(k) {
             let unsure = p.as_ref().and_then(|p| p.decision.as_deref()) == Some("unsure");
@@ -891,14 +900,14 @@ async fn take_in(conn: &mut SqliteConnection, owner: &str, plan_id: &str, deck_k
     .bind(&at)
     .execute(&mut *conn)
     .await?;
-    Ok(Settled {
+    Ok(Some(Settled {
         deck_key: deck_key.to_string(),
         deck: name.to_string(),
         version: next.n,
         kept: kept.len(),
         left_out: said,
         replaced: others.into_iter().map(|(_, k)| k).collect(),
-    })
+    }))
 }
 
 /// The note Yama writes on a change it leaves out, before the reason.
