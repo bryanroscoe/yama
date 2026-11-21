@@ -2,8 +2,10 @@
 // never loses it. Sync to the server is opportunistic and idempotent.
 
 import {
+  apply,
   record,
   replay,
+  seatOrder,
   settledThrough,
   toServerEvents,
   toServerFinish,
@@ -28,6 +30,12 @@ export interface LocalGame {
   log: LoggedEvent[];
   /** Undone events, newest last, for redo. Cleared by any new event. */
   redo: LoggedEvent[];
+  /**
+   * How many events at the end of the log take back ones the server already has, in this run of
+   * Undo. Each stands opposite the event it takes back, so the next Undo reaches the event before
+   * them all. Any new event ends the run.
+   */
+  takenBack?: number;
   /** Highest seq the server has. */
   syncedThrough: number;
   /**
@@ -425,6 +433,7 @@ async function pushDeletes() {
     }
     deletes = deletes.filter((d) => d.id !== id);
     emit();
+    gamesChanged();
   }
 }
 
@@ -454,25 +463,129 @@ const fixedThrough = (g: LocalGame) => Math.max(g.syncedThrough, g.frozenThrough
 
 export function dispatch(event: TableEvent) {
   if (!current || !mayEditCurrent()) return;
-  setCurrent({ ...current, log: record(current.log, event, new Date(), fixedThrough(current)), redo: [] });
+  setCurrent({ ...current, log: record(current.log, event, new Date(), fixedThrough(current)), redo: [], takenBack: undefined });
 }
 
-/** Undo only reaches events not yet sent to the server; older ones are history. */
+/**
+ * The event that takes `event` back, read against the table just before it: what it changed is
+ * changed back (totals stop at 0, so that isn't always what was tapped). Null when no event can
+ * (a passed turn, a change of player or commander) and when it changed nothing.
+ */
+export function inverseOf(before: TableState, event: TableEvent): TableEvent | null {
+  const after = apply(before, event);
+  const was = before.players.find((p) => "seat" in event && p.seat === event.seat);
+  const now = after.players.find((p) => "seat" in event && p.seat === event.seat);
+  switch (event.type) {
+    case "life":
+      return was && event.delta ? { type: "life", seat: event.seat, delta: -event.delta } : null;
+    case "poison": {
+      const delta = (was?.poison ?? 0) - (now?.poison ?? 0);
+      return delta ? { type: "poison", seat: event.seat, delta } : null;
+    }
+    case "commander_damage": {
+      // The life it took comes back with it.
+      const delta = (was?.commanderDamage[event.source] ?? 0) - (now?.commanderDamage[event.source] ?? 0);
+      return delta ? { type: "commander_damage", seat: event.seat, source: event.source, delta } : null;
+    }
+    case "counter": {
+      const delta = (was?.counters[event.counter] ?? 0) - (now?.counters[event.counter] ?? 0);
+      return delta ? { type: "counter", seat: event.seat, counter: event.counter, delta } : null;
+    }
+    case "commander_cast": {
+      const delta = event.partner ? (was?.partnerCasts ?? 0) - (now?.partnerCasts ?? 0) : (was?.commanderCasts ?? 0) - (now?.commanderCasts ?? 0);
+      return delta ? { type: "commander_cast", seat: event.seat, ...(event.partner ? { partner: true } : {}), delta } : null;
+    }
+    case "monarch":
+      return before.monarch === after.monarch ? null : { type: "monarch", seat: before.monarch };
+    case "initiative":
+      return before.initiative === after.initiative ? null : { type: "initiative", seat: before.initiative };
+    case "day_night":
+      return before.dayNight === after.dayNight ? null : { type: "day_night", value: before.dayNight };
+    case "swap_places":
+      return seatOrder(before).join() === seatOrder(after).join() ? null : { type: "swap_places", a: event.a, b: event.b };
+    case "eliminate":
+      // Someone already out (a knockout given to another player) can't be put back as they were.
+      return was && !was.eliminated ? { type: "revive", seat: event.seat } : null;
+    default:
+      return null;
+  }
+}
+
+/**
+ * What Undo does next. An event the server doesn't have yet is simply dropped. One it has is
+ * history, so it is taken back by recording its opposite as a new event, the way a tap on + takes
+ * back a tap on −: nothing already sent changes. `stuck` names an event nothing can take back.
+ */
+function undoStep(g: LocalGame): { drop: LoggedEvent } | { of: LoggedEvent; inverse: TableEvent } | { stuck: TableEvent["type"] } | null {
+  const run = g.takenBack ?? 0;
+  // Past this run's take-backs and the events they stand opposite.
+  const at = g.log.length - 1 - 2 * run;
+  const target = g.log[at];
+  if (!target) return null;
+  if (run === 0 && target.seq > fixedThrough(g)) return { drop: target };
+  const inverse = inverseOf(replay(g.setup, g.log.slice(0, at)), target.event);
+  return inverse ? { of: target, inverse } : { stuck: target.event.type };
+}
+
 export function canUndo() {
-  return !!current && mayEditCurrent() && current.log.length > 0 && current.log[current.log.length - 1]!.seq > fixedThrough(current);
+  if (!current || !mayEditCurrent()) return false;
+  const step = undoStep(current);
+  return !!step && !("stuck" in step);
+}
+
+const STUCK: Partial<Record<TableEvent["type"], string>> = {
+  pass_turn: "passing the turn",
+  set_first: "choosing who goes first",
+  seat: "a change of deck or commander",
+  player: "a change of player",
+  revive: "putting a player back in the game",
+  eliminate: "a knockout",
+};
+
+/** Why Undo is off although something has happened, in a sentence for under the button. Null when it's on, or nothing has happened. */
+export function undoStuck(): string | null {
+  if (!current || !mayEditCurrent()) return null;
+  const step = undoStep(current);
+  if (!step || !("stuck" in step)) return null;
+  return `Undo stops here: ${STUCK[step.stuck] ?? "the last change"} can't be undone once it's saved to Yama.`;
 }
 
 export function undo() {
-  if (!current || !canUndo()) return;
-  const last = current.log[current.log.length - 1]!;
-  setCurrent({ ...current, log: current.log.slice(0, -1), redo: [...current.redo, last] });
+  if (!current || !mayEditCurrent()) return;
+  const step = undoStep(current);
+  if (!step || "stuck" in step) return;
+  if ("drop" in step) {
+    setCurrent({ ...current, log: current.log.slice(0, -1), redo: [...current.redo, step.drop] });
+    return;
+  }
+  // Appended as it is, never merged into the event before it: each take-back stays one event.
+  const seq = current.log[current.log.length - 1]!.seq + 1;
+  setCurrent({
+    ...current,
+    log: [...current.log, { seq, at: new Date().toISOString(), event: step.inverse }],
+    redo: [...current.redo, step.of],
+    takenBack: (current.takenBack ?? 0) + 1,
+  });
+}
+
+export function canRedo() {
+  return !!current && mayEditCurrent() && current.redo.length > 0;
 }
 
 export function redo() {
-  if (!current || !mayEditCurrent() || current.redo.length === 0) return;
+  if (!current || !canRedo()) return;
   const next = current.redo[current.redo.length - 1]!;
-  const seq = (current.log[current.log.length - 1]?.seq ?? 0) + 1;
-  setCurrent({ ...current, log: [...current.log, { ...next, seq }], redo: current.redo.slice(0, -1) });
+  const last = current.log[current.log.length - 1];
+  const run = current.takenBack ?? 0;
+  // Taken back by an event that hasn't been sent yet: dropping that event brings it back.
+  if (run > 0 && last && last.seq > fixedThrough(current)) {
+    setCurrent({ ...current, log: current.log.slice(0, -1), redo: current.redo.slice(0, -1), takenBack: run - 1 || undefined });
+    return;
+  }
+  // Recorded again as a new event, never dated before the one it follows. Whatever is still
+  // undone stays in the redo list, and comes back the same way.
+  const at = last && Date.parse(next.at) < Date.parse(last.at) ? new Date().toISOString() : next.at;
+  setCurrent({ ...current, log: [...current.log, { ...next, at, seq: (last?.seq ?? 0) + 1 }], redo: current.redo.slice(0, -1), takenBack: undefined });
 }
 
 /**
@@ -505,7 +618,8 @@ export function finishGame(winnerSeat: number | null, details: FinishDetails = {
 
 /**
  * Carry on, on this device, with a game this account started elsewhere (the phone died, or the
- * laptop takes over). Everything the server has is history: it can't be undone from here.
+ * laptop takes over). Everything the server has is history: Undo can only take it back with a
+ * new event (undoStep).
  */
 export function resumeGame(setup: TableSetup, log: LoggedEvent[]) {
   const through = log[log.length - 1]?.seq ?? 0;
@@ -585,6 +699,26 @@ async function pushGame(g: LocalGame): Promise<boolean> {
   return saved.status === "finished";
 }
 
+/**
+ * The app's query cache, once it has been handed over (refreshOnSave). Uploads happen here,
+ * outside any page, so the pages that list games can't know one landed unless the store says so.
+ */
+let queries: { invalidateQueries: (filters: { queryKey: string[] }) => unknown } | null = null;
+
+/**
+ * Give the store the app's query client: when a finished game reaches Yama, or a deleted one
+ * leaves it, the lists of games, the playgroup's stats and each deck's results read again.
+ * Without this a game just saved was missing from Recent games (or still "Still going") until
+ * the page was loaded afresh.
+ */
+export function refreshOnSave(client: { invalidateQueries: (filters: { queryKey: string[] }) => unknown }) {
+  queries = client;
+}
+
+function gamesChanged() {
+  for (const key of ["games", "stats", "deck-results"]) void queries?.invalidateQueries({ queryKey: [key] });
+}
+
 let inflight: Promise<void> | null = null;
 
 /** Games this device has seen the server accept (the shared-table relay needs the game there first). */
@@ -612,6 +746,7 @@ export function sync(): Promise<void> {
         try {
           await pushGame(g);
           acknowledgeFinished(g);
+          gamesChanged();
         } catch (e) {
           if (!isPermanent(e)) throw e;
           // Set it aside so the games behind it still upload; one deleted meanwhile, or deleted
@@ -667,6 +802,7 @@ export function sync(): Promise<void> {
           derived = null;
           emit(); // Free the obsolete counter before retaining its small ended marker.
           rememberServerFinish(snapshot);
+          gamesChanged();
         }
         // Only advance if the game is still the same one (it may have been finished meanwhile).
         if (current && stillCurrent()) {

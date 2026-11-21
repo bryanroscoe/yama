@@ -3,17 +3,19 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { FORMATS, formatLabel, GAME_WORDS, matchAfter, noteText, type MatchSetup, wonText, winConditionLabel, WIN_CONDITIONS, type LoggedEvent, type TableEvent, type TableFormat, type TableSetup, fmtDateTime, fmtTime } from "@yama/core";
+import { FORMATS, formatLabel, GAME_WORDS, matchAfter, noteText, replay, type MatchSetup, wonText, winConditionLabel, WIN_CONDITIONS, type LoggedEvent, type TableEvent, type TableFormat, type TableSetup, fmtDate, fmtDateTime, fmtTime } from "@yama/core";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { api, type DeckSummary, type GameDetail, type GameSeat } from "../api";
 import { MythicNote } from "../bridges/mythic/MythicImport";
 import { ArtMosaic } from "../components/ArtMosaic";
 import { artCredits } from "../components/ArtPanel";
+import { gone, NotHere } from "../components/QueryError";
 import { BackLink, Button, ButtonLink, CardThumb, ErrorText, Loading } from "../components/ui";
+import { usePageTitle } from "../pageTitle";
 import { useCardArt } from "../components/useCardArt";
 import { history } from "./history";
 import { useLoggedQueue } from "./loggedQueue";
-import { turnsText } from "./recent";
+import { seatResultText, turnsText } from "./recent";
 import { isLoggedGame, splitPair } from "./logEdit";
 import { cardNamed, unionIdentity } from "./pickers";
 import { deleteGame, resumeGame, useOutbox, useTable } from "./store";
@@ -145,6 +147,7 @@ export function GameDetailPage() {
   const local = useTable();
   const game = useQuery({ queryKey: ["game", id], queryFn: ({ signal }) => api<GameDetail>(`/api/games/${id}`, { signal }) });
   const g = game.data;
+  usePageTitle(g ? "Game" : null);
   const outbox = useOutbox();
   // An edit of this logged game saved while Yama couldn't be reached (loggedQueue.ts).
   const waitingEdit = useLoggedQueue().find((q) => q.body.id === id);
@@ -201,6 +204,13 @@ export function GameDetailPage() {
 
   if (game.isLoading) return <Loading page>Loading the game…</Loading>;
   if (!g) {
+    if (gone(game.error)) {
+      return (
+        <main className="page">
+          <NotHere>This game isn't in your account. It may have been deleted, or it was played by a playgroup you aren't in.</NotHere>
+        </main>
+      );
+    }
     return (
       <main className="page">
         <p><Link to={back}>{backText}</Link></p>
@@ -214,6 +224,8 @@ export function GameDetailPage() {
   const shown = g.seats.map((s) => art.get(splitPair(s).commander ?? "")).filter((a) => !!a?.art);
   const { setup, log } = setupFromServer(g);
   const lines = history(setup, log);
+  // The table as its record leaves it: who is out, whether or not a turn was saved with it.
+  const table = replay(setup, log);
   const turns: { turn: number; lines: typeof lines }[] = [];
   for (const l of lines) {
     const last = turns[turns.length - 1];
@@ -228,7 +240,8 @@ export function GameDetailPage() {
   const logged = isLoggedGame(g);
   const title = going ? GAME_WORDS.going : winner ? wonText(seatName(winner)) : g.status === "finished" ? GAME_WORDS.draw : "Game";
   const facts = [
-    `${fmtDateTime(g.started_at, { weekday: "long", year: false })}.`,
+    // A logged game was given a day, not a time: the hour stored with it is the form's own.
+    `${logged ? fmtDate(g.started_at, { weekday: "long", year: false }) : fmtDateTime(g.started_at, { weekday: "long", year: false })}.`,
     `${formatLabel(setup.format)}, ${g.seats.length} players at ${setup.startingLife} life.`,
     g.turns ? `${turnsText(g)}.` : null,
     how ? `Won by ${how.toLowerCase()}.` : null,
@@ -316,16 +329,15 @@ export function GameDetailPage() {
           {g.seats.map((s) => {
             const { commander, partner } = splitPair(s);
             const a = art.get(commander ?? "");
-            const by = g.seats.find((o) => o.seat === s.eliminated_by_seat);
-            const result = s.seat === g.winner_seat
-              ? "Won"
-              : s.eliminated_turn != null
-                ? `Out on turn ${s.eliminated_turn}${by ? `, by ${seatName(by)}` : ""}`
-                : s.final_life != null
-                  ? `${s.final_life} life at the end`
-                  : going
-                    ? "Still in"
-                    : "";
+            const result = seatResultText(s, {
+              won: s.seat === g.winner_seat,
+              going,
+              knocked: table.players.find((p) => p.seat === s.seat)?.eliminated,
+              name: (seat) => {
+                const o = g.seats.find((x) => x.seat === seat);
+                return o && seatName(o);
+              },
+            });
             return (
               <li key={s.seat} className="gd-seat">
                 <span className="gd-seat-art">{a?.art && <CardThumb src={a.art} />}</span>

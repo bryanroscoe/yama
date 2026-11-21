@@ -18,6 +18,12 @@
 
 /* ── capture: chips and fun ratings ─────────────────────────────────────── */
 
+/* One column no wider than its sheet: a row that can't shrink (a segmented control) wraps
+   inside it instead of stretching the whole form past the edge of a phone. */
+.capture {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .capture .choices {
   display: flex;
   flex-wrap: wrap;
@@ -107,8 +113,10 @@
 .capture .knock-fields input {
   width: 5rem;
 }
+/* Two lines (its `rows`), not the site's tall textarea: the save buttons under it stay in view. */
 .capture .capture-note {
   width: 100%;
+  min-height: 0;
   resize: vertical;
 }
 .capture .first-said {

@@ -1,11 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FORMATS, formatLabel, identityName, MATCH_LENGTHS, newMatch, type FunRating, type PlayerSetup, type TableFormat, type TableSetup, type WinCondition, fmtDateTime } from "@yama/core";
+import { FORMATS, formatLabel, identityName, MATCH_LENGTHS, newMatch, wonText, type FunRating, type PlayerSetup, type TableFormat, type TableSetup, type WinCondition, fmtDateTime } from "@yama/core";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { api, type DeckSummary, type GameDetail, type GameRow, type Playgroup } from "../api";
 import { signInPath, useMe } from "../auth";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
-import { Button, ButtonLink, CheckRow, Dialog, ErrorText, Loading, PageHeader, Pips, Segmented } from "../components/ui";
+import { Button, CheckRow, Dialog, ErrorText, Loading, PageHeader, Pips, Segmented } from "../components/ui";
 import { FirstPlayerPicker, FunPicker, KnockoutPicker, NotePicker, WinConditionPicker, type KnockoutAnswer } from "../components/GameCapture";
 import { localDay } from "./versions";
 import { discardLogged, queueLogged, sendLogged, signedInUser, useLoggedQueue, worthKeeping, type LoggedGame } from "./loggedQueue";
@@ -16,6 +16,8 @@ import { LayoutPicker, LayoutSketch } from "./LayoutPicker";
 import { useLayoutChoice } from "./layouts";
 import { panelArt, useShowArt } from "./art";
 import { RecentGameRows } from "./RecentGameRows";
+import { localGameRow } from "./recent";
+import { ShowMore } from "../components/Pager";
 import { resolveDraft, type CommanderDraft, type Person } from "./pickers";
 import { availablePeople, deckCommanders, SeatEditor, usePeople } from "./SeatEditor";
 import { gameSummary } from "./history";
@@ -30,6 +32,7 @@ import { tablePlay } from "./playLoader";
 import "./seats.css";
 import "./home.css";
 import { ask } from "../components/confirm";
+import { BugButton } from "../bugs/BugButton";
 
 
 /** Laptop layout (the rail and inline seat cards) from 900 px, as in styles.css. */
@@ -54,6 +57,17 @@ export function seatWhere(i: number, n: number): string {
   return "across";
 }
 
+/**
+ * The game just saved at the table: the life counter comes back here with
+ * `{ saved: { gameId, winner } }` in the navigation state (`winner` null for a draw, or when
+ * nobody said).
+ */
+export function savedFromState(state: unknown): { gameId: string; winner: string | null } | null {
+  const saved = (state as { saved?: { gameId?: unknown; winner?: unknown } } | null)?.saved;
+  if (!saved || typeof saved.gameId !== "string" || !saved.gameId) return null;
+  return { gameId: saved.gameId, winner: typeof saved.winner === "string" && saved.winner.trim() ? saved.winner.trim() : null };
+}
+
 export function TableHome() {
   const { game, state } = useTable();
   const hosting = useHosting();
@@ -67,6 +81,17 @@ export function TableHome() {
   const navigate = useNavigate();
   const showArt = useShowArt();
   const guest = isGuest();
+  // Said once, on arriving from the table: the state is cleared, so a reload or Back doesn't
+  // say it again.
+  const location = useLocation();
+  const [saved] = useState(() => savedFromState(location.state));
+  useEffect(() => {
+    if (saved) void navigate(".", { replace: true, state: null });
+    // Once, when the page opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // A game with no account stays on this device, and one still waiting to upload has no page yet.
+  const savedHasPage = !!saved && !guest && !outbox.some((o) => o.setup.id === saved.gameId);
   // The life counter's code, ready before anyone presses Start.
   useEffect(() => {
     const idle = window.requestIdleCallback ?? ((fn: () => void) => window.setTimeout(fn, 1500));
@@ -98,8 +123,15 @@ export function TableHome() {
 
   return (
     <main className="page table-home">
-      {guest ? <GuestBanner /> : <SaveGuestGames />}
+      {!guest && <SaveGuestGames />}
       <SharedTables localGameId={game?.setup.id} />
+      {saved && (
+        <p className="saved-line" role="status">
+          {saved.winner ? `Saved: ${wonText(saved.winner)}.` : "Saved the game."}
+          {savedHasPage && <> <Link to={`/table/games/${saved.gameId}`}>{saved.winner ? "See the game." : "See it."}</Link></>}
+          {guest && " It's kept on this device."}
+        </p>
+      )}
       {game && state ? (
         <section className="stack" style={{ marginBottom: "2rem" }}>
           <PageHeader
@@ -141,12 +173,13 @@ export function TableHome() {
               Discard
             </Button>
           </div>
+          {guest && <GuestNote />}
         </section>
       ) : (
         <NewGame onStart={(share) => navigate("/table/play", { state: { share, fresh: true } })} />
       )}
 
-      {guest ? notes : <RecentGames
+      {guest ? <>{notes}<GuestGames /></> : <RecentGames
         notes={notes}
         waiting={
           outbox.length > 0 ? (
@@ -164,20 +197,43 @@ export function TableHome() {
   );
 }
 
-/** Counting without an account: what that means, and the way to sign in. */
-function GuestBanner() {
-  const games = useGuestGames();
+/**
+ * Counting without an account: what that means, and the way to sign in. A quiet line under the
+ * button that starts the game, so nothing stands between someone at a table and the counter.
+ */
+function GuestNote() {
   return (
-    <aside className="guest-banner" aria-label="Counting without an account">
-      <p>
-        <b>No account needed.</b>
-        <span className="dim">
-          {" "}Games stay on this device{games.length ? ` (${games.length} so far)` : ""}. Sign in to share the table and keep your games and decks.
-        </span>
-      </p>
+    <p className="small dim guest-note">
+      No account needed. Games stay on this device.{" "}
       {/* Back here once signed in, where the games counted as a guest are offered to the account. */}
-      <ButtonLink variant="primary" to={signInPath("/play/table")}>Sign in</ButtonLink>
-    </aside>
+      <Link to={signInPath("/play/table")}>Sign in</Link> to share the table and keep your games and decks.
+    </p>
+  );
+}
+
+/** Guest games listed before "Show all". */
+const GUEST_GAMES_SHOWN = 5;
+
+/**
+ * Signed out: the games counted on this device, newest first. They have no page of their own
+ * (nothing is on Yama), so the rows don't open; signing in offers to save them to the account.
+ */
+function GuestGames() {
+  const games = useGuestGames();
+  const [all, setAll] = useState(false);
+  if (!games.length) return null;
+  const rows = games.map((g) => localGameRow(g.setup, g.log)).reverse();
+  return (
+    <section className="recent-games" aria-labelledby="guest-games-title">
+      <div className="rg-head">
+        <h2 id="guest-games-title">Games on this device</h2>
+      </div>
+      <p className="small dim">
+        {games.length === 1 ? "This game is" : `These ${games.length} games are`} only on this device. <Link to={signInPath("/play/table")}>Sign in to keep {games.length === 1 ? "it" : "these"}</Link>.
+      </p>
+      <RecentGameRows games={all ? rows : rows.slice(0, GUEST_GAMES_SHOWN)} linked={false} />
+      {rows.length > GUEST_GAMES_SHOWN && <ShowMore total={rows.length} noun="games" expanded={all} onToggle={() => setAll((v) => !v)} />}
+    </section>
   );
 }
 
@@ -225,6 +281,8 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
   const [phones, setPhones] = useState<"one" | "everyone">(() => (last?.phones === "everyone" ? "everyone" : "one"));
   const wide = useWide();
   const [editing, setEditing] = useState<number | null>(null);
+  /** The open seat's sheet, to bring it back to its top when Next shows the following seat. */
+  const seatSheet = useRef<HTMLDivElement>(null);
   const restored = !!last?.seats?.length;
   const [seats, setSeats] = useState<SeatDraft[]>(() => {
     if (last?.seats?.length) return withDraftIds(last.seats as Omit<SeatDraft, "draftId">[]);
@@ -355,7 +413,9 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
     const followed = followedTable(me.data?.id ?? null);
     if (followed) forgetTable(me.data?.id ?? null, followed.gameId);
     startGame(setup);
-    onStart(!guest && (phones === "everyone" || !!groupId));
+    // Only "Separate devices" opens the QR sheet at the start. A playgroup's game is still shared
+    // with its members, quietly: the table starts that itself (TablePlay).
+    onStart(!guest && phones === "everyone");
   };
 
   // Tap someone in Who's playing: they take the next open seat, or leave theirs.
@@ -392,6 +452,10 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
   const startSub = `${seats.length} ${seats.length === 1 ? "player" : "players"} at ${life} life${matchOn ? `, best of ${bestOf}` : ""}`;
   const artists = seats.filter((s) => s.art).map((s) => s.artist);
   const people = usePeople(group, groups.data);
+  // Who's playing offers a playgroup and people this account has played with. An account with
+  // neither (a first game) has only itself to pick, so the section stays out of the way. While
+  // the playgroups load it holds its place only for someone whose last game had one.
+  const showWho = !guest && (!!groups.data?.length || people.some((p) => p.sub !== "You") || (groups.isPending && !!last?.groupId));
 
   return (
     <section className="new-game2">
@@ -400,21 +464,25 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
           <h1>New game</h1>
           {restored && <p className="dim ng-sub">Restored your last players and decks.</p>}
         </div>
+        <BugButton className="head-bug" />
       </div>
       <section className="ng-settings" aria-labelledby="game-settings-title">
         <h2 id="game-settings-title">Game settings</h2>
         <div className="setup-controls">
-          <Choice label="Game type" options={FORMATS.map((f) => f.key)} value={format} onChange={chooseFormat} name={(f) => formatLabel(f)} />
+          <Choice label="Game type" pairs options={FORMATS.map((f) => f.key)} value={format} onChange={chooseFormat} name={(f) => formatLabel(f)} />
           <Choice label="Players" options={Array.from({ length: MAX_SEATS }, (_, i) => i + 1)} value={seats.length} onChange={setCount} />
           <Choice label="Starting life" options={[40, 30, 25, 20]} value={life} onChange={setLife} />
           {seats.length === 2 && <Choice label="Match" options={[...MATCH_LENGTHS]} value={bestOf} onChange={setBestOf} name={(n) => (n === 1 ? "One game" : `Best of ${n}`)} />}
-          {!guest && !groupId && <Choice label="Devices" options={["one", "everyone"] as ("one" | "everyone")[]} value={phones} onChange={setPhones} name={(v) => (v === "one" ? "One device" : "Separate devices")} />}
+          {!guest && <Choice label="Devices" options={["one", "everyone"] as ("one" | "everyone")[]} value={phones} onChange={setPhones} name={(v) => (v === "one" ? "One device" : "Separate devices")} />}
         </div>
-        {!guest && groupId ? (
-          <p className="small dim">Members of {group?.name ?? "your playgroup"} can join from Table when this game starts. You can stop sharing from the table menu.</p>
-        ) : phones === "everyone" && <p className="small dim">A join code appears when you start the game.</p>}
+        {/* What starting will do, in the words the pages use: the page is "Life counter", and what
+            appears is a QR code (a playgroup's own typed code is the only "join code"). */}
+        {!guest && groupId && (
+          <p className="small dim">Members of {group?.name ?? "your playgroup"} see this game on their Life counter page and can join it. You can stop sharing from the table menu.</p>
+        )}
+        {!guest && phones === "everyone" && <p className="small dim">A QR code to scan appears when you start. Each player follows on their own phone and changes their own totals.</p>}
       </section>
-      {!guest && <WhoPlaying groups={groups.data ?? []} groupId={groupId} groupReady={!groupId || !!group} onGroup={chooseGroup} people={people} seats={seats} onToggle={toggle} />}
+      {showWho && <WhoPlaying groups={groups.data ?? []} groupId={groupId} groupReady={!groupId || !!group} onGroup={chooseGroup} people={people} seats={seats} onToggle={toggle} />}
       <div className="ng-section-head">
         <h2>{format === "commander" ? "Players and decks" : "Players"}</h2>
         {seats.length > 2 && <Button variant="quiet" size="small" onClick={shuffle}>Shuffle seats</Button>}
@@ -448,9 +516,18 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
           </details>}
           {editing !== null && seats[editing] && (
             <Dialog label={`Seat ${editing + 1}`} onClose={() => setEditing(null)}>
-              <div className="stack">
-                <SeatEditor {...seatProps(editing)} />
-                <Button variant="primary" onClick={() => setEditing(null)}>Done</Button>
+              <div className="stack" ref={seatSheet}>
+                {/* Keyed by seat: Next shows the following seat in the same sheet, with nothing typed carried over. */}
+                <SeatEditor key={seats[editing]!.draftId} {...seatProps(editing)} />
+                <SeatSheetEnd
+                  next={seats[editing + 1] ? { index: editing + 1, seat: seats[editing + 1]! } : null}
+                  commander={format === "commander"}
+                  onDone={() => setEditing(null)}
+                  onNext={() => {
+                    setEditing(editing + 1);
+                    seatSheet.current?.closest(".sheet")?.scrollTo({ top: 0 });
+                  }}
+                />
               </div>
             </Dialog>
           )}
@@ -460,6 +537,7 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
         <span className="dim">{startSub}</span>
         <Button variant="primary" className="ng-start" onClick={() => void start()} disabled={starting}>{startLabel}</Button>
       </div>
+      {guest && <GuestNote />}
     </section>
   );
 }
@@ -522,20 +600,52 @@ function WhoPlaying({ groups, groupId, groupReady, onGroup, people, seats, onTog
         <p className="small dim" style={{ margin: 0 }}>No recent players.</p>
       )}
       <p className="small dim" style={{ margin: 0 }}>
-        {groupId ? `Games count toward ${groups.find((g) => g.id === groupId)?.name ?? "this playgroup"}'s stats.` : "No playgroup stats are recorded."}
+        {groupId ? (
+          `Games count toward ${groups.find((g) => g.id === groupId)?.name ?? "this playgroup"}'s stats.`
+        ) : groups.length > 0 ? (
+          "No playgroup stats are recorded."
+        ) : (
+          // Friends from past games, and no playgroup yet: say what one is for and where to start it.
+          <Link to="/group">Start a playgroup to keep stats for this table</Link>
+        )}
         {full ? ` All ${MAX_SEATS} seats are filled.` : ""}
       </p>
     </section>
   );
 }
 
-/** A short list of numbers as a segmented control, with its label beside it on phones and above it on laptops. */
-function Choice<T extends string | number>({ label, options, value, onChange, name = String }: { label: string; options: T[]; value: T; onChange: (n: T) => void; name?: (v: T) => string }) {
+/**
+ * A short list of choices as a segmented control under its label. `pairs`: on a phone the
+ * choices sit two to a row (Game type's four names don't fit one, and wrapping left the last alone).
+ */
+function Choice<T extends string | number>({ label, options, value, onChange, name = String, pairs = false }: { label: string; options: T[]; value: T; onChange: (n: T) => void; name?: (v: T) => string; pairs?: boolean }) {
   const id = useId();
   return (
-    <div className="setup-choice">
+    <div className={pairs ? "setup-choice is-pairs" : "setup-choice"}>
       <span id={id} className="field-label">{label}</span>
       <Segmented labelledBy={id} value={value} onChange={onChange} options={options.map((n) => [n, name(n)] as const)} />
+    </div>
+  );
+}
+
+/**
+ * The last line of a seat's sheet on a phone: Done, and Next to go straight on to the following
+ * seat without closing the sheet and finding its row. The white button is the likelier move: Next
+ * while the following seat still has nothing picked (filling a table from scratch), else Done.
+ * Nothing moves on by itself: a seat has a name, a deck and a commander, and picking one of them
+ * doesn't say the others are settled.
+ */
+function SeatSheetEnd({ next, commander, onDone, onNext }: { next: { index: number; seat: SeatDraft } | null; commander: boolean; onDone: () => void; onNext: () => void }) {
+  const who = next?.seat.name.trim();
+  const open = !!next && (commander ? !next.seat.commanderName : !who);
+  return (
+    <div className="row seat-sheet-end">
+      <Button variant={open ? undefined : "primary"} onClick={onDone}>Done</Button>
+      {next && (
+        <Button variant={open ? "primary" : undefined} onClick={onNext}>
+          Next: Seat {next.index + 1}{who ? ` (${who})` : ""}
+        </Button>
+      )}
     </div>
   );
 }
@@ -610,7 +720,7 @@ function RecentGames({ waiting, notes }: { waiting: ReactNode; notes: ReactNode 
       <RecentGameRows games={shown} />
       <div className="rg-more row">
         <Link to="/table/games">All games</Link>
-        <Link to="/table/games?filter=unfinished&order=oldest">Find unfinished games</Link>
+        <Link to="/table/games?filter=unfinished&order=oldest">Unfinished games</Link>
         <Link to="/group">Playgroup stats</Link>
       </div>
     </section>
@@ -841,25 +951,27 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
   return (
     <Dialog title={editing ? "Edit the game" : "Log a game"} onClose={close}>
       <form className="stack capture" onSubmit={(e) => { e.preventDefault(); save.mutate(false); }}>
+        {/* The widths are chosen for both sheets: on a phone Playgroup takes a row and the date (wide
+            enough for "Nov 21, 2026") shares one with Turns; the laptop's drawer fits all three. */}
         <div className="row" style={{ alignItems: "end" }}>
-          <label style={{ flex: "1 1 12rem" }}>
+          <label style={{ flex: "1 1 11rem" }}>
             Playgroup
             <select value={groupId} onChange={(e) => chooseGroup(e.target.value)}>
               <option value="">None</option>
               {groups.data?.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
             </select>
           </label>
-          <label style={{ flex: "1 1 9rem" }}>
+          <label style={{ flex: "1 1 11rem" }}>
             Played on
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
           </label>
-          <label style={{ flex: "0 1 6rem" }}>
+          <label style={{ flex: "0 1 5rem" }}>
             Turns
             <input inputMode="numeric" maxLength={4} value={turns} onChange={(e) => setTurns(e.target.value.replace(/\D/g, ""))} />
           </label>
         </div>
         <div className="row" style={{ alignItems: "end" }}>
-          <Choice label="Game type" options={FORMATS.map((f) => f.key)} value={format} onChange={chooseFormat} name={(f) => formatLabel(f)} />
+          <Choice label="Game type" pairs options={FORMATS.map((f) => f.key)} value={format} onChange={chooseFormat} name={(f) => formatLabel(f)} />
           <Choice label="Starting life" options={startingLife && ![40, 30, 25, 20].includes(startingLife) ? [startingLife, 40, 30, 25, 20] : [40, 30, 25, 20]} value={startingLife} onChange={setStartingLife} />
         </div>
         <p className="small dim" style={{ margin: 0 }}>

@@ -70,3 +70,18 @@ export function readGames(games: GameRow[], me: string | undefined, seatKey: (s:
   const iBeat = list.filter((r) => r.mine > r.theirs).sort((a, b) => b.mine - b.theirs - (a.mine - a.theirs) || b.mine - a.mine)[0];
   return { favourite, players: (c: string) => [...(byCommander.get(c)?.values() ?? [])], beatsMe, iBeat };
 }
+
+/** Commanders shown before the fold when none has enough games for a win rate. */
+const COMMANDERS_PEEK = 5;
+
+/**
+ * The Commanders table's rows: those with at least `floor` games, then (with `all`) the rest in
+ * the order they came. `more` is how many the fold holds, open or shut; `enough` says whether any
+ * commander has a win rate to show (if none does, the first few are shown instead).
+ */
+export function foldCommanders<T extends { games: number }>(list: T[], floor: number, all: boolean): { shown: T[]; more: number; enough: boolean } {
+  const enough = list.filter((c) => c.games >= floor);
+  const top = enough.length ? enough : list.slice(0, COMMANDERS_PEEK);
+  const rest = list.filter((c) => !top.includes(c));
+  return { shown: all ? [...top, ...rest] : top, more: rest.length, enough: enough.length > 0 };
+}

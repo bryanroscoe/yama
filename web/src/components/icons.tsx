@@ -28,3 +28,9 @@ export const WorkshopIcon = () => (
 export const BugIcon = () => (
   <svg viewBox="0 0 24 24" aria-hidden="true" {...s}><rect x="8" y="7" width="8" height="13" rx="4" /><path d="M9.5 7a2.5 2.5 0 0 1 5 0M12 11v9M4 13h4M16 13h4M5 7l3 2M19 7l-3 2M5 19l3-2M19 19l-3-2" /></svg>
 );
+/** Day or night at the table: a sun with its rays, or a crescent moon. Both read the same from any side. */
+export const DayNightIcon = ({ night }: { night: boolean }) => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" {...s}>
+    {night ? <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" /> : <><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></>}
+  </svg>
+);

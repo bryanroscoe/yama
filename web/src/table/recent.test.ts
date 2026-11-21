@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { GameRow, GameSeat } from "../api";
-import { recentGameText, seatLabels, winningSeat } from "./recent";
+import type { LoggedEvent, TableSetup } from "@yama/core";
+import { localGameRow, recentGameText, seatLabels, seatResultText, winningSeat } from "./recent";
 
 const seat = (n: number, name: string | null, commander: string | null, more: Partial<GameSeat> = {}): GameSeat => ({
   seat: n,
@@ -99,5 +100,71 @@ describe("recent game text for other game types", () => {
     expect(recentGameText(g).sub).toBe("Limited, game 2 of 3. Over Alex");
     expect(recentGameText({ ...g, format: "commander" }).sub).toBe("Game 2 of 3. Over Alex");
     expect(recentGameText({ ...g, match_id: null, match_game: null, match_best_of: null }).sub).toBe("Limited. Over Alex");
+  });
+});
+
+describe("a seat's result on the game's page", () => {
+  const name = (n: number) => ["Bryan", "Chris", "Matt"][n];
+  const at = (more: Partial<GameSeat>) => seat(1, "Chris", null, more);
+
+  it("says who knocked a player out when the table never counted turns", () => {
+    // Saved without a turn: the seat still names who did it, and still shows its life.
+    expect(seatResultText(at({ final_life: 40, eliminated_by_seat: 0 }), { won: false, going: false, name })).toBe("Knocked out by Bryan");
+  });
+
+  it("names the turn only when there is one", () => {
+    expect(seatResultText(at({ eliminated_turn: 7, eliminated_by_seat: 2 }), { won: false, going: false, name })).toBe("Out on turn 7, by Matt");
+    expect(seatResultText(at({ eliminated_turn: 7 }), { won: false, going: false, name })).toBe("Out on turn 7");
+  });
+
+  it("reads a knockout with nobody named from the table's own record", () => {
+    expect(seatResultText(at({ final_life: 3 }), { won: false, going: false, knocked: {}, name })).toBe("Knocked out");
+    expect(seatResultText(at({}), { won: false, going: true, knocked: { bySeat: 0 }, name })).toBe("Knocked out by Bryan");
+    // Out by their own hand isn't "by" anyone.
+    expect(seatResultText(at({ eliminated_by_seat: 1 }), { won: false, going: false, name })).toBe("Knocked out");
+  });
+
+  it("keeps the winner, the survivors and a game still going as they were", () => {
+    expect(seatResultText(at({ final_life: 12, eliminated_by_seat: 0 }), { won: true, going: false, name })).toBe("Won");
+    expect(seatResultText(at({ final_life: 12 }), { won: false, going: false, name })).toBe("12 life at the end");
+    expect(seatResultText(at({}), { won: false, going: true, name })).toBe("Still in");
+    expect(seatResultText(at({}), { won: false, going: false, name })).toBe("");
+  });
+});
+
+describe("a game kept on this device, as a row of recent games", () => {
+  const setup: TableSetup = {
+    id: "local-1",
+    startedAt: "2026-11-21T19:00:00.000Z",
+    format: "commander",
+    startingLife: 40,
+    players: [
+      { seat: 0, name: "Me", colorIdentity: "" },
+      { seat: 1, name: "Player 2", colorIdentity: "", commanderName: "Atraxa, Praetors' Voice" },
+      { seat: 2, name: "Player 3", colorIdentity: "" },
+    ],
+  };
+  const at = "2026-11-21T19:30:00.000Z";
+  const log: LoggedEvent[] = [
+    { seq: 1, at, event: { type: "player", seat: 1, name: "Matt S", was: { name: "Player 2" } } },
+    { seq: 2, at, event: { type: "eliminate", seat: 2, bySeat: 1 } },
+    { seq: 3, at, event: { type: "finish", winnerSeat: 1, endedAt: at, winCondition: "combat" } },
+  ];
+
+  it("names the winner and the players as the table left them", () => {
+    const row = localGameRow(setup, log);
+    expect(row).toMatchObject({ id: "local-1", status: "finished", winner_seat: 1, win_condition: "combat", started_at: setup.startedAt });
+    expect(row.seats.map((s) => s.display_name)).toEqual(["Me", "Matt S", "Player 3"]);
+    expect(row.seats[2]).toMatchObject({ eliminated_by_seat: 1 });
+    const text = recentGameText(row);
+    expect(text.title).toBe("Matt S won");
+    expect(text.with).toBe("Atraxa");
+    expect(text.sub).toBe("Combat. Over Me and Player 3");
+  });
+
+  it("reads a game with no finish as still going", () => {
+    const row = localGameRow(setup, log.slice(0, 2));
+    expect(row).toMatchObject({ status: "in_progress", winner_seat: null, ended_at: null });
+    expect(recentGameText(row).title).toBe("Still going");
   });
 });

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { apply, replay } from "@yama/core";
 
 // The store keeps its games in localStorage; Node has none without a file, so give it a map.
 const items = new Map<string, string>();
@@ -659,7 +660,152 @@ describe("a sync while life is being tapped", () => {
     vi.setSystemTime(Date.now() + 3000);
     await store.sync();
     expect(JSON.stringify(uploads.at(-1)!.events)).toContain("-12");
+    // Saved to Yama, so Undo no longer drops it: it would take it back with a new event.
+    expect(store.canUndo()).toBe(true);
+    expect(store.getGame()!.log).toHaveLength(1);
+  });
+});
+
+describe("the pages that list games", () => {
+  it("read them again once a finished game has reached Yama, and once a deleted one has left", async () => {
+    guest = false;
+    failWith = null;
+    goneOnPost = false;
+    postStatus = null;
+    holdPost = null;
+    serverFinished = false;
+    items.set("yama.me", JSON.stringify({ id: "me" }));
+    store.selectSlot(false, "me");
+    const asked: string[] = [];
+    store.refreshOnSave({ invalidateQueries: ({ queryKey }) => void asked.push(queryKey[0]!) });
+    store.startGame(setup("g-refresh"));
+    await store.sync();
+    // A game still going changes no list of results.
+    expect(asked).toEqual([]);
+    store.finishGame(0);
+    await vi.waitFor(() => expect(asked).toEqual(["games", "stats", "deck-results"]));
+    asked.length = 0;
+    await store.deleteGame("g-refresh");
+    expect(asked).toEqual(["games", "stats", "deck-results"]);
+    store.refreshOnSave({ invalidateQueries: () => {} });
+  });
+});
+
+describe("undo once a change is saved to Yama", () => {
+  const two = (id: string) => ({ ...setup(id), players: [{ seat: 0, name: "Bryan", colorIdentity: "" }, { seat: 1, name: "Sam", colorIdentity: "" }] });
+  const table = () => replay(store.getGame()!.setup, store.getGame()!.log);
+  const events = () => store.getGame()!.log.map((l) => l.event);
+  const later = (ms: number) => vi.setSystemTime(Date.now() + ms);
+  beforeEach(() => {
+    guest = false;
+    failWith = null;
+    goneOnPost = false;
+    postStatus = null;
+    holdPost = null;
+    serverFinished = false;
+    items.set("yama.me", JSON.stringify({ id: "me" }));
+    store.selectSlot(false, "me");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-21T19:00:00Z"));
+    uploads.length = 0;
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    store.discardGame();
+  });
+
+  it("takes saved changes back with new events, newest first, and never rewrites one already sent", async () => {
+    store.startGame(two("g-undo-saved"));
+    store.dispatch({ type: "life", seat: 1, delta: -5 });
+    later(5000);
+    store.dispatch({ type: "monarch", seat: 0 });
+    later(3000);
+    await store.sync();
+    expect(store.getGame()!.syncedThrough).toBe(2);
+    expect(store.canUndo()).toBe(true);
+    expect(store.canRedo()).toBe(false);
+
+    store.undo();
+    expect(events().at(-1)).toEqual({ type: "monarch", seat: null });
+    store.undo();
+    expect(events().at(-1)).toEqual({ type: "life", seat: 1, delta: 5 });
+    expect(store.getGame()!.log.map((l) => l.seq)).toEqual([1, 2, 3, 4]);
+    expect(table().players[1]!.life).toBe(40);
+    expect(table().monarch).toBeNull();
+    // Nothing is left to take back.
     expect(store.canUndo()).toBe(false);
+    expect(store.undoStuck()).toBeNull();
+
+    // Redo: a take-back that hasn't gone up is dropped again...
+    store.redo();
+    expect(store.getGame()!.log.map((l) => l.seq)).toEqual([1, 2, 3]);
+    expect(table().players[1]!.life).toBe(35);
+    later(3000);
+    await store.sync();
+    // ...and one that has is answered with the change itself, as a new event.
+    store.redo();
+    expect(events().at(-1)).toEqual({ type: "monarch", seat: 0 });
+    expect(store.getGame()!.log.map((l) => l.seq)).toEqual([1, 2, 3, 4]);
+    expect(table().monarch).toBe(0);
+    expect(store.canRedo()).toBe(false);
+    later(3000);
+    await store.sync();
+
+    // Every seq went up with one meaning only.
+    const sent = new Map<number, string>();
+    for (const u of uploads) {
+      for (const e of u.events as { seq: number; payload: unknown }[]) {
+        const payload = JSON.stringify(e.payload);
+        expect(sent.get(e.seq) ?? payload).toBe(payload);
+        sent.set(e.seq, payload);
+      }
+    }
+    expect([...sent.keys()].sort()).toEqual([1, 2, 3, 4]);
+  });
+
+  it("a new change ends the run: Undo then starts again from the end", async () => {
+    store.startGame(two("g-undo-run"));
+    store.dispatch({ type: "life", seat: 0, delta: -2 });
+    later(3000);
+    await store.sync();
+    store.undo();
+    later(3000);
+    store.dispatch({ type: "poison", seat: 1, delta: 1 });
+    expect(store.canRedo()).toBe(false);
+    store.undo();
+    expect(events()).toEqual([{ type: "life", seat: 0, delta: -2 }, { type: "life", seat: 0, delta: 2 }]);
+  });
+
+  it("stops at a change no event can take back, and says so", async () => {
+    store.startGame(two("g-undo-stuck"));
+    store.dispatch({ type: "life", seat: 0, delta: -2 });
+    later(3000);
+    store.dispatch({ type: "pass_turn" });
+    // Not saved yet: it's simply dropped.
+    expect(store.canUndo()).toBe(true);
+    expect(store.undoStuck()).toBeNull();
+    await store.sync();
+    expect(store.canUndo()).toBe(false);
+    expect(store.undoStuck()).toBe("Undo stops here: passing the turn can't be undone once it's saved to Yama.");
+    store.undo();
+    expect(events()).toHaveLength(2);
+  });
+
+  it("takes back what a change did, not what was tapped", () => {
+    const start = replay(two("g-inverse"), []);
+    const poisoned = apply(start, { type: "poison", seat: 0, delta: 1 });
+    // Three taps on minus at 1 poison took off one.
+    expect(store.inverseOf(poisoned, { type: "poison", seat: 0, delta: -3 })).toEqual({ type: "poison", seat: 0, delta: 1 });
+    expect(store.inverseOf(start, { type: "poison", seat: 0, delta: -1 })).toBeNull();
+    // Commander damage brings its life back with it.
+    const hit = { type: "commander_damage", seat: 0, source: "1", delta: 6 } as const;
+    expect(store.inverseOf(start, hit)).toEqual({ type: "commander_damage", seat: 0, source: "1", delta: -6 });
+    expect(apply(apply(start, hit), store.inverseOf(start, hit)!).players[0]).toMatchObject({ life: 40, commanderDamage: { "1": 0 } });
+    expect(store.inverseOf(start, { type: "eliminate", seat: 1, bySeat: 0 })).toEqual({ type: "revive", seat: 1 });
+    expect(store.inverseOf(start, { type: "swap_places", a: 0, b: 1 })).toEqual({ type: "swap_places", a: 0, b: 1 });
+    expect(store.inverseOf(apply(start, { type: "day_night", value: "day" }), { type: "day_night", value: "night" })).toEqual({ type: "day_night", value: "day" });
+    expect(store.inverseOf(start, { type: "pass_turn" })).toBeNull();
+    expect(store.inverseOf(start, { type: "set_first", seat: 1 })).toBeNull();
   });
 });
 

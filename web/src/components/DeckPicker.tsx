@@ -263,7 +263,7 @@ export function DeckPicker({ text, onText, onPick, decks = NO_DECKS, handle, who
         <PickerField
           label={label}
           text={text}
-          placeholder={source === "precons" ? "Pick a precon" : yours || !who?.name.trim() ? "Pick a deck" : `Pick ${possessive(whoName)} deck, anyone's or a precon`}
+          placeholder={source === "precons" ? "Pick a precon" : "Pick a deck"}
           trailing={trailing}
           onOpen={() => {
             setFind("");

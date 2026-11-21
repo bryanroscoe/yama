@@ -5,6 +5,15 @@
 
 /* ── new game ───────────────────────────────────────────────────────────── */
 
+/* Back from the table with a game just saved: one line above New game. */
+.table-home .saved-line {
+  margin: 0 0 16px;
+  font-weight: 700;
+}
+.table-home .saved-line a {
+  font-weight: 700;
+}
+
 .new-game2 {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -384,6 +393,16 @@ fieldset.seat.seat-card2 {
 }
 .rg-art.art-mosaic {
   display: grid;
+}
+/* No commander named, so no art to show: the players' initials on the same block, so the row
+   doesn't read as a picture that failed to load. */
+.rg-art.rg-initials {
+  display: grid;
+  place-items: center;
+  color: var(--dim);
+  font-weight: 700;
+  font-size: var(--t-sm);
+  letter-spacing: 0.06em;
 }
 .rg-text {
   display: flex;
@@ -771,7 +790,11 @@ a.rg-row:focus-visible {
   border-radius: 22px;
 }
 
-/* Counting without an account, or games from then waiting to be saved: a raised card at the top. */
+/* Counting without an account: a quiet line under the button that starts (or resumes) the game. */
+.table-home .guest-note {
+  margin: 0;
+}
+/* Games counted without an account, waiting to be saved to the one now signed in: a card at the top. */
 .guest-banner {
   display: flex;
   flex-wrap: wrap;
@@ -846,6 +869,42 @@ a.rg-row:focus-visible {
   max-width: 100%;
   flex-wrap: wrap;
   border-radius: 24px;
+}
+/* Log a game's sheet: the same controls with the label above, wrapping inside the sheet. */
+.capture .setup-choice {
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.capture .setup-choice .segmented {
+  max-width: 100%;
+  flex-wrap: wrap;
+  border-radius: 24px;
+}
+.capture .setup-choice .segmented > button {
+  padding-inline: 12px;
+}
+/* Game type's four names don't fit one column of the settings grid: on wider screens it takes
+   two columns; on a phone, two even rows, not three and a stray. */
+@media (min-width: 600px) {
+  .new-game2 .setup-choice.is-pairs {
+    grid-column: span 2;
+  }
+}
+@media (max-width: 599px) {
+  .setup-choice.is-pairs .segmented {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+  .setup-choice.is-pairs .segmented > button {
+    justify-content: center;
+  }
+}
+/* A date field keeps its own least width inside a label's grid unless told it may shrink. */
+.capture label > :is(input, select) {
+  min-width: 0;
 }
 .ng-section-head {
   display: flex;
@@ -956,6 +1015,10 @@ a.rg-row:focus-visible {
 }
 .table-home .has-toggle > .combo-trailing {
   right: 48px;
+}
+/* The links fit one line on most phones; where they wrap, the rows sit together. */
+.table-home .rg-more {
+  gap: 0 12px;
 }
 .table-home .rg-more a {
   display: inline-flex;

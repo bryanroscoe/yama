@@ -152,18 +152,23 @@
   height: 100cqh;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  grid-template-rows: 1fr auto;
+  /* The life total's row gives way in a short frame (the number may run a few pixels past it)
+     rather than push the name down onto the art credit. */
+  grid-template-rows: minmax(0, 1fr) auto;
   grid-template-areas:
     "life life life"
     ". who credit";
   place-items: center;
   padding-top: 10px;
+  /* The frame is a container of its own, so what's inside is sized and arranged by the frame's
+     width and height as its player sees them, whichever way the panel is turned (the "frame"
+     queries further down). Inside it 100cqw is the frame's width. */
+  container: frame / size;
   --frame-w: 100cqw;
 }
 .panel-inner.sideways {
   width: 100cqh;
   height: 100cqw;
-  --frame-w: 100cqh;
 }
 
 /* Commander art fills the rotated box, so it turns with the panel. The image is never filtered;
@@ -340,8 +345,36 @@
   transform: translateX(-50%);
 }
 
+/* The name's row, across the frame's bottom. The name is centered while it fits between the
+   space the two commander-damage buttons take in the left corner and the same space on the
+   right; a longer one grows to the right, and is only cut once it reaches the edge. So it is
+   never under the buttons. */
+.who-row {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  justify-self: stretch;
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+  pointer-events: none;
+}
+.who-row::before,
+.who-row::after {
+  content: "";
+  flex: 1 1 8px;
+  min-width: 8px;
+}
+.panel-inner:has(> .cmdr-btns) .who-row::before {
+  flex: 1 0 calc(2 * var(--target) + 26px);
+}
+/* The space on the right gives way first, all of it, before the name is cut. */
+.panel-inner:has(> .cmdr-btns) .who-row::after {
+  flex: 1 9999 calc(2 * var(--target) + 26px);
+}
 .who {
-  grid-area: who;
+  flex: 0 1 auto;
+  min-width: 0;
+  pointer-events: auto;
   z-index: 1;
   background: var(--art-chip);
   color: var(--on-art);
@@ -352,10 +385,6 @@
   margin-bottom: max(6px, 2.5cqmin);
   display: grid;
   line-height: 1.15;
-  max-width: 64cqw;
-}
-.panel-inner.sideways .who {
-  max-width: 64cqh;
 }
 .who:hover {
   background: rgb(11 12 14 / 0.9);
@@ -365,9 +394,19 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
+  min-width: 0;
   font-weight: 700;
 }
+/* One line: a name too long for its chip is cut with an ellipsis, never wrapped over the art
+   credit or pushed under the buttons. The whole name is on the player's sheet. */
+.who .name-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .who .pips {
+  flex: none;
   gap: 3px;
 }
 .who .pip {
@@ -448,10 +487,13 @@
 .out-prompt:hover {
   background: var(--ground);
 }
+/* Only a label: a tap on it goes through to the name under it, which opens the player's sheet
+   (where "Put them back in the game" is). */
 .out-label {
   position: absolute;
   z-index: 3;
   bottom: 24%;
+  pointer-events: none;
   font-weight: 700;
   padding: 0.15rem 0.75rem;
   border-radius: var(--r-pill);
@@ -459,10 +501,13 @@
   color: var(--on-art);
 }
 
+/* At the middle of the table itself, where the panels' corners meet: the table starts below the
+   top bar (and the strip under it), so the middle of the screen is not the middle of the table.
+   The table's padding follows the screen's safe areas; half the difference keeps it centered. */
 .hub {
-  position: fixed;
-  left: 50%;
-  top: 50%;
+  position: absolute;
+  left: calc(50% + (max(8px, env(safe-area-inset-left)) - max(8px, env(safe-area-inset-right))) / 2);
+  top: calc(50% + (max(8px, env(safe-area-inset-top)) - max(8px, env(safe-area-inset-bottom))) / 2);
   transform: translate(-50%, -50%);
   width: 60px;
   height: 60px;
@@ -644,6 +689,10 @@
 .table-menu .tm-icon {
   min-height: 56px;
   padding: 0;
+}
+/* Why Undo is off, close under the buttons it explains. */
+.table-menu .tm-undo-note {
+  margin-top: -10px;
 }
 .tm-section {
   display: flex;
@@ -955,11 +1004,10 @@
   min-width: 0;
   line-height: 1.25;
 }
+/* The whole commander name, on as many lines as it needs: two that start alike must be told apart. */
 .ps-row-name {
   font-weight: 700;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 .player-sheet .ps-note {
   margin: 0;
@@ -1270,6 +1318,117 @@
 .panel-inner:has(> .cmdr-btns) > .panel-credit {
   left: calc(2 * var(--target) + 28px);
 }
+/* Narrow frames (five or six players, "All face this screen" on a phone, a small phone).
+   Under 330 px wide the name has about 130 px beside the buttons: it gives up its color pips. */
+@container frame (max-width: 329px) {
+  .who {
+    padding-inline: 0.75rem;
+  }
+  .who .pips {
+    display: none;
+  }
+}
+/* Under 220 px there is no room beside the buttons at all: the name takes the frame's width,
+   on a line of its own. */
+@container frame (max-width: 219px) {
+  .panel-inner:has(> .cmdr-btns) .who-row::before,
+  .panel-inner:has(> .cmdr-btns) .who-row::after {
+    flex: 1 1 8px;
+  }
+  .panel-inner:has(> .cmdr-btns) > .panel-credit {
+    left: 14px;
+  }
+}
+/* A tall narrow frame has the height to spare: the name sits above the buttons, and the art
+   credit keeps the bottom edge. */
+@container frame (max-width: 219px) and (min-height: 250px) {
+  .panel-inner:has(> .cmdr-btns) > .who-row {
+    padding-bottom: calc(var(--target) + 24px);
+  }
+  .cmdr-btns {
+    bottom: 22px;
+  }
+}
+/* A short narrow frame has room for the life total and the name, nothing more: the buttons go.
+   The name still opens the player's sheet, which offers both kinds of commander damage. */
+@container frame (max-width: 219px) and (max-height: 249px) {
+  .cmdr-btns {
+    display: none;
+  }
+}
+
+/* The hub covers about 32 px of a corner, or of the middle of an edge, of each panel round it
+   (hubSide in layouts.ts says which, in the panel's own frame). What sits there moves clear:
+   badges and commander-damage pills along the top, the buttons, the name and the art credit
+   along the bottom. */
+.hub-tl > .panel-top {
+  padding-left: 20px;
+}
+.hub-tr > .panel-top {
+  padding-right: 20px;
+}
+/* Somewhere along the top edge: the badges stop short of it on the left, the pills on the right.
+   With under 76 px on either side of it (a narrow frame, or the hub near one end) not one badge
+   fits there, so the whole row goes below the hub instead: each `* 999` is a switch, far past
+   the clamp's ends one way or the other. */
+.hub-tm > .panel-top {
+  --left-short: calc((124px - var(--hub-x) * 100cqw) * 999);
+  --right-short: calc((124px - (1 - var(--hub-x)) * 100cqw) * 999);
+  top: clamp(16px, max(var(--left-short), var(--right-short)), 44px);
+}
+.hub-tm > .panel-top > .badges {
+  max-width: max(calc(var(--hub-x) * 100cqw - 48px), var(--left-short), var(--right-short));
+}
+.hub-tm > .panel-top > .cmdr-pills {
+  max-width: max(calc((1 - var(--hub-x)) * 100cqw - 48px), var(--left-short), var(--right-short));
+}
+.hub-bl > .cmdr-btns {
+  left: 34px;
+}
+.panel-inner.hub-bl:has(> .cmdr-btns) .who-row::before {
+  flex-basis: calc(2 * var(--target) + 50px);
+}
+.hub-bl > .who-row::before,
+.hub-br > .who-row::after {
+  min-width: 36px;
+}
+.panel-inner.hub-bl:has(> .cmdr-btns) > .panel-credit {
+  left: calc(2 * var(--target) + 52px);
+}
+.hub-br > .panel-credit {
+  right: 38px;
+}
+.hub-bm > .who-row {
+  padding-bottom: 28px;
+}
+@container frame (max-width: 329px) {
+  /* The hub in the middle of the bottom edge reaches the buttons too: they go above it. */
+  .hub-bm > .cmdr-btns {
+    bottom: 36px;
+  }
+}
+@container frame (max-width: 219px) {
+  /* No room to step sideways: the buttons and the name go above the hub instead. */
+  .hub-bl > .cmdr-btns {
+    left: 10px;
+  }
+  .panel-inner.hub-bl:has(> .cmdr-btns) .who-row::before {
+    flex: 1 1 8px;
+  }
+  .panel-inner.hub-bl:has(> .cmdr-btns) > .panel-credit {
+    left: 14px;
+  }
+}
+@container frame (max-width: 219px) and (min-height: 250px) {
+  .hub-bl > .cmdr-btns,
+  .hub-bm > .cmdr-btns {
+    bottom: 50px;
+  }
+  .panel-inner.hub-bl:has(> .cmdr-btns) > .who-row,
+  .panel-inner.hub-bm:has(> .cmdr-btns) > .who-row {
+    padding-bottom: calc(var(--target) + 52px);
+  }
+}
 /* While a commander attacks, every other panel becomes its damage counter: a near-solid layer
    over the art (an overlay, never a filter), the attacker's art and name, then − amount +. */
 .attack-layer {
@@ -1501,6 +1660,26 @@
   box-shadow: 0 0 0 2px var(--ground);
 }
 
+/* Day or night on the hub's rim, across from the shared dot: quiet, and it sits inside the hub's
+   own black ring, so it covers nothing on a panel. */
+.hub-day {
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--ground);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1.5px var(--text);
+}
+.hub-day svg {
+  width: 16px;
+  height: 16px;
+}
+
 /* Partners: two art crops side by side, each cover-fitted in its own half. */
 .panel-inner > .panel-art-pair {
   display: flex;
@@ -1708,20 +1887,25 @@
 .tm-winner {
   min-height: 64px;
   justify-content: flex-start;
-  gap: 10px;
-  padding: 8px 12px 8px 8px;
+  gap: 8px;
+  padding: 8px;
   text-align: left;
   font-weight: 700;
 }
+/* A name runs to a second line before it's cut: "Bryan Roscoe" and "Bryan Ross" must not both
+   read "Bryan Ro…". */
 .tm-winner > span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  line-height: 1.2;
 }
 .tm-winner-dot {
   flex: none;
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   object-fit: cover;
 }
@@ -1868,8 +2052,13 @@
 }
 .table-view-switch .segmented button { padding: 8px; font-size: var(--t-sm); }
 .table.with-view-switch { top: calc(52px + env(safe-area-inset-top)); }
-/* The clock: a strip under the top bar. The table starts below it, so it covers no life total. */
-.table-clock {
+/* The table is a fixed layer of its own, so its dialogs stack inside it, under the bar and the
+   clock strip. While one is open the whole table moves up to where dialogs sit everywhere else:
+   a laptop's side drawer runs the full height, and its heading and Close must not be covered. */
+.table:has(> .dialog-layer) { z-index: var(--z-scrim); }
+/* The strip under the top bar: the clock and, once it's set, day or night. The table starts
+   below it, so it covers no life total. */
+.table-strip {
   position: fixed;
   top: calc(52px + env(safe-area-inset-top));
   left: 0;
@@ -1883,8 +2072,24 @@
   font-size: var(--t-sm);
   z-index: var(--z-switch);
 }
+.table-clock {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
 .table-clock-what {
   color: var(--dim);
+}
+.table-strip-day {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+}
+.table-strip-day svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
 }
 .table.with-view-switch.with-clock { top: calc(80px + env(safe-area-inset-top)); }
 .table.table-personal { display: flex; flex-direction: column; }

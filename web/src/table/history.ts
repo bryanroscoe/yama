@@ -49,6 +49,8 @@ export function describe(before: TableState, after: TableState, e: TableEvent): 
       const after = now(e.seat)?.counters[e.counter] ?? 0;
       const moved = after - (before.players.find((p) => p.seat === e.seat)?.counters[e.counter] ?? 0);
       if (moved === 0) return null;
+      // The city's blessing is a yes or no, not a count (and taking it back only mends a wrong tap).
+      if (e.counter === "blessing") return moved > 0 ? `${name(e.seat)} got the city's blessing.` : `The city's blessing was taken back from ${name(e.seat)}.`;
       return `${name(e.seat)} ${moved > 0 ? "got" : "lost"} ${Math.abs(moved)} ${e.counter}, now ${after}.`;
     }
     case "commander_cast": {

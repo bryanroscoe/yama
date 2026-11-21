@@ -176,6 +176,27 @@ function parseArea(area: string): [number, number, number, number] {
   return [r1!, c1!, r2 ?? r1! + 1, c2 ?? c1! + 1];
 }
 
+/** Where the hub meets a panel, in the panel's own frame as its player sees it: top or bottom edge, then left corner, somewhere along it, or right corner. */
+export type HubSide = "tl" | "tm" | "tr" | "bl" | "bm" | "br";
+
+/**
+ * The hub (the round button at the middle of the table) covers a corner, or the middle of an
+ * edge, of every panel round it. Which one, for a panel in a layout `cols` by `rows`: the panel
+ * keeps its badges, buttons and name clear of it. Null for a panel the middle doesn't touch, or
+ * one it meets at the middle of a side (nothing sits there).
+ */
+export function hubSide(cell: Pick<Cell, "rot" | "area">, cols: number, rows: number): { side: HubSide; /** How far along that edge, 0 (left) to 1. */ x: number } | null {
+  const [r1, c1, r2, c2] = parseArea(cell.area);
+  // The middle of the table, as a fraction across and down this panel on the screen.
+  const sx = (cols / 2 - (c1 - 1)) / (c2 - c1);
+  const sy = (rows / 2 - (r1 - 1)) / (r2 - r1);
+  if (sx < 0 || sx > 1 || sy < 0 || sy > 1) return null;
+  // The same point in the panel's frame: a quarter turn clockwise puts the frame's top on the screen's right.
+  const [x, y] = cell.rot === 90 ? [sy, 1 - sx] : cell.rot === 180 ? [1 - sx, 1 - sy] : cell.rot === 270 ? [1 - sy, sx] : [sx, sy];
+  if (y !== 0 && y !== 1) return null;
+  return { side: `${y === 0 ? "t" : "b"}${x === 0 ? "l" : x === 1 ? "r" : "m"}` as HubSide, x };
+}
+
 /**
  * The whole layout turned a quarter clockwise, for a landscape screen: the top goes to the right
  * side, and each panel turns with it so it still faces the same player.
