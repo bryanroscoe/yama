@@ -221,6 +221,9 @@ async fn the_history_follows_renamed_keys_and_knows_the_cards_a_change_cuts() {
     sqlx::query("UPDATE plan_swaps SET in_name = 'Spare Card Renamed' WHERE owner_id = ? AND ext_key = 'alpha-owned'").bind(&owner).execute(&pool).await.unwrap();
     let (err, text) = call(&app, &key, "record_plan_history", entry).await;
     assert!(!err && text.contains("already in Alpha Deck's history"), "{text}");
+    // And the entry is still that change's story under its new card name.
+    let (err, text) = call(&app, &key, "get_plan_history", json!({"plan": "alpha", "card": "Spare Card Renamed"})).await;
+    assert!(!err && text.contains("Before a rename."), "{text}");
     // And after an import moved the plan to another key, the old key's retry still finds it.
     let entry = json!({"plan": "alpha", "on": "2026-10-22", "what": "Before a move.", "op_id": "history-0003"});
     let (err, text) = call(&app, &key, "record_plan_history", entry.clone()).await;

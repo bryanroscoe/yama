@@ -221,23 +221,35 @@ pub async fn record(pool: &SqlitePool, owner: &str, plan: PlanRef<'_>, e: &Entry
         }
     };
     let mut cards: Vec<String> = Vec::new();
+    // The keys of the changes the cards name, kept with the entry: a later plan file can rename a
+    // change's cards under the same key.
+    let mut swap_keys: Vec<String> = Vec::new();
     if !e.cards.is_empty() {
-        let names: Vec<(String, Option<String>)> =
-            sqlx::query_as("SELECT in_name, out_name FROM plan_swaps WHERE owner_id = ? AND plan_deck_id = ? ORDER BY sort, ext_key")
+        let names: Vec<(String, String, Option<String>)> =
+            sqlx::query_as("SELECT ext_key, in_name, out_name FROM plan_swaps WHERE owner_id = ? AND plan_deck_id = ? ORDER BY sort, ext_key")
                 .bind(owner)
                 .bind(&plan_id)
                 .fetch_all(pool)
                 .await?;
         let mut unknown = Vec::new();
         for c in &e.cards {
+            let c = c.trim();
             let found = names
                 .iter()
-                .find_map(|(i, _)| i.eq_ignore_ascii_case(c.trim()).then(|| i.clone()))
-                .or_else(|| names.iter().find_map(|(_, o)| o.as_ref().filter(|o| o.eq_ignore_ascii_case(c.trim())).cloned()));
+                .find_map(|(_, i, _)| i.eq_ignore_ascii_case(c).then(|| i.clone()))
+                .or_else(|| names.iter().find_map(|(_, _, o)| o.as_ref().filter(|o| o.eq_ignore_ascii_case(c)).cloned()));
             match found {
-                Some(n) if !cards.contains(&n) => cards.push(n),
-                Some(_) => {}
-                None => unknown.push(c.trim().to_string()),
+                Some(n) => {
+                    for (k, i, o) in &names {
+                        if (i.eq_ignore_ascii_case(c) || o.as_deref().is_some_and(|o| o.eq_ignore_ascii_case(c))) && !swap_keys.contains(k) {
+                            swap_keys.push(k.clone());
+                        }
+                    }
+                    if !cards.contains(&n) {
+                        cards.push(n);
+                    }
+                }
+                None => unknown.push(c.to_string()),
             }
         }
         if !unknown.is_empty() {
@@ -313,8 +325,9 @@ pub async fn record(pool: &SqlitePool, owner: &str, plan: PlanRef<'_>, e: &Entry
     }
     let id = new_id();
     sqlx::query(
-        "INSERT INTO plan_history (id, owner_id, plan_deck_id, on_date, what, asked, conversation, work, group_label, cards, via, op_id, replaces, recorded_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO plan_history (id, owner_id, plan_deck_id, on_date, what, asked, conversation, work, group_label, cards, swap_keys, via, op_id, replaces,
+           recorded_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(owner)
@@ -326,6 +339,7 @@ pub async fn record(pool: &SqlitePool, owner: &str, plan: PlanRef<'_>, e: &Entry
     .bind(&e.work)
     .bind(&group)
     .bind(&cards_json)
+    .bind(Value::from(swap_keys).to_string())
     .bind(via)
     .bind(op_id)
     .bind(replaces)
@@ -384,10 +398,15 @@ struct EntryRow {
     work: Option<String>,
     group_label: Option<String>,
     cards: String,
+    swap_keys: String,
     recorded_at: String,
 }
 
 impl EntryRow {
+    fn swap_keys(&self) -> Vec<String> {
+        serde_json::from_str(&self.swap_keys).unwrap_or_default()
+    }
+
     fn cards(&self) -> Vec<String> {
         serde_json::from_str(&self.cards).unwrap_or_default()
     }
@@ -598,7 +617,7 @@ pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>
     .fetch_one(pool)
     .await?;
     let entries: Vec<EntryRow> = sqlx::query_as(
-        "SELECT id, on_date, what, asked, conversation, work, group_label, cards, recorded_at FROM plan_history
+        "SELECT id, on_date, what, asked, conversation, work, group_label, cards, swap_keys, recorded_at FROM plan_history
          WHERE owner_id = ? AND plan_deck_id = ? ORDER BY on_date, recorded_at, id",
     )
     .bind(owner)
@@ -760,9 +779,12 @@ pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>
             let about: Vec<&EntryRow> = entries
                 .iter()
                 .filter(|e| {
-                    // A card recorded is the one a change puts in or the one it takes out.
+                    // A card recorded is the one a change puts in or the one it takes out; the change's
+                    // key (or an older one) finds it after a plan file renames its cards.
                     let names = |c: &String| c.eq_ignore_ascii_case(&s.in_name) || s.out_name.as_deref().is_some_and(|o| c.eq_ignore_ascii_case(o));
-                    e.cards().iter().any(names) || (e.group_label.is_some() && e.group_label == s.group_label && e.cards().is_empty())
+                    e.swap_keys().iter().any(|k| own_keys.contains(k))
+                        || e.cards().iter().any(names)
+                        || (e.group_label.is_some() && e.group_label == s.group_label && e.cards().is_empty())
                 })
                 .collect();
             if about.is_empty() {

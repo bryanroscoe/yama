@@ -17,6 +17,7 @@ CREATE TABLE plan_history (
     work          TEXT,                          -- where the work is: a commit, a file, a note
     group_label   TEXT,                          -- the proposal group it is about, as the plan names it
     cards         TEXT NOT NULL DEFAULT '[]',    -- JSON [card name]: the changes it is about, by the card each puts in
+    swap_keys     TEXT NOT NULL DEFAULT '[]',    -- JSON [swap key]: those changes' keys, so the entry stays theirs when a card is renamed
     via           TEXT NOT NULL,                 -- how the assistant got in: key | oauth | question, or staged (a staged track_build applied)
     op_id         TEXT,                          -- the caller's id: a retry with the same id records nothing new
     replaces      TEXT,                          -- the entry this one corrected (deleted then), so a retry of the correction is the same one
