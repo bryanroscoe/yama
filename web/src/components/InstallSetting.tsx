@@ -1,6 +1,7 @@
 import { ANDROID_APP_URL, useInstall } from "../install";
 import { isNative } from "../native";
 import { Button, ButtonLink } from "./Button";
+import { CopyButton } from "./CopyButton";
 import { installLine } from "./InstallBanner";
 
 /**
@@ -20,11 +21,12 @@ export function InstallSetting() {
       <span className="grp-you-text">
         <b>Install Yama</b>
         <span>{line}</span>
-        {!install.mobile && <span>The Android app is for Android phones: open this page on the phone to download it.</span>}
+        {!install.mobile && <span>For an Android phone there's also the Android app: open this page on the phone to download it, or copy its link.</span>}
       </span>
       <div className="row">
         {install.canPrompt && <Button variant="outline" onClick={() => void install.install()}>Install</Button>}
-        {(install.android || !install.mobile) && <ButtonLink variant="outline" href={ANDROID_APP_URL}>Android app</ButtonLink>}
+        {install.android && <ButtonLink variant="outline" href={ANDROID_APP_URL}>Get the Android app</ButtonLink>}
+        {!install.mobile && <CopyButton variant="outline" text={ANDROID_APP_URL} label="Copy app link" />}
       </div>
     </div>
   );

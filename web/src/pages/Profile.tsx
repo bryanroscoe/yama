@@ -27,7 +27,7 @@ export function ProfilePage() {
   const [copied, copy] = useCopy();
   const { hash } = useLocation();
   useEffect(() => {
-    if (hash === "#grp-you" || hash === "#delete-account") document.getElementById(hash.slice(1))?.scrollIntoView();
+    if (hash === "#grp-you" || hash === "#delete-account" || hash === "#install") document.getElementById(hash.slice(1))?.scrollIntoView();
   }, [hash, sharing.data, me?.id]);
   if (!me) return null;
   const s = enabled ? sharing.data : undefined;

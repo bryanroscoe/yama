@@ -42,10 +42,13 @@ export function InstallBanner() {
   );
 }
 
+/** The Android app is a download from GitHub, not the Play Store, so Android asks first. */
+const ANDROID_APP_NOTE = "It reads card text on the phone itself and keeps itself up to date. It downloads from GitHub, so Android asks you to allow installing it from your browser.";
+
 /** What installing means here: a home-screen web app, the Android app, or both. */
 export function installLine(install: { canPrompt: boolean; fromShareMenu: boolean; android: boolean }): string {
-  if (install.android && install.canPrompt) return "Add it to your home screen, or get the Android app: it reads cards with the phone's own text reader and keeps itself up to date.";
-  if (install.android) return "Get the Android app: it reads cards with the phone's own text reader and keeps itself up to date.";
+  if (install.android && install.canPrompt) return `Add it to your home screen, or get the Android app. ${ANDROID_APP_NOTE}`;
+  if (install.android) return `Get the Android app. ${ANDROID_APP_NOTE}`;
   if (install.canPrompt) return "Add it to your home screen. The life counter and card search work offline.";
   if (install.fromShareMenu) return "In Safari, open Share, then Add to Home Screen.";
   return "";
