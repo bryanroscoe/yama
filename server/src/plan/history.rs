@@ -57,22 +57,38 @@ pub struct Recorded {
 }
 
 /// One of the owner's plans by key or name, archived ones included (an archived plan's history
-/// is still its history): (id, key, name).
+/// is still its history): (id, key, name). A key names one plan. A deck's name names its live
+/// plan, or its only plan; several plans with the name and none live (one replaced another, then
+/// that one was archived) need the key, as do several partial matches.
 pub async fn plan_of(pool: &SqlitePool, owner: &str, wanted: &str) -> AppResult<(String, String, String)> {
-    let rows: Vec<(String, String, String)> = sqlx::query_as(
-        "SELECT id, key, name FROM plan_decks WHERE owner_id = ?1
+    let rows: Vec<(String, String, String, bool)> = sqlx::query_as(
+        "SELECT id, key, name, status = 'archived' OR archived_at IS NOT NULL FROM plan_decks WHERE owner_id = ?1
            AND (key = ?2 OR lower(name) = lower(?2) OR instr(lower(name), lower(?2)) > 0)
-         ORDER BY key = ?2 DESC, lower(name) = lower(?2) DESC, status = 'archived' OR archived_at IS NOT NULL, key LIMIT 10",
+         ORDER BY key LIMIT 50",
     )
     .bind(owner)
     .bind(wanted)
     .fetch_all(pool)
     .await?;
+    let pick = |r: &(String, String, String, bool)| (r.0.clone(), r.1.clone(), r.2.clone());
+    if let Some(r) = rows.iter().find(|r| r.1 == wanted) {
+        return Ok(pick(r));
+    }
+    let named: Vec<&(String, String, String, bool)> = rows.iter().filter(|r| r.2.eq_ignore_ascii_case(wanted)).collect();
+    let live: Vec<&&(String, String, String, bool)> = named.iter().filter(|r| !r.3).collect();
+    let several = |list: Vec<&(String, String, String, bool)>| {
+        AppError::bad(format!("Several plans match \"{wanted}\": {}. Give the plan key.", list.iter().map(|r| r.1.as_str()).collect::<Vec<_>>().join(", ")))
+    };
+    match (named.as_slice(), live.as_slice()) {
+        (_, [one]) => return Ok(pick(one)),
+        ([one], _) => return Ok(pick(one)),
+        ([], _) => {}
+        _ => return Err(several(named)),
+    }
     match rows.as_slice() {
         [] => Err(AppError::NotFound("plan deck")),
-        [one] => Ok(one.clone()),
-        [first, ..] if first.1 == wanted || first.2.eq_ignore_ascii_case(wanted) => Ok(first.clone()),
-        many => Err(AppError::bad(format!("Several plans match \"{wanted}\": {}. Say which.", many.iter().map(|r| r.1.as_str()).collect::<Vec<_>>().join(", ")))),
+        [one] => Ok(pick(one)),
+        _ => Err(several(rows.iter().collect())),
     }
 }
 

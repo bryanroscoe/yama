@@ -222,4 +222,15 @@ async fn the_history_follows_renamed_keys_and_knows_the_cards_a_change_cuts() {
     sqlx::query("UPDATE plan_decks SET key = 'alpha' WHERE owner_id = ? AND key = 'beta'").bind(&owner).execute(&pool).await.unwrap();
     let (err, text) = call(&app, &key, "record_plan_history", entry).await;
     assert!(!err && text.contains("already in Alpha Moved's history"), "{text}");
+    // Two archived plans with one deck's name: the name alone doesn't say which.
+    sqlx::query("UPDATE plan_decks SET name = 'Alpha Moved', archived_at = '2026-11-21T00:00:00Z' WHERE owner_id = ? AND key = 'alpha'")
+        .bind(&owner)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE plan_decks SET archived_at = '2026-11-21T00:00:00Z' WHERE owner_id = ? AND key = 'alpha-moved'").bind(&owner).execute(&pool).await.unwrap();
+    let (err, text) = call(&app, &key, "get_plan_history", json!({"plan": "Alpha Moved"})).await;
+    assert!(err && text.contains("Several plans match \"Alpha Moved\": alpha, alpha-moved. Give the plan key."), "{text}");
+    let (err, text) = call(&app, &key, "get_plan_history", json!({"plan": "alpha-moved"})).await;
+    assert!(!err && text.contains("(plan key alpha-moved, archived)"), "{text}");
 }
