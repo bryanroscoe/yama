@@ -46,6 +46,9 @@ CREATE INDEX scan_timings_owner ON scan_timings (owner_id, created_at);
 -- around it. They're files under the data directory, scan-samples/<owner>/<id>/<name>.jpg, out of
 -- the main database; these list them (JSON: name, width, height, bytes) and their bytes, total.
 -- They go with their photo: the cap, Delete them, account deletion. Shared as their photo is.
+ALTER TABLE scan_samples ADD COLUMN crops TEXT;
+ALTER TABLE scan_samples ADD COLUMN crop_bytes INTEGER NOT NULL DEFAULT 0;
+
 -- When an account last used "Delete them" on its scan photos ('samples') or its scanner
 -- diagnostics ('diagnostics', timing records included): an upload that began at or before that is
 -- refused, so a photo or record still on its way can't arrive after the deletion (scan_clears.rs).
@@ -55,6 +58,3 @@ CREATE TABLE scan_clears (
     cleared_at TEXT NOT NULL,
     PRIMARY KEY (owner_id, kind)
 );
-
-ALTER TABLE scan_samples ADD COLUMN crops TEXT;
-ALTER TABLE scan_samples ADD COLUMN crop_bytes INTEGER NOT NULL DEFAULT 0;

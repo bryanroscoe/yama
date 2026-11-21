@@ -1,14 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { applyH, rectQuad, squareToQuad, warpRegion } from "./image";
-import { CARD_CHANGE_FRAMES, DIAGNOSTICS_KEY, STRIP, SYMBOL, ScanRecord, TimingRecord, cardOf, setDiagnosticsOn, stepAppeared, stripQuad, stripSize, symbolOf, symbolSize } from "./diagnostics";
+import { CARD_CHANGE_FRAMES, DIAGNOSTICS_KEY, STRIP, SYMBOL, ScanRecord, TimingRecord, cardOf, deleteDiagnostics, setDiagnosticsOn, stepAppeared, stripQuad, stripSize, symbolOf, symbolSize } from "./diagnostics";
 import { COLLECTOR_REGION, RIGHT_COLLECTOR_REGION } from "./pipeline";
 
-const posted = vi.hoisted(() => ({ bodies: [] as unknown[] }));
+const posted = vi.hoisted(() => ({ bodies: [] as unknown[], hold: null as Promise<void> | null }));
 vi.mock("../api", async (original) => ({
   ...(await original<typeof import("../api")>()),
-  api: async (path: string, init?: { json?: unknown }) => {
-    posted.bodies.push({ path, ...(init?.json as object) });
-    return { id: "x" };
+  api: async (path: string, init?: { json?: unknown; method?: string }) => {
+    posted.bodies.push({ path, ...(init?.method === "DELETE" ? { method: "DELETE" } : {}), ...(init?.json as object) });
+    if (init?.method !== "DELETE" && posted.hold) await posted.hold;
+    return { id: "x", deleted: 0 };
   },
 }));
 
@@ -288,6 +289,25 @@ describe("scanner timing records", () => {
     next.printed("corrected");
     expect(await next.send("filed")).toBe(true);
     expect(posted.bodies[1]).toMatchObject({ rule: "leads", printing: "corrected", detail: { after_filing: true } });
+  });
+
+  it("Delete them waits for records on their way, and none begun before it is sent after", async () => {
+    let release!: () => void;
+    posted.hold = new Promise<void>((r) => (release = r));
+    const onItsWay = new TimingRecord(named).send("filed");
+    const inHand = new TimingRecord(named);
+    const deleting = deleteDiagnostics();
+    // The DELETE waits for the record already sent to be answered.
+    await Promise.resolve();
+    expect(posted.bodies.map((b) => (b as { method?: string }).method ?? "POST")).toEqual(["POST"]);
+    release();
+    posted.hold = null;
+    expect(await onItsWay).toBe(true);
+    await deleting;
+    expect(posted.bodies.map((b) => (b as { method?: string }).method ?? "POST")).toEqual(["POST", "DELETE"]);
+    // The card in hand at the deletion is never sent.
+    expect(await inHand.send("filed")).toBe(false);
+    expect(await new TimingRecord(named).send("filed")).toBe(true);
   });
 
   it("is never sent once the switch was turned off, or under another account", async () => {

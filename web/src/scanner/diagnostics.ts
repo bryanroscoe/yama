@@ -58,6 +58,17 @@ export function diagnosticsOn(): boolean {
  * encoded and sent, no longer the card in hand) is never sent, though the switch is on again.
  */
 let generation = 0;
+/** Records on their way: "Delete them" waits for their answers before it deletes. */
+const sending = new Set<Promise<unknown>>();
+
+function track<T>(p: Promise<T>): Promise<T> {
+  sending.add(p);
+  p.then(
+    () => sending.delete(p),
+    () => sending.delete(p),
+  );
+  return p;
+}
 
 export function setDiagnosticsOn(on: boolean) {
   if (!on) generation += 1;
@@ -324,11 +335,13 @@ export class ScanRecord {
       await add("strip-last", this.stripLast, STRIP_MAX);
       await add("card", this.card, CARD_SIDE);
       if (!this.allowed()) return false;
-      await api("/api/scan/diagnostics", {
-        method: "POST",
-        signal: this.account,
-        json: { outcome, card_name: this.cardName ?? undefined, engine: this.engine ?? undefined, camera: this.camera ?? undefined, detail: this.detail(outcome), images, embed: this.embed ?? undefined, models: this.models ?? undefined },
-      });
+      await track(
+        api("/api/scan/diagnostics", {
+          method: "POST",
+          signal: this.account,
+          json: { outcome, card_name: this.cardName ?? undefined, engine: this.engine ?? undefined, camera: this.camera ?? undefined, detail: this.detail(outcome), images, embed: this.embed ?? undefined, models: this.models ?? undefined },
+        }),
+      );
       return true;
     } catch (e) {
       console.warn("Couldn't keep the scanner diagnostic", e);
@@ -506,7 +519,7 @@ export class TimingRecord {
     if (this.sent || !this.allowed()) return false;
     this.sent = true;
     try {
-      await api("/api/scan/diagnostics/timings", { method: "POST", signal: this.account, json: this.body(outcome) });
+      await track(api("/api/scan/diagnostics/timings", { method: "POST", signal: this.account, json: this.body(outcome) }));
       return true;
     } catch (e) {
       console.warn("Couldn't keep the scanner timing", e);
@@ -524,4 +537,13 @@ export interface DiagnosticsSummary {
 }
 
 export const diagnosticsSummary = () => api<DiagnosticsSummary>("/api/scan/diagnostics?limit=1");
-export const deleteDiagnostics = () => api<{ deleted: number; timings?: number }>("/api/scan/diagnostics", { method: "DELETE" });
+/**
+ * "Delete them": like turning the switch off, no record begun before is sent (the card in hand's
+ * included), and those already on their way are answered first, so none arrives after the
+ * deletion (the server also refuses one that began before it).
+ */
+export async function deleteDiagnostics(): Promise<{ deleted: number; timings?: number }> {
+  generation += 1;
+  await Promise.allSettled([...sending]);
+  return api<{ deleted: number; timings?: number }>("/api/scan/diagnostics", { method: "DELETE" });
+}

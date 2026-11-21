@@ -149,20 +149,35 @@ export async function cropsOf(shot: Shot): Promise<Crop[]> {
   return out;
 }
 
+/** Moves on with each "Delete them": a photo begun before it is never sent. */
+let photoGen = 0;
+/** Photo uploads on their way: "Delete them" waits for their answers before it deletes. */
+const sending = new Set<Promise<unknown>>();
+
+function track<T>(p: Promise<T>): Promise<T> {
+  sending.add(p);
+  p.then(
+    () => sending.delete(p),
+    () => sending.delete(p),
+  );
+  return p;
+}
+
 /** Keep a photo with its label, if the person has Save scan photos on. Never throws. */
 export async function keepSample(shot: Shot | null | undefined, label: SampleLabel): Promise<void> {
   if (!shot || !savingPhotos()) return;
   // The account signed in now: if it changes while the photo is made, it isn't sent under the other.
   const account = accountSignal();
+  const gen = photoGen;
   try {
     const encoded = await encodeShot(shot);
     if (!encoded) return;
     const crops = await cropsOf(shot);
-    // Turned off, or signed out, while the crops were made: nothing is sent.
-    if (!savingPhotos() || account.aborted) return;
+    // Turned off, signed out, or deleted ("Delete them") while the crops were made: nothing is sent.
+    if (!savingPhotos() || account.aborted || gen !== photoGen) return;
     // `shared`: this scanner tells the person, next to the switch, that saved photos are shared
     // with Yama's developer (server/src/scan_samples.rs keeps older photos out of that).
-    await api("/api/scan/samples", { method: "POST", signal: account, json: { ...label, ...encoded, crops, shared: true } });
+    await track(api("/api/scan/samples", { method: "POST", signal: account, json: { ...label, ...encoded, crops, shared: true } }));
   } catch (e) {
     console.warn("Couldn't keep the scan photo", e);
   }
@@ -176,4 +191,12 @@ export interface SampleSummary {
 }
 
 export const sampleSummary = () => api<SampleSummary>("/api/scan/samples");
-export const deleteSamples = () => api<{ deleted: number }>("/api/scan/samples", { method: "DELETE" });
+/**
+ * "Delete them": no photo begun before is sent, and those already on their way are answered
+ * first, so none arrives after the deletion (the server also refuses one that began before it).
+ */
+export async function deleteSamples(): Promise<{ deleted: number }> {
+  photoGen += 1;
+  await Promise.allSettled([...sending]);
+  return api<{ deleted: number }>("/api/scan/samples", { method: "DELETE" });
+}
