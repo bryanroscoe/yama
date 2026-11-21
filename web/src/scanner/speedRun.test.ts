@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { ArtRecognizer, BundleInfo } from "./artClient";
 import type { ModelChoices, ModelOption } from "./models";
 import type { Recognition } from "./recognizer";
-import { FRAMES_PER_CARD, SPEED_CARDS, type SpeedCard } from "./speed";
+import { FRAMES_PER_CARD, SPEED_CARDS, speedSummary, type SpeedCard } from "./speed";
 import { lookToTime, runSpeedTest, speedConfigs, type SpeedDeps, type SpeedProgress } from "./speedRun";
 import { modelsOf } from "./models";
 
@@ -50,7 +50,7 @@ interface World {
  * card shown, pictures for every card, and a look timer.
  */
 function world(
-  opts: { choices?: ModelChoices; info?: BundleInfo; failLoad?: string; failPictures?: number; wrongOn?: string; abortAfter?: { controller: AbortController; frames: number }; hangOn?: number; runsInstead?: string } = {},
+  opts: { choices?: ModelChoices; info?: BundleInfo; failLoad?: string; failPictures?: number; wrongOn?: string; abortAfter?: { controller: AbortController; frames: number }; hangOn?: number; runsInstead?: string; infoHangs?: boolean } = {},
 ): World {
   let clock = 0;
   const w: World = { deps: undefined as unknown as SpeedDeps, loads: [], disposed: 0, looks: [], calls: [] };
@@ -58,7 +58,7 @@ function world(
   w.deps = {
     now: () => clock,
     env: async () => (w.calls.push("env"), { userAgent: "UA", hints: { model: "Pixel 10 Pro", platform: "Android", platformVersion: "16" }, app: { web: "abc", built: "", native: null }, cores: 8, memory: 8, isolated: false, sharedMemory: false, webgpu: { api: false, adapter: false } }),
-    bundleInfo: async () => (w.calls.push("info"), opts.info ?? info()),
+    bundleInfo: () => (w.calls.push("info"), opts.infoHangs ? new Promise<BundleInfo>(() => undefined) : Promise.resolve(opts.info ?? info())),
     choices: () => opts.choices ?? {},
     async loadRecognizer(_info, art, detector, onState) {
       if (art.id === opts.failLoad) throw new Error("out of memory");
@@ -266,6 +266,26 @@ describe("a speed test", () => {
     controller.abort();
     await expect(run).rejects.toThrow();
     expect(w.disposed).toBe(1);
+  });
+
+  it("stops at once while waiting on the server", async () => {
+    const controller = new AbortController();
+    const run = runSpeedTest(() => undefined, controller.signal, world({ infoHangs: true }).deps);
+    await new Promise((r) => setTimeout(r, 5));
+    controller.abort();
+    await expect(run).rejects.toThrow("stopped");
+  });
+
+  it("goes on to the defaults and the faster ones when this device's models won't load", async () => {
+    const w = world({ choices: { art: "bundle" }, failLoad: "bundle" });
+    const r = await runSpeedTest(() => undefined, undefined, w.deps);
+    expect(r.configs.map((c) => [c.roles, c.error, c.frames.length])).toEqual([
+      [["yours"], "out of memory", 0],
+      [["defaults"], null, SPEED_CARDS * FRAMES_PER_CARD],
+      [["faster"], null, SPEED_CARDS * FRAMES_PER_CARD],
+    ]);
+    expect(r.look?.error).toBeNull();
+    expect(speedSummary(r)).toBe("Your models weren't timed: out of memory. A frame takes 116 ms with the defaults, 31 ms with the faster ones.");
   });
 
   it("asks about the device before timing anything", async () => {

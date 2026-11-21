@@ -2845,8 +2845,12 @@
             "maxLength": 200,
             "type": "string"
           },
+          "frames": {
+            "description": "Also each configuration's per-frame times (large). Default false.",
+            "type": "boolean"
+          },
           "limit": {
-            "description": "Tests per page, default 5.",
+            "description": "Tests per page, default 3.",
             "maximum": 20,
             "minimum": 1,
             "type": "integer"

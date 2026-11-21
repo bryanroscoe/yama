@@ -10,6 +10,8 @@ const run = vi.hoisted(() => ({
   calls: [] as { signal?: AbortSignal; progress: (p: { text: string; done: number; total: number }) => void; finish: (r: SpeedReport) => void; fail: (e: Error) => void }[],
   saved: [] as SpeedReport[],
   saveFails: false,
+  /** While set, a save waits for it. */
+  saveGate: null as Promise<void> | null,
 }));
 
 vi.mock("./speedRun", () => ({
@@ -18,6 +20,7 @@ vi.mock("./speedRun", () => ({
       run.calls.push({ signal, progress, finish, fail });
     }),
   saveSpeedTest: async (r: SpeedReport) => {
+    if (run.saveGate) await run.saveGate;
     if (run.saveFails) throw new Error("Too many scanner speed tests");
     run.saved.push(r);
     return { id: "t1" };
@@ -69,6 +72,7 @@ beforeEach(() => {
   run.calls.length = 0;
   run.saved.length = 0;
   run.saveFails = false;
+  run.saveGate = null;
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -141,6 +145,26 @@ describe("Test scanner speed", () => {
     root = createRoot(host);
     await act(async () => run.calls[1]!.finish(report()));
     expect(run.saved).toHaveLength(0);
+  });
+
+  it("stops when the scanner begins loading a model, and can't be stopped once it's keeping the result", async () => {
+    await act(async () => root.render(<SpeedTest ready />));
+    await act(async () => button("Test scanner speed")!.click());
+    await act(async () => root.render(<SpeedTest ready={false} />));
+    expect(run.calls[0]!.signal!.aborted).toBe(true);
+    await act(async () => run.calls[0]!.fail(new Error("stopped")));
+    expect(host.textContent).toContain("Stopped: the scanner began loading a model.");
+    await act(async () => root.render(<SpeedTest ready />));
+    let open = () => undefined as void;
+    run.saveGate = new Promise<void>((r) => (open = r));
+    await act(async () => button("Test scanner speed")!.click());
+    await act(async () => run.calls[1]!.finish(report()));
+    expect(host.textContent).toContain("Keeping it on your account…");
+    expect(button("Stop")).toBeUndefined();
+    expect(button("Test scanner speed")!.disabled).toBe(true);
+    await act(async () => open());
+    expect(host.textContent).toContain("Kept on your account.");
+    expect(host.textContent).toContain("1 test saved on your account.");
   });
 
   it("waits for the scanner's own models, and shows the tests kept with a way to delete them", async () => {

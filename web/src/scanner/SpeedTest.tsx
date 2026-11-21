@@ -125,58 +125,78 @@ const say = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /**
  * The Speed part of Scan settings. `ready` is false while the scanner's own recognizer is still
- * loading or switching a model, so the test never times against that work.
+ * loading or switching a model: the test doesn't start then, and one running stops when that
+ * begins (a model chosen in Models above, say), so it never times against that work.
  */
 export function SpeedTest({ ready = true }: { ready?: boolean }) {
   const [progress, setProgress] = useState<SpeedProgress | null>(null);
-  const [busy, setBusy] = useState(false);
+  /** Running the test, then keeping it; busy either way. */
+  const [stage, setStage] = useState<"running" | "saving" | null>(null);
+  const busy = stage !== null;
   const [report, setReport] = useState<SpeedReport | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [count, setCount] = useState<number | null>(null);
   const run = useRef<AbortController | null>(null);
-  useEffect(() => {
-    let live = true;
+  /** Why the run under way was stopped, when not by Stop. */
+  const why = useRef<string | null>(null);
+  const live = useRef(true);
+  const recount = () =>
     speedTestCount().then(
-      (n) => live && setCount(n),
+      (n) => live.current && setCount(n),
       () => undefined,
     );
+  useEffect(() => {
+    if (!ready && run.current && stage === "running") {
+      why.current = "Stopped: the scanner began loading a model. Test again once it's done.";
+      run.current.abort();
+    }
+  }, [ready, stage]);
+  useEffect(() => {
+    live.current = true;
+    void recount();
     // Closing Scan settings stops a test under way, its workers at once: the scanner reads again then.
     return () => {
-      live = false;
+      live.current = false;
       run.current?.abort();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const start = () => {
     if (run.current || !ready) return;
     const stop = new AbortController();
     run.current = stop;
-    setBusy(true);
+    why.current = null;
+    setStage("running");
     setReport(null);
     setStatus(null);
     setError(null);
     setProgress({ text: "Starting", done: 0, total: 1 });
     runSpeedTest((p) => !stop.signal.aborted && setProgress(p), stop.signal)
       .then(async (r) => {
-        if (stop.signal.aborted) return;
+        if (stop.signal.aborted) throw new Error("stopped");
         setReport(r);
+        setProgress(null);
         if (!r.configs.some((c) => c.stats)) return;
+        // Past the point of stopping: the test has run, and keeping it finishes even if Scan
+        // settings closes.
+        setStage("saving");
         setStatus("Keeping it on your account…");
         try {
           await saveSpeedTest(r);
-          if (stop.signal.aborted) return;
+          if (!live.current) return;
           setStatus("Kept on your account.");
-          setCount((n) => (n ?? 0) + 1);
+          void recount();
         } catch (e) {
-          if (!stop.signal.aborted) setStatus(`Not kept: ${say(e)}`);
+          if (live.current) setStatus(`Not kept: ${say(e)}`);
         }
       })
-      .catch((e: unknown) => setError(stop.signal.aborted ? "Stopped." : say(e)))
+      .catch((e: unknown) => setError(stop.signal.aborted ? (why.current ?? "Stopped.") : say(e)))
       // Another test can start only once this one has ended, its workers gone.
       .finally(() => {
         if (run.current === stop) run.current = null;
         setProgress(null);
-        setBusy(false);
+        setStage(null);
       });
   };
   const cancel = () => {
@@ -201,16 +221,21 @@ export function SpeedTest({ ready = true }: { ready?: boolean }) {
         <Button onClick={start} disabled={busy || !ready}>
           Test scanner speed
         </Button>
-        {busy && (
+        {stage === "running" && (
           <Button variant="quiet" onClick={cancel} disabled={!!run.current?.signal.aborted}>
             Stop
           </Button>
         )}
       </ActionBar>
       {!ready && !busy && <p className="scan-note">The scanner is still loading its models; the test can start once it's done.</p>}
-      {busy && progress && <progress className="scan-speed-bar" max={progress.total} value={progress.done} aria-label="Speed test progress" />}
+      {busy && progress && (
+        <>
+          <progress className="scan-speed-bar" max={progress.total} value={progress.done} aria-label="Speed test progress" />
+          <p className="scan-note">{progress.text}</p>
+        </>
+      )}
+      {/* Announced: how it ended, not every step on the way. */}
       <div className="scan-speed-status" aria-live="polite">
-        {busy && progress && <p className="scan-note">{progress.text}</p>}
         {error && <p className="scan-note">{error}</p>}
         {report && <p className="scan-speed-summary">{speedSummary(report)}</p>}
         {status && <p className="scan-note scan-model-runs">{status}</p>}

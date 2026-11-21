@@ -5,14 +5,13 @@
 // printing look in a look worker of its own. Nothing here runs unless the person presses the
 // button, and the scanner's own loop is paused meanwhile (Scan settings is open).
 
-import { api, API_BASE } from "../api";
+import { api, API_BASE, type Printing } from "../api";
 import { BUILD_COMMIT, BUILD_TIME } from "../version";
 import { isNative } from "../native";
 import { Updater } from "../nativeUpdate";
 import { loadArtRecognizer, scanBundleInfo, type ArtRecognizer, type BundleInfo, type LoadState } from "./artClient";
 import type { LookTiming, LookWorkerReply, LookWorkerRequest, WireFrame } from "./look";
 import { defaultOption, modelsOf, running, savedModels, type DeviceCan, type ModelChoices, type ModelOption, type ModelsInfo } from "./models";
-import { printingOptions } from "./printings";
 import type { Recognition } from "./recognizer";
 import {
   captureEnv,
@@ -126,6 +125,17 @@ const stopped = (signal?: AbortSignal) => {
   if (signal?.aborted) throw new Error("The speed test was stopped");
 };
 
+/** `p`, or a rejection the moment `signal` stops the test (a request with no signal of its own). */
+function orStop<T>(p: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return p;
+  return new Promise<T>((resolve, reject) => {
+    const stop = () => reject(new Error("The speed test was stopped"));
+    if (signal.aborted) return stop();
+    signal.addEventListener("abort", stop, { once: true });
+    p.then(resolve, reject).finally(() => signal.removeEventListener("abort", stop));
+  });
+}
+
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 const round = (v: number) => Math.round(v * 10) / 10;
@@ -146,9 +156,8 @@ export async function runSpeedTest(onProgress: (p: SpeedProgress) => void, signa
   const t0 = deps.now();
   const startedAt = new Date().toISOString();
   // The device first, so asking for a WebGPU adapter never overlaps a timed load.
-  const env = await deps.env();
-  stopped(signal);
-  const info = await deps.bundleInfo();
+  const env = await orStop(deps.env(), signal);
+  const info = await orStop(deps.bundleInfo(), signal);
   if (!info?.ready || !info.constants) throw new Error("Card recognition isn't ready on the server yet, so there's nothing to time.");
   const models = modelsOf(info);
   const choices = deps.choices();
@@ -163,6 +172,8 @@ export async function runSpeedTest(onProgress: (p: SpeedProgress) => void, signa
   };
 
   let pictures: CardPicture[] | null = null;
+  /** The cards' pictures couldn't be had: nothing else can be timed. */
+  let noPictures = false;
   const configs: ConfigResult[] = [];
   for (const p of plan) {
     stopped(signal);
@@ -197,12 +208,15 @@ export async function runSpeedTest(onProgress: (p: SpeedProgress) => void, signa
       say(`Loaded ${name}`, 1);
       if (!pictures) {
         stopped(signal);
-        const cards = (await rec.sample?.(SPEED_CARDS)) ?? [];
-        if (cards.length === 0) throw new Error("The card recognizer gave no cards to show");
+        const cards = (await orStop(rec.sample?.(SPEED_CARDS) ?? Promise.resolve([]), signal)) ?? [];
         say("Getting the cards' pictures from Scryfall");
         const got = await Promise.allSettled(cards.map((c) => deps.picture(c, signal)));
+        stopped(signal);
         const ok = got.flatMap((g) => (g.status === "fulfilled" ? [g.value] : []));
-        if (ok.length < 2) throw new Error("Couldn't get the cards' pictures from Scryfall");
+        if (ok.length < 2) {
+          noPictures = true;
+          throw new Error(cards.length ? "Couldn't get the cards' pictures from Scryfall" : "The card recognizer gave no cards to show");
+        }
         pictures = ok;
       }
       for (const [ci, pic] of pictures.entries()) {
@@ -246,8 +260,9 @@ export async function runSpeedTest(onProgress: (p: SpeedProgress) => void, signa
       signal?.removeEventListener("abort", end);
       rec?.dispose();
     }
-    // Without the cards' pictures nothing else can be timed.
-    if (!pictures) break;
+    // Without the cards' pictures nothing else can be timed; a configuration that didn't load
+    // leaves the next to try (and to fetch them).
+    if (noPictures) break;
   }
 
   let look: LookResult | null = null;
@@ -341,12 +356,14 @@ export function drawFrame(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderi
 }
 
 /** A printing's Scryfall `normal` picture: as the server lists it, else from its ID. */
-async function pictureUrl(card: SpeedCard): Promise<string> {
+async function pictureUrl(card: SpeedCard, signal?: AbortSignal): Promise<string> {
   try {
-    const r = await printingOptions({ art: card.illustrationId, id: card.id });
+    const q = new URLSearchParams({ id: card.id, ...(card.illustrationId ? { art: card.illustrationId } : {}) });
+    const r = await api<{ printings: Printing[] }>(`/api/scan/printings?${q}`, { signal });
     const p = r.printings.find((x) => x.scryfall_id === card.id);
     if (p?.image_normal) return p.image_normal;
-  } catch {
+  } catch (e) {
+    if (signal?.aborted) throw e;
     /* the server's list isn't needed: Scryfall's picture paths follow the ID */
   }
   return `https://cards.scryfall.io/normal/front/${card.id[0]}/${card.id[1]}/${card.id}.jpg`;
@@ -387,7 +404,8 @@ function startLookTimer(option: ModelOption, signal?: AbortSignal): Promise<Look
     waiting.clear();
   };
   w.onerror = (e) => fail(e.message || "The printing look stopped");
-  signal?.addEventListener("abort", () => fail("Stopped"), { once: true });
+  const onStop = () => fail("Stopped");
+  signal?.addEventListener("abort", onStop, { once: true });
   if (signal?.aborted) fail("Stopped");
   const ask = (m: LookWorkerRequest, transfer: Transferable[] = []) =>
     new Promise<Answer>((resolve) => {
@@ -398,6 +416,7 @@ function startLookTimer(option: ModelOption, signal?: AbortSignal): Promise<Look
   const base = API_BASE || location.origin;
   return ask({ type: "model", id: nextId++, url: new URL(option.file!, base).href, bytes: option.bytes ?? 0, cache: false }).then((r) => {
     if (r.error) {
+      signal?.removeEventListener("abort", onStop);
       fail(r.error);
       throw new Error(r.error);
     }
@@ -408,7 +427,10 @@ function startLookTimer(option: ModelOption, signal?: AbortSignal): Promise<Look
         if (r.type !== "timed") throw new Error("The printing look didn't answer");
         return { fetchMs: r.fetchMs, decodeMs: r.decodeMs, pictureMs: r.pictureMs, frameMs: r.frameMs };
       },
-      dispose: () => fail("The look timer was closed"),
+      dispose: () => {
+        signal?.removeEventListener("abort", onStop);
+        fail("The look timer was closed");
+      },
     };
   });
 }
@@ -424,7 +446,7 @@ export function browserDeps(): SpeedDeps {
     choices: savedModels,
     loadRecognizer: (info, art, detector, onState, signal) => loadArtRecognizer(onState, { info, art, detector, fallback: false, signal }),
     async picture(card, signal) {
-      const url = await pictureUrl(card);
+      const url = await pictureUrl(card, signal);
       // cards.scryfall.io sends Access-Control-Allow-Origin: *, so the picture's pixels can be read.
       const res = await fetch(url, { mode: "cors", credentials: "omit", cache: "no-store", signal });
       if (!res.ok) throw new Error(`Couldn't fetch ${card.name}'s picture (${res.status})`);

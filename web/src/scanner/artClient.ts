@@ -171,13 +171,18 @@ const LOAD_LOCK_WAIT_MS = 60_000;
 
 /**
  * Run `load` holding a lock shared by this browser's tabs (the Web Locks API), waiting at most
- * `wait` ms for another tab's load; without the API, or after that, it runs anyway.
+ * `wait` ms for another tab's load; without the API, or after that, it runs anyway. `signal`
+ * (the speed test's Stop) ends the wait, and then nothing is loaded.
  */
-export async function oneLoadAtATime<T>(load: () => Promise<T>, wait = LOAD_LOCK_WAIT_MS): Promise<T> {
+export async function oneLoadAtATime<T>(load: () => Promise<T>, wait = LOAD_LOCK_WAIT_MS, signal?: AbortSignal): Promise<T> {
+  if (signal?.aborted) throw new Error("Stopped");
   const locks = typeof navigator === "undefined" ? undefined : navigator.locks;
   if (!locks) return load();
   const gaveUp = new AbortController();
   const timer = setTimeout(() => gaveUp.abort(), wait);
+  // Aborting the request once the lock is held changes nothing; before, it ends the wait.
+  const stop = () => gaveUp.abort();
+  signal?.addEventListener("abort", stop, { once: true });
   let started = false;
   try {
     return await locks.request(INFO_KEY, { signal: gaveUp.signal }, () => {
@@ -187,10 +192,14 @@ export async function oneLoadAtATime<T>(load: () => Promise<T>, wait = LOAD_LOCK
     });
   } catch (e) {
     // Gave up waiting (the lock never came): load anyway. A failure of the load itself stands.
-    if (!started) return load();
+    if (!started) {
+      if (signal?.aborted) throw new Error("Stopped");
+      return load();
+    }
     throw e;
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", stop);
   }
 }
 
@@ -231,6 +240,10 @@ async function startRecognizer(
 ): Promise<ArtRecognizer> {
   if (signal?.aborted) throw new Error("Stopped");
   const worker = new Worker(new URL("./art.worker.ts", import.meta.url), { type: "module" });
+  // Stopped before it's ready (waiting for another tab's load, downloading, compiling): the worker
+  // goes now. Once it's ready, its owner ends it (dispose).
+  const endOnStop = () => worker.terminate();
+  signal?.addEventListener("abort", endOnStop, { once: true });
   const pending = new Map<number, { resolve: (r: Recognition) => void; reject: (e: Error) => void }>();
   const locating = new Map<number, { resolve: (l: Located & { buffer: ArrayBuffer }) => void; reject: (e: Error) => void }>();
   /** Who hears where the finder placed the card in each frame being identified. */
@@ -291,30 +304,36 @@ async function startRecognizer(
   // The worker drops cached files this info doesn't name, then the info is kept for offline use:
   // one load at a time across this browser's tabs, so two tabs loading different bundle info (the
   // server just switched) can't each drop the files the other cached.
-  await oneLoadAtATime(async () => {
-    const stopped = () => worker.terminate();
-    await new Promise<void>((resolve, reject) => {
-      worker.onmessage = (e: MessageEvent<ArtWorkerReply>) => {
-        const m = e.data;
-        if (m.type === "progress") onState?.(m.loaded >= m.total ? { kind: "preparing" } : { kind: "downloading", loaded: m.loaded, total: m.total });
-        else if (m.type === "ready") resolve();
-        else if (m.type === "error") reject(new Error(m.message));
-      };
-      worker.onerror = (e) => reject(new Error(e.message || "The card recognizer stopped"));
-      // Stopped while loading: the worker goes now, downloads and compiling with it.
-      signal?.addEventListener("abort", () => reject(new Error("Stopped")), { once: true });
-      if (signal?.aborted) return reject(new Error("Stopped"));
-      worker.postMessage({ type: "load", info, base, embed: { url: art.file, bytes: art.bytes }, detector: { url: detector.file, bytes: detector.bytes } } satisfies ArtWorkerRequest);
-    }).catch((e: unknown) => {
-      stopped();
-      throw e;
-    });
-    try {
-      localStorage.setItem(INFO_KEY, JSON.stringify(info));
-    } catch {
-      /* storage off: offline opens need the server */
-    }
-  });
+  await oneLoadAtATime(
+    async () => {
+      let stopLoad = () => undefined as void;
+      await new Promise<void>((resolve, reject) => {
+        worker.onmessage = (e: MessageEvent<ArtWorkerReply>) => {
+          const m = e.data;
+          if (m.type === "progress") onState?.(m.loaded >= m.total ? { kind: "preparing" } : { kind: "downloading", loaded: m.loaded, total: m.total });
+          else if (m.type === "ready") resolve();
+          else if (m.type === "error") reject(new Error(m.message));
+        };
+        worker.onerror = (e) => reject(new Error(e.message || "The card recognizer stopped"));
+        stopLoad = () => reject(new Error("Stopped"));
+        signal?.addEventListener("abort", stopLoad, { once: true });
+        if (signal?.aborted) return reject(new Error("Stopped"));
+        worker.postMessage({ type: "load", info, base, embed: { url: art.file, bytes: art.bytes }, detector: { url: detector.file, bytes: detector.bytes } } satisfies ArtWorkerRequest);
+      })
+        .catch((e: unknown) => {
+          worker.terminate();
+          throw e;
+        })
+        .finally(() => signal?.removeEventListener("abort", stopLoad));
+      try {
+        localStorage.setItem(INFO_KEY, JSON.stringify(info));
+      } catch {
+        /* storage off: offline opens need the server */
+      }
+    },
+    undefined,
+    signal,
+  ).finally(() => signal?.removeEventListener("abort", endOnStop));
 
   worker.onmessage = (e: MessageEvent<ArtWorkerReply>) => {
     const m = e.data;

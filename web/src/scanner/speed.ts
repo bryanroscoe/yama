@@ -405,12 +405,15 @@ export function speedSummary(r: Pick<SpeedReport, "configs">): string {
   const yours = configFor(r, "yours");
   const defaults = configFor(r, "defaults");
   const faster = configFor(r, "faster");
-  if (!yours || frame(yours) === null) return yours?.error ? `The test didn't finish: ${yours.error}` : "The test didn't finish.";
   const parts: string[] = [];
-  const own = yours.roles.includes("faster") ? "your models (the faster ones)" : yours.roles.includes("defaults") ? "your models (the defaults)" : "your models";
-  parts.push(`${ms(frame(yours))} with ${own}`);
+  let lead = "";
+  if (yours && frame(yours) !== null) {
+    const own = yours.roles.includes("faster") ? "your models (the faster ones)" : yours.roles.includes("defaults") ? "your models (the defaults)" : "your models";
+    parts.push(`${ms(frame(yours))} with ${own}`);
+  } else if (yours?.error) lead = `Your models weren't timed: ${yours.error}. `;
   if (defaults && defaults !== yours && frame(defaults) !== null) parts.push(`${ms(frame(defaults))} with the defaults`);
   if (faster && faster !== yours && frame(faster) !== null) parts.push(`${ms(frame(faster))} with the faster ones`);
+  if (parts.length === 0) return yours?.error ? `The test didn't finish: ${yours.error}` : "The test didn't finish.";
   const list = parts.length > 2 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts.join(", ");
-  return `A frame takes ${list}.`;
+  return `${lead}A frame takes ${list}.`;
 }
