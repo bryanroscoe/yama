@@ -759,7 +759,16 @@ pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>
         let renamed: Vec<String> = recorded.iter().filter_map(|k| super::resolve_key(k, &live_keys, &aliases)).collect();
         recorded.extend(renamed);
         let found: Vec<&SwapRow> = if !exact.is_empty() {
-            exact
+            // A retired row the name matches (renamed by an import) brings the live change too.
+            let mut found = exact;
+            let renamed: Vec<String> =
+                found.iter().filter(|s| s.retired_at.is_some()).filter_map(|s| super::resolve_key(&s.ext_key, &live_keys, &aliases)).collect();
+            for s in swaps.iter().filter(|s| renamed.contains(&s.ext_key)) {
+                if !found.iter().any(|f| f.ext_key == s.ext_key) {
+                    found.push(s);
+                }
+            }
+            found
         } else if swaps.iter().any(|s| recorded.contains(&s.ext_key)) {
             swaps.iter().filter(|s| recorded.contains(&s.ext_key)).collect()
         } else {
@@ -970,7 +979,11 @@ pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>
                 .iter()
                 .filter(|e| {
                     same_group(e.group_label.as_deref(), Some(l.as_str()))
-                        || (e.group_label.is_some() && e.cards().is_empty() && e.swap_keys().iter().any(|k| keys.contains(&k.as_str())))
+                        || (e.group_label.is_some()
+                            && e.cards().is_empty()
+                            && e.swap_keys().iter().any(|k| {
+                                keys.contains(&k.as_str()) || super::resolve_key(k, &live_keys, &aliases).is_some_and(|l| keys.contains(&l.as_str()))
+                            }))
                 })
                 .count();
             match recorded {
