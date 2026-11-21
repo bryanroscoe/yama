@@ -8,6 +8,7 @@
 //
 // The onnxruntime namespace is passed in, so the web worker and the Node eval share this file.
 
+import { isCardBack } from "./cardBack";
 import { artLead, LEAD_MARGIN } from "./fuse";
 import { fromBase64, galleryOf, readGallery, upTo, type Gallery } from "./gallery";
 import type { Point, Quad, RgbaImage } from "./types";
@@ -59,12 +60,18 @@ export interface Recognition {
    * Scored exactly as `matches` are, so the two compare directly.
    */
   pool?: ArtMatch[];
+  /** The card in view looks like a standard card back (cardBack.ts): it's face down. */
+  back?: boolean;
   /** `cuts`: frame cuts the art model embedded (all of them, or fewer when the first stage of a cascade settled it). */
   timings: { detectMs: number; embedMs: number; totalMs: number; cuts?: number };
 }
 
 export interface Recognizer {
-  identify(frame: RgbaImage): Promise<Recognition>;
+  /**
+   * `onSeen` is told where the card finder placed the card (or null) as soon as it has, before the
+   * art is matched: the outline over the camera doesn't wait for the card to be named.
+   */
+  identify(frame: RgbaImage, onSeen?: (quad: Quad | null) => void): Promise<Recognition>;
   /** Forget the tracked card (after it was accepted, say). */
   reset(): void;
   /**
@@ -429,7 +436,7 @@ export async function createRecognizer(
   let tracked: Window | null = null;
   let trackedFor = 0;
 
-  const identify = async (frame: RgbaImage): Promise<Recognition> => {
+  const identify = async (frame: RgbaImage, onSeen?: (quad: Quad | null) => void): Promise<Recognition> => {
     const t0 = now();
     let fine: Detection | null = null;
     // While the card stays put, one pass on last frame's card window is enough.
@@ -453,9 +460,11 @@ export async function createRecognizer(
     const inView = fine.vote >= IN_VIEW && shortSide(fine.quad) >= MIN_SHORT && cardDetail(frame, fine.quad) >= MIN_DETAIL;
     tracked = inView ? around(fine) : null;
     trackedFor = inView && wasTracking ? trackedFor + 1 : 0;
+    onSeen?.(inView ? fine.quad : null);
+    const back = inView && isCardBack(frame, fine.quad);
     const { cuts, ...found } = inView ? await match(frame, fine.quad) : { matches: [], pool: pool && gallery ? [] : undefined, cuts: 0 };
     const t2 = now();
-    return { quad: inView ? fine.quad : null, upright: fine.vote, ...found, timings: { detectMs: t1 - t0, embedMs: t2 - t1, totalMs: t2 - t0, cuts } };
+    return { quad: inView ? fine.quad : null, upright: fine.vote, ...found, ...(back ? { back } : {}), timings: { detectMs: t1 - t0, embedMs: t2 - t1, totalMs: t2 - t0, cuts } };
   };
 
   // Each graph's first run sets up its kernels; pay that before the first real frame.

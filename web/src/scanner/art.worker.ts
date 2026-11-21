@@ -161,7 +161,7 @@ self.onmessage = async (event: MessageEvent<ArtWorkerRequest>) => {
     }
     else if (m.type === "identify") {
       if (!recognizer) throw new Error("The card recognizer isn't loaded");
-      const result = await recognizer.identify({ width: m.width, height: m.height, data: new Uint8ClampedArray(m.buffer) });
+      const result = await recognizer.identify({ width: m.width, height: m.height, data: new Uint8ClampedArray(m.buffer) }, (quad) => reply({ type: "seen", id: m.id, quad }));
       // With the look on, keep a copy of a frame with a card in it, for the look's side of the
       // comparison: the frame and quad this match used, under every artwork it matched (a title
       // read or Not this card can settle on one that wasn't the best). Copied into reused buffers.

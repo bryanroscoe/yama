@@ -118,8 +118,10 @@
 .art-credits + .plan-section {
   margin-top: 32px;
 }
+/* Some are in-page link targets (the trip's how-to buttons): clear the phone's status bar. */
 .plan-section-head {
   margin: 0 0 10px;
+  scroll-margin-top: calc(var(--sticky-top) + 24px);
   font-family: var(--display);
   font-weight: 800;
   font-size: var(--t-28);

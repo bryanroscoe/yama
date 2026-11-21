@@ -187,7 +187,7 @@ async function until<T>(get: () => T | null | undefined, what: string): Promise<
 }
 const button = (name: string) => [...document.querySelectorAll("button")].find((b) => b.textContent?.trim() === name);
 const click = (el: HTMLElement) => act(() => el.click());
-const order = () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].map((o) => o.querySelector(".scan-printing-set")?.textContent?.split(" ")[0]);
+const order = () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].map((o) => o.querySelector(".scan-printing-code")?.textContent?.split(" ")[0]);
 async function scanPhoto(model: string) {
   await until(() => (look.loaded === model ? true : null), `the look model ${model}`);
   const input = document.querySelector<HTMLInputElement>(".scan-photo-input")!;

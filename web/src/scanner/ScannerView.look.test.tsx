@@ -135,7 +135,7 @@ async function until<T>(get: () => T | null | undefined, what: string): Promise<
   }
   throw new Error(`never saw ${what}`);
 }
-const order = () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].map((o) => o.querySelector(".scan-printing-set")?.textContent?.split(" ")[0]);
+const order = () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].map((o) => o.querySelector(".scan-printing-code")?.textContent?.split(" ")[0]);
 async function scanPhoto() {
   await until(() => (look.loaded === "look-v0" ? true : null), "the look model");
   const input = document.querySelector<HTMLInputElement>(".scan-photo-input")!;
