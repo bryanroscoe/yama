@@ -938,7 +938,23 @@ pub async fn track_build(st: &AppState, user: &User, via: &Via, args: &Value) ->
     let active = tracked.as_ref().filter(|t| t.1 != "archived");
     let Some(build_id) = build_id else {
         let Some((key, _, _, _)) = active else {
-            return Ok(format!("No build of {deck_name} in \"{title}\" is tracked, so there's nothing to stop."));
+            let mut out = format!("No build of {deck_name} in \"{title}\" is tracked, so there's nothing to stop.");
+            // Stopped already (a retry after a lost reply, or earlier): what they asked still goes
+            // in the archived plan's history, once.
+            if let Some((key, ..)) = &tracked
+                && via.may_apply()
+                && let Some(e) = stopped_entry(&note_id, &title, asked, conversation)
+            {
+                match crate::plan::history::record_once(pool, &user.id, key, &e, via.as_str()).await {
+                    Ok(r) => {
+                        let _ = write!(out, "\nWhat they asked is in the plan's history (plan key {key}, entry {}).", r.id);
+                    }
+                    Err(err) => {
+                        let _ = write!(out, "\nThe plan's history didn't take what they asked ({err}); record it with `record_plan_history`.");
+                    }
+                }
+            }
+            return Ok(out);
         };
         if !via.may_apply() {
             return stage_once(st, user, via, args, Staged {
@@ -957,16 +973,7 @@ pub async fn track_build(st: &AppState, user: &User, via: &Via, args: &Value) ->
             "Stopped tracking {deck_name}'s plan (plan key {key}): it's archived, and nothing in it is on their shopping list. Its swaps, \
              marks and answers are kept; tracking a build again brings them back."
         );
-        if asked.is_some() || conversation.is_some() {
-            let e = crate::plan::history::Entry {
-                on: Utc::now().format("%Y-%m-%d").to_string(),
-                what: format!("Stopped tracking the note \"{title}\"; the plan is archived."),
-                asked,
-                conversation,
-                work: Some(format!("note {note_id}")),
-                group: None,
-                cards: vec![],
-            };
+        if let Some(e) = stopped_entry(&note_id, &title, asked, conversation) {
             if let Err(err) = crate::plan::history::record_once(pool, &user.id, key, &e, via.as_str()).await {
                 let _ = write!(out, "\nThe plan's history didn't take what they asked ({err}); record it with `record_plan_history`.");
             }
@@ -1074,6 +1081,20 @@ pub async fn track_build(st: &AppState, user: &User, via: &Via, args: &Value) ->
 
 /// The history entry for tracking a note's build, when they said what they asked for or where the
 /// conversation is (the version itself already says which note it came from).
+/// The history entry for stopping a note's plan, when they said what they asked for or where the
+/// conversation is: the same words for the stop and for a retry that finds it stopped.
+fn stopped_entry(note_id: &str, title: &str, asked: Option<String>, conversation: Option<String>) -> Option<crate::plan::history::Entry> {
+    (asked.is_some() || conversation.is_some()).then(|| crate::plan::history::Entry {
+        on: Utc::now().format("%Y-%m-%d").to_string(),
+        what: format!("Stopped tracking the note \"{title}\"; the plan is archived."),
+        asked,
+        conversation,
+        work: Some(format!("note {note_id}")),
+        group: None,
+        cards: vec![],
+    })
+}
+
 /// The same words whether the build became the plan in this call or already was, so a retry
 /// after a lost reply finds the entry the first call recorded.
 fn tracked_entry(note_id: &str, title: &str, build_id: &str, label: &str, asked: Option<String>, conversation: Option<String>) -> Option<crate::plan::history::Entry> {
