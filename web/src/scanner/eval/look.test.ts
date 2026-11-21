@@ -2,10 +2,11 @@
 // The printing look model in Node, as the art worker runs it (onnxruntime-web, WASM, one thread):
 //
 // - Parity: the release file on two synthetic scenes (no card images in the repository) against
-//   what the lab's Python onnxruntime gave (look-parity.json, made by the lab's parity.py; see
+//   what Python's onnxruntime gave (look-parity-<version>.json, one per model and picked by the
+//   file's SHA-256, made by scanner-lab/look_parity.py; see
 //   docs/scanner.md, "The printing look"). Run with
 //     SCANNER_LOOK_MODEL=<yama-look-v0.onnx> npx vitest run web/src/scanner/eval/look.test.ts
-// - Real photos: with SCANNER_LOOK_CASES (the lab's cases.py output: each photo's quad, its printing
+// - Real photos: with SCANNER_LOOK_CASES (the scanner lab's scripts/look_cases.py output: each photo's quad, its printing
 //   and the printings that share its art, with Python's scores), SCANNER_REAL_DIR (the photos) and
 //   SCANNER_LOOK_PRINTINGS (each printing's Scryfall `normal` image as <id>.jpg, or decoded to
 //   <id>.rgba where the lab kept a WebP), every photo is
@@ -15,24 +16,25 @@
 // Skipped in `npm test`.
 
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import jpeg from "jpeg-js";
 import { describe, expect, it } from "vitest";
 import { cornersOf, embedLook, lookScore, type LookSession, type LookTensor } from "../look";
 import type { Quad, RgbaImage } from "../types";
 
-const parity = JSON.parse(readFileSync(new URL("./look-parity.json", import.meta.url), "utf8")) as {
-  model: string;
-  cases: { name: string; width: number; height: number; quad: number[][]; symbol: number[]; card: number[] }[];
-};
+type Parity = { model: string; cases: { name: string; width: number; height: number; quad: number[][]; symbol: number[]; card: number[] }[] };
+/** The expected outputs for each look model, by its SHA-256. */
+const PARITY: Parity[] = readdirSync(new URL(".", import.meta.url))
+  .filter((f) => /^look-parity-.*\.json$/.test(f))
+  .map((f) => JSON.parse(readFileSync(new URL(`./${f}`, import.meta.url), "utf8")) as Parity);
 
 const MODEL = process.env.SCANNER_LOOK_MODEL;
 const CASES = process.env.SCANNER_LOOK_CASES;
 const PHOTOS = process.env.SCANNER_REAL_DIR;
 const PRINTINGS = process.env.SCANNER_LOOK_PRINTINGS;
 
-/** The scene parity.py draws: a pattern no card is in. */
+/** The scene look_parity.py draws: a pattern no card is in. */
 function scene(width: number, height: number): RgbaImage {
   const data = new Uint8ClampedArray(width * height * 4);
   for (let y = 0; y < height; y += 1)
@@ -53,7 +55,7 @@ async function session(): Promise<{ s: LookSession; Tensor: LookTensor }> {
 }
 
 const maxDiff = (a: Float32Array, b: number[]) => Math.max(...b.map((v, i) => Math.abs(v - a[i]!)));
-/** A printing's picture: a JPEG, or raw RGBA (`<id>.rgba`: width and height as uint32 LE, then the pixels; the lab's WebP files decoded by raw.py). */
+/** A printing's picture: a JPEG, or raw RGBA (`<id>.rgba`: width and height as uint32 LE, then the pixels; the lab's WebP files decoded by its scripts/look_raw.py, photos by look_rawphotos.py). */
 const picture = (dir: string, id: string): RgbaImage => {
   try {
     const raw = readFileSync(join(dir, `${id}.rgba`));
@@ -72,9 +74,11 @@ const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.len
 
 describe.skipIf(!MODEL)("the printing look model in onnxruntime-web", () => {
   it("gives the lab's Python outputs on synthetic scenes", { timeout: 120_000 }, async () => {
-    expect(createHash("sha256").update(readFileSync(MODEL!)).digest("hex")).toBe(parity.model);
+    const sha = createHash("sha256").update(readFileSync(MODEL!)).digest("hex");
+    const parity = PARITY.find((p) => p.model === sha);
+    expect(parity, `no look-parity-*.json for a model with SHA-256 ${sha}`).toBeDefined();
     const { s, Tensor } = await session();
-    for (const c of parity.cases) {
+    for (const c of parity!.cases) {
       const e = await embedLook(s, Tensor, scene(c.width, c.height), c.quad as Quad);
       const worst = Math.max(maxDiff(e.symbol, c.symbol), maxDiff(e.card, c.card));
       console.log(`${c.name}: largest difference from Python ${worst.toExponential(2)}`);

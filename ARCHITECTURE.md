@@ -616,8 +616,9 @@ pin and one switch each (docs/scanner.md, "Models you can switch").
 
 When several printings share a card's art, a look model of Yama's compares the card with each
 printing's own Scryfall picture and orders the printing list by it (docs/scanner.md, "The printing
-look"). On 98 real sleeved photos the right printing comes first 57.1% of the time, against 40.8%
-for the newest-first order the list had.
+look"). On 98 real sleeved photos the right printing comes first 86.7% of the time with the
+look model v1, the default since later that day (v0, the first, 57.1%), against 40.8% for the
+newest-first order the list had.
 
 - **A second scanner worker.** The look runs in its own worker (`look.worker.ts`, onnxruntime-web)
   beside the art worker, which only keeps copies of its last few frames with a card in them and
@@ -629,9 +630,11 @@ for the newest-first order the list had.
   the scores in a diagnostics record, when the owner has those on.
 - **Ordering only.** It never settles a printing or overrides the collector line; the evidence
   for that would be full-resolution scans, measured first.
-- **A model of Yama's, pinned like the art model** (`look-v0` in `MODELS`, a
-  `scanner-look-20261120` release asset), and the look slot's default; `YAMA_SCAN_WITHDRAW=look-v0`
-  withdraws it. Its base weights are torchvision's (BSD-3-Clause); the notice is in docs/scanner.md.
+- **Models of Yama's, pinned like the art model** (`look-v1`, the look slot's default, and
+  `look-v0` in `MODELS`, `scanner-look-20261120` release assets);
+  `YAMA_SCAN_WITHDRAW=look-v0,look-v1` withdraws them (`look-v1` alone puts the default back on
+  v0, which also stands in while v1 downloads). Their base weights are torchvision's
+  (BSD-3-Clause); the notice is in COPYRIGHT and docs/scanner.md.
 
 ## Sections in boxes, and scanning a box (16 November 2026)
 

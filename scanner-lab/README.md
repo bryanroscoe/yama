@@ -166,3 +166,12 @@ EMBED=models/yama-art-20261118.onnx .venv/bin/python <lab>/corners_eval.py bundl
   vote is the presence probability p), `centre` 2, `short` (the bundle's formula). Its licence: Yama's own
   model; torchvision's code is BSD-3-Clause, and the ImageNet starting weights and Scryfall training images
   are the usual grey areas (docs/scanner.md, "Licences").
+
+## The printing look's parity check
+
+`look_parity.py MODEL OUT.json` runs a printing look model (`yama-look-v0.onnx` or `-v1`,
+docs/scanner.md, "The printing look") on two synthetic scenes in Python's onnxruntime and writes
+the outputs the repository's parity test compares with, one file per model
+(`web/src/scanner/eval/look-parity-v0.json`, `-v1.json`; checked 20 Nov 2026: it remakes both
+byte for byte with onnxruntime 1.32). The look models' training scripts and their guide
+are [LOOK.md](LOOK.md)'s; the real-photo replay's inputs stay in the lab: they are people's data.

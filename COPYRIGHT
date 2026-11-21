@@ -32,9 +32,9 @@ THE SOFTWARE.
 
 The printing look model
 -----------------------
-Yama's printing look model (yama-look-v0.onnx, release scanner-look-20261120 of this
-repository; docs/scanner.md, "The printing look") was trained from torchvision's ImageNet
-MobileNetV3-Small weights (https://github.com/pytorch/vision), under its BSD 3-Clause license:
+Yama's printing look models (yama-look-v0.onnx and yama-look-v1.onnx, release
+scanner-look-20261120 of this repository; docs/scanner.md, "The printing look") were trained
+from torchvision's ImageNet MobileNetV3-Small weights (https://github.com/pytorch/vision), under its BSD 3-Clause license:
 
 BSD 3-Clause License
 
