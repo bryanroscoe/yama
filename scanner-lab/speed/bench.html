@@ -62,7 +62,8 @@ for (const r of rec ? index.slice(0, Number(P.get("n") ?? index.length)) : []) {
     timings: out.timings, runs: Object.fromEntries(order.map((k) => [k, times[k].slice(before[k])])),
   });
 }
-// Reading a frame as the camera loop does: a 2160 x 3840 source drawn at 640 x 1138 and read back.
+// Reading a frame back, roughly as the camera loop does: a synthetic 2160 x 3840 canvas (not a camera's video
+// element, whose read can cost more) drawn at 640 x 1138 and read back.
 const src = new OffscreenCanvas(2160, 3840);
 const sx = src.getContext("2d"); sx.fillStyle = "#357"; sx.fillRect(0, 0, 2160, 3840); sx.fillStyle = "#c93"; sx.fillRect(400, 800, 1300, 1900);
 const grab = [];

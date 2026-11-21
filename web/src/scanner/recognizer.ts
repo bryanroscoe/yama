@@ -205,13 +205,26 @@ export function cardDetail(frame: RgbaImage, quad: Quad): number {
 
 const shortSide = (q: Quad) => Math.min(...q.map((p, i) => Math.hypot(q[(i + 1) % 4]![0] - p[0], q[(i + 1) % 4]![1] - p[1])));
 
+/** Whether the quad is a convex quadrilateral: every turn along its edges is the same way. */
+export function convex(q: Quad): boolean {
+  let sign = 0;
+  for (let i = 0; i < 4; i++) {
+    const [a, b, c] = [q[i]!, q[(i + 1) % 4]!, q[(i + 2) % 4]!];
+    const cross = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]);
+    if (cross === 0 || (sign && Math.sign(cross) !== sign)) return false;
+    sign = Math.sign(cross);
+  }
+  return true;
+}
+
 /**
  * The part of the frame the embed graph reads for this quad: the quad's bounding box and a few pixels
  * beyond (bilinear sampling reads the next pixel too), within the frame, with the quad moved to match.
  * The graph converts the whole scene to float before it warps the card out of it; given just the card's
  * box it does that for about a third of the pixels and returns the same embeddings (largest difference
- * 3e-4, cosine 0.999999, on simulated frames; cardvision lab, 20 Nov 2026). Past the frame's edge the
- * graph pads with zeros, so the box stops at the frame's edge exactly as the frame does.
+ * 3e-4, cosine 0.999999, on simulated frames; cardvision lab, 20 Nov 2026): the graph normalises the
+ * warp's grid by the scene's own size, so a cut scene only shifts it. Past the frame's edge the graph
+ * pads with zeros, so the box stops at the frame's edge exactly as the frame does.
  */
 export function cardWindow(frame: RgbaImage, quad: Quad): { frame: RgbaImage; quad: Quad } {
   const xs = quad.map((p) => p[0]);
@@ -221,8 +234,9 @@ export function cardWindow(frame: RgbaImage, quad: Quad): { frame: RgbaImage; qu
   const x1 = Math.min(frame.width, Math.ceil(Math.max(...xs)) + 3);
   const y1 = Math.min(frame.height, Math.ceil(Math.max(...ys)) + 3);
   const whole = x0 === 0 && y0 === 0 && x1 === frame.width && y1 === frame.height;
-  // Nothing to gain, or a quad off the frame (not a card the detector passes): the frame as it is.
-  if (whole || !(x1 - x0 >= 2 && y1 - y0 >= 2) || [...xs, ...ys].some((v) => !Number.isFinite(v))) return { frame, quad };
+  // Nothing to gain, or a quad off the frame or folded over itself (a corner dragged past the diagonal
+  // samples far outside the corners' box): the frame as it is.
+  if (whole || !(x1 - x0 >= 2 && y1 - y0 >= 2) || [...xs, ...ys].some((v) => !Number.isFinite(v)) || !convex(quad)) return { frame, quad };
   const w = x1 - x0;
   const h = y1 - y0;
   const data = new Uint8ClampedArray(w * h * 4);

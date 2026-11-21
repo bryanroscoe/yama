@@ -30,9 +30,10 @@ Run every script from a work directory **outside the repository**: `python <lab>
 | `data/real_crops.npz` | the real photos' crops, cached by `evalreal.py` (people's data) | 200 MB |
 | `runs/<run>/epN.pt` | a checkpoint per epoch (`train.py`) | 4 MB each |
 | `out/` | `realeval.py`'s per-photo scores | small |
+| `speed/frames/` | the speed bench's frames, made from Scryfall images (`speed_frames.py`) | 100 MB |
 
-Card images are Scryfall's, fetched for training and never published: delete `data/cards/` and
-`data/crops/` when you're done.
+Card images are Scryfall's, fetched for training and never published: delete `data/cards/`,
+`data/crops/` and `speed/frames/` when you're done.
 
 ## Inputs
 
@@ -102,7 +103,8 @@ the bundle's `embed.onnx` and the exported file gave the whole-capture table in 
 serves a bench page cross-origin isolated (so WASM may use threads), runs every frame through
 `createRecognizer` as the art worker does, and prints each graph's median time per configuration
 (docs/scanner.md, "Speed"). It needs the repository's `npm ci` (playwright-core, rolldown, onnxruntime-web)
-and an installed Google Chrome.
+(`rolldown` comes with Vite) and an installed Google Chrome. From the bundle it reads `detector.onnx`, `search.onnx`,
+`arts.slim.json` and `manifest.json`; `--embed` is the art model to time.
 
 ```sh
 .venv/bin/python <lab>/speed_frames.py 40    # speed/frames/: 160 frames of 40 held-out cards (needs data/cards/)

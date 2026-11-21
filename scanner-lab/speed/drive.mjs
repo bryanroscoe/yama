@@ -65,12 +65,15 @@ for (const q of configs) {
     console.log(`${q}: didn't load: ${r.loadError}`);
     continue;
   }
-  const res = r.results.slice(4); // the first card warms up
+  // Times leave out the first card's four frames (it warms up), unless that's all there is; the
+  // right-card rate counts every frame.
+  const res = r.results.length > 4 ? r.results.slice(4) : r.results;
+  const right = r.results.length ? `${(100 * r.results.filter((x) => x.right).length / r.results.length).toFixed(1)}% of ${r.results.length}` : "-";
   const tracked = res.filter((x) => x.runs.detector.length === 1).map((x) => x.timings.totalMs);
   const fresh = res.filter((x) => x.runs.detector.length > 1).map((x) => x.timings.totalMs);
   console.log(`${q}: detector ${f(med(res.flatMap((x) => x.runs.detector)))} ms a pass, embed ${f(med(res.flatMap((x) => x.runs.embed)))}, search ${f(med(res.flatMap((x) => x.runs.search)))}; ` +
-    `frame ${f(med(tracked))} tracked (${tracked.length}), ${f(med(fresh))} fresh (${fresh.length}); right ${(100 * res.filter((x) => x.right).length / res.length).toFixed(1)}%; ` +
-    `frame read ${f(med(r.grab))} ms; isolated ${r.isolated}, gpu ${r.gpu ?? "none"}`);
+    `frame ${f(med(tracked))} tracked (${tracked.length}), ${f(med(fresh))} fresh (${fresh.length}); right card first ${right}; ` +
+    `synthetic frame read ${f(med(r.grab))} ms; isolated ${r.isolated}, gpu ${r.gpu ?? "none"}`);
 }
 if (outFile) fs.writeFileSync(outFile, JSON.stringify(all));
 await browser.close();

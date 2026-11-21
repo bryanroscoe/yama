@@ -2,7 +2,7 @@
 // come out the same as from the whole frame.
 
 import { describe, expect, it } from "vitest";
-import { cardWindow } from "./recognizer";
+import { cardWindow, convex, createRecognizer, parseArts, type OrtLike } from "./recognizer";
 import type { Quad, RgbaImage } from "./types";
 
 function noise(w: number, h: number, seed = 11): RgbaImage {
@@ -57,6 +57,26 @@ describe("cardWindow", () => {
     }
   });
 
+  it("stops at the right and bottom edges too", () => {
+    const quad: Quad = [[420.2, 800.6], [690.4, 790], [700.9, 1180.3], [410, 1200.5]];
+    const w = cardWindow(frame, quad);
+    expect([w.frame.width, w.frame.height]).toEqual([640 - 408, 1138 - 788]);
+    for (const [[x, y], [cx, cy]] of across(quad).map((p, i) => [p, across(w.quad)[i]!] as const)) {
+      expect(sample(w.frame, cx, cy, 2)).toBeCloseTo(sample(frame, x, y, 2), 6);
+    }
+  });
+
+  it("keeps the frame for a quad folded over itself, whose warp reads outside its corners' box", () => {
+    const dragged: Quad = [[150, 300], [500, 300], [260, 420], [140, 800]];
+    const bowtie: Quad = [[150, 300], [500, 800], [500, 300], [150, 800]];
+    expect(convex(dragged)).toBe(false);
+    expect(convex(bowtie)).toBe(false);
+    expect(cardWindow(frame, dragged).frame).toBe(frame);
+    expect(cardWindow(frame, bowtie).frame).toBe(frame);
+    expect(convex([[150, 300], [500, 300], [500, 800], [150, 800]])).toBe(true);
+    expect(convex([[150, 800], [500, 800], [500, 300], [150, 300]])).toBe(true);
+  });
+
   it("keeps the frame when the box would be all of it, or the quad isn't a place", () => {
     const all: Quad = [[0, 0], [640, 0], [640, 1138], [0, 1138]];
     expect(cardWindow(frame, all).frame).toBe(frame);
@@ -64,5 +84,58 @@ describe("cardWindow", () => {
     expect(cardWindow(frame, lost).frame).toBe(frame);
     const off: Quad = [[-500, -500], [-400, -500], [-400, -300], [-500, -300]];
     expect(cardWindow(frame, off).frame).toBe(frame);
+  });
+});
+
+describe("the recognizer's art match", () => {
+  it("gives the embed graph the card's box and the quad within it", async () => {
+    const fed: { dims: readonly number[]; quad: number[] }[] = [];
+    class Tensor {
+      constructor(
+        readonly type: string,
+        readonly data: Uint8Array | Float32Array,
+        readonly dims: readonly number[],
+      ) {}
+    }
+    const ort: OrtLike = {
+      Tensor: Tensor as unknown as OrtLike["Tensor"],
+      InferenceSession: {
+        async create(model) {
+          const kind = model[0];
+          return {
+            inputNames: kind === 3 ? ["embeddings"] : ["x"],
+            async run(feeds: Record<string, unknown>): Promise<Record<string, { data: unknown }>> {
+              if (kind === 1) {
+                return {
+                  quad: { data: Float32Array.from([68, 44, 188, 44, 188, 212, 68, 212]) },
+                  up: { data: Float32Array.from([4, 0]) },
+                  centre: { data: Float32Array.from([128, 128]) },
+                  short: { data: Float32Array.from([120]) },
+                };
+              }
+              if (kind === 2) {
+                fed.push({ dims: (feeds.scene as Tensor).dims, quad: Array.from((feeds.quad as Tensor).data) });
+                return { embeddings: { data: new Float32Array(17 * 4) } };
+              }
+              return { indices: { data: BigInt64Array.from([0n]) }, scores: { data: Float32Array.from([0.9]) } };
+            },
+          };
+        },
+      },
+    };
+    const constants = { scene: 640, det_input: 256, rotations: 4, refine_fill: 0.6, refine_min_side: 64, card_aspect: 88 / 63 };
+    const arts = parseArts([{ id: "a", name: "Sol Ring", set: "ecc", collector_number: "57", illustration_id: "ill-a" }]);
+    const recognizer = await createRecognizer(ort, { detector: Uint8Array.of(1), embed: Uint8Array.of(2), search: Uint8Array.of(3) }, constants, arts);
+    fed.length = 0;
+    const checker = noise(640, 1138);
+    const r = await recognizer.identify(checker);
+    expect(r.quad).not.toBeNull();
+    const q = r.quad!;
+    const x0 = Math.floor(Math.min(...q.map((p) => p[0]))) - 2;
+    const y0 = Math.floor(Math.min(...q.map((p) => p[1]))) - 2;
+    const last = fed[fed.length - 1]!;
+    expect(last.dims[0]).toBeLessThan(1138);
+    expect(last.dims[1]).toBeLessThan(640);
+    q.flat().forEach((v, i) => expect(last.quad[i]).toBeCloseTo(v - (i % 2 ? y0 : x0), 4));
   });
 });
