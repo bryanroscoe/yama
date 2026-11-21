@@ -2,10 +2,10 @@
 // The printing look model in Node, as the art worker runs it (onnxruntime-web, WASM, one thread):
 //
 // - Parity: the release file on two synthetic scenes (no card images in the repository) against
-//   what the lab's Python onnxruntime gave (look-parity.json, made by the lab's parity.py; see
+//   what Python's onnxruntime gave (look-parity.json, made by scanner-lab/look_parity.py; see
 //   docs/scanner.md, "The printing look"). Run with
 //     SCANNER_LOOK_MODEL=<yama-look-v0.onnx> npx vitest run web/src/scanner/eval/look.test.ts
-// - Real photos: with SCANNER_LOOK_CASES (the lab's cases.py output: each photo's quad, its printing
+// - Real photos: with SCANNER_LOOK_CASES (the scanner lab's scripts/look_cases.py output: each photo's quad, its printing
 //   and the printings that share its art, with Python's scores), SCANNER_REAL_DIR (the photos) and
 //   SCANNER_LOOK_PRINTINGS (each printing's Scryfall `normal` image as <id>.jpg, or decoded to
 //   <id>.rgba where the lab kept a WebP), every photo is
@@ -32,7 +32,7 @@ const CASES = process.env.SCANNER_LOOK_CASES;
 const PHOTOS = process.env.SCANNER_REAL_DIR;
 const PRINTINGS = process.env.SCANNER_LOOK_PRINTINGS;
 
-/** The scene parity.py draws: a pattern no card is in. */
+/** The scene look_parity.py draws: a pattern no card is in. */
 function scene(width: number, height: number): RgbaImage {
   const data = new Uint8ClampedArray(width * height * 4);
   for (let y = 0; y < height; y += 1)
@@ -53,7 +53,7 @@ async function session(): Promise<{ s: LookSession; Tensor: LookTensor }> {
 }
 
 const maxDiff = (a: Float32Array, b: number[]) => Math.max(...b.map((v, i) => Math.abs(v - a[i]!)));
-/** A printing's picture: a JPEG, or raw RGBA (`<id>.rgba`: width and height as uint32 LE, then the pixels; the lab's WebP files decoded by raw.py). */
+/** A printing's picture: a JPEG, or raw RGBA (`<id>.rgba`: width and height as uint32 LE, then the pixels; the lab's WebP files decoded by its scripts/look_raw.py, photos by look_rawphotos.py). */
 const picture = (dir: string, id: string): RgbaImage => {
   try {
     const raw = readFileSync(join(dir, `${id}.rgba`));
