@@ -151,17 +151,17 @@ export function modelsOf(info: Pick<BundleInfo, "files" | "bytes"> & { models?: 
 }
 
 /**
- * Whether this app can run an option: an art model by its file (any art query model the server
- * pins has the bundle embed graph's interface), and look options, text readers and lock rules this
+ * Whether this app can run an option: an art or look model by its file (any art query model the
+ * server pins has the bundle embed graph's interface, and any look model look.ts's: `scene` and
+ * `quad` in, `symbol` and `card` out), "off" for the look, and text readers and lock rules this
  * build has the code for, on this device (an option a newer server adds stays hidden until then).
- * This build has no look stage yet, so the look is "off" only.
  */
 export function canRun(slot: ModelSlot, o: ModelOption, can: DeviceCan): boolean {
   switch (slot) {
     case "art":
       return !!o.file;
     case "look":
-      return o.id === "off";
+      return o.id === "off" || !!o.file;
     case "text":
       return o.id === "auto" || can.text.includes(o.id);
     case "lock":

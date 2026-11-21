@@ -14,11 +14,13 @@ export interface ModelsSettingProps {
   /** A switch under way or one that failed, by slot. */
   notes: Partial<Record<ModelSlot, string>>;
   onChoose: (slot: ModelSlot, id: string | null) => void;
+  /** Slots this scanner doesn't use (the look where only the card matters). */
+  hide?: readonly ModelSlot[];
 }
 
-export function ModelsSetting({ info, slots, can, runs, notes, onChoose }: ModelsSettingProps) {
+export function ModelsSetting({ info, slots, can, runs, notes, onChoose, hide = [] }: ModelsSettingProps) {
   // A slot with a choice to make, or whose choice here isn't on offer now (so it says so).
-  const shown = MODEL_SLOTS.filter((slot) => runnable(info, slot, can).length > 1 || slots[slot].fellBack);
+  const shown = MODEL_SLOTS.filter((slot) => !hide.includes(slot) && (runnable(info, slot, can).length > 1 || slots[slot].fellBack));
   if (shown.length === 0) return null;
   return (
     <section className="scan-models" aria-labelledby="scan-models-title">

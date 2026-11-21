@@ -39,6 +39,11 @@ export interface Choice {
   /** What to offer in the picker: English first, the best guesses at the top. */
   options: Printing[];
   /**
+   * How many of `options`, at the top, a collector-line read put there (the printing it settled, or
+   * those matching what it read). The printing look orders the rest (look.ts, `lookOrder`).
+   */
+  readFirst?: number;
+  /**
    * The read alone is proof: the set code read exactly as printed (no lookalike repair), and
    * either the number matched or that set has only one of these printings. Anything less
    * (a repaired set code, a number alone) is a guess: shown first, but confirmed by a second
@@ -70,11 +75,12 @@ export function choosePrinting(o: PrintingOptions, collector?: string): Choice {
     if (chosen && (o.sameArt || exactSet)) {
       const numberRead = read.numbers.includes(normaliseNumber(chosen.collector_number));
       const onlyInSet = pool.filter((p) => p.set_code === chosen.set_code).length === 1;
-      return { chosen, how: "collector", options: [chosen, ...options.filter((p) => p !== chosen)], certain: exactSet && (numberRead || onlyInSet) };
+      return { chosen, how: "collector", options: [chosen, ...options.filter((p) => p !== chosen)], readFirst: 1, certain: exactSet && (numberRead || onlyInSet) };
     }
     // Not settled, but put printings matching what was read first.
     const near = (p: Printing) => read.sets.includes(p.set_code) || read.rawSets.includes(p.set_code) || read.numbers.includes(p.collector_number.replace(/^0+/, ""));
-    return { chosen: null, how: null, options: [...options.filter(near), ...options.filter((p) => !near(p))] };
+    const matched = options.filter(near);
+    return { chosen: null, how: null, options: [...matched, ...options.filter((p) => !near(p))], readFirst: matched.length };
   }
   return { chosen: null, how: null, options };
 }

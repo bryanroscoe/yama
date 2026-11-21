@@ -16,6 +16,8 @@ const MAX_IMAGES = 1500;
 const SELECT_CHEVRON = "/select-chevron-v1.svg";
 /** The scanner's recognition bundle, cached by its worker (src/scanner/art.worker.ts). */
 const SCAN = "yama-scan-v1";
+/** The printing look's embeddings of printings (web/src/scanner/look.worker.ts). */
+const LOOK = "yama-look-v1";
 /** Which builds' code the asset cache keeps: the current shell's list and the one before. */
 const BUILDS = "/__yama/builds";
 /** How long a page load waits for the network before opening the saved shell. */
@@ -50,7 +52,7 @@ self.addEventListener("install", (event) => {
 });
 
 self.addEventListener("activate", (event) => {
-  const keep = [SHELL, ASSETS, IMAGES, SCAN];
+  const keep = [SHELL, ASSETS, IMAGES, SCAN, LOOK];
   event.waitUntil(
     caches
       .keys()
@@ -215,7 +217,9 @@ async function cardImage(event) {
     if (req.mode === "no-cors") return fetch(req);
     throw e;
   }
-  if (res.ok) {
+  // "no-store" (the scanner's printing look reading candidates' pictures): served, not kept, so a
+  // big scan doesn't push out the pictures kept for offline lookups.
+  if (res.ok && req.cache !== "no-store") {
     const copy = res.clone();
     event.waitUntil(
       cache.put(req.url, copy).then(() => {

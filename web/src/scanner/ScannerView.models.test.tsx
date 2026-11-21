@@ -56,6 +56,9 @@ vi.mock("./artClient", async (original) => ({
         art.switches.push(o.id);
         art.now = o.id;
       },
+      look: "off",
+      useLook: async () => undefined,
+      lookAt: () => Promise.reject(new Error("no look here")),
       identify: () => new Promise(() => undefined),
       reset: () => undefined,
       setPool: async () => -1,
