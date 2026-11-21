@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Store } from "@yama/core/plan";
-import { buylistName, SellOffers } from "./SellOffers";
+import { BUYLIST_SHOP, buylistName, SellOffers } from "./SellOffers";
 import { saveFile } from "../download";
 import { Button, CopyButton, Details, Dialog, EmptyState, ErrorText, Segmented, Tag } from "../components/ui";
 import { leftOut, overLimit, SELL_FORMATS, sellable, sellText, special, type SellCard, type SellFormat } from "./sellList";
@@ -22,6 +22,9 @@ function storedFormat(): SellFormat {
 /**
  * Cards in the current view, narrowed and ticked, written out for a store's buylist. `buylist` is
  * the account's own store whose online buylist Yama can ask (SellOffers), when it has that store.
+ * Without it (null) nothing offers to ask the store, but checks saved on the account earlier can
+ * still be read, under a fold that stays shut until opened. Undefined: the account's stores
+ * aren't known yet, and neither fold is drawn.
  */
 export function SellSheet({ items, from, inDeckBox, buylist, onClose }: { items: SellItem[]; from: string; inDeckBox: boolean; buylist?: Pick<Store, "name" | "short"> | null; onClose: () => void }) {
   const [format, setFormatState] = useState<SellFormat>(storedFormat);
@@ -150,9 +153,9 @@ export function SellSheet({ items, from, inDeckBox, buylist, onClose }: { items:
           </Details>
         )}
 
-        {buylist && (
-          <Details label={`Buylist offers from ${buylistName(buylist)}`}>
-            <SellOffers store={buylist} cards={shown.filter((c) => qty(c) > 0)} qty={qty} onChoose={(counts) => { setRest("none"); setCounts(new Map(counts)); setFormat("storepass"); }} />
+        {buylist !== undefined && (
+          <Details label={buylist ? `Buylist offers from ${buylistName(buylist)}` : "Saved buylist checks"}>
+            <SellOffers store={buylist ?? BUYLIST_SHOP} check={!!buylist} cards={shown.filter((c) => qty(c) > 0)} qty={qty} onChoose={(counts) => { setRest("none"); setCounts(new Map(counts)); setFormat("storepass"); }} />
           </Details>
         )}
 

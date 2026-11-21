@@ -168,8 +168,13 @@ export function CollectionPage() {
   const s = summary.data;
   const proxies = s?.proxies ?? 0;
   const real = (s?.copies ?? 0) - proxies;
+  /** Whether any real copy has a market price: without one there is no total, and never "$0.00". */
+  const valued = real > (s?.copies_without_price ?? 0);
   /** Nothing in the collection at all: the page is its empty state. */
   const empty = !!s && s.copies === 0;
+  // An empty collection has no search box, so a search left in it couldn't be cleared and would
+  // go on hiding the rest of the page: with nothing to search, the search goes too.
+  if (empty && filter !== "") setFilter("");
   // A deck box shows its deck's commander; anything else, the most valuable card inside.
   const all = useMemo(() => containers.data ?? [], [containers.data]);
   // The tiles are the top-level containers; a section shows inside its box.
@@ -232,7 +237,7 @@ export function CollectionPage() {
   const where = chosen ? chosen.name : container === "none" ? "loose cards" : null;
   const heading = searching
     ? settled
-      ? foundText(totals(sorted).copies, query, where)
+      ? foundText(totals(sorted), query, where)
       : `Cards called “${filter.trim()}”`
     : container
       ? "Cards"
@@ -267,22 +272,25 @@ export function CollectionPage() {
             <div className="head-with-bug"><h1>Collection</h1><BugButton /></div>
             {s && s.copies > 0 && (
               <span className="coll-value">
-                {/* Proxies have no market value: with no real card there is no total to print. */}
-                {real > 0 && <b className="num">{money(s.market_value_usd)}</b>}
+                {/* Proxies have no market value, and a missing price isn't $0: with no priced real
+                    card there is no total to print, and no day it would be the total on. */}
+                {valued && <b className="num">{money(s.market_value_usd)}</b>}
                 <span className="coll-wide">
                   {cardsAndProxies(s.copies, proxies)}
-                  {real > 0 ? `, market value on ${day}` : ""}
+                  {valued ? `, market value on ${day}` : ""}
                   {/* In brackets: after the date, ", 25 with no price" read as the year. */}
                   {s.copies_without_price > 0 ? ` (${count(s.copies_without_price)} with no price)` : ""}
                 </span>
                 <span className="coll-narrow">
                   {cardsAndProxies(s.copies, proxies)}
-                  {real > 0 ? `, ${day}` : ""}
+                  {valued ? `, ${day}` : ""}
                 </span>
                 <HelpPopover label="About this total">
                   <p>
-                    TCGplayer market value of your real cards on {day}, per copy in its finish. It is not a store quote or a resale offer.
-                    {s.copies_without_price > 0 ? ` ${count(s.copies_without_price)} ${s.copies_without_price === 1 ? "card has no price and isn't" : "cards have no price and aren't"} counted.` : ""}
+                    {valued
+                      ? `TCGplayer market value of your real cards on ${day}, per copy in its finish. It is not a store quote or a resale offer.`
+                      : `The total is the TCGplayer market value of your real cards. ${real > 0 ? (real === 1 ? "Yours has no price" : "None of yours has a price") : "You have none here yet"}, so there is no total.`}
+                    {valued && s.copies_without_price > 0 ? ` ${count(s.copies_without_price)} ${s.copies_without_price === 1 ? "card has no price and isn't" : "cards have no price and aren't"} counted.` : ""}
                     {proxies > 0 ? ` Your ${count(proxies)} ${proxies === 1 ? "proxy isn't" : "proxies aren't"} counted.` : ""}
                   </p>
                   {s.purchase_total_usd > 0 && (
@@ -620,12 +628,14 @@ export function CollectionPage() {
 
 /**
  * The sell list with the account's own stores: a store's buylist check is offered only to an
- * account that has that store. The stores are read when the sheet opens, not with the page.
+ * account that has that store. The stores are read when the sheet opens, not with the page;
+ * until they are in, the sheet doesn't say which it is.
  */
 function AccountSellSheet(props: Omit<Parameters<typeof SellSheet>[0], "buylist">) {
   const me = useMe().data;
-  const plan = usePlan(me && !me.viewing ? me.id : undefined);
-  return <SellSheet {...props} buylist={buylistStore(plan.bundle)} />;
+  const mine = !!me && !me.viewing;
+  const plan = usePlan(mine ? me.id : undefined);
+  return <SellSheet {...props} buylist={mine && plan.pending ? undefined : buylistStore(plan.bundle)} />;
 }
 
 /** A Mythic Tools export, brought up to date with its boxes and decks (the other import takes any list or file). */

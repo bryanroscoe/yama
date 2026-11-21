@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { didYouMean, editDistance, queryChips, searchErrorWords, terms, withoutTerm, wordsToLookUp } from "./cardQuery";
+import { alreadyOffered, didYouMean, editDistance, offeredFor, queryChips, searchableNames, searchErrorWords, terms, withoutTerm, wordsToLookUp } from "./cardQuery";
+import { searchOffline, type OfflineCard } from "@yama/core";
 
 describe("queryChips", () => {
   it("reads common terms as words", () => {
@@ -43,6 +44,37 @@ describe("a search that finds nothing or can't be read", () => {
     expect(didYouMean("lightning", ["Lightning Bolt", "Lightning Bolt"])).toEqual([]);
     expect(didYouMean("lightnin bolt", ["Lightning Bolt", "Lightning Bolt"])).toEqual(["Lightning Bolt"]);
     expect(didYouMean("lightning bol", names, 1)).toEqual(["Lightning Bolt"]);
+  });
+
+  it("never offers the name that was just searched for and not found", () => {
+    // "Akoum" is a plane: the device's list has it, a search by name leaves it out. Offering it
+    // would run the same search again.
+    expect(didYouMean("akoum", ["Akoum", "Akoum Hellkite"])).toEqual([]);
+    expect(didYouMean(" Akoum ", ["Akoum", "Akoun"])).toEqual(["Akoun"]);
+    // A name that is searched in another form than it was typed is still worth offering.
+    expect(didYouMean("seance", ["Séance"])).toEqual(["Séance"]);
+    expect(didYouMean("trick or treat", ["Trick or Treat"])).toEqual(["Trick or Treat"]);
+  });
+
+  it("offers only names a search by name can find", () => {
+    const card = (n: string, y: string | null): OfflineCard => ({ n, i: n, m: null, v: 0, t: "", o: "", c: "", ci: "", p: null, th: null, l: null, r: null, k: [], f: {}, y, img: null, e: null });
+    const saved = [card("Akoum", "planar"), card("All in Good Time", "scheme"), card("Akroma", "vanguard"), card("Goblin", "token"), card("Chandra", "emblem"), card("Elf // Goblin", "double_faced_token"), card("Akoum Hellkite", "normal"), card("Old Card", null)];
+    expect(searchableNames(saved)).toEqual(["Akoum Hellkite", "Old Card"]);
+    // The same line the device's own search draws: every name kept is one it finds, and none left out is.
+    for (const c of saved) expect(searchOffline(saved, `!"${c.n}"`).length, c.n).toBe(searchableNames(saved).includes(c.n) ? 1 : 0);
+    expect(didYouMean("akuom", searchableNames(saved))).toEqual([]);
+    expect(didYouMean("akoum hellkit", searchableNames(saved))).toEqual(["Akoum Hellkite"]);
+  });
+
+  it("knows when a name just offered has been typed out in full", () => {
+    const offered = ["Sol Ring", "Solemn Simulacrum", "Fable // Sol Ring"];
+    expect(alreadyOffered("sol ring", offered)).toBe(true);
+    expect(alreadyOffered(" Sol Ring ", offered)).toBe(true);
+    expect(alreadyOffered("sol rin", offered)).toBe(false);
+    expect(alreadyOffered("", offered)).toBe(false);
+    expect(alreadyOffered("sol ring", [])).toBe(false);
+    // What is offered then: the names already here that still fit, the typed one first.
+    expect(offeredFor("sol ring", ["Fable // Sol Ring", "Solemn Simulacrum", "Sol Ring"])).toEqual(["Sol Ring", "Fable // Sol Ring"]);
   });
 
   it("counts the letters between two names, giving up past the limit", () => {

@@ -120,26 +120,32 @@ const GameHistoryPage = gameHistory.page("GameHistoryPage");
 const TablePlay = tablePlay.page("TablePlay");
 
 /** A deck's tabs (Cards, Stats, Plan, History) are one page at four addresses: its strip of tabs
- *  keeps its own place as they change (components/SectionTabs.tsx, PageTabs). */
-const scrollPageOf = (pathname: string) => pathname.replace(/^(\/decks\/[^/]+)\/(?:stats|plan|history)\/?$/, "$1");
+ *  keeps its own place as they change (components/SectionTabs.tsx, PageTabs). Only a deck's:
+ *  `/decks/plans/<key>` and `/decks/browse/<…>` are pages of their own, whatever they are called
+ *  (a plan whose key is "history" opened from Plans without going to the top). */
+export const scrollPageOf = (pathname: string) => pathname.replace(/^(\/decks\/(?!(?:plans|browse)\/)[^/]+)\/(?:stats|plan|history)\/?$/, "$1");
 
 /**
  * A link opens its page at the top. Nothing else did: the window kept the last page's scroll, so
  * "All games" from the foot of Home opened Game history at its oldest game. Not on Back or
- * Forward (the browser puts the page where it was), not for an address with a `#section` (the
- * page scrolls to it: components/useScrollToHash.ts), and not when only the `?query` changed
- * (a filter, a tab or the pager of the same page).
+ * Forward (the browser puts the page where it was), and not when only the `?query` or the
+ * `#section` changed (a filter, a tab, the pager or a section of the same page).
+ *
+ * A link to another page's `#section` goes to the top too, and then to its section: this runs as
+ * the page is drawn, and whatever scrolls to a section (components/useScrollToHash.ts, WhyBracket,
+ * Profile, Sharing) runs after that, when the section is there. A page with nothing to scroll it
+ * (Plan settings' `#shopping-rules`) used to be left wherever the last page had been.
  */
 function useOpenAtTop() {
-  const { pathname, hash } = useLocation();
+  const { pathname } = useLocation();
   const type = useNavigationType();
   const last = useRef(pathname);
   useLayoutEffect(() => {
     const from = last.current;
     last.current = pathname;
-    if (scrollPageOf(from) === scrollPageOf(pathname) || type === "POP" || hash) return;
+    if (scrollPageOf(from) === scrollPageOf(pathname) || type === "POP") return;
     window.scrollTo(0, 0);
-  }, [pathname, hash, type]);
+  }, [pathname, type]);
 }
 
 /**

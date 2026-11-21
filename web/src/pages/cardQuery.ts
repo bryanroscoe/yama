@@ -141,6 +141,19 @@ export function suggestionsFor(typed: string | null, fetchedFor: string): boolea
   return typed !== null && typed.toLowerCase() === fetchedFor.toLowerCase();
 }
 
+/** Whether what is typed is already, in full, one of the names just offered: nothing more to look up. */
+export function alreadyOffered(typed: string, offered: string[]): boolean {
+  const t = typed.trim().toLowerCase();
+  return t !== "" && offered.some((n) => n.toLowerCase() === t);
+}
+
+/** The names just offered that still fit what is typed, the one typed out in full first. */
+export function offeredFor(typed: string, offered: string[]): string[] {
+  const t = typed.trim().toLowerCase();
+  const fits = offered.filter((n) => n.toLowerCase().includes(t));
+  return [...fits.filter((n) => n.toLowerCase() === t), ...fits.filter((n) => n.toLowerCase() !== t)];
+}
+
 /** The suggestion Up or Down moves to, wrapping; -1 is the box itself (nothing chosen). */
 export function moveSuggestion(active: number, count: number, step: 1 | -1): number {
   if (count === 0) return -1;
@@ -187,6 +200,7 @@ export function editDistance(a: string, b: string, max: number): number {
  * The card names closest to a misspelled one ("lightnig bolt" → "Lightning Bolt"), nearest first,
  * at most `limit`: names within a letter for every four typed (at least one). A two-faced card
  * counts by its whole name and by each face. Names equally near keep the order they came in.
+ * A name whose search is the one just typed is never offered: it found nothing, and would again.
  */
 export function didYouMean(typed: string, names: Iterable<string>, limit = 3): string[] {
   const want = plainName(typed);
@@ -194,9 +208,11 @@ export function didYouMean(typed: string, names: Iterable<string>, limit = 3): s
   const max = Math.max(1, Math.floor(want.length / 4));
   const near: { name: string; d: number }[] = [];
   const seen = new Set<string>();
+  const asTyped = typed.trim().toLowerCase();
   for (const name of names) {
     if (seen.has(name)) continue;
     seen.add(name);
+    if (nameQuery(name).toLowerCase() === asTyped) continue;
     let d = editDistance(want, plainName(name), max);
     // A face sorts a touch behind a whole name as near: "Lightning Bolt" before "Emeritus of Conflict // Lightning Bolt".
     if (name.includes(" // ")) for (const face of name.split(" // ")) d = Math.min(d, editDistance(want, plainName(face), max) + 0.5);
@@ -204,6 +220,21 @@ export function didYouMean(typed: string, names: Iterable<string>, limit = 3): s
   }
   // Array sort is stable: names equally near stay in the order given (most played first, from the server).
   return near.sort((a, b) => a.d - b.d).slice(0, limit).map((n) => n.name);
+}
+
+/**
+ * Layouts a search by name leaves out: tokens and emblems, and the oversized cards of other
+ * formats (planes, schemes, vanguards). The same six as `EXTRA_LAYOUTS` in
+ * server/src/cards/mod.rs and packages/core/src/search.ts: keep the three in step.
+ */
+const NOT_SEARCHED = new Set(["token", "double_faced_token", "emblem", "vanguard", "scheme", "planar"]);
+
+/**
+ * The names on the device's card list that a search by name can find (`n` the name, `y` the
+ * layout): "Did you mean" offers only these, since a tap on any other finds nothing again.
+ */
+export function searchableNames(cards: { n: string; y?: string | null }[]): string[] {
+  return cards.filter((c) => !NOT_SEARCHED.has(c.y ?? "")).map((c) => c.n);
 }
 
 /** The words of a name worth looking up on their own to find what was meant: the longest two of four letters or more. */

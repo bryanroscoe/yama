@@ -218,10 +218,16 @@ export function rulesNote(a: Pick<DeckAnalysis, "bracket">): string | null {
   return `The rules say ${b.rules} or higher${why ? `: ${why}` : ""}`;
 }
 
+/** What may follow a card's name on its line: a printing, a foil mark or a tag. */
+const AFTER_NAME = /^\s+[(*#]/;
+/** On a line that doesn't lead with its count, the count may follow the name instead ("Arcane Signt x2"), before any of those. */
+const COUNT_AFTER_NAME = /^\s+[xX]\d+\s*(?:\s[(*#].*)?$/s;
+
 /**
  * The list's text with the name on one unmatched line replaced by the card it was meant to be
  * ("1 Arcane Signt" to "1 Arcane Signet"): every line that names `written`, keeping its count
- * and whatever follows the name (a printing, a foil mark, a tag). Other lines stay as typed.
+ * (before the name or after it) and whatever follows the name (a printing, a foil mark, a tag).
+ * Other lines stay as typed. It reads a line as the check does (server/src/decks.rs `parse_list`).
  */
 export function rewriteLine(text: string, written: string, name: string): string {
   if (!written.trim()) return text;
@@ -231,8 +237,10 @@ export function rewriteLine(text: string, written: string, name: string): string
       const [, lead = "", rest = ""] = raw.match(/^(\s*(?:\d+[xX]?\s+)?)(.*)$/s) ?? [];
       if (!rest.startsWith(written)) return raw;
       const after = rest.slice(written.length);
-      // A longer name that merely starts the same way is another card's line.
-      if (after.trim() && !/^\s+[(*#]/.test(after)) return raw;
+      // A longer name that merely starts the same way is another card's line. So is "2 Name x2":
+      // a line that leads with its count has the x2 in its name.
+      const follows = AFTER_NAME.test(after) || (!lead.trim() && COUNT_AFTER_NAME.test(after));
+      if (after.trim() && !follows) return raw;
       return `${lead}${name}${after}`;
     })
     .join("\n");

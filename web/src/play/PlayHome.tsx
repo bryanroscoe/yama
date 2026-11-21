@@ -18,7 +18,7 @@ import { useMe } from "../auth";
 import type { OnlineGame, SeatInfo } from "./types";
 import type { PreconList } from "../lab/api";
 import { SavedDeckPicker, PreconPicker } from "../components/DeckPicker";
-import { nextDeck, playRequest, playsPrecon, recentDecks, rememberedSeats, seatWho, startingSeats, withPrecons, type SeatPlan } from "./setup";
+import { forgetJoinCode, joinDeck, keepJoinCode, keptJoinCode, nextDeck, playRequest, playsPrecon, recentDecks, rememberedSeats, seatWho, startingSeats, withPrecons, type SeatPlan } from "./setup";
 import type { GuestSession } from "../guestPlay";
 import { GuestNote } from "./GuestPlay";
 import "./play.css";
@@ -28,13 +28,11 @@ const SKILLS = ["Easy", "Medium", "Hard"] as const;
 
 /** Where the seats of the last game you set up are kept, per account on this device. */
 const seatsKey = (who: string) => `yama.play.seats.${who}`;
-/** A table code from a link, kept for this tab while someone without a deck goes to add one. */
-const JOIN_CODE = "yama.play.joinCode";
 
 /** A kept value, or null where the browser keeps none (private mode, a test). */
-function stored(store: "localStorage" | "sessionStorage", key: string): string | null {
+function stored(key: string): string | null {
   try {
-    return window[store].getItem(key);
+    return localStorage.getItem(key);
   } catch {
     return null;
   }
@@ -87,9 +85,10 @@ export function PlayHome({ guest }: { guest?: GuestSession } = {}) {
   const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks"), enabled: !guest });
   const status = useQuery({ queryKey: ["play-status"], queryFn: () => api<{ enabled: boolean; reason: string | null }>("/api/play/status") });
   const [params] = useSearchParams();
+  const me = useMe();
   // Someone who came by a friend's link (or went to add a deck and came back) is here to join:
   // on a phone the join panel goes above the new-game form (play.css).
-  const invited = !guest && !!(params.get("code") || stored("sessionStorage", JOIN_CODE));
+  const invited = !guest && !!(params.get("code") || keptJoinCode(me.data?.id));
   const current = games.data?.find((g) => g.status === "in_progress" && g.you !== null);
   const others = games.data?.filter((g) => g !== current) ?? [];
   const listArt = others.flatMap((g) => g.seats.filter((s) => s.commander_art).slice(0, 4));
@@ -107,8 +106,10 @@ export function PlayHome({ guest }: { guest?: GuestSession } = {}) {
       {status.data && !status.data.enabled && <p className="dim">Online play isn't running on this server: {status.data.reason}</p>}
       {current && <ContinueHero game={current} />}
       <div className={`ph-cols${invited ? " invited" : ""}`}>
-        {/* Once your decks are known, so each seat can start on a different one. */}
-        {status.data?.enabled && (guest || decks.data || decks.isError) && <NewGame decks={decks.data ?? []} guest={!!guest} />}
+        {/* Once your decks are known, so each seat can start on a different one. Set up again when
+            a first deck arrives over a held empty list (back from adding one): the seats were
+            laid out for someone with no decks. */}
+        {status.data?.enabled && (guest || decks.data || decks.isError) && <NewGame key={decks.data?.length ? "decks" : "none"} decks={decks.data ?? []} guest={!!guest} />}
         <div className="ph-side">
           {status.data?.enabled && !guest && decks.data && <JoinGame decks={decks.data} />}
           {status.data?.enabled && !guest && (
@@ -187,7 +188,7 @@ function NewGame({ decks, guest }: { decks: DeckSummary[]; guest: boolean }) {
   const kept = seatsKey(guest ? "guest" : me.data?.id ?? "me");
   // The table you set up last time, else you and three computers, each on a different deck (the
   // most recently changed first): every seat used to start on the first deck by name.
-  const [planned, setSeats] = useState<SeatPlan[]>(() => startingSeats(decks, rememberedSeats(stored("localStorage", kept))));
+  const [planned, setSeats] = useState<SeatPlan[]>(() => startingSeats(decks, rememberedSeats(stored(kept))));
   const order = recentDecks(decks);
   /** A deck for seat `i` that no other seat is on. */
   const freeDeck = (all: SeatPlan[], i: number) => nextDeck(order, all.filter((s, j) => j !== i && s.kind !== "friend").map((s) => s.deckId), i);
@@ -210,7 +211,9 @@ function NewGame({ decks, guest }: { decks: DeckSummary[]; guest: boolean }) {
     mutationFn: () => api<{ id: string }>("/api/play", { method: "POST", json: playRequest(seats, goesFirst, groupId, first) }),
     onSuccess: (r) => {
       try {
-        localStorage.setItem(kept, JSON.stringify(seats));
+        // What you set, not `seats`: a precon a seat was given only because you have no decks
+        // isn't a choice to bring back once you have one.
+        localStorage.setItem(kept, JSON.stringify(planned));
       } catch {
         /* The next game starts from the usual seats. */
       }
@@ -299,7 +302,9 @@ function NewGame({ decks, guest }: { decks: DeckSummary[]; guest: boolean }) {
                 {s.kind !== "friend" && !playsPrecon(s) && (
                   <SavedDeckPicker decks={decks} value={deckOf(s)} onChange={(deckId) => update(i, { deckId })} />
                 )}
-                {playsPrecon(s) && <PreconPicker precons={preconChoices} value={s.preconId ?? ""} onChange={(preconId) => update(i, { preconId })} />}
+                {/* With no decks, the computer's precon is still a choice of opponent and stays one;
+                    your own was the only thing to play, and gives way to a deck once you have one. */}
+                {playsPrecon(s) && <PreconPicker precons={preconChoices} value={s.preconId ?? ""} onChange={(preconId) => update(i, noDecks && i === 0 ? { preconId } : { source: "precon", preconId })} />}
                 {s.kind === "ai" && (
                   <div className="ph-skills" role="group" aria-label={`Difficulty for seat ${i + 1}`}>
                     {SKILLS.map((k) => (
@@ -358,33 +363,31 @@ function JoinGame({ decks }: { decks: DeckSummary[] }) {
   const me = useMe();
   const [params] = useSearchParams();
   const linked = (params.get("code") ?? "").toUpperCase();
-  const [code, setCode] = useState(() => linked || stored("sessionStorage", JOIN_CODE) || "");
-  // The deck you played last time, else the one you changed most recently (not the first by name).
-  const [deckId, setDeckId] = useState(() => {
-    const last = rememberedSeats(stored("localStorage", seatsKey(me.data?.id ?? "me")))?.[0];
-    return last && !playsPrecon(last) && decks.some((d) => d.id === last.deckId) ? last.deckId : recentDecks(decks)[0] ?? "";
-  });
+  const userId = me.data?.id;
+  // Only ever filled in: joining takes a press of Join.
+  const [code, setCode] = useState(() => linked || keptJoinCode(userId));
+  // The deck picked here, if any. The one joined with is worked out from the list as it is now
+  // (joinDeck): the list can arrive after this panel does (a deck added a moment ago, over a
+  // cached empty list), and a deck fixed when the panel opened was then none at all.
+  const [picked, setDeckId] = useState<string | null>(null);
+  const deckId = joinDeck(decks, picked, rememberedSeats(stored(seatsKey(userId ?? "me")))?.[0]);
   const join = useMutation({
     mutationFn: () => api<{ id: string }>("/api/play/join", { method: "POST", json: { code: code.trim(), deck_id: deckId } }),
     onSuccess: (r) => {
-      try {
-        sessionStorage.removeItem(JOIN_CODE);
-      } catch {
-        /* Nothing was kept. */
-      }
+      forgetJoinCode(userId);
       navigate(`/play/${r.id}`);
+    },
+    // No table has the code, or the table can't be joined (started, full): it isn't offered again
+    // in this tab. It stays in the box, to correct or to try again.
+    onError: (e) => {
+      if (e instanceof ApiError && ((e.status === 404 && /code/i.test(e.message)) || e.status === 409)) forgetJoinCode(userId);
     },
   });
   // Joining needs a deck of your own. Someone invited before they have one keeps the code for
   // this tab, so it's filled in when they come back from adding a deck.
   useEffect(() => {
-    if (decks.length || !linked) return;
-    try {
-      sessionStorage.setItem(JOIN_CODE, linked);
-    } catch {
-      /* They can open the link again. */
-    }
-  }, [decks.length, linked]);
+    if (!decks.length && linked) keepJoinCode(userId, linked);
+  }, [decks.length, linked, userId]);
   const heading = <h2 id="ph-join-h"><span className="ph-join-long">Join a friend's game</span><span className="ph-join-short">Join with a code</span></h2>;
   if (!decks.length) {
     return (
@@ -410,7 +413,16 @@ function JoinGame({ decks }: { decks: DeckSummary[] }) {
       <form className="ph-join-form" onSubmit={(e) => { e.preventDefault(); join.mutate(); }}>
         <label className="ph-code">
           <span className="ph-code-label">Code</span>
-          <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} required autoCapitalize="characters" autoComplete="off" spellCheck={false} placeholder="Code" aria-invalid={wrongCode || undefined} />
+          <input
+            value={code}
+            onChange={(e) => {
+              setCode(e.target.value.toUpperCase());
+              // Typed over or cleared: the kept code is no longer the one they mean.
+              forgetJoinCode(userId);
+            }}
+            required
+            autoCapitalize="characters" autoComplete="off" spellCheck={false} placeholder="Code" aria-invalid={wrongCode || undefined}
+          />
         </label>
         {/* Under the code it is about (it was at the foot of the panel, below the deck's notes). */}
         <ErrorText error={wrongCode ? "No table has that code. Check it with whoever sent it." : join.error} />

@@ -9,7 +9,7 @@ import { isGuest } from "../guest";
 import { Button, ButtonLink, CardImage, Details, Dialog, ErrorText, Pager } from "../components/ui";
 import { offlineCardNames, offlineSearch } from "../offline/cards";
 import { ReleaseCalendar } from "../components/Upcoming";
-import { cardNamed, didYouMean, exactNameQuery, nameBeingTyped, nameQuery, queryChips, searchErrorWords, withoutTerm, wordsToLookUp } from "./cardQuery";
+import { cardNamed, didYouMean, exactNameQuery, nameBeingTyped, nameQuery, queryChips, searchableNames, searchErrorWords, withoutTerm, wordsToLookUp } from "./cardQuery";
 import { CardSearchBox } from "./CardSearchBox";
 import { CardView } from "./CardView";
 import "./cards.css";
@@ -45,9 +45,6 @@ const SYNTAX = (
   </>
 );
 
-/** Layouts that aren't cards anyone searches for by name (the name lookup leaves them out too). */
-const NOT_CARDS = new Set(["token", "double_faced_token", "emblem"]);
-
 /**
  * Names to look for a misspelled one among. An account's device keeps the name of every card (the
  * offline copy): all of them. Without that copy, the most played cards that share a long word with
@@ -55,7 +52,7 @@ const NOT_CARDS = new Set(["token", "double_faced_token", "emblem"]);
  */
 async function nameCandidates(typed: string, guest: boolean, signal: AbortSignal): Promise<string[]> {
   const saved = await offlineCardNames().catch(() => null);
-  if (saved?.length) return saved.filter((c) => !NOT_CARDS.has(c.y ?? "")).map((c) => c.n);
+  if (saved?.length) return searchableNames(saved);
   const pages = await Promise.all(
     wordsToLookUp(typed).map((w) => api<SearchResult>(`/api/${guest ? "guest/" : ""}cards/search?q=${encodeURIComponent(w)}&order=edhrec&page=1`, { signal }).catch(() => null)),
   );
@@ -124,6 +121,9 @@ export function CardsPage() {
   // card is then the results for the name. The card is found by its exact name, on its own, not
   // in the results: they may be sorted another way, or run past the first page.
   const [picked, setPicked] = useState<string | null>(null);
+  // The card that lookup found, kept for the card page: signed out, the page is drawn from a
+  // search hit, and the results on screen may not have this card on their first page.
+  const [pickedHit, setPickedHit] = useState<Card | null>(null);
   const pickName = (name: string) => {
     setPicked(name);
     set({ q: nameQuery(name), page: "1" });
@@ -142,7 +142,9 @@ export function CardsPage() {
     if (!pickedCard.data) return;
     setPicked(null);
     const card = cardNamed(pickedCard.data.cards, picked);
-    if (card) openCard(card.oracle_id);
+    if (!card) return;
+    setPickedHit(card);
+    openCard(card.oracle_id);
     // Once per pick, when the card is found; openCard reads the address as it is then.
   }, [picked, q, pickedCard.data, pickedCard.isError]);
   // Closing the card page puts focus back on the card it came from.
@@ -331,7 +333,7 @@ export function CardsPage() {
           </>
         )}
       </main>
-      {open && <CardPage oracleId={open} onClose={closeCard} backLabel={q ? "Search results" : "Cards"} hit={results.data?.cards.find((c) => c.oracle_id === open)} />}
+      {open && <CardPage oracleId={open} onClose={closeCard} backLabel={q ? "Search results" : "Cards"} hit={results.data?.cards.find((c) => c.oracle_id === open) ?? (pickedHit?.oracle_id === open ? pickedHit : undefined)} />}
     </>
   );
 }

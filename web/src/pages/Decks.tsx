@@ -92,13 +92,20 @@ export function tileStatus(d: Pick<DeckSummary, "acquisition_status" | "format" 
 }
 
 /**
- * Whether the account keeps a collection: it has a copy or a proxy of anything. Until the answer
- * is in, `fallback` (what the decks on screen already say) decides, so an account with cards never
- * sees its "Need 3" turn up late and a new one never sees "Need 100" flash.
+ * Whether the account keeps a collection, from its summary (a copy or a proxy of anything) or,
+ * until that is in, from `fallback` (what the decks on screen already say): an account with cards
+ * never sees its "Need 3" turn up late and a new one never sees "Need 100" flash. A summary that
+ * failed to load is not "owns nothing": the page then reads as it does for someone who collects.
  */
-function useCollects(fallback: boolean): boolean {
+export function collectsFrom(summary: { data?: Pick<CollectionSummary, "copies" | "proxies">; isError: boolean }, fallback: boolean): boolean {
+  if (summary.data) return summary.data.copies + (summary.data.proxies ?? 0) > 0;
+  return summary.isError || fallback;
+}
+
+/** `collects` as above, and `known`: the summary itself has answered, so "no collection" is a fact and not a guess. */
+function useCollects(fallback: boolean): { collects: boolean; known: boolean } {
   const summary = useQuery({ queryKey: ["collection-summary"], queryFn: ({ signal }) => api<CollectionSummary>("/api/collection/summary", { signal }) });
-  return summary.data ? summary.data.copies + (summary.data.proxies ?? 0) > 0 : fallback;
+  return { collects: collectsFrom(summary, fallback), known: !!summary.data };
 }
 
 /** How many decks it takes before search, filters and sorting earn their room above the tiles. */
@@ -134,7 +141,7 @@ export function DecksPage() {
   const mains = useMemo(() => groups.map((g) => g.main), [groups]);
   const folders = useMemo(() => foldersOf(mains), [mains]);
   const shown = useMemo(() => arrangeDecks(groups, filter), [groups, filter]);
-  const collects = useCollects(!!decks.data?.some((d) => (d.owned ?? 0) + (d.proxies ?? 0) > 0));
+  const { collects } = useCollects(!!decks.data?.some((d) => (d.owned ?? 0) + (d.proxies ?? 0) > 0));
   if (precon) return <Navigate to={`/decks/import?precon=${encodeURIComponent(precon)}`} replace />;
   // Once shown the tools stay, so clearing a search doesn't take the box away mid-typing. A short
   // list is all on screen already: the tools wait until there are enough decks to need them.
@@ -275,9 +282,11 @@ export function DeckPage() {
   const tab = (["stats", "plan", "history"] as const).find((t) => pathname.endsWith(`/${t}`)) ?? "cards";
   const tabHref = (t: string) => `/decks/${id}${t === "cards" ? "" : `/${t}`}${search.size ? `?${search}` : ""}`;
   const offer = search.get("collect") === "1";
-  const [collecting, setCollecting] = useState(offer);
+  // "offer": the page opened it by itself (?collect=1). "asked": the person pressed Add to
+  // collection, which opens the whole sheet even while the offer's one line is on screen.
+  const [collecting, setCollecting] = useState<"offer" | "asked" | null>(offer ? "offer" : null);
   const closeCollect = () => {
-    setCollecting(false);
+    setCollecting(null);
     if (offer) setSearch((cur) => {
       const next = new URLSearchParams(cur);
       next.delete("collect");
@@ -288,13 +297,13 @@ export function DeckPage() {
   const variants = usePlaygroupVariants(deck.data?.id ?? id ?? "");
   const analysis = useDeckAnalysis(deck.data?.id ?? "", deck.data?.version_id ?? null);
   const measures = analysis.data?.current?.power_bracket ?? null;
-  const collects = useCollects(!!deck.data && deck.data.ownership.owned + (deck.data.ownership.proxies ?? 0) > 0);
+  const { collects, known: collectsKnown } = useCollects(!!deck.data && deck.data.ownership.owned + (deck.data.ownership.proxies ?? 0) > 0);
   // Another configuration: close any sheet opened on the one just left, so nothing saves to it.
   const shownId = useRef(id);
   useEffect(() => {
     if (shownId.current === id) return;
     shownId.current = id;
-    setCollecting(false);
+    setCollecting(null);
     setEditing(false);
     setGoldfish(false);
     setExporting(false);
@@ -324,7 +333,8 @@ export function DeckPage() {
 
   const status = deckStatus(d, collects);
   // An account with no collection, on its own deck's list in the box: one line offers to start one.
-  const offerCollection = !collects && v.ok && d.acquisition_status !== "planned" && !d.parent_id && o.cards > 0;
+  // Only once the summary says so: while it loads, or if it failed, nobody is told they own nothing.
+  const offerCollection = collectsKnown && !collects && v.ok && d.acquisition_status !== "planned" && !d.parent_id && o.cards > 0;
   // Play it at a lower bracket: the plan's swap bags, previewed from the List picker (?at=3).
   // Only a plan in force's bags are instructions for the box (as on Print swap cards).
   const planInForce = !!plan && ["in_progress", "done"].includes(plan.view.planOf(plan.deck).state);
@@ -350,7 +360,7 @@ export function DeckPage() {
     <Button onClick={() => setExporting(true)}>Copy or export</Button>
     <MythicSendButton className="" onClick={() => setMythic(true)} />
     <MenuSeparator />
-    <Button onClick={() => setCollecting(true)}>Add to collection</Button>
+    <Button onClick={() => setCollecting("asked")}>Add to collection</Button>
     <Button onClick={() => setEditing(true)}>Deck settings</Button>
     <Button onClick={() => setDescribing(true)}>{d.description ? "Edit the description" : "Add a description"}</Button>
     {askOffered && <AskClaudeButton onClick={() => setAsking(true)} />}
@@ -413,7 +423,7 @@ export function DeckPage() {
         <SavedListBar deck={d} />
         {offerCollection && (
           <p className="deck-collect-offer">
-            Own these cards? <Button variant="quiet" onClick={() => setCollecting(true)}>Add them to your collection</Button>
+            Own these cards? <Button variant="quiet" onClick={() => setCollecting("asked")}>Add them to your collection</Button>
           </p>
         )}
         {!v.ok && v.errors.length > 1 && <ul className="small deck-errors">{v.errors.map((e) => <li key={e}>{e}</li>)}</ul>}
@@ -428,7 +438,8 @@ export function DeckPage() {
         {sharing && <ShareDeck deck={d} onClose={() => setSharing(false)} />}
         {mythic && <MythicSend deck={d} onClose={() => setMythic(false)} />}
         {configuring && <NewConfiguration deck={d} onClose={() => setConfiguring(false)} />}
-        {collecting && <CollectSheet deckId={d.id} offer={offer} onClose={closeCollect} />}
+        {/* Keyed by who opened it: asking for the sheet replaces the offer's line with the sheet itself. */}
+        {collecting && <CollectSheet key={collecting} deckId={d.id} offer={collecting === "offer"} onClose={closeCollect} />}
 
         <PageTabs
           tabs={[

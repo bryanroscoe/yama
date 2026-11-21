@@ -58,7 +58,9 @@ export function DeleteDeck({ deck, onClose }: { deck: DeckView; onClose: () => v
       // The deleted deck's page leaves the history and the cache, so Back goes to where the
       // person was before it instead of showing the deck again.
       navigate(w.after, { replace: true });
-      qc.removeQueries({ queryKey: ["deck", deck.id], exact: true });
+      // Once the deck's page has gone: removed while it is still mounted, the page would ask for
+      // the deleted deck again.
+      setTimeout(() => qc.removeQueries({ queryKey: ["deck", deck.id], exact: true }), 0);
     },
   });
   const label = withConfigurations && many ? `Delete deck and ${many === 1 ? "its other list" : `${many} lists`}` : w.action;

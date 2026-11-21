@@ -169,8 +169,11 @@ export function conditionLabel(code: string): string {
  * How many copies a row holds and what one is worth, with the price's source and date:
  * "6 copies, $0.19 each (TCGplayer market via Scryfall, Nov 20)". A proxy has no value of its
  * own, so the price is said to be the real card's; a missing price stays missing.
+ * `known` false: the price isn't known yet (the copy just changed finish, say), so only the count
+ * is said, never the old price or "no market price".
  */
-export function worthLine(item: Pick<CollectionItem, "qty" | "proxy" | "unit_price_usd" | "price_date">): string {
+export function worthLine(item: Pick<CollectionItem, "qty" | "proxy" | "unit_price_usd" | "price_date">, known = true): string {
+  if (!known) return item.proxy ? plural(item.qty, "proxy", "proxies") : plural(item.qty, "copy", "copies");
   const priced = item.unit_price_usd != null;
   const source = priceSource(item.price_date);
   if (item.proxy) return `${plural(item.qty, "proxy", "proxies")}${priced ? `. A real copy is ${usd(item.unit_price_usd)} (${source})` : ""}`;
@@ -215,6 +218,24 @@ export function changeDone(item: Pick<CollectionItem, "name" | "qty">, change: C
   const rest = item.qty - 1;
   const left = scope === "one" && rest > 0 ? ` The other ${rest === 1 ? "one is" : `${rest} are`} unchanged.` : "";
   return `${which} ${one ? "is" : "are"} now ${what.join(" and ")}.${left}`;
+}
+
+/** What a saved change did to a row: fields it set, or (from the row as it is now) what they become. */
+export type RowChange = Partial<CollectionItem> | ((cur: CollectionItem) => Partial<CollectionItem>);
+
+/**
+ * The row once a saved change has landed. It starts from the row as it is now (`cur`), not as
+ * the tap saw it: the row may have been read again in between, with another count. Null is a
+ * change to one copy split off the row, which only loses that copy. The market price belongs to
+ * the printing and finish, so a change of either that brings no price of its own leaves it
+ * unknown (`priced` false, and blank) until the row is read again.
+ */
+export function landedRow(cur: CollectionItem, change: RowChange | null): { row: CollectionItem; priced: boolean } {
+  if (!change) return { row: { ...cur, qty: cur.qty - 1 }, priced: true };
+  const set = typeof change === "function" ? change(cur) : change;
+  const row = { ...cur, ...set };
+  const priced = (row.finish === cur.finish && row.scryfall_id === cur.scryfall_id) || "unit_price_usd" in set;
+  return { row: priced ? row : { ...row, unit_price_usd: null, price_date: null }, priced };
 }
 
 /** Whether two rows hold the same kind of copy in the same place: how a row is found again after a change. */

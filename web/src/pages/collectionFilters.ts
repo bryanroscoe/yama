@@ -150,7 +150,12 @@ export function cardsAndProxies(copies: number, proxies = 0): string {
   return `${plural(real, "card")} and ${plural(proxies, "proxy", "proxies")}`;
 }
 
-/** What a search found, said under the search box: "15 cards called “sol ring”", "in Trade bulk" inside a box. */
-export function foundText(copies: number, query: string, place?: string | null): string {
-  return `${plural(copies, "card")} called “${query}”${place ? ` in ${place}` : ""}`;
+/**
+ * What a search found, said under the search box: "15 cards called “sol ring”", "in Trade bulk"
+ * inside a box. Proxies are counted apart, in the head's words ("1 card and 2 proxies called…"):
+ * a proxy isn't a card you own.
+ */
+export function foundText(found: Pick<Totals, "copies" | "proxies">, query: string, place?: string | null): string {
+  const what = found.copies > 0 ? cardsAndProxies(found.copies, found.proxies) : plural(0, "card");
+  return `${what} called “${query}”${place ? ` in ${place}` : ""}`;
 }

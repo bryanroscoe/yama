@@ -135,6 +135,7 @@ function VersionChanges({ deckId, version, base, current, onRestored }: { deckId
       void qc.invalidateQueries({ queryKey: ["deck"] });
       void qc.invalidateQueries({ queryKey: ["decks"] });
       void qc.invalidateQueries({ queryKey: ["deck-versions", deckId] });
+      void qc.invalidateQueries({ queryKey: ["deck-collect"] });
       void qc.invalidateQueries({ queryKey: ["plan"] });
       onRestored();
     },

@@ -187,7 +187,9 @@ a.upcoming-name {
   /* The text stops at its reading measure; the actions keep to the right edge, like other banners. */
   justify-content: space-between;
   gap: 0.25rem 0.75rem;
-  margin: 0.75rem var(--page-pad) 0;
+  /* Room under it on a phone, where the strip of the tab's pages (.tab-sections) comes straight
+     after with no padding of its own and its entries sat against this box's border. */
+  margin: 0.75rem var(--page-pad) 0.5rem;
   padding: 0.5rem 0.5rem 0.5rem 1rem;
   border: 1px solid var(--cal-line);
   border-radius: var(--radius);

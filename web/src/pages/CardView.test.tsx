@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 import type { Card, CardDetail, CollectionItem, Printing } from "../api";
-import { addPrinting, CardView } from "./CardView";
+import { addPrinting, CardView, onWishList } from "./CardView";
 
 const oracleId = "o-birds";
 const card: Card = {
@@ -23,8 +23,13 @@ const copy = (over: Partial<CollectionItem>): CollectionItem => ({
   image_small: null, image_normal: null, type_line: "Creature — Bird", color_identity: "G", ...over,
 } as CollectionItem);
 
-function view(printings: Printing[], readOnly = false, mine: CollectionItem[] = []) {
+function view(printings: Printing[], readOnly = false, mine: CollectionItem[] = [], wants?: { kind: "card" | "sealed"; name: string }[]) {
   const qc = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
+  if (wants) {
+    qc.setQueryData(["me"], { id: "u1", email: "a@example.com", display_name: "A", power: false });
+    qc.setQueryData(["plan-cache", "u1"], null);
+    qc.setQueryData(["plan", "u1"], { shopping_wants: wants });
+  }
   qc.setQueryData<CardDetail>(["card", oracleId], { card, printings, rulings: [] });
   qc.setQueryData(["collection", "card", oracleId], mine);
   qc.setQueryData(["card-in-decks", oracleId], { decks: [], combos: [], more_combos: 0 });
@@ -84,6 +89,24 @@ describe("a card's printings", () => {
     const html = view([out, printing({ scryfall_id: "p-cmm", set_name: "Commander Masters", collector_number: "455" })]);
     expect(html).toContain("Add to collection adds Ravnica Remastered #133, not filed. Pick another printing below.");
     expect(html).toContain(">Add to wish list</button>");
+  });
+
+  it("says a card is on the wish list already instead of offering to add it again", () => {
+    const html = view([printing({ scryfall_id: "p-rvr" })], false, [], [{ kind: "card", name: "birds of paradise" }]);
+    expect(html).toMatch(/<a [^>]*href="\/collection\/wishlist"[^>]*>On your wish list<\/a>/);
+    expect(html).not.toContain("Add to wish list");
+    // Not on it: the button, once the list has been read.
+    const off = view([printing({ scryfall_id: "p-rvr" })], false, [], [{ kind: "card", name: "Sol Ring" }]);
+    expect(off).toMatch(/<button[^>]*>Add to wish list<\/button>/);
+    expect(off).not.toMatch(/<button[^>]*disabled[^>]*>Add to wish list/);
+    expect(off).not.toContain("On your wish list");
+    // Whichever deck the row is for; a sealed product of the same name isn't the card; a
+    // two-faced card listed by its front face is.
+    const wants = [{ kind: "card" as const, name: " Sol Ring ", deck_id: "d1" }, { kind: "sealed" as const, name: "Birds of Paradise" }, { kind: "card" as const, name: "Fire" }];
+    expect(onWishList(wants, "sol ring")?.deck_id).toBe("d1");
+    expect(onWishList(wants, "Birds of Paradise")).toBeUndefined();
+    expect(onWishList(wants, "Fire // Ice")?.name).toBe("Fire");
+    expect(onWishList([], "Sol Ring")).toBeUndefined();
   });
 
   it("counts proxies apart from the cards you own", () => {

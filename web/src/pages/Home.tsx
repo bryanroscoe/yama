@@ -43,12 +43,8 @@ export function HomePage() {
   // at Home (table/resume.ts). Coming Home later shows Home, with the game on top.
   const straight = isOpening() && !!game && !!state && !state.finished && resumesOnOpen(game, Date.now());
   useEffect(opened, []);
-  // Arriving from "Delete my account" (auth.tsx): the signed-out Home says that it happened,
-  // once. Read and cleared here, whoever is signed in, so it is never said on a later visit.
-  const [deleted] = useState(accountJustDeleted);
-  useEffect(accountDeletedSaid, []);
   if (straight) return <Navigate to="/table/play" replace />;
-  return me.data ? <SignedInHome userId={me.data.id} /> : <SignedOutHome deleted={deleted} />;
+  return me.data ? <SignedInHome userId={me.data.id} /> : <SignedOutHome />;
 }
 
 /**
@@ -77,8 +73,15 @@ function useGoing(): boolean {
   return !!game && !!state && !state.finished;
 }
 
-function SignedOutHome({ deleted }: { deleted: boolean }) {
+function SignedOutHome() {
   const going = useGoing();
+  // Arriving from "Delete my account" (auth.tsx): this page says that it happened, once. The mark
+  // is read and cleared here, where the line shows: Home going straight to a game in progress
+  // (HomePage) used to clear it unsaid, and the line now waits for the way back from the game.
+  const [deleted] = useState(accountJustDeleted);
+  useEffect(() => {
+    if (deleted) accountDeletedSaid();
+  }, [deleted]);
   return (
     <main className="page home-page">
       {deleted && <p className="home-status" role="status">Your account and everything in it were deleted.</p>}
@@ -112,6 +115,9 @@ function SignedOutHome({ deleted }: { deleted: boolean }) {
 
 function SignedInHome({ userId }: { userId: string }) {
   const { game } = useTable();
+  // Someone has signed in since an account was deleted in this tab: the line that says so was
+  // for whoever deleted it, and must not greet this account's sign-out.
+  useEffect(accountDeletedSaid, []);
   const going = useGoing();
   const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
   const games = useQuery({ queryKey: ["games"], queryFn: ({ signal }) => api<GameRow[]>("/api/games", { signal }) });

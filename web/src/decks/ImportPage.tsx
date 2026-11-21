@@ -103,7 +103,7 @@ function ImportEditor() {
   // The handle typed for a first public deck, kept here for the same reason.
   const [handle, setHandle] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
-  const { text, preview, drafts, draft, setDraft, rememberFix, rememberCommanders, active, setActive, check, notice } = list;
+  const { text, preview, drafts, draft, setDraft, rememberName, rememberFix, rememberCommanders, active, setActive, check, notice } = list;
   const deckNames = decks.data?.map((d) => d.name) ?? [];
   // A list the person brought, a fix to its reading or a typed note: leaving asks first (unsaved.tsx).
   const guard = useUnsavedChanges(list.unsaved || !!note.trim());
@@ -191,6 +191,7 @@ function ImportEditor() {
             <DraftView
               draft={draft}
               setDraft={setDraft}
+              onName={rememberName}
               onFix={rememberFix}
               onCommanders={rememberCommanders}
               formatLabel={preview?.format_label ?? null}
@@ -223,6 +224,8 @@ function ImportEditor() {
             void qc.invalidateQueries({ queryKey: ["sharing"] });
             void qc.invalidateQueries({ queryKey: ["decks"] });
             void qc.invalidateQueries({ queryKey: ["deck", id] });
+            // What the deck's box is short of was worked out for the list it had before.
+            void qc.invalidateQueries({ queryKey: ["deck-collect"] });
             // The deck page then offers to add the cards to the collection (CollectSheet): the
             // sheet for a new deck, one quiet line for a new version of a deck that has a box.
             guard.allow();
@@ -268,6 +271,7 @@ function Batch({ drafts, active, setActive }: { drafts: Draft[]; active: number;
 function DraftView({
   draft,
   setDraft,
+  onName,
   onFix,
   onCommanders,
   formatLabel,
@@ -277,6 +281,8 @@ function DraftView({
 }: {
   draft: Draft;
   setDraft: (d: Draft) => void;
+  /** Told the name as it is typed, so it stays the person's when the list is read again. */
+  onName: (name: string) => void;
   /** Told each answer to a line that matched no card, and each pick of commander, so they survive the list being read again. */
   onFix: (written: string, pick: ImportCardInfo | null) => void;
   onCommanders: (oracleIds: string[]) => void;
@@ -322,7 +328,15 @@ function DraftView({
       </div>
 
       <Field label="Name">
-        <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="Atraxa superfriends" maxLength={120} />
+        <input
+          value={draft.name}
+          onChange={(e) => {
+            onName(e.target.value);
+            setDraft({ ...draft, name: e.target.value });
+          }}
+          placeholder="Atraxa superfriends"
+          maxLength={120}
+        />
       </Field>
       {draft.name.trim() && hasDeckNamed(deckNames, draft.name) && (
         <p className="small import-warn" role="note">

@@ -182,6 +182,13 @@ describe("Home after deleting an account", () => {
     const html = home({ me: null });
     expect(html).toMatch(/<p class="home-status" role="status">Your account and everything in it were deleted\.<\/p>/);
     expect(html.indexOf("home-status")).toBeLessThan(html.indexOf("<h1>"));
+    // Only there: not to an account signed in since, and Home going straight to a game in
+    // progress leaves it to be said on the way back.
+    expect(home()).not.toContain("were deleted");
+    Object.assign(table, going, { opening: true });
+    expect(home({ me: null })).toBe("<p>Goes to /table/play</p>");
+    expect(kept.get("yama.account.deleted")).toBe("1");
+    Object.assign(table, { game: null, state: null, opening: false });
     kept.clear();
     expect(home({ me: null })).not.toContain("were deleted");
   });

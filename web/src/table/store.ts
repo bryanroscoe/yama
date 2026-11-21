@@ -29,13 +29,14 @@ export interface LocalGame {
   setup: TableSetup;
   log: LoggedEvent[];
   /** Undone events, newest last, for redo. Cleared by any new event. */
-  redo: LoggedEvent[];
+  redo: Undone[];
   /**
-   * How many events at the end of the log take back ones the server already has, in this run of
-   * Undo. Each stands opposite the event it takes back, so the next Undo reaches the event before
-   * them all. Any new event ends the run.
+   * Events Undo took back by recording their opposite, because they could no longer be dropped:
+   * `by` is the seq of the opposite event and `of` the seq of the one it cancels. Both stay in
+   * the log for good and Undo steps over both, so it never undoes its own undo. A pair goes only
+   * when its `by` event is dropped again (Redo before it was sent).
    */
-  takenBack?: number;
+  cancelled?: { by: number; of: number }[];
   /** Highest seq the server has. */
   syncedThrough: number;
   /**
@@ -55,6 +56,12 @@ export interface LocalGame {
    */
   owner?: string;
 }
+
+/**
+ * An undone event waiting for Redo. `by` is the seq of the event that took it back; missing when
+ * it was simply dropped from the log.
+ */
+export type Undone = LoggedEvent & { by?: number };
 
 const CURRENT = "yama.table.current";
 /**
@@ -461,9 +468,45 @@ export function startGame(setup: TableSetup) {
 
 const fixedThrough = (g: LocalGame) => Math.max(g.syncedThrough, g.frozenThrough ?? 0);
 
+/**
+ * The table as people see it, to tell whether an event changed anything: a counter at 0 reads the
+ * same as one never touched.
+ */
+function tableKey(s: TableState): string {
+  const kept = (m: Partial<Record<string, number>>) => Object.entries(m).filter(([, v]) => v).sort(([a], [b]) => (a < b ? -1 : 1));
+  return JSON.stringify({ ...s, setup: null, players: s.players.map((p) => ({ ...p, commanderDamage: kept(p.commanderDamage), counters: kept(p.counters) })) });
+}
+
+/** A tap on minus at 0, the monarch picked again: the event leaves the table exactly as it was. */
+function changesNothing(before: TableState, event: TableEvent): boolean {
+  const after = apply(before, event);
+  return after === before || tableKey(after) === tableKey(before);
+}
+
+/**
+ * Events that say something the table's totals don't hold (that first was rolled for, what a
+ * seat or player was before): they're logged even when the table looks the same after them.
+ */
+const SAYS_MORE = new Set<TableEvent["type"]>(["set_first", "seat", "player", "finish"]);
+
+/** The pairs whose two events are both still in the log: a seq freed by a drop may be used again. */
+function pairsIn(pairs: LocalGame["cancelled"], log: LoggedEvent[]): LocalGame["cancelled"] {
+  if (!pairs?.length) return undefined;
+  const seqs = new Set(log.map((l) => l.seq));
+  const kept = pairs.filter((c) => seqs.has(c.by) && seqs.has(c.of));
+  return kept.length ? kept : undefined;
+}
+
 export function dispatch(event: TableEvent) {
   if (!current || !mayEditCurrent()) return;
-  setCurrent({ ...current, log: record(current.log, event, new Date(), fixedThrough(current)), redo: [], takenBack: undefined });
+  // Nothing to log, and nothing for Undo to find later.
+  if (!SAYS_MORE.has(event.type) && changesNothing(replay(current.setup, current.log), event)) return;
+  const last = current.log[current.log.length - 1];
+  // A take-back stays the one event it is: a tap right after it starts a new event rather than
+  // merging into it, so Undo can tell the two apart (and the tap can't cancel it out of the log).
+  const tookBack = !!last && !!current.cancelled?.some((c) => c.by === last.seq);
+  const log = record(current.log, event, new Date(), tookBack ? last.seq : fixedThrough(current));
+  setCurrent({ ...current, log, redo: [], cancelled: pairsIn(current.cancelled, log) });
 }
 
 /**
@@ -511,20 +554,41 @@ export function inverseOf(before: TableState, event: TableEvent): TableEvent | n
   }
 }
 
+type UndoStep =
+  /** Not sent yet: the log is cut back to just before it (index `at`). */
+  | { drop: LoggedEvent; at: number }
+  | { of: LoggedEvent; inverse: TableEvent }
+  /** `saved`: the server has it; otherwise it is only held for an upload that hasn't landed. */
+  | { stuck: TableEvent["type"]; saved: boolean };
+
+/** Undo's next step for the game as it is now: asked several times a render, worked out once. */
+let stepFor: { game: LocalGame; step: UndoStep | null } | null = null;
+
 /**
- * What Undo does next. An event the server doesn't have yet is simply dropped. One it has is
+ * What Undo does next: it acts on the newest event that still stands. Walking back from the end,
+ * it steps over every event Undo has already taken back and the event that took it back (the
+ * `cancelled` pairs), and over events that changed nothing (there is nothing to undo in them).
+ * An event the server doesn't have yet is simply dropped. One it has, or that is on its way, is
  * history, so it is taken back by recording its opposite as a new event, the way a tap on + takes
  * back a tap on −: nothing already sent changes. `stuck` names an event nothing can take back.
  */
-function undoStep(g: LocalGame): { drop: LoggedEvent } | { of: LoggedEvent; inverse: TableEvent } | { stuck: TableEvent["type"] } | null {
-  const run = g.takenBack ?? 0;
-  // Past this run's take-backs and the events they stand opposite.
-  const at = g.log.length - 1 - 2 * run;
-  const target = g.log[at];
-  if (!target) return null;
-  if (run === 0 && target.seq > fixedThrough(g)) return { drop: target };
-  const inverse = inverseOf(replay(g.setup, g.log.slice(0, at)), target.event);
-  return inverse ? { of: target, inverse } : { stuck: target.event.type };
+function undoStep(g: LocalGame): UndoStep | null {
+  if (stepFor?.game === g) return stepFor.step;
+  const paired = new Set((g.cancelled ?? []).flatMap((c) => [c.by, c.of]));
+  let step: UndoStep | null = null;
+  for (let at = g.log.length - 1; at >= 0 && !step; at--) {
+    const target = g.log[at]!;
+    if (paired.has(target.seq)) continue;
+    const before = replay(g.setup, g.log.slice(0, at));
+    if (changesNothing(before, target.event)) continue;
+    if (target.seq > fixedThrough(g)) step = { drop: target, at };
+    else {
+      const inverse = inverseOf(before, target.event);
+      step = inverse ? { of: target, inverse } : { stuck: target.event.type, saved: target.seq <= g.syncedThrough };
+    }
+  }
+  stepFor = { game: g, step };
+  return step;
 }
 
 export function canUndo() {
@@ -547,7 +611,11 @@ export function undoStuck(): string | null {
   if (!current || !mayEditCurrent()) return null;
   const step = undoStep(current);
   if (!step || !("stuck" in step)) return null;
-  return `Undo stops here: ${STUCK[step.stuck] ?? "the last change"} can't be undone once it's saved to Yama.`;
+  const what = STUCK[step.stuck] ?? "the last change";
+  // Held for an upload that hasn't landed (no signal, say): Yama doesn't have it, so don't say it does.
+  return step.saved
+    ? `Undo stops here: ${what} can't be undone once it's saved to Yama.`
+    : `Undo stops here: ${what} is already on its way to Yama, so it can't be undone.`;
 }
 
 export function undo() {
@@ -555,7 +623,10 @@ export function undo() {
   const step = undoStep(current);
   if (!step || "stuck" in step) return;
   if ("drop" in step) {
-    setCurrent({ ...current, log: current.log.slice(0, -1), redo: [...current.redo, step.drop] });
+    // Anything after it changed nothing and hasn't been sent either: it goes too, or it could
+    // start to mean something once the event before it is gone.
+    const log = current.log.slice(0, step.at);
+    setCurrent({ ...current, log, redo: [...current.redo, step.drop], cancelled: pairsIn(current.cancelled, log) });
     return;
   }
   // Appended as it is, never merged into the event before it: each take-back stays one event.
@@ -563,8 +634,8 @@ export function undo() {
   setCurrent({
     ...current,
     log: [...current.log, { seq, at: new Date().toISOString(), event: step.inverse }],
-    redo: [...current.redo, step.of],
-    takenBack: (current.takenBack ?? 0) + 1,
+    redo: [...current.redo, { ...step.of, by: seq }],
+    cancelled: [...(current.cancelled ?? []), { by: seq, of: step.of.seq }],
   });
 }
 
@@ -574,18 +645,22 @@ export function canRedo() {
 
 export function redo() {
   if (!current || !canRedo()) return;
-  const next = current.redo[current.redo.length - 1]!;
+  const { by, ...next } = current.redo[current.redo.length - 1]!;
+  const rest = current.redo.slice(0, -1);
   const last = current.log[current.log.length - 1];
-  const run = current.takenBack ?? 0;
-  // Taken back by an event that hasn't been sent yet: dropping that event brings it back.
-  if (run > 0 && last && last.seq > fixedThrough(current)) {
-    setCurrent({ ...current, log: current.log.slice(0, -1), redo: current.redo.slice(0, -1), takenBack: run - 1 || undefined });
+  // Taken back by an event that hasn't been sent yet: dropping that event brings it back, and
+  // the pair goes with it.
+  if (by !== undefined && last?.seq === by && by > fixedThrough(current) && current.cancelled?.some((c) => c.by === by && c.of === next.seq)) {
+    const log = current.log.slice(0, -1);
+    setCurrent({ ...current, log, redo: rest, cancelled: pairsIn(current.cancelled, log) });
     return;
   }
-  // Recorded again as a new event, never dated before the one it follows. Whatever is still
-  // undone stays in the redo list, and comes back the same way.
+  // Recorded again as a new event, never dated before the one it follows. If a sent take-back
+  // stands against the first recording, that pair stays as it is (both remain history Undo steps
+  // over) and this new event is the one a later Undo reaches. Whatever is still undone stays in
+  // the redo list, and comes back the same way.
   const at = last && Date.parse(next.at) < Date.parse(last.at) ? new Date().toISOString() : next.at;
-  setCurrent({ ...current, log: [...current.log, { ...next, at, seq: (last?.seq ?? 0) + 1 }], redo: current.redo.slice(0, -1), takenBack: undefined });
+  setCurrent({ ...current, log: [...current.log, { seq: (last?.seq ?? 0) + 1, at, event: next.event }], redo: rest });
 }
 
 /**
@@ -606,7 +681,8 @@ export function finishGame(winnerSeat: number | null, details: FinishDetails = {
   log = record(log, { type: "finish", winnerSeat, endedAt: now.toISOString(), ...(winCondition ? { winCondition } : {}), ...(fun ? { fun } : {}), ...(note ? { note } : {}) }, now, Infinity);
   // A finished game uploads whole: drop the in-flight mark so nothing is held back. One counted
   // without an account waits on this phone instead.
-  const saved = saveFinished({ ...current, log, frozenThrough: undefined });
+  // Nothing is undone in a finished game: its record keeps no pairs.
+  const saved = saveFinished({ ...current, log, cancelled: undefined, frozenThrough: undefined });
   if (current.guest) guestGames = [...guestGames, saved];
   else outbox = [...outbox, saved];
   for (const l of endListeners) l(saved);
@@ -619,7 +695,8 @@ export function finishGame(winnerSeat: number | null, details: FinishDetails = {
 /**
  * Carry on, on this device, with a game this account started elsewhere (the phone died, or the
  * laptop takes over). Everything the server has is history: Undo can only take it back with a
- * new event (undoStep).
+ * new event (undoStep). It starts with nothing marked as taken back: which events cancel which
+ * is known only on the device that undid them.
  */
 export function resumeGame(setup: TableSetup, log: LoggedEvent[]) {
   const through = log[log.length - 1]?.seq ?? 0;

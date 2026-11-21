@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 import type { DeckSummary } from "../api";
-import { cardCount, DecksPage, heroTitleSize, tileStatus } from "./Decks";
+import { cardCount, collectsFrom, DecksPage, heroTitleSize, tileStatus } from "./Decks";
 
 vi.mock("../plan/store", () => ({ usePlan: () => ({ bundle: null }) }));
 vi.mock("../plan/outbox", () => ({ outbox: { localOps: () => [] }, useOutbox: () => ({}) }));
@@ -156,5 +156,23 @@ describe("what a deck's tile says first", () => {
     expect(heroTitleSize("Riders of Rohan")).toBe("");
     expect(heroTitleSize("Riders of Rohan, competitive combat (proposed)")).toBe(" is-long");
     expect(heroTitleSize("x".repeat(111))).toBe(" is-longer");
+  });
+});
+
+describe("whether the account keeps a collection", () => {
+  const owns = (copies: number, proxies = 0) => ({ data: { copies, proxies }, isError: false });
+  it("is the collection summary's answer once it has one, whatever the decks say", () => {
+    expect(collectsFrom(owns(0), true)).toBe(false);
+    expect(collectsFrom(owns(3), false)).toBe(true);
+    expect(collectsFrom(owns(0, 2), false)).toBe(true);
+  });
+  it("is what the decks on screen say while the summary loads", () => {
+    expect(collectsFrom({ isError: false }, true)).toBe(true);
+    expect(collectsFrom({ isError: false }, false)).toBe(false);
+  });
+  it("is never 'owns nothing' because the summary failed to load", () => {
+    expect(collectsFrom({ isError: true }, false)).toBe(true);
+    // A refresh that failed keeps the answer it had.
+    expect(collectsFrom({ ...owns(0), isError: true }, true)).toBe(false);
   });
 });

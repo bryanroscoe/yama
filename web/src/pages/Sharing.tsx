@@ -205,12 +205,14 @@ export function SharingPage() {
   const me = useMe().data;
   const enabled = !!me && !me.viewing;
   const { hash } = useLocation();
-  useEffect(() => {
-    if (enabled && hash === "#sharing") document.getElementById("sharing-settings-title")?.scrollIntoView();
-  }, [enabled, hash]);
   const sharing = useQuery({ queryKey: ["sharing", me?.id], queryFn: () => api<Sharing>("/api/me/sharing"), enabled });
   const decks = useQuery({ queryKey: ["decks", me?.id], queryFn: () => api<DeckSummary[]>("/api/decks"), enabled });
   const notes = useQuery({ queryKey: ["research", me?.id, "list"], queryFn: reports, enabled });
+  // Once the lists above the settings have drawn: scrolled to sooner, they pushed the section away.
+  const drawn = !sharing.isPending && !decks.isPending && !notes.isPending;
+  useEffect(() => {
+    if (enabled && drawn && hash === "#sharing") document.getElementById("sharing-settings-title")?.scrollIntoView();
+  }, [enabled, drawn, hash]);
   const [copied, copy] = useCopy();
   // A disabled query may still have cached data. Never render it outside the current account.
   if (!enabled) return <main className="page"><AreaHead title="Sharing settings" index /><p>Open Sharing settings from your own account to manage public pages and links.</p></main>;

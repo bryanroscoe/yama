@@ -57,6 +57,9 @@ export function SharingSettings() {
     mutationFn: (visibility: Visibility) => api<Sharing>("/api/me/sharing/decks", { method: "POST", json: { visibility } }),
     onSuccess: done,
   });
+  // One save at a time across the whole form: each answer replaces all the cached settings, so
+  // two under way at once (the handle and a switch) could leave one showing the other's old value.
+  const saving = save.isPending || saveHandle.isPending || all.isPending;
   const s = sharing.data;
   if (!s) return <ErrorText error={sharing.error} retry={() => void sharing.refetch()} />;
   // Why what's typed can't be a handle, said as it's typed: Save used to send it and the server's
@@ -82,7 +85,7 @@ export function SharingSettings() {
         className="share-handle"
         onSubmit={(e) => {
           e.preventDefault();
-          if (!problem) saveHandle.mutate(handle.trim() || null);
+          if (!problem && !saving) saveHandle.mutate(handle.trim() || null);
         }}
       >
         <label>
@@ -90,7 +93,7 @@ export function SharingSettings() {
           <span className="hint">3–30 letters, digits, - or _. Your profile is at /u/handle.</span>
           <span className="row">
             <input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="yourname" maxLength={31} autoCapitalize="none" spellCheck={false} aria-invalid={problem ? true : undefined} aria-describedby={problem ? problemId : undefined} />
-            <Button type="submit" disabled={saveHandle.isPending || !!problem || handle.trim().replace(/^@/, "").toLowerCase() === (s.handle ?? "")}>{saveHandle.isPending ? "Saving…" : "Save"}</Button>
+            <Button type="submit" disabled={saving || !!problem || handle.trim().replace(/^@/, "").toLowerCase() === (s.handle ?? "")}>{saveHandle.isPending ? "Saving…" : "Save"}</Button>
           </span>
           {problem && <span className="field-error" id={problemId} role="alert">{problem}</span>}
         </label>
@@ -113,7 +116,7 @@ export function SharingSettings() {
       {asking && s.public_listed_at === null && <PublicDefaultDialog sharing={s} onClose={() => setAsking(false)} />}
 
       <Field label="New decks start as">
-        <select value={s.new_deck_visibility} onChange={(e) => save.mutate({ new_deck_visibility: e.target.value })} disabled={save.isPending}>
+        <select value={s.new_deck_visibility} onChange={(e) => save.mutate({ new_deck_visibility: e.target.value })} disabled={saving}>
           {VISIBILITY_CHOICES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
         </select>
       </Field>
@@ -130,7 +133,7 @@ export function SharingSettings() {
       <div className="row">
         <Button
           variant="outline"
-          disabled={all.isPending || total === 0 || s.decks.public === total}
+          disabled={saving || total === 0 || s.decks.public === total}
           onClick={() =>
             shareAll(
               "public",
@@ -146,7 +149,7 @@ export function SharingSettings() {
             looked indented by its own padding. */}
         <Button
           variant="outline"
-          disabled={all.isPending || total === 0 || s.decks.private === total}
+          disabled={saving || total === 0 || s.decks.private === total}
           onClick={() => shareAll("private", `Make all ${total} decks private?`, "Every link you've sent stops working until you share again.", "Make them private")}
         >
           Make all private
@@ -154,7 +157,7 @@ export function SharingSettings() {
       </div>
 
       <label className="share-collection-toggle">
-        <input type="checkbox" checked={s.collection_public} disabled={save.isPending} onChange={(e) => save.mutate({ collection_public: e.target.checked })} />
+        <input type="checkbox" checked={s.collection_public} disabled={saving} onChange={(e) => save.mutate({ collection_public: e.target.checked })} />
         Show my collection on my profile
         <span className="hint">
           Card names, printings, finishes, conditions and counts of real cards. Not proxies, where they're filed, notes or prices. Your shared decks
@@ -163,7 +166,7 @@ export function SharingSettings() {
         </span>
       </label>
       <label className="share-collection-toggle">
-        <input type="checkbox" checked={s.wants_public} disabled={save.isPending} onChange={(e) => save.mutate({ wants_public: e.target.checked })} />
+        <input type="checkbox" checked={s.wants_public} disabled={saving} onChange={(e) => save.mutate({ wants_public: e.target.checked })} />
         Show my wish list on my profile
         <span className="hint">
           Missing real cards for your decks and their plans, plus your wish list. Card names, quantities and market prices;
@@ -172,7 +175,7 @@ export function SharingSettings() {
         </span>
       </label>
       <label className="share-collection-toggle">
-        <input type="checkbox" checked={s.share_lab_results} disabled={save.isPending} onChange={(e) => save.mutate({ share_lab_results: e.target.checked })} />
+        <input type="checkbox" checked={s.share_lab_results} disabled={saving} onChange={(e) => save.mutate({ share_lab_results: e.target.checked })} />
         Show simulated win rates on shared decks
         <span className="hint">
           From your upgrade plan's newest lab run: the win rates of a shared deck's list and its public configurations, with their intervals. Not your plan's changes or other lists.

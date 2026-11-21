@@ -68,6 +68,18 @@ export function savedFromState(state: unknown): { gameId: string; winner: string
   return { gameId: saved.gameId, winner: typeof saved.winner === "string" && saved.winner.trim() ? saved.winner.trim() : null };
 }
 
+/**
+ * What can be said of the game just saved. `waiting`: still to upload, so it has no page yet.
+ * `refused`: Yama wouldn't take it, so "Saved" would be wrong and its link dead; the "couldn't be
+ * saved" line speaks for it. The upload runs once the game is saved, so it is usually refused
+ * after this page has opened: this is asked again as the lists change.
+ */
+export function savedStanding(gameId: string, guest: boolean, waiting: string[], refused: string[]): "device" | "waiting" | "refused" | "page" {
+  if (guest) return "device";
+  if (refused.includes(gameId)) return "refused";
+  return waiting.includes(gameId) ? "waiting" : "page";
+}
+
 export function TableHome() {
   const { game, state } = useTable();
   const hosting = useHosting();
@@ -91,7 +103,8 @@ export function TableHome() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   // A game with no account stays on this device, and one still waiting to upload has no page yet.
-  const savedHasPage = !!saved && !guest && !outbox.some((o) => o.setup.id === saved.gameId);
+  const savedIs = saved && savedStanding(saved.gameId, guest, outbox.map((o) => o.setup.id), rejected.map((r) => r.game.setup.id));
+  const savedHasPage = savedIs === "page";
   // The life counter's code, ready before anyone presses Start.
   useEffect(() => {
     const idle = window.requestIdleCallback ?? ((fn: () => void) => window.setTimeout(fn, 1500));
@@ -125,7 +138,7 @@ export function TableHome() {
     <main className="page table-home">
       {!guest && <SaveGuestGames />}
       <SharedTables localGameId={game?.setup.id} />
-      {saved && (
+      {saved && savedIs !== "refused" && (
         <p className="saved-line" role="status">
           {saved.winner ? `Saved: ${wonText(saved.winner)}.` : "Saved the game."}
           {savedHasPage && <> <Link to={`/table/games/${saved.gameId}`}>{saved.winner ? "See the game." : "See it."}</Link></>}

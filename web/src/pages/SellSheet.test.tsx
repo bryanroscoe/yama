@@ -60,8 +60,14 @@ it("checks etched copies at Mothership independently of Card Kingdom's export re
 
 it("offers a store's buylist check only to an account that has that store, under one heading", () => {
   const without = html([item()]);
-  expect(without).not.toContain("Mothership");
+  // No store: nothing offers to ask it, but checks saved on the account before can still be read.
+  expect(without).not.toMatch(/Check \d+ cards? with/);
+  expect(without).not.toContain("Buylist offers from");
   expect(without).not.toContain("buylist offers");
+  expect(without).not.toContain("One request to the store");
+  expect(without).toContain("<summary>Saved buylist checks</summary>");
+  expect(without).toContain("Nothing is asked of the store here.");
+  expect(without).toMatch(/<button[^>]*>Saved checks<\/button>/);
   const withStore = html([item()], mothership);
   expect(withStore.split("Buylist offers from Mothership Books and Games (Austin, TX)")).toHaveLength(3); // the fold's label and the section's name
   expect(withStore).not.toContain("Local buylist offers");

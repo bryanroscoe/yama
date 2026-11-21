@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { nextDeck, playRequest, playsPrecon, recentDecks, rememberedSeats, seatWho, startingSeats, withPrecons, type SeatPlan } from "./setup";
+import { describe, expect, it, vi } from "vitest";
+import { forgetJoinCode, joinDeck, keepJoinCode, keptJoinCode, nextDeck, playRequest, playsPrecon, recentDecks, rememberedSeats, seatWho, startingSeats, withPrecons, type SeatPlan } from "./setup";
 
 const me: SeatPlan = { kind: "me", deckId: "", difficulty: "Medium" };
 const friend: SeatPlan = { kind: "friend", deckId: "", difficulty: "Medium" };
@@ -102,6 +102,65 @@ describe("the seats a new game opens with", () => {
     expect(seats.map((s) => s.deckId)).toEqual(["cats", "", "bats", "bats-stock"]);
     expect(seats.map((s) => s.difficulty)).toEqual(["Medium", "Medium", "Easy", "Hard"]);
     expect(seats[3]).toMatchObject({ source: "precon", preconId: "counterpunch" });
+  });
+
+  it("a precon a seat had only for want of decks isn't brought back once you have one", () => {
+    const precons = ["a", "b", "c"];
+    // A new account: every seat is given a precon. They pick one for themselves and one for the
+    // computer in seat 2 (a choice of opponent), and what they set is what's kept.
+    const set: SeatPlan[] = [
+      { kind: "me", deckId: "", difficulty: "Medium", preconId: "b" },
+      { kind: "ai", deckId: "", difficulty: "Medium", source: "precon", preconId: "c" },
+      { kind: "ai", deckId: "", difficulty: "Hard" },
+    ];
+    const kept = rememberedSeats(JSON.stringify(set));
+    expect(kept).toEqual(set);
+    // Still no decks: the precons they picked stay, and the untouched seat gets one as before.
+    expect(withPrecons(startingSeats([], kept), precons, true).map((s) => s.preconId)).toEqual(["b", "c", "b"]);
+    // A deck added since: they play it, and so does the computer nobody chose a precon for.
+    const later = withPrecons(startingSeats(decks, kept), precons, false);
+    expect(later.map(playsPrecon)).toEqual([false, true, false]);
+    expect(later.map((s) => (playsPrecon(s) ? s.preconId : s.deckId))).toEqual(["bats", "c", "aura"]);
+    // What a forced table used to keep (every seat marked as a precon) is what must not be saved:
+    // it would sit you on a precon for good.
+    expect(withPrecons(startingSeats(decks, rememberedSeats(JSON.stringify(withPrecons(set, precons, true)))), precons, false).every(playsPrecon)).toBe(true);
+  });
+
+  it("joins on the deck picked, else the last one played, else the newest, as the list is now", () => {
+    const last: SeatPlan = { kind: "me", deckId: "cats", difficulty: "Medium" };
+    expect(joinDeck(decks, null, undefined)).toBe("bats");
+    expect(joinDeck(decks, null, last)).toBe("cats");
+    expect(joinDeck(decks, "aura", last)).toBe("aura");
+    // Last time was a precon, or a deck since deleted: the newest.
+    expect(joinDeck(decks, null, { ...last, source: "precon", preconId: "a" })).toBe("bats");
+    expect(joinDeck(decks, "deleted", { ...last, deckId: "gone" })).toBe("bats");
+    // The list hasn't arrived (or is still the cached empty one), then does.
+    expect(joinDeck([], null, last)).toBe("");
+    expect(joinDeck([decks[2]!], null, undefined)).toBe("cats");
+  });
+
+  it("keeps a table code per account, until it is forgotten", () => {
+    const kept = new Map<string, string>();
+    vi.stubGlobal("sessionStorage", {
+      getItem: (k: string) => kept.get(k) ?? null,
+      setItem: (k: string, v: string) => void kept.set(k, v),
+      removeItem: (k: string) => void kept.delete(k),
+    });
+    try {
+      keepJoinCode("u1", "ABCD");
+      expect(keptJoinCode("u1")).toBe("ABCD");
+      // Another account on the same tab wasn't the one invited; nobody signed in keeps nothing.
+      expect(keptJoinCode("u2")).toBe("");
+      keepJoinCode(undefined, "WXYZ");
+      expect(keptJoinCode(undefined)).toBe("");
+      expect(kept.size).toBe(1);
+      forgetJoinCode("u2");
+      expect(keptJoinCode("u1")).toBe("ABCD");
+      forgetJoinCode("u1");
+      expect(keptJoinCode("u1")).toBe("");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("trusts nothing odd in what was kept", () => {

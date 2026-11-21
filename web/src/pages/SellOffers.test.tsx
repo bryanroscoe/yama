@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { it, expect } from "vitest";
 import type { PlanBundle, Store } from "@yama/core/plan";
-import { buylistName, buylistStore, OfferSummary, SellOffers } from "./SellOffers";
+import { BUYLIST_SHOP, buylistName, buylistStore, OfferSummary, SellOffers } from "./SellOffers";
 
 const store = (over: Partial<Store> = {}): Store => ({
   key: "mothership", name: "Mothership Books and Games", short: "Mothership", kind: "local", cart_url_template: null, homepage: "https://mothershipatx.com", location: null, note: null,
@@ -17,6 +17,15 @@ it("offers an explicit local lookup with saved checks and no sale submission", (
   // The sheet's fold is the heading: it isn't printed again inside.
   expect(html).not.toContain("<h3");
   expect(html).toContain('aria-label="Buylist offers from Mothership Books and Games (Austin, TX)"');
+});
+
+it("without the store, only reads checks the account saved before", () => {
+  const html = renderToStaticMarkup(<SellOffers store={BUYLIST_SHOP} check={false} cards={[]} qty={(c) => c.qty} onChoose={() => undefined} />);
+  expect(html).not.toContain("<button");
+  expect(html).not.toContain("Open Mothership");
+  expect(html).not.toContain("One request to the store");
+  expect(html).toContain("What Mothership Books and Games (Austin, TX) offered when you checked its buylist before, kept on your account. Nothing is asked of the store here. Tick a card to see its saved checks.");
+  expect(html).toContain('aria-label="Saved buylist checks from Mothership Books and Games (Austin, TX)"');
 });
 
 it("is for an account that has the store among its own, and hasn't ruled it out", () => {

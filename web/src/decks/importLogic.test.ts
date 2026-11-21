@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyFixes, checks, commanderChoices, diff, draftFrom, dropUnknown, fixKey, fixUnknown, noFixes, printLine, setCommanders, sharedText, toSave, type ImportCard, type ImportCardInfo, type PreviewDeck } from "./importLogic";
+import { applyFixes, checks, commanderChoices, commanders, diff, draftFrom, dropUnknown, fixKey, fixUnknown, namedCommanders, noFixes, pickStands, printLine, setCommanders, sharedText, toSave, type ImportCard, type ImportCardInfo, type PreviewDeck } from "./importLogic";
 
 const info = (oracle_id: string, name: string, color_identity = "", extra: Partial<ImportCardInfo> = {}): ImportCardInfo => ({
   oracle_id,
@@ -178,13 +178,48 @@ describe("fixes kept while the list is read again", () => {
   });
 
   it("picks the commanders again when they are still in the list, and keeps a typed name", () => {
-    const fixes = { ...noFixes(), commanders: ["o-krenko"], name: "Goblins" };
+    // Picked while the list's own commander line matched no card: it named none that could lead.
+    const fixes = { ...noFixes(), commanders: ["o-krenko"], pickedOver: [], name: "Goblins" };
     const d = applyFixes(read(), fixes);
     expect(d.cards.find((c) => c.oracle_id === "o-krenko")!.board).toBe("commander");
     expect(d.name).toBe("Goblins");
     // A pick that names a card no longer in the list is let go.
-    const gone = applyFixes(read(), { ...noFixes(), commanders: ["o-atraxa"] });
+    const gone = applyFixes(read(), { ...noFixes(), commanders: ["o-atraxa"], pickedOver: [] });
     expect(gone.cards.every((c) => c.board !== "commander")).toBe(true);
+  });
+
+  it("keeps a commander picked over the list's own while the list still names that one", () => {
+    // "Commander / 1 Atraxa" with Krenko in the deck; the person picked Krenko instead.
+    const list = () => draftFrom(deck([card(atraxa, 1, "commander"), card(krenko), card(sol)], { commander_marked: true }));
+    const fixes = { ...noFixes(), commanders: ["o-krenko"], pickedOver: namedCommanders(list(), noFixes()) };
+    expect(fixes.pickedOver).toEqual(["o-atraxa"]);
+    expect(pickStands(list(), fixes)).toBe(true);
+    expect(commanders(applyFixes(list(), fixes)).map((c) => c.name)).toEqual(["Krenko, Mob Boss"]);
+    // The person then writes the pick under the heading themselves: nothing to undo.
+    const written = draftFrom(deck([card(krenko, 1, "commander"), card(atraxa), card(sol)], { commander_marked: true }));
+    expect(pickStands(written, fixes)).toBe(true);
+  });
+
+  it("lets a picked commander go once the person writes a different one under the heading", () => {
+    const thrasios = info("o-thrasios", "Thrasios, Triton Hero", "GU", { can_be_commander: true, type_line: "Legendary Creature" });
+    // Picked Krenko over the list's Atraxa; then typed Thrasios under Commander, both others in the deck.
+    const fixes = { ...noFixes(), commanders: ["o-krenko"], pickedOver: ["o-atraxa"] };
+    const retyped = draftFrom(deck([card(thrasios, 1, "commander"), card(atraxa), card(krenko)], { commander_marked: true }));
+    expect(pickStands(retyped, fixes)).toBe(false);
+    expect(commanders(applyFixes(retyped, fixes)).map((c) => c.name)).toEqual(["Thrasios, Triton Hero"]);
+    // Picked when the list named no commander (Yama guessed): a heading added since is the answer.
+    const guessed = { ...noFixes(), commanders: ["o-krenko"] };
+    expect(pickStands(draftFrom(deck([card(atraxa, 1, "commander"), card(krenko)], { commander_guessed: true })), guessed)).toBe(true);
+    expect(pickStands(draftFrom(deck([card(atraxa, 1, "commander"), card(krenko)], { commander_marked: true })), guessed)).toBe(false);
+  });
+
+  it("counts a fixed commander line as one the list names", () => {
+    const fixes = noFixes();
+    expect(namedCommanders(read(), fixes)).toEqual([]);
+    fixes.lines.set(fixKey("Atraxa, Praetor's Voice"), atraxa);
+    expect(namedCommanders(read(), fixes)).toEqual(["o-atraxa"]);
+    // A list with no heading names none.
+    expect(namedCommanders(draftFrom(deck([card(atraxa, 1, "commander")], { commander_guessed: true })), fixes)).toBeNull();
   });
 
   it("a fixed commander or a picked one names a deck that has no name, and leaves a name alone", () => {

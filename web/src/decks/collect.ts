@@ -184,6 +184,16 @@ export function offerTitle(p: Pick<CollectPreview, "missing">): string {
   return p.missing === 1 ? "Add this card to your collection?" : `Add these ${p.missing} cards to your collection?`;
 }
 
+/**
+ * Whether the sheet on screen is asking anything: it has an answer, and some choice in it adds or
+ * moves a card. Closing a sheet that is still checking, failed, or has nothing to add declines
+ * nothing, so it isn't remembered as "Not now".
+ */
+export function offerMade(p: Pick<CollectPreview, "added" | "moved" | "options"> | null | undefined): boolean {
+  if (!p) return false;
+  return [p, ...Object.values(p.options ?? {})].some((o) => o.added + o.moved > 0);
+}
+
 type Store = Pick<Storage, "getItem" | "setItem">;
 
 /** The decks whose offer was answered "Not now" on this device. */

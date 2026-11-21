@@ -161,6 +161,68 @@ describe("a hand-typed list", () => {
     ]);
   });
 
+  it("counts an x2 only straight after the name, before any set code or mark", () => {
+    expect(parseDeckList("Forest x12\nForest x2 (FDN) 280 *F*\nSol Ring (C21) x2\nIsland *F* x2\nOpt x3 #draw\n2 Negate x4")).toEqual([
+      { qty: 12, name: "Forest", board: "main" },
+      { qty: 2, name: "Forest", board: "main" },
+      // After a set code or a foil mark it is no count: one copy.
+      { qty: 1, name: "Sol Ring", board: "main" },
+      { qty: 1, name: "Island", board: "main" },
+      { qty: 3, name: "Opt", board: "main" },
+      // A line that leads with its count keeps its whole name.
+      { qty: 2, name: "Negate x4", board: "main" },
+    ]);
+  });
+
+  /** The lines that differ between two texts, as [before, after] pairs by position. */
+  const changed = (before: string, after: string) => {
+    const a = before.split("\n");
+    const b = after.split("\n");
+    return a.length === b.length ? a.flatMap((line, i) => (line === b[i] ? [] : [[line, b[i]]])) : "another number of lines";
+  };
+
+  it("changes a count where it was read, so an edit is never one the list doesn't show", () => {
+    const list = "Forest x2 (FDN) 280 *F*\nSol Ring (C21) x2\nIsland *F* x2\n  Opt x3  ";
+    for (const [name, was, line] of [
+      ["Forest", 2, "Forest x3 (FDN) 280 *F*"],
+      // The x2 after the set code or the mark was never the count: the line gets one, and keeps the rest.
+      ["Sol Ring", 1, "2 Sol Ring (C21) x2"],
+      ["Island", 1, "2 Island *F* x2"],
+      ["Opt", 3, "  Opt x4  "],
+    ] as const) {
+      expect(countInList(list, name)).toBe(was);
+      const more = addToList(list, name);
+      expect(changed(list, more)).toEqual([[list.split("\n").find((l) => l.includes(name)), line]]);
+      expect(countInList(more, name)).toBe(was + 1);
+      expect(countInList(removeFromList(more, name), name)).toBe(was);
+    }
+    expect(removeFromList(list, "Forest")).toContain("Forest x1 (FDN) 280 *F*");
+    // The last copy takes its line with it.
+    expect(removeFromList(list, "Sol Ring")).toBe("Forest x2 (FDN) 280 *F*\nIsland *F* x2\n  Opt x3  ");
+  });
+
+  it("lets a list that names its main deck say where the commanders end", () => {
+    const boards = (text: string) => parseDeckList(text).map((l) => `${l.board}: ${l.name}`);
+    // Two partners with a blank line between them, then the deck under its heading: both lead.
+    const partners = "Commander\n1 Thrasios, Triton Hero\n\n1 Tymna the Weaver\n\nDeck\n1 Sol Ring";
+    expect(boards(partners)).toEqual(["commander: Thrasios, Triton Hero", "commander: Tymna the Weaver", "main: Sol Ring"]);
+    for (const heading of ["Main", "Mainboard:", "// Maindeck", "Deck (98)"]) {
+      expect(boards(partners.replace("Deck", heading))).toEqual(["commander: Thrasios, Triton Hero", "commander: Tymna the Weaver", "main: Sol Ring"]);
+    }
+    // No such heading further down: the blank line is all that ends the section. A group of
+    // the deck (Lands) or a sideboard doesn't name where the deck starts.
+    expect(boards("Commander\n1 Meren of Clan Nel Toth\n\n1 Sol Ring\n\nLands\n1 Forest\n\nSideboard\n1 Negate")).toEqual(["commander: Meren of Clan Nel Toth", "main: Sol Ring", "main: Forest", "side: Negate"]);
+    // A Deck heading above the commander says nothing about what follows it.
+    expect(boards("Deck\n1 Sol Ring\n\nCommander\n1 Meren of Clan Nel Toth\n\n1 Forest")).toEqual(["main: Sol Ring", "commander: Meren of Clan Nel Toth", "main: Forest"]);
+
+    // The search's edits change one line of such a list, on the board they mean.
+    expect(addToList(partners, "Forest")).toBe(`${partners}\n1 Forest`);
+    expect(addToList(partners, "Sol Ring")).toBe(partners.replace("1 Sol Ring", "2 Sol Ring"));
+    expect(addToList(partners, "Kraum, Ludevic's Opus", "commander")).toBe(partners.replace("1 Tymna the Weaver", "1 Tymna the Weaver\n1 Kraum, Ludevic's Opus"));
+    expect(removeFromList(partners, "Tymna the Weaver")).toBe("Commander\n1 Thrasios, Triton Hero\n\n\nDeck\n1 Sol Ring");
+    expect(countInList(partners, "Tymna the Weaver", "commander")).toBe(1);
+  });
+
   it("edits such a list where the cards are", () => {
     const list = "Commander\n1 Meren of Clan Nel Toth\n\n1 Sol Ring\nForest x2";
     expect(addToList(list, "Forest")).toBe("Commander\n1 Meren of Clan Nel Toth\n\n1 Sol Ring\nForest x3");

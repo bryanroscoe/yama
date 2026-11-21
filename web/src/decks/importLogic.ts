@@ -153,16 +153,22 @@ export function setCommanders(draft: Draft, oracleIds: string[]): Draft {
 export interface Fixes {
   lines: Map<string, ImportCardInfo | null>;
   commanders: string[] | null;
+  /**
+   * The commanders the list itself named when `commanders` were picked over them (null: it named
+   * none, Yama guessed). While the list still names those, the pick stands; once it names others,
+   * the person has written a new answer and the pick is forgotten (`pickStands`).
+   */
+  pickedOver?: string[] | null;
   name: string | null;
 }
 
-export const noFixes = (): Fixes => ({ lines: new Map(), commanders: null, name: null });
+export const noFixes = (): Fixes => ({ lines: new Map(), commanders: null, pickedOver: null, name: null });
 
 /** How a written name is looked up among the fixes: as typed, whatever its case. */
 export const fixKey = (written: string) => written.trim().toLowerCase();
 
-/** A new reading with the person's earlier fixes made again, wherever they still apply. */
-export function applyFixes(draft: Draft, fixes: Fixes): Draft {
+/** A reading with the answers to its unmatched lines made again. */
+function withLineFixes(draft: Draft, fixes: Fixes): Draft {
   let out = draft;
   // From the end, so taking a line out doesn't move the ones still to check.
   for (let i = draft.unknown.length - 1; i >= 0; i--) {
@@ -171,8 +177,39 @@ export function applyFixes(draft: Draft, fixes: Fixes): Draft {
     const pick = fixes.lines.get(key);
     out = pick ? fixUnknown(out, i, pick) : dropUnknown(out, i);
   }
+  return out;
+}
+
+/**
+ * The commanders a reading names itself (a Commander heading, a site's commander mark), with the
+ * answers to its unmatched lines made; null when it names none and any commander is a guess.
+ * `reading` is the list as read, before a commander pick is made on it.
+ */
+export function namedCommanders(reading: Draft, fixes: Fixes): string[] | null {
+  if (!reading.commanderMarked) return null;
+  return commanders(withLineFixes(reading, fixes)).map((c) => c.oracle_id);
+}
+
+const sameCards = (a: string[], b: string[]) => a.length === b.length && a.every((id) => b.includes(id));
+
+/**
+ * Whether the remembered commander pick still speaks for a new reading. It does while the list
+ * names no commander, names the picked ones, or names the ones it named when the pick was made
+ * (the pick was made over them). A list that now names different commanders was changed by hand
+ * since: what the person wrote wins.
+ */
+export function pickStands(reading: Draft, fixes: Fixes): boolean {
   const picked = fixes.commanders;
-  if (picked?.length && picked.every((id) => out.cards.some((c) => c.oracle_id === id && !c.maybe))) out = setCommanders(out, picked);
+  if (!picked?.length) return false;
+  const named = namedCommanders(reading, fixes);
+  return named === null || sameCards(named, picked) || (!!fixes.pickedOver && sameCards(named, fixes.pickedOver));
+}
+
+/** A new reading with the person's earlier fixes made again, wherever they still apply. */
+export function applyFixes(draft: Draft, fixes: Fixes): Draft {
+  let out = withLineFixes(draft, fixes);
+  const picked = fixes.commanders;
+  if (picked && pickStands(draft, fixes) && picked.every((id) => out.cards.some((c) => c.oracle_id === id && !c.maybe))) out = setCommanders(out, picked);
   if (fixes.name !== null) out = { ...out, name: fixes.name };
   return out;
 }

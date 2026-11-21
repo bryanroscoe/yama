@@ -8,7 +8,7 @@ import { useLocation } from "react-router";
 import { api } from "../api";
 import { Button, Details, Dialog, ErrorText, Loading } from "../components/ui";
 import { isViewing } from "../viewingFlag";
-import { boxText, buttonText, collectAfter, declineOffer, forgetDeclined, groups, offerDeclined, offerLine, offerTitle, outcomeText, printingText, resultText, SAME_CHOICES, summary, type CollectPreview, type SamePrinting } from "./collect";
+import { boxText, buttonText, collectAfter, declineOffer, forgetDeclined, groups, offerDeclined, offerLine, offerMade, offerTitle, outcomeText, printingText, resultText, SAME_CHOICES, summary, type CollectPreview, type SamePrinting } from "./collect";
 import "./collect.css";
 
 const previewPath = (deckId: string, same: SamePrinting, proxies: string[] | null) =>
@@ -48,9 +48,14 @@ function OfferLine({ deckId, onOpen, onNotNow, onNothing }: { deckId: string; on
     queryKey: ["deck-collect", deckId, "move", null],
     queryFn: ({ signal }) => api<CollectPreview>(previewPath(deckId, "move", null), { signal }),
     enabled: !viewing,
+    // The list was just saved: an answer kept from before the save is about the old list.
+    refetchOnMount: "always",
   });
-  const text = preview.data ? offerLine(preview.data) : null;
-  const nothing = viewing || preview.isError || (!!preview.data && !text);
+  // Only an answer that came after the save speaks for the new list: an older one neither shows
+  // the line nor closes it for good.
+  const fresh = preview.isFetchedAfterMount;
+  const text = fresh && !preview.isError && preview.data ? offerLine(preview.data) : null;
+  const nothing = viewing || (fresh && !text);
   useEffect(() => {
     if (nothing) onNothing();
     // onNothing is the page's close: it is new on every render.
@@ -91,8 +96,10 @@ function Sheet({ deckId, offer, onClose, onNotNow }: { deckId: string; offer: bo
   const p = result ?? preview.data;
   const title = offer && p && !result ? offerTitle(p) : "Add to my collection";
   const g = p ? groups(p) : null;
-  // Closing an offer without adding is "Not now" too; after adding there is nothing to decline.
-  const close = result ? onClose : onNotNow;
+  // Closing an offer without adding is "Not now" too. After adding there is nothing to decline,
+  // and a sheet that never got as far as asking (still checking, failed, nothing to add) was
+  // only closed.
+  const close = !result && offerMade(preview.data) ? onNotNow : onClose;
   const isProxy = (line: { oracle_id: string; proxy: boolean }) => (proxies === null ? line.proxy : proxies.includes(line.oracle_id));
 
   return (

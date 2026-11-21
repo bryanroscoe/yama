@@ -4,7 +4,7 @@ import { useMutation } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { api } from "../api";
 import { guideFor } from "./guides";
-import { applyFixes, fixKey, noFixes, type Draft, type ImportCardInfo, type ImportPreview, type PreviewDeck } from "./importLogic";
+import { applyFixes, fixKey, namedCommanders, noFixes, pickStands, type Draft, type ImportCardInfo, type ImportPreview, type PreviewDeck } from "./importLogic";
 
 /** The most one file may weigh (a deck list is a few KB; a big CSV export about 1 MB). */
 export const MAX_FILE = 2 << 20;
@@ -15,34 +15,44 @@ export interface Source {
   fileName?: string;
 }
 
+/** Whether a paste over this selection leaves nothing of the box's text: all of it is selected (blank lines around it aside). */
+export function selectsWholeText(box: { value: string; selectionStart?: number | null; selectionEnd?: number | null }): boolean {
+  const { selectionStart: from, selectionEnd: to } = box;
+  if (from == null || to == null || to <= from) return false;
+  return !box.value.slice(0, from).trim() && !box.value.slice(to).trim();
+}
+
 /**
  * The box's typing and paste handlers. A paste never replaces a list that's already there
  * (11 Nov 2026: pasting one line used to replace the whole list, past the reach of undo): Yama
  * takes the paste over only when the box is empty; otherwise the browser puts it at the caret, or
  * over the selection, with its own undo. Either way the list is checked at once instead of after
- * the typing pause.
+ * the typing pause. A paste over the whole list (select all, then paste) is still the browser's,
+ * but what arrives is another list: `startOver` is told before it is checked.
  */
 export function boxEdits(
-  on: { setUserText: (text: string) => void; runCheck: (sources: Source[]) => void },
+  on: { setUserText: (text: string) => void; runCheck: (sources: Source[]) => void; startOver?: () => void },
   later: (fn: () => void) => void = (fn) => void setTimeout(fn, 0),
 ) {
-  /** Set between a paste the browser is handling and the change it makes. */
-  let pasting = false;
+  /** Set between a paste the browser is handling and the change it makes: "whole" when it replaces everything in the box. */
+  let pasting: false | "part" | "whole" = false;
   return {
     onChange: (e: { target: { value: string } }) => {
       const next = e.target.value;
-      on.setUserText(next);
-      if (!pasting) return;
+      const pasted = pasting;
       pasting = false;
-      if (next.trim()) on.runCheck([{ text: next }]);
+      on.setUserText(next);
+      if (!pasted || !next.trim()) return;
+      if (pasted === "whole") on.startOver?.();
+      on.runCheck([{ text: next }]);
     },
-    onPaste: (e: { clipboardData: Pick<DataTransfer, "getData">; currentTarget: { value: string }; preventDefault: () => void }) => {
+    onPaste: (e: { clipboardData: Pick<DataTransfer, "getData">; currentTarget: { value: string; selectionStart?: number | null; selectionEnd?: number | null }; preventDefault: () => void }) => {
       const t = e.clipboardData.getData("text/plain");
       if (!t) return;
       if (e.currentTarget.value.trim()) {
         // The change event follows in this same task; a paste that changes nothing never sends
         // one, so the mark is dropped right after.
-        pasting = true;
+        pasting = selectsWholeText(e.currentTarget) ? "whole" : "part";
         later(() => (pasting = false));
         return;
       }
@@ -146,9 +156,16 @@ export function useListImport({
   /**
    * What the person fixed in the reading (a line that matched no card, the commander, the name).
    * Every change to the text is read afresh, so the fixes are made again on each new reading;
-   * they are forgotten when the box is emptied or a whole other list replaces it.
+   * they are forgotten when the box is emptied or a whole other list replaces it. They belong to
+   * the one deck the box holds: nothing is remembered while several decks are on screen (several
+   * files, whose text isn't in the box to be read again).
    */
   const fixes = useRef(noFixes());
+  /** The one deck in the box as last read, before any fix: what the list itself says. */
+  const reading = useRef<Draft | null>(null);
+  /** The box's text as last drawn: what it held just before the edit being handled. */
+  const shownText = useRef(text);
+  shownText.current = text;
   /**
    * Whether the list came in whole (a paste, a file, a drop, a list Yama loaded) rather than
    * being typed: the page then makes room for its reading. `arrival` counts the lists the
@@ -171,6 +188,12 @@ export function useListImport({
       setPreview(first);
       if (first?.link && !first.link.fetched) setGuideKey(guideFor(first.link.site)?.key ?? "text");
       const read = results.flatMap(({ source, preview }) => preview.decks.map((d) => draftOf.current(d, source)));
+      reading.current = read.length === 1 ? read[0]! : null;
+      // A commander picked earlier gives way to one the person has since written into the list.
+      if (reading.current && fixes.current.commanders && !pickStands(reading.current, fixes.current)) {
+        fixes.current.commanders = null;
+        fixes.current.pickedOver = null;
+      }
       // A typed name belongs to the one deck it was typed for.
       setDrafts(read.map((d) => applyFixes(d, read.length === 1 ? fixes.current : { ...fixes.current, name: null })));
       setDraftEdited(false);
@@ -199,11 +222,11 @@ export function useListImport({
     setPreview(null);
     setText(next);
     lastChecked.current = "";
-    if (!next.trim()) {
-      // An emptied box starts over: nothing fixed in the old list carries into the next.
-      fixes.current = noFixes();
-      setWhole(false);
-    }
+    // An emptied box starts over: nothing fixed in the old list carries into the next. So does a
+    // list arriving in an empty box: whatever was fixed before it (in decks read from several
+    // files, which leave the box empty) was for other lists.
+    if (!next.trim() || !shownText.current.trim()) fixes.current = noFixes();
+    if (!next.trim()) setWhole(false);
   }, []);
 
   /** A whole list is about to replace the box (Paste, a file, a loaded list): the old list's fixes go with it. */
@@ -325,25 +348,31 @@ export function useListImport({
     }
   };
 
-  /** The box's text as last drawn: what it held just before the edit being handled. */
-  const shownText = useRef(text);
-  shownText.current = text;
   /** Props for the box: typing, a paste (checked at once) and a dropped file or text. */
   const edits = useMemo(
-    () =>
-      boxEdits({
+    () => {
+      /** A whole list arrived in the box: the page makes room for its reading and shows it once. */
+      const arrived = () => {
+        setWhole(true);
+        setArrival((n) => n + 1);
+      };
+      return boxEdits({
         setUserText,
         // Only a paste checks straight from the box (typing waits for its pause). Into an empty
         // box it is a whole list arriving; into a list it is one more edit, and nothing moves.
         runCheck: (sources) => {
-          if (!shownText.current.trim()) {
-            setWhole(true);
-            setArrival((n) => n + 1);
-          }
+          if (!shownText.current.trim()) arrived();
           runCheck(sources);
         },
-      }),
-    [setUserText, runCheck],
+        // Pasted over the whole list: another list, as Paste or a file would bring. The old
+        // list's fixes go, and the new one's reading is shown as an arrival.
+        startOver: () => {
+          startOver();
+          setArrival((n) => n + 1);
+        },
+      });
+    },
+    [setUserText, runCheck, startOver],
   );
   const boxProps = { value: text, ...edits };
   const planFor = (e: DragEvent, files: boolean) => dropPlan({ files, boxHasText: !!text.trim(), overBox: e.target instanceof HTMLTextAreaElement });
@@ -378,24 +407,35 @@ export function useListImport({
   const draft = drafts[active];
   const setDraft = (d: Draft) => {
     setDraftEdited(true);
-    // A name the person typed for the one deck in the box stays theirs when the list is read again.
-    if (drafts.length === 1 && draft && d.name !== draft.name) fixes.current.name = d.name.trim() ? d.name : null;
     setDrafts((all) => all.map((x, i) => (i === active ? d : x)));
   };
+  /** Whether what the person fixes is kept for the next reading: only for the one deck the box holds. */
+  const remembers = useRef(false);
+  remembers.current = drafts.length === 1;
+  /**
+   * The name typed in the Name box, to keep when the list is read again (blank: back to the
+   * list's own name). Only what the person typed: a name Yama made from the commander follows
+   * the commander.
+   */
+  const rememberName = useCallback((name: string) => {
+    if (remembers.current) fixes.current.name = name.trim() ? name : null;
+  }, []);
   /** The card picked for a line that matched none (null: leave it out), to make again on the next reading. */
   const rememberFix = useCallback((written: string, pick: ImportCardInfo | null) => {
-    fixes.current.lines.set(fixKey(written), pick);
+    if (remembers.current) fixes.current.lines.set(fixKey(written), pick);
   }, []);
-  /** The commanders the person picked, to pick again on the next reading. */
+  /** The commanders the person picked, to pick again on the next reading, and the ones the list named that they were picked over. */
   const rememberCommanders = useCallback((oracleIds: string[]) => {
+    if (!remembers.current) return;
     fixes.current.commanders = oracleIds;
+    fixes.current.pickedOver = reading.current ? namedCommanders(reading.current, fixes.current) : null;
   }, []);
   const unsaved = unsavedList({ text, given, drafts: drafts.length, draftEdited });
   unsavedNow.current = unsaved;
 
   return {
     text, setUserText, prefill, loadList, sourceLoading,
-    preview, drafts, draft, setDraft, rememberFix, rememberCommanders, active, setActive, whole, arrival,
+    preview, drafts, draft, setDraft, rememberName, rememberFix, rememberCommanders, active, setActive, whole, arrival,
     check, runCheck, notice, setNotice, guideKey, setGuideKey, dragging,
     readFiles, pasteFromClipboard, boxProps, dropProps, unsaved,
   };

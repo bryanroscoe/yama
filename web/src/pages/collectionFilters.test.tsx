@@ -187,8 +187,12 @@ describe("the by-value order, counts and totals", () => {
   });
 
   it("says what a search found", () => {
-    expect(foundText(15, "sol ring")).toBe("15 cards called “sol ring”");
-    expect(foundText(1, "bolt", "Trade binder")).toBe("1 card called “bolt” in Trade binder");
+    expect(foundText({ copies: 15, proxies: 0 }, "sol ring")).toBe("15 cards called “sol ring”");
+    expect(foundText({ copies: 1, proxies: 0 }, "bolt", "Trade binder")).toBe("1 card called “bolt” in Trade binder");
+    // A proxy isn't a card: counted apart, as in the head.
+    expect(foundText({ copies: 3, proxies: 2 }, "cradle")).toBe("1 card and 2 proxies called “cradle”");
+    expect(foundText({ copies: 2, proxies: 2 }, "cradle")).toBe("2 proxies called “cradle”");
+    expect(foundText({ copies: 0, proxies: 0 }, "zzz")).toBe("0 cards called “zzz”");
   });
 });
 

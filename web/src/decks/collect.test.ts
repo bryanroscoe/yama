@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boxText, buttonText, collectAfter, collectState, declineOffer, forgetDeclined, groups, offerDeclined, offerLine, offerTitle, outcomeText, printingText, resultText, summary, type CollectLine, type CollectPreview } from "./collect";
+import { boxText, buttonText, collectAfter, collectState, declineOffer, forgetDeclined, groups, offerDeclined, offerLine, offerMade, offerTitle, outcomeText, printingText, resultText, summary, type CollectLine, type CollectPreview } from "./collect";
 
 function line(name: string, over: Partial<CollectLine> = {}): CollectLine {
   return {
@@ -132,6 +132,19 @@ describe("the offer the deck page makes by itself", () => {
     expect(offerTitle({ missing: 100 })).toBe("Add these 100 cards to your collection?");
     expect(offerTitle({ missing: 1 })).toBe("Add this card to your collection?");
     expect(offerTitle({ missing: 0 })).toBe("Add to my collection");
+  });
+
+  it("counts as made only once the sheet has something to add or move", () => {
+    // Still checking, or the check failed: closing declines nothing.
+    expect(offerMade(undefined)).toBe(false);
+    expect(offerMade(null)).toBe(false);
+    expect(offerMade(preview())).toBe(true);
+    // The box holds the whole list, or Yama has no printing of what's missing.
+    const none = { moved: 0, added: 0, left_out: 0 };
+    expect(offerMade(preview({ ...none, missing: 0, options: { move: none, add: none, skip: none } }))).toBe(false);
+    // "Don't add those" picked with every missing card elsewhere: the other choices still offer them.
+    const skip = { moved: 0, added: 0, left_out: 3 };
+    expect(offerMade(preview({ ...skip, same_printing: "skip", options: { move: { moved: 3, added: 0, left_out: 0 }, add: { moved: 0, added: 3, left_out: 0 }, skip } }))).toBe(true);
   });
 
   it("remembers Not now for a deck on this device, until its cards are added", () => {

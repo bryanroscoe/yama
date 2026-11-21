@@ -213,4 +213,13 @@ describe("respelling an unmatched line", () => {
   it("takes a count written after the name with the name", () => {
     expect(rewriteLine("Rampant Growth x1\n1 Forest", "Rampant Growth x1", "Rampant Growth")).toBe("Rampant Growth\n1 Forest");
   });
+
+  it("respells a line whose count follows the name, keeping the count where it is", () => {
+    // The check reads "Arcane Signt x2" as two copies of "Arcane Signt": that is the name to respell.
+    const text = "Arcane Signt x2\nArcane Signt X3 (ELD) 331 *F*\r\nArcane Signt x4 #ramp\n1 Sol Ring";
+    expect(rewriteLine(text, "Arcane Signt", "Arcane Signet")).toBe("Arcane Signet x2\nArcane Signet X3 (ELD) 331 *F*\r\nArcane Signet x4 #ramp\n1 Sol Ring");
+    // A line that leads with its count has the x2 in its name: another line, left as typed.
+    expect(rewriteLine("2 Arcane Signt x2\nArcane Signt x2 more", "Arcane Signt", "Arcane Signet")).toBe("2 Arcane Signt x2\nArcane Signt x2 more");
+    expect(rewriteLine("2 Arcane Signt x2", "Arcane Signt x2", "Arcane Signet")).toBe("2 Arcane Signet");
+  });
 });

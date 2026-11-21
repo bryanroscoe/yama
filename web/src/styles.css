@@ -798,9 +798,10 @@ a.choice-chip {
 
 .site-footer { max-width: calc(var(--content-w) + 2 * var(--page-pad)); padding: 20px var(--page-pad) 32px; margin: 0 auto; border-top: 1px solid var(--line); }
 /* About, Help, Privacy, Terms: the public pages' footer links (components/siteFrame.ts), quiet
-   words that are each a 44 px target. */
+   words that are each a 44 px target, a short one (About, Terms) across as well as down. The
+   words keep to the left of their target, so the row starts on the page's edge. */
 .site-footer nav { display: flex; flex-wrap: wrap; gap: 0 24px; margin-top: -8px; }
-.site-footer nav a { display: inline-flex; align-items: center; min-height: var(--target); color: var(--dim); font-size: var(--t-sm); text-decoration: none; }
+.site-footer nav a { display: inline-flex; align-items: center; min-width: var(--target); min-height: var(--target); color: var(--dim); font-size: var(--t-sm); text-decoration: none; }
 .site-footer nav a:hover { color: var(--text); text-decoration: underline; text-underline-offset: 4px; text-decoration-thickness: 1px; }
 .site-notice { color: var(--dim); font-size: var(--t-sm); line-height: 1.5; }
 .site-notice p { margin: 12px 0 0; }

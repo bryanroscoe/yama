@@ -187,6 +187,7 @@ export function SavedListBar({ deck }: { deck: DeckView }) {
       void qc.invalidateQueries({ queryKey: ["deck"] });
       void qc.invalidateQueries({ queryKey: ["decks"] });
       void qc.invalidateQueries({ queryKey: ["deck-versions"] });
+      void qc.invalidateQueries({ queryKey: ["deck-collect"] });
       // Installed swaps are read from the main deck's list.
       void qc.invalidateQueries({ queryKey: ["plan"] });
       navigate(`/decks/${lists!.main.id}`);

@@ -64,7 +64,8 @@ export interface DeckGroup {
  * list "Deck (label)" and doesn't say which deck it belongs to, so the name decides: a list goes
  * under the deck of that name when it is here too; when it isn't (only its other lists run the
  * card), two or more names that differ only in their last parenthesis are one deck's lists. A lone
- * "Kraum & Tymna (cEDH)" stays a deck of its own.
+ * "Kraum & Tymna (cEDH)" stays a deck of its own. Two decks may share a name: each keeps its own
+ * line (a deck is its id, not its name), and lists of that name go under the first.
  */
 export function groupDecks(decks: DeckUse[]): DeckGroup[] {
   const names = new Set(decks.map((d) => d.name));
@@ -78,18 +79,26 @@ export function groupDecks(decks: DeckUse[]): DeckGroup[] {
   const parts = decks.map((d) => split(d.name));
   const guessed = new Map<string, number>();
   for (const p of parts) if (p && !p.known) guessed.set(p.base, (guessed.get(p.base) ?? 0) + 1);
-  const groups = new Map<string, DeckGroup>();
-  const group = (name: string) => {
-    let g = groups.get(name);
-    if (!g) groups.set(name, (g = { name, main: null, lists: [] }));
+  const groups: DeckGroup[] = [];
+  // The first line of each name: where that name's lists go.
+  const named = new Map<string, DeckGroup>();
+  const add = (name: string, main: DeckUse | null) => {
+    const g: DeckGroup = { name, main, lists: [] };
+    groups.push(g);
+    if (!named.has(name)) named.set(name, g);
     return g;
   };
   decks.forEach((d, i) => {
     const p = parts[i];
-    if (p && (p.known || guessed.get(p.base)! > 1)) group(p.base).lists.push({ label: p.label, use: d });
-    else group(d.name).main = d;
+    if (p && (p.known || guessed.get(p.base)! > 1)) (named.get(p.base) ?? add(p.base, null)).lists.push({ label: p.label, use: d });
+    else {
+      // A line a list of this name started is waiting for its deck; any other deck is its own line.
+      const waiting = named.get(d.name);
+      if (waiting && !waiting.main) waiting.main = d;
+      else add(d.name, d);
+    }
   });
-  return [...groups.values()];
+  return groups;
 }
 
 /** Decks listed before "Show all": a staple is in every deck, and the price and printings sit below. */

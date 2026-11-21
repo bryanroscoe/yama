@@ -4,7 +4,7 @@ import { api, ApiError, placeName, type CollectionItem, type Container, type Pri
 import { CardRef } from "../components/CardRef";
 import { Button, CardImage, Dialog, ErrorText, Field, Loading, Segmented } from "../components/ui";
 import type { ScanCandidate } from "../scanner";
-import { changeDone, changeOps, CONDITION_CODES, conditionLabel, conditionWord, finishChoices, finishFor, finishWord, languageChoices, markDone, markOps, markWords, opIds, printingLabel, reprintOps, sameCopy, worthLine, type CopyChange, type Mark, type Op, type Scope } from "./collectionEdit";
+import { changeDone, changeOps, CONDITION_CODES, conditionLabel, conditionWord, finishChoices, finishFor, finishWord, landedRow, languageChoices, markDone, markOps, markWords, opIds, printingLabel, reprintOps, sameCopy, worthLine, type CopyChange, type Mark, type Op, type RowChange, type Scope } from "./collectionEdit";
 // The scan choices and their notes, shown here outside the scanner too.
 import "../scanner/scanner.css";
 import { plural, shortDate, treatmentLabel, usd } from "@yama/core";
@@ -30,6 +30,8 @@ export function CollectionItemSheet({ item: opened, containers, onClose }: { ite
   const [item, setItem] = useState(opened);
   /** What the last change did, said in the sheet. */
   const [said, setSaid] = useState<string | null>(null);
+  /** Whether the row's market price is known: not from a change of finish until the row is read again. */
+  const [priced, setPriced] = useState(true);
   const reads = useRef(0);
   // The newest row, for a save that lands after the row was read again meanwhile.
   const latest = useRef(item);
@@ -74,34 +76,50 @@ export function CollectionItemSheet({ item: opened, containers, onClose }: { ite
       if (want.name) q.set("q", want.name);
       const rows = await api<CollectionItem[]>(`/api/collection?${q}`);
       const row = rows.find((r) => sameCopy(r, want));
-      if (row && alive.current && mine === reads.current) setItem(row);
+      if (row && alive.current && mine === reads.current) {
+        setItem(row);
+        setPriced(true);
+      }
     } catch {
       // The sheet keeps what it worked out itself.
     }
   };
-  /** A saved change: the row as it is now (null: the change was to copies split off it), and what to say. */
-  const landed = (now: Partial<CollectionItem> | null, done: string) => {
+  /**
+   * A saved change: what it did to the row (null: it was to a copy split off it) and what to say.
+   * Both are worked out here, from the newest row, not at the tap: the row may have been read
+   * again while the save was out (a merge gives it another count).
+   */
+  const landed = (now: RowChange | null, done: string | ((before: CollectionItem, after: CollectionItem) => string)) => {
     if (!alive.current) return;
-    const next = now ? { ...latest.current, ...now } : { ...latest.current, qty: latest.current.qty - 1 };
+    const before = latest.current;
+    const { row: next, priced: known } = landedRow(before, now);
+    // The row turned out to hold fewer than the tap saw, and this took the last: it is gone.
+    if (next.qty <= 0) return onClose(`${name} is no longer in ${where(before)}.`);
     setItem(next);
-    setSaid(done);
+    if (!known) setPriced(false);
+    setSaid(typeof done === "string" ? done : done(before, next));
     void reread(next);
   };
-  const save = (ops: Op[], now: Partial<CollectionItem> | null, done: string) => send.mutate(ops, { onSuccess: () => landed(now, done) });
+  const save = (ops: Op[], now: RowChange | null, done: Parameters<typeof landed>[1]) => send.mutate(ops, { onSuccess: () => landed(now, done) });
   /** Whether a change is for one copy split off the row (the row itself then only loses a copy). */
   const splits = (s: Scope) => s === "one" && item.qty > 1;
   const change = (c: CopyChange) => {
     const place = c.container_id ? placeLabel(c.container_id, containers) : null;
-    // A row moved to another place is shown as that place's from now on.
-    const moved = c.container_id !== undefined ? { container_name: containers.find((x) => x.id === c.container_id)?.name ?? null, container_kind: containers.find((x) => x.id === c.container_id)?.kind ?? null } : {};
-    save(changeOps(item, c, scope, () => ids.idFor(`update:${JSON.stringify(c)}:${scope}`)), splits(scope) ? null : { ...c, ...moved }, changeDone(item, c, scope, place));
+    // A row moved to another place is shown as that place's from now on, a deck's swappable
+    // box included (or no longer).
+    const to = c.container_id !== undefined ? containers.find((x) => x.id === c.container_id) : undefined;
+    const moved = c.container_id !== undefined ? { container_name: to?.name ?? null, container_kind: to?.kind ?? null, spares_of_deck_id: to?.spares_of_deck_id ?? null, spares_of_deck: to?.spares_of_deck ?? null } : {};
+    // What the op that was sent does (one copy split off, or the whole row), said of the row as it is when it lands.
+    const split = splits(scope);
+    save(changeOps(item, c, scope, () => ids.idFor(`update:${JSON.stringify(c)}:${scope}`)), split ? null : { ...c, ...moved }, (before) => changeDone(before, c, split ? "one" : "all", place));
   };
   const adjust = (delta: number) => {
     const op: Op = { op_id: ids.idFor(`adjust:${delta}`), kind: "adjust", item_id: item.id, delta };
     const left = item.qty + delta;
     // The last copy gone, the row is gone: the page says so.
     if (left <= 0) send.mutate([op], { onSuccess: () => alive.current && onClose(`Removed the last ${name} from ${where(item)}.`) });
-    else save([op], { qty: left }, delta > 0 ? `Added one: ${plural(left, "copy", "copies")} now.` : `Removed one: ${plural(left, "copy", "copies")} left.`);
+    // The count is the newest row's with this one more or fewer, not the count the tap saw.
+    else save([op], (cur) => ({ qty: cur.qty + delta }), (_, after) => (delta > 0 ? `Added one: ${plural(after.qty, "copy", "copies")} now.` : `Removed one: ${plural(after.qty, "copy", "copies")} left.`));
   };
   const reprintId = (p: Printing) => () => ids.idFor(`reprint:${p.scryfall_id}:${scope}`);
   const nowIs = (p: Printing) => `${splits(scope) ? `One ${name}` : name} is now ${printingLabel(p, finishFor(item, p))}.`;
@@ -124,7 +142,8 @@ export function CollectionItemSheet({ item: opened, containers, onClose }: { ite
   const finishes = finishChoices(item.finish, printings.data?.find((p) => p.scryfall_id === item.scryfall_id)?.finishes);
   const mark = (m: Mark) => {
     const ops = markOps(item, m, markScope, () => ids.idFor(`mark:${JSON.stringify(m)}:${markScope}`));
-    if (ops.length > 0) save(ops, splits(markScope) ? null : m, markDone(item, m, markScope));
+    const split = splits(markScope);
+    if (ops.length > 0) save(ops, split ? null : m, (before) => markDone(before, m, split ? "one" : "all"));
   };
   const reprint = (p: Printing) => {
     const ops = reprintOps(item, p, scope, reprintId(p));
@@ -208,7 +227,7 @@ export function CollectionItemSheet({ item: opened, containers, onClose }: { ite
         </div>
         {/* How many and what one is worth, with the price's source and date, then which copy it is. */}
         <div className="coll-sheet-about">
-          <p>{worthLine(item)}</p>
+          <p>{worthLine(item, priced)}</p>
           <p className="dim">
             {[`${item.set_name} #${item.collector_number}`, treatmentLabel(item, item.finish), finishWord(item.finish), conditionWord(item.condition), ...markWords(item)].filter(Boolean).join(", ")}
             {item.purchase_price != null ? `. Paid ${usd(item.purchase_price)}` : ""}

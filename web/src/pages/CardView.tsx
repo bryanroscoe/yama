@@ -8,14 +8,15 @@ import { SymbolText } from "../components/ManaSymbols";
 import { Fragment, useState } from "react";
 import { Link, useLocation } from "react-router";
 import { api, placeName, type Card, type CollectionItem, type Printing } from "../api";
-import { signInPath } from "../auth";
+import { signInPath, useMe } from "../auth";
 import { cardDetailQuery } from "../cardDetail";
 import { isGuest } from "../guest";
 import { PriceHistory } from "../components/PriceHistory";
 import { Rulings } from "../components/Rulings";
-import { Button, CardThumb, ErrorText, Loading, ManaCost, Pips, ShowMore, StatusPill, Tag, ZoomableCard } from "../components/ui";
+import { Button, ButtonLink, CardThumb, ErrorText, Loading, ManaCost, Pips, ShowMore, StatusPill, Tag, ZoomableCard } from "../components/ui";
 import { usePageTitle } from "../pageTitle";
 import { addWant } from "../plan/api";
+import { usePlan } from "../plan/store";
 import { CardInDecks } from "./CardInDecks";
 import { opIds, ownedFinishes } from "./collectionEdit";
 import "./cards.css";
@@ -35,6 +36,15 @@ const article = (word: string) => (/^[aeiou]/i.test(word) ? "an" : "a");
 /** A legendary creature, or a card that says it can be your commander. */
 export function canBeCommander(c: Pick<Card, "type_line" | "oracle_text">): boolean {
   return (/\bLegendary\b/.test(c.type_line) && /\bCreature\b/.test(c.type_line)) || /can be your commander/i.test(c.oracle_text);
+}
+
+/**
+ * The wish list's row for a card, whichever deck it is for: the card page adds a card once, and a
+ * card already wanted for a deck is on the list. A two-faced card may be listed by its front face.
+ */
+export function onWishList<W extends { kind: "card" | "sealed"; name: string }>(wants: W[], cardName: string): W | undefined {
+  const names = [cardName, cardName.split(" // ")[0]!].map((n) => n.trim().toLowerCase());
+  return wants.find((w) => w.kind === "card" && names.includes(w.name.trim().toLowerCase()));
 }
 
 /** Today as "2026-11-21" on this device: a release date after it is a printing that isn't out. */
@@ -125,7 +135,9 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
   const [flipped, setFlipped] = useState(false);
   // What the last add did, and which printing's row it was tapped in (none: the buttons at the
   // top), so the line shows beside that button.
-  const [added, setAdded] = useState<{ p: Printing; finish: string; proxy: boolean; row?: string; undone?: boolean } | null>(null);
+  // `undoId` is the op id of this add's Undo, made with the add: a later add of the same card has
+  // its own, so its Undo is never taken for one the server already applied.
+  const [added, setAdded] = useState<{ p: Printing; finish: string; proxy: boolean; row?: string; undone?: boolean; undoId: string } | null>(null);
   const [allPrintings, setAllPrintings] = useState(false);
   const [chart, setChart] = useState<{ id: string; finish: Finish; set: string } | null>(null);
   const qc = useQueryClient();
@@ -146,24 +158,33 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
         method: "POST",
         json: [{ op_id: ids.idFor(addKey(v)), kind: "add", scryfall_id: v.p.scryfall_id, qty: 1, finish: v.finish, proxy: !!v.proxy }],
       }),
-    onMutate: () => setAdded(null),
+    // A new add starts again: the last add's line, its Undo and anything that Undo said go.
+    onMutate: () => {
+      setAdded(null);
+      undo.reset();
+    },
     onSuccess: (_, v) => {
       ids.saved(addKey(v));
-      setAdded({ p: v.p, finish: v.finish, proxy: !!v.proxy, row: v.row });
+      setAdded({ p: v.p, finish: v.finish, proxy: !!v.proxy, row: v.row, undoId: crypto.randomUUID() });
       void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("collection") || q.queryKey[0] === "search" });
     },
   });
   // Undo takes the copy back off the row the add went to. It is an op like the add, with an id
-  // that outlives a failed send.
+  // that outlives a failed send (tapping Undo again is the same op) but not the add it undoes.
   const undo = useMutation({
-    mutationFn: (item: CollectionItem) => api("/api/collection/ops", { method: "POST", json: [{ op_id: ids.idFor(`undo:${item.id}`), kind: "adjust", item_id: item.id, delta: -1 }] }),
-    onSuccess: (_, item) => {
-      ids.saved(`undo:${item.id}`);
-      setAdded((a) => a && { ...a, undone: true });
+    mutationFn: (v: { item: CollectionItem; opId: string }) => api("/api/collection/ops", { method: "POST", json: [{ op_id: v.opId, kind: "adjust", item_id: v.item.id, delta: -1 }] }),
+    onSuccess: (_, v) => {
+      // Only the add this Undo was for: an answer that comes late says nothing about a newer add.
+      setAdded((a) => (a && a.undoId === v.opId ? { ...a, undone: true } : a));
       void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("collection") || q.queryKey[0] === "search" });
     },
   });
-  // The wish list is the plan's list of cards to buy (Collection, Wish list).
+  // The wish list is the plan's list of cards to buy (Collection, Wish list). It is read here so
+  // a card already on it says so: the list keeps one row for a card, and this page would add a
+  // second on every visit.
+  const me = useMe().data;
+  const plan = usePlan(!guest && !readOnly && me && !me.viewing ? me.id : undefined);
+  const wished = card ? onWishList(plan.bundle?.shopping_wants ?? [], card.name) : undefined;
   const wish = useMutation({
     mutationFn: (name: string) => addWant({ kind: "card", name, qty: 1, priority: "need", deck_id: null, deck_name: null, why: null }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["plan"] }),
@@ -231,7 +252,7 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
       {addedRow && (
         <>
           {" "}
-          <Button variant="quiet" size="small" className="cp-undo" disabled={undo.isPending} onClick={() => undo.mutate(addedRow)}>Undo</Button>
+          <Button variant="quiet" size="small" className="cp-undo" disabled={undo.isPending} onClick={() => undo.mutate({ item: addedRow, opId: added.undoId })}>Undo</Button>
         </>
       )}
     </>
@@ -332,9 +353,14 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
                 <Button variant="outline" onClick={() => add.mutate({ p: defaultPrinting, finish: "nonfoil", proxy: true })} disabled={add.isPending || undo.isPending}>
                   Add a proxy
                 </Button>
-                <Button variant="outline" onClick={() => wish.mutate(card.name)} disabled={wish.isPending || wish.isSuccess}>
-                  {wish.isSuccess ? "On your wish list" : "Add to wish list"}
-                </Button>
+                {wished || wish.isSuccess ? (
+                  <ButtonLink variant="outline" to="/collection/wishlist">On your wish list</ButtonLink>
+                ) : (
+                  // Not until the list has been read: a tap before then could add a second row.
+                  <Button variant="outline" onClick={() => wish.mutate(card.name)} disabled={wish.isPending || (!!me && !me.viewing && plan.pending)}>
+                    Add to wish list
+                  </Button>
+                )}
                 {/* Which printing the button files the card under, and where it goes. */}
                 <p className="cp-note cp-adds">
                   Add to collection adds {defaultPrinting.set_name} #{defaultPrinting.collector_number}
@@ -347,7 +373,7 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
             {!added?.row && <ErrorText error={undo.error} />}
             {wish.isSuccess && (
               <p className="small" role="status" style={{ margin: 0 }}>
-                Added {card.name} to your <Link to="/collection/wishlist">wish list</Link>.
+                Added {card.name} to your wish list.
               </p>
             )}
             <ErrorText error={wish.error} />

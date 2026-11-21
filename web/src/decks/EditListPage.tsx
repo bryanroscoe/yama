@@ -171,6 +171,8 @@ function EditList({ id }: { id: string }) {
       void qc.invalidateQueries({ queryKey: ["deck"] });
       void qc.invalidateQueries({ queryKey: ["decks"] });
       void qc.invalidateQueries({ queryKey: ["deck-versions"] });
+      // What the deck's box is short of was worked out for the old list.
+      void qc.invalidateQueries({ queryKey: ["deck-collect"] });
       // Back on the deck page, a deck whose box already holds cards gets one line offering the
       // cards the box is now short of (CollectSheet); the whole-deck question isn't asked again.
       guard.allow();

@@ -106,9 +106,11 @@ export function ChangesPage() {
   // The card is given the change as it was when it stopped waiting; it shows the decision itself.
   const [kept, setKept] = useState<ReadonlyMap<string, StagedChange>>(new Map());
   const keep = (change: StagedChange) => setKept((k) => new Map(k).set(change.id, change));
-  const waiting = [...(pending.data ?? []), ...[...kept.values()].filter((k) => !pending.data?.some((c) => c.id === k.id))].sort(
-    (a, b) => b.created_at.localeCompare(a.created_at),
-  );
+  // A kept change is shown as the server now has it where the list of all changes holds it: a
+  // decision that failed because the change was decided elsewhere then shows that, not live buttons.
+  const waiting = [...(pending.data ?? []), ...[...kept.values()].filter((k) => !pending.data?.some((c) => c.id === k.id))]
+    .map((c) => (kept.has(c.id) ? (all.data?.find((a) => a.id === c.id) ?? c) : c))
+    .sort((a, b) => b.created_at.localeCompare(a.created_at));
   const decided = all.data?.filter((c) => c.status !== "pending" && !kept.has(c.id)) ?? [];
   const groups = [...new Set(waiting.map((c) => c.via))];
   const noneWaiting = !!pending.data && pending.data.length === 0;

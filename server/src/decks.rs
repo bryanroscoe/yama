@@ -204,7 +204,13 @@ pub struct ParsedLine {
 /// With no Commander section, `first_is_commander` makes the first card the commander
 /// (the convention in Bryan's commander-decks lists). A blank line after the Commander section's
 /// cards ends it, so a hand-typed list with no `Deck` heading doesn't make every card a commander.
-/// A count may follow the name instead of leading it (`Sol Ring x2`).
+/// A list that names its main deck further down (`Deck`, `Main`, `Mainboard`, `Maindeck`) says
+/// itself where the commanders end: there a blank line ends nothing, and two partners with a
+/// blank line between them both lead.
+/// A count may follow the name instead of leading it (`Sol Ring x2`), straight after the name:
+/// after a set code or a marker (`Sol Ring (C21) x2`, `Forest *F* x2`) it is not a count.
+/// The web's list reader (packages/core/src/decklist.ts) and the import's
+/// (`deck_import::formats::parse_text`) follow the same two rules.
 pub fn parse_list(text: &str, first_is_commander: bool) -> Vec<ParsedLine> {
     // A count written after a card's name ("x2"), if `word` is one.
     fn trailing_count(word: &str) -> Option<i64> {
@@ -214,23 +220,32 @@ pub fn parse_list(text: &str, first_is_commander: bool) -> Vec<ParsedLine> {
         }
         digits.parse().ok()
     }
+    // The heading a line is, if it is one: its first word in lower case, without comment marks
+    // or a colon ("// Commander", "Deck (99)", "SIDEBOARD:").
+    fn heading(line: &str) -> String {
+        let header = line.trim_start_matches("//").trim_start_matches('#').trim().trim_end_matches(':').to_lowercase();
+        header.split(['(', ' ']).next().unwrap_or("").to_string()
+    }
+    // The last line that names the main deck itself (not a group of it, such as "Lands"): no
+    // blank line before it ends the Commander section.
+    let last_deck_heading =
+        text.lines().enumerate().filter(|(_, raw)| matches!(heading(raw.trim()).as_str(), "deck" | "main" | "mainboard" | "maindeck")).map(|(i, _)| i).last();
     let mut out = Vec::new();
     let mut board = Board::Main;
     let mut saw_commander_section = false;
     // Cards read under the Commander heading since it was last seen.
     let mut commander_cards = 0;
-    for raw in text.lines() {
+    for (i, raw) in text.lines().enumerate() {
         let line = raw.trim();
         if line.is_empty() {
             // The commander, a blank line, then the deck with no heading of its own.
-            if board == Board::Commander && commander_cards > 0 {
+            if board == Board::Commander && commander_cards > 0 && last_deck_heading.is_none_or(|at| at < i) {
                 board = Board::Main;
             }
             continue;
         }
-        let header = line.trim_start_matches("//").trim_start_matches('#').trim().trim_end_matches(':').to_lowercase();
-        let header = header.split(['(', ' ']).next().unwrap_or("");
-        match header {
+        let header = heading(line);
+        match header.as_str() {
             "commander" | "commanders" => {
                 board = Board::Commander;
                 saw_commander_section = true;
@@ -2293,6 +2308,30 @@ mod tests {
         );
     }
 
+    /// A list that names its main deck further down says itself where the commanders end, so a
+    /// blank line between two partners doesn't send the second one to the deck.
+    #[test]
+    fn a_deck_heading_further_down_keeps_the_commander_section_open() {
+        let boards = |text: &str| parse_list(text, true).into_iter().map(|l| (l.name, l.board)).collect::<Vec<_>>();
+        let in_deck = |name: &str| (name.to_string(), Board::Main);
+        let leads = |name: &str| (name.to_string(), Board::Commander);
+        for heading in ["Deck", "Main", "Mainboard:", "// Maindeck", "Deck (98)"] {
+            let text = format!("Commander\n1 Thrasios, Triton Hero\n\n1 Tymna the Weaver\n\n{heading}\n1 Sol Ring");
+            assert_eq!(boards(text.as_str()), vec![leads("Thrasios, Triton Hero"), leads("Tymna the Weaver"), in_deck("Sol Ring")], "{heading}");
+        }
+        // A group of the deck (Lands) or a sideboard further down doesn't say where the deck
+        // starts: the blank line still ends the section.
+        assert_eq!(
+            boards("Commander\n1 Meren of Clan Nel Toth\n\n1 Sol Ring\n\nLands\n1 Forest\n\nSideboard\n1 Negate"),
+            vec![leads("Meren of Clan Nel Toth"), in_deck("Sol Ring"), in_deck("Forest"), ("Negate".to_string(), Board::Side)]
+        );
+        // A Deck heading above the commander says nothing about what follows it.
+        assert_eq!(
+            boards("Deck\n1 Sol Ring\n\nCommander\n1 Meren of Clan Nel Toth\n\n1 Forest"),
+            vec![in_deck("Sol Ring"), leads("Meren of Clan Nel Toth"), in_deck("Forest")]
+        );
+    }
+
     #[test]
     fn a_count_may_follow_the_name() {
         let lines = parse_list("Rampant Growth x1\nForest X12\n2 Sol Ring\nMox x", false);
@@ -2302,6 +2341,13 @@ mod tests {
         assert_eq!(lines[2], ParsedLine { qty: 2, name: "Sol Ring".into(), board: Board::Main });
         // "x" alone isn't a count.
         assert_eq!(lines[3], ParsedLine { qty: 1, name: "Mox x".into(), board: Board::Main });
+        // The count sits straight after the name. Before a set code, a marker or a tag it
+        // counts; after one it doesn't, and the line is one copy.
+        let lines = parse_list("Forest x2 (FDN) 280 *F*\nSol Ring (C21) x2\nIsland *F* x2\nOpt x3 #draw", false);
+        assert_eq!(lines[0], ParsedLine { qty: 2, name: "Forest".into(), board: Board::Main });
+        assert_eq!(lines[1], ParsedLine { qty: 1, name: "Sol Ring".into(), board: Board::Main });
+        assert_eq!(lines[2], ParsedLine { qty: 1, name: "Island".into(), board: Board::Main });
+        assert_eq!(lines[3], ParsedLine { qty: 3, name: "Opt".into(), board: Board::Main });
     }
 
     /// A card Yama knows, for saves that go through the routes.

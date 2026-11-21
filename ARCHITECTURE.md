@@ -3463,17 +3463,22 @@ area ("since 21 Nov 2026"). The decisions in it that change how something works:
 
 - **Undo after sync.** The life counter's Undo used to stop at whatever the server already had.
   An event the server has is still never rewritten: Undo now records its opposite as a new event
-  (`inverseOf` in web/src/table/store.ts), so the op log stays append-only and idempotent. Events
-  with no opposite (a passed turn, who goes first, a changed player or commander, a revive) stop
-  Undo, and the menu says why. An "un-pass" event would need `packages/core` and the server.
+  (`inverseOf` in web/src/table/store.ts), so the op log stays append-only and idempotent. The
+  game remembers each take-back and the event it cancelled as a pair (`cancelled`, kept on the
+  device with the game), and Undo walks back past pairs and past events that changed nothing, so
+  an Undo is never itself undone. Events with no opposite (a passed turn, who goes first, a
+  changed player or commander) stop Undo, and the menu says why. An "un-pass" event would need
+  `packages/core` and the server. Pairs aren't sent to the server, so a game carried on from
+  another device doesn't know that device's take-backs.
 - **A playgroup's game is shared without the QR sheet.** Choosing a playgroup still shares the
   game with its members from the start; the QR code opens at start only for "Separate devices".
 - **Typical game length is a median** (`stats::typical_minutes`), under the JSON name
   `average_minutes` the page and the MCP already read.
 - **A guest name is unique in a playgroup**, ignoring case (409 from `add_guest`).
-- **List reading.** A blank line after the Commander heading's cards ends that section, and a
-  count may follow the name ("Forest x12"), in `parse_list`, the import's `parse_text` and
-  `packages/core/src/decklist.ts` alike. A rule marker still sets no floor under "plays like"
+- **List reading.** A blank line after the Commander heading's cards ends that section unless a
+  heading that names the main deck (Deck, Main, Mainboard, Maindeck) comes further down, and a
+  count may follow the name ("Forest x12") when it comes straight after it, before any set code
+  or marker, in `parse_list`, the import's `parse_text` and `packages/core/src/decklist.ts` alike. A rule marker still sets no floor under "plays like"
   (the 11 Nov decision stands); `/check` words the rule instead.
 - **The bracket filter** on Decks and Browse matches the declared bracket, or the suggested one
   when none is declared (it used to match declared only, and found nothing for most accounts).

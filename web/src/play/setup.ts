@@ -9,6 +9,7 @@ export interface SeatPlan {
   difficulty: string;
   /** Your seat or a computer's plays one of your decks or a stock precon. */
   source?: "deck" | "precon";
+  /** The precon it plays when `source` says so, or when you have no decks ([`withPrecons`]). */
   preconId?: string;
 }
 
@@ -61,8 +62,10 @@ export function rememberedSeats(raw: string | null): SeatPlan[] | null {
     const out = seats.map((s: Partial<SeatPlan> | null, i): SeatPlan | null => {
       if (!s || typeof s !== "object" || !KINDS.includes(s.kind as string) || (s.kind === "me") !== (i === 0)) return null;
       const plan: SeatPlan = { kind: s.kind!, deckId: typeof s.deckId === "string" ? s.deckId : "", difficulty: DIFFICULTIES.includes(s.difficulty as string) ? s.difficulty! : "Medium" };
-      if (s.source === "precon" && typeof s.preconId === "string" && s.preconId) return { ...plan, source: "precon", preconId: s.preconId };
-      return plan;
+      if (typeof s.preconId !== "string" || !s.preconId) return plan;
+      // A precon with no `source` was picked while there were no decks to choose instead: it is
+      // kept for as long as that lasts (withPrecons), and gives way to a deck once there is one.
+      return s.source === "precon" ? { ...plan, source: "precon", preconId: s.preconId } : { ...plan, preconId: s.preconId };
     });
     return out.every((s) => s !== null) ? (out as SeatPlan[]) : null;
   } catch {
@@ -95,6 +98,18 @@ export function startingSeats(decks: { id: string; updated_at: string; parent_id
 }
 
 /**
+ * The deck the join panel is on: the one picked there, else the one you played last time, else the
+ * one you changed most recently (not the first by name). Worked out from the list as it is now,
+ * so a deck added a moment ago is chosen as soon as the list has it.
+ */
+export function joinDeck(decks: { id: string; updated_at: string; parent_id?: string | null }[], picked: string | null, last: SeatPlan | undefined): string {
+  const mine = (id: string | null | undefined): id is string => !!id && decks.some((d) => d.id === id);
+  if (mine(picked)) return picked;
+  if (last && !playsPrecon(last) && mine(last.deckId)) return last.deckId;
+  return recentDecks(decks)[0] ?? "";
+}
+
+/**
  * The POST /api/play body. `first` is a seat's place in the list, or null for a roll; `firstDeck`
  * stands in for a seat that hasn't picked one of your decks yet.
  */
@@ -109,6 +124,41 @@ export function playRequest(seats: SeatPlan[], first: number | null, playgroupId
       difficulty: s.kind === "ai" ? s.difficulty : null,
     })),
   };
+}
+
+/**
+ * Where a table code from a friend's link is kept, for this tab, while someone without a deck
+ * goes to add one. Per account: whoever signs in next on this tab wasn't the one invited.
+ */
+const joinCodeKey = (userId: string) => `yama.play.joinCode.${userId}`;
+
+/** The code kept for this account on this tab, or "" (none, or a browser that keeps nothing). */
+export function keptJoinCode(userId: string | undefined): string {
+  if (!userId) return "";
+  try {
+    return sessionStorage.getItem(joinCodeKey(userId)) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function keepJoinCode(userId: string | undefined, code: string) {
+  if (!userId) return;
+  try {
+    sessionStorage.setItem(joinCodeKey(userId), code);
+  } catch {
+    // They can open the link again.
+  }
+}
+
+/** Used, refused, typed over, or its account signed out: the code isn't offered again. */
+export function forgetJoinCode(userId: string | undefined) {
+  if (!userId) return;
+  try {
+    sessionStorage.removeItem(joinCodeKey(userId));
+  } catch {
+    // Nothing was kept.
+  }
 }
 
 /** "You", "Seat 2, a friend", "Seat 3, the computer": who a seat is before anyone has joined. */

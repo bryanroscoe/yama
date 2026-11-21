@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CollectionItem } from "../api";
-import { changeDone, changeOps, conditionLabel, conditionWord, finishChoices, finishFor, finishWord, languageChoices, languageName, markDone, markOps, markWords, opIds, ownedFinishes, printingLabel, reprintOps, sameCopy, worthLine } from "./collectionEdit";
+import { changeDone, changeOps, conditionLabel, conditionWord, finishChoices, finishFor, finishWord, landedRow, languageChoices, languageName, markDone, markOps, markWords, opIds, ownedFinishes, printingLabel, reprintOps, sameCopy, worthLine } from "./collectionEdit";
 
 const row: CollectionItem = {
   id: "row",
@@ -204,6 +204,31 @@ describe("changing where a row's copies are kept, their condition, finish or pro
     expect(worthLine({ qty: 2, proxy: false, unit_price_usd: null, price_date: null })).toBe("2 copies, no market price");
     expect(worthLine({ qty: 1, proxy: true, unit_price_usd: 1653.09, price_date: "2026-11-20" })).toBe("1 proxy. A real copy is $1,653.09 (TCGplayer market via Scryfall, Nov 20)");
     expect(worthLine({ qty: 2, proxy: true, unit_price_usd: null, price_date: null })).toBe("2 proxies");
+  });
+
+  it("works out a landed change from the row as it is now, and leaves a price it can't know blank", () => {
+    // The row was read again while the save was out (it had merged: 7 copies, not the 3 the tap saw).
+    const newest: CollectionItem = { ...row, id: "merged", qty: 7 };
+    expect(landedRow(newest, (cur) => ({ qty: cur.qty + 1 })).row.qty).toBe(8);
+    // One copy split off: the row only loses it.
+    expect(landedRow(newest, null)).toEqual({ row: { ...newest, qty: 6 }, priced: true });
+    // Condition, place and proxy keep the price; the newest row's other fields stay.
+    const moved = landedRow(newest, { container_id: "binder", container_name: "Binder", spares_of_deck: null });
+    expect(moved.priced).toBe(true);
+    expect(moved.row).toMatchObject({ id: "merged", qty: 7, container_id: "binder", unit_price_usd: 5.94, price_date: "2026-10-31", spares_of_deck: null });
+    // Another finish is another price, which only the server has: blank, never the old one.
+    const foil = landedRow(newest, { finish: "foil" });
+    expect(foil.priced).toBe(false);
+    expect(foil.row).toMatchObject({ finish: "foil", unit_price_usd: null, price_date: null, qty: 7 });
+    expect(worthLine(foil.row, foil.priced)).toBe("7 copies");
+    expect(worthLine({ ...foil.row, proxy: true }, false)).toBe("7 proxies");
+    // The same finish chosen again changes nothing about the price.
+    expect(landedRow(newest, { finish: "nonfoil" }).priced).toBe(true);
+    // Another printing picked from the list comes with that printing's own price and day.
+    const reprint = landedRow(newest, { scryfall_id: "ltr-750", unit_price_usd: null, price_date: "2026-11-20" });
+    expect(reprint.priced).toBe(true);
+    expect(reprint.row).toMatchObject({ scryfall_id: "ltr-750", unit_price_usd: null, price_date: "2026-11-20" });
+    expect(landedRow(newest, { scryfall_id: "ltr-750" }).priced).toBe(false);
   });
 
   it("finds a row again by what its copies are and where they're kept", () => {

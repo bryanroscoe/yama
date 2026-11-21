@@ -90,6 +90,20 @@ describe("a card's place in your decks", () => {
     expect(many).not.toContain("Deck F");
   });
 
+  it("keeps two decks of one name apart", () => {
+    const use = (deck_id: string, name: string): DeckUse => ({ deck_id, name, qty: 1, board: "main", checked: true });
+    // Two decks both called "Elves", one with a list; the list arrives before its deck.
+    const groups = groupDecks([use("e1s", "Elves (stock)"), use("e1", "Elves"), use("e2", "Elves"), use("x", "Other")]);
+    expect(groups.map((g) => [g.name, g.main?.deck_id ?? null, g.lists.map((l) => l.use.deck_id).join("|")])).toEqual([
+      ["Elves", "e1", "e1s"],
+      ["Elves", "e2", ""],
+      ["Other", "x", ""],
+    ]);
+    const html = view({ decks: [use("e1", "Elves"), use("e2", "Elves")], combos: [], more_combos: 0 });
+    expect(html).toMatch(/href="\/decks\/e1"[^>]*>Elves</);
+    expect(html).toMatch(/href="\/decks\/e2"[^>]*>Elves</);
+  });
+
   it("draws nothing when no deck runs the card, and no combo heading without combos", () => {
     expect(view({ decks: [], combos: [], more_combos: 0 })).toBe("");
     const html = view({ ...data, combos: [] });

@@ -1,11 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { api, type SearchResult } from "../api";
 import { useDebounced } from "../useDebounced";
-import { moveSuggestion, nameBeingTyped, nameQuery, suggestionsFor } from "./cardQuery";
+import { alreadyOffered, moveSuggestion, nameBeingTyped, nameQuery, offeredFor, suggestionsFor } from "./cardQuery";
 
 /** Names offered at once: enough to find a card, few enough to fit above a phone's keyboard. */
 const SUGGESTIONS = 8;
+/** Signed out: how long typing must pause, and how many letters it takes, before names are looked up. */
+const GUEST_PAUSE_MS = 500;
+const GUEST_LETTERS = 4;
 
 function SearchIcon() {
   return (
@@ -23,28 +26,35 @@ function SearchIcon() {
  * syntax, nothing is offered.
  *
  * `guest`: the name lookup needs an account, so someone signed out gets their names from the
- * guest card search instead (most played first). That search is limited per address and shared
- * with the searches themselves, so it waits for a longer pause and a third letter.
+ * guest card search instead (most played first). That search is limited per address (60 a
+ * minute) and the allowance is shared with the searches themselves and the life counter's
+ * commander lookup, so names spend as little of it as they can: they wait for a longer pause and
+ * a fourth letter, and aren't asked for again once the box holds a name already offered.
  */
 export function CardSearchBox({ value, onChange, onPick, suggest, guest = false }: { value: string; onChange: (v: string) => void; onPick: (name: string) => void; suggest: boolean; guest?: boolean }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const typed = nameBeingTyped(value);
-  const term = useDebounced(typed ?? "", guest ? 350 : 180);
+  const term = useDebounced(typed ?? "", guest ? GUEST_PAUSE_MS : 180);
+  // The names last fetched. Once a guest has typed one of them out in full there is nothing to
+  // look up: the names already here that still fit are offered, that one first.
+  const offered = useRef<string[]>([]);
+  const known = guest && alreadyOffered(term, offered.current);
   const names = useQuery({
     queryKey: ["card-names", term.toLowerCase(), guest],
     queryFn: async ({ signal }) =>
       guest
         ? (await api<SearchResult>(`/api/guest/cards/search?q=${encodeURIComponent(nameQuery(term))}&order=edhrec&page=1`, { signal })).cards.map((c) => c.name)
         : api<string[]>(`/api/cards/autocomplete?q=${encodeURIComponent(term)}`, { signal }),
-    enabled: suggest && term.length >= (guest ? 3 : 2),
+    enabled: suggest && term.length >= (guest ? GUEST_LETTERS : 2) && !known,
     staleTime: 5 * 60_000,
     retry: false,
   });
+  if (!known && names.data?.length) offered.current = names.data;
   // Only names fetched for what the box holds now: while typing runs ahead of the lookup, the
   // names for the earlier letters aren't offered (Down and Enter could open a card nobody typed).
   // Offline, or the lookup failed: no names, and the search still works as typed.
-  const list = open && suggestionsFor(typed, term) ? (names.data ?? []).slice(0, SUGGESTIONS) : [];
+  const list = open && suggestionsFor(typed, term) ? (known ? offeredFor(term, offered.current) : (names.data ?? [])).slice(0, SUGGESTIONS) : [];
   const showing = list.length > 0;
   const pick = (name: string) => {
     setOpen(false);

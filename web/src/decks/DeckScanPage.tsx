@@ -319,6 +319,7 @@ function Review({ deck, draft, ops, onBack, onSaved }: { deck: DeckView; draft: 
       void qc.invalidateQueries({ queryKey: ["deck"] });
       void qc.invalidateQueries({ queryKey: ["decks"] });
       void qc.invalidateQueries({ queryKey: ["deck-versions", deck.id] });
+      void qc.invalidateQueries({ queryKey: ["deck-collect"] });
       void qc.invalidateQueries({ queryKey: ["plan"] });
       onSaved(s);
     },
