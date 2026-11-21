@@ -173,3 +173,18 @@
     max-width: none;
   }
 }
+
+/* A version's changes: a lone swap, then the cards that came in and the cards that went out. */
+.deck-history-side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+.deck-history-side h3 {
+  margin: var(--s-1) 0 0;
+  font-size: var(--t-label);
+  font-weight: 700;
+}
+.deck-history-side h3 .num {
+  font-weight: 400;
+}

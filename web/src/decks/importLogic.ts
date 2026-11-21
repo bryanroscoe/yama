@@ -2,6 +2,7 @@
 // person makes (pick a suggestion, leave a card out, choose the commander), the checks shown
 // before saving, and what gets saved.
 
+import { plural } from "@yama/core";
 import type { Board, DeckCard, MaybeCard } from "../api";
 
 export interface ImportCardInfo {
@@ -70,12 +71,33 @@ export interface Draft {
   commanderGuessed: boolean;
 }
 
+/** A deck's name when nobody gave it one: its commanders' short names ("Thrasios and Tymna the Weaver"). */
+function leaderName(cards: ImportCard[]): string {
+  return cards.filter((c) => c.board === "commander").map((c) => c.name.split(",")[0]!.trim()).join(" and ");
+}
+
+/**
+ * The server guesses one commander for a list with no Commander heading: its first card. When
+ * that card has Partner and the next line is another single card that has it too, the list
+ * opens with a pair, so both lead (still a guess the person can change).
+ */
+function withGuessedPartner(d: PreviewDeck): ImportCard[] {
+  if (d.commander_marked || !d.commander_guessed) return d.cards;
+  const leaders = d.cards.filter((c) => c.board === "commander");
+  const first = leaders[0];
+  if (leaders.length !== 1 || !first?.partner) return d.cards;
+  const at = d.cards.indexOf(first) + 1;
+  const next = d.cards[at];
+  if (!next || next.board !== "main" || next.maybe || next.qty !== 1 || !next.can_be_commander || !next.partner) return d.cards;
+  return d.cards.map((c, i) => (i === at ? { ...c, board: "commander" as Board } : c));
+}
+
 /** A new draft. With no name in the source or the file, the deck is named after its commander. */
 export function draftFrom(d: PreviewDeck, fallbackName = ""): Draft {
-  const leaders = d.cards.filter((c) => c.board === "commander").map((c) => c.name.split(",")[0]!.trim());
+  const cards = withGuessedPartner(d);
   return {
-    name: d.name?.trim() || fallbackName || leaders.join(" and "),
-    cards: d.cards,
+    name: d.name?.trim() || fallbackName || leaderName(cards),
+    cards,
     unknown: d.unknown,
     commanderMarked: d.commander_marked,
     commanderGuessed: d.commander_guessed,
@@ -102,7 +124,10 @@ export function fixUnknown(draft: Draft, index: number, pick: ImportCardInfo): D
   };
   const at = draft.cards.findIndex((c) => c.oracle_id === card.oracle_id && c.board === card.board && c.maybe === card.maybe);
   const cards = at >= 0 ? draft.cards.map((c, i) => (i === at ? { ...c, qty: c.qty + card.qty } : c)) : [...draft.cards, card];
-  return { ...draft, unknown, cards };
+  // A deck with no name yet is named after its commander, as it would have been had the
+  // commander's line been spelt right.
+  const name = !draft.name.trim() && card.board === "commander" ? leaderName(cards) : draft.name;
+  return { ...draft, name, unknown, cards };
 }
 
 export function dropUnknown(draft: Draft, index: number): Draft {
@@ -117,7 +142,39 @@ export function setCommanders(draft: Draft, oracleIds: string[]): Draft {
     if (c.board === "commander") return { ...c, board: "main" as Board };
     return c;
   });
-  return { ...draft, cards, commanderGuessed: false, commanderMarked: oracleIds.length > 0 };
+  return { ...draft, name: draft.name.trim() ? draft.name : leaderName(cards), cards, commanderGuessed: false, commanderMarked: oracleIds.length > 0 };
+}
+
+/**
+ * What the person fixed in a reading, kept while the list is read again (every change to the
+ * text makes a new reading): the card picked for a line that matched none (null: leave it out),
+ * by the name as written; the commanders picked; and the name typed.
+ */
+export interface Fixes {
+  lines: Map<string, ImportCardInfo | null>;
+  commanders: string[] | null;
+  name: string | null;
+}
+
+export const noFixes = (): Fixes => ({ lines: new Map(), commanders: null, name: null });
+
+/** How a written name is looked up among the fixes: as typed, whatever its case. */
+export const fixKey = (written: string) => written.trim().toLowerCase();
+
+/** A new reading with the person's earlier fixes made again, wherever they still apply. */
+export function applyFixes(draft: Draft, fixes: Fixes): Draft {
+  let out = draft;
+  // From the end, so taking a line out doesn't move the ones still to check.
+  for (let i = draft.unknown.length - 1; i >= 0; i--) {
+    const key = fixKey(draft.unknown[i]!.name);
+    if (!fixes.lines.has(key)) continue;
+    const pick = fixes.lines.get(key);
+    out = pick ? fixUnknown(out, i, pick) : dropUnknown(out, i);
+  }
+  const picked = fixes.commanders;
+  if (picked?.length && picked.every((id) => out.cards.some((c) => c.oracle_id === id && !c.maybe))) out = setCommanders(out, picked);
+  if (fixes.name !== null) out = { ...out, name: fixes.name };
+  return out;
 }
 
 export function commanders(draft: Draft): ImportCard[] {
@@ -167,7 +224,7 @@ export function checks(draft: Draft): Checks {
   if (draft.unknown.length) problems.push(`${draft.unknown.length} ${draft.unknown.length === 1 ? "line didn't" : "lines didn't"} match a card. Pick the right card or leave ${draft.unknown.length === 1 ? "it" : "them"} out.`);
   if (!cmdrs.length) problems.push("Choose the commander.");
   if (cmdrs.length > 2) problems.push(`${cmdrs.length} commanders: a deck has one, or two partners.`);
-  if (total !== 100 && total > 0) problems.push(`${total} cards with the commander${total < 100 ? `: ${100 - total} short of 100` : `: ${total - 100} over 100`}.`);
+  if (total !== 100 && total > 0) problems.push(`${plural(total, "card")} with the commander${total < 100 ? `: ${100 - total} short of 100` : `: ${total - 100} over 100`}.`);
   if (offIdentity.length) problems.push(`${offIdentity.length} ${offIdentity.length === 1 ? "card is" : "cards are"} outside the commander's colors: ${offIdentity.slice(0, 4).map((c) => c.name).join(", ")}${offIdentity.length > 4 ? "…" : ""}.`);
   if (duplicates.length) problems.push(`More than one copy of ${duplicates.slice(0, 4).map((c) => c.name).join(", ")}${duplicates.length > 4 ? "…" : ""}.`);
   // Count, colours and copies are worth a warning, not a block: people import decks in progress.

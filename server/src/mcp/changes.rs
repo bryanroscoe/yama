@@ -123,15 +123,18 @@ async fn load(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Row> {
 }
 
 /// The owner's changes, newest first: pending ones, or every one (at most 100), or one
-/// conversation's.
+/// conversation's. Outside a conversation the waiting ones come first, so a change still waiting
+/// is never pushed off the end by a hundred newer decided ones; a conversation's stay in the order
+/// they were staged.
 pub async fn list(pool: &SqlitePool, owner: &str, pending_only: bool, conversation: Option<&str>) -> AppResult<Vec<ChangeView>> {
     let rows: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT {ROW_COLUMNS} FROM assistant_changes
          WHERE owner_id = ? AND (? = 0 OR status = 'pending') AND (? IS NULL OR conversation_id = ?)
-         ORDER BY created_at DESC, rowid DESC LIMIT 100"
+         ORDER BY (? IS NULL AND status = 'pending') DESC, created_at DESC, rowid DESC LIMIT 100"
     )))
     .bind(owner)
     .bind(pending_only)
+    .bind(conversation)
     .bind(conversation)
     .bind(conversation)
     .fetch_all(pool)
@@ -3344,6 +3347,46 @@ mod tests {
         assert!(tokio::time::timeout(Duration::from_millis(50), owner_lock("account-a")).await.is_err(), "the same account waits");
         drop(held);
         tokio::time::timeout(Duration::from_secs(5), owner_lock("account-a")).await.expect("and gets it when the first is done");
+    }
+
+    /// A change still waiting stays in the "all" list however many newer ones were decided since;
+    /// a conversation's changes keep the order they were staged in.
+    #[tokio::test]
+    async fn waiting_changes_come_before_a_hundred_newer_decided_ones() {
+        let (_app, pool) = crate::testutil::app().await;
+        let (owner, _) = crate::testutil::user(&pool, "bryan@example.com").await;
+        let add = |id: String, status: &'static str, at: String, conversation: Option<&'static str>| {
+            let (pool, owner) = (pool.clone(), owner.clone());
+            async move {
+                sqlx::query(
+                    "INSERT INTO assistant_changes (id, owner_id, kind, summary, payload, via, conversation_id, status, created_at)
+                     VALUES (?, ?, 'set_condition', 'A change', '{}', 'key', ?, ?, ?)",
+                )
+                .bind(id)
+                .bind(owner)
+                .bind(conversation)
+                .bind(status)
+                .bind(at)
+                .execute(&pool)
+                .await
+                .unwrap();
+            }
+        };
+        add("old-waiting".into(), "pending", "2026-11-01T00:00:00Z".into(), None).await;
+        for n in 0..100 {
+            add(format!("decided-{n}"), "applied", format!("2026-11-02T00:00:{:02}Z", n % 60), None).await;
+        }
+        let all = list(&pool, &owner, false, None).await.unwrap();
+        assert_eq!(all.len(), 100);
+        assert_eq!(all[0].id, "old-waiting", "the waiting change leads");
+        assert!(all[1..].iter().all(|c| c.status == "applied"));
+        let waiting = list(&pool, &owner, true, None).await.unwrap();
+        assert_eq!(waiting.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(), ["old-waiting"]);
+
+        add("talk-waiting".into(), "pending", "2026-11-03T00:00:00Z".into(), Some("talk")).await;
+        add("talk-applied".into(), "applied", "2026-11-03T00:00:01Z".into(), Some("talk")).await;
+        let talk = list(&pool, &owner, false, Some("talk")).await.unwrap();
+        assert_eq!(talk.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(), ["talk-applied", "talk-waiting"], "newest first within a conversation");
     }
 
     #[test]

@@ -139,6 +139,9 @@ export function PreconsPage() {
   // Off by default: every precon stays listed, and the ones the simulation can't judge carry a mark
   // (and go last when the table is sorted by a simulated number).
   const hideUnjudged = params.get("h") === "1";
+  // "Start from a precon" (the empty Decks page, Home) arrives with ?start=1: someone looking for
+  // the deck they own, not for ratings, so the page says what to do first.
+  const starting = params.get("start") === "1";
   // Phones keep the colour, year and sort controls folded until asked for (or in use).
   const [moreOpen, setMoreOpen] = useState(false);
   const filtering = !!colors || yr != null || tenPlus || hideUnjudged || params.has("s") || params.has("d");
@@ -208,11 +211,12 @@ export function PreconsPage() {
     <>
       <LabHead title="Precons" index />
       <ErrorText error={precons.error} />
+      {starting && <p className="lab-start">Find the precon you own, open it, and choose Make this a Yama deck.</p>}
       {run ? (
         <>
+          {/* The engine's version and the AI's level are under "This run", in How these ratings work. */}
           <p className="lab-note">
-            <b>{rated} precons rated</b> from {count(run.games)} simulated {run.pod ?? 4}-player games.
-            {" "}{run.engine ?? "Unrecorded engine"}, {(run.difficulty ?? "unrecorded").toLowerCase()} AI, {fmtDate(run.analysed_at ?? run.created_at)}.
+            <b>{rated} precons rated</b> from {count(run.games)} simulated {run.pod ?? 4}-player games, {fmtDate(run.analysed_at ?? run.created_at)}.
             {" "}<a href="#how-ratings-work">How these ratings work{run.warnings.length ? `, ${run.warnings.length} analysis ${run.warnings.length === 1 ? "note" : "notes"}` : ""}</a>
           </p>
         </>

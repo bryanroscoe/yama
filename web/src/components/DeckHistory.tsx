@@ -1,6 +1,7 @@
 // The deck page's History tab, /decks/:id/history (deck page SPEC 0b; boards Deck and PhoneDeck,
-// History state): every saved list, one open at a time with its changes as card pairs and Put this
-// list back, then the games played with the deck.
+// History state): every saved version of the list, one open at a time with its changes as card
+// pairs and Put this version back, then the games played with the deck. A "version" is a save of
+// one list over time; a deck's other "lists" are its alternates (the List picker).
 
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PlanCard } from "@yama/core/plan";
@@ -17,8 +18,8 @@ import { fmtDate } from "@yama/core";
 import { Button } from "./Button";
 import { ShowMore } from "./Pager";
 
-/** Pairs shown before "Show all". */
-const PAIRS_SHOWN = 8;
+/** Cards shown in each of In and Out before "Show all". */
+const SIDE_SHOWN = 6;
 
 
 const versionsQuery = (deckId: string, currentVersionId: string | null) => ({
@@ -26,10 +27,17 @@ const versionsQuery = (deckId: string, currentVersionId: string | null) => ({
   queryFn: ({ signal }: { signal?: AbortSignal }) => api<DeckVersionRow[]>(`/api/decks/${deckId}/versions`, { signal }),
 });
 
-/** The History tab's note: how many lists the deck has saved. */
+/** What a version is called in the list: its note, else which save it was. The server writes
+ *  "created" as the first save's note; that is its own word, not something anyone wrote. */
+export function versionLabel(note: string | null | undefined, first: boolean): string {
+  const said = note?.trim();
+  return said && said.toLowerCase() !== "created" ? said : first ? "First version" : "Saved version";
+}
+
+/** The History tab's note: how many versions the deck has saved. */
 export function HistoryTabNote({ deckId, currentVersionId }: { deckId: string; currentVersionId: string | null }) {
   const n = useQuery(versionsQuery(deckId, currentVersionId)).data?.length;
-  return n ? <>{n === 1 ? "1 list" : `${n} lists`}</> : null;
+  return n ? <>{n === 1 ? "1 version" : `${n} versions`}</> : null;
 }
 
 export function DeckHistoryBody({ deckId, currentVersionId }: { deckId: string; currentVersionId: string | null }) {
@@ -40,7 +48,7 @@ export function DeckHistoryBody({ deckId, currentVersionId }: { deckId: string; 
   return (
     <div className="deck-history-grid">
       <section className="deck-tab-section deck-history-lists" aria-labelledby="deck-history-lists">
-        <h2 id="deck-history-lists">Earlier lists</h2>
+        <h2 id="deck-history-lists">Versions</h2>
         <ErrorText error={versions.error} />
         {versions.isPending && <Loading />}
         {list.length > 0 && (
@@ -49,7 +57,7 @@ export function DeckHistoryBody({ deckId, currentVersionId }: { deckId: string; 
               const now = v.id === currentVersionId;
               return (
                 <Button key={v.id} className="deck-history-version" aria-pressed={v.id === selected?.id} onClick={() => setPick(v.id)}>
-                  <b>{v.note || (i === list.length - 1 ? "The first list" : "A saved list")}</b>
+                  <b>{versionLabel(v.note, i === list.length - 1)}</b>
                   <span className="dim">{now ? `Now, ${fmtDate(v.created_at)}` : v.history_only ? `Scan, ${fmtDate(v.created_at)}` : fmtDate(v.created_at)}</span>
                 </Button>
               );
@@ -105,7 +113,18 @@ function VersionChanges({ deckId, version, base, current, onRestored }: { deckId
   const b = useVersion(deckId, base ? version.id : undefined);
   const pairs = a.data && b.data ? versionPairs(a.data.cards, b.data.cards) : [];
   const [all, setAll] = useState(false);
-  const shown = all ? pairs : pairs.slice(0, PAIRS_SHOWN);
+  // A lone swap reads "X replaces Y"; everything else is the cards that came in, then the cards
+  // that went out, each list cut to the same length so one never hides behind the other.
+  const cut = (side: VersionPair[]) => (all ? side : side.slice(0, SIDE_SHOWN));
+  const swaps = pairs.filter((p) => p.in && p.out);
+  const ins = pairs.filter((p) => p.in && !p.out);
+  const outs = pairs.filter((p) => !p.in && p.out);
+  const sides = [
+    { title: "", rows: swaps, of: swaps },
+    { title: "In", rows: cut(ins), of: ins },
+    { title: "Out", rows: cut(outs), of: outs },
+  ].filter((s) => s.rows.length > 0);
+  const shown = sides.flatMap((s) => s.rows);
   const view = usePairCards(shown);
   const [confirming, setConfirming] = useState(false);
   // One op id for this version: a retry reuses it, so the server applies it once.
@@ -123,25 +142,32 @@ function VersionChanges({ deckId, version, base, current, onRestored }: { deckId
   const loading = !!base && (a.isPending || b.isPending);
   return (
     <section className="deck-tab-section" aria-labelledby="deck-history-changes">
-      <h2 id="deck-history-changes">{base ? "Changes" : "The first list"}</h2>
+      <h2 id="deck-history-changes">{base ? "Changes" : "First version"}</h2>
       <ErrorText error={a.error ?? b.error} />
       {loading && <Loading />}
-      {base && !loading && !a.error && !b.error && !pairs.length && <p className="dim">The same cards as the list before.</p>}
-      {shown.length > 0 && (
-        <ul className="plans-rows">
-          {shown.map((p, i) => (
-            <li key={i} className="plans-row">
-              <PairRow pair={p} view={view} />
-            </li>
-          ))}
-        </ul>
-      )}
+      {base && !loading && !a.error && !b.error && !pairs.length && <p className="dim">The same cards as the version before.</p>}
+      {sides.map((s) => (
+        <div key={s.title} className="deck-history-side">
+          {s.title && (
+            <h3>
+              {s.title} <span className="dim num">{s.of.reduce((n, p) => n + p.qty, 0)}</span>
+            </h3>
+          )}
+          <ul className="plans-rows">
+            {s.rows.map((p, i) => (
+              <li key={i} className="plans-row">
+                <PairRow pair={p} view={view} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
       {pairs.length > shown.length && (
         <ShowMore className="deck-tab-more" total={pairs.length} onToggle={() => setAll(true)} />
       )}
       {!current &&
         (confirming ? (
-          <div className="deck-history-confirm" role="group" aria-label="Put this list back">
+          <div className="deck-history-confirm" role="group" aria-label="Put this version back">
             <span>The current list stays in History.</span>
             <div className="row">
               <Button variant="primary" disabled={restore.isPending} onClick={() => restore.mutate()}>
@@ -155,7 +181,7 @@ function VersionChanges({ deckId, version, base, current, onRestored }: { deckId
           </div>
         ) : (
           <Button className="deck-tab-action" onClick={() => setConfirming(true)}>
-            Put this list back
+            Put this version back
           </Button>
         ))}
     </section>

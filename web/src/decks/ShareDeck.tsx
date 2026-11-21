@@ -166,11 +166,21 @@ export function ShareDeck({ deck, onClose }: { deck: DeckView; onClose: () => vo
   );
 }
 
-/** Another build of this deck ("stock", "high power"), starting from this list. */
+/** A name to start a new list with: "List 2", or the next number no list of the deck has. */
+export function suggestedListName(deck: Pick<DeckView, "configurations">): string {
+  const taken = new Set(deck.configurations.map((c, i) => configurationLabel(c.configuration, c.name, i === 0).toLowerCase()));
+  let n = Math.max(2, deck.configurations.length + 1);
+  while (taken.has(`list ${n}`)) n += 1;
+  return `List ${n}`;
+}
+
+/** Another list of this deck ("Stock", "High power"), starting from this one. The code and the
+ *  server call a deck's lists configurations. */
 export function NewConfiguration({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const [label, setLabel] = useState("");
+  // A name is there to accept or type over (it is selected when the sheet opens).
+  const [label, setLabel] = useState(() => suggestedListName(deck));
   const [opId] = useState(() => crypto.randomUUID());
   const main = deck.configurations[0]?.name ?? deck.name;
   const make = useMutation({
@@ -183,18 +193,18 @@ export function NewConfiguration({ deck, onClose }: { deck: DeckView; onClose: (
     },
   });
   return (
-    <Dialog title="New configuration" onClose={onClose}>
+    <Dialog title="New list" onClose={onClose}>
       <form className="stack" onSubmit={(e) => { e.preventDefault(); make.mutate(); }}>
         <p className="small dim" style={{ margin: 0 }}>
-          Another build of {main}, starting from this list. It shows under {main} in your decks, with its own versions, games and sharing. It starts{" "}
+          Another list of {main}, starting as a copy of this one. Switch between them with List on the deck's page; each has its own history, games and sharing. It starts{" "}
           {deck.visibility === "public" ? "public" : deck.visibility === "link" ? "link only" : "private"}, like this list.
         </p>
         <Field label="Name">
-          <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="stock, high power, budget" maxLength={60} required autoFocus />
+          <input value={label} onChange={(e) => setLabel(e.target.value)} onFocus={(e) => e.currentTarget.select()} placeholder="Stock, high power, budget" maxLength={60} required autoFocus />
         </Field>
         <ErrorText error={make.error} />
         <div className="row">
-          <Button type="submit" variant="primary" disabled={make.isPending || !label.trim()}>Make it</Button>
+          <Button type="submit" variant="primary" disabled={make.isPending || !label.trim()}>{make.isPending ? "Saving…" : "Save list"}</Button>
         </div>
       </form>
     </Dialog>

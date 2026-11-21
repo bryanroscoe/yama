@@ -74,10 +74,7 @@ export function BrowsePage() {
   return (
     <main className="page">
       <AreaHead index title="Browse decks" />
-      <p className="dim browse-about">
-        Commander decks people have made public on Yama, the most recently saved first. Open one to see its list, or save a copy to make it yours. A deck is marked as started from a precon when its
-        list still holds at least half of that precon's own cards.
-      </p>
+      <p className="dim browse-about">Decks people have made public on Yama, newest first. Open one to see its list, or save a copy to make it yours.</p>
       <BrowseTools key={cleared} filter={filter} onChange={change} onClear={clear} preconName={preconName} total={data?.total} />
       <ErrorText error={listing.error} />
       {!data && listing.isPending && <Loading>Loading decks…</Loading>}
@@ -132,22 +129,26 @@ function useTyped(value: string, apply: (next: string) => void): [string, (next:
 
 function BrowseTools({ filter, onChange, onClear, preconName, total }: { filter: BrowseFilter; onChange: (patch: Partial<BrowseFilter>, typing?: boolean) => void; onClear: () => void; preconName: string | null; total: number | undefined }) {
   const [q, setQ] = useTyped(filter.q, (next) => onChange({ q: next }, true));
-  const [commander, setCommander] = useTyped(filter.commander, (next) => onChange({ commander: next }, true));
+  // A phone shows the search and one button (as the Decks list does); the filters open from it,
+  // and start open when the address already uses one.
+  const [more, setMore] = useState(() => !!filter.colors || !!filter.bracket || !!filter.precon);
   return (
-    <div className="deck-index-tools" role="search" aria-label="Find a public deck">
-      <input
-        type="search"
-        className="deck-index-search"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        placeholder="Search public decks by name or commander"
-        aria-label="Search public decks by name or commander"
-        maxLength={100}
-      />
+    <div className={`deck-index-tools${more ? " is-open" : ""}`} role="search" aria-label="Find a public deck">
+      <div className="deck-index-top">
+        <input
+          type="search"
+          className="deck-index-search"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search public decks by name or commander"
+          aria-label="Search public decks by name or commander"
+          maxLength={100}
+        />
+        <Button className="phone-only deck-index-more" aria-expanded={more} onClick={() => setMore(!more)}>
+          {more ? "Hide filters" : "Filters"}
+        </Button>
+      </div>
       <div className="deck-index-fields">
-        <Field label="Commander">
-          <input value={commander} onChange={(e) => setCommander(e.target.value)} maxLength={100} autoComplete="off" />
-        </Field>
         <div className="deck-index-colors" role="group" aria-label="Colors the deck includes">
           <span className="deck-index-label" aria-hidden="true">Colors</span>
           <span className="deck-index-pips">
@@ -158,7 +159,7 @@ function BrowseTools({ filter, onChange, onClear, preconName, total }: { filter:
             ))}
           </span>
         </div>
-        <Field label="Declared bracket">
+        <Field label="Bracket">
           <select value={filter.bracket} onChange={(e) => onChange({ bracket: e.target.value })}>
             <option value="">Any</option>
             {BRACKETS.map((b) => (
@@ -171,11 +172,14 @@ function BrowseTools({ filter, onChange, onClear, preconName, total }: { filter:
         <CheckRow className="browse-precon" checked={!!filter.precon} onChange={(e) => onChange({ precon: e.target.checked ? "any" : "" })}>
           {filter.precon && filter.precon !== "any" ? `Started from ${preconName ?? "this precon"}` : "Started from a precon"}
         </CheckRow>
+        <p className="small dim browse-precon-note">A deck counts as started from a precon while its list still holds at least half of that precon's own cards.</p>
       </div>
       {/* Always here, so a screen reader hears the count when a filter narrows the list. */}
       <p className="small deck-index-count">
-        <span role="status">{total === undefined ? "" : isFiltered(filter) ? `${plural(total, "deck")} match` : plural(total, "public deck")}</span>
-        {(isFiltered(filter) || q.trim() !== "" || commander.trim() !== "") && <Button variant="quiet" onClick={onClear}>Clear filters</Button>}
+        {/* The search box covers commanders. A link from a commander's page still narrows to its
+            decks (?commander=…), said here where it can be seen and cleared. */}
+        <span role="status">{total === undefined ? "" : isFiltered(filter) ? `${plural(total, "deck")} match${filter.commander.trim() ? `, led by ${filter.commander.trim()}` : ""}` : plural(total, "public deck")}</span>
+        {(isFiltered(filter) || q.trim() !== "") && <Button variant="quiet" onClick={onClear}>Clear filters</Button>}
       </p>
     </div>
   );

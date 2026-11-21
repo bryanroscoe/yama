@@ -141,3 +141,34 @@ describe("removeFromList", () => {
     expect(removeFromList(addToList(LIST, "Forest"), "Forest")).toBe(LIST);
   });
 });
+
+describe("a hand-typed list", () => {
+  it("ends the Commander section at the blank line after its cards, as the server does", () => {
+    const boards = (text: string) => parseDeckList(text).map((l) => `${l.board}: ${l.name}`);
+    expect(boards("Commander\n1 Meren of Clan Nel Toth\n\n1 Sol Ring\n1 Forest")).toEqual(["commander: Meren of Clan Nel Toth", "main: Sol Ring", "main: Forest"]);
+    // Two partners on adjoining lines both lead; a line of spaces is a blank line too.
+    expect(boards("Commanders:\n1 Thrasios, Triton Hero\n1 Tymna the Weaver\n  \n1 Sol Ring")).toEqual(["commander: Thrasios, Triton Hero", "commander: Tymna the Weaver", "main: Sol Ring"]);
+    // A blank line between the heading and its first card doesn't end the section.
+    expect(boards("Commander\n\n1 Meren of Clan Nel Toth\n\n1 Sol Ring")).toEqual(["commander: Meren of Clan Nel Toth", "main: Sol Ring"]);
+  });
+
+  it("reads a count written after the name", () => {
+    expect(parseDeckList("Rampant Growth x1\nForest X12\n2 Sol Ring\nMox x")).toEqual([
+      { qty: 1, name: "Rampant Growth", board: "main" },
+      { qty: 12, name: "Forest", board: "main" },
+      { qty: 2, name: "Sol Ring", board: "main" },
+      { qty: 1, name: "Mox x", board: "main" },
+    ]);
+  });
+
+  it("edits such a list where the cards are", () => {
+    const list = "Commander\n1 Meren of Clan Nel Toth\n\n1 Sol Ring\nForest x2";
+    expect(addToList(list, "Forest")).toBe("Commander\n1 Meren of Clan Nel Toth\n\n1 Sol Ring\nForest x3");
+    expect(removeFromList(list, "Forest")).toBe("Commander\n1 Meren of Clan Nel Toth\n\n1 Sol Ring\nForest x1");
+    expect(addToList(list, "Llanowar Elves")).toBe(`${list}\n1 Llanowar Elves`);
+    // Only a commander so far, the list ending on a blank line: the deck's first card gets its heading.
+    expect(addToList("Commander\n1 Meren of Clan Nel Toth\n", "Sol Ring")).toBe("Commander\n1 Meren of Clan Nel Toth\n\nDeck\n1 Sol Ring\n");
+    expect(parseDeckList(addToList("Commander\n1 Meren of Clan Nel Toth\n", "Sol Ring")).map((l) => l.board)).toEqual(["commander", "main"]);
+  });
+});
+

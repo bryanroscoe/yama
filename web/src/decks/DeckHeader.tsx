@@ -15,17 +15,23 @@ import { shortDate, usd } from "@yama/core";
 
 type Tone = "good" | "warn" | "bad" | "dim";
 
-/** The one status pill and its plain line under the title. */
-export function deckStatus(d: Pick<DeckView, "id" | "parent_id" | "configurations" | "acquisition_status" | "validation" | "ownership">): { tone: Tone; pill: string; line: string } {
+/**
+ * The one status pill and its plain line under the title. `collects` false: the account keeps no
+ * collection (no copy of anything), so a legal deck is simply legal. Counting what it "needs"
+ * would tell someone who came to keep a list that their deck is 100 cards short.
+ */
+export function deckStatus(d: Pick<DeckView, "id" | "parent_id" | "configurations" | "acquisition_status" | "validation" | "ownership">, collects = true): { tone: Tone; pill: string; line: string } {
   const v = d.validation;
   const o = d.ownership;
   const lists = deckLists(d);
   const proxies = o.proxies ?? 0;
-  const real = proxies ? `${o.owned} real, ${proxies} ${proxies === 1 ? "proxy" : "proxies"}` : o.owned >= o.cards ? `All ${o.cards} real` : `${o.owned} of ${o.cards} real`;
+  // "Real" only against proxies; with none in the deck the plain word is "own".
+  const real = proxies ? `${o.owned} real, ${proxies} ${proxies === 1 ? "proxy" : "proxies"}` : o.owned >= o.cards ? `You own all ${o.cards}` : `You own ${o.owned} of ${o.cards}`;
   const legal = v.ok ? "Commander-legal" : v.errors[0] ?? "Not legal yet";
   if (lists?.here === "other") return { tone: "dim", pill: "Saved list", line: "Not the list in your box" };
   if (d.acquisition_status === "planned") return { tone: "dim", pill: "Planned deck", line: v.ok ? "Commander-legal" : legal };
   if (!v.ok) return { tone: "bad", pill: "Not legal yet", line: legal };
+  if (!collects) return { tone: "good", pill: "Commander-legal", line: `${o.cards} ${o.cards === 1 ? "card" : "cards"}` };
   if (o.needed > 0) {
     // What's left costs, with its date; unknown stays unknown (never $0).
     const cost = neededCost(o);

@@ -1,7 +1,8 @@
-// A saved list's changes from the list before it, as pairs: the card that came in and the one it
-// replaced (deck page SPEC 0b, History: "each change as a pair"). Versions store cards, not swaps,
-// so the pairing is a reading: within a board, cards in and out pair up in name order, and what's
-// left over stands alone (a card added with nothing taken out, or one taken out with nothing added).
+// A saved version's changes from the one before it: the cards that came in and the cards that
+// went out (deck page SPEC 0b, History). Versions store cards, not swaps, so nothing says which
+// card replaced which. Only a board's lone swap (one card in, one card out) is read as a pair,
+// "X replaces Y"; anything more is listed as cards in and cards out. Pairing those up in name
+// order stated swaps nobody made (a land "replacing" an artifact).
 
 import type { DeckCard } from "../api";
 
@@ -41,18 +42,15 @@ export function versionPairs(before: DeckCard[], after: DeckCard[]): VersionPair
         .sort((x, y) => x.card.name.localeCompare(y.card.name));
     const ins = delta(a, b);
     const outs = delta(b, a);
-    let i = 0;
-    let o = 0;
-    while (i < ins.length && o < outs.length) {
-      const n = Math.min(ins[i]!.qty, outs[o]!.qty);
-      pairs.push({ in: ins[i]!.card, out: outs[o]!.card, qty: n });
-      ins[i]!.qty -= n;
-      outs[o]!.qty -= n;
-      if (!ins[i]!.qty) i++;
-      if (!outs[o]!.qty) o++;
+    if (ins.length === 1 && outs.length === 1) {
+      // One card for one card is a swap; uneven copies leave the rest standing alone.
+      const n = Math.min(ins[0]!.qty, outs[0]!.qty);
+      pairs.push({ in: ins[0]!.card, out: outs[0]!.card, qty: n });
+      ins[0]!.qty -= n;
+      outs[0]!.qty -= n;
     }
-    for (; i < ins.length; i++) pairs.push({ in: ins[i]!.card, out: null, qty: ins[i]!.qty });
-    for (; o < outs.length; o++) pairs.push({ in: null, out: outs[o]!.card, qty: outs[o]!.qty });
+    for (const e of ins) if (e.qty) pairs.push({ in: e.card, out: null, qty: e.qty });
+    for (const e of outs) if (e.qty) pairs.push({ in: null, out: e.card, qty: e.qty });
   }
   return pairs;
 }

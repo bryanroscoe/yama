@@ -202,14 +202,30 @@ pub struct ParsedLine {
 /// Parse a deck list. Understands `1 Name`, `1x Name`, Arena/Moxfield `1 Name (SET) 123 *F*`,
 /// section headers (`Commander`, `Deck`, `Sideboard`, `// Commander`), and comments.
 /// With no Commander section, `first_is_commander` makes the first card the commander
-/// (the convention in Bryan's commander-decks lists).
+/// (the convention in Bryan's commander-decks lists). A blank line after the Commander section's
+/// cards ends it, so a hand-typed list with no `Deck` heading doesn't make every card a commander.
+/// A count may follow the name instead of leading it (`Sol Ring x2`).
 pub fn parse_list(text: &str, first_is_commander: bool) -> Vec<ParsedLine> {
+    // A count written after a card's name ("x2"), if `word` is one.
+    fn trailing_count(word: &str) -> Option<i64> {
+        let digits = word.strip_prefix(['x', 'X'])?;
+        if digits.is_empty() || !digits.chars().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
+        digits.parse().ok()
+    }
     let mut out = Vec::new();
     let mut board = Board::Main;
     let mut saw_commander_section = false;
+    // Cards read under the Commander heading since it was last seen.
+    let mut commander_cards = 0;
     for raw in text.lines() {
         let line = raw.trim();
         if line.is_empty() {
+            // The commander, a blank line, then the deck with no heading of its own.
+            if board == Board::Commander && commander_cards > 0 {
+                board = Board::Main;
+            }
             continue;
         }
         let header = line.trim_start_matches("//").trim_start_matches('#').trim().trim_end_matches(':').to_lowercase();
@@ -218,6 +234,7 @@ pub fn parse_list(text: &str, first_is_commander: bool) -> Vec<ParsedLine> {
             "commander" | "commanders" => {
                 board = Board::Commander;
                 saw_commander_section = true;
+                commander_cards = 0;
                 continue;
             }
             "deck" | "main" | "mainboard" | "maindeck" | "creatures" | "lands" | "spells" => {
@@ -233,11 +250,11 @@ pub fn parse_list(text: &str, first_is_commander: bool) -> Vec<ParsedLine> {
         if line.starts_with("//") || line.starts_with('#') {
             continue;
         }
-        let (qty, rest) = match line.split_once(' ') {
+        let (qty, rest, counted) = match line.split_once(' ') {
             Some((n, rest)) if n.trim_end_matches(['x', 'X']).parse::<i64>().is_ok() => {
-                (n.trim_end_matches(['x', 'X']).parse().unwrap(), rest.trim())
+                (n.trim_end_matches(['x', 'X']).parse().unwrap(), rest.trim(), true)
             }
-            _ => (1, line),
+            _ => (1, line, false),
         };
         // Drop "(SET) 123", foil markers and tags.
         let mut name = rest;
@@ -245,8 +262,16 @@ pub fn parse_list(text: &str, first_is_commander: bool) -> Vec<ParsedLine> {
             name = &name[..i];
         }
         let name = name.split(" *").next().unwrap_or(name).split(" #").next().unwrap_or(name).trim();
+        // "Rampant Growth x1": the count after the name, on a line that didn't lead with one.
+        let (qty, name) = match name.rsplit_once(' ') {
+            Some((front, tail)) if !counted && trailing_count(tail).is_some() => (trailing_count(tail).unwrap_or(1), front.trim()),
+            _ => (qty, name),
+        };
         if name.is_empty() || qty <= 0 {
             continue;
+        }
+        if board == Board::Commander {
+            commander_cards += 1;
         }
         out.push(ParsedLine { qty, name: name.to_string(), board: board.clone() });
     }
@@ -1067,10 +1092,17 @@ pub(crate) async fn printing_choices(conn: &mut SqliteConnection, oracle_id: &st
 /// [`RARE_RUN_SETS`]), with a nonfoil finish, then Scryfall's default printing, English, the
 /// newest. Unlike an export, a side product never wins by being Scryfall's default. Before the
 /// printings import has read `digital`, digital printings can't be told apart and all count.
+///
+/// A printing whose release date is after today comes after every one that is out: a card
+/// someone already holds can't be from a set that isn't on sale, and Scryfall lists (and makes
+/// default) printings months ahead, with no price. A printing with no date counts as out.
 pub(crate) fn collection_printing(printings: &[PrintingChoice]) -> Option<&PrintingChoice> {
     let known = printings.iter().any(|p| p.digital.is_some());
+    // Dates are YYYY-MM-DD, so they compare as text.
+    let today = crate::derived::today();
     printings.iter().filter(|p| !known || p.digital == Some(false)).min_by_key(|p| {
         (
+            p.released_at.as_deref().is_some_and(|d| d > today.as_str()),
             p.side_product(),
             !p.has("nonfoil"),
             !p.is_default,
@@ -2235,6 +2267,43 @@ mod tests {
         assert_eq!(lines[3].board, Board::Side);
     }
 
+    /// A hand-typed list: the commander under its heading, a blank line, then the deck with no
+    /// heading of its own. Only the cards before the blank line are commanders.
+    #[test]
+    fn a_blank_line_ends_the_commander_section() {
+        let boards = |text: &str| parse_list(text, true).into_iter().map(|l| (l.name, l.board)).collect::<Vec<_>>();
+        let in_deck = |name: &str| (name.to_string(), Board::Main);
+        let leads = |name: &str| (name.to_string(), Board::Commander);
+        assert_eq!(
+            boards("Commander\n1 Meren of Clan Nel Toth\n\n1 Sol Ring\n1 Llanowar Elves\n1 Forest"),
+            vec![leads("Meren of Clan Nel Toth"), in_deck("Sol Ring"), in_deck("Llanowar Elves"), in_deck("Forest")]
+        );
+        // Two partners on adjoining lines both lead; a line of spaces is a blank line too.
+        assert_eq!(
+            boards("Commanders:\n1 Thrasios, Triton Hero\n1 Tymna the Weaver\n  \n1 Sol Ring"),
+            vec![leads("Thrasios, Triton Hero"), leads("Tymna the Weaver"), in_deck("Sol Ring")]
+        );
+        // A blank line between the heading and its first card doesn't end the section.
+        assert_eq!(boards("Commander\n\n1 Meren of Clan Nel Toth\n\n1 Sol Ring"), vec![leads("Meren of Clan Nel Toth"), in_deck("Sol Ring")]);
+        // A later Commander heading starts the section again, and the first card isn't guessed
+        // as a commander when the list names one.
+        assert_eq!(
+            boards("1 Sol Ring\n\nCommander\n1 Meren of Clan Nel Toth\n\nSideboard\n1 Lightning Bolt"),
+            vec![in_deck("Sol Ring"), leads("Meren of Clan Nel Toth"), ("Lightning Bolt".to_string(), Board::Side)]
+        );
+    }
+
+    #[test]
+    fn a_count_may_follow_the_name() {
+        let lines = parse_list("Rampant Growth x1\nForest X12\n2 Sol Ring\nMox x", false);
+        assert_eq!(lines[0], ParsedLine { qty: 1, name: "Rampant Growth".into(), board: Board::Main });
+        assert_eq!(lines[1], ParsedLine { qty: 12, name: "Forest".into(), board: Board::Main });
+        // A line that leads with its count keeps its whole name.
+        assert_eq!(lines[2], ParsedLine { qty: 2, name: "Sol Ring".into(), board: Board::Main });
+        // "x" alone isn't a count.
+        assert_eq!(lines[3], ParsedLine { qty: 1, name: "Mox x".into(), board: Board::Main });
+    }
+
     /// A card Yama knows, for saves that go through the routes.
     async fn known_card(pool: &SqlitePool, oracle: &str, name: &str) {
         sqlx::query("INSERT INTO cards (oracle_id, name, type_line, color_identity, legalities, updated_at) VALUES (?, ?, 'Artifact', '', '{}', 'now')")
@@ -2863,6 +2932,37 @@ mod tests {
             printing("3ed", "284", r#"["nonfoil"]"#, "1994-04-11", None, "core", false),
         ];
         assert_eq!(pick(&unknown).as_deref(), Some("vma 308 foil"));
+    }
+
+    #[test]
+    fn a_collection_add_never_names_a_printing_that_is_not_out_yet() {
+        let pick = |ps: &[PrintingChoice]| collection_printing(ps).map(|p| format!("{} {}", p.set_code, p.collector_number));
+        let both = r#"["nonfoil","foil"]"#;
+        // Forest: Scryfall's default is a set announced for a later year. The newest one that is
+        // out is named instead, and a promo still loses to a regular set.
+        let forest = [
+            printing("mar", "301", both, "2999-04-09", Some(false), "expansion", true),
+            printing("pw25", "5", both, "2025-02-01", Some(false), "promo", false),
+            printing("fdn", "280", both, "2024-11-15", Some(false), "core", false),
+            printing("blb", "278", both, "2024-08-02", Some(false), "expansion", false),
+        ];
+        assert_eq!(pick(&forest).as_deref(), Some("fdn 280"));
+
+        // Out before the set: a promo that is on sale beats the regular printing that isn't.
+        let early = [
+            printing("mar", "12", both, "2999-04-09", Some(false), "expansion", true),
+            printing("pmar", "12p", both, "2020-01-01", Some(false), "promo", false),
+        ];
+        assert_eq!(pick(&early).as_deref(), Some("pmar 12p"));
+
+        // Nothing out yet (a previewed card): the usual order among what there is.
+        assert_eq!(pick(&early[..1]).as_deref(), Some("mar 12"));
+
+        // A printing with no release date counts as out, and the default still wins among those.
+        let mut undated = printing("cmm", "410", both, "2023-08-04", Some(false), "masters", true);
+        undated.released_at = None;
+        let sol_ring = [printing("mar", "400", both, "2999-04-09", Some(false), "expansion", false), undated, printing("c21", "263", both, "2021-04-23", Some(false), "commander", false)];
+        assert_eq!(pick(&sol_ring).as_deref(), Some("cmm 410"));
     }
 
     #[test]

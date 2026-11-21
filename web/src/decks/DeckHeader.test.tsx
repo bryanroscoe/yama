@@ -17,9 +17,16 @@ describe("the deck's status pill", () => {
   });
   it("says how many cards are still needed", () => {
     const s = deckStatus({ ...base, ownership: { ...base.ownership, owned: 90, proxies: 0, needed: 10 } });
-    expect(s).toEqual({ tone: "warn", pill: "Need 10 cards", line: "Commander-legal. 90 of 100 real" });
+    expect(s).toEqual({ tone: "warn", pill: "Need 10 cards", line: "Commander-legal. You own 90 of 100" });
     const priced = deckStatus({ ...base, ownership: { ...base.ownership, owned: 90, proxies: 0, needed: 10, needed_cost_usd: 42.5, needed_without_price: 1, price_date: "2026-11-07" } });
-    expect(priced.line).toMatch(/^Commander-legal\. 90 of 100 real\. \$42\.50 to finish, 1 without a price, Nov 7/);
+    expect(priced.line).toMatch(/^Commander-legal\. You own 90 of 100\. \$42\.50 to finish, 1 without a price, Nov 7/);
+  });
+  it("is plainly legal for an account that keeps no collection, with nothing about owning cards", () => {
+    const none = { ...base, ownership: { ...base.ownership, owned: 0, proxies: 0, needed: 100 } };
+    expect(deckStatus(none, false)).toEqual({ tone: "good", pill: "Commander-legal", line: "100 cards" });
+    expect(deckStatus(none, true).pill).toBe("Need 100 cards");
+    // Legality still comes first.
+    expect(deckStatus({ ...none, validation: { ...base.validation, ok: false, errors: ["4 cards, needs 100"] } }, false).pill).toBe("Not legal yet");
   });
   it("puts the first legality error in the line", () => {
     const s = deckStatus({ ...base, validation: { ...base.validation, ok: false, errors: ["99 cards, needs 100", "Two commanders"] } });

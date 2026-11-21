@@ -5,8 +5,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { count, identityName, usd, priceSource, fmtDate, shortDate } from "@yama/core";
 import { useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
-import { api } from "../api";
-import { queryFailure, RefreshFailed } from "../components/QueryError";
+import { api, type DeckSummary } from "../api";
+import { useMe } from "../auth";
+import { gone, NotHere, queryFailure, RefreshFailed } from "../components/QueryError";
+import { usePageTitle } from "../pageTitle";
 import { Button, ButtonLink, CardImage, Details, ErrorText, Loading, ManaCost, Pips, StatusPill } from "../components/ui";
 import { CardSheet } from "../pages/Cards";
 import type { Matchup, PreconDetail, PreconItem, RatingV2, RunLabel } from "./api";
@@ -35,6 +37,7 @@ export function PreconDetailPage() {
 
 function PreconDetailBody({ id }: { id: string | undefined }) {
   const detail = useQuery({ queryKey: ["lab", "precon", id], queryFn: ({ signal }) => api<PreconDetail>(`/api/precons/${id}`, { signal }) });
+  usePageTitle(detail.data?.precon.name);
   const list = usePrecons();
   const v2 = useQuery({ queryKey: ["lab", "rating-v2"], queryFn: ({ signal }) => api<RatingV2>("/api/precons/rating-v2", { signal }), staleTime: 5 * 60_000 });
   const [open, setOpen] = useState<string | null>(null);
@@ -44,7 +47,11 @@ function PreconDetailBody({ id }: { id: string | undefined }) {
     return (
       <>
         <LabHead slim back={{ to: "/lab", label: "Back to the precons" }} />
-        <ErrorText error={detail.error} />
+        {gone(detail.error) ? (
+          <NotHere>Yama has no precon at this address. It may have been renamed: look for it in the precon list.</NotHere>
+        ) : (
+          <ErrorText error={detail.error} retry={() => void detail.refetch()} />
+        )}
       </>
     );
   }
@@ -159,6 +166,12 @@ function Actions({ precon }: { precon: PreconItem }) {
   // One op id per visit: a retried tap makes one deck.
   const opId = useRef(crypto.randomUUID());
   const startsAs = useNewDeckSetting();
+  // A deck already made from this precon: it keeps the precon's name in the Precons folder until
+  // its owner changes either. Then the page offers that deck, and another copy only on request.
+  const userId = useMe().data?.id;
+  const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }), enabled: !!userId });
+  const mine = decks.data?.find((d) => !d.parent_id && d.name === precon.name && d.folder?.trim() === "Precons");
+  const [another, setAnother] = useState(false);
   const make = useMutation({
     mutationFn: () =>
       api<{ id: string; name: string; unknown: string[]; validation: { ok: boolean; errors: string[] } }>(`/api/precons/${precon.id}/deck`, {
@@ -172,6 +185,8 @@ function Actions({ precon }: { precon: PreconItem }) {
       <div className="row">
         {make.data ? (
           <ButtonLink variant="primary" to={`/decks/${make.data.id}`}>Open {make.data.name}</ButtonLink>
+        ) : mine && !another ? (
+          <ButtonLink variant="primary" to={`/decks/${mine.id}`}>Open your {mine.name} deck</ButtonLink>
         ) : (
           <Button variant="primary" onClick={() => make.mutate()} disabled={make.isPending || !startsAs.ready}>
             {make.isPending ? "Making the deck…" : "Make this a Yama deck"}
@@ -181,7 +196,12 @@ function Actions({ precon }: { precon: PreconItem }) {
         <AskClaude context={{ kind: "precon", ref: precon.id }} about={precon.name} />
       </div>
       {/* The copy is made with no choice of who can see it, so the page says what it starts as. */}
-      {!make.data && <SavedAsNote state={startsAs} />}
+      {!make.data && mine && !another && (
+        <p className="small dim" style={{ margin: 0 }}>
+          You already made a deck from this precon. <Button variant="quiet" size="small" onClick={() => setAnother(true)}>Make another copy</Button>
+        </p>
+      )}
+      {!make.data && !(mine && !another) && <SavedAsNote state={startsAs} />}
       {make.data && (
         <p className="small dim" role="status" style={{ margin: 0 }}>
           Added to your decks, in the Precons folder. Its Share button says who can see it.

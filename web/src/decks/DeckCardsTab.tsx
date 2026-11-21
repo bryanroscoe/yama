@@ -34,6 +34,8 @@ function keep(key: string, v: string) {
 
 const copies = (n: number) => (n === 1 ? "1 card" : `${n} cards`);
 
+const VIEW_NAME: Record<CardView, string> = { pictures: "Pictures", stacks: "Stacks", list: "List", table: "Table" };
+
 export function useCardControls() {
   const [show, setShow] = useState<CardShow>("all");
   const [view, setViewState] = useState<CardView>(() => stored("yama.deck.view", ["pictures", "stacks", "list", "table"] as const, typeof window !== "undefined" && window.matchMedia?.("(min-width: 900px)").matches ? "pictures" : "list"));
@@ -59,6 +61,7 @@ export function DeckCardsTab({
   status,
   onOpen,
   plain = false,
+  valueShown = false,
 }: {
   deck: Pick<DeckView, "cards" | "ownership">;
   controls: ReturnType<typeof useCardControls>;
@@ -68,9 +71,12 @@ export function DeckCardsTab({
   /** Where your copies are, or that you need it (the list view's second line). */
   status: (e: DeckEntry) => ReactNode;
   onOpen: (oracleId: string) => void;
-  /** A list that belongs to no account (the Check a deck page): nothing about owning its cards,
-   *  so no Show filter, no "Need" chips and no Copy column. */
+  /** A list that belongs to no account (the Check a deck page), or an account with no collection:
+   *  nothing about owning its cards, so no Show filter, no "Need" chips and no Copy column. */
   plain?: boolean;
+  /** The page already shows the whole deck's price with its source and date (the deck page's
+   *  Value tile), so the total isn't repeated here while the whole deck is showing. */
+  valueShown?: boolean;
 }) {
   const { setShow, view, setView, groupBy, setGroupBy, sort, setSort } = controls;
   const show: CardShow = plain ? "all" : controls.show;
@@ -78,6 +84,9 @@ export function DeckCardsTab({
   const counts = showCounts(rows);
   const groups = useMemo(() => cardGroups(rows, show, groupBy, sort), [rows, show, groupBy, sort]);
   const total = priceOf(rows, show);
+  // A phone keeps the layout, grouping and sort behind one "View" button, so the cards start
+  // near the top; a laptop shows them all (cards-tab.css).
+  const [viewOpen, setViewOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => {
     try {
       return new Set((localStorage.getItem("yama.deck.collapsed") ?? "").split("|").filter(Boolean));
@@ -124,7 +133,7 @@ export function DeckCardsTab({
 
   return (
     <div className="cards-tab">
-      <div className="cards-controls">
+      <div className={`cards-controls${viewOpen ? " is-open" : ""}`}>
         <div className="cards-controls-row">
           {!plain && <Segmented<CardShow> as="span" compact
             label="Show"
@@ -136,14 +145,20 @@ export function DeckCardsTab({
               ["proxy", <>Proxies <span className="num">{counts.proxy}</span></>],
             ]}
           />}
-          <Segmented<CardView> as="span" compact label="View" value={view} onChange={setView} options={[["pictures", "Pictures"], ["stacks", "Stacks"], ["list", "List"], ["table", "Table"]]} />
-          <span className="cards-total">
-            <b className="num">{total.usd != null ? usd(total.usd) : "No price"}</b>
-            <span className="dim">{total.unpriced ? `${copies(total.unpriced)} without a price. ` : ""}{priceLine}</span>
-          </span>
+          <Button className="phone-only cards-view-toggle" aria-expanded={viewOpen} onClick={() => setViewOpen(!viewOpen)}>
+            View: {VIEW_NAME[view]}
+          </Button>
+          <Segmented<CardView> as="span" compact className="cards-fold" label="View" value={view} onChange={setView} options={[["pictures", "Pictures"], ["stacks", "Stacks"], ["list", "List"], ["table", "Table"]]} />
+          {/* No total for a view with no cards: "No price" there would read as unknown, not nothing. */}
+          {groups.length > 0 && !(valueShown && show === "all") && (
+            <span className="cards-total">
+              <b className="num">{total.usd != null ? usd(total.usd) : "No price"}</b>
+              <span className="dim">{total.unpriced ? `${copies(total.unpriced)} without a price. ` : ""}{priceLine}</span>
+            </span>
+          )}
           <CopyButton text={shownText(rows, show)} label="Copy the list" className="cards-copy" />
         </div>
-        <div className="cards-controls-row">
+        <div className="cards-controls-row cards-fold">
           <span className="cards-control-label">
             <span aria-hidden="true">Group by</span>
             <Segmented<CardGroupBy> as="span" compact label="Group by" value={groupBy} onChange={setGroupBy} options={[["type", "Type"], ["mv", "Mana value"], ["none", "None"]]} />
@@ -215,7 +230,8 @@ export function DeckCardsTab({
             {stackColumns(g.rows).map((col, i) => (
               <div key={i} className="cards-stack">
                 {col.map((r) => (
-                  <Button key={r.key} className="cards-stack-card" onClick={() => onOpen(r.entry.oracle_id)} aria-label={label(r)}>
+                  // A marked card shows a strip under its name bar for the marks (cards-tab.css).
+                  <Button key={r.key} className={copiesShown(r, show) > 1 || chip(r, true) ? "cards-stack-card is-marked" : "cards-stack-card"} onClick={() => onOpen(r.entry.oracle_id)} aria-label={label(r)}>
                     <CardImage src={r.entry.card?.image_normal} name={r.entry.name} />
                     <span className="cards-stack-marks">
                       {copiesShown(r, show) > 1 && <span className="qty-badge num">×{copiesShown(r, show)}</span>}
@@ -237,9 +253,12 @@ export function DeckCardsTab({
                     {copiesShown(r, show) > 1 ? `${copiesShown(r, show)} ` : ""}
                     <CardHover name={r.entry.name} oracleId={r.entry.oracle_id} image={r.entry.card?.image_normal} />
                   </span>
-                  {status(r.entry)}
+                  {/* The chip sits under the name, not beside it, so the name keeps the row's width. */}
+                  <span className="cards-row-sub">
+                    {chip(r)}
+                    {status(r.entry)}
+                  </span>
                 </span>
-                {chip(r)}
                 <span className="cards-row-price dim num">{r.entry.cheapest_usd != null ? usd(r.entry.cheapest_usd * copiesShown(r, show)) : "No price"}</span>
               </Button>
             ))}

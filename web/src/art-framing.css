@@ -22,6 +22,36 @@
       linear-gradient(0deg, var(--ground) 0%, transparent 65%);
   }
 }
+/* Contained art rarely fills its banner: a short banner leaves a strip of page beside it, with a
+   hard edge down the art's left side, and a tall one a strip under it. The wash covers the
+   banner, so it knows the banner's size; a layer over exactly the drawn art fades whichever of
+   those two edges is showing into the page. Only this wash darkens. The image is untouched. */
+.art-panel.art-scene > .art-wash {
+  container-type: size;
+}
+.art-panel.art-scene > .art-wash::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  --art-w: min(100cqw, 626px, 100cqh * 626 / 457);
+  width: var(--art-w);
+  aspect-ratio: 626 / 457;
+  /* Nothing where the art reaches the banner's edge; otherwise a third of the art. */
+  /* Half a pixel of slack, so rounding at an exact fit doesn't draw a sliver of fade. */
+  --fade-x: clamp(0%, (100cqw - var(--art-w) - 0.5px) * 1000, 34%);
+  --fade-y: clamp(0%, (100cqh - var(--art-w) * 457 / 626 - 0.5px) * 1000, 34%);
+  background:
+    linear-gradient(90deg, var(--art-fade, var(--ground)) 0, transparent var(--fade-x)),
+    linear-gradient(0deg, var(--art-fade, var(--ground)) 0, transparent var(--fade-y));
+}
+/* A phone's deck banner is as tall as the art is at the screen's width, so the art spans it and
+   the back button sits on the picture, not across its edge. */
+@media (max-width: 599px) {
+  .deck-hero.art-panel.art-has {
+    min-height: calc(100vw * 457 / 626);
+  }
+}
 /* Short mobile banners still leave a window above the title for the subject. */
 @media (max-width: 899px) {
   .public-art,

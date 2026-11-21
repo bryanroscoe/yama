@@ -54,7 +54,7 @@ const read = async () => {
   for (let i = 0; i < 80 && server.answered !== box().value; i++) await tick(100);
   await tick(50);
 };
-const saveButton = () => [...host.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Save the list in the box")!;
+const saveButton = () => [...host.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Save changes")!;
 const save = () => act(async () => saveButton().click());
 const keep = () => host.querySelector<HTMLInputElement>('.edit-list-panel input[type="checkbox"]');
 

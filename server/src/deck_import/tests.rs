@@ -122,6 +122,39 @@ fn plain_lists_and_headers() {
     assert_eq!(p.decks[0].name.as_deref(), Some("my deck"));
 }
 
+/// A hand-typed list: the commander under its heading, a blank line, then the deck with no
+/// heading of its own. Only the cards before the blank line lead the deck.
+#[test]
+fn a_blank_line_ends_the_commander_section() {
+    let p = parse_text("Commander\n1 Meren of Clan Nel Toth\n\n1 Sol Ring\n1 Llanowar Elves\n1 Forest");
+    assert_eq!(board_of(&p, "Meren of Clan Nel Toth").unwrap().board, Board::Commander);
+    for name in ["Sol Ring", "Llanowar Elves", "Forest"] {
+        let line = board_of(&p, name).unwrap();
+        assert_eq!((line.board.clone(), line.marked_commander), (Board::Main, false), "{name}");
+    }
+    assert!(p.decks[0].commander_marked);
+    // Two partners on adjoining lines both lead, and a blank line right under the heading
+    // doesn't end the section before it has a card.
+    let p = parse_text("Commander\n\n1 Thrasios, Triton Hero\n1 Tymna the Weaver\n\n1 Sol Ring\n\nSideboard\n1 Lightning Bolt");
+    assert_eq!(board_of(&p, "Thrasios, Triton Hero").unwrap().board, Board::Commander);
+    assert_eq!(board_of(&p, "Tymna the Weaver").unwrap().board, Board::Commander);
+    assert_eq!(board_of(&p, "Sol Ring").unwrap().board, Board::Main);
+    assert_eq!(board_of(&p, "Lightning Bolt").unwrap().board, Board::Side);
+}
+
+#[test]
+fn a_count_may_follow_the_name() {
+    let p = parse_text("Rampant Growth x1\nForest X12\n2 Sol Ring\nArcane Signet x2 (C21) 234 *F*\nMox x");
+    assert_eq!(board_of(&p, "Rampant Growth").unwrap().qty, 1);
+    assert_eq!(board_of(&p, "Forest").unwrap().qty, 12);
+    assert_eq!(board_of(&p, "Sol Ring").unwrap().qty, 2);
+    let signet = board_of(&p, "Arcane Signet").unwrap();
+    assert_eq!((signet.qty, signet.set_code.as_deref(), signet.finish.as_deref()), (2, Some("c21"), Some("foil")));
+    // "x" alone isn't a count: the line is kept as written, to be matched or shown as unknown.
+    assert_eq!(board_of(&p, "Mox x").unwrap().qty, 1);
+    assert!(p.skipped.is_empty());
+}
+
 #[test]
 fn csv_exports_by_their_columns() {
     let p = parse_any(include_str!("fixtures/moxfield.csv"), Some("deck.csv"));

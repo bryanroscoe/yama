@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boxText, buttonText, groups, outcomeText, printingText, resultText, summary, type CollectLine, type CollectPreview } from "./collect";
+import { boxText, buttonText, collectAfter, collectState, declineOffer, forgetDeclined, groups, offerDeclined, offerLine, offerTitle, outcomeText, printingText, resultText, summary, type CollectLine, type CollectPreview } from "./collect";
 
 function line(name: string, over: Partial<CollectLine> = {}): CollectLine {
   return {
@@ -99,5 +99,62 @@ describe("add to my collection", () => {
     expect(g.add.map((l) => l.name)).toEqual(["A", "D"]);
     expect(g.move.map((l) => l.name)).toEqual(["B", "D"]);
     expect(g.leave.map((l) => l.name)).toEqual(["C"]);
+  });
+});
+
+describe("the offer the deck page makes by itself", () => {
+  /** A storage that holds strings, as the browser's does. */
+  const memory = () => {
+    const held = new Map<string, string>();
+    return { getItem: (k: string) => held.get(k) ?? null, setItem: (k: string, v: string) => void held.set(k, v) };
+  };
+
+  it("carries why it opened in the navigation's state", () => {
+    expect(collectAfter(collectState("import"))).toBe("import");
+    expect(collectAfter(collectState("edit"))).toBe("edit");
+    // A link someone pressed carries none.
+    expect(collectAfter(null)).toBeNull();
+    expect(collectAfter({ collectAfter: "other" })).toBeNull();
+    expect(collectAfter("edit")).toBeNull();
+  });
+
+  it("after an edit is one line, and only for a deck whose box already holds cards", () => {
+    expect(offerLine({ box_exists: true, in_box: 99, added: 1, moved: 0 })).toEqual({ text: "1 card in this list isn't in the deck's box yet.", action: "Add it to your collection" });
+    expect(offerLine({ box_exists: true, in_box: 97, added: 2, moved: 1 })).toEqual({ text: "3 cards in this list aren't in the deck's box yet.", action: "Add them to your collection" });
+    // Someone who only keeps the list isn't asked about the whole deck again.
+    expect(offerLine({ box_exists: false, in_box: 0, added: 100, moved: 0 })).toBeNull();
+    expect(offerLine({ box_exists: true, in_box: 0, added: 100, moved: 0 })).toBeNull();
+    // Nothing the box is short of.
+    expect(offerLine({ box_exists: true, in_box: 100, added: 0, moved: 0 })).toBeNull();
+  });
+
+  it("asks about the cards the box is short of, not the whole deck", () => {
+    expect(offerTitle({ missing: 100 })).toBe("Add these 100 cards to your collection?");
+    expect(offerTitle({ missing: 1 })).toBe("Add this card to your collection?");
+    expect(offerTitle({ missing: 0 })).toBe("Add to my collection");
+  });
+
+  it("remembers Not now for a deck on this device, until its cards are added", () => {
+    const device = memory();
+    expect(offerDeclined("d1", device)).toBe(false);
+    declineOffer("d1", device);
+    declineOffer("d2", device);
+    declineOffer("d1", device);
+    expect(offerDeclined("d1", device)).toBe(true);
+    expect(offerDeclined("d3", device)).toBe(false);
+    expect(JSON.parse(device.getItem("yama.collect.notnow")!)).toEqual(["d2", "d1"]);
+    forgetDeclined("d1", device);
+    expect(offerDeclined("d1", device)).toBe(false);
+    expect(offerDeclined("d2", device)).toBe(true);
+  });
+
+  it("asks again rather than fail where the browser keeps nothing, or kept something else", () => {
+    expect(offerDeclined("d1", null)).toBe(false);
+    expect(() => declineOffer("d1", null)).not.toThrow();
+    const broken = memory();
+    broken.setItem("yama.collect.notnow", "{not a list");
+    expect(offerDeclined("d1", broken)).toBe(false);
+    const blocked = { getItem: () => null, setItem: () => { throw new Error("blocked"); } };
+    expect(() => declineOffer("d1", blocked)).not.toThrow();
   });
 });

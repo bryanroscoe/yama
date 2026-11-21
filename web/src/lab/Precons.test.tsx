@@ -30,11 +30,11 @@ const fixture: PreconList = {
   precons: [precon(1), precon(2, "doubtful"), precon(3, "unreliable")],
 };
 
-function renderPrecons(data: PreconList = fixture) {
+function renderPrecons(data: PreconList = fixture, address = "/lab") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
   client.setQueryData(["lab", "precons"], data);
   const html = renderToStaticMarkup(
-    <QueryClientProvider client={client}><MemoryRouter initialEntries={["/lab"]}><PreconsPage /></MemoryRouter></QueryClientProvider>,
+    <QueryClientProvider client={client}><MemoryRouter initialEntries={[address]}><PreconsPage /></MemoryRouter></QueryClientProvider>,
   );
   client.clear();
   return html;
@@ -52,6 +52,22 @@ describe("precon list rating notes", () => {
     expect(html).toContain("Three decks hit the turn limit in most games.");
     expect(html).toContain("1 precon here, listed last");
     expect(html).not.toContain("Rating details");
+  });
+
+  it("keeps the engine's version out of the summary line, under This run", () => {
+    const html = renderPrecons();
+    const summary = html.slice(html.indexOf('class="lab-note"'), html.indexOf("#how-ratings-work"));
+    expect(summary).toContain("3 precons rated</b> from 6,856 simulated 4-player games, ");
+    expect(summary).not.toContain("phase-rs");
+    expect(summary).not.toContain("AI");
+    expect(html).toContain("<dd>phase-rs v0.113.0+aifix</dd>");
+  });
+
+  it("tells someone starting from a precon what to do, above the search", () => {
+    expect(renderPrecons()).not.toContain("Find the precon you own");
+    const html = renderPrecons(fixture, "/lab?start=1");
+    expect(html).toContain("Find the precon you own, open it, and choose Make this a Yama deck.");
+    expect(html.indexOf("Find the precon you own")).toBeLessThan(html.indexOf('class="lab-search"'));
   });
 
   it("leaves the notes out when nothing has been rated", () => {

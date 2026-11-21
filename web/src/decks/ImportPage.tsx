@@ -1,6 +1,6 @@
 import { CardRef } from "../components/CardRef";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { GROUP_ORDER, groupOf } from "@yama/core";
+import { GROUP_ORDER, groupOf, plural } from "@yama/core";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigate, useSearchParams } from "react-router";
 import { api, type DeckSummary, type DeckView, type PreconList, type PublicDeck, type Sharing, type Visibility } from "../api";
@@ -20,7 +20,9 @@ import {
   toSave,
   type Draft,
   type ImportCard,
+  type ImportCardInfo,
 } from "./importLogic";
+import { collectState } from "./collect";
 import { CommanderPicker, GuideTabs, LinkNote, Skipped, UnknownLines } from "./ImportParts";
 import { UnsavedPrompt, useUnsavedChanges } from "../unsaved";
 import { createOpIds, newDeckRequest } from "./saveOps";
@@ -29,6 +31,12 @@ import { ACCEPT, replaceQuestion, useListImport } from "./useListImport";
 import { VisibilityChoice } from "./VisibilityChoice";
 import { HANDLE_HINT, handleProblem, typedHandle, useSaveHandle } from "./ChooseHandle";
 import "./import.css";
+
+/** A phone or a tablet upright: one column, the reading under the box, the tab bar at the bottom. */
+const narrow = () => typeof window !== "undefined" && !!window.matchMedia?.("(max-width: 899px)").matches;
+
+/** Which card groups are open: the ones the person opened or closed, else all on a laptop and none on a phone. */
+type OpenGroups = ReadonlySet<string> | null;
 
 /**
  * Add a deck from a pasted list, a file or a link: `/decks/import`. `?precon=<file>` starts from a
@@ -95,13 +103,25 @@ function ImportEditor() {
   // The handle typed for a first public deck, kept here for the same reason.
   const [handle, setHandle] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
-  const { text, preview, drafts, draft, setDraft, active, setActive, check, notice } = list;
+  const { text, preview, drafts, draft, setDraft, rememberFix, rememberCommanders, active, setActive, check, notice } = list;
   const deckNames = decks.data?.map((d) => d.name) ?? [];
   // A list the person brought, a fix to its reading or a typed note: leaving asks first (unsaved.tsx).
   const guard = useUnsavedChanges(list.unsaved || !!note.trim());
+  // Kept here, not with the groups: they go away while an edited list is read again.
+  const [openGroups, setOpenGroups] = useState<OpenGroups>(null);
+  // On a phone the reading is under the box. When a list the person pasted, chose or dropped
+  // has been read, bring its reading up once, so the paste visibly did something.
+  const checkSection = useRef<HTMLElement>(null);
+  const shownArrival = useRef(0);
+  const answered = !check.isPending && (!!preview || !!check.error);
+  useEffect(() => {
+    if (!answered || list.arrival === shownArrival.current) return;
+    shownArrival.current = list.arrival;
+    if (narrow()) checkSection.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  }, [answered, list.arrival]);
 
   return (
-    <main className="page import-page">
+    <main className={`page import-page${list.whole ? " import-compact" : ""}`}>
       <AreaHead title={precon ? "Start from a precon" : shared ? "Save a copy" : "Add a deck"} back={{ to: "/decks", label: "Back" }} />
       {shared && friend.data && (
         <p className="dim">
@@ -160,14 +180,25 @@ function ImportEditor() {
           )}
         </section>
 
-        <section className="import-check" aria-labelledby="imp-check" aria-busy={check.isPending}>
+        <section className="import-check" aria-labelledby="imp-check" aria-busy={check.isPending} ref={checkSection}>
           <h2 id="imp-check">Check it</h2>
           {check.isPending && <Loading>Reading the list…</Loading>}
           <ErrorText error={check.error} />
           {!check.isPending && !preview && !check.error && <p className="dim">Your deck shows here once there's a list to read.</p>}
           <LinkNote preview={preview} stepsWhere="under Import from a file or another site" />
           {drafts.length > 1 && <Batch drafts={drafts} active={active} setActive={setActive} />}
-          {draft && <DraftView draft={draft} setDraft={setDraft} formatLabel={preview?.format_label ?? null} deckNames={deckNames} />}
+          {draft && (
+            <DraftView
+              draft={draft}
+              setDraft={setDraft}
+              onFix={rememberFix}
+              onCommanders={rememberCommanders}
+              formatLabel={preview?.format_label ?? null}
+              deckNames={deckNames}
+              openGroups={openGroups}
+              setOpenGroups={setOpenGroups}
+            />
+          )}
           <Skipped preview={preview} />
         </section>
       </div>
@@ -187,14 +218,15 @@ function ImportEditor() {
           setNote={setNote}
           decks={decks.data ?? []}
           formatLabel={preview?.format_label ?? preview?.link?.site_name ?? null}
-          onSaved={(id) => {
+          onSaved={(id, updated) => {
             // The save step's choice is now the account's default (Sharing shows it).
             void qc.invalidateQueries({ queryKey: ["sharing"] });
             void qc.invalidateQueries({ queryKey: ["decks"] });
             void qc.invalidateQueries({ queryKey: ["deck", id] });
-            // The deck page then offers to add the cards to the collection (CollectSheet).
+            // The deck page then offers to add the cards to the collection (CollectSheet): the
+            // sheet for a new deck, one quiet line for a new version of a deck that has a box.
             guard.allow();
-            navigate(`/decks/${id}?collect=1`, { replace: !!precon });
+            navigate(`/decks/${id}?collect=1`, { replace: !!precon, state: collectState(updated ? "edit" : "import") });
           }}
           onSavedMany={() => {
             void qc.invalidateQueries({ queryKey: ["sharing"] });
@@ -222,7 +254,7 @@ function Batch({ drafts, active, setActive }: { drafts: Draft[]; active: number;
               <Button className={`import-batch-row${i === active ? " active" : ""}`} aria-pressed={i === active} onClick={() => setActive(i)}>
                 <span className="import-batch-name">{d.name || "Unnamed deck"}</span>
                 <span className={`small ${c.ready && !c.problems.length ? "import-good" : "import-warn"}`}>
-                  {c.total} cards{!c.ready ? `, ${c.problems.length} to fix` : c.problems.length ? `, ${c.problems.length} to check` : ""}
+                  {plural(c.total, "card")}{!c.ready ? `, ${c.problems.length} to fix` : c.problems.length ? `, ${c.problems.length} to check` : ""}
                 </span>
               </Button>
             </li>
@@ -233,7 +265,26 @@ function Batch({ drafts, active, setActive }: { drafts: Draft[]; active: number;
   );
 }
 
-function DraftView({ draft, setDraft, formatLabel, deckNames }: { draft: Draft; setDraft: (d: Draft) => void; formatLabel: string | null; deckNames: string[] }) {
+function DraftView({
+  draft,
+  setDraft,
+  onFix,
+  onCommanders,
+  formatLabel,
+  deckNames,
+  openGroups,
+  setOpenGroups,
+}: {
+  draft: Draft;
+  setDraft: (d: Draft) => void;
+  /** Told each answer to a line that matched no card, and each pick of commander, so they survive the list being read again. */
+  onFix: (written: string, pick: ImportCardInfo | null) => void;
+  onCommanders: (oracleIds: string[]) => void;
+  formatLabel: string | null;
+  deckNames: string[];
+  openGroups: OpenGroups;
+  setOpenGroups: (open: OpenGroups) => void;
+}) {
   const c = useMemo(() => checks(draft), [draft]);
   const cmdrs = commanders(draft);
   const choices = commanderChoices(draft);
@@ -248,6 +299,16 @@ function DraftView({ draft, setDraft, formatLabel, deckNames }: { draft: Draft; 
     const order = [...GROUP_ORDER.filter((g) => g !== "Commander" && g !== "Sideboard"), "Sideboard", "Considering"];
     return order.filter((g) => by.has(g)).map((g) => ({ group: g, cards: by.get(g)!.sort((a, b) => a.name.localeCompare(b.name)) }));
   }, [draft.cards]);
+  // On a phone the groups start as their headings ("Creatures 35"), so the save step follows
+  // the summary instead of a hundred rows; on a laptop there is room to show them.
+  const [phone] = useState(narrow);
+  const isOpen = (group: string) => (openGroups ? openGroups.has(group) : !phone);
+  const setOpen = (group: string, open: boolean) => {
+    const next = new Set(openGroups ?? (phone ? [] : groups.map((g) => g.group)));
+    if (open) next.add(group);
+    else next.delete(group);
+    setOpenGroups(next);
+  };
 
   return (
     <div className="import-draft">
@@ -283,7 +344,8 @@ function DraftView({ draft, setDraft, formatLabel, deckNames }: { draft: Draft; 
             </div>
             <p className="small dim">
               {draft.commanderGuessed ? "Yama guessed this from the list. " : ""}
-              {choices.length > cmdrs.length ? (
+              {/* Also when two were guessed and no other card could lead: one of them may be wrong. */}
+              {choices.length > cmdrs.length || (draft.commanderGuessed && cmdrs.length > 1) ? (
                 <Button className="linkish" onClick={() => setChoosing(true)}>
                   Choose a different commander
                 </Button>
@@ -294,7 +356,10 @@ function DraftView({ draft, setDraft, formatLabel, deckNames }: { draft: Draft; 
           <CommanderPicker
             choices={choices}
             current={cmdrs.map((k) => k.oracle_id)}
+            unknown={draft.unknown}
+            unknownWhere="below"
             onPick={(ids) => {
+              onCommanders(ids);
               setDraft(setCommanders(draft, ids));
               setChoosing(false);
             }}
@@ -302,7 +367,7 @@ function DraftView({ draft, setDraft, formatLabel, deckNames }: { draft: Draft; 
         )}
       </div>
 
-      <UnknownLines draft={draft} setDraft={setDraft} />
+      <UnknownLines draft={draft} setDraft={setDraft} onFix={onFix} />
 
       {c.problems.length > 0 && (
         <ul className="import-problems" aria-label="Before you save">
@@ -313,18 +378,32 @@ function DraftView({ draft, setDraft, formatLabel, deckNames }: { draft: Draft; 
       )}
 
       <div className="import-groups">
-        {groups.map(({ group, cards }) => (
-          <section key={group} className="import-group">
-            <h3>
-              {group} <span className="dim num">{cards.reduce((n, x) => n + x.qty, 0)}</span>
-            </h3>
-            <ul>
-              {cards.map((card) => (
-                <CardRow key={`${card.oracle_id}-${card.board}-${card.set_code ?? ""}-${card.maybe}`} card={card} off={c.offIdentity.includes(card)} />
-              ))}
-            </ul>
-          </section>
-        ))}
+        {groups.map(({ group, cards }) => {
+          const off = cards.filter((card) => c.offIdentity.includes(card)).length;
+          const open = isOpen(group);
+          return (
+            <details
+              key={group}
+              className="import-group"
+              open={open}
+              onToggle={(e) => {
+                if (e.currentTarget.open !== open) setOpen(group, e.currentTarget.open);
+              }}
+            >
+              <summary>
+                <h3>
+                  {group} <span className="dim num">{cards.reduce((n, x) => n + x.qty, 0)}</span>
+                </h3>
+                {off > 0 && <span className="small import-warn">{off} outside the commander's colors</span>}
+              </summary>
+              <ul>
+                {cards.map((card) => (
+                  <CardRow key={`${card.oracle_id}-${card.board}-${card.set_code ?? ""}-${card.maybe}`} card={card} off={c.offIdentity.includes(card)} />
+                ))}
+              </ul>
+            </details>
+          );
+        })}
       </div>
     </div>
   );
@@ -385,10 +464,12 @@ export function SaveBar({
   setNote: (n: string) => void;
   decks: DeckSummary[];
   formatLabel: string | null;
-  onSaved: (id: string) => void;
+  /** `updated`: the save made a new version of a deck the account already had. */
+  onSaved: (id: string, updated: boolean) => void;
   onSavedMany: () => void;
 }) {
   const c = checks(draft);
+  const choice = useRef<HTMLElement>(null);
   const [mode, setMode] = useState<"new" | "update">("new");
   // Who can see a new deck: the account's default until the person picks here; what they pick
   // goes with the save and is remembered. Until the default has loaded nothing is sent, and the
@@ -430,7 +511,7 @@ export function SaveBar({
       await withHandle();
       return (await create(draft)).id;
     },
-    onSuccess: onSaved,
+    onSuccess: (id) => onSaved(id, mode === "update"),
     // A refused save shows the deck as it is now, so the changes listed are the ones a second try makes.
     onError: () => void (mode === "update" && current.refetch()),
   });
@@ -447,84 +528,105 @@ export function SaveBar({
   const busy = save.isPending || saveAll.isPending;
 
   return (
-    <section className="import-save" aria-labelledby="imp-save">
-      <h2 id="imp-save" className="visually-hidden">
-        Save
-      </h2>
-      {decks.length > 0 && (
-        <Segmented className="import-mode" label="New deck or new version" value={mode} onChange={setMode} options={[["new", "New deck"], ["update", "Update one of your decks"]]} />
-      )}
-      {mode === "update" && (
-        <div className="stack">
-          <Field label="Which deck">
-            <select value={target} onChange={(e) => setTarget(e.target.value)}>
-              <option value="">Choose a deck</option>
-              {decks.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
+    <>
+      <section className="import-save" aria-labelledby="imp-save" ref={choice}>
+        <h2 id="imp-save" className="visually-hidden">
+          Save
+        </h2>
+        {decks.length > 0 && (
+          <Segmented className="import-mode" label="New deck or new version" value={mode} onChange={setMode} options={[["new", "New deck"], ["update", "Update one of your decks"]]} />
+        )}
+        {mode === "update" && (
+          <div className="stack">
+            <Field label="Which deck">
+              <select value={target} onChange={(e) => setTarget(e.target.value)}>
+                <option value="">Choose a deck</option>
+                {decks.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <ErrorText error={current.error} />
+            {changes && (
+              <div className="import-diff">
+                {!changes.added.length && !changes.removed.length ? (
+                  <p className="dim">Same cards as {current.data?.name} now. Saving keeps a version with the printings.</p>
+                ) : (
+                  <>
+                    {changes.added.length > 0 && <DiffList title="In" sign="+" tone="import-good" lines={changes.added} />}
+                    {changes.removed.length > 0 && <DiffList title="Out" sign="−" tone="import-out" lines={changes.removed} />}
+                  </>
+                )}
+              </div>
+            )}
+            <label>
+              Note <span className="dim">(optional)</span>
+              <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Swapped in the new prints" maxLength={200} />
+            </label>
+          </div>
+        )}
+        {mode === "new" && visibility && <VisibilityChoice value={visibility} onChange={setPicked} disabled={busy} reach={{ listed: !!sharing.data?.public_listed_at, handle: !!sharing.data?.handle }} />}
+        {needsHandle && (
+          <Field
+            className="import-handle"
+            label="Your handle"
+            error={badHandle}
+            hint={`Public decks are listed on your profile. ${HANDLE_HINT} Leave it blank and the deck is public by link until you pick one.`}
+          >
+            <input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="yourname" maxLength={31} autoCapitalize="none" autoCorrect="off" spellCheck={false} disabled={busy} />
           </Field>
-          <ErrorText error={current.error} />
-          {changes && (
-            <div className="import-diff">
-              {!changes.added.length && !changes.removed.length ? (
-                <p className="dim">Same cards as {current.data?.name} now. Saving keeps a version with the printings.</p>
-              ) : (
-                <>
-                  {changes.added.length > 0 && <DiffList title="In" sign="+" tone="import-good" lines={changes.added} />}
-                  {changes.removed.length > 0 && <DiffList title="Out" sign="−" tone="import-out" lines={changes.removed} />}
-                </>
-              )}
-            </div>
+        )}
+        {/* A new deck isn't added until the choice of who can see it is on screen. */}
+        {mode === "new" && <ErrorText error={sharing.error} retry={() => void sharing.refetch()} />}
+        {mode === "update" && target && (
+          <p className="small dim">
+            The deck keeps every earlier version.
+          </p>
+        )}
+      </section>
+      {/* The save itself stays in reach at the bottom of the window however long the list is,
+          with who can see the new deck beside the button: the choice is on screen before the
+          press, and a refused save says why right there. */}
+      <div className="import-save-bar">
+        <ErrorText error={save.error ?? saveAll.error} />
+        <div className="import-save-row">
+          {mode === "update" ? (
+            <Button variant="primary" disabled={!target || !current.data || current.isFetching || !c.ready || busy} onClick={() => save.mutate()}>
+              {save.isPending ? "Saving…" : "Save as a new version"}
+            </Button>
+          ) : (
+            <Button variant="primary" disabled={!c.ready || busy || !!badHandle || !visibility} onClick={() => save.mutate()}>
+              {save.isPending ? "Adding…" : "Add the deck"}
+            </Button>
           )}
-          <label>
-            Note <span className="dim">(optional)</span>
-            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Swapped in the new prints" maxLength={200} />
-          </label>
+          {mode === "new" && drafts.length > 1 && (
+            <Button disabled={!ready.length || busy || !!badHandle || !visibility} onClick={() => saveAll.mutate()}>
+              {saveAll.isPending ? "Adding…" : `Add all ${ready.length} ready`}
+            </Button>
+          )}
+          <div className="import-save-notes small">
+            {mode === "new" && visibility && (
+              <Button className="linkish" onClick={() => choice.current?.scrollIntoView?.({ behavior: "smooth", block: "center" })}>
+                {SEEN_BY[visibility]}. <span className="import-save-change">Change</span>
+              </Button>
+            )}
+            {!c.ready && <span className="import-warn">{c.problems[0]}</span>}
+            {c.ready && c.problems.length > 0 && <span className="dim">You can save now and fix the rest later.</span>}
+          </div>
         </div>
-      )}
-      {mode === "new" && visibility && <VisibilityChoice value={visibility} onChange={setPicked} disabled={busy} reach={{ listed: !!sharing.data?.public_listed_at, handle: !!sharing.data?.handle }} />}
-      {needsHandle && (
-        <Field
-          className="import-handle"
-          label="Your handle"
-          error={badHandle}
-          hint={`Public decks are listed on your profile. ${HANDLE_HINT} Leave it blank and the deck is public by link until you pick one.`}
-        >
-          <input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="yourname" maxLength={31} autoCapitalize="none" autoCorrect="off" spellCheck={false} disabled={busy} />
-        </Field>
-      )}
-      {/* A new deck isn't added until the choice of who can see it is on screen. */}
-      {mode === "new" && <ErrorText error={sharing.error} retry={() => void sharing.refetch()} />}
-      <ErrorText error={save.error ?? saveAll.error} />
-      <div className="import-save-row">
-        {mode === "update" ? (
-          <Button variant="primary" disabled={!target || !current.data || current.isFetching || !c.ready || busy} onClick={() => save.mutate()}>
-            {save.isPending ? "Saving…" : "Save as a new version"}
-          </Button>
-        ) : (
-          <Button variant="primary" disabled={!c.ready || busy || !!badHandle || !visibility} onClick={() => save.mutate()}>
-            {save.isPending ? "Adding…" : "Add the deck"}
-          </Button>
-        )}
-        {mode === "new" && drafts.length > 1 && (
-          <Button disabled={!ready.length || busy || !!badHandle || !visibility} onClick={() => saveAll.mutate()}>
-            {saveAll.isPending ? "Adding…" : `Add all ${ready.length} ready`}
-          </Button>
-        )}
-        {!c.ready && <span className="small dim">{c.problems[0]}</span>}
-        {c.ready && c.problems.length > 0 && <span className="small dim">You can save now and fix the rest later.</span>}
       </div>
-      {mode === "update" && target && (
-        <p className="small dim">
-          The deck keeps every earlier version.
-        </p>
-      )}
-    </section>
+    </>
   );
 }
+
+/** Who can see the new deck, in the few words that fit beside the save button. */
+const SEEN_BY: Record<Visibility, string> = {
+  public: "Public: anyone can see it",
+  link: "Link only: anyone with the link can see it",
+  private: "Private: only you can see it",
+};
 
 /** One side of a new version's changes; long lists fold after the first dozen. */
 function DiffList({ title, sign, tone, lines }: { title: string; sign: string; tone: string; lines: { name: string; qty: number; board: string }[] }) {

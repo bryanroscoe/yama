@@ -1749,3 +1749,10 @@ button.conf-mark:focus-visible {
   overflow-wrap: anywhere;
   font-variant-numeric: tabular-nums;
 }
+
+/* "Start from a precon": what to do, for someone who came to find the deck they own. */
+.lab-start {
+  margin: 12px 0 0;
+  max-width: 60ch;
+  font-weight: 700;
+}

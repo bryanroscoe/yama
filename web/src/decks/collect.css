@@ -44,6 +44,44 @@
   grid-column: 2;
 }
 
+/* The answer sits right under the summary and stays at the top of the sheet while the lists
+   below it are open and scrolled. Pinned, it reaches up over the sheet's own top padding (20 px,
+   28 px on a laptop), so no row shows through above it; the negative margin gives that reach
+   back while it rests in place. */
+.collect-answer {
+  position: sticky;
+  top: -20px;
+  z-index: 1;
+  margin-top: -12px;
+  padding: 20px 0 8px;
+  background: var(--surface);
+}
+@media (min-width: 900px) {
+  .collect-answer {
+    top: -28px;
+    margin-top: -16px;
+    padding-top: 28px;
+  }
+}
+
+/* The proxy list is a fold; its rows read as choices, not as the fold's small dim print. */
+.collect-proxies .collect-choices {
+  color: var(--text);
+}
+.collect-proxies .collect-choices > p {
+  margin: 0 0 0.2rem;
+}
+
+/* After a saved edit, on the deck page: one quiet line for the cards the deck's box is short of. */
+.collect-offer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 0 0 12px;
+  color: var(--dim);
+}
+
 .collect-cards {
   margin: 0.25rem 0 0;
   padding: 0;
@@ -67,6 +105,8 @@
   display: flex;
   gap: 0.6rem;
   align-items: start;
+  /* A sentence beside a checkbox, not a field's name. */
+  font-weight: 400;
 }
 .collect-remove input {
   width: auto;

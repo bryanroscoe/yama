@@ -83,6 +83,28 @@ export function placesText(locations: Record<string, number>, max = 3): string {
   return all.length > max + 1 ? `${all.slice(0, max).join(", ")} and ${all.length - max} more` : all.join(", ");
 }
 
+/**
+ * Where your real copies of a deck's card are, for its row on the deck's own page: "In this deck",
+ * "In Lorehold Spirit", "Own 3, in this deck and Spares". The server's labels ("deck: Riders of
+ * Rohan", "box: Spares", "unfiled") lose their kind, and the deck being looked at is "this deck".
+ * Proxy copies elsewhere are left out: the line is about the real ones.
+ */
+export function copiesWhere(e: Pick<DeckEntry, "owned" | "locations">, deckName: string): string {
+  const places = Object.keys(e.locations)
+    .filter((k) => !k.endsWith(" (proxy)"))
+    .map((k) => {
+      const m = /^([^:]+): (.+)$/.exec(k);
+      if (m) return m[1] === "deck" && m[2] === deckName ? "this deck" : m[2]!;
+      // A deck's swappable spares arrive as "in X's box (swappable)".
+      return k === "unfiled" ? "your collection" : k.replace(/^in /, "");
+    })
+    .sort((a, b) => Number(b === "this deck") - Number(a === "this deck"));
+  const shown = places.length > 3 ? [...places.slice(0, 2), `${places.length - 2} more places`] : places;
+  const where = shown.length > 1 ? `${shown.slice(0, -1).join(", ")} and ${shown.at(-1)}` : shown[0];
+  if (!where) return e.owned > 1 ? `Own ${e.owned}` : "Yours";
+  return e.owned > 1 ? `Own ${e.owned}, in ${where}` : `In ${where}`;
+}
+
 /** Where your copies of a deck card are, from the deck page's ownership. */
 export function entryWhere(e: Partial<DeckEntry>): string | null {
   if (e.owned == null) return null;

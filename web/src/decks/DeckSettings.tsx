@@ -1,4 +1,4 @@
-// Deck settings, "Name, box and ownership" (deck page SPEC section 4; DeckControls row 7): facts
+// Deck settings (deck page SPEC section 4; DeckControls row 7): name, box and ownership, facts
 // about the deck only. The bracket lives on the bracket panel, the cards on Edit the list, Delete
 // in More.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -15,7 +15,8 @@ type Ownership = "owned" | "planned" | "";
 const OWNERSHIP: { value: Ownership; label: string }[] = [
   { value: "owned", label: "Owned" },
   { value: "planned", label: "Planned" },
-  { value: "", label: "Not recorded" },
+  // Nobody has said either way; the page's own count of real cards and proxies stands.
+  { value: "", label: "Not said" },
 ];
 
 /** The sheet's choices. `folder` is what was typed in Folder, or null while it hasn't been touched. */
@@ -116,7 +117,7 @@ export function DeckSettings({ deck, onClose: closeSheet }: { deck: DeckView; on
   }
 
   return (
-    <Dialog title="Name, box and ownership" onClose={onClose}>
+    <Dialog title="Deck settings" onClose={onClose}>
       <form className="deck-settings" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
         <Field label="Name">
           <input value={name} onChange={(e) => setName(e.target.value)} maxLength={120} required />

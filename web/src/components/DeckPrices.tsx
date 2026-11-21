@@ -13,6 +13,29 @@ export function SinglesPrice({ value }: { value: SinglesValue | undefined }) {
   </span>;
 }
 
+/** A deck tile's price: the amount alone ("$61.32", or "$61.32, partial" when some copies have
+ *  no price). The source and dates are said once for the whole grid, by `singlesSourceLine`. */
+export function SinglesAmount({ value }: { value: SinglesValue | undefined }) {
+  if (!value) return null;
+  if (value.usd == null) return <span>No price</span>;
+  return <span title={value.unpriced_copies > 0 ? `${copies(value.unpriced_copies)} without a price` : undefined}>
+    <b>{usd(value.usd)}</b>{value.unpriced_copies > 0 ? ", partial" : ""}
+  </span>;
+}
+
+/** Where a grid of tile prices comes from and their dates, once: "Deck prices are what the
+ *  singles cost: TCGplayer market via Scryfall, Nov 19 to Nov 20." Null when no tile has a price. */
+export function singlesSourceLine(values: (SinglesValue | undefined)[]): string | null {
+  const dated = values.filter((v): v is SinglesValue => !!v?.newest_date);
+  if (!dated.length) return null;
+  const oldest = dated.map((v) => v.oldest_date ?? v.newest_date!).sort()[0]!;
+  const newest = dated.map((v) => v.newest_date!).sort().at(-1)!;
+  const sources = [...new Set(dated.map((v) => v.source))].join(", ");
+  const dates = oldest === newest ? shortDate(newest) : `${shortDate(oldest)} to ${shortDate(newest)}`;
+  const partial = values.some((v) => v && v.usd != null && v.unpriced_copies > 0);
+  return `Deck prices are what the singles cost: ${sources}, ${dates}.${partial ? " Partial means some cards have no price." : ""}`;
+}
+
 const copies = (n: number) => (n === 1 ? "1 copy" : `${n} copies`);
 const unpriced = (n: number | undefined) => (n ? `, ${n} without a price` : "");
 

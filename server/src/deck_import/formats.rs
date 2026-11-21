@@ -245,6 +245,21 @@ fn take_qty(line: &str) -> (Option<i64>, &str) {
     (None, l)
 }
 
+/// A quantity written after the name instead of before it: "Rampant Growth x1". Returns the
+/// name without it. Only "xN" counts: a bare number at the end is a collector number or part of
+/// a name.
+fn take_trailing_qty(name: &str) -> (Option<i64>, &str) {
+    if let Some((front, tail)) = name.trim().rsplit_once([' ', '\t'])
+        && let Some(digits) = tail.strip_prefix(['x', 'X'])
+        && !digits.is_empty()
+        && digits.chars().all(|c| c.is_ascii_digit())
+        && !front.trim().is_empty()
+    {
+        return (digits.parse().ok(), front.trim());
+    }
+    (None, name)
+}
+
 /// Markers inside a line: TappedOut `*CMDR*`, foil `*F*`, etched `*E*`, Deckstats `#!Commander`,
 /// Archidekt `[Commander{top}]` categories and `^label^` labels. Returns the cleaned rest and what
 /// the markers said.
@@ -334,15 +349,23 @@ pub fn parse_text(text: &str) -> Parsed {
     // MTGO .txt: cards after the first blank line (with no header) are the sideboard.
     let mut blocks: Vec<Vec<usize>> = vec![vec![]];
     let mut blank_since_card = false;
+    // Cards read under the Commander heading since it was last seen.
+    let mut commander_cards = 0;
     for raw in text.lines() {
         let line = raw.trim();
         if line.is_empty() {
             blank_since_card = !lines.is_empty();
+            // A hand-typed list: the commander under its heading, a blank line, then the deck
+            // with no heading of its own. The blank line ends the Commander section.
+            if section == Section::Commander && commander_cards > 0 {
+                section = Section::Main;
+            }
             continue;
         }
         if let Some(h) = header(line) {
             section = h;
             saw_section = true;
+            commander_cards = 0;
             if h == Section::Commander {
                 commander_marked = true;
             }
@@ -371,6 +394,17 @@ pub fn parse_text(text: &str) -> Parsed {
         let (rest, markers) = take_markers(rest);
         let (card, set_code, collector_number) = take_printing(&rest);
         let card = card.trim().trim_end_matches(['*']).trim().to_string();
+        // "Rampant Growth x1": the count after the name, on a line that didn't lead with one.
+        let trailing = if qty.is_none() {
+            let (n, front) = take_trailing_qty(&card);
+            n.map(|n| (n, front.to_string()))
+        } else {
+            None
+        };
+        let (qty, card) = match trailing {
+            Some((n, front)) => (Some(n), front),
+            None => (qty, card),
+        };
         if card.is_empty() || qty == Some(0) {
             skipped.push(raw.trim().to_string());
             continue;
@@ -416,6 +450,9 @@ pub fn parse_text(text: &str) -> Parsed {
         l.maybe = markers.maybe || section == Section::Maybe;
         l.marked_commander = l.board == Board::Commander;
         l.proxy = markers.proxy;
+        if section == Section::Commander {
+            commander_cards += 1;
+        }
         blocks.last_mut().unwrap().push(lines.len());
         lines.push(l);
     }

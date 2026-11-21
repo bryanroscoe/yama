@@ -5,24 +5,34 @@ import { baseOf, versionPairs } from "./versionPairs";
 const c = (name: string, qty = 1, board: DeckCard["board"] = "main"): DeckCard => ({ oracle_id: `o-${name}`, name, qty, board });
 const names = (pairs: ReturnType<typeof versionPairs>) => pairs.map((p) => [p.in?.name ?? null, p.out?.name ?? null, p.qty]);
 
-describe("a saved list's changes as pairs", () => {
-  it("pairs cards in with cards out in name order, within each board", () => {
+describe("a saved version's changes", () => {
+  it("reads a board's lone swap as a pair, and several changes as cards in and cards out", () => {
     const before = [c("Terra", 1, "commander"), c("Sol Ring"), c("Kefka"), c("Night's Whisper"), c("Plains", 10)];
     const after = [c("Celes", 1, "commander"), c("Sol Ring"), c("Yawgmoth"), c("The One Ring"), c("Plains", 10)];
     expect(names(versionPairs(before, after))).toEqual([
+      // One commander for another is a swap.
       ["Celes", "Terra", 1],
-      ["The One Ring", "Kefka", 1],
-      ["Yawgmoth", "Night's Whisper", 1],
+      // Two in and two out: nothing says which replaced which, so no pair is claimed.
+      ["The One Ring", null, 1],
+      ["Yawgmoth", null, 1],
+      [null, "Kefka", 1],
+      [null, "Night's Whisper", 1],
     ]);
+    expect(names(versionPairs([c("Sol Ring"), c("Kefka")], [c("Sol Ring"), c("Yawgmoth")]))).toEqual([["Yawgmoth", "Kefka", 1]]);
   });
 
-  it("pairs copies by count and leaves what's unmatched on its own", () => {
+  it("counts copies, and leaves a lone swap's extra copies on their own", () => {
     const before = [c("Plains", 10), c("Island", 12), c("Cut")];
     const after = [c("Plains", 12), c("Island", 10), c("Added"), c("Also added")];
     expect(names(versionPairs(before, after))).toEqual([
-      ["Added", "Cut", 1],
-      ["Also added", "Island", 1],
-      ["Plains", "Island", 1],
+      ["Added", null, 1],
+      ["Also added", null, 1],
+      ["Plains", null, 2],
+      [null, "Cut", 1],
+      [null, "Island", 2],
+    ]);
+    expect(names(versionPairs([c("Plains", 10), c("Island", 10)], [c("Plains", 13), c("Island", 8)]))).toEqual([
+      ["Plains", "Island", 2],
       ["Plains", null, 1],
     ]);
     expect(names(versionPairs([c("Gone", 2)], []))).toEqual([[null, "Gone", 2]]);

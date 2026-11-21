@@ -146,3 +146,89 @@ export function resultText(p: CollectPreview): string {
   const left = p.left_out ? ` ${p.left_out} left out.` : "";
   return `${text.charAt(0).toUpperCase()}${text.slice(1)} into ${p.box_name}.${left}`;
 }
+
+/**
+ * Why the sheet opens by itself, carried in the navigation's state beside `?collect=1`: a deck
+ * was just added ("import"), or an existing deck's list was just saved ("edit"). A link someone
+ * pressed ("Add to my collection") carries none.
+ */
+export type CollectAfter = "import" | "edit";
+
+/** The navigation state that says why `?collect=1` is there. */
+export const collectState = (after: CollectAfter): { collectAfter: CollectAfter } => ({ collectAfter: after });
+
+/** That reason, read back from a location's state. */
+export function collectAfter(state: unknown): CollectAfter | null {
+  const after = (state as { collectAfter?: unknown } | null | undefined)?.collectAfter;
+  return after === "import" || after === "edit" ? after : null;
+}
+
+/**
+ * After a saved edit: the one line that offers the cards the deck's box is short of, or null
+ * when there is nothing to offer. Only a deck whose box already holds cards is asked: someone
+ * who keeps the deck in their collection wants the new cards there too, and someone who only
+ * keeps the list is never asked again after an edit.
+ */
+export function offerLine(p: Pick<CollectPreview, "box_exists" | "in_box" | "added" | "moved">): { text: string; action: string } | null {
+  const n = p.added + p.moved;
+  if (!p.box_exists || p.in_box <= 0 || n <= 0) return null;
+  return {
+    text: `${plural(n, "card")} in this list ${n === 1 ? "isn't" : "aren't"} in the deck's box yet.`,
+    action: n === 1 ? "Add it to your collection" : "Add them to your collection",
+  };
+}
+
+/** The offer's heading: "Add these 100 cards to your collection?", counting what the box is short of. */
+export function offerTitle(p: Pick<CollectPreview, "missing">): string {
+  if (p.missing <= 0) return "Add to my collection";
+  return p.missing === 1 ? "Add this card to your collection?" : `Add these ${p.missing} cards to your collection?`;
+}
+
+type Store = Pick<Storage, "getItem" | "setItem">;
+
+/** The decks whose offer was answered "Not now" on this device. */
+const NOT_NOW = "yama.collect.notnow";
+/** Enough for anyone's decks; the oldest answers go first. */
+const NOT_NOW_MAX = 300;
+
+const deviceStore = (): Store | null => {
+  try {
+    return typeof localStorage === "undefined" ? null : localStorage;
+  } catch {
+    return null;
+  }
+};
+
+function declinedDecks(storage: Store | null): string[] {
+  try {
+    const v: unknown = JSON.parse(storage?.getItem(NOT_NOW) ?? "[]");
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Whether "Not now" was answered for this deck on this device, so the offer isn't made by itself again. */
+export function offerDeclined(deckId: string, storage: Store | null = deviceStore()): boolean {
+  return declinedDecks(storage).includes(deckId);
+}
+
+/** Remember "Not now" for this deck on this device. More > Add to collection still opens the sheet. */
+export function declineOffer(deckId: string, storage: Store | null = deviceStore()): void {
+  try {
+    const next = [...declinedDecks(storage).filter((id) => id !== deckId), deckId].slice(-NOT_NOW_MAX);
+    storage?.setItem(NOT_NOW, JSON.stringify(next));
+  } catch {
+    // A browser that keeps nothing asks again next time.
+  }
+}
+
+/** The deck's cards were added after all: later edits may offer their new cards again. */
+export function forgetDeclined(deckId: string, storage: Store | null = deviceStore()): void {
+  try {
+    const kept = declinedDecks(storage);
+    if (kept.includes(deckId)) storage?.setItem(NOT_NOW, JSON.stringify(kept.filter((id) => id !== deckId)));
+  } catch {
+    // Nothing was kept, so there is nothing to forget.
+  }
+}

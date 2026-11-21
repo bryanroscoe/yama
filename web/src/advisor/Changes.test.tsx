@@ -76,6 +76,17 @@ describe("suggested change review", () => {
     expect(html).not.toContain("Claude");
   });
 
+  it("shows a waiting change that the newest hundred decided ones have pushed out of the full list", () => {
+    const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
+    client.setQueryData([...changesKey, "all"], [{ ...change, id: "done", status: "applied" }]);
+    client.setQueryData([...changesKey, "pending"], [{ ...change, id: "old" }]);
+    const html = renderToStaticMarkup(<QueryClientProvider client={client}><MemoryRouter><ChangesPage /></MemoryRouter></QueryClientProvider>);
+    client.clear();
+    expect(html).not.toContain("Nothing is waiting");
+    expect(html).toContain(">Apply</button>");
+    expect(html).toContain("Decided lately (1)");
+  });
+
   it("retains decided state and error handling without offering Apply after a decision", () => {
     const applied = render(<ChangeCard change={{ ...change, status: "applied", result: { link: "/decks/deck", label: "Open deck" } }} />);
     expect(applied).toContain('href="/decks/deck"');

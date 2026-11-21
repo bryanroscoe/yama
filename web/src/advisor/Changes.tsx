@@ -98,20 +98,27 @@ export function ChangesBanner() {
 
 /** Suggested changes: everything waiting, then what was decided lately. */
 export function ChangesPage() {
+  // The waiting ones are asked for on their own (the banner's question): the "all" answer is the
+  // newest hundred, and a change can wait longer than a hundred later decisions.
+  const pending = useQuery({ queryKey: [...changesKey, "pending"], queryFn: () => stagedChanges() });
   const all = useQuery({ queryKey: [...changesKey, "all"], queryFn: () => stagedChanges({ all: true }) });
   // A change decided on this visit stays in place, showing what became of it, until the page is left.
-  const [kept, setKept] = useState<ReadonlySet<string>>(new Set());
-  const keep = (id: string) => setKept((k) => new Set(k).add(id));
-  const waiting = all.data?.filter((c) => c.status === "pending" || kept.has(c.id)) ?? [];
+  // The card is given the change as it was when it stopped waiting; it shows the decision itself.
+  const [kept, setKept] = useState<ReadonlyMap<string, StagedChange>>(new Map());
+  const keep = (change: StagedChange) => setKept((k) => new Map(k).set(change.id, change));
+  const waiting = [...(pending.data ?? []), ...[...kept.values()].filter((k) => !pending.data?.some((c) => c.id === k.id))].sort(
+    (a, b) => b.created_at.localeCompare(a.created_at),
+  );
   const decided = all.data?.filter((c) => c.status !== "pending" && !kept.has(c.id)) ?? [];
   const groups = [...new Set(waiting.map((c) => c.via))];
+  const noneWaiting = !!pending.data && pending.data.length === 0;
   return (
     <main className="page">
       <AreaHead title="Suggested changes" back={{ to: "/decks", label: "Decks" }} />
-      <ChangesHowTo open={!!all.data && !waiting.some((c) => c.status === "pending")} />
-      <ErrorText error={all.error} />
-      {all.isPending && <Loading />}
-      {all.data && !waiting.some((c) => c.status === "pending") && <p>Nothing is waiting for your review.</p>}
+      <ChangesHowTo open={noneWaiting} />
+      <ErrorText error={pending.error ?? all.error} />
+      {pending.isPending && <Loading />}
+      {noneWaiting && <p>Nothing is waiting for your review.</p>}
       {groups.map((via) => (
         <section key={via} className="ask-changes-group">
           <h2 className="small dim">{VIA[via]}</h2>
@@ -119,7 +126,7 @@ export function ChangesPage() {
             {waiting
               .filter((c) => c.via === via)
               .map((c) => (
-                <ChangeCard key={c.id} change={c} onDecided={keep} />
+                <ChangeCard key={c.id} change={c} onDecided={() => keep(c)} />
               ))}
           </div>
         </section>

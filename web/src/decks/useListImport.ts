@@ -4,7 +4,7 @@ import { useMutation } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { api } from "../api";
 import { guideFor } from "./guides";
-import type { Draft, ImportPreview, PreviewDeck } from "./importLogic";
+import { applyFixes, fixKey, noFixes, type Draft, type ImportCardInfo, type ImportPreview, type PreviewDeck } from "./importLogic";
 
 /** The most one file may weigh (a deck list is a few KB; a big CSV export about 1 MB). */
 export const MAX_FILE = 2 << 20;
@@ -143,6 +143,19 @@ export function useListImport({
   const touched = useRef(false);
   const draftOf = useRef(makeDraft);
   draftOf.current = makeDraft;
+  /**
+   * What the person fixed in the reading (a line that matched no card, the commander, the name).
+   * Every change to the text is read afresh, so the fixes are made again on each new reading;
+   * they are forgotten when the box is emptied or a whole other list replaces it.
+   */
+  const fixes = useRef(noFixes());
+  /**
+   * Whether the list came in whole (a paste, a file, a drop, a list Yama loaded) rather than
+   * being typed: the page then makes room for its reading. `arrival` counts the lists the
+   * person brought in themselves, so the page can show each one's reading once.
+   */
+  const [whole, setWhole] = useState(() => !!initialText().trim());
+  const [arrival, setArrival] = useState(0);
 
   const check = useMutation({
     mutationFn: async ({ sources }: { sources: Source[]; request: number }) => {
@@ -157,7 +170,9 @@ export function useListImport({
       const first = results[0]?.preview ?? null;
       setPreview(first);
       if (first?.link && !first.link.fetched) setGuideKey(guideFor(first.link.site)?.key ?? "text");
-      setDrafts(results.flatMap(({ source, preview }) => preview.decks.map((d) => draftOf.current(d, source))));
+      const read = results.flatMap(({ source, preview }) => preview.decks.map((d) => draftOf.current(d, source)));
+      // A typed name belongs to the one deck it was typed for.
+      setDrafts(read.map((d) => applyFixes(d, read.length === 1 ? fixes.current : { ...fixes.current, name: null })));
       setDraftEdited(false);
       setActive(0);
     },
@@ -184,6 +199,17 @@ export function useListImport({
     setPreview(null);
     setText(next);
     lastChecked.current = "";
+    if (!next.trim()) {
+      // An emptied box starts over: nothing fixed in the old list carries into the next.
+      fixes.current = noFixes();
+      setWhole(false);
+    }
+  }, []);
+
+  /** A whole list is about to replace the box (Paste, a file, a loaded list): the old list's fixes go with it. */
+  const startOver = useCallback(() => {
+    fixes.current = noFixes();
+    setWhole(true);
   }, []);
 
   /** Fill an empty box from a preload (the deck's list, a precon, a shared deck), unless the person got there first. */
@@ -192,6 +218,7 @@ export function useListImport({
     touched.current = true;
     setText((t) => t || next);
     setGiven((t) => t || next);
+    setWhole(true);
   }, []);
 
   /** Load a list into the box (a start list); a newer load or the person's typing wins. Resolves
@@ -204,6 +231,7 @@ export function useListImport({
     setPreview(null);
     setNotice(null);
     setSourceLoading(true);
+    startOver();
     try {
       const next = await load();
       if (request === sourceRequest.current && next !== null) {
@@ -223,7 +251,7 @@ export function useListImport({
     } finally {
       if (request === sourceRequest.current) setSourceLoading(false);
     }
-  }, [runCheck]);
+  }, [runCheck, startOver]);
 
   // Check the box a moment after typing stops (and straight away after a paste, a file or a share).
   useEffect(() => {
@@ -269,6 +297,8 @@ export function useListImport({
     if (sources.length === 1) setUserText(sources[0]!.text);
     else setUserText("");
     lastChecked.current = sources.length === 1 ? sources[0]!.text : "";
+    startOver();
+    setArrival((n) => n + 1);
     runCheck(sources);
   };
 
@@ -287,14 +317,34 @@ export function useListImport({
       );
       if (t === null) return;
       setUserText(t);
+      startOver();
+      setArrival((n) => n + 1);
       runCheck([{ text: t }]);
     } catch {
       setNotice("This browser didn't let Yama read the clipboard. Press and hold in the box and choose Paste instead.");
     }
   };
 
+  /** The box's text as last drawn: what it held just before the edit being handled. */
+  const shownText = useRef(text);
+  shownText.current = text;
   /** Props for the box: typing, a paste (checked at once) and a dropped file or text. */
-  const edits = useMemo(() => boxEdits({ setUserText, runCheck }), [setUserText, runCheck]);
+  const edits = useMemo(
+    () =>
+      boxEdits({
+        setUserText,
+        // Only a paste checks straight from the box (typing waits for its pause). Into an empty
+        // box it is a whole list arriving; into a list it is one more edit, and nothing moves.
+        runCheck: (sources) => {
+          if (!shownText.current.trim()) {
+            setWhole(true);
+            setArrival((n) => n + 1);
+          }
+          runCheck(sources);
+        },
+      }),
+    [setUserText, runCheck],
+  );
   const boxProps = { value: text, ...edits };
   const planFor = (e: DragEvent, files: boolean) => dropPlan({ files, boxHasText: !!text.trim(), overBox: e.target instanceof HTMLTextAreaElement });
   const dropProps = {
@@ -316,7 +366,11 @@ export function useListImport({
       if (plan === "files") void readFiles(e.dataTransfer.files);
       else if (plan === "fill") {
         const t = e.dataTransfer.getData("text/plain");
-        if (t) setUserText(t);
+        if (t) {
+          setUserText(t);
+          setWhole(true);
+          setArrival((n) => n + 1);
+        }
       }
     },
   };
@@ -324,14 +378,24 @@ export function useListImport({
   const draft = drafts[active];
   const setDraft = (d: Draft) => {
     setDraftEdited(true);
+    // A name the person typed for the one deck in the box stays theirs when the list is read again.
+    if (drafts.length === 1 && draft && d.name !== draft.name) fixes.current.name = d.name.trim() ? d.name : null;
     setDrafts((all) => all.map((x, i) => (i === active ? d : x)));
   };
+  /** The card picked for a line that matched none (null: leave it out), to make again on the next reading. */
+  const rememberFix = useCallback((written: string, pick: ImportCardInfo | null) => {
+    fixes.current.lines.set(fixKey(written), pick);
+  }, []);
+  /** The commanders the person picked, to pick again on the next reading. */
+  const rememberCommanders = useCallback((oracleIds: string[]) => {
+    fixes.current.commanders = oracleIds;
+  }, []);
   const unsaved = unsavedList({ text, given, drafts: drafts.length, draftEdited });
   unsavedNow.current = unsaved;
 
   return {
     text, setUserText, prefill, loadList, sourceLoading,
-    preview, drafts, draft, setDraft, active, setActive,
+    preview, drafts, draft, setDraft, rememberFix, rememberCommanders, active, setActive, whole, arrival,
     check, runCheck, notice, setNotice, guideKey, setGuideKey, dragging,
     readFiles, pasteFromClipboard, boxProps, dropProps, unsaved,
   };

@@ -5,7 +5,7 @@ import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 import type { DeckView } from "../api";
 import { Button } from "../components/ui";
-import { ResetConfirm, ShareDeck, shareLabel, VISIBILITY_CHOICES } from "./ShareDeck";
+import { ResetConfirm, ShareDeck, shareLabel, suggestedListName, VISIBILITY_CHOICES } from "./ShareDeck";
 
 /** The buttons in an element tree, by their text. */
 function buttons(node: ReactNode, out: { text: string; onClick?: () => void }[] = []) {
@@ -40,6 +40,15 @@ describe("who can see a deck, by name", () => {
 
   it("is on the deck page's Share button", () => {
     expect([shareLabel("private"), shareLabel("link"), shareLabel("public")]).toEqual(["Share: private", "Share: link only", "Share: public"]);
+  });
+});
+
+describe("a new list's suggested name", () => {
+  const ref = (id: string, configuration: string | null) => ({ id, name: "Riders", configuration, visibility: "private" as const, share_token: null });
+  it("counts on from the lists the deck has, skipping a name already used", () => {
+    expect(suggestedListName({ configurations: [ref("m", null)] })).toBe("List 2");
+    expect(suggestedListName({ configurations: [ref("m", null), ref("s", "stock")] })).toBe("List 3");
+    expect(suggestedListName({ configurations: [ref("m", null), ref("a", "List 3")] })).toBe("List 4");
   });
 });
 

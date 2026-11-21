@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checks, commanderChoices, diff, draftFrom, dropUnknown, fixUnknown, printLine, setCommanders, sharedText, toSave, type ImportCard, type ImportCardInfo, type PreviewDeck } from "./importLogic";
+import { applyFixes, checks, commanderChoices, diff, draftFrom, dropUnknown, fixKey, fixUnknown, noFixes, printLine, setCommanders, sharedText, toSave, type ImportCard, type ImportCardInfo, type PreviewDeck } from "./importLogic";
 
 const info = (oracle_id: string, name: string, color_identity = "", extra: Partial<ImportCardInfo> = {}): ImportCardInfo => ({
   oracle_id,
@@ -157,5 +157,72 @@ describe("helpers", () => {
   it("names a printing briefly", () => {
     expect(printLine({ set_code: "c21", collector_number: "263", finish: "foil" })).toBe("C21 263, foil");
     expect(printLine({ set_code: null, collector_number: null, finish: null })).toBe("");
+  });
+});
+
+describe("fixes kept while the list is read again", () => {
+  const unknown = (name: string, board: ImportCard["board"] = "main") => ({ name, qty: 1, board, maybe: false, set_code: null, collector_number: null, finish: null, suggestions: [] });
+  const read = () => draftFrom(deck([card(sol), card(krenko)], { name: null, commander_marked: true, unknown: [unknown("Atraxa, Praetor's Voice", "commander"), unknown("Zzz Qqq"), unknown("Lightnig Bolt")] }));
+
+  it("makes each fix again on a new reading, by the name as written", () => {
+    const fixes = noFixes();
+    fixes.lines.set(fixKey("Atraxa, Praetor's Voice"), atraxa);
+    fixes.lines.set(fixKey(" zzz qqq "), null);
+    const d = applyFixes(read(), fixes);
+    expect(d.unknown.map((u) => u.name)).toEqual(["Lightnig Bolt"]);
+    expect(d.cards.find((c) => c.oracle_id === "o-atraxa")).toMatchObject({ board: "commander", written_as: "Atraxa, Praetor's Voice" });
+    // The deck had no name: it takes its commander's, as if the line had matched.
+    expect(d.name).toBe("Atraxa");
+    // Nothing fixed: the reading is as the server gave it.
+    expect(applyFixes(read(), noFixes())).toEqual(read());
+  });
+
+  it("picks the commanders again when they are still in the list, and keeps a typed name", () => {
+    const fixes = { ...noFixes(), commanders: ["o-krenko"], name: "Goblins" };
+    const d = applyFixes(read(), fixes);
+    expect(d.cards.find((c) => c.oracle_id === "o-krenko")!.board).toBe("commander");
+    expect(d.name).toBe("Goblins");
+    // A pick that names a card no longer in the list is let go.
+    const gone = applyFixes(read(), { ...noFixes(), commanders: ["o-atraxa"] });
+    expect(gone.cards.every((c) => c.board !== "commander")).toBe(true);
+  });
+
+  it("a fixed commander or a picked one names a deck that has no name, and leaves a name alone", () => {
+    const named = { ...read(), name: "Mine" };
+    expect(fixUnknown(named, 0, atraxa).name).toBe("Mine");
+    expect(fixUnknown(read(), 0, atraxa).name).toBe("Atraxa");
+    expect(fixUnknown(read(), 2, bolt).name).toBe("");
+    expect(setCommanders(read(), ["o-krenko"]).name).toBe("Krenko");
+    expect(setCommanders(named, ["o-krenko"]).name).toBe("Mine");
+  });
+});
+
+describe("two partners at the top of a list with no heading", () => {
+  const thrasios = info("o-thrasios", "Thrasios, Triton Hero", "UG", { can_be_commander: true, partner: true, type_line: "Legendary Creature" });
+  const tymna = info("o-tymna", "Tymna the Weaver", "WB", { can_be_commander: true, partner: true, type_line: "Legendary Creature" });
+  const leaders = (d: PreviewDeck) => draftFrom(d).cards.filter((c) => c.board === "commander").map((c) => c.name);
+
+  it("both lead, as a guess, and name the deck", () => {
+    const d = deck([card(thrasios, 1, "commander"), card(tymna), card(sol)], { name: null, commander_guessed: true });
+    expect(leaders(d)).toEqual(["Thrasios, Triton Hero", "Tymna the Weaver"]);
+    expect(draftFrom(d).name).toBe("Thrasios and Tymna the Weaver");
+    expect(draftFrom(d).commanderGuessed).toBe(true);
+  });
+
+  it("only when the second card has Partner too, sits next, and the list didn't name its commander", () => {
+    expect(leaders(deck([card(thrasios, 1, "commander"), card(atraxa), card(sol)], { commander_guessed: true }))).toEqual(["Thrasios, Triton Hero"]);
+    expect(leaders(deck([card(thrasios, 1, "commander"), card(sol), card(tymna)], { commander_guessed: true }))).toEqual(["Thrasios, Triton Hero"]);
+    expect(leaders(deck([card(atraxa, 1, "commander"), card(tymna), card(sol)], { commander_guessed: true }))).toEqual(["Atraxa, Praetors' Voice"]);
+    expect(leaders(deck([card(thrasios, 1, "commander"), card(tymna), card(sol)], { commander_marked: true }))).toEqual(["Thrasios, Triton Hero"]);
+    expect(leaders(deck([card(thrasios, 1, "commander"), card(tymna, 1, "side"), card(sol)], { commander_guessed: true }))).toEqual(["Thrasios, Triton Hero"]);
+  });
+});
+
+describe("counts in words", () => {
+  it("says 1 card, not 1 cards", () => {
+    const one = checks(draftFrom(deck([card(sol)])));
+    expect(one.problems).toContain("1 card with the commander: 99 short of 100.");
+    const two = checks(draftFrom(deck([card(sol), card(bolt)])));
+    expect(two.problems).toContain("2 cards with the commander: 98 short of 100.");
   });
 });

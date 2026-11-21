@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BuildChoice, BuildFamily } from "./buildCatalog";
-import { newListName, otherLists, pairEdits, startButtons, type CardFacts } from "./editList";
+import { newListName, otherLists, ownListLabel, pairEdits, startButtons, type CardFacts } from "./editList";
 
 const choice = (c: Partial<BuildChoice> & Pick<BuildChoice, "id" | "kind">): BuildChoice => ({ label: c.id, source: `from ${c.id}`, href: "", warnings: [], ...c });
 const family = (choices: BuildChoice[]): BuildFamily => ({ key: "saved:m", name: "Revival Trance", choices });
@@ -34,6 +34,17 @@ describe("start buttons", () => {
     const b = startButtons(undefined, main);
     expect(b).toHaveLength(1);
     expect(b[0]!.choice?.savedDeck).toBe("m");
+  });
+
+  it("calls a deck with no box and no other list This deck, and one with either the list in the box", () => {
+    expect(ownListLabel(undefined, main)).toBe("This deck");
+    expect(startButtons(undefined, main)[0]!.label).toBe("This deck");
+    expect(ownListLabel(undefined, { ...main, container_id: "c1" })).toBe("The list in the box");
+    expect(ownListLabel(undefined, { ...main, configurations: [{}, {}] })).toBe("The list in the box");
+    // The catalog knows another saved list of the deck.
+    expect(ownListLabel(f, main)).toBe("The list in the box");
+    // Another list of a deck keeps its own name.
+    expect(ownListLabel(f, { id: "s", name: "Revival Trance (stock)", parent_id: "m", configuration: "stock" })).toBe("Stock");
   });
 
   it("puts everything else, then saved versions newest first, under Another list", () => {

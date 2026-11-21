@@ -29,8 +29,13 @@ const deck = {
 let host: HTMLElement;
 let root: Root;
 const text = () => document.querySelector<HTMLTextAreaElement>("textarea")!.value;
+const formats = () => document.querySelector<HTMLSelectElement>('select[name="export-format"]')!;
 const pick = (label: string) =>
-  act(() => [...document.querySelectorAll("label")].find((l) => l.textContent!.startsWith(label))!.querySelector("input")!.click());
+  act(() => {
+    const select = formats();
+    select.value = [...select.options].find((o) => o.textContent!.startsWith(label))!.value;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
 const downloadButton = () => [...document.querySelectorAll("button")].find((b) => b.textContent!.startsWith("Download"))!;
 
 beforeEach(() => {
@@ -48,8 +53,13 @@ afterEach(() => {
 
 describe("Export deck", () => {
   it("offers every format, names only first", () => {
-    const labels = [...document.querySelectorAll('input[name="export-format"]')].map((i) => i.parentElement!.firstChild!.nextSibling!.textContent);
+    const labels = [...formats().options].map((o) => o.textContent);
     expect(labels).toEqual(["Names only", "Moxfield", "MTG Arena", "Archidekt", "Magic Online (.dek)", "Cockatrice (.cod)", "CSV"]);
+    // One compact choice, with what the chosen format is for; Copy and Download come before it.
+    expect(document.body.textContent).toContain("Commander and Deck headings, no set codes.");
+    expect(document.body.textContent).not.toContain("Arena's import format");
+    const copy = [...document.querySelectorAll("button")].find((b) => b.textContent === "Copy")!;
+    expect(copy.compareDocumentPosition(formats()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(text()).toBe("Commander\n1 Éowyn, Shieldmaiden\n\nDeck\n1 Sol Ring\n");
     expect(downloadButton().textContent).toBe("Download .txt");
   });
