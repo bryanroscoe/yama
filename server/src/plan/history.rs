@@ -515,6 +515,12 @@ struct VersionRow {
     decided_at: String,
 }
 
+/// Said after an answer given before its change last changed: it doesn't stand for the change as
+/// it is now (`standing`), and the change is open again until it's answered or taken in.
+fn stale(s: &SwapRow, at: &str) -> &'static str {
+    if s.stage == "proposed" && at < s.updated_at.as_str() { ", given before the change last changed, so it no longer stands" } else { "" }
+}
+
 /// Whether an entry's group is this group: a plan file may change a label's capitalization later.
 fn same_group(entry: Option<&str>, group: Option<&str>) -> bool {
     matches!((entry, group), (Some(a), Some(b)) if a.eq_ignore_ascii_case(b))
@@ -792,7 +798,7 @@ pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>
                     Some((Some(d), note, at, origin, _)) => {
                         let note = note.as_deref().map(|n| format!(", note \"{n}\"")).unwrap_or_default();
                         let whose = if origin == "import" { "The plan file's answer" } else { "Their answer" };
-                        let _ = writeln!(out, "- {whose}: {d}{note} ({}).", day(at));
+                        let _ = writeln!(out, "- {whose}: {d}{note} ({}){}.", day(at), stale(s, at));
                     }
                     _ if s.stage == "proposed" => out.push_str("- No answer yet.\n"),
                     _ => {}
@@ -820,7 +826,7 @@ pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>
                     && origin == "import"
                 {
                     let note = note.as_deref().filter(|n| !n.trim().is_empty()).map(|n| format!(" \"{n}\"")).unwrap_or_default();
-                    said.push(format!("{} {}{note} (from the plan file)", day(at), d.as_deref().unwrap_or("cleared")));
+                    said.push(format!("{} {}{note} (from the plan file){}", day(at), d.as_deref().unwrap_or("cleared"), stale(s, at)));
                 }
                 let _ = writeln!(out, "- Answers, oldest first: {}.", said.join("; "));
             }
@@ -1034,7 +1040,7 @@ pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>
             && told.insert(from.as_str())
         {
             let note = note.as_deref().filter(|n| !n.trim().is_empty()).map(|n| format!(" \"{n}\"")).unwrap_or_default();
-            said.push((day(at).to_string(), format!("The plan file's answer on {}: {}{note}.", s.label(), d.as_deref().unwrap_or("cleared"))));
+            said.push((day(at).to_string(), format!("The plan file's answer on {}: {}{note}{}.", s.label(), d.as_deref().unwrap_or("cleared"), stale(s, at))));
         }
     }
     said.sort_by(|a, b| a.0.cmp(&b.0));
