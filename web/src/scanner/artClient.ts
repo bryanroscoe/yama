@@ -4,7 +4,7 @@
 import { api, API_BASE } from "../api";
 import type { LookCandidate, LookDone, LookWorkerReply, LookWorkerRequest, WireFrame } from "./look";
 import type { ModelOption, ModelsInfo } from "./models";
-import type { Recognition } from "./recognizer";
+import type { Located, Recognition } from "./recognizer";
 import type { Quad, RgbaImage } from "./types";
 
 export interface BundleInfo {
@@ -37,7 +37,10 @@ export type ArtWorkerRequest =
   | { type: "reset"; frames?: boolean }
   | { type: "detector"; id: number; file: EmbedFile }
   | { type: "pool"; id: number; keys: PoolKeys | null }
-  | { type: "identify"; id: number; width: number; height: number; buffer: ArrayBuffer };
+  /** `quad`: the card's corners in this frame, from a `locate` of it: the finder isn't run again. */
+  | { type: "identify"; id: number; width: number; height: number; buffer: ArrayBuffer; quad?: Quad | null }
+  /** The card finder alone (the placement gate, gate.ts). */
+  | { type: "locate"; id: number; width: number; height: number; buffer: ArrayBuffer };
 
 export type ArtWorkerReply =
   | { type: "progress"; loaded: number; total: number }
@@ -48,6 +51,7 @@ export type ArtWorkerReply =
   | { type: "frames"; id: number; frames: WireFrame[] }
   /** Where the card finder placed the card in an `identify` frame, sent before its art is matched. */
   | { type: "seen"; id: number; quad: Quad | null }
+  | { type: "located"; id: number; located: Located; buffer: ArrayBuffer }
   | { type: "result"; id: number; result: Recognition; buffer: ArrayBuffer }
   | { type: "failed"; id: number; message: string; buffer: ArrayBuffer };
 
@@ -68,7 +72,13 @@ export interface ArtRecognizer {
    * Takes ownership of `image.data`'s buffer. `onSeen` hears where the card finder placed the card
    * (or null) before the art is matched, for the outline (outline.ts).
    */
-  identify(image: RgbaImage, onSeen?: (quad: Quad | null) => void): Promise<Recognition>;
+  identify(image: RgbaImage, onSeen?: (quad: Quad | null) => void, at?: Quad | null): Promise<Recognition>;
+  /**
+   * The card finder alone, for the placement gate (gate.ts): where the card is in `image`, how
+   * sharp, and its thumbnail. Takes `image.data`'s buffer and hands the frame back as `image`,
+   * whole, so the gate can keep it and have it read later (`identify(image, undefined, quad)`).
+   */
+  locate(image: RgbaImage): Promise<Located & { image: RgbaImage }>;
   /** Forget the card being tracked (between photos, say). */
   reset(opts?: { frames?: boolean }): void;
   /**
@@ -205,6 +215,7 @@ export async function loadArtRecognizer(onState?: (s: LoadState) => void, opts: 
 async function startRecognizer(info: BundleInfo, art: { id: string; file: string; bytes: number }, detector: { id: string; file: string; bytes: number }, onState?: (s: LoadState) => void): Promise<ArtRecognizer> {
   const worker = new Worker(new URL("./art.worker.ts", import.meta.url), { type: "module" });
   const pending = new Map<number, { resolve: (r: Recognition) => void; reject: (e: Error) => void }>();
+  const locating = new Map<number, { resolve: (l: Located & { buffer: ArrayBuffer }) => void; reject: (e: Error) => void }>();
   /** Who hears where the finder placed the card in each frame being identified. */
   const seeing = new Map<number, (quad: Quad | null) => void>();
   const pooling = new Map<number, (arts: number) => void>();
@@ -300,11 +311,21 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
       framing.delete(m.id);
       return;
     }
+    if (m.type === "located") {
+      locating.get(m.id)?.resolve({ ...m.located, buffer: m.buffer });
+      locating.delete(m.id);
+      return;
+    }
     if (m.type === "seen") {
       seeing.get(m.id)?.(m.quad);
       return;
     }
     if (m.type !== "result" && m.type !== "failed") return;
+    if (m.type === "failed" && locating.has(m.id)) {
+      locating.get(m.id)!.reject(new Error(m.message));
+      locating.delete(m.id);
+      return;
+    }
     const p = pending.get(m.id);
     pending.delete(m.id);
     seeing.delete(m.id);
@@ -315,6 +336,8 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
     for (const p of pending.values()) p.reject(new Error(e.message || "The card recognizer stopped"));
     pending.clear();
     seeing.clear();
+    for (const p of locating.values()) p.reject(new Error(e.message || "The card recognizer stopped"));
+    locating.clear();
     for (const p of embedding.values()) p(e.message || "The card recognizer stopped");
     embedding.clear();
     for (const p of framing.values()) p([]);
@@ -446,14 +469,24 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
       switching = done.catch(() => undefined);
       return done;
     },
-    identify(image, onSeen) {
+    locate(image) {
+      if (disposed) return Promise.reject(new Error("The scanner is closed"));
+      const id = nextId++;
+      const { width, height } = image;
+      const buffer = image.data.buffer as ArrayBuffer;
+      return new Promise<Located & { image: RgbaImage }>((resolve, reject) => {
+        locating.set(id, { resolve: ({ buffer: back, ...l }) => resolve({ ...l, image: { width, height, data: new Uint8ClampedArray(back) } }), reject });
+        worker.postMessage({ type: "locate", id, width, height, buffer } satisfies ArtWorkerRequest, [buffer]);
+      });
+    },
+    identify(image, onSeen, at) {
       if (disposed) return Promise.reject(new Error("The scanner is closed"));
       const id = nextId++;
       if (onSeen) seeing.set(id, onSeen);
       const buffer = image.data.buffer as ArrayBuffer;
       return new Promise<Recognition>((resolve, reject) => {
         pending.set(id, { resolve, reject });
-        worker.postMessage({ type: "identify", id, width: image.width, height: image.height, buffer } satisfies ArtWorkerRequest, [buffer]);
+        worker.postMessage({ type: "identify", id, width: image.width, height: image.height, buffer, quad: at ?? undefined } satisfies ArtWorkerRequest, [buffer]);
       });
     },
     reset(opts) {
@@ -473,6 +506,8 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
       for (const p of pending.values()) p.reject(new Error("The scanner is closed"));
       pending.clear();
       seeing.clear();
+      for (const p of locating.values()) p.reject(new Error("The scanner is closed"));
+      locating.clear();
       for (const p of pooling.values()) p(-1);
       pooling.clear();
       for (const p of embedding.values()) p("The scanner is closed");

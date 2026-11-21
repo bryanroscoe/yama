@@ -106,6 +106,7 @@ vi.mock("./artClient", async (original) => ({
         matches: [{ index: 4, id: "p-new", name: "Arcane Signet", set: "eoc", number: "101", illustrationId: "ill-signet", layout: "normal", printings: 3, score: 0.93 }],
         timings: { detectMs: 1, embedMs: 1, totalMs: 2 },
       }),
+      locate: () => new Promise(() => undefined),
       reset: () => undefined,
       setPool: async () => -1,
       dispose: () => undefined,
