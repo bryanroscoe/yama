@@ -6,8 +6,8 @@ uses the graph's centre crops (look_crops.py), so it scores what the exported gr
 About 7 minutes for 8 epochs on an M3 Pro's GPU (MPS), 20 Nov 2026. MAXSTEPS ends the run after that many
 steps, with that epoch saved and scored (a smoke test). SEED (default 0) seeds Python, NumPy, Torch and the
 loader's workers. runs/<run>/run.json records it with the arguments, the groups file's SHA-256, look_gen.py's
-manifest (data/look_gen.json), a fingerprint of the crop files (names and sizes), and this code's and the
-libraries' versions. The GPU's
+manifest (data/look_gen.json), a fingerprint of the crop files (names and contents), and this code's and
+the libraries' versions. It uses as many captures per printing as look_gen.py made (its K). The GPU's
 own arithmetic isn't bit-for-bit repeatable, so a rerun matches closely, not exactly. Every training
 printing must have its crops (look_gen.py); ALLOW_INCOMPLETE=1 trains without the missing ones.
 python <lab>/look_train.py RUN [epochs] [batch]"""
@@ -19,6 +19,8 @@ from look_crops import MX, MY, SW, SH, symbol_patch, centre, cases
 from paths import REAL
 
 MAX = 6
+# Captures per printing: look_gen.py's K, from its manifest (2 when there is none, as on 20 Nov 2026).
+K = json.load(open("data/look_gen.json"))["k"] if os.path.exists("data/look_gen.json") else 2
 
 
 def load(path):
@@ -31,11 +33,11 @@ def shifted(patch, rng):
 
 
 def fingerprint(*dirs):
-    """SHA-256 over every crop file's name and size: changes when the crops are made again differently."""
+    """SHA-256 over every crop file's name and contents (about 2 GB: a few seconds)."""
     h = hashlib.sha256()
     for d in dirs:
         for e in sorted(os.scandir(d), key=lambda e: e.name):
-            h.update(f"{d}/{e.name} {e.stat().st_size}\n".encode())
+            h.update(f"{d}/{e.name}\n".encode()); h.update(hashlib.sha256(open(e.path, "rb").read()).digest())
     return h.hexdigest()
 
 
@@ -52,7 +54,7 @@ class Groups(Dataset):
         rng = np.random.default_rng(np.random.randint(2 ** 31))
         members = self.groups[k][:]; random.shuffle(members); members = members[:MAX]
         q = random.choice(members)
-        qimg = photometric(rng, shifted(load(f"data/pq2/{q}_{rng.integers(0, 2)}.jpg"), rng))
+        qimg = photometric(rng, shifted(load(f"data/pq2/{q}_{rng.integers(0, K)}.jpg"), rng))
         keys = []
         for m in members:
             c = centre(load(f"data/pk2/{m}.jpg"))
@@ -118,7 +120,7 @@ def main():
     d = json.loads(raw)
     groups, val, missing = [], [], 0
     for g in d["train"]:
-        ms = [p["id"] for p in g["printings"] if all(os.path.exists(f) for f in (f"data/pk2/{p['id']}.jpg", f"data/pq2/{p['id']}_0.jpg", f"data/pq2/{p['id']}_1.jpg"))]
+        ms = [p["id"] for p in g["printings"] if os.path.exists(f"data/pk2/{p['id']}.jpg") and all(os.path.exists(f"data/pq2/{p['id']}_{k}.jpg") for k in range(K))]
         missing += len(g["printings"]) - len(ms)
         if len(ms) < 2: continue
         (val if int(hashlib.md5(g["ill"].encode()).hexdigest(), 16) % 50 == 0 else groups).append(ms)
@@ -128,7 +130,7 @@ def main():
     lab = os.path.dirname(os.path.abspath(__file__))
     code = {f: hashlib.sha256(open(os.path.join(lab, f), "rb").read()).hexdigest() for f in ("look_train.py", "look_net.py", "look_crops.py")}
     gen = json.load(open("data/look_gen.json")) if os.path.exists("data/look_gen.json") else None
-    json.dump({"run": run, "epochs": epochs, "batch": bs, "seed": seed, "maxsteps": os.environ.get("MAXSTEPS"),
+    json.dump({"run": run, "epochs": epochs, "batch": bs, "seed": seed, "captures_per_printing": K, "maxsteps": os.environ.get("MAXSTEPS"),
                "groups_sha256": hashlib.sha256(raw).hexdigest(), "crops_fingerprint": fingerprint("data/pk2", "data/pq2"),
                "look_gen": gen, "code_sha256": code, "torch": torch.__version__, "torchvision": torchvision.__version__,
                "numpy": np.__version__, "opencv": cv2.__version__, "train_groups": len(groups), "held_out": len(val),
