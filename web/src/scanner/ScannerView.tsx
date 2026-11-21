@@ -1206,7 +1206,7 @@ export function ScannerView({
       };
       // The same sizes the browser's camera is asked for, below.
       const size = identityOnly ? { width: 1920, height: 1080 } : { width: 3840, height: 2160 };
-      const native = openNativeCamera(el, { lens: nativeOpt.lens, fps: nativeOpt.fps, ...size, focus: nativeOpt.focus, torchLevel: nativeOpt.torchLevel }, { onInfo: told });
+      const native = openNativeCamera(el, { lens: nativeOpt.lens, fps: nativeOpt.fps, ...size, torchLevel: nativeOpt.torchLevel }, { onInfo: told });
       nativeCam.current = native;
       native.ready.then(
         (info) => {
@@ -1321,7 +1321,7 @@ export function ScannerView({
       stream?.getTracks().forEach((t) => t.stop());
     };
     // cam.attach and haltReaders are stable for this purpose. The app's camera reopens for a new
-    // lens or capture rate; its focus and flashlight strength change as it runs.
+    // lens or capture rate; its flashlight strength changes as it runs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cameraId, useNative, nativeOpt.lens, nativeOpt.fps]);
 

@@ -129,15 +129,18 @@ afterEach(() => {
 
 describe("the option", () => {
   it("is off, automatic and 30 a second until it's set, whatever is stored", () => {
-    expect(savedNativeCamera()).toEqual({ on: false, lens: "auto", fps: 30, focus: null, torchLevel: null });
+    expect(savedNativeCamera()).toEqual({ on: false, lens: "auto", fps: 30, torchLevel: null });
     store.set(NATIVE_CAMERA_KEY, "not json");
     expect(savedNativeCamera().on).toBe(false);
     store.set(NATIVE_CAMERA_KEY, JSON.stringify({ on: "yes", lens: "fisheye", fps: -3, focus: "near" }));
-    expect(savedNativeCamera()).toEqual({ on: false, lens: "auto", fps: 30, focus: null, torchLevel: null });
+    expect(savedNativeCamera()).toEqual({ on: false, lens: "auto", fps: 30, torchLevel: null });
   });
   it("is remembered on this device", () => {
-    saveNativeCamera({ on: true, lens: "ultrawide", fps: 60, focus: 0.12, torchLevel: 3 });
-    expect(savedNativeCamera()).toEqual({ on: true, lens: "ultrawide", fps: 60, focus: 0.12, torchLevel: 3 });
+    saveNativeCamera({ on: true, lens: "ultrawide", fps: 60, torchLevel: 3 });
+    expect(savedNativeCamera()).toEqual({ on: true, lens: "ultrawide", fps: 60, torchLevel: 3 });
+    // Only 30 or 60: a faster rate saved by hand is 30.
+    store.set(NATIVE_CAMERA_KEY, JSON.stringify({ on: true, fps: 120 }));
+    expect(savedNativeCamera().fps).toBe(30);
   });
   it("isn't offered in a browser", () => {
     expect(nativeCameraAvailable()).toBe(false);
@@ -325,7 +328,7 @@ describe("the app's camera as a source", () => {
 });
 
 describe("the app's camera's controls, as a track", () => {
-  async function opened(req: { focus?: number | null; torchLevel?: number | null } = {}) {
+  async function opened(req: { torchLevel?: number | null } = {}) {
     const f = fakes();
     const cam = openNativeCamera(document.createElement("canvas"), { lens: "main", fps: 30, width: 3840, height: 2160, ...req }, { plugin: f.plugin, channel: f.channel, settleMs: 0 });
     await cam.ready;
@@ -362,20 +365,13 @@ describe("the app's camera's controls, as a track", () => {
     cam.close();
   });
 
-  it("keeps a focus pinned in Scan settings through camera.tsx's continuous focus, and lets a distance set by hand win", async () => {
-    const { cam, track, sets } = await opened({ focus: 0.15 });
-    // Pinned as it opened.
-    expect(sets).toEqual([{ focusMode: "manual", focusDistance: 0.15 }]);
-    await apply(track, { focusMode: "continuous", zoom: 2 });
-    expect(sets[1]).toEqual({ zoom: 2 });
-    await apply(track, { focusMode: "manual", focusDistance: 0.2, zoom: 2 });
-    expect(sets[2]).toEqual({ focusMode: "manual", focusDistance: 0.2 });
-    // Unpinned: autofocus again, and continuous focus is passed on from then.
-    await cam.pinFocus(null);
-    expect(sets[3]).toEqual({ focusMode: "continuous" });
-    await cam.pinFocus(0.1);
-    await apply(track, { focusMode: "continuous", zoom: 2 });
-    expect(sets.slice(4)).toEqual([{ focusMode: "manual", focusDistance: 0.1 }]);
+  it("holds the focus where the camera view's slider puts it, and hands it back", async () => {
+    const { cam, track, sets } = await opened();
+    // camera.tsx's focus control: a distance in metres, then autofocus again (cameraFocus.ts).
+    await apply(track, { focusMode: "manual", focusDistance: 0.2, zoom: 1 });
+    await apply(track, { focusMode: "manual", focusDistance: 0.12, zoom: 1 });
+    await apply(track, { focusMode: "continuous", focusDistance: undefined, zoom: 1 });
+    expect(sets).toEqual([{ focusMode: "manual", focusDistance: 0.2, zoom: 1 }, { focusMode: "manual", focusDistance: 0.12 }, { focusMode: "continuous" }]);
     cam.close();
   });
 });

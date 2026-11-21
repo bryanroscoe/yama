@@ -21,7 +21,7 @@ afterEach(() => {
   host.remove();
 });
 
-const OFF: NativeCameraOption = { on: false, lens: "auto", fps: 30, focus: null, torchLevel: null };
+const OFF: NativeCameraOption = { on: false, lens: "auto", fps: 30, torchLevel: null };
 
 describe("the capture rates", () => {
   it("are 30 and 60 only: faster ones are high-speed sessions the scanner can't read from", () => {

@@ -31,8 +31,6 @@ export interface NativeCameraOption {
   lens: NativeLens;
   /** Frames a second to ask the camera for: 30 or 60 (faster is a high-speed session, which can't feed the scanner). */
   fps: number;
-  /** Metres the focus is pinned at, or null for autofocus. */
-  focus: number | null;
   /** The flashlight's strength (1 up to what the phone has), or null for the phone's own. */
   torchLevel: number | null;
 }
@@ -40,7 +38,7 @@ export interface NativeCameraOption {
 /** On this device: whether the scanner uses the app's own camera, and how it's set. */
 export const NATIVE_CAMERA_KEY = "yama.scan.nativeCamera";
 
-const OFF: NativeCameraOption = { on: false, lens: "auto", fps: 30, focus: null, torchLevel: null };
+const OFF: NativeCameraOption = { on: false, lens: "auto", fps: 30, torchLevel: null };
 
 const isLens = (v: unknown): v is NativeLens => v === "auto" || v === "main" || v === "ultrawide" || v === "telephoto";
 const positive = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v > 0;
@@ -50,7 +48,7 @@ export function savedNativeCamera(): NativeCameraOption {
   try {
     const v = JSON.parse(localStorage.getItem(NATIVE_CAMERA_KEY) ?? "null") as Partial<NativeCameraOption> | null;
     if (!v || typeof v !== "object") return { ...OFF };
-    return { on: v.on === true, lens: isLens(v.lens) ? v.lens : "auto", fps: v.fps === 60 ? 60 : 30, focus: positive(v.focus) ? v.focus : null, torchLevel: positive(v.torchLevel) ? Math.round(v.torchLevel) : null };
+    return { on: v.on === true, lens: isLens(v.lens) ? v.lens : "auto", fps: v.fps === 60 ? 60 : 30, torchLevel: positive(v.torchLevel) ? Math.round(v.torchLevel) : null };
   } catch {
     return { ...OFF };
   }
@@ -327,7 +325,6 @@ export interface NativeCameraRequest {
   /** The full frame to ask the camera for (landscape). */
   width: number;
   height: number;
-  focus?: number | null;
   torchLevel?: number | null;
 }
 
@@ -351,8 +348,6 @@ export interface NativeCamera extends CameraSource {
   readonly ready: Promise<SourceInfo>;
   info(): SourceInfo | null;
   described(): NativeDescribed | null;
-  /** Pin the focus at a distance (metres), or null to focus by itself again. */
-  pinFocus(metres: number | null): Promise<void>;
   /** The flashlight's strength from now on (and now, if it's lit). */
   setTorchLevel(level: number | null): Promise<void>;
   /** Time every way a frame can cross to the page. */
@@ -409,7 +404,6 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
   let full: { w: number; h: number } | null = null;
   let hasFrame = false;
   let benching = false;
-  let pin: number | null = positiveOrNull(req.focus);
   let torchLevel: number | null = positiveOrNull(req.torchLevel);
   /** What the track's callers last asked for, so a repeat isn't sent again. */
   const sent: { zoom?: number; torch?: boolean; focus?: string; point?: string } = {};
@@ -485,10 +479,9 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
         sent.torch = adv.torch;
         if (adv.torch && torchLevel && described.torchLevels > 1) patch.torchLevel = torchLevel;
       }
-      // Focus by hand: a distance given here wins. "Continuous" is what camera.tsx sends with
-      // every change; a focus pinned in Scan settings stays pinned through it.
+      // Focus: held at a distance (the camera view's focus slider, cameraFocus.ts), or by itself.
       const manual = adv.focusMode === "manual" || typeof adv.focusDistance === "number";
-      const focus = manual ? `manual:${String(adv.focusDistance)}` : adv.focusMode === "continuous" && pin == null ? "continuous" : undefined;
+      const focus = manual ? `manual:${String(adv.focusDistance)}` : adv.focusMode === "continuous" ? "continuous" : undefined;
       if (focus && focus !== sent.focus) {
         sent.focus = focus;
         if (manual) {
@@ -586,7 +579,6 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
       window.removeEventListener("resize", follow);
     });
     follow();
-    if (pin != null && d.focusNearest != null) await set({ focusMode: "manual", focusDistance: pin }).catch(() => undefined);
     const first = new Promise<void>((resolve) => {
       const timer = setTimeout(resolve, 3000);
       void pull(transport!, () => {
@@ -663,12 +655,6 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
     track: () => (closed || !described ? null : track),
     info,
     described: () => described,
-    async pinFocus(metres) {
-      pin = positiveOrNull(metres);
-      sent.focus = undefined;
-      if (closed || !described || described.focusNearest == null) return;
-      await set(pin != null ? { focusMode: "manual", focusDistance: pin } : { focusMode: "continuous" });
-    },
     async setTorchLevel(level) {
       torchLevel = positiveOrNull(level);
       if (closed || !described || !described.torch || !torchLevel || described.torchLevels <= 1) return;

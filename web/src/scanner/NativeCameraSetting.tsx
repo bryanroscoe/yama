@@ -7,9 +7,6 @@ import type { SourceInfo } from "./cameraSource";
 import { benchLine, LENS_NAMES, type BenchRow, type NativeCamera, type NativeCameraOption, type NativeLens } from "./nativeCamera";
 
 const LENSES: NativeLens[] = ["auto", "main", "ultrawide", "telephoto"];
-/** The nearest and farthest a pinned focus is offered at, in cm (within what the lens can do). */
-const PIN_NEAR_CM = 5;
-const PIN_FAR_CM = 60;
 
 /**
  * The capture rates offered: 30 and 60. Faster ones (120, 240) are high-speed video sessions,
@@ -46,8 +43,6 @@ export function NativeCameraSetting({
   const [bench, setBench] = useState<{ rows?: BenchRow[]; busy?: boolean; error?: string }>({});
   const d = camera?.described() ?? null;
   const offered = LENSES.filter((l) => l === "auto" || l === option.lens || !d || d.lenses.some((x) => x.lens === l));
-  const focusRange = info?.focusDistanceRange;
-  const nearCm = focusRange ? Math.max(PIN_NEAR_CM, Math.ceil(focusRange[0] * 100)) : PIN_NEAR_CM;
   const levels = d?.torchLevels ?? 0;
   return (
     <div className="scan-native-camera">
@@ -55,7 +50,7 @@ export function NativeCameraSetting({
         <input id="scan-native-camera" type="checkbox" checked={option.on} onChange={(e) => onChange({ ...option, on: e.target.checked })} />
         <span>
           <label htmlFor="scan-native-camera">
-            <strong>Use the app's own camera.</strong> The app opens the camera itself rather than through its web view, so it can choose a lens, ask for more frames a second and hold the focus where you set it. Being tried out: off scans as before. On this device.
+            <strong>Use the app's own camera.</strong> The app opens the camera itself rather than through its web view, so it can choose a lens, ask for 60 frames a second and set the flashlight's strength. Being tried out: off scans as before. On this device.
           </label>
         </span>
       </div>
@@ -79,38 +74,6 @@ export function NativeCameraSetting({
               ))}
             </select>
           </Field>
-          {focusRange && (
-            <Field label="Focus">
-              <select
-                value={option.focus == null ? "auto" : "pinned"}
-                onChange={(e) => {
-                  const focus = e.target.value === "pinned" ? Math.max(nearCm, 15) / 100 : null;
-                  onChange({ ...option, focus });
-                  void camera?.pinFocus(focus).catch(() => undefined);
-                }}
-              >
-                <option value="auto">Automatic</option>
-                <option value="pinned">Held at a distance</option>
-              </select>
-            </Field>
-          )}
-          {focusRange && option.focus != null && (
-            <label className="scan-native-range">
-              <span className="dim">Focus held at {Math.round(option.focus * 100)} cm</span>
-              <input
-                type="range"
-                min={nearCm}
-                max={PIN_FAR_CM}
-                step={1}
-                value={Math.round(option.focus * 100)}
-                onChange={(e) => {
-                  const focus = Number(e.target.value) / 100;
-                  onChange({ ...option, focus });
-                  void camera?.pinFocus(focus).catch(() => undefined);
-                }}
-              />
-            </label>
-          )}
           {levels > 1 && (
             <label className="scan-native-range">
               <span className="dim">Flashlight strength {option.torchLevel ?? levels} of {levels}</span>
