@@ -142,7 +142,7 @@ export async function scoreCandidates(
 export interface LookFrame {
   image: RgbaImage;
   quad: Quad;
-  /** Gallery indices of every artwork it matched (anywhere and in the set lock's pool) that several printings share. */
+  /** Gallery indices of every artwork it matched, anywhere and in the set lock's pool. */
   tops: number[];
 }
 
@@ -172,8 +172,12 @@ export class LookFrames {
   }
 }
 
-/** The artworks a frame matched that a look could be asked about: those several printings share. */
-export const lookTops = (matches: readonly { index: number; printings: number }[]): number[] => [...new Set(matches.filter((m) => m.printings > 1).map((m) => m.index))];
+/**
+ * The artworks a frame matched, each once: any of them could be the card a look is asked about.
+ * Not only those the bundle counts several printings for: an artwork reprinted since the bundle
+ * was made counts one there (Codex review of #172), and Yama's printings decide.
+ */
+export const lookTops = (matches: readonly { index: number }[]): number[] => [...new Set(matches.map((m) => m.index))];
 
 /** Embeddings packed as one buffer for the Cache API (symbol then card), and back. */
 export const packLook = (e: LookEmbedding): Float32Array => {

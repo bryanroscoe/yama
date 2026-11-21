@@ -147,7 +147,7 @@ describe("the frames kept for the card's side", () => {
     expect(kept.of(5)).toHaveLength(1);
   });
 
-  it("is asked only about artworks several printings share, each once", () => {
-    expect(lookTops([{ index: 3, printings: 4 }, { index: 8, printings: 1 }, { index: 3, printings: 4 }, { index: 11, printings: 2 }])).toEqual([3, 11]);
+  it("is kept under every artwork a frame matched, each once (one reprinted since the bundle counts one printing there)", () => {
+    expect(lookTops([{ index: 3 }, { index: 8 }, { index: 3 }, { index: 11 }])).toEqual([3, 8, 11]);
   });
 });
