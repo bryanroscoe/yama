@@ -28,4 +28,4 @@ once it's worth writing down properly but before anyone starts on it.
 | [Forge in multiplayer, and switching engines](forge-in-multiplayer.md) | Proposed, 11 Nov 2026 | Bryan, 30 Oct and 11 Nov 2026 |
 | [Scanner design pass: what just happened first, options out of the way](scanner-design-pass.md) | Built 16 Nov 2026; three decisions wait on Bryan | Bryan, 16 Nov 2026 |
 | [Replaying earlier boards in online play](play-replay.md) | Proposed, 17 Nov 2026; the timeline part is built | Bryan, 17 Nov 2026 |
-| [Scanner models of our own, sleeves, and a fallback on the server](scanner-models.md) | In progress, 18 Nov 2026: the lead lock and our art model shipped, the printing model next; two decisions wait on Bryan | Bryan, 18 Nov 2026 |
+| [Scanner models of our own, sleeves, and a fallback on the server](scanner-models.md) | In progress, 20 Nov 2026: the lead lock, our art model, model switching and the printing look shipped; the look model v1 next; two decisions wait on Bryan | Bryan, 18 and 20 Nov 2026 |
