@@ -1,4 +1,4 @@
-## script key, power user: 75 tools
+## script key, power user: 76 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -57,6 +57,7 @@ edit_copies	write
 list_scan_diagnostics	read
 get_scan_diagnostic	read
 get_scan_timings	read
+get_scan_speed_tests	read
 apply_change	destructive
 discard_change	destructive
 search_scryfall	read, reaches outside Yama
@@ -75,7 +76,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## OAuth sign-in, power user: 75 tools
+## OAuth sign-in, power user: 76 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -134,6 +135,7 @@ edit_copies	write
 list_scan_diagnostics	read
 get_scan_diagnostic	read
 get_scan_timings	read
+get_scan_speed_tests	read
 apply_change	destructive
 discard_change	destructive
 search_scryfall	read, reaches outside Yama
@@ -152,7 +154,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## script key: 75 tools
+## script key: 76 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -211,6 +213,7 @@ edit_copies	write
 list_scan_diagnostics	read
 get_scan_diagnostic	read
 get_scan_timings	read
+get_scan_speed_tests	read
 apply_change	destructive
 discard_change	destructive
 search_scryfall	read, reaches outside Yama
@@ -229,7 +232,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## OAuth sign-in: 75 tools
+## OAuth sign-in: 76 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -288,6 +291,7 @@ edit_copies	write
 list_scan_diagnostics	read
 get_scan_diagnostic	read
 get_scan_timings	read
+get_scan_speed_tests	read
 apply_change	destructive
 discard_change	destructive
 search_scryfall	read, reaches outside Yama
@@ -306,7 +310,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## Ask Claude, power user: 73 tools
+## Ask Claude, power user: 74 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -365,6 +369,7 @@ edit_copies	write
 list_scan_diagnostics	read
 get_scan_diagnostic	read
 get_scan_timings	read
+get_scan_speed_tests	read
 search_scryfall	read, reaches outside Yama
 list_card_printings	read
 get_commander_recommendations	read, reaches outside Yama
@@ -381,7 +386,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## OAuth sign-in limited to reading and staging, power user: 73 tools
+## OAuth sign-in limited to reading and staging, power user: 74 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -440,6 +445,7 @@ edit_copies	write
 list_scan_diagnostics	read
 get_scan_diagnostic	read
 get_scan_timings	read
+get_scan_speed_tests	read
 search_scryfall	read, reaches outside Yama
 list_card_printings	read
 get_commander_recommendations	read, reaches outside Yama
@@ -456,7 +462,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## OAuth sign-in limited to reading, power user: 44 tools
+## OAuth sign-in limited to reading, power user: 45 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -487,6 +493,7 @@ list_changes	read
 list_scan_diagnostics	read
 get_scan_diagnostic	read
 get_scan_timings	read
+get_scan_speed_tests	read
 search_scryfall	read, reaches outside Yama
 list_card_printings	read
 get_commander_recommendations	read, reaches outside Yama
@@ -502,7 +509,7 @@ list_deck_versions	read
 list_collection_cards	read
 get_research_sources	read
 
-## script key, an account with no stores, datasets or lab runs: 60 tools
+## script key, an account with no stores, datasets or lab runs: 61 tools
 get_research
 save_research
 review_research
@@ -546,6 +553,7 @@ edit_copies
 list_scan_diagnostics
 get_scan_diagnostic
 get_scan_timings
+get_scan_speed_tests
 apply_change
 discard_change
 search_scryfall

@@ -84,6 +84,7 @@ pub fn app(state: AppState) -> Router {
         .merge(crate::scan_samples::router())
         .merge(crate::scan_diagnostics::router())
         .merge(crate::scan_timings::router())
+        .merge(crate::scan_speed::router())
         .merge(crate::sharing::router())
         .merge(crate::moderation::router())
         .merge(crate::people::router())

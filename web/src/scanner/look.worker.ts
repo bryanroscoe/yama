@@ -9,7 +9,7 @@
 
 import * as ort from "onnxruntime-web/wasm";
 import wasmUrl from "onnxruntime-web/ort-wasm-simd-threaded.wasm?url";
-import { cornersOf, embedLook, meanEmbedding, packLook, scoreCandidates, unpackLook, type LookCandidate, type LookDone, type LookEmbedding, type LookSession, type LookTensor, type LookWorkerReply, type LookWorkerRequest } from "./look";
+import { cornersOf, embedLook, meanEmbedding, packLook, scoreCandidates, unpackLook, type LookCandidate, type LookDone, type LookEmbedding, type LookSession, type LookTensor, type LookWorkerReply, type LookWorkerRequest, type WireFrame } from "./look";
 import { cachedFile } from "./scanCache";
 
 ort.env.wasm.wasmPaths = { wasm: wasmUrl };
@@ -35,8 +35,8 @@ let loading: Promise<void> | null = null;
 const runs = new Map<number, AbortController>();
 const keys = new Map<string, LookEmbedding>();
 
-/** Load the look model, and drop printings embedded by another. */
-async function load(url: string, bytes: number) {
+/** Load the look model, and drop printings embedded by another (unless `keepCache`: the speed test). */
+async function load(url: string, bytes: number, keepCache = false) {
   // Reading a printing's pixels in a worker takes these; without them the look stays off and the
   // list keeps its order (iOS before 16.4 has no OffscreenCanvas).
   if (typeof OffscreenCanvas === "undefined" || typeof createImageBitmap !== "function") throw new Error("This browser can't read the printings' pictures in the background");
@@ -50,6 +50,7 @@ async function load(url: string, bytes: number) {
   // A look already under way may still be running the old one: let it finish first.
   if (old) setTimeout(() => void old.session.release?.().catch(() => undefined), 10_000);
   for (const k of keys.keys()) if (!k.startsWith(`${key}|`)) keys.delete(k);
+  if (keepCache) return;
   const cache = await caches.open(LOOK_CACHE).catch(() => null);
   if (!cache) return;
   // Another model's embeddings go, once, when the model changes (not on every scanner open).
@@ -96,24 +97,11 @@ async function key(m: { session: LookSession; key: string }, c: LookCandidate, t
     times.cached += 1;
     return unpacked;
   }
-  // cards.scryfall.io answers with Access-Control-Allow-Origin: *, so its pixels can be read.
-  // "no-store": the service worker serves a picture it has, but doesn't keep these in the offline
-  // image cache (public/sw.js), which a big scan would otherwise churn.
-  const t0 = performance.now();
-  const res = await fetch(c.url, { mode: "cors", credentials: "omit", cache: "no-store", signal });
-  if (!res.ok) throw new Error(`Couldn't fetch ${c.url} (${res.status})`);
-  const blob = await res.blob();
-  const t1 = performance.now();
-  const bitmap = await createImageBitmap(blob);
-  const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-  const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
-  ctx.drawImage(bitmap, 0, 0);
-  bitmap.close();
-  const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const { pixels, fetchMs, decodeMs } = await picture(c.url, signal);
   const t2 = performance.now();
   const e = await embedLook(m.session, Tensor, { width: pixels.width, height: pixels.height, data: pixels.data }, cornersOf(pixels.width, pixels.height));
-  times.fetchMs += t1 - t0;
-  times.decodeMs += t2 - t1;
+  times.fetchMs += fetchMs;
+  times.decodeMs += decodeMs;
   times.embedMs += performance.now() - t2;
   remember(memo, e);
   if (cache) {
@@ -124,6 +112,47 @@ async function key(m: { session: LookSession; key: string }, c: LookCandidate, t
     }
   }
   return e;
+}
+
+/** A printing's Scryfall picture, fetched and decoded to pixels, with how long each took. */
+async function picture(url: string, signal?: AbortSignal): Promise<{ pixels: ImageData; fetchMs: number; decodeMs: number }> {
+  // cards.scryfall.io answers with Access-Control-Allow-Origin: *, so its pixels can be read.
+  // "no-store": the service worker serves a picture it has, but doesn't keep these in the offline
+  // image cache (public/sw.js), which a big scan would otherwise churn.
+  const t0 = performance.now();
+  const res = await fetch(url, { mode: "cors", credentials: "omit", cache: "no-store", signal });
+  if (!res.ok) throw new Error(`Couldn't fetch ${url} (${res.status})`);
+  const blob = await res.blob();
+  const t1 = performance.now();
+  const bitmap = await createImageBitmap(blob);
+  const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+  const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+  ctx.drawImage(bitmap, 0, 0);
+  bitmap.close();
+  const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  return { pixels, fetchMs: t1 - t0, decodeMs: performance.now() - t1 };
+}
+
+/** The speed test's timing of the look: one picture and one frame, embedded once each, nothing kept. */
+async function time(id: number, url: string, frame: WireFrame | null) {
+  try {
+    if (loading) await loading;
+    const m = model;
+    if (!m) throw new Error("No look model is loaded");
+    const { pixels, fetchMs, decodeMs } = await picture(url);
+    const t0 = performance.now();
+    await embedLook(m.session, Tensor, { width: pixels.width, height: pixels.height, data: pixels.data }, cornersOf(pixels.width, pixels.height));
+    const pictureMs = performance.now() - t0;
+    let frameMs: number | null = null;
+    if (frame) {
+      const t1 = performance.now();
+      await embedLook(m.session, Tensor, { width: frame.width, height: frame.height, data: new Uint8ClampedArray(frame.buffer) }, frame.quad);
+      frameMs = performance.now() - t1;
+    }
+    reply({ type: "timed", id, error: null, fetchMs, decodeMs, pictureMs, frameMs });
+  } catch (e) {
+    reply({ type: "timed", id, error: e instanceof Error ? e.message : String(e), fetchMs: 0, decodeMs: 0, pictureMs: 0, frameMs: null });
+  }
 }
 
 async function look(id: number, frames: Extract<LookWorkerRequest, { type: "look" }>["frames"], candidates: LookCandidate[]) {
@@ -160,7 +189,7 @@ async function look(id: number, frames: Extract<LookWorkerRequest, { type: "look
 self.onmessage = async (event: MessageEvent<LookWorkerRequest>) => {
   const m = event.data;
   if (m.type === "model") {
-    const now = load(m.url, m.bytes);
+    const now = load(m.url, m.bytes, m.cache === false);
     const mine = now.catch(() => undefined);
     loading = mine;
     try {
@@ -173,5 +202,6 @@ self.onmessage = async (event: MessageEvent<LookWorkerRequest>) => {
       if (loading === mine) loading = null;
     }
   } else if (m.type === "look") void look(m.id, m.frames, m.candidates);
+  else if (m.type === "time") void time(m.id, m.url, m.frame);
   else if (m.type === "stop") runs.get(m.id)?.abort();
 };
