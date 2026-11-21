@@ -37,6 +37,10 @@ import { SetLockPicker } from "./SetLockPicker";
 import { treatmentOf } from "./session";
 import { artInSets, inLockedSets, KNOWN_ART, knownArtShare, leadCounts, POOL_MARGIN, judgeLocked, lockedNames, lockedSet, poolKeys, readTitleFirst, savedLock, saveLock, suggestLock, type LockedSet } from "./setlock";
 import { CameraControls, cameraInfo, digitalRegion, useCameraControls, type CameraInfo } from "./camera";
+import { saysCardBack } from "./cardBack";
+import { CardOutline } from "./CardOutline";
+import { ask60, askUsualRate, fps60On, FrameRateMeter, setFps60, watchFrameRate } from "./frameRate";
+import { OutlineTracker } from "./outline";
 import { defaultCamera, nameCameras, resolveSaved, saveCamera, savedCamera, type NamedCamera } from "./cameras";
 import { AUTO_MAX, AutoZoom, LENS_SWITCH, maySwitchLens } from "./zoomPolicy";
 import { cardHeight, tooFar } from "./closer";
@@ -332,6 +336,8 @@ const textChoice = (slots: Record<ModelSlot, Running>, info: ModelsInfo | null):
 
 const WAITING = "Hold a card in view";
 const NEXT = "Ready for the next card";
+/** The card in view is face down (cardBack.ts). */
+export const CARD_BACK = "Card back, turn the card over";
 /** A card other than the one just filed is in view and being read. */
 const READING = "Hold still, reading the name";
 /**
@@ -592,20 +598,10 @@ export function ScannerView({
   const [phase, setPhase] = useState<Phase>("loading");
   const [status, setStatus] = useState(WAITING);
   const [found, setFound] = useState<Found | null>(null);
-  /**
-   * The card's outline over the camera, drawn straight onto the SVG every frame rather than through
-   * state (Bryan, 21 Nov 2026: "it feels a teeny bit laggy still when it's identifying the corners
-   * of the card and drawing that little box"): finding the corners is the art recognizer's own first
-   * step, so it costs nothing extra, but a state change re-rendered the whole scanner each frame.
-   */
-  const outlineRef = useRef<SVGSVGElement>(null);
-  const setOutline = useCallback((o: { quad: Quad; w: number; h: number } | null) => {
-    const svg = outlineRef.current;
-    const polygon = svg?.firstElementChild;
-    if (!svg || !polygon) return;
-    if (o) svg.setAttribute("viewBox", `0 0 ${o.w} ${o.h}`);
-    polygon.setAttribute("points", o ? o.quad.map((p) => p.join(",")).join(" ") : "");
-  }, []);
+  /** The outline over each card the finder sees (outline.ts), drawn by CardOutline. */
+  const [outlines] = useState(() => new OutlineTracker());
+  /** Frames a second the camera actually delivers (frameRate.ts), for Scanner diagnostics. */
+  const [fpsMeter] = useState(() => new FrameRateMeter());
   const [error, setError] = useState<string | null>(null);
   /** "art": recognising artwork. "text": reading text only. null: still starting. */
   const [mode, setMode] = useState<"art" | "text" | null>(null);
@@ -764,7 +760,7 @@ export function ScannerView({
     const rule = fallback === "typed" ? "typed" : (ctx?.lock ?? fallback);
     // Timed on the live camera only: not a photo, nor a name the person typed.
     const timed = !photo && rule !== "typed";
-    return new TimingRecord({
+    const timing = new TimingRecord({
       rule,
       mode: identityOnly ? "identity" : "printing",
       photo,
@@ -776,12 +772,17 @@ export function ScannerView({
       embed: fm?.embed ?? artRef.current?.embed ?? NO_ART_MODEL,
       models: fm?.models ?? modelsNow(),
     });
+    // What the camera delivered just now, and whether the lens was pinned (frameRate.ts, cameraFocus.ts).
+    const fps = fpsMeter.fps();
+    if (fps != null) timing.detail.fps = fps;
+    if (camRef.current.focus != null) timing.detail.focus_pinned = camRef.current.focus;
+    return timing;
   };
   /** A fresh record with the camera and text reader in use. */
   const baseRecord = () => {
     const rec = new ScanRecord();
     const c = camRef.current;
-    rec.camera = { ...(cameraNowRef.current ?? {}), zoom: c.zoom, torch: c.torch, digital: c.digital };
+    rec.camera = { ...(cameraNowRef.current ?? {}), zoom: c.zoom, torch: c.torch, digital: c.digital, focusPinned: c.focus ?? undefined, fps: fpsMeter.fps() ?? undefined };
     rec.engine = ocrNameRef.current;
     rec.embed = artRef.current?.embed ?? NO_ART_MODEL;
     rec.models = modelsNow();
@@ -1185,6 +1186,7 @@ export function ScannerView({
   useEffect(() => {
     let stream: MediaStream | null = null;
     let stopped = false;
+    let stopFps = () => undefined as void;
     if (!navigator.mediaDevices?.getUserMedia) {
       setPhase("no-camera");
       setError("This browser can't open the camera here (it needs https). Use a photo instead.");
@@ -1239,6 +1241,12 @@ export function ScannerView({
             return;
           }
         }
+        // 60 frames a second where this camera gives it at the size it's already delivering (frameRate.ts).
+        // After the focus set on attach, and before any later flashlight or zoom (camera.tsx, `exclusive`).
+        if (track && fps60On() && (await cam.exclusive(track, () => ask60(track))) === "sixty") {
+          if (stopped) return;
+          setCameraNow(cameraInfo(track));
+        }
         const v = videoRef.current;
         if (!v || stopped) return;
         v.srcObject = s;
@@ -1246,6 +1254,7 @@ export function ScannerView({
         // Nothing reads until the camera delivers frames.
         await firstFrame(v);
         if (stopped) return;
+        stopFps = watchFrameRate(v, fpsMeter);
         setLive(true);
         setPhase((p) => (p === "loading" ? "scanning" : p));
       } catch (e) {
@@ -1259,6 +1268,7 @@ export function ScannerView({
       // Every loop reading this camera stops now, before any result from it is used, and what an
       // attempt had read is dropped (review of #145): a switch starts reading afresh.
       haltReaders();
+      stopFps();
       setLive(false);
       const v = videoRef.current;
       if (v && stream && v.srcObject === stream) v.srcObject = null;
@@ -1655,10 +1665,14 @@ export function ScannerView({
           const box = v.closest(".scan-camera")?.getBoundingClientRect();
           const zone = digitalRegion(v.videoWidth, v.videoHeight, digitalRef.current, box);
           const { image, k } = smallRegion(v, zone, canvasRef.current);
-          const r = await art.identify(image);
-          if (stop) return;
           const toVideo = (q: Quad) => q.map(([x, y]) => [x / k + zone.x, y / k + zone.y]) as Quad;
-          setOutline(r.quad ? { quad: toVideo(r.quad), w: v.videoWidth, h: v.videoHeight } : null);
+          // The outline follows the card finder, which answers before the art is matched.
+          const outlined = (q: Quad | null) => {
+            if (!stop) outlines.see(q ? [toVideo(q)] : [], { w: v.videoWidth, h: v.videoHeight });
+          };
+          const r = await art.identify(image, outlined);
+          if (stop) return;
+          outlined(r.quad);
           seeCard(r.quad ? toVideo(r.quad) : null, v);
           // What this frame knew is for a card found from this frame only.
           scanCtx.current = null;
@@ -1712,9 +1726,14 @@ export function ScannerView({
             setStatus(NEXT);
             return next(60);
           }
+          // Face down (cardBack.ts), and the art doesn't know it either. A card the art knows fairly
+          // well is never called a back. Its title and text are still read below, as for any card
+          // the art doesn't know (a front that only looks like a back has a name to read); what
+          // changes is what's said meanwhile, and that no close-up is asked of a back.
+          const faceDown = saysCardBack(r.back, top.score, LOCK_TWICE);
           // Diagnostics' timing record: the card in view appeared on this frame, or one more frame
           // read (and another card taking its place starts it again).
-          if (diagRef.current) appeared.current = stepAppeared(appeared.current, top.score >= ART_UNKNOWN ? top.name : null, frameAt, sameCardName);
+          if (diagRef.current && !faceDown) appeared.current = stepAppeared(appeared.current, top.score >= ART_UNKNOWN ? top.name : null, frameAt, sameCardName);
           // Art that leads every other card (fuse.ts: at least LEAD_FLOOR, LEAD_MARGIN ahead) settles
           // which card without the title, like a sure match, once the same card has led
           // LEAD_FRAMES frames in a row (Bryan, 18 Nov 2026: stuck about half the time; right cards
@@ -1761,8 +1780,9 @@ export function ScannerView({
             return;
           }
           // Not while a card filed by its name is held: it may be that card, still in view.
-          if (!blockedName.current) setStatus(READING);
-          const seen = blockedName.current ? null : seekFrame({ art: artNote.art.slice(0, 3), lead: artNote.lead, cardPx: artNote.cardPx });
+          if (!blockedName.current) setStatus(faceDown ? CARD_BACK : READING);
+          // (A back lying in view isn't a card the scanner is slow to find.)
+          const seen = blockedName.current || faceDown ? null : seekFrame({ art: artNote.art.slice(0, 3), lead: artNote.lead, cardPx: artNote.cardPx });
           // A match that is at least fair is read on every frame; a card the art index plainly
           // doesn't know (a battle, a weak match) after a few frames, as before.
           if (top.score >= ART_UNKNOWN || artUnknown || ++unknownFrames >= 3) {
@@ -1825,6 +1845,13 @@ export function ScannerView({
               return;
             }
             if (handleText(res, false, false, hi)) return;
+            // Face down, and nothing on it read as a card: that's all there is to say.
+            if (faceDown) {
+              appeared.current = null;
+              // (Not over "Ready for the next card" while a card filed by its name is held.)
+              if (!blockedName.current) setStatus(CARD_BACK);
+              return next(60);
+            }
             // Where only the card matters a weak read is noise; elsewhere any read still holds the
             // art back, as before (the collection files a printing the art settles by itself).
             const vetoed = !!said && (!identityOnly || said.confidence >= TEXT_VETO);
@@ -2053,7 +2080,7 @@ export function ScannerView({
     last.current = undefined;
     lastText.current = undefined;
     setFound(null);
-    setOutline(null);
+    outlines.clear();
     setCloseup(null);
     artRef.current?.reset();
     setStatus(mode === "text" ? "Line the card up with the frame" : WAITING);
@@ -2616,6 +2643,12 @@ export function ScannerView({
       <CameraSetting
         cameras={cameras}
         current={cameraNow}
+        fps={fpsMeter.fps()}
+        onFps60={(on) => {
+          setFps60(on);
+          const t = cam.track();
+          if (t) void cam.exclusive(t, async () => void (await (on ? ask60(t) : askUsualRate(t)))).then(() => cam.track() === t && setCameraNow(cameraInfo(t)));
+        }}
         chosen={cameraId}
         onChoose={(c) => {
           saveCamera({ id: c.deviceId, label: c.label });
@@ -2808,11 +2841,7 @@ export function ScannerView({
       <div ref={cameraRef} className="scan-camera">
         <div className="scan-zoom" style={cam.digital > 1 ? { transform: `scale(${cam.digital})` } : undefined}>
           <video ref={videoRef} className="scan-video" playsInline muted autoPlay aria-hidden="true" />
-          {phase === "scanning" && !closeup && (
-            <svg ref={outlineRef} className="scan-outline" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-              <polygon />
-            </svg>
-          )}
+          <CardOutline tracker={outlines} show={phase === "scanning" && mode === "art" && live && !closeup && !photoBusy && !paused && !lockOpen} />
         </div>
         <div className="scan-frame" aria-hidden="true">
           {closeup ? (
@@ -3452,13 +3481,30 @@ function SoundsSetting({ on, worth, prices, onChange, onWorth }: { on: boolean; 
  * in use and what it delivers. On a phone whose one back camera switches lens as it zooms, a note
  * that zooming far may switch to a lens that can't focus close.
  */
-function CameraSetting({ cameras, current, chosen, onChoose }: { cameras: NamedCamera[]; current: CameraInfo | null; chosen: string | null; onChoose: (c: NamedCamera) => void }) {
+function CameraSetting({
+  cameras,
+  current,
+  fps,
+  onFps60,
+  chosen,
+  onChoose,
+}: {
+  cameras: NamedCamera[];
+  current: CameraInfo | null;
+  /** Frames a second the camera delivers now, measured (frameRate.ts). */
+  fps: number | null;
+  onFps60: (on: boolean) => void;
+  chosen: string | null;
+  onChoose: (c: NamedCamera) => void;
+}) {
+  const [sixty, setSixty] = useState(fps60On);
   const inUse = cameras.find((c) => !!current?.deviceId && c.deviceId === current.deviceId) ?? cameras.find((c) => c.label && c.label === current?.label) ?? cameras.find((c) => c.deviceId === chosen) ?? null;
   const zoom = current?.zoomRange;
   const parts = [
     inUse?.name ?? current?.label ?? null,
     current?.width && current.height ? `${current.width} × ${current.height}` : null,
     zoom ? `zoom ${fmtZoom(zoom[0])} to ${fmtZoom(zoom[1])}` : null,
+    fps != null ? `${Math.round(fps)} frames a second` : null,
   ].filter(Boolean);
   return (
     <div className="scan-camera-setting">
@@ -3481,6 +3527,24 @@ function CameraSetting({ cameras, current, chosen, onChoose }: { cameras: NamedC
         </Field>
       )}
       {parts.length > 0 && <p className="scan-note">Camera in use: {parts.join(", ")}.</p>}
+      {(current?.maxFrameRate ?? 0) >= 59 && (
+        <div className="scan-keep">
+          <input
+            id="scan-fps60"
+            type="checkbox"
+            checked={sixty}
+            onChange={(e) => {
+              setSixty(e.target.checked);
+              onFps60(e.target.checked);
+            }}
+          />
+          <span>
+            <label htmlFor="scan-fps60">
+              <strong>Ask the camera for 60 frames a second.</strong> Less blur on a card that's still moving. Only where the camera keeps its resolution; a dim room may look grainier. On this device.
+            </label>
+          </span>
+        </div>
+      )}
       {zoom && maySwitchLens({ min: zoom[0], max: zoom[1] }) && (
         <p className="scan-note">Zooming in past about {LENS_SWITCH}× may switch to the telephoto lens, which can't focus on a card this close. The scanner's own zoom stops at {AUTO_MAX}×.</p>
       )}
