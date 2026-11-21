@@ -2860,7 +2860,7 @@ export function ScannerView({
           onChoose={(slot, id) => saveModel(slot, id)}
         />
       )}
-      {modelsInfo && <SpeedTest ready={scannerSettled(mode, loadState, modelNotes)} />}
+      {modelsInfo && <SpeedTest ready={scannerSettled(mode, loadState, modelNotes)} alongside={mode === "art" ? { detector: detectorNow, art: artNow, look: lookNow } : null} />}
       {mode === "text" && <p className="scan-note">Card recognition isn't available right now, so the scanner reads the card's text: line the card up with the frame.</p>}
       <p className="scan-note">Reads text with {ENGINE_LABEL[ocrName ?? plannedEngine(ocrChoice.current)]}{ocrName ? "" : " (starts with the first read)"}.</p>
       <VersionLine className="scan-note" />

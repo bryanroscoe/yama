@@ -227,7 +227,9 @@ describe("a speed test", () => {
     expect(w.looks[0]!.times.map((t) => t.url)).toEqual(cards.map((c) => `https://cards.scryfall.io/normal/front/${c.id}.jpg`));
     expect(w.looks[0]!.times[0]!.quad).toHaveLength(4);
     expect(r.look).toMatchObject({ option: "look-v1", loadMs: 500, firstMs: 700, picture: { median: 70, n: SPEED_CARDS - 1 }, frame: { median: 65 }, fetch: { median: 300 }, decode: { median: 12 }, error: null });
-    expect(r).toMatchObject({ version: 1, bundle: V, device: "Pixel 10 Pro, Android 16", choices: {} });
+    expect(r).toMatchObject({ version: 1, bundle: V, device: "Pixel 10 Pro, Android 16", choices: {}, alongside: null });
+    const beside = await runSpeedTest(() => undefined, undefined, world().deps, { detector: "bundle-detector", art: "yama-art-20261118", look: "look-v1" });
+    expect(beside.alongside).toEqual({ detector: "bundle-detector", art: "yama-art-20261118", look: "look-v1" });
     expect(r.cards.map((c) => c.id)).toEqual(cards.map((c) => c.id));
     expect(progress.at(-1)).toMatchObject({ text: "Done" });
     expect(progress.some((p) => p.text.includes("Downloading"))).toBe(true);

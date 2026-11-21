@@ -389,6 +389,19 @@ export interface SpeedReport {
   cards: Pick<SpeedCard, "id" | "name" | "set" | "number">[];
   configs: ConfigResult[];
   look: LookResult | null;
+  /**
+   * What else held models in memory while the test ran: the scanner's own recognizer, loaded beside
+   * the test's workers when the test runs from Scan settings over it (its card finder, art model and
+   * look option). Null when nothing was (a check run before the scanner loads).
+   */
+  alongside: Alongside | null;
+}
+
+/** The scanner's own recognizer, as loaded while a test ran beside it. */
+export interface Alongside {
+  detector: string | null;
+  art: string | null;
+  look: string | null;
 }
 
 /** The configuration standing for `role`, if one ran. */

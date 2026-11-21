@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConfigResult, SpeedReport } from "./speed";
 
 const run = vi.hoisted(() => ({
-  calls: [] as { signal?: AbortSignal; progress: (p: { text: string; done: number; total: number }) => void; finish: (r: SpeedReport) => void; fail: (e: Error) => void }[],
+  calls: [] as { alongside?: unknown; signal?: AbortSignal; progress: (p: { text: string; done: number; total: number }) => void; finish: (r: SpeedReport) => void; fail: (e: Error) => void }[],
   saved: [] as SpeedReport[],
   saveFails: false,
   /** While set, a save waits for it. */
@@ -15,9 +15,9 @@ const run = vi.hoisted(() => ({
 }));
 
 vi.mock("./speedRun", () => ({
-  runSpeedTest: (progress: (p: { text: string; done: number; total: number }) => void, signal?: AbortSignal) =>
+  runSpeedTest: (progress: (p: { text: string; done: number; total: number }) => void, signal?: AbortSignal, _deps?: unknown, alongside?: unknown) =>
     new Promise<SpeedReport>((finish, fail) => {
-      run.calls.push({ signal, progress, finish, fail });
+      run.calls.push({ signal, progress, finish, fail, alongside });
     }),
   saveSpeedTest: async (r: SpeedReport) => {
     if (run.saveGate) await run.saveGate;
@@ -62,6 +62,7 @@ const report = (): SpeedReport => ({
   choices: {},
   cards: [],
   configs: [config(["yours", "defaults"], 142), config(["faster"], 48, { downloaded: true, right: 30 })],
+  alongside: { detector: "bundle-detector", art: "yama-art-20261118", look: "look-v1" },
   look: { runtime: "wasm-1-thread", option: "look-v1", label: "Yama's look model v1", loadMs: 800, firstMs: 900, picture: stat(70), frame: stat(65), fetch: stat(300), decode: stat(12), error: null },
 });
 
@@ -86,10 +87,13 @@ const button = (name: string) => [...host.querySelectorAll("button")].find((b) =
 
 describe("Test scanner speed", () => {
   it("runs only when pressed, shows its progress, then the summary and table, and keeps it on the account", async () => {
-    await act(async () => root.render(<SpeedTest />));
+    const live = { detector: "bundle-detector", art: "yama-art-20261118", look: "look-v1" };
+    await act(async () => root.render(<SpeedTest alongside={live} />));
     expect(run.calls).toHaveLength(0);
     await act(async () => button("Test scanner speed")!.click());
     expect(run.calls).toHaveLength(1);
+    // What the scanner holds loaded beside the test goes with the result.
+    expect(run.calls[0]!.alongside).toEqual(live);
     expect(button("Test scanner speed")!.disabled).toBe(true);
     await act(async () => run.calls[0]!.progress({ text: "Timing your models: card 2 of 8", done: 3, total: 27 }));
     expect(host.textContent).toContain("Timing your models: card 2 of 8");
@@ -104,6 +108,7 @@ describe("Test scanner speed", () => {
     expect(host.textContent).toContain("the faster ones took 2.1 s to load (with a download)");
     expect(host.textContent).toContain("WebGPU is available (imagination dxt), with 16-bit floats.");
     expect(host.textContent).toContain("One processor thread (the page isn't cross-origin isolated), of 8 cores.");
+    expect(host.textContent).toContain("The scanner's own models stayed loaded beside the test");
     expect(host.textContent).toContain("Kept on your account.");
     expect(run.saved).toHaveLength(1);
     expect(button("Test scanner speed")!.disabled).toBe(false);

@@ -37,6 +37,7 @@ import {
   type SpeedEnv,
   type SpeedReport,
   type SpeedRole,
+  type Alongside,
   CARD_ASPECT,
 } from "./speed";
 import type { RgbaImage } from "./types";
@@ -152,7 +153,7 @@ const isRight = (r: Recognition, card: SpeedCard) => {
  * at once. Reusable: the panel in Scan settings runs it on a tap, and a later scanner may run it
  * quietly at start to say when a phone is slow (docs/plans/scanner-match-cardvision.md, item 29).
  */
-export async function runSpeedTest(onProgress: (p: SpeedProgress) => void, signal?: AbortSignal, deps: SpeedDeps = browserDeps()): Promise<SpeedReport> {
+export async function runSpeedTest(onProgress: (p: SpeedProgress) => void, signal?: AbortSignal, deps: SpeedDeps = browserDeps(), alongside: Alongside | null = null): Promise<SpeedReport> {
   const t0 = deps.now();
   const startedAt = new Date().toISOString();
   // The device first, so asking for a WebGPU adapter never overlaps a timed load.
@@ -282,6 +283,7 @@ export async function runSpeedTest(onProgress: (p: SpeedProgress) => void, signa
     cards: (pictures ?? []).map(({ card }) => ({ id: card.id, name: card.name, set: card.set, number: card.number })),
     configs,
     look,
+    alongside,
   };
 }
 

@@ -6,7 +6,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ActionBar, Button } from "../components/ui";
-import { speedSummary, type ConfigResult, type SpeedReport, type SpeedRole, type Stat } from "./speed";
+import { speedSummary, type Alongside, type ConfigResult, type SpeedReport, type SpeedRole, type Stat } from "./speed";
 import { deleteSpeedTests, runSpeedTest, saveSpeedTest, speedTestCount, type SpeedProgress } from "./speedRun";
 
 const ROLE_NAME: Record<SpeedRole, string> = { yours: "Your models", defaults: "The defaults", faster: "The faster ones" };
@@ -108,6 +108,7 @@ export function SpeedResult({ report }: { report: SpeedReport }) {
       <p className="scan-note">
         {report.device}. {webGpuWords(report)} {report.env.isolated ? "Several processor threads could be used." : "One processor thread (the page isn't cross-origin isolated)"}
         {report.env.cores ? `, of ${report.env.cores} cores` : ""}.
+        {report.alongside ? " The scanner's own models stayed loaded beside the test, as they are when you switch models here." : ""}
       </p>
     </div>
   );
@@ -126,9 +127,11 @@ const say = (e: unknown) => (e instanceof Error ? e.message : String(e));
 /**
  * The Speed part of Scan settings. `ready` is false while the scanner's own recognizer is still
  * loading or switching a model: the test doesn't start then, and one running stops when that
- * begins (a model chosen in Models above, say), so it never times against that work.
+ * begins (a model chosen in Models above, say), so it never times against that work. `alongside`
+ * is what that recognizer holds loaded meanwhile, recorded with the result (Codex review of #182:
+ * its memory is part of what the phone was doing).
  */
-export function SpeedTest({ ready = true }: { ready?: boolean }) {
+export function SpeedTest({ ready = true, alongside = null }: { ready?: boolean; alongside?: Alongside | null }) {
   const [progress, setProgress] = useState<SpeedProgress | null>(null);
   /** Running the test, then keeping it; busy either way. */
   const [stage, setStage] = useState<"running" | "saving" | null>(null);
@@ -172,7 +175,7 @@ export function SpeedTest({ ready = true }: { ready?: boolean }) {
     setStatus(null);
     setError(null);
     setProgress({ text: "Starting", done: 0, total: 1 });
-    runSpeedTest((p) => !stop.signal.aborted && setProgress(p), stop.signal)
+    runSpeedTest((p) => !stop.signal.aborted && setProgress(p), stop.signal, undefined, alongside)
       .then(async (r) => {
         if (stop.signal.aborted) throw new Error("stopped");
         setReport(r);
