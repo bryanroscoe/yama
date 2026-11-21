@@ -18,8 +18,9 @@ try to match it."
   server, the one-tap speed test). This plan owns the camera, the gate, the overlay and the native shell,
   and takes models as inputs. Model changes here are limited to exporting what already exists in the form
   the native side needs.
-- The scanner's rules about printings don't change: a scan never files a guessed printing unless a rule
-  the person can see settled it, and every settle can be undone.
+- The scanner's rule about printings doesn't change: a scan never files a guessed printing
+  (ARCHITECTURE.md). Nothing here saves a collection row before its printing is settled by the rules
+  that settle one today. Settling a tie by price would be a new rule and waits on Bryan (below).
 
 ## Why the web view is the wrong home for the camera loop
 
@@ -47,8 +48,8 @@ app only), or **both** (shared logic in TypeScript, fed by either camera).
 
 | # | What CardVision does | Yama today | Where |
 |---|---|---|---|
-| 1 | Draws an outline on every card the detector finds, at once and before it's identified; follows the card's rounded corner; fades in and out; redrawn every screen refresh; up to four cards | Shows the card only once it's found | both |
-| 2 | Looks for cards 30 times a second (12 on a quiet scene, 60 as an option); backs off when the phone is hot or saving power | One pass per frame, as fast as WASM allows | native |
+| 1 | Draws an outline on every card the detector finds, at once and before it's identified; follows the card's rounded corner; fades in and out; redrawn every screen refresh; up to four cards | Draws the finder's quad before the card is named, as a plain outline updated once per recognizer pass | both |
+| 2 | Looks for cards 30 times a second (12 on a quiet scene, 60 as an option); backs off when the phone is hot or saving power | The next art pass is scheduled with a set delay after the last, at WASM speed | native |
 | 3 | Detector sees 320 px; the card is then cut from the full camera frame (720p, 1080p or 4K) for identification, and the collector strip separately at 8× | Similar split (frame cut up to 2400 px for text) | native |
 | 4 | Looks a fifth past the visible edge, so a card is found before it's fully in view; an optional box you drag limits where it looks | Whole frame | both |
 | 5 | A debug view of what the detector and the gate see | Scanner diagnostics records, no live view | both |
@@ -68,9 +69,9 @@ app only), or **both** (shared logic in TypeScript, fed by either camera).
 
 | # | What CardVision does | Yama today | Where |
 |---|---|---|---|
-| 12 | Uses the virtual camera that switches lens by distance; Main, Ultra-wide and Telephoto can be picked | A lens picker over what the browser lists; zoom capped under the telephoto switch | native |
-| 13 | Capture rate 30 to 240 fps, exposure pinned under it | Whatever the browser gives | native |
-| 14 | Autofocus biased to near; an optional focus slider that pins the lens | Reads focus capabilities, no control | web (where Chrome exposes it), native |
+| 12 | Uses the virtual camera that switches lens by distance; Main, Ultra-wide and Telephoto can be picked | A lens picker over what the browser lists; zoom capped under the telephoto switch | native. Whether the virtual camera switches at close range is up to each phone's maker, so it is checked on the Pixel, and a manual Ultra-wide choice is the fallback |
+| 13 | Capture rate 30 to 240 fps, exposure pinned under it | Whatever the browser gives | native: 60 fps in an ordinary session. 120 and 240 are Android's high-speed video sessions, which CameraX offers without a frame-analysis stream and Camera2 only with automatic exposure and video autofocus, so they are out until a phone shows otherwise |
+| 14 | Autofocus biased to near; an optional focus slider that pins the lens | Asks for continuous autofocus and focuses on the collector corner where the browser allows; no manual control | web (where Chrome exposes it), native |
 | 15 | Torch with strength | Torch on or off | native |
 | 16 | Pinch to zoom | Has it | done |
 
@@ -109,7 +110,8 @@ A Capacitor plugin in the Android app (`web/android`, beside `TextReaderPlugin`)
 
 - the camera (CameraX with Camera2 interop for lens, capture rate, focus and torch);
 - the preview, drawn natively behind a transparent WebView, so the web scanner's sheet and controls sit
-  over it unchanged;
+  over it. The scanner's own camera layers (`.scan`, `.scan-camera` in `scanner.css`) paint opaque
+  backgrounds today and have to go clear while the native camera is open;
 - the card finder on every analysed frame (ONNX Runtime for Android, our `yama-corners` model);
 - the outline, drawn natively from the latest corners so it keeps up with the screen;
 - cutting the card from the full frame and running the art model on it when asked.
@@ -132,9 +134,13 @@ What the models are, for the native side (from the models thread, 21 Nov 2026):
   thread can also export the network alone (128 × 128 crops in, 128 numbers out) with the crop recipe
   written in docs/scanner.md.
 - **GPU:** ONNX Runtime for Android has no general GPU backend, so the GPU route is LiteRT's GPU
-  delegate with the models converted to `.tflite` by the models thread. Measured on a Mac, the
-  accelerator is worth little while the models are this small (38.5 ms a frame to 30 to 33); the native
-  gain comes first from dropping the canvas copy and the WebView. The Pixel's own ML chip is not
+  delegate with the models converted to `.tflite` by the models thread. The shipped art graph warps
+  the card inside the graph (GridSample), which LiteRT's GPU delegate doesn't list, so on that route
+  the warp is done in native code and only the network runs on the GPU. Nothing has been measured on
+  Android. On a Mac in Chrome, with the faster models, four WASM threads took a frame from 38.5 ms to
+  29.8 and WebGPU to 33.0 (docs/scanner.md, "Speed"), which suggests the accelerator is worth little
+  while the models are this small and the native gain comes first from dropping the canvas copy and
+  the WebView. The Pixel's own ML chip is not
   pursued, and its terms forbid publishing timings for it (docs/plans/scanner-models.md).
 
 A change to native code changes the app's native hash, so each stage that touches it ships as a new APK
@@ -146,13 +152,19 @@ through the app's own updater (docs/mobile.md).
    11), the focus slider and a 60 fps request where the browser allows (14), card back and upside-down
    handling (18, 20). Behind a camera-source seam. Works in browsers and the app as it is.
 2. **Native camera:** the plugin with preview, lens, capture rate, focus and torch (12 to 15), handing
-   frames to the existing web recognizer. No native inference yet. This alone gets the lens switch and
-   sharper frames.
+   frames to the existing web recognizer. No native inference yet. This alone gets the lens choice,
+   the higher capture rate and manual focus.
 3. **Native finder and outline:** the card finder and the outline in native code (1 to 4), corners sent
-   to the web gate.
+   to the web gate. The web recognizer finds and matches in one call (`identify(frame)`), so this
+   stage also gives it a way to match a card at corners it is handed; otherwise both finders would
+   run. `yama-corners` returns one card per window, so more than one outline at a time needs the
+   window logic to track several cards, or a finder that returns several: one outline first.
 4. **Native art read:** cut and embed natively, first on the CPU with the shipped files, then on the
    GPU through LiteRT with a CPU check if a phone's numbers ask for it (17, 30). The web side searches.
-5. **Printing after the row** (22, 24), then feedback by price (28).
+5. **Printing after the row** (22, 24), then feedback by price (28). The row shown at once is
+   provisional: it is on screen and in the session, and it is saved to the collection only when its
+   printing settles (the collection can't save a row without a printing). Item 26 is not part of this
+   stage unless Bryan says yes to it.
 
 Each stage is its own PR with a phone check on Bryan's Pixel recorded by Scanner diagnostics' timing
 records. A stage's default flips only when those records support it; until then it's an option in Scan

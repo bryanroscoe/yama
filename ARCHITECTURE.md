@@ -3288,3 +3288,17 @@ the approval step of [Plans: one plan per deck](#plans-one-plan-per-deck-2026-11
   approve, keep or undo is refused ("Plans don't wait for approval any more"). Archive and Bring
   it back stay. The Sharing setting that showed friends "pending upgrades" is gone with them: no
   plan is pending (the server field is left, unread by the page).
+
+## The scanner's camera moves into native code in the Android app (21 November 2026)
+
+Bryan, 21 Nov 2026, after trying CardVision's Android beta: "Maybe we need to make a better app here,
+like a native app for that portion of the app instead of the web view… The rest of it might be able to
+be a web app… Let's make a list here and just try to match it."
+
+Decided: in the Android app the scanner's camera loop (the camera, its preview, and in later stages
+the card finder, the outline and the art read) moves into a native Capacitor plugin. Everything after
+the card is named stays in the web app: the search, the printing rules, the sheet, and the collection,
+deck check and box check behind it. Browsers keep the web scanner. Nothing of CardVision's is used
+(code, models or index); its behaviour is the yardstick. The list, the stages and the open decisions
+are in [docs/plans/scanner-match-cardvision.md](docs/plans/scanner-match-cardvision.md). "How Yama
+works today" changes when the first native stage ships, not before.
