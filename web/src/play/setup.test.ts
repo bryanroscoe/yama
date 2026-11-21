@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { forgetJoinCode, joinDeck, keepJoinCode, keptJoinCode, nextDeck, playRequest, playsPrecon, recentDecks, rememberedSeats, seatWho, startingSeats, withPrecons, type SeatPlan } from "./setup";
+import { forgetJoinCode, joinDeck, keepJoinCode, keptJoinCode, nextDeck, playRequest, playsPrecon, recentDecks, reconcileSeats, rememberedSeats, seatWho, startingSeats, withPrecons, type SeatPlan } from "./setup";
 
 const me: SeatPlan = { kind: "me", deckId: "", difficulty: "Medium" };
 const friend: SeatPlan = { kind: "friend", deckId: "", difficulty: "Medium" };
@@ -176,3 +176,28 @@ describe("the seats a new game opens with", () => {
     ]);
   });
 });
+
+describe("seats while the list of decks changes under the page", () => {
+  const deck = (id: string, updated_at: string) => ({ id, updated_at });
+  const decks = [deck("a", "2026-11-03"), deck("b", "2026-11-02"), deck("c", "2026-11-01")];
+  const seats: SeatPlan[] = [
+    { kind: "me", deckId: "a", difficulty: "Medium" },
+    { kind: "ai", deckId: "b", difficulty: "Easy" },
+    { kind: "friend", deckId: "", difficulty: "Medium" },
+  ];
+
+  it("leaves seats alone while every deck is still there", () => {
+    expect(reconcileSeats(decks, seats)).toBe(seats);
+    expect(reconcileSeats([...decks, deck("d", "2026-11-04")], seats)).toBe(seats);
+  });
+
+  it("moves a seat off a deck that is gone, onto one nobody is on", () => {
+    // "b" was archived on another device after the page opened.
+    const now = reconcileSeats([decks[0]!, decks[2]!], seats);
+    expect(now.map((s) => s.deckId)).toEqual(["a", "c", ""]);
+    expect(now[1]).toMatchObject({ kind: "ai", difficulty: "Easy" });
+    // Every deck gone: nothing stale is left to send.
+    expect(reconcileSeats([], seats).map((s) => s.deckId)).toEqual(["", "", ""]);
+  });
+});
+

@@ -98,6 +98,17 @@ export function startingSeats(decks: { id: string; updated_at: string; parent_id
 }
 
 /**
+ * The seats as they can be played with the decks there are now. The list of decks is read again
+ * while the page is open, and a deck archived or deleted elsewhere leaves it: a seat still on
+ * that deck takes another, as a seat does when the page opens. Seats on decks you still have are
+ * returned as they are (the same array when nothing changed).
+ */
+export function reconcileSeats(decks: { id: string; updated_at: string; parent_id?: string | null }[], seats: SeatPlan[]): SeatPlan[] {
+  if (seats.every((s) => !s.deckId || decks.some((d) => d.id === s.deckId))) return seats;
+  return startingSeats(decks, seats);
+}
+
+/**
  * The deck the join panel is on: the one picked there, else the one you played last time, else the
  * one you changed most recently (not the first by name). Worked out from the list as it is now,
  * so a deck added a moment ago is chosen as soon as the list has it.

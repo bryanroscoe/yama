@@ -18,7 +18,7 @@ import { useMe } from "../auth";
 import type { OnlineGame, SeatInfo } from "./types";
 import type { PreconList } from "../lab/api";
 import { SavedDeckPicker, PreconPicker } from "../components/DeckPicker";
-import { forgetJoinCode, joinDeck, keepJoinCode, keptJoinCode, nextDeck, playRequest, playsPrecon, recentDecks, rememberedSeats, seatWho, startingSeats, withPrecons, type SeatPlan } from "./setup";
+import { forgetJoinCode, joinDeck, keepJoinCode, keptJoinCode, nextDeck, playRequest, playsPrecon, recentDecks, reconcileSeats, rememberedSeats, seatWho, startingSeats, withPrecons, type SeatPlan } from "./setup";
 import type { GuestSession } from "../guestPlay";
 import { GuestNote } from "./GuestPlay";
 import "./play.css";
@@ -188,7 +188,10 @@ function NewGame({ decks, guest }: { decks: DeckSummary[]; guest: boolean }) {
   const kept = seatsKey(guest ? "guest" : me.data?.id ?? "me");
   // The table you set up last time, else you and three computers, each on a different deck (the
   // most recently changed first): every seat used to start on the first deck by name.
-  const [planned, setSeats] = useState<SeatPlan[]>(() => startingSeats(decks, rememberedSeats(stored(kept))));
+  const [chosen, setSeats] = useState<SeatPlan[]>(() => startingSeats(decks, rememberedSeats(stored(kept))));
+  // A deck that left the list while the page was open (archived on another device) can't be
+  // sent: its seat takes another of your decks.
+  const planned = reconcileSeats(decks, chosen);
   const order = recentDecks(decks);
   /** A deck for seat `i` that no other seat is on. */
   const freeDeck = (all: SeatPlan[], i: number) => nextDeck(order, all.filter((s, j) => j !== i && s.kind !== "friend").map((s) => s.deckId), i);
