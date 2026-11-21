@@ -1174,6 +1174,12 @@ export function ScannerView({
   /** The found card (its seq) whose list was touched before the look finished: its order stays. */
   const [lookTouched, setLookTouched] = useState<number | null>(null);
   /**
+   * Each card's finished look, by the card's shot (the view it was found in, carried through every
+   * copy of its `Found`, and held weakly): Wrong printing after filing reopens a card whose frames
+   * are gone (Codex review of #172), so it reuses its own look. Never another copy's.
+   */
+  const lookDone = useRef(new WeakMap<object, LookScores>());
+  /**
    * Compare the printings that share the found card's art with what the camera saw (the look slot,
    * models.ts), a few at a time. Its scores and timings go in the card's diagnostics record as they
    * come. A ref, so `settle` (memoised) calls the latest.
@@ -1210,6 +1216,7 @@ export function ScannerView({
       (done) => {
         const complete = !stop.signal.aborted && done.scored >= 2;
         note({ ...done, stopped: !complete });
+        if (complete && f.shot) lookDone.current.set(f.shot, { ...scores });
         if (foundSeq.current === seq) setLook({ seq, scores: { ...scores }, complete });
       },
       (e: unknown) => {
@@ -2290,7 +2297,10 @@ export function ScannerView({
       const again: Found = { ...base, readFirst: 0 };
       setFound(again);
       setHoldRun((n) => n + 1);
-      if (again.sameArt) startLook.current(seq, again, f.options);
+      // This card's own look, if it finished (after filing its frames are gone); else look again.
+      const had = f.shot ? lookDone.current.get(f.shot) : undefined;
+      if (had && f.options.every((p) => had[p.scryfall_id] !== undefined || !p.image_normal)) setLook({ seq, scores: had, complete: true });
+      else if (again.sameArt) startLook.current(seq, again, f.options);
       return;
     }
     const seq = ++foundSeq.current;

@@ -124,10 +124,9 @@ self.onmessage = async (event: MessageEvent<ArtWorkerRequest>) => {
       const frames = lookFrames.of(m.index).map((f) => ({ width: f.image.width, height: f.image.height, quad: f.quad, buffer: f.image.data.slice().buffer as ArrayBuffer }));
       reply({ type: "frames", id: m.id, frames }, frames.map((f) => f.buffer));
     }
-    else if (m.type === "reset") {
-      recognizer?.reset();
-      lookFrames.clear();
-    }
+    // The frames kept for the look stay: a card filed and then said to be the wrong printing is
+    // still in view (Codex review of #172). A frame with no card ends them.
+    else if (m.type === "reset") recognizer?.reset();
     else if (m.type === "pool") {
       if (!recognizer) throw new Error("The card recognizer isn't loaded");
       const indices = m.keys ? poolIndices(arts, m.keys) : null;
