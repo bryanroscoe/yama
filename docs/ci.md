@@ -39,7 +39,7 @@ locally with JDK 21 and the Android SDK (docs/mobile.md):
 
 ```sh
 npm run android:sync -w web
-(cd web/android && ./gradlew --no-daemon assembleDebug bundleRelease)
+(cd web/android && ./gradlew --no-daemon testDebugUnitTest assembleDebug bundleRelease)
 ``` The caveats in
 [Don't test a merge twice](#dont-test-a-merge-twice) about macOS vs Linux apply to every merge
 while tests are off, since nothing re-tests main on Linux.

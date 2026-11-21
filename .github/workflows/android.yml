@@ -46,7 +46,7 @@ jobs:
         env:
           YAMA_ANDROID_VERSION_CODE: ${{ github.run_number }}
           YAMA_ANDROID_VERSION_NAME: 0.1.${{ github.run_number }}
-        run: ./gradlew --no-daemon assembleDebug bundleRelease
+        run: ./gradlew --no-daemon testDebugUnitTest assembleDebug bundleRelease
       - name: Signing certificates (for the Android OAuth clients)
         working-directory: web/android
         run: ./gradlew --no-daemon -q signingReport | grep -E '^(Variant|Config|SHA1|Store)' || true
