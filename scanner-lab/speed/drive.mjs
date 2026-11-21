@@ -39,7 +39,7 @@ const inputs = {
   search: sha(path.join(bundleDir, "search.onnx")),
   frames: sha(path.join(framesDir, "index.json")),
 };
-console.log(`bundle ${inputs.bundle}, embed ${inputs.embed.file} ${inputs.embed.sha256.slice(0, 12)}, frames ${inputs.frames.slice(0, 12)}`);
+console.log(`bundle ${inputs.bundle}, --embed ${inputs.embed.file} ${inputs.embed.sha256.slice(0, 12)}, frames ${inputs.frames.slice(0, 12)}`);
 
 const built = await build({ input: path.join(here, "entry.ts"), write: false, output: { format: "esm" } });
 const recognizerJs = built.output[0].code;
@@ -72,7 +72,10 @@ for (const q of configs) {
   await page.goto(`${base}/bench/bench.html?${q}`);
   await page.waitForFunction(() => window.__bench, null, { timeout: 600_000 });
   const r = await page.evaluate(() => window.__bench);
-  r.inputs = inputs;
+  // The embed graph this configuration ran: --embed, or the bundle's own when the query names it.
+  const named = new URLSearchParams(q).get("embedFile");
+  const ran = !named || named === "/embed.onnx" ? embedFile : named.startsWith("/bundle/") ? path.join(bundleDir, path.basename(named)) : null;
+  r.inputs = { ...inputs, embed: ran && fs.existsSync(ran) ? { file: path.basename(ran), sha256: sha(ran) } : { file: named, sha256: null } };
   await page.close();
   all.push(r);
   if (r.loadError) {
@@ -85,7 +88,7 @@ for (const q of configs) {
   const right = r.results.length ? `${(100 * r.results.filter((x) => x.right).length / r.results.length).toFixed(1)}% of ${r.results.length}` : "-";
   const tracked = res.filter((x) => x.runs.detector.length === 1).map((x) => x.timings.totalMs);
   const fresh = res.filter((x) => x.runs.detector.length > 1).map((x) => x.timings.totalMs);
-  console.log(`${q}: detector ${f(med(res.flatMap((x) => x.runs.detector)))} ms a pass, embed ${f(med(res.flatMap((x) => x.runs.embed)))}, search ${f(med(res.flatMap((x) => x.runs.search)))}; ` +
+  console.log(`${q} (embed ${r.inputs.embed.file} ${r.inputs.embed.sha256?.slice(0, 12) ?? "?"}): detector ${f(med(res.flatMap((x) => x.runs.detector)))} ms a pass, embed ${f(med(res.flatMap((x) => x.runs.embed)))}, search ${f(med(res.flatMap((x) => x.runs.search)))}; ` +
     `frame ${f(med(tracked))} tracked (${tracked.length}), ${f(med(fresh))} fresh (${fresh.length}); right card first ${right}; ` +
     `synthetic frame read ${f(med(r.grab))} ms; isolated ${r.isolated}, gpu ${r.gpu ?? "none"}`);
 }
