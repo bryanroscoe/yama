@@ -78,10 +78,12 @@ quote and not proof of stock. A missing price is unknown: `null` beside a `null`
 Kingdom buylist (what it was paying for near-mint copies, not what a seller will get) or Mana
 Pool's lowest listing. Days Yama didn't read are gaps.
 
-## Notes and plans (`save_research`, `track_build`, `approve_plan`)
+## Notes and plans (`save_research`, `track_build`)
 
-A note is saved research: a deck's builds, each with swaps and reasons. `track_build` stages one
-build as the deck's plan; the plan then waits for the person's OK, which is one decision for the
-whole plan (`approve_plan`, after skipping changes and answering open questions). Saving the note
-again updates a plan that tracks it. A save that would stop a plan is refused unless
+A note is saved research: a deck's builds, each with swaps and reasons. `track_build` makes one
+build the deck's plan straight away: nobody approves a plan (since 20 Nov 2026), so its changes go
+in at once and feed the shopping list (nothing is bought until they mark it). A change whose cut
+clashes (no card named, a cut the plan already makes, two changes cutting one card) is left out as
+unsure, with the reason in its note, and the answer names it; fix the build and save the note
+again. Saving the note again updates a plan that tracks it. A save that would stop a plan is refused unless
 `stop_plans` is true.

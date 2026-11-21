@@ -37,8 +37,9 @@ pub const MAX_OPS: usize = 500;
 const MAX_OP_BYTES: usize = 16 * 1024;
 /// A plan op lists every change in a plan by key (a hundred keys of a few dozen characters).
 const MAX_PLAN_OP_BYTES: usize = 128 * 1024;
-/// Keys in one plan op.
-const MAX_PLAN_KEYS: usize = 400;
+/// Keys in one plan op. A page sends none now (archive and restore); the inbox reads the approve
+/// ops `versions::settle` records with this too, and a deck can have hundreds of changes.
+const MAX_PLAN_KEYS: usize = 2000;
 /// How far ahead of the server a device clock may be before its time is clamped.
 const FUTURE_SECONDS: i64 = 300;
 /// Inbox ops per page.
@@ -222,7 +223,7 @@ fn parse(op: &Map<String, Value>) -> Result<Parsed, String> {
             if deck_key.is_none() {
                 return Err("deck_key: missing; the plan deck this decides".into());
             }
-            let action = needed(op, "action", 20, "approve, keep, undo, archive or restore")?;
+            let action = needed(op, "action", 20, "archive or restore")?;
             if !super::versions::ACTIONS.contains(&action.as_str()) {
                 return Err(format!("action: \"{action}\" isn't one of {}", super::versions::ACTIONS.join(", ")));
             }
@@ -265,11 +266,13 @@ fn parse(op: &Map<String, Value>) -> Result<Parsed, String> {
                     .collect::<Result<_, _>>()?,
                 Some(other) => return Err(format!("answers: expected a list of {{question, answer}}, got {other}")),
             };
+            // `auto`: Yama settled it (`versions::settle`), not a tap on a page.
             let record = json!({
                 "action": action, "version": version, "keys": included, "skip": skip, "hash": hash,
                 "answers": answers.iter().map(|(q, a)| json!({"question": q, "answer": a})).collect::<Vec<_>>(),
+                "auto": matches!(field(op, "auto"), Some(Value::Bool(true))),
             });
-            let plan = super::versions::PlanOp { action, version, keys: included, skip, hash, answers };
+            let plan = super::versions::PlanOp { action };
             return Ok(Parsed { kind, swap_key: None, deck_key, device_id, record, plan: Some(plan) });
         }
         _ => {
@@ -326,6 +329,10 @@ pub async fn apply_ops(pool: &SqlitePool, owner: &str, ops: Vec<Value>, received
     let ctx = Ctx::load(&mut *conn, owner).await?;
     let mut results = Vec::with_capacity(ops.len());
     let mut applied = 0;
+    // A restored plan or a cleared answer can leave proposals unsettled (`versions::settle`), and
+    // any answer can move what a note plan's lists hold (`notes::restate_deck`).
+    let mut unsettled = false;
+    let mut touched: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for op in ops {
         let op_id = op.get("op_id").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty() && s.chars().count() <= 100).map(str::to_string);
         let Some(op_id) = op_id else {
@@ -349,7 +356,7 @@ pub async fn apply_ops(pool: &SqlitePool, owner: &str, ops: Vec<Value>, received
                 Err(format!("op: at most {} bytes", if obj.get("kind").and_then(Value::as_str) == Some("plan") { MAX_PLAN_OP_BYTES } else { MAX_OP_BYTES }))
             }
             Some(obj) => match (parse(obj), op_time(obj, received)) {
-                (Ok(p), Ok(at)) => apply(&mut *conn, owner, &ctx, &p, &op_id, &at, &received_at).await?.map(|(deck_key, for_export)| (p, at, deck_key, for_export)),
+                (Ok(p), Ok(at)) => apply(&mut *conn, owner, &ctx, &p, &op_id, &at).await?.map(|(deck_key, for_export)| (p, at, deck_key, for_export)),
                 (Err(e), _) | (_, Err(e)) => Err(e),
             },
         };
@@ -358,6 +365,10 @@ pub async fn apply_ops(pool: &SqlitePool, owner: &str, ops: Vec<Value>, received
         let seq = match outcome {
             Ok((p, at, deck_key, for_export)) => {
                 applied += 1;
+                if matches!(p.kind, "review" | "plan") {
+                    unsettled = true;
+                    touched.extend(deck_key.clone());
+                }
                 insert_input(&mut *conn, owner, &op_id, p.device_id.as_deref(), p.kind, p.swap_key.as_deref(), deck_key.as_deref(), &payload, "applied", None, for_export, &at, &received_at).await?
             }
             Err(error) => {
@@ -376,6 +387,12 @@ pub async fn apply_ops(pool: &SqlitePool, owner: &str, ops: Vec<Value>, received
         };
         sqlx::query("RELEASE plan_op").execute(&mut *conn).await?;
         results.push(OpResult { op_id: Some(op_id), status: "applied", original: None, error: None, seq: Some(seq) });
+    }
+    if unsettled {
+        super::versions::settle(&mut *conn, owner).await?;
+        for key in &touched {
+            super::notes::restate_deck(&mut *conn, owner, key).await?;
+        }
     }
     if applied > 0 {
         sqlx::query("INSERT INTO plan_meta (owner_id, updated_at) VALUES (?, ?) ON CONFLICT(owner_id) DO NOTHING").bind(owner).bind(&received_at).execute(&mut *conn).await?;
@@ -424,10 +441,10 @@ async fn insert_input(
 
 /// Write one checked op. `Ok(Err(..))` rejects the op; `Err(..)` is a database failure that fails the
 /// batch. Returns the deck the op is about (when known) and whether the export side should see it.
-async fn apply(conn: &mut SqliteConnection, owner: &str, ctx: &Ctx, p: &Parsed, op_id: &str, at: &str, received_at: &str) -> AppResult<Result<(Option<String>, bool), String>> {
+async fn apply(conn: &mut SqliteConnection, owner: &str, ctx: &Ctx, p: &Parsed, op_id: &str, at: &str) -> AppResult<Result<(Option<String>, bool), String>> {
     if let Some(plan) = &p.plan {
         let deck_key = p.deck_key.clone().unwrap_or_default();
-        return Ok(super::versions::apply(&mut *conn, owner, &deck_key, plan, op_id, at, received_at).await?.map(|for_export| (Some(deck_key), for_export)));
+        return Ok(super::versions::apply(&mut *conn, owner, &deck_key, plan, at).await?.map(|for_export| (Some(deck_key), for_export)));
     }
     let swap = p.swap_key.as_deref().and_then(|k| ctx.swap(k));
     let deck_key = swap.as_ref().map(|(_, s)| s.deck_key.clone()).or_else(|| p.deck_key.clone());

@@ -1,16 +1,19 @@
-// One plan per deck (ARCHITECTURE.md, "Plans: one plan per deck", 2026-11-06). The server says each
-// deck's plan state and version (`deck.plan`, server/src/plan/versions.rs); this file turns a
+// One plan per deck (ARCHITECTURE.md, "Plans: one plan per deck", 2026-11-06), and nobody approves
+// it ("Plans don't wait for approval", 20 Nov 2026): changes go in when they arrive. The server says
+// each deck's plan state and version (`deck.plan`, server/src/plan/versions.rs); this file turns a
 // plan's changes into what the plan pages show: where each card comes from, what it costs, what's
-// left to do, and the line under a plan's title.
+// left to do, what was left out, and the line under a plan's title.
 
 import { fmtDate, usd } from "../format";
 import { installedState } from "./marks";
 import { newestChecks } from "./quotes";
 import { cheapestMarket } from "./rules";
-import type { DeckPlanState, Mark, PlanCut, Order, PlanBundle, PlanDeck, PlanHead, PlanStateName, Quote, Review, Swap, VersionSource } from "./types";
+import type { PlanDecisionOp } from "./overlay";
+import type { DeckPlanState, Mark, Order, PlanBundle, PlanDeck, PlanHead, PlanStateName, Quote, Review, Swap, VersionSource } from "./types";
 
 export const PLAN_STATE_LABEL: Record<PlanStateName, string> = {
-  waiting: "Waiting for your OK",
+  // Only for the moment between proposals arriving and the server taking them in.
+  waiting: "Updating",
   in_progress: "In progress",
   done: "Done",
   archived: "Archived",
@@ -38,7 +41,7 @@ export function planOf(deck: PlanDeck, swaps: Swap[]): DeckPlanState {
   };
 }
 
-/** A plan whose changes feed Get the cards: approved, not archived. */
+/** A plan whose changes feed Get the cards: it has a version and isn't archived. */
 export function inForce(plan: DeckPlanState): boolean {
   return plan.state === "in_progress" || plan.state === "done";
 }
@@ -152,23 +155,17 @@ export function getLine(c: PlanCounts): string {
 }
 
 /**
- * Whether an answer approves a change: a want, given after the change last changed. A proposal a
- * plan file or note save edited after it was answered is unanswered again (server `versions.rs`).
+ * Whether an answer puts a proposal in the plan: a want (the server writes one as each change
+ * arrives), given after the change last changed. A proposal a plan file or note save edited after
+ * it was answered is unanswered again until the server takes it in (server `versions.rs`).
  */
 export function approves(s: Swap, answer: Review | undefined): boolean {
   return answer?.decision === "want" && (s.stage !== "proposed" || !s.updated_at || !answer.at || s.updated_at <= answer.at);
 }
 
-/** The changes in a plan's version waiting for your OK, in plan order. */
-export function waitingSwaps(plan: DeckPlanState, swaps: Swap[]): Swap[] {
-  if (!plan.next) return [];
-  const byKey = new Map(swaps.map((s) => [s.key, s]));
-  return plan.next.keys.map((k) => byKey.get(k)).filter((s): s is Swap => !!s);
-}
-
 /**
  * The changes in the plan in force: planned swaps (not stand-ins or optional extras) and the
- * proposals you approved (a want answer, once the plan has a version).
+ * proposals it took in (a want answer, once the plan has a version).
  */
 export function inForceSwaps(deck: PlanDeck, plan: DeckPlanState, swaps: Swap[], answers: Map<string, Review>): Swap[] {
   if (plan.version == null) return [];
@@ -235,43 +232,60 @@ export function sourceText(source: VersionSource | Record<string, unknown> | nul
 
 /** The plain line under a plan's title: version, date and source (never a chip). */
 export function versionLine(plan: DeckPlanState, head?: PlanHead | null): string {
-  if (plan.state === "waiting" && plan.next) return `Version ${plan.next.n}, ${sourceText(plan.next.source, plan.next.proposed_at, head)}`;
+  if (plan.state === "waiting" && plan.next) return `New changes ${sourceText(plan.next.source, plan.next.proposed_at, head)}, going in now`;
   if (plan.version == null) return "";
-  const approved = plan.approved_at ? `, approved ${fmtDate(plan.approved_at)}` : head ? `, from ${head.app ?? "your plan file"}` : "";
-  return `Version ${plan.version}${approved}`;
+  const when = plan.approved_at ? `, updated ${fmtDate(plan.approved_at)}` : head ? `, from ${head.app ?? "your plan file"}` : "";
+  return `Version ${plan.version}${when}`;
 }
 
 /** Every plan op still on this device, by deck, newest last: the page shows them as done. */
 export interface PlanDecision {
   deck_key: string;
-  action: "approve" | "keep" | "undo" | "archive" | "restore";
+  action: PlanDecisionOp["action"];
   version: number | null;
 }
 
 /**
  * A deck's plan with this device's own decisions laid over it until a bundle that has them
- * arrives: an approval reads as in progress at that version, keep as nothing waiting, archive as
- * archived. Undo and restore wait for the bundle.
+ * arrives: archive reads as archived. Restore waits for the bundle.
  */
 export function overlayPlan(plan: DeckPlanState, decisions: PlanDecision[]): DeckPlanState {
   let p = plan;
   for (const d of decisions) {
-    if (d.action === "approve" && p.next && d.version === p.next.n) {
-      p = { ...p, state: "in_progress", version: p.next.n, approved_at: null, changes: p.changes + p.next.keys.length, next: null };
-    } else if (d.action === "keep" && p.next && d.version === p.next.n) {
-      p = { ...p, next: null };
-    } else if (d.action === "archive" && p.state !== "archived") {
-      p = { ...p, state: "archived", archived_note: "Archived by you" };
-    }
+    if (d.action === "archive" && p.state !== "archived") p = { ...p, state: "archived", archived_note: "Archived by you" };
   }
   return p;
 }
 
+/** A proposal the plan left out, and why: your answer, or the note the server wrote with it. */
+export interface LeftOut {
+  swap: Swap;
+  decision: "no" | "unsure";
+  /** Your note, or the server's reason ("Yama left this out: …"). */
+  note: string | null;
+}
+
+/**
+ * The proposals for a deck that aren't in its plan: answered no or unsure since they last changed.
+ * The server leaves a change out as unsure when its cut clashes (no card named, a cut the plan
+ * already makes, two changes cutting one card; `versions.rs` `left_out`), or when it's an optional
+ * extra that cuts nothing, and writes why in the note.
+ */
+export function leftOut(deck: PlanDeck, swaps: Swap[], answers: Map<string, Review>): LeftOut[] {
+  return swaps
+    .filter((s) => s.deck === deck.key && !s.retired && s.stage === "proposed" && (s.role === "swap" || s.role === "optional"))
+    .flatMap((s) => {
+      const a = answers.get(s.key);
+      if ((a?.decision !== "no" && a?.decision !== "unsure") || (s.updated_at && a.at && s.updated_at > a.at)) return [];
+      return [{ swap: s, decision: a.decision, note: a.note ?? null }];
+    })
+    .sort((a, b) => a.swap.sort - b.swap.sort);
+}
+
 /**
  * The bundle as Get the cards reads it: only the plans in force, and in them only planned swaps and
- * the proposals you approved. A plan waiting for your OK, archived or empty reads as archived, so
- * every shopping, print and spares view leaves it out; nothing is bought or printed before you
- * approve. With `deck`, only that deck's plan.
+ * the proposals they took in. An archived or empty plan reads as archived, so every shopping, print
+ * and spares view leaves it out. With `deck`, only that deck's plan.
  */
 export function inForceBundle<B extends Pick<PlanBundle, "decks" | "swaps">>(b: B, planOfDeck: (d: PlanDeck) => DeckPlanState, answers: Map<string, Review>, deck?: string | null): B {
   const live = new Set(b.decks.filter((d) => inForce(planOfDeck(d)) && (!deck || d.key === deck)).map((d) => d.key));
@@ -280,60 +294,4 @@ export function inForceBundle<B extends Pick<PlanBundle, "decks" | "swaps">>(b: 
     decks: b.decks.map((d) => (live.has(d.key) ? d : { ...d, status: "archived" as const })),
     swaps: b.swaps.filter((s) => live.has(s.deck) && (s.stage === "planned" || approves(s, answers.get(s.key)))),
   };
-}
-
-// ── approval checks ────────────────────────────────────────────────────────
-
-const BASICS = new Set(["plains", "island", "swamp", "mountain", "forest", "wastes"]);
-const nameKey = (n: string) => n.trim().toLowerCase();
-const isBasic = (n: string) => BASICS.has(nameKey(n).replace(/^snow-covered /, ""));
-/** A swap's copies (`key#2`) are one change: they never clash with each other. */
-const baseKey = (k: string) => k.replace(/#\d+$/, "");
-
-export interface PlanProblems {
-  /** Why each kept change can't be approved as it is, by key. */
-  byKey: Map<string, string>;
-  /** How many problems: a clash between several changes counts once. */
-  count: number;
-}
-
-/**
- * The checks a version passes before you approve it (the plans redesign's New version board):
- * every kept swap names a card to cut, no cut is one the plan in force already takes out, and no
- * two kept changes cut the same card (basic lands aside). Skipping a change settles its problem.
- * The server refuses an approval on the same rule (`versions.rs` `problems`).
- */
-export function planProblems(cuts: PlanCut[] | undefined, skipped: Set<string>): PlanProblems {
-  const kept = (cuts ?? []).filter((c) => !skipped.has(c.key));
-  const byKey = new Map<string, string>();
-  const groups = new Set<string>();
-  let count = 0;
-  for (const c of kept) {
-    const out = c.out?.trim();
-    if (!out) {
-      byKey.set(c.key, "No card named to cut. Skip it, or ask your assistant for one.");
-      count++;
-      continue;
-    }
-    if (isBasic(out)) continue;
-    if (c.gone_for) {
-      byKey.set(c.key, `Out of date: ${out} already goes out for ${c.gone_for}.`);
-      count++;
-      continue;
-    }
-    const same = kept.filter((d) => baseKey(d.key) !== baseKey(c.key) && !d.gone_for && d.out && nameKey(d.out) === nameKey(out));
-    if (!same.length) continue;
-    const others = [...new Set(same.map((d) => d.in).filter((n) => n !== c.in))];
-    byKey.set(c.key, others.length ? `Same cut as ${others.join(" and ")}. Keep one of them.` : `Another change also puts in ${c.in} for ${out}. Keep one of them.`);
-    if (!groups.has(nameKey(out))) {
-      groups.add(nameKey(out));
-      count++;
-    }
-  }
-  return { byKey, count };
-}
-
-/** Changes that start skipped: the ones you said no to, and cuts the plan in force already makes. */
-export function startSkipped(next: NonNullable<DeckPlanState["next"]>): Set<string> {
-  return new Set([...next.skipped, ...(next.cuts ?? []).filter((c) => c.gone_for).map((c) => c.key)]);
 }

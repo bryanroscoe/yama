@@ -254,9 +254,9 @@ async fn general(pool: &SqlitePool, owner: &str) -> AppResult<String> {
         let mut conn = pool.acquire().await?;
         let states = crate::plan::versions::load(&mut conn, owner, Some(&installs)).await?;
         out.push_str(
-            "\nTheir deck plans, one per deck (each is a Bracket 4 build with swap bags back to 3 and 2). A plan is waiting for \
-             their OK, in progress, done or archived; approving is one decision for the whole plan (`approve_plan`), after \
-             skipping any change and answering its open questions. Only approved plans feed the shopping list and prints:\n",
+            "\nTheir deck plans, one per deck (each is a Bracket 4 build with swap bags back to 3 and 2). A plan is in progress, \
+             done or archived. Nobody approves a plan: changes go into it when they arrive (a saved note, `track_build`, a plan \
+             file), and plans that aren't archived feed the shopping list and prints:\n",
         );
         for (id, key, name, note, build) in plans {
             let from = match (note, build) {
@@ -273,21 +273,17 @@ async fn general(pool: &SqlitePool, owner: &str) -> AppResult<String> {
 /// A deck plan's state in words, for the tools.
 pub(crate) fn plan_state_text(p: &crate::plan::versions::DeckPlan) -> String {
     let mut s = match p.state {
-        "waiting" => "waiting for their OK".to_string(),
+        "waiting" => "new, its changes not taken in yet".to_string(),
         "in_progress" => format!("in progress, version {}, {} of {} changes in the deck", p.version.unwrap_or(1), p.installed, p.changes),
         "done" => format!("done, version {}, all {} changes in the deck", p.version.unwrap_or(1), p.changes),
         "archived" => format!("archived{}", p.archived_note.as_deref().map(|n| format!(" ({n})")).unwrap_or_default()),
         _ => "no changes yet".to_string(),
     };
-    if let Some(n) = &p.next {
-        let what = if p.state == "waiting" { "version" } else { "new version" };
-        let _ = write!(s, "; {what} {} with {} changes waiting for their OK", n.n, n.keys.len());
-        if !n.skipped.is_empty() {
-            let _ = write!(s, " ({} already skipped)", n.skipped.len());
-        }
-        if !p.questions.is_empty() {
-            let _ = write!(s, ", {} open question{} to answer first", p.questions.len(), if p.questions.len() == 1 { "" } else { "s" });
-        }
+    if let Some(n) = p.next.as_ref().filter(|_| p.state != "waiting") {
+        let _ = write!(s, "; {} new changes not taken in yet (version {})", n.keys.len(), n.n);
+    }
+    if !p.questions.is_empty() && p.state != "archived" {
+        let _ = write!(s, "; {} open question{}", p.questions.len(), if p.questions.len() == 1 { "" } else { "s" });
     }
     s
 }
@@ -453,32 +449,13 @@ pub(crate) async fn plan_deck(pool: &SqlitePool, owner: &str, key: &str) -> AppR
     };
     if let Some(p) = &state {
         let _ = writeln!(out, "Plan: {}", plan_state_text(p));
-        if let Some(n) = &p.next {
-            let _ = writeln!(
-                out,
-                "Version {} is waiting for their OK: the proposed swaps listed as waiting below. They approve it whole in Yama, or you \
-                 stage `approve_plan` (with any changes to skip and the answers to its open questions) once they've said so; until \
-                 then {}.",
-                n.n,
-                if p.state == "waiting" { "nothing in it is bought or printed" } else { "the version before keeps going" }
+        if p.state != "archived" {
+            out.push_str(
+                "Nobody approves this plan: a change goes in when it arrives. To change it, save its note again (a plan from a \
+                 note follows the note), switch builds with `track_build`, or for a plan file publish a new one. A change whose \
+                 cut clashes (no card named to cut, a cut the plan already makes, or two changes cutting one card) is left out \
+                 as unsure, with the reason in its note.\n",
             );
-            let start = crate::plan::versions::start_skipped(n);
-            let gone: Vec<String> = n
-                .cuts
-                .iter()
-                .filter(|c| c.gone_for.is_some() && !n.skipped.contains(&c.key))
-                .map(|c| format!("{} ({} already goes out for {})", c.card_in, c.out.as_deref().unwrap_or_default(), c.gone_for.as_deref().unwrap_or_default()))
-                .collect();
-            if !gone.is_empty() {
-                let _ = writeln!(out, "Skipped unless they say otherwise, because the plan in force already makes the cut: {}.", gone.join("; "));
-            }
-            let problems = crate::plan::versions::problems(n, &start);
-            if !problems.is_empty() {
-                let _ = writeln!(out, "It can't be approved until each of these is settled, by skipping a change or proposing a fixed one:");
-                for p in problems {
-                    let _ = writeln!(out, "- {p}");
-                }
-            }
         }
     }
     if let Some((note, deck, build)) = &note {
@@ -550,13 +527,13 @@ pub(crate) async fn plan_deck(pool: &SqlitePool, owner: &str, key: &str) -> AppR
     }
     let (open, answered): (Vec<_>, Vec<_>) = proposed.into_iter().partition(|(_, sw)| !is_answered(&answers, &sw.key));
     if !open.is_empty() {
-        let _ = writeln!(out, "\nProposed swaps waiting for their answer ({}):", open.len());
+        let _ = writeln!(out, "\nProposed swaps not taken in yet ({}):", open.len());
         for (_, sw) in open {
             let _ = writeln!(out, "{}", swap_text(sw, &answers));
         }
     }
     if !answered.is_empty() {
-        let _ = writeln!(out, "\nProposed swaps they have answered ({}; want = move it into the plan, unsure or no = keep it out and read their note):", answered.len());
+        let _ = writeln!(out, "\nProposed swaps with an answer ({}; want = in the plan, unsure or no = left out, and the note says why):", answered.len());
         for (_, sw) in answered {
             let _ = writeln!(out, "{}", swap_text(sw, &answers));
         }
@@ -654,10 +631,10 @@ fn is_answered(answers: &Answers, key: &str) -> bool {
 
 pub(crate) async fn review(pool: &SqlitePool, owner: &str) -> AppResult<String> {
     let mut out = String::from(
-        "Proposed swaps for their plan decks. A deck's proposals together are a plan version waiting for their OK: they \
-         approve it whole on the deck's plan page (skipping any change first), or answer one change at a time with want, \
-         unsure or don't want. Want means an agent moves the swap into the plan; unsure and don't want keep it out, and \
-         agents read their note. Planned swaps are already in the plan and aren't on this list.\n",
+        "Proposed swaps for their plan decks. Nobody approves a plan: proposals go into it when they arrive (a want), except \
+         a change whose cut clashes, which Yama leaves out as unsure with the reason in its note. An answer on one change: \
+         want puts it in the plan, unsure or don't want keeps it out, and agents read the note. Planned swaps are always in \
+         the plan and aren't on this list.\n",
     );
     out.push_str(&plan_settings(pool, owner).await?);
     let answers = reviews(pool, owner).await?;
@@ -709,10 +686,10 @@ pub(crate) async fn review_page(pool: &SqlitePool, owner: &str, deck_key: Option
     const DECKS: usize = 50;
     let clip = |text: &str, max: usize| if text.chars().count() > max { format!("{}…", text.chars().take(max).collect::<String>()) } else { text.to_string() };
     let mut out = String::from(
-        "Proposed swaps for their plan decks. A deck's proposals together are a plan version waiting for their OK: they \
-         approve it whole on the deck's plan page (skipping any change first), or answer one change at a time with want, \
-         unsure or don't want. Want means an agent moves the swap into the plan; unsure and don't want keep it out, and \
-         agents read their note. Planned swaps are already in the plan and aren't on this list.\n",
+        "Proposed swaps for their plan decks. Nobody approves a plan: proposals go into it when they arrive (a want), except \
+         a change whose cut clashes, which Yama leaves out as unsure with the reason in its note. An answer on one change: \
+         want puts it in the plan, unsure or don't want keeps it out, and agents read the note. Planned swaps are always in \
+         the plan and aren't on this list.\n",
     );
     let rules = plan_settings(pool, owner).await?;
     if !rules.is_empty() {

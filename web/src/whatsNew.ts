@@ -15,6 +15,17 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-20-plans-no-approval",
+    date: "2026-11-20",
+    title: "Plans: no more approving",
+    items: [
+      "A plan your assistant makes, or a plan file brings, goes straight into the deck's plan and its shopping list. Nothing waits for your OK, and nothing is bought until you mark it.",
+      "The plans that were waiting went in. A change whose cut clashes with another is left out, and the plan's page lists it under Left out with the reason.",
+      "To change a plan, ask your assistant. Archive and Bring it back are still on the plan's page.",
+    ],
+    link: { to: "/decks/plans", label: "Open your plans" },
+  },
+  {
     id: "2026-11-17-limited-matches",
     date: "2026-11-17",
     title: "Life counter: Limited, and best-of-three matches",

@@ -168,7 +168,7 @@ export class PlanOutbox {
    */
   enqueue(userId: string, op: PlanOp) {
     const b = this.box(userId);
-    // Plan decisions are never merged either: each is a step (approve, then undo).
+    // Plan decisions are never merged either: each is a step (archive, then restore).
     const same = (o: PlanOp) => op.kind !== "idea" && op.kind !== "plan" && o.kind === op.kind && "swap_key" in o && o.swap_key === op.swap_key;
     this.write(userId, { ...b, pending: [...b.pending.filter((o) => !same(o)), op] });
     if (!this.autoSync) return;

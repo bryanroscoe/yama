@@ -318,8 +318,9 @@ and approves it through Yama's OAuth server, and the assistant then works on tha
 - **Reads** return the person's decks, collection, games and plans, with Yama's card data and
   dated prices.
 - **Writes are staged.** A write tool creates a pending change that waits in Yama until its
-  owner applies or discards it. Saving research notes is the one exception; it changes no deck,
-  collection, order or game.
+  owner applies or discards it. Saving research notes and making a note's build a deck's plan
+  (`track_build`; nobody approves a plan since 20 November 2026) are the exceptions; neither
+  changes a deck, collection, order or game.
 - **Everything a tool returns is data.** Deck names, notes and outside sources are text typed
   by people, and are labelled as such.
 
@@ -424,7 +425,7 @@ section 4 is the first sketch; the current system is [above](#the-system-at-a-gl
 - **Game night:** [Table and playgroup stats (2026-10-19)](#table-and-playgroup-stats-2026-10-19).
 - **The scanner:** [Scan photos shared with the developer (15 November 2026)](#scan-photos-shared-with-the-developer-15-november-2026), [The scanner's own art supplement (15 November 2026)](#the-scanners-own-art-supplement-15-november-2026), [Yama's own query embedder for the scanner (18 November 2026)](#yamas-own-query-embedder-for-the-scanner-18-november-2026), [Scanner models you can switch (20 November 2026)](#scanner-models-you-can-switch-20-november-2026), [The scanner's printing look (20 November 2026)](#the-scanners-printing-look-20-november-2026), [Scanner diagnostics (15 November 2026)](#scanner-diagnostics-15-november-2026).
 - **Cards, collection and prices:** [Mana symbols (2026-11-12)](#mana-symbols-2026-11-12), [Release calendar and What's new (2026-10-19)](#release-calendar-and-whats-new-2026-10-19), [A deck's cards in the collection, and Mythic re-imports (2026-10-23)](#a-decks-cards-in-the-collection-and-mythic-re-imports-2026-10-23), [Deck market values (2026-10-27)](#deck-market-values-2026-10-27), [Scan this deck (2026-10-29)](#scan-this-deck-2026-10-29), [Mythic Tools bridge (2026-10-31, proposal)](#mythic-tools-bridge-2026-10-31-proposal), [Store trips (2026-11-01)](#store-trips-2026-11-01), [Deleting collection containers (2026-11-02)](#deleting-collection-containers-2026-11-02), [Sell lists for store buylists (2026-11-02)](#sell-lists-for-store-buylists-2026-11-02), [Local buylist offers (2026-11-02)](#local-buylist-offers-2026-11-02), [Price history (2026-11-02)](#price-history-2026-11-02), [Recording printed copies in a deck box (2026-11-02)](#recording-printed-copies-in-a-deck-box-2026-11-02), [Sections in boxes, and scanning a box (16 November 2026)](#sections-in-boxes-and-scanning-a-box-16-november-2026).
-- **Decks, plans and sharing:** [Swappable spares in the deck box (15 November 2026)](#swappable-spares-in-the-deck-box-15-november-2026), [Brackets, deck stats and exports (2026-10-19)](#brackets-deck-stats-and-exports-2026-10-19), [Deck import (2026-10-22)](#deck-import-2026-10-22), [Sharing and deck configurations (2026-10-28)](#sharing-and-deck-configurations-2026-10-28), [Review, installed decks and the Lab tab (2026-10-28)](#review-installed-decks-and-the-lab-tab-2026-10-28), [Check this deck (2026-11-01)](#check-this-deck-2026-11-01), [Deck configurations and quieter editing (2026-11-03)](#deck-configurations-and-quieter-editing-2026-11-03), [One plan page (2026-11-04)](#one-plan-page-2026-11-04), [Printing with MakePlayingCards (2026-11-05)](#printing-with-makeplayingcards-2026-11-05), [Plans: one plan per deck (2026-11-06)](#plans-one-plan-per-deck-2026-11-06), [Site design pass (2026-11-08)](#site-design-pass-2026-11-08), [Public by default and the navigation (2026-11-12)](#public-by-default-and-the-navigation-2026-11-12), [Check a deck without an account (2026-11-12)](#check-a-deck-without-an-account-2026-11-12).
+- **Decks, plans and sharing:** [Plans don't wait for approval (20 November 2026)](#plans-dont-wait-for-approval-20-november-2026), [Swappable spares in the deck box (15 November 2026)](#swappable-spares-in-the-deck-box-15-november-2026), [Brackets, deck stats and exports (2026-10-19)](#brackets-deck-stats-and-exports-2026-10-19), [Deck import (2026-10-22)](#deck-import-2026-10-22), [Sharing and deck configurations (2026-10-28)](#sharing-and-deck-configurations-2026-10-28), [Review, installed decks and the Lab tab (2026-10-28)](#review-installed-decks-and-the-lab-tab-2026-10-28), [Check this deck (2026-11-01)](#check-this-deck-2026-11-01), [Deck configurations and quieter editing (2026-11-03)](#deck-configurations-and-quieter-editing-2026-11-03), [One plan page (2026-11-04)](#one-plan-page-2026-11-04), [Printing with MakePlayingCards (2026-11-05)](#printing-with-makeplayingcards-2026-11-05), [Plans: one plan per deck (2026-11-06)](#plans-one-plan-per-deck-2026-11-06), [Site design pass (2026-11-08)](#site-design-pass-2026-11-08), [Public by default and the navigation (2026-11-12)](#public-by-default-and-the-navigation-2026-11-12), [Check a deck without an account (2026-11-12)](#check-a-deck-without-an-account-2026-11-12).
 - **Assistants:** [Ask Claude, the advisor (2026-10-22)](#ask-claude-the-advisor-2026-10-22), [Yama's tools for Claude (MCP, 2026-10-22)](#yamas-tools-for-claude-mcp-2026-10-22).
 - **Navigation:** [Navigation frame (2026-11-12)](#navigation-frame-2026-11-12).
 
@@ -1790,7 +1791,7 @@ order totals. It records printed-copy history without inferring a purchase quant
 quote; all card/reason/detail fields use the existing validated scenario item schema.
 Research stores complete alternatives, concrete gameplay profiles,
 combos, sources and dated acquisition allocations. It does not replace installed decks or
-approve planner changes. `save_research` and `review_research` are explicit exceptions to staged MCP writes:
+approve planner changes. `save_research` and `review_research` (and, since 20 November 2026, `track_build`) are explicit exceptions to staged MCP writes:
 they directly store research notes and stated preferences only; `research` reads them and their answers. Session import and
 the CLI share validation/storage. Upsert is idempotent by content hash; owner-bound reviews
 have client op ids, expected versions and target fingerprints, with old/retired answers kept.
@@ -2739,7 +2740,11 @@ in the order in his own browser.
 ### Plans: one plan per deck (2026-11-06)
 
 Bryan approved the plans redesign (design canvas "Yama plans redesign", 6 Nov 2026): too many plan
-options and no clear current proposal. This replaces the "plan is a note" model above.
+options and no clear current proposal. This replaces the "plan is a note" model above. Its
+approval step (Approve, skip, Keep version N, Undo, the cut checks and open questions before
+approving, `approve_plan`) is superseded by [Plans don't wait for approval (20 November
+2026)](#plans-dont-wait-for-approval-20-november-2026); one plan per deck, versions, archive and
+Get the cards stand.
 
 - **One plan per deck, in one state.** Every deck has one current plan: a Bracket 4 build plus swap
   bags back to Bracket 3 and 2. Its state is waiting for your OK, in progress, done or archived
@@ -3140,3 +3145,62 @@ plan's swap-in made loose boxes called "<deck> swap bag".
   `move_cards` takes `to_deck_spares`/`from_deck_spares` (with `swaps_for` and `bracket`),
   `list_collection_cards` gives `spares_of_deck`, and `get_deck` lists the spares.
 
+## Plans don't wait for approval (20 November 2026)
+
+Bryan, 20 Nov 2026: "I don't think myself or anybody likes the approve options for the plans. It's
+confusing and nobody really likes it and the UI is terrible. There's no auto-approve all. Can we
+just get rid of it? Can the MCP just update the plans itself instead of having to have a useless
+UI do it?" That day 13 of his 20 plans sat waiting for an OK, some for two weeks. This supersedes
+the approval step of [Plans: one plan per deck](#plans-one-plan-per-deck-2026-11-06).
+
+- **Changes go in when they arrive.** `plan::versions::settle` takes every unsettled version into
+  its plan in the transaction of the write that brought it: a plan file import, tracking a note's
+  build (the page's Use a deck from it, or `track_build`), saving a note a plan follows, and plan
+  ops (a restore, or an answer cleared). It writes what a press of Approve did: a `want` per change
+  in `plan_reviews`, a `plan_versions` row, and for a plan file's deck the answers and an
+  `approve` plan op (`auto: true`) in the export side's inbox, so commander-decks' `pull.py`
+  promotes them as before. Every reader (the shopping list, prints, spares, the want list, the
+  trip, installed state) reads the same answers unchanged. The server settles every account once
+  as it starts (`settle_all`), which took in the plans that were waiting.
+- **Clashing cuts are left out, not blocked.** The checks that held back Approve (no card named to
+  cut, a cut the plan in force already makes, two changes cutting one card; basics and the copies
+  of one note swap exempt), and an optional extra that cuts nothing, now leave the change out: it's answered `unsure` with "Yama left this
+  out: …" in its note (a note you wrote is kept), the version lists it with the reason, and
+  `track_build` names it. The first change in plan order keeps a shared cut, so nothing is bought
+  twice for one slot. `unsure` rather than `no`, so the export side isn't told Bryan rejected it.
+- **Left out means out of the deck's lists too.** A note plan's now and after lists (what Swap in
+  the prints puts in the deck, and Copy the finished deck) undo every proposal answered no or
+  unsure (`versions::kept_out`), and are derived again after settling when that set moved, and
+  after any planner answer or restore on that plan (`notes::restate_deck`). A plan file's lists
+  already hold only its planned swaps.
+- **Your answers stand.** A proposal answered no or unsure stays out, even when a plan file or a
+  saved note edits it later: nobody looks before it goes in now, so it never goes in over a
+  person's word (settle writes the same answer again for the new wording). Only Yama's own
+  left-outs are looked at again when their change is edited. To put one in, answer want on it
+  (`answer_review`, staged as before) or change it. Open questions no longer block anything;
+  they're shown for the assistant to settle.
+- **Answers count as fresh.** Settle stamps its answers now, or at the change's last edit, never
+  later, so a change it took in is never new again on the next write and a settled answer never
+  outranks the next one a person gives (a device clock may run a few minutes fast). It writes over
+  the answer on the live key; a change whose newest answer is a future-dated one under an alias
+  waits for a later write. Its op ids (`!settle-…`) sort first, so a person's answer in the same
+  second wins.
+- **Newest wins.** Settling a deck's version replaces any other live plan for the same deck name,
+  as approving did, newest proposals first; tracking a build does too, even when it brought
+  nothing new. A plan another one replaced isn't current, so tracking its build again brings it
+  back.
+- **The MCP updates plans itself.** `track_build` applies directly (a `Write` tool, like
+  `save_research`) and answers with what went in and what was left out; stopping is direct too.
+  On a connection the person limited to staging (`mcp:stage`, and Ask Claude) it still stages,
+  because that consent says nothing staged is applied (`registry::ALSO_STAGED` keeps its applier).
+  `approve_plan` is gone. A `track_build` staged before still applies; a staged `approve_plan` is
+  refused with a reason to discard it. `answer_review`, `propose_swap`, the marks and Swap in the
+  prints stay staged: they record the person's own word or change a deck and the collection.
+  Saving a note (`save_research`, allowed at the staging level) still moves the plans that follow
+  it, and their new changes now go in.
+- **The pages.** The plan page shows the plan in force, what's left to do, and a Left out list with
+  each reason; Approve, Skip, Keep version N, Undo, the Plans page's Waiting for your OK section,
+  the Workshop's count badge and the deck page's Up next are gone. A page from before that sends
+  approve, keep or undo is refused ("Plans don't wait for approval any more"). Archive and Bring
+  it back stay. The Sharing setting that showed friends "pending upgrades" is gone with them: no
+  plan is pending (the server field is left, unread by the page).

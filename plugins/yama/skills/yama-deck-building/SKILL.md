@@ -44,7 +44,9 @@ server resource `yama://research/format` when the host supports it). Read the sa
 review answers and explain changes to an already tracked build.
 
 When asked to propose a deck change, check `list_changes` to avoid duplicates, then
-stage `edit_deck`, `save_deck`, `propose_swap` or `track_build` as appropriate.
+stage `edit_deck`, `save_deck` or `propose_swap` as appropriate. To make a saved build a
+deck's plan, use `track_build` when the person asks for it or agrees: it applies straight
+away (nobody approves a plan), and its answer names any change left out.
 Show its exact scope and review link. Call `apply_change` only after the person
 approves that exact staged change, otherwise leave it for Apply in Yama. A stale
 change must be re-read and reviewed again, never forced through. Research,

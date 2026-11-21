@@ -52,11 +52,12 @@ describe("a note's build as a deck's plan", () => {
     expect(html).toContain("Checking your plans");
     expect(html).not.toContain("</button>");
   });
-  it("is archived, and offers to use a deck from it as a version waiting for your OK", () => {
+  it("is archived, and offers to use a deck from it as the deck's plan, straight away", () => {
     const html = render(<TrackPanel bundle={note} deck={deckOf} build={deckOf.builds[1]!} />, planBundle([]));
     expect(html).toContain(">Archived</span>");
     expect(html).toContain(">Use a deck from it</button>");
-    expect(html).toContain("waiting for your OK");
+    expect(html).toContain("plan now, in place of the plan it has");
+    expect(html).not.toContain("your OK");
     expect(html).toContain("Nothing in it is on your shopping list");
   });
   it("says when this build is the deck's plan and opens it", () => {

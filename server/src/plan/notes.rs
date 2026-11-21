@@ -54,13 +54,13 @@ pub struct TrackRequest {
     #[serde(default)]
     pub op_id: Option<String>,
     /// The note's content hash when the person saw it (`content_hash` from the research APIs). When
-    /// set and the note has changed since, nothing is tracked (409): what they approved isn't what
-    /// would be applied. Claude's staged `track_build` always sets it.
+    /// set and the note has changed since, nothing is tracked (409): what they looked at isn't what
+    /// would be applied. The plan page's "Use a deck from it" sets it.
     #[serde(default)]
     pub expected_note_hash: Option<String>,
-    /// Make the build's changes proposals, waiting for your OK as the deck's next plan version
-    /// (versions.rs), instead of putting them straight into the plan. The plan pages ("Use a deck
-    /// from it") and Claude's `track_build` always set it.
+    /// Make the build's changes proposals, the deck's next plan version (versions.rs), which
+    /// `versions::settle` takes in before this returns, instead of planned swaps with no version.
+    /// The plan pages ("Use a deck from it") and Claude's `track_build` always set it.
     #[serde(default)]
     pub proposed: bool,
 }
@@ -89,6 +89,9 @@ pub struct Tracked {
     pub swaps: usize,
     pub warnings: Vec<String>,
     pub link: String,
+    /// The plan versions that went in with it (versions::settle): usually this deck's.
+    #[serde(default)]
+    pub settled: Vec<super::versions::Settled>,
 }
 
 async fn track_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(req): Json<TrackRequest>) -> AppResult<Json<Tracked>> {
@@ -157,30 +160,8 @@ pub async fn track(pool: &SqlitePool, owner: &str, req: &TrackRequest) -> AppRes
             }
         }
     };
-    // A plan in force from another build of this note keeps going until a new version is
-    // approved, but both builds would share this one plan row: switching would retire the plan
-    // you approved before you OK its replacement. Ask for it to be set aside first.
-    if req.proposed
-        && let Some((id, _, _)) = &existing
-    {
-        let (live, build_now, approved): (bool, Option<String>, bool) = sqlx::query_as(
-            "SELECT status != 'archived' AND archived_at IS NULL, note_build_id,
-                    EXISTS (SELECT 1 FROM plan_versions v WHERE v.plan_deck_id = plan_decks.id AND v.owner_id = plan_decks.owner_id AND v.status = 'approved')
-                    OR EXISTS (SELECT 1 FROM plan_swaps s WHERE s.plan_deck_id = plan_decks.id AND s.owner_id = plan_decks.owner_id
-                               AND s.retired_at IS NULL AND s.stage = 'planned')
-             FROM plan_decks WHERE id = ? AND owner_id = ?",
-        )
-        .bind(id)
-        .bind(owner)
-        .fetch_one(&mut *conn)
-        .await?;
-        if live && approved && build_now.as_deref() != Some(req.build_id.as_str()) {
-            return Err(AppError::Conflict(
-                "This deck's plan in progress came from another build of this note. Archive that plan first, or ask your assistant to propose the change as a new version."
-                    .into(),
-            ));
-        }
-    }
+    // Another build of the same note deck switches this plan row to it: the old build's swaps are
+    // retired (their marks and answers kept for a return) and the new build's go in (settle, below).
     let name = text(deck, "name").unwrap_or_else(|| req.deck_key.clone());
     let commander = json_text(&commanders(deck, build));
     let (plan_id, key) = match existing {
@@ -232,6 +213,31 @@ pub async fn track(pool: &SqlitePool, owner: &str, req: &TrackRequest) -> AppRes
     let title = text(&doc, "title").unwrap_or_else(|| req.note_id.clone());
     let derived = derive(&mut *conn, owner, &plan_id, &req.note_id, &title, &req.deck_key, deck, build, &stamp).await?;
     bump(&mut *conn, owner, &stamp).await?;
+    let settled = super::versions::settle(&mut *conn, owner).await?;
+    // Settling may have left changes out: the lists Swap in the prints and Copy read follow it
+    // (settling rebuilt them if it took this deck in; an answer it kept may still move them).
+    let derived = if super::versions::kept_out(&mut *conn, owner, &plan_id).await? != derived.out {
+        derive(&mut *conn, owner, &plan_id, &req.note_id, &title, &req.deck_key, deck, build, &stamp).await?
+    } else {
+        derived
+    };
+    // Using a build makes it the deck's plan: it replaces any other live plan for the deck, as
+    // settling its new version does (and when it brought nothing new, nothing else would).
+    if req.proposed {
+        super::versions::replace_others(&mut *conn, owner, &plan_id, &name, "Replaced by a newer plan", &stamp).await?;
+        // Brought back unchanged after another plan replaced it: no new version went in, so its
+        // version in force is current again, not an earlier one.
+        if !settled.iter().any(|v| v.deck_key == key) {
+            sqlx::query(
+                "UPDATE plan_versions SET superseded_at = NULL WHERE owner_id = ?1 AND plan_deck_id = ?2 AND status = 'approved'
+                   AND n = (SELECT MAX(n) FROM plan_versions WHERE owner_id = ?1 AND plan_deck_id = ?2 AND status = 'approved')",
+            )
+            .bind(owner)
+            .bind(&plan_id)
+            .execute(&mut *conn)
+            .await?;
+        }
+    }
     let result = Tracked {
         link: super::page_link(&key),
         plan_deck_key: key,
@@ -243,6 +249,7 @@ pub async fn track(pool: &SqlitePool, owner: &str, req: &TrackRequest) -> AppRes
         deck_id,
         swaps: derived.swaps,
         warnings: derived.warnings,
+        settled,
     };
     if let Some(op) = req.op_id.as_deref().filter(|o| !o.trim().is_empty()) {
         let payload = json!({"request": req.identity(), "result": result});
@@ -298,11 +305,47 @@ pub async fn would_stop(conn: &mut SqliteConnection, owner: &str, note_id: &str,
     Ok(rows.into_iter().filter(|(_, _, deck, build)| find_deck(doc, deck).and_then(|d| find_build(d, build)).is_none()).map(|(key, name, _, _)| (key, name)).collect())
 }
 
-/// After a note is saved: derive every plan tracking one of its builds again. A tracked deck or
-/// build the note no longer has stops being tracked (archived, its swaps retired) rather than
-/// keeping a plan the note doesn't describe. Returns how many plans now follow the note and how
-/// many stopped.
+/// After a note is saved: derive every plan tracking one of its builds again, and take in what
+/// changed (versions::settle). A tracked deck or build the note no longer has stops being tracked
+/// (archived, its swaps retired) rather than keeping a plan the note doesn't describe. Returns how
+/// many plans now follow the note and how many stopped.
 pub async fn rederive(conn: &mut SqliteConnection, owner: &str, note_id: &str, doc: &Value) -> AppResult<(usize, usize)> {
+    let (counts, used) = rederive_note(&mut *conn, owner, note_id, doc).await?;
+    if counts != (0, 0) {
+        super::versions::settle(&mut *conn, owner).await?;
+        restate(&mut *conn, owner, note_id, doc, &used).await?;
+    }
+    Ok(counts)
+}
+
+/// A plan deck `rederive_note` derived, and the proposals its lists left out then.
+struct Used {
+    id: String,
+    deck_key: String,
+    build_id: String,
+    out: HashSet<String>,
+}
+
+/// After settling: derive again each plan deck whose left-out changes moved, so its now and after
+/// lists (what Swap in the prints puts in the deck, and Copy the finished deck) hold only the
+/// changes in the plan.
+async fn restate(conn: &mut SqliteConnection, owner: &str, note_id: &str, doc: &Value, used: &[Used]) -> AppResult<()> {
+    let stamp = now();
+    let title = text(doc, "title").unwrap_or_else(|| note_id.to_string());
+    for u in used {
+        if super::versions::kept_out(&mut *conn, owner, &u.id).await? == u.out {
+            continue;
+        }
+        if let Some((deck, build)) = find_deck(doc, &u.deck_key).and_then(|d| Some((d, find_build(d, &u.build_id)?))) {
+            derive(&mut *conn, owner, &u.id, note_id, &title, &u.deck_key, deck, build, &stamp).await?;
+        }
+    }
+    Ok(())
+}
+
+/// `rederive` without settling: `rederive_all` settles once every note is current, so a backup's
+/// older copy of one note's proposals is never taken in before that note is derived again.
+async fn rederive_note(conn: &mut SqliteConnection, owner: &str, note_id: &str, doc: &Value) -> AppResult<((usize, usize), Vec<Used>)> {
     let rows: Vec<(String, String, String)> = sqlx::query_as(
         "SELECT id, note_deck_key, note_build_id FROM plan_decks WHERE owner_id = ? AND note_id = ? AND status != 'archived'",
     )
@@ -311,11 +354,12 @@ pub async fn rederive(conn: &mut SqliteConnection, owner: &str, note_id: &str, d
     .fetch_all(&mut *conn)
     .await?;
     if rows.is_empty() {
-        return Ok((0, 0));
+        return Ok(((0, 0), vec![]));
     }
     let stamp = now();
     let title = text(doc, "title").unwrap_or_else(|| note_id.to_string());
     let mut stopped = 0;
+    let mut used = Vec::new();
     for (id, deck_key, build_id) in &rows {
         match find_deck(doc, deck_key).and_then(|d| Some((d, find_build(d, build_id)?))) {
             Some((deck, build)) => {
@@ -327,7 +371,8 @@ pub async fn rederive(conn: &mut SqliteConnection, owner: &str, note_id: &str, d
                     .bind(owner)
                     .execute(&mut *conn)
                     .await?;
-                derive(&mut *conn, owner, id, note_id, &title, deck_key, deck, build, &stamp).await?;
+                let d = derive(&mut *conn, owner, id, note_id, &title, deck_key, deck, build, &stamp).await?;
+                used.push(Used { id: id.clone(), deck_key: deck_key.clone(), build_id: build_id.clone(), out: d.out });
             }
             None => {
                 stopped += 1;
@@ -348,7 +393,31 @@ pub async fn rederive(conn: &mut SqliteConnection, owner: &str, note_id: &str, d
         }
     }
     bump(&mut *conn, owner, &stamp).await?;
-    Ok((rows.len() - stopped, stopped))
+    Ok(((rows.len() - stopped, stopped), used))
+}
+
+/// After an answer on one of a note plan's changes (a review op, a restore): derive the plan again
+/// from its note, so its now and after lists (what Swap in the prints puts in the deck) follow
+/// what's in the plan (`versions::kept_out`). Anything that isn't a live note plan is left alone.
+pub async fn restate_deck(conn: &mut SqliteConnection, owner: &str, plan_key: &str) -> AppResult<()> {
+    let row: Option<(String, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT id, note_id, note_deck_key, note_build_id FROM plan_decks WHERE owner_id = ? AND key = ? AND note_id IS NOT NULL AND status != 'archived'",
+    )
+    .bind(owner)
+    .bind(plan_key)
+    .fetch_optional(&mut *conn)
+    .await?;
+    let Some((id, Some(note_id), Some(deck_key), Some(build_id))) = row else { return Ok(()) };
+    let doc = match note_document(&mut *conn, owner, &note_id).await {
+        Ok((doc, _)) => doc,
+        Err(AppError::NotFound(_)) => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    let title = text(&doc, "title").unwrap_or_else(|| note_id.clone());
+    if let Some((deck, build)) = find_deck(&doc, &deck_key).and_then(|d| Some((d, find_build(d, &build_id)?))) {
+        derive(&mut *conn, owner, &id, &note_id, &title, &deck_key, deck, build, &now()).await?;
+    }
+    Ok(())
 }
 
 /// After a Yama backup restore: derive every tracked note plan again from its current note, so a
@@ -359,9 +428,15 @@ pub async fn rederive_all(conn: &mut SqliteConnection, owner: &str) -> AppResult
             .bind(owner)
             .fetch_all(&mut *conn)
             .await?;
+    let mut derived = Vec::new();
     for id in notes {
         let (doc, _) = note_document(&mut *conn, owner, &id).await?;
-        rederive(&mut *conn, owner, &id, &doc).await?;
+        let (_, used) = rederive_note(&mut *conn, owner, &id, &doc).await?;
+        derived.push((id, doc, used));
+    }
+    super::versions::settle(&mut *conn, owner).await?;
+    for (id, doc, used) in &derived {
+        restate(&mut *conn, owner, id, doc, used).await?;
     }
     Ok(())
 }
@@ -396,6 +471,8 @@ pub async fn make_room(conn: &mut SqliteConnection, owner: &str, keys: &[&str]) 
 struct Derived {
     swaps: usize,
     warnings: Vec<String>,
+    /// The proposals its now and after lists leave out (answered no or unsure; `versions::kept_out`).
+    out: HashSet<String>,
 }
 
 /// Where a swap's card comes from, read from the note's acquisition evidence.
@@ -521,7 +598,7 @@ async fn derive(
 ) -> AppResult<Derived> {
     let build_id = text(build, "id").unwrap_or_default();
     let mut warnings = Vec::new();
-    // A build taken up after plans were approved whole waits for your OK: its changes are proposals.
+    // A build taken up since plans had versions is one: its changes are proposals, settled after.
     let proposed: bool = sqlx::query_scalar("SELECT note_proposed FROM plan_decks WHERE id = ? AND owner_id = ?")
         .bind(plan_id)
         .bind(owner)
@@ -689,7 +766,9 @@ async fn derive(
         .await?;
     }
 
-    // Lists: stock undoes every swap, now applies the owned ones, after is the build's list. Each
+    // Lists: stock undoes every swap, now applies the owned ones, after is the build's list. A
+    // proposal the plan left out (answered no or unsure: settling leaves a clashing cut out that
+    // way) is undone in now and after too, so Swap in the prints never puts it in the deck. Each
     // card keeps its own zone: an incoming card where the build's list has it, an outgoing card in
     // the command zone only when the note names it as the deck's commander (a commander swap),
     // else in the 99 (a partner added by cutting a main-deck card).
@@ -702,6 +781,7 @@ async fn derive(
         let n = name.trim().to_lowercase();
         if after.iter().any(|(b, c, _)| *b == "commander" && c.trim().to_lowercase() == n) { "commander" } else { "main" }
     };
+    let out = super::versions::kept_out(&mut *conn, owner, plan_id).await?;
     let mut stock = after.clone();
     for r in &rows {
         if take(&mut stock, &r.card_in).is_some() {
@@ -712,10 +792,18 @@ async fn derive(
             warnings.push(format!("The build's list has fewer {} than its swaps put in, so stock keeps the rest.", r.card_in));
         }
     }
+    let mut after_list = after.clone();
+    for r in rows.iter().filter(|r| out.contains(&r.key)) {
+        if take(&mut after_list, &r.card_in).is_some()
+            && let Some(o) = &r.card_out
+        {
+            put(&mut after_list, o, out_board(o));
+        }
+    }
     let mut now_list = stock.clone();
     // Owned cards are in hand now. A card moving from another plan deck arrives when the prints are
     // swapped in (swap_in moves the now-to-after difference out of the donor's box), so not yet.
-    let in_hand = |r: &SwapRow| r.source.src == "owned" && r.from_deck.is_none();
+    let in_hand = |r: &SwapRow| r.source.src == "owned" && r.from_deck.is_none() && !out.contains(&r.key);
     for r in rows.iter().filter(|r| in_hand(r)) {
         if let Some(out) = r.card_out.as_deref() {
             take(&mut now_list, out);
@@ -771,12 +859,12 @@ async fn derive(
         "print" => "print",
         _ => "waiting",
     };
-    let after_log: Vec<Value> = rows.iter().map(|r| json!({"swap": r.key, "status": status(r)})).collect();
+    let after_log: Vec<Value> = rows.iter().filter(|r| !out.contains(&r.key)).map(|r| json!({"swap": r.key, "status": status(r)})).collect();
     let now_log: Vec<Value> = rows.iter().filter(|r| in_hand(r)).map(|r| json!({"swap": r.key, "status": "done"})).collect();
     let states = [
         ("stock", slots(&stock, &|_| false), Vec::new()),
         ("now", slots(&now_list, &in_hand), now_log),
-        ("after", slots(&after, &|_| true), after_log),
+        ("after", slots(&after_list, &|r: &SwapRow| !out.contains(&r.key)), after_log),
     ];
     sqlx::query("UPDATE plan_states SET current = 0, updated_at = ? WHERE owner_id = ? AND plan_deck_id = ? AND current = 1")
         .bind(stamp)
@@ -805,7 +893,7 @@ async fn derive(
         .execute(&mut *conn)
         .await?;
     }
-    Ok(Derived { swaps: rows.len(), warnings })
+    Ok(Derived { swaps: rows.len(), warnings, out })
 }
 
 // ── helpers ────────────────────────────────────────────────────────────────

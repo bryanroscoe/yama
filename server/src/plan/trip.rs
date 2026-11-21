@@ -334,18 +334,18 @@ fn resolve<'a>(key: &'a str, live: &HashSet<&str>, aliases: Option<&'a Map<Strin
     None
 }
 
-/// Each live swap's answer (`text.ts` `answerIndex`): the latest by time, an import losing a tie.
+/// Each live swap's answer (`text.ts` `answerIndex`): the latest by time; on a tie an import loses,
+/// then the larger op id wins (as `plan_reviews` decides it).
 pub(crate) fn answers<'a>(b: &'a Value, live: &HashSet<&str>) -> HashMap<String, &'a Value> {
     let mut latest: HashMap<String, &Value> = HashMap::new();
     for (key, r) in obj(b, "reviews").into_iter().flatten() {
         let Some(to) = resolve(key, live, obj(b, "aliases")) else { continue };
-        let at = s(r, "at").unwrap_or_default();
+        fn rank(v: &Value) -> (&str, bool, &str) {
+            (s(v, "at").unwrap_or_default(), s(v, "origin") == Some("yama"), s(v, "op_id").unwrap_or_default())
+        }
         let replace = match latest.get(to) {
             None => true,
-            Some(p) => {
-                let pat = s(p, "at").unwrap_or_default();
-                at > pat || (at == pat && s(r, "origin") == Some("yama"))
-            }
+            Some(p) => rank(r) > rank(p),
         };
         if replace {
             latest.insert(to.to_string(), r);
@@ -388,8 +388,9 @@ fn wants(b: &Value, answers: &HashMap<String, &Value>, bought: &HashSet<String>)
         if s(deck, "status") == Some("archived") {
             continue;
         }
-        // Only plans in force (versions.rs): one waiting for their OK puts nothing on a trip, and
-        // in a plan in progress only its approved changes do (as Get the cards, `inForceBundle`).
+        // Only plans in force (versions.rs): one the server hasn't taken in yet puts nothing on a
+        // trip, and in a plan in progress only the changes it took in do (as Get the cards,
+        // `inForceBundle`).
         if let Some(state) = deck["plan"]["state"].as_str()
             && state != "in_progress"
             && state != "done"

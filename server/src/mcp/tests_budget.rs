@@ -352,7 +352,7 @@ async fn the_review_queue_and_changes_page_with_a_cursor() {
     assert!(!err, "{first}");
     assert!(first.contains("- Plan 000, with a long name too: 11 waiting for an answer, 1 answered"), "{first}");
     assert!(first.contains("Swaps 1 to 15 of 299 waiting for an answer"), "{first}");
-    assert!(first.contains("\nPlan 000, with a long name too, waiting for an answer:") && first.contains("Want means an agent moves the swap"), "{first}");
+    assert!(first.contains("\nPlan 000, with a long name too, waiting for an answer:") && first.contains("want puts it in the plan"), "{first}");
     assert!(!first.contains("Plan 025"), "an archived plan's proposals aren't in Review: {first}");
     assert!(!first.contains("Their answer: want"), "answered swaps are only counted by default: {first}");
     let next = first.lines().find_map(|l| l.strip_prefix("next_cursor: ")).unwrap();

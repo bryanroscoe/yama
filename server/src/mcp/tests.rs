@@ -498,7 +498,9 @@ async fn plan_and_collection_changes_apply_through_their_own_ops() {
         let (err, text) = call(&app, &mcp, "apply_change", json!({"id": id})).await;
         assert!(!err, "{text}");
     }
-    let ops: Vec<(String, String, String)> = sqlx::query_as("SELECT kind, op_id, status FROM plan_inputs ORDER BY seq").fetch_all(&pool).await.unwrap();
+    // The answer also settles the deck's first version (`versions::settle`), which records its own ops.
+    let ops: Vec<(String, String, String)> =
+        sqlx::query_as("SELECT kind, op_id, status FROM plan_inputs WHERE op_id NOT LIKE '!settle-%' ORDER BY seq").fetch_all(&pool).await.unwrap();
     assert_eq!(ops.len(), 3);
     assert!(ops.iter().all(|(_, op, status)| op.starts_with("claude-") && status == "applied"), "{ops:?}");
     let decision: String = sqlx::query_scalar("SELECT decision FROM plan_reviews WHERE swap_key = 'plan|Elf Ball|Arcane Signet|Sol Ring'").fetch_one(&pool).await.unwrap();
@@ -1029,7 +1031,7 @@ async fn a_staging_call_repeated_with_its_op_id_stages_once() {
     // and none for stores.
     let (_, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("tools/list", json!({})))).await;
     let with_lab = [
-        "add_wish", "edit_deck", "delete_deck", "track_build", "approve_plan", "propose_swap", "answer_review", "mark_bought", "swap_in_prints",
+        "add_wish", "edit_deck", "delete_deck", "propose_swap", "answer_review", "mark_bought", "swap_in_prints",
         "mark_installed", "start_lab_run", "add_lab_games", "rerun_lab_run", "cancel_lab_run", "add_to_collection", "move_cards", "set_condition",
         "update_deck", "remove_wish", "create_container", "update_container", "delete_container", "remove_from_collection", "edit_copies", "save_deck",
     ];
