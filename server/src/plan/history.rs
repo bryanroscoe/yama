@@ -286,6 +286,18 @@ async fn record_with(
             return Err(AppError::bad(format!("cards: no change in {deck}'s plan puts in or takes out {}", unknown.join(", "))));
         }
     }
+    // An entry about a whole group keeps its changes' keys too: a later plan file can rename the
+    // group and keep the changes.
+    if let Some(g) = group.as_deref()
+        && swap_keys.is_empty()
+    {
+        swap_keys = sqlx::query_scalar("SELECT ext_key FROM plan_swaps WHERE owner_id = ? AND plan_deck_id = ? AND lower(group_label) = lower(?) ORDER BY sort, ext_key")
+            .bind(owner)
+            .bind(&plan_id)
+            .bind(g)
+            .fetch_all(pool)
+            .await?;
+    }
     let cards_json = Value::from(cards.clone()).to_string();
     // A write from the start, so a retry racing the first call waits for it and finds its row.
     let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
@@ -931,7 +943,15 @@ pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>
             if let Some(n) = notes.get(l) {
                 let _ = write!(out, ". Its note: {}", n.trim());
             }
-            let recorded = entries.iter().filter(|e| same_group(e.group_label.as_deref(), Some(l.as_str()))).count();
+            // By its label, or after the group was renamed, by the changes it was recorded for.
+            let keys: Vec<&str> = in_group.iter().map(|s| s.ext_key.as_str()).collect();
+            let recorded = entries
+                .iter()
+                .filter(|e| {
+                    same_group(e.group_label.as_deref(), Some(l.as_str()))
+                        || (e.group_label.is_some() && e.cards().is_empty() && e.swap_keys().iter().any(|k| keys.contains(&k.as_str())))
+                })
+                .count();
             match recorded {
                 0 => out.push_str(". Nobody has recorded where it came from.\n"),
                 n => {
