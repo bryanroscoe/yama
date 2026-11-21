@@ -40,7 +40,7 @@ const COOLER = 0.08;
 
 /**
  * Thresholds, from Scryfall's scan of the back measured at build time (not kept) and the same scan
- * under white-balance gains of 0.75 to 1.35 a channel, half to one and a half times the brightness,
+ * under red and blue gains of 0.75 to 1.6, half to one and a half times the brightness,
  * blur and sensor noise (358 of 432 such variants pass; the ones that don't are dim and washed out
  * together); and against 883 scans of card fronts, each under five colour casts: none passes
  * (docs/scanner.md, "Card backs").

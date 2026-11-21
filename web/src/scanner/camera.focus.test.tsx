@@ -115,6 +115,75 @@ describe("the focus pin", () => {
     expect(slider()).not.toBeNull();
   });
 
+  it("goes back to autofocus, and says the pin is off, when the camera won't hold a remembered pin", async () => {
+    localStorage.setItem(FOCUS_KEY, JSON.stringify({ pinned: true, distance: 0.2 }));
+    const c = camera();
+    const asked: Record<string, unknown>[] = [];
+    (c.t as unknown as { applyConstraints: (x: { advanced: Record<string, unknown>[] }) => Promise<void> }).applyConstraints = async (x) => {
+      asked.push(x.advanced[0]!);
+      if (x.advanced[0]!.focusMode === "manual") throw new Error("no");
+    };
+    act(() => cam.attach(c.t));
+    await settle();
+    expect(asked).toEqual([{ focusMode: "manual", focusDistance: 0.2 }, { focusMode: "continuous" }]);
+    expect(cam.focus).toBeNull();
+    expect(slider()).toBeNull();
+  });
+
+  it("lets another kind of change (the frame rate) run in turn, then sends the pin, flashlight and zoom again", async () => {
+    const c = camera();
+    const order: string[] = [];
+    (c.t as unknown as { applyConstraints: (x: { advanced?: Record<string, unknown>[] }) => Promise<void> }).applyConstraints = async (x) => {
+      await new Promise((r) => setTimeout(r, 1));
+      order.push(JSON.stringify(x.advanced?.[0] ?? x));
+    };
+    act(() => cam.attach(c.t));
+    let answer: string | undefined;
+    await act(async () => {
+      cam.setFocus(0.3);
+      await new Promise((r) => setTimeout(r, 0));
+      answer = await cam.exclusive(c.t, async () => {
+        order.push("rate");
+        return "sixty";
+      });
+    });
+    expect(answer).toBe("sixty");
+    // After the changes already queued, never between them; then the settings again, since a
+    // change of another kind replaces them.
+    expect(order).toEqual(['{"focusMode":"continuous"}', '{"focusMode":"manual","focusDistance":0.3}', "rate", '{"focusMode":"manual","focusDistance":0.3}']);
+    // Not for a camera that is no longer the one in use.
+    const other = camera();
+    act(() => cam.attach(other.t));
+    let ran = false;
+    await act(async () => {
+      await cam.exclusive(c.t, async () => void (ran = true));
+    });
+    expect(ran).toBe(false);
+  });
+
+  it("keeps the slider where the finger left it until the lens catches up", async () => {
+    const c = camera();
+    let release!: () => void;
+    act(() => cam.attach(c.t));
+    act(() => cam.setFocus(0.3));
+    await settle();
+    (c.t as unknown as { applyConstraints: () => Promise<void> }).applyConstraints = () => new Promise<void>((r) => (release = r));
+    const input = slider()!;
+    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    await act(async () => {
+      set.call(input, "0");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    // The lens hasn't answered yet: the slider and what's read out are where it was dragged.
+    expect(slider()!.value).toBe("0");
+    expect(slider()!.getAttribute("aria-valuetext")).toBe("8 cm");
+    expect(cam.focus).toBe(0.3);
+    await act(async () => release());
+    await settle();
+    expect(cam.focus).toBe(0.08);
+    expect(slider()!.value).toBe("0");
+  });
+
   it("leaves a tap to focus alone while pinned", async () => {
     Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getSupportedConstraints: () => ({ pointsOfInterest: true }) } });
     const c = camera();

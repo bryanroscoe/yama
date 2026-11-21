@@ -36,6 +36,23 @@ export function serialApplier(apply: (t: MediaStreamTrack, all: Record<string, u
       applied = { ...base };
     },
     applied: () => applied,
+    /**
+     * Run `work` on the track by itself, between the queued changes: a constraint change of
+     * another kind (the frame rate, frameRate.ts), which a browser won't take in the same call as
+     * these and which replaces them. What was applied here is sent again after it. Undefined for
+     * a track that is no longer current.
+     */
+    exclusive<T>(t: MediaStreamTrack, work: () => Promise<T>): Promise<T | undefined> {
+      const run = async () => {
+        if (current() !== t) return undefined;
+        const out = await work();
+        if (current() === t && Object.keys(applied).length > 0) await apply(t, applied).catch(() => undefined);
+        return out;
+      };
+      const p = chain.then(run, run);
+      chain = p.catch(() => undefined);
+      return p;
+    },
     set(t: MediaStreamTrack, patch: Record<string, unknown>): Promise<boolean> {
       const run = async () => {
         if (current() !== t) return false;
@@ -206,7 +223,14 @@ export function useCameraControls() {
     // Else continuous focus, where offered. Either goes with every later setting too, and is applied now.
     const focus: Record<string, unknown> = pinned != null ? { focusMode: "manual", focusDistance: pinned } : caps.focusMode?.includes("continuous") ? { focusMode: "continuous" } : {};
     applier.current.reset({});
-    if (t && focus.focusMode) void apply(t, focus).catch(() => undefined);
+    if (t && focus.focusMode)
+      void apply(t, focus).catch(() => {
+        // The camera wouldn't hold the pin: back to its own focus, and say the pin is off.
+        if (pinned == null || track.current !== t || !range) return;
+        focusRef.current.pinned = null;
+        setFocusState(null);
+        void apply(t, { focusMode: range.auto, focusDistance: undefined }).catch(() => undefined);
+      });
     capsRef.current = t ? readCaps(t) : NO_CAPS;
     // A pinch still queued for the last camera goes with it.
     pending.current.next = null;
@@ -350,6 +374,8 @@ export function useCameraControls() {
     zoom,
     autoZoom,
     focusAt,
+    /** Run a constraint change of another kind on `t` by itself, in turn with these (serialApplier). */
+    exclusive: useCallback(<T,>(t: MediaStreamTrack, work: () => Promise<T>) => applier.current.exclusive(t, work), []),
     /** Where the lens can be pinned on this camera, or null where the browser doesn't offer it. */
     focusCaps,
     /** Where the lens is pinned (metres), or null on autofocus. */
@@ -382,6 +408,12 @@ export function CameraControls({ c, live }: { c: CameraControlState; live: boole
   const levelRef = useRef<HTMLButtonElement>(null);
   // The focus slider while it's being dragged: the lens follows a moment behind (camera calls queue).
   const [slide, setSlide] = useState<number | null>(null);
+  const [sliding, setSliding] = useState(false);
+  // Let go, the slider shows where the finger left it until the lens has caught up (or failed, or the pin went off).
+  const caught = slide != null && c.focusCaps != null && c.focus != null && Math.abs(c.focus - sliderToDistance(c.focusCaps, slide)) < 0.002;
+  useEffect(() => {
+    if (slide != null && !sliding && (caught || c.focus == null || c.error)) setSlide(null);
+  }, [slide, sliding, caught, c.focus, c.error]);
   const groupRef = useRef<HTMLDivElement>(null);
   // + and − fold away again a few seconds after the last zoom. Focus on one of them goes back to
   // the level button rather than to the page (Codex review, 16 Nov 2026).
@@ -453,10 +485,11 @@ export function CameraControls({ c, live }: { c: CameraControlState; live: boole
                   setSlide(t);
                   c.setFocus(sliderToDistance(c.focusCaps!, t));
                 }}
-                onPointerUp={() => setSlide(null)}
-                onBlur={() => setSlide(null)}
+                onPointerDown={() => setSliding(true)}
+                onPointerUp={() => setSliding(false)}
+                onPointerCancel={() => setSliding(false)}
                 aria-label="Focus distance, near to far"
-                aria-valuetext={fmtFocus(c.focus)}
+                aria-valuetext={fmtFocus(slide != null ? sliderToDistance(c.focusCaps, slide) : c.focus)}
               />
             </label>
           )}

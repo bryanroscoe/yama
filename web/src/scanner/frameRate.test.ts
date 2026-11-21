@@ -88,17 +88,20 @@ describe("the 60 frames switch", () => {
 describe("the frame rate the camera delivers", () => {
   it("is measured from the frames presented, over the last two seconds", () => {
     const m = new FrameRateMeter();
-    expect(m.fps()).toBeNull();
+    expect(m.fps(0)).toBeNull();
     for (let i = 0; i <= 10; i += 1) m.tick(i * 33.3);
     // A third of a second isn't enough to say.
-    expect(m.fps()).toBeNull();
+    expect(m.fps(333)).toBeNull();
     for (let i = 11; i <= 90; i += 1) m.tick(i * 33.3);
-    expect(m.fps()).toBeCloseTo(30, 0);
+    expect(m.fps(90 * 33.3)).toBeCloseTo(30, 0);
     // The camera now delivers 60: within two seconds the old frames are out of the window.
     const from = 90 * 33.3;
     for (let i = 1; i <= 150; i += 1) m.tick(from + i * 16.67);
-    expect(m.fps()).toBeCloseTo(60, 0);
+    const last = from + 150 * 16.67;
+    expect(m.fps(last + 10)).toBeCloseTo(60, 0);
+    // No frame for over a second (the camera stopped, the tab was hidden): nothing to say.
+    expect(m.fps(last + 1200)).toBeNull();
     m.reset();
-    expect(m.fps()).toBeNull();
+    expect(m.fps(last)).toBeNull();
   });
 });

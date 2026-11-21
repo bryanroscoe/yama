@@ -1242,7 +1242,8 @@ export function ScannerView({
           }
         }
         // 60 frames a second where this camera gives it at the size it's already delivering (frameRate.ts).
-        if (track && fps60On() && (await ask60(track)) === "sixty") {
+        // After the focus set on attach, and before any later flashlight or zoom (camera.tsx, `exclusive`).
+        if (track && fps60On() && (await cam.exclusive(track, () => ask60(track))) === "sixty") {
           if (stopped) return;
           setCameraNow(cameraInfo(track));
         }
@@ -1250,10 +1251,10 @@ export function ScannerView({
         if (!v || stopped) return;
         v.srcObject = s;
         await v.play().catch(() => undefined);
-        stopFps = watchFrameRate(v, fpsMeter);
         // Nothing reads until the camera delivers frames.
         await firstFrame(v);
         if (stopped) return;
+        stopFps = watchFrameRate(v, fpsMeter);
         setLive(true);
         setPhase((p) => (p === "loading" ? "scanning" : p));
       } catch (e) {
@@ -1725,18 +1726,14 @@ export function ScannerView({
             setStatus(NEXT);
             return next(60);
           }
-          // Face down (cardBack.ts), and the art doesn't know it either: say so, rather than read
-          // for a title that isn't there. A card the art knows fairly well is never called a back.
-          if (saysCardBack(r.back, top.score, LOCK_TWICE)) {
-            leadRun.step(null);
-            unknownFrames = 0;
-            appeared.current = null;
-            setStatus(CARD_BACK);
-            return next(60);
-          }
+          // Face down (cardBack.ts), and the art doesn't know it either. A card the art knows fairly
+          // well is never called a back. Its title and text are still read below, as for any card
+          // the art doesn't know (a front that only looks like a back has a name to read); what
+          // changes is what's said meanwhile, and that no close-up is asked of a back.
+          const faceDown = saysCardBack(r.back, top.score, LOCK_TWICE);
           // Diagnostics' timing record: the card in view appeared on this frame, or one more frame
           // read (and another card taking its place starts it again).
-          if (diagRef.current) appeared.current = stepAppeared(appeared.current, top.score >= ART_UNKNOWN ? top.name : null, frameAt, sameCardName);
+          if (diagRef.current && !faceDown) appeared.current = stepAppeared(appeared.current, top.score >= ART_UNKNOWN ? top.name : null, frameAt, sameCardName);
           // Art that leads every other card (fuse.ts: at least LEAD_FLOOR, LEAD_MARGIN ahead) settles
           // which card without the title, like a sure match, once the same card has led
           // LEAD_FRAMES frames in a row (Bryan, 18 Nov 2026: stuck about half the time; right cards
@@ -1783,8 +1780,9 @@ export function ScannerView({
             return;
           }
           // Not while a card filed by its name is held: it may be that card, still in view.
-          if (!blockedName.current) setStatus(READING);
-          const seen = blockedName.current ? null : seekFrame({ art: artNote.art.slice(0, 3), lead: artNote.lead, cardPx: artNote.cardPx });
+          if (!blockedName.current) setStatus(faceDown ? CARD_BACK : READING);
+          // (A back lying in view isn't a card the scanner is slow to find.)
+          const seen = blockedName.current || faceDown ? null : seekFrame({ art: artNote.art.slice(0, 3), lead: artNote.lead, cardPx: artNote.cardPx });
           // A match that is at least fair is read on every frame; a card the art index plainly
           // doesn't know (a battle, a weak match) after a few frames, as before.
           if (top.score >= ART_UNKNOWN || artUnknown || ++unknownFrames >= 3) {
@@ -1847,6 +1845,12 @@ export function ScannerView({
               return;
             }
             if (handleText(res, false, false, hi)) return;
+            // Face down, and nothing on it read as a card: that's all there is to say.
+            if (faceDown) {
+              appeared.current = null;
+              setStatus(CARD_BACK);
+              return next(60);
+            }
             // Where only the card matters a weak read is noise; elsewhere any read still holds the
             // art back, as before (the collection files a printing the art settles by itself).
             const vetoed = !!said && (!identityOnly || said.confidence >= TEXT_VETO);
@@ -2642,7 +2646,7 @@ export function ScannerView({
         onFps60={(on) => {
           setFps60(on);
           const t = cam.track();
-          if (t) void (on ? ask60(t) : askUsualRate(t)).then(() => cam.track() === t && setCameraNow(cameraInfo(t)));
+          if (t) void cam.exclusive(t, async () => void (await (on ? ask60(t) : askUsualRate(t)))).then(() => cam.track() === t && setCameraNow(cameraInfo(t)));
         }}
         chosen={cameraId}
         onChoose={(c) => {

@@ -85,18 +85,32 @@ describe("the outline tracker", () => {
     expect(f).toHaveLength(2);
     expect(f[0]!.quad[0][0]).toBeLessThan(20);
     expect(f[1]!.quad[0][0]).toBeGreaterThan(390);
-    // A card far from both is a new outline, fading in, while the two it replaces fade out.
+    // A card far from both is a new outline, fading in (and first, being the one seen now),
+    // while the two it replaces fade out.
     t.see([card(900, 500)]);
     const g = t.frame(332);
     expect(g).toHaveLength(3);
-    expect(g[2]!.quad[0]).toEqual([900, 500]);
-    expect(g[2]!.opacity).toBeLessThan(0.3);
+    expect(g[0]!.quad[0]).toEqual([900, 500]);
+    expect(g[0]!.opacity).toBeLessThan(0.3);
+    expect(g[1]!.opacity).toBeGreaterThan(0.8);
   });
 
   it(`draws at most ${MAX_OUTLINES} cards, and ignores corners that aren't numbers`, () => {
     const t = new OutlineTracker();
     t.see([card(0, 0), card(200, 0), card(400, 0), card(600, 0), card(800, 0), [[NaN, 0], [1, 0], [1, 1], [0, 1]]]);
     expect(t.frame(0)).toHaveLength(MAX_OUTLINES);
+  });
+
+  it("draws the cards seen now ahead of ones fading out, when there are too many", () => {
+    const t = new OutlineTracker();
+    t.see([card(0, 0), card(200, 0), card(400, 0), card(600, 0)]);
+    t.frame(0);
+    t.frame(200);
+    // Four other cards, far from those: the old four fade, and the new four are the ones drawn.
+    t.see([card(0, 900), card(200, 900), card(400, 900), card(600, 900)]);
+    const f = t.frame(216);
+    expect(f).toHaveLength(MAX_OUTLINES);
+    expect(f.every((o) => o.quad[0][1] === 900)).toBe(true);
   });
 
   it("doesn't spin when the finder calls another corner the top", () => {

@@ -87,7 +87,9 @@ export class OutlineTracker {
       } else fresh.push({ shown: q, target: q, opacity: 0, live: true });
     }
     for (const t of free) t.live = false;
-    this.tracks = [...this.tracks, ...fresh].slice(0, MAX_OUTLINES * 2);
+    // The cards seen now come first, so they are the ones kept and drawn when there are too many.
+    const all = [...this.tracks, ...fresh];
+    this.tracks = [...all.filter((t) => t.live), ...all.filter((t) => !t.live)].slice(0, MAX_OUTLINES * 2);
     if (this.tracks.length) this.onWake?.();
   }
 
@@ -114,7 +116,7 @@ export class OutlineTracker {
     }
     this.tracks = this.tracks.filter((t) => t.live || t.opacity > 0);
     if (!this.tracks.length) this.last = null;
-    return this.tracks.map((t) => ({ quad: t.shown, opacity: t.opacity }));
+    return this.tracks.slice(0, MAX_OUTLINES).map((t) => ({ quad: t.shown, opacity: t.opacity }));
   }
 }
 

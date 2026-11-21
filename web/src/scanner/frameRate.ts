@@ -68,6 +68,7 @@ export async function askUsualRate(track: RateTrack): Promise<void> {
 /** Frames a second actually presented, over the last WINDOW_MS. */
 export class FrameRateMeter {
   static readonly WINDOW_MS = 2000;
+  static readonly STALE_MS = 1000;
   private times: number[] = [];
 
   /** A frame was presented at `t` (ms). */
@@ -81,10 +82,13 @@ export class FrameRateMeter {
     this.times = [];
   }
 
-  /** To one decimal; null until half a second of frames has been seen. */
-  fps(): number | null {
+  /**
+   * To one decimal; null until half a second of frames has been seen, and once no frame has come
+   * for a second (`now` on the frames' own clock, performance.now()).
+   */
+  fps(now: number = performance.now()): number | null {
     const n = this.times.length;
-    if (n < 2) return null;
+    if (n < 2 || now - this.times[n - 1]! > FrameRateMeter.STALE_MS) return null;
     const span = this.times[n - 1]! - this.times[0]!;
     if (span < 500) return null;
     return Math.round(((n - 1) * 10000) / span) / 10;
