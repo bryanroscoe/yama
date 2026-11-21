@@ -978,12 +978,16 @@ pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>
         events.push((String::new(), 0, format!("{more} earlier answers aren't listed here; call again with card for one change's.")));
     }
     // Archive and Bring it back pressed on the plan's page, each time (plan ops); the archive in
-    // force now, when no press explains it.
+    // force now, when no press explains it. Ops name the plan by its key, which can pass to
+    // another plan (an import taking a moved note plan's key): only presses since this plan was
+    // made are its own.
     let presses: Vec<(String, String)> = sqlx::query_as(
-        "SELECT payload, client_at FROM plan_inputs WHERE owner_id = ? AND kind = 'plan' AND status = 'applied' AND deck_key = ? ORDER BY client_at, seq",
+        "SELECT payload, client_at FROM plan_inputs WHERE owner_id = ? AND kind = 'plan' AND status = 'applied' AND deck_key = ? AND client_at >= ?
+         ORDER BY client_at, seq",
     )
     .bind(owner)
     .bind(&key)
+    .bind(&created_at)
     .fetch_all(pool)
     .await?;
     let mut pressed = false;
