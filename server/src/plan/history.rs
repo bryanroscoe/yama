@@ -215,12 +215,6 @@ async fn record_with(
                 _ => false,
             };
             let stored_cards: Vec<String> = serde_json::from_str(&c).unwrap_or_default();
-            let mut given: Vec<String> = e.cards.iter().map(|c| c.trim().to_lowercase()).collect();
-            given.dedup();
-            let mut kept: Vec<String> = stored_cards.iter().map(|c| c.to_lowercase()).collect();
-            given.sort();
-            given.dedup();
-            kept.sort();
             // The same plan as the call named it, compared as named: the key it named may belong to
             // another plan by now, and the plan it was recorded on may have moved.
             let same = named == plan.named()
@@ -231,7 +225,7 @@ async fn record_with(
                 && conversation == e.conversation
                 && work == e.work
                 && same_group
-                && given == kept;
+                && same_cards(&stored_cards, &e.cards);
             if !same {
                 return Err(AppError::Conflict(format!("op_id {op} was used for another entry; use a new op_id for a new one")));
             }
@@ -364,7 +358,13 @@ async fn record_with(
         // Without an op_id this is the same words found again (no correction comes this way).
         let matches = (op_id.is_none() || (replaced.as_deref() == replaces && named == plan.named()))
             && p == plan_id
-            && on_date == e.on && w == what && asked == e.asked && conversation == e.conversation && work == e.work && g == group && c == cards_json;
+            && on_date == e.on
+            && w == what
+            && asked == e.asked
+            && conversation == e.conversation
+            && work == e.work
+            && g.as_deref().map(str::to_lowercase) == group.as_deref().map(str::to_lowercase)
+            && same_cards(&serde_json::from_str::<Vec<String>>(&c).unwrap_or_default(), &e.cards);
         if !matches {
             return Err(AppError::Conflict(format!("op_id {} was used for another entry; use a new op_id for a new one", op_id.unwrap_or_default())));
         }
@@ -531,6 +531,18 @@ struct VersionRow {
 /// it is now (`standing`), and the change is open again until it's answered or taken in.
 fn stale(s: &SwapRow, at: &str) -> &'static str {
     if s.stage == "proposed" && at < s.updated_at.as_str() { ", given before the change last changed, so it no longer stands" } else { "" }
+}
+
+/// The same cards, whatever their order, repeats or capitalization (a retry may spell them as given,
+/// the entry as the plan does).
+fn same_cards(stored: &[String], given: &[String]) -> bool {
+    let norm = |l: &[String]| {
+        let mut v: Vec<String> = l.iter().map(|c| c.trim().to_lowercase()).collect();
+        v.sort();
+        v.dedup();
+        v
+    };
+    norm(stored) == norm(given)
 }
 
 /// Whether an entry's group is this group: a plan file may change a label's capitalization later.
@@ -741,8 +753,11 @@ pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>
         let lower = card.to_lowercase();
         // The card as the plan names it now; else as an entry recorded it before a plan file renamed
         // it (the changes it was recorded for, by their keys); else a part of a name.
-        let recorded: Vec<String> =
+        // Recorded keys, and the live change each was renamed to (an old row stays, retired).
+        let mut recorded: Vec<String> =
             entries.iter().filter(|e| e.cards().iter().any(|c| c.eq_ignore_ascii_case(card))).flat_map(|e| e.swap_keys()).collect();
+        let renamed: Vec<String> = recorded.iter().filter_map(|k| super::resolve_key(k, &live_keys, &aliases)).collect();
+        recorded.extend(renamed);
         let found: Vec<&SwapRow> = if !exact.is_empty() {
             exact
         } else if swaps.iter().any(|s| recorded.contains(&s.ext_key)) {
