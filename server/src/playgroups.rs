@@ -267,13 +267,17 @@ async fn add_guest(
     owner_for_member(&mut tx, &id, &user.id).await?;
     let name = clean_name(&body.name, "guest", GUEST_NAME_MAX)?;
     st.limits.playgroup_writes.check_user(&user)?;
-    // Two guests with one name can't be told apart in a seat picker, in the stats or when one
-    // is removed. Compared here rather than in SQL: SQLite's lower() only folds ASCII.
-    let guests: Vec<String> = sqlx::query_scalar("SELECT guest_name FROM playgroup_members WHERE playgroup_id = ? AND user_id IS NULL AND guest_name IS NOT NULL")
-        .bind(&id)
-        .fetch_all(&mut *tx)
-        .await?;
-    if let Some(taken) = guests.iter().find(|g| same_name(g, &name)) {
+    // Two people with one name can't be told apart in a seat picker or when one is removed, be
+    // the other a guest or a member with an account (who is then most likely the same person).
+    // Compared here rather than in SQL: SQLite's lower() only folds ASCII.
+    let names: Vec<String> = sqlx::query_scalar(
+        "SELECT COALESCE(u.display_name, m.guest_name) FROM playgroup_members m LEFT JOIN users u ON u.id = m.user_id
+         WHERE m.playgroup_id = ? AND COALESCE(u.display_name, m.guest_name) IS NOT NULL",
+    )
+    .bind(&id)
+    .fetch_all(&mut *tx)
+    .await?;
+    if let Some(taken) = names.iter().find(|g| same_name(g, &name)) {
         return Err(AppError::Conflict(format!("{taken} is already in this playgroup.")));
     }
     let member_id = new_id();
@@ -733,6 +737,10 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         let (status, _) = add(bt.clone(), "éowyn").await;
         assert_eq!(status, StatusCode::CONFLICT, "case is folded beyond ASCII");
+        // A member with an account holds their name too: Pat is already here.
+        let (status, body) = add(bt.clone(), "PAT").await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(body["error"], "pat is already in this playgroup.");
         // A different name is fine, and so is the same name in another group.
         let (status, _) = add(bt.clone(), "Dana B").await;
         assert_eq!(status, StatusCode::OK);

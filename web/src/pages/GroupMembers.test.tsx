@@ -64,7 +64,7 @@ describe("the playgroup's members", () => {
     expect(guestTaken(group.members, "  SAM ")?.id).toBe("m3");
     expect(guestTaken(group.members, "Sam B")).toBeUndefined();
     expect(guestTaken(group.members, "  ")).toBeUndefined();
-    // Someone with an account isn't a guest: a guest may share their name.
-    expect(guestTaken(group.members, "Pat")).toBeUndefined();
+    // Someone with an account holds their name too.
+    expect(guestTaken(group.members, "pat")?.id).toBe("m2");
   });
 });

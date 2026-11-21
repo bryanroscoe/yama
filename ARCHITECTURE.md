@@ -3474,7 +3474,8 @@ area ("since 21 Nov 2026"). The decisions in it that change how something works:
   game with its members from the start; the QR code opens at start only for "Separate devices".
 - **Typical game length is a median** (`stats::typical_minutes`), under the JSON name
   `average_minutes` the page and the MCP already read.
-- **A guest name is unique in a playgroup**, ignoring case (409 from `add_guest`).
+- **A guest can't take a name already in the playgroup**, a guest's or a member's, ignoring case
+  (409 from `add_guest`).
 - **List reading.** A blank line after the Commander heading's cards ends that section unless a
   heading that names the main deck (Deck, Main, Mainboard, Maindeck) comes further down, and a
   count may follow the name ("Forest x12") when it comes straight after it, before any set code

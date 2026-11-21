@@ -378,6 +378,9 @@ pub struct Printing {
     #[sqlx(json)]
     pub finishes: Vec<String>,
     pub released_at: Option<String>,
+    /// Arena or MTGO only: not a card anyone holds. `None` until the printings import has read it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub digital: Option<bool>,
     pub image_normal: Option<String>,
     pub image_small: Option<String>,
     pub back_image_normal: Option<String>,
@@ -396,7 +399,7 @@ pub struct Printing {
 }
 
 pub const PRINTING_SELECT: &str = "SELECT p.scryfall_id, p.oracle_id, p.name, p.set_code, p.set_name, p.collector_number,
-    p.lang, p.rarity, p.finishes, p.released_at, p.image_normal, p.image_small, p.back_image_normal, p.artist,
+    p.lang, p.rarity, p.finishes, p.released_at, p.digital, p.image_normal, p.image_small, p.back_image_normal, p.artist,
     p.promo_types, p.frame_effects, p.border_color, p.full_art,
     ps.date AS price_date, ps.usd, ps.usd_foil, ps.usd_etched, ps.eur, ps.eur_foil
     FROM printings p

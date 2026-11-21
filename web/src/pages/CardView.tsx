@@ -63,7 +63,8 @@ function today(): string {
 export function addPrinting(printings: Printing[], defaultId: string | null | undefined, day: string = today()): Printing | undefined {
   const rank = (p: Printing) => {
     const price = p.finishes.includes("nonfoil") || p.finishes.length === 0 ? p.usd : p.finishes[0] === "etched" ? p.usd_etched : p.usd_foil;
-    return (p.released_at != null && p.released_at > day ? 4 : 0) + (price == null ? 2 : 0) + (p.scryfall_id === defaultId ? 0 : 1);
+    // A digital printing (Arena, MTGO) is never a card someone holds: it comes after every paper one.
+    return (p.digital ? 8 : 0) + (p.released_at != null && p.released_at > day ? 4 : 0) + (price == null ? 2 : 0) + (p.scryfall_id === defaultId ? 0 : 1);
   };
   let best: Printing | undefined;
   for (const p of printings) if (!best || rank(p) < rank(best)) best = p;

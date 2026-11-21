@@ -10,13 +10,13 @@ const NAME_MAX = 60;
 const GUEST_NAME_MAX = 40;
 
 /**
- * The guest already in the group under this name, case and outer spaces aside: two guests with
- * one name can't be told apart in a seat picker or the stats. The server refuses it the same way
- * (playgroups.rs, `add_guest`).
+ * Whoever is already in the group under this name, guest or member, case and outer spaces aside:
+ * two people with one name can't be told apart in a seat picker. The server refuses it the same
+ * way (playgroups.rs, `add_guest`).
  */
 export function guestTaken(members: Member[], name: string): Member | undefined {
   const wanted = name.trim().toLowerCase();
-  return wanted ? members.find((m) => !m.user_id && m.display_name.trim().toLowerCase() === wanted) : undefined;
+  return wanted ? members.find((m) => m.display_name.trim().toLowerCase() === wanted) : undefined;
 }
 
 /**

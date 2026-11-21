@@ -83,6 +83,9 @@ describe("a card's printings", () => {
     const unpriced = printing({ scryfall_id: "p-old", usd: null, usd_foil: null });
     expect(addPrinting([unpriced, out], "p-old", day)?.scryfall_id).toBe("p-rvr");
     expect(addPrinting([unpriced, printing({ scryfall_id: "p-x", usd: null })], "p-x", day)?.scryfall_id).toBe("p-x");
+    // An Arena or MTGO printing is never the one added, even as the default with nothing priced.
+    const arena = printing({ scryfall_id: "p-arena", usd: null, digital: true });
+    expect(addPrinting([arena, unpriced], "p-arena", day)?.scryfall_id).toBe("p-old");
     // Nothing out yet (a previewed card): what there is.
     expect(addPrinting([coming], "p-new", day)?.scryfall_id).toBe("p-new");
     expect(addPrinting([], "p-new", day)).toBeUndefined();
