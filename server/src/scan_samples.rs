@@ -132,6 +132,8 @@ struct NewSample {
     camera: Option<String>,
     /// The embed graph's file name the phone's art recognizer loaded (`files.embed`), if any.
     embed: Option<String>,
+    /// The option each of the scanner's slots ran (scan.rs, `recorded_models`), if said.
+    models: Option<Value>,
     /// The scanner told the person that saved photos are shared with Yama's developer.
     #[serde(default)]
     shared: bool,
@@ -191,6 +193,7 @@ async fn add(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(s)
         score,
         quad,
         camera: text(s.camera),
+        models: crate::scan::recorded_models(s.models.as_ref()),
         shared: s.shared,
     };
     // Files, row and cleanup in a task of their own: a client gone mid-request (the handler's
@@ -262,6 +265,8 @@ struct SampleText {
     score: Option<f64>,
     quad: Option<String>,
     camera: Option<String>,
+    /// The option each of the scanner's slots ran, as JSON (scan.rs, `recorded_models`).
+    models: Option<String>,
     shared: bool,
 }
 
@@ -283,8 +288,8 @@ async fn save(
     let mut tx = pool.begin().await?;
     sqlx::query(
         "INSERT INTO scan_samples (id, owner_id, created_at, kind, label_scryfall_id, label_name, guess_name, guess_scryfall_id,
-           guess_illustration_id, method, score, quad, camera, bundle, image, bytes, shared, crops, crop_bytes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+           guess_illustration_id, method, score, quad, camera, bundle, models, image, bytes, shared, crops, crop_bytes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(id)
     .bind(owner)
@@ -300,6 +305,7 @@ async fn save(
     .bind(t.quad)
     .bind(t.camera)
     .bind(bundle)
+    .bind(t.models)
     .bind(image)
     .bind(bytes)
     .bind(t.shared)
@@ -366,6 +372,8 @@ pub struct SharedSample {
     pub quad: Option<String>,
     pub camera: Option<String>,
     pub bundle: Option<String>,
+    /// The option each scanner slot ran, as JSON (scan.rs, `recorded_models`), when the phone said.
+    pub models: Option<String>,
     pub bytes: i64,
     /// Its full-resolution crops, as JSON (name, width, height, bytes); none for older photos.
     #[serde(skip)]
@@ -397,7 +405,7 @@ impl SharedSample {
 }
 
 const SHARED_COLUMNS: &str = "s.id, s.owner_id, u.display_name AS owner_name, s.created_at, s.kind, s.label_scryfall_id, s.label_name,
-  s.guess_name, s.guess_scryfall_id, s.guess_illustration_id, s.method, s.score, s.quad, s.camera, s.bundle, s.bytes, s.crops, s.crop_bytes";
+  s.guess_name, s.guess_scryfall_id, s.guess_illustration_id, s.method, s.score, s.quad, s.camera, s.bundle, s.models, s.bytes, s.crops, s.crop_bytes";
 
 /// Shared photos, newest first: everyone's, or one account's (`owner`), from `since` (a date or
 /// moment), before the cursor `before` (`created_at|id` of the last one already seen).
@@ -528,7 +536,8 @@ mod tests {
 
         // Each says which art model the phone ran; the server records it with the bundle.
         let mut added = body("added");
-        added["embed"] = json!(format!("{}/{}", crate::scan::BUNDLE_VERSION, crate::scan::QUERY_MODEL.file()));
+        added["embed"] = json!(format!("{}/{}", crate::scan::BUNDLE_VERSION, crate::scan::QUERY_MODEL.file().unwrap()));
+        added["models"] = json!({"art": "yama-art-20261118", "look": "off", "text": "paddle", "lock": "lead", "other": "x"});
         let (status, res) = testutil::send(&app, Method::POST, "/api/scan/samples", Some(&mine), Some(added)).await;
         assert_eq!(status, StatusCode::OK, "{res}");
         let mut wrong = body("wrong");
@@ -538,6 +547,11 @@ mod tests {
         let bundles: Vec<(String, String)> = sqlx::query_as("SELECT kind, bundle FROM scan_samples ORDER BY kind").fetch_all(&pool).await.unwrap();
         let bundle = crate::scan::BUNDLE_VERSION;
         assert_eq!(bundles, [("added".to_string(), format!("{bundle}+yama-art-20261118")), ("wrong".to_string(), bundle.to_string())]);
+        // And each slot's choice, when it says them (not an older build's photo).
+        let models: Vec<Option<String>> = sqlx::query_scalar("SELECT models FROM scan_samples ORDER BY kind").fetch_all(&pool).await.unwrap();
+        let said: serde_json::Value = serde_json::from_str(models[0].as_deref().unwrap()).unwrap();
+        assert_eq!(said, json!({"art": "yama-art-20261118", "look": "off", "text": "paddle", "lock": "lead"}));
+        assert_eq!(models[1], None);
         let (_, s) = testutil::send(&app, Method::GET, "/api/scan/samples", Some(&mine), None).await;
         assert_eq!(s["count"], 2);
         assert_eq!(s["bytes"], 2 * JPEG.len() as i64);

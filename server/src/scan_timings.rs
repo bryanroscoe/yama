@@ -61,6 +61,8 @@ struct NewTiming {
     camera: Option<String>,
     /// The embed graph the phone's art recognizer ran (`ArtRecognizer.embed`), or "none".
     embed: Option<String>,
+    /// The option each of the scanner's slots ran (scan.rs, `recorded_models`), if said.
+    models: Option<Value>,
     #[serde(default)]
     detail: Option<Value>,
 }
@@ -101,13 +103,14 @@ async fn add(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(t)
     }
     let camera = t.camera.map(|s| s.trim().chars().take(40).collect::<String>()).filter(|s| !s.is_empty());
     let bundle = crate::scan::recorded_version(&st.cfg, t.embed.as_deref()).await;
+    let models = crate::scan::recorded_models(t.models.as_ref());
     // What the row holds beyond its fixed columns, near enough.
-    let bytes = (96 + detail.len() + camera.as_ref().map_or(0, String::len) + bundle.len()) as i64;
+    let bytes = (96 + detail.len() + camera.as_ref().map_or(0, String::len) + bundle.len() + models.as_ref().map_or(0, String::len)) as i64;
     let id = crate::util::new_id();
     let mut tx = st.pool.begin().await?;
     sqlx::query(
-        "INSERT INTO scan_timings (id, owner_id, created_at, outcome, rule, mode, photo, ms, frames, top, lead, printing, printing_ms, camera, bundle, detail, bytes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO scan_timings (id, owner_id, created_at, outcome, rule, mode, photo, ms, frames, top, lead, printing, printing_ms, camera, bundle, models, detail, bytes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(&user.id)
@@ -124,6 +127,7 @@ async fn add(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(t)
     .bind(printing.as_ref().and(whole(t.printing_ms, MAX_MS)))
     .bind(camera)
     .bind(&bundle)
+    .bind(&models)
     .bind(detail)
     .bind(bytes)
     .execute(&mut *tx)
@@ -171,6 +175,7 @@ struct Row {
     printing_ms: Option<i64>,
     camera: Option<String>,
     bundle: Option<String>,
+    models: Option<String>,
     detail: String,
 }
 
@@ -189,6 +194,7 @@ impl Row {
             "id": self.id, "created_at": self.created_at, "outcome": self.outcome, "rule": self.rule, "mode": self.mode,
             "photo": self.photo, "ms": self.ms, "frames": self.frames, "top": self.top, "lead": self.lead,
             "printing": self.printing, "printing_ms": self.printing_ms, "camera": self.camera, "model": self.bundle,
+            "models": self.models.as_deref().and_then(|m| serde_json::from_str::<Value>(m).ok()),
             "detail": serde_json::from_str::<Value>(&self.detail).unwrap_or(Value::Null),
         })
     }
@@ -196,7 +202,7 @@ impl Row {
 
 async fn rows(pool: &SqlitePool, owner: &str, f: &Filter) -> AppResult<Vec<Row>> {
     Ok(sqlx::query_as(
-        "SELECT id, created_at, outcome, rule, mode, photo, ms, frames, top, lead, printing, printing_ms, camera, bundle, detail
+        "SELECT id, created_at, outcome, rule, mode, photo, ms, frames, top, lead, printing, printing_ms, camera, bundle, models, detail
            FROM scan_timings
           WHERE owner_id = ?1 AND (?2 IS NULL OR created_at >= ?2) AND (?3 IS NULL OR bundle = ?3) AND (?4 IS NULL OR mode = ?4)
           ORDER BY created_at DESC, rowid DESC",
@@ -266,6 +272,13 @@ fn by<'a>(rows: &[&'a Row], key: impl Fn(&Row) -> Option<String>, name: &str, ti
     out
 }
 
+/// A group's timing and its rules, with how many of each the person then called wrong.
+fn with_rules(g: &[&Row]) -> Value {
+    let mut t = timing(g);
+    t["rules"] = json!(by(g, |r| Some(r.rule.clone()), "rule", |g| json!({"count": g.len(), "called_wrong": g.iter().filter(|r| r.called_wrong()).count()})));
+    t
+}
+
 /// The time from the card being named to its printing being settled.
 fn printing_timing(rows: &[&Row]) -> Value {
     let mut ms: Vec<i64> = rows.iter().filter_map(|r| r.printing_ms).collect();
@@ -293,11 +306,15 @@ pub async fn summary(pool: &SqlitePool, owner: &str, f: &Filter, offset: usize, 
         "rules": by(&refs, |r| Some(r.rule.clone()), "rule", timing),
         "printings": by(&printed, |r| r.printing.clone(), "printing", printing_timing),
         "printing_corrected_after_filing": after_filing,
-        "models": by(&refs, |r| r.bundle.clone(), "model", |g| {
-            let mut t = timing(g);
-            t["rules"] = json!(by(g, |r| Some(r.rule.clone()), "rule", |g| json!({"count": g.len(), "called_wrong": g.iter().filter(|r| r.called_wrong()).count()})));
-            t
-        }),
+        "art_models": by(&refs, |r| r.bundle.clone(), "model", with_rules),
+        // By every slot's choice together (art, look, text, lock): the lead rule on or off, say.
+        "settings": by(&refs, |r| r.models.clone(), "settings", with_rules)
+            .into_iter()
+            .map(|mut g| {
+                g["settings"] = g["settings"].as_str().and_then(|m| serde_json::from_str::<Value>(m).ok()).unwrap_or(Value::Null);
+                g
+            })
+            .collect::<Vec<_>>(),
         "modes": by(&refs, |r| Some(r.mode.clone()), "mode", timing),
         "items": items,
     }))
@@ -335,11 +352,17 @@ mod tests {
             "outcome": "filed", "rule": rule, "mode": "printing", "ms": ms, "frames": 2, "top": 0.7812, "lead": 0.14,
             "printing": "collector", "printing_ms": 900, "camera": "2160×3840",
             "embed": format!("{}/{}", crate::scan::BUNDLE_VERSION, crate::scan::QUERY_MODEL.file()),
+            "models": {"art": "yama-art-20261118", "look": "off", "text": "auto", "lock": rule_lock(rule)},
             "detail": {"auto": true},
         })
     }
 
     const PATH: &str = "/api/scan/diagnostics/timings";
+
+    /// The lock option a record says ran: the lead rule's own records ran "lead".
+    fn rule_lock(rule: &str) -> &'static str {
+        if rule == "leads" { "lead" } else { "sure" }
+    }
 
     #[tokio::test]
     async fn kept_for_the_owner_only_summarised_and_deleted_with_delete_them() {
@@ -373,8 +396,13 @@ mod tests {
         assert_eq!(s["printings"][0]["count"], 4);
         assert_eq!(s["printings"][0]["median_ms"], 900);
         let model = format!("{}+yama-art-20261118", crate::scan::BUNDLE_VERSION);
-        assert_eq!(s["models"][0]["model"], model.as_str());
-        assert_eq!(s["models"][0]["rules"][0]["rule"], "leads");
+        assert_eq!(s["art_models"][0]["model"], model.as_str());
+        assert_eq!(s["art_models"][0]["rules"][0]["rule"], "leads");
+        // By each slot's choice: the lead rule's records apart from the others.
+        assert_eq!(s["settings"][0]["settings"], json!({"art": "yama-art-20261118", "look": "off", "text": "auto", "lock": "sure"}));
+        assert_eq!(s["settings"][0]["count"], 3);
+        assert_eq!(s["settings"][1]["settings"]["lock"], "lead");
+        assert_eq!(s["items"][0]["models"]["text"], "auto");
         assert_eq!(s["items"].as_array().unwrap().len(), 5);
         assert_eq!(s["items"][4]["top"], 0.781);
         assert_eq!(s["items"][4]["detail"]["auto"], true);
@@ -430,7 +458,7 @@ mod tests {
         assert_eq!(s["settled"]["called_wrong"], 1);
         // The wrong card's printing isn't counted for the card filed.
         assert_eq!(s["printings"][0]["count"], 1);
-        assert_eq!(s["models"][0]["rules"][0]["called_wrong"], 1);
+        assert_eq!(s["art_models"][0]["rules"][0]["called_wrong"], 1);
     }
 
     #[tokio::test]

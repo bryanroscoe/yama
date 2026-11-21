@@ -63,6 +63,8 @@ export interface SampleLabel {
   camera?: string;
   /** The art model's embed graph that ran (`ArtRecognizer.embed`), or "none" reading text only; the server records the model by it. */
   embed?: string;
+  /** The option each of the scanner's slots ran (models.ts): art, look, text and lock. */
+  models?: Record<string, string>;
 }
 
 /** How far past the detected corners the kept photo reaches, as a share of the card's size. */

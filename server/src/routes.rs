@@ -215,13 +215,11 @@ pub async fn serve(cfg: Config, pool: SqlitePool) -> anyhow::Result<()> {
         crate::plan::stock::live::spawn(pool.clone(), http_client());
         // The scanner's recognition bundle, so the first scan doesn't wait on the download.
         let (dir, http) = (cfg.data_dir.clone(), http_client());
-        let query = cfg.scan_query_model;
+        let off = crate::scan::Withdrawn::of(&cfg);
         tokio::spawn(async move {
             crate::scan::ensure(dir.clone(), http.clone()).await;
-            // Yama's query model too, if the bundle is already here (else the first scan asks).
-            if query {
-                crate::scan::ensure_query(dir, http).await;
-            }
+            // The model files of ours too, if the bundle is already here (else the first scan asks).
+            crate::scan::ensure_models(dir, http, off).await;
         });
         // Artworks the bundle doesn't know yet, embedded here after each card import (scan_art.rs).
         if cfg.scan_supplement {

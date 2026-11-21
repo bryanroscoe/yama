@@ -102,6 +102,8 @@ struct NewDiagnostic {
     images: Vec<NewImage>,
     /// The embed graph's file name the phone's art recognizer loaded (`files.embed`), if any.
     embed: Option<String>,
+    /// The option each of the scanner's slots ran (scan.rs, `recorded_models`), if said.
+    models: Option<Value>,
 }
 
 fn text(v: Option<String>) -> Option<String> {
@@ -187,11 +189,12 @@ async fn add(State(st): State<AppState>, CurrentUser(user): CurrentUser, req: Re
         return Err(anyhow::Error::from(e).context("writing scanner diagnostic images").into());
     }
     let bundle = crate::scan::recorded_version(&st.cfg, d.embed.as_deref()).await;
+    let models = crate::scan::recorded_models(d.models.as_ref());
     let saved = async {
         let mut tx = st.pool.begin().await?;
         sqlx::query(
-            "INSERT INTO scan_diagnostics (id, owner_id, created_at, outcome, card_name, engine, camera, detail, bundle, images, bytes)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO scan_diagnostics (id, owner_id, created_at, outcome, card_name, engine, camera, detail, bundle, models, images, bytes)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&user.id)
@@ -202,6 +205,7 @@ async fn add(State(st): State<AppState>, CurrentUser(user): CurrentUser, req: Re
         .bind(camera)
         .bind(detail)
         .bind(&bundle)
+        .bind(&models)
         .bind(Value::Array(listed).to_string())
         .bind(total as i64)
         .execute(&mut *tx)
@@ -278,14 +282,15 @@ pub async fn list(pool: &SqlitePool, owner: &str, offset: i64, limit: i64) -> Ap
 
 /// One record in full (without image bytes), or None when it isn't this account's.
 pub async fn one(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Option<Value>> {
-    let row: Option<(String, String, Option<String>, Option<String>, Option<String>, String, Option<String>, String, i64)> = sqlx::query_as(
-        "SELECT created_at, outcome, card_name, engine, camera, detail, bundle, images, bytes FROM scan_diagnostics WHERE owner_id = ? AND id = ?",
+    type Row = (String, String, Option<String>, Option<String>, Option<String>, String, Option<String>, Option<String>, String, i64);
+    let row: Option<Row> = sqlx::query_as(
+        "SELECT created_at, outcome, card_name, engine, camera, detail, bundle, models, images, bytes FROM scan_diagnostics WHERE owner_id = ? AND id = ?",
     )
     .bind(owner)
     .bind(id)
     .fetch_optional(pool)
     .await?;
-    let Some((created_at, outcome, card_name, engine, camera, detail, bundle, images, bytes)) = row else { return Ok(None) };
+    let Some((created_at, outcome, card_name, engine, camera, detail, bundle, models, images, bytes)) = row else { return Ok(None) };
     let parse = |s: Option<String>| s.and_then(|s| serde_json::from_str::<Value>(&s).ok()).unwrap_or(Value::Null);
     let images: Vec<Value> = serde_json::from_str::<Vec<Value>>(&images)
         .unwrap_or_default()
@@ -299,7 +304,7 @@ pub async fn one(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Option<V
         .collect();
     Ok(Some(json!({
         "id": id, "created_at": created_at, "outcome": outcome, "card_name": card_name, "engine": engine,
-        "camera": parse(camera), "detail": parse(Some(detail)), "bundle": bundle, "bytes": bytes, "images": images,
+        "camera": parse(camera), "detail": parse(Some(detail)), "bundle": bundle, "models": parse(models), "bytes": bytes, "images": images,
     })))
 }
 
@@ -412,7 +417,10 @@ mod tests {
         let (me, mine) = testutil::user(&pool, "me@example.com").await;
         let (them_id, theirs) = testutil::user(&pool, "them@example.com").await;
 
-        let (status, made) = testutil::send(&app, Method::POST, "/api/scan/diagnostics", Some(&mine), Some(body("picked"))).await;
+        // Each slot's choice is kept with it (scan.rs, `recorded_models`).
+        let mut picked = body("picked");
+        picked["models"] = json!({"art": "bundle", "look": "off", "text": "mlkit", "lock": "sure"});
+        let (status, made) = testutil::send(&app, Method::POST, "/api/scan/diagnostics", Some(&mine), Some(picked)).await;
         assert_eq!(status, StatusCode::OK, "{made}");
         let id = made["id"].as_str().unwrap().to_string();
         let (status, _) = testutil::send(&app, Method::POST, "/api/scan/diagnostics", Some(&mine), Some(body("wrong"))).await;
@@ -432,6 +440,7 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(one["camera"]["label"], "camera2 0, facing back");
         assert_eq!(one["detail"]["final"]["how"], "picked");
+        assert_eq!(one["models"], json!({"art": "bundle", "look": "off", "text": "mlkit", "lock": "sure"}));
         assert_eq!(one["images"][0]["url"], format!("/api/scan/diagnostics/{id}/images/strip"));
         let (status, bytes, kind) = get_bytes(&app, &format!("/api/scan/diagnostics/{id}/images/strip"), &mine).await;
         assert_eq!(status, StatusCode::OK);

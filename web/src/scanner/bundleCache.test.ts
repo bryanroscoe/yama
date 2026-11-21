@@ -39,6 +39,18 @@ describe("the art worker's cache clean-up", () => {
     expect(isStale(`https://yama.ing/scan-bundle/${V}/supplement-b.json`, named)).toBe(true);
   });
 
+  it("keeps every model the server offers in a slot, so switching back in Scan settings needs no download", () => {
+    const models = {
+      art: { default: "yama-art-20261118", options: [{ id: "bundle", label: "", note: "", file: `/scan-bundle/${V}/embed.onnx` }, { id: "yama-art-20261118", label: "", note: "", file: `/scan-bundle/${V}/query-52420d900728.onnx` }] },
+      look: { default: "off", options: [{ id: "off", label: "", note: "" }, { id: "look-v0", label: "", note: "", file: `/scan-bundle/${V}/look-58acfa166105.onnx` }] },
+    };
+    const named = namedPaths({ files: files("query-52420d900728.onnx", null), models }, "https://yama.ing");
+    expect(isStale(`https://yama.ing/scan-bundle/${V}/embed.onnx`, named)).toBe(false);
+    expect(isStale(`https://yama.ing/scan-bundle/${V}/look-58acfa166105.onnx`, named)).toBe(false);
+    // One the server stopped offering (withdrawn, or an older pin) goes.
+    expect(isStale(`https://yama.ing/scan-bundle/${V}/query-000000000000.onnx`, named)).toBe(true);
+  });
+
   it("names the bundle and embed graph a recognizer runs, for kept photos and diagnostics", () => {
     expect(embedIdentity({ version: V, files: files("query-52420d900728.onnx", null) })).toBe(`${V}/query-52420d900728.onnx`);
     expect(embedIdentity({ version: V, files: files("embed.onnx", null) })).toBe(`${V}/embed.onnx`);

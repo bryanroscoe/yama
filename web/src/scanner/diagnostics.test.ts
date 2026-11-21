@@ -187,7 +187,8 @@ describe("scanner timing records", () => {
     setDiagnosticsOn(true);
   });
 
-  const named = { rule: "leads" as const, mode: "printing" as const, ms: 640.4, frames: 3, top: 0.78123, lead: 0.1412, camera: "2160×3840", embed: "gallery/query.onnx" };
+  const models = { art: "yama-art-20261118", look: "off", text: "auto", lock: "lead" };
+  const named = { rule: "leads" as const, mode: "printing" as const, ms: 640.4, frames: 3, top: 0.78123, lead: 0.1412, camera: "2160×3840", embed: "gallery/query.onnx", models };
 
   it("sends every card it's made for, once, with no images", async () => {
     vi.useFakeTimers();
@@ -217,6 +218,7 @@ describe("scanner timing records", () => {
         printing_ms: 1200,
         camera: "2160×3840",
         embed: "gallery/query.onnx",
+        models,
         detail: { auto: true },
       },
     ]);

@@ -30,6 +30,7 @@ pub fn config() -> Config {
         ai_combos: true,
         scan_supplement: true,
         scan_query_model: true,
+        scan_withdrawn: vec![],
         // The Mythic Tools bridge is on in tests, so its routes are covered (bridges/mythic).
         mythic_bridge: true,
         engine_card_data: None,

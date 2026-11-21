@@ -5,11 +5,16 @@
 // the current one.
 
 import type { BundleInfo } from "./artClient";
+import { modelFiles } from "./models";
 
-/** The paths of the files `info` names, resolved against `base` (the server's origin). */
-export function namedPaths(info: Pick<BundleInfo, "files">, base: string): Set<string> {
+/**
+ * The paths of the files `info` names, resolved against `base` (the server's origin): the bundle's,
+ * and every option's on offer in its slots (models.ts), so a model chosen in Scan settings and the
+ * one it replaced both stay cached for switching back.
+ */
+export function namedPaths(info: Pick<BundleInfo, "files" | "models">, base: string): Set<string> {
   const { detector, embed, search, arts, supplement } = info.files;
-  return new Set([detector, embed, search, arts, supplement].filter((u): u is string => !!u).map((u) => new URL(u, base).pathname));
+  return new Set([detector, embed, search, arts, supplement, ...modelFiles(info)].filter((u): u is string => !!u).map((u) => new URL(u, base).pathname));
 }
 
 /** Whether the cached file at `url` is a scanner file the server no longer names. */

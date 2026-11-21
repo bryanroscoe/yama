@@ -28,9 +28,11 @@ CREATE TABLE scan_timings (
     -- from the card being named to that. NULL where only the card matters.
     printing    TEXT,
     printing_ms INTEGER,
-    -- The camera's delivered resolution, and the bundle with the art model (scan.rs).
+    -- The camera's delivered resolution, the bundle with the art model (scan.rs), and the option
+    -- each scanner slot ran (art, look, text, lock: scan.rs `recorded_models`, as for scan photos).
     camera      TEXT,
     bundle      TEXT,
+    models      TEXT,
     -- Anything else, as a small JSON object.
     detail      TEXT NOT NULL,
     bytes       INTEGER NOT NULL
