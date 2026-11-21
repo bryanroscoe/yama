@@ -218,12 +218,18 @@ async fn the_history_follows_renamed_keys_and_knows_the_cards_a_change_cuts() {
     let entry = json!({"plan": "alpha", "on": "2026-10-21", "what": "Before a rename.", "cards": ["Spare Card"], "op_id": "history-0002"});
     let (err, text) = call(&app, &key, "record_plan_history", entry.clone()).await;
     assert!(!err && text.contains("Recorded in"), "{text}");
-    sqlx::query("UPDATE plan_swaps SET in_name = 'Spare Card Renamed' WHERE owner_id = ? AND ext_key = 'alpha-owned'").bind(&owner).execute(&pool).await.unwrap();
+    sqlx::query("UPDATE plan_swaps SET in_name = 'Another Card' WHERE owner_id = ? AND ext_key = 'alpha-owned'").bind(&owner).execute(&pool).await.unwrap();
     let (err, text) = call(&app, &key, "record_plan_history", entry).await;
     assert!(!err && text.contains("already in Alpha Deck's history"), "{text}");
     // And the entry is still that change's story under its new card name.
-    let (err, text) = call(&app, &key, "get_plan_history", json!({"plan": "alpha", "card": "Spare Card Renamed"})).await;
+    let (err, text) = call(&app, &key, "get_plan_history", json!({"plan": "alpha", "card": "Another Card"})).await;
     assert!(!err && text.contains("Before a rename."), "{text}");
+    // The card's old name, as the entry has it, still finds the change.
+    let (err, text) = call(&app, &key, "get_plan_history", json!({"plan": "alpha", "card": "Spare Card"})).await;
+    assert!(!err && text.contains("Another Card (nothing named to cut)") && text.contains("Before a rename."), "{text}");
+    // The same op_id naming another plan is another entry.
+    let (err, text) = call(&app, &key, "record_plan_history", json!({"plan": "beta", "on": "2026-10-21", "what": "Before a rename.", "cards": ["Spare Card"], "op_id": "history-0002"})).await;
+    assert!(err && text.contains("op_id history-0002 was used for another entry"), "{text}");
     // And after an import moved the plan to another key, the old key's retry still finds it.
     let entry = json!({"plan": "alpha", "on": "2026-10-22", "what": "Before a move.", "op_id": "history-0003"});
     let (err, text) = call(&app, &key, "record_plan_history", entry.clone()).await;

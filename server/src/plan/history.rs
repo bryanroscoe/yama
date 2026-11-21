@@ -104,6 +104,16 @@ pub enum PlanRef<'a> {
     Id(&'a str),
 }
 
+impl PlanRef<'_> {
+    /// The plan as the call named it: a retry names it the same way, whatever has moved since.
+    fn named(&self) -> String {
+        match self {
+            PlanRef::Named(n) => n.trim().to_lowercase(),
+            PlanRef::Id(id) => format!("id:{id}"),
+        }
+    }
+}
+
 async fn resolve(pool: &SqlitePool, owner: &str, plan: PlanRef<'_>) -> AppResult<(String, String, String)> {
     match plan {
         PlanRef::Named(wanted) => plan_of(pool, owner, wanted).await,
@@ -168,15 +178,16 @@ pub async fn record(pool: &SqlitePool, owner: &str, plan: PlanRef<'_>, e: &Entry
     // an import can move a plan to another key (`notes::make_room`) or rename a card.
     if let Some(op) = op_id {
         #[allow(clippy::type_complexity)]
-        let stored: Option<(String, String, String, String, Option<String>, Option<String>, Option<String>, Option<String>, String, Option<String>)> =
+        let stored: Option<(String, String, String, String, Option<String>, Option<String>, Option<String>, Option<String>, String, Option<String>, String)> =
             sqlx::query_as(
-                "SELECT id, plan_deck_id, on_date, what, asked, conversation, work, group_label, cards, replaces FROM plan_history WHERE owner_id = ? AND op_id = ?",
+                "SELECT id, plan_deck_id, on_date, what, asked, conversation, work, group_label, cards, replaces, plan_named FROM plan_history
+                 WHERE owner_id = ? AND op_id = ?",
             )
             .bind(owner)
             .bind(op)
             .fetch_optional(pool)
             .await?;
-        if let Some((id, p, on_date, w, asked, conversation, work, g, c, replaced)) = stored {
+        if let Some((id, p, on_date, w, asked, conversation, work, g, c, replaced, named)) = stored {
             let (deck_key, deck): (String, String) =
                 sqlx::query_as("SELECT key, name FROM plan_decks WHERE id = ? AND owner_id = ?").bind(&p).bind(owner).fetch_one(pool).await?;
             // The stored plan is the one it was recorded on: the key given may name another plan
@@ -194,7 +205,10 @@ pub async fn record(pool: &SqlitePool, owner: &str, plan: PlanRef<'_>, e: &Entry
             given.sort();
             given.dedup();
             kept.sort();
-            let same = replaced.as_deref() == replaces
+            // The same plan as the call named it, compared as named: the key it named may belong to
+            // another plan by now, and the plan it was recorded on may have moved.
+            let same = named == plan.named()
+                && replaced.as_deref() == replaces
                 && on_date == e.on
                 && w == e.what.trim()
                 && asked == e.asked
@@ -325,9 +339,9 @@ pub async fn record(pool: &SqlitePool, owner: &str, plan: PlanRef<'_>, e: &Entry
     }
     let id = new_id();
     sqlx::query(
-        "INSERT INTO plan_history (id, owner_id, plan_deck_id, on_date, what, asked, conversation, work, group_label, cards, swap_keys, via, op_id, replaces,
-           recorded_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO plan_history (id, owner_id, plan_deck_id, on_date, what, asked, conversation, work, group_label, cards, swap_keys, plan_named, via, op_id,
+           replaces, recorded_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(owner)
@@ -340,6 +354,7 @@ pub async fn record(pool: &SqlitePool, owner: &str, plan: PlanRef<'_>, e: &Entry
     .bind(&group)
     .bind(&cards_json)
     .bind(Value::from(swap_keys).to_string())
+    .bind(plan.named())
     .bind(via)
     .bind(op_id)
     .bind(replaces)
@@ -686,6 +701,15 @@ pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>
                 .collect()
         } else {
             exact
+        };
+        // A card the plan no longer names (a plan file renamed it): the changes an entry recorded
+        // it for, by their keys.
+        let found: Vec<&SwapRow> = if found.is_empty() {
+            let keys: Vec<String> =
+                entries.iter().filter(|e| e.cards().iter().any(|c| c.eq_ignore_ascii_case(card))).flat_map(|e| e.swap_keys()).collect();
+            swaps.iter().filter(|s| keys.contains(&s.ext_key)).collect()
+        } else {
+            found
         };
         if found.is_empty() {
             return Err(AppError::bad(format!("No change in {name}'s plan puts in or takes out \"{card}\"")));

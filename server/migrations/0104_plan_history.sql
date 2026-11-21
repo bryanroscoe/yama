@@ -18,6 +18,7 @@ CREATE TABLE plan_history (
     group_label   TEXT,                          -- the proposal group it is about, as the plan names it
     cards         TEXT NOT NULL DEFAULT '[]',    -- JSON [card name]: the changes it is about, by the card each puts in
     swap_keys     TEXT NOT NULL DEFAULT '[]',    -- JSON [swap key]: those changes' keys, so the entry stays theirs when a card is renamed
+    plan_named    TEXT NOT NULL DEFAULT '',      -- the plan as the call named it (a key, a deck's name or the row id), for its retry
     via           TEXT NOT NULL,                 -- how the assistant got in: key | oauth | question, or staged (a staged track_build applied)
     op_id         TEXT,                          -- the caller's id: a retry with the same id records nothing new
     replaces      TEXT,                          -- the entry this one corrected (deleted then), so a retry of the correction is the same one
