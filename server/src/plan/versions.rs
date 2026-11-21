@@ -704,14 +704,19 @@ pub async fn settle(conn: &mut SqliteConnection, owner: &str) -> AppResult<Vec<S
 /// how many versions went in.
 pub async fn settle_all(pool: &sqlx::SqlitePool) -> AppResult<usize> {
     // Only accounts with something to settle, so a start reads nobody's whole plans for nothing: a
-    // live proposal on a live deck with no answer since it last changed, or a deck that has
-    // proposals and no version yet. (An answer held only under an alias makes a false positive,
-    // which settling then finds nothing in; settled answers are written under the live key.)
+    // live proposal on a live deck with no answer since it last changed, one an older key's answer
+    // outranks, or a deck that has proposals and no version yet. (A false positive costs a read
+    // that finds nothing to settle; settled answers are written under the live key.)
     let owners: Vec<String> = sqlx::query_scalar(
         "SELECT DISTINCT s.owner_id FROM plan_swaps s JOIN plan_decks d ON d.id = s.plan_deck_id AND d.owner_id = s.owner_id
          WHERE s.retired_at IS NULL AND s.stage = 'proposed' AND d.status != 'archived' AND d.archived_at IS NULL
            AND (NOT EXISTS (SELECT 1 FROM plan_reviews r WHERE r.owner_id = s.owner_id AND r.swap_key = s.ext_key
                               AND r.decision IS NOT NULL AND r.at >= s.updated_at)
+                -- An answer under an older key newer than the live one is the newest word on it
+                -- (a clear that waited for a fast device's clock to pass).
+                OR EXISTS (SELECT 1 FROM plan_key_aliases a JOIN plan_reviews o ON o.owner_id = a.owner_id AND o.swap_key = a.old_key
+                           WHERE a.owner_id = s.owner_id AND a.new_key = s.ext_key
+                             AND o.at > IFNULL((SELECT r.at FROM plan_reviews r WHERE r.owner_id = s.owner_id AND r.swap_key = s.ext_key), ''))
                 OR (NOT EXISTS (SELECT 1 FROM plan_versions v WHERE v.owner_id = d.owner_id AND v.plan_deck_id = d.id)
                     AND NOT EXISTS (SELECT 1 FROM plan_swaps p WHERE p.owner_id = d.owner_id AND p.plan_deck_id = d.id
                                       AND p.retired_at IS NULL AND p.stage = 'planned' AND p.role != 'standin')))
@@ -767,13 +772,15 @@ async fn take_in(conn: &mut SqliteConnection, owner: &str, plan_id: &str, deck_k
     let later: HashSet<&String> = next
         .keys
         .iter()
-        .filter(|k| found.get(*k).is_some_and(|p| p.aliased && parse(&p.at).zip(parse(&at)).is_some_and(|(a, now)| a > now)))
+        .filter(|k| found.get(*k).is_some_and(|p| p.aliased && parse(&p.at).zip(parse(&at)).is_some_and(|(a, now)| a >= now)))
         .collect();
     if next.keys.iter().all(|k| later.contains(k)) {
         return Ok(None);
     }
     // Optional extras: changes that take nothing out (a note swap with no card_out).
     let extras: HashSet<String> = rows.iter().filter(|r| r.6 == "optional").map(|r| r.0.clone()).collect();
+    // When each change last changed, for whether an answer was given since.
+    let edited: HashMap<String, String> = rows.iter().map(|r| (r.0.clone(), r.5.clone())).collect();
     let swaps: Vec<(String, String, Option<String>, String, Option<String>)> = rows.into_iter().map(|(k, i, o, src, w, ..)| (k, i, o, src, w)).collect();
     let cards: HashMap<String, String> = swaps.iter().map(|(k, i, ..)| (k.clone(), i.clone())).collect();
     let cut_of = |k: &str| next.cuts.iter().find(|c| c.key == k).and_then(|c| c.out.clone());
@@ -804,12 +811,27 @@ async fn take_in(conn: &mut SqliteConnection, owner: &str, plan_id: &str, deck_k
         })
     };
     let held: Vec<String> = next.keys.iter().filter(|k| next.skipped.contains(k) || theirs(k)).cloned().collect();
+    // A want a person gave since the change last changed stands too (a deck's first version lists
+    // every proposal, answered ones included): no check leaves it out, and it takes its cut first.
+    let wanted: HashSet<String> = next
+        .keys
+        .iter()
+        .filter(|k| {
+            found.get(*k).is_some_and(|p| {
+                p.decision.as_deref() == Some("want")
+                    && !p.op_id.as_deref().is_some_and(|o| o.starts_with(SETTLE_OP))
+                    && edited.get(*k).is_some_and(|u| u.as_str() <= p.at.as_str())
+            })
+        })
+        .cloned()
+        .collect();
     // What's held, or waits for a later write, takes no cut now.
     let aside: Vec<String> = held.iter().cloned().chain(later.iter().map(|k| (*k).clone())).collect();
-    let mut why: HashMap<String, String> = left_out(&Next { skipped: aside, ..next.clone() }).into_iter().collect();
+    let first: Vec<Cut> = next.cuts.iter().filter(|c| wanted.contains(&c.key)).chain(next.cuts.iter().filter(|c| !wanted.contains(&c.key))).cloned().collect();
+    let mut why: HashMap<String, String> = left_out(&Next { skipped: aside, cuts: first, ..next.clone() }).into_iter().filter(|(k, _)| !wanted.contains(k)).collect();
     // An optional extra names no card to cut either: it would buy a card with no slot, so it's left
     // out the same way until someone answers want.
-    for k in next.keys.iter().filter(|k| extras.contains(*k) && !held.contains(k)) {
+    for k in next.keys.iter().filter(|k| extras.contains(*k) && !held.contains(k) && !wanted.contains(*k)) {
         why.entry(k.clone()).or_insert_with(|| format!("{} is an optional extra: it names no card to cut.", cards.get(k).map_or(k.as_str(), String::as_str)));
     }
     let mut before = serde_json::Map::new();

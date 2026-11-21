@@ -283,6 +283,27 @@ async fn a_future_clear_under_an_alias_waits_instead_of_future_dating_the_plan()
     drop(conn);
     let at: String = sqlx::query_scalar("SELECT at FROM plan_reviews WHERE owner_id = ? AND swap_key = 'beta-1'").bind(&owner).fetch_one(&pool).await.unwrap();
     assert!(at < ahead, "{at}");
+    // Once the clock has passed it, a start finds it (the live key's answer is older) and takes it in.
+    sqlx::query("UPDATE plan_reviews SET at = '2026-06-01T00:00:00Z' WHERE owner_id = ? AND swap_key = 'old-beta'").bind(&owner).execute(&pool).await.unwrap();
+    sqlx::query("UPDATE plan_reviews SET at = '2026-01-01T00:00:00Z' WHERE owner_id = ? AND swap_key = 'beta-1'").bind(&owner).execute(&pool).await.unwrap();
+    sqlx::query("UPDATE plan_swaps SET updated_at = '2025-01-01T00:00:00Z' WHERE owner_id = ? AND ext_key = 'beta-1'").bind(&owner).execute(&pool).await.unwrap();
+    assert_eq!(super::super::versions::settle_all(&pool).await.unwrap(), 1);
+    assert_eq!(decision(&pool, &owner, "beta-1").await.as_deref(), Some("want"));
+    assert_eq!(super::super::versions::settle_all(&pool).await.unwrap(), 0);
+}
+
+#[tokio::test]
+async fn a_want_you_gave_before_the_first_version_stands() {
+    let (app, pool, owner, token) = setup().await;
+    let mut d = doc_with_beta_plan();
+    // A change that names no card to cut, which you already said you want (on the review site).
+    d["plan"]["swaps"].as_array_mut().unwrap().push(json!({"key": "beta-3", "deck": "beta", "stage": "proposed", "role": "swap", "src": "buy",
+        "out": null, "in": "Wanted Card"}));
+    d["plan"]["reviews"] = json!({"beta-3": {"decision": "want", "note": "Yes, this one", "cut": null, "deck": "Beta Deck", "card": "Wanted Card",
+        "at": "2099-01-01T00:00:00Z"}});
+    import(&app, &token, &d).await;
+    assert_eq!(answer(&pool, &owner, "beta-3").await, (Some("want".into()), Some("Yes, this one".into()), None));
+    assert_eq!(deck(&bundle(&app, &token).await, "beta")["plan"]["changes"], 3);
 }
 
 #[tokio::test]
