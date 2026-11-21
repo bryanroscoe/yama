@@ -2,7 +2,11 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { InstallBanner } from "./InstallBanner";
+import type { InstallBanner as Banner } from "./InstallBanner";
+
+const ANDROID_APP_URL = "https://github.com/bryanroscoe/yama/releases/download/android-app/yama.apk";
+// install.ts keeps the browser's prompt in module state: each test gets a fresh copy.
+let InstallBanner: typeof Banner;
 
 const device = vi.hoisted(() => ({ native: false, standalone: false }));
 vi.mock("../native", () => ({ isNative: () => device.native }));
@@ -20,7 +24,9 @@ function offer() {
   return prompt;
 }
 function draw() { act(() => root.render(<InstallBanner />)); }
-beforeEach(() => {
+beforeEach(async () => {
+  vi.resetModules();
+  ({ InstallBanner } = await import("./InstallBanner"));
   localStorage.clear();
   device.native = false;
   device.standalone = false;
@@ -46,6 +52,20 @@ describe("mobile app installation offer", () => {
     await act(async () => host.querySelector("button")!.click());
     expect(prompt).toHaveBeenCalledOnce();
     expect(host.textContent).toBe("");
+  });
+  it("offers the Android app beside the browser prompt, and alone where there is no prompt", () => {
+    browser("Mozilla/5.0 (Linux; Android 15) Firefox/130 Mobile");
+    draw();
+    expect(host.textContent).toContain("from the browser's menu, or get the Android app");
+    expect(host.querySelector("a")!.getAttribute("href")).toBe(ANDROID_APP_URL);
+    expect(host.querySelectorAll("button")).toHaveLength(1);
+    offer();
+    expect(host.textContent).toContain("home screen, or get the Android app");
+    expect(host.querySelectorAll("button")).toHaveLength(2);
+  });
+  it("offers no Android app on iPhone", () => {
+    browser("Mozilla/5.0 (iPhone) Version/18 Safari/605", 5); draw();
+    expect(host.querySelector("a")).toBeNull();
   });
   it("explains the Share menu on iPhone and on iPadOS with a desktop user agent", () => {
     for (const [ua, touch] of [["Mozilla/5.0 (iPhone) Version/18 Safari/605", 5], ["Mozilla/5.0 (Macintosh) Version/18 Safari/605", 5]] as const) {

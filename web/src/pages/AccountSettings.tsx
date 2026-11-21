@@ -9,6 +9,7 @@ import { AdvisorSettings } from "../advisor/AdvisorSettings";
 import { DeleteAccount } from "./DeleteAccount";
 import { VersionLine } from "../version";
 import { AppUpdateSetting } from "../components/AppUpdate";
+import { InstallSetting } from "../components/InstallSetting";
 import { isNative } from "../native";
 import "./group.css";
 import { count, shortDate } from "@yama/core";
@@ -24,7 +25,7 @@ export function AccountSettings() {
       <div className="grp-you">
         {me.data && <YourName me={me.data} />}
         <OfflineCardsSetting />
-        {isNative() && <AppUpdateSetting />}
+        {isNative() ? <AppUpdateSetting /> : <InstallSetting />}
         {me.data && !me.data.viewing && <AdvancedSetting me={me.data} />}
         {/* Ask Claude stays private while an admin views as you (server/src/view_as.rs). */}
         {!me.data?.viewing && me.data?.power && <AdvisorSettings />}

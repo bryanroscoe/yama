@@ -6,6 +6,12 @@
 import { useSyncExternalStore } from "react";
 import { isNative } from "./native";
 
+/**
+ * The Android app, sideloaded from the repository's rolling `android-app` release (docs/mobile.md);
+ * once installed it updates itself (nativeUpdate.ts reads update.json beside it).
+ */
+export const ANDROID_APP_URL = "https://github.com/bryanroscoe/yama/releases/download/android-app/yama.apk";
+
 interface InstallPrompt extends Event {
   prompt(): Promise<void>;
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
@@ -56,10 +62,13 @@ export function useInstall() {
   const prompt = useSyncExternalStore(subscribe, () => deferred);
   const justInstalled = useSyncExternalStore(subscribe, () => appInstalled);
   const installed = justInstalled || isNative() || standalone();
+  const android = typeof navigator !== "undefined" && /Android/.test(navigator.userAgent);
   return {
     installed,
     /** Device identity, rather than window width: a narrow desktop is still a desktop. */
-    mobile: apple() || (typeof navigator !== "undefined" && /Android/.test(navigator.userAgent)),
+    mobile: apple() || android,
+    /** An Android browser (not the app itself): the Android app can be offered as well. */
+    android: android && !isNative(),
     /** The browser will show its install prompt. */
     canPrompt: !installed && !!prompt,
     /** Safari on an iPhone or iPad: install from the Share menu. */
