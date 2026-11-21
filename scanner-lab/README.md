@@ -3,7 +3,8 @@
 These scripts made `yama-art-20261118.onnx`, the model phones run in place of the ManaVault bundle's
 `embed.onnx` to match a card's art (docs/scanner.md, "Yama's query embedder"). They are here so the
 model can be made again, checked, or trained further. Nothing in CI runs them except
-`test_scanner_lab.py`, which needs no packages.
+`test_scanner_lab.py`, which needs no packages. The printing look model's scripts (`look_*.py`) are
+described in [LOOK.md](LOOK.md).
 
 - **What the model is:** the bundle's `embed.onnx` with its embedding half (MobileNetV3-Small, a
   576 → 128 head) fine-tuned on simulated sleeved, glare and blue-box phone captures, against the

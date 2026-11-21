@@ -1,0 +1,106 @@
+# Scanner lab: the printing look model
+
+These scripts made the set-symbol half of `yama-look-v1.onnx`, the model that compares the card in the
+camera's frame with each printing that shares its artwork (docs/scanner.md, "The printing look"). Run them
+like the rest of the lab, from a work directory outside the repository (README.md, "Layout").
+
+- **What the model is:** one ONNX graph with the art model's interface. Inputs `scene` (height × width × 4,
+  uint8 RGBA) and `quad` (4 × 2, the card's corners, top-left first, clockwise, in scene pixels). Outputs
+  `symbol` and `card` (1 × 128, L2-normalised).
+  - The graph warps the card itself: the set symbol's area (card y 0.525–0.605, x 0.76–0.975) to
+    160 × 80, and the whole card to 320 × 448.
+  - It standardises each channel of each image to mean 0, sd 1, then runs two MobileNetV3-Small networks
+    with GeM pooling and a 128-number head.
+  - A candidate printing's Scryfall `normal` image goes in with its own corners as the quad.
+  - Score = 0.8 × symbol·symbol + 0.2 × card·card.
+- **Licence:** Yama's ([LICENSE](../LICENSE)). The networks start from torchvision's ImageNet
+  MobileNetV3-Small weights (BSD-3-Clause). Card images are Scryfall's: fetched for training, never
+  published.
+- **Where it is:** release `scanner-look-20261120` of this repository: `yama-look-v1.onnx` (sha256
+  `152f52c1…`), and the two networks' checkpoints it was exported from, `yama-look-v1-symbol.pt` (sha256
+  `e0cf5773…`) and `yama-look-v1-card.pt` (`ca2f9304…`). The model registry (`MODELS` in
+  `server/src/scan.rs`) pins v0 as of 20 Nov 2026; pinning v1 as the default is the next PR.
+
+## Layout (on top of README.md's)
+
+| Path | What | Size (Nov 2026) |
+|---|---|---|
+| `data/look_groups.json` | every artwork several English paper printings share (`look_groups.py`): train, and test (the real photos' artworks). Two-faced cards by their front | 16 MB |
+| `data/printings/` | Scryfall `normal` images of those printings (`look_download.py`) | 7 GB |
+| `data/pk2/`, `data/pq2/` | the graph's own symbol crops: clean keys, and 2 simulated captures per printing (`look_gen.py`) | 0.8 GB, 1.1 GB |
+| `runs/<run>/epN.pt` | a checkpoint per epoch (`look_train.py`) | 4 MB each |
+
+Delete `data/printings/`, `data/pk2/` and `data/pq2/` when you're done.
+
+## Making the symbol network again
+
+```sh
+export SCANNER_REAL_DIR=…                      # your real scan photos (README.md, "Inputs")
+.venv/bin/python <lab>/look_groups.py          # data/look_groups.json, from Scryfall's bulk card data
+.venv/bin/python <lab>/look_download.py        # data/printings/, eight images a second, about two hours
+.venv/bin/python <lab>/look_gen.py             # data/pk2/ and data/pq2/, two to three hours on 5 cores
+.venv/bin/python <lab>/look_train.py sym3 8 64 # runs/sym3/ep0..7.pt, scored on the real photos each epoch
+.venv/bin/python <lab>/look_export.py runs/sym3/ep7.pt yama-look-v1-card.pt models/yama-look-vN.onnx
+.venv/bin/python <lab>/look_eval.py models/yama-look-vN.onnx
+```
+
+To rebuild v1 itself, download `yama-look-v1-symbol.pt` and `yama-look-v1-card.pt` from the release and
+pass them to `look_export.py` (it makes the output's folder, and needs no ImageNet download).
+
+- `look_crops.py` cuts what the exported graph cuts, geometrically aligned with it, in OpenCV. The crops
+  agree to about half an intensity level (OpenCV's 8-bit bilinear against the graph's float GridSample),
+  and the embeddings to a cosine of 0.9999. The symbol patch has a margin, so training can shift it; the
+  centre crop is the graph's.
+  Training on the graph's crops matters. v0's symbol network was trained on a different cut, and the
+  exported graph scored 57.1% where the training code scored 62.2%.
+- `look_train.py`: InfoNCE of one simulated capture per artwork against the clean symbols of up to six of
+  its printings, across a batch of 64 artworks (temperature 0.05). A MoCo key encoder (momentum 0.99)
+  embeds the clean side. Its BatchNorm statistics must follow the query network's as well as its weights.
+  Without that (the first run) the loss climbs after an epoch and the real-photo score falls from 60% to
+  53%. Photometric haze, gamma and colour casts on both sides; AdamW at 3e-4 with one cycle. About seven
+  minutes for 8 epochs on an M3 Pro's GPU.
+- **The card half** (weight 0.2) is v0's. The lab's first script made it from whole-card 320 × 448
+  captures of 6,000 artworks picked from a database copy, so it can't be trained again here exactly. Its
+  checkpoint is published (above). Retraining it with this method over every printing is the next step.
+- **Fronts only.** A two-faced card is grouped, downloaded and embedded by its front face. The app scores
+  whichever face it recognised (`look.ts`), so a photo of a back face is compared with fronts here and
+  counts against the model. `look_crops.cases` prints how many there are: one of the 98 test photos.
+- `look_crops.cases` stops if any candidate's image is missing, since dropping one would quietly change
+  the benchmark.
+
+**Checked 20 Nov 2026:**
+- `look_export.py yama-look-v1-symbol.pt yama-look-v1-card.pt` gives `yama-look-v1.onnx` byte for byte
+  (sha256 `152f52c1…`).
+- `look_eval.py` gives the figures below.
+- `look_train.py` ran a smoke test (MAXSTEPS=30). It is the script that trained `sym3`, with the paths,
+  the smoke-test cap, seeding and the run record added; the training wasn't run again in full. `sym3`
+  itself wasn't seeded, so it can't be replayed exactly: its checkpoint is the published one. Two seeded
+  smoke runs gave the same loss.
+- `look_download.py` fails while any image is missing, and `look_train.py` while any training printing
+  has no crops (ALLOW_INCOMPLETE=1 to go on). In the 20 Nov run none were missing.
+- `look_groups.py` rebuilt from Scryfall's bulk data on 20 Nov has the same 23,996 training artworks and
+  the same 92 test artworks; 3 of the test artworks differ by a printing from the database copy the run
+  used. Its hold-out compares every name a printing goes by (the card's and each face's); the run used
+  only the card's name, and that left out no artwork the stricter rule keeps out.
+
+## Measured (20 Nov 2026)
+
+On one tester's 98 real sleeved phone photos (640 px frames, the phone's own quads) of artworks several
+printings share, with those artworks and card names held out of training:
+
+| Model | Right printing first | Right, or a strict visual twin |
+|---|---|---|
+| Today's list order (newest first) | 40.8% | |
+| `yama-look-v0` | 57.1% | 74.5% |
+| CollectorVision (run privately, never in Yama) | 75.5% | 84.7% |
+| **`yama-look-v1`** | **86.7%** | **95.9%** |
+
+- A strict visual twin (`look_crops.strict_twin`) is a benchmark category, not a proof. It's another
+  printing of the artwork whose clean scan correlates over 0.97 in grey with this one's, and over 0.95 in
+  the set-symbol area. Such printings look alike, so mostly only the collector number separates them. 30
+  of the 98 photos have one.
+- v1 runs in 8 ms per image on this Mac's CPU. A simulated held-out set of 492 artworks scores 79.5%.
+- `look_eval.py`'s lead table, on the raw lead of the top printing over the next (twins included, which
+  is what an app can run): at 0.10 or more v1 picks 45 photos alone, none wrong (at 0.08: 54, one wrong).
+  A second table, for analysis only, uses the twin labels: of the other 53, 27 were narrowed to strict
+  twins (all of them including the right one) and 26 left to the collector line.
