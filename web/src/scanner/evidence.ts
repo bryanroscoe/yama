@@ -173,6 +173,28 @@ export const tokens = (text: string) => {
   return [...read, ...extra.filter((t) => !read.includes(t))];
 };
 
+/**
+ * What a line of the read shows where the set code is printed, before the language: the run before
+ * it ("QRS • EN"), the two short runs before it read as one ("QR S • EN"), as tokens() reads them,
+ * and a set code glued to its language at the line's start ("QRSENJRYAN"). For telling when the
+ * line names a set code that isn't a printing's (FieldScores.setAgainst).
+ */
+export function printedSets(line: string): string[] {
+  const runs = line.toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean);
+  const out: string[] = [];
+  for (let i = 0; i + 1 < runs.length; i += 1) {
+    if (!(runs[i + 1]! in LANGS)) continue;
+    const a = runs[i]!;
+    const b = i > 0 ? runs[i - 1]! : null;
+    if (b && b.length <= 2 && a.length <= 2 && b.length + a.length >= 3 && !(b in LANGS)) out.push(b + a);
+    else out.push(a);
+  }
+  const first = runs[0];
+  const glued = first && first.length >= 5 ? GLUED_LANG.exec(first) : null;
+  if (glued) out.push(glued[1]!);
+  return out.filter((t) => looksLikeSet(t) && /[A-Z]/.test(t));
+}
+
 /** Rarity letters printed next to the number, sometimes read glued to it ("0286M", "030U"). */
 const RARITY_LETTERS = new Set(["C", "U", "R", "M", "S", "L", "T"]);
 
@@ -247,15 +269,9 @@ export function scoreFrame(e: Expected, reads: readonly string[]): FieldScores {
     if (t.length === 1 && e.rarity && t === e.rarity) s.rarity = 1;
     if (LANGS[t] === e.lang) s.lang = 1;
   }
-  for (const line of reads.flatMap((r) => r.toUpperCase().split(/\n+/))) {
-    const runs = line.split(/[^A-Z0-9]+/).filter(Boolean);
-    const against = (t: string) => looksLikeSet(t) && /[A-Z]/.test(t) && tokenMatch(t, e.set) === 0;
-    for (let i = 0; i + 1 < runs.length; i += 1) if (runs[i + 1]! in LANGS && against(runs[i]!)) s.setAgainst = true;
-    // Glued to its language at the start of the line ("QRSENJRYAN"), as tokens() reads it (Codex review of #180).
-    const first = runs[0];
-    const glued = first && first.length >= 5 ? GLUED_LANG.exec(first) : null;
-    if (glued && against(glued[1]!)) s.setAgainst = true;
-  }
+  // A set code read where it's printed that isn't this printing's, even through lookalikes, split
+  // or glued as tokens() reads it (Codex reviews of #180).
+  for (const line of reads.flatMap((r) => r.split(/\n+/))) if (printedSets(line).some((t) => tokenMatch(t, e.set) === 0)) s.setAgainst = true;
   return s;
 }
 
