@@ -109,4 +109,29 @@ describe("the art model, switched on the fly", () => {
     expect(listed.art).toBe(yamaArt.id);
     listed.dispose();
   });
+
+  it("doesn't fall back when told not to (the speed test), and a stop ends a load under way", async () => {
+    broken.add(bundleArt.file);
+    await expect(loadArtRecognizer(undefined, { info, art: bundleArt, fallback: false })).rejects.toThrow("404");
+    expect(workers).toHaveLength(1);
+    expect(workers[0]!.terminated).toBe(true);
+    // A load that never answers ends with its worker the moment it's stopped.
+    broken.clear();
+    workers.length = 0;
+    const stop = new AbortController();
+    const slow = class extends FakeWorker {
+      postMessage(m: ArtWorkerRequest) {
+        this.asked.push(m);
+        return undefined;
+      }
+    };
+    vi.stubGlobal("Worker", slow);
+    const load = loadArtRecognizer(undefined, { info, art: yamaArt, fallback: false, signal: stop.signal });
+    await new Promise((r) => setTimeout(r, 5));
+    expect(workers[0]!.terminated).toBe(false);
+    stop.abort();
+    await expect(load).rejects.toThrow("Stopped");
+    expect(workers[0]!.terminated).toBe(true);
+    await expect(loadArtRecognizer(undefined, { info, art: yamaArt, signal: stop.signal })).rejects.toThrow("Stopped");
+  });
 });

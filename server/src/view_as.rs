@@ -47,7 +47,7 @@ const ALLOWED_WRITES: [&str; 2] = ["/api/view/stop", "/api/auth/logout"];
 /// GETs refused while viewing: script keys, connected apps (`oauth/`), and Ask Claude (its status
 /// shows the person's stored key; asking would spend it, and conversations are theirs to keep
 /// private). The OAuth consent page's own check refuses a view by itself, with its own reason.
-const HIDDEN: [&str; 4] = ["/api/me/tokens", "/api/me/connected-apps", "/api/advisor", "/api/scan/diagnostics"];
+const HIDDEN: [&str; 5] = ["/api/me/tokens", "/api/me/connected-apps", "/api/advisor", "/api/scan/diagnostics", "/api/scan/speed-tests"];
 
 pub fn router() -> Router<AppState> {
     Router::new()

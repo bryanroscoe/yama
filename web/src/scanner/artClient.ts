@@ -5,6 +5,7 @@ import { api, API_BASE } from "../api";
 import type { LookCandidate, LookDone, LookWorkerReply, LookWorkerRequest, WireFrame } from "./look";
 import type { ModelOption, ModelsInfo } from "./models";
 import type { Recognition } from "./recognizer";
+import type { SpeedCard } from "./speed";
 import type { RgbaImage } from "./types";
 
 export interface BundleInfo {
@@ -37,6 +38,8 @@ export type ArtWorkerRequest =
   | { type: "reset"; frames?: boolean }
   | { type: "detector"; id: number; file: EmbedFile }
   | { type: "pool"; id: number; keys: PoolKeys | null }
+  /** A few of the bundle gallery's cards, for the speed test (speed.ts, `speedCards`). */
+  | { type: "sample"; id: number; count: number }
   | { type: "identify"; id: number; width: number; height: number; buffer: ArrayBuffer };
 
 export type ArtWorkerReply =
@@ -46,6 +49,7 @@ export type ArtWorkerReply =
   | { type: "pooled"; id: number; arts: number }
   | { type: "embedded"; id: number; error: string | null }
   | { type: "frames"; id: number; frames: WireFrame[] }
+  | { type: "sampled"; id: number; cards: SpeedCard[] }
   | { type: "result"; id: number; result: Recognition; buffer: ArrayBuffer }
   | { type: "failed"; id: number; message: string; buffer: ArrayBuffer };
 
@@ -99,6 +103,8 @@ export interface ArtRecognizer {
   readonly detector: string;
   /** Find cards with this card finder from now on, as useArt does for the art model. */
   useDetector(option: ModelOption): Promise<void>;
+  /** `count` of the bundle gallery's cards for the speed test (speed.ts, `speedCards`); none from fakes. */
+  sample?(count: number): Promise<SpeedCard[]>;
 }
 
 /** What kept photos and diagnostics say ran when the scanner read text only, with no art model. */
@@ -178,9 +184,13 @@ export async function oneLoadAtATime<T>(load: () => Promise<T>, wait = LOAD_LOCK
  * `files.embed` when not given), from `info` (fetched when not given). Resolves null when the
  * server doesn't have the bundle yet (it starts downloading it; the scanner reads text meanwhile).
  * Rejects on a real failure. A chosen art model that won't load (not cached, opening offline) gives
- * way to the bundle info's own embed graph.
+ * way to the bundle info's own embed graph, unless `fallback` is false (the speed test, which must
+ * time the models it names). `signal` ends a load under way, its worker with it.
  */
-export async function loadArtRecognizer(onState?: (s: LoadState) => void, opts: { info?: BundleInfo | null; art?: ModelOption | null; detector?: ModelOption | null } = {}): Promise<ArtRecognizer | null> {
+export async function loadArtRecognizer(
+  onState?: (s: LoadState) => void,
+  opts: { info?: BundleInfo | null; art?: ModelOption | null; detector?: ModelOption | null; fallback?: boolean; signal?: AbortSignal } = {},
+): Promise<ArtRecognizer | null> {
   if (typeof Worker === "undefined" || typeof WebAssembly === "undefined") return null;
   const info = opts.info !== undefined ? opts.info : await scanBundleInfo();
   if (!info?.ready || !info.constants) return null;
@@ -189,20 +199,28 @@ export async function loadArtRecognizer(onState?: (s: LoadState) => void, opts: 
   const bundleFinder = { id: defaultDetectorId(info), file: info.files.detector, bytes: info.bytes.detector };
   const finder = opts.detector?.file ? { id: opts.detector.id, file: opts.detector.file, bytes: opts.detector.bytes ?? 0 } : bundleFinder;
   try {
-    return await startRecognizer(info, art, finder, onState);
+    return await startRecognizer(info, art, finder, onState, opts.signal);
   } catch (e) {
-    if (art.file === fallback.file && finder.file === bundleFinder.file) throw e;
+    if ((art.file === fallback.file && finder.file === bundleFinder.file) || opts.fallback === false || opts.signal?.aborted) throw e;
     console.warn(`The models chosen (${art.id}, ${finder.id}) didn't load; running the defaults`, e);
-    return startRecognizer(info, fallback, bundleFinder, onState);
+    return startRecognizer(info, fallback, bundleFinder, onState, opts.signal);
   }
 }
 
-async function startRecognizer(info: BundleInfo, art: { id: string; file: string; bytes: number }, detector: { id: string; file: string; bytes: number }, onState?: (s: LoadState) => void): Promise<ArtRecognizer> {
+async function startRecognizer(
+  info: BundleInfo,
+  art: { id: string; file: string; bytes: number },
+  detector: { id: string; file: string; bytes: number },
+  onState?: (s: LoadState) => void,
+  signal?: AbortSignal,
+): Promise<ArtRecognizer> {
+  if (signal?.aborted) throw new Error("Stopped");
   const worker = new Worker(new URL("./art.worker.ts", import.meta.url), { type: "module" });
   const pending = new Map<number, { resolve: (r: Recognition) => void; reject: (e: Error) => void }>();
   const pooling = new Map<number, (arts: number) => void>();
   const embedding = new Map<number, (error: string | null) => void>();
   const framing = new Map<number, (frames: WireFrame[]) => void>();
+  const sampling = new Map<number, (cards: SpeedCard[]) => void>();
   // The printing look's own worker (look.worker.ts), started when a look model is chosen.
   let lookWorker: Worker | null = null;
   const lookLoads = new Map<number, (error: string | null) => void>();
@@ -256,6 +274,7 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
   // one load at a time across this browser's tabs, so two tabs loading different bundle info (the
   // server just switched) can't each drop the files the other cached.
   await oneLoadAtATime(async () => {
+    const stopped = () => worker.terminate();
     await new Promise<void>((resolve, reject) => {
       worker.onmessage = (e: MessageEvent<ArtWorkerReply>) => {
         const m = e.data;
@@ -264,9 +283,12 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
         else if (m.type === "error") reject(new Error(m.message));
       };
       worker.onerror = (e) => reject(new Error(e.message || "The card recognizer stopped"));
+      // Stopped while loading: the worker goes now, downloads and compiling with it.
+      signal?.addEventListener("abort", () => reject(new Error("Stopped")), { once: true });
+      if (signal?.aborted) return reject(new Error("Stopped"));
       worker.postMessage({ type: "load", info, base, embed: { url: art.file, bytes: art.bytes }, detector: { url: detector.file, bytes: detector.bytes } } satisfies ArtWorkerRequest);
     }).catch((e: unknown) => {
-      worker.terminate();
+      stopped();
       throw e;
     });
     try {
@@ -293,6 +315,11 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
       framing.delete(m.id);
       return;
     }
+    if (m.type === "sampled") {
+      sampling.get(m.id)?.(m.cards);
+      sampling.delete(m.id);
+      return;
+    }
     if (m.type !== "result" && m.type !== "failed") return;
     const p = pending.get(m.id);
     pending.delete(m.id);
@@ -306,6 +333,8 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
     embedding.clear();
     for (const p of framing.values()) p([]);
     framing.clear();
+    for (const p of sampling.values()) p([]);
+    sampling.clear();
   };
 
   return {
@@ -445,6 +474,14 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
     reset(opts) {
       if (!disposed) worker.postMessage({ type: "reset", frames: opts?.frames } satisfies ArtWorkerRequest);
     },
+    sample(count) {
+      if (disposed) return Promise.resolve([]);
+      const id = nextId++;
+      return new Promise<SpeedCard[]>((resolve) => {
+        sampling.set(id, resolve);
+        worker.postMessage({ type: "sample", id, count } satisfies ArtWorkerRequest);
+      });
+    },
     setPool(keys) {
       if (disposed) return Promise.resolve(-1);
       const id = nextId++;
@@ -467,6 +504,8 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
       lookWorker = null;
       for (const p of framing.values()) p([]);
       framing.clear();
+      for (const p of sampling.values()) p([]);
+      sampling.clear();
     },
   };
 }

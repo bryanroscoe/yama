@@ -95,6 +95,7 @@ part of it). "Gap" rows are the backlog, in rough priority order inside each are
 | Import from Mythic Tools export | Collection, Mythic import | — | UI only (file upload) |
 | Import a pasted list or another app's export (ManaBox, Moxfield, Archidekt, Deckbox, Dragon Shield, TCGplayer) | Collection, Import cards | `add_to_collection` (staged), card by card | Partial: **Gap (MCP)** for a whole list or file |
 | Scan cards with the camera | Scanner | — | UI only (camera) |
+| Time the scanner on a device (Test scanner speed) | Scan settings, Speed | `get_scan_speed_tests` reads the results | Both for reading (2026-11-21); running it is UI only (it runs the device's own scanner) |
 | Sell list (CSV) and local buylist offers (Mothership) | Sell sheet, Sell offers | — | **Gap (MCP)**, read the dated offers |
 
 ## Plans, shopping and stores
