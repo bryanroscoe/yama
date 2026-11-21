@@ -313,13 +313,14 @@ async fn record_with(
         // A correction always goes in: the entry it replaces may say the same.
         None if replaces.is_some() => None,
         // A tool's entry: the same words in the last hour, whatever their day; past that it's an
-        // event of its own, even on the same day as an identical one.
+        // event of its own, even on the same day as an identical one. One corrected since counts:
+        // the retry is of the call that recorded it.
         None if window.is_some() => {
             sqlx::query_as(
                 "SELECT id, plan_deck_id, on_date, what, asked, conversation, work, group_label, cards, replaces, plan_named FROM plan_history
                  WHERE owner_id = ? AND plan_deck_id = ? AND what = ? AND IFNULL(asked, '') = IFNULL(?, '')
                    AND IFNULL(conversation, '') = IFNULL(?, '') AND IFNULL(work, '') = IFNULL(?, '') AND group_label IS NULL AND cards = '[]'
-                   AND recorded_at >= ? AND replaced_by IS NULL
+                   AND recorded_at >= ?
                  ORDER BY recorded_at DESC LIMIT 1",
             )
             .bind(owner)
