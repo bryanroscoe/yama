@@ -278,7 +278,7 @@ export function DeckPage() {
 
   const status = deckStatus(d);
   // Play it at a lower bracket: the plan's swap bags, previewed from the List picker (?at=3).
-  // Only an approved plan's bags are instructions for the box (as on Print swap cards).
+  // Only a plan in force's bags are instructions for the box (as on Print swap cards).
   const planInForce = !!plan && ["in_progress", "done"].includes(plan.view.planOf(plan.deck).state);
   const brackets = planInForce ? bracketSwaps(plan!.deck.bracket) : [];
   const atSwaps = brackets.find((b) => String(b.bracket) === search.get("at")) ?? null;

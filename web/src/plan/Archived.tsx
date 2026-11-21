@@ -50,12 +50,12 @@ export function Archived() {
             ))}
           </div>
         )}
-        <p className="small dim">Open a note to read it as it was. Use a deck from it makes that deck's build a new version of its plan, waiting for your OK.</p>
+        <p className="small dim">Open a note to read it as it was. Use a deck from it makes that deck's build its plan, straight away.</p>
       </section>
 
       <section className="plans-section" aria-labelledby="arch-versions">
         <h2 id="arch-versions">Earlier versions</h2>
-        {versions.length === 0 && <p className="dim">None yet. When you approve a new version of a plan, the one before it is listed here.</p>}
+        {versions.length === 0 && <p className="dim">None yet. When a plan is replaced, its versions are listed here.</p>}
         {versions.length > 0 && (
           <div className="plans-list">
             {versions.map((v) => (
@@ -67,8 +67,8 @@ export function Archived() {
                     </b>
                     <span className="small dim">
                       {v.status === "kept"
-                        ? `Not approved: you kept the version before, ${fmtDate(v.decided_at)}`
-                        : `Approved ${fmtDate(v.decided_at)}, replaced ${fmtDate(v.superseded_at)}`}
+                        ? `Not taken: you kept the version before, ${fmtDate(v.decided_at)}`
+                        : `In the plan ${fmtDate(v.decided_at)}, replaced ${fmtDate(v.superseded_at)}`}
                       . {cap(sourceText(v.source, v.proposed_at, view.b.head))}.
                     </span>
                   </span>

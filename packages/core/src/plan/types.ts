@@ -144,7 +144,7 @@ export interface PlanDeck {
   plan?: DeckPlanState | null;
 }
 
-/** waiting: waiting for your OK; empty: no changes yet ("No plan yet"). */
+/** waiting: proposals the server hasn't taken in yet (only for a moment); empty: no changes yet ("No plan yet"). */
 export type PlanStateName = "waiting" | "in_progress" | "done" | "archived" | "empty";
 
 /** Where a plan version came from. */
@@ -155,7 +155,7 @@ export type VersionSource =
   | { kind: "before_versions"; note?: string };
 
 /**
- * One waiting change's cut: the card it takes out (your chosen cut, else the plan's), and the card
+ * One new change's cut: the card it takes out (your chosen cut, else the plan's), and the card
  * going in for the change in force that already takes it out (server `versions.rs` `Cut`).
  */
 export interface PlanCut {
@@ -167,30 +167,30 @@ export interface PlanCut {
   gone_for: string | null;
 }
 
-/** A deck's plan: one state, the approved version in force, and the version waiting for your OK. */
+/** A deck's plan: one state and the version in force. Nobody approves a plan (20 Nov 2026). */
 export interface DeckPlanState {
   state: PlanStateName;
-  /** The approved version in force; null before the first approval. */
+  /** The version in force; null before the first. */
   version: number | null;
+  /** When the version in force went in. */
   approved_at: string | null;
-  /** Waiting for your OK: the first version (state waiting), or a new one of a plan in progress. */
+  /** Proposals the server hasn't taken in yet; null once a write is done (server `versions::settle`). */
   next: {
     n: number;
     /** Every change in it (live proposal keys), in plan order. */
     keys: string[];
-    /** Changes in it you already said no to: they start skipped. */
+    /** Changes in it you already said no to or weren't sure about: they stay out. */
     skipped: string[];
     proposed_at: string | null;
     source: VersionSource;
-    /** What its changes say: an approval names it, so an edited change is never approved unseen. */
     hash: string;
-    /** What each swap in it takes out, for the approval checks (`planProblems`). Absent from older bundles. */
+    /** What each swap in it takes out. Absent from older bundles. */
     cuts?: PlanCut[];
   } | null;
   /** Changes in the plan in force (swaps, not stand-ins or optional extras), and how many are in the deck. */
   changes: number;
   installed: number;
-  /** Open questions: each needs an answer before you approve. */
+  /** Open questions, for their assistant to settle. */
   questions: string[];
   /** You archived it (or another plan for the deck replaced it), and why. */
   archived_at: string | null;
@@ -202,10 +202,11 @@ export interface PlanVersion {
   deck: string;
   deck_name: string;
   n: number;
-  /** approved, or kept (you kept the version before it). */
+  /** approved (it went in), or kept (before 20 Nov 2026: you kept the version before it). */
   status: "approved" | "kept";
   changes: { key: string; in?: string; out?: string | null; src?: string; why?: string | null }[];
-  skipped: { key: string; in?: string; out?: string | null }[];
+  /** The changes it left out; `left_out` says why (versions since 20 Nov 2026). */
+  skipped: { key: string; in?: string; out?: string | null; left_out?: string }[];
   answers: { question: string; answer: string }[];
   source: VersionSource | Record<string, unknown>;
   proposed_at: string | null;

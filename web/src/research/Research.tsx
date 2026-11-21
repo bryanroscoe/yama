@@ -120,7 +120,7 @@ function NotePage({ bundle }: { bundle: ResearchBundle }) {
         <Origin doc={doc} />
         <h1>{doc.title}</h1>
         <p className="note-archived">
-          <StatusPill>Archived</StatusPill> A research note, kept for reference. It's never a current plan, and nothing in it is on your shopping list. Open a deck and choose Use a deck from it to make that build a new version of the deck's plan, waiting for your OK.
+          <StatusPill>Archived</StatusPill> A research note, kept for reference. It's never a current plan, and nothing in it is on your shopping list. Open a deck and choose Use a deck from it to make that build the deck's plan, straight away.
         </p>
         {doc.summary && <p className="note-summary">{doc.summary}</p>}
         {Array.isArray(doc.local_sources) && doc.local_sources.length > 0 && (

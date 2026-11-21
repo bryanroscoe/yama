@@ -241,7 +241,7 @@ async fn call(app: &Router, key: &str, tool: &str, args: Value) -> (bool, String
 }
 
 #[tokio::test]
-async fn claude_sees_notes_as_deck_plans_and_stages_tracking() {
+async fn claude_sees_notes_as_deck_plans_and_tracks_them_straight_away() {
     let (app, pool) = app().await;
     let (a, session) = user(&pool, "a@example.com").await;
     save_note(&app, &session, &note()).await;
@@ -255,48 +255,91 @@ async fn claude_sees_notes_as_deck_plans_and_stages_tracking() {
     let (err, text) = call(&app, key, "plan_deck", json!({"key": "energy"})).await;
     assert!(!err && text.starts_with("Not a plan yet"), "{text}");
 
+    // Nobody approves a plan (20 Nov 2026): tracking is direct, and its changes go in at once.
     let (err, text) = call(&app, key, "track_build", json!({"note": "audit", "deck": "energy", "build": "b3"})).await;
-    assert!(!err && text.contains("Track Bracket 3 as Energy's plan"), "{text}");
-    let plans: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM plan_decks WHERE owner_id = ?").bind(&a).fetch_one(&pool).await.unwrap();
-    assert_eq!(plans, 0, "staging changes nothing");
-    let change: String = sqlx::query_scalar("SELECT id FROM assistant_changes WHERE owner_id = ? AND kind = 'track_build'").bind(&a).fetch_one(&pool).await.unwrap();
-    let (status, applied) = send(&app, Method::POST, &format!("/api/assistant/changes/{change}/apply"), Some(&session), None).await;
-    assert_eq!(status, StatusCode::OK, "{applied}");
-    assert_eq!(applied["status"], "applied", "{applied}");
+    assert!(!err && text.contains("Bracket 3 is now Energy's plan (plan key energy)") && text.contains("version 1: 3 changes went in"), "{text}");
+    let staged: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM assistant_changes WHERE owner_id = ?").bind(&a).fetch_one(&pool).await.unwrap();
+    assert_eq!(staged, 0, "nothing waits in Suggested changes");
+    let b = bundle(&app, &session).await;
+    let energy = b["decks"].as_array().unwrap().iter().find(|d| d["key"] == "energy").unwrap();
+    assert_eq!((energy["plan"]["state"].as_str(), energy["plan"]["version"].as_i64(), energy["plan"]["changes"].as_i64()), (Some("in_progress"), Some(1), Some(3)), "{energy}");
 
     let (_, text) = call(&app, key, "overview", json!({})).await;
-    assert!(text.contains("tracking build b3 as plan key energy") && text.contains("Energy (plan key energy; build b3 of note audit): waiting for their OK; version 1 with 3 changes waiting"), "{text}");
+    assert!(text.contains("tracking build b3 as plan key energy") && text.contains("Energy (plan key energy; build b3 of note audit): in progress, version 1, 0 of 3 changes in the deck"), "{text}");
+    assert!(!text.contains("your OK") && !text.contains("approve_plan"), "{text}");
     let (err, text) = call(&app, key, "plan_deck", json!({"key": "energy"})).await;
-    assert!(!err && text.contains("Made from build b3 of deck energy in note audit"), "{text}");
+    assert!(!err && text.contains("Made from build b3 of deck energy in note audit") && text.contains("Nobody approves this plan"), "{text}");
     let (err, text) = call(&app, key, "track_build", json!({"note": "audit", "deck": "energy", "build": "b3"})).await;
     assert!(!err && text.contains("already"), "{text}");
     let (yama_deck, _) = deck(&pool, &a, "Energy box").await;
     let (err, text) = call(&app, key, "track_build", json!({"note": "audit", "deck": "energy", "build": "b3", "yama_deck": yama_deck})).await;
-    assert!(!err && text.contains("Link Energy's plan (Bracket 3) to another Yama deck"), "the same build with another deck relinks: {text}");
+    assert!(!err && text.contains("is now Energy's plan") && text.contains("Nothing new went in"), "the same build with another deck relinks: {text}");
+    let linked: Option<String> = sqlx::query_scalar("SELECT deck_id FROM plan_decks WHERE owner_id = ? AND key = 'energy'").bind(&a).fetch_one(&pool).await.unwrap();
+    assert_eq!(linked.as_deref(), Some(yama_deck.as_str()));
+    // A plan another one replaced isn't current: the same build again brings it back, with its
+    // version in force current again.
+    sqlx::query("UPDATE plan_decks SET archived_at = '2026-11-20T00:00:00Z', archived_note = 'Replaced by version 9' WHERE owner_id = ? AND key = 'energy'")
+        .bind(&a)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE plan_versions SET superseded_at = '2026-11-20T00:00:00Z' WHERE owner_id = ?").bind(&a).execute(&pool).await.unwrap();
+    let (err, text) = call(&app, key, "track_build", json!({"note": "audit", "deck": "energy", "build": "b3"})).await;
+    assert!(!err && text.contains("is now Energy's plan") && !text.contains("nothing changed"), "{text}");
+    let back: Option<String> = sqlx::query_scalar("SELECT archived_at FROM plan_decks WHERE owner_id = ? AND key = 'energy'").bind(&a).fetch_one(&pool).await.unwrap();
+    assert_eq!(back, None);
+    let current: Option<String> = sqlx::query_scalar("SELECT superseded_at FROM plan_versions WHERE owner_id = ? ORDER BY n DESC LIMIT 1").bind(&a).fetch_one(&pool).await.unwrap();
+    assert_eq!(current, None, "the version in force isn't an earlier one");
+    // Another build switches the plan to it, straight away too.
+    let (err, text) = call(&app, key, "track_build", json!({"note": "audit", "deck": "energy", "build": "b4"})).await;
+    assert!(!err && text.contains("Bracket 4 is now Energy's plan") && text.contains("version 2: 1 change went in"), "{text}");
     let (err, text) = call(&app, key, "track_build", json!({"note": "audit", "deck": "energy", "build": null})).await;
-    assert!(!err && text.contains("Stop tracking Energy's plan"), "{text}");
+    assert!(!err && text.contains("Stopped tracking Energy's plan"), "{text}");
+    let status: String = sqlx::query_scalar("SELECT status FROM plan_decks WHERE owner_id = ? AND key = 'energy'").bind(&a).fetch_one(&pool).await.unwrap();
+    assert_eq!(status, "archived");
+    // The tool that approved plans is gone, and a client that still calls it is told why.
+    let (err, text) = call(&app, key, "approve_plan", json!({"plan": "energy"})).await;
+    assert!(!err && text.contains("plans don't wait for approval any more"), "{text}");
 }
 
 #[tokio::test]
-async fn a_staged_build_is_not_applied_after_the_note_changes() {
+async fn a_track_build_staged_before_still_applies_unless_the_note_changed() {
     let (app, pool) = app().await;
     let (a, session) = user(&pool, "a@example.com").await;
     save_note(&app, &session, &note()).await;
-    let (_, made) = send(&app, Method::POST, "/api/me/tokens", Some(&session), Some(json!({"name": "Claude", "scope": "mcp"}))).await;
-    let key = made["token"].as_str().unwrap();
-    let (err, text) = call(&app, key, "track_build", json!({"note": "audit", "deck": "energy", "build": "b3"})).await;
-    assert!(!err, "{text}");
-    let change: String = sqlx::query_scalar("SELECT id FROM assistant_changes WHERE owner_id = ? AND kind = 'track_build'").bind(&a).fetch_one(&pool).await.unwrap();
-
-    let mut doc = note();
-    doc["decks"][0]["builds"][0]["swaps"][0]["card_in"] = json!("Mystic Remora");
-    save_note(&app, &session, &doc).await;
-    let (status, view) = send(&app, Method::POST, &format!("/api/assistant/changes/{change}/apply"), Some(&session), None).await;
+    let hash = {
+        let mut conn = pool.acquire().await.unwrap();
+        super::note_document(&mut conn, &a, "audit").await.unwrap().1
+    };
+    let stage = |id: &'static str, note_hash: String| {
+        let (pool, a) = (pool.clone(), a.clone());
+        async move {
+            let payload = json!({"note_id": "audit", "deck_key": "energy", "build_id": "b3", "deck_id": null, "deck": "Energy", "label": "Bracket 3", "note_hash": note_hash});
+            sqlx::query("INSERT INTO assistant_changes (id, owner_id, kind, summary, payload, via, created_at) VALUES (?, ?, 'track_build', 'Track Bracket 3', ?, 'key', '2026-11-19T00:00:00Z')")
+                .bind(id)
+                .bind(&a)
+                .bind(payload.to_string())
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+    };
+    // Staged against an older note: refused, and it stays waiting with the reason.
+    stage("old", "not-the-hash".into()).await;
+    let (status, view) = send(&app, Method::POST, "/api/assistant/changes/old/apply", Some(&session), None).await;
     assert_eq!(status, StatusCode::OK, "{view}");
     assert_eq!(view["status"], "pending", "{view}");
     assert!(view["error"].as_str().unwrap().contains("has changed since"), "{view}");
     let plans: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM plan_decks WHERE owner_id = ?").bind(&a).fetch_one(&pool).await.unwrap();
     assert_eq!(plans, 0, "what they reviewed isn't what would be applied");
+    // Staged against this note: it applies, and its changes are in the plan.
+    stage("now", hash).await;
+    let (status, view) = send(&app, Method::POST, "/api/assistant/changes/now/apply", Some(&session), None).await;
+    assert_eq!(status, StatusCode::OK, "{view}");
+    assert_eq!(view["status"], "applied", "{view}");
+    let b = bundle(&app, &session).await;
+    let energy = b["decks"].as_array().unwrap().iter().find(|d| d["key"] == "energy").unwrap();
+    assert_eq!((energy["plan"]["state"].as_str(), energy["plan"]["changes"].as_i64()), (Some("in_progress"), Some(3)), "{energy}");
 }
 
 #[tokio::test]
@@ -493,4 +536,105 @@ async fn save_research_refuses_to_stop_a_plan_without_their_say() {
     assert_eq!(tool("save_research")["annotations"]["destructiveHint"], true);
     assert_eq!(tool("save_research")["inputSchema"]["properties"]["stop_plans"]["type"], "boolean");
     assert_eq!(tool("review_research")["annotations"]["destructiveHint"], false);
+}
+
+#[tokio::test]
+async fn a_connection_limited_to_staging_stages_tracking_as_before() {
+    let st = crate::testutil::state().await;
+    let pool = st.pool.clone();
+    let app = crate::routes::app(st.clone());
+    let (a, session) = user(&pool, "a@example.com").await;
+    save_note(&app, &session, &note()).await;
+    let who = crate::auth::user_by_id(&st, &a).await.unwrap().unwrap();
+    let args = json!({"note": "audit", "deck": "energy", "build": "b3"});
+    // The person agreed to "nothing staged is applied": the plan waits as a staged change.
+    for (via, said) in [
+        (crate::mcp::Via::OAuthLimited(crate::oauth::Access::Stage), "Staged for their review"),
+        (crate::mcp::Via::Question(Default::default()), "Already staged"),
+    ] {
+        let text = crate::mcp::changes::track_build(&st, &who, &via, &args).await.unwrap();
+        assert!(text.contains("Track Bracket 3 as Energy's plan") && text.contains(said), "{text}");
+    }
+    let plans: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM plan_decks WHERE owner_id = ?").bind(&a).fetch_one(&pool).await.unwrap();
+    assert_eq!(plans, 0, "staging changes nothing");
+    // A retry (the second caller asked for the same change) finds it instead of staging another.
+    let staged: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM assistant_changes WHERE owner_id = ? AND kind = 'track_build'").bind(&a).fetch_one(&pool).await.unwrap();
+    assert_eq!(staged, 1);
+    let change: String = sqlx::query_scalar("SELECT id FROM assistant_changes WHERE owner_id = ? AND kind = 'track_build' ORDER BY created_at LIMIT 1")
+        .bind(&a)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let (status, view) = send(&app, Method::POST, &format!("/api/assistant/changes/{change}/apply"), Some(&session), None).await;
+    assert_eq!(status, StatusCode::OK, "{view}");
+    assert_eq!(view["status"], "applied", "{view}");
+    let b = bundle(&app, &session).await;
+    let energy = b["decks"].as_array().unwrap().iter().find(|d| d["key"] == "energy").unwrap();
+    assert_eq!((energy["plan"]["state"].as_str(), energy["plan"]["changes"].as_i64()), (Some("in_progress"), Some(3)), "applied, it goes straight in");
+}
+
+#[tokio::test]
+async fn a_change_the_plan_left_out_isnt_in_the_lists_swap_in_reads() {
+    let (app, pool) = app().await;
+    let (_a, session) = user(&pool, "a@example.com").await;
+    // Arcane Signet now cuts the card Thought Monitor cuts: settling leaves it out.
+    let mut doc = note();
+    doc["decks"][0]["builds"][0]["swaps"][1]["card_out"] = json!("Glimmer of Genius");
+    save_note(&app, &session, &doc).await;
+    let (status, r) = send(&app, Method::POST, "/api/plan/from-note", Some(&session),
+        Some(json!({"note_id": "audit", "deck_key": "energy", "build_id": "b3", "proposed": true}))).await;
+    assert_eq!(status, StatusCode::OK, "{r}");
+    assert!(r["settled"][0]["left_out"][0].as_str().unwrap().starts_with("Arcane Signet for Glimmer of Genius"), "{r}");
+    let b = bundle(&app, &session).await;
+    let energy = b["decks"].as_array().unwrap().iter().find(|d| d["key"] == "energy").unwrap();
+    // The after list (what Swap in the prints puts in, and Copy the finished deck) keeps its cut.
+    let after = names(&energy["states"]["after"]);
+    assert!(after.contains(&"Thought Monitor".to_string()) && !after.contains(&"Arcane Signet".to_string()), "{after:?}");
+    assert!(after.contains(&"Glimmer of Genius".to_string()), "{after:?}");
+    // Saving the note again, unchanged, keeps it that way.
+    save_note(&app, &session, &doc).await;
+    let b = bundle(&app, &session).await;
+    let energy = b["decks"].as_array().unwrap().iter().find(|d| d["key"] == "energy").unwrap();
+    assert!(!names(&energy["states"]["after"]).contains(&"Arcane Signet".to_string()));
+    // Answering want on it puts it in the plan, and in the after list with it.
+    let (status, r) = send(&app, Method::POST, "/api/plan/inputs", Some(&session),
+        Some(json!([{"op_id": "w1", "kind": "review", "swap_key": "n|audit|energy|b3|signet", "decision": "want", "at": crate::util::now()}]))).await;
+    assert_eq!((status, r["results"][0]["status"].as_str()), (StatusCode::OK, Some("applied")), "{r}");
+    let b = bundle(&app, &session).await;
+    let energy = b["decks"].as_array().unwrap().iter().find(|d| d["key"] == "energy").unwrap();
+    assert!(names(&energy["states"]["after"]).contains(&"Arcane Signet".to_string()), "{energy}");
+    // And no takes it out again.
+    let (status, _) = send(&app, Method::POST, "/api/plan/inputs", Some(&session),
+        Some(json!([{"op_id": "x1", "kind": "review", "swap_key": "n|audit|energy|b3|signet", "decision": "no", "at": crate::util::now()}]))).await;
+    assert_eq!(status, StatusCode::OK);
+    let b = bundle(&app, &session).await;
+    let energy = b["decks"].as_array().unwrap().iter().find(|d| d["key"] == "energy").unwrap();
+    assert!(!names(&energy["states"]["after"]).contains(&"Arcane Signet".to_string()), "{energy}");
+}
+
+#[tokio::test]
+async fn a_plan_waiting_from_before_settles_at_start_with_its_lists() {
+    let (app, pool) = app().await;
+    let (a, session) = user(&pool, "a@example.com").await;
+    let mut doc = note();
+    doc["decks"][0]["builds"][0]["swaps"][1]["card_out"] = json!("Glimmer of Genius");
+    save_note(&app, &session, &doc).await;
+    let (status, r) = send(&app, Method::POST, "/api/plan/from-note", Some(&session),
+        Some(json!({"note_id": "audit", "deck_key": "energy", "build_id": "b3", "proposed": true}))).await;
+    assert_eq!(status, StatusCode::OK, "{r}");
+    // Back to how a plan waited for an OK before 20 Nov 2026: no answers, no version, the whole
+    // build in its lists.
+    for table in ["plan_reviews", "plan_versions", "plan_inputs"] {
+        sqlx::query(sqlx::AssertSqlSafe(format!("DELETE FROM {table} WHERE owner_id = ?"))).bind(&a).execute(&pool).await.unwrap();
+    }
+    {
+        let mut conn = pool.acquire().await.unwrap();
+        super::restate_deck(&mut conn, &a, "energy").await.unwrap();
+    }
+    let after = |b: &Value| names(&b["decks"].as_array().unwrap().iter().find(|d| d["key"] == "energy").unwrap()["states"]["after"]);
+    assert!(after(&bundle(&app, &session).await).contains(&"Arcane Signet".to_string()));
+    // The start settles it, and the after list Swap in the prints reads leaves the clash out.
+    assert_eq!(crate::plan::versions::settle_all(&pool).await.unwrap(), 1);
+    let b = bundle(&app, &session).await;
+    assert!(!after(&b).contains(&"Arcane Signet".to_string()) && after(&b).contains(&"Thought Monitor".to_string()), "{:?}", after(&b));
 }

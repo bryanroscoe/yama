@@ -238,7 +238,7 @@ fn plan_line(p: &PlanRow) -> String {
 
 fn plans_heading(plans: &[PlanRow]) -> String {
     let count = |state: &str| plans.iter().filter(|p| p.state == state).count();
-    let parts: Vec<String> = [("waiting", "waiting for their OK"), ("in_progress", "in progress"), ("done", "done"), ("empty", "with no changes yet"), ("archived", "archived")]
+    let parts: Vec<String> = [("waiting", "new, not taken in yet"), ("in_progress", "in progress"), ("done", "done"), ("empty", "with no changes yet"), ("archived", "archived")]
         .iter()
         .filter_map(|(state, words)| match count(state) {
             0 => None,
@@ -249,8 +249,8 @@ fn plans_heading(plans: &[PlanRow]) -> String {
         return "Deck plans: none yet.".into();
     }
     format!(
-        "Deck plans: {} ({}). A plan belongs to one deck; approving it is one decision for the whole plan (`approve_plan`), after skipping any \
-         change and answering its open questions. Only approved plans feed the shopping list and prints.",
+        "Deck plans: {} ({}). A plan belongs to one deck. Nobody approves a plan: its changes go in when they arrive (saving its note again \
+         changes it), and plans that aren't archived feed the shopping list and prints.",
         plans.len(),
         parts.join(", ")
     )
@@ -346,7 +346,7 @@ fn notes_heading(notes: &[Vec<&NoteDeck>]) -> String {
     let tracked = notes.iter().flatten().filter(|d| d.tracking.is_some()).count();
     format!(
         "Notes: {} with {}, {} tracked as a plan. Notes are saved research, kept for reference (`get_research` reads one; `track_build` makes one \
-         build a deck's next plan version, waiting for their OK).",
+         build a deck's plan, straight away).",
         plural(notes.len(), "saved note", "saved notes"),
         plural(decks, "deck", "decks"),
         tracked
@@ -360,7 +360,7 @@ pub(super) async fn untracked_note_deck(pool: &SqlitePool, owner: &str, key: &st
     let mut out = String::new();
     for d in decks.iter().filter(|d| d.key == key && d.tracking.is_none()) {
         if out.is_empty() {
-            out.push_str("Not a plan yet. This deck is in their notes; `get_research` reads its builds and `track_build` makes one a plan version waiting for their OK:\n");
+            out.push_str("Not a plan yet. This deck is in their notes; `get_research` reads its builds and `track_build` makes one its plan, straight away:\n");
         }
         full_line(&mut out, &note_line(d));
         let _ = writeln!(out, "{}", clip(&note_deck_line(d, SECTION_BUILDS), NOTE_DECK_LINE));

@@ -98,7 +98,7 @@ pub(super) const TOOLS: &[Tool] = &[
         name: "save_research",
         aliases: &[],
         title: "Save private research for review in Yama",
-        description: "Store or refresh a yama-research/1 document (a note): a deck's builds, swaps with reasons and acquisition evidence, private to the caller. It saves directly, replacing the note's earlier revision; their review choices are kept and changed targets flagged. A plan tracking one of the note's builds follows the refreshed note. A document that drops a deck or build a plan tracks is refused unless stop_plans is true. It never changes a deck, the collection, an order or a game. To make a build the deck's plan, stage track_build.",
+        description: "Store or refresh a yama-research/1 document (a note): a deck's builds, swaps with reasons and acquisition evidence, private to the caller. It saves directly, replacing the note's earlier revision; their review choices are kept and changed targets flagged. A plan tracking one of the note's builds follows the refreshed note. A document that drops a deck or build a plan tracks is refused unless stop_plans is true. It never changes a deck, the collection, an order or a game. To make a build the deck's plan, use track_build.",
         schema: || json!({"type":"object","properties":{
             "document":{"type":"object","description":"A yama-research/1 report (up to 4 MiB), with id, title, generated_at, decks and exact proposed builds."},
             "stop_plans":{"type":"boolean","description":"Only when they asked to drop the plan: also archive each plan tracking a deck or build this document no longer has, and retire its swaps (default false: such a save is refused and names those plans)."}
@@ -875,7 +875,11 @@ pub(super) const TOOLS: &[Tool] = &[
         name: "track_build",
         aliases: &[],
         title: "Make a note's build the deck's plan",
-        description: staged!("Use one build of a deck in one of their saved notes as that deck's plan: its swaps become a plan version waiting for their OK. Once approved (in Yama, or approve_plan), the shopping list, prints, marks and the plan tools work on it, and it replaces any other plan for the same deck. Another build of the same deck switches to it; build null stops it. Give the note id and deck key from `get_overview` or `get_research`."),
+        description: "Make one build of a deck in one of their saved notes that deck's plan, straight away: nobody approves a plan. Its \
+                      changes go into the plan and its shopping list now, replacing any other plan for the deck; a change whose cut \
+                      clashes is left out, and the answer names it. Another build switches to it; build null stops it. Saving the note \
+                      again updates the plan. Do it when they ask for a plan or agree to one. On a connection limited to staging, it \
+                      stages instead.",
         schema: || {
             json!({"type":"object","properties":{
                 "note":{"type":"string","description":"The note's id."},
@@ -884,35 +888,11 @@ pub(super) const TOOLS: &[Tool] = &[
                 "yama_deck":{"type":"string","description":"Optional: the Yama deck (name or id) the plan is for. Default: the one already linked, else their only deck with the note deck's name."}
             },"required":["note","deck","build"],"additionalProperties":false})
         },
-        kind: Kind::Stage,
+        kind: Kind::Write { destroys: true },
         offer: Offer::Everyone,
         search: false,
-        handler: stage!(changes::track_build),
-        stages: Some(changes::staging::TRACK_BUILD),
-        output: None,
-        untrusted: None,
-        renamed: &[],
-        needs: Needs::Nothing,
-    },
-    Tool {
-        name: "approve_plan",
-        aliases: &[],
-        title: "Approve a deck's plan",
-        description: staged!("Approve a deck's waiting plan version whole: every change in it goes into the plan except those in skip, and the open questions get_plan lists need their answers first. action keep keeps the version before it instead. Nothing is bought or printed by approving: buys go on their shopping list and prints on the next print order. Only when they have said to."),
-        schema: || {
-            json!({"type":"object","properties":{
-                "plan":{"type":"string","description":"The plan key or deck name from `get_overview`."},
-                "action":{"type":"string","enum":["approve","keep"],"description":"approve (default) or keep the version before it."},
-                "skip":{"type":"array","items":{"type":"string"},"description":"Changes to leave out: a card name skips every change putting that card in; a swap key skips just that one."},
-                "answers":{"type":"array","items":{"type":"object","properties":{"question":{"type":"string","maxLength":2000},"answer":{"type":"string","maxLength":2000}},"required":["question","answer"],"additionalProperties":false},
-                           "description":"Their answer to each open question, the question exactly as get_plan lists it."}
-            },"required":["plan"],"additionalProperties":false})
-        },
-        kind: Kind::Stage,
-        offer: Offer::Everyone,
-        search: false,
-        handler: stage!(changes::approve_plan),
-        stages: Some(changes::staging::APPROVE_PLAN),
+        handler: run!(run_track_build),
+        stages: None,
         output: None,
         untrusted: None,
         renamed: &[],
@@ -1702,6 +1682,10 @@ async fn run_save_research(c: Ctx<'_>, args: &Value) -> AppResult<String> {
             }
             Ok(crate::deck_research::save_guarded(pool, &user.id, document, stop_plans).await?.to_string())
         }
+}
+
+async fn run_track_build(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    changes::track_build(c.st, c.user, c.via, args).await
 }
 
 #[allow(unused_variables)]

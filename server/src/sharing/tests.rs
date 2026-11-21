@@ -1901,7 +1901,7 @@ async fn manually_requested_copies_remain_extra_and_unrelated_deck_boxes_are_res
 }
 
 #[tokio::test]
-async fn owner_overlay_keeps_pending_copies_when_card_also_has_confirmed_demand() {
+async fn an_imported_proposal_is_wanted_at_once_and_nothing_is_pending() {
     let (app,pool) = app().await;
     let (owner,auth) = user(&pool,"pending-copies@example.com").await;
     let (_,friend) = user(&pool,"pending-friend@example.com").await;
@@ -1913,30 +1913,22 @@ async fn owner_overlay_keeps_pending_copies_when_card_also_has_confirmed_demand(
     let (status,result) = send(&app,Method::POST,"/api/plan/import",Some(&auth),Some(doc)).await;
     assert_eq!(status,StatusCode::OK,"{result}");
     send(&app,Method::PUT,"/api/me/sharing",Some(&auth),Some(json!({"handle":"pending-copies","wants_public":true}))).await;
-    assert_eq!(page(&app,"/u/pending-copies/wants.txt").await.2,"1 Sol Ring\n");
+    // Nobody approves a plan (20 Nov 2026): the proposal went in, so its copy is wanted with the deck's.
+    assert_eq!(page(&app,"/u/pending-copies/wants.txt").await.2,"2 Sol Ring\n");
     let (_,view) = send(&app,Method::GET,"/api/sharing/wants/pending-copies/owned",Some(&auth),None).await;
-    assert_eq!(view["pending"][0]["name"],"Sol Ring");
-    assert_eq!(view["pending"][0]["qty"],1);
-    let (_,view) = send(&app,Method::GET,"/api/sharing/wants/pending-copies/owned",Some(&friend),None).await;
     assert_eq!(view["pending"],json!([]));
-    let (_,settings) = send(&app,Method::GET,"/api/me/sharing",Some(&auth),None).await;
-    assert_eq!(settings["wants_include_pending"],false);
     assert_eq!(send(&app,Method::PUT,"/api/sharing/wants/pending-copies/pending",Some(&friend),Some(json!({"enabled":true}))).await.0,StatusCode::FORBIDDEN);
+    // Showing pending upgrades adds nothing: none is pending, and the plan isn't touched.
     let before = send(&app,Method::GET,"/api/plan/bundle",Some(&auth),None).await.1;
     let (status,_) = send(&app,Method::PUT,"/api/sharing/wants/pending-copies/pending",Some(&auth),Some(json!({"enabled":true}))).await;
     assert_eq!(status,StatusCode::OK);
     assert_eq!(page(&app,"/u/pending-copies/wants.txt").await.2,"2 Sol Ring\n");
-    let html = page(&app,"/u/pending-copies/wants").await.2;
-    assert!(html.contains("includes pending upgrades"));
-    assert!(html.contains("data-kind=\"needed\" data-pending=\"true\""));
     let (_,lines) = super::wants::shared_wants(&pool,"pending-copies").await.unwrap();
     assert!(lines[0].needed);
-    assert_eq!(lines[0].pending_qty,1);
+    assert_eq!(lines[0].pending_qty,0);
     let after = send(&app,Method::GET,"/api/plan/bundle",Some(&auth),None).await.1;
     assert_eq!(before["decks"][0]["plan"],after["decks"][0]["plan"]);
     assert_eq!(before["reviews"],after["reviews"]);
-    send(&app,Method::PUT,"/api/me/sharing",Some(&auth),Some(json!({"wants_include_pending":false}))).await;
-    assert_eq!(page(&app,"/u/pending-copies/wants.txt").await.2,"1 Sol Ring\n");
 }
 
 #[tokio::test]
@@ -2039,7 +2031,7 @@ async fn wishlist_and_derived_gaps_merge_canonical_faces_but_manual_wishes_stay_
 }
 
 #[tokio::test]
-async fn pending_overlay_keeps_intent_when_the_watchlist_already_covers_its_quantity() {
+async fn a_watchlist_and_an_imported_proposal_for_one_card_merge() {
     let (app,pool) = app().await;
     let (owner,auth) = user(&pool,"pending-watchlist@example.com").await;
     card(&pool,"ring","Sol Ring","Artifact","p-ring","tst","1").await;
@@ -2049,14 +2041,13 @@ async fn pending_overlay_keeps_intent_when_the_watchlist_already_covers_its_quan
         "swaps":[{"key":"p","deck":"d","stage":"proposed","role":"swap","src":"print","in":"Sol Ring","out":"Plains"}]}});
     assert_eq!(send(&app,Method::POST,"/api/plan/import",Some(&auth),Some(doc)).await.0,StatusCode::OK);
     send(&app,Method::PUT,"/api/me/sharing",Some(&auth),Some(json!({"handle":"pending-watchlist","wants_public":true}))).await;
+    // The proposal is in the plan now (nobody approves one): its gap and the watchlist are one want.
     assert_eq!(page(&app,"/u/pending-watchlist/wants.txt").await.2,"1 Sol Ring\n");
     let path="/api/sharing/wants/pending-watchlist/owned";
     let (_,view)=send(&app,Method::GET,path,Some(&auth),None).await;
-    assert_eq!(view["pending"][0]["qty"],1);
+    assert_eq!(view["pending"],json!([]));
     send(&app,Method::PUT,"/api/me/sharing",Some(&auth),Some(json!({"wants_include_pending":true}))).await;
     assert_eq!(page(&app,"/u/pending-watchlist/wants.txt").await.2,"1 Sol Ring\n");
-    let (_,view)=send(&app,Method::GET,path,Some(&auth),None).await;
-    assert_eq!(view["pending"],json!([]));
 }
 
 #[tokio::test]

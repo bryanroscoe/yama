@@ -1,7 +1,7 @@
 // The deck page's Plan tab, /decks/:id/plan (deck page SPEC, section 0; boards Deck and PhoneDeck,
-// Plan state): the plan in progress with what's left as card pairs, then the plans waiting for your
-// OK, the ideas you sent for it that are still open (only when there are some: Yama doesn't find
-// gaps by itself yet), then one line to the earlier ones.
+// Plan state): the plan in progress with what's left as card pairs, the ideas you sent for it that
+// are still open (only when there are some: Yama doesn't find gaps by itself yet), then one line to
+// the earlier ones. Nobody approves a plan (20 Nov 2026), so nothing waits beside it.
 
 import { PLAN_STATE_LABEL, STEP_LABEL, type IdeaOp } from "@yama/core/plan";
 import { useQuery } from "@tanstack/react-query";
@@ -22,8 +22,6 @@ import "./deckTabs.css";
 /** Changes shown under Left to do before "[n] more". */
 const LEFT_SHOWN = 3;
 
-const changesWord = (n: number) => (n === 1 ? "1 change" : `${n} changes`);
-
 export function DeckPlanTab({ deckId, deckName }: { deckId: string; deckName: string }) {
   const userId = useMe().data?.id;
   const data = usePlan(userId);
@@ -41,30 +39,10 @@ export function DeckPlanTab({ deckId, deckName }: { deckId: string; deckName: st
     if (data.error) return <ErrorText error={data.error} />;
     return data.pending ? <Loading>Loading the plan…</Loading> : <NoPlan />;
   }
-  const { current, upNext, ideas, earlier } = hub;
+  const { current, ideas, earlier } = hub;
   return (
     <div className="deck-plan-tab">
-      {current ? <CurrentPlan current={current} view={view!} /> : !upNext.length && <NoPlan />}
-
-      {upNext.length > 0 && (
-        <section className="deck-tab-section" aria-labelledby="deck-plan-next">
-          <h2 id="deck-plan-next">Up next</h2>
-          <div className="deck-tab-rows">
-            {upNext.map((u) => (
-              <div key={`${u.deck.key}/${u.plan.next?.n}`} className="deck-tab-row">
-                <span className="deck-tab-row-main">
-                  <b>{u.label}</b>
-                  <StatusPill tone="warn">{PLAN_STATE_LABEL.waiting}</StatusPill>
-                  <span className="dim">{changesWord(u.changes)}</span>
-                </span>
-                <ButtonLink to={`${planHref(u.deck.key)}${u.hash}`}>
-                  Review
-                </ButtonLink>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+      {current ? <CurrentPlan current={current} view={view!} /> : <NoPlan />}
 
       {ideas.length > 0 && (
         <section className="deck-tab-section" aria-labelledby="deck-plan-ideas">

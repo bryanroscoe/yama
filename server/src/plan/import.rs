@@ -239,6 +239,8 @@ pub async fn import_doc(pool: &SqlitePool, owner: &str, body: &[u8], opts: Optio
     if origin == "yama" || moved_aside > 0 {
         super::notes::rederive_all(conn, owner).await?;
     }
+    // Plans don't wait for approval (versions::settle): the file's new proposals go in now.
+    super::versions::settle(conn, owner).await?;
 
     report.orphan_answers = orphans(conn, owner).await?;
     report.existing_decks = sqlx::query_as(

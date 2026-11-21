@@ -2,34 +2,13 @@
 // shows on the tab's own pages and the pages under them (a run, a saved game), and not on a deck's
 // or a plan deck's own page, which has its own way back.
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState, type ComponentType } from "react";
+import { useEffect, useRef } from "react";
 import { Link, useLocation } from "react-router";
 import { api, publicOrigin } from "../api";
 import { useMe } from "../auth";
 import { datasets } from "../datasets/api";
 import { holdsPath, sectionOf, sectionsFor, tabOf, type Who } from "../nav";
 import { AlphaTag } from "./AlphaTag";
-
-/**
- * The count of plans waiting for an answer. It reads the plan store, so its code loads when the
- * Workshop's strip first shows, and by hand rather than with React.lazy: the strip is part of the
- * frame, outside every page's error boundary, so code that didn't arrive (no connection) must
- * show nothing instead of taking the app down. Opening the Workshop again asks again.
- */
-function PlansCount() {
-  const [Badge, setBadge] = useState<ComponentType | null>(null);
-  useEffect(() => {
-    let here = true;
-    import("./PlansBadge").then(
-      (m) => here && setBadge(() => m.default),
-      () => undefined,
-    );
-    return () => {
-      here = false;
-    };
-  }, []);
-  return Badge ? <Badge /> : null;
-}
 
 /** Who is looking, for the sections to list. `evidence` asks for the account's datasets, so only
  *  the Workshop's strip asks (the Datasets page shares the query). */
@@ -103,7 +82,6 @@ export function TabSections() {
           <Link key={s.to} to={s.to} className={s === current ? "active" : undefined} aria-current={s === current ? (pathname.replace(/\/+$/, "") === s.to ? "page" : "true") : undefined}>
             {s.label}
             {s.alpha && <AlphaTag />}
-            {s.to === "/decks/plans" && who.signedIn && <PlansCount />}
           </Link>
         ),
       )}
