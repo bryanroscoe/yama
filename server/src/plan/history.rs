@@ -459,17 +459,21 @@ pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>
     .bind(&plan_id)
     .fetch_all(pool)
     .await?;
-    let answers: HashMap<String, (Option<String>, Option<String>, String)> = sqlx::query_as::<_, (String, Option<String>, Option<String>, String)>(
-        "SELECT r.swap_key, r.decision, r.note, r.at FROM plan_reviews r JOIN plan_swaps s ON s.owner_id = r.owner_id AND s.ext_key = r.swap_key
-         WHERE r.owner_id = ? AND s.plan_deck_id = ?",
-    )
-    .bind(owner)
-    .bind(&plan_id)
-    .fetch_all(pool)
-    .await?
-    .into_iter()
-    .map(|(k, d, n, at)| (k, (d, n, at)))
-    .collect();
+    // Each change's newest answer, followed through renamed keys as the plan's state reads them
+    // (`versions::answers`): on a tie one made in Yama wins, then the larger op id.
+    let keys: std::collections::HashSet<String> = swaps.iter().map(|s| s.ext_key.clone()).collect();
+    let aliases = super::aliases(pool, owner).await?;
+    let mut answers: HashMap<String, (Option<String>, Option<String>, String)> = HashMap::new();
+    let rows: Vec<(String, Option<String>, Option<String>, String)> =
+        sqlx::query_as("SELECT swap_key, decision, note, at FROM plan_reviews WHERE owner_id = ? ORDER BY at, origin = 'yama', IFNULL(op_id, ''), swap_key")
+            .bind(owner)
+            .fetch_all(pool)
+            .await?;
+    for (key, decision, note, at) in rows {
+        if let Some(k) = super::resolve_key(&key, &keys, &aliases) {
+            answers.insert(k, (decision, note, at));
+        }
+    }
     let imports = imports(pool, owner).await?;
     let archived = status == "archived" || archived_at.is_some();
 
@@ -566,7 +570,11 @@ pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>
             }
             let about: Vec<&EntryRow> = entries
                 .iter()
-                .filter(|e| e.cards().iter().any(|c| c.eq_ignore_ascii_case(&s.in_name)) || (e.group_label.is_some() && e.group_label == s.group_label && e.cards().is_empty()))
+                .filter(|e| {
+                    // A card recorded is the one a change puts in or the one it takes out.
+                    let names = |c: &String| c.eq_ignore_ascii_case(&s.in_name) || s.out_name.as_deref().is_some_and(|o| c.eq_ignore_ascii_case(o));
+                    e.cards().iter().any(names) || (e.group_label.is_some() && e.group_label == s.group_label && e.cards().is_empty())
+                })
                 .collect();
             if about.is_empty() {
                 let whose = if s.group_label.is_some() { "this change or its group" } else { "this change" };

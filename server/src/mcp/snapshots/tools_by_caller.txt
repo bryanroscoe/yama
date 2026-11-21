@@ -8,7 +8,7 @@ get_overview	read
 get_deck	read
 get_plan	read
 get_plan_history	read
-record_plan_history	write
+record_plan_history	destructive
 get_shopping_trip	read
 get_shopping_settings	read
 set_shopping_rules	write
@@ -87,7 +87,7 @@ get_overview	read
 get_deck	read
 get_plan	read
 get_plan_history	read
-record_plan_history	write
+record_plan_history	destructive
 get_shopping_trip	read
 get_shopping_settings	read
 set_shopping_rules	write
@@ -166,7 +166,7 @@ get_overview	read
 get_deck	read
 get_plan	read
 get_plan_history	read
-record_plan_history	write
+record_plan_history	destructive
 get_shopping_trip	read
 get_shopping_settings	read
 set_shopping_rules	write
@@ -245,7 +245,7 @@ get_overview	read
 get_deck	read
 get_plan	read
 get_plan_history	read
-record_plan_history	write
+record_plan_history	destructive
 get_shopping_trip	read
 get_shopping_settings	read
 set_shopping_rules	write
@@ -324,7 +324,7 @@ get_overview	read
 get_deck	read
 get_plan	read
 get_plan_history	read
-record_plan_history	write
+record_plan_history	destructive
 get_shopping_trip	read
 get_shopping_settings	read
 set_shopping_rules	write
@@ -401,7 +401,7 @@ get_overview	read
 get_deck	read
 get_plan	read
 get_plan_history	read
-record_plan_history	write
+record_plan_history	destructive
 get_shopping_trip	read
 get_shopping_settings	read
 set_shopping_rules	write

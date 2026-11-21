@@ -135,3 +135,32 @@ async fn a_plans_history_says_where_it_and_each_change_came_from() {
     let (err, text) = call(&app, &key, "record_plan_history", json!({"plan": "alpha", "on": "2026-11-21", "what": "Archived for now."})).await;
     assert!(!err, "{text}");
 }
+
+#[tokio::test]
+async fn the_history_follows_renamed_keys_and_knows_the_cards_a_change_cuts() {
+    let (app, pool, owner, session) = setup().await;
+    import(&app, &session, &doc()).await;
+    let key = mcp_key(&app, &session).await;
+    // An answer saved under an older key of alpha-idea, newer than the one settling wrote: the
+    // plan's state follows it, and so do the history's counts.
+    sqlx::query("INSERT INTO plan_key_aliases (owner_id, old_key, new_key, created_at) VALUES (?, 'old-idea', 'alpha-idea', '2026-11-01T00:00:00Z')")
+        .bind(&owner)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO plan_reviews (owner_id, swap_key, decision, note, cut, at, origin, op_id)
+         VALUES (?, 'old-idea', 'no', 'Not this one', NULL, '2098-01-01T00:00:00Z', 'yama', 'o-1')",
+    )
+    .bind(&owner)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let (err, text) = call(&app, &key, "get_plan_history", json!({"plan": "alpha"})).await;
+    assert!(!err && text.contains("- Core: 1 change, 0 in the plan, 1 left out."), "{text}");
+    // An entry naming the card a change takes out is part of that change's story.
+    let (err, text) = call(&app, &key, "record_plan_history", json!({"plan": "alpha", "on": "2026-10-20", "what": "Sol Ring comes out for a proposal.", "cards": ["sol ring"]})).await;
+    assert!(!err && text.contains("It is about Sol Ring."), "{text}");
+    let (err, text) = call(&app, &key, "get_plan_history", json!({"plan": "alpha", "card": "Sol Ring"})).await;
+    assert!(!err && text.contains("Proposal Card for Sol Ring (proposal") && text.contains("- Recorded 2026-10-20 (recorded ") && text.contains("Sol Ring comes out for a proposal."), "{text}");
+}

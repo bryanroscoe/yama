@@ -202,9 +202,9 @@ pub(super) const TOOLS: &[Tool] = &[
         aliases: &[],
         title: "Where a plan came from",
         description: "Where one of their plans and its changes came from: the request behind it in their words, when, and where the \
-                      conversation and the work are (as assistants recorded them), with Yama's own record: the plan file or note it \
-                      came from, each version and what it took in or left out, and archiving. Give card for one change's story: its \
-                      group, when it arrived, which version took it in and every answer. Read it before saying why a change is in a plan.",
+                      conversation and work are, as assistants recorded them, with Yama's own record of each version (its source, what \
+                      it took in or left out), every answer and archiving. Give card for one change's story. Read it before saying why \
+                      a change is in a plan.",
         schema: || {
             json!({"type":"object","properties":{
                 "plan":{"type":"string","description":"The plan key or deck name, archived plans included."},
@@ -225,11 +225,10 @@ pub(super) const TOOLS: &[Tool] = &[
         name: "record_plan_history",
         aliases: &[],
         title: "Record where a plan came from",
-        description: "Record where one of their plans, or some of its changes, came from, or something that happened to them: what \
-                      happened, their request in their own words, the date, and where the conversation and the work are. Record one \
-                      whenever you make or change a plan's proposals (a group in a plan file, a note's build, an audit that drops \
-                      changes), so the next assistant can find why a change is there. It saves directly as a private note on the plan \
-                      and changes nothing else. replaces corrects an earlier entry.",
+        description: "Record where one of their plans or some of its changes came from, or what happened to them: what and why, their \
+                      request in their own words, the day, and where the conversation and work are. Record one whenever you make or \
+                      change a plan's proposals, so the next assistant can find why a change is there. It saves directly as a private \
+                      note on the plan and changes nothing else; replaces deletes the entry it corrects.",
         schema: || {
             json!({"type":"object","properties":{
                 "plan":{"type":"string","description":"The plan key or deck name."},
@@ -244,7 +243,8 @@ pub(super) const TOOLS: &[Tool] = &[
                 "op_id":{"type":"string","minLength":8,"maxLength":64,"pattern":"^[A-Za-z0-9_-]+$","description":"Optional: your own id for this entry, so a retry records it once."}
             },"required":["plan","on","what"],"additionalProperties":false})
         },
-        kind: Kind::Write { destroys: false },
+        // `replaces` deletes the entry it corrects.
+        kind: Kind::Write { destroys: true },
         offer: Offer::Everyone,
         search: false,
         handler: run!(run_record_plan_history),

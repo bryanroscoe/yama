@@ -625,6 +625,7 @@ async fn deleting_an_account_leaves_nothing_of_it() {
     let plan_deck = fill(&pool, "plan_decks", &[("owner_id", t(&v)), ("deck_id", t(&v_deck)), ("base_version_id", t(&v_version))]).await;
     fill(&pool, "plan_states", &[("owner_id", t(&v)), ("plan_deck_id", t(&plan_deck))]).await;
     fill(&pool, "plan_versions", &[("owner_id", t(&v)), ("plan_deck_id", t(&plan_deck))]).await;
+    fill(&pool, "plan_history", &[("owner_id", t(&v)), ("plan_deck_id", t(&plan_deck))]).await;
     let order = fill(&pool, "plan_orders", &[("owner_id", t(&v)), ("store_id", t(&store))]).await;
     let item = fill(&pool, "plan_order_items", &[("owner_id", t(&v)), ("order_id", t(&order))]).await;
     let swap = fill(
