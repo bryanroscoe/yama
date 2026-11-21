@@ -268,11 +268,12 @@ export interface LeftOut {
 /**
  * The proposals for a deck that aren't in its plan: answered no or unsure since they last changed.
  * The server leaves a change out as unsure when its cut clashes (no card named, a cut the plan
- * already makes, two changes cutting one card; `versions.rs` `left_out`) and writes why in the note.
+ * already makes, two changes cutting one card; `versions.rs` `left_out`), or when it's an optional
+ * extra that cuts nothing, and writes why in the note.
  */
 export function leftOut(deck: PlanDeck, swaps: Swap[], answers: Map<string, Review>): LeftOut[] {
   return swaps
-    .filter((s) => s.deck === deck.key && !s.retired && s.stage === "proposed" && s.role === "swap")
+    .filter((s) => s.deck === deck.key && !s.retired && s.stage === "proposed" && (s.role === "swap" || s.role === "optional"))
     .flatMap((s) => {
       const a = answers.get(s.key);
       if ((a?.decision !== "no" && a?.decision !== "unsure") || (s.updated_at && a.at && s.updated_at > a.at)) return [];

@@ -488,7 +488,7 @@ struct Write {
     cut: Option<String>,
 }
 
-#[derive(sqlx::FromRow, Serialize, serde::Deserialize, Clone)]
+#[derive(Serialize, serde::Deserialize, Clone)]
 struct Prior {
     decision: Option<String>,
     note: Option<String>,
@@ -496,6 +496,9 @@ struct Prior {
     at: String,
     origin: String,
     op_id: Option<String>,
+    /// It's held under another key (an alias), not the live key settling writes over.
+    #[serde(skip)]
+    aliased: bool,
 }
 
 /**
@@ -529,7 +532,8 @@ async fn priors(conn: &mut SqliteConnection, owner: &str, keys: &[String]) -> Ap
     for r in rows {
         let Some(k) = super::resolve_key(&r.swap_key, &live, &aliases) else { continue };
         if wanted.contains(&k) {
-            out.insert(k, Prior { decision: r.decision, note: r.note, cut: r.cut, at: r.at, origin: r.origin, op_id: r.op_id });
+            let aliased = r.swap_key != k;
+            out.insert(k, Prior { decision: r.decision, note: r.note, cut: r.cut, at: r.at, origin: r.origin, op_id: r.op_id, aliased });
         }
     }
     Ok(out)
@@ -702,8 +706,8 @@ pub async fn settle_all(pool: &sqlx::SqlitePool) -> AppResult<usize> {
 async fn take_in(conn: &mut SqliteConnection, owner: &str, plan_id: &str, deck_key: &str, name: &str, source: &str, next: &Next) -> AppResult<Settled> {
     let op_id = format!("{SETTLE_OP}{}", new_id());
     let for_export = source != "yama";
-    let rows: Vec<(String, String, Option<String>, String, Option<String>, String)> = sqlx::query_as(
-        "SELECT ext_key, in_name, out_name, src, why, updated_at FROM plan_swaps WHERE owner_id = ? AND plan_deck_id = ? AND retired_at IS NULL ORDER BY sort, ext_key",
+    let rows: Vec<(String, String, Option<String>, String, Option<String>, String, String)> = sqlx::query_as(
+        "SELECT ext_key, in_name, out_name, src, why, updated_at, role FROM plan_swaps WHERE owner_id = ? AND plan_deck_id = ? AND retired_at IS NULL ORDER BY sort, ext_key",
     )
     .bind(owner)
     .bind(plan_id)
@@ -711,23 +715,27 @@ async fn take_in(conn: &mut SqliteConnection, owner: &str, plan_id: &str, deck_k
     .await?;
     let found = priors(&mut *conn, owner, &next.keys).await?;
     // The answers have to count as given after each change last changed, and be the newest word
-    // on it (an answer under an alias, or a device's clock a little ahead, can be later than now):
-    // else the change stays new and every write would take it in again. So they're stamped now,
-    // or later than anything they answer.
+    // on it: else the change stays new and every write would take it in again. So they're stamped
+    // now, or at the change's last edit, or a second after an answer held under an alias (which
+    // would otherwise win). An answer on the live key itself is written over, so its time (a
+    // device's clock can be a few minutes ahead) never pushes settling's answer into the future,
+    // where it would outrank the next answer a person gives.
     let at = {
         let parse = |t: &str| chrono::DateTime::parse_from_rfc3339(t).ok().map(|d| d.with_timezone(&chrono::Utc));
         let mut at = chrono::Utc::now();
-        for (k, .., updated) in rows.iter().filter(|r| next.keys.contains(&r.0)) {
+        for (k, .., updated, _) in rows.iter().filter(|r| next.keys.contains(&r.0)) {
             if let Some(u) = parse(updated) {
                 at = at.max(u);
             }
-            if let Some(a) = found.get(k).and_then(|p| parse(&p.at)) {
+            if let Some(a) = found.get(k).filter(|p| p.aliased).and_then(|p| parse(&p.at)) {
                 at = at.max(a + chrono::Duration::seconds(1));
             }
         }
         at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
     };
-    let swaps: Vec<(String, String, Option<String>, String, Option<String>)> = rows.into_iter().map(|(k, i, o, src, w, _)| (k, i, o, src, w)).collect();
+    // Optional extras: changes that take nothing out (a note swap with no card_out).
+    let extras: HashSet<String> = rows.iter().filter(|r| r.6 == "optional").map(|r| r.0.clone()).collect();
+    let swaps: Vec<(String, String, Option<String>, String, Option<String>)> = rows.into_iter().map(|(k, i, o, src, w, ..)| (k, i, o, src, w)).collect();
     let cards: HashMap<String, String> = swaps.iter().map(|(k, i, ..)| (k.clone(), i.clone())).collect();
     let cut_of = |k: &str| next.cuts.iter().find(|c| c.key == k).and_then(|c| c.out.clone());
     let change = |k: &str, why: Option<&str>| {
@@ -757,7 +765,12 @@ async fn take_in(conn: &mut SqliteConnection, owner: &str, plan_id: &str, deck_k
         })
     };
     let held: Vec<String> = next.keys.iter().filter(|k| next.skipped.contains(k) || theirs(k)).cloned().collect();
-    let why: HashMap<String, String> = left_out(&Next { skipped: held.clone(), ..next.clone() }).into_iter().collect();
+    let mut why: HashMap<String, String> = left_out(&Next { skipped: held.clone(), ..next.clone() }).into_iter().collect();
+    // An optional extra names no card to cut either: it would buy a card with no slot, so it's left
+    // out the same way until someone answers want.
+    for k in next.keys.iter().filter(|k| extras.contains(*k) && !held.contains(k)) {
+        why.entry(k.clone()).or_insert_with(|| format!("{} is an optional extra: it names no card to cut.", cards.get(k).map_or(k.as_str(), String::as_str)));
+    }
     let mut before = serde_json::Map::new();
     let (mut writes, mut kept, mut skipped, mut skip_keys, mut said) = (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for k in &next.keys {

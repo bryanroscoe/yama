@@ -243,6 +243,22 @@ async fn a_change_edited_later_goes_in_again_keeping_the_note_and_cut() {
 }
 
 #[tokio::test]
+async fn settling_never_dates_its_answer_after_a_fast_device_clock() {
+    let (app, pool, owner, token) = setup().await;
+    import(&app, &token, &doc_with_beta_plan()).await;
+    // A device a few minutes fast clears beta-2's answer; settling takes it in again, at now.
+    let ahead = (chrono::Utc::now() + chrono::Duration::minutes(4)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let r = ops(&app, &token, json!([{"op_id": "f1", "kind": "review", "swap_key": "beta-2", "decision": null, "at": ahead}])).await;
+    assert_eq!(r["results"][0]["status"], "applied", "{r}");
+    let at: String = sqlx::query_scalar("SELECT at FROM plan_reviews WHERE owner_id = ? AND swap_key = 'beta-2'").bind(&owner).fetch_one(&pool).await.unwrap();
+    assert!(at < ahead, "{at} is not after the device's {ahead}");
+    // So a correctly timed answer right after still counts.
+    let r = ops(&app, &token, json!([{"op_id": "f2", "kind": "review", "swap_key": "beta-2", "decision": "no", "at": crate::util::now()}])).await;
+    assert_eq!(r["results"][0]["status"], "applied", "{r}");
+    assert_eq!(decision(&pool, &owner, "beta-2").await.as_deref(), Some("no"));
+}
+
+#[tokio::test]
 async fn the_server_settles_what_was_waiting_when_it_starts() {
     let (app, pool, owner, token) = setup().await;
     import(&app, &token, &doc_with_beta_plan()).await;
@@ -273,6 +289,8 @@ async fn clashing_cuts_are_left_out_with_why() {
     swaps.push(json!({"key": "alpha-basic-planned", "deck": "alpha", "stage": "planned", "role": "swap", "src": "buy", "out": "Island", "in": "Planned Land"}));
     swaps.push(json!({"key": "alpha-land-1", "deck": "alpha", "stage": "proposed", "role": "swap", "src": "buy", "out": "Island", "in": "Land One"}));
     swaps.push(json!({"key": "alpha-land-2", "deck": "alpha", "stage": "proposed", "role": "swap", "src": "buy", "out": "Island", "in": "Land Two"}));
+    // An optional extra cuts nothing: nothing is bought for a slot that isn't there.
+    swaps.push(json!({"key": "alpha-extra", "deck": "alpha", "stage": "proposed", "role": "optional", "src": "buy", "out": null, "in": "Extra Card"}));
     import(&app, &token, &d).await;
 
     for key in ["alpha-idea", "alpha-later", "alpha-land-1", "alpha-land-2"] {
@@ -282,6 +300,7 @@ async fn clashing_cuts_are_left_out_with_why() {
         ("alpha-owned", "Spare Card names no card to cut."),
         ("alpha-gone", "Old Card already goes out for Print Card."),
         ("alpha-same", "Proposal Card already takes out Sol Ring."),
+        ("alpha-extra", "Extra Card is an optional extra: it names no card to cut."),
     ] {
         let (d, note, _) = answer(&pool, &owner, key).await;
         assert_eq!((d.as_deref(), note), (Some("unsure"), Some(format!("Yama left this out: {why}"))), "{key}");
@@ -293,7 +312,7 @@ async fn clashing_cuts_are_left_out_with_why() {
     assert_eq!((alpha["changes"].as_i64(), alpha["next"].is_null()), (Some(7), true), "three planned and four taken in: {alpha}");
     let v = b["versions"].as_array().unwrap().iter().find(|v| v["deck"] == "alpha").unwrap();
     let left: Vec<(&str, &str)> = v["skipped"].as_array().unwrap().iter().map(|s| (s["key"].as_str().unwrap(), s["left_out"].as_str().unwrap())).collect();
-    assert_eq!(left.len(), 3, "{left:?}");
+    assert_eq!(left.len(), 4, "{left:?}");
     assert!(left.contains(&("alpha-same", "Proposal Card already takes out Sol Ring.")), "{left:?}");
 }
 
