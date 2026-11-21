@@ -133,12 +133,8 @@ pub async fn record(pool: &SqlitePool, owner: &str, plan: &str, e: &Entry, op_id
         if let Some((id, p, on_date, w, asked, conversation, work, g, c)) = stored {
             let (deck_key, deck): (String, String) =
                 sqlx::query_as("SELECT key, name FROM plan_decks WHERE id = ? AND owner_id = ?").bind(&p).bind(owner).fetch_one(pool).await?;
-            // The plan it names now, if any, must be that one.
-            let same_plan = match plan_of(pool, owner, plan).await {
-                Ok((now, _, _)) => now == p,
-                Err(AppError::NotFound(_)) => true,
-                Err(e) => return Err(e),
-            };
+            // The stored plan is the one it was recorded on: the key given may name another plan
+            // now (an import can take a moved plan's old key), so it isn't looked up again.
             let given_group = e.group.as_deref().map(str::trim).filter(|g| !g.is_empty());
             let same_group = match (given_group, g.as_deref()) {
                 (None, None) => true,
@@ -152,8 +148,7 @@ pub async fn record(pool: &SqlitePool, owner: &str, plan: &str, e: &Entry, op_id
             given.sort();
             given.dedup();
             kept.sort();
-            let same = same_plan
-                && on_date == e.on
+            let same = on_date == e.on
                 && w == e.what.trim()
                 && asked == e.asked
                 && conversation == e.conversation
@@ -287,6 +282,29 @@ pub async fn record(pool: &SqlitePool, owner: &str, plan: &str, e: &Entry, op_id
     .await?;
     tx.commit().await?;
     Ok(Recorded { id, deck_key, deck, again: false, group, cards })
+}
+
+/// Record an entry a tool writes itself (`track_build`) unless the plan already has it, on any
+/// day: a retry after a lost reply can come after midnight, and has no op_id of its own.
+pub async fn record_once(pool: &SqlitePool, owner: &str, plan: &str, e: &Entry, via: &str) -> AppResult<Recorded> {
+    let (plan_id, deck_key, deck) = plan_of(pool, owner, plan).await?;
+    let found: Option<String> = sqlx::query_scalar(
+        "SELECT id FROM plan_history WHERE owner_id = ? AND plan_deck_id = ? AND what = ? AND IFNULL(asked, '') = IFNULL(?, '')
+           AND IFNULL(conversation, '') = IFNULL(?, '') AND IFNULL(work, '') = IFNULL(?, '') AND group_label IS NULL AND cards = '[]'
+         ORDER BY on_date LIMIT 1",
+    )
+    .bind(owner)
+    .bind(&plan_id)
+    .bind(e.what.trim())
+    .bind(&e.asked)
+    .bind(&e.conversation)
+    .bind(&e.work)
+    .fetch_optional(pool)
+    .await?;
+    match found {
+        Some(id) => Ok(Recorded { id, deck_key, deck, again: true, group: None, cards: vec![] }),
+        None => record(pool, owner, &deck_key, e, None, None, via).await,
+    }
 }
 
 /// How many entries the plan's history has.

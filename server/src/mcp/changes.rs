@@ -967,7 +967,7 @@ pub async fn track_build(st: &AppState, user: &User, via: &Via, args: &Value) ->
                 group: None,
                 cards: vec![],
             };
-            if let Err(err) = crate::plan::history::record(pool, &user.id, key, &e, None, None, via.as_str()).await {
+            if let Err(err) = crate::plan::history::record_once(pool, &user.id, key, &e, via.as_str()).await {
                 let _ = write!(out, "\nThe plan's history didn't take what they asked ({err}); record it with `record_plan_history`.");
             }
         }
@@ -992,7 +992,7 @@ pub async fn track_build(st: &AppState, user: &User, via: &Via, args: &Value) ->
         if !via.may_apply() && (asked.is_some() || conversation.is_some()) {
             out.push_str("\nRecord what they asked with `record_plan_history`; nothing is staged for a plan that didn't change.");
         } else if let Some(e) = tracked_entry(&note_id, &title, &build_id, &label, asked, conversation) {
-            match crate::plan::history::record(pool, &user.id, key, &e, None, None, via.as_str()).await {
+            match crate::plan::history::record_once(pool, &user.id, key, &e, via.as_str()).await {
                 Ok(r) if r.again => {
                     let _ = write!(out, "\nWhat they asked was already in the plan's history (entry {}).", r.id);
                 }
@@ -1040,7 +1040,7 @@ pub async fn track_build(st: &AppState, user: &User, via: &Via, args: &Value) ->
     let mut out = format!("{label} is now {}'s plan (plan key {}), from the note \"{title}\": {} swaps.", t.name, t.plan_deck_key, t.swaps);
     if let Some(e) = tracked_entry(&req.note_id, &title, &req.build_id, &label, asked, conversation) {
         // The plan is tracked either way: a history entry that can't be saved is said, not fatal.
-        match crate::plan::history::record(pool, &user.id, &t.plan_deck_key, &e, None, None, via.as_str()).await {
+        match crate::plan::history::record_once(pool, &user.id, &t.plan_deck_key, &e, via.as_str()).await {
             Ok(r) => {
                 let _ = write!(out, "\nWhat they asked is in the plan's history (entry {}; `get_plan_history`).", r.id);
             }

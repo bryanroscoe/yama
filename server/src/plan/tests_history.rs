@@ -204,6 +204,10 @@ async fn the_history_follows_renamed_keys_and_knows_the_cards_a_change_cuts() {
     let (err, text) = call(&app, &key, "record_plan_history", entry.clone()).await;
     assert!(!err && text.contains("Recorded in"), "{text}");
     sqlx::query("UPDATE plan_decks SET key = 'alpha-moved', name = 'Alpha Moved' WHERE owner_id = ? AND key = 'alpha'").bind(&owner).execute(&pool).await.unwrap();
+    let (err, text) = call(&app, &key, "record_plan_history", entry.clone()).await;
+    assert!(!err && text.contains("already in Alpha Moved's history"), "{text}");
+    // Even once another plan has taken the old key, as an import does after moving a note's plan.
+    sqlx::query("UPDATE plan_decks SET key = 'alpha' WHERE owner_id = ? AND key = 'beta'").bind(&owner).execute(&pool).await.unwrap();
     let (err, text) = call(&app, &key, "record_plan_history", entry).await;
     assert!(!err && text.contains("already in Alpha Moved's history"), "{text}");
 }
