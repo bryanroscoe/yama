@@ -2,6 +2,8 @@
 
 Status (2026-11-20, later): when several printings share the card's art, a **printing look** model compares what the camera saw with each printing's own picture and the printing list puts the closest first (after any the collector line read), marking its best guess "Looks closest". On 98 real sleeved photos the right printing is the look's first 57.1% of the time, against 40.8% for the list's old newest-first order. It never files a printing by itself. See "The printing look"; `YAMA_SCAN_WITHDRAW=look-v0` turns it off for everyone, and Scan settings' Models for a device.
 
+Status (2026-11-20): where a frame's time goes, measured in Chrome ("Speed"): one WASM thread spends about 50 ms on each detector pass and 60 to 70 ms on the art embedding, a frame 120 to 175 ms on an M3 Pro, more on a phone. The embed graph is now given only the card's box of the frame, the same embeddings for about 8 ms less a frame.
+
 Status (2026-11-20): the scanner's models can be switched on the fly. Each part (the art match, the printing look, the text reader, and the rule that settles a card by its art) runs the server's default or an option chosen under "Models" in Scan settings, per device, and a change takes effect at once without reloading. The server lists what's on offer and can withdraw a broken option (`YAMA_SCAN_WITHDRAW=<id>`), which drops everyone who chose it back to the default. Kept scan photos and diagnostics name every part's choice. See "Models you can switch".
 
 Status (2026-11-18): phones embed what the camera sees with Yama's own query model, `yama-art-20261118`, fine-tuned on simulated sleeved, glare and blue-box captures, in place of the bundle's `embed.onnx`; the gallery stays the bundle's. On Bryan's 124 real sleeved photos the first frame settles 94.4% of cards instead of 84.7%, none wrong. See "Yama's query embedder"; `YAMA_SCAN_QUERY_MODEL=0` turns it off.
@@ -472,6 +474,28 @@ Right answers scored 0.76 to 0.99 (median 0.97); wrong ones at most 0.58. Every 
 Close-ups (`eval/closeup.test.ts`): the collector line and title cut from each eval card's 672 × 936 scan, turned up to 3°, noisy, read the way the close-up box is read, choosing among **all** of the card's printings in the database (harder than among one artwork's): printings **19 of 26 right, 0 wrong**, 7 left to the picker (the five pre-2015 frames print no set code; EOE 224's number was misread and its set code alone left two printings). Titles: 20 of 26 names. Real close-ups have several times these source pixels.
 
 In desktop Chromium against the local server ("Use a photo", synthetic photos): an off-centre WOC Arcane Signet was recognised in 199 ms; 32 printings share its art, and the collector line ("WOC • EN", number misread as 0149) picked WOC #145. An upside-down ECC Sol Ring was the only printing with its art. The STA Counterspell and the borderless DMU Sheoldred #290 (which the OCR scanner couldn't place) were settled by the collector line. The off-centre battle fell back to OCR and was read by name with a quarter-turned quad, leaving two printings to pick from.
+
+## Speed (2026-11-20)
+
+Bryan, 20 Nov 2026, pointing at CardVision (app.mtgscan.org, Florian Drechsler's free, closed-source iPhone app): "want to be able to do as well as this guy. He is really fast". Its own pages describe a YOLO pose detector for the four corners (it places a corner a finger covers), a ResNet-50 trained with ArcFace on card art matching about 61,000 artworks stored on the phone, then the set symbol and collector number to choose among about 100,000 printings, all in Core ML on the iPhone [read]. Its code and models aren't available, and nothing here touches its app or servers.
+
+**Where Yama's time goes** [ran, 20 Nov 2026]: `scanner-lab/speed/` runs `recognizer.ts` (the art worker's code) in Chrome 157 on an M3 Pro, on 160 frames of 40 held-out cards simulated by `sim.py` (sleeves, glare, blue boxes) in a 640 × 1138 portrait frame, four frames per card so tracking runs as it does live. Milliseconds, medians over the last 156 frames (the first card warms up); "tracked" frames reuse the last card window (one detector pass), "fresh" ones search for the card (two passes). Every configuration put the right card first on all 160 frames.
+
+| Backend | Detector pass | Art embedding | Search | Frame, tracked | Frame, fresh |
+|---|---|---|---|---|---|
+| WASM, 1 thread: what Yama runs (it isn't cross-origin isolated) | 50 | 61.5 (69 before the card window) | 9.8 | 122 (130) | 174 (180) |
+| WASM, 2 threads | 27 | 34 | 5.2 | 67 | 95 |
+| WASM, 4 threads | 21 | 27 | 3.4 | 52 | 71 |
+| WebGPU, `onnxruntime-web/webgpu` (asyncify) | 14.6 | 16.5 | 3.1 | 36 | 51 |
+| WebGPU, the JSPI build | 13.3 | 14.6 | 2.9 | 33 | 47 |
+
+- **Why the models cost what they do.** The detector runs four rotated copies of its 256 px window as one batch of four (they vote on which way is up), so each pass is four CNN runs. The embed graph warps the card out, cuts it 17 ways (one cut per frame style: modern, old, extended, tall, token and twelve rarer ones) and runs MobileNetV3-Small on all 17; 92% of the gallery's 52,350 rows are modern or old. Native onnxruntime on the same Mac (one thread) gives about the same: 54 ms a detector pass, 65 ms an embedding, so the browser's WASM isn't the problem; the work is.
+- **The card window.** The embed graph converted the whole frame to float before warping the card out of it (a 640 × 1138 slice, cast and transpose: about 6 ms natively). `recognizer.ts` now gives it only the quad's bounding box and a few pixels beyond (`cardWindow`): the same embeddings (largest score change 7e-5 over the 160 frames, the same top card on all of them) from about a third of the pixels. The graph normalises its warp by the scene's own size, so a cut scene only shifts it. A quad folded over itself (a corner dragged past the diagonal) samples outside its corners' box, so it keeps the whole frame.
+- **WebGPU** gives the same answers (the same top card on all 160 frames; scores within 3e-4 on a fresh frame) three to four times faster on this Mac, but only with onnxruntime-web's newer WebGPU build: the default `onnxruntime-web` bundle's WebGPU kernels (JSEP) reject both bundle graphs (a reversed Slice in the detector's rotations comes out 255 px wide, and the embed graph's dynamic slices fail). The WebGPU build's WASM runtime is 28.7 MB (the JSPI one 17.9 MB) against 14.8 MB.
+- **Reading a frame** back (a synthetic 2160 × 3840 canvas drawn at 640 × 1138 and read; the camera's video element may cost more) takes 1 to 2.5 ms on this Mac.
+- **Per scan**, a card that leads settles on its second frame (`LEAD_FRAMES`): one fresh and one tracked frame, about 0.3 s here before any printing read.
+- **On a phone** [inferred, not measured]: Bryan's Pixel 10 Pro (Tensor G5) runs one WASM thread perhaps 1.3 to 2 times slower than an M3 Pro core, more on a mid core, so about 160 to 250 ms a tracked frame and 0.4 to 0.7 s to settle a card, before the printing read. Whether its WebView offers WebGPU is unknown. Nothing records a phone's frame times yet (Scanner diagnostics keep only struggling scans).
+- **What makes CardVision faster** [inferred from its description]: Core ML on the iPhone's Neural Engine runs a CNN in a few milliseconds instead of tens; its detector makes one pass and its embedder one crop per frame, where Yama's makes four and seventeen; and it reads the camera natively, with its printings catalogue on the phone.
 
 ## How the OCR pipeline works
 
