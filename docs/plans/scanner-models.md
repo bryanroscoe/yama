@@ -7,9 +7,11 @@ Status: in progress, updated 20 Nov 2026.
   - switching models per device in Scan settings, with a server switch to withdraw a model (PR #170);
   - the printing look ordering the printing list (PR #172);
   - under Scanner diagnostics, a timing record for every card settled (PR #171);
-  - full-resolution set-symbol and collector-strip crops with each scan photo (PR #171).
-- **Pinning next:** the look model v1, which puts the right printing first on 86.7% of the test photos.
-- **In progress:** speed work after CardVision (PRs #169 and #174).
+  - full-resolution set-symbol and collector-strip crops with each scan photo (PR #171);
+  - the look model v1 as the look's default, which puts the right printing first on 86.7% of the test
+    photos (PR #175);
+  - two faster models to choose, after CardVision: Yama's card finder, and the art model with two cuts
+    first (PRs #169 and #174). A frame on one WASM thread takes 39 ms with both, against 125 ms.
 - **Waiting:** CollectorVision's licence, asked 20 Nov (now optional), and the server fallback; see
   "Decisions for Bryan".
 
@@ -67,7 +69,7 @@ on.
 | ManaVault's newer bundle, `retrain-20261117…` (new recogniser and detector), its own model | Right card 94.4% (the pinned bundle's model: 96.0%); lead rule 81.5%; 1 unknown card locked | Not better: stay on `gallery-20261106` |
 | Printing look v0: the first symbol and whole-card networks, exported as one graph | Right printing first 57.1% (the list's newest-first order: 40.8%; chance 24.7%) | Shipped, ordering the list (PR #172) |
 | CollectorVision (AGPL; run privately, never in Yama) | Card 95%. Among the art's printings: exact 75.5%, right or a strict visual twin 84.7% | The bar we set ourselves |
-| **Printing look v1**: the symbol network trained on the graph's own crops over all 78,063 shared-art printings | **Exact 86.7%, right or a strict visual twin 95.9%** | To be pinned as the default |
+| **Printing look v1**: the symbol network trained on the graph's own crops over all 78,063 shared-art printings | **Exact 86.7%, right or a strict visual twin 95.9%** | The look's default since 20 Nov (PR #175) |
 | v1 and CollectorVision combined | Exact at best 86.7%; at each one's best margin, picks alone on more photos with none wrong (59 against v1's 45) | Optional now |
 
 **A correction (20 Nov).** The 18 Nov figures for "right or a visual twin" (59.2%, 79.6%, 81.6%, and
@@ -124,7 +126,7 @@ photos' 0.78.
   is worse on the real photos than the pinned bundle's model (above). Moving the pin to it would also turn
   our model off: it only runs on galleries from the checkpoint it was trained against.
 
-## The printing look (shipped 20 Nov 2026 with v0, PR #172; v1 to be pinned)
+## The printing look (shipped 20 Nov 2026: PR #172 with v0, then v1 as the default, PR #175)
 
 Telling apart printings that share one artwork is the bigger prize: it's what the collector-line read does
 today, slowly and often not at all.
@@ -170,10 +172,32 @@ December. From its own pages (20 Nov 2026):
 - the set symbol and the collector number choose among about 100,000 printings;
 - it runs on Core ML on the iPhone.
 
-Its code and models aren't available to us; we copy the approach with our own training. Its speed most
-likely comes from running natively. A side agent is measuring where Yama's time goes (PR #169 added the
-timing) and building the fast paths as options in the model registry (PR #174: Yama's own card finder, and an art
-model that cuts two frames first).
+Its code and models aren't available to us; we copy the approach with our own training.
+
+**Where Yama's time went** (Chrome on an M3 Pro, one WASM thread, 160 simulated sleeved frames; PR #169
+added the bench, `scanner-lab/speed/`):
+- The bundle's card finder runs four rotated copies of every window: 50 ms a pass.
+- The art embedder runs the network on 17 frame-style crops: 62 ms.
+- A tracked frame took 122 ms, a fresh one 174 ms.
+- Native ONNX Runtime is no faster: it's the models' work, not WASM.
+- CardVision does one card-finder pass and one art crop per frame, on the iPhone's Neural Engine.
+
+**Shipped as options (PR #174, not the defaults):**
+- **"Yama's card finder, 20 Nov":** MobileNetV3, trained on simulated captures with fingers over corners.
+  12 ms a pass. Median corner error 1.4% against 4.0% (with fingers 1.7% against 6.7%). On the real photos
+  it locks 92.7% against 94.4%, a difference of two photos, within noise; that's why it isn't the default.
+- **"Yama's art model, 18 Nov, two cuts first":** embeds the two commonest frame styles first, and the
+  other 15 only when they don't settle. 15 ms; the same answers as all 17 crops on the held-out captures
+  and the real photos.
+- **Both together:** a tracked frame takes 39 ms, a fresh one 51 ms, with the same top answer on every
+  bench frame.
+
+**Not done yet:**
+- WebGPU is measured (about 35 ms a frame) but not shipped: its build adds 4.4 MB to every Android web
+  update, and the Pixel's WebView support is unconfirmed.
+- Native ONNX Runtime in the Android app, and a bigger ArcFace art model with our own gallery, aren't built.
+- Nothing has been timed on a phone. Scanner diagnostics' timing records (PR #171) name the models each
+  scan used, so the defaults and the new options can be compared on Bryan's phone.
 
 ## Stages, and a fallback on the server (proposed)
 
