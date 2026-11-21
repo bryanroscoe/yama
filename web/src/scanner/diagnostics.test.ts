@@ -242,6 +242,16 @@ describe("scanner timing records", () => {
     expect(posted.bodies[0]).toMatchObject({ rule: "leads", ms: 640, printing: "picked", detail: { card_corrected: true } });
   });
 
+  it("Wrong printing before filing: the rejected printing no longer counts, and says how it was settled", async () => {
+    const t = new TimingRecord(named);
+    t.printed("collector");
+    expect(t.printingRejected()).toBe(t);
+    expect(t.printedAs).toBeNull();
+    // Given up on (Skip): sent with no printing, and the one rejected.
+    await t.send("skipped");
+    expect(posted.bodies[0]).toMatchObject({ printing: undefined, detail: { printing_rejected: "collector" } });
+  });
+
   it("a correction after filing is a record of its own, marked so", async () => {
     const t = new TimingRecord(named);
     expect(t.afterFiling()).toBe(t);

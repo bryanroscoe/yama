@@ -2277,7 +2277,7 @@ export function ScannerView({
    */
   const wrongPrinting = (f: Found, misread: Printing, filed?: ScanCandidate) => {
     // After filing the card's timing record has gone: the correction gets one of its own, marked so.
-    const timing = filed ? f.timing?.afterFiling() : f.timing;
+    const timing = filed ? f.timing?.afterFiling() : f.timing?.printingRejected();
     const base: Found = { ...f, guess: f.guess ?? guessOf(f), misread, correcting: filed, chosen: null, how: null, sure: false, picking: false, error: undefined, rec: withReason(f.rec, "wrong-printing"), timing };
     base.rec?.note("misread", { id: misread.scryfall_id, set: misread.set_code, number: misread.collector_number, how: f.how });
     setJustAdded(null);

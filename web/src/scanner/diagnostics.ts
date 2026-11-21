@@ -418,13 +418,24 @@ export class TimingRecord {
   }
 
   /**
+   * Wrong printing before filing: the printing the scanner settled was rejected. It no longer
+   * counts as settled (Codex review of #171: a retry given up on would send it as a success);
+   * the way it was settled is kept as `printing_rejected`, and a pick then counts as corrected.
+   */
+  printingRejected(): this {
+    if (this.printing) this.detail.printing_rejected = this.printing.how;
+    this.printing = null;
+    return this;
+  }
+
+  /**
    * Wrong printing after the card was filed and its record sent: a new record for the
    * correction, marked so (the summary counts it apart rather than as a second card).
    */
   afterFiling(): TimingRecord {
     if (!this.sent) return this;
     const r = new TimingRecord(this.what, this.account, this.generation);
-    Object.assign(r.detail, this.detail, { after_filing: true });
+    Object.assign(r.detail, this.detail, { after_filing: true }, this.printing ? { printing_rejected: this.printing.how } : {});
     return r;
   }
 

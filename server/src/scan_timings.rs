@@ -184,6 +184,11 @@ impl Row {
         serde_json::from_str::<Value>(&self.detail).ok().and_then(|d| d.get(key).and_then(Value::as_bool)).unwrap_or(false)
     }
 
+    /// The way of settling the printing the person said was wrong (Wrong printing), if any.
+    fn printing_rejected(&self) -> Option<String> {
+        serde_json::from_str::<Value>(&self.detail).ok()?.get("printing_rejected")?.as_str().filter(|p| PRINTINGS.contains(p)).map(str::to_owned)
+    }
+
     /// The person then said it was another card: "Scan it again", or Wrong card and the right one.
     fn called_wrong(&self) -> bool {
         self.outcome == "wrong" || self.flag("card_corrected")
@@ -306,6 +311,9 @@ pub async fn summary(pool: &SqlitePool, owner: &str, f: &Filter, offset: usize, 
         "rules": by(&refs, |r| Some(r.rule.clone()), "rule", timing),
         "printings": by(&printed, |r| r.printing.clone(), "printing", printing_timing),
         "printing_corrected_after_filing": after_filing,
+        // How often each way of settling a printing was then called wrong (Wrong printing, before
+        // or after filing).
+        "printings_called_wrong": by(&all.iter().collect::<Vec<_>>(), |r| r.printing_rejected(), "printing", |g| json!({"count": g.len()})),
         "art_models": by(&refs, |r| r.bundle.clone(), "model", with_rules),
         // By every slot's choice together (art, look, text, lock): the lead rule on or off, say.
         "settings": by(&refs, |r| r.models.clone(), "settings", with_rules)
@@ -449,10 +457,18 @@ mod tests {
         let mut wrong = body("leads", 500);
         wrong["detail"] = json!({"card_corrected": true});
         post(wrong).await;
+        // Wrong printing before filing, then skipped: the collector read was called wrong.
+        let mut rejected = body("sure", 400);
+        rejected["outcome"] = json!("skipped");
+        rejected.as_object_mut().unwrap().remove("printing");
+        rejected["detail"] = json!({"printing_rejected": "collector"});
+        post(rejected).await;
         let (_, s) = testutil::send(&app, Method::GET, PATH, Some(&token), None).await;
-        assert_eq!(s["records"], 3);
-        assert_eq!(s["count"], 2, "two cards");
+        assert_eq!(s["records"], 4);
+        assert_eq!(s["count"], 3, "three cards");
+        assert_eq!(s["printings_called_wrong"], json!([{"printing": "collector", "count": 1, "share": 1.0}]));
         assert_eq!(s["printing_corrected_after_filing"], 1);
+        assert_eq!(s["rules"][0]["rule"], "leads");
         assert_eq!(s["rules"][0]["count"], 2);
         assert_eq!(s["rules"][0]["called_wrong"], 1);
         assert_eq!(s["settled"]["called_wrong"], 1);
