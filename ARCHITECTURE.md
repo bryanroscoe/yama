@@ -430,7 +430,7 @@ section 4 is the first sketch; the current system is [above](#the-system-at-a-gl
 - **Game night:** [Table and playgroup stats (2026-10-19)](#table-and-playgroup-stats-2026-10-19).
 - **The scanner:** [Scan photos shared with the developer (15 November 2026)](#scan-photos-shared-with-the-developer-15-november-2026), [The scanner's own art supplement (15 November 2026)](#the-scanners-own-art-supplement-15-november-2026), [Yama's own query embedder for the scanner (18 November 2026)](#yamas-own-query-embedder-for-the-scanner-18-november-2026), [Scanner models you can switch (20 November 2026)](#scanner-models-you-can-switch-20-november-2026), [The scanner's printing look (20 November 2026)](#the-scanners-printing-look-20-november-2026), [Scanner diagnostics (15 November 2026)](#scanner-diagnostics-15-november-2026), [Scanner timings and full-resolution crops (20 November 2026)](#scanner-timings-and-full-resolution-crops-20-november-2026).
 - **Cards, collection and prices:** [Mana symbols (2026-11-12)](#mana-symbols-2026-11-12), [Release calendar and What's new (2026-10-19)](#release-calendar-and-whats-new-2026-10-19), [A deck's cards in the collection, and Mythic re-imports (2026-10-23)](#a-decks-cards-in-the-collection-and-mythic-re-imports-2026-10-23), [Deck market values (2026-10-27)](#deck-market-values-2026-10-27), [Scan this deck (2026-10-29)](#scan-this-deck-2026-10-29), [Mythic Tools bridge (2026-10-31, proposal)](#mythic-tools-bridge-2026-10-31-proposal), [Store trips (2026-11-01)](#store-trips-2026-11-01), [Deleting collection containers (2026-11-02)](#deleting-collection-containers-2026-11-02), [Sell lists for store buylists (2026-11-02)](#sell-lists-for-store-buylists-2026-11-02), [Local buylist offers (2026-11-02)](#local-buylist-offers-2026-11-02), [Price history (2026-11-02)](#price-history-2026-11-02), [Recording printed copies in a deck box (2026-11-02)](#recording-printed-copies-in-a-deck-box-2026-11-02), [Sections in boxes, and scanning a box (16 November 2026)](#sections-in-boxes-and-scanning-a-box-16-november-2026).
-- **Decks, plans and sharing:** [Plans don't wait for approval (20 November 2026)](#plans-dont-wait-for-approval-20-november-2026), [Swappable spares in the deck box (15 November 2026)](#swappable-spares-in-the-deck-box-15-november-2026), [Brackets, deck stats and exports (2026-10-19)](#brackets-deck-stats-and-exports-2026-10-19), [Deck import (2026-10-22)](#deck-import-2026-10-22), [Sharing and deck configurations (2026-10-28)](#sharing-and-deck-configurations-2026-10-28), [Review, installed decks and the Lab tab (2026-10-28)](#review-installed-decks-and-the-lab-tab-2026-10-28), [Check this deck (2026-11-01)](#check-this-deck-2026-11-01), [Deck configurations and quieter editing (2026-11-03)](#deck-configurations-and-quieter-editing-2026-11-03), [One plan page (2026-11-04)](#one-plan-page-2026-11-04), [Printing with MakePlayingCards (2026-11-05)](#printing-with-makeplayingcards-2026-11-05), [Plans: one plan per deck (2026-11-06)](#plans-one-plan-per-deck-2026-11-06), [Site design pass (2026-11-08)](#site-design-pass-2026-11-08), [Public by default and the navigation (2026-11-12)](#public-by-default-and-the-navigation-2026-11-12), [Check a deck without an account (2026-11-12)](#check-a-deck-without-an-account-2026-11-12).
+- **Decks, plans and sharing:** [Where a plan came from (21 November 2026)](#where-a-plan-came-from-21-november-2026), [Plans don't wait for approval (20 November 2026)](#plans-dont-wait-for-approval-20-november-2026), [Swappable spares in the deck box (15 November 2026)](#swappable-spares-in-the-deck-box-15-november-2026), [Brackets, deck stats and exports (2026-10-19)](#brackets-deck-stats-and-exports-2026-10-19), [Deck import (2026-10-22)](#deck-import-2026-10-22), [Sharing and deck configurations (2026-10-28)](#sharing-and-deck-configurations-2026-10-28), [Review, installed decks and the Lab tab (2026-10-28)](#review-installed-decks-and-the-lab-tab-2026-10-28), [Check this deck (2026-11-01)](#check-this-deck-2026-11-01), [Deck configurations and quieter editing (2026-11-03)](#deck-configurations-and-quieter-editing-2026-11-03), [One plan page (2026-11-04)](#one-plan-page-2026-11-04), [Printing with MakePlayingCards (2026-11-05)](#printing-with-makeplayingcards-2026-11-05), [Plans: one plan per deck (2026-11-06)](#plans-one-plan-per-deck-2026-11-06), [Site design pass (2026-11-08)](#site-design-pass-2026-11-08), [Public by default and the navigation (2026-11-12)](#public-by-default-and-the-navigation-2026-11-12), [Check a deck without an account (2026-11-12)](#check-a-deck-without-an-account-2026-11-12).
 - **Assistants:** [Ask Claude, the advisor (2026-10-22)](#ask-claude-the-advisor-2026-10-22), [Yama's tools for Claude (MCP, 2026-10-22)](#yamas-tools-for-claude-mcp-2026-10-22).
 - **Navigation:** [Navigation frame (2026-11-12)](#navigation-frame-2026-11-12).
 
@@ -3288,3 +3288,36 @@ the approval step of [Plans: one plan per deck](#plans-one-plan-per-deck-2026-11
   approve, keep or undo is refused ("Plans don't wait for approval any more"). Archive and Bring
   it back stay. The Sharing setting that showed friends "pending upgrades" is gone with them: no
   plan is pending (the server field is left, unread by the page).
+
+## Where a plan came from (21 November 2026)
+
+Bryan, 21 Nov 2026, after asking why three changes from an October request were in his Riders of
+Rohan plan, and finding that nobody could say without digging through old conversations: "in the
+future, maybe record where these plans came from. Maybe update the MCP to make sure it knows so it
+can have the history of that and the ability to find it in the future easily and quickly, right?
+We've kind of got too messy in a lot of these."
+
+- **A plan has a history.** `plan_history` (migration 0103) holds what an assistant recorded about
+  a plan: what happened, the person's request in their own words, the day it happened, where the
+  conversation is (a thread's link or title, a session id) and where the work is (a commit, a file,
+  a note), and optionally the proposal group and the changes (by card) it's about. Group and card
+  names are checked against the plan and stored as the plan spells them. An entry is private to
+  its owner, cascades with its plan and goes with the account.
+- **Yama's own record isn't copied.** `plan::history` reads the rest from where it already lives:
+  the plan's first import or note, each version (`plan_versions`, whose source now also keeps the
+  plan file's commit and date) with what it took in and what it left out and why, every answer as
+  it arrived (`plan_inputs`, aliases included, with who gave it: the person in Yama, an assistant,
+  or Yama taking a version in), and archiving. One timeline puts the two together.
+- **The MCP.** `get_plan_history` answers where a plan came from (the request behind it, its
+  groups with what's recorded about each, and the timeline), or with `card`, one change's whole
+  story. `record_plan_history` saves an entry directly, as notes are saved (`Write`, offered to
+  every connection that may stage), with `replaces` to correct one and `op_id` so a retry records
+  it once. `track_build` takes `asked` and `conversation` and records them with the build.
+  `get_plan` says how many entries there are and points to the history. The server instructions
+  ask assistants to record the request whenever they make or change a plan's proposals.
+- **Who records it.** The agent that makes the proposals, at the time: a commander-decks agent for
+  a group in the plan file (that repository's AGENTS.md), any assistant tracking a note's build.
+  The plan file's format is unchanged: the history is about the conversation, not the plan's
+  content, and recording it through the MCP doesn't need a publish.
+- **Not yet on the pages.** The plan page doesn't show the history; it's MCP only until it has a
+  design (docs/ui-mcp-parity.md).

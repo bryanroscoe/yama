@@ -119,7 +119,8 @@ part of it). "Gap" rows are the backlog, in rough priority order inside each are
 | Sealed product quotes: add, remove | Trip (sealed) | `get_shopping_list` shows them | Partial: **Gap (MCP)** for recording a quote |
 | Print proxies (MPC sheet), swap sheet, swap cards | Get cards (mpc, swap-sheet, swap-cards) | `get_shopping_trip` names what to print | Partial. The sheets are printable pages: UI only by nature |
 | Import a plan file | Plans (Import, with a dry run) | — | UI only: a file; the MCP equivalent is `save_research` + `track_build` |
-| Archived plans and earlier versions | Archived | `get_research` lists notes | Partial: **Gap (MCP)** for archived plan versions |
+| Archived plans and earlier versions | Archived | `get_plan_history` (every version, what it took in and left out; archived plans included) | Partial: the MCP reads them, the Archived page lists them |
+| Where a plan and each change came from (the request, its date and conversation, every answer) | — | `get_plan_history`, `record_plan_history`, `track_build` (`asked`) | **MCP only** until the plan page has a design for a history (see below) |
 | Compare with a friend | Sharing, compare | `compare_with_friend` | Both |
 
 ## Research notes
@@ -194,6 +195,7 @@ this list whenever a gap is found that can't simply reuse an existing pattern.
 | Staged-change review cards for every new tool kind | Changes, Ask Claude panel | Each new staged kind needs a before/after card that reads well; a generic JSON card is not acceptable |
 | Sell list in the MCP | — | What an assistant should say about selling: buylist cash vs credit (AGENTS.md, deck valuation) |
 | Plan actions from an assistant (archive, restore, undo) | — | Each needs a staged-change card that shows what the plan returns to |
+| A plan's history on the plan page | Plan page | Where the request, its conversation and each version sit on a page already long; reading one change's story from its row |
 
 ## Stays one-sided on purpose
 
