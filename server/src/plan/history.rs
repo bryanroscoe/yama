@@ -156,6 +156,22 @@ fn today() -> chrono::NaiveDate {
 /// Record an entry in a plan's history. `replaces` names an earlier entry of the same plan that
 /// this one corrects: it goes, in the same transaction.
 pub async fn record(pool: &SqlitePool, owner: &str, plan: PlanRef<'_>, e: &Entry, op_id: Option<&str>, replaces: Option<&str>, via: &str) -> AppResult<Recorded> {
+    record_with(pool, owner, plan, e, op_id, replaces, via, None).await
+}
+
+/// `record`, and with `window` (a time): an identical entry recorded since then is this one (a
+/// tool's retry, `record_once`), looked for under the write lock so two racing calls record once.
+#[allow(clippy::too_many_arguments)]
+async fn record_with(
+    pool: &SqlitePool,
+    owner: &str,
+    plan: PlanRef<'_>,
+    e: &Entry,
+    op_id: Option<&str>,
+    replaces: Option<&str>,
+    via: &str,
+    window: Option<&str>,
+) -> AppResult<Recorded> {
     if !super::model::is_date(&e.on) {
         return Err(AppError::bad(format!("on: \"{}\" isn't a YYYY-MM-DD date", e.on)));
     }
@@ -287,6 +303,30 @@ pub async fn record(pool: &SqlitePool, owner: &str, plan: PlanRef<'_>, e: &Entry
         }
         // A correction always goes in: the entry it replaces may say the same.
         None if replaces.is_some() => None,
+        // A tool's entry: the same words in the last hour, whatever their day; past that it's an
+        // event of its own, even on the same day as an identical one.
+        None if window.is_some() => {
+            sqlx::query_as(
+                "SELECT id, plan_deck_id, on_date, what, asked, conversation, work, group_label, cards, replaces, plan_named FROM plan_history
+                 WHERE owner_id = ? AND plan_deck_id = ? AND what = ? AND IFNULL(asked, '') = IFNULL(?, '')
+                   AND IFNULL(conversation, '') = IFNULL(?, '') AND IFNULL(work, '') = IFNULL(?, '') AND group_label IS NULL AND cards = '[]'
+                   AND recorded_at >= ?
+                 ORDER BY recorded_at DESC LIMIT 1",
+            )
+            .bind(owner)
+            .bind(&plan_id)
+            .bind(what)
+            .bind(&e.asked)
+            .bind(&e.conversation)
+            .bind(&e.work)
+            .bind(window)
+            .fetch_optional(&mut *tx)
+            .await?
+            // Its day may differ (a retry after midnight): it is that entry all the same.
+            .map(|(id, p, _, w, asked, conversation, work, g, c, replaced, named): (_, _, String, _, _, _, _, _, _, _, _)| {
+                (id, p, e.on.clone(), w, asked, conversation, work, g, c, replaced, named)
+            })
+        }
         None => {
             sqlx::query_as(
                 "SELECT id, plan_deck_id, on_date, what, asked, conversation, work, group_label, cards, replaces, plan_named FROM plan_history
@@ -374,29 +414,8 @@ const RETRY_WINDOW_MINUTES: i64 = 60;
 /// it can't be found by its day. Later, the same words are a new event (tracked again after a
 /// stop) and are recorded with their own day.
 pub async fn record_once(pool: &SqlitePool, owner: &str, plan: PlanRef<'_>, e: &Entry, via: &str) -> AppResult<Recorded> {
-    let (plan_id, deck_key, deck) = resolve(pool, owner, plan).await?;
     let since = (chrono::Utc::now() - chrono::Duration::minutes(RETRY_WINDOW_MINUTES)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-    let found: Option<String> = sqlx::query_scalar(
-        "SELECT id FROM plan_history WHERE owner_id = ? AND plan_deck_id = ? AND what = ? AND IFNULL(asked, '') = IFNULL(?, '')
-           AND IFNULL(conversation, '') = IFNULL(?, '') AND IFNULL(work, '') = IFNULL(?, '') AND group_label IS NULL AND cards = '[]'
-           AND recorded_at >= ?
-         ORDER BY recorded_at DESC LIMIT 1",
-    )
-    .bind(owner)
-    .bind(&plan_id)
-    .bind(e.what.trim())
-    .bind(&e.asked)
-    .bind(&e.conversation)
-    .bind(&e.work)
-    .bind(&since)
-    .fetch_optional(pool)
-    .await?;
-    match found {
-        Some(id) => Ok(Recorded { id, deck_key, deck, again: true, group: None, cards: vec![] }),
-        // Past the window it's an event of its own, even on the same day as an identical one: its
-        // own op id keeps `record` from taking it for that one.
-        None => record(pool, owner, PlanRef::Id(&plan_id), e, Some(&format!("tool-{}", new_id())), None, via).await,
-    }
+    record_with(pool, owner, plan, e, None, None, via, Some(&since)).await
 }
 
 /// How many entries the plan's history has.
