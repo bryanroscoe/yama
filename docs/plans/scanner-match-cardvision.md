@@ -1,6 +1,12 @@
 # Matching CardVision's scanner, and a native camera for the Android app
 
-**Status:** Approved to start, 21 Nov 2026 (Bryan). Nothing built yet. Two decisions below wait on Bryan.
+**Status:** In progress, 21 Nov 2026 (Bryan approved it that day). Stages 1 and 2 are merged and live:
+the outline, the focus pin, 60 fps and "Card back" (PR #184, on by default), the placement gate (PR #186,
+an option: Settling by art, "Art that leads, read when the card is still") and the app's own camera in
+the Android app (PR #187, an option in Scan settings, APK 0.2.101). None of it has run on a real phone
+camera yet: stage 3 waits on Bryan's Pixel check (docs/scanner.md, "Left for a real phone test", item 8).
+Item 20 (upside down only when doubtful) moved to stage 3 with the native finder. Two decisions below
+wait on Bryan.
 
 **Asked for:** Bryan, 21 Nov 2026, after trying CardVision's Android beta (0.2.1-beta1): "It's by far the
 best one I've seen and it's the one that we should use as our gold standard but we should improve upon it
