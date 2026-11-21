@@ -393,6 +393,24 @@ const LOCK_LEAD: ModelOption = ModelOption {
     settles: false,
 };
 
+/// The lead rule, read when the card has come to rest (web/src/scanner/gate.ts; 21 Nov 2026):
+/// the placement gate decides when a card is read, the lead rule what the read settles. Opt-in
+/// until Scanner diagnostics' timing records support it. A web build from before it doesn't know
+/// the id and so doesn't offer it (models.ts, `LOCK_RULES`).
+const LOCK_LEAD_GATE: ModelOption = ModelOption {
+    slot: Slot::Lock,
+    id: "lead-gate",
+    label: "Art that leads, read when the card is still",
+    note: "Reads a card once it has come to rest, from the sharpest frame, rather than on every frame: at most five tries, then \"No match, move the card\". Settles by the same lead rule, on one frame. To try on a phone.",
+    licence: None,
+    source: Source::App,
+    recogniser: None,
+    default: false,
+    base: false,
+    needs: None,
+    settles: false,
+};
+
 /// The rule before the lead rule: sure scores only.
 const LOCK_SURE: ModelOption = ModelOption {
     slot: Slot::Lock,
@@ -409,7 +427,7 @@ const LOCK_SURE: ModelOption = ModelOption {
 };
 
 /// Every option the server knows, by slot. The app is offered those on offer (`offered`).
-pub(crate) const MODELS: &[&ModelOption] = &[&BUNDLE_DETECTOR, &CORNERS_MODEL, &BUNDLE_ART, &QUERY_MODEL, &QUERY_CASCADE, &LOOK_OFF, &LOOK_V0, &LOOK_V1, &LOOK_V1_SURE, &TEXT_AUTO, &TEXT_MLKIT, &TEXT_PADDLE, &TEXT_TESSERACT, &LOCK_LEAD, &LOCK_SURE];
+pub(crate) const MODELS: &[&ModelOption] = &[&BUNDLE_DETECTOR, &CORNERS_MODEL, &BUNDLE_ART, &QUERY_MODEL, &QUERY_CASCADE, &LOOK_OFF, &LOOK_V0, &LOOK_V1, &LOOK_V1_SURE, &TEXT_AUTO, &TEXT_MLKIT, &TEXT_PADDLE, &TEXT_TESSERACT, &LOCK_LEAD, &LOCK_LEAD_GATE, &LOCK_SURE];
 
 impl ModelOption {
     /// Its file in the bundle's folder, if it has one. A file of ours is never `embed.onnx`, which
@@ -1297,7 +1315,7 @@ mod tests {
         // isn't downloaded yet, so its slot is off.
         assert_eq!(slot(&info, "look"), (ids(&["off"]), "off".into()));
         assert_eq!(slot(&info, "text"), (ids(&["auto", "mlkit", "paddle", "tesseract"]), "auto".into()));
-        assert_eq!(slot(&info, "lock"), (ids(&["lead", "sure"]), "lead".into()));
+        assert_eq!(slot(&info, "lock"), (ids(&["lead", "lead-gate", "sure"]), "lead".into()));
         assert_eq!(info["models"]["lock"]["options"][0]["file"], serde_json::Value::Null);
 
         // Downloaded: the query model, served from the bundle's folder like its files, and the default.
@@ -1350,7 +1368,8 @@ mod tests {
         // Withdrawing a default drops the slot to its base; a base option can't be withdrawn.
         let some = app_with(true, &["lead", "paddle", "sure", "bundle", "auto", "off", "nothing-like-it"]).await;
         let (_, info) = testutil::send(&some, Method::GET, "/api/scan/bundle", Some(&token), None).await;
-        assert_eq!(slot(&info, "lock"), (ids(&["sure"]), "sure".into()));
+        // (The gate's option is its own id: withdrawing "lead" leaves it on offer, never as the default.)
+        assert_eq!(slot(&info, "lock"), (ids(&["lead-gate", "sure"]), "sure".into()));
         assert_eq!(slot(&info, "text"), (ids(&["auto", "mlkit", "tesseract"]), "auto".into()));
         assert_eq!(slot(&info, "art"), (ids(&["bundle", QUERY_MODEL.id]), QUERY_MODEL.id.into()));
         assert_eq!(slot(&info, "look"), (ids(&["off", "look-v0", "look-v1"]), "look-v1".into()));

@@ -68,7 +68,14 @@ export interface DeviceCan {
 }
 
 /** The lock rules fuse.ts knows. */
-export const LOCK_RULES = ["lead", "sure"] as const;
+export const LOCK_RULES = ["lead", "sure", "lead-gate"] as const;
+/**
+ * The lock option that reads a card when it has come to rest rather than on every frame (the
+ * placement gate, gate.ts), settling it by the lead rule as "lead" does.
+ */
+export const GATE_LOCK = "lead-gate";
+/** Whether a lock option settles by the lead rule (fuse.ts): "lead", and the gate's. */
+export const usesLead = (id: string | null | undefined): boolean => (id ?? "lead") === "lead" || id === GATE_LOCK;
 export type LockRuleId = (typeof LOCK_RULES)[number];
 
 export const MODELS_KEY = "yama.scan.models";

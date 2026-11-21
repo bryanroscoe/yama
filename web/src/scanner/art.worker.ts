@@ -159,9 +159,16 @@ self.onmessage = async (event: MessageEvent<ArtWorkerRequest>) => {
       const ok = recognizer.setPool(indices);
       reply({ type: "pooled", id: m.id, arts: ok ? (indices?.length ?? 0) : -1 });
     }
+    else if (m.type === "locate") {
+      // The placement gate's pass: the card finder alone. The frame goes back with the answer,
+      // for the gate to keep while it may be the sharpest of the placement.
+      if (!recognizer) throw new Error("The card recognizer isn't loaded");
+      const located = await recognizer.locate({ width: m.width, height: m.height, data: new Uint8ClampedArray(m.buffer) });
+      reply({ type: "located", id: m.id, located, buffer: m.buffer }, [m.buffer]);
+    }
     else if (m.type === "identify") {
       if (!recognizer) throw new Error("The card recognizer isn't loaded");
-      const result = await recognizer.identify({ width: m.width, height: m.height, data: new Uint8ClampedArray(m.buffer) }, (quad) => reply({ type: "seen", id: m.id, quad }));
+      const result = await recognizer.identify({ width: m.width, height: m.height, data: new Uint8ClampedArray(m.buffer) }, (quad) => reply({ type: "seen", id: m.id, quad }), m.quad);
       // With the look on, keep a copy of a frame with a card in it, for the look's side of the
       // comparison: the frame and quad this match used, under every artwork it matched (a title
       // read or Not this card can settle on one that wasn't the best). Copied into reused buffers.
@@ -179,7 +186,7 @@ self.onmessage = async (event: MessageEvent<ArtWorkerRequest>) => {
     }
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    if (m.type === "identify") reply({ type: "failed", id: m.id, message, buffer: m.buffer }, [m.buffer]);
+    if (m.type === "identify" || m.type === "locate") reply({ type: "failed", id: m.id, message, buffer: m.buffer }, [m.buffer]);
     else if (m.type === "pool") reply({ type: "pooled", id: m.id, arts: -1 });
     else reply({ type: "error", message });
   }

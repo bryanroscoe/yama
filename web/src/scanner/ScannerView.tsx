@@ -14,7 +14,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type
 import { api, type Printing } from "../api";
 import { loadArtRecognizer, NO_ART_MODEL, RECOGNIZER_SHORT_SIDE, scanBundleInfo, type ArtRecognizer, type LoadState, type LookDone } from "./artClient";
 import { lookBest, lookCandidates, lookLead, lookOrder, lookSettles, withoutMisread, type LookScores } from "./look";
-import { modelsOf, onModelsChange, running, runningAll, saveModel, savedModels, type DeviceCan, type ModelChoices, type ModelSlot, type ModelsInfo, type Running } from "./models";
+import { GATE_LOCK, modelsOf, onModelsChange, running, runningAll, saveModel, savedModels, usesLead, type DeviceCan, type ModelChoices, type ModelSlot, type ModelsInfo, type Running } from "./models";
 import { ModelsSetting } from "./ModelsSetting";
 import { NameIndex } from "./fuzzy";
 import { normaliseName } from "./parse";
@@ -41,6 +41,8 @@ import { saysCardBack } from "./cardBack";
 import { CardOutline } from "./CardOutline";
 import { ask60, askUsualRate, fps60On, FrameRateMeter, setFps60, watchFrameRate } from "./frameRate";
 import { OutlineTracker } from "./outline";
+import { GATE_DEFAULTS, Motion, PlacementGate } from "./gate";
+import { BACK_KEY, GATE_PASS_MS, GATE_SAYS, gateStatus, type GateFrame, type GateRead } from "./gateLoop";
 import { defaultCamera, nameCameras, resolveSaved, saveCamera, savedCamera, type NamedCamera } from "./cameras";
 import { browserCameraSource, draw, sourceLabel, type CameraSource, type SourceInfo } from "./cameraSource";
 import { nativeCameraAvailable, openNativeCamera, saveNativeCamera, savedNativeCamera, type NativeCamera } from "./nativeCamera";
@@ -51,7 +53,7 @@ import { createServerCatalog } from "./serverCatalog";
 import { availableEngines, createScannerOcr, ENGINE_LABEL, engineOrder, plannedEngine, type OcrChoice, type ScannerOcr } from "./ocrEngine";
 import { HeldRead, type HeldVerdict } from "./heldRead";
 import { Evidence, progressLine, proofOf } from "./evidence";
-import { artDecides, artHas, artLead, fuseTitle, LeadRun, leads, needsTitle, titleRead, type Fused, type LockRule } from "./fuse";
+import { artDecides, artHas, artLead, fuseTitle, LEAD_FRAMES, LeadRun, leads, needsTitle, titleRead, type Fused, type LockRule } from "./fuse";
 import { worthReading } from "./quality";
 import { pickHeldQuad, sameHeldCard } from "./heldCard";
 import { VersionLine } from "../version";
@@ -337,12 +339,12 @@ const textChoice = (slots: Record<ModelSlot, Running>, info: ModelsInfo | null):
   allowed: info?.text.options.map((o) => o.id),
 });
 
-const WAITING = "Hold a card in view";
-const NEXT = "Ready for the next card";
+const WAITING: string = GATE_SAYS.waiting;
+const NEXT: string = GATE_SAYS.next;
 /** The card in view is face down (cardBack.ts). */
-export const CARD_BACK = "Card back, turn the card over";
+export const CARD_BACK: string = GATE_SAYS.back;
 /** A card other than the one just filed is in view and being read. */
-const READING = "Hold still, reading the name";
+const READING: string = GATE_SAYS.reading;
 /**
  * While reading a held card: how far below the best match in view the held card's art may score.
  * With the set lock, as far as judgeLocked lets an in-set match trail the best one anywhere.
@@ -595,6 +597,8 @@ export function ScannerView({
   const [found, setFound] = useState<Found | null>(null);
   /** The outline over each card the finder sees (outline.ts), drawn by CardOutline. */
   const [outlines] = useState(() => new OutlineTracker());
+  /** The placement gate (gate.ts): kept across the read loop's restarts, so a card read stays read. */
+  const [gate] = useState(() => new PlacementGate<GateFrame>());
   /** Frames a second the camera actually delivers (frameRate.ts), for Scanner diagnostics. */
   const [fpsMeter] = useState(() => new FrameRateMeter());
   const [error, setError] = useState<string | null>(null);
@@ -708,7 +712,9 @@ export function ScannerView({
   /** A model switch under way, or one that failed, by slot, for Scan settings. */
   const [modelNotes, setModelNotes] = useState<Partial<Record<ModelSlot, string>>>({});
   /** The lock rule in force (models.ts): "lead", or "sure" for sure scores only. */
-  const leadRule = () => (slotsRef.current.lock.option?.id ?? "lead") === "lead";
+  const leadRule = () => usesLead(slotsRef.current.lock.option?.id);
+  /** Whether the placement gate decides when a card is read (the lock option "lead-gate"; gate.ts). */
+  const gateOn = () => slotsRef.current.lock.option?.id === GATE_LOCK;
   /** The option each slot runs now, for kept photos and diagnostics. */
   const modelsNow = (): Record<string, string> => {
     const now = slotsRef.current;
@@ -782,6 +788,8 @@ export function ScannerView({
     const fps = fpsMeter.fps();
     if (fps != null) timing.detail.fps = fps;
     if (camRef.current.focus != null) timing.detail.focus_pinned = camRef.current.focus;
+    // With the placement gate: which try named the card (gate.ts).
+    if (gateOn() && timed && gate.attempts > 0) timing.detail.gate_attempts = gate.attempts;
     return timing;
   };
   /** A fresh record with the camera and text reader in use. */
@@ -1313,6 +1321,7 @@ export function ScannerView({
       // Every loop reading this camera stops now, before any result from it is used, and what an
       // attempt had read is dropped (review of #145): a switch starts reading afresh.
       haltReaders();
+      gate.reset();
       stopFps();
       setLive(false);
       const v = videoRef.current;
@@ -1689,7 +1698,22 @@ export function ScannerView({
     const next = (ms: number) => {
       if (!stop) timer = setTimeout(tick, ms);
     };
+    /** The read the gate asked for on this frame, to be answered when the frame is done (gate.ts). */
+    let gateRead: GateRead | null = null;
     const tick = async () => {
+      const seq = foundSeq.current;
+      gateRead = null;
+      await frame();
+      const asked = gateRead as GateRead | null;
+      gateRead = null;
+      if (!asked) return;
+      // Named (a card was found, or it's the card already held), or not: the gate then asks again,
+      // up to its five tries. A frame cut short by a pause doesn't count.
+      if (foundSeq.current !== seq || asked.held) gate.named(asked.key, performance.now());
+      else if (stop) gate.dropped();
+      else gate.missed(performance.now());
+    };
+    const frame = async () => {
       if (stop) return;
       const v = videoRef.current;
       const art = artRef.current;
@@ -1711,15 +1735,54 @@ export function ScannerView({
           const box = v.closest(".scan-camera")?.getBoundingClientRect();
           const zone = digitalRegion(v.videoWidth, v.videoHeight, digitalRef.current, box);
           const { image, k } = smallRegion(v, zone, canvasRef.current);
-          const toVideo = (q: Quad) => q.map(([x, y]) => [x / k + zone.x, y / k + zone.y]) as Quad;
+          let toVideo = (q: Quad) => q.map(([x, y]) => [x / k + zone.x, y / k + zone.y]) as Quad;
           // The outline follows the card finder, which answers before the art is matched.
           const outlined = (q: Quad | null) => {
             if (!stop) outlines.see(q ? [toVideo(q)] : [], { w: v.videoWidth, h: v.videoHeight });
           };
-          const r = await art.identify(image, outlined);
-          if (stop) return;
-          outlined(r.quad);
-          seeCard(r.quad ? toVideo(r.quad) : null, v);
+          const gated = gateOn();
+          let r: Recognition;
+          if (gated) {
+            // The placement gate (gate.ts): every frame goes to the card finder alone; the art is
+            // matched only when the gate says the card has come to rest, on the sharpest frame of
+            // its stay, and not again while it lies there.
+            const seen = await art.locate(image);
+            if (stop) return;
+            outlined(seen.quad);
+            seeCard(seen.quad ? toVideo(seen.quad) : null, v);
+            const at = performance.now();
+            const d = gate.observe({ at, cards: seen.quad ? [{ quad: seen.quad, sharpness: seen.sharpness, thumb: seen.thumb, frame: { image: seen.image, toVideo } }] : [] });
+            if (d.kind !== "read") {
+              // The view has been empty long enough: the card just filed has gone, as without the gate.
+              if (d.kind === "none" && d.since == null) {
+                blocked.current = null;
+                blockedName.current = null;
+                filedName.current = null;
+                endSeek();
+                appeared.current = null;
+              }
+              if (d.kind === "none") {
+                last.current = undefined;
+                lastText.current = undefined;
+              }
+              const holding = !!blocked.current || !!blockedName.current;
+              if (!holding) setDupe(null);
+              setStatus(gateStatus(d, holding));
+              return next(d.kind === "none" ? 60 : GATE_PASS_MS);
+            }
+            const kept = d.frame!;
+            gateRead = { key: "", held: false };
+            toVideo = kept.toVideo;
+            // Diagnostics' timing record: the card appeared when the gate first saw it, not at this read.
+            if (diagRef.current && !appeared.current && d.since != null) appeared.current = { at: Date.now() - (at - d.since), frames: 0 };
+            r = await art.identify(kept.image, undefined, d.quad);
+            if (stop) return;
+          } else {
+            r = await art.identify(image, outlined);
+            if (stop) return;
+            outlined(r.quad);
+            seeCard(r.quad ? toVideo(r.quad) : null, v);
+          }
           // What this frame knew is for a card found from this frame only.
           scanCtx.current = null;
           // Locked to sets: go on the best match among their art while it's about as good as the
@@ -1733,7 +1796,10 @@ export function ScannerView({
           // top match can flip between an in-set and an outside one while the card sits there).
           const heldIndex = blocked.current?.index;
           const stillHeld = r.quad && heldIndex != null ? [...r.matches, ...(r.pool ?? [])].find((m) => m.index === heldIndex && m.score >= ART_UNKNOWN) : undefined;
-          if (blocked.current && artHoldFrame(blocked.current, r.quad ? (stillHeld ?? top ?? null) : null, ART_UNKNOWN, LOCK_TWICE) === "free") blocked.current = null;
+          // With the gate a read is one deliberate look, not one of a run of frames: the card is the
+          // one just added if its art is still among the matches, and another card if it isn't.
+          if (blocked.current && (gated ? !stillHeld : artHoldFrame(blocked.current, r.quad ? (stillHeld ?? top ?? null) : null, ART_UNKNOWN, LOCK_TWICE) === "free")) blocked.current = null;
+          if (gateRead && top) gateRead.key = top.name;
           if (!r.quad || !top) {
             if (++noCard.current >= AWAY_FRAMES) {
               blockedName.current = null;
@@ -1752,6 +1818,7 @@ export function ScannerView({
           noCard.current = 0;
           if (!blocked.current && !blockedName.current) setDupe(null);
           if (blocked.current) {
+            if (gateRead) gateRead.held = true;
             setStatus(NEXT);
             return next(60);
           }
@@ -1769,7 +1836,9 @@ export function ScannerView({
           // art, by a title read or by the two-frame fallback below.
           const heldName = blockedName.current?.name;
           const isHeld = (name: string) => !!heldName && sameCardName(name, heldName);
-          if (isHeld(top.name)) {
+          // (With the gate: also a card named again within 3 s that never left the view, gate.ts.)
+          if (isHeld(top.name) || (gated && gate.suppresses(top.name, performance.now()))) {
+            if (gateRead) gateRead.held = true;
             leadRun.step(null);
             setStatus(NEXT);
             return next(60);
@@ -1792,7 +1861,9 @@ export function ScannerView({
           const lead = artLead(ranked, top, unlisted);
           const leadOn = leadRule();
           const leading = leadOn && !artUnknown && leadCounts({ locked: !!locked, share: leadShare() }) && !blockedName.current && leads(top.score, lead);
-          const leadFrames = leadRun.step(leading ? top.name : null);
+          // With the gate the card is at rest and this is its sharpest frame: a lead on it decides,
+          // with no second frame to wait for.
+          const leadFrames = gated ? (leading ? LEAD_FRAMES : 0) : leadRun.step(leading ? top.name : null);
           // A strong match decides by art, unless another card scores close to it. Otherwise the
           // title is read first (Bryan, 15 Nov 2026: no Star Trek card scanned; their art isn't in
           // the bundle, so lookalikes scored 0.5 to 0.8 and the scanner named them, or waited on
@@ -1835,7 +1906,7 @@ export function ScannerView({
           const seen = blockedName.current || faceDown ? null : seekFrame({ art: artNote.art.slice(0, 3), lead: artNote.lead, cardPx: artNote.cardPx });
           // A match that is at least fair is read on every frame; a card the art index plainly
           // doesn't know (a battle, a weak match) after a few frames, as before.
-          if (top.score >= ART_UNKNOWN || artUnknown || ++unknownFrames >= 3) {
+          if (top.score >= ART_UNKNOWN || artUnknown || gated || ++unknownFrames >= 3) {
             unknownFrames = 0;
             const full = await textReader();
             if (stop) return;
@@ -1860,6 +1931,7 @@ export function ScannerView({
             if (seen) Object.assign(seen, { titles, title, fused: fused.kind });
             // The card just filed, by its art or its title: still held. Not a new card appearing.
             if (fusedHeld(fused, heldName)) {
+              if (gateRead) gateRead.held = true;
               appeared.current = null;
               setStatus(NEXT);
               return next(60);
@@ -1898,6 +1970,8 @@ export function ScannerView({
             if (handleText(res, false, false, hi)) return;
             // Face down, and nothing on it read as a card: that's all there is to say.
             if (faceDown) {
+              // (With the gate: read once, and said for as long as it lies there.)
+              if (gateRead) Object.assign(gateRead, { key: BACK_KEY, held: true });
               appeared.current = null;
               // (Not over "Ready for the next card" while a card filed by its name is held.)
               if (!blockedName.current) setStatus(CARD_BACK);
@@ -1924,7 +1998,8 @@ export function ScannerView({
             // (Not while the card just added is held: that would read it again.)
             // Where only the card matters, a fair match (LOCK_TWICE) gets its UNTITLED_FRAMES first.
             const artWaits = identityOnly && top.score >= LOCK_TWICE && !artUnknown && untitled < UNTITLED_FRAMES;
-            if (!stop && closeups && !vetoed && !blockedName.current && ++failedReads >= TITLE_AFTER && !artWaits) {
+            // (With the gate there's no close-up asked here: five tries, then "No match, move the card".)
+            if (!stop && closeups && !gated && !vetoed && !blockedName.current && ++failedReads >= TITLE_AFTER && !artWaits) {
               lookGoesOn.current = true;
               setCloseup("title");
               return;
@@ -2128,6 +2203,8 @@ export function ScannerView({
     setWrongOpen(false);
     setDupe(null);
     blocked.current = held?.art ? { index: held.art.index, away: 0 } : null;
+    // Nothing held (Scan it again): the gate reads the card lying there once more.
+    if (!held) gate.unlatch();
     noCard.current = 0;
     blockedName.current = held && !held.art ? hold(held.name, Date.now()) : null;
     last.current = undefined;
@@ -2354,6 +2431,7 @@ export function ScannerView({
       }
     };
     let focused = false;
+    const holdMotion = new Motion();
     /** What every verdict does, from a frame, a skipped frame or a miss alike. */
     const act = (verdict: HeldVerdict, wait: number) => {
       switch (verdict) {
@@ -2396,7 +2474,10 @@ export function ScannerView({
             const [x, y] = applyH(squareToQuad(quad), 0.25, 0.95);
             cam.focusAt(x / v.videoWidth, y / v.videoHeight);
           }
-          const got = await readInto(v, v.videoWidth, v.videoHeight, quad, f);
+          // With the placement gate, the collector line is read only while the card is at rest
+          // (gate.ts, `Motion`): a frame of a moving card counts as skipped, like a blurred one.
+          const speed = gateOn() ? holdMotion.speed(performance.now(), quad) : 0;
+          const got = speed == null || speed > GATE_DEFAULTS.stillSpeed ? "blurred" : await readInto(v, v.videoWidth, v.videoHeight, quad, f);
           if (got === "settled" || stop) return;
           verdict = got === "blurred" ? held.skipped(clock()) : held.frame(clock());
           // Stalled (several frames read, not settled): one still photo, read the same way, alongside

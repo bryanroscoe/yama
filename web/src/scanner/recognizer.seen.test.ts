@@ -95,3 +95,35 @@ describe("a card lying face down", () => {
     expect(result.matches[0]?.name).toBe("Sol Ring");
   });
 });
+
+describe("the card finder alone, for the placement gate", () => {
+  it("places the card, measures its sharpness and thumbnail, and matches nothing", async () => {
+    const log: string[] = [];
+    const r = await createRecognizer(fakeOrt(log), graphs, constants, arts);
+    log.length = 0;
+    const front = frameWith(drawFront({ frame: [40, 110, 170], box: [200, 220, 235], art: [[30, 60, 120], [220, 230, 240]] }, AT.w, AT.h));
+    const seen = await r.locate(front);
+    expect(new Set(log)).toEqual(new Set(["detect"]));
+    expect(seen.quad?.[0]?.[0]).toBeCloseTo(206.3, 1);
+    expect(seen.sharpness).toBeGreaterThan(0);
+    expect(seen.thumb).toHaveLength(48 * 48);
+    expect(seen.back).toBeUndefined();
+    // A back is said to be one, and an empty view has neither sharpness nor thumbnail.
+    expect((await r.locate(frameWith(drawBack(AT.w, AT.h, { noise: 4 })))).back).toBe(true);
+    const none = await createRecognizer(fakeOrt([], 0.2), graphs, constants, arts);
+    expect(await none.locate(frameWith(null))).toMatchObject({ quad: null });
+    expect((await none.locate(frameWith(null))).thumb).toBeUndefined();
+  });
+
+  it("then matches the art at the corners it gave, without running the finder again", async () => {
+    const log: string[] = [];
+    const r = await createRecognizer(fakeOrt(log), graphs, constants, arts);
+    const front = frameWith(drawFront({ frame: [40, 110, 170], box: [200, 220, 235], art: [[30, 60, 120], [220, 230, 240]] }, AT.w, AT.h));
+    const seen = await r.locate(front);
+    log.length = 0;
+    const result = await r.identify(front, undefined, seen.quad);
+    expect(log).toEqual(["embed", "search"]);
+    expect(result.quad).toEqual(seen.quad);
+    expect(result.matches[0]?.name).toBe("Sol Ring");
+  });
+});

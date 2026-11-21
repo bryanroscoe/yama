@@ -10,6 +10,7 @@
 
 import { isCardBack } from "./cardBack";
 import { artLead, LEAD_MARGIN } from "./fuse";
+import { cardThumb, frameSharpness } from "./gateFrame";
 import { fromBase64, galleryOf, readGallery, upTo, type Gallery } from "./gallery";
 import type { Point, Quad, RgbaImage } from "./types";
 
@@ -66,12 +67,29 @@ export interface Recognition {
   timings: { detectMs: number; embedMs: number; totalMs: number; cuts?: number };
 }
 
+/** Where the card is in a frame and what the placement gate needs of it (gate.ts), with no art match. */
+export interface Located {
+  /** The card's corners in frame pixels, or null when no card is in view. */
+  quad: Quad | null;
+  upright: number;
+  /** The card looks like a standard card back (cardBack.ts). */
+  back?: boolean;
+  /** How sharp the card is in this frame (gateFrame.ts), and its thumbnail. With a card only. */
+  sharpness?: number;
+  thumb?: Uint8Array;
+  detectMs: number;
+}
+
 export interface Recognizer {
   /**
    * `onSeen` is told where the card finder placed the card (or null) as soon as it has, before the
-   * art is matched: the outline over the camera doesn't wait for the card to be named.
+   * art is matched: the outline over the camera doesn't wait for the card to be named. With `at`
+   * (a quad `locate` gave for this very frame) the finder isn't run again: the art at those
+   * corners is matched.
    */
-  identify(frame: RgbaImage, onSeen?: (quad: Quad | null) => void): Promise<Recognition>;
+  identify(frame: RgbaImage, onSeen?: (quad: Quad | null) => void, at?: Quad | null): Promise<Recognition>;
+  /** The card finder alone: where the card is, how sharp, and its thumbnail. For the placement gate. */
+  locate(frame: RgbaImage): Promise<Located>;
   /** Forget the tracked card (after it was accepted, say). */
   reset(): void;
   /**
@@ -436,8 +454,8 @@ export async function createRecognizer(
   let tracked: Window | null = null;
   let trackedFor = 0;
 
-  const identify = async (frame: RgbaImage, onSeen?: (quad: Quad | null) => void): Promise<Recognition> => {
-    const t0 = now();
+  /** The card finder's passes on a frame: the detection, and whether it is a card in view. */
+  const find = async (frame: RgbaImage): Promise<{ fine: Detection; inView: boolean }> => {
     let fine: Detection | null = null;
     // While the card stays put, one pass on last frame's card window is enough.
     if (tracked && trackedFor < RETRACK_EVERY) {
@@ -456,10 +474,25 @@ export async function createRecognizer(
       if (coarse.vote < EMPTY && whole > constants.scene * 1.1) coarse = await detect(frame, { ...centre, side: whole });
       fine = coarse.vote >= EMPTY ? await detect(frame, around(coarse)) : coarse;
     }
-    const t1 = now();
     const inView = fine.vote >= IN_VIEW && shortSide(fine.quad) >= MIN_SHORT && cardDetail(frame, fine.quad) >= MIN_DETAIL;
     tracked = inView ? around(fine) : null;
     trackedFor = inView && wasTracking ? trackedFor + 1 : 0;
+    return { fine, inView };
+  };
+
+  const locate = async (frame: RgbaImage): Promise<Located> => {
+    const t0 = now();
+    const { fine, inView } = await find(frame);
+    if (!inView) return { quad: null, upright: fine.vote, detectMs: now() - t0 };
+    const back = isCardBack(frame, fine.quad);
+    return { quad: fine.quad, upright: fine.vote, ...(back ? { back } : {}), sharpness: frameSharpness(frame, fine.quad), thumb: cardThumb(frame, fine.quad), detectMs: now() - t0 };
+  };
+
+  const identify = async (frame: RgbaImage, onSeen?: (quad: Quad | null) => void, at?: Quad | null): Promise<Recognition> => {
+    const t0 = now();
+    // The gate's read: the finder already placed the card in this frame (`locate`).
+    const { fine, inView } = at ? { fine: { quad: at, vote: 1 }, inView: true } : await find(frame);
+    const t1 = now();
     onSeen?.(inView ? fine.quad : null);
     const back = inView && isCardBack(frame, fine.quad);
     const { cuts, ...found } = inView ? await match(frame, fine.quad) : { matches: [], pool: pool && gallery ? [] : undefined, cuts: 0 };
@@ -477,6 +510,7 @@ export async function createRecognizer(
 
   return {
     identify,
+    locate,
     reset() {
       tracked = null;
       trackedFor = 0;
