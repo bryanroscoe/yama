@@ -382,10 +382,11 @@
   margin: 4px 0;
 }
 
-/* Scan photos (ScanPhotos.tsx): the photo beside what was said about it. */
+/* Scan photos (ScanPhotos.tsx): the photo, and its crops, beside what was said about it. The
+   width attribute sizes each (120 px, a strip 200). */
 .scan-sample-row img {
   display: block;
-  width: 120px;
+  max-width: 100%;
   height: auto;
   border-radius: 6px;
 }

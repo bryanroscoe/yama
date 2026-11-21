@@ -4,8 +4,14 @@
 // default and the photos it saves are shared with Yama's developer (Bryan: "I want them to send it
 // to me"); the switch says so. Best effort: a photo that can't be
 // sent is dropped, and nothing is kept while the switch is off. Server: server/src/scan_samples.rs.
+//
+// Since 20 Nov 2026 each photo also keeps two full-resolution crops of the card, warped upright
+// from its corners (Bryan: a printing model needs the set symbol, about 20 px in the 640 px
+// photo): the set symbol's area and the collector strip (`cropsOf`). Only the card; made once per
+// photo kept, never per frame.
 
-import { api } from "../api";
+import { accountSignal, api } from "../api";
+import { encodeJpeg, stripOf, symbolOf } from "./diagnostics";
 import type { Quad, RgbaImage } from "./types";
 
 /**
@@ -107,15 +113,71 @@ export async function encodeShot(shot: Shot): Promise<{ image: string; quad: Qua
   return { image: btoa(bin), quad: shot.quad.map(([x, y]) => [x * k, y * k]) as Quad };
 }
 
+/** A crop kept with a photo: base64 JPEG and its size. */
+export interface Crop {
+  name: "symbol" | "strip";
+  image: string;
+  width: number;
+  height: number;
+}
+
+/** JPEG quality of the crops: what a model or a replay reads, so a little above the photo's. */
+const CROP_QUALITY = 0.85;
+/** The largest crop the server takes (scan_samples.rs, MAX_CROP): a larger one is left out, not the photo. */
+const MAX_CROP_BYTES = 1024 * 1024;
+
+/**
+ * The card's set symbol area and collector strip, warped upright from its corners at the card's
+ * own resolution in the shot (never enlarged): what a printing model and a collector-line replay
+ * read. Only the card, never the frame around it.
+ */
+export async function cropsOf(shot: Shot): Promise<Crop[]> {
+  const out: Crop[] = [];
+  for (const [name, cut] of [
+    ["symbol", symbolOf],
+    ["strip", stripOf],
+  ] as const) {
+    // A crop that can't be made is left out; the photo still goes.
+    try {
+      const img = cut(shot);
+      const enc = await encodeJpeg(img, Math.max(img.width, img.height), CROP_QUALITY);
+      if (enc && (enc.data.length * 3) / 4 <= MAX_CROP_BYTES) out.push({ name, image: enc.data, width: enc.width, height: enc.height });
+    } catch (e) {
+      console.warn(`Couldn't cut the ${name} crop`, e);
+    }
+  }
+  return out;
+}
+
+/** Moves on with each "Delete them": a photo begun before it is never sent. */
+let photoGen = 0;
+/** Photo uploads on their way: "Delete them" waits for their answers before it deletes. */
+const sending = new Set<Promise<unknown>>();
+
+function track<T>(p: Promise<T>): Promise<T> {
+  sending.add(p);
+  p.then(
+    () => sending.delete(p),
+    () => sending.delete(p),
+  );
+  return p;
+}
+
 /** Keep a photo with its label, if the person has Save scan photos on. Never throws. */
 export async function keepSample(shot: Shot | null | undefined, label: SampleLabel): Promise<void> {
   if (!shot || !savingPhotos()) return;
+  // The account signed in now: if it changes while the photo is made, it isn't sent under the other.
+  const account = accountSignal();
+  const gen = photoGen;
   try {
     const encoded = await encodeShot(shot);
     if (!encoded) return;
+    const crops = await cropsOf(shot);
+    // Turned off, signed out, or deleted ("Delete them") while the crops were made: nothing is sent.
+    if (!savingPhotos() || account.aborted || gen !== photoGen) return;
     // `shared`: this scanner tells the person, next to the switch, that saved photos are shared
     // with Yama's developer (server/src/scan_samples.rs keeps older photos out of that).
-    await api("/api/scan/samples", { method: "POST", json: { ...label, ...encoded, shared: true } });
+    await track(api("/api/scan/samples", { method: "POST", signal: account, json: { ...label, ...encoded, crops, shared: true } }));
   } catch (e) {
     console.warn("Couldn't keep the scan photo", e);
   }
@@ -124,8 +186,17 @@ export async function keepSample(shot: Shot | null | undefined, label: SampleLab
 export interface SampleSummary {
   count: number;
   bytes: number;
+  crop_bytes?: number;
   keep: number;
 }
 
 export const sampleSummary = () => api<SampleSummary>("/api/scan/samples");
-export const deleteSamples = () => api<{ deleted: number }>("/api/scan/samples", { method: "DELETE" });
+/**
+ * "Delete them": no photo begun before is sent, and those already on their way are answered
+ * first, so none arrives after the deletion (the server also refuses one that began before it).
+ */
+export async function deleteSamples(): Promise<{ deleted: number }> {
+  photoGen += 1;
+  await Promise.allSettled([...sending]);
+  return api<{ deleted: number }>("/api/scan/samples", { method: "DELETE" });
+}

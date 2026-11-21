@@ -1,8 +1,10 @@
 # Scanner models of our own, sleeves, and a fallback on the server
 
-Status: in progress, 18 Nov 2026.
+Status: in progress, 20 Nov 2026.
 - **Shipped:** locking on the art's lead (PR #166).
 - **Shipped:** our own art model (PR #167, `yama-art-20261118`).
+- **Shipped (20 Nov):** timing records for every card settled, under Scanner diagnostics, and
+  full-resolution set-symbol and collector-strip crops with each scan photo (docs/scanner.md).
 - **Not good enough yet:** the printing model.
 - **Waiting:** two decisions for Bryan, at the end.
 
@@ -42,7 +44,8 @@ in `fuse.ts`); a still photo settles on one. So the live gain is "settled after 
 title read" for most cards, not "on the first frame". It hasn't been timed on a phone. Scanner diagnostics
 keep only scans that struggle (over 3 s to find, or corrected), with the rule that settled each, so they
 show what still stalls but can't measure the overall gain. That needs a sample of smooth scans too (their
-time to settle and rule), which nothing records yet: a small follow-up to the diagnostics.
+time to settle and rule): since 20 Nov 2026 Scanner diagnostics keep a timing record for every card
+settled (`get_scan_timings`), so it can be measured once someone scans with the switch on.
 
 | Experiment | Result on the real photos | Verdict |
 |---|---|---|
@@ -126,8 +129,9 @@ Next attempt, in order:
    rendered at 4K scale, and all 76,588 printings that share art instead of 19,475. On the phone it would
    cut the symbol from the full-resolution frame (as the collector-line read does now).
 2. Visual twins go to the collector line (4K strip, ML Kit in the app); the picker remains the last step.
-3. Measure on real 4K captures (Scanner diagnostics keep the full-resolution strip; a symbol crop would
-   need the same) before shipping anything. The 98 photos here are 640 px and one person's, so
+3. Measure on real 4K captures before shipping anything: since 20 Nov 2026 each kept scan photo has
+   its set symbol's area and collector strip at full resolution (`scan-samples-export` writes them
+   beside the photos), and Scanner diagnostics keep the same `symbol` crop beside `strip`. The 98 photos here are 640 px and one person's, so
    differences under about 5 points are noise.
 
 ## Stages, and a fallback on the server (proposed)
