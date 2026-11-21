@@ -214,7 +214,8 @@ pub async fn track(pool: &SqlitePool, owner: &str, req: &TrackRequest) -> AppRes
     let derived = derive(&mut *conn, owner, &plan_id, &req.note_id, &title, &req.deck_key, deck, build, &stamp).await?;
     bump(&mut *conn, owner, &stamp).await?;
     let settled = super::versions::settle(&mut *conn, owner).await?;
-    // Settling may have left changes out: the lists Swap in the prints and Copy read follow it.
+    // Settling may have left changes out: the lists Swap in the prints and Copy read follow it
+    // (settling rebuilt them if it took this deck in; an answer it kept may still move them).
     let derived = if super::versions::kept_out(&mut *conn, owner, &plan_id).await? != derived.out {
         derive(&mut *conn, owner, &plan_id, &req.note_id, &title, &req.deck_key, deck, build, &stamp).await?
     } else {

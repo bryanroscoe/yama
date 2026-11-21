@@ -605,3 +605,30 @@ async fn a_change_the_plan_left_out_isnt_in_the_lists_swap_in_reads() {
     let energy = b["decks"].as_array().unwrap().iter().find(|d| d["key"] == "energy").unwrap();
     assert!(!names(&energy["states"]["after"]).contains(&"Arcane Signet".to_string()), "{energy}");
 }
+
+#[tokio::test]
+async fn a_plan_waiting_from_before_settles_at_start_with_its_lists() {
+    let (app, pool) = app().await;
+    let (a, session) = user(&pool, "a@example.com").await;
+    let mut doc = note();
+    doc["decks"][0]["builds"][0]["swaps"][1]["card_out"] = json!("Glimmer of Genius");
+    save_note(&app, &session, &doc).await;
+    let (status, r) = send(&app, Method::POST, "/api/plan/from-note", Some(&session),
+        Some(json!({"note_id": "audit", "deck_key": "energy", "build_id": "b3", "proposed": true}))).await;
+    assert_eq!(status, StatusCode::OK, "{r}");
+    // Back to how a plan waited for an OK before 20 Nov 2026: no answers, no version, the whole
+    // build in its lists.
+    for table in ["plan_reviews", "plan_versions", "plan_inputs"] {
+        sqlx::query(sqlx::AssertSqlSafe(format!("DELETE FROM {table} WHERE owner_id = ?"))).bind(&a).execute(&pool).await.unwrap();
+    }
+    {
+        let mut conn = pool.acquire().await.unwrap();
+        super::restate_deck(&mut conn, &a, "energy").await.unwrap();
+    }
+    let after = |b: &Value| names(&b["decks"].as_array().unwrap().iter().find(|d| d["key"] == "energy").unwrap()["states"]["after"]);
+    assert!(after(&bundle(&app, &session).await).contains(&"Arcane Signet".to_string()));
+    // The start settles it, and the after list Swap in the prints reads leaves the clash out.
+    assert_eq!(crate::plan::versions::settle_all(&pool).await.unwrap(), 1);
+    let b = bundle(&app, &session).await;
+    assert!(!after(&b).contains(&"Arcane Signet".to_string()) && after(&b).contains(&"Thought Monitor".to_string()), "{:?}", after(&b));
+}

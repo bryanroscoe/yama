@@ -691,6 +691,9 @@ pub async fn settle(conn: &mut SqliteConnection, owner: &str) -> AppResult<Vec<S
         let Some(((id, key, name, source), next)) = pick else { break };
         done.insert(id.clone());
         if let Some(done) = take_in(&mut *conn, owner, id, key, name, source, &next).await? {
+            // A note plan's now and after lists (what Swap in the prints puts in the deck) follow
+            // what just went in or was left out.
+            super::notes::restate_deck(&mut *conn, owner, key).await?;
             out.push(done);
         }
     }
@@ -708,14 +711,19 @@ pub async fn settle_all(pool: &sqlx::SqlitePool) -> AppResult<usize> {
     // outranks, or a deck that has proposals and no version yet. (A false positive costs a read
     // that finds nothing to settle; settled answers are written under the live key.)
     let owners: Vec<String> = sqlx::query_scalar(
-        "SELECT DISTINCT s.owner_id FROM plan_swaps s JOIN plan_decks d ON d.id = s.plan_deck_id AND d.owner_id = s.owner_id
+        "WITH RECURSIVE chain(owner_id, old_key, live_key) AS (
+           SELECT owner_id, old_key, new_key FROM plan_key_aliases
+           UNION
+           SELECT c.owner_id, a.old_key, c.live_key FROM plan_key_aliases a JOIN chain c ON a.owner_id = c.owner_id AND a.new_key = c.old_key
+         )
+         SELECT DISTINCT s.owner_id FROM plan_swaps s JOIN plan_decks d ON d.id = s.plan_deck_id AND d.owner_id = s.owner_id
          WHERE s.retired_at IS NULL AND s.stage = 'proposed' AND d.status != 'archived' AND d.archived_at IS NULL
            AND (NOT EXISTS (SELECT 1 FROM plan_reviews r WHERE r.owner_id = s.owner_id AND r.swap_key = s.ext_key
                               AND r.decision IS NOT NULL AND r.at >= s.updated_at)
-                -- An answer under an older key newer than the live one is the newest word on it
-                -- (a clear that waited for a fast device's clock to pass).
-                OR EXISTS (SELECT 1 FROM plan_key_aliases a JOIN plan_reviews o ON o.owner_id = a.owner_id AND o.swap_key = a.old_key
-                           WHERE a.owner_id = s.owner_id AND a.new_key = s.ext_key
+                -- An answer under an older key (any step of its alias chain) newer than the live one
+                -- is the newest word on it (a clear that waited for a fast device's clock to pass).
+                OR EXISTS (SELECT 1 FROM chain a JOIN plan_reviews o ON o.owner_id = a.owner_id AND o.swap_key = a.old_key
+                           WHERE a.owner_id = s.owner_id AND a.live_key = s.ext_key
                              AND o.at > IFNULL((SELECT r.at FROM plan_reviews r WHERE r.owner_id = s.owner_id AND r.swap_key = s.ext_key), ''))
                 OR (NOT EXISTS (SELECT 1 FROM plan_versions v WHERE v.owner_id = d.owner_id AND v.plan_deck_id = d.id)
                     AND NOT EXISTS (SELECT 1 FROM plan_swaps p WHERE p.owner_id = d.owner_id AND p.plan_deck_id = d.id
