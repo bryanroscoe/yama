@@ -172,12 +172,35 @@ export class LookFrames {
   }
 }
 
+/** A frame is kept for an artwork it matched at least this well (the art's floor for "having" a card, fuse.ts)… */
+export const LOOK_FLOOR = 0.5;
+/** …and within this of its best match: a title read can settle on a match a little below the best. */
+export const LOOK_NEAR = 0.15;
+
 /**
- * The artworks a frame matched, each once: any of them could be the card a look is asked about.
- * Not only those the bundle counts several printings for: an artwork reprinted since the bundle
- * was made counts one there (Codex review of #172), and Yama's printings decide.
+ * The artworks a frame could be a picture of, each once: those it matched well and near its best
+ * (a title read or Not this card can settle on one that wasn't the best; Codex review of #172), not
+ * every artwork on its list, so a frame of one card isn't kept for another that merely appears
+ * there (re-check of #172). Not filtered by the bundle's printing count: an artwork reprinted since
+ * the bundle was made counts one there, and Yama's printings decide.
  */
-export const lookTops = (matches: readonly { index: number }[]): number[] => [...new Set(matches.map((m) => m.index))];
+export function lookTops(matches: readonly { index: number; score: number }[]): number[] {
+  const best = Math.max(-Infinity, ...matches.map((m) => m.score));
+  return [...new Set(matches.filter((m) => m.score >= LOOK_FLOOR && m.score >= best - LOOK_NEAR).map((m) => m.index))];
+}
+
+/** The best match's card in a frame, by name: the ring starts afresh when another card leads. */
+export const leadingCard = (matches: readonly { name: string; score: number }[]): string | null =>
+  matches.reduce<{ name: string; score: number } | null>((b, m) => (!b || m.score > b.score ? m : b), null)?.name ?? null;
+
+/**
+ * The printing list for a Wrong printing: the printing said to be wrong goes last, after the
+ * look's order, and is never the look's best guess (re-check of #172).
+ */
+export function withoutMisread<P extends { scryfall_id: string }>(list: readonly P[], misread: string | undefined): P[] {
+  if (!misread) return [...list];
+  return [...list.filter((p) => p.scryfall_id !== misread), ...list.filter((p) => p.scryfall_id === misread)];
+}
 
 /** Embeddings packed as one buffer for the Cache API (symbol then card), and back. */
 export const packLook = (e: LookEmbedding): Float32Array => {

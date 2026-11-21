@@ -1,7 +1,7 @@
 // The printing look (look.ts): its score, the card's side averaged over frames, the list's order,
 // its best guess, and comparing printings a few at a time.
 import { describe, expect, it } from "vitest";
-import { cornersOf, lookBest, lookCandidates, LookFrames, lookOrder, lookScore, lookTops, meanEmbedding, packLook, scoreCandidates, unpackLook, type LookEmbedding } from "./look";
+import { cornersOf, leadingCard, lookBest, lookCandidates, LookFrames, lookOrder, lookScore, lookTops, meanEmbedding, packLook, scoreCandidates, unpackLook, withoutMisread, type LookEmbedding } from "./look";
 
 const v = (...xs: number[]) => Float32Array.from(xs);
 const emb = (symbol: number[], card: number[]): LookEmbedding => ({ symbol: v(...symbol), card: v(...card) });
@@ -40,6 +40,12 @@ describe("the look's score", () => {
 });
 
 describe("the printing list in look order", () => {
+  it("puts a printing said to be wrong last, whatever its score", () => {
+    const list = ["a", "b", "c"].map(p);
+    expect(withoutMisread(lookOrder(list, 0, { a: 0.9, b: 0.5, c: 0.1 }), "a").map((o) => o.scryfall_id)).toEqual(["b", "c", "a"]);
+    expect(withoutMisread(list, undefined).map((o) => o.scryfall_id)).toEqual(["a", "b", "c"]);
+  });
+
   const options = ["new", "mid", "old", "oldest"].map(p);
   it("keeps the collector line's matches first, then the look's best first, then the unscored as they came", () => {
     expect(lookOrder(options, 0, { old: 0.9, mid: 0.4 }).map((o) => o.scryfall_id)).toEqual(["old", "mid", "new", "oldest"]);
@@ -147,7 +153,14 @@ describe("the frames kept for the card's side", () => {
     expect(kept.of(5)).toHaveLength(1);
   });
 
-  it("is kept under every artwork a frame matched, each once (one reprinted since the bundle counts one printing there)", () => {
-    expect(lookTops([{ index: 3 }, { index: 8 }, { index: 3 }, { index: 11 }])).toEqual([3, 8, 11]);
+  it("is kept under the artworks a frame matched well and near its best, each once, whatever the bundle's printing count", () => {
+    // A title read can settle on 11 (0.66, near the best); 8 (0.4) and 20 (0.6, far behind) are only on the list.
+    expect(lookTops([{ index: 3, score: 0.8 }, { index: 8, score: 0.4 }, { index: 3, score: 0.79 }, { index: 11, score: 0.66 }, { index: 20, score: 0.6 }])).toEqual([3, 11]);
+    expect(lookTops([{ index: 5, score: 0.45 }])).toEqual([]);
+  });
+
+  it("knows which card leads a frame, so the ring starts afresh for another", () => {
+    expect(leadingCard([{ name: "Forest", score: 0.7 }, { name: "Sol Ring", score: 0.9 }])).toBe("Sol Ring");
+    expect(leadingCard([])).toBeNull();
   });
 });

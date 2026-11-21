@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, type Printing } from "../api";
 import { loadArtRecognizer, NO_ART_MODEL, RECOGNIZER_SHORT_SIDE, scanBundleInfo, type ArtRecognizer, type LoadState, type LookDone } from "./artClient";
-import { lookBest, lookCandidates, lookOrder, type LookScores } from "./look";
+import { lookBest, lookCandidates, lookOrder, withoutMisread, type LookScores } from "./look";
 import { modelsOf, onModelsChange, running, runningAll, saveModel, savedModels, type DeviceCan, type ModelChoices, type ModelSlot, type ModelsInfo, type Running } from "./models";
 import { ModelsSetting } from "./ModelsSetting";
 import { NameIndex } from "./fuzzy";
@@ -1703,7 +1703,8 @@ export function ScannerView({
       hiCanvasRef.current ??= document.createElement("canvas");
       const art = artRef.current;
       if (art) {
-        art.reset();
+        // A photo is another view: the camera's frames kept for the look aren't of it.
+        art.reset({ frames: true });
         const { image, k } = small(bmp, bmp.width, bmp.height, canvasRef.current);
         const r = await art.identify(image);
         const locked = lockRef.current;
@@ -2445,8 +2446,10 @@ export function ScannerView({
   // The list as shown: the collector line's matches first, then the printing look's order (look.ts),
   // with its best guess marked once two are scored.
   const lookNowScores = look && look.complete && look.seq === foundSeq.current && lookTouched !== look.seq ? look.scores : undefined;
-  const listed = options && lookOrder(options, found?.readFirst ?? 0, lookNowScores);
-  const lookGuess = lookBest(lookNowScores);
+  // The printing said to be wrong (Wrong printing) goes last and is never the look's guess.
+  const misreadId = found?.misread?.scryfall_id;
+  const listed = options && withoutMisread(lookOrder(options, found?.readFirst ?? 0, lookNowScores), misreadId);
+  const lookGuess = lookBest(lookNowScores && misreadId ? Object.fromEntries(Object.entries(lookNowScores).filter(([id]) => id !== misreadId)) : lookNowScores);
   // The latest frame of the held card, else the one it was found in.
   const peekShot = liveShot ?? found?.shot ?? null;
   // "Read the collector number up close", in the found card's More.
@@ -2837,8 +2840,12 @@ export function ScannerView({
                 className="scan-printings"
                 role="listbox"
                 aria-label="Printings"
-                // Touched before the look finished: it won't reorder the list under the person.
+                // Touched (or reached by keyboard) before the look finished: it won't reorder the
+                // list under the person.
                 onPointerDown={() => {
+                  if (!lookNowScores && lookTouched !== foundSeq.current) setLookTouched(foundSeq.current);
+                }}
+                onFocusCapture={() => {
                   if (!lookNowScores && lookTouched !== foundSeq.current) setLookTouched(foundSeq.current);
                 }}
               >

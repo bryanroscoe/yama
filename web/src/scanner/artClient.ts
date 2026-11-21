@@ -33,7 +33,8 @@ export type ArtWorkerRequest =
   | { type: "keep-frames"; on: boolean }
   /** Copies of the kept frames whose best match was artwork `index`. */
   | { type: "frames"; id: number; index: number }
-  | { type: "reset" }
+  /** `frames`: also forget the frames kept for the printing look (a photo is another view). */
+  | { type: "reset"; frames?: boolean }
   | { type: "pool"; id: number; keys: PoolKeys | null }
   | { type: "identify"; id: number; width: number; height: number; buffer: ArrayBuffer };
 
@@ -63,7 +64,7 @@ export interface ArtRecognizer {
   /** Takes ownership of `image.data`'s buffer. */
   identify(image: RgbaImage): Promise<Recognition>;
   /** Forget the card being tracked (between photos, say). */
-  reset(): void;
+  reset(opts?: { frames?: boolean }): void;
   /**
    * Match only these artworks as well (the set lock), into `Recognition.pool`; null stops. Resolves
    * to how many of the bundle's artworks they are, or -1 when this bundle can't be searched by part.
@@ -339,8 +340,11 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
         return new Promise<void>((resolve, reject) => {
           lookLoads.set(id, (error) => {
             if (error) {
-              // No model: the worker and its runtime go, and nothing keeps frames for it.
+              // No model: the worker and its runtime go (and any look on it ends), and nothing
+              // keeps frames for it.
               lookNow = "off";
+              for (const l of looks.values()) l.done(null, error);
+              looks.clear();
               worker.postMessage({ type: "keep-frames", on: false } satisfies ArtWorkerRequest);
               w.terminate();
               if (lookWorker === w) lookWorker = null;
@@ -386,8 +390,8 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
         worker.postMessage({ type: "identify", id, width: image.width, height: image.height, buffer } satisfies ArtWorkerRequest, [buffer]);
       });
     },
-    reset() {
-      if (!disposed) worker.postMessage({ type: "reset" } satisfies ArtWorkerRequest);
+    reset(opts) {
+      if (!disposed) worker.postMessage({ type: "reset", frames: opts?.frames } satisfies ArtWorkerRequest);
     },
     setPool(keys) {
       if (disposed) return Promise.resolve(-1);

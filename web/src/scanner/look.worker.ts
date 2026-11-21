@@ -47,13 +47,18 @@ async function load(url: string, bytes: number) {
   const session = (await ort.InferenceSession.create(graph, { executionProviders: ["wasm"], graphOptimizationLevel: "all" })) as unknown as LookSession;
   const old = model;
   model = { session, key };
-  void old?.session.release?.().catch(() => undefined);
+  // A look already under way may still be running the old one: let it finish first.
+  if (old) setTimeout(() => void old.session.release?.().catch(() => undefined), 10_000);
   for (const k of keys.keys()) if (!k.startsWith(`${key}|`)) keys.delete(k);
   const cache = await caches.open(LOOK_CACHE).catch(() => null);
   if (!cache) return;
   // Another model's embeddings go, once, when the model changes (not on every scanner open).
   const current = await (await cache.match(new URL(CURRENT, self.location.origin).href))?.text();
-  if (current === key) return;
+  if (current === key) {
+    // Kept within its cap across scanner sessions, not only in one that adds 100.
+    await trim(cache).catch(() => undefined);
+    return;
+  }
   for (const req of await cache.keys()) {
     const path = new URL(req.url).pathname;
     if (path !== CURRENT && !path.startsWith(`${LOOK_PATH}${key}/`)) await cache.delete(req);
