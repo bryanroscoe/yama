@@ -57,19 +57,29 @@ def centre(patch):
 
 
 def cases(groups="data/look_groups.json"):
-    """The labelled real photos whose artwork several printings share: (manifest row, its printing, the
-    printings of its artwork that have an image in data/printings)."""
+    """The labelled real photos whose artwork several printings share: (manifest row, its printing, every
+    printing of its artwork). Every candidate's image must be in data/printings: a missing one would
+    quietly change the benchmark, so this stops and names them. Fronts only: a two-faced card is grouped
+    and embedded by its front, so a photo of a back face (its art guess is another artwork) is compared
+    with the fronts and counts against the model; how many there are is printed."""
     d = json.load(open(groups))
     ill_of, by_ill = {}, {}
     for g in d["test"]:
         by_ill[g["ill"]] = [p["id"] for p in g["printings"]]
         for p in g["printings"]: ill_of[p["id"]] = g["ill"]
-    out = []
+    out, missing, backs = [], set(), 0
     for line in open(f"{REAL}/manifest.jsonl"):
         r = json.loads(line); pid = r.get("label_scryfall_id")
         if not pid or pid not in ill_of: continue
-        ms = [m for m in by_ill[ill_of[pid]] if os.path.exists(f"data/printings/{m}.jpg")]
-        if len(ms) >= 2 and pid in ms: out.append((r, pid, ms))
+        ms = by_ill[ill_of[pid]]
+        missing |= {m for m in ms if not os.path.exists(f"data/printings/{m}.jpg")}
+        backs += bool(r.get("guess_illustration_id")) and r["guess_illustration_id"] != ill_of[pid]
+        out.append((r, pid, ms))
+    if missing:
+        raise SystemExit(f"{len(missing)} candidate images missing from data/printings (run look_download.py): {sorted(missing)[:5]}")
+    if not out:
+        raise SystemExit(f"No labelled photo in {REAL}/manifest.jsonl has an artwork in {groups}'s test groups.")
+    print(f"{len(out)} real photos; {backs} of a back face (compared with the fronts)", flush=True)
     return out
 
 

@@ -5,13 +5,14 @@ import numpy as np, torch, torch.nn as nn, torch.nn.functional as F
 
 
 class PrintNet(nn.Module):
-    def __init__(self, arch="small", dim=128):
+    def __init__(self, arch="small", dim=128, pretrained=True):
+        """`pretrained` starts from ImageNet (training); False when a checkpoint is loaded over it anyway."""
         super().__init__()
         from torchvision.models import mobilenet_v3_large, mobilenet_v3_small, MobileNet_V3_Large_Weights, MobileNet_V3_Small_Weights
         if arch == "large":
-            self.features = mobilenet_v3_large(weights=MobileNet_V3_Large_Weights.IMAGENET1K_V2).features; c = 960
+            self.features = mobilenet_v3_large(weights=MobileNet_V3_Large_Weights.IMAGENET1K_V2 if pretrained else None).features; c = 960
         else:
-            self.features = mobilenet_v3_small(weights=MobileNet_V3_Small_Weights.IMAGENET1K_V1).features; c = 576
+            self.features = mobilenet_v3_small(weights=MobileNet_V3_Small_Weights.IMAGENET1K_V1 if pretrained else None).features; c = 576
         self.p = nn.Parameter(torch.tensor(3.0))
         self.head = nn.Linear(c, dim)
 

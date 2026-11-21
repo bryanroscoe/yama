@@ -20,8 +20,8 @@ think we should… get all of these merged and move it along as much as you can"
 ability to switch scanners on the fly… switch between models when things break", and, of
 https://app.mtgscan.org/: "want to be able to do as well as this guy. He is really fast."
 
-Experiments, scripts and data live outside the repository in `~/Developer/.agent-tasks/scanner-model-lab/`
-(the photos are people's own and never enter the repository). The training code for each shipped model
+Experiments, scripts and data live in a work directory outside the repository (`scanner-lab/README.md`,
+"Layout"); the photos are people's own and never enter the repository. The training code for each shipped model
 goes into the repository with it: `scanner-lab/` (README.md for the art model, LOOK.md for the look
 model). This page records what was measured and what comes next.
 
@@ -71,8 +71,9 @@ so it can be measured.
 CollectorVision's 90.8%) counted a printing as a twin whenever its whole clean scan matched in grey
 (correlation over 0.97). That also counts printings that differ only in their set symbol, which is exactly
 what a printing model should tell apart: 54 of the 98 photos had such a "twin". The strict rule
-(`scanner-lab/look_crops.py`, `strict_twin`) also needs the set-symbol area to match (over 0.95). Then 30 of
-the 98 have one, and only the collector number tells them apart. Every figure above uses the strict rule.
+(`scanner-lab/look_crops.py`, `strict_twin`) also needs the set-symbol area to correlate (over 0.95). Then
+30 of the 98 have one. It's a benchmark category, not a proof: such printings look alike, so mostly only
+the collector number tells them apart. Every figure above uses the strict rule.
 
 ### The lead rule needs our art model
 
@@ -120,7 +121,7 @@ photos' 0.78.
   is worse on the real photos than the pinned bundle's model (above). Moving the pin to it would also turn
   our model off: it only runs on galleries from the checkpoint it was trained against.
 
-## The printing look (shipped 20 Nov 2026, PRs #172 and the v1 pin)
+## The printing look (shipped 20 Nov 2026 with v0, PR #172; v1 to be pinned)
 
 Telling apart printings that share one artwork is the bigger prize: it's what the collector-line read does
 today, slowly and often not at all.
@@ -132,22 +133,23 @@ today, slowly and often not at all.
 - **What made v1 work:**
   - The set symbol's area carries the signal. A whole card at 320 × 448 learned overall tone instead,
     matching a hazy sleeved card to a pale old-frame printing.
-  - Train on exactly the crop the exported graph makes. v0 lost 5 points between the training code and the
-    exported file.
+  - Train on the crop the exported graph makes, geometrically aligned with it. v0 lost 5 points between
+    the training code and the exported file.
   - All 78,063 printings that share art, not 19,475.
   - A training bug fixed: the MoCo key encoder's BatchNorm statistics never followed the network's.
 - **What it does in the app now:** orders the printing list, the most alike first, and marks its best
   guess. It never files a printing by itself.
-- **Measured (v1):** above. At a margin of 0.10 over every other printing of the art, v1 alone would have
-  picked 45 of the 98 photos with none wrong. Of the rest, 27 were narrowed to strict twins (all of them
-  including the right one) and 26 left to the collector line.
+- **Measured (v1):** above. When v1's top printing leads the next one by 0.10 or more (twins included:
+  the rule an app can run), it would have picked 45 of the 98 photos alone, none wrong; at 0.08, 54 with
+  one wrong. Of the other 53, 27 were narrowed to strict twins (all of them including the right one) and
+  26 left to the collector line. One photo shows a back face, which the lab compares with fronts.
 
 Next, in order:
 1. **Settle when sure, as an option.** A non-default look-slot option that settles the printing when the
-   look leads by 0.10 or more, shown with "Wrong printing?" as collector-line settles are. Twins never lead
-   by that much, since their pictures nearly coincide. Measure it on Scanner diagnostics' records (look
-   scores are recorded) before making it the default: 0 wrong of 45 on 98 photos still allows about one in
-   15 wrong.
+   look's top printing leads the next by 0.10 or more, shown with "Wrong printing?" as collector-line
+   settles are. On these photos no pick with a strict twin led by that much. Measure it on Scanner
+   diagnostics' records (look scores are recorded) before making it the default: 0 wrong of 45 on 98
+   photos still allows about one in 15 wrong.
 2. **The look as evidence for the collector line.** A look leader that the collector line half-read
    settles sooner. Visual twins go to the collector line, and the picker remains the last step.
 3. **Full resolution.** The 98 photos are 640 px and one person's, so differences under about 5 points are

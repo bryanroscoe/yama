@@ -3,7 +3,8 @@ artwork several English paper printings share.
 One item = one artwork: a simulated capture of one printing (shifted crop of its symbol patch) against the
 clean symbol of up to MAX of its printings (InfoNCE across the batch, MoCo key encoder). Real-photo eval
 uses the graph's centre crops (look_crops.py), so it scores what the exported graph will do.
-About 7 minutes for 8 epochs on an M3 Pro's GPU (MPS), 20 Nov 2026. MAXSTEPS stops early (a smoke test).
+About 7 minutes for 8 epochs on an M3 Pro's GPU (MPS), 20 Nov 2026. MAXSTEPS ends the run after that many
+steps, with that epoch saved and scored (a smoke test).
 python <lab>/look_train.py RUN [epochs] [batch]"""
 import sys, os, json, random, time, hashlib, copy
 import numpy as np, torch, torch.nn.functional as F, cv2
@@ -123,6 +124,7 @@ def main():
         torch.save(model.state_dict(), f"runs/{run}/ep{ep}.pt")
         print(f"epoch {ep} loss {tot / max(n, 1):.3f}", flush=True)
         evaluate(model, dev, real, val)
+        if step >= int(os.environ.get("MAXSTEPS", 10**9)): break
 
 
 if __name__ == "__main__":

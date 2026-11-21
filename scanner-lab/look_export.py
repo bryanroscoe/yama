@@ -55,14 +55,15 @@ class Look(nn.Module):
 
 def build(sym_ckpt, card_ckpt):
     from look_net import PrintNet
-    sym = PrintNet("small"); sym.load_state_dict(torch.load(sym_ckpt, map_location="cpu"))
-    card = PrintNet("small"); card.load_state_dict(torch.load(card_ckpt, map_location="cpu"))
+    sym = PrintNet("small", pretrained=False); sym.load_state_dict(torch.load(sym_ckpt, map_location="cpu"))
+    card = PrintNet("small", pretrained=False); card.load_state_dict(torch.load(card_ckpt, map_location="cpu"))
     return Look(sym, card).eval()
 
 
 if __name__ == "__main__":
     sym_ckpt, card_ckpt, out = sys.argv[1:4]
     m = build(sym_ckpt, card_ckpt)
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
     scene = torch.zeros(640, 480, 4, dtype=torch.uint8); quad = torch.tensor([[40., 40], [440, 50], [430, 600], [30, 590]])
     torch.onnx.export(m, (scene, quad), out, input_names=["scene", "quad"], output_names=["symbol", "card"],
                       dynamic_axes={"scene": {0: "height", 1: "width"}}, opset_version=17, dynamo=False)
