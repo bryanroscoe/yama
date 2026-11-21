@@ -152,7 +152,7 @@ pub(crate) const QUERY_MODEL: ModelOption = ModelOption {
     slot: Slot::Art,
     id: "yama-art-20261118",
     label: "Yama's art model, 18 Nov",
-    note: "Fine-tuned for sleeved cards, glare and deck boxes: on real sleeved photos it settles 94% of cards on the first frame, against 85% for ManaVault's.",
+    note: "Fine-tuned for sleeved cards, glare and deck boxes: on real sleeved photos one photo's scores qualify for an art lock on 94% of cards, against 85% for ManaVault's.",
     licence: Some("MPL-2.0"),
     source: Source::File {
         prefix: "query",
@@ -242,23 +242,42 @@ const LOOK_OFF: ModelOption = ModelOption {
     needs: None,
 };
 
-/// Yama's printing look model, v0 (docs/scanner.md, "The printing look", 20 Nov 2026): compares
-/// the card in the camera's frame with each printing that shares its art, by that printing's own
+/// Yama's printing look models (docs/scanner.md, "The printing look", 20 Nov 2026): compare the
+/// card in the camera's frame with each printing that shares its art, by that printing's own
 /// Scryfall picture, to order the printing list. Same interface as the bundle's `embed.onnx`
-/// (`scene`, `quad`), outputs `symbol` and `card` (1 × 128, L2-normalised); it warps the card
-/// itself. Trained by Yama from torchvision's ImageNet MobileNetV3-Small weights (BSD-3-Clause);
-/// a release asset of this repository. It only orders the list: it never files a printing.
+/// (`scene`, `quad`), outputs `symbol` and `card` (1 × 128, L2-normalised); they warp the card
+/// themselves. Trained by Yama from torchvision's ImageNet MobileNetV3-Small weights
+/// (BSD-3-Clause); release assets of this repository. They only order the list: they never file
+/// a printing. v0, the first; v1 (the default) has a set-symbol network trained on the graph's own
+/// crops over all 78,063 English paper printings that share an artwork, and v0's whole-card one.
 const LOOK_V0: ModelOption = ModelOption {
     slot: Slot::Look,
     id: "look-v0",
-    label: "Yama's look model, 20 Nov",
-    note: "Compares the card with each printing's own picture and lists the closest first: on real sleeved photos the right printing comes first 57% of the time, against 41% newest first. It never files a printing by itself.",
+    label: "Yama's look model v0",
+    note: "The first look model: on real sleeved photos the right printing comes first 57% of the time, against 41% newest first. It never files a printing by itself.",
     licence: Some("Yama's licence; base weights BSD-3-Clause (torchvision)"),
     source: Source::File {
         prefix: "look",
         url: "https://github.com/bryanroscoe/yama/releases/download/scanner-look-20261120/yama-look-v0.onnx",
         bytes: 9_292_149,
         sha256: "58acfa166105c3001445589ec11db98d5ed61f1a70a63dc133dca00fa6bd271d",
+    },
+    recogniser: None,
+    default: false,
+    base: false,
+};
+
+const LOOK_V1: ModelOption = ModelOption {
+    slot: Slot::Look,
+    id: "look-v1",
+    label: "Yama's look model v1",
+    note: "Compares the card with each printing's own picture and lists the closest first: on real sleeved photos the right printing comes first 87% of the time (v0 57%, newest first 41%). It never files a printing by itself.",
+    licence: Some("Yama's licence; base weights BSD-3-Clause (torchvision)"),
+    source: Source::File {
+        prefix: "look",
+        url: "https://github.com/bryanroscoe/yama/releases/download/scanner-look-20261120/yama-look-v1.onnx",
+        bytes: 9_292_149,
+        sha256: "152f52c100f0080c98e0ce7063b6fe9444e0c8654b1142772339af84138b79e7",
     },
     recogniser: None,
     default: true,
@@ -347,7 +366,7 @@ const LOCK_SURE: ModelOption = ModelOption {
 };
 
 /// Every option the server knows, by slot. The app is offered those on offer (`offered`).
-pub(crate) const MODELS: &[&ModelOption] = &[&BUNDLE_DETECTOR, &CORNERS_MODEL, &BUNDLE_ART, &QUERY_MODEL, &QUERY_CASCADE, &LOOK_OFF, &LOOK_V0, &TEXT_AUTO, &TEXT_MLKIT, &TEXT_PADDLE, &TEXT_TESSERACT, &LOCK_LEAD, &LOCK_SURE];
+pub(crate) const MODELS: &[&ModelOption] = &[&BUNDLE_DETECTOR, &CORNERS_MODEL, &BUNDLE_ART, &QUERY_MODEL, &QUERY_CASCADE, &LOOK_OFF, &LOOK_V0, &LOOK_V1, &TEXT_AUTO, &TEXT_MLKIT, &TEXT_PADDLE, &TEXT_TESSERACT, &LOCK_LEAD, &LOCK_SURE];
 
 impl ModelOption {
     /// Its file in the bundle's folder, if it has one. A file of ours is never `embed.onnx`, which
@@ -1210,13 +1229,19 @@ mod tests {
         // The bundle's own stays where scan_art.rs reads it.
         assert_eq!(std::fs::read(dir.join("embed.onnx")).unwrap(), b"bundle");
 
-        // The look model once it's here: offered, and the look's default.
-        let look = LOOK_V0.file().unwrap();
-        std::fs::write(dir.join(&look), vec![1u8; LOOK_V0.bytes().unwrap() as usize]).unwrap();
+        // A look model once it's here: offered. v0 alone isn't the default (v1 is); until v1 is
+        // here too, the look's base (off) is.
+        let v0 = LOOK_V0.file().unwrap();
+        std::fs::write(dir.join(&v0), vec![1u8; LOOK_V0.bytes().unwrap() as usize]).unwrap();
         let (_, info) = testutil::send(&app, Method::GET, "/api/scan/bundle", Some(&token), None).await;
-        assert_eq!(slot(&info, "look"), (ids(&["off", "look-v0"]), "look-v0".into()));
+        assert_eq!(slot(&info, "look"), (ids(&["off", "look-v0"]), "off".into()));
         assert_eq!(info["models"]["look"]["options"][1]["file"], format!("/scan-bundle/{BUNDLE_VERSION}/look-58acfa166105.onnx").as_str());
         assert_eq!(info["models"]["look"]["options"][1]["bytes"], 9_292_149);
+        let v1 = LOOK_V1.file().unwrap();
+        assert_eq!(v1, "look-152f52c100f0.onnx");
+        std::fs::write(dir.join(&v1), vec![2u8; LOOK_V1.bytes().unwrap() as usize]).unwrap();
+        let (_, info) = testutil::send(&app, Method::GET, "/api/scan/bundle", Some(&token), None).await;
+        assert_eq!(slot(&info, "look"), (ids(&["off", "look-v0", "look-v1"]), "look-v1".into()));
         // It doesn't replace the art model's file.
         assert_eq!(info["files"]["embed"], query_embed.as_str());
 
@@ -1234,8 +1259,12 @@ mod tests {
         assert_eq!(slot(&info, "lock"), (ids(&["sure"]), "sure".into()));
         assert_eq!(slot(&info, "text"), (ids(&["auto", "mlkit", "tesseract"]), "auto".into()));
         assert_eq!(slot(&info, "art"), (ids(&["bundle", QUERY_MODEL.id]), QUERY_MODEL.id.into()));
-        assert_eq!(slot(&info, "look"), (ids(&["off", "look-v0"]), "look-v0".into()));
-        let no_look = app_with(true, &["look-v0"]).await;
+        assert_eq!(slot(&info, "look"), (ids(&["off", "look-v0", "look-v1"]), "look-v1".into()));
+        // Withdrawing v1 leaves v0 to choose and the look off by default; both, the look off.
+        let no_v1 = app_with(true, &["look-v1"]).await;
+        let (_, info) = testutil::send(&no_v1, Method::GET, "/api/scan/bundle", Some(&token), None).await;
+        assert_eq!(slot(&info, "look"), (ids(&["off", "look-v0"]), "off".into()));
+        let no_look = app_with(true, &["look-v0", "look-v1"]).await;
         let (_, info) = testutil::send(&no_look, Method::GET, "/api/scan/bundle", Some(&token), None).await;
         assert_eq!(slot(&info, "look"), (ids(&["off"]), "off".into()));
 

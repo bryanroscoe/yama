@@ -169,8 +169,9 @@ EMBED=models/yama-art-20261118.onnx .venv/bin/python <lab>/corners_eval.py bundl
 
 ## The printing look's parity check
 
-`look_parity.py MODEL OUT.json` runs a printing look model (`yama-look-v0.onnx`, docs/scanner.md,
-"The printing look") on two synthetic scenes in Python's onnxruntime and writes the outputs the
-repository's parity test compares with (`web/src/scanner/eval/look-parity.json`; checked 20 Nov
-2026: it remakes that file byte for byte with onnxruntime 1.32). The look model's training scripts
-and the real-photo replay's inputs stay in the lab for now: the replay's are people's data.
+`look_parity.py MODEL OUT.json` runs a printing look model (`yama-look-v0.onnx` or `-v1`,
+docs/scanner.md, "The printing look") on two synthetic scenes in Python's onnxruntime and writes
+the outputs the repository's parity test compares with, one file per model
+(`web/src/scanner/eval/look-parity-v0.json`, `-v1.json`; checked 20 Nov 2026: it remakes both
+byte for byte with onnxruntime 1.32). The look models' training scripts come separately
+(`scanner-lab/look/`); the real-photo replay's inputs stay in the lab: they are people's data.
