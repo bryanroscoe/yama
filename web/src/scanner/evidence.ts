@@ -249,7 +249,12 @@ export function scoreFrame(e: Expected, reads: readonly string[]): FieldScores {
   }
   for (const line of reads.flatMap((r) => r.toUpperCase().split(/\n+/))) {
     const runs = line.split(/[^A-Z0-9]+/).filter(Boolean);
-    for (let i = 0; i + 1 < runs.length; i += 1) if (runs[i + 1]! in LANGS && looksLikeSet(runs[i]!) && /[A-Z]/.test(runs[i]!) && tokenMatch(runs[i]!, e.set) === 0) s.setAgainst = true;
+    const against = (t: string) => looksLikeSet(t) && /[A-Z]/.test(t) && tokenMatch(t, e.set) === 0;
+    for (let i = 0; i + 1 < runs.length; i += 1) if (runs[i + 1]! in LANGS && against(runs[i]!)) s.setAgainst = true;
+    // Glued to its language at the start of the line ("QRSENJRYAN"), as tokens() reads it (Codex review of #180).
+    const first = runs[0];
+    const glued = first && first.length >= 5 ? GLUED_LANG.exec(first) : null;
+    if (glued && against(glued[1]!)) s.setAgainst = true;
   }
   return s;
 }

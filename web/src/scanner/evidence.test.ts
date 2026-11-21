@@ -96,6 +96,10 @@ describe("collector-line evidence", () => {
     expect(verdict(cards, [["0022", "XY2 • EN"], ["0022"]]).kind).toBe("unsure");
     // A set code read where it's printed that's none of the candidates' (a set the lock left out).
     expect(verdict([p("abc", "abc", "145"), p("def", "def", "390")], Array(2).fill(["0145 C\nQRS • EN"])).kind).toBe("unsure");
+    // The same set code glued to its language and the artist (Codex review of #180).
+    expect(verdict([p("abc", "abc", "145"), p("def", "def", "390")], Array(2).fill(["0145 C\nQRSENJRYAN VALLE"])).kind).toBe("unsure");
+    // The leader's own set code glued on doesn't count against it.
+    expect(verdict([p("abc", "abc", "145"), p("def", "def", "390")], Array(2).fill(["0145 C\nABCENJRYAN VALLE"])).kind).toBe("settled");
     // An artist's name later on the line isn't a glued set code and language.
     expect(tokens("DMU • EN DOMENICO CAVA")).not.toContain("DOM");
   });
