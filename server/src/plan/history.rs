@@ -312,9 +312,9 @@ async fn record_with(
         }
         // A correction always goes in: the entry it replaces may say the same.
         None if replaces.is_some() => None,
-        // A tool's entry: the same words in the last hour, whatever their day; past that it's an
-        // event of its own, even on the same day as an identical one. One corrected since counts:
-        // the retry is of the call that recorded it.
+        // A tool's entry: the same words since the plan last changed, whatever their day; before
+        // that it's an event of its own, even on the same day as an identical one. One corrected
+        // since counts: the retry is of the call that recorded it.
         None if window.is_some() => {
             sqlx::query_as(
                 "SELECT id, plan_deck_id, on_date, what, asked, conversation, work, group_label, cards, replaces, plan_named FROM plan_history
@@ -434,16 +434,15 @@ async fn record_with(
     Ok(Recorded { id, deck_key, deck, again: false, group, cards })
 }
 
-/// How long a tool's own entry counts as a retry of an identical one (`record_once`).
-const RETRY_WINDOW_MINUTES: i64 = 60;
-
-/// Record an entry a tool writes itself (`track_build`) unless the plan got the same one in the
-/// last hour: a retry after a lost reply has no op_id of its own and can come after midnight, so
-/// it can't be found by its day. Later, the same words are a new event (tracked again after a
-/// stop) and are recorded with their own day.
+/// Record an entry a tool writes itself (`track_build`) unless the plan already got the same one
+/// since it last changed. A retry after a lost reply has no op_id of its own and can come after
+/// midnight, so it's found by the plan: the call it repeats changed the plan, then recorded the
+/// entry, and nothing has changed the plan since. Tracking again after a stop changes the plan
+/// twice (the stop, the tracking), so the same words then are a new event, however soon.
 pub async fn record_once(pool: &SqlitePool, owner: &str, plan: PlanRef<'_>, e: &Entry, via: &str) -> AppResult<Recorded> {
-    let since = (chrono::Utc::now() - chrono::Duration::minutes(RETRY_WINDOW_MINUTES)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-    record_with(pool, owner, plan, e, None, None, via, Some(&since)).await
+    let (plan_id, _, _) = resolve(pool, owner, plan).await?;
+    let changed: String = sqlx::query_scalar("SELECT updated_at FROM plan_decks WHERE id = ? AND owner_id = ?").bind(&plan_id).bind(owner).fetch_one(pool).await?;
+    record_with(pool, owner, PlanRef::Id(&plan_id), e, None, None, via, Some(&changed)).await
 }
 
 /// How many entries the plan's history has.
