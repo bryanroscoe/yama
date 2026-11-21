@@ -977,12 +977,36 @@ pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>
     if more > 0 {
         events.push((String::new(), 0, format!("{more} earlier answers aren't listed here; call again with card for one change's.")));
     }
+    // Archive and Bring it back pressed on the plan's page, each time (plan ops); the archive in
+    // force now, when no press explains it.
+    let presses: Vec<(String, String)> = sqlx::query_as(
+        "SELECT payload, client_at FROM plan_inputs WHERE owner_id = ? AND kind = 'plan' AND status = 'applied' AND deck_key = ? ORDER BY client_at, seq",
+    )
+    .bind(owner)
+    .bind(&key)
+    .fetch_all(pool)
+    .await?;
+    let mut pressed = false;
+    for (payload, at) in presses {
+        let p: Value = serde_json::from_str(&payload).unwrap_or(Value::Null);
+        match p["action"].as_str() {
+            Some("archive") => {
+                pressed = true;
+                events.push((day(&at).to_string(), 3, "Archived in Yama.".into()));
+            }
+            Some("restore") => events.push((day(&at).to_string(), 3, "Brought back in Yama.".into())),
+            _ => {}
+        }
+    }
     if let Some(at) = &archived_at {
-        events.push((day(at).to_string(), 3, format!("Archived{}.", archived_note.as_deref().map(|n| format!(": {n}")).unwrap_or_default())));
+        if !pressed || archived_note.as_deref() != Some("Archived by you") {
+            events.push((day(at).to_string(), 3, format!("Archived{}.", archived_note.as_deref().map(|n| format!(": {n}")).unwrap_or_default())));
+        }
     } else if status == "archived" {
-        // Stopping a note's plan, or a plan file or note that no longer has it, archives the plan
-        // by its status alone: the day is when the plan last changed.
-        let why = if note_id.is_some() { "its note's build stopped being tracked, or the note no longer has it" } else { "the plan file no longer has it" };
+        // Archived by its status alone, which nothing dates: a note's build stopped being tracked
+        // or the note dropped it, or the plan file dropped it or marked it archived. The day is
+        // when the plan last changed.
+        let why = if note_id.is_some() { "its note's build stopped being tracked, or the note no longer has it" } else { "by its plan file" };
         events.push((day(&updated_at).to_string(), 3, format!("Archived: {why} (the day the plan last changed).")));
     }
     events.sort_by(|a, b| (a.0.as_str(), a.1).cmp(&(b.0.as_str(), b.1)));

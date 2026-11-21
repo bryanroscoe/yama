@@ -3401,3 +3401,7 @@ We've kind of got too messy in a lot of these."
   content, and recording it through the MCP doesn't need a publish.
 - **Not yet on the pages.** The plan page doesn't show the history; it's MCP only until it has a
   design (docs/ui-mcp-parity.md).
+- **What isn't dated.** Archive and Bring it back pressed on a page are plan ops, so each press is in
+  the timeline. A plan archived by its status alone (a note's build stopped being tracked, or a
+  plan file or note that dropped it or marked it archived) records no time of its own: the timeline
+  dates it by the plan's last change, and an earlier such archive that was undone leaves no trace.
