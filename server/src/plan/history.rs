@@ -392,7 +392,8 @@ async fn record_with(
         .bind(&plan_id)
         .fetch_one(&mut *tx)
         .await?;
-    if count >= ENTRIES_MAX {
+    // A correction takes the place of the entry it replaces, so it's taken at the cap too.
+    if count >= ENTRIES_MAX && replaces.is_none() {
         return Err(AppError::bad(format!("{deck}'s history already has {ENTRIES_MAX} entries; correct one with replaces instead of adding more")));
     }
     let id = new_id();
