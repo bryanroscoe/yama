@@ -444,11 +444,24 @@ pub(crate) async fn offered(off: &Withdrawn, dir: &Path, manifest: Option<&serde
     out
 }
 
-/// The option a slot runs unless the app chooses another: its default if on offer, else its base,
-/// else the first on offer.
+/// When a slot's default isn't on offer (still downloading after a deploy, or withdrawn because
+/// it broke), the option that stands in for it before the slot's base: the default before it. So
+/// `YAMA_SCAN_WITHDRAW=look-v1` puts phones back on v0, not off.
+const STANDS_IN: &[(&str, &str)] = &[("look-v1", "look-v0")];
+
+/// The option a slot runs unless the app chooses another: its default if on offer, else what
+/// stands in for it (`STANDS_IN`, in turn), else its base, else the first on offer.
 pub(crate) fn default_of(slot: Slot, offered: &[&'static ModelOption]) -> Option<&'static ModelOption> {
     let all: Vec<&'static ModelOption> = offered.iter().copied().filter(|o| o.slot == slot).collect();
-    all.iter().find(|o| o.default).or_else(|| all.iter().find(|o| o.base)).or(all.first()).copied()
+    let mut want = MODELS.iter().find(|o| o.slot == slot && o.default).map(|o| o.id);
+    for _ in 0..=STANDS_IN.len() {
+        let Some(id) = want else { break };
+        if let Some(o) = all.iter().find(|o| o.id == id) {
+            return Some(o);
+        }
+        want = STANDS_IN.iter().find(|(from, _)| *from == id).map(|(_, to)| *to);
+    }
+    all.iter().find(|o| o.base).or(all.first()).copied()
 }
 
 pub fn router(data_dir: &Path) -> Router<AppState> {
@@ -1102,6 +1115,12 @@ mod tests {
         }
         let files = pinned_files();
         assert_eq!(files.len(), files.iter().collect::<std::collections::HashSet<_>>().len(), "two options share a file");
+        // What stands in for a default is another option of the same slot, and the chain ends.
+        for (from, to) in STANDS_IN {
+            let (a, b) = (MODELS.iter().find(|o| o.id == *from).unwrap(), MODELS.iter().find(|o| o.id == *to).unwrap());
+            assert_eq!(a.slot, b.slot, "{from} → {to}");
+            assert!(!b.base && from != to, "{from} → {to}");
+        }
         for slot in SLOTS {
             let of: Vec<_> = MODELS.iter().filter(|o| o.slot == slot).collect();
             assert_eq!(of.iter().filter(|o| o.base).count(), 1, "{slot:?} needs exactly one base option");
@@ -1229,12 +1248,12 @@ mod tests {
         // The bundle's own stays where scan_art.rs reads it.
         assert_eq!(std::fs::read(dir.join("embed.onnx")).unwrap(), b"bundle");
 
-        // A look model once it's here: offered. v0 alone isn't the default (v1 is); until v1 is
-        // here too, the look's base (off) is.
+        // A look model once it's here: offered. Until v1, the default, is here too (it downloads
+        // after a deploy), v0 stands in for it.
         let v0 = LOOK_V0.file().unwrap();
         std::fs::write(dir.join(&v0), vec![1u8; LOOK_V0.bytes().unwrap() as usize]).unwrap();
         let (_, info) = testutil::send(&app, Method::GET, "/api/scan/bundle", Some(&token), None).await;
-        assert_eq!(slot(&info, "look"), (ids(&["off", "look-v0"]), "off".into()));
+        assert_eq!(slot(&info, "look"), (ids(&["off", "look-v0"]), "look-v0".into()));
         assert_eq!(info["models"]["look"]["options"][1]["file"], format!("/scan-bundle/{BUNDLE_VERSION}/look-58acfa166105.onnx").as_str());
         assert_eq!(info["models"]["look"]["options"][1]["bytes"], 9_292_149);
         let v1 = LOOK_V1.file().unwrap();
@@ -1260,10 +1279,10 @@ mod tests {
         assert_eq!(slot(&info, "text"), (ids(&["auto", "mlkit", "tesseract"]), "auto".into()));
         assert_eq!(slot(&info, "art"), (ids(&["bundle", QUERY_MODEL.id]), QUERY_MODEL.id.into()));
         assert_eq!(slot(&info, "look"), (ids(&["off", "look-v0", "look-v1"]), "look-v1".into()));
-        // Withdrawing v1 leaves v0 to choose and the look off by default; both, the look off.
+        // Withdrawing v1 (it broke) puts everyone on the default back on v0; both, the look off.
         let no_v1 = app_with(true, &["look-v1"]).await;
         let (_, info) = testutil::send(&no_v1, Method::GET, "/api/scan/bundle", Some(&token), None).await;
-        assert_eq!(slot(&info, "look"), (ids(&["off", "look-v0"]), "off".into()));
+        assert_eq!(slot(&info, "look"), (ids(&["off", "look-v0"]), "look-v0".into()));
         let no_look = app_with(true, &["look-v0", "look-v1"]).await;
         let (_, info) = testutil::send(&no_look, Method::GET, "/api/scan/bundle", Some(&token), None).await;
         assert_eq!(slot(&info, "look"), (ids(&["off"]), "off".into()));
@@ -1393,9 +1412,15 @@ mod tests {
         // Another pinned option's download under way, and a pinned file whatever its age.
         std::fs::write(dir.path().join(format!("{}.part", query_file())), b"downloading").unwrap();
         std::fs::write(dir.path().join("supplement-abc.json"), b"{}").unwrap();
-        // Another kind of model keeps its own pin before, whatever the query models do.
+        // Another kind of model keeps its own pin before, whatever the query models do; and both
+        // look pins stay, with a download of one under way.
         let f = std::fs::File::create(dir.path().join("look-000000000000.onnx")).unwrap();
         f.set_modified(std::time::SystemTime::now() - day * 3).unwrap();
+        let (v0, v1) = (LOOK_V0.file().unwrap(), LOOK_V1.file().unwrap());
+        for name in [v0.clone(), format!("{v1}.part")] {
+            let f = std::fs::File::create(dir.path().join(&name)).unwrap();
+            f.set_modified(std::time::SystemTime::now() - day * 5).unwrap();
+        }
 
         // Wrong bytes or too many: nothing named, nothing left over, older pins untouched.
         for path in ["/bad", "/long"] {
@@ -1416,6 +1441,7 @@ mod tests {
         assert_eq!(std::fs::read(dir.path().join("embed.onnx")).unwrap(), b"bundle");
         assert!(dir.path().join("supplement-abc.json").exists());
         assert!(dir.path().join("look-000000000000.onnx").exists());
+        assert!(dir.path().join(&v0).exists() && dir.path().join(format!("{v1}.part")).exists());
         server.abort();
     }
 

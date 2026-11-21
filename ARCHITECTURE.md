@@ -632,7 +632,9 @@ newest-first order the list had.
   for that would be full-resolution scans, measured first.
 - **Models of Yama's, pinned like the art model** (`look-v1`, the look slot's default, and
   `look-v0` in `MODELS`, `scanner-look-20261120` release assets);
-  `YAMA_SCAN_WITHDRAW=look-v0,look-v1` withdraws them. Its base weights are torchvision's (BSD-3-Clause); the notice is in docs/scanner.md.
+  `YAMA_SCAN_WITHDRAW=look-v0,look-v1` withdraws them (`look-v1` alone puts the default back on
+  v0, which also stands in while v1 downloads). Their base weights are torchvision's
+  (BSD-3-Clause); the notice is in COPYRIGHT and docs/scanner.md.
 
 ## Sections in boxes, and scanning a box (16 November 2026)
 

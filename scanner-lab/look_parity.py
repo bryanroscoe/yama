@@ -1,5 +1,6 @@
-"""Expected outputs of yama-look-v0.onnx on synthetic scenes (no card images), for the repository's
-parity test (web/src/scanner/eval/look.test.ts, look-parity.json). python look_parity.py MODEL OUT.json"""
+"""Expected outputs of a printing look model (yama-look-v0.onnx, -v1) on synthetic scenes (no card
+images), for the repository's parity test (web/src/scanner/eval/look.test.ts, one file per model:
+look-parity-v0.json, -v1.json). python look_parity.py MODEL OUT.json"""
 import sys, json, hashlib
 import numpy as np, onnxruntime as ort
 
