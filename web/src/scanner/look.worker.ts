@@ -6,10 +6,34 @@
 // is kept per model in memory and in a Cache API of its own (LOOK_CACHE, listed in public/sw.js),
 // capped, so the art worker's clean-up of the bundle's cache never has to read through them. One
 // WASM thread, as for the art worker.
+//
+// Yama's server makes the same vectors (server/src/scan_look.rs): for the printings this device
+// hasn't got, the worker asks artClient to ask the server ("need") while it embeds the card's side,
+// waits for the answer a moment at most, and fetches from Scryfall only what the server hasn't got;
+// an answer that comes later still stops the fetches it makes needless (look.ts, `serverOrOwn`).
 
 import * as ort from "onnxruntime-web/wasm";
 import wasmUrl from "onnxruntime-web/ort-wasm-simd-threaded.wasm?url";
-import { cornersOf, embedLook, meanEmbedding, packLook, scoreCandidates, unpackLook, type LookCandidate, type LookDone, type LookEmbedding, type LookSession, type LookTensor, type LookWorkerReply, type LookWorkerRequest, type WireFrame } from "./look";
+import {
+  cornersOf,
+  embedLook,
+  meanEmbedding,
+  packLook,
+  scoreCandidates,
+  SERVER_MAX_IDS,
+  ServerAnswer,
+  serverKeys,
+  serverOrOwn,
+  unpackLook,
+  type LookCandidate,
+  type LookDone,
+  type LookEmbedding,
+  type LookSession,
+  type LookTensor,
+  type LookWorkerReply,
+  type LookWorkerRequest,
+  type WireFrame,
+} from "./look";
 import { cachedFile } from "./scanCache";
 
 ort.env.wasm.wasmPaths = { wasm: wasmUrl };
@@ -29,11 +53,19 @@ const CURRENT = `${LOOK_PATH}current`;
 const KEEP_CACHED = 4000;
 const KEEP_IN_MEMORY = 1500;
 let putsSinceTrim = 0;
+/**
+ * How long after a look begins its printings wait for the server's answer at most before fetching
+ * their own pictures: the card's side is embedded meanwhile, which takes about that long on a
+ * phone; an answer that comes later still cuts the fetching short.
+ */
+const SERVER_WAIT_MS = 400;
 
 let model: { session: LookSession; key: string } | null = null;
 let loading: Promise<void> | null = null;
 const runs = new Map<number, AbortController>();
 const keys = new Map<string, LookEmbedding>();
+/** Each look's wait for the server's answer, by look id: settled by a "keys" message, or empty when the look ends. */
+const answers = new Map<number, (looks: Extract<LookWorkerRequest, { type: "keys" }>["looks"], ms: number | null) => void>();
 
 /** Load the look model, and drop printings embedded by another (unless `keepCache`: the speed test). */
 async function load(url: string, bytes: number, keepCache = false) {
@@ -78,41 +110,55 @@ const remember = (memo: string, e: LookEmbedding) => {
   if (keys.size > KEEP_IN_MEMORY) keys.delete(keys.keys().next().value!);
 };
 
-type Times = Pick<LookDone, "cached" | "fetchMs" | "decodeMs" | "embedMs">;
+type Times = Pick<LookDone, "cached" | "fetchMs" | "decodeMs" | "embedMs"> & { server: number };
 
-/** A printing's picture, embedded: from memory, the cache, or fetched from Scryfall. */
-async function key(m: { session: LookSession; key: string }, c: LookCandidate, times: Times, signal?: AbortSignal): Promise<LookEmbedding> {
+const cacheUrlOf = (m: { key: string }, c: LookCandidate) => new URL(`${LOOK_PATH}${m.key}/${encodeURIComponent(c.url)}`, self.location.origin).href;
+
+/** A printing's vector from this device: memory, or the Cache API (kept in memory then); null when neither has it. */
+async function kept(m: { key: string }, c: LookCandidate, cache: Cache | null): Promise<LookEmbedding | null> {
   const memo = `${m.key}|${c.url}`;
   const hit = keys.get(memo);
-  if (hit) {
-    times.cached += 1;
-    return hit;
-  }
-  const cacheUrl = new URL(`${LOOK_PATH}${m.key}/${encodeURIComponent(c.url)}`, self.location.origin).href;
+  if (hit) return hit;
+  const res = await cache?.match(cacheUrlOf(m, c));
+  const unpacked = res ? unpackLook(new Float32Array(await res.arrayBuffer())) : null;
+  if (unpacked) remember(memo, unpacked);
+  return unpacked;
+}
+
+/** A printing's vector: from this device, the server's answer (`server`), or its picture fetched and embedded here. */
+async function key(m: { session: LookSession; key: string }, c: LookCandidate, times: Times, server: ServerAnswer, signal?: AbortSignal): Promise<LookEmbedding> {
   const cache = await caches.open(LOOK_CACHE).catch(() => null);
-  const kept = await cache?.match(cacheUrl);
-  const unpacked = kept ? unpackLook(new Float32Array(await kept.arrayBuffer())) : null;
-  if (unpacked) {
-    remember(memo, unpacked);
+  const own = await kept(m, c, cache);
+  if (own) {
     times.cached += 1;
-    return unpacked;
+    return own;
   }
-  const { pixels, fetchMs, decodeMs } = await picture(c.url, signal);
-  const t2 = performance.now();
-  const e = await embedLook(m.session, Tensor, { width: pixels.width, height: pixels.height, data: pixels.data }, cornersOf(pixels.width, pixels.height));
-  times.fetchMs += fetchMs;
-  times.decodeMs += decodeMs;
-  times.embedMs += performance.now() - t2;
-  remember(memo, e);
+  const got = await serverOrOwn((s) => make(m, c, times, s), server, c.url, signal);
+  if (got.server) times.server += 1;
+  remember(`${m.key}|${c.url}`, got.key);
   if (cache) {
-    await cache.put(cacheUrl, new Response(packLook(e).buffer as ArrayBuffer, { headers: { "content-type": "application/octet-stream" } })).catch(() => undefined);
+    await cache.put(cacheUrlOf(m, c), new Response(packLook(got.key).buffer as ArrayBuffer, { headers: { "content-type": "application/octet-stream" } })).catch(() => undefined);
     if (++putsSinceTrim >= 100) {
       putsSinceTrim = 0;
       await trim(cache).catch(() => undefined);
     }
   }
+  return got.key;
+}
+
+/** A printing's picture fetched from Scryfall and embedded here. */
+async function make(m: { session: LookSession; key: string }, c: LookCandidate, times: Times, signal?: AbortSignal): Promise<LookEmbedding> {
+  const { pixels, fetchMs, decodeMs } = await picture(c.url, signal);
+  if (signal?.aborted) throw new Error("The server's vector came first");
+  const t2 = performance.now();
+  const e = await embedLook(m.session, Tensor, { width: pixels.width, height: pixels.height, data: pixels.data }, cornersOf(pixels.width, pixels.height));
+  times.fetchMs += fetchMs;
+  times.decodeMs += decodeMs;
+  times.embedMs += performance.now() - t2;
   return e;
 }
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /** A printing's Scryfall picture, fetched and decoded to pixels, with how long each took. */
 async function picture(url: string, signal?: AbortSignal): Promise<{ pixels: ImageData; fetchMs: number; decodeMs: number }> {
@@ -159,13 +205,32 @@ async function look(id: number, frames: Extract<LookWorkerRequest, { type: "look
   const t0 = performance.now();
   const stop = new AbortController();
   runs.set(id, stop);
-  const times: Times = { cached: 0, fetchMs: 0, decodeMs: 0, embedMs: 0 };
-  const base = { frames: frames.length, queryMs: 0, scored: 0, ...times };
+  const times: Times = { cached: 0, fetchMs: 0, decodeMs: 0, embedMs: 0, server: 0 };
+  const asking = { asked: 0, serverMs: null as number | null };
+  const base = { frames: frames.length, queryMs: 0, scored: 0 };
   try {
     if (loading) await loading;
     const m = model;
     if (!m) throw new Error("No look model is loaded");
     if (frames.length === 0) throw new Error("No frame of this card is kept to compare");
+    // The printings this device has no vector for: the server is asked for those (through
+    // artClient) while the card's side is embedded. Its answer is empty when it can't be had.
+    const cache = await caches.open(LOOK_CACHE).catch(() => null);
+    const missing: LookCandidate[] = [];
+    for (const c of candidates) if (!(await kept(m, c, cache))) missing.push(c);
+    // At most as many as one ask may name (more printings of one artwork are rare); the rest are made here.
+    const ask = missing.slice(0, SERVER_MAX_IDS);
+    const server = ask.length > 0 ? new ServerAnswer() : ServerAnswer.empty();
+    if (ask.length > 0) {
+      asking.asked = ask.length;
+      answers.set(id, (looks, ms) => {
+        answers.delete(id);
+        asking.serverMs = looks ? ms : null;
+        server.give(serverKeys(ask, looks));
+      });
+      stop.signal.addEventListener("abort", () => answers.get(id)?.(null, null), { once: true });
+      reply({ type: "need", id, model: m.key, candidates: ask });
+    }
     const seen: LookEmbedding[] = [];
     for (const f of frames) {
       if (stop.signal.aborted) break;
@@ -174,14 +239,18 @@ async function look(id: number, frames: Extract<LookWorkerRequest, { type: "look
     const query = meanEmbedding(seen);
     if (!query) throw new Error("The look was stopped");
     const queryMs = performance.now() - t0;
-    const scored = await scoreCandidates(query, candidates, (c, signal) => key(m, c, times, signal), (candidate, score) => reply({ type: "score", id, candidate, score }), {
+    // The server's answer is worth a moment: its vectors cost nothing more here, where a picture
+    // fetched from Scryfall takes about half a second on a cold connection.
+    if (!server.done) await Promise.race([server.promise, sleep(Math.max(0, t0 + SERVER_WAIT_MS - performance.now()))]);
+    const scored = await scoreCandidates(query, candidates, (c, signal) => key(m, c, times, server, signal), (candidate, score) => reply({ type: "score", id, candidate, score }), {
       concurrency: AT_ONCE,
       signal: stop.signal,
     });
-    reply({ type: "done", id, error: null, model: m.key, frames: frames.length, queryMs, scored, ...times, ms: performance.now() - t0 });
+    reply({ type: "done", id, error: null, model: m.key, frames: frames.length, queryMs, scored, ...times, ...asking, ms: performance.now() - t0 });
   } catch (e) {
-    reply({ type: "done", id, error: e instanceof Error ? e.message : String(e), model: model?.key ?? "", ...base, ...times, ms: performance.now() - t0 });
+    reply({ type: "done", id, error: e instanceof Error ? e.message : String(e), model: model?.key ?? "", ...base, ...times, ...asking, ms: performance.now() - t0 });
   } finally {
+    answers.get(id)?.(null, null);
     runs.delete(id);
   }
 }
@@ -203,5 +272,6 @@ self.onmessage = async (event: MessageEvent<LookWorkerRequest>) => {
     }
   } else if (m.type === "look") void look(m.id, m.frames, m.candidates);
   else if (m.type === "time") void time(m.id, m.url, m.frame);
+  else if (m.type === "keys") answers.get(m.id)?.(m.looks, m.ms);
   else if (m.type === "stop") runs.get(m.id)?.abort();
 };

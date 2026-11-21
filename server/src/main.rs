@@ -48,6 +48,7 @@ mod privacy_tests;
 mod routes;
 mod scan;
 mod scan_art;
+mod scan_look;
 mod scan_clears;
 mod scan_diagnostics;
 mod scan_samples;
@@ -271,6 +272,7 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Some("scan-arts") => scan_art::cli(&pool, &cfg.data_dir, &args[1..]).await,
+        Some("scan-looks") => scan_look::cli(&pool, &cfg, &args[1..]).await,
         Some("import-deck-prices") => deck_prices::refresh(&pool, &routes::http_client()).await,
         Some("import-calendar") => calendar::run_once(&pool).await,
         Some("import-combos") => combos::run_once(&pool, &cfg.data_dir).await,

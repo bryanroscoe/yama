@@ -440,6 +440,14 @@ impl ModelOption {
         }
     }
 
+    /// The SHA-256 its file of ours is pinned to (what the look's vectors are kept by, scan_look.rs).
+    pub fn sha256(&self) -> Option<&'static str> {
+        match self.source {
+            Source::File { sha256, .. } => Some(sha256),
+            _ => None,
+        }
+    }
+
     /// Its file's size, once downloaded (and unzipped).
     fn bytes(&self) -> Option<u64> {
         match &self.source {
@@ -484,7 +492,7 @@ impl Withdrawn {
         Withdrawn { ids: cfg.scan_withdrawn.clone(), art: !cfg.scan_query_model }
     }
 
-    fn has(&self, o: &ModelOption) -> bool {
+    pub(crate) fn has(&self, o: &ModelOption) -> bool {
         !o.base && (self.ids.iter().any(|id| id == o.id) || (self.art && o.slot == Slot::Art))
     }
 }
@@ -768,7 +776,7 @@ async fn remove_unpinned(dir: &Path, keep: &[String]) {
     }
 }
 
-async fn read_manifest(dir: &Path) -> Option<serde_json::Value> {
+pub(crate) async fn read_manifest(dir: &Path) -> Option<serde_json::Value> {
     serde_json::from_slice(&tokio::fs::read(dir.join("manifest.json")).await.ok()?).ok()
 }
 

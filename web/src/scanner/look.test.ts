@@ -1,7 +1,31 @@
 // The printing look (look.ts): its score, the card's side averaged over frames, the list's order,
 // its best guess, and comparing printings a few at a time.
 import { describe, expect, it } from "vitest";
-import { cornersOf, leadingCard, LOOK_SETTLE_LEAD, lookBest, lookCandidates, LookFrames, lookLead, lookOrder, lookScore, lookSettles, lookTops, meanEmbedding, packLook, scoreCandidates, unpackLook, withoutMisread, type LookEmbedding } from "./look";
+import {
+  cornersOf,
+  leadingCard,
+  LOOK_SETTLE_LEAD,
+  lookBest,
+  lookCandidates,
+  LookFrames,
+  lookLead,
+  lookOrder,
+  lookScore,
+  lookSettles,
+  lookTimingDetail,
+  lookTops,
+  meanEmbedding,
+  packLook,
+  scoreCandidates,
+  ServerAnswer,
+  serverId,
+  serverKeys,
+  serverOrOwn,
+  unpackLook,
+  unpackServerLook,
+  withoutMisread,
+  type LookEmbedding,
+} from "./look";
 
 const v = (...xs: number[]) => Float32Array.from(xs);
 const emb = (symbol: number[], card: number[]): LookEmbedding => ({ symbol: v(...symbol), card: v(...card) });
@@ -67,10 +91,125 @@ describe("the printing list in look order", () => {
       { scryfall_id: "c", image_normal: null, back_image_normal: null },
     ];
     expect(lookCandidates(printings, false)).toEqual([
-      { id: "a", url: "https://cards.scryfall.io/normal/front/a.jpg" },
-      { id: "b", url: "https://cards.scryfall.io/normal/front/b.jpg" },
+      { id: "a", url: "https://cards.scryfall.io/normal/front/a.jpg", back: false },
+      { id: "b", url: "https://cards.scryfall.io/normal/front/b.jpg", back: false },
     ]);
-    expect(lookCandidates(printings, true)).toEqual([{ id: "a", url: "https://cards.scryfall.io/normal/back/a.jpg" }]);
+    expect(lookCandidates(printings, true)).toEqual([{ id: "a", url: "https://cards.scryfall.io/normal/back/a.jpg", back: true }]);
+    // The server knows a back face as the art gallery does.
+    expect(lookCandidates(printings, true).map(serverId)).toEqual(["a-1"]);
+  });
+});
+
+/** The server's form of a vector: float16 little-endian, base64 (server/src/scan_look.rs, `to_f16`). */
+const f16 = (xs: number[]) => {
+  const bytes: number[] = [];
+  for (const x of xs) {
+    // Exact for these values (halves, quarters, ±1).
+    const sign = x < 0 ? 0x8000 : 0;
+    const a = Math.abs(x);
+    let bits = 0;
+    if (a !== 0) {
+      const e = Math.floor(Math.log2(a));
+      bits = ((e + 15) << 10) | Math.round((a / 2 ** e - 1) * 1024);
+    }
+    bits |= sign;
+    bytes.push(bits & 255, bits >> 8);
+  }
+  return btoa(String.fromCharCode(...bytes));
+};
+
+describe("the server's vectors", () => {
+  it("are float16, symbol then card", () => {
+    expect(unpackServerLook(f16([0.5, -0.25, 1, 0]))).toEqual(emb([0.5, -0.25], [1, 0]));
+    expect(unpackServerLook("")).toBeNull();
+    expect(unpackServerLook("not base64!")).toBeNull();
+    // An odd number of halves isn't two parts.
+    expect(unpackServerLook(btoa("\u0000\u0000\u0000\u0000\u0000\u0000"))).toBeNull();
+  });
+
+  it("are used only for the very picture this device would fetch", () => {
+    const candidates = [
+      { id: "a", url: "https://cards.scryfall.io/normal/front/a.jpg?1", back: false },
+      { id: "b", url: "https://cards.scryfall.io/normal/back/b.jpg?1", back: true },
+      { id: "c", url: "https://cards.scryfall.io/normal/front/c.jpg?2", back: false },
+    ];
+    const keys = serverKeys(candidates, [
+      { id: "a", url: "https://cards.scryfall.io/normal/front/a.jpg?1", vector: f16([1, 0, 0, 1]) },
+      { id: "b-1", url: "https://cards.scryfall.io/normal/back/b.jpg?1", vector: f16([0, 1, 1, 0]) },
+      // Scryfall's picture changed since this device read the card data: not the same picture.
+      { id: "c", url: "https://cards.scryfall.io/normal/front/c.jpg?1", vector: f16([1, 0, 1, 0]) },
+      // Not asked about.
+      { id: "d", url: "https://cards.scryfall.io/normal/front/d.jpg?1", vector: f16([1, 0, 1, 0]) },
+    ]);
+    expect([...keys.keys()]).toEqual(["https://cards.scryfall.io/normal/front/a.jpg?1", "https://cards.scryfall.io/normal/back/b.jpg?1"]);
+    expect(keys.get(candidates[1]!.url)).toEqual(emb([0, 1], [1, 0]));
+    expect(serverKeys(candidates, null).size).toBe(0);
+  });
+
+  const U = "https://cards.scryfall.io/normal/front/a.jpg?1";
+  /** An answer from the server that comes after `ms` with these vectors (by URL). */
+  const later = (ms: number, keys: [string, LookEmbedding][] = []) => {
+    const a = new ServerAnswer();
+    setTimeout(() => a.give(new Map(keys)), ms);
+    return a;
+  };
+  const answered = (keys: [string, LookEmbedding][] = []) => {
+    const a = new ServerAnswer();
+    a.give(new Map(keys));
+    return a;
+  };
+
+  it("in hand are used without fetching the picture at all", async () => {
+    let started = 0;
+    const own = () => ((started += 1), Promise.resolve(emb([0], [1])));
+    expect(await serverOrOwn(own, answered([[U, emb([1], [0])]]), U)).toEqual({ key: emb([1], [0]), server: true });
+    expect(started).toBe(0);
+    // In hand without this picture: made here, with nothing to wait for.
+    expect(await serverOrOwn(own, answered(), U)).toEqual({ key: emb([0], [1]), server: false });
+    expect(started).toBe(1);
+    // Only the first answer counts.
+    const a = answered();
+    a.give(new Map([[U, emb([1], [0])]]));
+    expect(a.done?.size).toBe(0);
+  });
+
+  it("are taken when they come first, stopping the making here", async () => {
+    let stopped = false;
+    const own = (signal: AbortSignal) =>
+      new Promise<LookEmbedding>((_, reject) => signal.addEventListener("abort", () => ((stopped = true), reject(new Error("aborted")))));
+    const got = await serverOrOwn(own, later(5, [[U, emb([1], [0])]]), U);
+    expect(got).toEqual({ key: emb([1], [0]), server: true });
+    expect(stopped).toBe(true);
+  });
+
+  it("never hold a printing up: one made here first, or when the server has none, is used", async () => {
+    const mine = emb([0], [1]);
+    expect(await serverOrOwn(() => Promise.resolve(mine), later(50, [[U, emb([1], [0])]]), U)).toEqual({ key: mine, server: false });
+    expect(await serverOrOwn(() => new Promise((r) => setTimeout(() => r(mine), 5)), later(1), U)).toEqual({ key: mine, server: false });
+    // The server gave up (offline, a failure): an empty answer, and what's made here.
+    expect(await serverOrOwn(() => new Promise((r) => setTimeout(() => r(mine), 10)), later(1), U)).toEqual({ key: mine, server: false });
+  });
+
+  it("are still taken when the making here fails, and the failure stands when the server has none", async () => {
+    const theirs = emb([1], [0]);
+    const fails = () => Promise.reject(new Error("Couldn't fetch (503)"));
+    expect(await serverOrOwn(fails, later(5, [[U, theirs]]), U)).toEqual({ key: theirs, server: true });
+    await expect(serverOrOwn(fails, later(1), U)).rejects.toThrow("503");
+  });
+
+  it("stop with the look", async () => {
+    const stop = new AbortController();
+    const own = (signal: AbortSignal) => new Promise<LookEmbedding>((_, reject) => signal.addEventListener("abort", () => reject(new Error("stopped"))));
+    const going = serverOrOwn(own, later(1), U, stop.signal);
+    stop.abort();
+    await expect(going).rejects.toThrow("stopped");
+  });
+
+  it("are counted in the timing record by where they came from", () => {
+    const done = { model: "look-152f52c100f0", frames: 3, queryMs: 80, scored: 5, cached: 1, asked: 4, server: 3, serverMs: 120, fetchMs: 400, decodeMs: 10, embedMs: 40, ms: 612.4 };
+    expect(lookTimingDetail(done)).toEqual({ look_ms: 612, look_scored: 5, look_cached: 1, look_server: 3, look_made: 1 });
+    // A record from a build before the server's vectors.
+    expect(lookTimingDetail({ ...done, server: undefined, asked: undefined })).toMatchObject({ look_server: 0, look_made: 4 });
   });
 });
 

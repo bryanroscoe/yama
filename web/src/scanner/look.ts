@@ -5,6 +5,13 @@
 // settles a printing by itself: one person's 640 px photos are too little evidence for that. The
 // option that settles when sure (`look-v1-sure`, opt-in) does, by `lookSettles` below.
 //
+// Each printing's picture is embedded once per look model by Yama's server too
+// (server/src/scan_look.rs, 21 Nov 2026): the look's worker asks it for the printings this device
+// hasn't embedded yet (`GET /api/scan/looks`, through artClient.ts) and makes only what it doesn't
+// have, so a phone rarely fetches a picture from Scryfall. The server decodes with libjpeg-turbo, as
+// Chrome and Android's WebView do, and gives the same numbers there (docs/scanner.md, "Vectors from
+// the server"); Safari decodes with Apple's own, which may differ a little.
+//
 // The model has the bundle's embed.onnx interface: `scene` (H × W × 4 RGBA uint8) and `quad`
 // (4 × 2 float32, the card's corners from top-left, clockwise, in scene pixels); it warps the card
 // itself and gives `symbol` and `card` (1 × 128, L2-normalised). A printing's picture is run with
@@ -133,10 +140,11 @@ export function lookSettles(
   return { settled: true, id: top.id, lead: top.lead };
 }
 
-/** A printing to compare: its Scryfall ID and the picture of the face that was recognised. */
+/** A printing to compare: its Scryfall ID, the picture of the face that was recognised, and whether that's its back. */
 export interface LookCandidate {
   id: string;
   url: string;
+  back?: boolean;
 }
 
 /**
@@ -146,7 +154,7 @@ export interface LookCandidate {
 export function lookCandidates(printings: readonly { scryfall_id: string; image_normal: string | null; back_image_normal: string | null }[], backFace: boolean): LookCandidate[] {
   return printings.flatMap((p) => {
     const url = backFace ? p.back_image_normal : p.image_normal;
-    return url ? [{ id: p.scryfall_id, url }] : [];
+    return url ? [{ id: p.scryfall_id, url, back: backFace }] : [];
   });
 }
 
@@ -179,6 +187,128 @@ export async function scoreCandidates(
   };
   await Promise.all(Array.from({ length: Math.max(1, opts.concurrency ?? 3) }, lane));
   return scored;
+}
+
+/** The server's answer to `GET /api/scan/looks` (server/src/scan_look.rs). */
+export interface ServerLooks {
+  /** The look model's SHA-256, or null when the server makes no vectors for it (unknown, withdrawn). */
+  model: string | null;
+  /** The printings asked about whose vector it has: the ID as asked, the picture it was made from, and the vector. */
+  looks: { id: string; url: string; vector: string }[];
+  /** Printings asked about that it hasn't made yet (it makes them soon). */
+  missing: number;
+}
+
+/** Most printings one ask of the server may name (`MAX_IDS`, server/src/scan_look.rs). */
+export const SERVER_MAX_IDS = 64;
+
+/** How the server knows a candidate: its Scryfall ID, `-1` after it for a back face (as the art gallery names faces). */
+export const serverId = (c: LookCandidate) => (c.back ? `${c.id}-1` : c.id);
+
+const half = (h: number) => {
+  const s = h & 0x8000 ? -1 : 1;
+  const e = (h >> 10) & 0x1f;
+  const f = h & 0x3ff;
+  if (e === 0) return s * f * 2 ** -24;
+  if (e === 31) return f ? NaN : s * Infinity;
+  return s * (1 + f / 1024) * 2 ** (e - 15);
+};
+
+/** A vector the server made (symbol then card, float16 little-endian, base64); null if it isn't one. */
+export function unpackServerLook(b64: string): LookEmbedding | null {
+  let bin: string;
+  try {
+    bin = atob(b64);
+  } catch {
+    return null;
+  }
+  if (bin.length === 0 || bin.length % 4) return null;
+  const v = new Float32Array(bin.length / 2);
+  for (let i = 0; i < v.length; i += 1) v[i] = half(bin.charCodeAt(2 * i) | (bin.charCodeAt(2 * i + 1) << 8));
+  if (!v.every(Number.isFinite)) return null;
+  return unpackLook(v);
+}
+
+/**
+ * The server's vectors for these candidates, by picture URL: only where the server made it from
+ * the very picture this device would fetch (the card data could change between two requests).
+ */
+export function serverKeys(candidates: readonly LookCandidate[], looks: ServerLooks["looks"] | null | undefined): Map<string, LookEmbedding> {
+  const out = new Map<string, LookEmbedding>();
+  const byId = new Map((looks ?? []).map((l) => [l.id, l]));
+  for (const c of candidates) {
+    const l = byId.get(serverId(c));
+    const key = l && l.url === c.url ? unpackServerLook(l.vector) : null;
+    if (key) out.set(c.url, key);
+  }
+  return out;
+}
+
+/** A look's answer from the server, by picture URL: pending until it comes, or is given up (empty). */
+export class ServerAnswer {
+  /** The answer once it has come; null while it's pending. */
+  done: Map<string, LookEmbedding> | null = null;
+  readonly promise: Promise<Map<string, LookEmbedding>>;
+  private settle: (keys: Map<string, LookEmbedding>) => void = () => undefined;
+  constructor() {
+    this.promise = new Promise((resolve) => (this.settle = resolve));
+  }
+  /** The answer has come (or won't: an empty one). Only the first counts. */
+  give(keys: Map<string, LookEmbedding>) {
+    if (this.done) return;
+    this.done = keys;
+    this.settle(keys);
+  }
+  /** An answer already in, for a look that needed nothing from the server. */
+  static empty(): ServerAnswer {
+    const a = new ServerAnswer();
+    a.give(new Map());
+    return a;
+  }
+}
+
+/**
+ * A printing's vector (its picture `url`): the server's when its answer is in and has it; made on
+ * this device (`own`, fetching and embedding its picture) when the answer is in without it;
+ * otherwise made here unless the server's comes first, which stops the making. Made here and
+ * failed, it still takes the server's when that comes. So a slow or failed answer from the server
+ * never holds a printing up, and a picture the server has is never fetched.
+ */
+export async function serverOrOwn(
+  own: (signal: AbortSignal) => Promise<LookEmbedding>,
+  answer: ServerAnswer,
+  url: string,
+  signal?: AbortSignal,
+): Promise<{ key: LookEmbedding; server: boolean }> {
+  const ready = answer.done?.get(url);
+  if (ready) return { key: ready, server: true };
+  if (answer.done) return { key: await own(signal ?? new AbortController().signal), server: false };
+  const server = answer.promise.then((keys) => keys.get(url) ?? null);
+  const making = new AbortController();
+  const stop = () => making.abort();
+  if (signal?.aborted) making.abort();
+  else signal?.addEventListener("abort", stop, { once: true });
+  type Got = { key: LookEmbedding; server: boolean } | { error: unknown };
+  const mine: Promise<Got> = own(making.signal).then(
+    (key) => ({ key, server: false }),
+    (error: unknown) => ({ error }),
+  );
+  const theirs: Promise<Got | null> = server.then(
+    (key) => (key ? { key, server: true } : null),
+    () => null,
+  );
+  try {
+    const first = await Promise.race([mine, theirs.then((t) => t ?? mine)]);
+    if ("key" in first) {
+      if (first.server) making.abort();
+      return first;
+    }
+    const late = await theirs;
+    if (late && "key" in late) return late;
+    throw first.error;
+  } finally {
+    signal?.removeEventListener("abort", stop);
+  }
 }
 
 /** A frame kept for the look's query: the recognizer's 640 px frame, the card's quad, and which artworks it matched. */
@@ -273,9 +403,17 @@ export interface LookDone {
   /** Frames averaged for the card's side, and how long that took. */
   frames: number;
   queryMs: number;
-  /** Printings compared, how many came from the cache, and the time spent fetching, decoding and embedding the rest. */
+  /** Printings compared, how many came from this device's cache, and the time spent fetching, decoding and embedding the rest. */
   scored: number;
   cached: number;
+  /**
+   * Printings the server was asked about (those not in this device's cache), how many of the
+   * vectors used came from it, and how long its answer took (null when it wasn't asked or didn't
+   * answer). Absent from records before 21 Nov 2026.
+   */
+  asked?: number;
+  server?: number;
+  serverMs?: number | null;
   fetchMs: number;
   decodeMs: number;
   embedMs: number;
@@ -292,16 +430,32 @@ export interface LookTiming {
   frameMs: number | null;
 }
 
+/**
+ * What the timing record keeps of a finished look (Scanner diagnostics, `get_scan_timings`): its
+ * milliseconds, the printings scored, and where their vectors came from.
+ */
+export const lookTimingDetail = (done: LookDone) => ({
+  look_ms: Math.round(done.ms),
+  look_scored: done.scored,
+  look_cached: done.cached,
+  look_server: done.server ?? 0,
+  look_made: Math.max(0, done.scored - done.cached - (done.server ?? 0)),
+});
+
 export type LookWorkerRequest =
   /** `cache: false` (the speed test): load the model and leave the printings' cache as it is. */
   | { type: "model"; id: number; url: string; bytes: number; cache?: boolean }
   | { type: "look"; id: number; frames: WireFrame[]; candidates: LookCandidate[] }
+  /** The server's answer for a look's `need` (null when it couldn't be had), and how long it took. */
+  | { type: "keys"; id: number; looks: ServerLooks["looks"] | null; ms: number | null }
   | { type: "stop"; id: number }
   /** Time the look on this picture and frame, keeping nothing (the speed test). */
   | { type: "time"; id: number; url: string; frame: WireFrame | null };
 
 export type LookWorkerReply =
   | { type: "ready"; id: number; error: string | null }
+  /** A look's printings this device has no vector for: artClient asks the server for them (model: the look model's file name). */
+  | { type: "need"; id: number; model: string; candidates: LookCandidate[] }
   | { type: "score"; id: number; candidate: string; score: number }
   | ({ type: "done"; id: number; error: string | null } & LookDone)
   | ({ type: "timed"; id: number; error: string | null } & LookTiming);

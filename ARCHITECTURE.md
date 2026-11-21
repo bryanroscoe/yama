@@ -135,7 +135,8 @@ Three things run on the device so that game night needs no connection:
   model in place of the bundle's embedding graph. Each of its models can be switched on a device
   from the options the server lists, and the server can withdraw a broken one. When several
   printings share the art, a look model in a second worker orders the printing list by comparing
-  the card with each printing's Scryfall picture.
+  the card with each printing's Scryfall picture; the server embeds those pictures once and serves
+  the vectors, so the phone embeds only what the server hasn't.
 
 Card images load from Scryfall's CDN straight to the device, where the service worker may keep
 a bounded cache of them. Yama's server never stores, proxies or alters them.
@@ -166,6 +167,8 @@ command-line tool for imports, invites and account management. As a server it ha
   deck is saved, the Lab's scheduler, and the scanner's art supplement: after each card import
   it downloads Scryfall's art crops of artworks the scanner's bundle lacks, embeds them with the
   bundle's own model (tract, in process) and keeps only the vectors (`server/src/scan_art.rs`).
+  Beside it, the printing look's vectors: each printing picture of an artwork several printings
+  share, embedded once per look model the same way the phone would (`server/src/scan_look.rs`).
   The scanner's models themselves are downloaded once from GitHub releases and checked against
   pinned SHA-256 sums: ManaVault's bundle, and Yama's own query model from this repository's
   `scanner-art-…` releases (`server/src/scan.rs`). Phones get them from the server, never GitHub.
@@ -433,7 +436,7 @@ section 4 is the first sketch; the current system is [above](#the-system-at-a-gl
 - **Shopping:** [Live store stock (13 November 2026)](#live-store-stock-13-november-2026).
 - **The Android app:** [The Android app, sideloaded (13 November 2026)](#the-android-app-sideloaded-13-november-2026), [Which build each device runs (15 November 2026)](#which-build-each-device-runs-15-november-2026).
 - **Game night:** [Table and playgroup stats (2026-10-19)](#table-and-playgroup-stats-2026-10-19).
-- **The scanner:** [Scan photos shared with the developer (15 November 2026)](#scan-photos-shared-with-the-developer-15-november-2026), [The scanner's own art supplement (15 November 2026)](#the-scanners-own-art-supplement-15-november-2026), [Yama's own query embedder for the scanner (18 November 2026)](#yamas-own-query-embedder-for-the-scanner-18-november-2026), [Scanner models you can switch (20 November 2026)](#scanner-models-you-can-switch-20-november-2026), [The scanner's printing look (20 November 2026)](#the-scanners-printing-look-20-november-2026), [Scanner diagnostics (15 November 2026)](#scanner-diagnostics-15-november-2026), [Scanner timings and full-resolution crops (20 November 2026)](#scanner-timings-and-full-resolution-crops-20-november-2026), [The scanner speed test (21 November 2026)](#the-scanner-speed-test-21-november-2026).
+- **The scanner:** [Scan photos shared with the developer (15 November 2026)](#scan-photos-shared-with-the-developer-15-november-2026), [The scanner's own art supplement (15 November 2026)](#the-scanners-own-art-supplement-15-november-2026), [Yama's own query embedder for the scanner (18 November 2026)](#yamas-own-query-embedder-for-the-scanner-18-november-2026), [Scanner models you can switch (20 November 2026)](#scanner-models-you-can-switch-20-november-2026), [The scanner's printing look (20 November 2026)](#the-scanners-printing-look-20-november-2026), [The printing look's vectors from the server (21 November 2026)](#the-printing-looks-vectors-from-the-server-21-november-2026), [Scanner diagnostics (15 November 2026)](#scanner-diagnostics-15-november-2026), [Scanner timings and full-resolution crops (20 November 2026)](#scanner-timings-and-full-resolution-crops-20-november-2026), [The scanner speed test (21 November 2026)](#the-scanner-speed-test-21-november-2026).
 - **Cards, collection and prices:** [Mana symbols (2026-11-12)](#mana-symbols-2026-11-12), [Release calendar and What's new (2026-10-19)](#release-calendar-and-whats-new-2026-10-19), [A deck's cards in the collection, and Mythic re-imports (2026-10-23)](#a-decks-cards-in-the-collection-and-mythic-re-imports-2026-10-23), [Deck market values (2026-10-27)](#deck-market-values-2026-10-27), [Scan this deck (2026-10-29)](#scan-this-deck-2026-10-29), [Mythic Tools bridge (2026-10-31, proposal)](#mythic-tools-bridge-2026-10-31-proposal), [Store trips (2026-11-01)](#store-trips-2026-11-01), [Deleting collection containers (2026-11-02)](#deleting-collection-containers-2026-11-02), [Sell lists for store buylists (2026-11-02)](#sell-lists-for-store-buylists-2026-11-02), [Local buylist offers (2026-11-02)](#local-buylist-offers-2026-11-02), [Price history (2026-11-02)](#price-history-2026-11-02), [Recording printed copies in a deck box (2026-11-02)](#recording-printed-copies-in-a-deck-box-2026-11-02), [Sections in boxes, and scanning a box (16 November 2026)](#sections-in-boxes-and-scanning-a-box-16-november-2026).
 - **Decks, plans and sharing:** [Plans don't wait for approval (20 November 2026)](#plans-dont-wait-for-approval-20-november-2026), [Swappable spares in the deck box (15 November 2026)](#swappable-spares-in-the-deck-box-15-november-2026), [Brackets, deck stats and exports (2026-10-19)](#brackets-deck-stats-and-exports-2026-10-19), [Deck import (2026-10-22)](#deck-import-2026-10-22), [Sharing and deck configurations (2026-10-28)](#sharing-and-deck-configurations-2026-10-28), [Review, installed decks and the Lab tab (2026-10-28)](#review-installed-decks-and-the-lab-tab-2026-10-28), [Check this deck (2026-11-01)](#check-this-deck-2026-11-01), [Deck configurations and quieter editing (2026-11-03)](#deck-configurations-and-quieter-editing-2026-11-03), [One plan page (2026-11-04)](#one-plan-page-2026-11-04), [Printing with MakePlayingCards (2026-11-05)](#printing-with-makeplayingcards-2026-11-05), [Plans: one plan per deck (2026-11-06)](#plans-one-plan-per-deck-2026-11-06), [Site design pass (2026-11-08)](#site-design-pass-2026-11-08), [Public by default and the navigation (2026-11-12)](#public-by-default-and-the-navigation-2026-11-12), [Check a deck without an account (2026-11-12)](#check-a-deck-without-an-account-2026-11-12).
 - **Assistants:** [Ask Claude, the advisor (2026-10-22)](#ask-claude-the-advisor-2026-10-22), [Yama's tools for Claude (MCP, 2026-10-22)](#yamas-tools-for-claude-mcp-2026-10-22).
@@ -728,6 +731,43 @@ camera loop, not each model.
 - **Only reported, not used: WebGPU.** The test says whether the browser offers WebGPU and its
   adapter, to judge the GPU route on a phone; the scanner still runs onnxruntime-web's WASM build
   on one thread.
+
+## The printing look's vectors from the server (21 November 2026)
+
+Bryan (21 Nov 2026) wants scanning as fast as CardVision (app.mtgscan.org), where a card is read as
+soon as it's down. The printing look made the phone fetch and embed each candidate printing's
+Scryfall picture: about half a second a picture on a cold connection, plus the embedding, for a
+typical four printings a card. The server now embeds each picture once per look model and keeps
+the vectors (docs/scanner.md, "Vectors from the server").
+
+- **Computed on the server, from the pinned model files.** A background job in `yama-server`
+  (`scan_look.rs`) embeds every printing picture of an artwork two or more printings share, for the
+  look slot's default model, after each card import and every six hours; anything a phone asked for
+  that wasn't made (a new printing, another look model on offer) goes first. So a new set and a new
+  look model need no step of their own. One embedding at a time on a blocking thread, the art
+  supplement's Scryfall fetching and pace shared with it (one image request at a time between the
+  two, each 100 ms after the last ended), pictures dropped once embedded. About 80,000 pictures (some 10 GB downloaded
+  once) and 40 MB of vectors per model (float16, `scan_looks`, keyed by the model file's SHA-256
+  and the picture's URL). `YAMA_SCAN_LOOKS=0` stops making them.
+- **The same numbers as the phone.** The JPEG is decoded by libjpeg-turbo's code (MozJPEG's
+  decoder, built from source, no SIMD), as Chrome and Android's WebView decode it (Safari's own
+  decoder may differ a little); the image crate's decoder differs on
+  about 8% of values, enough to change one photo's ranking of 98. tract runs the model split at its
+  GridSample warp, which the server samples itself as onnxruntime's kernel does (tract's own takes
+  about 290 ms an image, the rest 10 ms). Every load is checked against onnxruntime's outputs in
+  the repository's parity files, and a model without one gets no vectors here. On 644 real
+  Scryfall pictures the vectors match Chrome and onnxruntime-web to a cosine of 1.000000.
+- **The phone asks first, never waits long.** `GET /api/scan/looks` (signed in, as the other scan
+  routes; at most 64 printings) returns the vectors made for the printings this device hasn't got,
+  and the phone uses one only for the very picture URL it would fetch. The look waits for the
+  answer at most until 0.4 s after it began, then fetches what's still missing, and a late answer
+  still stops those fetches. Offline or failed, the look runs as before; slow, it loses at most the
+  part of those 0.4 s the card's own embedding doesn't take. Nothing new
+  leaves the phone: the printings it asks about are those it already asked `/api/scan/printings`
+  for, and the server keeps no record of the ask (the request log keeps writes only).
+- **Recorded:** the look's diagnostics note and its timing record say how many vectors came from
+  the server, the device's cache and the phone's own embedding, and `get_scan_timings` gives the
+  look times with and without any made on the phone.
 
 ## Sections in boxes, and scanning a box (16 November 2026)
 

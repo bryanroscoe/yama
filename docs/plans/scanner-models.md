@@ -206,6 +206,28 @@ added the bench, `scanner-lab/speed/`):
 - Nothing has been timed on a phone. Scanner diagnostics' timing records (PR #171) name the models each
   scan used, so the defaults and the new options can be compared on Bryan's phone.
 
+**The printing look's pictures, from the server (21 Nov 2026).** The look spent most of its time
+fetching each printing's Scryfall picture (about half a second each on a cold connection) and embedding
+it on the phone. The server now embeds them ahead of time with the same model and the same JPEG decoder
+as the phone's browser, and the phone asks for them first (docs/scanner.md, "Vectors from the server").
+
+**The Pixel 10's TPU: not pursued for now (researched 21 Nov 2026).**
+- An outside app can reach the Pixel 10's TPU only through Google's Tensor SDK, a beta of LiteRT.
+- Getting it takes a sign-up form (name, company, job role, work email). Models have to be compiled
+  ahead of time with a compiler plugin Google sends by email.
+- Its documents deliver models only through Google Play (Play for On-device AI, Feature Delivery).
+  Yama's Android app is sideloaded from GitHub.
+- Its terms are proprietary. They forbid passing the SDK on unless Google allows it, and they forbid
+  publishing any performance data about Google Tensor (sections 4.16 and 4.17). So Yama's public
+  documents must never carry TPU timings.
+- It works only on Pixel 10-family phones.
+- NNAPI is deprecated since Android 15, and nothing says whether it still reaches the Pixel 10's TPU.
+- On the Mac (docs/scanner.md, "Speed"), once the faster options are on, four threads or WebGPU only take
+  a frame from 38.5 ms to 30 to 33 ms. For models this small the chip isn't where the time goes. It would
+  matter for a much bigger model.
+- **Decision:** not pursued for now. Revisit if Yama moves to a larger model; the phone's GPU through
+  LiteRT is the open route.
+
 ## Stages, and a fallback on the server (proposed)
 
 1. Phone: the art model with the lead lock. Identity-only scans (deck checks, box scans) mostly stop

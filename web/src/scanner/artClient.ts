@@ -2,7 +2,7 @@
 // and hands it frames one at a time.
 
 import { api, API_BASE } from "../api";
-import type { LookCandidate, LookDone, LookWorkerReply, LookWorkerRequest, WireFrame } from "./look";
+import { SERVER_MAX_IDS, serverId, type LookCandidate, type LookDone, type LookWorkerReply, type LookWorkerRequest, type ServerLooks, type WireFrame } from "./look";
 import type { ModelOption, ModelsInfo } from "./models";
 import type { Located, Recognition } from "./recognizer";
 import type { SpeedCard } from "./speed";
@@ -166,6 +166,28 @@ export async function scanBundleInfo(): Promise<BundleInfo | null> {
   }
 }
 
+/** How long the server's look vectors are waited for at most; the look makes its own meanwhile. */
+export const SERVER_LOOKS_TIMEOUT_MS = 4000;
+
+/**
+ * The server's vectors for these printings by this look model (`model`: its file's name, as the
+ * look's worker keys its cache), from `GET /api/scan/looks` (server/src/scan_look.rs). Null
+ * offline, on a failure or after `timeoutMs`, so the look makes its own. Needs only the printings,
+ * not the scan sheet: a card already filed gets its printing's look the same way.
+ */
+export async function serverLooks(model: string, candidates: readonly LookCandidate[], timeoutMs = SERVER_LOOKS_TIMEOUT_MS): Promise<{ looks: ServerLooks["looks"] | null; ms: number | null }> {
+  if (candidates.length === 0 || (typeof navigator !== "undefined" && navigator.onLine === false)) return { looks: null, ms: null };
+  const t0 = performance.now();
+  const ids = [...new Set(candidates.map(serverId))].slice(0, SERVER_MAX_IDS).join(",");
+  try {
+    const signal = typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(timeoutMs) : undefined;
+    const answer = await api<ServerLooks>(`/api/scan/looks?model=${encodeURIComponent(model)}&ids=${encodeURIComponent(ids)}`, { signal });
+    return { looks: answer.model ? (answer.looks ?? []) : [], ms: performance.now() - t0 };
+  } catch {
+    return { looks: null, ms: null };
+  }
+}
+
 /** How long a load waits for another tab's before going ahead without the lock. */
 const LOAD_LOCK_WAIT_MS = 60_000;
 
@@ -275,6 +297,12 @@ async function startRecognizer(
         lookLoads.get(m.id)?.(m.error);
         lookLoads.delete(m.id);
       } else if (m.type === "score") looks.get(m.id)?.onScore(m.candidate, m.score);
+      else if (m.type === "need") {
+        // The look's printings this device hasn't embedded: the server may have them.
+        void serverLooks(m.model, m.candidates).then(({ looks: answer, ms }) => {
+          if (lookWorker === w) w.postMessage({ type: "keys", id: m.id, looks: answer, ms } satisfies LookWorkerRequest);
+        });
+      }
       else if (m.type === "done") {
         const { type: _type, id: _id, error, ...done } = m;
         looks.get(m.id)?.done(error ? null : done, error);
