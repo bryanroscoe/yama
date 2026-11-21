@@ -34,7 +34,7 @@ vi.mock("../api", async (original) => ({
   ...(await original<typeof import("../api")>()),
   api: (path: string) => {
     // The app says it can feed an art model's `cuts` (artClient.ts).
-    if (path === "/api/scan/bundle?can=cuts") return Promise.resolve(bundle());
+    if (path === "/api/scan/bundle?can=cuts,settle") return Promise.resolve(bundle());
     if (path.startsWith("/api/scan/diagnostics")) return Promise.resolve({ count: 0, bytes: 0, keep: 200 });
     return Promise.reject(new Error(`offline: ${path}`));
   },

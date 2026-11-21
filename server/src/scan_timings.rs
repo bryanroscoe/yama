@@ -36,8 +36,9 @@ const MAX_DETAIL: usize = 1024;
 /// The rules that name a card (fuse.ts `LockRule`, and a close-up of the title or a typed name).
 pub const RULES: [&str; 7] = ["sure", "leads", "twice", "title", "text", "closeup", "typed"];
 /// How a printing is settled: the only printing (or the only one in the locked sets), the
-/// collector line, the person's pick, or a correction of the scanner's own.
-pub const PRINTINGS: [&str; 5] = ["only", "set", "collector", "picked", "corrected"];
+/// collector line, the printing look when it's sure (the look option that settles, scan.rs
+/// `LOOK_V1_SURE`), the person's pick, or a correction of the scanner's own.
+pub const PRINTINGS: [&str; 6] = ["only", "set", "collector", "look", "picked", "corrected"];
 pub const MODES: [&str; 2] = ["printing", "identity"];
 /// An hour: no single card takes longer, and anything more is a clock gone wrong.
 const MAX_MS: i64 = 3_600_000;
@@ -191,7 +192,21 @@ struct Row {
 
 impl Row {
     fn flag(&self, key: &str) -> bool {
-        serde_json::from_str::<Value>(&self.detail).ok().and_then(|d| d.get(key).and_then(Value::as_bool)).unwrap_or(false)
+        self.said(key).and_then(|v| v.as_bool()).unwrap_or(false)
+    }
+
+    /// One of `detail`'s facts, as the phone sent it.
+    fn said(&self, key: &str) -> Option<Value> {
+        serde_json::from_str::<Value>(&self.detail).ok()?.get(key).cloned()
+    }
+
+    /// The printing look's option this card's look ran under: the one whose rule was weighed
+    /// (`detail.look_option`), else the one the phone ran when the card was named (`models.look`).
+    fn look(&self) -> Option<String> {
+        if let Some(Value::String(o)) = self.said("look_option") {
+            return Some(o);
+        }
+        serde_json::from_str::<Value>(self.models.as_deref()?).ok()?.get("look")?.as_str().map(str::to_owned)
     }
 
     /// The way of settling the printing the person said was wrong (Wrong printing), if any.
@@ -300,6 +315,47 @@ fn printing_timing(rows: &[&Row]) -> Value {
     json!({ "median_ms": quantile(&mut ms, 0.5), "p90_ms": quantile(&mut ms, 0.9) })
 }
 
+/// By the printing look's option (`Row::look`), in the collection only (deck and box scans don't
+/// run the look): its cards, how their printings were settled and how long that took, how often
+/// each way was then called wrong (Wrong printing), and how many cards' looks the rule of the
+/// option that settles when sure would have settled (`detail.look_sure`, weighed on the phone under
+/// any look option: every printing scored, the closest 0.10 ahead on the raw lead, no collector
+/// read pointing elsewhere), and of those how many ended as another printing than the look's
+/// closest (`detail.look_top_filed` false at the first filing, or a Wrong printing after filing
+/// one that was). So the option can be weighed against the default on real scans.
+fn by_look(all: &[Row]) -> Vec<Value> {
+    let mut groups: BTreeMap<String, Vec<&Row>> = BTreeMap::new();
+    for r in all.iter().filter(|r| r.mode == "printing") {
+        if let Some(look) = r.look() {
+            groups.entry(look).or_default().push(r);
+        }
+    }
+    let mut out: Vec<Value> = groups
+        .into_iter()
+        .map(|(look, g)| {
+            let cards: Vec<&Row> = g.iter().copied().filter(|r| !r.flag("after_filing")).collect();
+            let printed: Vec<&Row> = cards.iter().copied().filter(|r| r.printing.is_some() && !r.called_wrong()).collect();
+            let corrected_after = |r: &&Row| r.flag("after_filing") && r.printing.as_deref() == Some("corrected");
+            let judged: Vec<&Row> = g.iter().copied().filter(|r| !r.flag("after_filing") || corrected_after(r)).collect();
+            let top_filed = |r: &Row| r.said("look_top_filed").and_then(|v| v.as_bool());
+            let sure = cards.iter().filter(|r| r.flag("look_sure")).count();
+            let otherwise = cards.iter().filter(|r| r.flag("look_sure") && top_filed(r) == Some(false)).count()
+                + g.iter().filter(|r| corrected_after(r) && r.flag("look_sure") && top_filed(r) == Some(true)).count();
+            json!({
+                "look": look,
+                "count": cards.len(),
+                "printing": printing_timing(&printed),
+                "printings": by(&printed, |r| r.printing.clone(), "printing", printing_timing),
+                "printings_called_wrong": by(&judged, |r| r.printing_rejected(), "printing", |g| json!({"count": g.len()})),
+                "sure_leads": sure,
+                "sure_leads_filed_otherwise": otherwise,
+            })
+        })
+        .collect();
+    out.sort_by(|a, b| b["count"].as_u64().cmp(&a["count"].as_u64()));
+    out
+}
+
 /// What the account's timing records say: how fast cards are named and by which rule, how their
 /// printings are settled, and the same by art model; with the newest records from `offset`.
 pub async fn summary(pool: &SqlitePool, owner: &str, f: &Filter, offset: usize, limit: usize) -> AppResult<Value> {
@@ -337,6 +393,8 @@ pub async fn summary(pool: &SqlitePool, owner: &str, f: &Filter, offset: usize, 
             })
             .collect::<Vec<_>>(),
         "modes": by(&refs, |r| Some(r.mode.clone()), "mode", timing),
+        // By the printing look's option: the default against the option that settles when sure.
+        "looks": by_look(&all),
         "items": items,
     }))
 }
@@ -493,6 +551,79 @@ mod tests {
         // The wrong card's printing isn't counted for the card filed.
         assert_eq!(s["printings"][0]["count"], 1);
         assert_eq!(s["art_models"][0]["rules"][0]["called_wrong"], 1);
+    }
+
+    #[tokio::test]
+    async fn a_look_settled_printing_is_kept_apart_with_its_lead_and_its_correction_counts() {
+        let (app, pool) = testutil::app().await;
+        let (_, token) = testutil::user(&pool, "me@example.com").await;
+        let post = |b: Value| {
+            let app = app.clone();
+            let token = token.clone();
+            async move { assert_eq!(testutil::send(&app, Method::POST, PATH, Some(&token), Some(b)).await.0, StatusCode::OK) }
+        };
+        let with_look = |look: &str, printing: Option<&str>, ms: i64, detail: Value| {
+            let mut b = body("leads", 500);
+            b["models"]["look"] = json!(look);
+            match printing {
+                Some(p) => b["printing"] = json!(p),
+                None => drop(b.as_object_mut().unwrap().remove("printing")),
+            }
+            b["printing_ms"] = json!(ms);
+            b["detail"] = detail;
+            b
+        };
+        // The option that settles when sure: two settled by look (one of them then called wrong
+        // before filing, and picked), one the look led too little on, read from the collector line.
+        post(with_look("look-v1-sure", Some("look"), 700, json!({"look_lead": 0.142, "look_sure": true, "look_option": "look-v1-sure", "look_top_filed": true}))).await;
+        post(with_look("look-v1-sure", Some("corrected"), 4000, json!({"look_lead": 0.118, "look_sure": true, "look_option": "look-v1-sure", "printing_rejected": "look", "look_top_filed": false}))).await;
+        post(with_look("look-v1-sure", Some("collector"), 2500, json!({"look_lead": 0.031, "look_sure": false, "look_option": "look-v1-sure", "look_top_filed": true}))).await;
+        // and a look settle filed, then Wrong printing after filing: its own record.
+        post(with_look("look-v1-sure", Some("look"), 650, json!({"look_lead": 0.2, "look_sure": true, "look_option": "look-v1-sure", "look_top_filed": true}))).await;
+        post(with_look("look-v1-sure", Some("corrected"), 9000, json!({"look_lead": 0.2, "look_sure": true, "look_option": "look-v1-sure", "look_top_filed": true, "after_filing": true, "printing_rejected": "look"}))).await;
+        // Named under v1, switched to the option before the look was weighed: counted under the option.
+        post(with_look("look-v1", Some("look"), 800, json!({"look_lead": 0.3, "look_sure": true, "look_option": "look-v1-sure", "look_top_filed": true}))).await;
+        // The default, which only orders the list: picked, where the rule would have settled; and
+        // one the rule wouldn't have (a collector read pointing elsewhere, or a raw lead just under
+        // 0.10 that rounds to 0.1).
+        post(with_look("look-v1", Some("picked"), 3000, json!({"look_lead": 0.12, "look_sure": true, "look_option": "look-v1", "look_top_filed": false}))).await;
+        post(with_look("look-v1", Some("collector"), 2000, json!({"look_lead": 0.1, "look_sure": false, "look_option": "look-v1", "look_top_filed": true}))).await;
+        // A deck scan doesn't run the look.
+        let mut deck = with_look("off", None, 0, json!({}));
+        deck["mode"] = json!("identity");
+        post(deck).await;
+
+        let (_, s) = testutil::send(&app, Method::GET, PATH, Some(&token), None).await;
+        assert_eq!(s["count"], 8, "eight cards");
+        let printings: BTreeMap<String, u64> = s["printings"].as_array().unwrap().iter().map(|g| (g["printing"].as_str().unwrap().to_string(), g["count"].as_u64().unwrap())).collect();
+        assert_eq!(printings, BTreeMap::from([("look".into(), 3), ("collector".into(), 2), ("corrected".into(), 1), ("picked".into(), 1)]));
+        // Both corrections of a look settle are counted against the look.
+        assert_eq!(s["printings_called_wrong"], json!([{"printing": "look", "count": 2, "share": 1.0}]));
+        let looks = s["looks"].as_array().unwrap();
+        assert_eq!(looks.len(), 2, "{looks:?}");
+        let sure = &looks[0];
+        assert_eq!(sure["look"], "look-v1-sure");
+        assert_eq!(sure["count"], 5);
+        assert_eq!(sure["printing"]["median_ms"], 800);
+        assert_eq!(sure["printings"][0]["printing"], "look");
+        assert_eq!(sure["printings"][0]["count"], 3);
+        assert_eq!(sure["printings"][0]["median_ms"], 700);
+        assert_eq!(sure["printings_called_wrong"], json!([{"printing": "look", "count": 2, "share": 1.0}]));
+        assert_eq!(sure["sure_leads"], 4);
+        // One picked otherwise before filing, one changed by Wrong printing after filing.
+        assert_eq!(sure["sure_leads_filed_otherwise"], 2);
+        let default = &looks[1];
+        assert_eq!(default["look"], "look-v1");
+        assert_eq!(default["count"], 2);
+        assert_eq!(default["printing"]["median_ms"], 2000);
+        assert_eq!(default["printings_called_wrong"], json!([]));
+        // The phone's own verdict counts, not the rounded lead.
+        assert_eq!(default["sure_leads"], 1);
+        assert_eq!(default["sure_leads_filed_otherwise"], 1);
+        // The records keep the lead as sent.
+        assert_eq!(s["items"][0]["models"]["look"], "off");
+        let first = s["items"].as_array().unwrap().iter().find(|i| i["detail"]["look_lead"] == 0.142).unwrap();
+        assert_eq!(first["printing"], "look");
     }
 
     #[tokio::test]

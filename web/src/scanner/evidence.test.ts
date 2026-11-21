@@ -190,4 +190,43 @@ describe("collector-line evidence", () => {
     ev.add(["0145 C", "WOC • EN"]);
     expect(ev.verdict()).toMatchObject({ kind: "settled", id: "woc" });
   });
+
+  // Settling by look (look.ts, `lookSettles`) never goes against what the collector line read.
+  describe("what points to another printing than the look's", () => {
+    const pointsAway = (printings: ReturnType<typeof p>[], frames: string[][], id: string) => {
+      const e = new Evidence(printings);
+      for (const f of frames) e.add(f);
+      return e.pointsAway(id);
+    };
+    it("nothing read points nowhere, and neither do lookalike-only reads", () => {
+      expect(pointsAway(signets, [], "woc")).toBe(false);
+      expect(pointsAway(signets, [[""]], "woc")).toBe(false);
+      // CMM and 390 only through lookalikes ("C4M", "39O"): no exact read of another printing.
+      expect(pointsAway(signets, [["39O C", "C4M • EN"]], "woc")).toBe(false);
+    });
+    it("another printing's set code or number read exactly points away", () => {
+      expect(pointsAway(signets, [["CMM • EN"]], "woc")).toBe(true);
+      expect(pointsAway(signets, [["0390 C"]], "woc")).toBe(true);
+      // Even after a frame that read the look's own.
+      expect(pointsAway(signets, [["0145 C", "WOC • EN"], ["CMM • EN"]], "woc")).toBe(true);
+    });
+    it("a read that agrees with the look's printing, or its own line's twin, doesn't", () => {
+      expect(pointsAway(signets, [["0145 C", "WOC • EN"]], "woc")).toBe(false);
+      expect(pointsAway(signets, [["WOC • EN"]], "woc")).toBe(false);
+      // The List prints the original's line: reading MOM 214 points at neither against the other.
+      const withList = [p("orig", "mom", "214"), p("list", "plst", "MOM-214"), p("other", "mom", "215")];
+      expect(pointsAway(withList, [["0214 U", "MOM • EN"]], "list")).toBe(false);
+      expect(pointsAway(withList, [["0214 U", "MOM • EN"]], "orig")).toBe(false);
+      expect(pointsAway(withList, [["0214 U", "MOM • EN"]], "other")).toBe(true);
+    });
+    it("a number read without the look's printing's suffix points to the plain one", () => {
+      const promo = [p("plain", "10e", "139"), p("star", "10e", "139s"), p("other", "10e", "140")];
+      expect(pointsAway(promo, [["139/383", "10E • EN"]], "star")).toBe(true);
+      expect(pointsAway(promo, [["139S", "10E • EN"]], "star")).toBe(false);
+    });
+    it("evidence settled on another printing points away, and evidence for other printings can't vouch for it", () => {
+      expect(pointsAway(signets, [["C 0145", "WOC • EN DAN SCOTT"]], "cmm")).toBe(true);
+      expect(pointsAway(signets, [["0145 C"]], "elsewhere")).toBe(true);
+    });
+  });
 });

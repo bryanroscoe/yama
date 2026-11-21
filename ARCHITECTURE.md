@@ -628,13 +628,42 @@ newest-first order the list had.
   keeps only a 1 KB embedding per printing and model in a capped Cache API of its own (the
   pictures themselves aren't added to the offline image cache). Nothing goes to Yama's server but
   the scores in a diagnostics record, when the owner has those on.
-- **Ordering only.** It never settles a printing or overrides the collector line; the evidence
-  for that would be full-resolution scans, measured first.
+- **Ordering only, by default.** It never settles a printing or overrides the collector line; the
+  evidence for that would be full-resolution scans, measured first. An opt-in option does settle
+  the sure ones (below, "Settling the printing by look, opt-in").
 - **Models of Yama's, pinned like the art model** (`look-v1`, the look slot's default, and
   `look-v0` in `MODELS`, `scanner-look-20261120` release assets);
-  `YAMA_SCAN_WITHDRAW=look-v0,look-v1` withdraws them (`look-v1` alone puts the default back on
+  `YAMA_SCAN_WITHDRAW=look-v0,look-v1,look-v1-sure` withdraws them (`look-v1` alone puts the default back on
   v0, which also stands in while v1 downloads). Their base weights are torchvision's
   (BSD-3-Clause); the notice is in COPYRIGHT and docs/scanner.md.
+
+## Settling the printing by look, opt-in (20 November 2026)
+
+Bryan (20 Nov 2026): "We can get more… get all of these merged and move it along as much as you
+can", and "we want to be able to try a lot of things here and switch between models when things
+break". The lab found a rule an app can run: when the look model v1's closest printing leads the
+next by 0.10 or more, it was right on all 45 of the 98 shared-art test photos it would have settled
+(docs/scanner.md, "Settling by look").
+
+- **An option, not the default.** `look-v1-sure` in the scanner's model registry runs v1's own
+  file and settles the printing by itself under that rule; v1, which only orders the list, stays
+  the default. The evidence is one tester's 98 sleeved photos at 640 px: 0 wrong of 45 still
+  allows about one in 15 wrong, and the threshold was chosen on those photos.
+- **The collector line wins.** The look never settles against anything the collector line has
+  read pointing to another printing, waits for its first read, leaves its settles as they are, and
+  needs every printing in the list scored. A look settle is shown and filed like a collector-line
+  settle, with Wrong printing, and stops the collector line's reading.
+- **Measured before it's the default.** Scanner diagnostics' timing records mark a look settle
+  (`printing: "look"`) with its lead; under every look option they keep what the rule said and
+  whether the look's closest printing was filed, and they count corrections of look settles;
+  `get_scan_timings` compares look options. It becomes the default only once those records from
+  real scans support it.
+- **The option running now decides.** A switch in Scan settings while a look runs applies to that
+  card: only an option that settles, on the model the look ran on, settles it.
+- **Old builds aren't offered it** (`?can=settle`), so a record naming it ran the rule, except on
+  an older build opened offline from bundle info a newer one kept on the device (an Android app
+  rolled back), which would run it as plain v1. No new data leaves the phone beyond the lead, the
+  rule's yes or no and whether the look's closest was filed, under the same owner-only rules.
 
 ## Sections in boxes, and scanning a box (16 November 2026)
 

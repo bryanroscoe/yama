@@ -352,8 +352,12 @@ export class ScanRecord {
 
 /** The rule that named a card: the art (sure, leads, twice), a title read, the card's text, the title close-up, or a typed name. */
 export type SettleRule = LockRule | "closeup" | "typed";
-/** How a printing was settled: the only one (or the only one in the locked sets), the collector line, a pick, or a correction. */
-export type PrintingWay = "only" | "set" | "collector" | "picked" | "corrected";
+/**
+ * How a printing was settled: the only one (or the only one in the locked sets), the collector
+ * line, the printing look when it's sure (the look option that settles, look.ts `lookSettles`), a
+ * pick, or a correction.
+ */
+export type PrintingWay = "only" | "set" | "collector" | "look" | "picked" | "corrected";
 
 /** What was known when a card was named, for its timing record. */
 export interface Named {

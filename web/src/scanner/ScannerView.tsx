@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, type Printing } from "../api";
 import { loadArtRecognizer, NO_ART_MODEL, RECOGNIZER_SHORT_SIDE, scanBundleInfo, type ArtRecognizer, type LoadState, type LookDone } from "./artClient";
-import { lookBest, lookCandidates, lookOrder, withoutMisread, type LookScores } from "./look";
+import { lookBest, lookCandidates, lookLead, lookOrder, lookSettles, withoutMisread, type LookScores } from "./look";
 import { modelsOf, onModelsChange, running, runningAll, saveModel, savedModels, type DeviceCan, type ModelChoices, type ModelSlot, type ModelsInfo, type Running } from "./models";
 import { ModelsSetting } from "./ModelsSetting";
 import { NameIndex } from "./fuzzy";
@@ -181,8 +181,11 @@ interface Found {
   readFirst?: number;
   sameArt: boolean;
   chosen: Printing | null;
-  /** "set": the only printing of it in the locked sets. */
-  how: "only" | "set" | "collector" | "picked" | null;
+  /**
+   * How the printing was settled. "set": the only printing of it in the locked sets; "look": the
+   * printing look, sure of it (the look option that settles when sure, look.ts `lookSettles`).
+   */
+  how: "only" | "set" | "collector" | "look" | "picked" | null;
   /** Locked to sets, and none of this card's printings (of this art) is in them: ask. */
   outside?: boolean;
   /** The person said it's from another set: the lock doesn't apply to this card. */
@@ -598,6 +601,18 @@ export function ScannerView({
   const [closeupRead, setCloseupRead] = useState("");
   /** The first read's evidence for a card, picked up (once) by the hold-and-read loop that follows it. */
   const firstEvidence = useRef<{ seq: number; ev: Evidence } | null>(null);
+  /**
+   * Every collector-line evidence gathered for the found card (by its `foundSeq`): the text
+   * reader's, the first read, hold and read, the close-up. Settling by look never goes against any
+   * of it (evidence.ts, `pointsAway`).
+   */
+  const cardReads = useRef<{ seq: number; evs: Evidence[] } | null>(null);
+  const noteReads = (seq: number, ev: Evidence) => {
+    if (cardReads.current?.seq !== seq) cardReads.current = { seq, evs: [] };
+    if (!cardReads.current.evs.includes(ev)) cardReads.current.evs.push(ev);
+  };
+  /** Whether the collector line has read, for this card, something that points to a printing other than `id`. */
+  const readsOther = (seq: number, id: string) => cardReads.current?.seq === seq && cardReads.current.evs.some((ev) => ev.pointsAway(id));
   /** What the hold-and-read loop has read so far, for the sheet ("Read the set code (WOC), not the number yet"). */
   const [readProgress, setReadProgress] = useState<string | null>(null);
   /** Bumped to start a new, full attempt at reading the held card's printing (Keep reading, Wrong printing). */
@@ -1249,9 +1264,10 @@ export function ScannerView({
    * The printing look's scores for the found card (look.ts), by its `foundSeq`: kept apart from
    * `found`, whose changes restart the hold-and-read loop (review of #172). `complete` once every
    * printing it could compare is scored and the look wasn't stopped: only then does it order the
-   * list, once, so a printing doesn't move under a finger.
+   * list, once, so a printing doesn't move under a finger. `option`: the look option that ran it
+   * (models.ts), which may settle the printing when it's sure.
    */
-  const [look, setLook] = useState<{ seq: number; scores: LookScores; complete: boolean } | null>(null);
+  const [look, setLook] = useState<{ seq: number; scores: LookScores; complete: boolean; option?: string } | null>(null);
   /** The found card (its seq) whose list was touched before the look finished: its order stays. */
   const [lookTouched, setLookTouched] = useState<number | null>(null);
   /**
@@ -1296,9 +1312,13 @@ export function ScannerView({
     ).then(
       (done) => {
         const complete = !stop.signal.aborted && done.scored >= 2;
-        note({ ...done, stopped: !complete });
+        // The closest printing's lead over the next once every printing is scored: what settling
+        // by look goes on, recorded whichever option ran, so the default's scans measure it too.
+        const lead = complete ? lookLead(printings, scores) : null;
+        note({ ...done, stopped: !complete, ...(lead ? { lead: Math.round(lead.lead * 1000) / 1000 } : {}) });
+        if (lead && f.timing) f.timing.detail.look_lead = Math.round(lead.lead * 1000) / 1000;
         if (complete && f.shot) lookDone.current.set(f.shot, { ...scores });
-        if (foundSeq.current === seq) setLook({ seq, scores: { ...scores }, complete });
+        if (foundSeq.current === seq) setLook({ seq, scores: { ...scores }, complete, option: model });
       },
       (e: unknown) => {
         note({ error: e instanceof Error ? e.message : String(e) });
@@ -1312,6 +1332,58 @@ export function ScannerView({
     if (lookEnds) stopLook();
   }, [lookEnds]);
   useEffect(() => () => stopLook(), []);
+
+  /** The found card (its seq) whose finished look has been weighed for settling by look: once each. */
+  const lookWeighed = useRef<number | null>(null);
+  // Settling by look (the look option that settles when sure, opt-in; docs/scanner.md, "Settling by
+  // look"): once the look has compared every printing in the list and the closest leads the next by
+  // LOOK_SETTLE_LEAD, that printing is settled as a collector-line read would settle it ("Wrong
+  // printing" offered, Keep adding files it), and the collector line stops reading. Never against
+  // anything the collector line has read pointing to another printing, so not while its first read
+  // is under way; never once the person said the scanner's printing was wrong; not while they're
+  // saying it's another card or the scanner is paused (it's weighed when that ends); never once
+  // they've touched the list (they're choosing). A printing the collector line settled first stays
+  // its. The rule is weighed under every look option, for the records (what it would have done
+  // under the default too); only the option running now that settles, on the model the look ran
+  // on, acts on it (a switch takes effect at once: Codex review of #178).
+  useEffect(() => {
+    const f = found;
+    if (identityOnly || !look?.complete || look.seq !== foundSeq.current || lookWeighed.current === look.seq) return;
+    if (!f || phase !== "found" || f.chosen || f.reading || f.misread || f.correcting || f.outside || !f.options || f.options.length < 2 || wrongOpen || paused) return;
+    lookWeighed.current = look.seq;
+    const seq = look.seq;
+    const got = lookSettles(f.options, look.scores, (id) => readsOther(seq, id));
+    const lead = got.lead == null ? null : Math.round(got.lead * 1000) / 1000;
+    const optionOf = (id: string | undefined) => (id ? modelsInfo?.look.options.find((o) => o.id === id) : undefined);
+    const now = optionOf(lookNow);
+    const ran = optionOf(look.option);
+    const acts = !!now?.settles && !!ran?.file && ran.file === now.file;
+    // The timing record: the look option whose rule this was, and what the rule said on the raw lead.
+    if (f.timing) {
+      f.timing.detail.look_option = lookNow;
+      f.timing.detail.look_sure = got.settled;
+    }
+    const why = !got.settled ? got.why : !acts ? "option" : lookTouched === seq ? "touched" : null;
+    if (why || !got.settled) {
+      f.rec?.note("lookSettle", { settled: false, option: lookNow, why, lead });
+      return;
+    }
+    const id = got.id;
+    setFound((cur) => {
+      const hit = cur?.options?.find((p) => p.scryfall_id === id);
+      // The card changed in between (a read settled it, Wrong printing): weighed again with it.
+      if (!cur || !hit || foundSeq.current !== seq || cur.chosen || cur.reading || cur.misread || cur.correcting) {
+        lookWeighed.current = null;
+        return cur;
+      }
+      cur.rec?.note("lookSettle", { settled: true, option: lookNow, id: hit.scryfall_id, set: hit.set_code, number: hit.collector_number, lead });
+      return { ...cur, chosen: hit, how: "look", sure: true, settledId: hit.scryfall_id, picking: false };
+    });
+    setCloseup((c) => (c === "collector" ? null : c));
+    buzz(30);
+    // buzz and readsOther read refs; the rest is listed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [look, found, phase, wrongOpen, paused, identityOnly, lookNow, lookTouched, modelsInfo]);
 
   /** Settle the printing of what was found (not needed when only the card's identity matters). */
   const settle = useCallback(
@@ -1352,6 +1424,7 @@ export function ScannerView({
         if (!choice.chosen && known?.set && known.number) {
           const hit = opts.printings.find((p) => p.set_code === known.set && p.collector_number === known.number);
           const { proven, ev } = proofOf(opts.printings, known.text ?? "");
+          noteReads(seq, ev);
           f.rec?.frame({ source: "first", reads: [known.text ?? ""], verdict: ev.verdict() });
           if (sameCamera() && hit && proven === hit.scryfall_id) choice = { chosen: hit, how: "collector", options: [hit, ...choice.options.filter((p) => p !== hit)], readFirst: 1, certain: true };
           else {
@@ -1371,6 +1444,7 @@ export function ScannerView({
         // few cuts of the corner until one settles it.
         // The crops' reads are one frame of evidence (evidence.ts); it carries on into hold and read.
         const ev = new Evidence(opts.printings);
+        noteReads(seq, ev);
         const reads: string[] = [];
         let quality: StripQuality | null = null;
         for await (const text of readCollectorLines(read!.image, read!.quad, await ocrEngine(), { gate: (q) => ((quality = q), true) })) {
@@ -2058,6 +2132,7 @@ export function ScannerView({
     const first = firstEvidence.current;
     firstEvidence.current = null;
     const ev = first && first.seq === foundSeq.current ? first.ev : new Evidence(start.options);
+    noteReads(foundSeq.current, ev);
     setReadProgress(null);
     const heldArt = start.art?.index ?? null;
     /** Where the card was last seen, in video pixels (not by art). */
@@ -2287,6 +2362,7 @@ export function ScannerView({
           // Weighed as the held card's reads are: set code and number adding up across frames, and
           // never proof against a twin (The List, a promo suffix).
           if (closeEv?.options !== f.options) closeEv = { options: f.options, ev: new Evidence(f.options) };
+          noteReads(foundSeq.current, closeEv.ev);
           closeEv.ev.add([text]);
           const weighed = closeEv.ev.verdict();
           f.rec?.frame({ source: "closeup", reads: [text], verdict: weighed });
@@ -2335,9 +2411,9 @@ export function ScannerView({
   onPrintingRef.current = onPrinting;
   useEffect(() => {
     onPrintingRef.current?.(chosen);
-    // Diagnostics' timing record: the scanner settled the printing (the only one, or read), now.
+    // Diagnostics' timing record: the scanner settled the printing (the only one, read, or by look), now.
     const f = foundRef.current;
-    if (chosen && f?.timing && f.chosen === chosen && !identityOnly && (f.how === "only" || f.how === "set" || f.how === "collector")) f.timing.printed(f.misread ? "corrected" : f.how);
+    if (chosen && f?.timing && f.chosen === chosen && !identityOnly && (f.how === "only" || f.how === "set" || f.how === "collector" || f.how === "look")) f.timing.printed(f.misread ? "corrected" : f.how);
   }, [chosen, identityOnly]);
   const ready = identityOnly || !!chosen;
   // When the next step is a tap, not the camera, say so on the camera view, buzz, and bring it into view.
@@ -2369,6 +2445,10 @@ export function ScannerView({
     if (f.timing) {
       if (!identityOnly && c) f.timing.printed(printingWay(f, c));
       f.timing.detail.auto = auto;
+      // Whether the look's closest printing is the one filed (the first filing only): with the
+      // lead it had (`look_lead`), what settling by look would have done, whichever option ran.
+      const lookScores = look?.complete && look.seq === foundSeq.current ? look.scores : undefined;
+      if (!identityOnly && c && lookScores && f.timing.detail.look_top_filed === undefined) f.timing.detail.look_top_filed = lookBest(lookScores) === c.scryfall_id;
     }
     // Diagnostics: how the card ended, and its record goes (when it was kept for anything).
     f.rec?.note("final", { id: c?.scryfall_id, set: c?.set_code, number: c?.collector_number, how: f.how, sure: !!f.sure, correcting: !!f.correcting, misread: f.misread?.scryfall_id });
@@ -2421,8 +2501,8 @@ export function ScannerView({
       setJustAdded({ text: `${addedWord} ${label}${at != null ? `, ${usd(at)}` : ""}`, card: onUndo || onCorrect ? card : undefined, label, found: f, printing: c });
     }, failed);
   };
-  /** The scanner settled this printing itself (read, or the only one), and so could have it wrong. */
-  const settledByScanner = (f: Found) => !identityOnly && !!f.chosen && (f.how === "collector" || f.how === "only" || f.how === "set");
+  /** The scanner settled this printing itself (read, by look, or the only one), and so could have it wrong. */
+  const settledByScanner = (f: Found) => !identityOnly && !!f.chosen && (f.how === "collector" || f.how === "look" || f.how === "only" || f.how === "set");
   /**
    * Wrong printing (Bryan, 15 Nov 2026): the card is right, the printing isn't. The list opens with
    * the misread marked "Read as", and the printing is read again from the held card, a fresh
@@ -2448,7 +2528,8 @@ export function ScannerView({
       setHoldRun((n) => n + 1);
       // This card's own look, if it finished (after filing its frames are gone); else look again.
       const had = f.shot ? lookDone.current.get(f.shot) : undefined;
-      if (had && f.options.every((p) => had[p.scryfall_id] !== undefined || !p.image_normal)) setLook({ seq, scores: had, complete: true });
+      // (A printing said to be wrong is never settled again by look: `misread`.)
+      if (had && f.options.every((p) => had[p.scryfall_id] !== undefined || !p.image_normal)) setLook({ seq, scores: had, complete: true, option: artRef.current?.look });
       else if (again.sameArt) startLook.current(seq, again, f.options);
       return;
     }
@@ -2663,7 +2744,7 @@ export function ScannerView({
   const dupeHere = !!dupe && !!onAccept && !!newest && dupe.found.name === newest.name;
   // Wrong printing beside Undo only when the scanner read the printing itself: one you tapped is
   // rarely wrong, and the card's own sheet (tap it in the strip) has Wrong printing anyway.
-  const readByScanner = !!justAdded?.found && (justAdded.found.how === "collector" || justAdded.found.how === "set");
+  const readByScanner = !!justAdded?.found && (justAdded.found.how === "collector" || justAdded.found.how === "look" || justAdded.found.how === "set");
   const receiptActions =
     receipt && undoable ? (
       <>
@@ -3131,11 +3212,12 @@ export function ScannerView({
 /**
  * How the printing filed was settled, for the timing record (diagnostics.ts): a correction when
  * the person said the scanner's printing was wrong or filed another than it settled; otherwise how
- * the scanner settled it (the only one, the locked sets' only one, the collector line), or a pick.
+ * the scanner settled it (the only one, the locked sets' only one, the collector line, the look
+ * when sure), or a pick.
  */
 export function printingWay(f: Pick<Found, "how" | "misread" | "settledId">, filed: Pick<Printing, "scryfall_id">): PrintingWay {
   if (f.misread || (f.settledId && f.settledId !== filed.scryfall_id)) return "corrected";
-  return f.how === "only" || f.how === "set" || f.how === "collector" ? f.how : "picked";
+  return f.how === "only" || f.how === "set" || f.how === "collector" || f.how === "look" ? f.how : "picked";
 }
 
 /**
@@ -3190,6 +3272,8 @@ function explain(f: Found, identityOnly: boolean, lockName = ""): string {
       return `${by}. It's the only printing of it in ${lockName || "the sets you chose"}.`;
     case "collector":
       return f.method === "art" ? `${by}; the collector number picked the printing.` : `${by}.`;
+    case "look":
+      return `${by}. It looks most like this printing, well ahead of the other ${f.options.length - 1} with this art.`;
     case "picked":
       return f.options.length > 1 ? `${by}. You picked the printing; it wasn't read from the card.` : `${by}. You picked the printing.`;
     default:

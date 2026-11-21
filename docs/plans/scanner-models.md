@@ -11,7 +11,8 @@ Status: in progress, updated 20 Nov 2026.
   - the look model v1 as the look's default, which puts the right printing first on 86.7% of the test
     photos (PR #175);
   - two faster models to choose, after CardVision: Yama's card finder, and the art model with two cuts
-    first (PRs #169 and #174). A frame on one WASM thread takes 39 ms with both, against 125 ms.
+    first (PRs #169 and #174). A frame on one WASM thread takes 39 ms with both, against 125 ms;
+  - the look settling the sure printings, as an opt-in option (`look-v1-sure`; "Next", item 1).
 - **Waiting:** CollectorVision's licence, asked 20 Nov (now optional), and the server fallback; see
   "Decisions for Bryan".
 
@@ -150,11 +151,17 @@ today, slowly and often not at all.
   26 left to the collector line. One photo shows a back face, which the lab compares with fronts.
 
 Next, in order:
-1. **Settle when sure, as an option.** A non-default look-slot option that settles the printing when the
-   look's top printing leads the next by 0.10 or more, shown with "Wrong printing?" as collector-line
-   settles are. On these photos no pick with a strict twin led by that much. Measure it on Scanner
-   diagnostics' records (look scores are recorded) before making it the default: 0 wrong of 45 on 98
-   photos still allows about one in 15 wrong.
+1. **Settle when sure, as an option. Built 20 Nov 2026** as `look-v1-sure`, "Yama's look model v1,
+   settles when sure" (docs/scanner.md, "Settling by look"): once every printing in the list is scored
+   and the closest leads the next by 0.10 or more, it settles that printing, shown and filed like a
+   collector-line settle with Wrong printing, never against a collector-line read pointing to another
+   printing. On these photos no pick with a strict twin led by that much. Not the default: 0 wrong of
+   45 on 98 photos still allows about one in 15 wrong. **Still to do:** measure it on real scans. The
+   timing records keep, under any look option, each look's lead (`look_lead`), what the rule said
+   (`look_sure`) and whether its closest printing was filed (`look_top_filed`), and mark look settles
+   and their corrections;
+   `get_scan_timings`' `looks` compares the default and the option. Make it the default once those
+   support it.
 2. **The look as evidence for the collector line.** A look leader that the collector line half-read
    settles sooner. Visual twins go to the collector line, and the picker remains the last step.
 3. **Full resolution.** The 98 photos are 640 px and one person's, so differences under about 5 points are
@@ -204,8 +211,8 @@ added the bench, `scanner-lab/speed/`):
 1. Phone: the art model with the lead lock. Identity-only scans (deck checks, box scans) mostly stop
    here. In the collection only cards whose art has one printing do: 22 of the 120 test photos. The
    other 98 need stage 2 or 3 for the printing.
-2. Phone: when the art is shared, the printing look orders the candidates (now) and settles the sure ones
-   (next, as an option).
+2. Phone: when the art is shared, the printing look orders the candidates and, as an opt-in option
+   since 20 Nov 2026, settles the sure ones.
 3. Phone: the collector line and title OCR, as now, when 2 isn't sure.
 4. Server, optional: the card photo goes to the server, which runs bigger versions of the same models (a
    larger query network can map into the same gallery) and server-size OCR. It's for a card the phone
