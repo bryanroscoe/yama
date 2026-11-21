@@ -27,6 +27,7 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::AssertSqlSafe;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
@@ -51,50 +52,276 @@ pub(crate) const ARTS: &str = "arts.slim.json";
 /// After a failed download, wait this long before trying again.
 const RETRY_AFTER: Duration = Duration::from_secs(10 * 60);
 
+/// A part of the scanner whose model the app can switch on the fly (docs/scanner.md, "Models you
+/// can switch"; Bryan, 20 Nov 2026: "We should have the ability to switch scanners on the fly if
+/// need be by the way we want to be able to try a lot of things here and switch between models
+/// when things break").
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Slot {
+    /// The art match's query side: what the camera sees, embedded to search the bundle's gallery.
+    Art,
+    /// The printing look: the card compared with each candidate printing's own picture.
+    Look,
+    /// The text reader.
+    Text,
+    /// The rule that settles a card by its art.
+    Lock,
+}
+
+pub(crate) const SLOTS: [Slot; 4] = [Slot::Art, Slot::Look, Slot::Text, Slot::Lock];
+
+impl Slot {
+    /// What the app, `/api/scan/bundle` and records call it.
+    pub fn key(self) -> &'static str {
+        match self {
+            Slot::Art => "art",
+            Slot::Look => "look",
+            Slot::Text => "text",
+            Slot::Lock => "lock",
+        }
+    }
+}
+
+/// Where an option's model comes from.
+pub(crate) enum Source {
+    /// Nothing to download from here: the app's own code (a text reader, a lock rule), or off.
+    App,
+    /// One of the pinned bundle's files.
+    Bundle(&'static str),
+    /// A file of ours, pinned by size and SHA-256: downloaded once into the bundle's folder as
+    /// `<prefix>-<first 12 of the sum>.onnx`, checked the way the bundle's files are, and served
+    /// from there (immutable, like them).
+    File { prefix: &'static str, url: &'static str, bytes: u64, sha256: &'static str },
+}
+
+/// One option for a slot. To add one: a new const below, listed in `MODELS`, with its file pinned
+/// (all of url, bytes and sha256) and its licence; the app offers it in Scan settings once the
+/// server has it (docs/scanner.md, "Models you can switch").
+pub(crate) struct ModelOption {
+    pub slot: Slot,
+    /// What the app chooses it by, records name it by, and `YAMA_SCAN_WITHDRAW` withdraws it by.
+    pub id: &'static str,
+    /// Its name in Scan settings.
+    pub label: &'static str,
+    /// A sentence on what it is, for Scan settings.
+    pub note: &'static str,
+    pub licence: Option<&'static str>,
+    pub source: Source,
+    /// The bundle manifest's `recogniser.sha256` whose gallery its vectors compare with (a query
+    /// model is trained against one checkpoint's gallery; a bundle from another gets none of it).
+    pub recogniser: Option<&'static str>,
+    /// The slot's default while it's on offer.
+    pub default: bool,
+    /// What the slot does with nothing of ours: never withdrawn, so a slot always has an option.
+    pub base: bool,
+}
+
+const RECOGNISER_20261026: &str = "eb6558461672b30c8b699570cc1669c4baa1a31d5fd28d617800e8a1f4d2e2c3";
+
+/// The bundle's own `embed.onnx`, ManaVault's query model.
+const BUNDLE_ART: ModelOption = ModelOption {
+    slot: Slot::Art,
+    id: "bundle",
+    label: "ManaVault's art model",
+    note: "The art bundle's own model, trained on clean captures of bare cards.",
+    licence: Some("MPL-2.0"),
+    source: Source::Bundle("embed.onnx"),
+    recogniser: None,
+    default: false,
+    base: true,
+};
+
 /// Yama's own query embedder (docs/scanner.md, "Yama's query embedder", 18 Nov 2026): the bundle's
 /// `embed.onnx` with its embedding half fine-tuned on simulated sleeved, glare and blue-box
 /// captures against the bundle's frozen gallery (scanner-lab/). Derived from ManaVault's MPL-2.0
 /// weights, so the file is MPL-2.0; it is a release asset of this repository. Phones run it in
 /// place of the bundle's `embed.onnx`: same inputs (`scene`, `quad`) and output (`embeddings`).
 /// The gallery side stays the bundle's (search.onnx, arts.json, and scan_art.rs's supplement,
-/// which embeds new art with the bundle's own `embed.onnx`). Served only with a bundle made by
-/// the recogniser it was trained against, while `YAMA_SCAN_QUERY_MODEL` allows it, and once it's
-/// downloaded; otherwise phones get the bundle's own `embed.onnx` as before. To pin a newer one,
-/// change all five fields together and run the recognizer eval (docs/scanner.md).
-pub(crate) struct QueryModel {
-    /// What diagnostics and kept scan photos call it (their `bundle`, after a `+`).
-    pub name: &'static str,
-    pub url: &'static str,
-    pub bytes: u64,
-    pub sha256: &'static str,
-    /// The bundle manifest's `recogniser.sha256`: the checkpoint whose gallery it was trained
-    /// against. A bundle from a newer checkpoint names another, and gets its own `embed.onnx`.
-    pub recogniser: &'static str,
-}
-
-pub(crate) const QUERY_MODEL: QueryModel = QueryModel {
-    name: "yama-art-20261118",
-    url: "https://github.com/bryanroscoe/yama/releases/download/scanner-art-20261118/yama-art-20261118.onnx",
-    bytes: 5_139_404,
-    sha256: "52420d900728e25e2c4733c7fce45dbea0ae7f4f244fa027421a0f00cdd8faee",
-    recogniser: "eb6558461672b30c8b699570cc1669c4baa1a31d5fd28d617800e8a1f4d2e2c3",
+/// which embeds new art with the bundle's own `embed.onnx`). Offered only with a bundle made by
+/// the recogniser it was trained against. To pin a newer one, add it as another option (or
+/// change all of url, bytes and sha256 together) and run the recognizer eval (docs/scanner.md).
+pub(crate) const QUERY_MODEL: ModelOption = ModelOption {
+    slot: Slot::Art,
+    id: "yama-art-20261118",
+    label: "Yama's art model, 18 Nov",
+    note: "Fine-tuned for sleeved cards, glare and deck boxes: on real sleeved photos it settles 94% of cards on the first frame, against 85% for ManaVault's.",
+    licence: Some("MPL-2.0"),
+    source: Source::File {
+        prefix: "query",
+        url: "https://github.com/bryanroscoe/yama/releases/download/scanner-art-20261118/yama-art-20261118.onnx",
+        bytes: 5_139_404,
+        sha256: "52420d900728e25e2c4733c7fce45dbea0ae7f4f244fa027421a0f00cdd8faee",
+    },
+    recogniser: Some(RECOGNISER_20261026),
+    default: true,
+    base: false,
 };
 
-impl QueryModel {
-    /// Its file in the bundle's folder. Never `embed.onnx`, which scan_art.rs embeds new art with.
-    pub fn file(&self) -> String {
-        format!("query-{}.onnx", &self.sha256[..12])
+const LOOK_OFF: ModelOption = ModelOption {
+    slot: Slot::Look,
+    id: "off",
+    label: "Off",
+    note: "Printings that share the art are listed newest first, after any the collector line read.",
+    licence: None,
+    source: Source::App,
+    recogniser: None,
+    default: true,
+    base: true,
+};
+
+const TEXT_AUTO: ModelOption = ModelOption {
+    slot: Slot::Text,
+    id: "auto",
+    label: "Automatic",
+    note: "Google ML Kit in the Android app, PaddleOCR in a browser, and Tesseract when either can't start. Skips any reader this server has withdrawn.",
+    licence: None,
+    source: Source::App,
+    recogniser: None,
+    default: true,
+    base: true,
+};
+
+const TEXT_MLKIT: ModelOption = ModelOption {
+    slot: Slot::Text,
+    id: "mlkit",
+    label: "Google ML Kit",
+    note: "On the device, in the Android app only.",
+    licence: Some("ML Kit terms"),
+    source: Source::App,
+    recogniser: None,
+    default: false,
+    base: false,
+};
+
+const TEXT_PADDLE: ModelOption = ModelOption {
+    slot: Slot::Text,
+    id: "paddle",
+    label: "PaddleOCR (PP-OCRv5)",
+    note: "In the browser, with Tesseract taking over if it fails.",
+    licence: Some("Apache-2.0"),
+    source: Source::App,
+    recogniser: None,
+    default: false,
+    base: false,
+};
+
+const TEXT_TESSERACT: ModelOption = ModelOption {
+    slot: Slot::Text,
+    id: "tesseract",
+    label: "Tesseract",
+    note: "In the browser: the first reader the scanner had, slower and weaker on small print.",
+    licence: Some("Apache-2.0"),
+    source: Source::App,
+    recogniser: None,
+    default: false,
+    base: false,
+};
+
+/// The lead rule (fuse.ts, `leads`; 18 Nov 2026, PR #166).
+const LOCK_LEAD: ModelOption = ModelOption {
+    slot: Slot::Lock,
+    id: "lead",
+    label: "Art that leads",
+    note: "Settles a card by its art at 0.82, or when it scores 0.65 and leads every other card by 0.10 on two frames in a row; otherwise reads the title.",
+    licence: None,
+    source: Source::App,
+    recogniser: None,
+    default: true,
+    base: false,
+};
+
+/// The rule before the lead rule: sure scores only.
+const LOCK_SURE: ModelOption = ModelOption {
+    slot: Slot::Lock,
+    id: "sure",
+    label: "Sure scores only",
+    note: "Settles a card by its art only at 0.82, or at 0.62 on two frames once its title couldn't be read; otherwise reads the title. The rule before 18 Nov 2026.",
+    licence: None,
+    source: Source::App,
+    recogniser: None,
+    default: false,
+    base: true,
+};
+
+/// Every option the server knows, by slot. The app is offered those on offer (`offered`).
+pub(crate) const MODELS: &[&ModelOption] = &[&BUNDLE_ART, &QUERY_MODEL, &LOOK_OFF, &TEXT_AUTO, &TEXT_MLKIT, &TEXT_PADDLE, &TEXT_TESSERACT, &LOCK_LEAD, &LOCK_SURE];
+
+impl ModelOption {
+    /// Its file in the bundle's folder, if it has one. A file of ours is never `embed.onnx`, which
+    /// scan_art.rs embeds new art with.
+    pub fn file(&self) -> Option<String> {
+        match &self.source {
+            Source::App => None,
+            Source::Bundle(name) => Some((*name).to_string()),
+            Source::File { prefix, sha256, .. } => Some(format!("{prefix}-{}.onnx", &sha256[..12])),
+        }
     }
 
-    /// Whether its vectors compare with the gallery of the bundle this manifest describes.
+    /// Its file's size, once downloaded (and unzipped).
+    fn bytes(&self) -> Option<u64> {
+        match &self.source {
+            Source::App => None,
+            Source::Bundle(name) => FILES.iter().find(|(f, _, _)| f == name).map(|(_, bytes, _)| *bytes),
+            Source::File { bytes, .. } => Some(*bytes),
+        }
+    }
+
+    /// Whether it works with the bundle this manifest describes (its vectors compare with the gallery).
     fn fits(&self, manifest: &serde_json::Value) -> bool {
-        manifest.pointer("/recogniser/sha256").and_then(serde_json::Value::as_str) == Some(self.recogniser)
+        self.recogniser.is_none_or(|r| manifest.pointer("/recogniser/sha256").and_then(serde_json::Value::as_str) == Some(r))
     }
 
-    /// Downloaded and whole in `dir` (its checksum was checked before it got its name).
+    /// Its file is downloaded and whole in `dir` (a file of ours had its checksum checked before
+    /// it got its name), or it has none to wait for.
     async fn is_in(&self, dir: &Path) -> bool {
-        tokio::fs::metadata(dir.join(self.file())).await.is_ok_and(|m| m.is_file() && m.len() == self.bytes)
+        match (&self.source, self.file()) {
+            (Source::File { bytes, .. }, Some(file)) => tokio::fs::metadata(dir.join(file)).await.is_ok_and(|m| m.is_file() && m.len() == *bytes),
+            _ => true,
+        }
     }
+}
+
+/// What the server's switches take off offer: `YAMA_SCAN_WITHDRAW=look-v0,yama-art-20261118`
+/// (option ids), and `YAMA_SCAN_QUERY_MODEL=0` (every art model of ours). A withdrawn option
+/// isn't offered or downloaded; an app that chose it runs its slot's default instead, and goes
+/// back to it if it's offered again. A slot's base option is never withdrawn.
+#[derive(Clone, Debug, Default)]
+pub struct Withdrawn {
+    ids: Vec<String>,
+    art: bool,
+}
+
+impl Withdrawn {
+    pub fn of(cfg: &crate::config::Config) -> Self {
+        Withdrawn { ids: cfg.scan_withdrawn.clone(), art: !cfg.scan_query_model }
+    }
+
+    fn has(&self, o: &ModelOption) -> bool {
+        !o.base && (self.ids.iter().any(|id| id == o.id) || (self.art && o.slot == Slot::Art))
+    }
+}
+
+/// The options on offer now, in `MODELS` order: not withdrawn, fitting this bundle, and with
+/// their file here. Without a ready bundle (`manifest` None) no option with a file is.
+pub(crate) async fn offered(off: &Withdrawn, dir: &Path, manifest: Option<&serde_json::Value>) -> Vec<&'static ModelOption> {
+    let mut out = Vec::new();
+    for &o in MODELS {
+        let ready = match &o.source {
+            Source::App => true,
+            _ => manifest.is_some_and(|m| o.fits(m)) && o.is_in(dir).await,
+        };
+        if ready && !off.has(o) {
+            out.push(o);
+        }
+    }
+    out
+}
+
+/// The option a slot runs unless the app chooses another: its default if on offer, else its base,
+/// else the first on offer.
+pub(crate) fn default_of(slot: Slot, offered: &[&'static ModelOption]) -> Option<&'static ModelOption> {
+    let all: Vec<&'static ModelOption> = offered.iter().copied().filter(|o| o.slot == slot).collect();
+    all.iter().find(|o| o.default).or_else(|| all.iter().find(|o| o.base)).or(all.first()).copied()
 }
 
 pub fn router(data_dir: &Path) -> Router<AppState> {
@@ -130,9 +357,10 @@ fn fetch_state() -> &'static Mutex<Fetch> {
     STATE.get_or_init(|| Mutex::new(Fetch::Idle))
 }
 
-fn query_state() -> &'static Mutex<Fetch> {
-    static STATE: OnceLock<Mutex<Fetch>> = OnceLock::new();
-    STATE.get_or_init(|| Mutex::new(Fetch::Idle))
+/// Each model file's download, by option id.
+fn model_state() -> &'static Mutex<HashMap<&'static str, Fetch>> {
+    static STATE: OnceLock<Mutex<HashMap<&'static str, Fetch>>> = OnceLock::new();
+    STATE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 pub(crate) fn is_ready(dir: &Path) -> bool {
@@ -223,79 +451,105 @@ async fn fetch_checked(http: &reqwest::Client, url: &str, dir: &Path, name: &str
     Ok(())
 }
 
-/// Download Yama's query model into the bundle's folder in the background, unless it's there,
-/// already downloading, failed recently, or the bundle (its manifest) isn't here or isn't the one
-/// it fits. The caller checks the switch. A failure only means phones get the bundle's own
-/// `embed.onnx` a while longer; it's logged, and the next call at least `RETRY_AFTER` later
-/// tries again (a scanner open, or the server's start).
-pub async fn ensure_query(data_dir: PathBuf, http: reqwest::Client) {
+/// Download the files of the options that fit this bundle and aren't withdrawn into the bundle's
+/// folder in the background, each unless it's there, already downloading or failed recently, or
+/// the bundle (its manifest) isn't here yet. A failure only means phones can't choose that option
+/// a while longer (the slot's default runs instead); it's logged, and the next call at least
+/// `RETRY_AFTER` later tries again (a scanner open, or the server's start).
+pub async fn ensure_models(data_dir: PathBuf, http: reqwest::Client, off: Withdrawn) {
     let dir = bundle_dir(&data_dir);
-    if QUERY_MODEL.is_in(&dir).await {
-        return;
-    }
     let Some(manifest) = read_manifest(&dir).await else { return };
-    if !QUERY_MODEL.fits(&manifest) {
-        return;
+    for o in wanted(&off, &manifest) {
+        let Source::File { url, bytes, sha256, .. } = o.source else { continue };
+        if o.is_in(&dir).await {
+            continue;
+        }
+        let mut states = model_state().lock().await;
+        match states.get(o.id) {
+            Some(Fetch::Running) => continue,
+            Some(Fetch::Failed(_, at)) if at.elapsed() < RETRY_AFTER => continue,
+            _ => {}
+        }
+        states.insert(o.id, Fetch::Running);
+        drop(states);
+        let (http, dir, file) = (http.clone(), dir.clone(), o.file().unwrap_or_default());
+        tokio::spawn(async move {
+            let result = download_model(&http, url, bytes, sha256, &file, &dir).await;
+            let mut states = model_state().lock().await;
+            let state = match result {
+                Ok(()) => {
+                    tracing::info!(model = o.id, "scanner model ready");
+                    Fetch::Idle
+                }
+                Err(e) => {
+                    tracing::warn!(model = o.id, error = %format!("{e:#}"), "scanner model download failed; its slot's default runs meanwhile");
+                    Fetch::Failed(format!("{e:#}"), Instant::now())
+                }
+            };
+            states.insert(o.id, state);
+        });
     }
-    let mut state = query_state().lock().await;
-    match &*state {
-        Fetch::Running => return,
-        Fetch::Failed(_, at) if at.elapsed() < RETRY_AFTER => return,
-        _ => {}
-    }
-    *state = Fetch::Running;
-    tokio::spawn(async move {
-        let result = download_query(&http, &QUERY_MODEL, &dir).await;
-        let mut state = query_state().lock().await;
-        *state = match result {
-            Ok(()) => {
-                tracing::info!(model = QUERY_MODEL.name, "scanner query model ready");
-                Fetch::Idle
-            }
-            Err(e) => {
-                tracing::warn!(model = QUERY_MODEL.name, error = %format!("{e:#}"), "scanner query model download failed; serving the bundle's embed.onnx");
-                Fetch::Failed(format!("{e:#}"), Instant::now())
-            }
-        };
-    });
 }
 
-/// Fetch `model` into `dir` and drop the query models of pins before the last there.
-async fn download_query(http: &reqwest::Client, model: &QueryModel, dir: &Path) -> anyhow::Result<()> {
-    let file = model.file();
-    fetch_checked(http, model.url, dir, &file, model.bytes, model.sha256).await?;
-    remove_other_queries(dir, &file).await;
+/// The options whose files `ensure_models` fetches for the bundle this manifest describes: ours,
+/// not withdrawn, and fitting its gallery.
+fn wanted(off: &Withdrawn, manifest: &serde_json::Value) -> Vec<&'static ModelOption> {
+    MODELS.iter().copied().filter(|o| matches!(o.source, Source::File { .. }) && !off.has(o) && o.fits(manifest)).collect()
+}
+
+/// Fetch one pinned file into `dir` as `file`, then tidy the folder (`remove_unpinned`).
+async fn download_model(http: &reqwest::Client, url: &str, bytes: u64, sha256: &str, file: &str, dir: &Path) -> anyhow::Result<()> {
+    fetch_checked(http, url, dir, file, bytes, sha256).await?;
+    let mut keep = pinned_files();
+    keep.push(file.to_string());
+    remove_unpinned(dir, &keep).await;
     Ok(())
 }
 
-/// Delete the `query-*.onnx` files of earlier pins, and unfinished `.part` downloads, but keep
-/// `keep` and the newest other one: a phone that read the bundle info just before the pin moved
-/// may still ask for it (as scan_art.rs keeps the supplement it replaced).
-async fn remove_other_queries(dir: &Path, keep: &str) {
+/// The files of every option of ours in `MODELS`, withdrawn or not (a withdrawal can be lifted).
+fn pinned_files() -> Vec<String> {
+    MODELS.iter().filter(|o| matches!(o.source, Source::File { .. })).filter_map(|o| o.file()).collect()
+}
+
+/// The file name prefixes of the options of ours (`query`, `look`).
+fn pinned_prefixes() -> Vec<&'static str> {
+    let mut out: Vec<&'static str> = MODELS.iter().filter_map(|o| if let Source::File { prefix, .. } = o.source { Some(prefix) } else { None }).collect();
+    out.dedup();
+    out
+}
+
+/// Delete model files of ours that `MODELS` no longer pins, and unfinished downloads of files it
+/// doesn't name, but keep `keep` (every pinned file, and downloads of them under way) and, for each
+/// kind (`query-…`, `look-…`), the newest other one: a phone that read the bundle info just before
+/// a pin moved may still ask for it (as scan_art.rs keeps the supplement it replaced).
+async fn remove_unpinned(dir: &Path, keep: &[String]) {
     let Ok(mut entries) = tokio::fs::read_dir(dir).await else { return };
-    let mut older = Vec::new();
+    let prefixes = pinned_prefixes();
+    let mut older: Vec<(&'static str, std::time::SystemTime, PathBuf, String)> = Vec::new();
     while let Ok(Some(entry)) = entries.next_entry().await {
         let name = entry.file_name().to_string_lossy().into_owned();
-        if !name.starts_with("query-") || name == keep {
+        let Some(prefix) = prefixes.iter().copied().find(|p| name.starts_with(&format!("{p}-"))) else { continue };
+        if keep.iter().any(|k| *k == name || format!("{k}.part") == name) {
             continue;
         }
         if name.ends_with(".onnx") {
             let modified = entry.metadata().await.and_then(|m| m.modified()).unwrap_or(std::time::UNIX_EPOCH);
-            older.push((modified, entry.path(), name));
+            older.push((prefix, modified, entry.path(), name));
         } else if name.ends_with(".onnx.part") {
-            older.push((std::time::UNIX_EPOCH, entry.path(), name));
+            older.push((prefix, std::time::UNIX_EPOCH, entry.path(), name));
         }
     }
-    // Newest first; the first complete one stays.
-    older.sort_by(|a, b| b.0.cmp(&a.0));
-    let previous = older.iter().position(|(_, _, name)| name.ends_with(".onnx"));
-    for (i, (_, path, name)) in older.into_iter().enumerate() {
-        if Some(i) == previous {
+    // Newest first; the first complete one of each kind stays.
+    older.sort_by(|a, b| b.1.cmp(&a.1));
+    let mut kept: Vec<&str> = Vec::new();
+    for (prefix, _, path, name) in older {
+        if name.ends_with(".onnx") && !kept.contains(&prefix) {
+            kept.push(prefix);
             continue;
         }
         match tokio::fs::remove_file(&path).await {
-            Ok(()) => tracing::info!(file = %name, "removed an older scanner query model"),
-            Err(e) => tracing::warn!(file = %name, error = %e, "couldn't remove an older scanner query model"),
+            Ok(()) => tracing::info!(file = %name, "removed an older scanner model"),
+            Err(e) => tracing::warn!(file = %name, error = %e, "couldn't remove an older scanner model"),
         }
     }
 }
@@ -304,32 +558,32 @@ async fn read_manifest(dir: &Path) -> Option<serde_json::Value> {
     serde_json::from_slice(&tokio::fs::read(dir.join("manifest.json")).await.ok()?).ok()
 }
 
-/// Whether phones opening the scanner get Yama's query model as the embed graph: the switch
-/// allows it, it fits this bundle's gallery and it's downloaded. Otherwise the bundle's own.
-async fn serves_query(cfg: &crate::config::Config, dir: &Path, manifest: &serde_json::Value) -> bool {
-    cfg.scan_query_model && QUERY_MODEL.fits(manifest) && QUERY_MODEL.is_in(dir).await
+/// The art model a phone that doesn't say which it chose runs: the art slot's default on offer.
+async fn default_art(cfg: &crate::config::Config, dir: &Path) -> Option<&'static ModelOption> {
+    if !is_ready(dir) {
+        return None;
+    }
+    let manifest = read_manifest(dir).await?;
+    default_of(Slot::Art, &offered(&Withdrawn::of(cfg), dir, Some(&manifest)).await)
 }
 
 /// The bundle a kept scan photo or diagnostic is recorded with: the bundle version the phone ran,
-/// plus `+<query model>` when it ran one of Yama's query models. `embed` is what the phone's art
+/// plus `+<art model>` when it ran one of Yama's query models. `embed` is what the phone's art
 /// recognizer says it runs (`ArtRecognizer.embed`: `<bundle version>/<embed file>`), or "none"
 /// while it reads text only (recorded with the pinned version):
 /// - the bundle's `embed.onnx`: the version alone;
-/// - this pin's query model: `+yama-art-…`; another pin's (a tab open across a change):
-///   `+query-<sha>`, never relabelled as the current one;
+/// - a query model in `MODELS`: `+<its id>`; another pin's (a tab open across a change):
+///   `+query-<sha>`, never relabelled as a current one;
 /// - anything else, or a version that isn't a plain name: `+unknown`;
-/// - not said (a web build from before it was sent): the pinned version, and the query model if
-///   the server serves it now, the best guess.
+/// - not said (a web build from before it was sent): the pinned version, and the art slot's
+///   default if the server offers one of ours now, the best guess.
 pub(crate) async fn recorded_version(cfg: &crate::config::Config, embed: Option<&str>) -> String {
-    let plain = |v: &str| {
-        (1..=64).contains(&v.len()) && v.starts_with(|c: char| c.is_ascii_alphanumeric()) && v.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
-    };
     let model = |file: &str| -> Option<String> {
         if file == "embed.onnx" {
             return Some(String::new());
         }
-        if file == QUERY_MODEL.file() {
-            return Some(format!("+{}", QUERY_MODEL.name));
+        if let Some(o) = MODELS.iter().find(|o| o.slot == Slot::Art && matches!(o.source, Source::File { .. }) && o.file().as_deref() == Some(file)) {
+            return Some(format!("+{}", o.id));
         }
         let sha = file.strip_prefix("query-")?.strip_suffix(".onnx")?;
         (sha.len() == 12 && sha.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))).then(|| format!("+query-{sha}"))
@@ -337,20 +591,35 @@ pub(crate) async fn recorded_version(cfg: &crate::config::Config, embed: Option<
     match embed {
         Some("none") => BUNDLE_VERSION.to_string(),
         Some(said) => match said.split_once('/') {
-            Some((version, file)) if plain(version) => format!("{version}{}", model(file).unwrap_or_else(|| "+unknown".into())),
+            Some((version, file)) if plain_id(version) => format!("{version}{}", model(file).unwrap_or_else(|| "+unknown".into())),
             _ => format!("{BUNDLE_VERSION}+unknown"),
         },
-        None => {
-            let dir = bundle_dir(&cfg.data_dir);
-            if is_ready(&dir)
-                && let Some(manifest) = read_manifest(&dir).await
-                && serves_query(cfg, &dir, &manifest).await
-            {
-                return format!("{BUNDLE_VERSION}+{}", QUERY_MODEL.name);
-            }
-            BUNDLE_VERSION.to_string()
-        }
+        None => match default_art(cfg, &bundle_dir(&cfg.data_dir)).await {
+            Some(o) if matches!(o.source, Source::File { .. }) => format!("{BUNDLE_VERSION}+{}", o.id),
+            _ => BUNDLE_VERSION.to_string(),
+        },
     }
+}
+
+/// A short plain name: letters, digits, `-`, `_` and `.`, starting with a letter or digit.
+fn plain_id(v: &str) -> bool {
+    (1..=64).contains(&v.len()) && v.starts_with(|c: char| c.is_ascii_alphanumeric()) && v.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
+}
+
+/// The options a phone says it ran, per slot (`{"art": "yama-art-20261118", "look": "off",
+/// "text": "auto", "lock": "lead"}`), as kept with a scan photo or diagnostic (JSON text): known
+/// slots only, each a plain id. An id the registry doesn't know now is kept as said (a tab open
+/// across a change, or an option since removed). Anything else is dropped; None when nothing is left.
+pub(crate) fn recorded_models(said: Option<&serde_json::Value>) -> Option<String> {
+    let said = said?.as_object()?;
+    let kept: serde_json::Map<String, serde_json::Value> = SLOTS
+        .iter()
+        .filter_map(|slot| {
+            let id = said.get(slot.key())?.as_str()?;
+            plain_id(id).then(|| (slot.key().to_string(), serde_json::Value::from(id)))
+        })
+        .collect();
+    (!kept.is_empty()).then(|| serde_json::Value::Object(kept).to_string())
 }
 
 /// Once this version is ready, drop the folders of earlier pinned bundles (about 45 MB each). They
@@ -417,6 +686,28 @@ struct BundleInfo {
     bytes: BundleBytes,
     /// `manifest.constants`, as the recognizer reads them.
     constants: Option<serde_json::Value>,
+    /// What each slot can run, by slot key (`art`, `look`, `text`, `lock`): the options on offer
+    /// and the default (docs/scanner.md, "Models you can switch"). `files.embed` is the art slot's
+    /// default, for web builds from before this.
+    models: BTreeMap<&'static str, SlotInfo>,
+}
+
+#[derive(Serialize)]
+struct SlotInfo {
+    /// The option the slot runs unless the app chooses another on offer; null when none is.
+    default: Option<&'static str>,
+    options: Vec<OptionInfo>,
+}
+
+#[derive(Serialize)]
+struct OptionInfo {
+    id: &'static str,
+    label: &'static str,
+    note: &'static str,
+    licence: Option<&'static str>,
+    /// Where the app fetches its file (immutable), when it has one.
+    file: Option<String>,
+    bytes: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -452,17 +743,27 @@ async fn bundle_info(State(st): State<AppState>, _user: CurrentUser) -> AppResul
         None
     };
     let constants = manifest.as_ref().and_then(|m| m.get("constants").cloned());
-    if ready && st.cfg.scan_query_model && !st.cfg.offline {
-        ensure_query(st.cfg.data_dir.clone(), st.http.clone()).await;
+    let off = Withdrawn::of(&st.cfg);
+    if ready && !st.cfg.offline {
+        ensure_models(st.cfg.data_dir.clone(), st.http.clone(), off.clone()).await;
     }
-    // Yama's query model in place of the bundle's embed graph once it's here; a different file
-    // name, so the phone's cache (keyed by URL) fetches it once and drops the other.
-    let query = match &manifest {
-        Some(m) => serves_query(&st.cfg, &dir, m).await,
-        None => false,
-    };
-    let embed = if query { QUERY_MODEL.file() } else { "embed.onnx".to_string() };
     let url = |f: &str| format!("/scan-bundle/{BUNDLE_VERSION}/{f}");
+    let on_offer = offered(&off, &dir, manifest.as_ref()).await;
+    let models = SLOTS
+        .iter()
+        .map(|&slot| {
+            let options = on_offer
+                .iter()
+                .filter(|o| o.slot == slot)
+                .map(|o| OptionInfo { id: o.id, label: o.label, note: o.note, licence: o.licence, file: o.file().map(|f| url(&f)), bytes: o.bytes() })
+                .collect();
+            (slot.key(), SlotInfo { default: default_of(slot, &on_offer).map(|o| o.id), options })
+        })
+        .collect();
+    // The art slot's default as the bundle's embed graph, for web builds that read only this: Yama's
+    // query model once it's here, under a different file name, so the phone's cache (keyed by URL)
+    // fetches it once and drops the other.
+    let art = default_of(Slot::Art, &on_offer).filter(|o| o.file().is_some()).unwrap_or(&BUNDLE_ART);
     let size = |f: &str| FILES.iter().find(|(name, _, _)| *name == f).map_or(0, |(_, bytes, _)| *bytes);
     let arts = if ready { tokio::fs::metadata(dir.join(ARTS)).await.map_or(0, |m| m.len()) } else { 0 };
     let supplement = if ready && st.cfg.scan_supplement { crate::scan_art::current(&st.cfg.data_dir).await } else { None };
@@ -472,19 +773,20 @@ async fn bundle_info(State(st): State<AppState>, _user: CurrentUser) -> AppResul
         error,
         files: BundleFiles {
             detector: url("detector.onnx"),
-            embed: url(&embed),
+            embed: url(&art.file().unwrap_or_else(|| "embed.onnx".into())),
             search: url("search.onnx"),
             arts: url(ARTS),
             supplement: supplement.as_ref().map(|(name, _)| url(name)),
         },
         bytes: BundleBytes {
             detector: size("detector.onnx"),
-            embed: if query { QUERY_MODEL.bytes } else { size("embed.onnx") },
+            embed: art.bytes().unwrap_or_else(|| size("embed.onnx")),
             search: size("search.onnx"),
             arts,
             supplement: supplement.map_or(0, |(_, bytes)| bytes),
         },
         constants,
+        models,
     }))
 }
 
@@ -629,37 +931,80 @@ mod tests {
         dir
     }
 
+    const RECOGNISER: &str = RECOGNISER_20261026;
+
+    fn query_file() -> String {
+        QUERY_MODEL.file().unwrap()
+    }
+
+    fn query_bytes() -> u64 {
+        QUERY_MODEL.bytes().unwrap()
+    }
+
+    #[test]
+    fn every_slot_has_one_base_at_most_one_default_and_pinned_files() {
+        let mut ids = std::collections::HashSet::new();
+        for o in MODELS {
+            assert!(plain_id(o.id) && o.id == o.id.to_lowercase(), "{}", o.id);
+            // YAMA_SCAN_WITHDRAW names an option by its id alone.
+            assert!(ids.insert(o.id), "{} twice", o.id);
+            assert!(!o.label.is_empty() && !o.note.is_empty(), "{}", o.id);
+            if let Source::File { prefix, url, bytes, sha256 } = o.source {
+                assert!(url.starts_with("https://github.com/bryanroscoe/yama/releases/download/"), "{url}");
+                assert!(bytes > 0 && sha256.len() == 64 && sha256.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()), "{}", o.id);
+                assert!(prefix.bytes().all(|b| b.is_ascii_lowercase()), "{prefix}");
+                assert!(o.licence.is_some(), "{} has no licence", o.id);
+                assert_ne!(o.file().as_deref(), Some("embed.onnx"));
+            }
+            // Only a model of ours can be tied to a gallery.
+            assert!(o.recogniser.is_none() || matches!(o.source, Source::File { .. }), "{}", o.id);
+            assert!(!o.base || o.recogniser.is_none(), "a base option must always fit: {}", o.id);
+        }
+        let files = pinned_files();
+        assert_eq!(files.len(), files.iter().collect::<std::collections::HashSet<_>>().len(), "two options share a file");
+        for slot in SLOTS {
+            let of: Vec<_> = MODELS.iter().filter(|o| o.slot == slot).collect();
+            assert_eq!(of.iter().filter(|o| o.base).count(), 1, "{slot:?} needs exactly one base option");
+            assert!(of.iter().filter(|o| o.default).count() <= 1, "{slot:?} has two defaults");
+        }
+        assert_eq!(query_file(), "query-52420d900728.onnx");
+    }
+
     #[tokio::test]
     async fn the_query_model_is_served_only_when_it_fits_is_allowed_and_is_whole() {
         let data = tempfile::tempdir().unwrap();
-        let dir = ready_bundle(data.path(), QUERY_MODEL.recogniser);
+        let dir = ready_bundle(data.path(), RECOGNISER);
         let mut cfg = testutil::config();
         cfg.data_dir = data.path().to_path_buf();
-        let with_query = format!("{BUNDLE_VERSION}+{}", QUERY_MODEL.name);
-        assert_eq!(QUERY_MODEL.file(), "query-52420d900728.onnx");
+        let with_query = format!("{BUNDLE_VERSION}+{}", QUERY_MODEL.id);
 
         // What the server would serve (a client that doesn't say what it loaded).
         // Not downloaded yet, or cut short: the bundle's own.
         assert_eq!(recorded_version(&cfg, None).await, BUNDLE_VERSION);
-        std::fs::write(dir.join(QUERY_MODEL.file()), b"short").unwrap();
+        std::fs::write(dir.join(query_file()), b"short").unwrap();
         assert_eq!(recorded_version(&cfg, None).await, BUNDLE_VERSION);
-        std::fs::write(dir.join(QUERY_MODEL.file()), vec![0u8; QUERY_MODEL.bytes as usize]).unwrap();
+        std::fs::write(dir.join(query_file()), vec![0u8; query_bytes() as usize]).unwrap();
         assert_eq!(recorded_version(&cfg, None).await, with_query);
-        // Switched off.
+        // Switched off, or withdrawn by id.
         cfg.scan_query_model = false;
         assert_eq!(recorded_version(&cfg, None).await, BUNDLE_VERSION);
         cfg.scan_query_model = true;
+        cfg.scan_withdrawn = vec![QUERY_MODEL.id.to_string()];
+        assert_eq!(recorded_version(&cfg, None).await, BUNDLE_VERSION);
+        cfg.scan_withdrawn = vec!["look-v0".into(), "bundle".into()];
+        assert_eq!(recorded_version(&cfg, None).await, with_query);
+        cfg.scan_withdrawn = vec![];
         // A bundle from another recogniser checkpoint: its own embed graph.
         ready_bundle(data.path(), "0000000000000000000000000000000000000000000000000000000000000000");
         assert_eq!(recorded_version(&cfg, None).await, BUNDLE_VERSION);
-        ready_bundle(data.path(), QUERY_MODEL.recogniser);
+        ready_bundle(data.path(), RECOGNISER);
         assert_eq!(recorded_version(&cfg, None).await, with_query);
         // What the phone says it ran wins over what the server serves now.
         let said = |file: &str| format!("{BUNDLE_VERSION}/{file}");
         assert_eq!(recorded_version(&cfg, Some(said("embed.onnx").as_str())).await, BUNDLE_VERSION);
         assert_eq!(recorded_version(&cfg, Some("none")).await, BUNDLE_VERSION);
         cfg.scan_query_model = false;
-        assert_eq!(recorded_version(&cfg, Some(said(&QUERY_MODEL.file()).as_str())).await, with_query);
+        assert_eq!(recorded_version(&cfg, Some(said(&query_file()).as_str())).await, with_query);
         cfg.scan_query_model = true;
         // Another pin's model keeps its own name, and a tab open across a bundle change its own
         // bundle; anything else is unknown, never a guess.
@@ -677,39 +1022,60 @@ mod tests {
         assert_eq!(recorded_version(&cfg, None).await, BUNDLE_VERSION);
     }
 
+    /// Each slot's option ids, in order, and its default.
+    fn slot(info: &serde_json::Value, key: &str) -> (Vec<String>, serde_json::Value) {
+        let ids = info["models"][key]["options"].as_array().unwrap().iter().map(|o| o["id"].as_str().unwrap().to_string()).collect();
+        (ids, info["models"][key]["default"].clone())
+    }
+
     #[tokio::test]
     async fn bundle_info_names_the_query_model_or_else_the_bundles_embed() {
         let data = tempfile::tempdir().unwrap();
-        let dir = ready_bundle(data.path(), QUERY_MODEL.recogniser);
+        let dir = ready_bundle(data.path(), RECOGNISER);
         let pool = crate::db::test_pool().await;
         let (_, token) = testutil::user(&pool, "scan@example.com").await;
         // Offline, so a missing query model is never fetched from GitHub here.
-        let app_with = |on: bool| {
+        let app_with = |on: bool, withdrawn: &[&str]| {
             let pool = pool.clone();
             let mut cfg = testutil::config();
             cfg.data_dir = data.path().to_path_buf();
             cfg.offline = true;
             cfg.scan_query_model = on;
+            cfg.scan_withdrawn = withdrawn.iter().map(|s| s.to_string()).collect();
             async move { crate::routes::app(testutil::state_with(cfg, pool).await) }
         };
         let bundle_embed = format!("/scan-bundle/{BUNDLE_VERSION}/embed.onnx");
-        let query_embed = format!("/scan-bundle/{BUNDLE_VERSION}/{}", QUERY_MODEL.file());
+        let query_embed = format!("/scan-bundle/{BUNDLE_VERSION}/{}", query_file());
+        let ids = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
 
-        // Not downloaded: the bundle's embed graph, as before.
-        let app = app_with(true).await;
+        // Not downloaded: the bundle's embed graph, as before, and the only art option.
+        let app = app_with(true, &[]).await;
         let (status, info) = testutil::send(&app, Method::GET, "/api/scan/bundle", Some(&token), None).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(info["ready"], true);
         assert_eq!(info["error"], serde_json::Value::Null);
         assert_eq!(info["files"]["embed"], bundle_embed.as_str());
         assert_eq!(info["bytes"]["embed"], 5_118_408);
+        assert_eq!(slot(&info, "art"), (ids(&["bundle"]), "bundle".into()));
+        assert_eq!(info["models"]["art"]["options"][0]["file"], bundle_embed.as_str());
+        assert_eq!(info["models"]["art"]["options"][0]["licence"], "MPL-2.0");
+        // The slots that need nothing downloaded are there whatever the bundle.
+        assert_eq!(slot(&info, "look"), (ids(&["off"]), "off".into()));
+        assert_eq!(slot(&info, "text"), (ids(&["auto", "mlkit", "paddle", "tesseract"]), "auto".into()));
+        assert_eq!(slot(&info, "lock"), (ids(&["lead", "sure"]), "lead".into()));
+        assert_eq!(info["models"]["lock"]["options"][0]["file"], serde_json::Value::Null);
 
-        // Downloaded: the query model, served from the bundle's folder like its files.
-        let model: Vec<u8> = (0..QUERY_MODEL.bytes).map(|i| (i % 251) as u8).collect();
-        std::fs::write(dir.join(QUERY_MODEL.file()), &model).unwrap();
+        // Downloaded: the query model, served from the bundle's folder like its files, and the default.
+        let model: Vec<u8> = (0..query_bytes()).map(|i| (i % 251) as u8).collect();
+        std::fs::write(dir.join(query_file()), &model).unwrap();
         let (_, info) = testutil::send(&app, Method::GET, "/api/scan/bundle", Some(&token), None).await;
         assert_eq!(info["files"]["embed"], query_embed.as_str());
-        assert_eq!(info["bytes"]["embed"], QUERY_MODEL.bytes);
+        assert_eq!(info["bytes"]["embed"], query_bytes());
+        assert_eq!(slot(&info, "art"), (ids(&["bundle", QUERY_MODEL.id]), QUERY_MODEL.id.into()));
+        let art = &info["models"]["art"]["options"][1];
+        assert_eq!(art["file"], query_embed.as_str());
+        assert_eq!(art["bytes"], query_bytes());
+        assert_eq!(art["label"], QUERY_MODEL.label);
         assert_eq!(info["files"]["detector"], format!("/scan-bundle/{BUNDLE_VERSION}/detector.onnx").as_str());
         assert_eq!(info["files"]["search"], format!("/scan-bundle/{BUNDLE_VERSION}/search.onnx").as_str());
         assert_eq!(info["constants"]["scene"], 640);
@@ -717,25 +1083,79 @@ mod tests {
         assert_eq!(res.status(), StatusCode::OK);
         assert_eq!(res.headers()[header::CACHE_CONTROL], "public, max-age=31536000, immutable");
         let body = axum::body::to_bytes(res.into_body(), usize::MAX).await.unwrap();
-        assert_eq!(body.len() as u64, QUERY_MODEL.bytes);
+        assert_eq!(body.len() as u64, query_bytes());
         assert!(body == model);
         // The bundle's own stays where scan_art.rs reads it.
         assert_eq!(std::fs::read(dir.join("embed.onnx")).unwrap(), b"bundle");
 
-        // Switched off: the bundle's.
-        let off = app_with(false).await;
-        let (_, info) = testutil::send(&off, Method::GET, "/api/scan/bundle", Some(&token), None).await;
-        assert_eq!(info["files"]["embed"], bundle_embed.as_str());
-        assert_eq!(info["bytes"]["embed"], 5_118_408);
+        // Switched off, or withdrawn: the bundle's, and no other art option.
+        for off in [app_with(false, &[]).await, app_with(true, &[QUERY_MODEL.id]).await] {
+            let (_, info) = testutil::send(&off, Method::GET, "/api/scan/bundle", Some(&token), None).await;
+            assert_eq!(info["files"]["embed"], bundle_embed.as_str());
+            assert_eq!(info["bytes"]["embed"], 5_118_408);
+            assert_eq!(slot(&info, "art"), (ids(&["bundle"]), "bundle".into()));
+        }
+
+        // Withdrawing a default drops the slot to its base; a base option can't be withdrawn.
+        let some = app_with(true, &["lead", "paddle", "sure", "bundle", "auto", "off", "nothing-like-it"]).await;
+        let (_, info) = testutil::send(&some, Method::GET, "/api/scan/bundle", Some(&token), None).await;
+        assert_eq!(slot(&info, "lock"), (ids(&["sure"]), "sure".into()));
+        assert_eq!(slot(&info, "text"), (ids(&["auto", "mlkit", "tesseract"]), "auto".into()));
+        assert_eq!(slot(&info, "art"), (ids(&["bundle", QUERY_MODEL.id]), QUERY_MODEL.id.into()));
+        assert_eq!(slot(&info, "look"), (ids(&["off"]), "off".into()));
 
         // A bundle from another recogniser: the bundle's, though the file is here.
         ready_bundle(data.path(), "eb6558461672b30c8b699570cc1669c4baa1a31d5fd28d617800e8a1f4d2e2c4");
         let (_, info) = testutil::send(&app, Method::GET, "/api/scan/bundle", Some(&token), None).await;
         assert_eq!(info["files"]["embed"], bundle_embed.as_str());
+        assert_eq!(slot(&info, "art"), (ids(&["bundle"]), "bundle".into()));
+
+        // No bundle yet: nothing for the art slot, the rest as ever.
+        std::fs::remove_file(dir.join("search.onnx")).unwrap();
+        let (_, info) = testutil::send(&app, Method::GET, "/api/scan/bundle", Some(&token), None).await;
+        assert_eq!(info["ready"], false);
+        assert_eq!(slot(&info, "art"), (vec![], serde_json::Value::Null));
+        assert_eq!(slot(&info, "text").1, "auto");
+    }
+
+    #[test]
+    fn only_files_of_ours_that_fit_and_arent_withdrawn_are_downloaded() {
+        let fits = serde_json::json!({"recogniser": {"sha256": RECOGNISER}});
+        let other = serde_json::json!({"recogniser": {"sha256": "0".repeat(64)}});
+        let ids = |v: Vec<&'static ModelOption>| v.iter().map(|o| o.id).collect::<Vec<_>>();
+        let all: Vec<&str> = MODELS.iter().filter(|o| matches!(o.source, Source::File { .. })).map(|o| o.id).collect();
+        assert!(all.contains(&QUERY_MODEL.id));
+        assert_eq!(ids(wanted(&Withdrawn::default(), &fits)), all);
+        // A bundle from another checkpoint: no art model of ours (anything else of ours still).
+        assert!(!ids(wanted(&Withdrawn::default(), &other)).contains(&QUERY_MODEL.id));
+        let mut cfg = testutil::config();
+        cfg.scan_withdrawn = vec![QUERY_MODEL.id.into()];
+        assert!(!ids(wanted(&Withdrawn::of(&cfg), &fits)).contains(&QUERY_MODEL.id));
+        cfg.scan_withdrawn = vec![];
+        cfg.scan_query_model = false;
+        assert!(!ids(wanted(&Withdrawn::of(&cfg), &fits)).contains(&QUERY_MODEL.id));
+    }
+
+    #[test]
+    fn the_models_a_phone_ran_are_kept_by_slot() {
+        let kept = |v: serde_json::Value| recorded_models(Some(&v)).map(|s| serde_json::from_str::<serde_json::Value>(&s).unwrap());
+        assert_eq!(
+            kept(serde_json::json!({"art": "yama-art-20261118", "look": "off", "text": "paddle", "lock": "sure"})),
+            Some(serde_json::json!({"art": "yama-art-20261118", "look": "off", "text": "paddle", "lock": "sure"}))
+        );
+        // An option the registry doesn't know (a tab open across a change) is kept as said;
+        // other slots, odd ids and other types are dropped.
+        assert_eq!(
+            kept(serde_json::json!({"art": "yama-art-20990101", "look": "../x", "text": 3, "colour": "blue"})),
+            Some(serde_json::json!({"art": "yama-art-20990101"}))
+        );
+        assert_eq!(kept(serde_json::json!({"art": ""})), None);
+        assert_eq!(kept(serde_json::json!("art")), None);
+        assert_eq!(recorded_models(None), None);
     }
 
     #[tokio::test]
-    async fn the_query_download_is_checked_and_keeps_only_the_pin_before() {
+    async fn a_model_download_is_checked_and_keeps_only_the_pin_before() {
         let served = axum::Router::new()
             .route("/good", get(|| async { "model" }))
             .route("/bad", get(|| async { "modem" }))
@@ -743,16 +1163,10 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let server = tokio::spawn(async move { axum::serve(listener, served).await.unwrap() });
-        let model = |path: &str| QueryModel {
-            name: "test",
-            url: Box::leak(format!("{base}{path}").into_boxed_str()),
-            bytes: 5,
-            sha256: Box::leak(hex::encode(Sha256::digest(b"model")).into_boxed_str()),
-            recogniser: QUERY_MODEL.recogniser,
-        };
+        let sha = hex::encode(Sha256::digest(b"model"));
+        let file = format!("query-{}.onnx", &sha[..12]);
         let dir = tempfile::tempdir().unwrap();
         let http = crate::routes::http_client();
-        let file = model("/good").file();
         std::fs::write(dir.path().join("embed.onnx"), b"bundle").unwrap();
         let day = std::time::Duration::from_secs(24 * 3600);
         // The pin just before is the newest file, though not the last name, so only time order keeps it.
@@ -762,23 +1176,26 @@ mod tests {
             f.set_modified(std::time::SystemTime::now() - day * age).unwrap();
         }
         std::fs::write(dir.path().join("query-111111111111.onnx.part"), b"older, unfinished").unwrap();
+        // Another pinned option's download under way, and a pinned file whatever its age.
+        std::fs::write(dir.path().join(format!("{}.part", query_file())), b"downloading").unwrap();
         std::fs::write(dir.path().join("supplement-abc.json"), b"{}").unwrap();
 
         // Wrong bytes or too many: nothing named, nothing left over, older pins untouched.
         for path in ["/bad", "/long"] {
-            let err = download_query(&http, &model(path), dir.path()).await.unwrap_err();
+            let err = download_model(&http, &format!("{base}{path}"), 5, &sha, &file, dir.path()).await.unwrap_err();
             assert!(format!("{err:#}").contains(&file), "{err:#}");
             assert!(!dir.path().join(&file).exists());
             assert!(!dir.path().join(format!("{file}.part")).exists());
             assert!(dir.path().join("query-000000000000.onnx").exists());
         }
 
-        download_query(&http, &model("/good"), dir.path()).await.unwrap();
+        download_model(&http, &format!("{base}/good"), 5, &sha, &file, dir.path()).await.unwrap();
         assert_eq!(std::fs::read(dir.path().join(&file)).unwrap(), b"model");
         // The pin just before stays for phones that still name it; older ones and leftovers go.
         assert!(dir.path().join("query-000000000000.onnx").exists());
         assert!(!dir.path().join("query-aaaaaaaaaaaa.onnx").exists());
         assert!(!dir.path().join("query-111111111111.onnx.part").exists());
+        assert!(dir.path().join(format!("{}.part", query_file())).exists(), "a pinned option's download under way stays");
         assert_eq!(std::fs::read(dir.path().join("embed.onnx")).unwrap(), b"bundle");
         assert!(dir.path().join("supplement-abc.json").exists());
         server.abort();

@@ -2,6 +2,7 @@
 // and hands it frames one at a time.
 
 import { api, API_BASE } from "../api";
+import type { ModelOption, ModelsInfo } from "./models";
 import type { Recognition } from "./recognizer";
 import type { RgbaImage } from "./types";
 
@@ -14,10 +15,19 @@ export interface BundleInfo {
   /** Unzipped sizes, for progress. */
   bytes: { detector: number; embed: number; search: number; arts: number; supplement?: number };
   constants: Record<string, unknown> | null;
+  /** What each of the scanner's slots can run (models.ts); absent from servers before 20 Nov 2026. */
+  models?: Partial<ModelsInfo> | null;
+}
+
+/** An art query model's file, as the worker loads it. */
+export interface EmbedFile {
+  url: string;
+  bytes: number;
 }
 
 export type ArtWorkerRequest =
-  | { type: "load"; info: BundleInfo; base: string }
+  | { type: "load"; info: BundleInfo; base: string; embed: EmbedFile }
+  | { type: "embed"; id: number; embed: EmbedFile }
   | { type: "reset" }
   | { type: "pool"; id: number; keys: PoolKeys | null }
   | { type: "identify"; id: number; width: number; height: number; buffer: ArrayBuffer };
@@ -27,6 +37,7 @@ export type ArtWorkerReply =
   | { type: "ready"; ms: number; arts: number }
   | { type: "error"; message: string }
   | { type: "pooled"; id: number; arts: number }
+  | { type: "embedded"; id: number; error: string | null }
   | { type: "result"; id: number; result: Recognition; buffer: ArrayBuffer }
   | { type: "failed"; id: number; message: string; buffer: ArrayBuffer };
 
@@ -53,17 +64,35 @@ export interface ArtRecognizer {
   dispose(): void;
   /**
    * The bundle version and embed graph this recognizer runs (`embedIdentity`): the bundle's
-   * `embed.onnx` or Yama's query model. Kept photos and diagnostics carry it, so the server
+   * `embed.onnx` or one of Yama's query models. Kept photos and diagnostics carry it, so the server
    * records the model and bundle the phone really ran (a tab open across a change included).
    */
   readonly embed: string;
+  /** The art slot's option it runs (models.ts), for records and Scan settings. */
+  readonly art: string;
+  /**
+   * Run this art model from now on, without reloading the rest (Scan settings). Frames already
+   * being read finish with the one before. Rejects, keeping the one before, if it can't be loaded.
+   */
+  useArt(option: ModelOption): Promise<void>;
 }
 
 /** What kept photos and diagnostics say ran when the scanner read text only, with no art model. */
 export const NO_ART_MODEL = "none";
 
-/** `<bundle version>/<embed file>`: the art model a recognizer loaded from this bundle info. */
-export const embedIdentity = (info: Pick<BundleInfo, "version" | "files">): string => `${info.version}/${info.files.embed.split("/").pop() ?? ""}`;
+/** `<bundle version>/<embed file>`: the art model a recognizer loaded from this bundle info (its `files.embed`, or `file`). */
+export const embedIdentity = (info: Pick<BundleInfo, "version" | "files">, file: string = info.files.embed): string => `${info.version}/${file.split("/").pop() ?? ""}`;
+
+/**
+ * The art option a bundle info's `files.embed` is: the listed option with that file, else (servers
+ * before `models`) "bundle" for the bundle's own, or the file's name.
+ */
+export const defaultArtId = (info: Pick<BundleInfo, "files" | "models">): string => {
+  const listed = info.models?.art?.options.find((o) => o.file === info.files.embed);
+  if (listed) return listed.id;
+  const name = info.files.embed.split("/").pop() ?? "";
+  return name === "embed.onnx" ? "bundle" : name.replace(/\.onnx$/, "");
+};
 
 export type LoadState = { kind: "downloading"; loaded: number; total: number } | { kind: "preparing" };
 
@@ -75,7 +104,7 @@ const INFO_KEY = "yama-scan-bundle";
  * (kept once the recognizer is ready, so its files are all in the cache; a cut-short download of
  * a new embed graph, say, leaves the previous info and files for offline use).
  */
-async function bundleInfo(): Promise<BundleInfo | null> {
+export async function scanBundleInfo(): Promise<BundleInfo | null> {
   try {
     return await api<BundleInfo>("/api/scan/bundle");
   } catch (e) {
@@ -114,18 +143,38 @@ export async function oneLoadAtATime<T>(load: () => Promise<T>, wait = LOAD_LOCK
 }
 
 /**
- * Start the recognizer. Resolves null when the server doesn't have the bundle yet (it starts
- * downloading it; the scanner reads text meanwhile). Rejects on a real failure.
+ * Start the recognizer with `art` (the art slot's option to run, models.ts; the bundle info's
+ * `files.embed` when not given), from `info` (fetched when not given). Resolves null when the
+ * server doesn't have the bundle yet (it starts downloading it; the scanner reads text meanwhile).
+ * Rejects on a real failure. A chosen art model that won't load (not cached, opening offline) gives
+ * way to the bundle info's own embed graph.
  */
-export async function loadArtRecognizer(onState?: (s: LoadState) => void): Promise<ArtRecognizer | null> {
+export async function loadArtRecognizer(onState?: (s: LoadState) => void, opts: { info?: BundleInfo | null; art?: ModelOption | null } = {}): Promise<ArtRecognizer | null> {
   if (typeof Worker === "undefined" || typeof WebAssembly === "undefined") return null;
-  const info = await bundleInfo();
+  const info = opts.info !== undefined ? opts.info : await scanBundleInfo();
   if (!info?.ready || !info.constants) return null;
+  const fallback = { id: defaultArtId(info), file: info.files.embed, bytes: info.bytes.embed };
+  const art = opts.art?.file ? { id: opts.art.id, file: opts.art.file, bytes: opts.art.bytes ?? 0 } : fallback;
+  try {
+    return await startRecognizer(info, art, onState);
+  } catch (e) {
+    if (art.file === fallback.file) throw e;
+    console.warn(`The art model ${art.id} didn't load; running the default`, e);
+    return startRecognizer(info, fallback, onState);
+  }
+}
+
+async function startRecognizer(info: BundleInfo, art: { id: string; file: string; bytes: number }, onState?: (s: LoadState) => void): Promise<ArtRecognizer> {
   const worker = new Worker(new URL("./art.worker.ts", import.meta.url), { type: "module" });
   const pending = new Map<number, { resolve: (r: Recognition) => void; reject: (e: Error) => void }>();
   const pooling = new Map<number, (arts: number) => void>();
+  const embedding = new Map<number, (error: string | null) => void>();
   let nextId = 1;
   let disposed = false;
+  let now = art;
+  /** Art model switches, one after another, so the last one asked for is the one that runs. */
+  let switching: Promise<unknown> = Promise.resolve();
+  const base = API_BASE || location.origin;
 
   // The worker drops cached files this info doesn't name, then the info is kept for offline use:
   // one load at a time across this browser's tabs, so two tabs loading different bundle info (the
@@ -139,7 +188,7 @@ export async function loadArtRecognizer(onState?: (s: LoadState) => void): Promi
         else if (m.type === "error") reject(new Error(m.message));
       };
       worker.onerror = (e) => reject(new Error(e.message || "The card recognizer stopped"));
-      worker.postMessage({ type: "load", info, base: API_BASE || location.origin } satisfies ArtWorkerRequest);
+      worker.postMessage({ type: "load", info, base, embed: { url: art.file, bytes: art.bytes } } satisfies ArtWorkerRequest);
     }).catch((e: unknown) => {
       worker.terminate();
       throw e;
@@ -158,6 +207,11 @@ export async function loadArtRecognizer(onState?: (s: LoadState) => void): Promi
       pooling.delete(m.id);
       return;
     }
+    if (m.type === "embedded") {
+      embedding.get(m.id)?.(m.error);
+      embedding.delete(m.id);
+      return;
+    }
     if (m.type !== "result" && m.type !== "failed") return;
     const p = pending.get(m.id);
     pending.delete(m.id);
@@ -167,10 +221,38 @@ export async function loadArtRecognizer(onState?: (s: LoadState) => void): Promi
   worker.onerror = (e) => {
     for (const p of pending.values()) p.reject(new Error(e.message || "The card recognizer stopped"));
     pending.clear();
+    for (const p of embedding.values()) p(e.message || "The card recognizer stopped");
+    embedding.clear();
   };
 
   return {
-    embed: embedIdentity(info),
+    get embed() {
+      return embedIdentity(info, now.file);
+    },
+    get art() {
+      return now.id;
+    },
+    useArt(option) {
+      if (disposed) return Promise.reject(new Error("The scanner is closed"));
+      if (!option.file) return Promise.reject(new Error(`${option.label} has no model file`));
+      const next = { id: option.id, file: option.file, bytes: option.bytes ?? 0 };
+      const run = () => {
+        if (disposed) return Promise.reject(new Error("The scanner is closed"));
+        if (next.file === now.file) return Promise.resolve();
+        const id = nextId++;
+        return new Promise<void>((resolve, reject) => {
+          embedding.set(id, (error) => {
+            if (error) return reject(new Error(error));
+            now = next;
+            resolve();
+          });
+          worker.postMessage({ type: "embed", id, embed: { url: next.file, bytes: next.bytes } } satisfies ArtWorkerRequest);
+        });
+      };
+      const done = switching.then(run, run);
+      switching = done.catch(() => undefined);
+      return done;
+    },
     identify(image) {
       if (disposed) return Promise.reject(new Error("The scanner is closed"));
       const id = nextId++;
@@ -198,6 +280,8 @@ export async function loadArtRecognizer(onState?: (s: LoadState) => void): Promi
       pending.clear();
       for (const p of pooling.values()) p(-1);
       pooling.clear();
+      for (const p of embedding.values()) p("The scanner is closed");
+      embedding.clear();
     },
   };
 }

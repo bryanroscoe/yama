@@ -837,6 +837,31 @@ button.scan-count {
   grid-column: 1 / -1;
 }
 
+/* Models (ModelsSetting.tsx): the whole row, one slot after another. */
+.scan-models {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+.scan-models h3 {
+  margin: 0;
+  font-size: var(--t-base);
+}
+.scan-model {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.scan-model label {
+  display: flex;
+  flex-direction: column;
+}
+.scan-model-runs {
+  color: var(--text);
+}
+
 /* What cards are filed as, on the sheet; a tap opens Scan settings. */
 /* A quiet line at the foot of the sheet: it's a setting, not news. */
 .scan .scan-filing {

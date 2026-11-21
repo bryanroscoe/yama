@@ -89,11 +89,13 @@ export const leads = (score: number, lead: number) => score >= LEAD_FLOOR && lea
 /**
  * Whether to read the title for these art matches (best first): not for a sure match (ART_SURE)
  * without a close rival, nor for one that leads every other card. `unlisted` as for artLead.
+ * `lead: false` is the lock rule "sure" (models.ts): below ART_SURE the title is always read, as
+ * before the lead rule (18 Nov 2026).
  */
-export function needsTitle(matches: readonly ArtCandidate[], unlisted?: number): boolean {
+export function needsTitle(matches: readonly ArtCandidate[], unlisted?: number, opts: { lead?: boolean } = {}): boolean {
   const [top, ...rest] = matches;
   if (!top) return false;
-  if (top.score < ART_SURE) return !leads(top.score, artLead(matches, top, unlisted));
+  if (top.score < ART_SURE) return opts.lead === false || !leads(top.score, artLead(matches, top, unlisted));
   const rival = rest.find((m) => !sameCard(m.name, top.name));
   return !!rival && top.score - rival.score < ART_CLOSE;
 }

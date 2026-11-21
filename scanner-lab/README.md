@@ -86,7 +86,7 @@ PYTHON=.venv/bin/python sh <lab>/gen_loop.sh # download.py into data/cards/ (~8 
   model); `realeval.py DATA_DIR` scores the bundle's model on the real photos with preprocessing
   variants.
 - Then: publish the file as a release asset (not marked latest: the Android app's updater reads the
-  `android-app` release by its tag), pin all five fields of `QUERY_MODEL` in `server/src/scan.rs`,
+  `android-app` release by its tag), pin it in `server/src/scan.rs` (`MODELS`: an option with its URL, size and SHA-256 and the recogniser it was trained against),
   and run the recognizer eval with `SCANNER_EMBED` (docs/scanner.md).
 
 **Checked 18 Nov 2026** (these copies of the scripts, the versions in `requirements.txt`, the
