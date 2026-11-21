@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { applyH, rectQuad, squareToQuad, warpRegion } from "./image";
-import { DIAGNOSTICS_KEY, STRIP, SYMBOL, ScanRecord, TimingRecord, cardOf, setDiagnosticsOn, stripQuad, stripSize, symbolOf, symbolSize } from "./diagnostics";
+import { CARD_CHANGE_FRAMES, DIAGNOSTICS_KEY, STRIP, SYMBOL, ScanRecord, TimingRecord, cardOf, setDiagnosticsOn, stepAppeared, stripQuad, stripSize, symbolOf, symbolSize } from "./diagnostics";
 import { COLLECTOR_REGION, RIGHT_COLLECTOR_REGION } from "./pipeline";
 
 const posted = vi.hoisted(() => ({ bodies: [] as unknown[] }));
@@ -237,6 +237,26 @@ describe("scanner timing records", () => {
     vi.useRealTimers();
     expect(t.printedAs).toBe("corrected");
     expect(t.body("filed")).toMatchObject({ printing: "corrected", printing_ms: 2000 });
+  });
+
+  it("times a card from its first frame, and starts again when another card takes its place", () => {
+    const same = (a: string, b: string) => a === b;
+    let a = stepAppeared(null, null, 100, same);
+    a = stepAppeared(a, "Sol Ring", 200, same);
+    expect(a).toMatchObject({ at: 100, frames: 2, card: "Sol Ring" });
+    // One frame of a lookalike is noise: the time goes on.
+    a = stepAppeared(a, "Arcane Signet", 300, same);
+    a = stepAppeared(a, "Sol Ring", 400, same);
+    expect(a).toMatchObject({ at: 100, frames: 4, card: "Sol Ring" });
+    expect(a.other).toBeUndefined();
+    // Another card leading CARD_CHANGE_FRAMES frames in a row: its time starts at the first of them.
+    expect(CARD_CHANGE_FRAMES).toBe(2);
+    a = stepAppeared(a, "Arcane Signet", 500, same);
+    a = stepAppeared(a, "Arcane Signet", 600, same);
+    expect(a).toEqual({ at: 500, frames: 2, card: "Arcane Signet" });
+    // Frames that name nothing surely count for the card in view.
+    a = stepAppeared(a, null, 700, same);
+    expect(a).toMatchObject({ at: 500, frames: 3 });
   });
 
   it("Wrong card keeps the record, marked, without the wrong card's printing", async () => {

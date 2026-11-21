@@ -19,7 +19,7 @@ import { ModelsSetting } from "./ModelsSetting";
 import { NameIndex } from "./fuzzy";
 import { normaliseName } from "./parse";
 import { applyH, rectQuad, squareToQuad } from "./image";
-import { deleteDiagnostics, diagnosticsOn, diagnosticsSummary, setDiagnosticsOn, ScanRecord, TimingRecord, type DiagnosticsSummary, type Outcome, type PrintingWay, type Reason, type SettleRule } from "./diagnostics";
+import { deleteDiagnostics, diagnosticsOn, diagnosticsSummary, setDiagnosticsOn, ScanRecord, stepAppeared, TimingRecord, type Appeared, type DiagnosticsSummary, type Outcome, type PrintingWay, type Reason, type SettleRule } from "./diagnostics";
 import type { StripQuality } from "./quality";
 import { readCloseup, readCollectorLines, readTitles, scanFrame, SURE } from "./pipeline";
 import { artHoldFrame, AWAY_FRAMES, hold, holdRead, type ArtHold, type Hold } from "./hold";
@@ -576,7 +576,13 @@ export function ScannerView({
    * since, for its timing record. Kept only while diagnostics are on, so it costs nothing per
    * frame otherwise.
    */
-  const appeared = useRef<{ at: number; frames: number } | null>(null);
+  const appeared = useRef<Appeared | null>(null);
+  /**
+   * With Scanner diagnostics on: the art model and slot choices a frame was read with, taken
+   * before it's read (Codex review of #171: a model switched mid-frame would label the old
+   * model's result as the new one's).
+   */
+  const frameModel = useRef<{ embed: string; models: Record<string, string> } | null>(null);
   const foundSeq = useRef(0);
   const [phase, setPhase] = useState<Phase>("loading");
   const [status, setStatus] = useState(WAITING);
@@ -717,6 +723,8 @@ export function ScannerView({
   const newTiming = (carry: TimingRecord | undefined, fallback: SettleRule, top?: number): TimingRecord | undefined => {
     const seen = appeared.current;
     appeared.current = null;
+    const fm = frameModel.current;
+    frameModel.current = null;
     if (carry) return carry;
     if (!diagRef.current) return undefined;
     const ctx = scanCtx.current as { lock?: SettleRule; photo?: boolean; lead?: number; top?: number } | null;
@@ -733,8 +741,8 @@ export function ScannerView({
       top: ctx?.top ?? top,
       lead: ctx?.lead,
       camera: cameraLabel.current ?? undefined,
-      embed: artRef.current?.embed ?? NO_ART_MODEL,
-      models: modelsNow(),
+      embed: fm?.embed ?? artRef.current?.embed ?? NO_ART_MODEL,
+      models: fm?.models ?? modelsNow(),
     });
   };
   /** A fresh record with the camera and text reader in use. */
@@ -1519,6 +1527,7 @@ export function ScannerView({
           // (the timing record; Codex review of #171: stamped after recognition, a one-frame
           // settle measured nothing of its own read).
           const frameAt = Date.now();
+          if (diagRef.current) frameModel.current = { embed: art.embed, models: modelsNow() };
           // A digital zoom gives the recognizer the middle of the frame, at more of its pixels.
           const box = v.closest(".scan-camera")?.getBoundingClientRect();
           const zone = digitalRegion(v.videoWidth, v.videoHeight, digitalRef.current, box);
@@ -1580,11 +1589,9 @@ export function ScannerView({
             setStatus(NEXT);
             return next(60);
           }
-          // Diagnostics' timing record: the card in view appeared on this frame, or one more frame read.
-          if (diagRef.current) {
-            appeared.current ??= { at: frameAt, frames: 0 };
-            appeared.current.frames += 1;
-          }
+          // Diagnostics' timing record: the card in view appeared on this frame, or one more frame
+          // read (and another card taking its place starts it again).
+          if (diagRef.current) appeared.current = stepAppeared(appeared.current, top.score >= ART_UNKNOWN ? top.name : null, frameAt, sameCardName);
           // Art that leads every other card (fuse.ts: at least LEAD_FLOOR, LEAD_MARGIN ahead) settles
           // which card without the title, like a sure match, once the same card has led
           // LEAD_FRAMES frames in a row (Bryan, 18 Nov 2026: stuck about half the time; right cards
@@ -1738,6 +1745,7 @@ export function ScannerView({
         const flip = textFrame++ % 2 === 1;
         const guide: Quad = flip ? [upright[2], upright[3], upright[0], upright[1]] : upright;
         const frameAt = Date.now();
+        if (diagRef.current) frameModel.current = { embed: NO_ART_MODEL, models: modelsNow() };
         const res = await scanFrame(image, { ...reader, guide, tryUpsideDown: false });
         // Diagnostics' timing record: with no detector, the card appeared when text was first read
         // (not the card just filed, still held by its name), and has gone after AWAY_FRAMES reads
@@ -1747,10 +1755,7 @@ export function ScannerView({
           emptyReads = said ? 0 : emptyReads + 1;
           const held = !!said && !!blockedName.current && sameCardName(said.name, blockedName.current.name);
           if (held || emptyReads >= AWAY_FRAMES) appeared.current = null;
-          else if (said) {
-            appeared.current ??= { at: frameAt, frames: 0 };
-            appeared.current.frames += 1;
-          }
+          else if (said) appeared.current = stepAppeared(appeared.current, said.confidence >= TEXT_VETO ? said.name : null, frameAt, sameCardName);
         }
         if (!stop && handleText(res, false, true, { image, quad: res.quad })) return;
         if (!stop && !res.candidates[0]) setStatus("Line the card up with the frame");
@@ -1790,6 +1795,8 @@ export function ScannerView({
       canvasRef.current ??= document.createElement("canvas");
       hiCanvasRef.current ??= document.createElement("canvas");
       const art = artRef.current;
+      // The models this photo is read with, for its timing record.
+      if (diagRef.current) frameModel.current = { embed: art?.embed ?? NO_ART_MODEL, models: modelsNow() };
       if (art) {
         // A photo is another view: the camera's frames kept for the look aren't of it.
         art.reset({ frames: true });

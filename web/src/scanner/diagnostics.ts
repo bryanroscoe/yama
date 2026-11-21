@@ -367,6 +367,39 @@ export interface Named {
   models?: Record<string, string>;
 }
 
+/** When the card in view appeared and the frames read since, for its timing record. */
+export interface Appeared {
+  at: number;
+  frames: number;
+  /** The card it is, once a frame named one surely enough. */
+  card?: string;
+  /** Another card leading instead, since when, and for how many frames in a row. */
+  other?: { card: string; at: number; frames: number };
+}
+
+/** Frames in a row another card must lead before the time starts again for it (one is a lookalike's noise). */
+export const CARD_CHANGE_FRAMES = 2;
+
+/**
+ * One more frame of the card in view (`card`: what the frame named surely enough, or null): the
+ * time starts on the first frame, and starts again, from the first of them, when another card
+ * leads CARD_CHANGE_FRAMES frames in a row (Codex review of #171: a card swapped for another with
+ * no empty frame between counted the first one's reads).
+ */
+export function stepAppeared(a: Appeared | null, card: string | null, at: number, same: (x: string, y: string) => boolean): Appeared {
+  const cur: Appeared = a ?? { at, frames: 0 };
+  if (card) {
+    if (!cur.card) cur.card = card;
+    else if (same(cur.card, card)) cur.other = undefined;
+    else if (cur.other && same(cur.other.card, card)) {
+      cur.other.frames += 1;
+      if (cur.other.frames >= CARD_CHANGE_FRAMES) return { at: cur.other.at, frames: cur.other.frames, card };
+    } else cur.other = { card, at, frames: 1 };
+  }
+  cur.frames += 1;
+  return cur;
+}
+
 const round3 = (n: number | undefined) => (n == null || !Number.isFinite(n) ? undefined : Math.round(n * 1000) / 1000);
 
 /**

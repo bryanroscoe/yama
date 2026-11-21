@@ -299,7 +299,10 @@ pub async fn summary(pool: &SqlitePool, owner: &str, f: &Filter, offset: usize, 
     // A Wrong printing after the card was filed is a record of its own for a card already counted:
     // counted apart, never as a second card.
     let refs: Vec<&Row> = all.iter().filter(|r| !r.flag("after_filing")).collect();
-    let after_filing = all.len() - refs.len();
+    // Only those whose correction was made: Wrong printing after filing, then "Keep it as it was"
+    // or Skip, corrected nothing.
+    let corrected_after = |r: &&Row| r.flag("after_filing") && r.printing.as_deref() == Some("corrected");
+    let after_filing = all.iter().filter(corrected_after).count();
     // A card the person then said was another card: its printing was the other card's.
     let printed: Vec<&Row> = refs.iter().copied().filter(|r| r.printing.is_some() && !r.called_wrong()).collect();
     let items: Vec<Value> = all.iter().skip(offset).take(limit).map(Row::json).collect();
@@ -313,7 +316,7 @@ pub async fn summary(pool: &SqlitePool, owner: &str, f: &Filter, offset: usize, 
         "printing_corrected_after_filing": after_filing,
         // How often each way of settling a printing was then called wrong (Wrong printing, before
         // or after filing).
-        "printings_called_wrong": by(&all.iter().collect::<Vec<_>>(), |r| r.printing_rejected(), "printing", |g| json!({"count": g.len()})),
+        "printings_called_wrong": by(&all.iter().filter(|r| !r.flag("after_filing") || corrected_after(r)).collect::<Vec<_>>(), |r| r.printing_rejected(), "printing", |g| json!({"count": g.len()})),
         "art_models": by(&refs, |r| r.bundle.clone(), "model", with_rules),
         // By every slot's choice together (art, look, text, lock): the lead rule on or off, say.
         "settings": by(&refs, |r| r.models.clone(), "settings", with_rules)
@@ -451,8 +454,13 @@ mod tests {
         post(body("leads", 600)).await;
         let mut after = body("leads", 600);
         after["printing"] = json!("corrected");
-        after["detail"] = json!({"after_filing": true});
+        after["detail"] = json!({"after_filing": true, "printing_rejected": "only"});
         post(after).await;
+        // and once more, then "Keep it as it was": no correction, nothing rejected.
+        let mut kept = body("leads", 600);
+        kept.as_object_mut().unwrap().remove("printing");
+        kept["detail"] = json!({"after_filing": true, "printing_rejected": "collector"});
+        post(kept).await;
         // Named by the lead rule, then Wrong card and the right one picked.
         let mut wrong = body("leads", 500);
         wrong["detail"] = json!({"card_corrected": true});
@@ -464,9 +472,9 @@ mod tests {
         rejected["detail"] = json!({"printing_rejected": "collector"});
         post(rejected).await;
         let (_, s) = testutil::send(&app, Method::GET, PATH, Some(&token), None).await;
-        assert_eq!(s["records"], 4);
+        assert_eq!(s["records"], 5);
         assert_eq!(s["count"], 3, "three cards");
-        assert_eq!(s["printings_called_wrong"], json!([{"printing": "collector", "count": 1, "share": 1.0}]));
+        assert_eq!(s["printings_called_wrong"], json!([{"printing": "collector", "count": 1, "share": 0.5}, {"printing": "only", "count": 1, "share": 0.5}]));
         assert_eq!(s["printing_corrected_after_filing"], 1);
         assert_eq!(s["rules"][0]["rule"], "leads");
         assert_eq!(s["rules"][0]["count"], 2);
