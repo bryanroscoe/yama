@@ -80,13 +80,18 @@ def embed(model, tensors, dev, bs=64):
 
 
 def real_cases():
-    """Every labelled photo of `cases()`; stops if a candidate's clean crop is missing, since dropping the
-    photo would make a checkpoint look better only because the cohort shrank."""
+    """Every labelled photo of `cases()`, and a SHA-256 of the cohort (each photo's bytes, label, quad and
+    candidates) for run.json; stops if a candidate's clean crop is missing, since dropping the photo would
+    make a checkpoint look better only because the cohort shrank."""
     cs = cases()
     missing = sorted({m for _, _, ms in cs for m in ms if not os.path.exists(f"data/pk2/{m}.jpg")})
     if missing:
         raise SystemExit(f"{len(missing)} test candidates have no clean crop in data/pk2 (run look_gen.py again): {missing[:5]}")
-    return [(std(centre(symbol_patch(load(f"{REAL}/{r['id']}.jpg"), json.loads(r["quad"])))), pid, ms) for r, pid, ms in cs]
+    h = hashlib.sha256()  # the cohort's identity: each photo, its label, quad and candidates (no content leaves the lab)
+    for r, pid, ms in cs:
+        h.update(json.dumps([r["id"], pid, r["quad"], ms]).encode())
+        h.update(hashlib.sha256(open(f"{REAL}/{r['id']}.jpg", "rb").read()).digest())
+    return [(std(centre(symbol_patch(load(f"{REAL}/{r['id']}.jpg"), json.loads(r["quad"])))), pid, ms) for r, pid, ms in cs], h.hexdigest()
 
 
 def evaluate(model, dev, real, val):
@@ -112,7 +117,6 @@ def main():
     run = sys.argv[1]; epochs = int(sys.argv[2]) if len(sys.argv) > 2 else 8; bs = int(sys.argv[3]) if len(sys.argv) > 3 else 64
     if os.path.isdir(f"runs/{run}") and os.listdir(f"runs/{run}"):
         raise SystemExit(f"runs/{run} already has files: pick a new run name, so no checkpoint of another run is mistaken for this one's.")
-    os.makedirs(f"runs/{run}", exist_ok=True)
     dev = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     seed = int(os.environ.get("SEED", 0))
     random.seed(seed); np.random.seed(seed); torch.manual_seed(seed)
@@ -126,17 +130,19 @@ def main():
         (val if int(hashlib.md5(g["ill"].encode()).hexdigest(), 16) % 50 == 0 else groups).append(ms)
     if missing and os.environ.get("ALLOW_INCOMPLETE") != "1":
         raise SystemExit(f"{missing} training printings have no crops: run look_download.py and look_gen.py again, or set ALLOW_INCOMPLETE=1.")
+    real, cohort = real_cases()  # stops here, before the run's folder exists, if an input is missing
     import torchvision
     lab = os.path.dirname(os.path.abspath(__file__))
     code = {f: hashlib.sha256(open(os.path.join(lab, f), "rb").read()).hexdigest() for f in ("look_train.py", "look_net.py", "look_crops.py")}
     gen = json.load(open("data/look_gen.json")) if os.path.exists("data/look_gen.json") else None
+    os.makedirs(f"runs/{run}", exist_ok=True)
     json.dump({"run": run, "epochs": epochs, "batch": bs, "seed": seed, "captures_per_printing": K, "maxsteps": os.environ.get("MAXSTEPS"),
                "groups_sha256": hashlib.sha256(raw).hexdigest(), "crops_fingerprint": fingerprint("data/pk2", "data/pq2"),
                "look_gen": gen, "code_sha256": code, "torch": torch.__version__, "torchvision": torchvision.__version__,
                "numpy": np.__version__, "opencv": cv2.__version__, "train_groups": len(groups), "held_out": len(val),
-               "missing_printings": missing, "started": time.strftime("%Y-%m-%dT%H:%M:%S%z")},
+               "missing_printings": missing, "real_photos": len(real), "real_cohort_sha256": cohort,
+               "started": time.strftime("%Y-%m-%dT%H:%M:%S%z")},
               open(f"runs/{run}/run.json", "w"), indent=1)
-    real = real_cases()
     print(f"{len(groups)} training groups ({sum(map(len, groups))} printings), {len(val)} held out, {len(real)} real photos", flush=True)
     model = PrintNet("small").to(dev)
     keyenc = copy.deepcopy(model).eval()
