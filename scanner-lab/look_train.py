@@ -107,7 +107,7 @@ def main():
     d = json.loads(raw)
     groups, val, missing = [], [], 0
     for g in d["train"]:
-        ms = [p["id"] for p in g["printings"] if os.path.exists(f"data/pk2/{p['id']}.jpg") and os.path.exists(f"data/pq2/{p['id']}_1.jpg")]
+        ms = [p["id"] for p in g["printings"] if all(os.path.exists(f) for f in (f"data/pk2/{p['id']}.jpg", f"data/pq2/{p['id']}_0.jpg", f"data/pq2/{p['id']}_1.jpg"))]
         missing += len(g["printings"]) - len(ms)
         if len(ms) < 2: continue
         (val if int(hashlib.md5(g["ill"].encode()).hexdigest(), 16) % 50 == 0 else groups).append(ms)
