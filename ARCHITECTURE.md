@@ -3156,6 +3156,11 @@ live); and the kept scan photos are 640 px, so the set symbol a printing model n
   before, and 400 MB of photos and crops together, as a crop pair is estimated at two to four times
   a photo (docs/scanner.md, "Full-resolution crops with each scan photo"). The switch and the
   privacy page say so. Struggle records keep the same symbol crop as `symbol`, beside `strip`.
+- **"Delete them" wins over uploads on their way.** The scanner sends photos and records in the
+  background, so one could arrive after the deletion returned. "Delete them" now records its
+  moment per account and kind (`scan_clears`, deleted with the account), and an upload that began
+  at or before it is refused in the transaction that would have saved it (after its insert, which
+  holds SQLite's write lock), its files removed (`server/src/scan_clears.rs`).
 
 ## Swappable spares in the deck box (15 November 2026)
 

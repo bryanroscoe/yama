@@ -105,6 +105,7 @@ pub const USER_COLUMNS: &[(&str, &str)] = &[
     ("research_reports", "owner_id"),
     ("research_review_ops", "owner_id"),
     ("research_reviews", "owner_id"),
+    ("scan_clears", "owner_id"),
     ("scan_diagnostics", "owner_id"),
     ("scan_samples", "owner_id"),
     ("scan_timings", "owner_id"),
@@ -153,6 +154,7 @@ const OWNED_DELETES: &[(&str, &str)] = &[
     ("scan_diagnostics", "owner_id"),
     ("scan_samples", "owner_id"),
     ("scan_timings", "owner_id"),
+    ("scan_clears", "owner_id"),
     // Online play: saved stops and full control.
     ("play_prefs", "user_id"),
     ("assistant_changes", "owner_id"),

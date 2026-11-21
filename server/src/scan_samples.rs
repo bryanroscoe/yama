@@ -163,6 +163,8 @@ async fn add(State(st): State<AppState>, CurrentUser(user): CurrentUser, req: Re
     // The rate limit before the body: a limited account isn't let make the server buffer and parse
     // another few megabytes of photo and crops first (Codex review of #171; as scan_diagnostics.rs).
     st.limits.scan_samples.check_user(&user)?;
+    // When it began, against "Delete them" (scan_clears.rs).
+    let started = crate::scan_clears::stamp();
     let Json(s) = match Json::<NewSample>::from_request(req, &st).await {
         Ok(json) => json,
         // Axum's own answer: 413 for too large, 400/415/422 for the rest.
@@ -225,7 +227,7 @@ async fn add(State(st): State<AppState>, CurrentUser(user): CurrentUser, req: Re
         }
         // The bundle, and Yama's query model if the phone ran it (scan.rs), to tell models apart later.
         let bundle = crate::scan::recorded_version(&st.cfg, embed.as_deref()).await;
-        match save(&st.pool, &owner, &id, &kind, bundle, image, bytes, listed, crop_bytes, t).await {
+        match save(&st.pool, &owner, &id, &kind, bundle, image, bytes, listed, crop_bytes, t, &started).await {
             Ok(gone) => {
                 for old in gone {
                     remove_sample_files(data_dir, &owner, &old);
@@ -291,6 +293,7 @@ async fn save(
     crops: Option<String>,
     crop_bytes: i64,
     t: SampleText,
+    started: &str,
 ) -> AppResult<Vec<String>> {
     let mut tx = pool.begin().await?;
     sqlx::query(
@@ -320,6 +323,8 @@ async fn save(
     .bind(crop_bytes)
     .execute(&mut *tx)
     .await?;
+    // "Delete them" since it began: not kept (the caller removes its crops).
+    crate::scan_clears::refuse_if_cleared(&mut tx, owner, crate::scan_clears::SAMPLES, started).await?;
     // Keep the newest KEEP, no more than KEEP_BYTES of photos (in the database), and no more than
     // KEEP_TOTAL_BYTES of photos and crops together.
     let gone: Vec<String> = sqlx::query_scalar(
@@ -351,7 +356,11 @@ async fn summary(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> 
 async fn delete_all(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Value>> {
     // Only the folders of the rows this deleted: an upload still waiting to commit has written its
     // crops already (as for scanner diagnostics).
-    let gone: Vec<String> = sqlx::query_scalar("DELETE FROM scan_samples WHERE owner_id = ? RETURNING id").bind(&user.id).fetch_all(&st.pool).await?;
+    // Its moment is recorded with it, so an upload that began before can't arrive after (scan_clears.rs).
+    let mut tx = st.pool.begin().await?;
+    crate::scan_clears::mark(&mut tx, &user.id, crate::scan_clears::SAMPLES, &crate::scan_clears::stamp()).await?;
+    let gone: Vec<String> = sqlx::query_scalar("DELETE FROM scan_samples WHERE owner_id = ? RETURNING id").bind(&user.id).fetch_all(&mut *tx).await?;
+    tx.commit().await?;
     for id in &gone {
         remove_sample_files(&st.cfg.data_dir, &user.id, id);
     }
@@ -730,6 +739,28 @@ mod tests {
         let (_, d) = testutil::send(&app, Method::DELETE, "/api/scan/samples", Some(&mine), None).await;
         assert_eq!(d["deleted"], 2);
         assert_eq!(files(&me), ["young/strip.jpg"]);
+        remove_owner_files(&std::env::temp_dir(), &me);
+    }
+
+    #[tokio::test]
+    async fn a_photo_begun_before_delete_them_isnt_kept() {
+        let (app, pool) = testutil::app().await;
+        let (me, token) = testutil::user(&pool, "me@example.com").await;
+        let (_, d) = testutil::send(&app, Method::DELETE, "/api/scan/samples", Some(&token), None).await;
+        assert_eq!(d["deleted"], 0);
+        let marked: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM scan_clears WHERE owner_id = ? AND kind = 'samples'").bind(&me).fetch_one(&pool).await.unwrap();
+        assert_eq!(marked, 1);
+        // A deletion later than this upload's start: refused, its crops removed.
+        sqlx::query("UPDATE scan_clears SET cleared_at = '9999-01-01T00:00:00.000Z' WHERE owner_id = ?").bind(&me).execute(&pool).await.unwrap();
+        let (status, _) = testutil::send(&app, Method::POST, "/api/scan/samples", Some(&token), Some(with_crops("added"))).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM scan_samples WHERE owner_id = ?").bind(&me).fetch_one(&pool).await.unwrap();
+        assert_eq!(n, 0);
+        assert!(files(&me).is_empty());
+        // An upload begun after the deletion is kept.
+        sqlx::query("UPDATE scan_clears SET cleared_at = '2000-01-01T00:00:00.000Z' WHERE owner_id = ?").bind(&me).execute(&pool).await.unwrap();
+        let (status, _) = testutil::send(&app, Method::POST, "/api/scan/samples", Some(&token), Some(with_crops("added"))).await;
+        assert_eq!(status, StatusCode::OK);
         remove_owner_files(&std::env::temp_dir(), &me);
     }
 

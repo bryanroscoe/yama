@@ -79,6 +79,8 @@ fn score(v: Option<f64>) -> Option<f64> {
 
 async fn add(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(t): Json<NewTiming>) -> AppResult<Json<Value>> {
     st.limits.scan_timings.check_user(&user)?;
+    // When it began, against "Delete them" (scan_clears.rs).
+    let started = crate::scan_clears::stamp();
     if !crate::scan_diagnostics::OUTCOMES.contains(&t.outcome.as_str()) {
         return Err(AppError::bad(format!("outcome is one of {}", crate::scan_diagnostics::OUTCOMES.join(", "))));
     }
@@ -132,6 +134,7 @@ async fn add(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(t)
     .bind(bytes)
     .execute(&mut *tx)
     .await?;
+    crate::scan_clears::refuse_if_cleared(&mut tx, &user.id, crate::scan_clears::DIAGNOSTICS, &started).await?;
     // Keep the newest KEEP, and no more than KEEP_BYTES of them.
     sqlx::query(
         "DELETE FROM scan_timings WHERE owner_id = ?1 AND id IN (
@@ -348,8 +351,8 @@ async fn get_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, Q
 
 /// Every timing record of an account ("Delete them" in Scan settings deletes them with the
 /// struggle records). Returns how many went.
-pub async fn delete_all(pool: &SqlitePool, owner: &str) -> AppResult<u64> {
-    Ok(sqlx::query("DELETE FROM scan_timings WHERE owner_id = ?").bind(owner).execute(pool).await?.rows_affected())
+pub async fn delete_all(conn: &mut sqlx::SqliteConnection, owner: &str) -> AppResult<u64> {
+    Ok(sqlx::query("DELETE FROM scan_timings WHERE owner_id = ?").bind(owner).execute(&mut *conn).await?.rows_affected())
 }
 
 #[cfg(test)]
@@ -570,6 +573,32 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         let big: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM scan_timings WHERE id = 'big'").fetch_one(&pool).await.unwrap();
         assert_eq!(big, 0);
+    }
+
+    #[tokio::test]
+    async fn an_upload_begun_before_delete_them_isnt_kept() {
+        let (app, pool) = testutil::app().await;
+        let (me, token) = testutil::user(&pool, "me@example.com").await;
+        // Delete them records its moment.
+        let (_, d) = testutil::send(&app, Method::DELETE, "/api/scan/diagnostics", Some(&token), None).await;
+        assert_eq!(d["deleted"], 0);
+        let at: String = sqlx::query_scalar("SELECT cleared_at FROM scan_clears WHERE owner_id = ? AND kind = 'diagnostics'").bind(&me).fetch_one(&pool).await.unwrap();
+        assert!(at.ends_with('Z') && at.contains('.'), "{at}");
+        // A deletion later than this upload's start (as if it ran while the upload was on its way):
+        // the timing record and a struggle record are refused, and nothing stays.
+        sqlx::query("UPDATE scan_clears SET cleared_at = '9999-01-01T00:00:00.000Z' WHERE owner_id = ?").bind(&me).execute(&pool).await.unwrap();
+        let (status, _) = testutil::send(&app, Method::POST, PATH, Some(&token), Some(body("sure", 400))).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        let (status, _) = testutil::send(&app, Method::POST, "/api/scan/diagnostics", Some(&token), Some(crate::scan_diagnostics::tests::body("picked"))).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        let rows: (i64, i64) = sqlx::query_as("SELECT (SELECT COUNT(*) FROM scan_timings WHERE owner_id = ?1), (SELECT COUNT(*) FROM scan_diagnostics WHERE owner_id = ?1)").bind(&me).fetch_one(&pool).await.unwrap();
+        assert_eq!(rows, (0, 0));
+        let dir = crate::scan_diagnostics::owner_dir(&std::env::temp_dir(), &me);
+        assert_eq!(std::fs::read_dir(&dir).map(|d| d.count()).unwrap_or(0), 0, "the refused record's images went too");
+        // An upload begun after the deletion is kept.
+        sqlx::query("UPDATE scan_clears SET cleared_at = '2000-01-01T00:00:00.000Z' WHERE owner_id = ?").bind(&me).execute(&pool).await.unwrap();
+        let (status, _) = testutil::send(&app, Method::POST, PATH, Some(&token), Some(body("sure", 400))).await;
+        assert_eq!(status, StatusCode::OK);
     }
 
     #[tokio::test]

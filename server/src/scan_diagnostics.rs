@@ -124,6 +124,8 @@ async fn add(State(st): State<AppState>, CurrentUser(user): CurrentUser, req: Re
     // The rate limit before the body: a limited account isn't let make the server buffer and parse
     // another few megabytes first (the body is read only below, within DefaultBodyLimit).
     st.limits.scan_diagnostics.check_user(&user)?;
+    // When it began, against "Delete them" (scan_clears.rs).
+    let started = crate::scan_clears::stamp();
     let Json(d) = match Json::<NewDiagnostic>::from_request(req, &st).await {
         Ok(json) => json,
         // Axum's own answer: 413 for too large, 400/415/422 for the rest.
@@ -210,6 +212,8 @@ async fn add(State(st): State<AppState>, CurrentUser(user): CurrentUser, req: Re
         .bind(total as i64)
         .execute(&mut *tx)
         .await?;
+        // "Delete them" since it began: not kept (its files go below).
+        crate::scan_clears::refuse_if_cleared(&mut tx, &user.id, crate::scan_clears::DIAGNOSTICS, &started).await?;
         // Keep the newest KEEP, and no more than KEEP_BYTES of them.
         let gone: Vec<String> = sqlx::query_scalar(
             "SELECT id FROM (
@@ -360,17 +364,21 @@ async fn delete_all(State(st): State<AppState>, CurrentUser(user): CurrentUser) 
     // Only the folders of the rows this statement deleted: an upload still waiting to commit has
     // written its folder already, and removing the whole owner folder would leave its row without
     // images. (Account deletion, with no uploads to come, removes the whole folder.)
-    let gone: Vec<String> = sqlx::query_scalar("DELETE FROM scan_diagnostics WHERE owner_id = ? RETURNING id").bind(&user.id).fetch_all(&st.pool).await?;
+    // Its moment is recorded with it, so an upload that began before can't arrive after (scan_clears.rs).
+    let mut tx = st.pool.begin().await?;
+    crate::scan_clears::mark(&mut tx, &user.id, crate::scan_clears::DIAGNOSTICS, &crate::scan_clears::stamp()).await?;
+    let gone: Vec<String> = sqlx::query_scalar("DELETE FROM scan_diagnostics WHERE owner_id = ? RETURNING id").bind(&user.id).fetch_all(&mut *tx).await?;
+    // and the timing records, kept apart from these but deleted with them.
+    let timings = crate::scan_timings::delete_all(&mut tx, &user.id).await?;
+    tx.commit().await?;
     for id in gone.iter().filter(|id| valid_id(id)) {
         remove_record_files(&st.cfg.data_dir, &user.id, id);
     }
-    // and the timing records, kept apart from these but deleted with them.
-    let timings = crate::scan_timings::delete_all(&st.pool, &user.id).await?;
     Ok(Json(json!({ "deleted": gone.len(), "timings": timings })))
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::testutil;
     use axum::body::Body;
