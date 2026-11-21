@@ -3417,7 +3417,7 @@ future, maybe record where these plans came from. Maybe update the MCP to make s
 can have the history of that and the ability to find it in the future easily and quickly, right?
 We've kind of got too messy in a lot of these."
 
-- **A plan has a history.** `plan_history` (migration 0104) holds what an assistant recorded about
+- **A plan has a history.** `plan_history` (migration 0105) holds what an assistant recorded about
   a plan: what happened, the person's request in their own words, the day it happened, where the
   conversation is (a thread's link or title, a session id) and where the work is (a commit, a file,
   a note), and optionally the proposal group and the changes (by card) it's about. Group and card
