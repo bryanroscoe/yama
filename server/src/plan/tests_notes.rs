@@ -271,6 +271,15 @@ async fn claude_sees_notes_as_deck_plans_and_tracks_them_straight_away() {
     assert!(!err && text.contains("Made from build b3 of deck energy in note audit") && text.contains("Nobody approves this plan"), "{text}");
     let (err, text) = call(&app, key, "track_build", json!({"note": "audit", "deck": "energy", "build": "b3"})).await;
     assert!(!err && text.contains("already"), "{text}");
+    // What they asked goes in the plan's history even when the build already was the plan, and
+    // only once.
+    let asked = json!({"note": "audit", "deck": "energy", "build": "b3", "asked": "Make Bracket 3 the plan", "conversation": "T3 thread: Energy"});
+    let (err, text) = call(&app, key, "track_build", asked.clone()).await;
+    assert!(!err && text.contains("already") && text.contains("What they asked is in the plan's history (entry "), "{text}");
+    let (err, text) = call(&app, key, "track_build", asked).await;
+    assert!(!err && text.contains("What they asked was already in the plan's history"), "{text}");
+    let (err, text) = call(&app, key, "get_plan_history", json!({"plan": "energy"})).await;
+    assert!(!err && text.contains("is the plan. They asked: \"Make Bracket 3 the plan\" Conversation: T3 thread: Energy."), "{text}");
     let (yama_deck, _) = deck(&pool, &a, "Energy box").await;
     let (err, text) = call(&app, key, "track_build", json!({"note": "audit", "deck": "energy", "build": "b3", "yama_deck": yama_deck})).await;
     assert!(!err && text.contains("is now Energy's plan") && text.contains("Nothing new went in"), "the same build with another deck relinks: {text}");

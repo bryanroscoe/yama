@@ -1,4 +1,4 @@
-## script key, power user: 76 tools
+## script key, power user: 78 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -7,6 +7,8 @@ review_research	write
 get_overview	read
 get_deck	read
 get_plan	read
+get_plan_history	read
+record_plan_history	destructive
 get_shopping_trip	read
 get_shopping_settings	read
 set_shopping_rules	write
@@ -76,7 +78,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## OAuth sign-in, power user: 76 tools
+## OAuth sign-in, power user: 78 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -85,6 +87,8 @@ review_research	write
 get_overview	read
 get_deck	read
 get_plan	read
+get_plan_history	read
+record_plan_history	destructive
 get_shopping_trip	read
 get_shopping_settings	read
 set_shopping_rules	write
@@ -154,7 +158,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## script key: 76 tools
+## script key: 78 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -163,6 +167,8 @@ review_research	write
 get_overview	read
 get_deck	read
 get_plan	read
+get_plan_history	read
+record_plan_history	destructive
 get_shopping_trip	read
 get_shopping_settings	read
 set_shopping_rules	write
@@ -232,7 +238,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## OAuth sign-in: 76 tools
+## OAuth sign-in: 78 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -241,6 +247,8 @@ review_research	write
 get_overview	read
 get_deck	read
 get_plan	read
+get_plan_history	read
+record_plan_history	destructive
 get_shopping_trip	read
 get_shopping_settings	read
 set_shopping_rules	write
@@ -310,7 +318,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## Ask Claude, power user: 74 tools
+## Ask Claude, power user: 76 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -319,6 +327,8 @@ review_research	write
 get_overview	read
 get_deck	read
 get_plan	read
+get_plan_history	read
+record_plan_history	destructive
 get_shopping_trip	read
 get_shopping_settings	read
 set_shopping_rules	write
@@ -386,7 +396,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## OAuth sign-in limited to reading and staging, power user: 74 tools
+## OAuth sign-in limited to reading and staging, power user: 76 tools
 list_datasets	read
 get_dataset	read
 get_research	read
@@ -395,6 +405,8 @@ review_research	write
 get_overview	read
 get_deck	read
 get_plan	read
+get_plan_history	read
+record_plan_history	destructive
 get_shopping_trip	read
 get_shopping_settings	read
 set_shopping_rules	write
@@ -462,13 +474,14 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## OAuth sign-in limited to reading, power user: 45 tools
+## OAuth sign-in limited to reading, power user: 46 tools
 list_datasets	read
 get_dataset	read
 get_research	read
 get_overview	read
 get_deck	read
 get_plan	read
+get_plan_history	read
 get_shopping_trip	read
 get_shopping_settings	read
 get_store_stock	read
@@ -509,13 +522,15 @@ list_deck_versions	read
 list_collection_cards	read
 get_research_sources	read
 
-## script key, an account with no stores, datasets or lab runs: 61 tools
+## script key, an account with no stores, datasets or lab runs: 63 tools
 get_research
 save_research
 review_research
 get_overview
 get_deck
 get_plan
+get_plan_history
+record_plan_history
 get_shopping_list
 compare_with_friend
 browse_public_decks

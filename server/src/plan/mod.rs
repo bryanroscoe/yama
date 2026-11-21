@@ -8,6 +8,7 @@
 
 pub mod bundle;
 pub mod decks;
+pub mod history;
 pub mod import;
 pub mod inputs;
 pub mod installed;

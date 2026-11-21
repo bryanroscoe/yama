@@ -413,6 +413,9 @@ fn isolation_cases(f: &Fixture) -> Vec<(&'static str, Value, ForOwner)> {
         ("start_lab_run", json!({"mode": "versus", "entrants": [deck, deck]}), Unchecked),
         ("add_wish", json!({"name": "Sol Ring", "deck": deck}), Works),
         ("plan_deck", json!({"key": "plan-a"}), Unchecked),
+        ("get_plan_history", json!({"plan": "plan-a"}), Shows),
+        ("get_plan_history", json!({"plan": "plan-a", "card": "Arcane Signet"}), Unchecked),
+        ("record_plan_history", json!({"plan": "plan-a", "on": "2026-11-01", "what": "From a test"}), Works),
         ("review_queue", json!({"plan": "plan-a"}), Shows),
         ("propose_swap", json!({"plan": "plan-a", "card_in": "Sol Ring"}), Works),
         ("answer_review", json!({"plan": "plan-a", "card_in": "Arcane Signet", "decision": "want"}), Works),
@@ -722,8 +725,9 @@ fn descriptions_are_short_and_written_for_anyone() {
     // list_collection_cards, 15 Nov 2026) to about 26,320; sections (update_container, paths and
     // batch moves, 16 Nov 2026) to about 26,800; delete_container (16 Nov 2026) to about 26,950;
     // get_scan_timings (20 Nov 2026) to about 27,200; get_scan_speed_tests (21 Nov 2026) to
-    // about 27,550.
-    assert!(total <= 27_600, "the descriptions are {total} characters in all");
+    // about 27,550; a plan's history (get_plan_history and record_plan_history, 21 Nov 2026) and
+    // get_scan_timings' look times (21 Nov 2026) to about 27,810.
+    assert!(total <= 27_850, "the descriptions are {total} characters in all");
     let instructions = super::SERVER_INSTRUCTIONS;
     assert!(instructions.chars().count() <= 2_600, "the instructions are {} characters", instructions.chars().count());
     for word in his {

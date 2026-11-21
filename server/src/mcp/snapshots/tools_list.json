@@ -366,6 +366,117 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
+      "description": "Where one of their plans and its changes came from: the request behind it in their words, when, and where the conversation and work are, as assistants recorded them, with Yama's own record of each version (its source, what it took in or left out), every answer and archiving. Give card for one change's story. Read it before saying why a change is in a plan.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "card": {
+            "description": "Optional: a card a change puts in or takes out, for that change's story.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "plan": {
+            "description": "The plan key or deck name, archived plans included.",
+            "maxLength": 300,
+            "type": "string"
+          }
+        },
+        "required": [
+          "plan"
+        ],
+        "type": "object"
+      },
+      "name": "get_plan_history",
+      "title": "Where a plan came from"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Record where one of their plans or some of its changes came from, or what happened to them: what and why, their request in their own words, the day, and where the conversation and work are. Record one whenever you make or change a plan's proposals, so the next assistant can find why a change is there. It saves directly as a private note on the plan and changes nothing else; replaces deletes the entry it corrects.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "asked": {
+            "description": "Optional: what they asked for, quoted in their own words.",
+            "maxLength": 4000,
+            "type": "string"
+          },
+          "cards": {
+            "description": "Optional: the changes it is about, by a card each puts in or takes out.",
+            "items": {
+              "maxLength": 200,
+              "type": "string"
+            },
+            "maxItems": 60,
+            "type": "array"
+          },
+          "conversation": {
+            "description": "Optional: where the conversation is: a thread's link or title, a session id.",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "group": {
+            "description": "Optional: the plan's proposal group it is about, as get_plan names it.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "on": {
+            "description": "YYYY-MM-DD: the day it happened (the request, the audit), not today unless it was today.",
+            "maxLength": 10,
+            "type": "string"
+          },
+          "op_id": {
+            "description": "Optional: your own id for this entry, so a retry records it once.",
+            "maxLength": 64,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "plan": {
+            "description": "The plan key or deck name.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "replaces": {
+            "description": "Optional, with op_id: the id of an earlier entry of this plan that this one corrects; it goes.",
+            "maxLength": 64,
+            "type": "string"
+          },
+          "what": {
+            "description": "What happened, in a sentence or two: what was made or changed, and why.",
+            "maxLength": 2000,
+            "type": "string"
+          },
+          "work": {
+            "description": "Optional: where the work is: a commit, a file, a note.",
+            "maxLength": 500,
+            "type": "string"
+          }
+        },
+        "required": [
+          "plan",
+          "on",
+          "what"
+        ],
+        "type": "object"
+      },
+      "name": "record_plan_history",
+      "title": "Record where a plan came from"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
       "description": "Plan a trip to their stores for the cards they want to buy: the fewest stores covering the most cards under their buy rule and store preferences. Needed cards are the buys in their approved plans with no order yet; their wishlist only comes along from stores already on the trip. Gives each store's cards, total and cart or search links, what to print instead and why, and the wishlist by price tier. Listings are dated quotes, not purchases; a missing price is unknown, never $0. For a build that isn't approved, read yama://shopping/workflow first.",
       "inputSchema": {
         "additionalProperties": false,
@@ -1513,6 +1624,11 @@
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
+          "asked": {
+            "description": "Optional: what they asked for, in their own words. It goes in the plan's history (get_plan_history) with the build.",
+            "maxLength": 4000,
+            "type": "string"
+          },
           "build": {
             "description": "The build's id; null to stop tracking this deck.",
             "maxLength": 300,
@@ -1520,6 +1636,11 @@
               "string",
               "null"
             ]
+          },
+          "conversation": {
+            "description": "Optional: where this conversation is (a thread's link or title, a session id), for the plan's history.",
+            "maxLength": 500,
+            "type": "string"
           },
           "deck": {
             "description": "The deck's key in the note.",
