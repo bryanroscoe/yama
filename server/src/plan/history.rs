@@ -442,11 +442,13 @@ fn list(s: &str) -> Vec<Value> {
 
 /// The answer that stands for a change now: one given after it last changed.
 /// A change's newest answer: decision, note, time and origin (`import`: the plan file's own).
-type Answer = (Option<String>, Option<String>, String, String);
+/// The last part is the key it was saved under, so one answer reaching two rows (a retired one
+/// and the live change it was renamed to) is still one answer.
+type Answer = (Option<String>, Option<String>, String, String, String);
 
 fn standing(answers: &HashMap<String, Answer>, s: &SwapRow) -> Option<String> {
     match answers.get(&s.ext_key) {
-        Some((d, _, at, _)) if s.updated_at.as_str() <= at.as_str() => d.clone(),
+        Some((d, _, at, _, _)) if s.updated_at.as_str() <= at.as_str() => d.clone(),
         _ => None,
     }
 }
@@ -611,10 +613,10 @@ pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>
         // A retired row keeps what was said under its own key, and the live change it was renamed
         // to inherits it too.
         if retired.contains(key.as_str()) {
-            answers.insert(key.clone(), (decision.clone(), note.clone(), at.clone(), origin.clone()));
+            answers.insert(key.clone(), (decision.clone(), note.clone(), at.clone(), origin.clone(), key.clone()));
         }
         if let Some(k) = super::resolve_key(&key, &live_keys, &aliases) {
-            answers.insert(k, (decision, note, at, origin));
+            answers.insert(k, (decision, note, at, origin, key));
         }
     }
     let imports = imports(pool, owner).await?;
@@ -694,9 +696,10 @@ pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>
             let current = answers.get(&s.ext_key);
             if trail.is_empty() {
                 match current {
-                    Some((Some(d), note, at, _)) => {
+                    Some((Some(d), note, at, origin, _)) => {
                         let note = note.as_deref().map(|n| format!(", note \"{n}\"")).unwrap_or_default();
-                        let _ = writeln!(out, "- Their answer: {d}{note} ({}).", day(at));
+                        let whose = if origin == "import" { "The plan file's answer" } else { "Their answer" };
+                        let _ = writeln!(out, "- {whose}: {d}{note} ({}).", day(at));
                     }
                     _ if s.stage == "proposed" => out.push_str("- No answer yet.\n"),
                     _ => {}
@@ -720,7 +723,7 @@ pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>
                     .collect();
                 // A plan file's own answer (its review site's) is written straight to the answers,
                 // never as an op: when it's the one that stands, it comes last.
-                if let Some((d, note, at, origin)) = current
+                if let Some((d, note, at, origin, _)) = current
                     && origin == "import"
                 {
                     let note = note.as_deref().filter(|n| !n.trim().is_empty()).map(|n| format!(" \"{n}\"")).unwrap_or_default();
@@ -848,7 +851,13 @@ pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>
         _ => "The plan was made in Yama.".to_string(),
     };
     events.push((day(&created_at).to_string(), 0, came));
-    for v in &versions {
+    // The newest 20 versions: a plan saved again and again would otherwise fill the answer.
+    const VERSIONS_SHOWN: usize = 20;
+    let older = versions.len().saturating_sub(VERSIONS_SHOWN);
+    if older > 0 {
+        events.push((String::new(), 0, format!("{older} earlier versions aren't listed here; call again with card for one change's.")));
+    }
+    for v in versions.iter().skip(older) {
         let changes = list(&v.changes);
         let skipped = list(&v.skipped);
         let src: Value = serde_json::from_str(&v.source).unwrap_or(Value::Null);
@@ -920,9 +929,13 @@ pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>
         };
         said.push((day(&at).to_string(), what));
     }
+    let mut told: std::collections::HashSet<&str> = std::collections::HashSet::new();
     for s in &swaps {
-        if let Some((d, note, at, origin)) = answers.get(&s.ext_key)
+        // Each plan file answer once, on the live change when it reaches one.
+        if let Some((d, note, at, origin, from)) = answers.get(&s.ext_key)
             && origin == "import"
+            && (s.retired_at.is_none() || !answers.iter().any(|(k, a)| a.4 == *from && k != &s.ext_key && live_keys.contains(k)))
+            && told.insert(from.as_str())
         {
             let note = note.as_deref().filter(|n| !n.trim().is_empty()).map(|n| format!(" \"{n}\"")).unwrap_or_default();
             said.push((day(at).to_string(), format!("The plan file's answer on {}: {}{note}.", s.label(), d.as_deref().unwrap_or("cleared"))));
