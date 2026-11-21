@@ -54,6 +54,13 @@ const git = (...a) => {
   }
 };
 inputs.recognizer = { commit: git("rev-parse", "HEAD"), dirty: git("status", "--porcelain", "--", "web/src/scanner") ? true : false, sha256: createHash("sha256").update(recognizerJs).digest("hex") };
+// The ONNX Runtime it ran: the package's version and every WASM runtime it could load (each
+// configuration adds the hash of the JS bundle it imported, below).
+const ortDir0 = path.join(repo, "node_modules/onnxruntime-web");
+inputs.ort = {
+  version: JSON.parse(fs.readFileSync(path.join(ortDir0, "package.json"), "utf8")).version,
+  wasm: Object.fromEntries(fs.readdirSync(path.join(ortDir0, "dist")).filter((f) => f.endsWith(".wasm")).sort().map((f) => [f, sha(path.join(ortDir0, "dist", f))])),
+};
 console.log(`recognizer ${inputs.recognizer.commit?.slice(0, 12) ?? "?"}${inputs.recognizer.dirty ? " (with changes)" : ""}, bundle ${inputs.recognizer.sha256.slice(0, 12)}`);
 const ortDir = path.join(repo, "node_modules/onnxruntime-web/dist");
 const types = { ".html": "text/html", ".mjs": "text/javascript", ".js": "text/javascript", ".wasm": "application/wasm", ".json": "application/json", ".png": "image/png" };
@@ -87,7 +94,12 @@ for (const q of configs) {
   // The embed graph this configuration ran: --embed, or the bundle's own when the query names it.
   const named = new URLSearchParams(q).get("embedFile");
   const ran = !named || named === "/embed.onnx" ? embedFile : named.startsWith("/bundle/") ? path.join(bundleDir, path.basename(named)) : null;
-  r.inputs = { ...inputs, embed: ran && fs.existsSync(ran) ? { file: path.basename(ran), sha256: sha(ran) } : { file: named, sha256: null } };
+  const build = path.basename(new URLSearchParams(q).get("build") ?? "ort.all.min.mjs");
+  r.inputs = {
+    ...inputs,
+    embed: ran && fs.existsSync(ran) ? { file: path.basename(ran), sha256: sha(ran) } : { file: named, sha256: null },
+    ort: { ...inputs.ort, build, buildSha256: fs.existsSync(path.join(ortDir, build)) ? sha(path.join(ortDir, build)) : null },
+  };
   await page.close();
   all.push(r);
   if (r.loadError) {
