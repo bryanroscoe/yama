@@ -667,6 +667,8 @@ export function ScannerView({
   slotsRef.current = slots;
   /** The art model the recognizer runs (its option id), once it's loaded. */
   const [artNow, setArtNow] = useState<string | null>(null);
+  /** The card finder the recognizer runs (its option id), once it's loaded. */
+  const [detectorNow, setDetectorNow] = useState<string | null>(null);
   /** Bumped by each recognizer loaded, so the art switch below follows the one now running. */
   const [artGen, setArtGen] = useState(0);
   /** The look model the recognizer has loaded (its option id), "off" for none. */
@@ -678,7 +680,7 @@ export function ScannerView({
   /** The option each slot runs now, for kept photos and diagnostics. */
   const modelsNow = (): Record<string, string> => {
     const now = slotsRef.current;
-    return { art: artRef.current?.art ?? NO_ART_MODEL, look: artRef.current?.look ?? "off", text: now.text.option?.id ?? "auto", lock: now.lock.option?.id ?? "lead" };
+    return { detector: artRef.current?.detector ?? NO_ART_MODEL, art: artRef.current?.art ?? NO_ART_MODEL, look: artRef.current?.look ?? "off", text: now.text.option?.id ?? "auto", lock: now.lock.option?.id ?? "lead" };
   };
   // Audio is paused once no scanner (or deck check) is open, rather than left running (sound.ts).
   useEffect(() => holdSound(), []);
@@ -979,13 +981,15 @@ export function ScannerView({
         // started and then stopped when the render with these models comes).
         ocrChoice.current = textChoice(runningAll(models, savedModels(), deviceCan), models);
         textStartedFor.current = engineOrder(ocrChoice.current).join(",");
-        art = await loadArtRecognizer((s) => !cancelled && setLoadState(s), { info, art: running(models, "art", savedModels().art, deviceCan).option });
+        const chosen = savedModels();
+        art = await loadArtRecognizer((s) => !cancelled && setLoadState(s), { info, art: running(models, "art", chosen.art, deviceCan).option, detector: running(models, "detector", chosen.detector, deviceCan).option });
       } catch (e) {
         console.warn("Card recognizer unavailable", e);
       }
       if (cancelled) return art?.dispose();
       artRef.current = art;
       setArtNow(art?.art ?? null);
+      setDetectorNow(art?.detector ?? null);
       setArtGen((g) => g + 1);
       setLoadState(null);
       if (art) setMode("art");
@@ -1080,6 +1084,34 @@ export function ScannerView({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, artGen, lookWant?.id, lookWant?.file, identityOnly]);
+
+  // Another card finder chosen in Scan settings: swapped the same way (the recognizer starts with the
+  // one chosen when it loaded).
+  const detectorWant = slots.detector.option;
+  useEffect(() => {
+    const art = artRef.current;
+    if (mode !== "art" || !art || !detectorWant?.file) return;
+    let live = true;
+    if (art.detector !== detectorWant.id) setModelNotes((n) => ({ ...n, detector: `Loading ${detectorWant.label}…` }));
+    art.useDetector(detectorWant).then(
+      () => {
+        if (!live) return;
+        setDetectorNow(art.detector);
+        setModelNotes((n) => ({ ...n, detector: undefined }));
+        art.reset();
+      },
+      (e: unknown) => {
+        if (!live) return;
+        console.warn("Couldn't switch the card finder", e);
+        setModelNotes((n) => ({ ...n, detector: `Couldn't load ${detectorWant.label} (${e instanceof Error ? e.message : String(e)}), so the one before still runs.` }));
+      },
+    );
+    return () => {
+      live = false;
+    };
+    // As for the art model above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, artGen, detectorWant?.id, detectorWant?.file]);
 
   // Another text reader chosen (or one withdrawn): the next read starts the new one, and the one
   // running is stopped once the reads it has under way are done (OCR_RETIRE_MS), so a collector
@@ -2532,6 +2564,7 @@ export function ScannerView({
           can={deviceCan}
           notes={modelNotes}
           runs={{
+            detector: mode === "art" ? `Running ${modelsInfo.detector.options.find((o) => o.id === detectorNow)?.label ?? detectorNow ?? "nothing yet"}.` : undefined,
             art: mode === "art" ? `Running ${modelsInfo.art.options.find((o) => o.id === artNow)?.label ?? artNow ?? "nothing yet"}.` : mode === "text" ? "Card recognition isn't running." : undefined,
             text: ocrName ? `Running ${ENGINE_LABEL[ocrName]}.` : undefined,
             look: mode === "art" ? `Running ${modelsInfo.look.options.find((o) => o.id === lookNow)?.label ?? lookNow}.` : undefined,

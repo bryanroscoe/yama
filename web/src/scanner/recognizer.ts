@@ -8,6 +8,7 @@
 //
 // The onnxruntime namespace is passed in, so the web worker and the Node eval share this file.
 
+import { artLead, LEAD_MARGIN } from "./fuse";
 import { fromBase64, galleryOf, readGallery, upTo, type Gallery } from "./gallery";
 import type { Point, Quad, RgbaImage } from "./types";
 
@@ -23,6 +24,8 @@ export interface BundleConstants {
   refine_fill: number;
   refine_min_side: number;
   card_aspect: number;
+  /** The embed graph's frame cuts, in its output's row order ("modern", "old", …). */
+  frame_names?: string[];
 }
 
 /** One gallery illustration, in gallery order. */
@@ -56,7 +59,8 @@ export interface Recognition {
    * Scored exactly as `matches` are, so the two compare directly.
    */
   pool?: ArtMatch[];
-  timings: { detectMs: number; embedMs: number; totalMs: number };
+  /** `cuts`: frame cuts the art model embedded (all of them, or fewer when the first stage of a cascade settled it). */
+  timings: { detectMs: number; embedMs: number; totalMs: number; cuts?: number };
 }
 
 export interface Recognizer {
@@ -74,6 +78,12 @@ export interface Recognizer {
    * one before; a graph that fails to load leaves that one running.
    */
   setEmbed(graph: Uint8Array): Promise<void>;
+  /**
+   * Find cards with this detector graph from now on (another card finder with the bundle detector's
+   * input and outputs: models.ts). Compiled and warmed first, as setEmbed; one that fails to load or
+   * run leaves the one before running.
+   */
+  setDetector(graph: Uint8Array): Promise<void>;
 }
 
 /** Pool matches kept per frame. */
@@ -82,8 +92,24 @@ const POOL_TOP = 3;
 /** The parts of onnxruntime-web this uses. */
 export interface OrtLike {
   InferenceSession: { create(model: Uint8Array, options?: object): Promise<Session> };
-  Tensor: new (type: "uint8" | "float32", data: Uint8Array | Float32Array, dims: readonly number[]) => unknown;
+  Tensor: new (type: "uint8" | "float32" | "int64", data: Uint8Array | Float32Array | BigInt64Array, dims: readonly number[]) => unknown;
 }
+
+/**
+ * The embed cascade. An embed graph with a `cuts` input (int64, which of its frame cuts to embed; the
+ * others' rows come back as zeros, which the search scores at minus their penalty) is run on the modern
+ * and old cuts first: 92% of the gallery's rows are in those frames, and two cuts cost about a ninth of
+ * the network's time for 17. When that alone puts a card FIRST_FLOOR or more and LEAD_MARGIN ahead of
+ * every other card listed (artLead, as the live lead rule judges), that's the frame's answer; otherwise
+ * the other cuts are embedded too and everything is searched, as without the cascade. Measured offline
+ * on yama-art-20261118 (cardvision lab, 20 Nov 2026): on 1,840 held-out simulated captures, the lead
+ * rule locked the same 96.2% right, 0 wrong and 9 unknown cards as all 17 cuts, with 89.8% settled by
+ * the first stage; on the 124 real photos, the same 94.4%, 0 wrong, 87.1% by the first stage. At 0.65
+ * the first stage locked 2 simulated captures wrongly (a Murder as Demonic Consultation, a Spirit token
+ * as Arcane Signet), so it asks for more than the lead rule.
+ */
+export const FIRST_STAGE = ["modern", "old"];
+export const FIRST_FLOOR = 0.68;
 interface Session {
   readonly inputNames: readonly string[];
   run(feeds: Record<string, unknown>): Promise<Record<string, { data: unknown }>>;
@@ -283,11 +309,12 @@ export async function createRecognizer(
   constants: BundleConstants,
   arts: Art[],
   supplement?: Supplement | null,
-  extras: { hidden?: number[] } = {},
+  /** `cascade: false` embeds every cut at once even when the art model could cascade (a GPU gains nothing from it). */
+  extras: { hidden?: number[]; cascade?: boolean } = {},
 ): Promise<Recognizer> {
   const options = { executionProviders: ["wasm"], graphOptimizationLevel: "all" };
   // One at a time: three parallel compiles peak higher in memory, which phones notice.
-  const detector = await ort.InferenceSession.create(graphs.detector, options);
+  let detector = await ort.InferenceSession.create(graphs.detector, options);
   let embed = await ort.InferenceSession.create(graphs.embed, options);
   const search = await ort.InferenceSession.create(graphs.search, options);
   // Bundles since gallery-20261106 (manifest `search_mask`) also take `mask`, one value per
@@ -311,8 +338,8 @@ export async function createRecognizer(
   const size = constants.det_input;
   const now = () => performance.now();
 
-  const detect = async (frame: RgbaImage, w: Window): Promise<Detection> => {
-    const out = await detector.run({ window: new ort.Tensor("uint8", sampleWindow(frame, w, size), [size, size, 4]) });
+  const detect = async (frame: RgbaImage, w: Window, session: Session = detector): Promise<Detection> => {
+    const out = await session.run({ window: new ort.Tensor("uint8", sampleWindow(frame, w, size), [size, size, 4]) });
     const q = out.quad!.data as Float32Array;
     const up = out.up!.data as Float32Array;
     const c = out.centre!.data as Float32Array;
@@ -330,38 +357,73 @@ export async function createRecognizer(
     side: Math.max((d.short * constants.card_aspect) / constants.refine_fill, constants.refine_min_side),
   });
 
-  const embedRun = (session: Session, whole: RgbaImage, at: Quad) => {
+  // The cascade (FIRST_STAGE): which cuts each stage embeds, for an embed graph that takes `cuts`.
+  const frameNames = constants.frame_names ?? [];
+  const allCuts = frameNames.map((_, i) => i);
+  const firstCuts = allCuts.filter((i) => FIRST_STAGE.includes(frameNames[i]!));
+  const otherCuts = allCuts.filter((i) => !FIRST_STAGE.includes(frameNames[i]!));
+  const stagesFor = (session: Session) =>
+    extras.cascade !== false && session.inputNames.includes("cuts") && firstCuts.length === FIRST_STAGE.length && otherCuts.length ? { first: firstCuts, rest: otherCuts } : null;
+  /** The first stage settles the frame: a card FIRST_FLOOR or more, LEAD_MARGIN ahead of every other card listed. */
+  const settles = (out: ArtMatch[]) => !!out[0] && out[0].score >= FIRST_FLOOR && artLead(out) >= LEAD_MARGIN;
+  /** The embed graph's output for these cuts (every cut when it takes `cuts` and none are named). */
+  const embedRun = async (session: Session, whole: RgbaImage, at: Quad, cuts?: number[]) => {
+    const takesCuts = session.inputNames.includes("cuts");
+    if (takesCuts && !frameNames.length) throw new Error("This art model needs the bundle's frame names");
     const { frame, quad } = cardWindow(whole, at);
     const scene = new ort.Tensor("uint8", new Uint8Array(frame.data.buffer, frame.data.byteOffset, frame.data.byteLength), [frame.height, frame.width, 4]);
-    return session.run({ scene, quad: new ort.Tensor("float32", Float32Array.from(quad.flat()), [4, 2]) });
-  };
-  const match = async (frame: RgbaImage, quad: Quad): Promise<{ matches: ArtMatch[]; pool?: ArtMatch[] }> => {
-    const vectors = await embedRun(embed, frame, quad);
-    const embedding = Object.values(vectors)[0]!;
-    const ranked = await search.run(everyArt ? { embeddings: embedding, mask: everyArt } : { embeddings: embedding });
-    const indices = ranked.indices!.data as BigInt64Array | Int32Array;
-    const scores = ranked.scores!.data as Float32Array;
-    const graphTop: ArtMatch[] = [];
-    for (let i = 0; i < indices.length; i += 1) {
-      const index = Number(indices[i]);
-      const art = arts[index];
-      // A masked or padded row scores below -1; real scores are cosines.
-      if (art && scores[i]! >= -1) graphTop.push({ ...art, index, score: scores[i]! });
+    const feeds: Record<string, unknown> = { scene, quad: new ort.Tensor("float32", Float32Array.from(quad.flat()), [4, 2]) };
+    if (takesCuts) {
+      const c = cuts ?? allCuts;
+      feeds.cuts = new ort.Tensor("int64", BigInt64Array.from(c, (i) => BigInt(i)), [c.length]);
     }
-    const vector = embedding.data as Float32Array;
-    const fromExtra = (local: Iterable<number>, k: number): ArtMatch[] =>
+    return Object.values(await session.run(feeds))[0]!;
+  };
+  const match = async (frame: RgbaImage, quad: Quad): Promise<{ matches: ArtMatch[]; pool?: ArtMatch[]; cuts?: number }> => {
+    const fromExtra = (vector: Float32Array, local: Iterable<number>, k: number): ArtMatch[] =>
       extra ? extra.gallery.search(vector, local, k).flatMap(({ index, score }) => (extra.arts[index] ? [{ ...extra.arts[index]!, index: bundleCount + index, score }] : [])) : [];
-    // The supplement is scored exactly as the graph scores its rows, so the two merge by score.
-    const out = extra ? mergeTop(Math.max(indices.length, 1), graphTop, fromExtra(upTo(extra.gallery.count), indices.length)) : graphTop;
-    if (!pool || !gallery) return { matches: out };
-    const main = pool.filter((i) => i < bundleCount && !hidden.has(i));
-    const local = pool.filter((i) => i >= bundleCount).map((i) => i - bundleCount);
+    const rank = async (embedding: unknown): Promise<ArtMatch[]> => {
+      const ranked = await search.run(everyArt ? { embeddings: embedding, mask: everyArt } : { embeddings: embedding });
+      const indices = ranked.indices!.data as BigInt64Array | Int32Array;
+      const scores = ranked.scores!.data as Float32Array;
+      const graphTop: ArtMatch[] = [];
+      for (let i = 0; i < indices.length; i += 1) {
+        const index = Number(indices[i]);
+        const art = arts[index];
+        // A masked or padded row scores below -1; real scores are cosines.
+        if (art && scores[i]! >= -1) graphTop.push({ ...art, index, score: scores[i]! });
+      }
+      const vector = (embedding as { data: Float32Array }).data;
+      // The supplement is scored exactly as the graph scores its rows, so the two merge by score.
+      return extra ? mergeTop(Math.max(indices.length, 1), graphTop, fromExtra(vector, upTo(extra.gallery.count), indices.length)) : graphTop;
+    };
+    // The session and pool this frame runs with (setEmbed and setPool may change them meanwhile).
+    // With the set lock every cut is embedded at once: the pool's best can be in any frame.
+    const session = embed;
+    const lockPool = pool;
+    const cascade = lockPool ? null : stagesFor(session);
+    let embedding: unknown = await embedRun(session, frame, quad, cascade?.first);
+    let out = await rank(embedding);
+    let cuts = cascade ? cascade.first.length : frameNames.length || undefined;
+    if (cascade && !settles(out)) {
+      const first = (embedding as { data: Float32Array }).data;
+      const rest = ((await embedRun(session, frame, quad, cascade.rest)) as { data: Float32Array }).data;
+      // Each stage fills only its own cuts' rows, so the whole embedding is their sum.
+      const sum = Float32Array.from(first, (v, i) => v + rest[i]!);
+      embedding = new ort.Tensor("float32", sum, [frameNames.length, sum.length / frameNames.length]);
+      out = await rank(embedding);
+      cuts = frameNames.length;
+    }
+    const vector = (embedding as { data: Float32Array }).data;
+    if (!lockPool || !gallery) return { matches: out, cuts };
+    const main = lockPool.filter((i) => i < bundleCount && !hidden.has(i));
+    const local = lockPool.filter((i) => i >= bundleCount).map((i) => i - bundleCount);
     const pooled = mergeTop(
       POOL_TOP,
       gallery.search(vector, main, POOL_TOP).flatMap(({ index, score }) => (arts[index] ? [{ ...arts[index]!, index, score }] : [])),
-      fromExtra(local, POOL_TOP),
+      fromExtra(vector, local, POOL_TOP),
     );
-    return { matches: out, pool: pooled };
+    return { matches: out, pool: pooled, cuts };
   };
 
   let tracked: Window | null = null;
@@ -391,9 +453,9 @@ export async function createRecognizer(
     const inView = fine.vote >= IN_VIEW && shortSide(fine.quad) >= MIN_SHORT && cardDetail(frame, fine.quad) >= MIN_DETAIL;
     tracked = inView ? around(fine) : null;
     trackedFor = inView && wasTracking ? trackedFor + 1 : 0;
-    const found = inView ? await match(frame, fine.quad) : { matches: [], pool: pool && gallery ? [] : undefined };
+    const { cuts, ...found } = inView ? await match(frame, fine.quad) : { matches: [], pool: pool && gallery ? [] : undefined, cuts: 0 };
     const t2 = now();
-    return { quad: inView ? fine.quad : null, upright: fine.vote, ...found, timings: { detectMs: t1 - t0, embedMs: t2 - t1, totalMs: t2 - t0 } };
+    return { quad: inView ? fine.quad : null, upright: fine.vote, ...found, timings: { detectMs: t1 - t0, embedMs: t2 - t1, totalMs: t2 - t0, cuts } };
   };
 
   // Each graph's first run sets up its kernels; pay that before the first real frame.
@@ -429,6 +491,21 @@ export async function createRecognizer(
       const old = embed;
       embed = next;
       // A frame already being matched may still be running the old one: let it finish first.
+      setTimeout(() => void old.release?.().catch(() => undefined), 5000);
+    },
+    async setDetector(graph) {
+      const next = await ort.InferenceSession.create(graph, options);
+      try {
+        // Its outputs must be the bundle detector's: a pass on a blank window reads them all.
+        const d = await detect(blank, { cx: constants.scene / 2, cy: constants.scene / 2, side: constants.scene }, next);
+        if (![...d.quad.flat(), ...d.centre, d.vote, d.short].every(Number.isFinite)) throw new Error("This card finder's outputs aren't the bundle detector's");
+      } catch (e) {
+        await next.release?.().catch(() => undefined);
+        throw e;
+      }
+      const old = detector;
+      detector = next;
+      tracked = null;
       setTimeout(() => void old.release?.().catch(() => undefined), 5000);
     },
   };

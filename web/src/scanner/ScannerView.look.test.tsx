@@ -36,7 +36,7 @@ const bundle = (): BundleInfo => ({
 vi.mock("../api", async (original) => ({
   ...(await original<typeof import("../api")>()),
   api: (path: string) => {
-    if (path === "/api/scan/bundle") return Promise.resolve(bundle());
+    if (path === "/api/scan/bundle?can=cuts") return Promise.resolve(bundle());
     if (path.startsWith("/api/scan/printings")) return Promise.resolve({ same_art: true, printings });
     if (path.startsWith("/api/scan/diagnostics")) return Promise.resolve({ count: 0, bytes: 0, keep: 200 });
     return Promise.reject(new Error(`offline: ${path}`));
@@ -52,6 +52,8 @@ vi.mock("./artClient", async (original) => ({
       embed: `${V}/embed.onnx`,
       art: "bundle",
       useArt: async () => undefined,
+      detector: "bundle-detector",
+      useDetector: async () => undefined,
       get look() {
         return look.loaded;
       },

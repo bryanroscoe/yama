@@ -27,7 +27,7 @@ export interface EmbedFile {
 }
 
 export type ArtWorkerRequest =
-  | { type: "load"; info: BundleInfo; base: string; embed: EmbedFile }
+  | { type: "load"; info: BundleInfo; base: string; embed: EmbedFile; detector: EmbedFile }
   | { type: "embed"; id: number; embed: EmbedFile }
   /** Keep the last few frames with a card in them, for the printing look (look.ts), or stop. */
   | { type: "keep-frames"; on: boolean }
@@ -35,6 +35,7 @@ export type ArtWorkerRequest =
   | { type: "frames"; id: number; index: number }
   /** `frames`: also forget the frames kept for the printing look (a photo is another view). */
   | { type: "reset"; frames?: boolean }
+  | { type: "detector"; id: number; file: EmbedFile }
   | { type: "pool"; id: number; keys: PoolKeys | null }
   | { type: "identify"; id: number; width: number; height: number; buffer: ArrayBuffer };
 
@@ -94,6 +95,10 @@ export interface ArtRecognizer {
    * no look model is loaded or no frame of the card is kept.
    */
   lookAt(index: number, candidates: LookCandidate[], onScore: (id: string, score: number) => void, signal?: AbortSignal): Promise<LookDone>;
+  /** The card finder (detector slot) it runs, by option id. */
+  readonly detector: string;
+  /** Find cards with this card finder from now on, as useArt does for the art model. */
+  useDetector(option: ModelOption): Promise<void>;
 }
 
 /** What kept photos and diagnostics say ran when the scanner read text only, with no art model. */
@@ -113,6 +118,10 @@ export const defaultArtId = (info: Pick<BundleInfo, "files" | "models">): string
   return name === "embed.onnx" ? "bundle" : name.replace(/\.onnx$/, "");
 };
 
+/** The detector option a bundle info's `files.detector` is: the listed option with that file, else the bundle's. */
+export const defaultDetectorId = (info: Pick<BundleInfo, "files" | "models">): string =>
+  info.models?.detector?.options.find((o) => o.file === info.files.detector)?.id ?? "bundle-detector";
+
 export type LoadState = { kind: "downloading"; loaded: number; total: number } | { kind: "preparing" };
 
 /** The last ready bundle's info, kept on the device: the API isn't cached, the bundle files are. */
@@ -125,7 +134,9 @@ const INFO_KEY = "yama-scan-bundle";
  */
 export async function scanBundleInfo(): Promise<BundleInfo | null> {
   try {
-    return await api<BundleInfo>("/api/scan/bundle");
+    // can=cuts: this build feeds an art model's `cuts` input (recognizer.ts, the embed cascade), so the
+    // server lists models that need it.
+    return await api<BundleInfo>("/api/scan/bundle?can=cuts");
   } catch (e) {
     const kept = localStorage.getItem(INFO_KEY);
     if (!kept) throw e;
@@ -168,22 +179,24 @@ export async function oneLoadAtATime<T>(load: () => Promise<T>, wait = LOAD_LOCK
  * Rejects on a real failure. A chosen art model that won't load (not cached, opening offline) gives
  * way to the bundle info's own embed graph.
  */
-export async function loadArtRecognizer(onState?: (s: LoadState) => void, opts: { info?: BundleInfo | null; art?: ModelOption | null } = {}): Promise<ArtRecognizer | null> {
+export async function loadArtRecognizer(onState?: (s: LoadState) => void, opts: { info?: BundleInfo | null; art?: ModelOption | null; detector?: ModelOption | null } = {}): Promise<ArtRecognizer | null> {
   if (typeof Worker === "undefined" || typeof WebAssembly === "undefined") return null;
   const info = opts.info !== undefined ? opts.info : await scanBundleInfo();
   if (!info?.ready || !info.constants) return null;
   const fallback = { id: defaultArtId(info), file: info.files.embed, bytes: info.bytes.embed };
   const art = opts.art?.file ? { id: opts.art.id, file: opts.art.file, bytes: opts.art.bytes ?? 0 } : fallback;
+  const bundleFinder = { id: defaultDetectorId(info), file: info.files.detector, bytes: info.bytes.detector };
+  const finder = opts.detector?.file ? { id: opts.detector.id, file: opts.detector.file, bytes: opts.detector.bytes ?? 0 } : bundleFinder;
   try {
-    return await startRecognizer(info, art, onState);
+    return await startRecognizer(info, art, finder, onState);
   } catch (e) {
-    if (art.file === fallback.file) throw e;
-    console.warn(`The art model ${art.id} didn't load; running the default`, e);
-    return startRecognizer(info, fallback, onState);
+    if (art.file === fallback.file && finder.file === bundleFinder.file) throw e;
+    console.warn(`The models chosen (${art.id}, ${finder.id}) didn't load; running the defaults`, e);
+    return startRecognizer(info, fallback, bundleFinder, onState);
   }
 }
 
-async function startRecognizer(info: BundleInfo, art: { id: string; file: string; bytes: number }, onState?: (s: LoadState) => void): Promise<ArtRecognizer> {
+async function startRecognizer(info: BundleInfo, art: { id: string; file: string; bytes: number }, detector: { id: string; file: string; bytes: number }, onState?: (s: LoadState) => void): Promise<ArtRecognizer> {
   const worker = new Worker(new URL("./art.worker.ts", import.meta.url), { type: "module" });
   const pending = new Map<number, { resolve: (r: Recognition) => void; reject: (e: Error) => void }>();
   const pooling = new Map<number, (arts: number) => void>();
@@ -229,7 +242,9 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
   let nextId = 1;
   let disposed = false;
   let now = art;
-  /** Art model switches, one after another, so the last one asked for is the one that runs. */
+  /** The card finder running: the one chosen when it started (Scan settings may switch it later). */
+  let finder = detector;
+  /** Model switches (art and card finder), one after another, so the last one asked for is the one that runs. */
   let switching: Promise<unknown> = Promise.resolve();
   const base = API_BASE || location.origin;
 
@@ -245,7 +260,7 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
         else if (m.type === "error") reject(new Error(m.message));
       };
       worker.onerror = (e) => reject(new Error(e.message || "The card recognizer stopped"));
-      worker.postMessage({ type: "load", info, base, embed: { url: art.file, bytes: art.bytes } } satisfies ArtWorkerRequest);
+      worker.postMessage({ type: "load", info, base, embed: { url: art.file, bytes: art.bytes }, detector: { url: detector.file, bytes: detector.bytes } } satisfies ArtWorkerRequest);
     }).catch((e: unknown) => {
       worker.terminate();
       throw e;
@@ -380,6 +395,30 @@ async function startRecognizer(info: BundleInfo, art: { id: string; file: string
         signal?.addEventListener("abort", () => w.postMessage({ type: "stop", id } satisfies LookWorkerRequest), { once: true });
         w.postMessage({ type: "look", id, frames, candidates } satisfies LookWorkerRequest, frames.map((f) => f.buffer));
       });
+    },
+    get detector() {
+      return finder.id;
+    },
+    useDetector(option) {
+      if (disposed) return Promise.reject(new Error("The scanner is closed"));
+      if (!option.file) return Promise.reject(new Error(`${option.label} has no model file`));
+      const next = { id: option.id, file: option.file, bytes: option.bytes ?? 0 };
+      const run = () => {
+        if (disposed) return Promise.reject(new Error("The scanner is closed"));
+        if (next.file === finder.file) return Promise.resolve();
+        const id = nextId++;
+        return new Promise<void>((resolve, reject) => {
+          embedding.set(id, (error) => {
+            if (error) return reject(new Error(error));
+            finder = next;
+            resolve();
+          });
+          worker.postMessage({ type: "detector", id, file: { url: next.file, bytes: next.bytes } } satisfies ArtWorkerRequest);
+        });
+      };
+      const done = switching.then(run, run);
+      switching = done.catch(() => undefined);
+      return done;
     },
     identify(image) {
       if (disposed) return Promise.reject(new Error("The scanner is closed"));

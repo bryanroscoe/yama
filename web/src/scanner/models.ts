@@ -2,6 +2,8 @@
 // switch scanners on the fly if need be by the way we want to be able to try a lot of things here
 // and switch between models when things break"). Each slot runs the server's default or an option
 // chosen in Scan settings, per device:
+//   - detector: the card finder, which places the card's corners in the frame (the bundle's
+//     detector.onnx, or Yama's own);
 //   - art: the art match's query model (the bundle's embed.onnx, or one of Yama's own);
 //   - look: the printing look, which compares the card with each candidate printing's picture;
 //   - text: the text reader (ocrEngine.ts);
@@ -13,11 +15,12 @@
 
 import type { BundleInfo } from "./artClient";
 
-export type ModelSlot = "art" | "look" | "text" | "lock";
-export const MODEL_SLOTS: readonly ModelSlot[] = ["art", "look", "text", "lock"];
+export type ModelSlot = "detector" | "art" | "look" | "text" | "lock";
+export const MODEL_SLOTS: readonly ModelSlot[] = ["detector", "art", "look", "text", "lock"];
 
 /** What each slot is called in Scan settings. */
 export const SLOT_LABEL: Record<ModelSlot, string> = {
+  detector: "Card finder",
   art: "Art match",
   look: "Printing look",
   text: "Text reader",
@@ -121,7 +124,11 @@ export function modelsOf(info: Pick<BundleInfo, "files" | "bytes"> & { models?: 
         options: [{ id: embedName === "embed.onnx" ? "bundle" : embedName.replace(/\.onnx$/, ""), label: embedName === "embed.onnx" ? "ManaVault's art model" : "Yama's art model", note: "", file: embedFile, bytes: info?.bytes.embed ?? null }],
       }
     : { default: null, options: [] };
+  const detectorFile = info?.files.detector ?? null;
   const fallback: ModelsInfo = {
+    detector: detectorFile
+      ? { default: "bundle-detector", options: [{ id: "bundle-detector", label: "ManaVault's card finder", note: "", file: detectorFile, bytes: info?.bytes.detector ?? null }] }
+      : { default: null, options: [] },
     art: artFallback,
     look: { default: "off", options: [{ id: "off", label: "Off", note: "" }] },
     text: {
@@ -151,13 +158,16 @@ export function modelsOf(info: Pick<BundleInfo, "files" | "bytes"> & { models?: 
 }
 
 /**
- * Whether this app can run an option: an art or look model by its file (any art query model the
- * server pins has the bundle embed graph's interface, and any look model look.ts's: `scene` and
- * `quad` in, `symbol` and `card` out), "off" for the look, and text readers and lock rules this
+ * Whether this app can run an option: an art model, card finder or look model by its file (an art
+ * model or card finder with the bundle graph's interface, the server listing one that needs more,
+ * such as an art model's `cuts`, only to apps that say they can run it: artClient.ts asks with
+ * `?can=`; a look model with look.ts's: `scene` and `quad` in, `symbol` and `card` out), "off" for
+ * the look, and text readers and lock rules this
  * build has the code for, on this device (an option a newer server adds stays hidden until then).
  */
 export function canRun(slot: ModelSlot, o: ModelOption, can: DeviceCan): boolean {
   switch (slot) {
+    case "detector":
     case "art":
       return !!o.file;
     case "look":

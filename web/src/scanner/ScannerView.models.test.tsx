@@ -11,15 +11,18 @@ import type { ModelOption } from "./models";
 const V = "gallery-20261106T183001884398Z";
 const yamaArt = { id: "yama-art-20261118", label: "Yama's art model, 18 Nov", note: "Fine-tuned for sleeved cards.", file: `/scan-bundle/${V}/query-52420d900728.onnx`, bytes: 5_139_404 };
 const bundleArt = { id: "bundle", label: "ManaVault's art model", note: "The bundle's own.", file: `/scan-bundle/${V}/embed.onnx`, bytes: 5_118_408 };
-const server = vi.hoisted(() => ({ art: [] as unknown[] }));
+const bundleFinder = { id: "bundle-detector", label: "ManaVault's card finder", note: "Four turned views a look.", file: `/scan-bundle/${V}/detector.onnx`, bytes: 12_576_317 };
+const yamaFinder = { id: "yama-corners-20261120", label: "Yama's card finder, 20 Nov", note: "One view a look.", file: `/scan-bundle/${V}/corners-0123456789ab.onnx`, bytes: 4_140_304 };
+const server = vi.hoisted(() => ({ art: [] as unknown[], detector: [] as unknown[] }));
 const bundle = (): BundleInfo => ({
   version: V,
   ready: true,
   error: null,
-  files: { detector: "d", embed: yamaArt.file, search: "s", arts: "a" },
+  files: { detector: bundleFinder.file, embed: yamaArt.file, search: "s", arts: "a" },
   bytes: { detector: 1, embed: yamaArt.bytes, search: 1, arts: 1 },
   constants: { scene: 640 },
   models: {
+    detector: { default: "bundle-detector", options: server.detector as ModelOption[] },
     art: { default: "yama-art-20261118", options: server.art as ModelOption[] },
     look: { default: "off", options: [{ id: "off", label: "Off", note: "" }] },
     text: { default: "auto", options: [{ id: "auto", label: "Automatic", note: "" }, { id: "mlkit", label: "Google ML Kit", note: "" }, { id: "tesseract", label: "Tesseract", note: "" }] },
@@ -30,18 +33,20 @@ const bundle = (): BundleInfo => ({
 vi.mock("../api", async (original) => ({
   ...(await original<typeof import("../api")>()),
   api: (path: string) => {
-    if (path === "/api/scan/bundle") return Promise.resolve(bundle());
+    // The app says it can feed an art model's `cuts` (artClient.ts).
+    if (path === "/api/scan/bundle?can=cuts") return Promise.resolve(bundle());
     if (path.startsWith("/api/scan/diagnostics")) return Promise.resolve({ count: 0, bytes: 0, keep: 200 });
     return Promise.reject(new Error(`offline: ${path}`));
   },
 }));
 
 /** The recognizer the scanner gets: which art model it was started with, and the switches since. */
-const art = vi.hoisted(() => ({ loads: [] as { art?: { id: string } | null }[], switches: [] as string[], now: "", none: false }));
+const art = vi.hoisted(() => ({ loads: [] as { art?: { id: string } | null; detector?: { id: string } | null }[], switches: [] as string[], now: "", none: false, detector: "bundle-detector", detectorSwitches: [] as string[] }));
 vi.mock("./artClient", async (original) => ({
   ...(await original<typeof import("./artClient")>()),
-  loadArtRecognizer: async (_: unknown, opts: { art?: { id: string } | null }) => {
+  loadArtRecognizer: async (_: unknown, opts: { art?: { id: string } | null; detector?: { id: string } | null }) => {
     art.loads.push(opts);
+    art.detector = opts.detector?.id ?? "bundle-detector";
     // No recognizer (a bundle not ready yet): the scanner reads text.
     if (art.none) return null;
     art.now = opts.art?.id ?? "?";
@@ -59,6 +64,15 @@ vi.mock("./artClient", async (original) => ({
       look: "off",
       useLook: async () => undefined,
       lookAt: () => Promise.reject(new Error("no look here")),
+      get detector() {
+        return art.detector;
+      },
+      // As artClient's: asking for the one running loads nothing.
+      async useDetector(o) {
+        if (o.id === art.detector) return;
+        art.detectorSwitches.push(o.id);
+        art.detector = o.id;
+      },
       identify: () => new Promise(() => undefined),
       reset: () => undefined,
       setPool: async () => -1,
@@ -98,11 +112,14 @@ beforeEach(() => {
   art.none = false;
   ocr.started.length = 0;
   server.art = [bundleArt, yamaArt];
+  server.detector = [bundleFinder];
+  art.detector = "bundle-detector";
+  art.detectorSwitches.length = 0;
 });
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
-  for (const slot of ["art", "look", "text", "lock"] as const) saveModel(slot, null);
+  for (const slot of ["detector", "art", "look", "text", "lock"] as const) saveModel(slot, null);
   localStorage.clear();
 });
 
@@ -160,6 +177,27 @@ describe("Models in Scan settings", () => {
     await choose(select("Settling by art")!, "sure");
     expect(JSON.parse(localStorage.getItem("yama.scan.models")!)).toEqual({ lock: "sure" });
     expect(models.textContent).toContain("0.82.");
+  });
+
+  it("switches the card finder at once, and a new scanner starts with the one chosen", async () => {
+    server.detector = [bundleFinder, yamaFinder];
+    act(() => root.render(<ScannerView onAccept={async () => true} />));
+    const models = await openSettings();
+    expect(models.textContent).toContain("Running ManaVault's card finder.");
+    await choose(select("Card finder")!, "yama-corners-20261120");
+    await until(() => (models.textContent?.includes("Running Yama's card finder, 20 Nov.") ? true : null), "the card finder running");
+    expect(art.detectorSwitches).toContain("yama-corners-20261120");
+    expect(art.loads).toHaveLength(1);
+    expect(JSON.parse(localStorage.getItem("yama.scan.models")!)).toEqual({ detector: "yama-corners-20261120" });
+    // A new scanner loads with it, no switch needed.
+    act(() => root.unmount());
+    root = createRoot(host);
+    art.detectorSwitches.length = 0;
+    act(() => root.render(<ScannerView onAccept={async () => true} />));
+    await until(() => (art.loads.length === 2 ? true : null), "the second recognizer");
+    expect(art.loads[1]!.detector?.id).toBe("yama-corners-20261120");
+    await wait(50);
+    expect(art.detectorSwitches).toEqual([]);
   });
 
   it("starts a scanner whose chosen model the server no longer offers on the default, and says so", async () => {

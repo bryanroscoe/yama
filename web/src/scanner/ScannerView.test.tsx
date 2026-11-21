@@ -688,7 +688,7 @@ describe("scanner diagnostics, when they're on (slice 5)", () => {
     expect((sent.detail.options as { id: string }[]).map((o) => o.id)).toEqual(["id-woc-145", "id-cmm-390", "id-c21-236"]);
     expect(sent.detail.found).toMatchObject({ method: "typed", name: "Arcane Signet" });
     // Every slot's choice (models.ts): no art model here (no bundle), the defaults for the rest.
-    expect((sent as { models?: unknown }).models).toEqual({ art: "none", look: "off", text: "auto", lock: "lead" });
+    expect((sent as { models?: unknown }).models).toEqual({ detector: "none", art: "none", look: "off", text: "auto", lock: "lead" });
   });
 
   it("keeps nothing with the switch off (its default), and nothing for a card that went smoothly", async () => {

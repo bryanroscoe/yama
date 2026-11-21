@@ -58,6 +58,8 @@ const RETRY_AFTER: Duration = Duration::from_secs(10 * 60);
 /// when things break").
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Slot {
+    /// The card finder: the detector that places the card's corners in the frame.
+    Detector,
     /// The art match's query side: what the camera sees, embedded to search the bundle's gallery.
     Art,
     /// The printing look: the card compared with each candidate printing's own picture.
@@ -68,12 +70,13 @@ pub(crate) enum Slot {
     Lock,
 }
 
-pub(crate) const SLOTS: [Slot; 4] = [Slot::Art, Slot::Look, Slot::Text, Slot::Lock];
+pub(crate) const SLOTS: [Slot; 5] = [Slot::Detector, Slot::Art, Slot::Look, Slot::Text, Slot::Lock];
 
 impl Slot {
     /// What the app, `/api/scan/bundle` and records call it.
     pub fn key(self) -> &'static str {
         match self {
+            Slot::Detector => "detector",
             Slot::Art => "art",
             Slot::Look => "look",
             Slot::Text => "text",
@@ -114,6 +117,10 @@ pub(crate) struct ModelOption {
     pub default: bool,
     /// What the slot does with nothing of ours: never withdrawn, so a slot always has an option.
     pub base: bool,
+    /// What the app must say it can run (`GET /api/scan/bundle?can=…`) to be offered it: an option a
+    /// web build from before it can't run (an Android app can run last deploy's build for a session).
+    /// Never a default, and never served as `files.embed`.
+    pub needs: Option<&'static str>,
 }
 
 const RECOGNISER_20261026: &str = "eb6558461672b30c8b699570cc1669c4baa1a31d5fd28d617800e8a1f4d2e2c3";
@@ -129,6 +136,7 @@ const BUNDLE_ART: ModelOption = ModelOption {
     recogniser: None,
     default: false,
     base: true,
+    needs: None,
 };
 
 /// Yama's own query embedder (docs/scanner.md, "Yama's query embedder", 18 Nov 2026): the bundle's
@@ -155,6 +163,70 @@ pub(crate) const QUERY_MODEL: ModelOption = ModelOption {
     recogniser: Some(RECOGNISER_20261026),
     default: true,
     base: false,
+    needs: None,
+};
+
+/// The same weights as QUERY_MODEL, with an extra `cuts` input (int64) naming the frame cuts to embed;
+/// the others' rows come back as zeros. The app (recognizer.ts, `FIRST_STAGE`) embeds the modern
+/// and old cuts first and the other 15 only when those don't settle the frame: the same results on
+/// the real photos and the held-out simulated captures, the art match about four times faster on one
+/// WASM thread (docs/scanner.md, "Speed"). Made by `scanner-lab/cascade.py` from QUERY_MODEL's file
+/// (MPL-2.0, as that file is). A web build from before `cuts` can't run it, so it's listed only to
+/// apps that say they can (`needs`), and never served as `files.embed`.
+pub(crate) const QUERY_CASCADE: ModelOption = ModelOption {
+    slot: Slot::Art,
+    id: "yama-art-20261118-cascade",
+    label: "Yama's art model, 18 Nov, two cuts first",
+    note: "The same model, matching the art as modern and old frames first and the rarer frames only when those don't settle it: the same results on the test photos, about 45 ms less a frame on a laptop.",
+    licence: Some("MPL-2.0"),
+    source: Source::File {
+        prefix: "query",
+        url: "https://github.com/bryanroscoe/yama/releases/download/scanner-models-20261120/yama-art-20261118-cascade.onnx",
+        bytes: 5_140_073,
+        sha256: "103b3d9af4982466ae3d69fb1528f2a82f23cb411bda32c4b2ec782f60d1048b",
+    },
+    recogniser: Some(RECOGNISER_20261026),
+    default: false,
+    base: false,
+    needs: Some("cuts"),
+};
+
+/// The bundle's own `detector.onnx` (ManaVault, MPL-2.0): four turned views of each window a look.
+const BUNDLE_DETECTOR: ModelOption = ModelOption {
+    slot: Slot::Detector,
+    id: "bundle-detector",
+    label: "ManaVault's card finder",
+    note: "The art bundle's own: it looks at each window four ways round and takes their vote.",
+    licence: Some("MPL-2.0"),
+    source: Source::Bundle("detector.onnx"),
+    recogniser: None,
+    default: true,
+    base: true,
+    needs: None,
+};
+
+/// Yama's own card finder (docs/scanner.md, "Speed"; scanner-lab/corners_*.py): torchvision's
+/// MobileNetV3-Small (BSD-3-Clause, ImageNet weights) with a small decoder, trained on simulated
+/// captures with fingers and thumbs over corners. One view a look; it places the card's corners as
+/// printed, covered ones included. Same input (`window`) and outputs (`quad`, `up`, `centre`,
+/// `short`) as the bundle's detector, so recognizer.ts runs it unchanged. Offered only with a bundle
+/// whose detector reads a 256 px window and votes over four views (`fits`), as the pinned one does.
+pub(crate) const CORNERS_MODEL: ModelOption = ModelOption {
+    slot: Slot::Detector,
+    id: "yama-corners-20261120",
+    label: "Yama's card finder, 20 Nov",
+    note: "One look at each window instead of four, so it finds a card about four times faster, and it places a corner a finger covers.",
+    licence: Some("Yama's own; initialised from torchvision's MobileNetV3-Small (BSD-3-Clause)"),
+    source: Source::File {
+        prefix: "corners",
+        url: "https://github.com/bryanroscoe/yama/releases/download/scanner-models-20261120/yama-corners-20261120.onnx",
+        bytes: 4_140_304,
+        sha256: "18f9d6aab2a4688d8c576eee6e09e9f449cf8ebb38e2ccceabf148ad1b557dd3",
+    },
+    recogniser: None,
+    default: false,
+    base: false,
+    needs: None,
 };
 
 const LOOK_OFF: ModelOption = ModelOption {
@@ -167,6 +239,7 @@ const LOOK_OFF: ModelOption = ModelOption {
     recogniser: None,
     default: false,
     base: true,
+    needs: None,
 };
 
 /// Yama's printing look model, v0 (docs/scanner.md, "The printing look", 20 Nov 2026): compares
@@ -190,6 +263,7 @@ const LOOK_V0: ModelOption = ModelOption {
     recogniser: None,
     default: true,
     base: false,
+    needs: None,
 };
 
 const TEXT_AUTO: ModelOption = ModelOption {
@@ -202,6 +276,7 @@ const TEXT_AUTO: ModelOption = ModelOption {
     recogniser: None,
     default: true,
     base: true,
+    needs: None,
 };
 
 const TEXT_MLKIT: ModelOption = ModelOption {
@@ -214,6 +289,7 @@ const TEXT_MLKIT: ModelOption = ModelOption {
     recogniser: None,
     default: false,
     base: false,
+    needs: None,
 };
 
 const TEXT_PADDLE: ModelOption = ModelOption {
@@ -226,6 +302,7 @@ const TEXT_PADDLE: ModelOption = ModelOption {
     recogniser: None,
     default: false,
     base: false,
+    needs: None,
 };
 
 const TEXT_TESSERACT: ModelOption = ModelOption {
@@ -238,6 +315,7 @@ const TEXT_TESSERACT: ModelOption = ModelOption {
     recogniser: None,
     default: false,
     base: false,
+    needs: None,
 };
 
 /// The lead rule (fuse.ts, `leads`; 18 Nov 2026, PR #166).
@@ -251,6 +329,7 @@ const LOCK_LEAD: ModelOption = ModelOption {
     recogniser: None,
     default: true,
     base: false,
+    needs: None,
 };
 
 /// The rule before the lead rule: sure scores only.
@@ -264,10 +343,11 @@ const LOCK_SURE: ModelOption = ModelOption {
     recogniser: None,
     default: false,
     base: true,
+    needs: None,
 };
 
 /// Every option the server knows, by slot. The app is offered those on offer (`offered`).
-pub(crate) const MODELS: &[&ModelOption] = &[&BUNDLE_ART, &QUERY_MODEL, &LOOK_OFF, &LOOK_V0, &TEXT_AUTO, &TEXT_MLKIT, &TEXT_PADDLE, &TEXT_TESSERACT, &LOCK_LEAD, &LOCK_SURE];
+pub(crate) const MODELS: &[&ModelOption] = &[&BUNDLE_DETECTOR, &CORNERS_MODEL, &BUNDLE_ART, &QUERY_MODEL, &QUERY_CASCADE, &LOOK_OFF, &LOOK_V0, &TEXT_AUTO, &TEXT_MLKIT, &TEXT_PADDLE, &TEXT_TESSERACT, &LOCK_LEAD, &LOCK_SURE];
 
 impl ModelOption {
     /// Its file in the bundle's folder, if it has one. A file of ours is never `embed.onnx`, which
@@ -291,7 +371,12 @@ impl ModelOption {
 
     /// Whether it works with the bundle this manifest describes (its vectors compare with the gallery).
     fn fits(&self, manifest: &serde_json::Value) -> bool {
-        self.recogniser.is_none_or(|r| manifest.pointer("/recogniser/sha256").and_then(serde_json::Value::as_str) == Some(r))
+        let gallery = self.recogniser.is_none_or(|r| manifest.pointer("/recogniser/sha256").and_then(serde_json::Value::as_str) == Some(r));
+        // A card finder of ours was trained on the pinned bundle's window: 256 px, its vote scaled
+        // for four views.
+        let constant = |k: &str| manifest.pointer(&format!("/constants/{k}")).and_then(serde_json::Value::as_u64);
+        let window = self.slot != Slot::Detector || !matches!(self.source, Source::File { .. }) || (constant("det_input") == Some(256) && constant("rotations") == Some(4));
+        gallery && window
     }
 
     /// Its file is downloaded and whole in `dir` (a file of ours had its checksum checked before
@@ -753,7 +838,13 @@ struct BundleFiles {
     supplement: Option<String>,
 }
 
-async fn bundle_info(State(st): State<AppState>, _user: CurrentUser) -> AppResult<Json<BundleInfo>> {
+#[derive(Deserialize, Default)]
+struct BundleQuery {
+    /// What the app can run, comma-separated: `cuts`, an art model's `cuts` input (recognizer.ts).
+    can: Option<String>,
+}
+
+async fn bundle_info(State(st): State<AppState>, _user: CurrentUser, Query(q): Query<BundleQuery>) -> AppResult<Json<BundleInfo>> {
     let dir = bundle_dir(&st.cfg.data_dir);
     let error = if st.cfg.offline {
         (!is_ready(&dir)).then(|| crate::error::offline("the scanner's download site").to_string())
@@ -773,21 +864,25 @@ async fn bundle_info(State(st): State<AppState>, _user: CurrentUser) -> AppResul
     }
     let url = |f: &str| format!("/scan-bundle/{BUNDLE_VERSION}/{f}");
     let on_offer = offered(&off, &dir, manifest.as_ref()).await;
+    // Listed to this app: what it can run (an option that needs more, only when it says it can).
+    let can: Vec<&str> = q.can.as_deref().unwrap_or("").split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
+    let listed: Vec<&'static ModelOption> = on_offer.iter().copied().filter(|o| o.needs.is_none_or(|n| can.contains(&n))).collect();
     let models = SLOTS
         .iter()
         .map(|&slot| {
-            let options = on_offer
+            let options = listed
                 .iter()
                 .filter(|o| o.slot == slot)
                 .map(|o| OptionInfo { id: o.id, label: o.label, note: o.note, licence: o.licence, file: o.file().map(|f| url(&f)), bytes: o.bytes() })
                 .collect();
-            (slot.key(), SlotInfo { default: default_of(slot, &on_offer).map(|o| o.id), options })
+            (slot.key(), SlotInfo { default: default_of(slot, &listed).map(|o| o.id), options })
         })
         .collect();
     // The art slot's default as the bundle's embed graph, for web builds that read only this: Yama's
     // query model once it's here, under a different file name, so the phone's cache (keyed by URL)
     // fetches it once and drops the other.
-    let art = default_of(Slot::Art, &on_offer).filter(|o| o.file().is_some()).unwrap_or(&BUNDLE_ART);
+    let plain: Vec<&'static ModelOption> = on_offer.iter().copied().filter(|o| o.needs.is_none()).collect();
+    let art = default_of(Slot::Art, &plain).filter(|o| o.file().is_some()).unwrap_or(&BUNDLE_ART);
     let size = |f: &str| FILES.iter().find(|(name, _, _)| *name == f).map_or(0, |(_, bytes, _)| *bytes);
     let arts = if ready { tokio::fs::metadata(dir.join(ARTS)).await.map_or(0, |m| m.len()) } else { 0 };
     let supplement = if ready && st.cfg.scan_supplement { crate::scan_art::current(&st.cfg.data_dir).await } else { None };
@@ -946,7 +1041,7 @@ mod tests {
     fn ready_bundle(data_dir: &Path, recogniser: &str) -> PathBuf {
         let dir = bundle_dir(data_dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let manifest = serde_json::json!({"version": BUNDLE_VERSION, "recogniser": {"sha256": recogniser}, "constants": {"scene": 640}});
+        let manifest = serde_json::json!({"version": BUNDLE_VERSION, "recogniser": {"sha256": recogniser}, "constants": {"scene": 640, "det_input": 256, "rotations": 4}});
         std::fs::write(dir.join("manifest.json"), manifest.to_string()).unwrap();
         for f in ["detector.onnx", "embed.onnx", "search.onnx", "arts.slim.json.gz"] {
             std::fs::write(dir.join(f), b"bundle").unwrap();
@@ -983,6 +1078,8 @@ mod tests {
             // Only a model of ours can be tied to a gallery.
             assert!(o.recogniser.is_none() || matches!(o.source, Source::File { .. }), "{}", o.id);
             assert!(!o.base || o.recogniser.is_none(), "a base option must always fit: {}", o.id);
+            // Some apps can't run it, so it can't be what a slot runs by default.
+            assert!(o.needs.is_none() || !(o.default || o.base), "{} needs {:?} and is a default", o.id, o.needs);
         }
         let files = pinned_files();
         assert_eq!(files.len(), files.iter().collect::<std::collections::HashSet<_>>().len(), "two options share a file");
@@ -1156,10 +1253,60 @@ mod tests {
         assert_eq!(slot(&info, "text").1, "auto");
     }
 
+    #[tokio::test]
+    async fn the_card_finder_and_the_cascade_are_options_never_defaults() {
+        let data = tempfile::tempdir().unwrap();
+        let dir = ready_bundle(data.path(), RECOGNISER);
+        let pool = crate::db::test_pool().await;
+        let (_, token) = testutil::user(&pool, "finder@example.com").await;
+        let mut cfg = testutil::config();
+        cfg.data_dir = data.path().to_path_buf();
+        cfg.offline = true;
+        let app = crate::routes::app(testutil::state_with(cfg, pool).await);
+        let ids = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let file = |o: &ModelOption| format!("/scan-bundle/{BUNDLE_VERSION}/{}", o.file().unwrap());
+
+        // Nothing of ours downloaded: the bundle's card finder, served as its detector.onnx.
+        let (_, info) = testutil::send(&app, Method::GET, "/api/scan/bundle", Some(&token), None).await;
+        assert_eq!(slot(&info, "detector"), (ids(&["bundle-detector"]), "bundle-detector".into()));
+        assert_eq!(info["models"]["detector"]["options"][0]["file"], file(&BUNDLE_DETECTOR).as_str());
+        assert_eq!(info["files"]["detector"], file(&BUNDLE_DETECTOR).as_str());
+
+        // Downloaded: both on offer, neither the default, and files.embed stays the art default. The
+        // cascade is listed only to an app that says it can feed `cuts`: one from before can't run it.
+        for o in [&CORNERS_MODEL, &QUERY_MODEL, &QUERY_CASCADE] {
+            std::fs::write(dir.join(o.file().unwrap()), vec![0u8; o.bytes().unwrap() as usize]).unwrap();
+        }
+        let (_, info) = testutil::send(&app, Method::GET, "/api/scan/bundle", Some(&token), None).await;
+        assert_eq!(slot(&info, "detector"), (ids(&["bundle-detector", "yama-corners-20261120"]), "bundle-detector".into()));
+        assert_eq!(info["models"]["detector"]["options"][1]["file"], file(&CORNERS_MODEL).as_str());
+        assert_eq!(slot(&info, "art"), (ids(&["bundle", "yama-art-20261118"]), "yama-art-20261118".into()));
+        let (_, info) = testutil::send(&app, Method::GET, "/api/scan/bundle?can=cuts", Some(&token), None).await;
+        assert_eq!(slot(&info, "art"), (ids(&["bundle", "yama-art-20261118", "yama-art-20261118-cascade"]), "yama-art-20261118".into()));
+        assert_eq!(info["files"]["embed"], file(&QUERY_MODEL).as_str());
+        assert_eq!(info["files"]["detector"], file(&BUNDLE_DETECTOR).as_str());
+        assert_eq!(CORNERS_MODEL.file().unwrap(), "corners-18f9d6aab2a4.onnx");
+        assert_eq!(QUERY_CASCADE.file().unwrap(), "query-103b3d9af498.onnx");
+        // A bundle whose detector reads another window gets none of ours.
+        let other = serde_json::json!({"recogniser": {"sha256": RECOGNISER}, "constants": {"det_input": 320, "rotations": 4}});
+        assert!(!CORNERS_MODEL.fits(&other) && BUNDLE_DETECTOR.fits(&other));
+        assert!(CORNERS_MODEL.fits(&serde_json::json!({"constants": {"det_input": 256, "rotations": 4}})));
+    }
+
+    #[tokio::test]
+    async fn a_phone_that_ran_the_cascade_is_recorded_with_it() {
+        let said = |file: &str| format!("{BUNDLE_VERSION}/{file}");
+        let cfg = testutil::config();
+        assert_eq!(recorded_version(&cfg, Some(&said("query-103b3d9af498.onnx"))).await, format!("{BUNDLE_VERSION}+yama-art-20261118-cascade"));
+        let kept = recorded_models(Some(&serde_json::json!({"detector": "yama-corners-20261120", "art": "yama-art-20261118-cascade", "zzz": "x"}))).unwrap();
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&kept).unwrap(), serde_json::json!({"detector": "yama-corners-20261120", "art": "yama-art-20261118-cascade"}));
+    }
+
     #[test]
     fn only_files_of_ours_that_fit_and_arent_withdrawn_are_downloaded() {
-        let fits = serde_json::json!({"recogniser": {"sha256": RECOGNISER}});
-        let other = serde_json::json!({"recogniser": {"sha256": "0".repeat(64)}});
+        // As the pinned bundle's manifest: its recogniser and detector constants.
+        let fits = serde_json::json!({"recogniser": {"sha256": RECOGNISER}, "constants": {"det_input": 256, "rotations": 4}});
+        let other = serde_json::json!({"recogniser": {"sha256": "0".repeat(64)}, "constants": {"det_input": 256, "rotations": 4}});
         let ids = |v: Vec<&'static ModelOption>| v.iter().map(|o| o.id).collect::<Vec<_>>();
         let all: Vec<&str> = MODELS.iter().filter(|o| matches!(o.source, Source::File { .. })).map(|o| o.id).collect();
         assert!(all.contains(&QUERY_MODEL.id));
