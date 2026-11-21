@@ -724,9 +724,11 @@ pub async fn settle_all(pool: &sqlx::SqlitePool) -> AppResult<usize> {
                               AND r.decision IS NOT NULL AND r.at >= s.updated_at)
                 -- An answer under an older key (any step of its alias chain) newer than the live one
                 -- is the newest word on it (a clear that waited for a fast device's clock to pass).
+                -- Ranked as `answers` ranks them: time, made in Yama, then op id.
                 OR EXISTS (SELECT 1 FROM chain a JOIN plan_reviews o ON o.owner_id = a.owner_id AND o.swap_key = a.old_key
                            WHERE a.owner_id = s.owner_id AND a.live_key = s.ext_key
-                             AND o.at > IFNULL((SELECT r.at FROM plan_reviews r WHERE r.owner_id = s.owner_id AND r.swap_key = s.ext_key), ''))
+                             AND NOT EXISTS (SELECT 1 FROM plan_reviews r WHERE r.owner_id = s.owner_id AND r.swap_key = s.ext_key
+                                               AND (r.at, r.origin = 'yama', IFNULL(r.op_id, '')) >= (o.at, o.origin = 'yama', IFNULL(o.op_id, ''))))
                 OR (NOT EXISTS (SELECT 1 FROM plan_versions v WHERE v.owner_id = d.owner_id AND v.plan_deck_id = d.id)
                     AND NOT EXISTS (SELECT 1 FROM plan_swaps p WHERE p.owner_id = d.owner_id AND p.plan_deck_id = d.id
                                       AND p.retired_at IS NULL AND p.stage = 'planned' AND p.role != 'standin')))

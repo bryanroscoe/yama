@@ -290,6 +290,20 @@ async fn a_future_clear_under_an_alias_waits_instead_of_future_dating_the_plan()
     assert_eq!(super::super::versions::settle_all(&pool).await.unwrap(), 1);
     assert_eq!(decision(&pool, &owner, "beta-1").await.as_deref(), Some("want"));
     assert_eq!(super::super::versions::settle_all(&pool).await.unwrap(), 0);
+    // A clear in the same second as the live (settled) answer, with the larger op id, outranks it,
+    // and a start finds that too.
+    let op: String = sqlx::query_scalar("SELECT op_id FROM plan_reviews WHERE owner_id = ? AND swap_key = 'beta-1'").bind(&owner).fetch_one(&pool).await.unwrap();
+    assert!(op.starts_with(super::super::versions::SETTLE_OP), "{op}");
+    sqlx::query("UPDATE plan_reviews SET at = '2026-07-01T00:00:00Z' WHERE owner_id = ? AND swap_key = 'beta-1'").bind(&owner).execute(&pool).await.unwrap();
+    sqlx::query("UPDATE plan_reviews SET decision = NULL, at = '2026-07-01T00:00:00Z', op_id = 'zz-later' WHERE owner_id = ? AND swap_key = 'old-beta'")
+        .bind(&owner)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE plan_meta SET revision = revision + 1 WHERE owner_id = ?").bind(&owner).execute(&pool).await.unwrap();
+    assert_eq!(deck(&bundle(&app, &token).await, "beta")["plan"]["next"]["keys"], json!(["beta-1"]));
+    assert_eq!(super::super::versions::settle_all(&pool).await.unwrap(), 1);
+    assert_eq!(decision(&pool, &owner, "beta-1").await.as_deref(), Some("want"));
 }
 
 #[tokio::test]
