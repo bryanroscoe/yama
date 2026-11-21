@@ -237,10 +237,11 @@ const REPLY_TIMEOUT_MS = 5000;
 
 /** Frames as ArrayBuffers over the web message channel: requests go out as JSON, each reply carries its request's id. */
 export function binaryTransport(channel: FrameChannel, timeoutMs = REPLY_TIMEOUT_MS): FrameTransport {
-  let next = 1;
+  // Ids start somewhere new for each transport, so a late reply to a closed one matches nothing here.
+  let next = 1 + Math.floor(Math.random() * 1e6) * 1000;
   let closed = false;
   const waiting = new Map<number, { resolve: (f: NativeFrame) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
-  channel.onmessage = (e) => {
+  const heard = (e: { data: unknown }) => {
     if (!(e.data instanceof ArrayBuffer)) return;
     const r = parseReply(e.data);
     const w = waiting.get(r.id);
@@ -250,6 +251,7 @@ export function binaryTransport(channel: FrameChannel, timeoutMs = REPLY_TIMEOUT
     if (r.frame) w.resolve(r.frame);
     else w.reject(new Error(r.error));
   };
+  channel.onmessage = heard;
   return {
     kind: "binary",
     request(q) {
@@ -271,7 +273,8 @@ export function binaryTransport(channel: FrameChannel, timeoutMs = REPLY_TIMEOUT
         w.reject(new Error("The camera closed"));
       }
       waiting.clear();
-      channel.onmessage = null;
+      // Only its own: a newer transport on the same channel keeps hearing.
+      if (channel.onmessage === heard) channel.onmessage = null;
     },
   };
 }
@@ -406,9 +409,16 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
   let benching = false;
   let torchLevel: number | null = positiveOrNull(req.torchLevel);
   /** What the track's callers last asked for, so a repeat isn't sent again. */
-  const sent: { zoom?: number; torch?: boolean; focus?: string; point?: string } = {};
-  const costs: { convert: number; transit: number; draw: number; bytes: number }[] = [];
   const cleanups: (() => void)[] = [];
+  const sent: { zoom?: number; torch?: boolean; focus?: string; point?: string } = {};
+  // Away and back, the camera starts again with its flashlight off and its focus its own: what
+  // was sent is forgotten, so the next change sends everything camera.tsx holds.
+  const forget = () => {
+    if (document.visibilityState === "visible") for (const k of Object.keys(sent) as (keyof typeof sent)[]) delete sent[k];
+  };
+  document.addEventListener("visibilitychange", forget);
+  cleanups.push(() => document.removeEventListener("visibilitychange", forget));
+  const costs: { convert: number; transit: number; draw: number; bytes: number }[] = [];
 
   // The canvas answers as the <video> does: a size once there's a frame, and "has a stream".
   Object.defineProperties(el, {
@@ -470,20 +480,22 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
       if (closed || !described) return;
       const adv = ((c?.advanced?.[0] as Record<string, unknown> | undefined) ?? (c as Record<string, unknown> | undefined) ?? {}) as Record<string, unknown>;
       const patch: NativeSet = {};
+      // Remembered as sent only once the camera has taken them: a refused setting is asked again.
+      const next = { ...sent };
       if (typeof adv.zoom === "number" && adv.zoom !== sent.zoom) {
         patch.zoom = adv.zoom;
-        sent.zoom = adv.zoom;
+        next.zoom = adv.zoom;
       }
       if (typeof adv.torch === "boolean" && adv.torch !== sent.torch) {
         patch.torch = adv.torch;
-        sent.torch = adv.torch;
+        next.torch = adv.torch;
         if (adv.torch && torchLevel && described.torchLevels > 1) patch.torchLevel = torchLevel;
       }
       // Focus: held at a distance (the camera view's focus slider, cameraFocus.ts), or by itself.
       const manual = adv.focusMode === "manual" || typeof adv.focusDistance === "number";
       const focus = manual ? `manual:${String(adv.focusDistance)}` : adv.focusMode === "continuous" ? "continuous" : undefined;
       if (focus && focus !== sent.focus) {
-        sent.focus = focus;
+        next.focus = focus;
         if (manual) {
           patch.focusMode = "manual";
           if (typeof adv.focusDistance === "number") patch.focusDistance = adv.focusDistance;
@@ -492,10 +504,12 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
       const p = (adv.pointsOfInterest as { x: number; y: number }[] | undefined)?.[0];
       const point = p ? `${p.x},${p.y}` : undefined;
       if (p && point !== sent.point) {
-        sent.point = point;
+        next.point = point;
         patch.point = { x: p.x, y: p.y };
       }
-      if (Object.keys(patch).length) await set(patch);
+      if (!Object.keys(patch).length) return;
+      await set(patch);
+      Object.assign(sent, next);
     },
     stop() {},
   } as unknown as MediaStreamTrack;
@@ -662,13 +676,11 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
     },
     async bench(frames = 15) {
       if (closed || !described) throw new Error("The camera isn't open");
-      const channel = deps.channel === undefined ? frameChannel() : deps.channel;
       benching = true;
-      // Its own channel use would take the running transport's replies: the running one is used
-      // for binary, and plugin calls for base64.
+      // The running transport is used for binary (the channel hears one at a time), and plugin
+      // calls for base64.
       const ways: { name: string; t: FrameTransport }[] = [];
       if (transport?.kind === "binary") ways.push({ name: "ArrayBuffer", t: transport });
-      else if (described.binary && channel) ways.push({ name: "ArrayBuffer", t: binaryTransport(channel) });
       ways.push({ name: "base64", t: transport?.kind === "base64" ? transport : base64Transport(plugin) });
       const scratch = document.createElement("canvas");
       const rows: BenchRow[] = [];

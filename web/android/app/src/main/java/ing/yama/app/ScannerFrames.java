@@ -49,6 +49,8 @@ final class ScannerFrames {
     private Frame latest = new Frame();
     private Frame pinned = new Frame();
     private long seq;
+    /** Counts the clears, so a frame copied across one is dropped. */
+    private int generation;
 
     private static byte[] copy(ByteBuffer from, byte[] into) {
         ByteBuffer b = from.duplicate();
@@ -61,7 +63,15 @@ final class ScannerFrames {
 
     /** The camera thread: keep this frame as the newest. */
     void put(ByteBuffer y, ByteBuffer u, ByteBuffer v, int yRowStride, int uvRowStride, int uvPixelStride, int cropLeft, int cropTop, int cropWidth, int cropHeight, int rotation) {
-        Frame f = back;
+        Frame f;
+        int filling;
+        lock.lock();
+        try {
+            f = back;
+            filling = generation;
+        } finally {
+            lock.unlock();
+        }
         f.y = copy(y, f.y);
         f.u = copy(u, f.u);
         f.v = copy(v, f.v);
@@ -75,6 +85,8 @@ final class ScannerFrames {
         f.rotation = ((rotation % 360) + 360) % 360;
         lock.lock();
         try {
+            // Cleared while this frame was being copied: it belongs to the camera that closed.
+            if (filling != generation) return;
             f.seq = ++seq;
             back = latest;
             latest = f;
@@ -110,13 +122,17 @@ final class ScannerFrames {
         return pinned.seq > 0 ? pinned : null;
     }
 
-    /** Forget every frame (the camera closed or changed): the next one taken is a new one. */
+    /**
+     * Forget every frame and let its memory go (the camera closed or changed): the next one taken
+     * is a new one. A frame being filled or read at this moment is finished on its old buffer.
+     */
     void clear() {
         lock.lock();
         try {
-            back.seq = 0;
-            latest.seq = 0;
-            pinned.seq = 0;
+            generation++;
+            back = new Frame();
+            latest = new Frame();
+            pinned = new Frame();
         } finally {
             lock.unlock();
         }

@@ -1939,8 +1939,10 @@ export function ScannerView({
         const reader = await textReader();
         if (stop || !g) return next(200);
         const { sx, sy, sw, sh, gx, gy, gw, gh } = boxInVideo(v, g, MARGIN);
-        const k = Math.min(1, MAX_SIDE / Math.max(sw, sh));
-        const image = draw(v, sx, sy, sw, sh, sw * k, sh * k, canvasRef.current);
+        // From the camera's full frame, never enlarged (the app's own camera hands `v` over smaller).
+        const k = Math.min(camSrc().fullScale(), MAX_SIDE / Math.max(sw, sh));
+        const image = await camSrc().region({ x: sx, y: sy, w: sw, h: sh }, sw * k, sh * k, canvasRef.current);
+        if (stop) return;
         const upright: Quad = rectQuad((gx - sx) * k, (gy - sy) * k, gw * k, gh * k);
         // Alternate upright and upside-down reads across frames rather than both in one frame.
         const flip = textFrame++ % 2 === 1;

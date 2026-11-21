@@ -100,5 +100,9 @@ public class ScannerFramesTest {
         assertEquals(first.seq, f.pinned().seq);
         f.clear();
         assertNull(f.pinned());
+        // After a clear the next frame is a new one, whatever was taken before.
+        assertNull(f.next(10));
+        f.put(ByteBuffer.wrap(new byte[8]), ByteBuffer.wrap(new byte[2]), ByteBuffer.wrap(new byte[2]), 4, 2, 1, 0, 0, 4, 2, 0);
+        assertNotNull(f.next(10));
     }
 }

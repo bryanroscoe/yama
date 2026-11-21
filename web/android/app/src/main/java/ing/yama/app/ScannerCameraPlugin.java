@@ -57,6 +57,7 @@ import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
+import com.getcapacitor.WebViewListener;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
@@ -74,7 +75,8 @@ import java.util.concurrent.Executors;
 import org.json.JSONObject;
 
 /**
- * The card scanner's camera inside the app (docs/scanner.md, "The native camera"). CameraX opens
+ * The card scanner's camera inside the app (docs/scanner.md, "The camera source, and the app's
+ * own camera"). CameraX opens
  * the back camera and draws its preview in a view placed behind the web view, which is made
  * transparent while the camera is open, so the web scanner's sheet and controls sit over it
  * unchanged. The web scanner pulls frames from the same camera: a small one to find the card in,
@@ -111,7 +113,7 @@ public class ScannerCameraPlugin extends Plugin {
     private PreviewView previewView;
     private DisplayManager.DisplayListener displayListener;
     /** What was asked for and what the phone gave, as the page is told (`describe`). */
-    private Opened opened;
+    private volatile Opened opened;
     /** Counts the cameras opened, so a check scheduled for one never acts on the next. */
     private int session;
     /** Counts opens and closes, so a camera closed while it waited to open isn't opened after all. */
@@ -170,6 +172,18 @@ public class ScannerCameraPlugin extends Plugin {
                 });
                 binary = true;
             }
+            // A page that loads anew (a reload, a new web build) never closed the camera it had
+            // open: close it, so the camera doesn't run on behind a page that isn't scanning.
+            bridge.addWebViewListener(
+                new WebViewListener() {
+                    @Override
+                    public void onPageStarted(WebView webView) {
+                        main.post(() -> {
+                            if (camera != null || previewView != null) shut();
+                        });
+                    }
+                }
+            );
         } catch (RuntimeException e) {
             Logger.warn(TAG, "No binary channel for camera frames: " + e.getMessage());
             binary = false;
@@ -178,13 +192,11 @@ public class ScannerCameraPlugin extends Plugin {
 
     @Override
     protected void handleOnDestroy() {
-        main.post(() -> {
-            try {
-                shut();
-            } catch (RuntimeException e) {
-                Logger.warn(TAG, "Closing the camera as the app ends: " + e.getMessage());
-            }
-        });
+        try {
+            shut();
+        } catch (RuntimeException e) {
+            Logger.warn(TAG, "Closing the camera as the app ends: " + e.getMessage());
+        }
         reader.shutdown();
         cameraThread.shutdown();
     }
@@ -495,6 +507,7 @@ public class ScannerCameraPlugin extends Plugin {
         analysis = null;
         opened = null;
         frames.clear();
+        if (!reader.isShutdown()) reader.execute(() -> syntheticFrame = null);
         WebView web = bridge.getWebView();
         if (previewView != null) {
             ViewGroup parent = (ViewGroup) previewView.getParent();
@@ -982,7 +995,12 @@ public class ScannerCameraPlugin extends Plugin {
         try {
             JSONObject q = new JSONObject(text);
             id = q.optInt("id");
-            Reply r = render(q);
+            Reply r;
+            try {
+                r = render(q);
+            } catch (OutOfMemoryError e) {
+                throw new Failure("too-large", "There isn't the memory for that much of the frame");
+            }
             ByteBuffer h = header(r.bytes, id, 0);
             h.putInt(r.width).putInt(r.height).putInt(r.fullWidth).putInt(r.fullHeight).putInt((int) r.seq).putInt(r.format);
             h.putDouble(r.sentAt).putFloat(r.convertMs).putFloat(r.waitMs);
@@ -1014,8 +1032,19 @@ public class ScannerCameraPlugin extends Plugin {
         reader.execute(() -> {
             try {
                 q.put("op", op);
-                Reply r = render(q);
+                Reply r;
+                try {
+                    r = render(q);
+                } catch (OutOfMemoryError e) {
+                    throw new Failure("too-large", "There isn't the memory for that much of the frame");
+                }
                 JSObject ret = new JSObject();
+                String data;
+                try {
+                    data = Base64.encodeToString(r.bytes, HEADER, r.length - HEADER, Base64.NO_WRAP);
+                } catch (OutOfMemoryError e) {
+                    throw new Failure("too-large", "There isn't the memory for that much of the frame");
+                }
                 ret.put("width", r.width);
                 ret.put("height", r.height);
                 ret.put("fullWidth", r.fullWidth);
@@ -1024,7 +1053,7 @@ public class ScannerCameraPlugin extends Plugin {
                 ret.put("format", r.format == FORMAT_JPEG ? "jpeg" : "rgba");
                 ret.put("convertMs", r.convertMs);
                 ret.put("waitMs", r.waitMs);
-                ret.put("data", Base64.encodeToString(r.bytes, HEADER, r.length - HEADER, Base64.NO_WRAP));
+                ret.put("data", data);
                 // After the base64 is made, so the page's "in transit" doesn't count making it.
                 ret.put("encodeMs", (float) (System.currentTimeMillis() - r.sentAt));
                 ret.put("sentAt", (double) System.currentTimeMillis());

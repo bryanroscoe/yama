@@ -194,6 +194,21 @@ describe("the binary channel", () => {
   });
 });
 
+describe("two transports on one channel", () => {
+  it("leaves the newer one hearing when the older closes", async () => {
+    const sent: { id: number }[] = [];
+    const channel: FrameChannel = { onmessage: null, postMessage: (t) => void sent.push(JSON.parse(t) as { id: number }) };
+    const older = binaryTransport(channel);
+    const newer = binaryTransport(channel);
+    older.close();
+    const got = newer.request({ op: "frame" });
+    channel.onmessage!({ data: reply({ id: sent[0]!.id, width: 1, height: 1 }) });
+    expect((await got).width).toBe(1);
+    newer.close();
+    expect(channel.onmessage).toBeNull();
+  });
+});
+
 describe("base64 frames", () => {
   it("decodes the pixels a plugin call returns", async () => {
     const f = await base64Transport(fakes().plugin).request({ op: "frame" });
@@ -353,6 +368,32 @@ describe("the app's camera's controls, as a track", () => {
     await apply(track, { focusMode: "continuous", zoom: 3, torch: true, pointsOfInterest: [{ x: 0.3, y: 0.9 }] });
     expect(sets).toEqual([{ focusMode: "continuous" }, { zoom: 2 }, { torch: true }, { point: { x: 0.3, y: 0.9 } }, { zoom: 3 }]);
     expect(track.getSettings()).toMatchObject({ zoom: 3, torch: true });
+    cam.close();
+  });
+
+  it("asks again for a setting the camera refused", async () => {
+    const { cam, track, sets, plugin } = await opened();
+    const set = plugin.set;
+    let refuse = true;
+    plugin.set = async (o) => {
+      if (refuse) throw new Error("The camera refused that setting");
+      return set(o);
+    };
+    await expect(apply(track, { torch: true })).rejects.toThrow("refused");
+    refuse = false;
+    // The same tap again reaches the camera: the refusal wasn't remembered as sent.
+    await apply(track, { torch: true });
+    expect(sets).toEqual([{ torch: true }]);
+    expect(track.getSettings()).toMatchObject({ torch: true });
+    cam.close();
+  });
+
+  it("sends everything again after the app has been away", async () => {
+    const { cam, track, sets } = await opened();
+    await apply(track, { zoom: 2, torch: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+    await apply(track, { zoom: 2, torch: true });
+    expect(sets).toEqual([{ zoom: 2, torch: true }, { zoom: 2, torch: true }]);
     cam.close();
   });
 
