@@ -27,6 +27,8 @@ export function InstallSetting() {
         {install.canPrompt && <Button variant="outline" onClick={() => void install.install()}>Install</Button>}
         {install.android && <ButtonLink variant="outline" href={ANDROID_APP_URL}>Get the Android app</ButtonLink>}
         {!install.mobile && <CopyButton variant="outline" text={ANDROID_APP_URL} label="Copy app link" />}
+        {/* Chrome's desktop site mode on a phone looks like a computer: the download stays reachable. */}
+        {!install.mobile && <ButtonLink variant="quiet" href={ANDROID_APP_URL}>Download</ButtonLink>}
       </div>
     </div>
   );

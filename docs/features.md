@@ -117,8 +117,8 @@ reads the scanner's text with ML Kit on the phone ([mobile.md](mobile.md)).
 Where to get it (since 21 Nov 2026, Bryan: link the APK so people can install either way): on an
 Android phone's browser the install card offers both, Install (the home-screen web app, where the
 browser has a prompt) and Get the Android app (the APK download), and shows the app link even in
-browsers with no prompt, such as Firefox. Settings has an "Install Yama" row in every browser with
-the same choices (on a computer, a Copy app link for a phone), and the You page links to it as "Get
+browsers with no prompt, such as Firefox (pointing to the browser's menu for the web app). Settings has an "Install Yama" row in every browser with
+the same choices (on a computer, Copy app link and Download for a phone), and the You page links to it as "Get
 the app"; it stays after the card is dismissed.
 
 Which build is running (since 15 Nov 2026, `web/src/version.tsx`): one line at the foot of
