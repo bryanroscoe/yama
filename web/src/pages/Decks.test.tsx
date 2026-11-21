@@ -61,7 +61,7 @@ describe("finding a deck on the Decks list", () => {
     // The sort is three choices: one pill track, name pressed.
     expect(html).toMatch(/aria-pressed="true"[^>]*>Name<\/button>/);
     for (const sort of ["Recently changed", "Record"]) expect(html).toMatch(new RegExp(`aria-pressed="false"[^>]*>${sort}</button>`));
-    expect(html).toContain("Search 8 decks by name or commander");
+    expect(html).toContain('placeholder="Search 8 decks"');
     for (const color of ["White", "Blue", "Black", "Red", "Green"]) expect(html).toContain(`aria-label="${color}"`);
     // Nothing is narrowed, so there is no count and nothing to clear.
     expect(html).not.toContain("Clear filters");

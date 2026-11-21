@@ -140,7 +140,7 @@ function BrowseTools({ filter, onChange, onClear, preconName, total }: { filter:
           className="deck-index-search"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search public decks by name or commander"
+          placeholder="Search public decks"
           aria-label="Search public decks by name or commander"
           maxLength={100}
         />

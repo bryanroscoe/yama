@@ -41,7 +41,7 @@ export function DeckIndexTools({ filter, onChange, folders, hasUnfiled, shown, t
           className="deck-index-search"
           value={filter.q}
           onChange={(e) => onChange({ q: e.target.value }, true)}
-          placeholder={`Search ${plural(total, "deck")} by name or commander`}
+          placeholder={`Search ${plural(total, "deck")}`}
           aria-label="Search decks by name or commander"
           maxLength={100}
         />

@@ -40,7 +40,7 @@ export function InstallBanner() {
         <span className="dim">{" "}{installLine(install)}</span>
       </p>
       <div className="row">
-        {install.canPrompt && <Button onClick={() => { setDismissed(true); void install.install(); }}>Install</Button>}
+        {install.canPrompt && <Button variant="outline" onClick={() => { setDismissed(true); void install.install(); }}>Install</Button>}
         {install.android && <ButtonLink variant="outline" href={ANDROID_APP_URL}>Get the Android app</ButtonLink>}
         <Button variant="quiet" onClick={dismiss}>Not now</Button>
       </div>
