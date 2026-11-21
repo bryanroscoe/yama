@@ -393,7 +393,9 @@ pub async fn record_once(pool: &SqlitePool, owner: &str, plan: PlanRef<'_>, e: &
     .await?;
     match found {
         Some(id) => Ok(Recorded { id, deck_key, deck, again: true, group: None, cards: vec![] }),
-        None => record(pool, owner, PlanRef::Id(&plan_id), e, None, None, via).await,
+        // Past the window it's an event of its own, even on the same day as an identical one: its
+        // own op id keeps `record` from taking it for that one.
+        None => record(pool, owner, PlanRef::Id(&plan_id), e, Some(&format!("tool-{}", new_id())), None, via).await,
     }
 }
 
@@ -695,22 +697,19 @@ pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>
             .filter(|s| s.in_name.eq_ignore_ascii_case(card) || s.out_name.as_deref().is_some_and(|o| o.eq_ignore_ascii_case(card)))
             .collect();
         let lower = card.to_lowercase();
-        let found: Vec<&SwapRow> = if exact.is_empty() {
+        // The card as the plan names it now; else as an entry recorded it before a plan file renamed
+        // it (the changes it was recorded for, by their keys); else a part of a name.
+        let recorded: Vec<String> =
+            entries.iter().filter(|e| e.cards().iter().any(|c| c.eq_ignore_ascii_case(card))).flat_map(|e| e.swap_keys()).collect();
+        let found: Vec<&SwapRow> = if !exact.is_empty() {
+            exact
+        } else if swaps.iter().any(|s| recorded.contains(&s.ext_key)) {
+            swaps.iter().filter(|s| recorded.contains(&s.ext_key)).collect()
+        } else {
             swaps
                 .iter()
                 .filter(|s| s.in_name.to_lowercase().contains(&lower) || s.out_name.as_deref().is_some_and(|o| o.to_lowercase().contains(&lower)))
                 .collect()
-        } else {
-            exact
-        };
-        // A card the plan no longer names (a plan file renamed it): the changes an entry recorded
-        // it for, by their keys.
-        let found: Vec<&SwapRow> = if found.is_empty() {
-            let keys: Vec<String> =
-                entries.iter().filter(|e| e.cards().iter().any(|c| c.eq_ignore_ascii_case(card))).flat_map(|e| e.swap_keys()).collect();
-            swaps.iter().filter(|s| keys.contains(&s.ext_key)).collect()
-        } else {
-            found
         };
         if found.is_empty() {
             return Err(AppError::bad(format!("No change in {name}'s plan puts in or takes out \"{card}\"")));
