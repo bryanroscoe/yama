@@ -3170,8 +3170,9 @@ the approval step of [Plans: one plan per deck](#plans-one-plan-per-deck-2026-11
   twice for one slot. `unsure` rather than `no`, so the export side isn't told Bryan rejected it.
 - **Left out means out of the deck's lists too.** A note plan's now and after lists (what Swap in
   the prints puts in the deck, and Copy the finished deck) undo every proposal answered no or
-  unsure (`versions::kept_out`), and are derived again after settling when that set moved. A plan
-  file's lists already hold only its planned swaps.
+  unsure (`versions::kept_out`), and are derived again after settling when that set moved, and
+  after any planner answer or restore on that plan (`notes::restate_deck`). A plan file's lists
+  already hold only its planned swaps.
 - **Your answers stand.** A proposal answered no or unsure stays out, even when a plan file or a
   saved note edits it later: nobody looks before it goes in now, so it never goes in over a
   person's word (settle writes the same answer again for the new wording). Only Yama's own

@@ -395,6 +395,30 @@ async fn rederive_note(conn: &mut SqliteConnection, owner: &str, note_id: &str, 
     Ok(((rows.len() - stopped, stopped), used))
 }
 
+/// After an answer on one of a note plan's changes (a review op, a restore): derive the plan again
+/// from its note, so its now and after lists (what Swap in the prints puts in the deck) follow
+/// what's in the plan (`versions::kept_out`). Anything that isn't a live note plan is left alone.
+pub async fn restate_deck(conn: &mut SqliteConnection, owner: &str, plan_key: &str) -> AppResult<()> {
+    let row: Option<(String, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT id, note_id, note_deck_key, note_build_id FROM plan_decks WHERE owner_id = ? AND key = ? AND note_id IS NOT NULL AND status != 'archived'",
+    )
+    .bind(owner)
+    .bind(plan_key)
+    .fetch_optional(&mut *conn)
+    .await?;
+    let Some((id, Some(note_id), Some(deck_key), Some(build_id))) = row else { return Ok(()) };
+    let doc = match note_document(&mut *conn, owner, &note_id).await {
+        Ok((doc, _)) => doc,
+        Err(AppError::NotFound(_)) => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    let title = text(&doc, "title").unwrap_or_else(|| note_id.clone());
+    if let Some((deck, build)) = find_deck(&doc, &deck_key).and_then(|d| Some((d, find_build(d, &build_id)?))) {
+        derive(&mut *conn, owner, &id, &note_id, &title, &deck_key, deck, build, &now()).await?;
+    }
+    Ok(())
+}
+
 /// After a Yama backup restore: derive every tracked note plan again from its current note, so a
 /// backup's older copy of the swaps, quotes or lists never wins over the note.
 pub async fn rederive_all(conn: &mut SqliteConnection, owner: &str) -> AppResult<()> {

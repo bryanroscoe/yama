@@ -590,4 +590,18 @@ async fn a_change_the_plan_left_out_isnt_in_the_lists_swap_in_reads() {
     let b = bundle(&app, &session).await;
     let energy = b["decks"].as_array().unwrap().iter().find(|d| d["key"] == "energy").unwrap();
     assert!(!names(&energy["states"]["after"]).contains(&"Arcane Signet".to_string()));
+    // Answering want on it puts it in the plan, and in the after list with it.
+    let (status, r) = send(&app, Method::POST, "/api/plan/inputs", Some(&session),
+        Some(json!([{"op_id": "w1", "kind": "review", "swap_key": "n|audit|energy|b3|signet", "decision": "want", "at": crate::util::now()}]))).await;
+    assert_eq!((status, r["results"][0]["status"].as_str()), (StatusCode::OK, Some("applied")), "{r}");
+    let b = bundle(&app, &session).await;
+    let energy = b["decks"].as_array().unwrap().iter().find(|d| d["key"] == "energy").unwrap();
+    assert!(names(&energy["states"]["after"]).contains(&"Arcane Signet".to_string()), "{energy}");
+    // And no takes it out again.
+    let (status, _) = send(&app, Method::POST, "/api/plan/inputs", Some(&session),
+        Some(json!([{"op_id": "x1", "kind": "review", "swap_key": "n|audit|energy|b3|signet", "decision": "no", "at": crate::util::now()}]))).await;
+    assert_eq!(status, StatusCode::OK);
+    let b = bundle(&app, &session).await;
+    let energy = b["decks"].as_array().unwrap().iter().find(|d| d["key"] == "energy").unwrap();
+    assert!(!names(&energy["states"]["after"]).contains(&"Arcane Signet".to_string()), "{energy}");
 }

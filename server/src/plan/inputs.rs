@@ -329,8 +329,10 @@ pub async fn apply_ops(pool: &SqlitePool, owner: &str, ops: Vec<Value>, received
     let ctx = Ctx::load(&mut *conn, owner).await?;
     let mut results = Vec::with_capacity(ops.len());
     let mut applied = 0;
-    // A restored plan or a cleared answer can leave proposals unsettled (`versions::settle`).
+    // A restored plan or a cleared answer can leave proposals unsettled (`versions::settle`), and
+    // any answer can move what a note plan's lists hold (`notes::restate_deck`).
     let mut unsettled = false;
+    let mut touched: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for op in ops {
         let op_id = op.get("op_id").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty() && s.chars().count() <= 100).map(str::to_string);
         let Some(op_id) = op_id else {
@@ -363,7 +365,10 @@ pub async fn apply_ops(pool: &SqlitePool, owner: &str, ops: Vec<Value>, received
         let seq = match outcome {
             Ok((p, at, deck_key, for_export)) => {
                 applied += 1;
-                unsettled |= matches!(p.kind, "review" | "plan");
+                if matches!(p.kind, "review" | "plan") {
+                    unsettled = true;
+                    touched.extend(deck_key.clone());
+                }
                 insert_input(&mut *conn, owner, &op_id, p.device_id.as_deref(), p.kind, p.swap_key.as_deref(), deck_key.as_deref(), &payload, "applied", None, for_export, &at, &received_at).await?
             }
             Err(error) => {
@@ -385,6 +390,9 @@ pub async fn apply_ops(pool: &SqlitePool, owner: &str, ops: Vec<Value>, received
     }
     if unsettled {
         super::versions::settle(&mut *conn, owner).await?;
+        for key in &touched {
+            super::notes::restate_deck(&mut *conn, owner, key).await?;
+        }
     }
     if applied > 0 {
         sqlx::query("INSERT INTO plan_meta (owner_id, updated_at) VALUES (?, ?) ON CONFLICT(owner_id) DO NOTHING").bind(owner).bind(&received_at).execute(&mut *conn).await?;
