@@ -177,6 +177,8 @@ interface Found {
   others: ArtMatch[];
   /** Printings to choose from; null while loading. */
   options: Printing[] | null;
+  /** Printings sharing the art that the set lock left out of `options`: the collector line's number alone is checked against them too (evidence.ts). */
+  lockedOut?: Printing[];
   /** How many of `options`, at the top, the collector line's reads put there (printings.ts, `Choice.readFirst`). */
   readFirst?: number;
   sameArt: boolean;
@@ -590,7 +592,20 @@ export function ScannerView({
   const [phase, setPhase] = useState<Phase>("loading");
   const [status, setStatus] = useState(WAITING);
   const [found, setFound] = useState<Found | null>(null);
-  const [outline, setOutline] = useState<{ quad: Quad; w: number; h: number } | null>(null);
+  /**
+   * The card's outline over the camera, drawn straight onto the SVG every frame rather than through
+   * state (Bryan, 21 Nov 2026: "it feels a teeny bit laggy still when it's identifying the corners
+   * of the card and drawing that little box"): finding the corners is the art recognizer's own first
+   * step, so it costs nothing extra, but a state change re-rendered the whole scanner each frame.
+   */
+  const outlineRef = useRef<SVGSVGElement>(null);
+  const setOutline = useCallback((o: { quad: Quad; w: number; h: number } | null) => {
+    const svg = outlineRef.current;
+    const polygon = svg?.firstElementChild;
+    if (!svg || !polygon) return;
+    if (o) svg.setAttribute("viewBox", `0 0 ${o.w} ${o.h}`);
+    polygon.setAttribute("points", o ? o.quad.map((p) => p.join(",")).join(" ") : "");
+  }, []);
   const [error, setError] = useState<string | null>(null);
   /** "art": recognising artwork. "text": reading text only. null: still starting. */
   const [mode, setMode] = useState<"art" | "text" | null>(null);
@@ -1401,6 +1416,7 @@ export function ScannerView({
         // Locked to sets: choose among the printings in them. None there: ask (outside).
         const lockNow = f.unlocked ? null : lockRef.current;
         let bySet = false;
+        let lockedOut: Printing[] = [];
         if (lockNow) {
           const inSets = inLockedSets(opts.printings, lockNow.codes);
           // A name typed by the person is what they say it is: no need to ask about the set.
@@ -1410,6 +1426,7 @@ export function ScannerView({
             return;
           }
           if (inSets.length > 0) {
+            lockedOut = opts.printings.filter((p) => !inSets.includes(p));
             opts = { sameArt: opts.sameArt, printings: inSets };
             bySet = true;
           }
@@ -1423,7 +1440,7 @@ export function ScannerView({
         // read as the first frame.
         if (!choice.chosen && known?.set && known.number) {
           const hit = opts.printings.find((p) => p.set_code === known.set && p.collector_number === known.number);
-          const { proven, ev } = proofOf(opts.printings, known.text ?? "");
+          const { proven, ev } = proofOf(opts.printings, known.text ?? "", lockedOut);
           noteReads(seq, ev);
           f.rec?.frame({ source: "first", reads: [known.text ?? ""], verdict: ev.verdict() });
           if (sameCamera() && hit && proven === hit.scryfall_id) choice = { chosen: hit, how: "collector", options: [hit, ...choice.options.filter((p) => p !== hit)], readFirst: 1, certain: true };
@@ -1435,7 +1452,7 @@ export function ScannerView({
         const how: Found["how"] = bySet && choice.how === "only" ? "set" : choice.how;
         const reading = !choice.chosen && !!read && sameCamera();
         const sure = choice.how === "only" || !!choice.certain;
-        update({ options: choice.options, readFirst: choice.readFirst ?? 0, sameArt: opts.sameArt, outside: false, chosen: choice.chosen, how, sure, settledId: sure ? choice.chosen?.scryfall_id : undefined, reading });
+        update({ options: choice.options, lockedOut, readFirst: choice.readFirst ?? 0, sameArt: opts.sameArt, outside: false, chosen: choice.chosen, how, sure, settledId: sure ? choice.chosen?.scryfall_id : undefined, reading });
         // Several printings share the art and none is settled: the look compares them (look.ts),
         // alongside the collector line's read, to order the list should a tap be needed.
         if (!choice.chosen && opts.sameArt) startLook.current(seq, f, opts.printings);
@@ -1443,7 +1460,7 @@ export function ScannerView({
         // Several printings share the art: read the collector line to tell them apart, trying a
         // few cuts of the corner until one settles it.
         // The crops' reads are one frame of evidence (evidence.ts); it carries on into hold and read.
-        const ev = new Evidence(opts.printings);
+        const ev = new Evidence(opts.printings, lockedOut);
         noteReads(seq, ev);
         const reads: string[] = [];
         let quality: StripQuality | null = null;
@@ -2131,7 +2148,7 @@ export function ScannerView({
     // The first read's evidence carries on into the first attempt; a retry starts afresh.
     const first = firstEvidence.current;
     firstEvidence.current = null;
-    const ev = first && first.seq === foundSeq.current ? first.ev : new Evidence(start.options);
+    const ev = first && first.seq === foundSeq.current ? first.ev : new Evidence(start.options, start.lockedOut);
     noteReads(foundSeq.current, ev);
     setReadProgress(null);
     const heldArt = start.art?.index ?? null;
@@ -2361,7 +2378,7 @@ export function ScannerView({
           if (!f?.options) return next(200);
           // Weighed as the held card's reads are: set code and number adding up across frames, and
           // never proof against a twin (The List, a promo suffix).
-          if (closeEv?.options !== f.options) closeEv = { options: f.options, ev: new Evidence(f.options) };
+          if (closeEv?.options !== f.options) closeEv = { options: f.options, ev: new Evidence(f.options, f.lockedOut) };
           noteReads(foundSeq.current, closeEv.ev);
           closeEv.ev.add([text]);
           const weighed = closeEv.ev.verdict();
@@ -2791,9 +2808,9 @@ export function ScannerView({
       <div ref={cameraRef} className="scan-camera">
         <div className="scan-zoom" style={cam.digital > 1 ? { transform: `scale(${cam.digital})` } : undefined}>
           <video ref={videoRef} className="scan-video" playsInline muted autoPlay aria-hidden="true" />
-          {outline && phase === "scanning" && !closeup && (
-            <svg className="scan-outline" viewBox={`0 0 ${outline.w} ${outline.h}`} preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-              <polygon points={outline.quad.map((p) => p.join(",")).join(" ")} />
+          {phase === "scanning" && !closeup && (
+            <svg ref={outlineRef} className="scan-outline" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+              <polygon />
             </svg>
           )}
         </div>
@@ -3041,8 +3058,10 @@ export function ScannerView({
                 <p>
                   <strong>Step 2: the printing.</strong> Hold the phone close to the card's bottom-left corner, so the set code and number fill the box. Or tap the printing below.
                 </p>
-                {closeupRead && <p className="scan-note">Reading: {closeupRead}</p>}
+                {/* What the reader made of it, not the raw text, which changes with every stray space
+                    (Bryan, 21 Nov 2026); the raw text only with Scanner diagnostics on. */}
                 {readProgress && <p className="scan-note">{readProgress}.</p>}
+                {diag && closeupRead && <p className="scan-note dim">Raw: {closeupRead}</p>}
                 <div className="scan-other-ways">
                   <Button onClick={() => setCloseup(null)}>Back to reading the whole card</Button>
                 </div>
@@ -3100,8 +3119,15 @@ export function ScannerView({
                     }}
                   >
                     <CardThumb src={p.image_small} fallback={<span className="card-fallback" aria-hidden="true" />} />
+                    {/* The number first, as it's what tells printings apart on the card's corner, then
+                        the set code and year (Bryan, 21 Nov 2026: "I always find it hard to know what
+                        is the number that matters"). */}
                     <span className="scan-printing-set">
-                      {p.set_code.toUpperCase()} #{p.collector_number}
+                      <span className="scan-printing-number">#{p.collector_number}</span>
+                      <span className="scan-printing-code">
+                        {p.set_code.toUpperCase()}
+                        {p.released_at ? ` ${p.released_at.slice(0, 4)}` : ""}
+                      </span>
                     </span>
                     {p.scryfall_id === lookGuess && <span className="scan-printing-look">Looks closest</span>}
                     {found.misread?.scryfall_id === p.scryfall_id && <span className="scan-misread">{found.correcting ? "Added as this" : "Read as this"}</span>}

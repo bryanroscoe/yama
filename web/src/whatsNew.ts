@@ -15,6 +15,17 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-21-scanner-number",
+    date: "2026-11-21",
+    title: "Scanner: the number is enough",
+    items: [
+      "When a card's collector number is enough to tell its printing from the others with that art, the scanner settles on it without waiting for a clean read of the set code.",
+      "Stray spaces, the dot and the artist's brush mark in the bottom-left line no longer throw it off, and it keeps reading longer while you bring the card close.",
+      "The printings to pick show their number first, with the set code and year under it.",
+    ],
+    link: { to: "/collection?scan=1", label: "Scan your cards" },
+  },
+  {
     id: "2026-11-20-plans-no-approval",
     date: "2026-11-20",
     title: "Plans: no more approving",

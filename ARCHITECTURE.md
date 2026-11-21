@@ -665,6 +665,40 @@ next by 0.10 or more, it was right on all 45 of the 98 shared-art test photos it
   rolled back), which would run it as plain v1. No new data leaves the phone beyond the lead, the
   rule's yes or no and whether the look's closest was filed, under the same owner-only rules.
 
+## The collector line: the number that matters (21 November 2026)
+
+Bryan (21 Nov 2026): "when it's reading the bottom left text, I think it's trying to be too
+perfect… Even though it sees the number, like the 286, if that's enough to know for a particular
+card, we're good. We just need to have a pretty good idea of what it is." The evidence rule had
+needed the set code and the number both, so a card whose number was read cleanly frame after
+frame still wasn't settled while the set code was misread.
+
+- **The number alone settles a printing when it's enough** (`numberAlone` in
+  `web/src/scanner/evidence.ts`): no other candidate printing's number reads the same through OCR's
+  lookalikes or lies one edit from it (86 or 287 against 286), counting the printings with that
+  art that a set lock left out of the candidates; the number was read exactly in its
+  printed form (three characters or more, so glued power and toughness don't count) on two frames;
+  nothing read names another candidate's set code (even through lookalikes) or its number
+  exactly; and no set code read before the language contradicts the leader's. The twin guards
+  stay as they were (The List, a promo suffix and Mystery Booster still go to the picker). Such a
+  settle is shown and filed like any other collector-line settle, with Wrong printing, and its
+  verdict in Scanner diagnostics says `alone: true` so these can be counted apart.
+- **What OCR's spacing hides is read too:** a zero-padded number split by a space ("02 86") and a
+  rarity letter glued to the number ("0286M"). A set code split in two or glued to its language
+  through the bullet or the brush mark ("MOMEENJRYAN") is never proof (it could be the rarity and
+  number, or an artist's name); it only holds a number-only settle back when it names another set.
+- **The hold-and-read attempt waits longer:** 6 s without the card in view, not 2.5 s, before it
+  stops, and 12 s, not 8 s, before the close-up box takes over (`HOLD_BUDGET`).
+- **The sheet shows what matters:** each printing to pick leads with its number, then its set code
+  and year; the close-up says what was read rather than the raw text, which changed with every
+  stray space (raw text with Scanner diagnostics on).
+- **The card's outline is drawn without re-rendering the scanner.** Finding the corners is the art
+  recognizer's own first step and costs nothing extra; drawing the box through React state had
+  re-rendered the whole scanner on every frame.
+- **Not measured on real strips:** there are no full-resolution collector strips to replay yet
+  (kept photos are 640 px, where the line is about 7 px). The rule is covered by `evidence.test.ts`;
+  Scanner diagnostics' records from real scans are what to check it against.
+
 ## Sections in boxes, and scanning a box (16 November 2026)
 
 Bryan, 15 to 16 November, after sorting his bulk by color into one big box: "I have a separate
