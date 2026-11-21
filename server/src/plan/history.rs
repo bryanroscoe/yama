@@ -515,6 +515,11 @@ struct VersionRow {
     decided_at: String,
 }
 
+/// Whether an entry's group is this group: a plan file may change a label's capitalization later.
+fn same_group(entry: Option<&str>, group: Option<&str>) -> bool {
+    matches!((entry, group), (Some(a), Some(b)) if a.eq_ignore_ascii_case(b))
+}
+
 /// A JSON list column.
 fn list(s: &str) -> Vec<Value> {
     serde_json::from_str(s).unwrap_or_default()
@@ -827,7 +832,7 @@ pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>
                     let names = |c: &String| c.eq_ignore_ascii_case(&s.in_name) || s.out_name.as_deref().is_some_and(|o| c.eq_ignore_ascii_case(o));
                     e.swap_keys().iter().any(|k| own_keys.contains(k))
                         || e.cards().iter().any(names)
-                        || (e.group_label.is_some() && e.group_label == s.group_label && e.cards().is_empty())
+                        || (same_group(e.group_label.as_deref(), s.group_label.as_deref()) && e.cards().is_empty())
                 })
                 .collect();
             if about.is_empty() {
@@ -920,7 +925,7 @@ pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>
             if let Some(n) = notes.get(l) {
                 let _ = write!(out, ". Its note: {}", n.trim());
             }
-            let recorded = entries.iter().filter(|e| e.group_label.as_deref() == Some(l.as_str())).count();
+            let recorded = entries.iter().filter(|e| same_group(e.group_label.as_deref(), Some(l.as_str()))).count();
             match recorded {
                 0 => out.push_str(". Nobody has recorded where it came from.\n"),
                 n => {
