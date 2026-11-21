@@ -608,10 +608,13 @@ pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>
     .fetch_all(pool)
     .await?;
     for (key, decision, note, at, origin) in rows {
+        // A retired row keeps what was said under its own key, and the live change it was renamed
+        // to inherits it too.
+        if retired.contains(key.as_str()) {
+            answers.insert(key.clone(), (decision.clone(), note.clone(), at.clone(), origin.clone()));
+        }
         if let Some(k) = super::resolve_key(&key, &live_keys, &aliases) {
             answers.insert(k, (decision, note, at, origin));
-        } else if retired.contains(key.as_str()) {
-            answers.insert(key, (decision, note, at, origin));
         }
     }
     let imports = imports(pool, owner).await?;
@@ -874,8 +877,20 @@ pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>
         }
         events.push((day(&v.decided_at).to_string(), 1, s));
     }
-    for e in &entries {
-        events.push((e.on_date.clone(), 2, format!("Recorded (entry {}, recorded {}): {}", e.id, day(&e.recorded_at), e.body())));
+    // Recorded entries, the newest 40 and each cut to 500 characters, so a busy plan's timeline
+    // stays readable; one change's story (`card`) gives what's recorded about it in full.
+    const ENTRIES_SHOWN: usize = 40;
+    const ENTRY_CHARS: usize = 500;
+    let skipped = entries.len().saturating_sub(ENTRIES_SHOWN);
+    let mut by_recency: Vec<&EntryRow> = entries.iter().collect();
+    by_recency.sort_by(|a, b| (b.on_date.as_str(), b.recorded_at.as_str()).cmp(&(a.on_date.as_str(), a.recorded_at.as_str())));
+    for e in by_recency.into_iter().take(ENTRIES_SHOWN) {
+        let body = e.body();
+        let body = if body.chars().count() > ENTRY_CHARS { format!("{}…", body.chars().take(ENTRY_CHARS).collect::<String>()) } else { body };
+        events.push((e.on_date.clone(), 2, format!("Recorded (entry {}, recorded {}): {body}", e.id, day(&e.recorded_at))));
+    }
+    if skipped > 0 {
+        events.push((String::new(), 0, format!("{skipped} older recorded entries aren't listed here; call again with card for what's recorded about one change.")));
     }
     // Answers as they arrived, by people (Yama's own, taking a version in, are the versions
     // above), and the plan file's own answer where it stands: each with the change it's on.
