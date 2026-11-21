@@ -10,7 +10,7 @@
 // photo): the set symbol's area and the collector strip (`cropsOf`). Only the card; made once per
 // photo kept, never per frame.
 
-import { api } from "../api";
+import { accountSignal, api } from "../api";
 import { encodeJpeg, stripOf, symbolOf } from "./diagnostics";
 import type { Quad, RgbaImage } from "./types";
 
@@ -121,6 +121,8 @@ export interface Crop {
 
 /** JPEG quality of the crops: what a model or a replay reads, so a little above the photo's. */
 const CROP_QUALITY = 0.85;
+/** The largest crop the server takes (scan_samples.rs, MAX_CROP): a larger one is left out, not the photo. */
+const MAX_CROP_BYTES = 1024 * 1024;
 
 /**
  * The card's set symbol area and collector strip, warped upright from its corners at the card's
@@ -129,12 +131,18 @@ const CROP_QUALITY = 0.85;
  */
 export async function cropsOf(shot: Shot): Promise<Crop[]> {
   const out: Crop[] = [];
-  for (const [name, img] of [
-    ["symbol", symbolOf(shot)],
-    ["strip", stripOf(shot)],
+  for (const [name, cut] of [
+    ["symbol", symbolOf],
+    ["strip", stripOf],
   ] as const) {
-    const enc = await encodeJpeg(img, Math.max(img.width, img.height), CROP_QUALITY);
-    if (enc) out.push({ name, image: enc.data, width: enc.width, height: enc.height });
+    // A crop that can't be made is left out; the photo still goes.
+    try {
+      const img = cut(shot);
+      const enc = await encodeJpeg(img, Math.max(img.width, img.height), CROP_QUALITY);
+      if (enc && (enc.data.length * 3) / 4 <= MAX_CROP_BYTES) out.push({ name, image: enc.data, width: enc.width, height: enc.height });
+    } catch (e) {
+      console.warn(`Couldn't cut the ${name} crop`, e);
+    }
   }
   return out;
 }
@@ -142,15 +150,17 @@ export async function cropsOf(shot: Shot): Promise<Crop[]> {
 /** Keep a photo with its label, if the person has Save scan photos on. Never throws. */
 export async function keepSample(shot: Shot | null | undefined, label: SampleLabel): Promise<void> {
   if (!shot || !savingPhotos()) return;
+  // The account signed in now: if it changes while the photo is made, it isn't sent under the other.
+  const account = accountSignal();
   try {
     const encoded = await encodeShot(shot);
     if (!encoded) return;
     const crops = await cropsOf(shot);
-    // Turned off while the crops were made: nothing is sent.
-    if (!savingPhotos()) return;
+    // Turned off, or signed out, while the crops were made: nothing is sent.
+    if (!savingPhotos() || account.aborted) return;
     // `shared`: this scanner tells the person, next to the switch, that saved photos are shared
     // with Yama's developer (server/src/scan_samples.rs keeps older photos out of that).
-    await api("/api/scan/samples", { method: "POST", json: { ...label, ...encoded, crops, shared: true } });
+    await api("/api/scan/samples", { method: "POST", signal: account, json: { ...label, ...encoded, crops, shared: true } });
   } catch (e) {
     console.warn("Couldn't keep the scan photo", e);
   }

@@ -425,12 +425,6 @@ const optionsNote = (printings: Printing[]) =>
 /** A strip's sharpness and glare, rounded, for a frame note. */
 const qualityNote = (q: StripQuality | null) => (q ? { sharpness: Math.round(q.sharpness), clipped: Math.round(q.clipped * 1000) / 1000 } : {});
 
-/** A card's timing record once the person said it's another card (Wrong card): the same record, marked. */
-function cardCorrected(t: TimingRecord | undefined): TimingRecord | undefined {
-  if (t) t.detail.card_corrected = true;
-  return t;
-}
-
 /** A card's record with one more reason it's kept (a fresh one when the record was already sent). */
 function withReason(rec: ScanRecord | undefined, reason: Reason): ScanRecord | undefined {
   const r = rec?.continued();
@@ -675,7 +669,7 @@ export function ScannerView({
   /**
    * A timing record for a card just named (with diagnostics on), or the one carried from the card
    * before (Wrong card). `fallback` is the rule when the frame didn't say (a text read, the title
-   * close-up); `top`, the art's score for the card when the frame didn't give its matches. Before
+   * close-up); `top`, the art's score for the card when the frame didn't give its top match. Before
    * `newRecord`, which takes the frame's note.
    */
   const newTiming = (carry: TimingRecord | undefined, fallback: SettleRule, top?: number): TimingRecord | undefined => {
@@ -683,15 +677,18 @@ export function ScannerView({
     appeared.current = null;
     if (carry) return carry;
     if (!diagRef.current) return undefined;
-    const ctx = scanCtx.current as { lock?: SettleRule; photo?: boolean; art?: { score: number }[]; lead?: number; top?: number } | null;
+    const ctx = scanCtx.current as { lock?: SettleRule; photo?: boolean; lead?: number; top?: number } | null;
     const photo = !!ctx?.photo;
+    const rule = fallback === "typed" ? "typed" : (ctx?.lock ?? fallback);
+    // Timed on the live camera only: not a photo, nor a name the person typed.
+    const timed = !photo && rule !== "typed";
     return new TimingRecord({
-      rule: fallback === "typed" ? "typed" : (ctx?.lock ?? fallback),
+      rule,
       mode: identityOnly ? "identity" : "printing",
       photo,
-      ms: seen && !photo ? Date.now() - seen.at : undefined,
-      frames: photo ? 1 : seen?.frames,
-      top: ctx?.art?.[0]?.score ?? ctx?.top ?? top,
+      ms: seen && timed ? Date.now() - seen.at : undefined,
+      frames: photo ? 1 : timed ? seen?.frames : undefined,
+      top: ctx?.top ?? top,
       lead: ctx?.lead,
       camera: cameraLabel.current ?? undefined,
       embed: artRef.current?.embed ?? NO_ART_MODEL,
@@ -1219,7 +1216,11 @@ export function ScannerView({
       if (single) blockedName.current = null;
       else if (held) {
         if (holdRead(held, best, Date.now(), emptyFrees) === "held") {
-          if (best?.name === held.name) setStatus(NEXT);
+          if (best?.name === held.name) {
+            // The card just filed, still in view: not a new card appearing (the timing record).
+            appeared.current = null;
+            setStatus(NEXT);
+          }
           // Another card seen while held counts toward locking on it once the hold ends.
           else if (best) lastText.current = { card: best, at: Date.now() };
           return false;
@@ -1252,6 +1253,8 @@ export function ScannerView({
     readers.current.add(halt);
     let unknownFrames = 0;
     let textFrame = 0;
+    /** Text-only reads in a row that found nothing, for the timing record. */
+    let emptyReads = 0;
     /** Frames in a row this art match's title couldn't be read (see UNTITLED_FRAMES). */
     let untitled = 0;
     /** Frames in a row one card has led every other card (fuse.ts, LEAD_FRAMES). */
@@ -1264,7 +1267,11 @@ export function ScannerView({
       if (stop) return;
       const v = videoRef.current;
       const art = artRef.current;
-      if (!v || v.videoWidth === 0 || document.visibilityState !== "visible") return next(200);
+      if (!v || v.videoWidth === 0 || document.visibilityState !== "visible") {
+        // Time away (a hidden tab) isn't time spent finding the card.
+        appeared.current = null;
+        return next(200);
+      }
       canvasRef.current ??= document.createElement("canvas");
       hiCanvasRef.current ??= document.createElement("canvas");
       try {
@@ -1352,6 +1359,8 @@ export function ScannerView({
           // For a diagnostic record of the card found next (diagnostics.ts): what the art said.
           const artNote = {
             art: ranked.slice(0, 5).map((m) => ({ name: m.name, set: m.set, number: m.number, score: Math.round(m.score * 1000) / 1000 })),
+            // The match the lead is for (the in-set one with the set lock).
+            top: Math.round(top.score * 1000) / 1000,
             lead: Math.round(lead * 1000) / 1000,
             cardPx: Math.round(cardHeight(toVideo(r.quad))),
           };
@@ -1404,8 +1413,9 @@ export function ScannerView({
             // The title overruled the art: it named a card other than the art's best match.
             scanCtx.current = { ...artNote, titles, title, fused: fused.kind, artUnknown, overruled: fused.kind === "title" && !!top && !sameCardName(top.name, fused.name) };
             if (seen) Object.assign(seen, { titles, title, fused: fused.kind });
-            // The card just filed, by its art or its title: still held.
+            // The card just filed, by its art or its title: still held. Not a new card appearing.
             if (fusedHeld(fused, heldName)) {
+              appeared.current = null;
               setStatus(NEXT);
               return next(60);
             }
@@ -1482,10 +1492,18 @@ export function ScannerView({
         const flip = textFrame++ % 2 === 1;
         const guide: Quad = flip ? [upright[2], upright[3], upright[0], upright[1]] : upright;
         const res = await scanFrame(image, { ...reader, guide, tryUpsideDown: false });
-        // Diagnostics' timing record: with no detector, the card appeared when text was first read.
-        if (diagRef.current && res.candidates[0]) {
-          appeared.current ??= { at: Date.now(), frames: 0 };
-          appeared.current.frames += 1;
+        // Diagnostics' timing record: with no detector, the card appeared when text was first read
+        // (not the card just filed, still held by its name), and has gone after AWAY_FRAMES reads
+        // of nothing.
+        if (diagRef.current) {
+          const said = res.candidates[0];
+          emptyReads = said ? 0 : emptyReads + 1;
+          const held = !!said && !!blockedName.current && sameCardName(said.name, blockedName.current.name);
+          if (held || emptyReads >= AWAY_FRAMES) appeared.current = null;
+          else if (said) {
+            appeared.current ??= { at: Date.now(), frames: 0 };
+            appeared.current.frames += 1;
+          }
         }
         if (!stop && handleText(res, false, true, { image, quad: res.quad })) return;
         if (!stop && !res.candidates[0]) setStatus("Line the card up with the frame");
@@ -1504,7 +1522,11 @@ export function ScannerView({
       // The look ends with the loop (a pause, the set picker), or is the found card's. Into the
       // title close-up it goes on: the card it names gets the record, or the next loop ends it.
       if (lookGoesOn.current) lookGoesOn.current = false;
-      else endSeek();
+      else {
+        endSeek();
+        // A pause isn't time spent finding the card: its time starts again with the loop.
+        appeared.current = null;
+      }
     };
   }, [phase, mode, live, closeup, photoBusy, paused, lockOpen, identityOnly, closeups, showArt, handleText, textReader]);
 
@@ -1579,7 +1601,7 @@ export function ScannerView({
             bmp.close();
             if (current()) {
               scanCtx.current = { photo: true, lock: "text" };
-              handleText(res, true, false, hi);
+              if (!handleText(res, true, false, hi)) scanCtx.current = null;
             }
             return;
           }
@@ -1603,7 +1625,11 @@ export function ScannerView({
       }
       if (!current()) return;
       scanCtx.current = { photo: true, lock: "text" };
-      if (!res || !handleText(res, true, false, { image, quad: res.quad })) setStatus("Couldn't read that photo. Fill the photo with the card, or type the name.");
+      if (!res || !handleText(res, true, false, { image, quad: res.quad })) {
+        // Nothing found: the photo's note mustn't label the next card.
+        scanCtx.current = null;
+        setStatus("Couldn't read that photo. Fill the photo with the card, or type the name.");
+      }
     } catch (err) {
       if (current()) setStatus(err instanceof Error ? err.message : String(err));
     } finally {
@@ -1661,7 +1687,7 @@ export function ScannerView({
       guess: found.guess ?? guessOf(found),
       unlocked: found.unlocked,
       rec: withReason(found.rec, "wrong-card"),
-      timing: cardCorrected(found.timing),
+      timing: found.timing?.cardCorrected(),
     });
   };
 
@@ -2213,6 +2239,8 @@ export function ScannerView({
             seek.current?.rec.cancel();
             seek.current = null;
           }
+          // Either way the card in view is timed afresh (its timing record never goes once off).
+          appeared.current = null;
         }}
       />
       {soundsProp && (
@@ -2702,7 +2730,7 @@ export function ScannerView({
                   </div>
                 )}
                 <div className="scan-other-ways">
-                  <NameEntry onPick={(n) => fromName(n, "typed", { shot: found.shot, guess: found.guess ?? guessOf(found), rec: withReason(found.rec, "wrong-card"), timing: cardCorrected(found.timing) })} />
+                  <NameEntry onPick={(n) => fromName(n, "typed", { shot: found.shot, guess: found.guess ?? guessOf(found), rec: withReason(found.rec, "wrong-card"), timing: found.timing?.cardCorrected() })} />
                   <Button onClick={wrongAgain}>Scan it again</Button>
                 </div>
               </div>

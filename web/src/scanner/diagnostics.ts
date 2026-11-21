@@ -349,7 +349,11 @@ export interface Named {
   ms?: number;
   /** Frames read in that time. */
   frames?: number;
-  /** The art's score for the card named, and its lead over the next different card. */
+  /**
+   * The art's top match on the frame that named the card (the in-set one with the set lock): its
+   * score, and its lead over the next different card. A title or text read can name another of
+   * the art's matches.
+   */
   top?: number;
   lead?: number;
   /** The camera's delivered resolution, "2160×3840". */
@@ -396,6 +400,16 @@ export class TimingRecord {
   printed(how: PrintingWay) {
     if (this.printing && how !== "corrected") return;
     this.printing = { how, ms: Date.now() - this.named };
+  }
+
+  /**
+   * Wrong card: the person named another card. The record stays this card's (how it was named,
+   * how long it took), marked so; a printing settled for the wrong card no longer counts.
+   */
+  cardCorrected(): this {
+    this.detail.card_corrected = true;
+    this.printing = null;
+    return this;
   }
 
   /**

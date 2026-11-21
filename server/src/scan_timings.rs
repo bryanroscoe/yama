@@ -175,6 +175,15 @@ struct Row {
 }
 
 impl Row {
+    fn flag(&self, key: &str) -> bool {
+        serde_json::from_str::<Value>(&self.detail).ok().and_then(|d| d.get(key).and_then(Value::as_bool)).unwrap_or(false)
+    }
+
+    /// The person then said it was another card: "Scan it again", or Wrong card and the right one.
+    fn called_wrong(&self) -> bool {
+        self.outcome == "wrong" || self.flag("card_corrected")
+    }
+
     fn json(&self) -> Value {
         json!({
             "id": self.id, "created_at": self.created_at, "outcome": self.outcome, "rule": self.rule, "mode": self.mode,
@@ -214,7 +223,8 @@ fn share(n: usize, of: usize) -> f64 {
     if of == 0 { 0.0 } else { (n as f64 / of as f64 * 1000.0).round() / 1000.0 }
 }
 
-/// Count, median and 90th percentile of the live camera's time to name the card, and its frames.
+/// Count, median and 90th percentile of the live camera's time to name the card, its frames, and
+/// how many the person then said were another card.
 fn timing(rows: &[&Row]) -> Value {
     let live: Vec<&&Row> = rows.iter().filter(|r| !r.photo && r.rule != "typed").collect();
     let mut ms: Vec<i64> = live.iter().filter_map(|r| r.ms).collect();
@@ -222,6 +232,7 @@ fn timing(rows: &[&Row]) -> Value {
     json!({
         "count": rows.len(), "timed": ms.len(),
         "median_ms": quantile(&mut ms, 0.5), "p90_ms": quantile(&mut ms, 0.9), "median_frames": quantile(&mut frames, 0.5),
+        "called_wrong": rows.iter().filter(|r| r.called_wrong()).count(),
     })
 }
 
@@ -267,21 +278,24 @@ pub async fn summary(pool: &SqlitePool, owner: &str, f: &Filter, offset: usize, 
     let all = rows(pool, owner, f).await?;
     let (kept, bytes): (i64, Option<i64>) =
         sqlx::query_as("SELECT COUNT(*), SUM(bytes) FROM scan_timings WHERE owner_id = ?").bind(owner).fetch_one(pool).await?;
-    let refs: Vec<&Row> = all.iter().collect();
-    // A card the person then said was another card wasn't settled right: counted apart.
-    let wrong = refs.iter().filter(|r| r.outcome == "wrong").count();
-    let printed: Vec<&Row> = refs.iter().copied().filter(|r| r.printing.is_some()).collect();
+    // A Wrong printing after the card was filed is a record of its own for a card already counted:
+    // counted apart, never as a second card.
+    let refs: Vec<&Row> = all.iter().filter(|r| !r.flag("after_filing")).collect();
+    let after_filing = all.len() - refs.len();
+    // A card the person then said was another card: its printing was the other card's.
+    let printed: Vec<&Row> = refs.iter().copied().filter(|r| r.printing.is_some() && !r.called_wrong()).collect();
     let items: Vec<Value> = all.iter().skip(offset).take(limit).map(Row::json).collect();
     Ok(json!({
         "kept": kept, "bytes": bytes.unwrap_or(0), "keep": KEEP, "keep_bytes": KEEP_BYTES,
         "count": refs.len(),
+        "records": all.len(),
         "settled": timing(&refs),
         "rules": by(&refs, |r| Some(r.rule.clone()), "rule", timing),
         "printings": by(&printed, |r| r.printing.clone(), "printing", printing_timing),
-        "called_wrong": wrong,
+        "printing_corrected_after_filing": after_filing,
         "models": by(&refs, |r| r.bundle.clone(), "model", |g| {
             let mut t = timing(g);
-            t["rules"] = json!(by(g, |r| Some(r.rule.clone()), "rule", |g| json!({"count": g.len()})));
+            t["rules"] = json!(by(g, |r| Some(r.rule.clone()), "rule", |g| json!({"count": g.len(), "called_wrong": g.iter().filter(|r| r.called_wrong()).count()})));
             t
         }),
         "modes": by(&refs, |r| Some(r.mode.clone()), "mode", timing),
@@ -348,6 +362,7 @@ mod tests {
         assert_eq!(s["kept"], 5);
         // A typed name has no time to name it: it isn't in the timing.
         assert_eq!(s["settled"]["timed"], 4);
+        assert_eq!(s["settled"]["called_wrong"], 0);
         assert_eq!(s["settled"]["median_ms"], 600);
         assert_eq!(s["settled"]["p90_ms"], 2400);
         assert_eq!(s["rules"][0]["rule"], "leads");
@@ -385,6 +400,37 @@ mod tests {
         assert_eq!(n, 0);
         let (status, _) = testutil::send(&app, Method::GET, PATH, None, None).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn a_correction_after_filing_isnt_a_second_card_and_a_wrong_card_isnt_a_success() {
+        let (app, pool) = testutil::app().await;
+        let (_, token) = testutil::user(&pool, "me@example.com").await;
+        let post = |b: Value| {
+            let app = app.clone();
+            let token = token.clone();
+            async move { assert_eq!(testutil::send(&app, Method::POST, PATH, Some(&token), Some(b)).await.0, StatusCode::OK) }
+        };
+        // Filed as read from the collector line, then Wrong printing after filing: its own record.
+        post(body("leads", 600)).await;
+        let mut after = body("leads", 600);
+        after["printing"] = json!("corrected");
+        after["detail"] = json!({"after_filing": true});
+        post(after).await;
+        // Named by the lead rule, then Wrong card and the right one picked.
+        let mut wrong = body("leads", 500);
+        wrong["detail"] = json!({"card_corrected": true});
+        post(wrong).await;
+        let (_, s) = testutil::send(&app, Method::GET, PATH, Some(&token), None).await;
+        assert_eq!(s["records"], 3);
+        assert_eq!(s["count"], 2, "two cards");
+        assert_eq!(s["printing_corrected_after_filing"], 1);
+        assert_eq!(s["rules"][0]["count"], 2);
+        assert_eq!(s["rules"][0]["called_wrong"], 1);
+        assert_eq!(s["settled"]["called_wrong"], 1);
+        // The wrong card's printing isn't counted for the card filed.
+        assert_eq!(s["printings"][0]["count"], 1);
+        assert_eq!(s["models"][0]["rules"][0]["called_wrong"], 1);
     }
 
     #[tokio::test]

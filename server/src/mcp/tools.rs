@@ -1494,7 +1494,7 @@ pub(super) const TOOLS: &[Tool] = &[
         name: "list_scan_diagnostics",
         aliases: &[],
         title: "Your scanner diagnostics",
-        description: "The scanner diagnostics this account kept (Scan settings, off by default): one per card the scanner struggled with, newest first, with how it ended, why it was kept and its images. Read one with get_scan_diagnostic. The timing records kept for every card settled (timings, the count) are summarised by get_scan_timings.",
+        description: "The scanner diagnostics this account kept (Scan settings, off by default): one per card the scanner struggled with, newest first, with how it ended, why it was kept and its images. Read one with get_scan_diagnostic.",
         schema: || json!({"type": "object", "properties": {
             "limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Records per page, default 20."},
             "cursor": {"type": "string", "maxLength": 200, "description": "next_cursor from the answer before."}}, "additionalProperties": false}),
@@ -1532,12 +1532,12 @@ pub(super) const TOOLS: &[Tool] = &[
         name: "get_scan_timings",
         aliases: &[],
         title: "How fast your scans settle",
-        description: "The timing records Scanner diagnostics keeps (Scan settings, off by default): one for every card the scanner settled, struggled with or not, with no images. Gives how long cards took from appearing to being named (median, 90th percentile, frames read), the share named by each rule (sure art, leads, twice, title, text, closeup, typed), how printings were settled (only, set, collector, picked, corrected) and how long that took, and the same by art model and by mode (printing: the collection; identity: deck and box scans). Then the newest records, a page at a time. Live camera times only: photos and typed names aren't timed.",
+        description: "How fast scans settle: Scanner diagnostics' timing records, one per card settled. Median and p90 time to name a card, the share named by each rule, how printings were settled and how long that took, by art model and mode; then the records.",
         schema: || json!({"type": "object", "properties": {
             "since": {"type": "string", "maxLength": 40, "description": "Only records from this date or moment (2026-11-20)."},
             "model": {"type": "string", "maxLength": 200, "description": "Only records from this art model, as the answer's models list names it."},
             "mode": {"type": "string", "enum": ["printing", "identity"], "description": "Only the collection (printing) or deck and box scans (identity)."},
-            "limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Records per page, default 20."},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 50, "description": "Records per page, default 20."},
             "cursor": {"type": "string", "maxLength": 200, "description": "next_cursor from the answer before."}}, "additionalProperties": false}),
         kind: Kind::Read,
         offer: Offer::Everyone,
@@ -1645,9 +1645,9 @@ async fn run_scan_timings(c: Ctx<'_>, args: &Value) -> AppResult<String> {
         return Err(AppError::bad("mode is printing or identity"));
     }
     let scope = super::page::scope("scan_timings", &[filter.since.as_deref().unwrap_or(""), filter.model.as_deref().unwrap_or(""), filter.mode.as_deref().unwrap_or("")]);
-    let page = super::page::page(args, &scope, 20, 100)?;
+    let page = super::page::page(args, &scope, 20, 50)?;
     let mut out = crate::scan_timings::summary(&c.st.pool, &c.user.id, &filter, page.offset, page.limit).await?;
-    let total = out["count"].as_u64().unwrap_or(0) as usize;
+    let total = out["records"].as_u64().unwrap_or(0) as usize;
     out["next_cursor"] = json!(page.next(&scope, total));
     Ok(out.to_string())
 }

@@ -181,25 +181,7 @@ async fn add(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(s)
     let bytes = image.len() as i64;
     let crop_bytes: i64 = crops.iter().map(|(_, b, ..)| b.len() as i64).sum();
     let listed = (!crops.is_empty()).then(|| Value::Array(crops.iter().map(|(n, b, w, h)| json!({"name": n, "width": w, "height": h, "bytes": b.len()})).collect()).to_string());
-    // The crops' files first, under a folder of their own; the row only once they're all written.
-    let data_dir = &st.cfg.data_dir;
-    if !crops.is_empty() {
-        let dir = owner_dir(data_dir, &user.id).join(&id);
-        let write = || -> std::io::Result<()> {
-            std::fs::create_dir_all(&dir)?;
-            for (name, b, ..) in &crops {
-                std::fs::write(dir.join(format!("{name}.jpg")), b)?;
-            }
-            Ok(())
-        };
-        if let Err(e) = write() {
-            remove_sample_files(data_dir, &user.id, &id);
-            return Err(anyhow::Error::from(e).context("writing scan photo crops").into());
-        }
-    }
-    // The bundle, and Yama's query model if the phone ran it (scan.rs), to tell models apart later.
-    let bundle = crate::scan::recorded_version(&st.cfg, s.embed.as_deref()).await;
-    match save(&st.pool, &user.id, &id, &s.kind, bundle, image, bytes, listed, crop_bytes, SampleText {
+    let t = SampleText {
         label_scryfall_id: text(s.label_scryfall_id),
         label_name: text(s.label_name),
         guess_name: text(s.guess_name),
@@ -210,20 +192,63 @@ async fn add(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(s)
         quad,
         camera: text(s.camera),
         shared: s.shared,
-    })
-    .await
-    {
-        Ok(gone) => {
-            for old in gone {
-                remove_sample_files(data_dir, &user.id, &old);
+    };
+    // Files, row and cleanup in a task of their own: a client gone mid-request (the handler's
+    // future dropped) doesn't leave crops written without their row, or a row without its crops.
+    let (owner, kind, embed) = (user.id.clone(), s.kind, s.embed);
+    let task = tokio::spawn(async move {
+        let data_dir = &st.cfg.data_dir;
+        // The crops' files first, under a folder of their own; the row only once they're all written.
+        if !crops.is_empty() {
+            let dir = owner_dir(data_dir, &owner).join(&id);
+            let write = || -> std::io::Result<()> {
+                std::fs::create_dir_all(&dir)?;
+                for (name, b, ..) in &crops {
+                    std::fs::write(dir.join(format!("{name}.jpg")), b)?;
+                }
+                Ok(())
+            };
+            if let Err(e) = write() {
+                remove_sample_files(data_dir, &owner, &id);
+                return Err(AppError::from(anyhow::Error::from(e).context("writing scan photo crops")));
             }
-            Ok(Json(json!({ "id": id })))
         }
-        Err(e) => {
-            remove_sample_files(data_dir, &user.id, &id);
-            Err(e)
+        // The bundle, and Yama's query model if the phone ran it (scan.rs), to tell models apart later.
+        let bundle = crate::scan::recorded_version(&st.cfg, embed.as_deref()).await;
+        match save(&st.pool, &owner, &id, &kind, bundle, image, bytes, listed, crop_bytes, t).await {
+            Ok(gone) => {
+                for old in gone {
+                    remove_sample_files(data_dir, &owner, &old);
+                }
+                Ok(id)
+            }
+            Err(e) => {
+                remove_sample_files(data_dir, &owner, &id);
+                Err(e)
+            }
+        }
+    });
+    let id = task.await.map_err(|e| AppError::from(anyhow::anyhow!("saving a scan photo: {e}")))??;
+    Ok(Json(json!({ "id": id })))
+}
+
+/// How old a crops folder with no row must be before Delete them takes it: an upload writes its
+/// folder seconds before its row, so a younger one may be on its way.
+const ORPHAN_AGE: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
+/// Crop folders of this account with no photo row, older than ORPHAN_AGE (a server stopped
+/// between writing the files and the row): removed.
+async fn sweep_orphans(pool: &sqlx::SqlitePool, data_dir: &std::path::Path, owner: &str) -> AppResult<()> {
+    let Ok(entries) = std::fs::read_dir(owner_dir(data_dir, owner)) else { return Ok(()) };
+    let ids: std::collections::HashSet<String> = sqlx::query_scalar("SELECT id FROM scan_samples WHERE owner_id = ?").bind(owner).fetch_all(pool).await?.into_iter().collect();
+    for e in entries.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let old = e.metadata().and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age >= ORPHAN_AGE);
+        if old && !ids.contains(&name) {
+            remove_sample_files(data_dir, owner, &name);
         }
     }
+    Ok(())
 }
 
 /// What a photo's row says beside its image.
@@ -317,6 +342,8 @@ async fn delete_all(State(st): State<AppState>, CurrentUser(user): CurrentUser) 
     for id in &gone {
         remove_sample_files(&st.cfg.data_dir, &user.id, id);
     }
+    // and any left by an upload that never got its row.
+    sweep_orphans(&st.pool, &st.cfg.data_dir, &user.id).await?;
     Ok(Json(json!({ "deleted": gone.len() })))
 }
 
@@ -670,10 +697,19 @@ mod tests {
         assert!(!dir.join(format!("{private}.strip.jpg")).exists());
         std::fs::remove_dir_all(&dir).unwrap();
 
-        // Delete them takes the crops' files.
+        // Delete them takes the crops' files, and an old folder left with no row (a server stopped
+        // between the files and the row); not a young one, which may be an upload on its way.
+        let orphan = owner_dir(&std::env::temp_dir(), &me).join("orphan");
+        let young = owner_dir(&std::env::temp_dir(), &me).join("young");
+        for d in [&orphan, &young] {
+            std::fs::create_dir_all(d).unwrap();
+            std::fs::write(d.join("strip.jpg"), JPEG).unwrap();
+        }
+        std::fs::File::open(&orphan).unwrap().set_modified(std::time::SystemTime::now() - 2 * ORPHAN_AGE).unwrap();
         let (_, d) = testutil::send(&app, Method::DELETE, "/api/scan/samples", Some(&mine), None).await;
         assert_eq!(d["deleted"], 2);
-        assert!(files(&me).is_empty());
+        assert_eq!(files(&me), ["young/strip.jpg"]);
+        remove_owner_files(&std::env::temp_dir(), &me);
     }
 
     #[tokio::test]

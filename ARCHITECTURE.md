@@ -536,8 +536,9 @@ set from waiting. Yama now extends the gallery itself (docs/scanner.md, "Extendi
 
 Bryan's real scans are mostly sleeved cards in a blue deck box, and the bundle's model scores them
 far lower than the synthetic eval (median 0.78 against 0.97; docs/scanner.md, "Art that leads
-settles the card"). The lead rule shipped the same day (PR #166) locks 84.7% of his 124 photos on
-the first frame. Yama now trains a model of its own for the phone's side of the match, the first
+settles the card"). The lead rule shipped the same day (PR #166): on one saved photo per card, the
+photo's scores qualify for it on 84.7% of his 124 photos (live, a card must lead on two frames
+in a row). Yama now trains a model of its own for the phone's side of the match, the first
 model Yama makes and publishes (docs/scanner.md, "Yama's query embedder").
 
 - **Query side only.** `yama-art-20261118.onnx` is the bundle's `embed.onnx` with its embedding
@@ -545,7 +546,8 @@ model Yama makes and publishes (docs/scanner.md, "Yama's query embedder").
   gallery vectors. Same inputs and output, same front half (warp and frame cuts). The gallery side
   stays the bundle's: `search.onnx`, `arts.json`, and the art supplement, which keeps embedding new
   art with the bundle's original `embed.onnx` because its vectors stand in gallery rows. On the
-  real photos it locks 94.4% on the first frame, none wrong; on 1,840 held-out simulated captures
+  real photos one saved photo's scores qualify for the lead rule on 94.4% of cards, none wrong
+  (one photo's eligibility, not a live time: live needs two leading frames, not yet timed); on 1,840 held-out simulated captures
   scored as the phone scores them, the lead rule's wrong locks go from 10 to 0 and its locks of
   unknown cards from 28 to 9, so the lead rule is safer with it than with the bundle's model.
   Bare cards are no worse.
@@ -3095,7 +3097,9 @@ live); and the kept scan photos are 640 px, so the set symbol a printing model n
   Scan photos page, and `yama-server scan-samples-export`, which writes them with their sizes in
   the manifest), deleted with it by the caps, "Delete them" and account deletion. They're files
   beside the database (`scan-samples/<owner>/<id>/<name>.jpg`), written before the row and removed
-  if it isn't committed. The caps count them: 2,000 photos, 100 MB of photos in the database as
+  if it isn't committed, the work done in a task of its own so a client gone mid-request can't
+  stop it halfway; a folder left with no row (a server stopped in between) goes at the account's
+  next "Delete them". The caps count them: 2,000 photos, 100 MB of photos in the database as
   before, and 400 MB of photos and crops together, as a crop pair is estimated at two to four times
   a photo (docs/scanner.md, "Full-resolution crops with each scan photo"). The switch and the
   privacy page say so. Struggle records keep the same symbol crop as `symbol`, beside `strip`.

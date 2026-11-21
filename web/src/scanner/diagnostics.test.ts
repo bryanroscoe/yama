@@ -230,6 +230,16 @@ describe("scanner timing records", () => {
     expect(t.body("filed").printing).toBe("corrected");
   });
 
+  it("Wrong card keeps the record, marked, without the wrong card's printing", async () => {
+    const t = new TimingRecord(named);
+    t.printed("only");
+    expect(t.cardCorrected()).toBe(t);
+    expect(t.printedAs).toBeNull();
+    t.printed("picked");
+    await t.send("filed");
+    expect(posted.bodies[0]).toMatchObject({ rule: "leads", ms: 640, printing: "picked", detail: { card_corrected: true } });
+  });
+
   it("a correction after filing is a record of its own, marked so", async () => {
     const t = new TimingRecord(named);
     expect(t.afterFiling()).toBe(t);
