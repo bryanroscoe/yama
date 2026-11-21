@@ -67,11 +67,13 @@ def embed(model, tensors, dev, bs=64):
 
 
 def real_cases():
-    out = []
-    for r, pid, ms in cases():
-        if not all(os.path.exists(f"data/pk2/{m}.jpg") for m in ms): continue
-        out.append((std(centre(symbol_patch(load(f"{REAL}/{r['id']}.jpg"), json.loads(r["quad"])))), pid, ms))
-    return out
+    """Every labelled photo of `cases()`; stops if a candidate's clean crop is missing, since dropping the
+    photo would make a checkpoint look better only because the cohort shrank."""
+    cs = cases()
+    missing = sorted({m for _, _, ms in cs for m in ms if not os.path.exists(f"data/pk2/{m}.jpg")})
+    if missing:
+        raise SystemExit(f"{len(missing)} test candidates have no clean crop in data/pk2 (run look_gen.py again): {missing[:5]}")
+    return [(std(centre(symbol_patch(load(f"{REAL}/{r['id']}.jpg"), json.loads(r["quad"])))), pid, ms) for r, pid, ms in cs]
 
 
 def evaluate(model, dev, real, val):
@@ -95,6 +97,8 @@ def evaluate(model, dev, real, val):
 
 def main():
     run = sys.argv[1]; epochs = int(sys.argv[2]) if len(sys.argv) > 2 else 8; bs = int(sys.argv[3]) if len(sys.argv) > 3 else 64
+    if os.path.isdir(f"runs/{run}") and os.listdir(f"runs/{run}"):
+        raise SystemExit(f"runs/{run} already has files: pick a new run name, so no checkpoint of another run is mistaken for this one's.")
     os.makedirs(f"runs/{run}", exist_ok=True)
     dev = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     seed = int(os.environ.get("SEED", 0))
