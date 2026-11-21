@@ -318,7 +318,9 @@ pub async fn load(conn: &mut SqliteConnection, owner: &str, installs: Option<&In
         .into_iter()
         .map(|(id, at, meta)| {
             let m = parse(&meta);
-            (id, json!({"kind": "plan_file", "app": m.get("app"), "guide_version": m.get("guide_version"), "imported_at": at}))
+            // The commit and date too, so a version's history names the exact file it came from.
+            (id.clone(), json!({"kind": "plan_file", "app": m.get("app"), "guide_version": m.get("guide_version"), "guide_date": m.get("guide_date"),
+                        "git_sha": m.get("git_sha"), "imported_at": at, "import_id": id}))
         })
         .collect();
     let notes: HashMap<String, String> = sqlx::query_as::<_, (String, String)>("SELECT id, title FROM research_reports WHERE owner_id = ?")

@@ -458,6 +458,20 @@ pub(crate) async fn plan_deck(pool: &SqlitePool, owner: &str, key: &str) -> AppR
             );
         }
     }
+    // Where it came from: what assistants recorded, and the call that tells the whole story.
+    match crate::plan::history::count(pool, owner, &id).await? {
+        0 => out.push_str(
+            "History: nobody has recorded the request behind this plan. `get_plan_history` has where it came from and every version; \
+             `record_plan_history` records the request when you know it.\n",
+        ),
+        n => {
+            let _ = writeln!(
+                out,
+                "History: {n} recorded entr{}. `get_plan_history` has where it came from, every version and each change's story.",
+                if n == 1 { "y" } else { "ies" }
+            );
+        }
+    }
     if let Some((note, deck, build)) = &note {
         let _ = writeln!(
             out,

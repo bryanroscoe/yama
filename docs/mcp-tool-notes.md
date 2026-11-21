@@ -87,3 +87,24 @@ clashes (no card named, a cut the plan already makes, two changes cutting one ca
 unsure, with the reason in its note, and the answer names it; fix the build and save the note
 again. Saving the note again updates a plan that tracks it. A save that would stop a plan is refused unless
 `stop_plans` is true.
+
+## A plan's history (`get_plan_history`, `record_plan_history`)
+
+Since 21 Nov 2026 (ARCHITECTURE.md, "Where a plan came from"). Before saying why a change is in a
+plan, read `get_plan_history`, with `card` for one change: its group, when it arrived and from
+which plan file (with its commit) or note, which version took it in or left it out and why, every
+answer as it arrived and who gave it, and what assistants recorded about it or its group.
+
+Record an entry whenever you make or change a plan's proposals, so the next assistant doesn't have
+to dig through old conversations:
+
+- `on` is the day it happened (the request, the audit), not the day you record it.
+- `what` says what was made or changed and why, in a sentence or two.
+- `asked` quotes the person's own words; leave it out rather than paraphrase.
+- `conversation` says where to find the conversation (a thread's link or title, a session id);
+  `work` where the work is (a commit, a file, a note id).
+- `group` and `cards` tie it to a proposal group or to changes, as `get_plan` names them; a name
+  the plan doesn't have is refused with the ones it does.
+- `replaces` with an entry's id corrects it; `op_id` makes a retry record it once.
+
+`track_build` takes `asked` and `conversation` and records them with the build it tracks.

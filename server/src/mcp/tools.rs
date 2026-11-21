@@ -198,6 +198,63 @@ pub(super) const TOOLS: &[Tool] = &[
         needs: Needs::Nothing,
     },
     Tool {
+        name: "get_plan_history",
+        aliases: &[],
+        title: "Where a plan came from",
+        description: "Where one of their plans and its changes came from: the request behind it in their words, when, and where the \
+                      conversation and work are, as assistants recorded them, with Yama's own record of each version (its source, what \
+                      it took in or left out), every answer and archiving. Give card for one change's story. Read it before saying why \
+                      a change is in a plan.",
+        schema: || {
+            json!({"type":"object","properties":{
+                "plan":{"type":"string","description":"The plan key or deck name, archived plans included."},
+                "card":{"type":"string","maxLength":200,"description":"Optional: a card a change puts in or takes out, for that change's story."}
+            },"required":["plan"],"additionalProperties":false})
+        },
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_plan_history),
+        stages: None,
+        output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
+    },
+    Tool {
+        name: "record_plan_history",
+        aliases: &[],
+        title: "Record where a plan came from",
+        description: "Record where one of their plans or some of its changes came from, or what happened to them: what and why, their \
+                      request in their own words, the day, and where the conversation and work are. Record one whenever you make or \
+                      change a plan's proposals, so the next assistant can find why a change is there. It saves directly as a private \
+                      note on the plan and changes nothing else; replaces deletes the entry it corrects.",
+        schema: || {
+            json!({"type":"object","properties":{
+                "plan":{"type":"string","description":"The plan key or deck name."},
+                "on":{"type":"string","maxLength":10,"description":"YYYY-MM-DD: the day it happened (the request, the audit), not today unless it was today."},
+                "what":{"type":"string","maxLength":2000,"description":"What happened, in a sentence or two: what was made or changed, and why."},
+                "asked":{"type":"string","maxLength":4000,"description":"Optional: what they asked for, quoted in their own words."},
+                "conversation":{"type":"string","maxLength":500,"description":"Optional: where the conversation is: a thread's link or title, a session id."},
+                "work":{"type":"string","maxLength":500,"description":"Optional: where the work is: a commit, a file, a note."},
+                "group":{"type":"string","maxLength":300,"description":"Optional: the plan's proposal group it is about, as get_plan names it."},
+                "cards":{"type":"array","maxItems":60,"items":{"type":"string","maxLength":200},"description":"Optional: the changes it is about, by a card each puts in or takes out."},
+                "replaces":{"type":"string","maxLength":64,"description":"Optional: the id of an earlier entry of this plan that this one corrects; it goes."},
+                "op_id":{"type":"string","minLength":8,"maxLength":64,"pattern":"^[A-Za-z0-9_-]+$","description":"Optional: your own id for this entry, so a retry records it once."}
+            },"required":["plan","on","what"],"additionalProperties":false})
+        },
+        // `replaces` deletes the entry it corrects.
+        kind: Kind::Write { destroys: true },
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_record_plan_history),
+        stages: None,
+        output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
+    },
+    Tool {
         name: "get_shopping_trip",
         aliases: &["shopping_trip"],
         title: "Which stores to visit",
@@ -885,7 +942,9 @@ pub(super) const TOOLS: &[Tool] = &[
                 "note":{"type":"string","description":"The note's id."},
                 "deck":{"type":"string","description":"The deck's key in the note."},
                 "build":{"type":["string","null"],"description":"The build's id; null to stop tracking this deck."},
-                "yama_deck":{"type":"string","description":"Optional: the Yama deck (name or id) the plan is for. Default: the one already linked, else their only deck with the note deck's name."}
+                "yama_deck":{"type":"string","description":"Optional: the Yama deck (name or id) the plan is for. Default: the one already linked, else their only deck with the note deck's name."},
+                "asked":{"type":"string","maxLength":4000,"description":"Optional: what they asked for, in their own words. It goes in the plan's history (get_plan_history) with the build."},
+                "conversation":{"type":"string","maxLength":500,"description":"Optional: where this conversation is (a thread's link or title, a session id), for the plan's history."}
             },"required":["note","deck","build"],"additionalProperties":false})
         },
         kind: Kind::Write { destroys: true },
@@ -1821,6 +1880,53 @@ async fn run_plan_deck(c: Ctx<'_>, args: &Value) -> AppResult<String> {
                 other => other,
             }
         }
+}
+
+async fn run_plan_history(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let plan = arg::text(args, "plan")?;
+    let card = arg::opt_text(args, "card", 200)?;
+    crate::plan::history::text(&c.st.pool, &c.user.id, plan, card).await
+}
+
+async fn run_record_plan_history(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    use crate::plan::history::{ASKED_MAX, CARDS_MAX, Entry, WHAT_MAX, WHERE_MAX, record};
+    let Ctx { st, user, via } = c;
+    let entry = Entry {
+        on: arg::text_max(args, "on", 10)?.to_string(),
+        what: arg::text_max(args, "what", WHAT_MAX)?.to_string(),
+        asked: arg::opt_string(args, "asked", ASKED_MAX)?,
+        conversation: arg::opt_string(args, "conversation", WHERE_MAX)?,
+        work: arg::opt_string(args, "work", WHERE_MAX)?,
+        group: arg::opt_string(args, "group", 300)?,
+        cards: arg::names(args, "cards", CARDS_MAX)?,
+    };
+    let op_id = arg::opt_text(args, "op_id", 64)?;
+    if let Some(op) = op_id
+        && (op.len() < 8 || !op.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-'))
+    {
+        return Err(AppError::bad("op_id: 8 to 64 letters, digits, - or _"));
+    }
+    let replaces = arg::opt_text(args, "replaces", 64)?;
+    st.limits.deck_writes.check_user(user)?;
+    let r = record(&st.pool, &user.id, arg::text(args, "plan")?, &entry, op_id, replaces, via.as_str()).await?;
+    let about = match (&r.group, r.cards.is_empty()) {
+        (Some(g), true) => format!(" It is about the group \"{g}\"."),
+        (Some(g), false) => format!(" It is about the group \"{g}\": {}.", r.cards.join(", ")),
+        (None, false) => format!(" It is about {}.", r.cards.join(", ")),
+        (None, true) => String::new(),
+    };
+    Ok(if r.again {
+        format!("That is already in {}'s history (entry {}); nothing new was recorded.", r.deck, r.id)
+    } else {
+        format!(
+            "Recorded in {}'s history (plan key {}, entry {}){}.{about} `get_plan_history` reads it; record again with replaces {} to correct it.",
+            r.deck,
+            r.deck_key,
+            r.id,
+            replaces.map(|old| format!(", replacing entry {old}")).unwrap_or_default(),
+            r.id
+        )
+    })
 }
 
 #[allow(unused_variables)]

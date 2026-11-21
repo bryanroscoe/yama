@@ -240,6 +240,8 @@ Local sourcing shows all filtered cards and allocates recorded quantities across
 
 Nobody approves a plan (since 20 Nov 2026). What an assistant tracks or saves, or a plan file brings, goes straight into the deck's plan and its shopping list; nothing is bought until you mark it. A change whose cut clashes (no card named to cut, a cut the plan already makes, or two changes cutting the same card) is left out, and the plan's page lists it under Left out with the reason. To change a plan, ask your assistant; Archive and Bring it back are on the plan's page.
 
+A plan has a history (since 21 Nov 2026; ARCHITECTURE.md, "Where a plan came from"). Assistants record where a plan or a group of its changes came from: your request in your own words, the day, and the conversation and work behind it (`record_plan_history`, or `track_build` with what you asked). `get_plan_history` reads it back with Yama's own record, the plan file or note each version came from (with its commit), what each version took in or left out, the answers as they arrived, archiving and the deck's other plans, and with a card, that one change's whole story. MCP only for now: the plan page doesn't show it yet.
+
 Local sourcing leaves out copies already ordered: a saved report is a snapshot, so a copy in a real order placed since it was made (or marked bought since) comes off the cards, totals, carts and store rereads, and the page names the order that covers it.
 
 ### Deck planner

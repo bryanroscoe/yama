@@ -196,10 +196,13 @@ Read before advising: `get_deck_analysis` grounds advice in their list, what the
 `get_cards` checks a card before you recommend it. \
 Write tools stage a change: it waits in Yama for the person to apply or discard, and nothing changes until then. \
 Stage one only when they ask for it or agree to it, recommend reviewing it in Yama, and call `apply_change` only after \
-they have said yes to that exact change. `save_research`, `review_research` and `track_build` are the exception: they \
-store private notes, stated preferences and deck plans directly, and change no deck, collection, order or game. \
+they have said yes to that exact change. `save_research`, `review_research`, `track_build` and `record_plan_history` are \
+the exception: they store private notes, stated preferences, deck plans and plan history directly, and change no deck, \
+collection, order or game. \
 A deck may have a plan: a set of swaps, usually one build of a saved note (`save_research`, then `track_build`). \
-Nobody approves a plan: its changes go in when they arrive, and saving the note again changes it. Plans feed the \
+Nobody approves a plan: its changes go in when they arrive, and saving the note again changes it. When you make or \
+change a plan's proposals, record the request behind them (their words, the date, where the conversation is) with \
+`record_plan_history`; `get_plan_history` says where a plan or one change came from. Plans feed the \
 shopping list; nothing is bought until they mark it. For buying from local \
 stores, read the resource yama://shopping/workflow first: research is not a shopping list, and `check_stores` only \
 stages a stock read. \

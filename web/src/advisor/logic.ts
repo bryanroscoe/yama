@@ -210,6 +210,10 @@ export function toolActivity(name: string): string {
     case "plan_deck":
     case "get_plan":
       return "Reading a plan…";
+    case "get_plan_history":
+      return "Reading where a plan came from…";
+    case "record_plan_history":
+      return "Noting where a plan came from…";
     case "review_queue":
     case "get_review_queue":
       return "Reading your proposals…";

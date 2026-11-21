@@ -1615,3 +1615,6 @@ async fn restoring_a_yama_backup_never_deletes_a_rule_set() {
 
 #[path = "tests_versions.rs"]
 mod versions;
+
+#[path = "tests_history.rs"]
+mod history;
