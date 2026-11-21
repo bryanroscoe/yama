@@ -265,6 +265,7 @@ const LOOK_V0: ModelOption = ModelOption {
     recogniser: None,
     default: false,
     base: false,
+    needs: None,
 };
 
 const LOOK_V1: ModelOption = ModelOption {
