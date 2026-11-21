@@ -21,9 +21,10 @@ CREATE TABLE plan_history (
     plan_named    TEXT NOT NULL DEFAULT '',      -- the plan as the call named it (a key, a deck's name or the row id), for its retry
     via           TEXT NOT NULL,                 -- how the assistant got in: key | oauth | question, or staged (a staged track_build applied)
     op_id         TEXT,                          -- the caller's id: a retry with the same id records nothing new
+    replaced_by   TEXT,                          -- the entry that corrected this one: kept for its op_id (a late retry finds it), never shown
     replaces      TEXT,                          -- the entry this one corrected (deleted then), so a retry of the correction is the same one
     recorded_at   TEXT NOT NULL,
     UNIQUE (owner_id, op_id),
     FOREIGN KEY (plan_deck_id, owner_id) REFERENCES plan_decks(id, owner_id) ON DELETE CASCADE
 );
-CREATE INDEX plan_history_plan ON plan_history (owner_id, plan_deck_id, on_date);
+CREATE INDEX plan_history_plan ON plan_history (owner_id, plan_deck_id, on_date) WHERE replaced_by IS NULL;

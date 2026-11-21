@@ -21,7 +21,7 @@ async fn mcp_key(app: &Router, session: &str) -> String {
 }
 
 async fn entries(pool: &SqlitePool, owner: &str) -> Vec<(String, String, Option<String>, String)> {
-    sqlx::query_as("SELECT on_date, what, group_label, cards FROM plan_history WHERE owner_id = ? ORDER BY on_date, recorded_at")
+    sqlx::query_as("SELECT on_date, what, group_label, cards FROM plan_history WHERE owner_id = ? AND replaced_by IS NULL ORDER BY on_date, recorded_at")
         .bind(owner)
         .fetch_all(pool)
         .await
@@ -159,6 +159,19 @@ async fn a_plans_history_says_where_it_and_each_change_came_from() {
     assert!(!err && text.contains("(plan key alpha, archived)") && text.contains("- 2026-11-21: Archived: Archived by you."), "{text}");
     let (err, text) = call(&app, &key, "record_plan_history", json!({"plan": "alpha", "on": "2026-11-21", "what": "Archived for now."})).await;
     assert!(!err, "{text}");
+    // A late retry of a call whose entry was corrected since finds it, and brings nothing back.
+    let (err, text) = call(&app, &key, "record_plan_history", json!({"plan": "alpha", "on": "2026-10-03", "what": "To be corrected.", "op_id": "orig-0001"})).await;
+    assert!(!err, "{text}");
+    let first = text.split("entry ").nth(1).unwrap().split(')').next().unwrap().to_string();
+    let (err, text) =
+        call(&app, &key, "record_plan_history", json!({"plan": "alpha", "on": "2026-10-03", "what": "Corrected.", "replaces": first, "op_id": "fix-0002"})).await;
+    assert!(!err, "{text}");
+    let (err, text) = call(&app, &key, "record_plan_history", json!({"plan": "alpha", "on": "2026-10-03", "what": "To be corrected.", "op_id": "orig-0001"})).await;
+    assert!(!err && text.contains("already in"), "{text}");
+    let (err, text) = call(&app, &key, "get_plan_history", json!({"plan": "alpha"})).await;
+    assert!(!err && text.contains("Corrected.") && !text.contains("To be corrected."), "{text}");
+    let (err, text) = call(&app, &key, "record_plan_history", json!({"plan": "alpha", "on": "2026-10-03", "what": "x", "replaces": first, "op_id": "fix-0003"})).await;
+    assert!(err && text.contains("has no entry"), "an entry already corrected can't be replaced again: {text}");
 }
 
 #[tokio::test]

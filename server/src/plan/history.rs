@@ -292,6 +292,9 @@ async fn record_with(
             .fetch_all(pool)
             .await?;
     }
+    // One order, so the same cards in another order are the same entry.
+    cards.sort_by_key(|c| c.to_lowercase());
+    swap_keys.sort();
     let cards_json = Value::from(cards.clone()).to_string();
     // A write from the start, so a retry racing the first call waits for it and finds its row.
     let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
@@ -316,7 +319,7 @@ async fn record_with(
                 "SELECT id, plan_deck_id, on_date, what, asked, conversation, work, group_label, cards, replaces, plan_named FROM plan_history
                  WHERE owner_id = ? AND plan_deck_id = ? AND what = ? AND IFNULL(asked, '') = IFNULL(?, '')
                    AND IFNULL(conversation, '') = IFNULL(?, '') AND IFNULL(work, '') = IFNULL(?, '') AND group_label IS NULL AND cards = '[]'
-                   AND recorded_at >= ?
+                   AND recorded_at >= ? AND replaced_by IS NULL
                  ORDER BY recorded_at DESC LIMIT 1",
             )
             .bind(owner)
@@ -338,7 +341,7 @@ async fn record_with(
                 "SELECT id, plan_deck_id, on_date, what, asked, conversation, work, group_label, cards, replaces, plan_named FROM plan_history
                  WHERE owner_id = ? AND plan_deck_id = ? AND on_date = ? AND what = ? AND IFNULL(asked, '') = IFNULL(?, '')
                    AND IFNULL(conversation, '') = IFNULL(?, '') AND IFNULL(work, '') = IFNULL(?, '')
-                   AND IFNULL(group_label, '') = IFNULL(?, '') AND cards = ?",
+                   AND IFNULL(group_label, '') = IFNULL(?, '') AND cards = ? AND replaced_by IS NULL",
             )
             .bind(owner)
             .bind(&plan_id)
@@ -370,19 +373,21 @@ async fn record_with(
         }
         return Ok(Recorded { id, deck_key, deck, again: true, group, cards });
     }
+    // The entry a correction replaces stays, marked: its op_id still finds it, so a late retry of
+    // the call that recorded it doesn't bring it back.
     if let Some(old) = replaces {
-        let gone = sqlx::query("DELETE FROM plan_history WHERE id = ? AND owner_id = ? AND plan_deck_id = ?")
-            .bind(old)
-            .bind(owner)
-            .bind(&plan_id)
-            .execute(&mut *tx)
-            .await?
-            .rows_affected();
-        if gone == 0 {
+        let there: Option<String> =
+            sqlx::query_scalar("SELECT id FROM plan_history WHERE id = ? AND owner_id = ? AND plan_deck_id = ? AND replaced_by IS NULL")
+                .bind(old)
+                .bind(owner)
+                .bind(&plan_id)
+                .fetch_optional(&mut *tx)
+                .await?;
+        if there.is_none() {
             return Err(AppError::bad(format!("replaces: {deck}'s history has no entry {old}")));
         }
     }
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM plan_history WHERE owner_id = ? AND plan_deck_id = ?")
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM plan_history WHERE owner_id = ? AND plan_deck_id = ? AND replaced_by IS NULL")
         .bind(owner)
         .bind(&plan_id)
         .fetch_one(&mut *tx)
@@ -414,6 +419,15 @@ async fn record_with(
     .bind(crate::util::now())
     .execute(&mut *tx)
     .await?;
+    if let Some(old) = replaces {
+        sqlx::query("UPDATE plan_history SET replaced_by = ? WHERE id = ? AND owner_id = ? AND plan_deck_id = ?")
+            .bind(&id)
+            .bind(old)
+            .bind(owner)
+            .bind(&plan_id)
+            .execute(&mut *tx)
+            .await?;
+    }
     tx.commit().await?;
     Ok(Recorded { id, deck_key, deck, again: false, group, cards })
 }
@@ -432,7 +446,11 @@ pub async fn record_once(pool: &SqlitePool, owner: &str, plan: PlanRef<'_>, e: &
 
 /// How many entries the plan's history has.
 pub async fn count(pool: &SqlitePool, owner: &str, plan_id: &str) -> AppResult<i64> {
-    Ok(sqlx::query_scalar("SELECT COUNT(*) FROM plan_history WHERE owner_id = ? AND plan_deck_id = ?").bind(owner).bind(plan_id).fetch_one(pool).await?)
+    Ok(sqlx::query_scalar("SELECT COUNT(*) FROM plan_history WHERE owner_id = ? AND plan_deck_id = ? AND replaced_by IS NULL")
+        .bind(owner)
+        .bind(plan_id)
+        .fetch_one(pool)
+        .await?)
 }
 
 // ── reading ────────────────────────────────────────────────────────────────
@@ -690,7 +708,7 @@ pub async fn text(pool: &SqlitePool, owner: &str, plan: &str, card: Option<&str>
     .await?;
     let entries: Vec<EntryRow> = sqlx::query_as(
         "SELECT id, on_date, what, asked, conversation, work, group_label, cards, swap_keys, recorded_at FROM plan_history
-         WHERE owner_id = ? AND plan_deck_id = ? ORDER BY on_date, recorded_at, id",
+         WHERE owner_id = ? AND plan_deck_id = ? AND replaced_by IS NULL ORDER BY on_date, recorded_at, id",
     )
     .bind(owner)
     .bind(&plan_id)
