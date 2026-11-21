@@ -127,7 +127,10 @@ Three things run on the device so that game night needs no connection:
   and lookups in a web worker. It is refreshed with a conditional request about once a day.
 - **The scanner** recognises a card by its art with ONNX models in a web worker
   (`onnxruntime-web`), and reads the collector line when the art is not enough (PaddleOCR in
-  browsers, ML Kit in the Android app). Besides the pinned art bundle it loads the server's small
+  browsers, ML Kit in the Android app). Its frames come from a camera source: the browser's
+  camera, or, as an option inside the Android app, the app's own camera (a CameraX plugin that
+  draws the preview behind a transparent web view and hands frames to the page in memory; the
+  recognition stays in the web build). Besides the pinned art bundle it loads the server's small
   supplement of newer artworks, and embeds what the camera sees with Yama's own fine-tuned query
   model in place of the bundle's embedding graph. Each of its models can be switched on a device
   from the options the server lists, and the server can withdraw a broken one. When several

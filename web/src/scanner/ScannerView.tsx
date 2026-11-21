@@ -10,7 +10,7 @@
 //
 // Needs a secure context for the camera (https or localhost). "Use a photo" works anywhere.
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import { api, type Printing } from "../api";
 import { loadArtRecognizer, NO_ART_MODEL, RECOGNIZER_SHORT_SIDE, scanBundleInfo, type ArtRecognizer, type LoadState, type LookDone } from "./artClient";
 import { lookBest, lookCandidates, lookLead, lookOrder, lookSettles, withoutMisread, type LookScores } from "./look";
@@ -42,6 +42,9 @@ import { CardOutline } from "./CardOutline";
 import { ask60, askUsualRate, fps60On, FrameRateMeter, setFps60, watchFrameRate } from "./frameRate";
 import { OutlineTracker } from "./outline";
 import { defaultCamera, nameCameras, resolveSaved, saveCamera, savedCamera, type NamedCamera } from "./cameras";
+import { browserCameraSource, draw, sourceLabel, type CameraSource, type SourceInfo } from "./cameraSource";
+import { nativeCameraAvailable, openNativeCamera, saveNativeCamera, savedNativeCamera, type NativeCamera } from "./nativeCamera";
+import { NativeCameraSetting } from "./NativeCameraSetting";
 import { AUTO_MAX, AutoZoom, LENS_SWITCH, maySwitchLens } from "./zoomPolicy";
 import { cardHeight, tooFar } from "./closer";
 import { createServerCatalog } from "./serverCatalog";
@@ -347,14 +350,6 @@ const READING = "Hold still, reading the name";
 const SAME_CARD_MARGIN = 0.02;
 
 const sameCard = (a: ScanCandidate | undefined, b: ScanCandidate | undefined) => !!a && !!b && a.name === b.name && a.set === b.set && a.number === b.number;
-
-function draw(source: CanvasImageSource, sx: number, sy: number, sw: number, sh: number, w: number, h: number, canvas: HTMLCanvasElement): RgbaImage {
-  canvas.width = Math.max(1, Math.round(w));
-  canvas.height = Math.max(1, Math.round(h));
-  const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
-  ctx.drawImage(source, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-  return ctx.getImageData(0, 0, canvas.width, canvas.height);
-}
 
 /** The whole source with its short side at RECOGNIZER_SHORT_SIDE (never enlarged), and the scale used. */
 function small(source: CanvasImageSource, width: number, height: number, canvas: HTMLCanvasElement): { image: RgbaImage; k: number } {
@@ -678,6 +673,17 @@ export function ScannerView({
   /** Wrong card was tapped: the other cards it might be, a name box, or just scan again. */
   const [wrongOpen, setWrongOpen] = useState(false);
   const cam = useCameraControls();
+  /**
+   * The app's own camera (nativeCamera.ts): the option on this device, why it didn't open this
+   * time (the browser's camera is used instead), and the camera while it's the one open.
+   */
+  const [nativeOpt, setNativeOpt] = useState(savedNativeCamera);
+  const [nativeFailed, setNativeFailed] = useState<string | null>(null);
+  const useNative = nativeOpt.on && !nativeFailed && nativeCameraAvailable();
+  const nativeCam = useRef<NativeCamera | null>(null);
+  const browserCam = useRef<CameraSource | null>(null);
+  /** The camera frames are read from (cameraSource.ts): the app's own while it's open, else the browser's video. */
+  const camSrc = (): CameraSource => nativeCam.current ?? (browserCam.current ??= browserCameraSource(() => videoRef.current));
   /** Scan settings are open over the scanner: it stops reading, as for anything else shown over it. */
   const [settingsOpen, setSettingsOpen] = useState(false);
   const paused = pausedProp || settingsOpen;
@@ -857,7 +863,9 @@ export function ScannerView({
    * step toward the card filling the view (the view the camera box shows, at the camera's zoom).
    */
   const seeCard = (quad: Quad | null, v: HTMLVideoElement) => {
-    setFar(!!quad && tooFar(quad));
+    // By the card's size in the camera's full frame (the app's own camera hands frames over smaller).
+    const full = camSrc().fullScale();
+    setFar(!!quad && tooFar(full === 1 ? quad : (quad.map(([x, y]) => [x * full, y * full]) as Quad)));
     const az = autoZoomRef.current;
     const c = camRef.current;
     if (!az || c.userZoomed()) return;
@@ -1187,6 +1195,43 @@ export function ScannerView({
     let stream: MediaStream | null = null;
     let stopped = false;
     let stopFps = () => undefined as void;
+    if (useNative) {
+      // The app's own camera: its frames arrive in the canvas that stands where the video does.
+      const el = videoRef.current as unknown as HTMLCanvasElement | null;
+      if (!el) return;
+      const told = (info: SourceInfo) => {
+        if (stopped) return;
+        setCameraNow(info);
+        setCamera(sourceLabel(info));
+      };
+      // The same sizes the browser's camera is asked for, below.
+      const size = identityOnly ? { width: 1920, height: 1080 } : { width: 3840, height: 2160 };
+      const native = openNativeCamera(el, { lens: nativeOpt.lens, fps: nativeOpt.fps, ...size, torchLevel: nativeOpt.torchLevel }, { onInfo: told });
+      nativeCam.current = native;
+      native.ready.then(
+        (info) => {
+          if (stopped) return;
+          cam.attach(native.track());
+          console.info("Scanner camera", info);
+          told(info);
+          setCameras([]);
+          setLive(true);
+          setPhase((p) => (p === "loading" ? "scanning" : p));
+        },
+        (e: unknown) => {
+          // It won't open here: the camera as before, and Scan settings say why.
+          if (!stopped) setNativeFailed(e instanceof Error ? e.message : "it didn't open");
+        },
+      );
+      return () => {
+        stopped = true;
+        haltReaders();
+        setLive(false);
+        cam.attach(null);
+        native.close();
+        if (nativeCam.current === native) nativeCam.current = null;
+      };
+    }
     if (!navigator.mediaDevices?.getUserMedia) {
       setPhase("no-camera");
       setError("This browser can't open the camera here (it needs https). Use a photo instead.");
@@ -1275,9 +1320,10 @@ export function ScannerView({
       cam.attach(null);
       stream?.getTracks().forEach((t) => t.stop());
     };
-    // cam.attach and haltReaders are stable for this purpose.
+    // cam.attach and haltReaders are stable for this purpose. The app's camera reopens for a new
+    // lens or capture rate; its flashlight strength changes as it runs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cameraId]);
+  }, [cameraId, useNative, nativeOpt.lens, nativeOpt.fps]);
 
   /** The look at the found card's printings under way (look.ts): stopped when the card is done with or its printing chosen. */
   const lookRun = useRef<{ seq: number; stop: AbortController } | null>(null);
@@ -1716,7 +1762,9 @@ export function ScannerView({
           // match isn't one of theirs: its art says nothing about which card this is.
           const artUnknown = !!locked && judged?.kind !== "in-set" && poolShare.current < KNOWN_ART;
           const side = identityOnly ? IDENTITY_SIDE : undefined;
-          const read = (at?: { image: RgbaImage; quad: Quad }) => (identityOnly && !savingPhotos() ? null : (at ?? around(v, v.videoWidth, v.videoHeight, toVideo(r.quad!), hiCanvasRef.current!, side)));
+          // The view of the card kept with it: none where only the card matters and photos aren't saved.
+          const keepsView = !(identityOnly && !savingPhotos());
+          const read = (at: { image: RgbaImage; quad: Quad }) => (keepsView ? at : null);
           // A card just filed by its name stays held (hold.ts): its art mustn't file it again, by
           // art, by a title read or by the two-frame fallback below.
           const heldName = blockedName.current?.name;
@@ -1755,7 +1803,7 @@ export function ScannerView({
             // The match the lead is for (the in-set one with the set lock).
             top: Math.round(top.score * 1000) / 1000,
             lead: Math.round(lead * 1000) / 1000,
-            cardPx: Math.round(cardHeight(toVideo(r.quad))),
+            cardPx: Math.round(cardHeight(toVideo(r.quad)) * camSrc().fullScale()),
           };
           // Which rule settled the card, for its record (diagnostics.ts).
           const lockBy = (how: LockRule) => {
@@ -1775,8 +1823,10 @@ export function ScannerView({
               seekFrame({ art: artNote.art.slice(0, 3), lead: artNote.lead, cardPx: artNote.cardPx });
               return next(30);
             }
+            const view = keepsView ? await camSrc().around(toVideo(r.quad), hiCanvasRef.current, side) : null;
+            if (stop) return;
             lockBy(by);
-            showArt(r, top, read(), { leads: leading });
+            showArt(r, top, view, { leads: leading });
             return;
           }
           // Not while a card filed by its name is held: it may be that card, still in view.
@@ -1793,7 +1843,8 @@ export function ScannerView({
             // doesn't know yet are usually in the set being scanned).
             const reader = lockRef.current?.names ? { ...full, names: lockRef.current.names } : full;
             const quad = toVideo(r.quad);
-            const hi = around(v, v.videoWidth, v.videoHeight, quad, hiCanvasRef.current, side);
+            const hi = await camSrc().around(quad, hiCanvasRef.current, side);
+            if (stop) return;
             // The card from title and art together (fuse.ts): a clear title settles the card when
             // the art has it among its matches, and overrules the art when it doesn't. Matches from
             // art the index doesn't know for the locked sets count for nothing.
@@ -1888,8 +1939,10 @@ export function ScannerView({
         const reader = await textReader();
         if (stop || !g) return next(200);
         const { sx, sy, sw, sh, gx, gy, gw, gh } = boxInVideo(v, g, MARGIN);
-        const k = Math.min(1, MAX_SIDE / Math.max(sw, sh));
-        const image = draw(v, sx, sy, sw, sh, sw * k, sh * k, canvasRef.current);
+        // From the camera's full frame, never enlarged (the app's own camera hands `v` over smaller).
+        const k = Math.min(camSrc().fullScale(), MAX_SIDE / Math.max(sw, sh));
+        const image = await camSrc().region({ x: sx, y: sy, w: sw, h: sh }, sw * k, sh * k, canvasRef.current);
+        if (stop) return;
         const upright: Quad = rectQuad((gx - sx) * k, (gy - sy) * k, gw * k, gh * k);
         // Alternate upright and upside-down reads across frames rather than both in one frame.
         const flip = textFrame++ % 2 === 1;
@@ -2237,7 +2290,9 @@ export function ScannerView({
     };
     /** Read one image of the card into the evidence; true when that settled it. */
     const readInto = async (src: CanvasImageSource, w: number, h: number, quad: Quad, f: Found, source: "hold" | "still" = "hold"): Promise<"settled" | "read" | "blurred"> => {
-      const read = around(src, w, h, quad, hiCanvasRef.current!);
+      // A still is cut from itself; a camera frame, by the camera (at its full resolution).
+      const read = source === "still" ? around(src, w, h, quad, hiCanvasRef.current!) : await camSrc().around(quad, hiCanvasRef.current!);
+      if (stop) return "read";
       setLiveShot(read);
       f.rec?.latestShot(read);
       const ocr = await ocrEngine();
@@ -2249,7 +2304,7 @@ export function ScannerView({
         if (stop) return "read";
         reads.push(text);
       }
-      const note = { source, ...qualityNote(quality), cardPx: Math.round(cardHeight(quad)), zoom: camRef.current.zoom };
+      const note = { source, ...qualityNote(quality), cardPx: Math.round(cardHeight(quad) * (source === "still" ? 1 : camSrc().fullScale())), zoom: camRef.current.zoom };
       if (!sharp) {
         f.rec?.frame({ ...note, reads: [], skipped: true });
         return "blurred";
@@ -2277,7 +2332,8 @@ export function ScannerView({
      */
     let stillTaken = false;
     const tryStill = async (f: Found): Promise<boolean> => {
-      if (stillTaken || !artRef.current) return false;
+      // The app's own camera has no still to take (its reads are already cut from the full frame).
+      if (stillTaken || !artRef.current || nativeCam.current) return false;
       const track = cam.track();
       const IC = (window as unknown as { ImageCapture?: new (t: MediaStreamTrack) => { takePhoto(): Promise<Blob> } }).ImageCapture;
       if (!IC || !track) return false;
@@ -2396,7 +2452,8 @@ export function ScannerView({
         const { sx, sy, sw, sh } = boxInVideo(v, box);
         if (sw < 8 || sh < 8) return next(200);
         const h = CLOSEUP_HEIGHT[closeup];
-        const image = draw(v, sx, sy, sw, sh, (sw * h) / sh, h, hiCanvasRef.current);
+        const image = await camSrc().region({ x: sx, y: sy, w: sw, h: sh }, (sw * h) / sh, h, hiCanvasRef.current);
+        if (stop) return;
         const text = await readCloseup(image, closeup, await ocrEngine());
         if (stop) return;
         setCloseupRead(text.replace(/\s+/g, " ").trim());
@@ -2640,6 +2697,19 @@ export function ScannerView({
   const settingsBox = settingsOpen && (
     <ScanSettings onClose={() => setSettingsOpen(false)}>
       {settings}
+      {nativeCameraAvailable() && (
+        <NativeCameraSetting
+          option={nativeOpt}
+          onChange={(o) => {
+            saveNativeCamera(o);
+            setNativeOpt(o);
+            setNativeFailed(null);
+          }}
+          info={useNative ? (cameraNow as SourceInfo | null) : null}
+          camera={useNative ? nativeCam.current : null}
+          failed={nativeOpt.on ? nativeFailed : null}
+        />
+      )}
       <CameraSetting
         cameras={cameras}
         current={cameraNow}
@@ -2840,7 +2910,13 @@ export function ScannerView({
     <div className={`scan${needsSheet ? " is-deciding" : ""}`} onPointerDown={soundsProp && soundsSwitch ? () => void unlockSound() : undefined}>
       <div ref={cameraRef} className="scan-camera">
         <div className="scan-zoom" style={cam.digital > 1 ? { transform: `scale(${cam.digital})` } : undefined}>
-          <video ref={videoRef} className="scan-video" playsInline muted autoPlay aria-hidden="true" />
+          {useNative ? (
+            // The app's own camera: its preview is drawn behind the page, and this canvas (not
+            // painted) holds the frames the scanner reads, where the video would be.
+            <canvas ref={videoRef as unknown as Ref<HTMLCanvasElement>} className="scan-video is-native" aria-hidden="true" />
+          ) : (
+            <video ref={videoRef} className="scan-video" playsInline muted autoPlay aria-hidden="true" />
+          )}
           <CardOutline tracker={outlines} show={phase === "scanning" && mode === "art" && live && !closeup && !photoBusy && !paused && !lockOpen} />
         </div>
         <div className="scan-frame" aria-hidden="true">
