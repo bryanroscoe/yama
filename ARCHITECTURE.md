@@ -675,8 +675,10 @@ frame still wasn't settled while the set code was misread.
 
 - **The number alone settles a printing when it's enough** (`numberAlone` in
   `web/src/scanner/evidence.ts`): no other candidate printing's number reads the same through OCR's
-  lookalikes or lies one edit from it (86 or 287 against 286); the number was read exactly on two
-  frames; and nothing read exactly names another candidate's set code or number. The twin guards
+  lookalikes or lies one edit from it (86 or 287 against 286); the number was read exactly in its
+  printed form (three characters or more, so glued power and toughness don't count) on two frames;
+  nothing read names another candidate's set code (even through lookalikes) or its number
+  exactly; and no set code read before the language contradicts the leader's. The twin guards
   stay as they were (The List, a promo suffix and Mystery Booster still go to the picker). Such a
   settle is shown and filed like any other collector-line settle, with Wrong printing, and its
   verdict in Scanner diagnostics says `alone: true` so these can be counted apart.

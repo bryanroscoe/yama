@@ -74,9 +74,30 @@ describe("collector-line evidence", () => {
     expect(verdict(signets, Array(4).fill(["O14S"])).kind).toBe("unsure");
     // A frame reading another printing's set code exactly leaves it to the set code.
     expect(verdict(signets, [["0145"], ["0145"], ["CMM • EN"]]).kind).toBe("unsure");
-    // The twin guards still hold: The List prints the same number.
-    const withList = [p("orig", "mom", "286"), p("list", "plst", "MOM-286"), p("other", "one", "12")];
-    expect(verdict(withList, Array(4).fill(["0286 M"]))).toMatchObject({ kind: "unsure" });
+    // The List prints the same number, so it's never enough alone. (The original leads on its
+    // rarity, so this isn't a tie holding it back.) With the set code read too, the twin guard holds.
+    const withList = [p("orig", "mom", "286", { rarity: "mythic" }), p("list", "plst", "MOM-286", { rarity: "rare" }), p("other", "one", "12")];
+    expect(verdict(withList, Array(8).fill(["0286 M"]))).toMatchObject({ kind: "unsure", leader: "orig" });
+    expect(verdict(withList, Array(8).fill(["0286 M", "MOM • EN"]))).toMatchObject({ kind: "unsure", leader: "orig", twin: true });
+    // Nor does a Mystery Booster card settle on a number its own line doesn't print.
+    expect(verdict([p("mb1", "mb1", "1234"), p("dom", "dom", "45")], Array(4).fill(["1234 C"])).kind).toBe("unsure");
+  });
+
+  // Review of #180: what must never settle on the number alone.
+  it("never takes power and toughness, a lookalike set code or a set read against it for the number alone", () => {
+    const cards = [p("abc", "abc", "22"), p("xyz", "xyz", "301"), p("def", "def", "157")];
+    // "2/2" read without its slash, on the right-hand cut.
+    expect(tokens("2 2")).not.toContain("22");
+    expect(verdict(cards, Array(4).fill(["XY2 • EN", "2 2"])).kind).toBe("unsure");
+    // A bare "22" (glued P/T) isn't the printed form of number 22 ("0022").
+    expect(verdict(cards, Array(4).fill(["22"])).kind).toBe("unsure");
+    expect(verdict(cards, Array(2).fill(["0022"]))).toMatchObject({ kind: "settled", id: "abc", alone: true });
+    // Another candidate's set code read through lookalikes.
+    expect(verdict(cards, [["0022", "XY2 • EN"], ["0022"]]).kind).toBe("unsure");
+    // A set code read where it's printed that's none of the candidates' (a set the lock left out).
+    expect(verdict([p("abc", "abc", "145"), p("def", "def", "390")], Array(2).fill(["0145 C\nQRS • EN"])).kind).toBe("unsure");
+    // An artist's name later on the line isn't a glued set code and language.
+    expect(tokens("DMU • EN DOMENICO CAVA")).not.toContain("DOM");
   });
 
   it("reads through stray spaces, a glued rarity letter and the brush mark", () => {

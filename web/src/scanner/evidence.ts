@@ -159,13 +159,15 @@ export const tokens = (text: string) => {
     const runs = line.split(/[^A-Z0-9]+/).filter(Boolean);
     for (let i = 0; i + 1 < runs.length; i += 1) {
       const [a, b] = [runs[i]!, runs[i + 1]!];
-      if (/^\d+$/.test(a) && /^\d+[A-Z]?$/.test(b) && a.length + b.length <= 5) extra.push(a + b);
+      // Only a split zero-padded number ("02 86", "0 286"), as printed since 2015: two plain numbers
+      // side by side are more often power and toughness read without the slash ("2 2").
+      if (/^0\d*$/.test(a) && /^\d+[A-Z]?$/.test(b) && a.length + b.length >= 3 && a.length + b.length <= 5) extra.push(a + b);
       else if (a.length <= 2 && b.length <= 2 && a.length + b.length >= 3 && /[A-Z]/.test(a + b) && !(a in LANGS) && !(b in LANGS)) extra.push(a + b);
     }
-  }
-  for (const t of read) {
-    if (t.length < 5) continue;
-    const m = GLUED_LANG.exec(t);
+    // A glued set code and language starts its line, where the set code is printed: an artist's
+    // name later on the line ("DOMENICO", "JONES") isn't split into a set code and a language.
+    const first = runs[0];
+    const m = first && first.length >= 5 ? GLUED_LANG.exec(first) : null;
     if (m) extra.push(m[1]!, m[2]!);
   }
   return [...read, ...extra.filter((t) => !read.includes(t))];
@@ -184,6 +186,14 @@ export interface FieldScores {
   /** The number, or the set code, was read exactly as printed (not only through lookalikes). */
   exactNumber: boolean;
   exactSet: boolean;
+  /**
+   * The number was read exactly in the printed form, at least three characters ("0022", "022",
+   * "286"): what lets the number settle a printing by itself. A bare "22" is as likely power and
+   * toughness glued together.
+   */
+  printedNumber: boolean;
+  /** A set code was read where it's printed, before the language ("XYZ • EN"), and it isn't this printing's, even through lookalikes. */
+  setAgainst: boolean;
 }
 
 /** Characters OCR reads for digits. A number is digits, or digits and these, with at most a suffix letter at the end. */
@@ -200,7 +210,7 @@ export const looksLikeSet = (t: string) => t.length >= 2 && t.length <= 5 && /[A
  * SLD #510's number through lookalikes).
  */
 export function scoreFrame(e: Expected, reads: readonly string[]): FieldScores {
-  const s: FieldScores = { number: 0, set: 0, rarity: 0, lang: 0, suffixRead: false, exactNumber: false, exactSet: false };
+  const s: FieldScores = { number: 0, set: 0, rarity: 0, lang: 0, suffixRead: false, exactNumber: false, exactSet: false, printedNumber: false, setAgainst: false };
   const toks = reads.flatMap(tokens);
   /** The token as this printing's number: its own rarity letter, glued on, taken off ("0286M" for a mythic 286). */
   const asNumber = (t: string) => (!e.suffix && e.rarity && RARITY_LETTERS.has(e.rarity) && t.length > 1 && t.endsWith(e.rarity) && /\d$/.test(t.slice(0, -1)) ? t.slice(0, -1) : t);
@@ -227,6 +237,7 @@ export function scoreFrame(e: Expected, reads: readonly string[]): FieldScores {
     const t = stripZeros(asNumber(toks[best.n]!));
     s.exactNumber = t === e.number || (!e.suffix && t === e.base);
     s.suffixRead = e.suffix && t === e.number;
+    s.printedNumber = s.exactNumber && asNumber(toks[best.n]!).length >= 3;
   }
   if (best.s >= 0) {
     s.set = sets[best.s]!;
@@ -235,6 +246,10 @@ export function scoreFrame(e: Expected, reads: readonly string[]): FieldScores {
   for (const t of toks) {
     if (t.length === 1 && e.rarity && t === e.rarity) s.rarity = 1;
     if (LANGS[t] === e.lang) s.lang = 1;
+  }
+  for (const line of reads.flatMap((r) => r.toUpperCase().split(/\n+/))) {
+    const runs = line.split(/[^A-Z0-9]+/).filter(Boolean);
+    for (let i = 0; i + 1 < runs.length; i += 1) if (runs[i + 1]! in LANGS && looksLikeSet(runs[i]!) && /[A-Z]/.test(runs[i]!) && tokenMatch(runs[i]!, e.set) === 0) s.setAgainst = true;
   }
   return s;
 }
@@ -248,8 +263,10 @@ interface Tally {
   suffixRead: boolean;
   exactNumber: boolean;
   exactSet: boolean;
-  /** Frames that read the number exactly as printed. */
+  /** Frames that read the number exactly in its printed form (FieldScores.printedNumber). */
   exactNumberFrames: number;
+  /** A frame read a set code where it's printed that isn't this printing's. */
+  setAgainst: boolean;
 }
 
 /**
@@ -260,6 +277,8 @@ interface Tally {
  * count: 139s is the same number as 139 here, and the twin guard decides between them.
  */
 export function numberAlone(all: readonly Expected[], me: Expected): boolean {
+  // Mystery Booster prints another printing's number: its own number read is a misread.
+  if (me.unknownLine) return false;
   const mine = stripZeros(shape(me.base));
   return all.every((o) => {
     if (o.id === me.id) return true;
@@ -283,7 +302,7 @@ export class Evidence {
   private frames = 0;
 
   constructor(printings: readonly PrintingLine[]) {
-    this.tallies = printings.map((p) => ({ e: expectedOf(p), total: 0, number: 0, set: 0, suffixRead: false, exactNumber: false, exactSet: false, exactNumberFrames: 0 }));
+    this.tallies = printings.map((p) => ({ e: expectedOf(p), total: 0, number: 0, set: 0, suffixRead: false, exactNumber: false, exactSet: false, exactNumberFrames: 0, setAgainst: false }));
   }
 
   /** Add one frame: the text read from each of its crops. */
@@ -298,7 +317,8 @@ export class Evidence {
       t.suffixRead ||= s.suffixRead;
       t.exactNumber ||= s.exactNumber;
       t.exactSet ||= s.exactSet;
-      if (s.exactNumber) t.exactNumberFrames += 1;
+      if (s.printedNumber) t.exactNumberFrames += 1;
+      t.setAgainst ||= s.setAgainst;
     }
   }
 
@@ -337,8 +357,10 @@ export class Evidence {
     const posterior = 1 / sum;
     const numberOk = lead.number >= SETTLE.fieldMin;
     // The number alone is enough when no other candidate's number could be read as it, it was read
-    // exactly on two frames, and nothing read exactly names another printing's set code or number
-    // (a stray frame of another printing's line leaves it to the set code, as before).
+    // exactly in its printed form on two frames, nothing read names another printing's set code
+    // (even through lookalikes) or its number exactly, and no set code read where it's printed
+    // contradicts the leader's (a card from a set not among the candidates). Otherwise it's left
+    // to the set code, as before.
     const alone =
       lead.e.printsSet &&
       lead.exactNumberFrames >= NUMBER_ALONE_FRAMES &&
@@ -346,7 +368,8 @@ export class Evidence {
         this.tallies.map((t) => t.e),
         lead.e,
       ) &&
-      !this.tallies.some((t) => t !== lead && ((t.exactSet && t.e.set !== lead.e.set) || (t.exactNumber && t.e.base !== lead.e.base)));
+      !lead.setAgainst &&
+      !this.tallies.some((t) => t !== lead && ((t.set >= LOOKALIKE && t.e.set !== lead.e.set) || (t.exactNumber && t.e.base !== lead.e.base)));
     const setOk = !lead.e.printsSet || lead.set >= SETTLE.fieldMin || alone;
     // Settling needs a field read exactly as printed, and the other at least through lookalikes:
     // lookalike-only reads ("O14S W0C") order the picker and show progress, and never settle.
