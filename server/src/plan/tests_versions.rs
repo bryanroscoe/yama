@@ -275,11 +275,14 @@ async fn a_future_clear_under_an_alias_waits_instead_of_future_dating_the_plan()
         .execute(&pool)
         .await
         .unwrap();
+    // The clear is the newest word on beta-1, so it's new again.
+    assert_eq!(deck(&bundle(&app, &token).await, "beta")["plan"]["next"]["keys"], json!(["beta-1"]));
     // Nothing is written past now: the change waits for a later write.
-    assert_eq!(super::super::versions::settle_all(&pool).await.unwrap(), 0);
+    let mut conn = pool.acquire().await.unwrap();
+    assert!(super::super::versions::settle(&mut conn, &owner).await.unwrap().is_empty());
+    drop(conn);
     let at: String = sqlx::query_scalar("SELECT at FROM plan_reviews WHERE owner_id = ? AND swap_key = 'beta-1'").bind(&owner).fetch_one(&pool).await.unwrap();
     assert!(at < ahead, "{at}");
-    let _ = (&app, &token);
 }
 
 #[tokio::test]
