@@ -293,10 +293,9 @@ async fn claude_sees_notes_as_deck_plans_and_tracks_them_straight_away() {
     assert!(!err && text.contains("Stopped tracking Energy's plan"), "{text}");
     let status: String = sqlx::query_scalar("SELECT status FROM plan_decks WHERE owner_id = ? AND key = 'energy'").bind(&a).fetch_one(&pool).await.unwrap();
     assert_eq!(status, "archived");
-    // The tool that approved plans is gone.
-    let (status, r) = send(&app, Method::POST, "/mcp", Some(key), Some(rpc("approve_plan", json!({"plan": "energy"})))).await;
-    assert_eq!(status, StatusCode::OK, "{r}");
-    assert!(r["error"].is_object() || r["result"]["isError"] == true, "{r}");
+    // The tool that approved plans is gone, and a client that still calls it is told why.
+    let (err, text) = call(&app, key, "approve_plan", json!({"plan": "energy"})).await;
+    assert!(!err && text.contains("plans don't wait for approval any more"), "{text}");
 }
 
 #[tokio::test]

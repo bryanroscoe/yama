@@ -278,7 +278,10 @@ async fn mcp_route(State(st): State<AppState>, extensions: axum::http::Extension
         "tools/call" => {
             let name = params["name"].as_str().unwrap_or_default().to_string();
             let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
-            if !tools::offered(&name, &user, &via) {
+            if let Some((_, said)) = RETIRED.iter().find(|(old, _)| *old == name) {
+                // A client that listed the tools before keeps a working name: it's told what to do now.
+                rpc_result(&id, json!({"content": [{"type": "text", "text": said}], "isError": false}))
+            } else if !tools::offered(&name, &user, &via) {
                 rpc_error(&id, -32602, &format!("unknown tool \"{name}\""))
             } else if let Err(e) = count_call(&st.limits, &user) {
                 // A tool result, not an HTTP 429: the assistant reads the reason and waits,
@@ -296,6 +299,15 @@ async fn mcp_route(State(st): State<AppState>, extensions: axum::http::Extension
     };
     Json(reply).into_response()
 }
+
+/// Tools that are gone, and what a client that still calls one is told.
+const RETIRED: &[(&str, &str)] = &[(
+    "approve_plan",
+    "Nothing to do: plans don't wait for approval any more (20 Nov 2026). A deck's changes go into its plan when they \
+     arrive (`track_build`, saving its note, or a plan file), except a change whose cut clashes, which is left out with \
+     the reason in its note. `get_plan` shows what's in the plan and what was left out; `answer_review` puts a change in \
+     (want) or takes it out (no).",
+)];
 
 /// Count one tool call against the account's limits, or refuse it: so many a minute for
 /// everyone but admins, and so many a day for an account that joined through open sign-up. Both

@@ -19,7 +19,10 @@ fn list() -> Value {
     json!([{"name": "Test Commander", "qty": 1, "board": "commander"}, {"name": "Forest", "qty": 99, "board": "main"}])
 }
 
-/// One imported deck with a planned swap and two proposals, one store, and the given reviews.
+/// One imported deck with three planned swaps, one store, and the given reviews. P1 and P2 were
+/// proposals until plans stopped waiting for approval (20 Nov 2026): an import now answers every new
+/// proposal (`versions::settle`, tested in `tests_versions.rs`), so they're planned here and these
+/// tests see only what the ops themselves write.
 fn doc(reviews: Value) -> Value {
     json!({
         "format": "yama-plan/1",
@@ -31,8 +34,8 @@ fn doc(reviews: Value) -> Value {
             "swaps": [
                 {"key": PLANNED, "deck": "alpha", "stage": "planned", "role": "swap", "src": "owned", "out": "Old Card", "in": "New Card",
                  "got": {"how": "pulled", "product": "A pack"}},
-                {"key": P1, "deck": "alpha", "stage": "proposed", "role": "swap", "src": "buy", "out": "Forest", "in": "Proposal One"},
-                {"key": P2, "deck": "alpha", "stage": "proposed", "role": "swap", "src": "buy", "out": null, "in": "Proposal Two"}
+                {"key": P1, "deck": "alpha", "stage": "planned", "role": "swap", "src": "buy", "out": "Forest", "in": "Proposal One"},
+                {"key": P2, "deck": "alpha", "stage": "planned", "role": "swap", "src": "buy", "out": null, "in": "Proposal Two"}
             ],
             "reviews": reviews
         }
@@ -311,7 +314,7 @@ async fn seq_is_global_the_inbox_returns_export_ops_after_the_cursor_and_ack_mov
         "key": "mine", "name": "Mine", "source": "yama", "commander": ["Test Commander"],
         "states": {"stock": {"cards": list()}, "now": {"cards": list()}, "after": {"cards": list()}}}));
     both["plan"]["swaps"].as_array_mut().unwrap().push(json!({
-        "key": "y|mine-p1", "deck": "mine", "stage": "proposed", "role": "swap", "src": "buy", "out": null, "in": "Mine One"}));
+        "key": "y|mine-p1", "deck": "mine", "stage": "planned", "role": "swap", "src": "buy", "out": null, "in": "Mine One"}));
     import(&app, &b_session, &both).await;
 
     // Interleaved ops from two people: seqs keep going up across them.
