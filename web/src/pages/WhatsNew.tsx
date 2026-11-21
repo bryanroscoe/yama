@@ -1,10 +1,15 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Link, useLocation } from "react-router";
 import { useMe } from "../auth";
 import { NEWS, SEEN_KEY, noticeLine, unseen } from "../whatsNew";
 import "../components/calendar.css";
 import { fmtDate } from "@yama/core";
 import { BackLink, Button, ButtonLink, PageHeader } from "../components/ui";
+import { usePageTitle } from "../pageTitle";
+
+/** How many entries the page opens with, and how many more each "Show older" adds. */
+const NEWEST = 10;
+const OLDER = 20;
 
 const SEEN_EVENT = "yama-news-seen";
 
@@ -70,15 +75,31 @@ export function WhatsNewPage() {
   useEffect(() => {
     markSeen();
   }, []);
+  usePageTitle("What's new");
+  // The newest few, not every entry since launch (119 of them were 50,000 px on a phone). All of
+  // what's new to this device shows however many that is, unless it can't say what it last saw.
+  const marked = before !== null && freshIds.size < NEWS.length ? freshIds.size : 0;
+  const [shown, setShown] = useState(Math.max(NEWEST, marked));
+  // Show older takes the reader to the first entry it added, so the place isn't lost when the
+  // last press removes the button.
+  const [added, setAdded] = useState<string | null>(null);
+  const firstAdded = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (added) firstAdded.current?.focus({ preventScroll: true });
+  }, [added]);
+  const showOlder = () => {
+    setAdded(NEWS[shown]?.id ?? null);
+    setShown(shown + OLDER);
+  };
   return (
     <main className="page">
       {/* A page of You: the way back, for a phone whose top bar has scrolled away. */}
       {me && <BackLink inline to="/profile" label="Back to You" text="You" />}
       <PageHeader title="What's new" />
       <div className="whats-new">
-        {NEWS.map((e) => (
+        {NEWS.slice(0, shown).map((e) => (
           <article key={e.id} aria-labelledby={`news-${e.id}`}>
-            <h2 id={`news-${e.id}`}>
+            <h2 id={`news-${e.id}`} ref={e.id === added ? firstAdded : undefined} tabIndex={e.id === added ? -1 : undefined}>
               {e.title}
               {freshIds.has(e.id) && before !== null && <span className="news-new">New</span>}
             </h2>
@@ -95,6 +116,11 @@ export function WhatsNewPage() {
             )}
           </article>
         ))}
+        {shown < NEWS.length && (
+          <p style={{ margin: 0 }}>
+            <Button onClick={showOlder}>Show older</Button>
+          </p>
+        )}
         <footer>
           <p>
             Yama is free, unofficial fan software. New decks are public unless you choose otherwise; everything else stays private to your account unless you share it. It isn't affiliated with, endorsed by, or sponsored by Wizards of the

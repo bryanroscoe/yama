@@ -4,20 +4,27 @@ import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DeckSummary, GameRow } from "../api";
 import { HOME_LINKS, HomePage } from "./Home";
+import { startSteps } from "./StartHere";
 
 const table = vi.hoisted(() => ({ game: null as unknown, state: null as unknown, opening: false, recent: true }));
 vi.mock("../table/store", () => ({ useTable: () => ({ game: table.game, state: table.state }), usePendingDeletes: () => ["deleted"] }));
 vi.mock("../table/resume", () => ({ isOpening: () => table.opening, opened: () => {}, resumesOnOpen: () => table.recent }));
 vi.mock("../components/useCardArt", () => ({ useCardArt: () => new Map() }));
 vi.mock("../table/SharedTables", () => ({ SharedTables: () => <p>Shared tables</p> }));
-// The list has its own tests (StartHere.test.tsx); here, only that Home puts it in its place.
-vi.mock("./StartHere", () => ({ StartHere: ({ userId }: { userId: string }) => <p>Start here list for {userId}</p> }));
+// The list has its own tests (StartHere.test.tsx); here, only that Home puts it in its place and
+// doesn't repeat it. `has`: what the account has, or null for a list that isn't showing.
+const start = vi.hoisted(() => ({ has: null as { decks: number; copies: number; playgroups: number; games: number } | null }));
+vi.mock("./StartHere", async (original) => {
+  const real = await original<typeof import("./StartHere")>();
+  return { ...real, useStartHere: () => start.has && { steps: real.startSteps(start.has) } };
+});
 // A redirect draws nothing in a static render: show where it goes.
 vi.mock("react-router", async (original) => ({ ...(await original<typeof import("react-router")>()), Navigate: ({ to }: { to: string }) => <p>Goes to {to}</p> }));
 
 afterEach(() => {
   vi.unstubAllGlobals();
   Object.assign(table, { game: null, state: null, opening: false, recent: true });
+  start.has = null;
 });
 
 const deck = (id: string, more: Partial<DeckSummary> = {}) => ({ id, name: `Deck ${id}`, updated_at: "2026-11-01T00:00:00Z", commanders: [], commander_image: null, commander_artist: null, parent_id: null, ...more }) as DeckSummary;
@@ -107,7 +114,7 @@ describe("Home, signed in", () => {
   it("gives an account with no decks or games a next step", () => {
     const html = home();
     expect(html).toContain("No decks yet");
-    for (const path of ["/decks/import", "/lab"]) expect(html).toContain(`href="${path}"`);
+    for (const path of ["/decks/import", "/lab?start=1"]) expect(html).toContain(`href="${path}"`);
     expect(html).toContain("No games yet");
   });
 
@@ -131,11 +138,52 @@ describe("Home, signed in", () => {
 });
 
 describe("Start here on Home", () => {
+  const nothing = { decks: 0, copies: 0, playgroups: 0, games: 0 };
+
   it("sits on top for someone signed in, above starting a game, and never shows signed out", () => {
+    start.has = nothing;
     const page = home();
-    expect(page).toContain("Start here list for u1");
-    expect(page.indexOf("Start here list")).toBeLessThan(page.indexOf("home-start-title"));
-    expect(home({ me: null })).not.toContain("Start here list");
+    expect(page).toContain("home-start-here-title");
+    expect(page.indexOf("home-start-here-title")).toBeLessThan(page.indexOf("home-start-title"));
+    expect(home({ me: null })).not.toContain("home-start-here-title");
+    // Finished, hidden or not yet answered: no list.
+    start.has = null;
+    expect(home()).not.toContain("home-start-here-title");
+  });
+
+  it("offers Add a deck once: the empty decks section waits while step 1 is open", () => {
+    start.has = nothing;
+    const page = home();
+    expect(startSteps(nothing)[0]?.id).toBe("deck");
+    expect(hrefs(page).filter((h) => h === "/decks/import" || h.startsWith("/lab"))).toEqual(["/decks/import", "/lab?start=1"]);
+    expect(page).not.toContain("Your recent decks");
+    expect(page).not.toContain("No decks yet");
+    // The list hidden (or not showing yet): the section says it instead.
+    start.has = null;
+    expect(home()).toContain("No decks yet");
+    // Step 1 done: the decks are there to show.
+    start.has = { ...nothing, decks: 1 };
+    expect(home({ decks: [deck("a")] })).toContain("Your recent decks");
+  });
+
+  it("says what Yama is for under Home until the account has a deck or a game", () => {
+    const line = "Count life at your table, keep your decks and collection, and track your playgroup&#x27;s games.";
+    expect(home()).toContain(line);
+    expect(home({ decks: [deck("a")] })).not.toContain(line);
+    expect(home({ games: [game("g1")] })).not.toContain(line);
+    expect(home({ me: null })).not.toContain(line);
+  });
+});
+
+describe("Home after deleting an account", () => {
+  it("says once that it happened, on the signed-out Home", () => {
+    const kept = new Map([["yama.account.deleted", "1"]]);
+    vi.stubGlobal("sessionStorage", { getItem: (k: string) => kept.get(k) ?? null, removeItem: (k: string) => kept.delete(k) });
+    const html = home({ me: null });
+    expect(html).toMatch(/<p class="home-status" role="status">Your account and everything in it were deleted\.<\/p>/);
+    expect(html.indexOf("home-status")).toBeLessThan(html.indexOf("<h1>"));
+    kept.clear();
+    expect(home({ me: null })).not.toContain("were deleted");
   });
 });
 

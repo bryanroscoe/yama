@@ -8,6 +8,7 @@ import { useLocation, useRouteError } from "react-router";
 import { errorMessage } from "./api";
 import { StandIn, type StandInKind } from "./components/StandIn";
 import { Button, PageHeader } from "./components/ui";
+import { useRouteTitle } from "./pageTitle";
 
 /**
  * An area's pages, loaded together. `page(name)` is a component for one export of the area's
@@ -128,16 +129,21 @@ class Boundary extends Component<BoundaryProps, BoundaryState> {
   }
 }
 
-/** A page inside the app's frame: if it fails to render, the nav stays and the page says so. */
-export function Framed({ children }: { children: ReactNode }) {
+/**
+ * A page inside the app's frame: if it fails to render, the nav stays and the page says so.
+ * `title` names it in the browser's title where its address alone doesn't (pageTitle.ts).
+ */
+export function Framed({ children, title }: { children: ReactNode; title?: string }) {
   const { pathname, key } = useLocation();
+  useRouteTitle(title);
   return <Boundary at={pathname} visit={key}>{children}</Boundary>;
 }
 
-/** A page with its stand-in while its code loads, and a way back if that fails. */
+/** A page with its stand-in while its code loads, and a way back if that fails. `title` is its
+ *  heading where the route knows it: the stand-in's, and the browser's title. */
 export function Paged({ page: Page, kind, title }: { page: ComponentType; kind?: StandInKind; title?: string }) {
   return (
-    <Framed>
+    <Framed title={title}>
       <Suspense fallback={<StandIn kind={kind} title={title} />}>
         <Page />
       </Suspense>

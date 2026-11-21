@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { api, publicOrigin, type Sharing, type Visibility } from "../api";
 import { useMe } from "../auth";
 import { Button, ErrorText, Field } from "../components/ui";
+import { handleProblem } from "./ChooseHandle";
 import { useCopy, VISIBILITY_CHOICES } from "./ShareDeck";
 import "./share.css";
 import { ask } from "../components/confirm";
@@ -28,7 +29,12 @@ export function SharingSettings() {
   // reset by any save on this form (changing "New decks start as" wiped a handle being typed).
   const [typed, setTyped] = useState<TypedHandle | null>(null);
   const handle = handleShown(typed, sharing.data?.handle ?? null);
-  const setHandle = (value: string) => setTyped({ value, over: sharing.data?.handle ?? null });
+  const setHandle = (value: string) => {
+    setTyped({ value, over: sharing.data?.handle ?? null });
+    // The server's answer was about the handle as it was sent.
+    saveHandle.reset();
+  };
+  const problemId = useId();
   const [copied, copy] = useCopy();
   const viewing = !!useMe().data?.viewing;
   const [asking, setAsking] = useState(false);
@@ -41,12 +47,21 @@ export function SharingSettings() {
     mutationFn: (json: Record<string, unknown>) => api<Sharing>("/api/me/sharing", { method: "PUT", json }),
     onSuccess: done,
   });
+  // The handle saves on its own, so what the server says about it (taken, not allowed) shows
+  // under its box and not after the settings below it.
+  const saveHandle = useMutation({
+    mutationFn: (handle: string | null) => api<Sharing>("/api/me/sharing", { method: "PUT", json: { handle } }),
+    onSuccess: done,
+  });
   const all = useMutation({
     mutationFn: (visibility: Visibility) => api<Sharing>("/api/me/sharing/decks", { method: "POST", json: { visibility } }),
     onSuccess: done,
   });
   const s = sharing.data;
   if (!s) return <ErrorText error={sharing.error} retry={() => void sharing.refetch()} />;
+  // Why what's typed can't be a handle, said as it's typed: Save used to send it and the server's
+  // refusal showed 700 px down, after the checkboxes.
+  const problem = handleProblem(handle);
   const profile = s.handle ? `${publicOrigin()}/u/${s.handle}` : null;
   const total = s.decks.private + s.decks.link + s.decks.public;
   const shareAll = async (v: Visibility, title: string, body: string | undefined, confirm: string) => (await ask({ title, body, confirm, danger: true })) && all.mutate(v);
@@ -67,17 +82,19 @@ export function SharingSettings() {
         className="share-handle"
         onSubmit={(e) => {
           e.preventDefault();
-          save.mutate({ handle: handle.trim() || null });
+          if (!problem) saveHandle.mutate(handle.trim() || null);
         }}
       >
         <label>
           Your handle
           <span className="hint">3–30 letters, digits, - or _. Your profile is at /u/handle.</span>
           <span className="row">
-            <input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="yourname" maxLength={31} autoCapitalize="none" spellCheck={false} />
-            <Button type="submit" disabled={save.isPending || handle.trim().replace(/^@/, "").toLowerCase() === (s.handle ?? "")}>Save</Button>
+            <input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="yourname" maxLength={31} autoCapitalize="none" spellCheck={false} aria-invalid={problem ? true : undefined} aria-describedby={problem ? problemId : undefined} />
+            <Button type="submit" disabled={saveHandle.isPending || !!problem || handle.trim().replace(/^@/, "").toLowerCase() === (s.handle ?? "")}>{saveHandle.isPending ? "Saving…" : "Save"}</Button>
           </span>
+          {problem && <span className="field-error" id={problemId} role="alert">{problem}</span>}
         </label>
+        <ErrorText error={saveHandle.error} />
       </form>
       {profile && (
         <div className="row share-profile-link">
@@ -147,7 +164,7 @@ export function SharingSettings() {
       </label>
       <label className="share-collection-toggle">
         <input type="checkbox" checked={s.wants_public} disabled={save.isPending} onChange={(e) => save.mutate({ wants_public: e.target.checked })} />
-        Show what I'm looking for on my profile
+        Show my wish list on my profile
         <span className="hint">
           Missing real cards for your decks and their plans, plus your wish list. Card names, quantities and market prices;
           not deck names, notes, stores or price limits.

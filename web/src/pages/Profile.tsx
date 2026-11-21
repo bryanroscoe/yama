@@ -4,7 +4,7 @@ import { Link, useLocation } from "react-router";
 import { api, publicOrigin, type Sharing } from "../api";
 import { advancedOf, useMe } from "../auth";
 import { contactHref } from "../components/PowerOnly";
-import { Button, ButtonLink, ErrorText, Loading } from "../components/ui";
+import { Button, ButtonLink, ErrorText, Loading, PageHeader } from "../components/ui";
 import { tab } from "../nav";
 import { useCopy } from "../decks/ShareDeck";
 import { isNative } from "../native";
@@ -33,11 +33,14 @@ export function ProfilePage() {
   const s = enabled ? sharing.data : undefined;
   const profile = s?.handle ? `${publicOrigin()}/u/${encodeURIComponent(s.handle)}` : null;
   return <main className="page profile-page">
-    <header className="profile-heading">
-      <h1>You</h1>
-      <p className="profile-name">{me.display_name || me.email}</p>
-      {s?.handle && <p className="dim">@{s.handle}</p>}
-    </header>
+    <PageHeader
+      className="profile-heading"
+      title="You"
+      sub={<>
+        <p className="profile-name">{me.display_name || me.email}</p>
+        {s?.handle && <p className="dim">@{s.handle}</p>}
+      </>}
+    />
 
     {enabled && <section className="profile-public" aria-labelledby="profile-public-title">
       <h2 id="profile-public-title">Your public profile</h2>

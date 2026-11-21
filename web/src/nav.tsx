@@ -26,6 +26,8 @@ export interface Who {
 export interface NavSection {
   to: string;
   label: string;
+  /** The page's name in the browser's title, where the strip's label isn't it ("My decks" is Decks). */
+  title?: string;
   /** Only this address, not the pages under it (a deck's page isn't the deck list). */
   end?: boolean;
   /** Other addresses that belong to this section, each with the pages under it. */
@@ -74,7 +76,7 @@ export const TABS: NavTab[] = [
     icon: <DecksIcon />,
     owns: ["/decks"],
     sections: [
-      { to: "/decks", label: "My decks", end: true, also: ["/decks/import", "/decks/changes"] },
+      { to: "/decks", label: "My decks", title: "Decks", end: true, also: ["/decks/import", "/decks/changes"] },
       // The decks people made public (browse/Browse.tsx): open to everyone.
       { to: "/decks/browse", label: "Browse" },
       // Signed in, the precon table with your own results; signed out, the public reference.
@@ -85,14 +87,14 @@ export const TABS: NavTab[] = [
       { to: "/check", label: "Check a deck" },
     ],
   },
-  { id: "cards", to: "/cards", label: "Cards", icon: <CardsIcon />, sections: [{ to: "/cards", label: "Search" }] },
+  { id: "cards", to: "/cards", label: "Cards", icon: <CardsIcon />, sections: [{ to: "/cards", label: "Search", title: "Cards" }] },
   {
     id: "collection",
     to: "/collection",
     label: "Collection",
     icon: <CollectionIcon />,
     sections: [
-      { to: "/collection", label: "Cards", end: true, also: ["/collection/check"] },
+      { to: "/collection", label: "Cards", title: "Collection", end: true, also: ["/collection/check"] },
       { to: "/collection/wishlist", label: "Wish list" },
       { to: "/collection/trade", label: "Trade with a friend", also: ["/sharing/compare"] },
     ],
@@ -176,4 +178,16 @@ export function sectionOf(t: NavTab, pathname: string, who: Who): NavSection | n
     }
   }
   return best;
+}
+
+/**
+ * What the browser's title calls the page at `pathname` (pageTitle.ts): the section it is in, or
+ * its tab for a page that is in none (a deck's own page is "Decks" until it says its name).
+ * Nothing for Home, which is Yama itself, or for an address no tab holds.
+ */
+export function titleOf(pathname: string): string | null {
+  const t = tabOf(pathname);
+  if (!t) return null;
+  const s = sectionOf(t, pathname, { signedIn: true, power: true, evidence: true, mythic: true });
+  return s ? (s.title ?? s.label) : t.label;
 }

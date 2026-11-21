@@ -127,7 +127,9 @@ fn in_decks(path: &str) -> bool {
 
 /// The header of every public page (styled by web/public/site-frame-v1.css): Yama's frame, as
 /// the app draws it. The wordmark goes home; the five tabs are a row of words on a laptop and
-/// the bottom bar on a phone; then search (phones) and You, which opens the account's own page.
+/// the bottom bar on a phone; then search (phones) and Open Yama, which goes to the app's Home.
+/// It said "You" until a stranger on a shared profile read it as theirs: these pages are the
+/// same for everyone, so the server can't tell who is signed in, and the app's own frame has You.
 /// A page that belongs to the Decks tab lights it and gets the strip of the tab's pages under
 /// the header. The static pages under web/public carry this exact markup; a test below holds
 /// them to it.
@@ -138,7 +140,7 @@ pub(crate) fn site_header(path: &str) -> String {
         let current = if decks && href == "/decks" { " aria-current=\"true\"" } else { "" };
         write!(s, "<a href=\"{href}\"{current}>{icon}<span>{label}</span></a>").unwrap();
     }
-    write!(s, "</nav><a class=\"site-frame-search\" href=\"/cards\" aria-label=\"Search cards\">{SEARCH_ICON}</a><a class=\"site-frame-open\" href=\"/profile\">You</a></header>").unwrap();
+    write!(s, "</nav><a class=\"site-frame-search\" href=\"/cards\" aria-label=\"Search cards\">{SEARCH_ICON}</a><a class=\"site-frame-open\" href=\"/\">Open Yama</a></header>").unwrap();
     if decks {
         s.push_str("<nav class=\"site-frame-sections\" aria-label=\"Decks pages\">");
         for (href, label) in DECKS_PAGES {
@@ -788,7 +790,7 @@ mod frame_tests {
         assert!(site_footer("/docs/mcp/").contains("<a href=\"/docs/mcp/\" aria-current=\"page\">Connect an assistant</a>"));
     }
 
-    /// The frame's names and places: the app's five tabs, the wordmark going home, and You.
+    /// The frame's names and places: the app's five tabs, the wordmark going home, and Open Yama.
     #[test]
     fn the_header_is_the_apps_frame() {
         let html = site_header("/about/");
@@ -803,9 +805,11 @@ mod frame_tests {
         }
         assert!(html.contains("<a class=\"site-frame-wordmark\" href=\"/\" aria-label=\"Yama home\">"));
         assert!(html.contains("<a class=\"site-frame-search\" href=\"/cards\" aria-label=\"Search cards\">"));
-        assert!(html.ends_with("<a class=\"site-frame-open\" href=\"/profile\">You</a></header>"));
+        assert!(html.ends_with("<a class=\"site-frame-open\" href=\"/\">Open Yama</a></header>"));
+        // Nobody is "You" on a page that is the same for everyone.
+        assert!(!html.contains(">You<") && !html.contains("href=\"/profile\""), "the header still says You");
         // The old header's places: precons and commanders are under Decks, the guide in the footer.
-        for gone in ["Open Yama", "MCP guide", ">About<"] {
+        for gone in ["MCP guide", ">About<"] {
             assert!(!html.contains(gone), "{gone} is still in the header");
         }
         assert_eq!(DECKS_PAGES, [("/decks", "My decks"), ("/decks/browse", "Browse"), ("/precons", "Precons"), ("/commanders", "Commanders"), ("/check", "Check a deck")]);

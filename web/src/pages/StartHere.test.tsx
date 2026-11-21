@@ -15,7 +15,7 @@ describe("Start here", () => {
     expect(html).toContain("Start here");
     expect(html).toContain("0 of 4 done");
     for (const title of ["Add a deck", "Bring your collection", "Start or join a playgroup", "Play a game"]) expect(html).toContain(`<b>${title}</b>`);
-    expect(hrefs(html)).toEqual(["/decks/import", "/lab", "/collection", "/group", "/play/table"]);
+    expect(hrefs(html)).toEqual(["/decks/import", "/lab?start=1", "/collection", "/group", "/play/table"]);
     expect(html).toContain("Hide this list");
   });
 
@@ -24,6 +24,9 @@ describe("Start here", () => {
     expect(html).toContain("2 of 4 done");
     expect(hrefs(html)).toEqual(["/collection", "/group"]);
     expect(html.match(/class="is-done"/g)).toHaveLength(2);
+    // A done step is one ticked line: its name and Done, not its instructions.
+    expect(html).toContain("<b>Add a deck</b><span>Done</span>");
+    expect(html).not.toContain("Import a list from anywhere");
     expect(startSteps({ decks: 1, copies: 0, playgroups: 2, games: 0 }).map((s) => s.done)).toEqual([true, false, true, false]);
     expect(startSteps({ decks: 3, copies: 40, playgroups: 1, games: 9 }).every((s) => s.done)).toBe(true);
   });

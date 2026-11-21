@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "react-router";
 import { ANDROID_APP_URL, useInstall } from "../install";
 import { Button, ButtonLink } from "./Button";
 
@@ -12,12 +13,17 @@ function wasDismissed(): boolean {
   }
 }
 
-/** A one-time offer near the top of the app, only in mobile browsers. */
+/**
+ * A one-time offer at the top of Home, only in mobile browsers. Home alone: on every page it sat
+ * between someone at a table and the life counter's setup. No primary button, since the page
+ * under it has its own thing to do.
+ */
 export function InstallBanner() {
   const install = useInstall();
+  const { pathname } = useLocation();
   const [dismissed, setDismissed] = useState(wasDismissed);
   // On Android the app is on offer even where the browser has no install prompt (Firefox).
-  if (dismissed || !install.mobile || install.installed || !(install.canPrompt || install.fromShareMenu || install.android)) return null;
+  if (pathname !== "/" || dismissed || !install.mobile || install.installed || !(install.canPrompt || install.fromShareMenu || install.android)) return null;
   // Install hides the offer for this visit; Not now hides it for good.
   const dismiss = () => {
     try {
@@ -34,8 +40,8 @@ export function InstallBanner() {
         <span className="dim">{" "}{installLine(install)}</span>
       </p>
       <div className="row">
-        {install.canPrompt && <Button variant="primary" onClick={() => { setDismissed(true); void install.install(); }}>Install</Button>}
-        {install.android && <ButtonLink variant={install.canPrompt ? "outline" : "primary"} href={ANDROID_APP_URL}>Get the Android app</ButtonLink>}
+        {install.canPrompt && <Button onClick={() => { setDismissed(true); void install.install(); }}>Install</Button>}
+        {install.android && <ButtonLink variant="outline" href={ANDROID_APP_URL}>Get the Android app</ButtonLink>}
         <Button variant="quiet" onClick={dismiss}>Not now</Button>
       </div>
     </aside>

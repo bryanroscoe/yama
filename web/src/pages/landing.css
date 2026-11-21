@@ -46,7 +46,9 @@
   .landing-account-features { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 720px) {
-  .landing-layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "hero" "explore" "signin" "account"; padding-top: 20px; }
+  /* Someone who tapped "Sign in" gets the form first: it was 1,100 px down, under the hero and
+     the list of things that need no account. */
+  .landing-layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "signin" "hero" "explore" "account"; padding-top: 20px; }
   .landing-hero.art-panel { min-height: 300px; }
   .landing-hero > .art-body { padding: 24px; }
   .landing-hero h1 { font-size: clamp(40px, 9vw, 56px); }

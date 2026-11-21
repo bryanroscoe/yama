@@ -2,7 +2,7 @@
 import { act, StrictMode, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Dialog, openLayers } from "./Dialog";
+import { Dialog, escapeTopLayer, openLayers } from "./Dialog";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -204,6 +204,36 @@ describe("Dialog", () => {
     act(() => [...dialog().querySelectorAll("button")].find((b) => b.textContent === "Close")!.click());
     expect(onClose).toHaveBeenCalledTimes(3);
     expect(dialog()).toBeNull();
+  });
+
+  it("closes the top layer for the Android app's Back, as Escape would, and says when there is none", () => {
+    const onClose = vi.fn();
+    // Nothing open: Back is the app's to go back a page with.
+    show(<Page onClose={onClose} />);
+    expect(escapeTopLayer()).toBe(false);
+    open(<Page onClose={onClose} />);
+    let handled = false;
+    act(() => {
+      handled = escapeTopLayer();
+    });
+    expect(handled).toBe(true);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(dialog()).toBeNull();
+    // Something open inside the sheet takes it first, and Back still doesn't leave the page.
+    open(
+      <Page onClose={onClose}>
+        <button id="menu" onKeyDown={(e) => e.key === "Escape" && e.preventDefault()}>
+          More
+        </button>
+      </Page>,
+    );
+    document.getElementById("menu")!.focus();
+    act(() => {
+      handled = escapeTopLayer();
+    });
+    expect(handled).toBe(true);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(dialog()).not.toBeNull();
   });
 
   it("still closes on Escape when focus has fallen out of it", () => {
