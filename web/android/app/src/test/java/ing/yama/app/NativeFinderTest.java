@@ -82,6 +82,41 @@ public class NativeFinderTest {
     }
 
     @Test
+    public void stoppingNeverWaitsForARunUnderWay() throws Exception {
+        ScannerFrames frames = new ScannerFrames();
+        java.util.concurrent.CountDownLatch inRun = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        CardFinderTest.FakeDetector fake = new CardFinderTest.FakeDetector();
+        // A run that takes as long as ONNX Runtime may on a slow phone, and can't be interrupted.
+        CardFinder.Detector slow = window -> {
+            inRun.countDown();
+            while (true) {
+                try {
+                    if (release.await(5, java.util.concurrent.TimeUnit.SECONDS)) break;
+                } catch (InterruptedException ignored) {
+                    // Native code doesn't hear interrupts either.
+                }
+            }
+            return fake.run(window);
+        };
+        NativeFinder f = finder(frames, slow);
+        AtomicInteger told = new AtomicInteger();
+        f.start(() -> {}, null, why -> told.incrementAndGet());
+        put(frames, CardFinderTest.fixture().getJSONArray("frames").getJSONObject(0));
+        assertTrue("a run began", inRun.await(5, java.util.concurrent.TimeUnit.SECONDS));
+        long t0 = System.nanoTime();
+        f.stop();
+        assertTrue("stop returned at once", (System.nanoTime() - t0) / 1e6 < 200);
+        assertFalse(f.running());
+        release.countDown();
+        // The stopped loop finishes its run and publishes nothing, and isn't taken for a failure.
+        assertNull(f.take(0, 300, 8));
+        Thread.sleep(100);
+        assertNull(f.failure());
+        assertEquals(0, told.get());
+    }
+
+    @Test
     public void aFailureStopsItForGoodAndSaysSoOnce() throws Exception {
         ScannerFrames frames = new ScannerFrames();
         AtomicInteger runs = new AtomicInteger();
