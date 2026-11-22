@@ -475,16 +475,18 @@ public class ScannerCameraPlugin extends Plugin {
     }
 
     /**
-     * `{ seq, quad, cuts? }`: the art at `quad` (frame pixels, top-left first) on the frame handed
+     * `{ seq, quad, cuts?, key? }`: the art at `quad` (frame pixels, top-left first) on the frame handed
      * to the page as `seq`, for these frame cuts (every one without). Resolves `{ data, rows, dim,
      * ms }` (data: the float32 embedding, little-endian, base64), or rejects "gone" when that
-     * frame's crop isn't kept any more (the page reads the art itself then).
+     * frame's crop isn't kept any more, or the model loaded isn't `key` (the page reads the art
+     * itself then).
      */
     @PluginMethod
     public void embed(PluginCall call) {
         double seqD = call.getData().optDouble("seq", Double.NaN);
         JSArray q = call.getArray("quad");
         JSArray c = call.getArray("cuts");
+        String artKey = call.getString("key");
         embedder.execute(() -> {
             try {
                 if (Double.isNaN(seqD) || q == null || q.length() != 4) throw new IllegalArgumentException("A read needs a frame and four corners");
@@ -499,7 +501,7 @@ public class ScannerCameraPlugin extends Plugin {
                     cuts = new long[c.length()];
                     for (int i = 0; i < cuts.length; i++) cuts[i] = c.getLong(i);
                 }
-                NativeFinder.Embedding e = finder.embed((long) seqD, quad, cuts);
+                NativeFinder.Embedding e = finder.embed((long) seqD, quad, cuts, artKey);
                 if (e == null) {
                     call.reject("That frame isn't kept any more", "gone");
                     return;

@@ -243,7 +243,8 @@ describe("a speed test", () => {
     expect(app!.stats!.tracked.median).toBe(75);
     expect(app!.stats!.detector.median).toBe(9);
     expect(web!.stats!.tracked.median).toBe(116);
-    expect(app!.parity).toEqual({ frames: SPEED_CARDS * FRAMES_PER_CARD, both: SPEED_CARDS * FRAMES_PER_CARD, disagreed: 0, maxPx: 0.5, medianPx: 0.5, sameTop: SPEED_CARDS * FRAMES_PER_CARD, scoreGap: 0 });
+    // (No art read in the app here: no score gap to give.)
+    expect(app!.parity).toEqual({ frames: SPEED_CARDS * FRAMES_PER_CARD, both: SPEED_CARDS * FRAMES_PER_CARD, disagreed: 0, maxPx: 0.5, medianPx: 0.5, sameTop: SPEED_CARDS * FRAMES_PER_CARD, scoreGap: null });
     expect(resets).toBe(SPEED_CARDS * 2);
     expect(speedSummary(r)).toContain("75 ms with your models");
   });
@@ -252,12 +253,14 @@ describe("a speed test", () => {
     const w = world();
     const embeds: number[] = [];
     let seq = 0;
+    let unloads = 0;
     w.deps.native = {
       can: async () => ({ can: true, runs: true }),
       load: async () => 100,
       loadArt: async () => 50,
       find: async () => ({ state: 1, quad: [[0, 0], [1, 0], [1, 1], [0, 1]], vote: 1, ms: 9, passes: 1, ageMs: 0, runs: [9], seq: (seq -= 1) }),
       embed: async (s) => (embeds.push(s), { data: new Float32Array(4), rows: 1, dim: 4, ms: 20 }),
+      unloadArt: async () => void (unloads += 1),
     };
     const r = await runSpeedTest(() => undefined, undefined, w.deps);
     const app = r.configs[0]!;
@@ -269,7 +272,10 @@ describe("a speed test", () => {
     expect(embeds[0]).toBe(-1);
     // A frame: 9 ms to find, 20 to read the art in the app, 5 to search, and a ms of messaging.
     expect(app.stats!.tracked.median).toBe(35);
+    // Against the worker's own read on the same corners: the art alone.
     expect(app.parity!.scoreGap).toBe(0.0001);
+    // Each configuration's art model let go in the app after it (the scanner loads its own again).
+    expect(unloads).toBe(2);
   });
 
   it("puts the configuration in the app after the web view's where this device doesn't run it, and notes one that won't load", async () => {

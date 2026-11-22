@@ -227,7 +227,7 @@ export interface ScannerCameraPlugin {
   artLoad?(o: { key: string }): Promise<{ key: string; loadMs: number }>;
   artUnload?(): Promise<void>;
   /** Rejects with code "gone" when the frame's crop isn't kept any more. */
-  embed?(o: { seq: number; quad: [number, number][]; cuts?: number[] }): Promise<{ data: string; rows: number; dim: number; ms: number }>;
+  embed?(o: { seq: number; quad: [number, number][]; cuts?: number[]; key?: string }): Promise<{ data: string; rows: number; dim: number; ms: number }>;
 }
 
 const ScannerCamera = registerPlugin<ScannerCameraPlugin>("ScannerCamera");
@@ -966,10 +966,11 @@ export function floatsOf(base64: string): Float32Array {
  * the art model it has loaded, for these frame cuts (every one without): every row of the
  * embedding, as the web worker's own graph gives it. Rejects when the frame isn't kept any more.
  */
-export async function nativeEmbed(seq: number, quad: Quad, cuts: number[] | undefined, plugin: Pick<ScannerCameraPlugin, "embed"> = ScannerCamera): Promise<{ data: Float32Array; rows: number; dim: number; ms: number }> {
+export async function nativeEmbed(seq: number, quad: Quad, cuts: number[] | undefined, key?: string, plugin: Pick<ScannerCameraPlugin, "embed"> = ScannerCamera): Promise<{ data: Float32Array; rows: number; dim: number; ms: number }> {
   if (!plugin.embed) throw new Error("This app is older than its art reader");
   try {
-    const r = await plugin.embed({ seq, quad: quad.map((p) => [p[0], p[1]] as [number, number]), ...(cuts ? { cuts } : {}) });
+    // `key`: the model the read is for, so a read under one just switched is the worker's.
+    const r = await plugin.embed({ seq, quad: quad.map((p) => [p[0], p[1]] as [number, number]), ...(cuts ? { cuts } : {}), ...(key ? { key } : {}) });
     return { data: floatsOf(r.data), rows: r.rows, dim: r.dim, ms: r.ms };
   } catch (e) {
     // A frame it no longer keeps isn't a failure of the app's reader: this read is the worker's.

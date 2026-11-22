@@ -195,6 +195,24 @@ public class CardFinderTest {
     }
 
     @Test
+    public void aCardPartlyOffTheFrameIsStillItsOwnCrop() {
+        int w = 640;
+        int h = 1138;
+        byte[] frame = new byte[w * h * 4];
+        // A card hanging over the left edge: its crop starts at the frame's edge, its corner beyond it.
+        double[] quad = { -10, 100, 300, 110, 290, 540, -20, 530 };
+        NativeFinder.Crop crop = NativeFinder.cropOf(1, frame, 0, w, h, quad);
+        assertEquals(0, crop.x0);
+        float[] in = NativeFinder.inCrop(crop, quad);
+        assertEquals(-10, in[0], 1e-4);
+        // The same card called the other way up is its own too; another card isn't.
+        double[] turned = { 290, 540, -20, 530, -10, 100, 300, 110 };
+        assertEquals(290 - crop.x0, NativeFinder.inCrop(crop, turned)[0], 1e-4);
+        double[] other = { 50, 100, 200, 110, 190, 300, 40, 290 };
+        assertEquals(null, NativeFinder.inCrop(crop, other));
+    }
+
+    @Test
     public void aWindowPastTheFrameRepeatsItsEdge() {
         // A 2 × 1 frame, black then white, seen through a 4 px window twice its size: the left
         // half of the window is the black pixel, repeated; the right half white, repeated.

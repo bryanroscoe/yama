@@ -409,7 +409,10 @@ async function startRecognizer(
       const remote = remotes.get(m.id);
       if (!remote) reply({ error: "Nothing reads the art elsewhere now" });
       else
-        remote(m.quad, m.cuts).then(
+        // (A reader that throws at once still gets its answer sent.)
+        Promise.resolve()
+          .then(() => remote(m.quad, m.cuts))
+          .then(
           (got) => reply({ data: got.data, rows: got.rows, dim: got.dim, ms: got.ms }, [got.data.buffer as ArrayBuffer]),
           (e: unknown) => reply({ error: e instanceof Error ? e.message : String(e) }),
         );

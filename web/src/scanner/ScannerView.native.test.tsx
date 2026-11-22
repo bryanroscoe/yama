@@ -57,6 +57,7 @@ const nat = vi.hoisted(() => ({
   order: [] as string[],
   /** The art read in the app: loads, and each read asked of it (frame number, corners in the frame's pixels). */
   artLoads: 0,
+  artUnloads: 0,
   artFails: false,
   embeds: [] as { seq: number; quad: Quad }[],
   embedGone: false,
@@ -80,6 +81,9 @@ vi.mock("./nativeCamera", async (original) => {
       nat.artLoads += 1;
       if (nat.artFails) throw new Error("the art model wouldn't load");
       return { loadMs: 9, sent: false };
+    },
+    unloadNativeArt: async () => {
+      nat.artUnloads += 1;
     },
     nativeEmbed: async (seq: number, quad: Quad) => {
       nat.embeds.push({ seq, quad });
@@ -202,7 +206,7 @@ beforeEach(() => {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-  Object.assign(nat, { state: 1, loads: 0, failLoad: false, on: false, sets: [], matched: [], identified: 0, order: [], score: 0.93, artLoads: 0, artFails: false, embeds: [], embedGone: false });
+  Object.assign(nat, { state: 1, loads: 0, failLoad: false, on: false, sets: [], matched: [], identified: 0, order: [], score: 0.93, artLoads: 0, artUnloads: 0, artFails: false, embeds: [], embedGone: false });
   sent.timings = [];
 });
 afterEach(() => {
@@ -308,7 +312,7 @@ describe("the card finder in the app's own code", () => {
     expect((t.detail as Record<string, unknown>).art_ms).toBe(6);
   });
 
-  it("goes on reading the art in the app after a frame it no longer had, and stops for good after a failure", async () => {
+  it("goes on reading the art in the app after a frame it no longer had", async () => {
     nat.score = 0.2;
     nat.embedGone = true;
     act(() => root.render(<ScannerView identityOnly closeups={false} onAccept={async () => true} />));
@@ -325,6 +329,8 @@ describe("the card finder in the app's own code", () => {
     await until(() => (nat.matched.length >= 3 ? true : null), "frames matched at the app's corners");
     expect(nat.artLoads).toBe(0);
     expect(nat.embeds).toEqual([]);
+    // And the app lets the art model go (it keeps no crops for it).
+    expect(nat.artUnloads).toBeGreaterThan(0);
     act(() => root.unmount());
     localStorage.clear();
     root = createRoot(host);
@@ -333,5 +339,28 @@ describe("the card finder in the app's own code", () => {
     await until(() => (nat.matched.length >= 3 ? true : null), "frames matched at the app's corners");
     expect(nat.artLoads).toBe(1);
     expect(nat.embeds).toEqual([]);
+  });
+
+  it("stops reading the art in the app for the session after a read fails, and lets its model go", async () => {
+    nat.score = 0.2;
+    act(() => root.render(<ScannerView identityOnly closeups={false} onAccept={async () => true} />));
+    await until(() => (nat.embeds.length >= 1 ? true : null), "art read in the app");
+    nat.embedGone = false;
+    // Every read from now on fails.
+    const reads = nat.embeds.length;
+    Object.assign(nat, { embedGone: false });
+    const failing = vi.fn();
+    nat.embeds.push = ((...items: { seq: number; quad: Quad }[]) => {
+      failing();
+      throw new Error("the app's art reader crashed");
+      return items.length;
+    }) as typeof nat.embeds.push;
+    await until(() => (failing.mock.calls.length >= 1 ? true : null), "a failed read");
+    await until(() => (nat.artUnloads > 0 ? true : null), "the art model let go");
+    const failed = failing.mock.calls.length;
+    await wait(300);
+    // No more reads asked of the app.
+    expect(failing.mock.calls.length).toBe(failed);
+    expect(nat.embeds.length).toBe(reads);
   });
 });

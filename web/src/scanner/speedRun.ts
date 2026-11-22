@@ -12,7 +12,7 @@ import { Updater } from "../nativeUpdate";
 import { loadArtRecognizer, scanBundleInfo, type ArtRecognizer, type BundleInfo, type LoadState } from "./artClient";
 import type { LookTiming, LookWorkerReply, LookWorkerRequest, WireFrame } from "./look";
 import { defaultOption, modelsOf, running, savedModels, type DeviceCan, type ModelChoices, type ModelOption, type ModelsInfo } from "./models";
-import { finderKey, loadNativeArt, loadNativeFinder, nativeCameraAvailable, nativeEmbed, nativeFind, nativeFinderAbility, NATIVE_GONE, savedNativeCamera, type NativeFound } from "./nativeCamera";
+import { finderKey, loadNativeArt, loadNativeFinder, nativeCameraAvailable, nativeEmbed, nativeFind, nativeFinderAbility, NATIVE_GONE, savedNativeCamera, unloadNativeArt, type NativeFound } from "./nativeCamera";
 import { NATIVE_RUNTIME, nativeId, nativeWanted, savedNative } from "./nativeModels";
 import type { Recognition, RemoteEmbed } from "./recognizer";
 import { cachedFile } from "./scanCache";
@@ -94,6 +94,8 @@ export interface NativeSpeed {
   /** Load this art model in the app too (stage 4), and read the art there of a frame `find` kept. */
   loadArt?(info: BundleInfo, art: ModelOption): Promise<number>;
   embed?(seq: number, quad: Quad, cuts: number[] | undefined): Promise<Awaited<ReturnType<RemoteEmbed>>>;
+  /** Let the art model go in the app once the test is done with it (the scanner loads its own again). */
+  unloadArt?(): Promise<void>;
 }
 
 /** The art slot and card finder have files: the text reader's list doesn't matter here. */
@@ -320,6 +322,7 @@ export async function runSpeedTest(onProgress: (p: SpeedProgress) => void, signa
                 twinArt = false;
                 twin.error = `The art read in the app stopped: ${r2.remote.failed}`;
                 twin.runtimes = { detector: NATIVE_RUNTIME, art: SPEED_RUNTIME };
+                twin.ran = { detector: nativeId(p.detector.id), art: rec.art };
               }
               // The frame as the live scanner has it: found in native code (its own time there; the
               // test's copy of the frame across the bridge isn't something the camera pays), then
@@ -340,15 +343,18 @@ export async function runSpeedTest(onProgress: (p: SpeedProgress) => void, signa
                 found: !!r2.quad,
                 right: isRight(r2, pic.card),
               });
+              // (After the frame's time.) How far the app's art read is from the worker's own on the very same corners (the
+              // app's): the art alone, apart from the two finders' corners.
+              if (r2.remote?.reads && r2.matches[0]) {
+                const local = await rec.matchAt(deps.frame(pic, at), { quad: nf.quad, upright: nf.vote }, { turn: true });
+                if (local.matches[0]?.name === r2.matches[0].name) scoreGap = Math.max(scoreGap ?? 0, Math.abs(local.matches[0].score - r2.matches[0].score));
+              }
               parity.frames += 1;
               if (r.quad && nf.quad) {
                 parity.both += 1;
                 gaps.push(cornerGap(r.quad, nf.quad));
               } else if (!!r.quad !== !!nf.quad) parity.disagreed += 1;
-              if (r.matches[0] && r2.matches[0] && r.matches[0].name === r2.matches[0].name) {
-                parity.sameTop += 1;
-                scoreGap = Math.max(scoreGap ?? 0, Math.abs(r.matches[0].score - r2.matches[0].score));
-              }
+              if (r.matches[0] && r2.matches[0] && r.matches[0].name === r2.matches[0].name) parity.sameTop += 1;
             } catch (e) {
               if (signal?.aborted) throw e;
               twin.error = message(e);
@@ -366,6 +372,7 @@ export async function runSpeedTest(onProgress: (p: SpeedProgress) => void, signa
       result.error = message(e);
       if (result.frames.length) result.stats = configStats(result.frames);
     } finally {
+      if (twinArt) await deps.native?.unloadArt?.().catch(() => undefined);
       // The configuration in the app, whatever part of it ran.
       const t = configs.find((c) => c.runtime === NATIVE_RUNTIME && c.wanted.detector.id === p.detector.id && c.wanted.art.id === p.art.id && !c.stats);
       if (t && t.frames.length) {
@@ -605,6 +612,7 @@ export function browserDeps(): SpeedDeps {
             return performance.now() - t0;
           },
           embed: (seq, quad, cuts) => nativeEmbed(seq, quad, cuts),
+          unloadArt: () => unloadNativeArt(),
         }
       : undefined,
   };

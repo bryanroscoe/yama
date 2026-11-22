@@ -176,7 +176,7 @@ export interface FinderParity {
   medianPx: number | null;
   /** Frames whose best match was the same card both ways. */
   sameTop: number;
-  /** Over those: the most the best match's score differed (the art read in the app against the worker's). */
+  /** The most the best match's score differed, the art read in the app against the worker's own on the same corners (none when it wasn't read there). */
   scoreGap?: number | null;
 }
 

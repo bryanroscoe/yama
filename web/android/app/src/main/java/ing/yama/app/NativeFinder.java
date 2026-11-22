@@ -102,6 +102,11 @@ final class NativeFinder {
         int width;
         int height;
         byte[] rgba;
+        /** The kept card's own box (frame pixels, not clamped to the frame): a read must be of this card. */
+        double minX;
+        double minY;
+        double maxX;
+        double maxY;
     }
 
     /** The crops of the last frames with a card handed to the page: a read may come a little after. */
@@ -174,6 +179,10 @@ final class NativeFinder {
         int[] box = CardFinder.cardWindow(w, h, quad);
         Crop c = new Crop();
         c.seq = seq;
+        c.minX = Math.min(Math.min(quad[0], quad[2]), Math.min(quad[4], quad[6]));
+        c.maxX = Math.max(Math.max(quad[0], quad[2]), Math.max(quad[4], quad[6]));
+        c.minY = Math.min(Math.min(quad[1], quad[3]), Math.min(quad[5], quad[7]));
+        c.maxY = Math.max(Math.max(quad[1], quad[3]), Math.max(quad[5], quad[7]));
         if (box == null) {
             c.width = w;
             c.height = h;
@@ -191,16 +200,25 @@ final class NativeFinder {
 
     /**
      * The quad (frame pixels) in the crop's own pixels, as float32s for the graph, or null when it
-     * isn't this crop's card (beyond its box and margin: another frame's).
+     * isn't this crop's card: its box isn't the kept card's (to a pixel or so, whichever corner it
+     * calls the top). A card partly off the frame is still its own: its corners may lie beyond the
+     * crop, which the graph pads as the worker's copy would.
      */
     static float[] inCrop(Crop c, double[] quad) {
+        double minX = Double.POSITIVE_INFINITY, minY = Double.POSITIVE_INFINITY, maxX = Double.NEGATIVE_INFINITY, maxY = Double.NEGATIVE_INFINITY;
+        for (int i = 0; i < 4; i++) {
+            if (!Double.isFinite(quad[i * 2]) || !Double.isFinite(quad[i * 2 + 1])) return null;
+            minX = Math.min(minX, quad[i * 2]);
+            maxX = Math.max(maxX, quad[i * 2]);
+            minY = Math.min(minY, quad[i * 2 + 1]);
+            maxY = Math.max(maxY, quad[i * 2 + 1]);
+        }
+        double slack = 2 + 0.01 * Math.max(c.maxX - c.minX, c.maxY - c.minY);
+        if (Math.abs(minX - c.minX) > slack || Math.abs(maxX - c.maxX) > slack || Math.abs(minY - c.minY) > slack || Math.abs(maxY - c.maxY) > slack) return null;
         float[] q = new float[8];
         for (int i = 0; i < 4; i++) {
-            double x = quad[i * 2] - c.x0;
-            double y = quad[i * 2 + 1] - c.y0;
-            if (!(x >= -3 && y >= -3 && x <= c.width + 3 && y <= c.height + 3)) return null;
-            q[i * 2] = (float) x;
-            q[i * 2 + 1] = (float) y;
+            q[i * 2] = (float) (quad[i * 2] - c.x0);
+            q[i * 2 + 1] = (float) (quad[i * 2 + 1] - c.y0);
         }
         return q;
     }
@@ -224,9 +242,11 @@ final class NativeFinder {
      * The art at `quad` (frame pixels) on the frame kept as `seq`, for these cuts (null: every one).
      * Null when that frame's crop has gone or doesn't hold the quad: the page reads it itself.
      */
-    Embedding embed(long seq, double[] quad, long[] cuts) throws Exception {
+    Embedding embed(long seq, double[] quad, long[] cuts, String key) throws Exception {
         OrtEmbedder e = art;
         if (e == null) throw new IllegalStateException("The app's art model isn't loaded");
+        // Asked of another model than the one loaded now (a switch under way): the page reads it.
+        if (key != null && !key.equals(artKey)) return null;
         Crop c = crop(seq);
         if (c == null) return null;
         float[] q = inCrop(c, quad);
@@ -562,7 +582,7 @@ final class NativeFinder {
     // ---- The model files, kept in the app's own storage ----
 
     /** At most this many model files are kept. */
-    private static final int KEEP_MODELS = 4;
+    private static final int KEEP_MODELS = 6;
 
     /** A file name for a key: the model's own file name (letters, digits, dot, dash, underscore). */
     static String fileName(String key) {

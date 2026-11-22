@@ -495,6 +495,14 @@ export async function createRecognizer(
     side: Math.max((d.short * constants.card_aspect) / constants.refine_fill, constants.refine_min_side),
   });
 
+  /** A frame's art reads run elsewhere (`matchAt`'s `remote`), as they go. */
+  interface RemoteRun {
+    embed: RemoteEmbed;
+    reads: number;
+    ms: number[];
+    failed?: string;
+  }
+
   // The cascade (FIRST_STAGE): which cuts each stage embeds, for an embed graph that takes `cuts`.
   const frameNames = constants.frame_names ?? [];
   const allCuts = frameNames.map((_, i) => i);
@@ -505,13 +513,6 @@ export async function createRecognizer(
   /** The first stage settles the frame: a card FIRST_FLOOR or more, LEAD_MARGIN ahead of every other card listed. */
   const settles = (out: ArtMatch[]) => !!out[0] && out[0].score >= FIRST_FLOOR && artLead(out) >= LEAD_MARGIN;
   /** The embed graph's output for these cuts (every cut when it takes `cuts` and none are named). */
-  /** A frame's art reads run elsewhere (`matchAt`'s `remote`), as they go. */
-  interface RemoteRun {
-    embed: RemoteEmbed;
-    reads: number;
-    ms: number[];
-    failed?: string;
-  }
   const embedRun = async (session: Session, whole: RgbaImage, at: Quad, cuts?: number[], into: GraphRuns = noRuns(), remote?: RemoteRun) => {
     const takesCuts = session.inputNames.includes("cuts");
     if (takesCuts && !frameNames.length) throw new Error("This art model needs the bundle's frame names");
@@ -521,8 +522,9 @@ export async function createRecognizer(
       try {
         const t = now();
         const got = await remote.embed(at, takesCuts ? (cuts ?? allCuts) : undefined);
+        // Its rows are the frame cuts this worker searches, every one of them a number.
+        if (got.data.length !== got.rows * got.dim || (frameNames.length > 0 && got.rows !== frameNames.length) || !got.data.every(Number.isFinite)) throw new Error("The app's art read isn't an embedding");
         into.embed.push(now() - t);
-        if (got.data.length !== got.rows * got.dim || !got.data.every(Number.isFinite)) throw new Error("The app's art read isn't an embedding");
         remote.reads += 1;
         if (got.ms != null) remote.ms.push(got.ms);
         return new ort.Tensor("float32", got.data, [got.rows, got.dim]) as { data: Float32Array };

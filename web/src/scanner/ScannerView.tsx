@@ -47,7 +47,7 @@ import { GATE_DEFAULTS, Motion, PlacementGate } from "./gate";
 import { BACK_KEY, GATE_PASS_MS, GATE_SAYS, gateStatus, type GateFrame, type GateRead } from "./gateLoop";
 import { defaultCamera, nameCameras, resolveSaved, saveCamera, savedCamera, type NamedCamera } from "./cameras";
 import { browserCameraSource, draw, sourceLabel, type CameraSource, type SourceInfo } from "./cameraSource";
-import { finderKey, FOUND_CARD, FOUND_FAILED, FOUND_NONE, loadNativeArt, loadNativeFinder, nativeCameraAvailable, nativeEmbed, nativeFinderAbility, NATIVE_GONE, openNativeCamera, saveNativeCamera, savedNativeCamera, unloadNativeFinder, type NativeCamera, type NativeFinderAbility } from "./nativeCamera";
+import { finderKey, FOUND_CARD, FOUND_FAILED, FOUND_NONE, loadNativeArt, loadNativeFinder, nativeCameraAvailable, nativeEmbed, nativeFinderAbility, NATIVE_GONE, openNativeCamera, saveNativeCamera, savedNativeCamera, unloadNativeArt, unloadNativeFinder, type NativeCamera, type NativeFinderAbility } from "./nativeCamera";
 import { nativeId, nativeWanted, onNativeChange, saveNative, savedNative } from "./nativeModels";
 import { cachedFile } from "./scanCache";
 import { NativeCameraSetting } from "./NativeCameraSetting";
@@ -772,6 +772,8 @@ function ScannerScreen({
    * running this session when it failed (the web worker reads the art instead).
    */
   const [nativeArtReady, setNativeArtReady] = useState<string | null>(null);
+  /** The model file's name in the app, sent with each read so a read under a switch is the worker's. */
+  const nativeArtKey = useRef<string | null>(null);
   const nativeArtReadyRef = useRef(nativeArtReady);
   nativeArtReadyRef.current = nativeArtReady;
   const [nativeArtFailed, setNativeArtFailed] = useState<string | null>(null);
@@ -1424,9 +1426,12 @@ function ScannerScreen({
     if (!nativeArtWanted || !option || !file) return;
     let on = true;
     nativeArtMs.current = [];
-    void loadNativeArt({ key: finderKey(file), bytes: () => cachedFile(new URL(file, API_BASE || location.origin).href, option.bytes ?? 0, () => undefined) }).then(
+    const key = finderKey(file);
+    void loadNativeArt({ key, bytes: () => cachedFile(new URL(file, API_BASE || location.origin).href, option.bytes ?? 0, () => undefined) }).then(
       () => {
-        if (on) setNativeArtReady(option.id);
+        if (!on) return;
+        nativeArtKey.current = key;
+        setNativeArtReady(option.id);
       },
       (e: unknown) => {
         if (!on) return;
@@ -1439,14 +1444,22 @@ function ScannerScreen({
       setNativeArtReady(null);
     };
   }, [nativeArtWanted, artWant?.id, artWant?.file]);
+  // Not wanted now (turned off, failed, or the finder isn't running in the app), and no speed test
+  // loading its own: the app lets its art model go, and stops keeping each frame's card crop.
+  useEffect(() => {
+    if (!useNative || nativeArtWanted || speedTesting) return;
+    nativeArtKey.current = null;
+    void unloadNativeArt();
+  }, [useNative, nativeArtWanted, speedTesting]);
   /**
    * The art read in the app for a frame the app's finder handed in (`seq`), when it runs and the
    * worker runs the same art model: corners from the recognizer's pixels to the frame's (`toVideo`).
    */
   const nativeReader = (seq: number | undefined, toVideo: (q: Quad) => Quad): RemoteEmbed | undefined => {
     if (seq == null || !nativeFinding.current || nativeArtFailedRef.current || !nativeArtReadyRef.current || nativeArtReadyRef.current !== artRef.current?.art) return undefined;
+    const key = nativeArtKey.current ?? undefined;
     return async (quad, cuts) => {
-      const got = await nativeEmbed(seq, toVideo(quad), cuts);
+      const got = await nativeEmbed(seq, toVideo(quad), cuts, key);
       nativeArtMs.current.push(got.ms);
       if (nativeArtMs.current.length > 30) nativeArtMs.current.shift();
       return got;
