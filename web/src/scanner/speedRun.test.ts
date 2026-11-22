@@ -193,6 +193,18 @@ describe("which models the speed test times", () => {
     expect(speedConfigs(models, { art: "withdrawn" })[0]!.roles).toEqual(["yours", "defaults"]);
   });
 
+  it("the models before, where the faster ones are now the defaults (22 Nov 2026)", () => {
+    const now = info();
+    for (const slot of ["detector", "art"] as const) now.models![slot]!.default = slot === "detector" ? "yama-corners-20261120" : "yama-art-20261118-cascade";
+    const models = modelsOf(now);
+    expect(speedConfigs(models, {}).map((c) => [c.roles, c.detector.id, c.art.id])).toEqual([
+      [["yours", "defaults", "faster"], "yama-corners-20261120", "yama-art-20261118-cascade"],
+      [["before"], "bundle-detector", "yama-art-20261118"],
+    ]);
+    // A device that chose the pair before runs it: that's its own, and the before.
+    expect(speedConfigs(models, { detector: "bundle-detector", art: "yama-art-20261118" }).map((c) => c.roles)).toEqual([["yours", "before"], ["defaults", "faster"]]);
+  });
+
   it("only faster options the server offers, one standing in for the default where the other isn't", () => {
     expect(speedConfigs(modelsOf(info({ detector: [bundleFinder] })), {}).map((c) => [c.roles, c.detector.id, c.art.id])).toEqual([
       [["yours", "defaults"], "bundle-detector", "yama-art-20261118"],

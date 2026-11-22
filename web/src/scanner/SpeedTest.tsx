@@ -10,7 +10,7 @@ import { NATIVE_RUNTIME } from "./nativeModels";
 import { speedSummary, type Alongside, type ConfigResult, type SpeedReport, type SpeedRole, type Stat } from "./speed";
 import { deleteSpeedTests, runSpeedTest, saveSpeedTest, speedTestCount, type SpeedProgress } from "./speedRun";
 
-const ROLE_NAME: Record<SpeedRole, string> = { yours: "Your models", defaults: "The defaults", faster: "The faster ones" };
+const ROLE_NAME: Record<SpeedRole, string> = { yours: "Your models", defaults: "The defaults", faster: "The faster ones", before: "The models before" };
 
 /** A configuration's name in the table: "Your models (the defaults)", and what of it ran in the app. */
 export function configName(c: ConfigResult): string {

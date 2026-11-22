@@ -514,7 +514,11 @@ export async function createRecognizer(
   const otherCuts = allCuts.filter((i) => !FIRST_STAGE.includes(frameNames[i]!));
   const stagesFor = (session: Session) =>
     extras.cascade !== false && session.inputNames.includes("cuts") && firstCuts.length === FIRST_STAGE.length && otherCuts.length ? { first: firstCuts, rest: otherCuts } : null;
-  /** The first stage settles the frame: a card FIRST_FLOOR or more, LEAD_MARGIN ahead of every other card listed. */
+  /**
+   * The first stage settles the frame: a card FIRST_FLOOR or more, LEAD_MARGIN ahead of every other
+   * card listed. Also what makes a read at handed corners doubtful enough to read turned half round
+   * (`matchAt`, `turn`), whichever art model runs.
+   */
   const settles = (out: ArtMatch[]) => !!out[0] && out[0].score >= FIRST_FLOOR && artLead(out) >= LEAD_MARGIN;
   /** The embed graph's output for these cuts (every cut when it takes `cuts` and none are named). */
   const embedRun = async (session: Session, whole: RgbaImage, at: Quad, cuts?: number[], into: GraphRuns = noRuns(), remote?: RemoteRun) => {

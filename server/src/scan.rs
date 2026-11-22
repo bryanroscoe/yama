@@ -119,7 +119,8 @@ pub(crate) struct ModelOption {
     pub base: bool,
     /// What the app must say it can run (`GET /api/scan/bundle?can=…`) to be offered it: an option a
     /// web build from before it can't run (an Android app can run last deploy's build for a session).
-    /// Never a default, and never served as `files.embed`.
+    /// Never a slot's base or `files.embed`, and a default only with an option every app runs standing
+    /// in for it (`STANDS_IN`), which apps that don't say they can run it get instead.
     pub needs: Option<&'static str>,
     /// A look option that also settles the printing by itself when it's sure (look.ts,
     /// `lookSettles`: every printing scored, the closest `LOOK_SETTLE_LEAD` ahead of the next, and
@@ -804,8 +805,8 @@ async fn default_art(cfg: &crate::config::Config, dir: &Path) -> Option<&'static
 /// - a query model in `MODELS`: `+<its id>`; another pin's (a tab open across a change):
 ///   `+query-<sha>`, never relabelled as a current one;
 /// - anything else, or a version that isn't a plain name: `+unknown`;
-/// - not said (a web build from before it was sent): the pinned version, and the art slot's
-///   default if the server offers one of ours now, the best guess.
+/// - not said (a web build from before it was sent): the pinned version, and the art model such a
+///   build runs by default (`default_art`) if the server offers one of ours now, the best guess.
 pub(crate) async fn recorded_version(cfg: &crate::config::Config, embed: Option<&str>) -> String {
     let model = |file: &str| -> Option<String> {
         if file == "embed.onnx" {
@@ -916,8 +917,8 @@ struct BundleInfo {
     /// `manifest.constants`, as the recognizer reads them.
     constants: Option<serde_json::Value>,
     /// What each slot can run, by slot key (`art`, `look`, `text`, `lock`): the options on offer
-    /// and the default (docs/scanner.md, "Models you can switch"). `files.embed` is the art slot's
-    /// default, for web builds from before this.
+    /// and the default (docs/scanner.md, "Models you can switch"). `files.embed` is the art model a
+    /// build that asks for nothing more runs by default, for web builds from before this.
     models: BTreeMap<&'static str, SlotInfo>,
 }
 
@@ -1002,9 +1003,10 @@ async fn bundle_info(State(st): State<AppState>, _user: CurrentUser, Query(q): Q
             (slot.key(), SlotInfo { default: default_of(slot, &listed).map(|o| o.id), options })
         })
         .collect();
-    // The art slot's default as the bundle's embed graph, for web builds that read only this: Yama's
-    // query model once it's here, under a different file name, so the phone's cache (keyed by URL)
-    // fetches it once and drops the other.
+    // The art slot's default for a build that asks for nothing more (the cascade's stand-in) as the
+    // bundle's embed graph, for web builds that read only this: Yama's query model once it's here,
+    // under a different file name, so the phone's cache (keyed by URL) fetches it once and drops the
+    // other.
     let plain: Vec<&'static ModelOption> = on_offer.iter().copied().filter(|o| o.needs.is_none()).collect();
     let art = default_of(Slot::Art, &plain).filter(|o| o.file().is_some()).unwrap_or(&BUNDLE_ART);
     let size = |f: &str| FILES.iter().find(|(name, _, _)| *name == f).map_or(0, |(_, bytes, _)| *bytes);

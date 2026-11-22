@@ -222,6 +222,7 @@ describe("the summary", () => {
   it("says a frame's time with this device's models and the others", () => {
     expect(speedSummary({ configs: [config(["yours", "defaults"], 142.4), config(["faster"], 48)] })).toBe("A frame takes 142 ms with your models (the defaults), 48 ms with the faster ones.");
     expect(speedSummary({ configs: [config(["yours", "faster"], 48), config(["defaults"], 142)] })).toBe("A frame takes 48 ms with your models (the faster ones), 142 ms with the defaults.");
+    expect(speedSummary({ configs: [config(["yours", "defaults", "faster"], 48), config(["before"], 142)] })).toBe("A frame takes 48 ms with your models (the faster ones), 142 ms with the models before.");
     expect(speedSummary({ configs: [config(["yours"], 90), config(["defaults"], 142), config(["faster"], 48)] })).toBe(
       "A frame takes 90 ms with your models, 142 ms with the defaults and 48 ms with the faster ones.",
     );
