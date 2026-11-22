@@ -103,6 +103,7 @@ vi.mock("./artClient", async (original) => ({
         timings: { detectMs: 1, embedMs: 1, totalMs: 2 },
       }),
       locate: () => new Promise(() => undefined),
+      matchAt: () => new Promise(() => undefined),
       reset: () => undefined,
       setPool: async () => -1,
       dispose: () => undefined,

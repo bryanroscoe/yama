@@ -77,6 +77,9 @@ vi.mock("./artClient", async (original) => ({
         return match();
       },
       locate: async (image) => ({ quad: QUAD, upright: 1, sharpness: 50, thumb: new Uint8Array(0), detectMs: 1, image }),
+      matchAt: async () => {
+        throw new Error("no app finder here");
+      },
       reset: () => undefined,
       setPool: async () => -1,
       dispose: () => undefined,

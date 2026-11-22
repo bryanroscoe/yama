@@ -1,18 +1,17 @@
 # Matching CardVision's scanner, and a native camera for the Android app
 
-**Status:** In progress, 21 Nov 2026 (Bryan approved it that day). Stage 5 is built (22 Nov 2026; Bryan: "let's
-go ahead and do all of this"): card first, printing after (22) and tie by price (26) as options in Scan settings,
-off by default; the border colour rule (24); feedback by price (28), on by default (docs/scanner.md, "Card first,
-printing after, border, tie and feedback by price"). Card first's default flips only when the Pixel's timing
-records (`get_scan_timings`, `rows`) support it. Stages 1 and 2 are merged and live:
-the outline, the focus pin, 60 fps and "Card back" (PR #184, on by default), the placement gate (PR #186,
-an option: Settling by art, "Art that leads, read when the card is still") and the app's own camera in
-the Android app (PR #187). The live Pixel comparison supports making the native camera the default
-on APKs with the plugin. The [ONNX model interfaces](../scanner.md#onnx-models-for-the-native-scanner)
-are documented and the one-crop art export has passed desktop CPU parity. The next implementation
-stage is the native finder and outline, with the Android runtime packaging decision below.
-Item 20 (upside down only when doubtful) moved to stage 3 with the native finder. Two decisions below
-wait on Bryan.
+**Status:** In progress, 22 Nov 2026 (Bryan approved it on 21 Nov, and stages 3 and 4 on 22 Nov: "let's
+go ahead and do all of this"). Stages 1 and 2 are merged and live: the outline, the focus pin, 60 fps
+and "Card back" (PR #184, on by default), the placement gate (PR #186, an option: Settling by art, "Art
+that leads, read when the card is still") and the app's own camera in the Android app (PR #187, the
+default since PR #193). Stage 3, the card finder and the outline in native code with the art read
+upside down only when doubtful (items 1 to 4 and 20), is built: on by default on arm64-v8a and x86_64
+APKs, after the emulator's parity check ([scanner.md](../scanner.md#the-card-finder-in-the-app-2026-11-22));
+the phone check is Bryan's. Stage 5 is built too (22 Nov 2026): card first, printing after (22) and tie by price (26) as options in Scan
+settings, off by default; the border colour rule (24); feedback by price (28), on by default (docs/scanner.md,
+"Card first, printing after, border, tie and feedback by price"). Card first's default flips only when the
+Pixel's timing records (`get_scan_timings`, `rows`) support it. Next, stage 4: the art read in native code.
+No decision below waits on Bryan now.
 
 **Asked for:** Bryan, 21 Nov 2026, after trying CardVision's Android beta (0.2.1-beta1): "It's by far the
 best one I've seen and it's the one that we should use as our gold standard but we should improve upon it
@@ -61,8 +60,8 @@ app only), or **both** (shared logic in TypeScript, fed by either camera).
 
 | # | What CardVision does | Yama today | Where |
 |---|---|---|---|
-| 1 | Draws an outline on every card the detector finds, at once and before it's identified; follows the card's rounded corner; fades in and out; redrawn every screen refresh; up to four cards | Draws the finder's quad before the card is named, as a plain outline updated once per recognizer pass | both |
-| 2 | Looks for cards 30 times a second (12 on a quiet scene, 60 as an option); backs off when the phone is hot or saving power | The next art pass is scheduled with a set delay after the last, at WASM speed | native |
+| 1 | Draws an outline on every card the detector finds, at once and before it's identified; follows the card's rounded corner; fades in and out; redrawn every screen refresh; up to four cards | Draws the finder's quad before the card is named, as a plain outline updated once per recognizer pass; in the app, drawn natively from every frame the camera analyses, one card (22 Nov) | both |
+| 2 | Looks for cards 30 times a second (12 on a quiet scene, 60 as an option); backs off when the phone is hot or saving power | The next art pass is scheduled with a set delay after the last, at WASM speed; in the app the card finder runs on every frame the camera analyses (22 Nov) | native |
 | 3 | Detector sees 320 px; the card is then cut from the full camera frame (720p, 1080p or 4K) for identification, and the collector strip separately at 8× | Similar split (frame cut up to 2400 px for text) | native |
 | 4 | Looks a fifth past the visible edge, so a card is found before it's fully in view; an optional box you drag limits where it looks | Whole frame | both |
 | 5 | A debug view of what the detector and the gate see | Scanner diagnostics records, no live view | both |
@@ -95,7 +94,7 @@ app only), or **both** (shared logic in TypeScript, fed by either camera).
 | 17 | One embedding of one crop per read | 2 cuts first, 15 more when unsure (option). One crop needs a new art model with its own gallery: today's gallery holds one vector per artwork per frame style | models thread |
 | 18 | Says "card back, turn the card over" | Nothing | both |
 | 19 | Trims a sleeve's edge and reads once more when a read is refused | Art model trained on sleeves | both |
-| 20 | Reads upside down only when upright is doubtful | Detector tries four turns every pass (default finder) | both |
+| 20 | Reads upside down only when upright is doubtful | Detector tries four turns every pass (default finder); with the app's finder, the art is read upside down only when upright is doubtful (22 Nov) | both |
 | 21 | One calibrated score from several signals decides accept or refuse | Lead rule and thresholds in `fuse.ts` | later |
 
 ### Naming the printing
@@ -182,14 +181,14 @@ Each stage is its own PR with a phone check on Bryan's Pixel recorded by Scanner
 records. A stage's default flips only when those records support it; until then it's an option in Scan
 settings, as the faster models are.
 
-## Decisions for Bryan
+## Decisions
 
 - **Settle a tie by price (26).** Decided 22 Nov 2026 (Bryan: "let's go ahead and do all of this"): an
   opt-in option, off by default, marked "by price" wherever the card shows, undone by Wrong printing.
   CardVision files the dearest of printings it can't tell apart when they're within 15% of each other.
-- **App size.** ONNX Runtime for Android adds roughly 15 to 30 MB per processor type, and the app ships
-  three. Proposed: accept it for arm64 and x86_64 (emulator), and drop 32-bit ARM from the scanner's
-  native path (those phones keep the web scanner).
+- **App size: decided** (Bryan, 22 Nov 2026, approving the proposal). ONNX Runtime for Android ships for
+  arm64-v8a and x86_64 (the emulator) only; 32-bit ARM phones keep the web scanner. Stored compressed in
+  the APK, its two libraries add about 30 MB to the download (81 MB once installed).
 
 ## Where we should end up ahead
 

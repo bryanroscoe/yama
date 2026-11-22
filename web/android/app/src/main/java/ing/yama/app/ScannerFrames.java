@@ -11,8 +11,9 @@ import java.util.concurrent.locks.ReentrantLock;
  * put while the scanner cuts regions from it at full resolution. Nothing here uses Android
  * classes, so the conversion is unit-tested on the build machine.
  *
- * Three buffers go round: the camera thread fills `back` and swaps it with `latest`; the reader
- * thread swaps `latest` with `pinned` when it takes a frame. Neither waits on the other's copy.
+ * Three buffers go round: the camera thread fills `back` and swaps it with `latest`; the thread
+ * taking frames (the reader, or the app's own card finder while it runs, NativeFinder.java) swaps
+ * `latest` with `pinned` when it takes one. Neither waits on the other's copy.
  */
 final class ScannerFrames {
 
@@ -45,6 +46,8 @@ final class ScannerFrames {
 
     private final ReentrantLock lock = new ReentrantLock();
     private final Condition arrived = lock.newCondition();
+    /** Held while a region is cut from `pinned` by a thread other than the one taking frames. */
+    private final ReentrantLock pinLock = new ReentrantLock();
     private Frame back = new Frame();
     private Frame latest = new Frame();
     private Frame pinned = new Frame();
@@ -97,8 +100,10 @@ final class ScannerFrames {
     }
 
     /**
-     * The reader thread: a frame newer than the one it took last, waiting up to `timeoutMs` for
-     * the camera to deliver one; null when none came. The frame stays put until the next call.
+     * The one thread taking frames (the reader, or the app's own card finder while it runs): a
+     * frame newer than the one it took last, waiting up to `timeoutMs` for the camera to deliver
+     * one; null when none came. The frame stays put until the next call. The swap waits for any
+     * region being cut from the frame taken last ({@link #lockPinned}), never for the camera.
      */
     Frame next(long timeoutMs) throws InterruptedException {
         long left = TimeUnit.MILLISECONDS.toNanos(timeoutMs);
@@ -108,18 +113,44 @@ final class ScannerFrames {
                 if (left <= 0) return null;
                 left = arrived.awaitNanos(left);
             }
-            Frame f = latest;
-            latest = pinned;
-            pinned = f;
-            return f;
         } finally {
             lock.unlock();
         }
+        // pinLock before lock, always: a region cut holds pinLock alone. Interruptible, so the
+        // finder's thread stops at once even while a region is being cut.
+        pinLock.lockInterruptibly();
+        try {
+            lock.lock();
+            try {
+                // Cleared meanwhile (the camera closed): the newer frame is gone with it.
+                if (latest.seq <= pinned.seq) return null;
+                Frame f = latest;
+                latest = pinned;
+                pinned = f;
+                return f;
+            } finally {
+                lock.unlock();
+            }
+        } finally {
+            pinLock.unlock();
+        }
     }
 
-    /** The reader thread: the frame it took last, or null before the first. */
+    /** The frame taken last, or null before the first. Hold {@link #lockPinned} while reading it from another thread. */
     Frame pinned() {
         return pinned.seq > 0 ? pinned : null;
+    }
+
+    /**
+     * Keeps the frame taken last where it is while another thread cuts a region from it: the
+     * finder's next {@link #next} waits until {@link #unlockPinned}.
+     */
+    void lockPinned() {
+        pinLock.lock();
+    }
+
+    void unlockPinned() {
+        pinLock.unlock();
     }
 
     /**

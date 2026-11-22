@@ -84,6 +84,9 @@ vi.mock("./artClient", async (original) => ({
         const quad = here();
         return quad ? { quad, upright: 1, sharpness: 50, thumb: new Uint8Array(THUMB_SIDE * THUMB_SIDE).map((_, i) => (i * 37) % 251), detectMs: 1, image } : { quad: null, upright: 0, detectMs: 1, image };
       },
+      matchAt: async () => {
+        throw new Error("no app finder here");
+      },
       reset: () => undefined,
       setPool: async () => -1,
       dispose: () => undefined,

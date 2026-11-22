@@ -4,7 +4,7 @@
 import { api, API_BASE } from "../api";
 import { SERVER_MAX_IDS, serverId, type LookCandidate, type LookDone, type LookWorkerReply, type LookWorkerRequest, type ServerLooks, type WireFrame } from "./look";
 import type { ModelOption, ModelsInfo } from "./models";
-import type { Located, Recognition } from "./recognizer";
+import type { Handed, Located, Recognition } from "./recognizer";
 import type { SpeedCard } from "./speed";
 import type { Quad, RgbaImage } from "./types";
 
@@ -42,8 +42,10 @@ export type ArtWorkerRequest =
   | { type: "sample"; id: number; count: number }
   /** `quad`: the card's corners in this frame, from a `locate` of it: the finder isn't run again. */
   | { type: "identify"; id: number; width: number; height: number; buffer: ArrayBuffer; quad?: Quad | null }
-  /** The card finder alone (the placement gate, gate.ts). */
-  | { type: "locate"; id: number; width: number; height: number; buffer: ArrayBuffer };
+  /** The card finder alone (the placement gate, gate.ts); with `handed`, the card is described at corners found elsewhere. */
+  | { type: "locate"; id: number; width: number; height: number; buffer: ArrayBuffer; handed?: Handed }
+  /** The art at corners found elsewhere (the app's own card finder): recognizer.ts, `matchAt`. */
+  | { type: "match-at"; id: number; width: number; height: number; buffer: ArrayBuffer; handed: Handed; turn?: boolean };
 
 export type ArtWorkerReply =
   | { type: "progress"; loaded: number; total: number }
@@ -82,7 +84,12 @@ export interface ArtRecognizer {
    * sharp, and its thumbnail. Takes `image.data`'s buffer and hands the frame back as `image`,
    * whole, so the gate can keep it and have it read later (`identify(image, undefined, quad)`).
    */
-  locate(image: RgbaImage): Promise<Located & { image: RgbaImage }>;
+  locate(image: RgbaImage, handed?: Handed): Promise<Located & { image: RgbaImage }>;
+  /**
+   * The art at corners the app's own card finder placed on this very frame (none: no card), as
+   * recognizer.ts's `matchAt`. Takes `image.data`'s buffer, as identify does.
+   */
+  matchAt(image: RgbaImage, handed: Handed, opts?: { turn?: boolean }): Promise<Recognition>;
   /** Forget the card being tracked (between photos, say). */
   reset(opts?: { frames?: boolean }): void;
   /**
@@ -558,14 +565,23 @@ async function startRecognizer(
       switching = done.catch(() => undefined);
       return done;
     },
-    locate(image) {
+    locate(image, handed) {
       if (disposed) return Promise.reject(new Error("The scanner is closed"));
       const id = nextId++;
       const { width, height } = image;
       const buffer = image.data.buffer as ArrayBuffer;
       return new Promise<Located & { image: RgbaImage }>((resolve, reject) => {
         locating.set(id, { resolve: ({ buffer: back, ...l }) => resolve({ ...l, image: { width, height, data: new Uint8ClampedArray(back) } }), reject });
-        worker.postMessage({ type: "locate", id, width, height, buffer } satisfies ArtWorkerRequest, [buffer]);
+        worker.postMessage({ type: "locate", id, width, height, buffer, ...(handed ? { handed } : {}) } satisfies ArtWorkerRequest, [buffer]);
+      });
+    },
+    matchAt(image, handed, opts) {
+      if (disposed) return Promise.reject(new Error("The scanner is closed"));
+      const id = nextId++;
+      const buffer = image.data.buffer as ArrayBuffer;
+      return new Promise<Recognition>((resolve, reject) => {
+        pending.set(id, { resolve, reject });
+        worker.postMessage({ type: "match-at", id, width: image.width, height: image.height, buffer, handed, turn: opts?.turn } satisfies ArtWorkerRequest, [buffer]);
       });
     },
     identify(image, onSeen, at) {

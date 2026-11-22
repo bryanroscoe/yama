@@ -168,12 +168,13 @@ self.onmessage = async (event: MessageEvent<ArtWorkerRequest>) => {
       // The placement gate's pass: the card finder alone. The frame goes back with the answer,
       // for the gate to keep while it may be the sharpest of the placement.
       if (!recognizer) throw new Error("The card recognizer isn't loaded");
-      const located = await recognizer.locate({ width: m.width, height: m.height, data: new Uint8ClampedArray(m.buffer) });
+      const located = await recognizer.locate({ width: m.width, height: m.height, data: new Uint8ClampedArray(m.buffer) }, m.handed);
       reply({ type: "located", id: m.id, located, buffer: m.buffer }, [m.buffer]);
     }
-    else if (m.type === "identify") {
+    else if (m.type === "identify" || m.type === "match-at") {
       if (!recognizer) throw new Error("The card recognizer isn't loaded");
-      const result = await recognizer.identify({ width: m.width, height: m.height, data: new Uint8ClampedArray(m.buffer) }, (quad) => reply({ type: "seen", id: m.id, quad }), m.quad);
+      const frame = { width: m.width, height: m.height, data: new Uint8ClampedArray(m.buffer) };
+      const result = m.type === "match-at" ? await recognizer.matchAt(frame, m.handed, { turn: m.turn }) : await recognizer.identify(frame, (quad) => reply({ type: "seen", id: m.id, quad }), m.quad);
       // With the look on, keep a copy of a frame with a card in it, for the look's side of the
       // comparison: the frame and quad this match used, under every artwork it matched (a title
       // read or Not this card can settle on one that wasn't the best). Copied into reused buffers.
@@ -191,7 +192,7 @@ self.onmessage = async (event: MessageEvent<ArtWorkerRequest>) => {
     }
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    if (m.type === "identify" || m.type === "locate") reply({ type: "failed", id: m.id, message, buffer: m.buffer }, [m.buffer]);
+    if (m.type === "identify" || m.type === "match-at" || m.type === "locate") reply({ type: "failed", id: m.id, message, buffer: m.buffer }, [m.buffer]);
     else if (m.type === "pool") reply({ type: "pooled", id: m.id, arts: -1 });
     else if (m.type === "sample") reply({ type: "sampled", id: m.id, cards: [] });
     else reply({ type: "error", message });
