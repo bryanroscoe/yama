@@ -328,8 +328,14 @@ export class Evidence {
   /** Printings sharing the art that aren't candidates (left out by the set lock): numberAlone checks against them too. */
   private readonly beside: Expected[];
   private frames = 0;
-  /** A printing left out (`beside`) had its own set code read exactly, a set none of the candidates is in. */
+  /**
+   * A printing left out (`beside`) was read: its own set code exactly, a set none of the candidates
+   * is in, or its number in the printed form on NUMBER_ALONE_FRAMES frames when no candidate has
+   * that number (what would settle it by number alone were it a candidate).
+   */
   private besideRead = false;
+  /** Frames each left-out printing's number was read in its printed form. */
+  private readonly besideNumberFrames = new Map<Expected, number>();
 
   /**
    * `beside`: the printings sharing the card's art that the candidates leave out (the set lock's
@@ -357,7 +363,16 @@ export class Evidence {
       if (s.printedNumber) t.exactNumberFrames += 1;
       t.setAgainst ||= s.setAgainst;
     }
-    for (const b of this.beside) if (!this.besideRead && !this.tallies.some((t) => t.e.set === b.set) && scoreFrame(b, reads).exactSet) this.besideRead = true;
+    for (const b of this.beside) {
+      if (this.besideRead) break;
+      const s = scoreFrame(b, reads);
+      if (s.exactSet && !this.tallies.some((t) => t.e.set === b.set)) this.besideRead = true;
+      if (s.printedNumber && !this.tallies.some((t) => t.e.base === b.base)) {
+        const n = (this.besideNumberFrames.get(b) ?? 0) + 1;
+        this.besideNumberFrames.set(b, n);
+        if (n >= NUMBER_ALONE_FRAMES) this.besideRead = true;
+      }
+    }
   }
 
   /**

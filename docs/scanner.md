@@ -233,8 +233,8 @@ kept when it was named (which settles only under the look option that settles wh
 when that's on. A provisional row is in the session and the strip ("Finding…", then "Pick printing" if
 nothing settled, with a dashed ring) but nothing of it is saved: the Collection page saves it, in place, once
 its printing settles, by the scanner or by a tap on its tile or its Added-list row. Undo (or Remove) before
-then simply drops it; closing the scanner with rows still waiting asks first, and leaving the page any way
-drops them. On the sheet, printings a border read ruled out are listed last, never as the scanner's guess. Its scan photo is kept with the
+then simply drops it; closing the scanner with rows still waiting asks first, and leaving any way (the
+page's own "Leave without saving" included) drops them. On the sheet, printings a border read ruled out are listed last, never as the scanner's guess. Its scan photo is kept with the
 printing it settled on (the label is final), and its records end then. Typed names, corrections, Wrong
 printing and rescans of one card aren't filed first; deck and box scans (identity only) don't have it.
 
@@ -272,7 +272,7 @@ read (`detail.border`).
 by itself (reading the held card gave up or asked for a close-up, there's no camera to read from, or a
 provisional row's work is done) and no look is under way, the printings that share the card's art and that
 the collector line hasn't pointed away from are weighed (none when it read a set code none of them is in, or
-one the set lock or the border left out) (printings drawn differently can be told apart by
+the set code of one the set lock or the border left out, or that one's own number on two frames) (printings drawn differently can be told apart by
 eye, so a card named by its title alone never ties): if every one has a market price in the finish it would be filed in and the dearest is at
 most 15% above the cheapest, the dearest is settled ("price") and the card is marked "by price" in the strip,
 the Added list and its large view. English printings only when there are any; never with a price missing (an

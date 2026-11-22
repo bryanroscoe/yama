@@ -49,14 +49,17 @@ const row = () =>
 
 let root: Root;
 let host: HTMLDivElement;
+let router: ReturnType<typeof createMemoryRouter>;
+const closed = { count: 0 };
 beforeEach(() => {
   got.props = null;
   got.ops.length = 0;
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
+  closed.count = 0;
   const client = new QueryClient();
-  const router = createMemoryRouter([{ path: "/", element: <QueryClientProvider client={client}><ScanToCollection containers={[]} onClose={() => undefined} /></QueryClientProvider> }]);
+  router = createMemoryRouter([{ path: "/", element: <QueryClientProvider client={client}><ScanToCollection containers={[]} onClose={() => void (closed.count += 1)} /></QueryClientProvider> }]);
   act(() => root.render(<RouterProvider router={router} />));
 });
 afterEach(() => {
@@ -130,6 +133,17 @@ describe("the collection scanner's host, card first", () => {
     act(() => root.unmount());
     expect(r.state.phase).toBe("dropped");
     root = createRoot(host);
+  });
+
+  it("drops waiting rows and closes when the person leaves through the guard's question, even to the same page (Codex review of #195)", async () => {
+    const props = await until(() => got.props, "the scanner");
+    const r = row();
+    act(() => props.onProvisional!(r));
+    await act(async () => void router.navigate("/?filter=1"));
+    const leave = await until(() => [...document.querySelectorAll("button")].find((b) => b.textContent === "Leave without saving"), "the question");
+    act(() => leave.click());
+    expect(r.state.phase).toBe("dropped");
+    expect(closed.count).toBe(1);
   });
 
   it("asks before closing with rows still waiting for their printing", async () => {

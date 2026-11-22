@@ -1115,7 +1115,10 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
   );
   // The scanner's own Close asks above; Back, a link, a reload or closing the tab ask through the
   // unsaved-work guard, since any of them takes the scanner away with what it couldn't save.
-  const guard = useUnsavedChanges(question !== null);
+  // Leaving through the guard's question drops what isn't saved here and closes the scanner, even
+  // when the page stays mounted at the new address (Back between two /collection addresses): no
+  // waiting row may settle and save after "Leave without saving" (Codex review of #195).
+  const guard = useUnsavedChanges(question !== null, { onLeave: closeAnyway });
   useEffect(() => {
     // Asked to close while saves were out, and they have all gone through since.
     if (closing && !question) onClose();

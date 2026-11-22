@@ -324,6 +324,17 @@ describe("reads pointing outside the candidates (Codex review of #195)", () => {
     const own = new Evidence([p("woc", "woc", "145"), p("cmm", "cmm", "390")], [p("c19", "c19", "236")]);
     own.add(["0145 R\nWOC • EN"]);
     expect(own.pointsOutside()).toBe(false);
+    // Only the left-out printing's own number, read in its printed form on two frames (Codex review of #195).
+    const number = new Evidence([p("woc", "woc", "145"), p("cmm", "cmm", "390")], [p("c19", "c19", "236")]);
+    number.add(["0236 R"]);
+    expect(number.pointsOutside()).toBe(false);
+    number.add(["0236 R"]);
+    expect(number.pointsOutside()).toBe(true);
+    // A number a candidate has too says nothing about the one left out.
+    const shared = new Evidence([p("woc", "woc", "236"), p("cmm", "cmm", "390")], [p("c19", "c19", "236")]);
+    shared.add(["0236 R"]);
+    shared.add(["0236 R"]);
+    expect(shared.pointsOutside()).toBe(false);
     // A set code printed where it's printed, which no candidate is in.
     const other = new Evidence([p("woc", "woc", "145"), p("cmm", "cmm", "390")]);
     other.add(["0236 R\nZNR • EN"]);
