@@ -7,6 +7,7 @@
 // synthetic frames (docs/scanner.md, "Crop and zoom"): reads held at a card 700 px tall (letters
 // about 9 px, upsampled to the reading density) and failed under 450.
 
+import { MIN_SHOWN } from "./fit";
 import { COLLECTOR_REGION } from "./pipeline";
 import type { Quad } from "./types";
 
@@ -25,3 +26,42 @@ export const letterPx = (q: Quad) => cardHeight(q) * LETTER_SHARE;
 
 /** Whether to say "Move closer": the letters would be under the target. */
 export const tooFar = (q: Quad) => letterPx(q) < LETTER_TARGET;
+
+// "Hold the phone a little further away" (Bryan, 22 Nov 2026: up close the picture "looks a little
+// distorted"). His Pixel, on Automatic, had switched to its ultra-wide lens for a card that close
+// (Scanner diagnostics' activeLens, two records that day), and the app's camera now keeps to the
+// main lens by default (nativeCamera.ts). A single lens can't focus nearer than its nearest focus
+// distance, so the card is then soft: how far away the card is, is estimated from its height in
+// the picture and the lens's focal length as a 35 mm camera's, and below that distance the scanner
+// asks for a little more room. Assumed [inferred, not measured on a phone]: a 4:3 sensor (the
+// app's equivalent focal length is by its diagonal, 43.27 mm), its long side upright in a 16:9
+// picture taken from it, and the card upright (a card on its side seems further away, never nearer).
+
+/** A 4:3 sensor's long side, in a 35 mm camera's millimetres (four fifths of its 43.27 mm diagonal). */
+const LONG_SIDE_MM = 34.6;
+/** A card's height, in metres. */
+const CARD_M = 0.088;
+
+/** How far away the card is, in metres, from its share of the picture's height; null when it can't be told. */
+export function cardDistance(share: number, equivalentMm: number, zoom = 1): number | null {
+  if (!(share > 0 && equivalentMm > 0 && zoom > 0)) return null;
+  return (CARD_M * equivalentMm * zoom) / (LONG_SIDE_MM * share);
+}
+
+/** A lens the estimate is trusted for: a focal length and nearest focus a phone's lens could have. */
+export interface FocusLens {
+  /** Focal length as a 35 mm camera's, mm. */
+  equivalent: number;
+  /** As near as it focuses, metres. */
+  nearest: number;
+}
+
+/** The card is nearer than the lens focuses (with a tenth to spare), so the picture is soft. */
+export function tooCloseToFocus(share: number, lens: FocusLens | null, zoom = 1): boolean {
+  if (!lens || lens.equivalent < 12 || lens.equivalent > 150 || !(lens.nearest >= 0.03 && lens.nearest <= 1)) return false;
+  const d = cardDistance(share, lens.equivalent, zoom);
+  return d != null && d < lens.nearest * 0.9;
+}
+
+/** Past this share of the picture's height the card may be cut off on screen (fit.ts) or at the frame's edge. */
+export const TOO_BIG = MIN_SHOWN;

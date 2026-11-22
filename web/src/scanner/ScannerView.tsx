@@ -53,12 +53,12 @@ import { GATE_DEFAULTS, Motion, PlacementGate } from "./gate";
 import { BACK_KEY, GATE_PASS_MS, GATE_SAYS, gateStatus, type GateFrame, type GateRead } from "./gateLoop";
 import { defaultCamera, nameCameras, resolveSaved, saveCamera, savedCamera, type NamedCamera } from "./cameras";
 import { browserCameraSource, draw, sourceLabel, type CameraSource, type SourceInfo } from "./cameraSource";
-import { finderKey, FOUND_CARD, FOUND_FAILED, FOUND_NONE, loadNativeArt, loadNativeFinder, nativeCameraAvailable, nativeEmbed, nativeFinderAbility, NATIVE_GONE, openNativeCamera, saveNativeCamera, savedNativeCamera, unloadNativeArt, unloadNativeFinder, type NativeCamera, type NativeFinderAbility } from "./nativeCamera";
+import { finderKey, FOUND_CARD, FOUND_FAILED, FOUND_NONE, loadNativeArt, loadNativeFinder, nativeCameraAvailable, nativeEmbed, nativeFinderAbility, NATIVE_GONE, openNativeCamera, saveNativeCamera, savedNativeCamera, unloadNativeArt, unloadNativeFinder, type NativeCamera, type NativeFinderAbility, type NativeLens } from "./nativeCamera";
 import { nativeId, nativeWanted, onNativeChange, saveNative, savedNative } from "./nativeModels";
 import { cachedFile } from "./scanCache";
 import { NativeCameraSetting } from "./NativeCameraSetting";
 import { AUTO_MAX, AutoZoom, LENS_SWITCH, maySwitchLens } from "./zoomPolicy";
-import { cardHeight, tooFar } from "./closer";
+import { cardHeight, TOO_BIG, tooCloseToFocus, tooFar, type FocusLens } from "./closer";
 import { createServerCatalog } from "./serverCatalog";
 import { availableEngines, createScannerOcr, ENGINE_LABEL, engineOrder, plannedEngine, type OcrChoice, type ScannerOcr } from "./ocrEngine";
 import { HeldRead, type HeldVerdict } from "./heldRead";
@@ -427,6 +427,8 @@ const READING: string = GATE_SAYS.reading;
  * With the set lock, as far as judgeLocked lets an in-set match trail the best one anywhere.
  */
 const SAME_CARD_MARGIN = 0.02;
+/** The card is nearer than the lens focuses, or too big to show whole (closer.ts). */
+const FURTHER = "Hold the phone a little further away";
 /** While a card's printing is read: another card scoring this far above it (and at least LOCK_TWICE) is plainly another card. */
 const OTHER_MARGIN = 0.08;
 
@@ -848,6 +850,12 @@ function ScannerScreen({
   const [nativeOpt, setNativeOpt] = useState(savedNativeCamera);
   const [nativeFailed, setNativeFailed] = useState<string | null>(null);
   const useNative = nativeOpt.on && !nativeFailed && nativeCameraAvailable();
+  /**
+   * A lens of its own that wouldn't open this visit (the main lens by default): the app's camera
+   * is opened on Automatic instead before the browser's camera is tried, and Scan settings says so.
+   */
+  const [lensFailed, setLensFailed] = useState<{ lens: NativeLens; why: string } | null>(null);
+  const lensAsked: NativeLens = lensFailed && lensFailed.lens === nativeOpt.lens ? "auto" : nativeOpt.lens;
   const nativeCam = useRef<NativeCamera | null>(null);
   const browserCam = useRef<CameraSource | null>(null);
   /** The camera frames are read from (cameraSource.ts): the app's own while it's open, else the browser's video. */
@@ -1134,21 +1142,38 @@ function ScannerScreen({
   useEffect(() => {
     autoZoomRef.current = cam.caps.zoom ? new AutoZoom(cam.caps.zoom) : null;
   }, [cam.caps.zoom]);
-  /** The collector line's letters are too small to read where the card is (closer.ts). */
-  const [far, setFar] = useState(false);
   /**
-   * Each frame's card, in video pixels (null when none): the "Move closer" hint, and auto-zoom's
-   * step toward the card filling the view (the view the camera box shows, at the camera's zoom).
+   * Where the card is for reading it (closer.ts): too far for the collector line's letters ("Move
+   * closer"), nearer than the lens focuses or too big to show whole ("further away"), or fine.
+   * Neither while auto-zoom can still make up the difference.
+   */
+  const [distance, setDistance] = useState<"far" | "close" | null>(null);
+  const far = distance === "far";
+  /** The lens in use, where the app's camera has one lens to itself: its focal length and nearest focus. */
+  const focusLens = (): FocusLens | null => {
+    const d = nativeCam.current?.described();
+    if (!d || d.lens === "auto" || !d.focusNearest) return null;
+    const equivalent = d.lenses.find((l) => l.lens === d.lens)?.equivalent ?? 0;
+    return equivalent > 0 ? { equivalent, nearest: d.focusNearest } : null;
+  };
+  /**
+   * Each frame's card, in video pixels (null when none): the distance hints, and auto-zoom's step
+   * toward the card filling the view (the view the camera box shows, at the camera's zoom).
    */
   const seeCard = (quad: Quad | null, v: HTMLVideoElement) => {
-    // By the card's size in the camera's full frame (the app's own camera hands frames over smaller).
-    const full = camSrc().fullScale();
-    setFar(!!quad && tooFar(full === 1 ? quad : (quad.map(([x, y]) => [x * full, y * full]) as Quad)));
     const az = autoZoomRef.current;
     const c = camRef.current;
-    if (!az || c.userZoomed()) return;
-    // The picture's whole height always shows (fit.ts), whatever the sheet leaves of the camera.
-    const z = az.frame(quad ? cardHeight(quad) / v.videoHeight : null, c.zoom, performance.now());
+    const zooms = !!az && !c.userZoomed();
+    // By the picture's height, nearly all of which always shows (fit.ts), whatever the sheet leaves.
+    const share = quad && v.videoHeight > 0 ? cardHeight(quad) / v.videoHeight : null;
+    // By the card's size in the camera's full frame (the app's own camera hands frames over smaller).
+    const full = camSrc().fullScale();
+    const tooSmall = !!quad && tooFar(full === 1 ? quad : (quad.map(([x, y]) => [x * full, y * full]) as Quad));
+    const tooNear = share != null && (share > TOO_BIG || tooCloseToFocus(share, focusLens(), c.zoom));
+    // Nearer than the lens focuses comes first: moving closer to a blurred card never helps.
+    setDistance(tooNear && !(zooms && az!.canZoomOut(c.zoom)) ? "close" : tooSmall && !(zooms && az!.canZoomIn(c.zoom)) ? "far" : null);
+    if (!zooms) return;
+    const z = az!.frame(share, c.zoom, performance.now());
     if (z != null) c.autoZoom(z);
   };
   /**
@@ -1677,7 +1702,7 @@ function ScannerScreen({
       };
       // The same sizes the browser's camera is asked for, below.
       const size = identityOnly ? { width: 1920, height: 1080 } : { width: 3840, height: 2160 };
-      const native = openNativeCamera(el, { lens: nativeOpt.lens, fps: nativeOpt.fps, ...size, torchLevel: nativeOpt.torchLevel }, { onInfo: told });
+      const native = openNativeCamera(el, { lens: lensAsked, fps: nativeOpt.fps, ...size, torchLevel: nativeOpt.torchLevel }, { onInfo: told });
       nativeCam.current = native;
       native.ready.then(
         (info) => {
@@ -1690,8 +1715,12 @@ function ScannerScreen({
           setPhase((p) => (p === "loading" ? "scanning" : p));
         },
         (e: unknown) => {
+          if (stopped) return;
+          const why = e instanceof Error ? e.message : "it didn't open";
+          // A lens of its own that won't open: the app's camera on Automatic first.
+          if (lensAsked !== "auto") setLensFailed({ lens: lensAsked, why });
           // It won't open here: the camera as before, and Scan settings say why.
-          if (!stopped) setNativeFailed(e instanceof Error ? e.message : "it didn't open");
+          else setNativeFailed(why);
         },
       );
       return () => {
@@ -1803,7 +1832,7 @@ function ScannerScreen({
     // cam.attach and haltReaders are stable for this purpose. The app's camera reopens for a new
     // lens or capture rate; its flashlight strength changes as it runs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cameraId, useNative, nativeOpt.lens, nativeOpt.fps]);
+  }, [cameraId, useNative, lensAsked, nativeOpt.fps]);
 
   /** The look at the found card's printings under way (look.ts): stopped when the card is done with or its printing chosen. */
   const lookRun = useRef<{ seq: number; stop: AbortController } | null>(null);
@@ -3218,11 +3247,11 @@ function ScannerScreen({
   // (not a correction of a card already filed, a printing said to be wrong, or a rescan of one card).
   const laterNow = laterOffered && cardFirst && !!found && !found.correcting && !found.misread && !found.outside && !single && !(found.method === "name" && found.confidence === 1);
   const ready = identityOnly || !!chosen || laterNow;
-  // When the next step is a tap, not the camera, say so on the camera view, buzz, and bring it into view.
   // Another card took this one's place while its printing was read: the scanner is still on this one.
   const stillOn = phase === "found" && !!found && !holding && anotherAt != null && anotherAt === foundSeq.current;
-  // The card is named wherever the camera says the scanner is working on it (Bryan, 22 Nov 2026:
-  // "make sure it's always obvious" which card it's on).
+  // When the next step is a tap, not the camera, say so on the camera view, buzz, and bring it into
+  // view. The card is named wherever the camera says the scanner is working on it (Bryan, 22 Nov
+  // 2026: "make sure it's always obvious" which card it's on).
   const tapNeeded: string | null =
     phase !== "found" || !found || closeup || holding
       ? null
@@ -3715,7 +3744,9 @@ function ScannerScreen({
             saveNativeCamera(o);
             setNativeOpt(o);
             setNativeFailed(null);
+            setLensFailed(null);
           }}
+          lensFailed={lensFailed && lensFailed.lens === nativeOpt.lens ? lensFailed.why : null}
           info={useNative ? (cameraNow as SourceInfo | null) : null}
           camera={useNative ? nativeCam.current : null}
           failed={nativeOpt.on ? nativeFailed : null}
@@ -3967,7 +3998,7 @@ function ScannerScreen({
       <div
         ref={cameraRef}
         className="scan-camera"
-        // The picture's shape: it shows at its full height in the box, centred (fit.ts, scanner.css).
+        // The picture's shape: it covers the box, centred, never losing more than 15% of its height (fit.ts, scanner.css).
         style={frameSize ? ({ "--frame-ratio": `${frameSize.w} / ${frameSize.h}`, "--frame-k": frameSize.w / frameSize.h } as CSSProperties) : undefined}
       >
         <div className="scan-zoom" style={cam.digital > 1 ? { transform: `scale(${cam.digital})` } : undefined}>
@@ -4068,7 +4099,9 @@ function ScannerScreen({
                 ? holding
                   ? far
                     ? "Move closer, so the set code and number can be read"
-                    : `${found!.name}: hold still for the printing`
+                    : distance === "close"
+                      ? FURTHER
+                      : `${found!.name}: hold still for the printing`
                   : `${found!.name}: now the printing, up close`
                 : isFound
                   ? stillOn
@@ -4076,7 +4109,7 @@ function ScannerScreen({
                     : `Found ${found!.name}`
                   : lockOpen
                     ? "Choose the sets"
-                    : ((receipt ? null : justAdded?.text) ?? (phase === "no-camera" ? "No camera" : mode ? status : loadingText)))}
+                    : ((receipt ? null : justAdded?.text) ?? (phase === "no-camera" ? "No camera" : phase === "scanning" && scanningNow && distance === "close" ? FURTHER : mode ? status : loadingText)))}
         </span>
         )}
       </div>

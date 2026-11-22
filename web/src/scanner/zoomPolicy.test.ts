@@ -58,3 +58,16 @@ describe("move closer", () => {
     expect(tooFar(rectQuad(0, 0, 1146, 1600))).toBe(false);
   });
 });
+
+describe("whether auto-zoom has room left (so the distance hints wait for it)", () => {
+  it("can zoom in up to its ceiling and out down to 1× or the camera's least", () => {
+    const az = new AutoZoom({ min: 0.5, max: 30 });
+    expect(az.canZoomIn(1)).toBe(true);
+    expect(az.canZoomIn(AUTO_MAX)).toBe(false);
+    expect(az.canZoomOut(1)).toBe(false);
+    expect(az.canZoomOut(1.5)).toBe(true);
+    const fixed = new AutoZoom({ min: 1, max: 1 });
+    expect(fixed.canZoomIn(1)).toBe(false);
+    expect(fixed.canZoomOut(1)).toBe(false);
+  });
+});

@@ -24,7 +24,7 @@ import { Capacitor, registerPlugin } from "@capacitor/core";
 import { cameraInfo } from "./camera";
 import { CUT_SIDE, cutBox, draw, type BridgeCost, type CameraSource, type FrameElement, type SourceInfo } from "./cameraSource";
 import { RECOGNIZER_SHORT_SIDE } from "./artClient";
-import { DEFAULT_ASPECT, fitHeight } from "./fit";
+import { DEFAULT_ASPECT, fitPicture } from "./fit";
 import type { Quad, RgbaImage } from "./types";
 
 // ---- The option ----
@@ -57,17 +57,30 @@ const positive = (v: unknown): v is number => typeof v === "number" && Number.is
  * wasn't selected on his Pixel after it became the default). Only a choice saved since counts
  * as opting out.
  */
-const SAVED_VERSION = 2;
+//
+// Version 3 (22 Nov 2026): the main lens became the default, in place of Automatic (Bryan's Pixel
+// switched to its ultra-wide lens up close: "it looks a little distorted"). Automatic was the only
+// default before, so an option saved before version 3 with Automatic takes the new default; any
+// other lens chosen before is kept.
+const SAVED_VERSION = 3;
+
+/**
+ * The scanner's lens unless one is chosen: the main lens, so the phone never switches to its
+ * ultra-wide (softer, and bent at the edges) for a card held close. Where the phone doesn't list
+ * its lenses, the camera as Android presents it, which is then its main lens.
+ */
+export const DEFAULT_LENS: NativeLens = "main";
 
 /** Use the app's own camera where the plugin is available unless this device opted out. */
 export function savedNativeCamera(): NativeCameraOption {
-  const defaults: NativeCameraOption = { on: nativeCameraAvailable(), lens: "auto", fps: 30, torchLevel: null };
+  const defaults: NativeCameraOption = { on: nativeCameraAvailable(), lens: DEFAULT_LENS, fps: 30, torchLevel: null };
   try {
     const v = JSON.parse(localStorage.getItem(NATIVE_CAMERA_KEY) ?? "null") as (Partial<NativeCameraOption> & { v?: unknown }) | null;
     if (!v || typeof v !== "object") return defaults;
+    const version = typeof v.v === "number" ? v.v : 1;
     return {
-      on: v.v === SAVED_VERSION && typeof v.on === "boolean" ? v.on : defaults.on,
-      lens: isLens(v.lens) ? v.lens : defaults.lens,
+      on: version >= 2 && typeof v.on === "boolean" ? v.on : defaults.on,
+      lens: isLens(v.lens) && (version >= SAVED_VERSION || v.lens !== "auto") ? v.lens : defaults.lens,
       fps: v.fps === 60 ? 60 : defaults.fps,
       torchLevel: positive(v.torchLevel) ? Math.round(v.torchLevel) : defaults.torchLevel,
     };
@@ -559,7 +572,7 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
   const rect = (): NativeRect | null => {
     const box = (el.closest(".scan-camera") ?? el).getBoundingClientRect();
     if (!(box.width > 0 && box.height > 0)) return null;
-    const r = fitHeight(box, aspect());
+    const r = fitPicture(box, aspect());
     return { x: r.left, y: r.top, width: r.width, height: r.height, viewWidth: window.innerWidth };
   };
   /** Set once the camera is open: places the preview again (a new picture shape, the box moving). */

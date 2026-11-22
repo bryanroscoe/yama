@@ -734,7 +734,9 @@ public class ScannerCameraPlugin extends Plugin {
                     o.physicalId = l.id;
                 }
             }
-            if (o.physicalId == null) o.lensNote = "This phone doesn't offer that lens by itself, so the camera is choosing the lens.";
+            // The main lens, the scanner's default, on a phone that doesn't list its lenses is the
+            // camera as Android presents it: nothing to say about that.
+            if (o.physicalId == null && !("main".equals(lensAsked) && o.lenses.isEmpty())) o.lensNote = "This phone doesn't offer that lens by itself, so the camera is choosing the lens.";
         }
         CameraCharacteristics chosen = o.physicalId != null ? manager.getCameraCharacteristics(o.physicalId) : logical;
         Float nearest = chosen.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE);

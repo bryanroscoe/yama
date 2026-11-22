@@ -16,7 +16,7 @@ const V = "gallery-20261106T183001884398Z";
 const printing = (id: string, set: string, number: string): Printing => ({
   scryfall_id: id, oracle_id: "o", name: "Arcane Signet", set_code: set, set_name: `Set ${set.toUpperCase()}`, collector_number: number, lang: "en",
   rarity: "common", finishes: ["nonfoil"], released_at: "2024-01-01", image_normal: null, image_small: null, back_image_normal: null, artist: null,
-  price_date: "2026-11-20", usd: "1.00", usd_foil: null, usd_etched: null, eur: null, eur_foil: null,
+  price_date: "2026-11-20", usd: 1, usd_foil: null, usd_etched: null, eur: null, eur_foil: null,
 });
 const bundle = (): BundleInfo => ({
   version: V,
@@ -46,8 +46,9 @@ vi.mock("../api", async (original) => ({
   },
 }));
 
-// A card near enough for its collector line to be read (closer.ts): over 1,563 px tall in a 4K picture.
-const QUAD: Quad = [[300, 900], [1860, 900], [1860, 3080], [300, 3080]];
+// A card near enough for its collector line to be read (closer.ts: over 1,563 px tall in a 4K
+// picture), not so near it's cut off: 2,180 px of 3,840, given in the recognizer's 640 × 1138 frame.
+const QUAD: Quad = [[89, 267], [551, 267], [551, 913], [89, 913]];
 vi.mock("./artClient", async (original) => ({
   ...(await original<typeof import("./artClient")>()),
   loadArtRecognizer: async () => {

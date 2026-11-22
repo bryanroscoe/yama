@@ -63,6 +63,12 @@ const nat = vi.hoisted(() => ({
   embeds: [] as { seq: number; quad: Quad }[],
   embedGone: false,
   score: 0.93,
+  /** The lens saved on the device, each lens the app's camera was opened with, and one that won't open. */
+  lens: "auto",
+  opened: [] as string[],
+  failLens: null as string | null,
+  /** What the app's camera says of itself (its lenses, nearest focus): null for nothing. */
+  described: null as unknown,
 }));
 
 vi.mock("./nativeCamera", async (original) => {
@@ -70,7 +76,7 @@ vi.mock("./nativeCamera", async (original) => {
   return {
     ...real,
     nativeCameraAvailable: () => true,
-    savedNativeCamera: () => ({ on: true, lens: "auto", fps: 30, torchLevel: null }),
+    savedNativeCamera: () => ({ on: true, lens: nat.lens, fps: 30, torchLevel: null }),
     nativeFinderAbility: async () => ({ finder: true }),
     loadNativeFinder: async () => {
       nat.loads += 1;
@@ -93,20 +99,21 @@ vi.mock("./nativeCamera", async (original) => {
       if (nat.embedGone) throw new Error(real.NATIVE_GONE);
       return { data: new Float32Array(4), rows: 1, dim: 4, ms: 6 };
     },
-    openNativeCamera: (el: HTMLCanvasElement) => {
+    openNativeCamera: (el: HTMLCanvasElement, req: { lens: string }) => {
       Object.defineProperty(el, "videoWidth", { configurable: true, get: () => 640 });
       Object.defineProperty(el, "videoHeight", { configurable: true, get: () => 1138 });
       const info = { source: "native" as const, width: 2160, height: 3840 };
+      nat.opened.push(req.lens);
       return {
         kind: "native" as const,
-        ready: Promise.resolve(info),
+        ready: nat.failLens === req.lens ? Promise.reject(new Error("that lens wouldn't bind")) : Promise.resolve(info),
         frame: () => el,
         fullScale: () => 3.375,
         around: async (quad: Quad) => ({ image: { width: 4, height: 4, data: new Uint8ClampedArray(64) }, quad }),
         region: async () => ({ width: 4, height: 4, data: new Uint8ClampedArray(64) }),
         track: () => null,
         info: () => info,
-        described: () => null,
+        described: () => nat.described,
         setTorchLevel: async () => undefined,
         bench: async () => [],
         found: () => (nat.on ? { state: nat.state, quad: nat.state === real.FOUND_CARD ? quadAt(100) : null, vote: 1, ms: 8, passes: 1, ageMs: 3, seq: 41 } : null),
@@ -209,7 +216,7 @@ beforeEach(() => {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-  Object.assign(nat, { state: 1, loads: 0, failLoad: false, on: false, sets: [], matched: [], identified: 0, order: [], score: 0.93, artLoads: 0, artUnloads: 0, finderUnloads: 0, artFails: false, embeds: [], embedGone: false });
+  Object.assign(nat, { state: 1, loads: 0, failLoad: false, on: false, sets: [], matched: [], identified: 0, order: [], score: 0.93, artLoads: 0, artUnloads: 0, finderUnloads: 0, artFails: false, embeds: [], embedGone: false, lens: "auto", opened: [], failLens: null, described: null });
   sent.timings = [];
 });
 afterEach(() => {
@@ -382,5 +389,31 @@ describe("the card finder in the app's own code", () => {
     expect((t.models as Record<string, string>).detector).toBe("bundle-detector-native");
     expect((t.models as Record<string, string>).art).toBe("bundle");
     expect((t.detail as Record<string, unknown>).art_ms).toBeUndefined();
+  });
+});
+
+describe("the app's camera lens (Bryan, 22 Nov 2026: up close on Automatic it 'looks a little distorted')", { timeout: 20_000 }, () => {
+  it("opens on Automatic when the lens of its own won't open, before trying the browser's camera", async () => {
+    nat.lens = "main";
+    nat.failLens = "main";
+    nat.score = 0.2;
+    act(() => root.render(<ScannerView identityOnly closeups={false} onAccept={async () => true} />));
+    await until(() => (nat.opened.includes("auto") ? true : null), "the app's camera on Automatic");
+    expect(nat.opened).toEqual(["main", "auto"]);
+    // And it scans with it: frames are matched at the app's corners.
+    await until(() => (nat.matched.length >= 1 ? true : null), "a frame read");
+  });
+
+  it("asks for a little more room when the card is nearer than the main lens focuses", async () => {
+    nat.lens = "main";
+    // The app's finder hands a card 420 of the frame's 1138 px tall (quadAt): about 16.5 cm away for
+    // a 24 mm lens (closer.ts), nearer than this lens's 20 cm.
+    nat.described = { lens: "main", lenses: [{ lens: "main", equivalent: 24 }], focusNearest: 0.2 };
+    nat.score = 0.2;
+    act(() => root.render(<ScannerView identityOnly closeups={false} onAccept={async () => true} />));
+    await until(() => (document.querySelector(".scan-chip")?.textContent === "Hold the phone a little further away" ? true : null), "further away");
+    // A lens that focuses as near as 15 cm: nothing said.
+    nat.described = { lens: "main", lenses: [{ lens: "main", equivalent: 24 }], focusNearest: 0.15 };
+    await until(() => (document.querySelector(".scan-chip")?.textContent !== "Hold the phone a little further away" ? true : null), "the hint gone");
   });
 });
