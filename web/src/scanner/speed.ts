@@ -20,6 +20,13 @@ export const FRAMES_PER_CARD = 4;
 export const FAST_DETECTOR = "yama-corners-20261120";
 export const FAST_ART = "yama-art-20261118-cascade";
 /**
+ * The defaults before the faster ones took their place (22 Nov 2026: docs/scanner.md, "The faster
+ * models as the defaults"), timed too where they aren't the defaults, so a device still sees what
+ * the change saved.
+ */
+export const BEFORE_DETECTOR = "bundle-detector";
+export const BEFORE_ART = "yama-art-20261118";
+/**
  * The report's form, for readers of saved tests. 2 (22 Nov 2026): a configuration may run its card
  * finder in the app's own code (`runtime` "native-cpu", `runtimes`, `parity`).
  */
@@ -227,7 +234,7 @@ export interface ModelPair {
 }
 
 /** What a configuration stands for: this device's choices, the defaults, the faster options (one configuration may be several). */
-export type SpeedRole = "yours" | "defaults" | "faster";
+export type SpeedRole = "yours" | "defaults" | "faster" | "before";
 
 export interface ConfigResult {
   roles: SpeedRole[];
@@ -450,14 +457,16 @@ export function speedSummary(r: Pick<SpeedReport, "configs">): string {
   const yours = configFor(r, "yours");
   const defaults = configFor(r, "defaults");
   const faster = configFor(r, "faster");
+  const before = configFor(r, "before");
   const parts: string[] = [];
   let lead = "";
   if (yours && frame(yours) !== null) {
-    const own = yours.roles.includes("faster") ? "your models (the faster ones)" : yours.roles.includes("defaults") ? "your models (the defaults)" : "your models";
+    const own = yours.roles.includes("faster") ? "your models (the faster ones)" : yours.roles.includes("defaults") ? "your models (the defaults)" : yours.roles.includes("before") ? "your models (the ones before)" : "your models";
     parts.push(`${ms(frame(yours))} with ${own}`);
   } else if (yours?.error) lead = `Your models weren't timed: ${yours.error}. `;
   if (defaults && defaults !== yours && frame(defaults) !== null) parts.push(`${ms(frame(defaults))} with the defaults`);
   if (faster && faster !== yours && frame(faster) !== null) parts.push(`${ms(frame(faster))} with the faster ones`);
+  if (before && before !== yours && frame(before) !== null) parts.push(`${ms(frame(before))} with the models before`);
   if (parts.length === 0) return yours?.error ? `The test didn't finish: ${yours.error}` : "The test didn't finish.";
   const list = parts.length > 2 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts.join(", ");
   return `${lead}A frame takes ${list}.`;

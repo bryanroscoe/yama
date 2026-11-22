@@ -56,6 +56,34 @@ describe("HeldRead, the outer cap on reading a held card", () => {
     expect(h.summary()).toMatchObject({ ended: "stop", why: "away" });
   });
 
+  it("stops at once when another card is plainly in view for a few frames in a row, not after the away time (Bryan, 22 Nov 2026)", () => {
+    const h = new HeldRead(false, 0);
+    h.frame(100);
+    for (let i = 1; i < HOLD_BUDGET.anotherFrames; i++) expect(h.another(100 + i * 60)).toBe("again");
+    expect(h.another(100 + HOLD_BUDGET.anotherFrames * 60)).toBe("stop");
+    expect(h.summary()).toMatchObject({ ended: "stop", why: "another" });
+    // Well inside the away time the same card is allowed.
+    expect(100 + HOLD_BUDGET.anotherFrames * 60).toBeLessThan(HOLD_BUDGET.awayMs);
+  });
+
+  it("counts another card only in a row: the card back in view, or a plain miss, starts the count again", () => {
+    const h = new HeldRead(false, 0);
+    h.frame(100);
+    let t = 100;
+    for (let round = 0; round < 3; round++) {
+      for (let i = 1; i < HOLD_BUDGET.anotherFrames; i++) expect(h.another((t += 60))).toBe("again");
+      // The held card again (or a frame with no card at all, the card on its way back).
+      expect(round === 1 ? h.missed((t += 60)) : h.frame((t += 60))).toBe("again");
+    }
+    expect(h.summary().ended).toBeNull();
+    // Frames of another card still count as away time.
+    const away = new HeldRead(false, 0);
+    away.frame(0);
+    for (let t2 = 60; t2 < HOLD_BUDGET.awayMs; t2 += 60) expect(t2 % 120 === 0 ? away.another(t2) : away.missed(t2)).toBe("again");
+    expect(away.another(HOLD_BUDGET.awayMs)).toBe("stop");
+    expect(away.summary().why).toBe("away");
+  });
+
   it("stops after too many failed reads in a row, and a good frame resets the count", () => {
     const h = new HeldRead(false, 0);
     for (let i = 1; i < HOLD_BUDGET.failures; i++) expect(h.missed(i * 10, true)).toBe("again");

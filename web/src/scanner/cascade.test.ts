@@ -143,6 +143,13 @@ describe("the embed cascade", () => {
     expect(cutsFed).toEqual([[0, 1], [2]]);
   });
 
+  it("reads every cut when the first stage leads at under 0.70 (22 Nov 2026: 3 of 42 such were the wrong card)", async () => {
+    const { cutsFed } = await scan([[0, 0.69], [1, 0.5]], [[0, 0.69], [1, 0.5]]);
+    expect(cutsFed).toEqual([[0, 1], [2]]);
+    const settled = await scan([[0, 0.71], [1, 0.5]], [[0, 0.71], [1, 0.5]]);
+    expect(settled.cutsFed).toEqual([[0, 1]]);
+  });
+
   it("embeds every cut at once with the set lock on", async () => {
     const { r, cutsFed } = await scan([[0, 0.9], [1, 0.5]], [[0, 0.9], [1, 0.5]], { pool: [2] });
     expect(cutsFed).toEqual([[0, 1, 2]]);

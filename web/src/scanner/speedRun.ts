@@ -21,6 +21,8 @@ import {
   configStats,
   cornerGap,
   deviceLabel,
+  BEFORE_ART,
+  BEFORE_DETECTOR,
   FAST_ART,
   FAST_DETECTOR,
   FRAMES_PER_CARD,
@@ -127,6 +129,10 @@ export function speedConfigs(models: ModelsInfo, choices: ModelChoices): Planned
     { roles: ["defaults"], detector: baseDetector, art: baseArt },
   ];
   if (fastDetector || fastArt) wanted.push({ roles: ["faster"], detector: fastDetector ?? baseDetector, art: fastArt ?? baseArt });
+  // The defaults before the faster ones became them, where they no longer are: what the change saved.
+  const beforeDetector = models.detector.options.find((o) => o.id === BEFORE_DETECTOR && o.file);
+  const beforeArt = models.art.options.find((o) => o.id === BEFORE_ART && o.file);
+  if (beforeDetector && beforeArt && (beforeDetector.id !== baseDetector.id || beforeArt.id !== baseArt.id)) wanted.push({ roles: ["before"], detector: beforeDetector, art: beforeArt });
   const out: Planned[] = [];
   for (const w of wanted) {
     const same = out.find((o) => o.detector.id === w.detector.id && o.art.id === w.art.id);

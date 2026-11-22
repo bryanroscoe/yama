@@ -22,6 +22,7 @@ import android.util.SizeF;
 import android.view.Display;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowManager;
 import android.webkit.WebView;
 import androidx.annotation.OptIn;
 import androidx.camera.camera2.interop.Camera2CameraControl;
@@ -161,6 +162,8 @@ public class ScannerCameraPlugin extends Plugin {
         Range<Integer> fpsRange;
         Range<Integer>[] fpsRanges;
         float nearestDiopters;
+        /** The open camera's focal length as a 35 mm camera's, or 0 when the phone doesn't say. */
+        float equivalent;
         float hyperfocalDiopters;
         List<Lens> lenses;
     }
@@ -200,6 +203,8 @@ public class ScannerCameraPlugin extends Plugin {
                     public void onPageStarted(WebView webView) {
                         main.post(() -> {
                             if (camera != null || previewView != null) shut();
+                            // A new page isn't scanning: the screen may sleep again.
+                            screenOn(false);
                         });
                     }
                 }
@@ -259,6 +264,27 @@ public class ScannerCameraPlugin extends Plugin {
             shut();
             call.resolve();
         });
+    }
+
+    /**
+     * `{ on }`: keep the screen on while the scanner's camera runs, or let it sleep again (Bryan, 22 Nov
+     * 2026: "the screen turned off while I was using it"). Android's web view has no Screen Wake Lock,
+     * so the page asks here, for the app's camera and the browser's alike. The flag holds only while
+     * the app is in front; the page turns it off when the scanner closes.
+     */
+    @PluginMethod
+    public void keepScreenOn(PluginCall call) {
+        boolean on = Boolean.TRUE.equals(call.getBoolean("on", false));
+        main.post(() -> {
+            screenOn(on);
+            call.resolve();
+        });
+    }
+
+    private void screenOn(boolean on) {
+        if (getActivity() == null) return;
+        if (on) getActivity().getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        else getActivity().getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     }
 
     /** `{ x, y, width, height, viewWidth }` in the page's CSS pixels: where the preview goes. */
@@ -606,6 +632,17 @@ public class ScannerCameraPlugin extends Plugin {
         double[] pace = finder.pace();
         if (pace[0] > 0) f.put("ms", Math.round(pace[0] * 10) / 10.0);
         if (pace[1] > 0) f.put("fps", Math.round(pace[1] * 10) / 10.0);
+        // Where the rest of a frame's time goes: scaling the camera's frame for the finder, waiting
+        // for the camera's next one or for a text region being cut from the last, and the camera
+        // thread's copy of each frame it keeps.
+        double[] stages = finder.stages();
+        if (pace[0] > 0) {
+            f.put("convertMs", Math.round(stages[0] * 10) / 10.0);
+            f.put("waitMs", Math.round(stages[1] * 10) / 10.0);
+            f.put("cutWaitMs", Math.round(stages[2] * 10) / 10.0);
+        }
+        double copy = frames.copyMs();
+        if (copy > 0) f.put("copyMs", Math.round(copy * 10) / 10.0);
         f.put("art", finder.artLoaded());
         return f;
     }
@@ -710,12 +747,15 @@ public class ScannerCameraPlugin extends Plugin {
                     o.physicalId = l.id;
                 }
             }
-            if (o.physicalId == null) o.lensNote = "This phone doesn't offer that lens by itself, so the camera is choosing the lens.";
+            // The main lens, the scanner's default, on a phone that doesn't list its lenses is the
+            // camera as Android presents it: nothing to say about that.
+            if (o.physicalId == null && !("main".equals(lensAsked) && o.lenses.isEmpty())) o.lensNote = "This phone doesn't offer that lens by itself, so the camera is choosing the lens.";
         }
         CameraCharacteristics chosen = o.physicalId != null ? manager.getCameraCharacteristics(o.physicalId) : logical;
         Float nearest = chosen.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE);
         Float hyperfocal = chosen.get(CameraCharacteristics.LENS_INFO_HYPERFOCAL_DISTANCE);
         o.nearestDiopters = nearest == null ? 0 : nearest;
+        o.equivalent = equivalent(chosen);
         o.hyperfocalDiopters = hyperfocal == null ? 0 : hyperfocal;
         o.fpsAsked = fpsAsked;
         o.fpsRanges = logical.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES);
@@ -1150,6 +1190,8 @@ public class ScannerCameraPlugin extends Plugin {
         else if (torchLevel > 0) ret.put("torchLevel", torchLevel);
         ret.put("focusMode", focusMode);
         if (focusDistance > 0) ret.put("focusDistance", focusDistance);
+        // With the nearest focus, how near a card is can be estimated (web/src/scanner/closer.ts).
+        if (o.equivalent > 0) ret.put("equivalent", Math.round(o.equivalent * 10) / 10.0);
         if (o.nearestDiopters > 0) {
             // In metres: from as near as the lens focuses to where everything beyond is sharp.
             ret.put("focusNearest", 1.0 / o.nearestDiopters);
