@@ -7,7 +7,8 @@ import { useState } from "react";
 import { copyWords, count, finishesOf, finishName, pickFinish, shortDate, treatmentLabel, usd } from "@yama/core";
 import type { Printing } from "../api";
 import { playLine, PLAY_WORD, playTag, usePlayability } from "./playable";
-import { priceFor, pricesOf } from "./price";
+import { filedFinish, priceFor, pricesOf } from "./price";
+import { laterLabel } from "./later";
 import { printingOptions } from "./printings";
 import { removeFix, treatmentOf, type Added, type Finish, type Fix } from "./session";
 import { ActionBar, Button, CardThumb, DialogHead, ErrorText, Field, Loading, Segmented, ZoomableCard } from "../components/ui";
@@ -35,7 +36,7 @@ export function AddedList({ added, onFix, onRetry, onClose, onOpen }: AddedListP
       </p>
       {added.length === 0 ? <p className="dim">Nothing added yet.</p> : (
         <ul className="scan-added-list">
-          {added.map((a) => <AddedRow key={a.key} a={a} onFix={onFix} onRetry={onRetry} onOpen={onOpen} />)}
+          {added.map((a) => (a.later ? <LaterRow key={a.key} a={a} onOpen={onOpen} /> : <AddedRow key={a.key} a={a} onFix={onFix} onRetry={onRetry} onOpen={onOpen} />))}
         </ul>
       )}
     </div>
@@ -176,6 +177,7 @@ function AddedRow({ a, onFix, onRetry, onOpen }: { a: Added; onFix: AddedListPro
             {a.set.toUpperCase()} #{a.number}, {a.finish === "proxy" ? "proxy" : copyWords(a.treatment ?? {}, a.finish)}
             {a.finish !== "proxy" ? `, ${usd(priceFor(a.prices, a.finish))}${a.copies > 1 && priceFor(a.prices, a.finish) != null ? " each" : ""}` : ""}
             {a.auto ? ", added by Keep adding" : ""}
+            {a.byPrice ? ", printing by price" : ""}
           </span>
           <div className="scan-added-actions">
             <Field className="scan-copies" label="Copies">
@@ -206,11 +208,130 @@ function AddedRow({ a, onFix, onRetry, onOpen }: { a: Added; onFix: AddedListPro
 }
 
 /**
+ * Card first, printing after (later.ts): the printings a provisional row may be, to pick its own.
+ * The number first, as on the scanner's list, with each one's price in the finish it would be
+ * filed in. A pick settles the row, and the host saves it.
+ */
+function LaterChoices({ a }: { a: Added }) {
+  const [showAll, setShowAll] = useState(false);
+  const options = a.later?.state.options;
+  if (!a.later || !options) return <Loading small quiet>Getting its printings…</Loading>;
+  const later = a.later;
+  return (
+    <div className="scan-printings" role="listbox" aria-label={`Printings of ${a.name}`}>
+      {(showAll ? options : options.slice(0, PRINTINGS_FIRST)).map((p) => (
+        <Button key={p.scryfall_id} role="option" aria-selected={false} className="scan-printing" onClick={() => later.pick(p)}>
+          <CardThumb src={p.image_small} fallback={<span className="card-fallback" aria-hidden="true" />} />
+          <span className="scan-printing-set">
+            <span className="scan-printing-number">#{p.collector_number}</span>
+            <span className="scan-printing-code">
+              {p.set_code.toUpperCase()}
+              {p.released_at ? ` ${p.released_at.slice(0, 4)}` : ""}
+            </span>
+          </span>
+          <span className="scan-printing-what">
+            {a.wanted === "proxy" ? "Proxy" : usd(priceFor(pricesOf(p), filedFinish(p.finishes, a.wanted ?? "nonfoil")))}
+            {(treatmentLabel(p) || p.lang !== "en") && <span className="dim"> {[treatmentLabel(p), p.lang !== "en" ? p.lang : null].filter(Boolean).join(", ")}</span>}
+          </span>
+          <span className="visually-hidden">{`, ${p.set_name}`}</span>
+        </Button>
+      ))}
+      {!showAll && options.length > PRINTINGS_FIRST && (
+        <Button size="small" onClick={() => setShowAll(true)}>
+          Show all {options.length}
+        </Button>
+      )}
+    </div>
+  );
+}
+
+/** What a provisional row says about itself: where its printing is, and that nothing is saved yet. */
+const laterLine = (a: Added) => `${laterLabel(a.later!.state)}. Not saved to your collection until it has one.`;
+
+/** A provisional row in the list: its printing being found, or to pick; Remove lets it go (nothing was saved). */
+function LaterRow({ a, onOpen }: { a: Added; onOpen?: AddedListProps["onOpen"] }) {
+  const later = a.later!;
+  const [picking, setPicking] = useState(false);
+  const thumb = <CardThumb className="scan-added-thumb" src={a.image} fallback={<span className="scan-added-thumb card-fallback" aria-hidden="true" />} />;
+  const open = picking || later.state.phase === "pick";
+  return (
+    <li className="scan-added-row is-later">
+      <div className="scan-added-card">
+        {onOpen ? (
+          <Button className="scan-added-open" onClick={() => onOpen(a)} aria-label={`Show ${a.name} larger`}>
+            {thumb}
+          </Button>
+        ) : (
+          thumb
+        )}
+        <div className="scan-added-info">
+          <strong>{a.name}</strong>
+          <span className="dim small">
+            {laterLine(a)}
+            {a.copies > 1 ? ` ${a.copies} copies.` : ""}
+            {a.auto ? " Added by Keep adding." : ""}
+          </span>
+          <div className="scan-added-actions">
+            {later.state.phase === "finding" && (
+              <Button size="small" onClick={() => setPicking((x) => !x)}>
+                {picking ? "Let the scanner find it" : "Pick it now"}
+              </Button>
+            )}
+            <Button size="small" variant="quiet" danger onClick={() => later.drop()}>
+              Remove
+            </Button>
+          </div>
+        </div>
+      </div>
+      {open && <LaterChoices a={a} />}
+    </li>
+  );
+}
+
+/** A provisional row large, from its tile in the strip: its printings to pick from, or Remove. */
+function LaterCard({ a, onClose }: { a: Added; onClose: () => void }) {
+  const later = a.later!;
+  return (
+    <div className="scan-big">
+      <DialogHead onClose={onClose}>{a.name}</DialogHead>
+      <div className="scan-big-body">
+        <div className="scan-big-card">
+          <ZoomableCard src={normalOf(a.image)} name={a.name} />
+        </div>
+        <div className="scan-big-info">
+          <p className="scan-big-printing">{laterLine(a)}</p>
+          <p className="scan-note">{later.state.phase === "finding" ? "The scanner is still working it out from what it saw. Tap the printing below if you know it." : "Tap your printing below."}</p>
+        </div>
+      </div>
+      <LaterChoices a={a} />
+      <ActionBar align="end">
+        <Button
+          variant="outline"
+          danger
+          onClick={() => {
+            later.drop();
+            onClose();
+          }}
+        >
+          Remove
+        </Button>
+      </ActionBar>
+    </div>
+  );
+}
+
+/**
  * One scanned card large, from its tile in the strip: the picture (tap it for full size), its
  * printing, its price in each finish it comes in, whether it sees play, and the same fixes as its
  * row in the Added list. Removing it closes the view.
  */
 export function ScannedCard({ a, onFix, onRetry, onClose }: { a: Added; onFix: AddedListProps["onFix"]; onRetry: AddedListProps["onRetry"]; onClose: () => void }) {
+  // Card first, printing after: a row whose printing isn't settled has only that to do.
+  if (a.later) return <LaterCard a={a} onClose={onClose} />;
+  return <SettledCard a={a} onFix={onFix} onRetry={onRetry} onClose={onClose} />;
+}
+
+function SettledCard({ a, onFix, onRetry, onClose }: { a: Added; onFix: AddedListProps["onFix"]; onRetry: AddedListProps["onRetry"]; onClose: () => void }) {
   const f = useFixes(a, onFix, onRetry);
   const play = usePlayability([a.oracle_id]).get(a.oracle_id ?? "");
   const tag = playTag(play);
@@ -231,6 +352,11 @@ export function ScannedCard({ a, onFix, onRetry, onClose }: { a: Added; onFix: A
             {a.set.toUpperCase()} #{a.number}, {a.finish === "proxy" ? "proxy" : copyWords(a.treatment ?? {}, a.finish)}
             {a.copies > 1 ? `, ${a.copies} copies` : ""}
           </p>
+          {a.byPrice && (
+            <p className="scan-note">
+              By price: the scanner couldn't tell its printings apart, and they cost about the same, so it took the dearest. If it's another, Wrong printing below changes it.
+            </p>
+          )}
           {a.finish !== "proxy" && (
             <p className="scan-big-price">
               <strong>{usd(price)}</strong>

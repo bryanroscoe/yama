@@ -48,6 +48,8 @@ const sounds = vi.hoisted(() => ({ played: [] as string[] }));
 vi.mock("./sounds", async (original) => ({
   ...(await original<typeof import("./sounds")>()),
   playScanSound: (kind: string) => sounds.played.push(kind),
+  // Feedback by price (on by default): the chime pitched by the price, or the even one for none.
+  playPriceSound: (price: number | null) => sounds.played.push(`price:${price ?? "unknown"}`),
 }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -558,6 +560,27 @@ describe("sounds (Bryan, 15 Nov 2026)", () => {
     sounds.played.length = 0;
     localStorage.removeItem("yama.scan.sounds");
     localStorage.removeItem("yama.scan.worthIt");
+    // These are the chimes without feedback by price (below, on by default).
+    localStorage.setItem("yama.scan.feedbackByPrice", "0");
+  });
+  afterEach(() => localStorage.removeItem("yama.scan.feedbackByPrice"));
+
+  it("with feedback by price (on by default), pitches the chime by the price filed, and an unknown price gets the even chime", async () => {
+    localStorage.removeItem("yama.scan.feedbackByPrice");
+    act(() => root.render(<ScannerView onAccept={async () => true} />));
+    await typeName("Sol Ring");
+    await click(await until(() => button("Add"), "Add"));
+    await until(() => (sounds.played.length ? true : null), "a sound");
+    expect(sounds.played).toEqual(["price:12"]);
+    act(() => root.unmount());
+    root = createRoot(host);
+    sounds.played.length = 0;
+    // No foil price: unknown, never $0.
+    act(() => root.render(<ScannerView onAccept={async () => true} finish="foil" />));
+    await typeName("Sol Ring");
+    await click(await until(() => button("Add"), "Add"));
+    await until(() => (sounds.played.length ? true : null), "a sound");
+    expect(sounds.played).toEqual(["price:unknown"]);
   });
 
   it("plays the brighter sound for a card worth $2 or more in the finish filed, and the plain one otherwise", async () => {

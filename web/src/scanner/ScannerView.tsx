@@ -26,11 +26,15 @@ import { readCloseup, readCollectorLines, readTitles, scanFrame, SURE } from "./
 import { artHoldFrame, AWAY_FRAMES, hold, holdRead, type ArtHold, type Hold } from "./hold";
 import { NameEntry } from "./NameEntry";
 import { CollectorPeek } from "./peek";
-import { filedFinish, priceFor, pricesOf, worthIt, type RecentCard, type ScanFinish } from "./price";
+import { filedFinish, priceFor, pricesOf, priceTie, TIE_WITHIN, worthIt, type RecentCard, type ScanFinish } from "./price";
 import { ScanTray } from "./ScanTray";
 import { PLAY_WORD, playTag, usePlayability } from "./playable";
 import { holdSound } from "../sound";
-import { filedSound, playScanSound, setSoundsOn, setWorthThreshold, soundsOn, unlockSound, worthThreshold, type ScanSound } from "./sounds";
+import { BUZZ, filedBuzz, filedSound, playPriceSound, playScanSound, setSoundsOn, setWorthThreshold, soundsOn, unlockSound, worthThreshold, type ScanSound } from "./sounds";
+import { byBorder, readBorder, type BorderRead } from "./border";
+import { Provisional, type LaterWay } from "./later";
+import { cardFirstOn, feedbackByPriceOn, setCardFirst, setFeedbackByPrice, setTieByPrice, tieByPriceOn } from "./prefs";
+import type { WireFrame } from "./look";
 import { choosePrinting, printingOptions, type Choice } from "./printings";
 import type { ArtMatch, Recognition } from "./recognizer";
 import { deleteSamples, keepSample, sampleSummary, savingPhotos, setSavingPhotos, type SampleLabel, type SampleSummary, type Shot } from "./samples";
@@ -172,6 +176,14 @@ export interface ScannerViewProps {
    * unless only the card's identity matters.
    */
   setLock?: boolean;
+  /**
+   * Card first, printing after (Scan settings; later.ts): with this, a card named before its
+   * printing is settled is handed over at once as a provisional row and scanning goes on. The host
+   * shows the row and saves it only once its printing settles (the row's `settled` phase, whose
+   * `filed` card is filed like `onAccept`'s), or drops it when it's taken back out. Without it the
+   * option isn't offered.
+   */
+  onProvisional?: (row: Provisional) => void;
 }
 
 type Phase = "loading" | "scanning" | "found" | "no-camera";
@@ -195,9 +207,17 @@ interface Found {
   chosen: Printing | null;
   /**
    * How the printing was settled. "set": the only printing of it in the locked sets; "look": the
-   * printing look, sure of it (the look option that settles when sure, look.ts `lookSettles`).
+   * printing look, sure of it (the look option that settles when sure, look.ts `lookSettles`);
+   * "border": the only one left once its border colour ruled the others out (border.ts); "price":
+   * the dearest of printings it couldn't tell apart, priced alike (Tie by price, opt-in).
    */
-  how: "only" | "set" | "collector" | "look" | "picked" | null;
+  how: "only" | "set" | "collector" | "look" | "border" | "price" | "picked" | null;
+  /** The border colour read from the card's edge (border.ts), when it was read; null when unsure. */
+  border?: BorderRead["border"];
+  /** How many printings the border read ruled out of `options` (they're in `lockedOut`). */
+  ruledOut?: number;
+  /** The person said it's another printing after a border read settled it: the border isn't used again. */
+  borderOff?: boolean;
   /** Locked to sets, and none of this card's printings (of this art) is in them: ask. */
   outside?: boolean;
   /** The person said it's from another set: the lock doesn't apply to this card. */
@@ -247,6 +267,12 @@ interface Known {
   set?: string;
   number?: string;
   text?: string;
+}
+
+/** What a provisional row's printing is worked out from: the view the card was named in, and the frames kept for its look. */
+interface LaterKept {
+  read: { image: RgbaImage; quad: Quad } | null;
+  frames: Promise<WireFrame[]> | null;
 }
 
 /** Resolves once the video has a frame to read (or after a few seconds, whatever it has). */
@@ -327,6 +353,29 @@ interface JustAdded {
   busy?: boolean;
   /** Say `text` even beside the card itself (with the strip): "Kept …" is news, "Added …" isn't. */
   say?: boolean;
+  /** A provisional row (card first, printing after): Undo takes it back out while its printing isn't settled. */
+  later?: Provisional;
+}
+
+/**
+ * Card first, printing after (later.ts): how long a provisional row keeps reading its card's
+ * collector line from the frames that still show it, after it was named (and at most this many
+ * frames), and the longest its printing look may take. [inferred: the held card's reads settle
+ * within about 3 s at p90, docs/scanner.md "Speed"]
+ */
+const LATER_HOLD = { ms: 4000, frames: 6 } as const;
+const LATER_LOOK_MS = 10_000;
+
+/** A provisional row still reading its card while the card lies in view (card first, printing after). */
+interface HeldLater {
+  row: Provisional;
+  /** The card's artwork (its art match's index): the frames that show it are its. */
+  index: number;
+  name: string;
+  /** Read one frame of it, at this quad (video pixels). */
+  read: (quad: Quad) => Promise<void>;
+  /** Stop reading it (it left, another card came, time's up, or it settled). */
+  end: () => void;
 }
 /** What the scanner says while it simply waits for a card: once the strip has cards, the camera keeps quiet. */
 /** A text reader started for a choice changed since (Scan settings): the next read starts the new one. */
@@ -498,6 +547,7 @@ const candidateOf = (f: Found, p: Printing | null): ScanCandidate => ({
   confidence: f.confidence,
   method: f.method,
   prices: p ? pricesOf(p) : undefined,
+  ...(p && f.how === "price" && f.chosen === p ? { byPrice: true } : {}),
 });
 
 export function ScannerView({
@@ -531,6 +581,7 @@ export function ScannerView({
   addedWord = "Added",
   haptics = true,
   setLock: lockOffered = !identityOnly,
+  onProvisional,
 }: ScannerViewProps) {
   // Read through a ref, so callbacks made in an earlier render follow a change (a Mute switch).
   const hapticsRef = useRef(haptics);
@@ -545,6 +596,49 @@ export function ScannerView({
   soundRef.current = soundsProp && soundsSwitch;
   const sound = (kind: ScanSound) => {
     if (soundRef.current) playScanSound(kind);
+  };
+  const worthRef = useRef(worth);
+  worthRef.current = worth;
+  // Feedback by price, card first and tie by price (prefs.ts): per device, from Scan settings. Where
+  // only the card matters there's no price, printing or row to work out: none of them applies.
+  const [byPrice, setByPrice] = useState(feedbackByPriceOn);
+  const byPriceRef = useRef(false);
+  byPriceRef.current = byPrice && !identityOnly;
+  const [cardFirst, setCardFirstNow] = useState(cardFirstOn);
+  const laterOffered = !identityOnly && !!onAccept && !!onProvisional;
+  const laterRef = useRef(false);
+  laterRef.current = laterOffered && cardFirst;
+  const [tieOn, setTieOn] = useState(tieByPriceOn);
+  const tieRef = useRef(false);
+  tieRef.current = tieOn && !identityOnly;
+  const autoAddRef = useRef(autoAdd);
+  autoAddRef.current = autoAdd;
+  const finishRef = useRef(finish);
+  finishRef.current = finish;
+  /** A provisional row whose card still lies in view, read by the read loop (card first). */
+  const heldLater = useRef<HeldLater | null>(null);
+  useEffect(() => () => heldLater.current?.end(), []);
+  /** Bumped when a card is filed as a provisional row from the read loop: the loop goes on scanning. */
+  const [scanRun, setScanRun] = useState(0);
+  /**
+   * File a card first, its printing after (set each render, below; called from the memoised
+   * showArt and showText). `kept`: the view it was named in and the frames kept for its look.
+   */
+  const fileLaterRef = useRef<(f: Found, n: number, auto: boolean, kept: LaterKept) => void>(() => undefined);
+  /** Whether Keep adding files this card first, its printing after, at once. */
+  const laterAuto = (f: Found) => laterRef.current && autoAddRef.current && !(f.method === "name" && f.confidence === 1) && !f.correcting && !f.misread;
+  /** The buzz for a card found, or its printing settled: a short tap with feedback by price. */
+  const buzzFound = () => buzz(byPriceRef.current ? BUZZ.found : 30);
+  /** The buzz and chime for a card filed at this market price (null: unknown, never cheap). */
+  const filedFeedback = (price: number | null) => {
+    if (byPriceRef.current) {
+      buzz(filedBuzz(price, worthRef.current));
+      if (soundRef.current) playPriceSound(price, worthRef.current);
+      return;
+    }
+    buzz(40);
+    // A brighter sound for a card worth the threshold (its market price in the finish filed).
+    sound(filedSound(price, worthRef.current));
   };
   const videoRef = useRef<HTMLVideoElement>(null);
   const guideRef = useRef<HTMLDivElement>(null);
@@ -791,6 +885,9 @@ export function ScannerView({
     if (camRef.current.focus != null) timing.detail.focus_pinned = camRef.current.focus;
     // With the placement gate: which try named the card (gate.ts).
     if (gateOn() && timed && gate.attempts > 0) timing.detail.gate_attempts = gate.attempts;
+    // Card first, printing after, or the printing first (later.ts): when its row then appears
+    // (`row_ms`) is what the option changes. Only where the host keeps provisional rows.
+    if (!identityOnly && laterOffered) timing.detail.rows = laterRef.current ? "card-first" : "printing-first";
     return timing;
   };
   /** A fresh record with the camera and text reader in use. */
@@ -1409,11 +1506,15 @@ export function ScannerView({
         // How long it took and where its printings' vectors came from (the server's, this device's cache, or made here).
         if (complete && f.timing) Object.assign(f.timing.detail, lookTimingDetail(done));
         if (complete && f.shot) lookDone.current.set(f.shot, { ...scores });
+        if (lookRun.current?.stop === stop) lookRun.current = null;
         if (foundSeq.current === seq) setLook({ seq, scores: { ...scores }, complete, option: model });
       },
       (e: unknown) => {
         note({ error: e instanceof Error ? e.message : String(e) });
         if (lookRun.current?.seq === seq) setLookNow(art.look);
+        if (lookRun.current?.stop === stop) lookRun.current = null;
+        // Ended without scores: what waits on the look (a tie by price) goes on.
+        if (foundSeq.current === seq) setLook({ seq, scores: { ...scores }, complete: false, option: model });
       },
     );
   };
@@ -1471,10 +1572,37 @@ export function ScannerView({
       return { ...cur, chosen: hit, how: "look", sure: true, settledId: hit.scryfall_id, picking: false };
     });
     setCloseup((c) => (c === "collector" ? null : c));
-    buzz(30);
+    buzzFound();
     // buzz and readsOther read refs; the rest is listed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [look, found, phase, wrongOpen, paused, identityOnly, lookNow, lookTouched, modelsInfo]);
+
+  /** The found card (its seq) a tie by price was weighed for: once each. */
+  const tieWeighed = useRef<number | null>(null);
+  // Tie by price (opt-in, Scan settings; price.ts `priceTie`; docs/scanner.md, "Tie by price"): once
+  // the scanner has stopped trying to tell the printings apart by itself (reading the held card
+  // gave up or asked for a close-up, or there's no camera to read from) and no look is under way,
+  // printings that cost within TIE_WITHIN of each other are settled as the dearest, marked "by
+  // price" wherever the card shows. Never for a typed name (nothing was read), a printing the
+  // person said was wrong, a list they've touched, or a printing the collector line read pointing
+  // away from; Wrong printing undoes it, as for any printing the scanner settled.
+  useEffect(() => {
+    const f = found;
+    const seq = foundSeq.current;
+    if (!tieOn || identityOnly || !f || phase !== "found" || f.chosen || f.reading || f.outside || f.misread || f.correcting || !f.options || f.options.length < 2) return;
+    if ((f.method === "name" && f.confidence === 1) || wrongOpen || paused || holding || !(gaveUp || closeup === "collector" || !live)) return;
+    if (lookRun.current?.seq === seq || lookTouched === seq || tieWeighed.current === seq) return;
+    tieWeighed.current = seq;
+    const pool = f.options.filter((p) => !readsOther(seq, p.scryfall_id));
+    const tie = priceTie(pool, finish);
+    f.rec?.note("priceTie", tie ? { id: tie.printing.scryfall_id, low: tie.low, high: tie.high } : { tied: false, pool: pool.length });
+    if (!tie) return;
+    setFound((cur) => (cur && cur === f ? { ...cur, chosen: tie.printing, how: "price", sure: true, settledId: tie.printing.scryfall_id, picking: false } : cur));
+    setCloseup((c) => (c === "collector" ? null : c));
+    buzzFound();
+    // buzzFound and readsOther read refs; the rest is listed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tieOn, found, phase, wrongOpen, paused, holding, gaveUp, closeup, live, look, lookTouched, identityOnly, finish]);
 
   /** Settle the printing of what was found (not needed when only the card's identity matters). */
   const settle = useCallback(
@@ -1507,6 +1635,25 @@ export function ScannerView({
             bySet = true;
           }
         }
+        // The border colour (border.ts), read from the view the card was found in: printings of the
+        // other colour are ruled out (never all of them), kept beside the candidates as the set
+        // lock's are, and not once the person said a printing the border settled was wrong.
+        const wasOnly = choosePrinting(opts).how === "only";
+        const border = read && sameCamera() && !f.borderOff ? readBorder(read.image, read.quad) : null;
+        let ruledOut: Printing[] = [];
+        if (border) {
+          f.rec?.note("border", border);
+          if (f.timing) f.timing.detail.border = border.border ?? "unsure";
+          const kept = byBorder(opts.printings, border.border);
+          ruledOut = opts.printings.filter((p) => !kept.includes(p));
+          // Not against a collector line the text reader already read pointing to one it ruled out.
+          const against = known?.text && ruledOut.length > 0 ? proofOf([...kept, ...ruledOut], known.text).ev : null;
+          if (against && kept.every((p) => against.pointsAway(p.scryfall_id))) ruledOut = [];
+          if (ruledOut.length > 0) {
+            lockedOut = [...lockedOut, ...ruledOut];
+            opts = { sameArt: opts.sameArt, printings: kept };
+          }
+        }
         let choice: Choice = choosePrinting(opts);
         // The candidates, for a replay of what was read (eval/real.test.ts).
         f.rec?.note("options", optionsNote(opts.printings));
@@ -1525,10 +1672,10 @@ export function ScannerView({
             if (sameCamera()) firstEvidence.current = { seq, ev };
           }
         }
-        const how: Found["how"] = bySet && choice.how === "only" ? "set" : choice.how;
+        const how: Found["how"] = choice.how === "only" ? (ruledOut.length > 0 && !wasOnly ? "border" : bySet ? "set" : "only") : choice.how;
         const reading = !choice.chosen && !!read && sameCamera();
         const sure = choice.how === "only" || !!choice.certain;
-        update({ options: choice.options, lockedOut, readFirst: choice.readFirst ?? 0, sameArt: opts.sameArt, outside: false, chosen: choice.chosen, how, sure, settledId: sure ? choice.chosen?.scryfall_id : undefined, reading });
+        update({ options: choice.options, lockedOut, readFirst: choice.readFirst ?? 0, sameArt: opts.sameArt, outside: false, chosen: choice.chosen, how, sure, settledId: sure ? choice.chosen?.scryfall_id : undefined, reading, border: border?.border ?? null, ruledOut: ruledOut.length });
         // Several printings share the art and none is settled: the look compares them (look.ts),
         // alongside the collector line's read, to order the list should a tap be needed.
         if (!choice.chosen && opts.sameArt) startLook.current(seq, f, opts.printings);
@@ -1599,12 +1746,20 @@ export function ScannerView({
         picking: false,
         ms: r.timings.totalMs,
       };
+      heldLater.current?.end();
+      // Card first, printing after, with Keep adding: its row now, the printing after. The frames
+      // kept for its look are asked for now, before the next frame replaces them.
+      if (!identityOnly && laterAuto(f)) {
+        buzzFound();
+        fileLaterRef.current(f, 1, true, { read, frames: artRef.current?.keepLook?.(top.index) ?? null });
+        return;
+      }
       setFound(f);
       setShowAll(false);
       setWrongOpen(false);
       setCopies(1);
       setPhase("found");
-      buzz(30);
+      buzzFound();
       if (!identityOnly) void settle(seq, f, { art: top.illustrationId, id: top.id }, read);
     },
     [identityOnly, settle],
@@ -1641,12 +1796,18 @@ export function ScannerView({
         raw: `${res.raw.collector}\n${res.raw.name}`,
         ms: res.timings.totalMs,
       };
+      heldLater.current?.end();
+      if (!identityOnly && laterAuto(f)) {
+        buzzFound();
+        fileLaterRef.current(f, 1, true, { read: shot, frames: null });
+        return;
+      }
       setFound(f);
       setShowAll(false);
       setWrongOpen(false);
       setCopies(1);
       setPhase("found");
-      buzz(30);
+      buzzFound();
       if (!identityOnly) void settle(seq, f, { name: best.name }, null, f.known);
     },
     [identityOnly, settle],
@@ -1772,6 +1933,14 @@ export function ScannerView({
                 endSeek();
                 appeared.current = null;
               }
+              // A provisional row's card still lying there (card first): its collector line is read
+              // from this frame; once it's gone, or another card lies there, that ends.
+              const later = heldLater.current;
+              if (later && (d.kind === "none" || d.released || (d.kind === "latched" && !sameCardName(d.key, later.name)))) later.end();
+              else if (later && d.kind === "latched" && seen.quad) {
+                await later.read(toVideo(seen.quad));
+                if (stop) return;
+              }
               if (d.kind === "none") {
                 last.current = undefined;
                 lastText.current = undefined;
@@ -1810,6 +1979,8 @@ export function ScannerView({
           const heldIndex = blocked.current?.index;
           const stillHeld = r.quad && heldIndex != null ? [...r.matches, ...(r.pool ?? [])].find((m) => m.index === heldIndex && m.score >= ART_UNKNOWN) : undefined;
           if (blocked.current && artHoldFrame(blocked.current, r.quad ? (stillHeld ?? top ?? null) : null, ART_UNKNOWN, LOCK_TWICE) === "free") blocked.current = null;
+          // A provisional row's card (card first) is read only while it's the card held.
+          if (heldLater.current && blocked.current?.index !== heldLater.current.index) heldLater.current.end();
           if (gateRead && top) gateRead.key = top.name;
           if (!r.quad || !top) {
             if (++noCard.current >= AWAY_FRAMES) {
@@ -1832,6 +2003,12 @@ export function ScannerView({
             // With the gate: the card just added, seen again, is latched; a read that didn't show
             // it (a weak match) is a miss, tried again, and the hold ends by its own rule (hold.ts).
             if (gateRead) gateRead.held = !!stillHeld;
+            // A provisional row's card, still in view (card first): read its collector line here.
+            const later = heldLater.current;
+            if (later && stillHeld && later.index === stillHeld.index) {
+              await later.read(toVideo(r.quad));
+              if (stop) return;
+            }
             setStatus(NEXT);
             return next(60);
           }
@@ -2070,7 +2247,7 @@ export function ScannerView({
         appeared.current = null;
       }
     };
-  }, [phase, mode, live, closeup, photoBusy, paused, lockOpen, identityOnly, closeups, showArt, handleText, textReader]);
+  }, [phase, mode, live, closeup, photoBusy, paused, lockOpen, identityOnly, closeups, showArt, handleText, textReader, scanRun]);
 
   const fromPhoto = async (file: File) => {
     setStatus("Reading the photo");
@@ -2197,6 +2374,12 @@ export function ScannerView({
       rec.note(carry.rec ? "renamed" : "found", { method: how === "typed" ? "typed" : "title", name });
     }
     const f: Found = { name, method: "name", confidence: how === "typed" ? 1 : 0.9, others: [], options: null, sameArt: false, chosen: null, how: null, picking: false, ...carry, rec, timing };
+    heldLater.current?.end();
+    if (!identityOnly && laterAuto(f)) {
+      buzzFound();
+      fileLaterRef.current(f, 1, true, { read: carry.shot ?? null, frames: null });
+      return;
+    }
     setFound(f);
     setShowAll(false);
     setWrongOpen(false);
@@ -2206,9 +2389,10 @@ export function ScannerView({
   };
 
   /** Back to scanning. The card just shown isn't found again until it leaves the view. */
-  const again = (held: Found | null = found) => {
+  const again = (held: Found | null = found, opts: { keepRecord?: boolean } = {}) => {
     // A card let go without filing (Skip, Scan next): its record ends here, unless already sent.
-    endRecord("skipped", foundRef.current);
+    // Not a card filed first with its printing to come (card first): its record ends with that.
+    if (!opts.keepRecord) endRecord("skipped", foundRef.current);
     stopLook();
     foundSeq.current += 1;
     setReadProgress(null);
@@ -2338,7 +2522,7 @@ export function ScannerView({
       start.rec?.attempt({ ...held.summary(), ended: "settled", chosen: chosenNow.scryfall_id });
       done();
       setFound((cur) => (cur && cur === start ? { ...cur, chosen: chosenNow, how: "collector", sure: true, settledId: chosenNow.scryfall_id, options: c.options, readFirst: 1, raw: text } : cur));
-      buzz(30);
+      buzzFound();
     };
     /** The card's quad in video pixels this frame, or null when it isn't seen (or another card is). */
     /**
@@ -2567,7 +2751,7 @@ export function ScannerView({
             const c = choosePrinting({ sameArt: f.sameArt, printings: f.options }, text);
             setFound((cur) => (cur && cur === f ? { ...cur, chosen: chosenNow, how: "collector", sure: true, settledId: chosenNow.scryfall_id, options: [chosenNow, ...c.options.filter((p) => p !== chosenNow)], readFirst: 1, raw: text } : cur));
             setCloseup(null);
-            buzz(30);
+            buzzFound();
             return;
           }
           setReadProgress(progressLine(weighed, f.options.length));
@@ -2609,9 +2793,12 @@ export function ScannerView({
     onPrintingRef.current?.(chosen);
     // Diagnostics' timing record: the scanner settled the printing (the only one, read, or by look), now.
     const f = foundRef.current;
-    if (chosen && f?.timing && f.chosen === chosen && !identityOnly && (f.how === "only" || f.how === "set" || f.how === "collector" || f.how === "look")) f.timing.printed(f.misread ? "corrected" : f.how);
+    if (chosen && f?.timing && f.chosen === chosen && !identityOnly && (f.how === "only" || f.how === "set" || f.how === "collector" || f.how === "look" || f.how === "border" || f.how === "price")) f.timing.printed(f.misread ? "corrected" : f.how);
   }, [chosen, identityOnly]);
-  const ready = identityOnly || !!chosen;
+  // Card first, printing after: Add files the card now, provisional, its printing worked out after
+  // (not a correction of a card already filed, a printing said to be wrong, or a rescan of one card).
+  const laterNow = laterOffered && cardFirst && !!found && !found.correcting && !found.misread && !found.outside && !single;
+  const ready = identityOnly || !!chosen || laterNow;
   // When the next step is a tap, not the camera, say so on the camera view, buzz, and bring it into view.
   const tapNeeded: string | null =
     phase !== "found" || !found || closeup || holding
@@ -2641,6 +2828,8 @@ export function ScannerView({
     if (f.timing) {
       if (!identityOnly && c) f.timing.printed(printingWay(f, c));
       f.timing.detail.auto = auto;
+      // The card's row appears now, with its printing (the first filing only; a correction isn't a new row).
+      if (!f.correcting) f.timing.rowShown();
       // Whether the look's closest printing is the one filed (the first filing only): with the
       // lead it had (`look_lead`), what settling by look would have done, whichever option ran.
       const lookScores = look?.complete && look.seq === foundSeq.current ? look.scores : undefined;
@@ -2690,15 +2879,255 @@ export function ScannerView({
     const failed = () => setJustAdded({ text: `Couldn't save ${label}. Tap ${recentCards?.length ? "it below" : addedWord} to try again` });
     return Promise.resolve(saved).then((ok) => {
       if (ok === false) return failed();
-      buzz(40);
-      // A brighter sound for a card worth the threshold (its market price in the finish filed).
-      sound(filedSound(identityOnly ? null : priceFor(card.prices, filedFinish(card.finishes, finish)), worth));
       const at = identityOnly ? null : priceFor(card.prices, filedFinish(card.finishes, finish));
+      filedFeedback(at);
       setJustAdded({ text: `${addedWord} ${label}${at != null ? `, ${usd(at)}` : ""}`, card: onUndo || onCorrect ? card : undefined, label, found: f, printing: c });
     }, failed);
   };
+  /** What the host files a card with now, for "+1 copy" on a provisional row once it settles. */
+  const fileSettingsRef = useRef(fileSettings);
+  fileSettingsRef.current = fileSettings;
+  /**
+   * Card first, printing after (later.ts; docs/scanner.md, "Card first, printing after"): the card's
+   * row goes to the host at once, provisional, and scanning goes on; its printing is worked out
+   * after (`workOut`), and the row is saved only once it settles. The card's photo is kept with
+   * its final label then, and its records end then (filed, picked, or skipped if taken back out).
+   */
+  const fileLater = (f: Found, n: number, auto: boolean, kept: LaterKept) => {
+    const host = onProvisional;
+    if (!onAccept || !host) return;
+    const wanted = finish;
+    const row = new Provisional(candidateOf(f, null), n, auto, (p, how) => candidateOf({ ...f, chosen: p, how: how === "picked" ? "picked" : how }, p));
+    // The timing record: the row is on screen now, long before its printing.
+    f.timing?.rowShown();
+    if (f.timing) f.timing.detail.auto = auto;
+    f.rec?.note("later", { auto });
+    const unwatch = row.watch((st) => {
+      if (st.phase === "dropped") {
+        unwatch();
+        f.rec?.note("final", { dropped: true });
+        endRecord("skipped", f);
+        return;
+      }
+      if (st.phase !== "settled" || !st.chosen || !st.filed || !st.how) return;
+      unwatch();
+      const c = st.chosen;
+      const card = st.filed;
+      const how: Found["how"] = st.how;
+      const done: Found = { ...f, chosen: c, how, sure: how !== "picked", settledId: how !== "picked" ? c.scryfall_id : undefined };
+      // The photo's label is the printing it settled on (samples.ts).
+      keep(done, "added", card);
+      if (f.timing) f.timing.printed(printingWay(done, c));
+      f.rec?.note("final", { id: c.scryfall_id, set: c.set_code, number: c.collector_number, how, later: true });
+      endRecord(how === "picked" ? "picked" : "filed", f);
+      filedSetNames.current.set(c.set_code, c.set_name);
+      setFiledSets((sets) => [c.set_code, ...sets].slice(0, 10));
+      const label = `${c.name} (${c.set_code.toUpperCase()} ${c.collector_number})`;
+      const at = priceFor(card.prices, filedFinish(card.finishes, wanted));
+      filedFeedback(at);
+      setJustAdded((j) => (j?.later === row ? { text: `${addedWord} ${label}${at != null ? `, ${usd(at)}` : ""}`, card: onUndo || onCorrect ? card : undefined, label, found: done, printing: c } : j));
+      // Still in view: "+1 copy" files another of the printing it settled on.
+      if (!single && f.art && blocked.current?.index === f.art.index) setDupe({ found: done, printing: c, label, settings: fileSettingsRef.current });
+    });
+    host(row);
+    filedName.current = f.name;
+    again(f, { keepRecord: true });
+    setJustAdded({ text: `${addedWord} ${f.name}, finding the printing`, card: row.card, label: f.name, later: row });
+    // The read loop handed this card over and goes on to the next.
+    setScanRun((n) => n + 1);
+    void workOut(row, f, kept);
+  };
+  fileLaterRef.current = fileLater;
+
+  /**
+   * Work out a provisional row's printing (card first) from what was kept of its card, by the
+   * rules that settle one on the sheet: the only printing (in the locked sets), its border, the
+   * collector line (the text reader's, the view it was named in, the frames while it still lies
+   * there), the printing look when its option settles, and last a tie by price when that's on.
+   * Whatever settles first wins; with nothing settled, the row waits for a pick.
+   */
+  const workOut = async (row: Provisional, f: Found, kept: LaterKept) => {
+    const gen = camGen.current;
+    const typed = f.method === "name" && f.confidence === 1;
+    try {
+      let opts = await printingOptions(f.art ? { art: f.art.illustrationId, id: f.art.id } : { name: f.name });
+      if (!row.finding) return;
+      const lockNow = f.unlocked ? null : lockRef.current;
+      let lockedOut: Printing[] = [];
+      let bySet = false;
+      if (lockNow) {
+        const inSets = inLockedSets(opts.printings, lockNow.codes);
+        if (inSets.length === 0 && !typed) {
+          row.offer(opts.printings);
+          f.rec?.note("later", { outside: lockNow.label });
+          return row.giveUp(`not in ${lockNow.label}`);
+        }
+        if (inSets.length > 0) {
+          lockedOut = opts.printings.filter((p) => !inSets.includes(p));
+          opts = { sameArt: opts.sameArt, printings: inSets };
+          bySet = true;
+        }
+      }
+      f.rec?.note("options", optionsNote(opts.printings));
+      const wasOnly = choosePrinting(opts).how === "only";
+      // Its border (border.ts), as on the sheet.
+      const border = kept.read && camGen.current === gen ? readBorder(kept.read.image, kept.read.quad) : null;
+      let ruledOut: Printing[] = [];
+      if (border) {
+        f.rec?.note("border", border);
+        if (f.timing) f.timing.detail.border = border.border ?? "unsure";
+        const left = byBorder(opts.printings, border.border);
+        ruledOut = opts.printings.filter((p) => !left.includes(p));
+        const against = f.known?.text && ruledOut.length > 0 ? proofOf(opts.printings, f.known.text).ev : null;
+        if (against && left.every((p) => against.pointsAway(p.scryfall_id))) ruledOut = [];
+      }
+      const pool = ruledOut.length > 0 ? opts.printings.filter((p) => !ruledOut.includes(p)) : opts.printings;
+      const choice = choosePrinting({ sameArt: opts.sameArt, printings: pool });
+      // The pick lists them all, the scanner's best guesses first and anything its border ruled out last.
+      row.offer([...choice.options, ...ruledOut]);
+      if (choice.how === "only" && choice.chosen) {
+        row.settle(choice.chosen, ruledOut.length > 0 && !wasOnly ? "border" : bySet ? "set" : "only");
+        return;
+      }
+      // The collector line: one body of evidence over every read of this card (evidence.ts).
+      const ev = new Evidence(pool, [...lockedOut, ...ruledOut]);
+      const proven = () => {
+        const v = ev.verdict();
+        const hit = v.kind === "settled" ? pool.find((p) => p.scryfall_id === v.id) : undefined;
+        return !!hit && row.settle(hit, "collector");
+      };
+      if (f.known?.text) {
+        ev.add([f.known.text]);
+        if (proven()) return;
+      }
+      const tasks: Promise<unknown>[] = [];
+      const read = kept.read;
+      if (read && camGen.current === gen) {
+        tasks.push(
+          (async () => {
+            const reads: string[] = [];
+            let quality: StripQuality | null = null;
+            for await (const text of readCollectorLines(read.image, read.quad, await ocrEngine(), { gate: (q) => ((quality = q), true) })) {
+              if (!row.finding) return;
+              reads.push(text);
+            }
+            ev.add(reads);
+            f.rec?.frame({ source: "later", reads, ...qualityNote(quality), cardPx: Math.round(cardHeight(read.quad)), verdict: ev.verdict() });
+            proven();
+          })(),
+        );
+      }
+      // The printing look on the frames kept when it was named; it settles only under the look
+      // option that settles when sure, as on the sheet.
+      const art = artRef.current;
+      const model = art?.look ?? "off";
+      const candidates = f.art && opts.sameArt ? lookCandidates(pool, f.art.id.endsWith("-1")) : [];
+      if (art && model !== "off" && f.art && kept.frames && candidates.length >= 2) {
+        const index = f.art.index;
+        tasks.push(
+          (async () => {
+            const scores: LookScores = {};
+            const done = await withTimeout(art.lookAt(index, candidates, (id, score) => void (scores[id] = score), undefined, kept.frames!), LATER_LOOK_MS);
+            const got = lookSettles(pool, scores, (id) => ev.pointsAway(id));
+            const option = slotsRef.current.look.option;
+            const acts = !!option?.settles && option.id === model;
+            if (f.timing) {
+              f.timing.detail.look_option = model;
+              f.timing.detail.look_sure = got.settled;
+              if (got.lead != null) f.timing.detail.look_lead = Math.round(got.lead * 1000) / 1000;
+              Object.assign(f.timing.detail, lookTimingDetail(done));
+            }
+            f.rec?.note("lookSettle", { settled: got.settled && acts, option: model, later: true, lead: got.lead == null ? null : Math.round(got.lead * 1000) / 1000 });
+            const hit = got.settled && acts ? pool.find((p) => p.scryfall_id === got.id) : undefined;
+            if (hit && row.finding) row.settle(hit, "look");
+          })(),
+        );
+      }
+      // Its collector line from the frames while it still lies there.
+      if (f.art && live && camGen.current === gen) tasks.push(holdForLater(row, f, pool, ev));
+      await Promise.allSettled(tasks);
+      if (!row.finding) return;
+      // Tie by price, last (opt-in): never for a typed name, never against what was read.
+      if (tieRef.current && !typed) {
+        const tie = priceTie(
+          pool.filter((p) => !ev.pointsAway(p.scryfall_id)),
+          finishRef.current,
+        );
+        f.rec?.note("priceTie", tie ? { id: tie.printing.scryfall_id, low: tie.low, high: tie.high, later: true } : { tied: false, later: true });
+        if (tie && row.settle(tie.printing, "price")) return;
+      }
+      f.rec?.reasons.add("hold-gave-up");
+      row.giveUp();
+    } catch (e) {
+      console.warn("Couldn't work out the printing", e);
+      row.giveUp(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  /**
+   * Read a provisional row's collector line from the frames that still show its card (card
+   * first): the read loop calls `read` with the card's place in each frame while the card is the
+   * one held (hold.ts), until it settles, the card leaves or another comes, or LATER_HOLD runs out.
+   * Resolves when that ends.
+   */
+  const holdForLater = (row: Provisional, f: Found, pool: Printing[], ev: Evidence): Promise<void> =>
+    new Promise<void>((resolve) => {
+      if (!f.art) return resolve();
+      heldLater.current?.end();
+      let frames = 0;
+      let busy = false;
+      let ended = false;
+      const h: HeldLater = {
+        row,
+        index: f.art.index,
+        name: f.name,
+        read: async (quad) => {
+          if (busy || ended || !row.finding) return;
+          busy = true;
+          try {
+            hiCanvasRef.current ??= document.createElement("canvas");
+            const view = await camSrc().around(quad, hiCanvasRef.current);
+            const reads: string[] = [];
+            let quality: StripQuality | null = null;
+            let sharp = true;
+            for await (const text of readCollectorLines(view.image, view.quad, await ocrEngine(), { gate: (q) => ((quality = q), (sharp = worthReading(q))) })) reads.push(text);
+            if (ended || !row.finding) return;
+            const note = { source: "later" as const, ...qualityNote(quality), cardPx: Math.round(cardHeight(quad) * camSrc().fullScale()) };
+            if (!sharp) {
+              f.rec?.frame({ ...note, reads: [], skipped: true });
+              return;
+            }
+            ev.add(reads);
+            const v = ev.verdict();
+            f.rec?.frame({ ...note, reads, verdict: v });
+            const hit = v.kind === "settled" ? pool.find((p) => p.scryfall_id === v.id) : undefined;
+            if (hit) row.settle(hit, "collector");
+          } catch (e) {
+            console.warn("Reading the card for its row failed", e);
+          } finally {
+            busy = false;
+            frames += 1;
+            if (frames >= LATER_HOLD.frames) h.end();
+          }
+        },
+        end: () => {
+          if (ended) return;
+          ended = true;
+          clearTimeout(timer);
+          unwatch();
+          if (heldLater.current === h) heldLater.current = null;
+          resolve();
+        },
+      };
+      const timer = setTimeout(() => h.end(), LATER_HOLD.ms);
+      const unwatch = row.watch((st) => {
+        if (st.phase !== "finding") h.end();
+      });
+      heldLater.current = h;
+    });
+
   /** The scanner settled this printing itself (read, by look, or the only one), and so could have it wrong. */
-  const settledByScanner = (f: Found) => !identityOnly && !!f.chosen && (f.how === "collector" || f.how === "look" || f.how === "only" || f.how === "set");
+  const settledByScanner = (f: Found) => !identityOnly && !!f.chosen && (f.how === "collector" || f.how === "look" || f.how === "only" || f.how === "set" || f.how === "border" || f.how === "price");
   /**
    * Wrong printing (Bryan, 15 Nov 2026): the card is right, the printing isn't. The list opens with
    * the misread marked "Read as", and the printing is read again from the held card, a fresh
@@ -2714,6 +3143,14 @@ export function ScannerView({
     setWrongOpen(false);
     setCloseup(null);
     setPhase("found");
+    // A printing its border settled: every printing with its art again, the border not read again.
+    if (f.how === "border") {
+      const seq = ++foundSeq.current;
+      const wide: Found = { ...base, options: null, borderOff: true };
+      setFound(wide);
+      void settle(seq, wide, f.art ? { art: f.art.illustrationId, id: f.art.id } : { name: f.name }, null, f.known);
+      return;
+    }
     // Read from the list it came from, unless that was only this printing (or only the locked
     // sets'): then every printing of the card.
     if (f.options && f.options.length > 1 && f.how !== "set") {
@@ -2735,6 +3172,13 @@ export function ScannerView({
     void settle(seq, wide, { name: f.name }, null);
   };
   const undo = (j: JustAdded) => {
+    // A provisional row whose printing isn't settled: nothing was saved, so it's simply dropped.
+    if (j.later?.open) {
+      j.later.drop();
+      setJustAdded({ text: `Took out ${j.label}` });
+      return;
+    }
+    if (j.later && j.later.state.phase === "dropped") return;
     if (!j.card || !onUndo) return;
     const taking: JustAdded = { text: `Taking out ${j.label}…`, busy: true };
     setJustAdded(taking);
@@ -2853,6 +3297,26 @@ export function ScannerView({
           }}
         />
       )}
+      {!identityOnly && (
+        <PrintingSettings
+          cardFirst={laterOffered ? cardFirst : null}
+          tie={tieOn}
+          byPrice={byPrice}
+          worth={worth}
+          onCardFirst={(on) => {
+            setCardFirst(on);
+            setCardFirstNow(on);
+          }}
+          onTie={(on) => {
+            setTieByPrice(on);
+            setTieOn(on);
+          }}
+          onByPrice={(on) => {
+            setFeedbackByPrice(on);
+            setByPrice(on);
+          }}
+        />
+      )}
       {modelsInfo && (
         <ModelsSetting
           info={modelsInfo}
@@ -2960,7 +3424,7 @@ export function ScannerView({
   const dupeHere = !!dupe && !!onAccept && !!newest && dupe.found.name === newest.name;
   // Wrong printing beside Undo only when the scanner read the printing itself: one you tapped is
   // rarely wrong, and the card's own sheet (tap it in the strip) has Wrong printing anyway.
-  const readByScanner = !!justAdded?.found && (justAdded.found.how === "collector" || justAdded.found.how === "look" || justAdded.found.how === "set");
+  const readByScanner = !!justAdded?.found && (justAdded.found.how === "collector" || justAdded.found.how === "look" || justAdded.found.how === "set" || justAdded.found.how === "border" || justAdded.found.how === "price");
   const receiptActions =
     receipt && undoable ? (
       <>
@@ -3395,7 +3859,15 @@ export function ScannerView({
                     </Field>
                   )}
                   {addable && (
-                    <Button variant="primary" disabled={!ready} onClick={() => file(found, chosen, copies, false)}>
+                    <Button
+                      variant="primary"
+                      disabled={!ready}
+                      onClick={() =>
+                        identityOnly || chosen
+                          ? file(found, chosen, copies, false)
+                          : fileLater(found, copies, false, { read: found.shot ?? null, frames: found.art ? (artRef.current?.keepLook?.(found.art.index) ?? null) : null })
+                      }
+                    >
                       {!ready ? "Finding the printing…" : found.correcting ? "Change to this printing" : acceptLabel}
                     </Button>
                   )}
@@ -3445,7 +3917,7 @@ export function ScannerView({
  */
 export function printingWay(f: Pick<Found, "how" | "misread" | "settledId">, filed: Pick<Printing, "scryfall_id">): PrintingWay {
   if (f.misread || (f.settledId && f.settledId !== filed.scryfall_id)) return "corrected";
-  return f.how === "only" || f.how === "set" || f.how === "collector" || f.how === "look" ? f.how : "picked";
+  return f.how === "only" || f.how === "set" || f.how === "collector" || f.how === "look" || f.how === "border" || f.how === "price" ? f.how : "picked";
 }
 
 /**
@@ -3502,6 +3974,10 @@ function explain(f: Found, identityOnly: boolean, lockName = ""): string {
       return f.method === "art" ? `${by}; the collector number picked the printing.` : `${by}.`;
     case "look":
       return `${by}. It looks most like this printing, well ahead of the other ${f.options.length - 1} with this art.`;
+    case "border":
+      return `${by}. Its border is ${f.border ?? "plain"}, and this is the only printing with this art that has one.`;
+    case "price":
+      return `${by}. The scanner couldn't tell its printings apart, and they cost within ${Math.round(TIE_WITHIN * 100)}% of each other, so it took the dearest (Tie by price). Wrong printing changes it.`;
     case "picked":
       return f.options.length > 1 ? `${by}. You picked the printing; it wasn't read from the card.` : `${by}. You picked the printing.`;
     default:
@@ -3646,6 +4122,59 @@ function SoundsSetting({ on, worth, prices, onChange, onWorth }: { on: boolean; 
         )}
       </span>
     </div>
+  );
+}
+
+/**
+ * The printing options (prefs.ts; docs/scanner.md): card first, printing after (only where the host
+ * keeps provisional rows: `cardFirst` null hides it), tie by price, and feedback by price. Per device.
+ */
+function PrintingSettings({
+  cardFirst,
+  tie,
+  byPrice,
+  worth,
+  onCardFirst,
+  onTie,
+  onByPrice,
+}: {
+  cardFirst: boolean | null;
+  tie: boolean;
+  byPrice: boolean;
+  worth: number;
+  onCardFirst: (on: boolean) => void;
+  onTie: (on: boolean) => void;
+  onByPrice: (on: boolean) => void;
+}) {
+  return (
+    <>
+      {cardFirst != null && (
+        <div className="scan-keep">
+          <input id="scan-card-first" type="checkbox" checked={cardFirst} onChange={(e) => onCardFirst(e.target.checked)} />
+          <span>
+            <label htmlFor="scan-card-first">
+              <strong>Card first, printing after.</strong> A card shows in the strip as soon as it's named, and the scanner goes on to the next while it works out the printing from what it saw. A card is saved to your collection only once its printing is settled; one it can't settle waits in the strip for you to pick. Off unless you turn it on, on this device.
+            </label>
+          </span>
+        </div>
+      )}
+      <div className="scan-keep">
+        <input id="scan-tie-price" type="checkbox" checked={tie} onChange={(e) => onTie(e.target.checked)} />
+        <span>
+          <label htmlFor="scan-tie-price">
+            <strong>Tie by price.</strong> When the scanner can't tell printings apart and their market prices are within {Math.round(TIE_WITHIN * 100)}% of each other, it takes the dearest and marks the card "by price", rather than asking you. Never when a price is missing. Wrong printing changes it. Off unless you turn it on, on this device.
+          </label>
+        </span>
+      </div>
+      <div className="scan-keep">
+        <input id="scan-by-price" type="checkbox" checked={byPrice} onChange={(e) => onByPrice(e.target.checked)} />
+        <span>
+          <label htmlFor="scan-by-price">
+            <strong>Feedback by price.</strong> A short buzz for each card, a double one for a card worth {usd(worth)} or more, and the chime pitched by the card's market price: higher for dearer cards. A card with no price gets an even two-note chime, never the low one. On this device.
+          </label>
+        </span>
+      </div>
+    </>
   );
 }
 

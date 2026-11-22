@@ -35,7 +35,7 @@ export function tileMeta(copies: number, proxies: number | undefined, value: num
   if (copies <= 0) return cards;
   return `${cards}${value ? `, ${money(value)}` : ""}${unpriced ? `, ${unpriced} with no price` : ""}`;
 }
-import type { Added, Finish, Fix, RecentCard, ScanCandidate } from "../scanner";
+import type { Added, Finish, Fix, Provisional, RecentCard, ScanCandidate } from "../scanner";
 import { useOpenedEntry } from "../scanner/opened";
 import { useDebounced } from "../useDebounced";
 // The scan choices and their notes, shown here outside the scanner too.
@@ -958,6 +958,75 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
     return ok;
   };
 
+  /**
+   * Card first, printing after (scanner/later.ts): a card named before its printing is settled
+   * comes as a provisional row. Its entry is in the session at once, holding no printing and saving
+   * nothing; once its printing settles (the scanner's work, or a pick here) it takes that printing
+   * and is saved as an add is, in place. Taken back out before then, it simply goes.
+   */
+  const provisional = (row: Provisional) => {
+    const entry: Added = {
+      key: row.key,
+      name: row.card.name,
+      scryfall_id: "",
+      oracle_id: row.card.oracle_id,
+      set: "",
+      number: "",
+      image: null,
+      // The finish and box chosen now are the ones it's filed with, whenever it settles.
+      finish: finish === "proxy" ? "proxy" : "nonfoil",
+      wanted: finish,
+      container: container || null,
+      copies: row.copies,
+      auto: row.auto,
+      later: row,
+    };
+    put([entry, ...listRef.current]);
+    filedAs.current.set(row.card, row.key);
+    const stop = row.watch((st) => {
+      if (st.phase === "dropped") {
+        stop();
+        put(listRef.current.filter((x) => x.key !== row.key));
+        return;
+      }
+      if (st.phase === "settled" && st.filed) {
+        stop();
+        void saveLater(row.key, st.filed);
+        return;
+      }
+      // Its printings came (a picture for its tile), or it waits for a pick now.
+      const picture = st.options?.find((p) => p.image_small)?.image_small ?? null;
+      patch(row.key, (x) => ({ ...x, image: x.image ?? picture }));
+    });
+  };
+  /** A provisional row's printing settled: the entry takes it and is saved, as `accept` saves a card. */
+  const saveLater = async (key: string, c: ScanCandidate) => {
+    const a = listRef.current.find((x) => x.key === key);
+    if (!a || !c.scryfall_id) return;
+    const { addOp } = await scanner();
+    const wanted = a.wanted ?? "nonfoil";
+    const filed: Finish = wanted === "proxy" ? "proxy" : (pickFinish({ finishes: c.finishes }, wanted) as Finish);
+    patch(key, (x) => ({
+      ...x,
+      later: undefined,
+      name: c.name,
+      scryfall_id: c.scryfall_id!,
+      oracle_id: c.oracle_id,
+      set: c.set ?? "",
+      number: c.number ?? "",
+      image: c.thumb ?? c.image ?? x.image,
+      finish: filed,
+      finishes: c.finishes,
+      treatment: c.treatment,
+      prices: c.prices ?? null,
+      byPrice: c.byPrice,
+      pending: { ops: [addOp(c.scryfall_id!, x.copies, filed, x.container, crypto.randomUUID())], fix: null },
+    }));
+    filedAs.current.set(c, key);
+    const ok = await send(key);
+    setError(ok ? null : new Error(`Couldn't save ${c.name}. It's kept in the Added list to try again.`));
+  };
+
   /** The session entry each card the scanner filed went into, for its Undo. */
   const filedAs = useRef(new WeakMap<ScanCandidate, string>());
   /** Undo on the scanner's "Added …": take this session's copies of that card back out (the same fix as Remove in the Added list). */
@@ -965,6 +1034,8 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
     const key = filedAs.current.get(c);
     const a = key ? listRef.current.find((x) => x.key === key) : undefined;
     if (!a) throw new Error("It's no longer in the Added list");
+    // Its printing isn't settled: nothing was saved, so it simply goes.
+    if (a.later?.open) return a.later.drop();
     const { removeFix } = await scanner();
     await fix(a, removeFix(a));
   };
@@ -987,6 +1058,7 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
   const fix = async (a: Added, f: Fix) => {
     const before = listRef.current.find((x) => x.key === a.key);
     if (!before) return;
+    if (before.later) throw new Error(`Pick the printing of ${before.name} first.`);
     if (before.pending || before.checking) throw new Error(busyMessage(before));
     // Lock the entry before anything waits, so no other change starts from the same state.
     const token = crypto.randomUUID();
@@ -1027,6 +1099,11 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
   const unsaved = unsavedScans(added);
   const question = closeQuestion(unsaved);
   const close = () => (closeQuestion(unsavedScans(listRef.current)) ? setClosing(true) : onClose());
+  /** Close, letting go of rows whose printing isn't settled (nothing of them was saved). */
+  const closeAnyway = () => {
+    for (const a of listRef.current) a.later?.drop();
+    onClose();
+  };
   // The scanner's own Close asks above; Back, a link, a reload or closing the tab ask through the
   // unsaved-work guard, since any of them takes the scanner away with what it couldn't save.
   const guard = useUnsavedChanges(question !== null);
@@ -1107,9 +1184,10 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
           autoAdd={keepAdding}
           closeups={closeups}
           paused={reviewing || closing || openedEntry != null}
-          recentCards={added.map((a) => ({ key: a.key, name: a.name, set: a.set, number: a.number, finish: a.finish, copies: a.copies, prices: a.prices, image: a.image, oracleId: a.oracle_id, state: entryState(a) }))}
+          recentCards={added.map((a) => ({ key: a.key, name: a.name, set: a.set || undefined, number: a.number || undefined, finish: a.finish, copies: a.copies, prices: a.prices, image: a.image, oracleId: a.oracle_id, state: entryState(a), byPrice: a.byPrice }))}
           entryOf={(c) => filedAs.current.get(c)}
           onOpenCard={setOpened}
+          onProvisional={provisional}
           finish={finish}
           onPrinting={setPrinting}
           controls={controls}
@@ -1135,7 +1213,7 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
               <div className="row">
                 {unsaved.failed > 0 && <Button variant="primary" disabled={unsaved.sending > 0} onClick={retryAll}>{unsaved.sending > 0 ? "Saving…" : "Try again"}</Button>}
                 <Button onClick={() => setClosing(false)}>Keep scanning</Button>
-                <Button variant="quiet" onClick={onClose}>Close without saving</Button>
+                <Button variant="quiet" onClick={closeAnyway}>Close without saving</Button>
               </div>
             </div>
           </Dialog>
@@ -1147,6 +1225,8 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
 
 /** An entry's state for its tile in the scanner's strip: its add not saved, a change to it not saved, or on its way. */
 function entryState(a: Added): RecentCard["state"] {
+  // Card first, printing after: its printing still being worked out, or waiting for a pick.
+  if (a.later?.open) return a.later.state.phase === "pick" ? "pick" : "finding";
   if (!a.pending) return undefined;
   if (!a.pending.error) return "saving";
   return a.pending.fix ? "change-failed" : "failed";

@@ -37,8 +37,10 @@ const MAX_DETAIL: usize = 1024;
 pub const RULES: [&str; 7] = ["sure", "leads", "twice", "title", "text", "closeup", "typed"];
 /// How a printing is settled: the only printing (or the only one in the locked sets), the
 /// collector line, the printing look when it's sure (the look option that settles, scan.rs
-/// `LOOK_V1_SURE`), the person's pick, or a correction of the scanner's own.
-pub const PRINTINGS: [&str; 6] = ["only", "set", "collector", "look", "picked", "corrected"];
+/// `LOOK_V1_SURE`), the only one left once the card's border colour ruled the others out
+/// (border.ts), the dearest of printings priced alike that it couldn't tell apart (Tie by price,
+/// opt-in), the person's pick, or a correction of the scanner's own.
+pub const PRINTINGS: [&str; 8] = ["only", "set", "collector", "look", "border", "price", "picked", "corrected"];
 pub const MODES: [&str; 2] = ["printing", "identity"];
 /// An hour: no single card takes longer, and anything more is a clock gone wrong.
 const MAX_MS: i64 = 3_600_000;
@@ -387,6 +389,27 @@ fn vectors(rows: &[&Row]) -> Value {
     json!({ "server": server, "cached": cached, "made": made, "server_share": share(server as usize, all as usize) })
 }
 
+/// Card first, printing after (docs/scanner.md, an option in Scan settings): the collection's
+/// cards by whether their row came first (`detail.rows`, "card-first") or with the printing
+/// ("printing-first"), each with how fast the card was named, how long its printing took, and how
+/// long from the card being named to its row appearing (`detail.row_ms`): what the option changes.
+fn by_rows(rows: &[&Row]) -> Vec<Value> {
+    let printing: Vec<&Row> = rows.iter().copied().filter(|r| r.mode == "printing").collect();
+    by(
+        &printing,
+        |r| r.said("rows").and_then(|v| v.as_str().filter(|s| *s == "card-first" || *s == "printing-first").map(str::to_owned)),
+        "rows",
+        |g| {
+            let mut t = timing(g);
+            let printed: Vec<&Row> = g.iter().copied().filter(|r| r.printing.is_some() && !r.called_wrong()).collect();
+            t["printing"] = printing_timing(&printed);
+            let mut shown: Vec<i64> = g.iter().filter_map(|r| count(r, "row_ms")).collect();
+            t["row"] = json!({ "count": shown.len(), "median_ms": quantile(&mut shown, 0.5), "p90_ms": quantile(&mut shown, 0.9) });
+            t
+        },
+    )
+}
+
 /// What the account's timing records say: how fast cards are named and by which rule, how their
 /// printings are settled, and the same by art model; with the newest records from `offset`.
 pub async fn summary(pool: &SqlitePool, owner: &str, f: &Filter, offset: usize, limit: usize) -> AppResult<Value> {
@@ -426,6 +449,8 @@ pub async fn summary(pool: &SqlitePool, owner: &str, f: &Filter, offset: usize, 
         "modes": by(&refs, |r| Some(r.mode.clone()), "mode", timing),
         // By the printing look's option: the default against the option that settles when sure.
         "looks": by_look(&all),
+        // Card first, printing after against the printing first: how soon each card's row appeared.
+        "rows": by_rows(&refs),
         "items": items,
     }))
 }
@@ -472,6 +497,43 @@ mod tests {
     /// The lock option a record says ran: the lead rule's own records ran "lead".
     fn rule_lock(rule: &str) -> &'static str {
         if rule == "leads" { "lead" } else { "sure" }
+    }
+
+    #[tokio::test]
+    async fn card_first_rows_and_the_new_ways_of_settling_are_summarised() {
+        let (app, pool) = testutil::app().await;
+        let (_, me) = testutil::user(&pool, "me@example.com").await;
+        let with = |rows: &str, row_ms: i64, printing: &str, printing_ms: i64| {
+            let mut b = body("sure", 700);
+            b["printing"] = json!(printing);
+            b["printing_ms"] = json!(printing_ms);
+            b["detail"] = json!({"rows": rows, "row_ms": row_ms});
+            b
+        };
+        for b in [
+            with("card-first", 5, "collector", 1400),
+            with("card-first", 8, "border", 300),
+            with("card-first", 6, "price", 3100),
+            with("printing-first", 1500, "collector", 1500),
+        ] {
+            let (status, res) = testutil::send(&app, Method::POST, PATH, Some(&me), Some(b)).await;
+            assert_eq!(status, StatusCode::OK, "{res}");
+        }
+        // Not a way of settling: refused.
+        let mut bad = body("sure", 700);
+        bad["printing"] = json!("guessed");
+        let (status, _) = testutil::send(&app, Method::POST, PATH, Some(&me), Some(bad)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let (_, s) = testutil::send(&app, Method::GET, PATH, Some(&me), None).await;
+        let rows = s["rows"].as_array().unwrap();
+        let first = rows.iter().find(|g| g["rows"] == "card-first").unwrap();
+        assert_eq!(first["count"], 3);
+        assert_eq!(first["row"]["median_ms"], 6);
+        assert_eq!(first["printing"]["median_ms"], 1400);
+        let after = rows.iter().find(|g| g["rows"] == "printing-first").unwrap();
+        assert_eq!(after["row"]["median_ms"], 1500);
+        let ways: Vec<&str> = s["printings"].as_array().unwrap().iter().filter_map(|g| g["printing"].as_str()).collect();
+        assert!(ways.contains(&"border") && ways.contains(&"price"), "{ways:?}");
     }
 
     #[tokio::test]

@@ -1188,6 +1188,35 @@ button.scan-count {
 .scan-tile.is-failed .scan-tile-card {
   box-shadow: 0 0 0 2px var(--bad);
 }
+/* Card first, printing after: a card whose printing isn't settled yet isn't saved either. Its
+   ring is dashed (the picture itself is never faded), and what it waits for goes where the
+   price does. */
+.scan-tile.is-finding .scan-tile-card,
+.scan-tile.is-pick .scan-tile-card {
+  box-shadow: none;
+  outline: 1px dashed var(--dim);
+}
+.scan-tile.is-newest.is-finding .scan-tile-card,
+.scan-tile.is-newest.is-pick .scan-tile-card {
+  outline: 2px dashed #fff;
+}
+.scan .scan-tile-price.is-finding,
+.scan .scan-tile-price.is-pick {
+  font-size: var(--t-xs);
+  font-weight: 400;
+  white-space: normal;
+  color: var(--on-art-dim);
+}
+.scan .scan-tile-price.is-pick {
+  font-weight: 700;
+  color: #fff;
+}
+/* Filed by Tie by price: said under the price, quietly. */
+.scan-tile-by {
+  font-size: var(--t-xs);
+  line-height: 1.1;
+  color: var(--on-art-dim);
+}
 .scan-tile-copies,
 .scan-tile-finish {
   position: absolute;

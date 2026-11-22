@@ -9,6 +9,7 @@
 
 import { pickFinish, type Treated } from "@yama/core";
 import type { CollectionItem } from "../api";
+import type { Provisional } from "./later";
 import type { Prices } from "./price";
 
 export type Finish = "nonfoil" | "foil" | "etched" | "proxy";
@@ -39,6 +40,16 @@ export interface Added {
   pending?: Pending;
   /** A fix is finding the entry's row (a token for that lookup); the entry is locked meanwhile. */
   checking?: string;
+  /**
+   * Card first, printing after (later.ts): the provisional row this entry is while its printing
+   * isn't settled. It holds no printing yet (`scryfall_id` empty) and nothing of it is saved; once
+   * the row settles the entry takes its printing and saves, and the field goes.
+   */
+  later?: Provisional;
+  /** The finish chosen when a provisional row was scanned: it's filed in that (or its printing's own). */
+  wanted?: Finish;
+  /** Filed as the dearest of printings the scanner couldn't tell apart (Tie by price), until its printing is changed. */
+  byPrice?: boolean;
 }
 
 export interface Pending {
@@ -106,8 +117,14 @@ export const changedElsewhere = (seen: Map<string, number>, a: Pick<Added, "scry
 export function settled(a: Added): Added {
   const fix = a.pending?.fix;
   const { pending: _, ...rest } = a;
-  return fix ? { ...rest, ...fix } : rest;
+  if (!fix) return rest;
+  // Another printing than the one a tie by price chose: it's no longer "by price".
+  const byPrice = fix.scryfall_id === a.scryfall_id ? a.byPrice : undefined;
+  return { ...rest, ...fix, byPrice };
 }
+
+/** A provisional row's entry whose printing isn't settled yet (nothing of it saved). */
+export const unsettledRow = (a: Pick<Added, "later">) => !!a.later?.open;
 
 /** The new state of an entry after a fix. 0 copies takes it back out. */
 export interface Fix {

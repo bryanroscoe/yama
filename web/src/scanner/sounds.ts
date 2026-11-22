@@ -6,6 +6,7 @@
 // view, so the Sounds switch decides; iOS Safari's silent switch silences them by itself.
 
 import { playTone, unlockSound, type Tone } from "../sound";
+export type { Tone };
 import { worthIt } from "./price";
 
 export type ScanSound = "filed" | "valuable" | "needs-you";
@@ -69,5 +70,40 @@ export function setWorthThreshold(v: number) {
 export function playScanSound(kind: ScanSound) {
   playTone(SCAN_TONES[kind]);
 }
+
+/**
+ * Feedback by price (docs/plans/scanner-match-cardvision.md, item 28; Scan settings, on by default):
+ * the chime for a card filed, pitched by its market price on a log scale, from PITCH.low at $0.10
+ * or less to PITCH.high at $50 or more, so a run of bulk sounds alike and a good card stands out.
+ * One worth the threshold adds the bright top note. A missing price is unknown: it never gets a
+ * pitch, least of all the low one, and sounds as two even notes in the middle instead.
+ */
+export const PITCH = { low: 523, high: 1568, cheap: 0.1, dear: 50 } as const;
+
+/** The chime's first note for a known price (Hz). */
+export function pitchFor(price: number): number {
+  const p = Math.min(Math.max(price, PITCH.cheap), PITCH.dear);
+  const t = Math.log(p / PITCH.cheap) / Math.log(PITCH.dear / PITCH.cheap);
+  return Math.round(PITCH.low * Math.pow(PITCH.high / PITCH.low, t));
+}
+
+/** The tone for a card filed with feedback by price: pitched, bright when it's worth the threshold, even when its price is unknown. */
+export function priceTone(price: number | null, threshold: number): Tone {
+  if (price == null || !Number.isFinite(price)) return { wave: "sine", gain: 0.1, notes: [[880, 0, 0.06], [880, 0.09, 0.06]] };
+  const f = pitchFor(price);
+  if (worthIt(price, threshold)) return { wave: "triangle", gain: 0.22, notes: [[f, 0, 0.07], [f * 1.5, 0.08, 0.07], [f * 2, 0.16, 0.16]] };
+  return { wave: "sine", gain: 0.12, notes: [[f, 0, 0.05], [f * 1.5, 0.05, 0.07]] };
+}
+
+export function playPriceSound(price: number | null, threshold: number) {
+  playTone(priceTone(price, threshold));
+}
+
+/**
+ * The buzz with feedback by price: a short tap for a card found, and for one filed a double pulse
+ * when it's worth the threshold (a missing price never is). Patterns for `navigator.vibrate`.
+ */
+export const BUZZ = { found: 12, filed: 18, valuable: [30, 60, 30, 60, 50] } as const;
+export const filedBuzz = (price: number | null, threshold: number): number | number[] => (worthIt(price, threshold) ? [...BUZZ.valuable] : BUZZ.filed);
 
 export { unlockSound };

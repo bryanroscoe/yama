@@ -113,7 +113,13 @@ export interface ArtRecognizer {
    * `index` (the card found), reporting each score as it comes; stops with `signal`. Rejects when
    * no look model is loaded or no frame of the card is kept.
    */
-  lookAt(index: number, candidates: LookCandidate[], onScore: (id: string, score: number) => void, signal?: AbortSignal): Promise<LookDone>;
+  lookAt(index: number, candidates: LookCandidate[], onScore: (id: string, score: number) => void, signal?: AbortSignal, frames?: Promise<WireFrame[]>): Promise<LookDone>;
+  /**
+   * The frames kept of artwork `index` now, for a look that starts later (`lookAt`'s `frames`): a
+   * card filed before its printing is settled (card first, printing after) has left the view by
+   * then, and its frames with it. Asked before the next frame is read, they're this card's.
+   */
+  keepLook?(index: number): Promise<WireFrame[]>;
   /** The card finder (detector slot) it runs, by option id. */
   readonly detector: string;
   /** Find cards with this card finder from now on, as useArt does for the art model. */
@@ -273,6 +279,15 @@ async function startRecognizer(
   const pooling = new Map<number, (arts: number) => void>();
   const embedding = new Map<number, (error: string | null) => void>();
   const framing = new Map<number, (frames: WireFrame[]) => void>();
+  /** The frames the art worker kept of artwork `index`, as they are when this is asked. */
+  const keptFrames = (index: number): Promise<WireFrame[]> => {
+    if (disposed) return Promise.reject(new Error("The scanner is closed"));
+    const fid = nextId++;
+    return new Promise<WireFrame[]>((resolve) => {
+      framing.set(fid, resolve);
+      worker.postMessage({ type: "frames", id: fid, index } satisfies ArtWorkerRequest);
+    });
+  };
   const sampling = new Map<number, (cards: SpeedCard[]) => void>();
   // The printing look's own worker (look.worker.ts), started when a look model is chosen.
   let lookWorker: Worker | null = null;
@@ -502,16 +517,14 @@ async function startRecognizer(
       lookSwitching = done.catch(() => undefined);
       return done;
     },
-    async lookAt(index, candidates, onScore, signal) {
+    keepLook: keptFrames,
+    async lookAt(index, candidates, onScore, signal, kept) {
       if (disposed) throw new Error("The scanner is closed");
       const w = lookWorker;
       if (!w) throw new Error("No look model is loaded");
-      // The card's side: the frames the art worker kept of it, handed over to the look's worker.
-      const fid = nextId++;
-      const frames = await new Promise<WireFrame[]>((resolve) => {
-        framing.set(fid, resolve);
-        worker.postMessage({ type: "frames", id: fid, index } satisfies ArtWorkerRequest);
-      });
+      // The card's side: the frames the art worker kept of it (now, or when `kept` was asked),
+      // handed over to the look's worker.
+      const frames = await (kept ?? keptFrames(index));
       if (signal?.aborted) throw new Error("The look was stopped");
       if (lookWorker !== w) throw new Error("The printing look was switched");
       const id = nextId++;
