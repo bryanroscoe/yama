@@ -69,12 +69,15 @@ final class OrtDetector implements CardFinder.Detector, AutoCloseable {
         String why = unavailable();
         if (why != null) throw new IllegalStateException(why);
         OrtEnvironment env = OrtEnvironment.getEnvironment();
-        OrtSession.SessionOptions options = new OrtSession.SessionOptions();
-        options.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT);
-        options.setIntraOpNumThreads(THREADS);
-        options.setInterOpNumThreads(1);
-        options.setExecutionMode(OrtSession.SessionOptions.ExecutionMode.SEQUENTIAL);
-        OrtSession session = env.createSession(model, options);
+        OrtSession session;
+        // The options hold native memory of their own: let go once the session is made (Codex review of #196).
+        try (OrtSession.SessionOptions options = new OrtSession.SessionOptions()) {
+            options.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT);
+            options.setIntraOpNumThreads(THREADS);
+            options.setInterOpNumThreads(1);
+            options.setExecutionMode(OrtSession.SessionOptions.ExecutionMode.SEQUENTIAL);
+            session = env.createSession(model, options);
+        }
         OrtDetector d = new OrtDetector(env, session, size);
         try {
             CardFinder.Output o = d.run(new byte[size * size * 4]);
