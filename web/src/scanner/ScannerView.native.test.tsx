@@ -63,6 +63,8 @@ const nat = vi.hoisted(() => ({
   embeds: [] as { seq: number; quad: Quad }[],
   embedGone: false,
   score: 0.93,
+  /** Where the app's finder spent a frame, as an APK from 22 Nov 2026 says (none before). */
+  stages: {} as { convertMs?: number; waitMs?: number; cutWaitMs?: number; copyMs?: number },
 }));
 
 vi.mock("./nativeCamera", async (original) => {
@@ -115,7 +117,7 @@ vi.mock("./nativeCamera", async (original) => {
           if (o.on !== undefined) nat.on = o.on;
           return { loaded: true, on: nat.on, ...(nat.state === real.FOUND_FAILED ? { failed: "The app's card finder stopped: out of memory" } : {}) };
         },
-        finderStatus: () => ({ loaded: true, on: nat.on, ms: 8, fps: 30, ...(nat.state === real.FOUND_FAILED ? { failed: "The app's card finder stopped: out of memory" } : {}) }),
+        finderStatus: () => ({ loaded: true, on: nat.on, ms: 8, fps: 30, ...nat.stages, ...(nat.state === real.FOUND_FAILED ? { failed: "The app's card finder stopped: out of memory" } : {}) }),
         close: () => undefined,
       };
     },
@@ -209,7 +211,7 @@ beforeEach(() => {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-  Object.assign(nat, { state: 1, loads: 0, failLoad: false, on: false, sets: [], matched: [], identified: 0, order: [], score: 0.93, artLoads: 0, artUnloads: 0, finderUnloads: 0, artFails: false, embeds: [], embedGone: false });
+  Object.assign(nat, { state: 1, loads: 0, failLoad: false, on: false, sets: [], matched: [], identified: 0, order: [], score: 0.93, artLoads: 0, artUnloads: 0, finderUnloads: 0, artFails: false, embeds: [], embedGone: false, stages: {} });
   sent.timings = [];
 });
 afterEach(() => {
@@ -301,6 +303,20 @@ describe("the card finder in the app's own code", () => {
     const t = sent.timings[0]!;
     expect((t.models as Record<string, string>).detector).toBe("bundle-detector-native");
     expect((t.detail as Record<string, unknown>).finder_ms).toBe(8);
+    // An APK from before the loop's stage timings says none, and the record has none.
+    expect(Object.keys(t.detail as object).filter((k) => /convert|wait|copy/.test(k))).toEqual([]);
+  });
+
+  it("records where the app's finder spends a frame, when the app says", async () => {
+    localStorage.setItem("yama.scan.diagnostics", "1");
+    nat.stages = { convertMs: 9.5, waitMs: 3.1, cutWaitMs: 0, copyMs: 4.2 };
+    nat.score = 0.2;
+    act(() => root.render(<ScannerView identityOnly autoAdd closeups={false} onAccept={async () => true} />));
+    await until(() => (nat.matched.length >= 1 ? true : null), "a frame matched at the app's corners");
+    nat.score = 0.93;
+    await until(() => (sent.timings.length > 0 ? true : null), "a timing record");
+    const d = sent.timings[0]!.detail as Record<string, unknown>;
+    expect([d.finder_convert_ms, d.finder_wait_ms, d.finder_cut_wait_ms, d.camera_copy_ms]).toEqual([9.5, 3.1, 0, 4.2]);
   });
 
   it("reads the art in the app too, of the frame the app's finder found the card on, and names it in the record", async () => {

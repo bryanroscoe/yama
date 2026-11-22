@@ -82,16 +82,18 @@ final class NativeFinder {
      * The loop's thread priority: Java's normal one, as the speed test's finder (the plugin's loader
      * thread) has. Until 22 Nov 2026 it was one below, which Android turns into a niceness of 10
      * rather than 0 (libartpalette's kNiceValues), about a ninth of a normal thread's share of a
-     * busy processor: with the camera, the web view and the art read busy, the live finder took
-     * 140 to 230 ms a frame on a Pixel against 41 ms in the speed test.
+     * busy processor (and older Androids also moved such a thread into the background group):
+     * with the camera, the web view and the art read busy, the live finder took 140 to 230 ms a
+     * frame on a Pixel against 41 ms in the speed test.
      */
     static final int LOOP_PRIORITY = Thread.NORM_PRIORITY;
 
-    // The loop's own: frame times for `status` (the find, scaling the camera's frame for it, and
-    // waiting for the camera to deliver one).
+    // The loop's own: frame times for `status` (the find, scaling the camera's frame for it,
+    // waiting for the camera to deliver one, and waiting for a region being cut from the last).
     private final double[] recent = new double[30];
     private final double[] recentConvert = new double[30];
     private final double[] recentWait = new double[30];
+    private final double[] recentCutWait = new double[30];
     private int recentCount;
     private long firstAt;
     private long frameCount;
@@ -453,15 +455,21 @@ final class NativeFinder {
     private volatile boolean resetPending;
 
     private void loop(int mine, CardFinder finder) {
+        // From the end of the last frame's work: a camera that delivers nothing for a while is
+        // timed whole, across the 250 ms waits.
+        long waitFrom = 0;
         try {
             while (running && mine == loopGen) {
                 Runnable want = wantFrames;
                 if (want != null) want.run();
-                long asked = System.nanoTime();
+                if (waitFrom == 0) waitFrom = System.nanoTime();
                 ScannerFrames.Frame f = frames.next(250);
                 if (f == null || !running || mine != loopGen) continue;
                 long taken = System.nanoTime();
-                double waitMs = (taken - asked) / 1e6;
+                // The wait for a region being cut from the frame before isn't the camera's.
+                double cutWaitMs = frames.lastCutWaitMs();
+                double waitMs = Math.max(0, (taken - waitFrom) / 1e6 - cutWaitMs);
+                waitFrom = 0;
                 int uw = f.uprightWidth();
                 int uh = f.uprightHeight();
                 double scale = Math.min(1, shortSide / (double) Math.min(uw, uh));
@@ -502,7 +510,7 @@ final class NativeFinder {
                     last = s;
                     lock.notifyAll();
                 }
-                note(r.ms, convertMs, waitMs);
+                note(r.ms, convertMs, waitMs, cutWaitMs);
                 CardOutlineView o = outline;
                 // (A loop stopped meanwhile draws nothing over the outline its stop cleared.)
                 if (o != null && mine == loopGen) o.see(s.quad, w, h);
@@ -535,11 +543,12 @@ final class NativeFinder {
         if (l != null) l.failed(failure);
     }
 
-    private void note(double ms, double convertMs, double waitMs) {
+    private void note(double ms, double convertMs, double waitMs, double cutWaitMs) {
         synchronized (recent) {
             recent[recentCount % recent.length] = ms;
             recentConvert[recentCount % recent.length] = convertMs;
             recentWait[recentCount % recent.length] = waitMs;
+            recentCutWait[recentCount % recent.length] = cutWaitMs;
             recentCount++;
             long now = System.nanoTime();
             if (frameCount == 0) firstAt = now;
@@ -558,15 +567,15 @@ final class NativeFinder {
     }
 
     /**
-     * The median of the last frames' scaling of the camera's frame for the finder and wait for the
-     * camera to deliver one (ms); zeros before any. With {@link #pace}'s find, the loop's time a
-     * frame: where the live time goes.
+     * The medians of the last frames' scaling of the camera's frame for the finder, wait for the
+     * camera to deliver one, and wait for a text region being cut from the frame before (ms); zeros
+     * before any. With {@link #pace}'s find, the loop's time a frame: where the live time goes.
      */
     double[] stages() {
         synchronized (recent) {
             int n = Math.min(recentCount, recent.length);
-            if (n == 0) return new double[] { 0, 0 };
-            return new double[] { median(recentConvert, n), median(recentWait, n) };
+            if (n == 0) return new double[] { 0, 0, 0 };
+            return new double[] { median(recentConvert, n), median(recentWait, n), median(recentCutWait, n) };
         }
     }
 

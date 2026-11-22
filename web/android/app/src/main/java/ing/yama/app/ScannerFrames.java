@@ -141,7 +141,9 @@ final class ScannerFrames {
         }
         // pinLock before lock, always: a region cut holds pinLock alone. Interruptible, so the
         // finder's thread stops at once even while a region is being cut.
+        long cutFrom = System.nanoTime();
         pinLock.lockInterruptibly();
+        cutWaitNs = System.nanoTime() - cutFrom;
         try {
             lock.lock();
             try {
@@ -157,6 +159,14 @@ final class ScannerFrames {
         } finally {
             pinLock.unlock();
         }
+    }
+
+    /** The taking thread's own: how long its last {@link #next} waited for a region being cut. */
+    private long cutWaitNs;
+
+    /** How long the last {@link #next} waited for a region being cut from the frame before (ms). The taking thread's own. */
+    double lastCutWaitMs() {
+        return cutWaitNs / 1e6;
     }
 
     /** The frame taken last, or null before the first. Hold {@link #lockPinned} while reading it from another thread. */
@@ -181,6 +191,10 @@ final class ScannerFrames {
      * is a new one. A frame being filled or read at this moment is finished on its old buffer.
      */
     void clear() {
+        synchronized (copies) {
+            // Another camera: its copies are another size's.
+            copyCount = 0;
+        }
         lock.lock();
         try {
             generation++;
@@ -255,8 +269,8 @@ final class ScannerFrames {
         int vLast = vp.length - 1;
         if (turned) {
             // A phone held upright turns the camera's frame a quarter: upright rows run down the
-            // buffer's columns. Read row by row of the upright frame, every sample is a row of the
-            // buffer apart (1280 rows of a 4K frame for one row out): part of the 66 ms a frame
+            // buffer's columns. Read row by row of the upright frame, one row out reads 1280
+            // different buffer rows of a 4K frame, a row or two apart: part of the 66 ms a frame
             // this took on a Pixel (22 Nov 2026; the rest was its thread's priority,
             // NativeFinder.LOOP_PRIORITY). In tiles, the samples a tile reads lie along a few dozen
             // buffer rows and the pixels it writes on a few dozen rows out: the same pixels, in an

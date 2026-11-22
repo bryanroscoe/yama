@@ -101,8 +101,9 @@ public class ScannerFramesTest {
         f.uvRowStride = chromaWidth * uvPixelStride + rnd.nextInt(9);
         int chromaRows = (f.cropTop + h + 1) / 2;
         f.y = new byte[f.yRowStride * (f.cropTop + h)];
-        // As a phone delivers them: each plane's buffer ends at its last sample, not at a whole row.
-        f.u = new byte[f.uvRowStride * (chromaRows - 1) + (chromaWidth - 1) * uvPixelStride + 1];
+        // As a phone delivers them: each plane's buffer ends at its last sample, not at a whole row,
+        // and now and then a little short of it (a sample past the end is the last one, clamped).
+        f.u = new byte[Math.max(1, f.uvRowStride * (chromaRows - 1) + (chromaWidth - 1) * uvPixelStride + 1 - (rnd.nextInt(3) == 0 ? 1 + rnd.nextInt(4) : 0))];
         f.v = new byte[f.u.length];
         rnd.nextBytes(f.y);
         rnd.nextBytes(f.u);

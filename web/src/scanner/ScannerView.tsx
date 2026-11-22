@@ -1006,9 +1006,11 @@ function ScannerScreen({
       timing.detail.finder_ms = Math.round(median(nativeMs.current) * 10) / 10;
       const st = nativeCam.current?.finderStatus();
       if (st?.fps) timing.detail.finder_fps = st.fps;
-      // Where the rest of its frame went: scaling the camera's frame, waiting for the next, the camera's copy.
+      // Where the rest of its frame went: scaling the camera's frame, waiting for the camera's next,
+      // waiting for a text region being cut from the last, the camera's copy of each frame.
       if (st?.convertMs != null) timing.detail.finder_convert_ms = st.convertMs;
       if (st?.waitMs != null) timing.detail.finder_wait_ms = st.waitMs;
+      if (st?.cutWaitMs != null) timing.detail.finder_cut_wait_ms = st.cutWaitMs;
       if (st?.copyMs != null) timing.detail.camera_copy_ms = st.copyMs;
     }
     if (nativeFinderFailedRef.current) timing.detail.finder_fallback = nativeFinderFailedRef.current.slice(0, 120);
