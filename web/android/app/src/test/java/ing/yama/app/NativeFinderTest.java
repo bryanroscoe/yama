@@ -82,6 +82,32 @@ public class NativeFinderTest {
     }
 
     @Test
+    public void theLiveFinderRunsAtTheSpeedTestsPriority() throws Exception {
+        // One below normal is a niceness of 10 on Android: about a ninth of the processor the
+        // speed test's finder gets when the camera, the web view and the art read are busy.
+        ScannerFrames frames = new ScannerFrames();
+        CardFinderTest.FakeDetector fake = new CardFinderTest.FakeDetector();
+        AtomicInteger priority = new AtomicInteger();
+        NativeFinder f = finder(frames, window -> {
+            priority.compareAndSet(0, Thread.currentThread().getPriority());
+            return fake.run(window);
+        });
+        f.start(() -> {}, null, why -> {});
+        try {
+            put(frames, CardFinderTest.fixture().getJSONArray("frames").getJSONObject(0));
+            assertNotNull(f.take(0, 5000, 8));
+            assertEquals(Thread.NORM_PRIORITY, priority.get());
+            // And where its time went, for the page's records.
+            double[] stages = f.stages();
+            assertTrue("the frame was scaled for the finder", stages[0] > 0);
+            assertTrue("the wait for the camera was timed", stages[1] >= 0);
+            assertTrue("the camera's copy was timed", frames.copyMs() > 0);
+        } finally {
+            f.stop();
+        }
+    }
+
+    @Test
     public void stoppingNeverWaitsForARunUnderWay() throws Exception {
         ScannerFrames frames = new ScannerFrames();
         java.util.concurrent.CountDownLatch inRun = new java.util.concurrent.CountDownLatch(1);

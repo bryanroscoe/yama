@@ -54,6 +54,27 @@ final class ScannerFrames {
     private long seq;
     /** Counts the clears, so a frame copied across one is dropped. */
     private int generation;
+    /** The camera thread's copy of each of the last frames (ms), for the finder's status. */
+    private final double[] copies = new double[30];
+    private int copyCount;
+
+    private void noteCopy(double ms) {
+        synchronized (copies) {
+            copies[copyCount % copies.length] = ms;
+            copyCount++;
+        }
+    }
+
+    /** The median of the last frames' copies off the camera (ms), or 0 before any. */
+    double copyMs() {
+        synchronized (copies) {
+            int n = Math.min(copyCount, copies.length);
+            if (n == 0) return 0;
+            double[] s = java.util.Arrays.copyOf(copies, n);
+            java.util.Arrays.sort(s);
+            return s[n / 2];
+        }
+    }
 
     private static byte[] copy(ByteBuffer from, byte[] into) {
         ByteBuffer b = from.duplicate();
@@ -75,9 +96,11 @@ final class ScannerFrames {
         } finally {
             lock.unlock();
         }
+        long t0 = System.nanoTime();
         f.y = copy(y, f.y);
         f.u = copy(u, f.u);
         f.v = copy(v, f.v);
+        noteCopy((System.nanoTime() - t0) / 1e6);
         f.yRowStride = yRowStride;
         f.uvRowStride = uvRowStride;
         f.uvPixelStride = uvPixelStride;
@@ -230,6 +253,17 @@ final class ScannerFrames {
         byte[] vp = f.v;
         int uLast = up.length - 1;
         int vLast = vp.length - 1;
+        if (turned) {
+            // A phone held upright turns the camera's frame a quarter: upright rows run down the
+            // buffer's columns. Read row by row of the upright frame, every sample is a row of the
+            // buffer apart (1280 rows of a 4K frame for one row out): part of the 66 ms a frame
+            // this took on a Pixel (22 Nov 2026; the rest was its thread's priority,
+            // NativeFinder.LOOP_PRIORITY). In tiles, the samples a tile reads lie along a few dozen
+            // buffer rows and the pixels it writes on a few dozen rows out: the same pixels, in an
+            // order the caches keep up with (docs/scanner.md, "The finder's speed on the live camera").
+            turnedTiles(n, outW, outH, xy, xc, yy, yc, yp, up, vp, uLast, vLast, out, offset);
+            return;
+        }
         int o = offset;
         if (n == 1) {
             for (int j = 0; j < outH; j++) {
@@ -262,6 +296,59 @@ final class ScannerFrames {
                 out[o++] = (byte) byteOf(lum - ((88 * d + 183 * e) >> 8));
                 out[o++] = (byte) byteOf(lum + ((454 * d) >> 8));
                 out[o++] = (byte) 0xff;
+            }
+        }
+    }
+
+    /** Pixels out on a side of one tile of {@link #turnedTiles}. */
+    static final int TILE = 32;
+
+    /**
+     * toRgba for a frame turned a quarter (`xy`/`xc` pick a buffer row for each sample along
+     * upright x, `yy`/`yc` a buffer column along upright y), a TILE × TILE block of pixels out at a
+     * time, each block a column out at a time: along a column out, the samples walk along buffer
+     * rows. Each pixel is worked out exactly as the row-by-row loop works it out.
+     */
+    private static void turnedTiles(int n, int outW, int outH, int[] xy, int[] xc, int[] yy, int[] yc, byte[] yp, byte[] up, byte[] vp, int uLast, int vLast, byte[] out, int offset) {
+        int rowBytes = outW * 4;
+        for (int i0 = 0; i0 < outW; i0 += TILE) {
+            int i1 = Math.min(outW, i0 + TILE);
+            for (int j0 = 0; j0 < outH; j0 += TILE) {
+                int j1 = Math.min(outH, j0 + TILE);
+                for (int i = i0; i < i1; i++) {
+                    int o = offset + j0 * rowBytes + i * 4;
+                    if (n == 1) {
+                        int rowY = xy[i];
+                        int rowC = xc[i];
+                        for (int j = j0; j < j1; j++, o += rowBytes) {
+                            int c = rowC + yc[j];
+                            int lum = yp[rowY + yy[j]] & 0xff;
+                            int d = (up[Math.min(c, uLast)] & 0xff) - 128;
+                            int e = (vp[Math.min(c, vLast)] & 0xff) - 128;
+                            out[o] = (byte) byteOf(lum + ((359 * e) >> 8));
+                            out[o + 1] = (byte) byteOf(lum - ((88 * d + 183 * e) >> 8));
+                            out[o + 2] = (byte) byteOf(lum + ((454 * d) >> 8));
+                            out[o + 3] = (byte) 0xff;
+                        }
+                    } else {
+                        int a = xy[i * 2];
+                        int b = xy[i * 2 + 1];
+                        int rowC = xc[i * 2];
+                        for (int j = j0; j < j1; j++, o += rowBytes) {
+                            int p = yy[j * 2];
+                            int q = yy[j * 2 + 1];
+                            // The row-by-row loop's sum, in its order: (x0, y0), (x1, y0), (x0, y1), (x1, y1).
+                            int lum = ((yp[p + a] & 0xff) + (yp[p + b] & 0xff) + (yp[q + a] & 0xff) + (yp[q + b] & 0xff) + 2) >> 2;
+                            int c = yc[j * 2] + rowC;
+                            int d = (up[Math.min(c, uLast)] & 0xff) - 128;
+                            int e = (vp[Math.min(c, vLast)] & 0xff) - 128;
+                            out[o] = (byte) byteOf(lum + ((359 * e) >> 8));
+                            out[o + 1] = (byte) byteOf(lum - ((88 * d + 183 * e) >> 8));
+                            out[o + 2] = (byte) byteOf(lum + ((454 * d) >> 8));
+                            out[o + 3] = (byte) 0xff;
+                        }
+                    }
+                }
             }
         }
     }

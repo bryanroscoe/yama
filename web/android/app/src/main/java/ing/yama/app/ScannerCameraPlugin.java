@@ -606,6 +606,15 @@ public class ScannerCameraPlugin extends Plugin {
         double[] pace = finder.pace();
         if (pace[0] > 0) f.put("ms", Math.round(pace[0] * 10) / 10.0);
         if (pace[1] > 0) f.put("fps", Math.round(pace[1] * 10) / 10.0);
+        // Where the rest of a frame's time goes: scaling the camera's frame for the finder, waiting
+        // for the camera's next one, and the camera thread's copy of each frame it keeps.
+        double[] stages = finder.stages();
+        if (pace[0] > 0) {
+            f.put("convertMs", Math.round(stages[0] * 10) / 10.0);
+            f.put("waitMs", Math.round(stages[1] * 10) / 10.0);
+        }
+        double copy = frames.copyMs();
+        if (copy > 0) f.put("copyMs", Math.round(copy * 10) / 10.0);
         f.put("art", finder.artLoaded());
         return f;
     }
