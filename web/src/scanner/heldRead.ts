@@ -14,6 +14,10 @@
 // Longer since 21 Nov 2026 (Bryan: "it also seems to give up really fast"): the card can leave
 // the finder's view for 6 s, not 2.5 s, while it's brought close to read its corner (the art half
 // out of the frame isn't found as the card), and the close-up box waits 12 s, not 8 s.
+//
+// Another card, clearly in view, ends it at once (Bryan, 22 Nov 2026: the camera showed the next
+// card while the chip still said "Hold still for the printing" of the last): the away time is for
+// the same card brought close or half out of view, not for a different card laid in its place.
 
 export interface HoldBudget {
   /** With Close-ups on: read this long (and at least `closeupFrames`) before the close-up box takes over. */
@@ -31,6 +35,8 @@ export interface HoldBudget {
   findMs: number;
   /** Reads that fail (an error, not an empty read) this many times in a row stop it too. */
   failures: number;
+  /** Frames in a row with another card plainly in view that stop it (not the away time). */
+  anotherFrames: number;
 }
 
 /** Every hold-and-read time and count, in one place. */
@@ -42,6 +48,7 @@ export const HOLD_BUDGET: HoldBudget = {
   awayMs: 6_000,
   findMs: 10_000,
   failures: 8,
+  anotherFrames: 3,
 };
 
 export type HeldVerdict = "again" | "closeup" | "stop";
@@ -56,7 +63,7 @@ export interface HeldSummary {
   failures: number;
   ms: number;
   ended: HeldVerdict | null;
-  why?: "away" | "failures" | "time" | "never-seen";
+  why?: "away" | "failures" | "time" | "never-seen" | "another";
 }
 
 export class HeldRead {
@@ -65,6 +72,7 @@ export class HeldRead {
   private misses = 0;
   private failedInARow = 0;
   private failures = 0;
+  private anotherInARow = 0;
   private lastSeen: number;
   private ended: HeldVerdict | null = null;
   private why: HeldSummary["why"];
@@ -109,6 +117,7 @@ export class HeldRead {
     this.lastSeen = now;
     this.seen = true;
     this.failedInARow = 0;
+    this.anotherInARow = 0;
     this.frames += 1;
     return this.timeUp(now);
   }
@@ -122,13 +131,34 @@ export class HeldRead {
     this.latest = now;
     this.lastSeen = now;
     this.seen = true;
+    this.anotherInARow = 0;
     this.skips += 1;
     return this.timeUp(now);
+  }
+
+  /**
+   * A frame where another card is plainly in view, not this one: `anotherFrames` of them in a row
+   * stop the attempt at once ("another"). Any other frame between starts the count again.
+   */
+  another(now: number): HeldVerdict {
+    if (this.ended) return this.ended;
+    this.anotherInARow += 1;
+    if (this.anotherInARow >= this.budget.anotherFrames) {
+      this.latest = now;
+      this.misses += 1;
+      return this.end("stop", "another");
+    }
+    return this.miss(now, false);
   }
 
   /** A frame where the card wasn't seen (or another card was), or, with `failed`, a read that failed. */
   missed(now: number, failed = false): HeldVerdict {
     if (this.ended) return this.ended;
+    this.anotherInARow = 0;
+    return this.miss(now, failed);
+  }
+
+  private miss(now: number, failed: boolean): HeldVerdict {
     this.latest = now;
     this.misses += 1;
     if (failed) {

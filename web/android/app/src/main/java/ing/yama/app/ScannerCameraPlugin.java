@@ -22,6 +22,7 @@ import android.util.SizeF;
 import android.view.Display;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowManager;
 import android.webkit.WebView;
 import androidx.annotation.OptIn;
 import androidx.camera.camera2.interop.Camera2CameraControl;
@@ -200,6 +201,8 @@ public class ScannerCameraPlugin extends Plugin {
                     public void onPageStarted(WebView webView) {
                         main.post(() -> {
                             if (camera != null || previewView != null) shut();
+                            // A new page isn't scanning: the screen may sleep again.
+                            screenOn(false);
                         });
                     }
                 }
@@ -259,6 +262,27 @@ public class ScannerCameraPlugin extends Plugin {
             shut();
             call.resolve();
         });
+    }
+
+    /**
+     * `{ on }`: keep the screen on while the scanner's camera runs, or let it sleep again (Bryan, 22 Nov
+     * 2026: "the screen turned off while I was using it"). Android's web view has no Screen Wake Lock,
+     * so the page asks here, for the app's camera and the browser's alike. The flag holds only while
+     * the app is in front; the page turns it off when the scanner closes.
+     */
+    @PluginMethod
+    public void keepScreenOn(PluginCall call) {
+        boolean on = Boolean.TRUE.equals(call.getBoolean("on", false));
+        main.post(() -> {
+            screenOn(on);
+            call.resolve();
+        });
+    }
+
+    private void screenOn(boolean on) {
+        if (getActivity() == null) return;
+        if (on) getActivity().getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        else getActivity().getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     }
 
     /** `{ x, y, width, height, viewWidth }` in the page's CSS pixels: where the preview goes. */

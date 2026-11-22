@@ -24,6 +24,7 @@ import { Capacitor, registerPlugin } from "@capacitor/core";
 import { cameraInfo } from "./camera";
 import { CUT_SIDE, cutBox, draw, type BridgeCost, type CameraSource, type FrameElement, type SourceInfo } from "./cameraSource";
 import { RECOGNIZER_SHORT_SIDE } from "./artClient";
+import { DEFAULT_ASPECT, fitHeight } from "./fit";
 import type { Quad, RgbaImage } from "./types";
 
 // ---- The option ----
@@ -238,9 +239,26 @@ export interface ScannerCameraPlugin {
   artUnload?(): Promise<void>;
   /** Rejects with code "gone" when the frame's crop isn't kept any more. */
   embed?(o: { seq: number; quad: [number, number][]; cuts?: number[]; key?: string }): Promise<{ data: string; rows: number; dim: number; ms: number }>;
+  /** Keep the screen on, or let it sleep (APKs since 22 Nov 2026; an older one rejects as unimplemented). */
+  keepScreenOn?(o: { on: boolean }): Promise<void>;
 }
 
 const ScannerCamera = registerPlugin<ScannerCameraPlugin>("ScannerCamera");
+
+/**
+ * Ask the app to keep the screen on (or let it sleep). Resolves false where it can't: not the app,
+ * or an APK from before the method, whose plugin rejects the call (screenAwake.ts then tries the
+ * browser's wake lock).
+ */
+export async function nativeKeepScreenOn(on: boolean, plugin: Pick<ScannerCameraPlugin, "keepScreenOn"> = ScannerCamera): Promise<boolean> {
+  if (!nativeCameraAvailable()) return false;
+  try {
+    await plugin.keepScreenOn!({ on });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 // ---- Frames across the bridge ----
 
@@ -531,13 +549,25 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
     srcObject: { configurable: true, get: () => (closed || !described ? null : track) },
   });
 
+  /** The picture's shape: the frames' once they arrive, else what the camera said it opened at. */
+  const aspect = (): number => {
+    if (hasFrame && el.height > 0) return el.width / el.height;
+    const d = described;
+    return d?.width && d.height ? d.width / d.height : DEFAULT_ASPECT;
+  };
+  /** Where the preview goes: the camera box, fitted as the page fits the picture (fit.ts). */
   const rect = (): NativeRect | null => {
     const box = (el.closest(".scan-camera") ?? el).getBoundingClientRect();
-    return box.width > 0 && box.height > 0 ? { x: box.left, y: box.top, width: box.width, height: box.height, viewWidth: window.innerWidth } : null;
+    if (!(box.width > 0 && box.height > 0)) return null;
+    const r = fitHeight(box, aspect());
+    return { x: r.left, y: r.top, width: r.width, height: r.height, viewWidth: window.innerWidth };
   };
+  /** Set once the camera is open: places the preview again (a new picture shape, the box moving). */
+  let refit: (() => void) | null = null;
 
   const put = (f: NativeFrame) => {
     const started = performance.now();
+    const resized = el.width !== f.width || el.height !== f.height || !hasFrame;
     if (el.width !== f.width) el.width = f.width;
     if (el.height !== f.height) el.height = f.height;
     el.getContext("2d", { willReadFrequently: true })?.putImageData(imageOf(f) as ImageData, 0, 0);
@@ -545,6 +575,11 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
     // With the canvas: the read loop takes the two together (`found()`).
     lastFound = f.finder && f.finder.state !== FOUND_OFF ? f.finder : null;
     hasFrame = true;
+    if (resized) {
+      // The page fits the picture by its shape, as a <video> tells it of a new size.
+      el.dispatchEvent(new Event("resize"));
+      refit?.();
+    }
     costs.push({ convert: f.convertMs, transit: f.transitMs, draw: performance.now() - started, bytes: f.data.byteLength });
     if (costs.length > COST_WINDOW) costs.shift();
   };
@@ -698,11 +733,13 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
       const r = rect();
       if (r && !closed) void plugin.setRect({ rect: r }).catch(() => undefined);
     };
+    refit = follow;
     const box = el.closest(".scan-camera") ?? el;
     const ro = typeof ResizeObserver === "function" ? new ResizeObserver(follow) : null;
     ro?.observe(box);
     window.addEventListener("resize", follow);
     cleanups.push(() => {
+      refit = null;
       ro?.disconnect();
       window.removeEventListener("resize", follow);
     });
