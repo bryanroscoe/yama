@@ -57,6 +57,18 @@ describe("ScanPhoto: one photo per card, relabelled by a later answer", () => {
       },
     }));
     vi.doMock("./photoCut", async (original) => ({ ...(await original<typeof import("./photoCut")>()), cutPhoto: async () => ({ image: "AAAA", quad: shot.quad, crops: [] }) }));
+    // The scan photo worker, answering at once.
+    vi.stubGlobal("OffscreenCanvas", class {});
+    vi.stubGlobal(
+      "Worker",
+      class {
+        onmessage: ((e: { data: unknown }) => void) | null = null;
+        postMessage(msg: { id: number }) {
+          setTimeout(() => this.onmessage?.({ data: { id: msg.id, cut: { image: "AAAA", quad: shot.quad, crops: [] } } }), 0);
+        }
+        terminate() {}
+      },
+    );
     const store = new Map<string, string>();
     vi.stubGlobal("localStorage", { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) });
     const samples = await import("./samples");
@@ -102,6 +114,15 @@ describe("ScanPhoto: one photo per card, relabelled by a later answer", () => {
     expect(calls[1]!.json).toEqual({ kind: "corrected", label_name: "Westvale Abbey", label_scryfall_id: "w" });
   });
 
+  it("never sends a photo of a card named before Delete them", async () => {
+    const { calls, samples } = await setup();
+    const p = new samples.ScanPhoto(shot, {});
+    await samples.deleteSamples();
+    p.letGo({ guess_name: "Sol Ring" });
+    expect(await p.settled()).toBeNull();
+    expect(calls.map((c) => c.method)).toEqual(["DELETE"]);
+  });
+
   it("sends nothing while the switch is off, nor a relabel after it's turned off", async () => {
     const { calls, samples } = await setup(false);
     const off = new samples.ScanPhoto(shot, {});
@@ -117,6 +138,27 @@ describe("ScanPhoto: one photo per card, relabelled by a later answer", () => {
     on.label({ kind: "corrected", label_name: "Mind Stone" });
     await on.settled();
     expect(calls.map((c) => c.method)).toEqual(["POST"]);
+  });
+});
+
+describe("where there's no scan photo worker", () => {
+  it("cuts on the page only a card the person answered about, never one merely let go", async () => {
+    const calls: string[] = [];
+    vi.doMock("../api", () => ({ accountSignal: () => new AbortController().signal, api: async (path: string, init?: { json?: { kind?: string } }) => (calls.push(init?.json?.kind ?? path), { id: "s1" }) }));
+    vi.doMock("./photoCut", async (original) => ({ ...(await original<typeof import("./photoCut")>()), cutPhoto: async () => ({ image: "AAAA", quad: [], crops: [] }) }));
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => undefined });
+    vi.stubGlobal("Worker", undefined);
+    const samples = await import("./samples");
+    const shot = { image: { width: 1, height: 1, data: new Uint8ClampedArray(4) }, quad: [[0, 0], [1, 0], [1, 1], [0, 1]] as Quad };
+    const skipped = new samples.ScanPhoto(shot, {});
+    skipped.letGo({ guess_name: "Sol Ring" });
+    expect(await skipped.settled()).toBeNull();
+    const added = new samples.ScanPhoto(shot, {});
+    added.label({ kind: "added", label_name: "Sol Ring" });
+    expect(await added.settled()).toBe("s1");
+    expect(calls).toEqual(["added"]);
+    vi.doUnmock("../api");
+    vi.doUnmock("./photoCut");
   });
 });
 

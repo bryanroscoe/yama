@@ -90,7 +90,7 @@ pub fn router() -> Router<AppState> {
             "/api/scan/samples",
             post(add).get(summary).delete(delete_all).layer(DefaultBodyLimit::max((MAX_IMAGE + CROP_NAMES.len() * MAX_CROP) * 4 / 3 + 16 * 1024)),
         )
-        .route("/api/scan/samples/{id}", patch(relabel).layer(DefaultBodyLimit::max(4 * 1024)))
+        .route("/api/scan/samples/{id}", patch(relabel).delete(delete_one).layer(DefaultBodyLimit::max(4 * 1024)))
         .route("/api/admin/scan-samples", get(admin_list))
         .route("/api/admin/scan-samples/stats", get(admin_stats))
         .route("/api/admin/scan-samples/{id}/image", get(admin_image))
@@ -503,6 +503,14 @@ async fn relabel(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pat
     Ok(Json(json!({ "id": id, "kind": r.kind })))
 }
 
+/// One photo deleted, its files with it: the owner's own only.
+async fn delete_one(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<Value>> {
+    let gone: Option<String> = sqlx::query_scalar("DELETE FROM scan_samples WHERE id = ? AND owner_id = ? RETURNING id").bind(&id).bind(&user.id).fetch_optional(&st.pool).await?;
+    let id = gone.ok_or(AppError::NotFound("No such scan photo"))?;
+    remove_sample_files(&st.cfg.data_dir, &user.id, &id);
+    Ok(Json(json!({ "deleted": 1 })))
+}
+
 /// The camera a row came from, as stats count it: what it said, or for a photo kept before
 /// 22 Nov 2026 its camera label (the app's own camera says "native" in it).
 const SOURCE_SQL: &str = "COALESCE(s.source, CASE WHEN s.camera LIKE '% native%' THEN 'native' WHEN s.camera IS NULL THEN 'unknown' ELSE 'browser' END)";
@@ -798,8 +806,10 @@ const EXPORT_USAGE: &str = "usage: yama-server scan-samples-export DIR [--since 
 /// photo to DIR as `<id>.jpg`, its crops as `<id>.<name>.jpg`, with `manifest.jsonl` (one line per
 /// photo: who, when and what was said, how the scanner named it with its scores, and its crops with
 /// their file, width, height and bytes). `--since` takes the photos made or relabelled from then
-/// (a photo relabelled after an earlier export comes again: keep the newest line per id). For
-/// training and tuning the scanner; run on the server (`docker exec yama …`, or
+/// (a photo relabelled after an earlier export comes again: keep the newest line per id). And
+/// `shared_ids.txt`, every photo shared now, whatever `--since` and `--owner` say: a copy made
+/// earlier drops what isn't in it (deleted since by Delete them, with its account, or by the caps).
+/// For training and tuning the scanner; run on the server (`docker exec yama …`, or
 /// scanner-lab/corpus_pull.sh) and copy DIR off.
 pub async fn export_cli(pool: &SqlitePool, data_dir: &std::path::Path, args: &[String]) -> anyhow::Result<()> {
     let flag = |f: &str| args.iter().position(|a| a == f).and_then(|i| args.get(i + 1)).cloned();
@@ -819,9 +829,10 @@ pub async fn export_cli(pool: &SqlitePool, data_dir: &std::path::Path, args: &[S
         for s in &page {
             // Ids are ours (crate::util::new_id): safe as file names, but checked anyway.
             anyhow::ensure!(plain_id(&s.id), "odd sample id {}", s.id);
-            let image: Option<Vec<u8>> = sqlx::query_scalar("SELECT image FROM scan_samples WHERE id = ? AND shared = 1").bind(&s.id).fetch_one(pool).await?;
-            let Some(image) = read_photo(data_dir, &s.owner_id, &s.id, image).map_err(|e| anyhow::anyhow!("{e}"))? else {
-                // A row whose photo file is gone (a disk restored without its folder): left out.
+            // Gone since its page was read (Delete them, or pushed out by the caps while the account
+            // scans): left out, as is a row whose photo file is gone (a disk restored without it).
+            let row: Option<Option<Vec<u8>>> = sqlx::query_scalar("SELECT image FROM scan_samples WHERE id = ? AND shared = 1").bind(&s.id).fetch_optional(pool).await?;
+            let Some(image) = row.map(|image| read_photo(data_dir, &s.owner_id, &s.id, image)).transpose().map_err(|e| anyhow::anyhow!("{e}"))?.flatten() else {
                 missing += 1;
                 continue;
             };
@@ -848,8 +859,11 @@ pub async fn export_cli(pool: &SqlitePool, data_dir: &std::path::Path, args: &[S
         }
     }
     std::fs::write(dir.join("manifest.jsonl"), manifest)?;
-    let gone = if missing > 0 { format!(" ({missing} left out: their photo file is missing)") } else { String::new() };
-    println!("Wrote {n} shared scan photos, {crops} crops and manifest.jsonl to {}{gone}", dir.display());
+    // Every photo shared now, read after the photos: one saved meanwhile is on the list too.
+    let ids: Vec<String> = sqlx::query_scalar("SELECT id FROM scan_samples WHERE shared = 1 ORDER BY id").fetch_all(pool).await?;
+    std::fs::write(dir.join("shared_ids.txt"), ids.iter().map(|id| format!("{id}\n")).collect::<String>())?;
+    let gone = if missing > 0 { format!(" ({missing} left out: gone meanwhile, or their photo file is missing)") } else { String::new() };
+    println!("Wrote {n} shared scan photos, {crops} crops, manifest.jsonl and shared_ids.txt ({} shared) to {}{gone}", ids.len(), dir.display());
     Ok(())
 }
 
@@ -1045,8 +1059,14 @@ mod tests {
         assert_eq!(n, 1);
         let (_, s) = testutil::send(&app, Method::GET, "/api/scan/samples", Some(&mine), None).await;
         assert_eq!(s["relabelled"], 1);
+        // One photo deleted by its id: only by its owner, files and all.
+        let (status, _) = testutil::send(&app, Method::DELETE, &path, Some(&theirs), None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(files(&me), [format!("{id}/photo.jpg")]);
+        let (status, d) = testutil::send(&app, Method::DELETE, &path, Some(&mine), None).await;
+        assert_eq!((status, d["deleted"].as_i64()), (StatusCode::OK, Some(1)));
+        assert!(files(&me).is_empty());
         // A photo deleted meanwhile: nothing to relabel.
-        testutil::send(&app, Method::DELETE, "/api/scan/samples", Some(&mine), None).await;
         let (status, _) = testutil::send(&app, Method::PATCH, &path, Some(&mine), Some(json!({"kind": "added"}))).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
         remove_owner_files(&data(), &me);
@@ -1245,6 +1265,12 @@ mod tests {
         let relabelled = lines.iter().find(|l| l["id"] == ids[1].as_str()).unwrap();
         assert_eq!(relabelled["kind"], "corrected");
         assert!(relabelled["labelled_at"].is_string());
+        // Every photo shared now, whatever --since said, so a copy made before can drop the rest.
+        let mut shared: Vec<String> = std::fs::read_to_string(dir.join("shared_ids.txt")).unwrap().lines().map(str::to_owned).collect();
+        let mut all = ids.clone();
+        all.sort();
+        shared.sort();
+        assert_eq!(shared, all);
         std::fs::remove_dir_all(&dir).unwrap();
         // Everything without it, the unconfirmed one included; a flag it doesn't know is refused.
         let dir = data().join(format!("yama-scan-export-{}", crate::util::new_id()));

@@ -3,7 +3,7 @@
 // of training photos"; samples.ts): a card let go without filing is kept as `unconfirmed` with the
 // scanner's guess, scores and rule; a card filed is kept as added; one photo per card placed in
 // view, a later answer relabelling it; and nothing at all with the switch off. The camera and the
-// recognizer are faked, as in ScannerView.gate.test.tsx, and the photo's cutting too (no canvas
+// recognizer are faked, as in ScannerView.gate.test.tsx, and the scan photo worker too (no canvas
 // can encode here).
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -42,14 +42,9 @@ vi.mock("../api", async (original) => ({
     return Promise.reject(new Error(`offline: ${path}`));
   },
 }));
-// The photo and its crops, as the worker would cut them.
-vi.mock("./photoCut", async (original) => ({
-  ...(await original<typeof import("./photoCut")>()),
-  cutPhoto: async (shot: { quad: Quad }) => ({ image: "AAAA", quad: shot.quad, crops: [{ name: "card", image: "BBBB", width: 786, height: 1100 }] }),
-}));
 
-/** The faked art match: which card lies in view. */
-const cam = vi.hoisted(() => ({ card: "Arcane Signet", index: 4 }));
+/** The faked art match: which card the recognizer names, and the picture of the card lying in view. */
+const cam = vi.hoisted(() => ({ card: "Arcane Signet", index: 4, picture: 37 }));
 const QUAD: Quad = [
   [100, 100],
   [400, 100],
@@ -97,7 +92,6 @@ vi.mock("./ocrEngine", async (original) => ({
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 Element.prototype.scrollIntoView ??= () => undefined;
-vi.stubGlobal("Worker", class {});
 vi.stubGlobal(
   "ImageData",
   class {
@@ -108,10 +102,36 @@ vi.stubGlobal(
     ) {}
   },
 );
+/** The card's pixels, made once per size and picture. */
+const pictures = new Map<string, Uint8ClampedArray>();
+function picture(n: number): Uint8ClampedArray {
+  const key = `${n}:${cam.picture}`;
+  let p = pictures.get(key);
+  if (!p) {
+    p = new Uint8ClampedArray(n);
+    for (let i = 0; i < n; i += 1) p[i] = (i * cam.picture) % 251;
+    pictures.set(key, p);
+  }
+  return p.slice();
+}
+/** A scan photo worker that answers at once, as photo.worker.ts would. */
+vi.stubGlobal("OffscreenCanvas", class {});
+vi.stubGlobal(
+  "Worker",
+  class {
+    onmessage: ((e: { data: unknown }) => void) | null = null;
+    onerror: unknown = null;
+    postMessage(msg: { id: number; shot: { quad: Quad } }) {
+      setTimeout(() => this.onmessage?.({ data: { id: msg.id, cut: { image: "AAAA", quad: msg.shot.quad, crops: [{ name: "card", image: "BBBB", width: 786, height: 1100 }] } } }), 0);
+    }
+    terminate() {}
+  },
+);
 HTMLCanvasElement.prototype.getContext = function () {
   return {
     drawImage: () => undefined,
-    getImageData: (_x: number, _y: number, w: number, h: number) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }),
+    // The card in view, as a picture of its own: the same card gives the same pixels.
+    getImageData: (_x: number, _y: number, w: number, h: number) => ({ width: w, height: h, data: picture(w * h * 4) }),
     putImageData: () => undefined,
   } as unknown as CanvasRenderingContext2D;
 } as unknown as typeof HTMLCanvasElement.prototype.getContext;
@@ -135,7 +155,7 @@ beforeEach(() => {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-  Object.assign(cam, { card: "Arcane Signet", index: 4 });
+  Object.assign(cam, { card: "Arcane Signet", index: 4, picture: 37 });
   sent.calls.length = 0;
   setSavingPhotos(true);
 });
@@ -205,6 +225,22 @@ describe("scan photos of every card the scanner names", () => {
     expect(patch.json).toMatchObject({ kind: "corrected", label_name: "Mind Stone" });
     await wait(200);
     expect(posts()).toHaveLength(1);
+  });
+
+  it("keeps a photo of its own for another card laid where the one called wrong lay", async () => {
+    act(() => root.render(<ScannerView identityOnly onAccept={async () => true} />));
+    await until(() => (foundName().includes("Arcane Signet") ? true : null), "the card found");
+    await click(await until(() => button("More"), "More"));
+    await click(await until(() => button("Wrong card"), "Wrong card"));
+    // The person gives up on it and lays another card on top, without the view ever emptying.
+    Object.assign(cam, { card: "Mind Stone", index: 5, picture: 53 });
+    await click(await until(() => button("Scan it again"), "Scan it again"));
+    await until(() => (foundName().includes("Mind Stone") ? true : null), "the other card found");
+    await click(await until(() => button("Add"), "Add"));
+    await until(() => (posts().length === 2 ? true : null), "two photos sent");
+    expect(posts().map((c) => c.json.kind)).toEqual(["wrong", "added"]);
+    expect(posts()[1]!.json).toMatchObject({ label_name: "Mind Stone" });
+    expect(sent.calls.some((c) => c.method === "PATCH")).toBe(false);
   });
 
   it("keeps the card in hand when the scanner is closed", async () => {

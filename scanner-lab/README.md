@@ -62,7 +62,9 @@ Card images are Scryfall's, fetched for training and never published: delete `da
 
   It runs `yama-server scan-samples-export` on the server over ssh (the address comes from
   `deploy/target.sh`, so `~/.config/yama/deploy.env`), copies the result here and removes the
-  server's copy; `corpus_merge.py` keeps `manifest.jsonl` one line per photo, its newest. The first
+  server's copy; `corpus_merge.py` checks every file the manifest lists came, keeps `manifest.jsonl`
+  one line per photo, its newest, and removes the photos the server no longer shares (their owner
+  deleted them or the account, or the caps pushed them out: the export's `shared_ids.txt`). The first
   pull takes everything; each later one only what was made or relabelled since the last (`--since
   DATE` or `--all` to choose). The folder is made mode 700 and the script refuses one inside a git
   checkout. Each manifest line has the photo's `kind` (`added`, `corrected`, `wrong`, `unconfirmed`),

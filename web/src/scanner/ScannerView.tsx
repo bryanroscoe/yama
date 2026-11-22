@@ -34,7 +34,7 @@ import { holdSound } from "../sound";
 import { filedSound, playScanSound, setSoundsOn, setWorthThreshold, soundsOn, unlockSound, worthThreshold, type ScanSound } from "./sounds";
 import { choosePrinting, printingOptions, type Choice } from "./printings";
 import type { ArtMatch, Recognition } from "./recognizer";
-import { deleteSamples, photosLine, sampleSummary, savingPhotos, ScanPhoto, setSavingPhotos, type ArtScore, type SampleLabel, type SampleSummary, type Shot } from "./samples";
+import { deleteSamples, photosLine, sameCardView, sampleSummary, savingPhotos, ScanPhoto, setSavingPhotos, type ArtScore, type SampleLabel, type SampleSummary, type Shot } from "./samples";
 import { SetLockPicker } from "./SetLockPicker";
 import { treatmentOf } from "./session";
 import { artInSets, inLockedSets, KNOWN_ART, knownArtShare, leadCounts, POOL_MARGIN, judgeLocked, lockedNames, lockedSet, poolKeys, readTitleFirst, savedLock, saveLock, suggestLock, type LockedSet } from "./setlock";
@@ -850,8 +850,10 @@ function ScannerScreen({
     const ctx = scanCtx.current as { lock?: SettleRule; photo?: boolean; lead?: number; art?: ArtScore[] } | null;
     const wrong = wrongPhoto.current;
     wrongPhoto.current = null;
-    // (Only with the card finder, whose empty view ends it: `endSeek`. Refs only: memoized callbacks call this.)
-    if (wrong && artRef.current && !ctx?.photo && Date.now() - wrong.at < WRONG_PHOTO_MS) return wrong.photo;
+    // Only the same card where it lay: with the card finder, whose empty view ends it (`endSeek`),
+    // soon after, and looking like it (another card laid in its place gets a photo of its own).
+    // (Refs only: memoized callbacks call this.)
+    if (wrong && shot && artRef.current && !ctx?.photo && Date.now() - wrong.at < WRONG_PHOTO_MS && sameCardView(wrong.photo.shot, shot)) return wrong.photo;
     if (!shot || !savingPhotos()) return undefined;
     return new ScanPhoto(shot, {
       source: ctx?.photo ? "photo" : camSrc().kind,

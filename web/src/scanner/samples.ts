@@ -21,6 +21,8 @@
 import { count } from "@yama/core";
 import { accountSignal, api } from "../api";
 import type { Shot } from "./crops";
+import { thumbLikeness } from "./gate";
+import { cardThumb } from "./gateFrame";
 import { cutPhoto, type Cut, type CutReply, type CutRequest } from "./photoCut";
 
 export { cardOutline, cropsOf, encodePhoto as encodeShot, type Crop } from "./photoCut";
@@ -142,8 +144,13 @@ function photoWorker(): Worker | null {
   }
 }
 
-/** The photo and its crops, cut in the worker, or on the page where the worker can't. */
-async function cut(shot: Shot): Promise<Cut | null> {
+/**
+ * The photo and its crops, cut in the worker. Only where there's no worker to be had (no Worker or
+ * OffscreenCanvas, or it won't load) are they cut on the page, as before 22 Nov 2026, and then only
+ * for a card the person answered about (`onPage`): a card merely let go isn't worth making the
+ * scanner wait. A worker that fails or stalls on a photo drops it rather than cut it on the page.
+ */
+async function cut(shot: Shot, onPage: boolean): Promise<Cut | null> {
   const w = photoWorker();
   if (w) {
     try {
@@ -157,30 +164,38 @@ async function cut(shot: Shot): Promise<Cut | null> {
       });
       // A copy of the pixels: the shot stays the scanner's, which may read it again.
       w.postMessage({ id, shot: { image: { width: shot.image.width, height: shot.image.height, data: shot.image.data }, quad: shot.quad } } satisfies CutRequest);
-      const got = await done;
-      if (got) return got;
+      return await done;
     } catch (e) {
       console.warn("The scan photo worker couldn't cut the photo", e);
+      return null;
     }
   }
-  return cutPhoto(shot);
+  return onPage ? cutPhoto(shot) : null;
 }
 
 /** A moment for the page to react to what just happened (a card filed, the next card) first. */
 const soon = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
+/** When a photo began: the account signed in and the "Delete them" generation then. */
+export interface PhotoBegun {
+  account: AbortSignal;
+  gen: number;
+}
+
+export const photoBegun = (): PhotoBegun => ({ account: accountSignal(), gen: photoGen });
+
 /**
  * Keep a photo with its label, if the person has Save scan photos on: the server's id once kept,
- * or null when it wasn't. Never throws.
+ * or null when it wasn't. A photo begun before a "Delete them", or under an account since signed
+ * out, is never sent. Never throws.
  */
-export async function keepSample(shot: Shot | null | undefined, label: SampleLabel & PhotoFacts): Promise<string | null> {
+export async function keepSample(shot: Shot | null | undefined, label: SampleLabel & PhotoFacts, begun: PhotoBegun = photoBegun()): Promise<string | null> {
   if (!shot || !savingPhotos()) return null;
-  // The account signed in now: if it changes while the photo is made, it isn't sent under the other.
-  const account = accountSignal();
-  const gen = photoGen;
+  const { account, gen } = begun;
+  if (account.aborted || gen !== photoGen) return null;
   try {
     await soon();
-    const made = await cut(shot);
+    const made = await cut(shot, label.kind !== "unconfirmed");
     if (!made) return null;
     // Turned off, signed out, or deleted ("Delete them") while it was cut: nothing is sent.
     if (!savingPhotos() || account.aborted || gen !== photoGen) return null;
@@ -220,6 +235,8 @@ export class ScanPhoto {
   private kind: SampleKind | null = null;
   /** Label changes, one after another, each after the photo is kept. */
   private chain: Promise<void> = Promise.resolve();
+  /** When the card was named: a "Delete them" or a sign-out since stops the photo. */
+  private readonly begun = photoBegun();
 
   constructor(
     readonly shot: Shot,
@@ -237,7 +254,7 @@ export class ScanPhoto {
     if (this.kept === null) {
       this.kind = label.kind;
       this.said = saidOf(label.kind, label);
-      this.kept = keepSample(this.shot, { ...this.facts, ...label });
+      this.kept = keepSample(this.shot, { ...this.facts, ...label }, this.begun);
       return;
     }
     // An answer never goes back to "unconfirmed". A photo whose card was called wrong, or
@@ -270,6 +287,20 @@ export class ScanPhoto {
     return id;
   }
 }
+
+/**
+ * Whether two views show the same card lying in the same place (a card called wrong, read again
+ * where it lies), not another card laid there: their cards' thumbnails alike, either way up, as the
+ * placement gate tells a card nudged from a card swapped (gate.ts, `sameThumb`).
+ */
+export function sameCardView(a: Shot, b: Shot): boolean {
+  const ta = cardThumb(a.image, a.quad);
+  const tb = cardThumb(b.image, b.quad);
+  return Math.max(thumbLikeness(ta, tb), thumbLikeness(ta, Uint8Array.from(tb).reverse())) >= SAME_VIEW;
+}
+
+/** The likeness the placement gate takes for the same card (gate.ts, DEFAULTS.sameThumb). */
+const SAME_VIEW = 0.85;
 
 /** How a set of photos is made up (scan_samples.rs, `stats`): one count of photos and bytes. */
 export interface SampleCount {
