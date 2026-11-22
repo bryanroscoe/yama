@@ -121,6 +121,8 @@ public class NativeFinderTest {
         ScannerFrames frames = new ScannerFrames();
         NativeFinder f = finder(frames, new CardFinderTest.FakeDetector());
         f.shutdown();
+        // Let go on a thread of its own.
+        for (int i = 0; i < 100 && f.loaded(); i++) Thread.sleep(10);
         assertFalse(f.loaded());
         AtomicInteger closed = new AtomicInteger();
         class Closing implements CardFinder.Detector, AutoCloseable {

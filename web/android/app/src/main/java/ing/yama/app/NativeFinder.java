@@ -164,12 +164,19 @@ final class NativeFinder {
         }
     }
 
-    /** The plugin is going: stop, let the model go, and refuse any load that finishes later. */
+    /**
+     * The plugin is going: stop, refuse any load that finishes later, and let the model go on a
+     * thread of its own, since letting a session go waits for a run under way and this is called on
+     * the lifecycle (main) thread (Codex review of #196).
+     */
     void shutdown() {
         synchronized (this) {
             closed = true;
+            stop();
         }
-        unload();
+        Thread t = new Thread(this::unload, "yama-card-finder-close");
+        t.setDaemon(true);
+        t.start();
     }
 
     /** Let the model go (the scanner closed). */
