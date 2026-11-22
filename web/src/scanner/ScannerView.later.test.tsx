@@ -16,6 +16,7 @@ import type { Printing } from "../api";
 import type { ArtRecognizer, BundleInfo, LookDone } from "./artClient";
 import type { Provisional } from "./later";
 import { setDiagnosticsOn } from "./diagnostics";
+import { saveModel } from "./models";
 import type { ScanCandidate } from "./types";
 
 const V = "gallery-20261106T183001884398Z";
@@ -38,6 +39,9 @@ const state = vi.hoisted(() => ({
   ill: 0,
   /** Whether the printings share the art (false: a card's every printing, as for a title read). */
   sameArt: true,
+  /** The look model loaded, and the scores the faked look gives. */
+  look: "off",
+  scores: {} as Record<string, number>,
 }));
 const bundle = (): BundleInfo => ({
   version: V,
@@ -48,7 +52,13 @@ const bundle = (): BundleInfo => ({
   constants: { scene: 640 },
   models: {
     art: { default: "bundle", options: [{ id: "bundle", label: "ManaVault's art model", note: "", file: `/scan-bundle/${V}/embed.onnx`, bytes: 1 }] },
-    look: { default: "off", options: [{ id: "off", label: "Off", note: "" }] },
+    look: {
+      default: "off",
+      options: [
+        { id: "off", label: "Off", note: "" },
+        { id: "look-v1-sure", label: "Yama's look model v1, settles when sure", note: "", file: `/scan-bundle/${V}/look-152f52c100f0.onnx`, bytes: 9, settles: true },
+      ],
+    },
     text: { default: "auto", options: [{ id: "auto", label: "Automatic", note: "" }] },
     lock: { default: "lead", options: [{ id: "lead", label: "Art that leads", note: "" }] },
   },
@@ -91,9 +101,19 @@ vi.mock("./artClient", async (original) => ({
       useArt: async () => undefined,
       detector: "bundle-detector",
       useDetector: async () => undefined,
-      look: "off",
-      useLook: async () => undefined,
-      lookAt: async () => ({ model: "m", frames: 1, queryMs: 1, scored: 0, cached: 0, fetchMs: 1, decodeMs: 1, embedMs: 1, ms: 1 }) satisfies LookDone,
+      get look() {
+        return state.look;
+      },
+      useLook: async (o) => void (state.look = o?.id ?? "off"),
+      lookAt: async (_index, candidates, onScore) => {
+        let scored = 0;
+        for (const c of candidates)
+          if (state.scores[c.id] !== undefined) {
+            onScore(c.id, state.scores[c.id]!);
+            scored += 1;
+          }
+        return { model: "m", frames: 1, queryMs: 1, scored, cached: 0, fetchMs: 1, decodeMs: 1, embedMs: 1, ms: 1 } satisfies LookDone;
+      },
       keepLook: async () => [],
       // The photo: a card in the middle, its art shared by the printings.
       identify: async () => ({
@@ -181,6 +201,8 @@ beforeEach(() => {
   state.drawCard = false;
   state.ill += 1;
   state.sameArt = true;
+  state.look = "off";
+  state.scores = {};
   setDiagnosticsOn(true);
 });
 afterEach(() => {
@@ -265,6 +287,25 @@ describe("card first, printing after (opt-in)", () => {
     await until(() => row.state.phase === "settled", "the row to settle");
     act(() => row.saved(false));
     await until(() => document.body.textContent?.includes("Couldn't save Arcane Signet (WOC 145)"), "the failed save");
+  });
+
+  it("never settles by look before the first collector-line read is weighed (Codex review of #195)", async () => {
+    saveModel("look", "look-v1-sure");
+    // The look puts C19 well ahead; the collector line (read a moment later) says WOC 145.
+    state.scores = { "p-old": 0.9, "p-mid": 0.5, "p-new": 0.2 };
+    let release = () => undefined as void;
+    state.ocrGate = new Promise<void>((r) => (release = r));
+    state.line = "0145 R\nWOC • EN";
+    const { rows } = scanner({ autoAdd: true });
+    await until(() => state.look === "look-v1-sure", "the look model");
+    await scanPhoto();
+    const row = await until(() => rows[0], "the provisional row");
+    await wait(100);
+    expect(row.state.phase).toBe("finding");
+    await act(async () => release());
+    await until(() => row.state.phase === "settled", "the row to settle");
+    expect(row.state).toMatchObject({ how: "collector", chosen: { scryfall_id: "p-mid" } });
+    saveModel("look", null);
   });
 
   it("settles a card with one printing at once, as the only one", async () => {

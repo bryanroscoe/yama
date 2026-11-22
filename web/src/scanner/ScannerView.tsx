@@ -3300,9 +3300,11 @@ function ScannerScreen({
       }
       const tasks: Promise<unknown>[] = [];
       const read = kept.read;
+      /** The first read of the view it was named in: the look never settles before it's weighed (as on the sheet). */
+      let firstRead: Promise<unknown> = Promise.resolve();
       if (read && camGen.current === gen) {
         tasks.push(
-          (async () => {
+          (firstRead = (async () => {
             const reads: string[] = [];
             let quality: StripQuality | null = null;
             for await (const text of readCollectorLines(read.image, read.quad, await ocrEngine(), { gate: (q) => ((quality = q), true) })) {
@@ -3312,7 +3314,7 @@ function ScannerScreen({
             ev.add(reads);
             f.rec?.frame({ source: "later", reads, ...qualityNote(quality), cardPx: Math.round(cardHeight(read.quad)), verdict: ev.verdict() });
             proven();
-          })(),
+          })().catch((e: unknown) => console.warn("Couldn't read the collector line for its row", e))),
         );
       }
       // The printing look on the frames kept when it was named; it settles only under the look
@@ -3327,6 +3329,9 @@ function ScannerScreen({
             const scores: LookScores = {};
             const timer = setTimeout(() => lookStop.abort(), LATER_LOOK_MS);
             const done = await withTimeout(art.lookAt(index, candidates, (id, score) => void (scores[id] = score), lookStop.signal, kept.frames!), LATER_LOOK_MS).finally(() => clearTimeout(timer));
+            // Never before the first collector-line read is in the evidence: it may point elsewhere (Codex review of #195).
+            await firstRead;
+            if (!row.finding) return;
             const got = lookSettles(pool, scores, (id) => ev.pointsAway(id));
             const option = slotsRef.current.look.option;
             const acts = !!option?.settles && option.id === model;
