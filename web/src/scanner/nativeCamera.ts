@@ -966,18 +966,27 @@ export function floatsOf(base64: string): Float32Array {
  * the art model it has loaded, for these frame cuts (every one without): every row of the
  * embedding, as the web worker's own graph gives it. Rejects when the frame isn't kept any more.
  */
-export async function nativeEmbed(seq: number, quad: Quad, cuts: number[] | undefined, key?: string, plugin: Pick<ScannerCameraPlugin, "embed"> = ScannerCamera): Promise<{ data: Float32Array; rows: number; dim: number; ms: number }> {
+export async function nativeEmbed(seq: number, quad: Quad, cuts: number[] | undefined, key?: string, plugin: Pick<ScannerCameraPlugin, "embed"> = ScannerCamera, timeoutMs = EMBED_TIMEOUT_MS): Promise<{ data: Float32Array; rows: number; dim: number; ms: number }> {
   if (!plugin.embed) throw new Error("This app is older than its art reader");
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     // `key`: the model the read is for, so a read under one just switched is the worker's.
-    const r = await plugin.embed({ seq, quad: quad.map((p) => [p[0], p[1]] as [number, number]), ...(cuts ? { cuts } : {}), ...(key ? { key } : {}) });
+    const asked = plugin.embed({ seq, quad: quad.map((p) => [p[0], p[1]] as [number, number]), ...(cuts ? { cuts } : {}), ...(key ? { key } : {}) });
+    // One that never answers would hold the scanner's read: it fails instead, and the worker reads.
+    const late = new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error("The app's art read didn't answer")), timeoutMs)));
+    const r = await Promise.race([asked, late]);
     return { data: floatsOf(r.data), rows: r.rows, dim: r.dim, ms: r.ms };
   } catch (e) {
     // A frame it no longer keeps isn't a failure of the app's reader: this read is the worker's.
     if (codeOf(e) === "gone") throw new Error(NATIVE_GONE);
     throw e;
+  } finally {
+    clearTimeout(timer);
   }
 }
+
+/** How long an art read in the app may take before it counts as failed (a read takes tens of ms). */
+const EMBED_TIMEOUT_MS = 3000;
 
 /** What a read of a frame the app no longer keeps says (it's read by the worker instead, and nothing is wrong). */
 export const NATIVE_GONE = "The app no longer has that frame";

@@ -317,12 +317,13 @@ export async function runSpeedTest(onProgress: (p: SpeedProgress) => void, signa
               const embed = deps.native.embed;
               const remote: RemoteEmbed | undefined = twinArt && embed && nf.seq != null ? (q, cuts) => embed(nf.seq!, q, cuts) : undefined;
               const r2 = await rec.matchAt(again, { quad: nf.quad, upright: nf.vote }, { turn: true, remote });
-              // The art read in the app failed (not a frame it no longer had): the rest are the worker's.
+              // The art read in the app failed (not a frame it no longer had): the configuration ends
+              // here, its frames all read in the app, rather than mixing in the worker's (Codex review
+              // of #198). This frame, read partly by the worker, isn't counted.
               if (r2.remote?.failed && !r2.remote.failed.includes(NATIVE_GONE)) {
-                twinArt = false;
                 twin.error = `The art read in the app stopped: ${r2.remote.failed}`;
-                twin.runtimes = { detector: NATIVE_RUNTIME, art: SPEED_RUNTIME };
-                twin.ran = { detector: nativeId(p.detector.id), art: rec.art };
+                twin = null;
+                continue;
               }
               // The frame as the live scanner has it: found in native code (its own time there; the
               // test's copy of the frame across the bridge isn't something the camera pays), then
@@ -357,7 +358,7 @@ export async function runSpeedTest(onProgress: (p: SpeedProgress) => void, signa
               if (r.matches[0] && r2.matches[0] && r.matches[0].name === r2.matches[0].name) parity.sameTop += 1;
             } catch (e) {
               if (signal?.aborted) throw e;
-              twin.error = message(e);
+              if (twin) twin.error = message(e);
               twin = null;
             }
           }
@@ -372,6 +373,7 @@ export async function runSpeedTest(onProgress: (p: SpeedProgress) => void, signa
       result.error = message(e);
       if (result.frames.length) result.stats = configStats(result.frames);
     } finally {
+      // (Whether or not the art reads went on to the end.)
       if (twinArt) await deps.native?.unloadArt?.().catch(() => undefined);
       // The configuration in the app, whatever part of it ran.
       const t = configs.find((c) => c.runtime === NATIVE_RUNTIME && c.wanted.detector.id === p.detector.id && c.wanted.art.id === p.art.id && !c.stats);

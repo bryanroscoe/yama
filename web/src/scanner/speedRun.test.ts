@@ -278,6 +278,30 @@ describe("a speed test", () => {
     expect(unloads).toBe(2);
   });
 
+  it("ends a configuration in the app where its art read fails, rather than mixing in the worker's reads", async () => {
+    const w = world();
+    let reads = 0;
+    w.deps.native = {
+      can: async () => ({ can: true, runs: true }),
+      load: async () => 100,
+      loadArt: async () => 50,
+      find: async () => ({ state: 1, quad: [[0, 0], [1, 0], [1, 1], [0, 1]], vote: 1, ms: 9, passes: 1, ageMs: 0, runs: [9], seq: -1 }),
+      // Ten reads, then the reader breaks.
+      embed: async () => {
+        reads += 1;
+        if (reads > 10) throw new Error("the app's art reader crashed");
+        return { data: new Float32Array(4), rows: 1, dim: 4, ms: 20 };
+      },
+      unloadArt: async () => undefined,
+    };
+    const r = await runSpeedTest(() => undefined, undefined, w.deps);
+    const app = r.configs[0]!;
+    expect(app.runtimes).toEqual({ detector: "native-cpu", art: "native-cpu" });
+    expect(app.frames).toHaveLength(10);
+    expect(app.error).toBe("The art read in the app stopped: the app's art reader crashed");
+    expect(app.stats!.tracked.median).toBe(35);
+  });
+
   it("puts the configuration in the app after the web view's where this device doesn't run it, and notes one that won't load", async () => {
     const w = world();
     w.deps.native = {

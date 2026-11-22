@@ -329,6 +329,9 @@ describe("the art read in the app", () => {
     expect(asked).toEqual([{ seq: 12, quad: upright, cuts: [0, 1], key: "art-1.onnx" }]);
     const gone = { embed: async () => Promise.reject(Object.assign(new Error("That frame isn't kept any more"), { code: "gone" })) } as unknown as ScannerCameraPlugin;
     await expect(nativeEmbed(12, upright, undefined, undefined, gone)).rejects.toThrow(NATIVE_GONE);
+    // A read that never answers fails in time, rather than holding the scanner's read.
+    const stuck = { embed: () => new Promise(() => undefined) } as unknown as ScannerCameraPlugin;
+    await expect(nativeEmbed(12, upright, undefined, undefined, stuck, 20)).rejects.toThrow("didn't answer");
   });
 
   it("loads its model in the app, handing it over only when the app doesn't have it", async () => {

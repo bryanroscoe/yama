@@ -58,6 +58,7 @@ const nat = vi.hoisted(() => ({
   /** The art read in the app: loads, and each read asked of it (frame number, corners in the frame's pixels). */
   artLoads: 0,
   artUnloads: 0,
+  finderUnloads: 0,
   artFails: false,
   embeds: [] as { seq: number; quad: Quad }[],
   embedGone: false,
@@ -76,7 +77,9 @@ vi.mock("./nativeCamera", async (original) => {
       if (nat.failLoad) throw new Error("the model wouldn't load");
       return { loadMs: 5, sent: false };
     },
-    unloadNativeFinder: async () => undefined,
+    unloadNativeFinder: async () => {
+      nat.finderUnloads += 1;
+    },
     loadNativeArt: async () => {
       nat.artLoads += 1;
       if (nat.artFails) throw new Error("the art model wouldn't load");
@@ -206,7 +209,7 @@ beforeEach(() => {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-  Object.assign(nat, { state: 1, loads: 0, failLoad: false, on: false, sets: [], matched: [], identified: 0, order: [], score: 0.93, artLoads: 0, artUnloads: 0, artFails: false, embeds: [], embedGone: false });
+  Object.assign(nat, { state: 1, loads: 0, failLoad: false, on: false, sets: [], matched: [], identified: 0, order: [], score: 0.93, artLoads: 0, artUnloads: 0, finderUnloads: 0, artFails: false, embeds: [], embedGone: false });
   sent.timings = [];
 });
 afterEach(() => {
@@ -243,12 +246,15 @@ describe("the card finder in the app's own code", () => {
     nat.score = 0.2;
     act(() => root.render(<ScannerView identityOnly closeups={false} onAccept={async () => true} />));
     await until(() => (nat.matched.length >= 2 ? true : null), "frames matched at the app's corners");
+    const unloadsBefore = nat.finderUnloads;
     nat.state = 3;
     await until(() => (nat.identified >= 3 ? true : null), "the web view's finder running");
     const matched = nat.matched.length;
     await wait(200);
     expect(nat.matched.length).toBe(matched);
     expect(nat.loads).toBe(1);
+    // And the app lets the finder's model go, now it won't run this session.
+    expect(nat.finderUnloads).toBeGreaterThan(unloadsBefore);
   });
 
   it("says in the timing record that the web view's finder ran because the app's stopped", async () => {

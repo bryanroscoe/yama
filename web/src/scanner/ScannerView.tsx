@@ -1444,13 +1444,18 @@ function ScannerScreen({
       setNativeArtReady(null);
     };
   }, [nativeArtWanted, artWant?.id, artWant?.file]);
-  // Not wanted now (turned off, failed, or the finder isn't running in the app), and no speed test
-  // loading its own: the app lets its art model go, and stops keeping each frame's card crop.
+  // Not wanted now (turned off, failed, the app's camera turned off, or the finder isn't running in
+  // the app), and no speed test loading its own: the app lets the models go, and stops keeping each
+  // frame's card crop. Wherever the plugin is, whichever camera is open (Codex review of #198).
   useEffect(() => {
-    if (!useNative || nativeArtWanted || speedTesting) return;
-    nativeArtKey.current = null;
-    void unloadNativeArt();
-  }, [useNative, nativeArtWanted, speedTesting]);
+    if (!nativeCameraAvailable() || speedTesting) return;
+    if (!nativeArtWanted) {
+      nativeArtKey.current = null;
+      void unloadNativeArt();
+    }
+    // The finder's model too, when it can't run (unloading lets both go).
+    if (!nativeFinderWanted) void unloadNativeFinder();
+  }, [nativeFinderWanted, nativeArtWanted, speedTesting]);
   /**
    * The art read in the app for a frame the app's finder handed in (`seq`), when it runs and the
    * worker runs the same art model: corners from the recognizer's pixels to the frame's (`toVideo`).
@@ -2067,6 +2072,10 @@ function ScannerScreen({
           // Taken with the frame (nothing runs between): where the app's own card finder placed the
           // card on it, in the recognizer's pixels. Then the web view's finder doesn't run on it.
           const handed = nativeHanded(zone, k);
+          // The art is read in the app only when the recognizer's frame is the whole of the app's
+          // (no digital zoom): otherwise the worker reads a cut it alone has (Codex review of #198).
+          const whole = k === 1 && zone.x === 0 && zone.y === 0 && Math.round(zone.w) === v.videoWidth && Math.round(zone.h) === v.videoHeight;
+          const readSeq = whole ? handed?.seq : undefined;
           // What placed the card on this very frame: the app's finder, or the web view's.
           if (diagRef.current) frameModel.current = { embed: art.embed, models: { ...modelsNow(), detector: handed && nativeFinding.current ? nativeId(nativeFinding.current) : (artRef.current?.detector ?? NO_ART_MODEL) } };
           let toVideo = (q: Quad) => q.map(([x, y]) => [x / k + zone.x, y / k + zone.y]) as Quad;
@@ -2086,7 +2095,7 @@ function ScannerScreen({
             outlined(seen.quad);
             seeCard(seen.quad ? toVideo(seen.quad) : null, v);
             const at = performance.now();
-            const d = gate.observe({ at, cards: seen.quad ? [{ quad: seen.quad, sharpness: seen.sharpness, thumb: seen.thumb, frame: { image: seen.image, toVideo, ...(handed?.seq != null ? { seq: handed.seq } : {}) } }] : [] });
+            const d = gate.observe({ at, cards: seen.quad ? [{ quad: seen.quad, sharpness: seen.sharpness, thumb: seen.thumb, frame: { image: seen.image, toVideo, ...(readSeq != null ? { seq: readSeq } : {}) } }] : [] });
             if (d.kind !== "read") {
               // The view has been empty long enough: the card just filed has gone, as without the gate.
               if (d.kind === "none" && d.since == null) {
@@ -2116,7 +2125,7 @@ function ScannerScreen({
             if (stop) return;
             afterNative(r);
           } else {
-            r = handed ? await art.matchAt(image, { quad: handed.quad, upright: handed.upright }, { turn: true, remote: nativeReader(handed.seq, toVideo) }) : await art.identify(image, outlined);
+            r = handed ? await art.matchAt(image, { quad: handed.quad, upright: handed.upright }, { turn: true, remote: nativeReader(readSeq, toVideo) }) : await art.identify(image, outlined);
             if (stop) return;
             afterNative(r);
             outlined(r.quad);
