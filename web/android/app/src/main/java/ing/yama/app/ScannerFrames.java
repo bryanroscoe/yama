@@ -100,7 +100,7 @@ final class ScannerFrames {
         f.y = copy(y, f.y);
         f.u = copy(u, f.u);
         f.v = copy(v, f.v);
-        noteCopy((System.nanoTime() - t0) / 1e6);
+        double copyMs = (System.nanoTime() - t0) / 1e6;
         f.yRowStride = yRowStride;
         f.uvRowStride = uvRowStride;
         f.uvPixelStride = uvPixelStride;
@@ -120,6 +120,9 @@ final class ScannerFrames {
         } finally {
             lock.unlock();
         }
+        // Only a frame kept is timed: one dropped across a clear was the closed camera's (Codex
+        // review of #201). (A clear between here and the note can still let one in: a sample.)
+        noteCopy(copyMs);
     }
 
     /**
