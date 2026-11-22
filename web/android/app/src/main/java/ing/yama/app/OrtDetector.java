@@ -78,11 +78,18 @@ final class OrtDetector implements CardFinder.Detector, AutoCloseable {
             options.setExecutionMode(OrtSession.SessionOptions.ExecutionMode.SEQUENTIAL);
             session = env.createSession(model, options);
         }
-        OrtDetector d = new OrtDetector(env, session, size);
+        OrtDetector d;
+        try {
+            d = new OrtDetector(env, session, size);
+        } catch (RuntimeException | Error e) {
+            // Out of memory for the input, say: the session goes too (Codex review of #196).
+            session.close();
+            throw e;
+        }
         try {
             CardFinder.Output o = d.run(new byte[size * size * 4]);
             for (float v : o.quad) if (!Float.isFinite(v)) throw new IllegalStateException("This card finder's outputs aren't the bundle detector's");
-        } catch (RuntimeException | OrtException e) {
+        } catch (RuntimeException | OrtException | Error e) {
             d.close();
             throw e;
         }

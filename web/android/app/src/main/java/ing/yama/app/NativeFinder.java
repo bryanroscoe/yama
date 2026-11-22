@@ -251,11 +251,13 @@ final class NativeFinder {
 
     /** Forget the card being tracked (the scanner reset it). */
     void resetTracking() {
-        CardFinder f = live;
-        if (f != null) synchronized (f) {
-            f.reset();
-        }
+        // Done by the loop before its next find: never waits on one under way (it holds the finder
+        // through a whole run, and this is called on the main thread; Codex review of #196).
+        resetPending = true;
     }
+
+    /** The loop forgets the tracked card before its next find. */
+    private volatile boolean resetPending;
 
     private void loop(int mine, CardFinder finder) {
         try {
@@ -279,9 +281,11 @@ final class NativeFinder {
                 ScannerFrames.toRgba(f, 0, 0, uw, uh, w, h, into, 0);
                 double convertMs = (System.nanoTime() - taken) / 1e6;
                 CardFinder.Result r;
-                synchronized (finder) {
-                    r = finder.find(new CardFinder.Frame(w, h, into, 0));
+                if (resetPending) {
+                    resetPending = false;
+                    finder.reset();
                 }
+                r = finder.find(new CardFinder.Frame(w, h, into, 0));
                 Snapshot s = new Snapshot();
                 s.state = r.inView ? STATE_CARD : STATE_NONE;
                 s.width = w;

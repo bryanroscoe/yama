@@ -104,6 +104,10 @@ public class NativeFinderTest {
         f.start(() -> {}, null, why -> told.incrementAndGet());
         put(frames, CardFinderTest.fixture().getJSONArray("frames").getJSONObject(0));
         assertTrue("a run began", inRun.await(5, java.util.concurrent.TimeUnit.SECONDS));
+        // Forgetting the tracked card doesn't wait for the run either.
+        long r0 = System.nanoTime();
+        f.resetTracking();
+        assertTrue("reset returned at once", (System.nanoTime() - r0) / 1e6 < 200);
         long t0 = System.nanoTime();
         f.stop();
         assertTrue("stop returned at once", (System.nanoTime() - t0) / 1e6 < 200);
