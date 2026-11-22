@@ -2026,11 +2026,15 @@ function ScannerScreen({
       // chooses one or carries on as evidence, and the held card is read again on the new camera.
       const gen = camGen.current;
       const sameCamera = () => camGen.current === gen;
-      // When the card was named, for the first read's timings (its timing record's clock, else now).
-      const namedAt = f.timing ? Date.now() - f.timing.since() : Date.now();
+      // The first read's timings run from here: the moment a card is named, or the moment it's
+      // settled again (another set, another card), never from a naming the person then corrected.
+      const startedAt = Date.now();
+      const readNow = () => (read && sameCamera() ? startFirstRead(read, ocrEngine, () => foundSeq.current === seq && sameCamera()) : null);
       // The collector line is read now, from the view the card was named in, while the printings
       // load (startFirstRead); it's weighed below once they're known, or stopped if not needed.
-      const first = read && sameCamera() ? startFirstRead(read, ocrEngine, () => foundSeq.current === seq && sameCamera()) : null;
+      // Not for art the bundle knows in one printing: almost always all there is, so it waits to
+      // see whether the server knows more (a reprint newer than the bundle) before reading.
+      let first = f.art && f.art.printings <= 1 ? null : readNow();
       try {
         const asked = performance.now();
         let opts = await printingOptions(query);
@@ -2092,6 +2096,7 @@ function ScannerScreen({
           }
         }
         const settledHow: Found["how"] = choice.how === "only" ? (ruledOut.length > 0 && !wasOnly ? "border" : bySet ? "set" : "only") : choice.how;
+        if (!choice.chosen) first ??= readNow();
         const reading = !choice.chosen && !!read && !!first && sameCamera();
         const sure = choice.how === "only" || !!choice.certain;
         update({ options: choice.options, lockedOut, readFirst: choice.readFirst ?? 0, sameArt: opts.sameArt, outside: false, chosen: choice.chosen, how: settledHow, sure, settledId: sure ? choice.chosen?.scryfall_id : undefined, reading, border: border?.border ?? null, borderOut: ruledOut });
@@ -2117,12 +2122,12 @@ function ScannerScreen({
         const v = ev.verdict();
         const raw = reads.join("\n");
         // How long the read waited after the card was named, and each crop's time (Scanner diagnostics).
-        const wait = times[0] ? Math.max(0, times[0].sentAt - namedAt) : undefined;
+        const wait = times[0] ? Math.max(0, times[0].sentAt - startedAt) : undefined;
         const crops = cropTimesNote(times);
         f.rec?.frame({ source: "first", reads, ...qualityNote(quality), cardPx: Math.round(cardHeight(read!.quad)), verdict: v, ...(wait != null ? { wait } : {}), ...crops });
         if (f.timing && f.timing.detail.first_ms === undefined) {
           Object.assign(f.timing.detail, {
-            first_ms: Date.now() - namedAt,
+            first_ms: Date.now() - startedAt,
             ...(wait != null ? { first_wait_ms: wait } : {}),
             ...(crops.ocrMs ? { first_ocr_ms: crops.ocrMs } : {}),
             ...(crops.engineMs ? { first_engine_ms: crops.engineMs } : {}),
@@ -2906,7 +2911,10 @@ function ScannerScreen({
     const seq = ++foundSeq.current;
     setFound(f);
     setGaveUp(false);
-    void settle(seq, f, f.art ? { art: f.art.illustrationId, id: f.art.id } : { name: f.name }, f.method === "art" ? (f.shot ?? null) : null, f.known);
+    // The view it was found in is read again: a card found by its art, or named by a title read
+    // from the camera (not its border, as when it was first named).
+    const titled = f.method === "name" && f.confidence < 1;
+    void settle(seq, f, f.art ? { art: f.art.illustrationId, id: f.art.id } : { name: f.name }, f.method === "art" || titled ? (f.shot ?? null) : null, f.known, { border: !titled });
   };
 
   // Several printings fit and the first read of the collector line didn't settle it: keep reading
@@ -3255,8 +3263,11 @@ function ScannerScreen({
     if (chosen && f?.timing && f.chosen === chosen && !identityOnly && (f.how === "only" || f.how === "set" || f.how === "collector" || f.how === "look" || f.how === "border" || f.how === "price")) {
       f.timing.printed(f.misread ? "corrected" : f.how);
       // Settled, but slowly: its struggle record is kept too, so the reads can be seen frame by frame.
+      // Not when the person had a hand in the wait (Wrong card, another set, Wrong printing): the
+      // time runs from the first naming, and the record is kept for that already.
       const ms = f.timing.printedMs;
-      if (f.rec && !f.misread && ms != null && ms >= SLOW_PRINTING_MS && !f.rec.reasons.has("slow-printing") && slowPrintKept.current < SLOW_KEPT) {
+      const corrected = !!f.misread || !!f.unlocked || !!f.timing.detail.card_corrected || !!f.rec?.reasons.has("wrong-card");
+      if (f.rec && !corrected && ms != null && ms >= SLOW_PRINTING_MS && !f.rec.reasons.has("slow-printing") && slowPrintKept.current < SLOW_KEPT) {
         slowPrintKept.current += 1;
         f.rec.reasons.add("slow-printing");
         f.rec.note("printingMs", ms);

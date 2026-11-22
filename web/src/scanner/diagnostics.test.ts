@@ -334,15 +334,18 @@ describe("the first read's timings (22 Nov 2026)", () => {
 
   it("says how long since the card was named, and when its printing was settled", () => {
     const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
-    const t = new TimingRecord({ rule: "leads", mode: "printing" });
-    const rec = new ScanRecord();
-    now.mockReturnValue(1_250);
-    expect(t.since()).toBe(250);
-    expect(rec.since()).toBe(250);
-    expect(t.printedMs).toBeNull();
-    now.mockReturnValue(4_500);
-    t.printed("collector");
-    expect(t.printedMs).toBe(3_500);
-    now.mockRestore();
+    try {
+      const t = new TimingRecord({ rule: "leads", mode: "printing" });
+      const rec = new ScanRecord();
+      now.mockReturnValue(1_250);
+      expect(t.since()).toBe(250);
+      expect(rec.since()).toBe(250);
+      expect(t.printedMs).toBeNull();
+      now.mockReturnValue(4_500);
+      t.printed("collector");
+      expect(t.printedMs).toBe(3_500);
+    } finally {
+      now.mockRestore();
+    }
   });
 });

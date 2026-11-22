@@ -10,7 +10,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Printing } from "../api";
-import type { ArtMatch, ArtRecognizer, BundleInfo, LookDone } from "./artClient";
+import type { ArtRecognizer, BundleInfo, LookDone } from "./artClient";
+import type { ArtMatch } from "./recognizer";
 import { setDiagnosticsOn } from "./diagnostics";
 import type { ScanCandidate } from "./types";
 
@@ -151,7 +152,7 @@ HTMLCanvasElement.prototype.toBlob = function (callback: BlobCallback) {
 const { ScannerView } = await import("./ScannerView");
 
 /** A match for the photo's card. Each test's own artwork, so the printings asked for are never another test's (printings.ts keeps them). */
-const match = (name: string, art: string, score: number, index = 4): ArtMatch => ({ index, id: `${art}-card`, name, set: "drc", number: "19", illustrationId: art, layout: "normal", printings: 2, score });
+const match = (name: string, art: string, score: number, index = 4, printings = 2): ArtMatch => ({ index, id: `${art}-card`, name, set: "drc", number: "19", illustrationId: art, layout: "normal", printings, score });
 
 let root: Root;
 let host: HTMLDivElement;
@@ -253,6 +254,39 @@ describe("the collector line's first read", () => {
     const t = await until(() => fake.timings[0], "the timing record");
     expect(t).toMatchObject({ printing: "only" });
     expect(t.detail).not.toHaveProperty("first_ms");
+  });
+
+  it("waits for the server before reading art the bundle knows in one printing, and reads it when the server knows more", async () => {
+    // The bundle says one printing; the server knows a reprint newer than the bundle.
+    fake.matches = [match("Stridehangar Automaton", "ill-reprint", 0.93, 4, 1)];
+    fake.line = "R 0019\nDRC • EN AARON J. RILEY";
+    const printings = gate();
+    fake.printingsGate = printings.promise;
+    const accepted = scanner();
+    await scanPhoto();
+    await wait(100);
+    expect(fake.collectorReads).toEqual([]);
+    await act(async () => printings.open());
+    await until(() => (accepted.length ? accepted : null), "the card filed by itself");
+    expect(accepted[0]).toMatchObject({ scryfall_id: "p19" });
+    expect(fake.collectorReads.every((r) => r.printingsAnswered)).toBe(true);
+  });
+
+  it("stops reading once the card is let go, and nothing it read counts", async () => {
+    fake.matches = [match("Stridehangar Automaton", "ill-skip", 0.93)];
+    fake.line = "R 0019\nDRC • EN AARON J. RILEY";
+    const reads = gate();
+    fake.ocrGate = reads.promise;
+    const accepted = scanner();
+    await scanPhoto();
+    await until(() => (fake.collectorReads.length > 0 && fake.printingsAnswered ? true : null), "the read under way");
+    const skip = await until(() => [...document.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Skip"), "Skip");
+    await act(async () => skip.click());
+    await act(async () => reads.open());
+    await wait(100);
+    // The crop under way when it was let go was the last.
+    expect(fake.collectorReads).toHaveLength(1);
+    expect(accepted).toEqual([]);
   });
 
   it("reads the view a card was named in by its title, and settles its printing from it", async () => {
