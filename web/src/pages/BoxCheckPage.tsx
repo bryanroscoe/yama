@@ -121,6 +121,10 @@ export function BoxCheckPage() {
     setMuted(on);
     setDeviceFlag(MUTE, on);
   };
+  /** Start over, on the page and in the scanner's Clear the list: asks first. */
+  const startOver = async () => {
+    if (await ask({ title: "Start the scan over?", body: "The cards scanned so far are cleared. Nothing you moved or added is undone.", confirm: "Start over", danger: true })) setDraft((d) => ({ ...d, cards: [] }));
+  };
 
   const movable = result.lines.filter((l) => l.elsewhere.length > 0);
   const missing = result.lines.filter((l) => l.missing > 0);
@@ -262,7 +266,7 @@ export function BoxCheckPage() {
       <Scanned draft={draft} lines={result.lines} setDraft={setDraft} />
       {draft.cards.length > 0 && (
         <div className="row">
-          <Button variant="quiet" onClick={async () => (await ask({ title: "Start the scan over?", body: "The cards scanned so far are cleared. Nothing you moved or added is undone.", confirm: "Start over", danger: true })) && setDraft((d) => ({ ...d, cards: [] }))}>
+          <Button variant="quiet" onClick={() => void startOver()}>
             Start over
           </Button>
         </div>
@@ -280,7 +284,7 @@ export function BoxCheckPage() {
           error={send.error}
         />
       )}
-      {camera && <Camera box={box} where={where} draft={draft} items={items.data} preview={previewFor} muted={muted} onMute={toggleMute} onTake={take} onClose={() => setCamera(false)} />}
+      {camera && <Camera box={box} where={where} draft={draft} items={items.data} preview={previewFor} muted={muted} onMute={toggleMute} onTake={take} onClear={() => void startOver()} onClose={() => setCamera(false)} />}
     </main>
   );
 }
@@ -388,8 +392,8 @@ function AddHere({ line, onClose, onAdd, busy, error }: { line: BoxLine; onClose
   );
 }
 
-function Camera({ box, where, draft, items, preview, muted, onMute, onTake, onClose }: {
-  box: Container; where: string; draft: BoxCheckDraft; items: CollectionItem[]; preview: (name: string) => Verdict; muted: boolean; onMute: (on: boolean) => void; onTake: (name: string) => void; onClose: () => void;
+function Camera({ box, where, draft, items, preview, muted, onMute, onTake, onClear, onClose }: {
+  box: Container; where: string; draft: BoxCheckDraft; items: CollectionItem[]; preview: (name: string) => Verdict; muted: boolean; onMute: (on: boolean) => void; onTake: (name: string) => void; onClear: () => void; onClose: () => void;
 }) {
   const [catalog, setCatalog] = useState<ScanCatalog | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -441,6 +445,8 @@ function Camera({ box, where, draft, items, preview, muted, onMute, onTake, onCl
             closeups={closeups}
             onAccept={(card) => onTake(card.name)}
             onClose={onClose}
+            onClear={onClear}
+            clearNote="Asks first: the scan starts over. Nothing you moved or added is undone."
             addedCount={draft.cards.length}
             addedWord="Scanned"
             haptics={!muted}

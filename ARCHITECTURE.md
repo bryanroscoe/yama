@@ -3502,3 +3502,29 @@ of Start here, one bracket number per deck, the Precons page as a picker, "Save 
 to Private, a wish-list-only sharing choice, "from $X" prices in card search, and several online
 play choices (attack button, callouts, joining on a precon).
 
+## Scan tab, test scan and moving a scan session (22 November 2026)
+
+Bryan, 22 Nov 2026: "the card explorer is not that interesting, lets replace that with a scanner
+button ... an easy way to add all the things recently scanned to a different box that was
+selected and maybe even clear the current scan list ... a test scan mode for me so I can back to
+back scan cards without having to save them ... make sure all of these options work for all
+versions of the scanner."
+
+- **The phone's bottom bar** is Play, Decks, Scan, Collection, Playgroup (`PHONE_TABS` in
+  `web/src/nav.tsx`). Scan is `/scan` (`ScanPage` in `pages/Collection.tsx`): the collection's
+  scanner opens at once, and closing it leaves a page with Scan again and where the other scans
+  are. The laptop rail and the public pages' header keep Cards (`MAIN_TABS`, the server's
+  `SITE_TABS` unchanged): search on a phone is the top bar's magnifier, and a visitor on a public
+  page has no collection to scan into. The app's frame draws one list (`FRAME_TABS`) and the
+  stylesheet hides `nav-scan` on a laptop and `nav-cards` on a phone.
+- **Test scan** lives in the scanner, not its hosts: `ScannerView` runs every host's props through
+  `useTestScan` (`web/src/scanner/testScan.tsx`). Off, they pass unchanged; on, Add, Undo, Wrong
+  printing and the strip go to a list on the screen, Keep adding is on, and the host's own
+  `onAccept`, `onUndo` and `onCorrect` are never called, so no host can save a test card. It is not
+  remembered: each scanner opens with it off, so a forgotten switch never drops a real session.
+  Kept scan photos and diagnostics still record test cards (useful when testing the scanner).
+- **Clear the list** is the host's `onClear`: the collection's list keeps only entries whose write
+  isn't confirmed (`afterClear`); the deck scan, deck check and box scan ask, then start over.
+- **Moving a session to another box** is a fix like any other (`boxFix`): a `container` on `Fix`
+  takes this session's copies out of their row and adds them to the new box's, so copies owned
+  before the session never move, and entries still saving are left where they are.

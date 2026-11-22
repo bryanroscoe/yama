@@ -28,6 +28,7 @@ import { NameEntry } from "./NameEntry";
 import { CollectorPeek } from "./peek";
 import { filedFinish, priceFor, pricesOf, worthIt, type RecentCard, type ScanFinish } from "./price";
 import { ScanTray } from "./ScanTray";
+import { useTestScan } from "./testScan";
 import { PLAY_WORD, playTag, usePlayability } from "./playable";
 import { holdSound } from "../sound";
 import { filedSound, playScanSound, setSoundsOn, setWorthThreshold, soundsOn, unlockSound, worthThreshold, type ScanSound } from "./sounds";
@@ -172,6 +173,14 @@ export interface ScannerViewProps {
    * unless only the card's identity matters.
    */
   setLock?: boolean;
+  /**
+   * Clear the list of cards scanned so far (Bryan, 22 Nov 2026: "maybe even clear the current scan
+   * list"): offered in Scan settings and beside Review all. The host decides what it means (and
+   * asks first where the list is work in progress); test scan clears its own list.
+   */
+  onClear?: () => void;
+  /** What Clear the list does, in a few words, beside its button. */
+  clearNote?: string;
 }
 
 type Phase = "loading" | "scanning" | "found" | "no-camera";
@@ -500,7 +509,15 @@ const candidateOf = (f: Found, p: Printing | null): ScanCandidate => ({
   prices: p ? pricesOf(p) : undefined,
 });
 
-export function ScannerView({
+/**
+ * The camera screen. Test scan (testScan.tsx) sits in front of every host's props: off, they pass
+ * as they are; on, nothing the scanner finds reaches the host.
+ */
+export function ScannerView(props: ScannerViewProps) {
+  return <ScannerScreen {...useTestScan(props)} />;
+}
+
+function ScannerScreen({
   onAccept,
   onUndo,
   onCorrect,
@@ -531,6 +548,7 @@ export function ScannerView({
   addedWord = "Added",
   haptics = true,
   setLock: lockOffered = !identityOnly,
+  onClear,
 }: ScannerViewProps) {
   // Read through a ref, so callbacks made in an earlier render follow a change (a Mute switch).
   const hapticsRef = useRef(haptics);
@@ -3107,7 +3125,7 @@ export function ScannerView({
         )}
       </div>
 
-      {recentCards && recentCards.length > 0 && <ScanTray cards={recentCards} worth={identityOnly ? Infinity : worth} onOpen={onOpenCard} onReview={onShowAdded} event={receiptEvent} actions={receiptActions} announce={receiptAnnounce} />}
+      {recentCards && recentCards.length > 0 && <ScanTray cards={recentCards} worth={identityOnly ? Infinity : worth} onOpen={onOpenCard} onReview={onShowAdded} onClear={onClear} event={receiptEvent} actions={receiptActions} announce={receiptAnnounce} />}
       <div ref={panelRef} className={`scan-panel${sheet.hidden ? " is-hidden" : ""}`} aria-live="polite">
         {/* "Use a photo" in More opens this: it stays mounted when the menu closes. */}
         <input

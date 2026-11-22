@@ -5,6 +5,10 @@ const s = { fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap:
 export const CardsIcon = () => (
   <svg viewBox="0 0 24 24" aria-hidden="true" {...s}><rect x="5.5" y="3" width="13" height="18" rx="1.5" /><path d="M9 7h6M9 13.5h6v3.5H9z" /></svg>
 );
+/** A card in a camera's viewfinder: the Scan tab, on a phone. */
+export const ScanIcon = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" {...s}><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3" /><rect x="9" y="7.5" width="6" height="9" rx="1" /></svg>
+);
 /** Search, in the phone's top bar. */
 export const SearchIcon = () => (
   <svg viewBox="0 0 24 24" aria-hidden="true" {...s}><circle cx="11" cy="11" r="6" /><path d="m20 20-4.5-4.5" /></svg>

@@ -1,0 +1,160 @@
+// Test scan (Bryan, 22 Nov 2026: "a test scan mode for me so I can back to back scan cards without
+// having to save them"). A switch in Scan settings, in every scanner (collection, deck scan, deck
+// check, box check, swap check, rescan): while it's on, the scanner goes on from card to card by
+// itself, each card it finds is shown and counted on this screen only, and the host's own Add,
+// Count it or Use this printing is never called, so nothing is saved, filed or checked off. It is
+// off each time the scanner opens, so a forgotten switch never loses a real session's cards.
+//
+// The same place offers Clear the list (Bryan: "maybe even clear the current scan list"): the
+// test list here, or the host's own list through its `onClear`.
+
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
+import { pickFinish } from "@yama/core";
+import { Button } from "../components/ui";
+import type { RecentCard, ScanFinish } from "./price";
+import type { ScanCandidate } from "./types";
+import type { ScannerViewProps } from "./ScannerView";
+
+/** One card seen in test scan. */
+interface Tested extends RecentCard {
+  /** What the scanner was given back for it, for Undo and Wrong printing. */
+  card: ScanCandidate;
+}
+
+/** A test card's tile: its printing and price when the scanner settled one, else its name. */
+export function testedCard(card: ScanCandidate, finish: ScanFinish, key: string): Tested {
+  const filed: ScanFinish = finish === "proxy" ? "proxy" : (pickFinish({ finishes: card.finishes }, finish) as ScanFinish);
+  return { key, card, name: card.name, set: card.set, number: card.number, finish: filed, copies: 1, prices: card.prices ?? null, image: card.thumb ?? card.image ?? null, oracleId: card.oracle_id };
+}
+
+/** "Test scan" in the settings summary: also what makes the scanner drop a held card's Scan anyway on a switch. */
+export const TEST_SUMMARY = "Test scan, nothing saved";
+
+/**
+ * The props the scanner runs with: the host's as they are, or, in test scan, the host's with every
+ * write swapped for this screen's own list. Also the switch and Clear the list, for Scan settings.
+ */
+export function useTestScan(props: ScannerViewProps): ScannerViewProps {
+  const [testing, setTesting] = useState(false);
+  const [tested, setTested] = useState<Tested[]>([]);
+  const listRef = useRef<Tested[]>([]);
+  const put = (list: Tested[]) => {
+    listRef.current = list;
+    setTested(list);
+  };
+  const keyOf = useRef(new WeakMap<ScanCandidate, string>());
+  const finish = props.finish ?? "nonfoil";
+  const finishRef = useRef(finish);
+  finishRef.current = finish;
+
+  const accept = useCallback((card: ScanCandidate): Promise<boolean> => {
+    const key = crypto.randomUUID();
+    keyOf.current.set(card, key);
+    put([testedCard(card, finishRef.current, key), ...listRef.current]);
+    return Promise.resolve(true);
+  }, []);
+  const undo = useCallback(async (card: ScanCandidate) => {
+    const key = keyOf.current.get(card);
+    if (!key || !listRef.current.some((t) => t.key === key)) throw new Error("It's no longer in the test list");
+    put(listRef.current.filter((t) => t.key !== key));
+  }, []);
+  const correct = useCallback(async (from: ScanCandidate, to: ScanCandidate): Promise<"changed" | "kept"> => {
+    const key = keyOf.current.get(from);
+    if (!key || !listRef.current.some((t) => t.key === key)) throw new Error("It's no longer in the test list");
+    keyOf.current.set(to, key);
+    put(listRef.current.map((t) => (t.key === key ? testedCard(to, finishRef.current, key) : t)));
+    return "changed";
+  }, []);
+  const entryOf = useCallback((card: ScanCandidate) => keyOf.current.get(card), []);
+  const clearTested = useCallback(() => put([]), []);
+
+  const { onClear, clearNote, settings, settingsSummary, controls, addedCount = 0, recentCards } = props;
+  const count = testing ? tested.length : (recentCards?.reduce((n, c) => n + c.copies, 0) ?? addedCount);
+  const clear = testing ? clearTested : onClear;
+  const switchBox = (
+    <TestScanSettings
+      testing={testing}
+      onTesting={(on) => {
+        setTesting(on);
+        // Each test starts with an empty list.
+        if (on) put([]);
+      }}
+      count={count}
+      onClear={clear}
+      note={testing ? "Starts the test list again." : (clearNote ?? "Starts the list of cards scanned again.")}
+    />
+  );
+  const shownSettings = (
+    <>
+      {settings}
+      {switchBox}
+    </>
+  );
+  // Memoised so a host's own render doesn't make new props for nothing.
+  const recent = useMemo(() => tested.map(({ card: _, ...t }) => t), [tested]);
+  if (!testing) return { ...props, settings: shownSettings };
+  return {
+    ...props,
+    onAccept: accept,
+    onUndo: undo,
+    onCorrect: correct,
+    entryOf,
+    // A tile opens nothing: there is no saved copy to fix.
+    onOpenCard: undefined,
+    onShowAdded: undefined,
+    onClear: clearTested,
+    unsavedCount: 0,
+    addedCount: tested.length,
+    // With prices where the host shows them (the collection), names elsewhere.
+    recentCards: props.recentCards ? recent : undefined,
+    recent: recent.map((t) => t.name),
+    autoAdd: true,
+    single: false,
+    addedWord: "Scanned",
+    acceptLabel: "Scan next",
+    settings: shownSettings,
+    settingsSummary: settingsSummary ? `${TEST_SUMMARY}; ${settingsSummary}` : TEST_SUMMARY,
+    controls: (
+      <>
+        <TestScanNote count={tested.length} onStop={() => setTesting(false)} />
+        {controls}
+      </>
+    ),
+  };
+}
+
+/** On the sheet while test scan is on: what it means, and the way out. */
+function TestScanNote({ count, onStop }: { count: number; onStop: () => void }) {
+  return (
+    <div className="scan-test-note" role="status">
+      <p>
+        <strong>Test scan.</strong> {count === 0 ? "Nothing is saved: scan card after card." : `${count === 1 ? "1 card" : `${count} cards`} scanned, none saved.`}
+      </p>
+      <Button size="small" onClick={onStop}>
+        Stop testing
+      </Button>
+    </div>
+  );
+}
+
+/** The switch, and Clear the list, in Scan settings. */
+function TestScanSettings({ testing, onTesting, count, onClear, note }: { testing: boolean; onTesting: (on: boolean) => void; count: number; onClear?: () => void; note: string }): ReactNode {
+  return (
+    <>
+      <label className="scan-keep">
+        <input type="checkbox" checked={testing} onChange={(e) => onTesting(e.target.checked)} />
+        <span>
+          <strong>Test scan.</strong> Scan card after card to try the scanner. Each card it finds is shown and counted here, and nothing is saved, added or checked off. Off again next time the scanner opens.
+        </span>
+      </label>
+      {onClear && count > 0 && (
+        <div className="scan-clear">
+          <Button size="small" variant="outline" onClick={onClear}>
+            Clear the list ({count})
+          </Button>
+          <span className="scan-note">{note}</span>
+        </div>
+      )}
+    </>
+  );
+}

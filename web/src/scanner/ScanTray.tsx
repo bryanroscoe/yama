@@ -57,7 +57,26 @@ export function trayTotal(cards: readonly RecentCard[]): { head: string; note: s
  * out …, Couldn't save …) in its place for a moment. The camera's chip says only what the scanner
  * is doing now.
  */
-export function ScanTray({ cards, worth, onOpen, onReview, event, actions, announce = "" }: { cards: readonly RecentCard[]; worth: number; onOpen?: (key: string) => void; onReview?: () => void; event?: string | null; actions?: ReactNode; announce?: string }) {
+export function ScanTray({
+  cards,
+  worth,
+  onOpen,
+  onReview,
+  onClear,
+  event,
+  actions,
+  announce = "",
+}: {
+  cards: readonly RecentCard[];
+  worth: number;
+  onOpen?: (key: string) => void;
+  onReview?: () => void;
+  /** Clear the list (the host's, or test scan's): a quiet button beside Review all. */
+  onClear?: () => void;
+  event?: string | null;
+  actions?: ReactNode;
+  announce?: string;
+}) {
   const play = usePlayability(cards.map((c) => c.oracleId));
   const list = useRef<HTMLOListElement>(null);
   const newestKey = cards[0]?.key;
@@ -101,13 +120,20 @@ export function ScanTray({ cards, worth, onOpen, onReview, event, actions, annou
             {total.head}
             {total.note && <span className="scan-tray-note"> {total.note}</span>}
           </p>
-          {onReview ? (
-            <Button className={`scan-tray-review${failed ? " is-failed" : ""}`} size="small" variant="outline" onClick={onReview}>
-              {failed ? `${failed} to try again` : "Review all"}
-            </Button>
-          ) : (
-            failed > 0 && <span className="scan-tray-failed">{failed} not saved</span>
-          )}
+          <span className="scan-tray-buttons">
+            {onClear && (
+              <Button className="scan-tray-clear" size="small" variant="quiet" onClick={onClear}>
+                Clear
+              </Button>
+            )}
+            {onReview ? (
+              <Button className={`scan-tray-review${failed ? " is-failed" : ""}`} size="small" variant="outline" onClick={onReview}>
+                {failed ? `${failed} to try again` : "Review all"}
+              </Button>
+            ) : (
+              failed > 0 && <span className="scan-tray-failed">{failed} not saved</span>
+            )}
+          </span>
         </div>
       </div>
       <ol ref={list} className="scan-tray-list">

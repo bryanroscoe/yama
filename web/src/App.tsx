@@ -18,7 +18,7 @@ import { Wordmark } from "./components/Wordmark";
 import { ViewBanner } from "./components/ViewBanner";
 import { VIEWING_KEY } from "./viewingFlag";
 import { area, Framed, Paged } from "./lazyPages";
-import { MAIN_TABS, tab, tabOf, titleOf } from "./nav";
+import { FRAME_TABS, tab, tabOf, titleOf } from "./nav";
 import { useFrameTitle, usePageTitle } from "./pageTitle";
 import { CardsPage } from "./pages/Cards";
 import { OldLabRedirect } from "./lab/OldLabRedirect";
@@ -101,6 +101,7 @@ const BuildChoicesPage = decks.page("BuildChoicesPage");
 const MythicImportPage = mythic.page("MythicImportPage");
 const MythicSentPage = mythic.page("MythicSentPage");
 const CollectionPage = collection.page("CollectionPage");
+const ScanPage = collection.page("ScanPage");
 const GroupPage = group.page("GroupPage");
 const ProfilePage = profile.page("ProfilePage");
 const SharingPage = sharing.page("SharingPage");
@@ -163,7 +164,8 @@ function Shell({ pending = false }: { pending?: boolean }) {
   const here = tabOf(pathname);
   // Workshop shows with Advanced on (Settings): a tab in the laptop rail, and a row on the You
   // page on a phone (five tabs there).
-  const tabs = [...MAIN_TABS.map(tab), ...(!pending && advancedOf(me.data) ? [tab("workshop")] : [])];
+  // Both bars' tabs in one list (FRAME_TABS): the stylesheet hides Scan on a laptop and Cards on a phone.
+  const tabs = [...FRAME_TABS.map(tab), ...(!pending && advancedOf(me.data) ? [tab("workshop")] : [])];
   return (
     <div className="shell">
       <header className="topbar">
@@ -325,6 +327,8 @@ export function App() {
           <Route path="table/games/:id" element={<Paged page={GameDetailPage} kind="detail" />} />
           <Route path="play/watch" element={<Paged page={WatchHome} title="Watch the computer play" />} />
           <Route path="collection" element={<Paged page={CollectionPage} title="Collection" kind="tiles" />} />
+          {/* The phone's Scan tab: the collection's scanner, open at once. */}
+          <Route path="scan" element={<Paged page={ScanPage} title="Scan cards" />} />
           <Route path="decks" element={<Paged page={DecksPage} title="Decks" kind="tiles" />} />
           <Route path="decks/builds" element={<Paged page={BuildChoicesPage} />} />
           {/* `/decks/research` keeps `?copy=` for shared plans' Save a copy; a note is an archived plan. */}

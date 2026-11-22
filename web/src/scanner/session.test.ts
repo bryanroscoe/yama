@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addOp, changedElsewhere, findRow, identity, noteWrite, planFix, printingFix, removeFix, settled, touched, type Added, type Fix } from "./session";
+import { addOp, afterClear, boxFix, changedElsewhere, findRow, identity, noteWrite, planFix, printingFix, removeFix, settled, toMove, touched, type Added, type Fix } from "./session";
 
 const entry: Added = { key: "k", name: "Sol Ring", scryfall_id: "ecc-57", set: "ecc", number: "57", image: null, finish: "nonfoil", container: "box", copies: 2, auto: true };
 const row = (over: Partial<Parameters<typeof findRow>[0][number]> = {}) => ({ id: "r1", scryfall_id: "ecc-57", qty: 5, condition: "NM", finish: "nonfoil", lang: "en", proxy: false, container_id: "box", ...over });
@@ -128,5 +128,64 @@ describe("rows a write touches", () => {
     const f = printingFix(filed, { scryfall_id: "cmm-410", set: "cmm", number: "410", name: "Sol Ring", prices: right });
     const after = settled({ ...filed, pending: { ops: [], fix: f } });
     expect(after).toMatchObject({ scryfall_id: "cmm-410", set: "cmm", prices: right });
+  });
+});
+
+// Bryan, 22 Nov 2026: "an easy way to add all the things recently scanned to a different box that
+// was selected and maybe even clear the current scan list".
+describe("move all to another box", () => {
+  it("takes this session's copies out of their box and adds them to the new one, the same printing and finish", () => {
+    const f = boxFix(entry, "binder");
+    expect(f).toMatchObject({ scryfall_id: "ecc-57", finish: "nonfoil", copies: 2, container: "binder" });
+    expect(planFix(entry, f, row({ qty: 5 }), ids())).toEqual([
+      { op_id: "op1", kind: "adjust", item_id: "r1", delta: -2 },
+      { op_id: "op2", kind: "add", scryfall_id: "ecc-57", qty: 2, finish: "nonfoil", proxy: false, container_id: "binder" },
+    ]);
+    // Out of every box: not filed anywhere.
+    expect(planFix(entry, boxFix(entry, null), row(), ids())[1]).toMatchObject({ kind: "add", container_id: null });
+    // Already there: nothing to write.
+    expect(planFix(entry, boxFix(entry, "box"), row(), ids())).toEqual([]);
+  });
+
+  it("leaves the box alone for every other fix", () => {
+    expect(planFix(entry, fix({ scryfall_id: "c21-263" }), row(), ids())[1]).toMatchObject({ container_id: "box" });
+    expect(settled({ ...entry, pending: { ops: [], fix: fix({ copies: 3 }) } }).container).toBe("box");
+  });
+
+  it("files the entry in its new box once confirmed, and tracks the new box's row", () => {
+    const moving: Added = { ...entry, pending: { ops: [], fix: boxFix(entry, "binder"), base: 5 } };
+    expect(settled(moving)).toMatchObject({ container: "binder", copies: 2 });
+    expect(touched(moving)).toEqual([identity(entry), identity({ ...entry, container: "binder" })]);
+    const seen = new Map([[identity(entry), 5]]);
+    // The new box's row isn't known yet: looked up after the write.
+    expect(noteWrite(seen, { ...moving, pending: { ...moving.pending!, ops: [{ op_id: "a", kind: "adjust", item_id: "r1", delta: -2 }] } })).toEqual([
+      { name: "Sol Ring", scryfall_id: "ecc-57", finish: "nonfoil", container: "binder" },
+    ]);
+    expect(seen.get(identity(entry))).toBe(3);
+  });
+
+  it("moves only what is elsewhere and not still saving", () => {
+    const list: Added[] = [
+      { ...entry, key: "a" },
+      { ...entry, key: "b", container: "binder" },
+      { ...entry, key: "c", pending: { ops: [], fix: null } },
+      { ...entry, key: "d", checking: "t" },
+    ];
+    const { move, busy } = toMove(list, "binder");
+    expect(move.map((a) => a.key)).toEqual(["a"]);
+    expect(busy).toBe(2);
+  });
+});
+
+describe("clear the list", () => {
+  it("keeps only the cards whose save isn't confirmed: their only record is the list", () => {
+    const list: Added[] = [
+      { ...entry, key: "saved" },
+      { ...entry, key: "saving", pending: { ops: [], fix: null } },
+      { ...entry, key: "failed", pending: { ops: [], fix: null, error: "offline" } },
+      { ...entry, key: "fixing", checking: "t" },
+    ];
+    expect(afterClear(list).map((a) => a.key)).toEqual(["saving", "failed", "fixing"]);
+    expect(afterClear([{ ...entry }])).toEqual([]);
   });
 });

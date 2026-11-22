@@ -7,9 +7,9 @@
 // that tab's `sections` (or `owns`, for a page that isn't listed). Nothing here changes an
 // address: a page moves between tabs by changing which tab its address belongs to.
 import type { ReactNode } from "react";
-import { CardsIcon, CollectionIcon, DecksIcon, GroupIcon, PlayIcon, WorkshopIcon } from "./components/icons";
+import { CardsIcon, CollectionIcon, DecksIcon, GroupIcon, PlayIcon, ScanIcon, WorkshopIcon } from "./components/icons";
 
-export type TabId = "play" | "decks" | "cards" | "collection" | "playgroup" | "workshop" | "you";
+export type TabId = "play" | "decks" | "cards" | "scan" | "collection" | "playgroup" | "workshop" | "you";
 
 /** What the frame knows about whoever is looking, to decide which sections to list. */
 export interface Who {
@@ -88,6 +88,9 @@ export const TABS: NavTab[] = [
     ],
   },
   { id: "cards", to: "/cards", label: "Cards", icon: <CardsIcon />, sections: [{ to: "/cards", label: "Search", title: "Cards" }] },
+  // The phone's bottom bar has Scan where a laptop has Cards (Bryan, 22 Nov 2026: "the card explorer
+  // is not that interesting, let's replace that with a scanner button"); search is in its top bar.
+  { id: "scan", to: "/scan", label: "Scan", icon: <ScanIcon />, sections: [{ to: "/scan", label: "Scan", title: "Scan cards" }] },
   {
     id: "collection",
     to: "/collection",
@@ -121,8 +124,17 @@ export const TABS: NavTab[] = [
   { id: "you", to: "/profile", label: "You", icon: null, owns: ["/sharing", "/new", "/admin"], sections: [{ to: "/profile", label: "You" }] },
 ];
 
-/** The five tabs of the phone's bottom bar and the public header, in order. */
+/** The five tabs of the laptop's rail and the public header, in order. */
 export const MAIN_TABS: TabId[] = ["play", "decks", "cards", "collection", "playgroup"];
+
+/** The five tabs of the app's bottom bar on a phone: Scan in Cards' place (search is in the top bar). */
+export const PHONE_TABS: TabId[] = ["play", "decks", "scan", "collection", "playgroup"];
+
+/**
+ * Both, as the app's frame draws them (App.tsx): one list of links, from which styles.css hides
+ * `nav-scan` on a laptop and `nav-cards` on a phone, so each bar shows its own five.
+ */
+export const FRAME_TABS: TabId[] = ["play", "decks", "cards", "scan", "collection", "playgroup"];
 
 export const tab = (id: TabId): NavTab => TABS.find((t) => t.id === id)!;
 
