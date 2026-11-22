@@ -309,19 +309,28 @@ final class NativeFinder {
                 }
                 note(r.ms);
                 CardOutlineView o = outline;
-                if (o != null) o.see(s.quad, w, h);
+                // (A loop stopped meanwhile draws nothing over the outline its stop cleared.)
+                if (o != null && mine == loopGen) o.see(s.quad, w, h);
             }
         } catch (InterruptedException e) {
             // Stopped.
         } catch (Throwable e) {
-            if (mine == loopGen) fail(e);
+            fail(mine, e);
         }
     }
 
-    private void fail(Throwable e) {
+    /**
+     * The loop `mine` failed: unless it's no longer the newest, the finder stops and says why. The
+     * check and the change are one step under this object's lock, which every change of loop takes,
+     * so a loop replaced meanwhile can't mark its replacement failed (Codex review of #196).
+     */
+    private void fail(int mine, Throwable e) {
         String why = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
-        failure = "The app's card finder stopped: " + why;
-        running = false;
+        synchronized (this) {
+            if (mine != loopGen) return;
+            failure = "The app's card finder stopped: " + why;
+            running = false;
+        }
         CardOutlineView o = outline;
         if (o != null) o.see(null, 0, 0);
         synchronized (lock) {
