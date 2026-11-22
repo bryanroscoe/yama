@@ -1021,8 +1021,14 @@ function ScannerScreen({
     const finding = (fm?.models ?? modelsNow()).detector?.endsWith("-native");
     if (finding && nativeMs.current.length) {
       timing.detail.finder_ms = Math.round(median(nativeMs.current) * 10) / 10;
-      const fps = nativeCam.current?.finderStatus()?.fps;
-      if (fps) timing.detail.finder_fps = fps;
+      const st = nativeCam.current?.finderStatus();
+      if (st?.fps) timing.detail.finder_fps = st.fps;
+      // Where the rest of its frame went: scaling the camera's frame, waiting for the camera's next,
+      // waiting for a text region being cut from the last, the camera's copy of each frame.
+      if (st?.convertMs != null) timing.detail.finder_convert_ms = st.convertMs;
+      if (st?.waitMs != null) timing.detail.finder_wait_ms = st.waitMs;
+      if (st?.cutWaitMs != null) timing.detail.finder_cut_wait_ms = st.cutWaitMs;
+      if (st?.copyMs != null) timing.detail.camera_copy_ms = st.copyMs;
     }
     if (nativeFinderFailedRef.current) timing.detail.finder_fallback = nativeFinderFailedRef.current.slice(0, 120);
     // The art read in the app: its median read (ms, native code), or why the worker read it.
@@ -1206,7 +1212,7 @@ function ScannerScreen({
     if (!nativeWanted("detector", nativeChoices)) return undefined;
     const st = nativeCam.current?.finderStatus();
     // (Scanning rests while Scan settings is open: its pace is from the frames before.)
-    if (nativeFinderReady && st?.ms) return `Running in the app: ${st.ms} ms a frame${st.fps ? `, ${st.fps} frames a second` : ""}.`;
+    if (nativeFinderReady && st?.ms) return `Running in the app: ${st.ms} ms a frame${st.fps ? `, ${st.fps} frames a second` : ""}${st.convertMs != null ? `, and ${st.convertMs} ms to scale each camera frame for it` : ""}.`;
     return nativeFinderReady ? "Loaded in the app." : "Loading in the app…";
   };
   /** What the app's art reader is doing, for Scan settings. */

@@ -154,6 +154,16 @@ export interface NativeFinderStatus {
   /** The median find of the last frames, ms, and frames found a second. */
   ms?: number;
   fps?: number;
+  /**
+   * Where the rest of a frame's time goes (medians, ms): scaling the camera's frame for the finder,
+   * waiting for the camera's next frame, waiting for a text region being cut from the frame before,
+   * and the camera thread's copy of each frame it keeps. An APK from before these (22 Nov 2026)
+   * doesn't say.
+   */
+  convertMs?: number;
+  waitMs?: number;
+  cutWaitMs?: number;
+  copyMs?: number;
   /** The art model is loaded in the app too (`loadNativeArt`). */
   art?: boolean;
 }

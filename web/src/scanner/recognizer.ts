@@ -222,10 +222,14 @@ export interface OrtLike {
  * rule locked the same 96.2% right, 0 wrong and 9 unknown cards as all 17 cuts, with 89.8% settled by
  * the first stage; on the 124 real photos, the same 94.4%, 0 wrong, 87.1% by the first stage. At 0.65
  * the first stage locked 2 simulated captures wrongly (a Murder as Demonic Consultation, a Spirit token
- * as Arcane Signet), so it asks for more than the lead rule.
+ * as Arcane Signet), so it asks for more than the lead rule. 0.70 since 22 Nov 2026, when the cascade
+ * became the default (docs/scanner.md, "The faster models as the defaults"): on the real photos and
+ * 1,840 more simulated frames, with each card finder, 3 of the 42 first stages that settled between
+ * 0.68 and 0.70 named the wrong card where all 17 cuts named the right one; none of the 3,373 that
+ * settled at 0.70 or more did.
  */
 export const FIRST_STAGE = ["modern", "old"];
-export const FIRST_FLOOR = 0.68;
+export const FIRST_FLOOR = 0.7;
 interface Session {
   readonly inputNames: readonly string[];
   run(feeds: Record<string, unknown>): Promise<Record<string, { data: unknown }>>;
@@ -510,7 +514,11 @@ export async function createRecognizer(
   const otherCuts = allCuts.filter((i) => !FIRST_STAGE.includes(frameNames[i]!));
   const stagesFor = (session: Session) =>
     extras.cascade !== false && session.inputNames.includes("cuts") && firstCuts.length === FIRST_STAGE.length && otherCuts.length ? { first: firstCuts, rest: otherCuts } : null;
-  /** The first stage settles the frame: a card FIRST_FLOOR or more, LEAD_MARGIN ahead of every other card listed. */
+  /**
+   * The first stage settles the frame: a card FIRST_FLOOR or more, LEAD_MARGIN ahead of every other
+   * card listed. Also what makes a read at handed corners doubtful enough to read turned half round
+   * (`matchAt`, `turn`), whichever art model runs.
+   */
   const settles = (out: ArtMatch[]) => !!out[0] && out[0].score >= FIRST_FLOOR && artLead(out) >= LEAD_MARGIN;
   /** The embed graph's output for these cuts (every cut when it takes `cuts` and none are named). */
   const embedRun = async (session: Session, whole: RgbaImage, at: Quad, cuts?: number[], into: GraphRuns = noRuns(), remote?: RemoteRun) => {
