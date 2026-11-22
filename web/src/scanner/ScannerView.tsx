@@ -28,6 +28,7 @@ import { NameEntry } from "./NameEntry";
 import { CollectorPeek } from "./peek";
 import { filedFinish, priceFor, pricesOf, worthIt, type RecentCard, type ScanFinish } from "./price";
 import { ScanTray } from "./ScanTray";
+import { useTestScan } from "./testScan";
 import { PLAY_WORD, playTag, usePlayability } from "./playable";
 import { holdSound } from "../sound";
 import { filedSound, playScanSound, setSoundsOn, setWorthThreshold, soundsOn, unlockSound, worthThreshold, type ScanSound } from "./sounds";
@@ -172,6 +173,19 @@ export interface ScannerViewProps {
    * unless only the card's identity matters.
    */
   setLock?: boolean;
+  /**
+   * Clear the list of cards scanned so far (Bryan, 22 Nov 2026: "maybe even clear the current scan
+   * list"): offered in Scan settings and beside Review all. The host decides what it means (and
+   * asks first where the list is work in progress); test scan clears its own list.
+   */
+  onClear?: () => void;
+  /** What Clear the list does, in a few words, beside its button. */
+  clearNote?: string;
+  /**
+   * Set by test scan (testScan.tsx), never by a host: no scan photo is kept, and Scanner
+   * diagnostics' timing records are marked `test_scan`.
+   */
+  testScan?: boolean;
 }
 
 type Phase = "loading" | "scanning" | "found" | "no-camera";
@@ -500,7 +514,18 @@ const candidateOf = (f: Found, p: Printing | null): ScanCandidate => ({
   prices: p ? pricesOf(p) : undefined,
 });
 
-export function ScannerView({
+/**
+ * The camera screen. Test scan (testScan.tsx) sits in front of every host's props: off, they pass
+ * as they are; on, nothing the scanner finds reaches the host.
+ */
+export function ScannerView(props: ScannerViewProps) {
+  const shown = useTestScan(props);
+  // Switching test scan on or off starts the camera screen afresh, so a card found (or still being
+  // read) under one mode is never filed under the other: a test card never reaches the host's save.
+  return <ScannerScreen key={shown.testScan ? "test" : "scan"} {...shown} />;
+}
+
+function ScannerScreen({
   onAccept,
   onUndo,
   onCorrect,
@@ -531,6 +556,8 @@ export function ScannerView({
   addedWord = "Added",
   haptics = true,
   setLock: lockOffered = !identityOnly,
+  onClear,
+  testScan = false,
 }: ScannerViewProps) {
   // Read through a ref, so callbacks made in an earlier render follow a change (a Mute switch).
   const hapticsRef = useRef(haptics);
@@ -2243,7 +2270,8 @@ export function ScannerView({
 
   /** Keep the photo of this card, if Save scan photos is on, with what the person said it was. */
   const keep = (f: Found, kind: SampleLabel["kind"], label?: ScanCandidate) => {
-    if (!f.shot) return;
+    // Test scan keeps nothing: its cards weren't confirmed as added, so they'd be wrong labels.
+    if (!f.shot || testScan) return;
     void keepSample(f.shot, {
       ...(f.guess ?? guessOf(f)),
       kind: sampleKind(f, kind, label),
@@ -2641,6 +2669,7 @@ export function ScannerView({
     if (f.timing) {
       if (!identityOnly && c) f.timing.printed(printingWay(f, c));
       f.timing.detail.auto = auto;
+      if (testScan) f.timing.detail.test_scan = true;
       // Whether the look's closest printing is the one filed (the first filing only): with the
       // lead it had (`look_lead`), what settling by look would have done, whichever option ran.
       const lookScores = look?.complete && look.seq === foundSeq.current ? look.scores : undefined;
@@ -3107,7 +3136,7 @@ export function ScannerView({
         )}
       </div>
 
-      {recentCards && recentCards.length > 0 && <ScanTray cards={recentCards} worth={identityOnly ? Infinity : worth} onOpen={onOpenCard} onReview={onShowAdded} event={receiptEvent} actions={receiptActions} announce={receiptAnnounce} />}
+      {recentCards && recentCards.length > 0 && <ScanTray cards={recentCards} worth={identityOnly ? Infinity : worth} onOpen={onOpenCard} onReview={onShowAdded} onClear={onClear} event={receiptEvent} actions={receiptActions} announce={receiptAnnounce} />}
       <div ref={panelRef} className={`scan-panel${sheet.hidden ? " is-hidden" : ""}`} aria-live="polite">
         {/* "Use a photo" in More opens this: it stays mounted when the menu closes. */}
         <input

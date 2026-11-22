@@ -1042,6 +1042,7 @@ body::before {
    bar keeps its five tabs. */
 .nav a.nav-home,
 .nav a.nav-workshop,
+.nav a.nav-cards,
 .nav .rail-foot {
   display: none;
 }
@@ -1106,8 +1107,13 @@ body::before {
     background: var(--raised);
     color: var(--text);
   }
-  .nav a.nav-workshop {
+  .nav a.nav-workshop,
+  .nav a.nav-cards {
     display: flex;
+  }
+  /* The phone's Scan tab; a laptop keeps Cards (nav.tsx, FRAME_TABS). */
+  .nav a.nav-scan {
+    display: none;
   }
   /* The wordmark goes home. Not a tab: no pill behind it. */
   .nav a.nav-home {

@@ -464,6 +464,8 @@ function Camera({ deck, target, draft, verdicts, setDraft, muted, onMute, onClos
             paused={reviewing}
             onAccept={(card) => setDraft((x) => addCard(x, card.name))}
             onClose={onClose}
+            onClear={async () => (await ask({ title: "Start the check over?", body: "The cards checked so far are cleared.", confirm: "Start over", danger: true })) && setDraft((x) => ({ ...x, cards: [] }))}
+            clearNote="Asks first: the check starts over."
             addedCount={sum.checked}
             onShowAdded={() => setReviewing(true)}
             addedWord="Checked"

@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TabSections } from "./components/TabSections";
-import { MAIN_TABS, TABS, sectionOf, sectionsFor, tab, tabOf, type Who } from "./nav";
+import { FRAME_TABS, MAIN_TABS, PHONE_TABS, TABS, sectionOf, sectionsFor, tab, tabOf, type Who } from "./nav";
 // @ts-expect-error The polish tool's route reader is plain JavaScript with no types.
 import { routesFromApp } from "../scripts/polish/routes.mjs";
 
@@ -46,10 +46,28 @@ describe("the public pages' frame", () => {
   });
 });
 
+describe("the phone's bottom bar", () => {
+  // Bryan, 22 Nov 2026: "the card explorer is not that interesting, let's replace that with a scanner button".
+  it("has Scan in Cards' place; search stays in the phone's top bar", () => {
+    expect(PHONE_TABS.map((id) => tab(id).label)).toEqual(["Play", "Decks", "Scan", "Collection", "Playgroup"]);
+    expect(tab("scan").to).toBe("/scan");
+  });
+
+  it("is drawn with the laptop's rail from one list, each bar's own five in its own order", () => {
+    expect(FRAME_TABS.filter((id) => MAIN_TABS.includes(id))).toEqual(MAIN_TABS);
+    expect(FRAME_TABS.filter((id) => PHONE_TABS.includes(id))).toEqual(PHONE_TABS);
+    expect(new Set(FRAME_TABS)).toEqual(new Set([...MAIN_TABS, ...PHONE_TABS]));
+    // Each bar hides the other's own tab (styles.css).
+    const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+    expect(css).toMatch(/\.nav a\.nav-cards,?[^{]*\{[^}]*display: none/);
+    expect(css).toMatch(/\.nav a\.nav-scan \{\s*display: none/);
+  });
+});
+
 describe("the tabs", () => {
   it("are Play, Decks, Cards, Collection and Playgroup, with Workshop and You beside them", () => {
     expect(MAIN_TABS.map((id) => tab(id).label)).toEqual(["Play", "Decks", "Cards", "Collection", "Playgroup"]);
-    expect(TABS.map((t) => t.label)).toEqual(["Play", "Decks", "Cards", "Collection", "Playgroup", "Workshop", "You"]);
+    expect(TABS.map((t) => t.label)).toEqual(["Play", "Decks", "Cards", "Scan", "Collection", "Playgroup", "Workshop", "You"]);
     // The names Bryan chose (12 Nov 2026): Playgroup, not Group; Life counter, not Table.
     const words = TABS.flatMap((t) => [t.label, ...t.sections.map((s) => s.label)]);
     for (const old of ["Table", "Group", "Lab", "Sharing"]) expect(words).not.toContain(old);
@@ -65,6 +83,7 @@ describe("the tabs", () => {
       play: ["/play/table", "/table", "/table/games", "/table/games/abc", "/play", "/play/watch", "/play/abc"],
       decks: ["/decks", "/decks/", "/decks/import", "/decks/changes", "/decks/abc", "/decks/abc/stats", "/decks/abc/edit", "/lab", "/lab/p/riders"],
       cards: ["/cards"],
+      scan: ["/scan"],
       collection: ["/collection", "/collection/wishlist", "/collection/trade", "/sharing/compare/pat"],
       playgroup: ["/group"],
       workshop: [

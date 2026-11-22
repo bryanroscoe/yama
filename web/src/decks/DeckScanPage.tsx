@@ -271,6 +271,8 @@ function Camera({ deck, draft, setDraft, onClose }: { deck: DeckView; draft: Sca
             paused={reviewing}
             onAccept={(card) => setDraft((x) => addCard(x, card.name))}
             onClose={onClose}
+            onClear={async () => (await ask({ title: "Start the scan over?", body: "The cards scanned so far are cleared.", confirm: "Start over", danger: true })) && setDraft((x) => ({ ...x, cards: [] }))}
+            clearNote="Asks first: the scan starts over."
             addedCount={p.count}
             onShowAdded={() => setReviewing(true)}
             recent={recent}
