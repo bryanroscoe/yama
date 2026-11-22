@@ -24,6 +24,7 @@ import { Capacitor, registerPlugin } from "@capacitor/core";
 import { cameraInfo } from "./camera";
 import { CUT_SIDE, cutBox, draw, type BridgeCost, type CameraSource, type FrameElement, type SourceInfo } from "./cameraSource";
 import { RECOGNIZER_SHORT_SIDE } from "./artClient";
+import { canFit, DEFAULT_ASPECT, fitPicture } from "./fit";
 import type { Quad, RgbaImage } from "./types";
 
 // ---- The option ----
@@ -56,17 +57,30 @@ const positive = (v: unknown): v is number => typeof v === "number" && Number.is
  * wasn't selected on his Pixel after it became the default). Only a choice saved since counts
  * as opting out.
  */
-const SAVED_VERSION = 2;
+//
+// Version 3 (22 Nov 2026): the main lens became the default, in place of Automatic (Bryan's Pixel
+// switched to its ultra-wide lens up close: "it looks a little distorted"). Automatic was the only
+// default before, so an option saved before version 3 with Automatic takes the new default; any
+// other lens chosen before is kept.
+const SAVED_VERSION = 3;
+
+/**
+ * The scanner's lens unless one is chosen: the main lens, so the phone never switches to its
+ * ultra-wide (softer, and bent at the edges) for a card held close. Where the phone doesn't list
+ * its lenses, the camera as Android presents it, which is then its main lens.
+ */
+export const DEFAULT_LENS: NativeLens = "main";
 
 /** Use the app's own camera where the plugin is available unless this device opted out. */
 export function savedNativeCamera(): NativeCameraOption {
-  const defaults: NativeCameraOption = { on: nativeCameraAvailable(), lens: "auto", fps: 30, torchLevel: null };
+  const defaults: NativeCameraOption = { on: nativeCameraAvailable(), lens: DEFAULT_LENS, fps: 30, torchLevel: null };
   try {
     const v = JSON.parse(localStorage.getItem(NATIVE_CAMERA_KEY) ?? "null") as (Partial<NativeCameraOption> & { v?: unknown }) | null;
     if (!v || typeof v !== "object") return defaults;
+    const version = typeof v.v === "number" ? v.v : 1;
     return {
-      on: v.v === SAVED_VERSION && typeof v.on === "boolean" ? v.on : defaults.on,
-      lens: isLens(v.lens) ? v.lens : defaults.lens,
+      on: version >= 2 && typeof v.on === "boolean" ? v.on : defaults.on,
+      lens: isLens(v.lens) && (version >= SAVED_VERSION || v.lens !== "auto") ? v.lens : defaults.lens,
       fps: v.fps === 60 ? 60 : defaults.fps,
       torchLevel: positive(v.torchLevel) ? Math.round(v.torchLevel) : defaults.torchLevel,
     };
@@ -121,6 +135,8 @@ export interface NativeDescribed {
   torchLevel?: number;
   focusMode: string;
   focusDistance?: number;
+  /** The open camera's focal length as a 35 mm camera's (APKs since 22 Nov 2026), or absent. */
+  equivalent?: number;
   /** Metres: as near as the lens focuses, and where everything beyond is sharp. Absent when focus can't be set. */
   focusNearest?: number;
   focusFarthest?: number;
@@ -248,9 +264,26 @@ export interface ScannerCameraPlugin {
   artUnload?(): Promise<void>;
   /** Rejects with code "gone" when the frame's crop isn't kept any more. */
   embed?(o: { seq: number; quad: [number, number][]; cuts?: number[]; key?: string }): Promise<{ data: string; rows: number; dim: number; ms: number }>;
+  /** Keep the screen on, or let it sleep (APKs since 22 Nov 2026; an older one rejects as unimplemented). */
+  keepScreenOn?(o: { on: boolean }): Promise<void>;
 }
 
 const ScannerCamera = registerPlugin<ScannerCameraPlugin>("ScannerCamera");
+
+/**
+ * Ask the app to keep the screen on (or let it sleep). Resolves false where it can't: not the app,
+ * or an APK from before the method, whose plugin rejects the call (screenAwake.ts then tries the
+ * browser's wake lock).
+ */
+export async function nativeKeepScreenOn(on: boolean, plugin: Pick<ScannerCameraPlugin, "keepScreenOn"> = ScannerCamera): Promise<boolean> {
+  if (!nativeCameraAvailable()) return false;
+  try {
+    await plugin.keepScreenOn!({ on });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 // ---- Frames across the bridge ----
 
@@ -541,13 +574,23 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
     srcObject: { configurable: true, get: () => (closed || !described ? null : track) },
   });
 
+  /** The picture's shape: the frames' once they arrive, else the page's own default (as its layout takes it). */
+  const aspect = (): number => (hasFrame && el.height > 0 ? el.width / el.height : DEFAULT_ASPECT);
+  /** Where the preview goes: the camera box, fitted as the page fits the picture (fit.ts). */
   const rect = (): NativeRect | null => {
     const box = (el.closest(".scan-camera") ?? el).getBoundingClientRect();
-    return box.width > 0 && box.height > 0 ? { x: box.left, y: box.top, width: box.width, height: box.height, viewWidth: window.innerWidth } : null;
+    if (!(box.width > 0 && box.height > 0)) return null;
+    // A web view too old for the page's fit covers the box, and so does the preview (FILL_CENTER).
+    if (!canFit()) return { x: box.left, y: box.top, width: box.width, height: box.height, viewWidth: window.innerWidth };
+    const r = fitPicture(box, aspect());
+    return { x: r.left, y: r.top, width: r.width, height: r.height, viewWidth: window.innerWidth };
   };
+  /** Set once the camera is open: places the preview again (a new picture shape, the box moving). */
+  let refit: (() => void) | null = null;
 
   const put = (f: NativeFrame) => {
     const started = performance.now();
+    const resized = el.width !== f.width || el.height !== f.height || !hasFrame;
     if (el.width !== f.width) el.width = f.width;
     if (el.height !== f.height) el.height = f.height;
     el.getContext("2d", { willReadFrequently: true })?.putImageData(imageOf(f) as ImageData, 0, 0);
@@ -555,6 +598,11 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
     // With the canvas: the read loop takes the two together (`found()`).
     lastFound = f.finder && f.finder.state !== FOUND_OFF ? f.finder : null;
     hasFrame = true;
+    if (resized) {
+      // The page fits the picture by its shape, as a <video> tells it of a new size.
+      el.dispatchEvent(new Event("resize"));
+      refit?.();
+    }
     costs.push({ convert: f.convertMs, transit: f.transitMs, draw: performance.now() - started, bytes: f.data.byteLength });
     if (costs.length > COST_WINDOW) costs.shift();
   };
@@ -708,11 +756,13 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
       const r = rect();
       if (r && !closed) void plugin.setRect({ rect: r }).catch(() => undefined);
     };
+    refit = follow;
     const box = el.closest(".scan-camera") ?? el;
     const ro = typeof ResizeObserver === "function" ? new ResizeObserver(follow) : null;
     ro?.observe(box);
     window.addEventListener("resize", follow);
     cleanups.push(() => {
+      refit = null;
       ro?.disconnect();
       window.removeEventListener("resize", follow);
     });

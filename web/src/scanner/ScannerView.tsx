@@ -10,7 +10,7 @@
 //
 // Needs a secure context for the camera (https or localhost). "Use a photo" works anywhere.
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type Ref } from "react";
 import { api, API_BASE, type Printing } from "../api";
 import { loadArtRecognizer, NO_ART_MODEL, RECOGNIZER_SHORT_SIDE, scanBundleInfo, type ArtRecognizer, type BundleInfo, type LoadState, type LookDone } from "./artClient";
 import { lookBest, lookCandidates, lookLead, lookOrder, lookSettles, lookTimingDetail, withoutMisread, type LookScores } from "./look";
@@ -42,7 +42,9 @@ import { deleteSamples, photosLine, sameCardView, sampleSummary, savingPhotos, S
 import { SetLockPicker } from "./SetLockPicker";
 import { treatmentOf } from "./session";
 import { artInSets, inLockedSets, KNOWN_ART, knownArtShare, leadCounts, POOL_MARGIN, judgeLocked, lockedNames, lockedSet, poolKeys, readTitleFirst, savedLock, saveLock, suggestLock, type LockedSet } from "./setlock";
-import { CameraControls, cameraInfo, digitalRegion, useCameraControls, type CameraInfo } from "./camera";
+import { CameraControls, cameraInfo, useCameraControls, type CameraInfo } from "./camera";
+import { zoomRegion } from "./fit";
+import { keepScreenAwake } from "./screenAwake";
 import { saysCardBack } from "./cardBack";
 import { CardOutline } from "./CardOutline";
 import { ask60, askUsualRate, fps60On, FrameRateMeter, setFps60, watchFrameRate } from "./frameRate";
@@ -51,17 +53,17 @@ import { GATE_DEFAULTS, Motion, PlacementGate } from "./gate";
 import { BACK_KEY, GATE_PASS_MS, GATE_SAYS, gateStatus, type GateFrame, type GateRead } from "./gateLoop";
 import { defaultCamera, nameCameras, resolveSaved, saveCamera, savedCamera, type NamedCamera } from "./cameras";
 import { browserCameraSource, draw, sourceLabel, type CameraSource, type SourceInfo } from "./cameraSource";
-import { finderKey, FOUND_CARD, FOUND_FAILED, FOUND_NONE, loadNativeArt, loadNativeFinder, nativeCameraAvailable, nativeEmbed, nativeFinderAbility, NATIVE_GONE, openNativeCamera, saveNativeCamera, savedNativeCamera, unloadNativeArt, unloadNativeFinder, type NativeCamera, type NativeFinderAbility } from "./nativeCamera";
+import { finderKey, FOUND_CARD, FOUND_FAILED, FOUND_NONE, loadNativeArt, loadNativeFinder, nativeCameraAvailable, nativeEmbed, nativeFinderAbility, NATIVE_GONE, openNativeCamera, saveNativeCamera, savedNativeCamera, unloadNativeArt, unloadNativeFinder, type NativeCamera, type NativeFinderAbility, type NativeLens } from "./nativeCamera";
 import { nativeId, nativeWanted, onNativeChange, saveNative, savedNative } from "./nativeModels";
 import { cachedFile } from "./scanCache";
 import { NativeCameraSetting } from "./NativeCameraSetting";
 import { AUTO_MAX, AutoZoom, LENS_SWITCH, maySwitchLens } from "./zoomPolicy";
-import { cardHeight, tooFar } from "./closer";
+import { cardHeight, distanceHint, tooCloseToFocus, tooFar, type FocusLens } from "./closer";
 import { createServerCatalog } from "./serverCatalog";
 import { availableEngines, createScannerOcr, ENGINE_LABEL, engineOrder, plannedEngine, type OcrChoice, type ScannerOcr } from "./ocrEngine";
 import { HeldRead, type HeldVerdict } from "./heldRead";
 import { Evidence, progressLine, proofOf } from "./evidence";
-import { artDecides, artHas, artLead, fuseTitle, LeadRun, leads, needsTitle, titleRead, type Fused, type LockRule } from "./fuse";
+import { artDecides, artHas, artLead, fuseTitle, LEAD_FLOOR, LEAD_MARGIN, LeadRun, leads, needsTitle, titleRead, type Fused, type LockRule } from "./fuse";
 import { worthReading } from "./quality";
 import { pickHeldQuad, sameHeldCard } from "./heldCard";
 import { VersionLine } from "../version";
@@ -425,6 +427,8 @@ const READING: string = GATE_SAYS.reading;
  * With the set lock, as far as judgeLocked lets an in-set match trail the best one anywhere.
  */
 const SAME_CARD_MARGIN = 0.02;
+/** The card is nearer than the lens focuses, or too big to show whole (closer.ts). */
+const FURTHER = "Hold the phone a little further away";
 
 const sameCard = (a: ScanCandidate | undefined, b: ScanCandidate | undefined) => !!a && !!b && a.name === b.name && a.set === b.set && a.number === b.number;
 
@@ -784,6 +788,11 @@ function ScannerScreen({
   const [gaveUp, setGaveUp] = useState(false);
   /** Reading the printing from whole-card frames while the card is held (heldRead.ts). */
   const [holding, setHolding] = useState(false);
+  /**
+   * The card (its `foundSeq`) whose printing read ended because another card was plainly in view:
+   * the camera then says the scanner is still on it, not on the card you can see (Bryan, 22 Nov 2026).
+   */
+  const [anotherAt, setAnotherAt] = useState<number | null>(null);
   /** The text reader in use, once started (ocrEngine.ts); shown in Scan settings. */
   const [ocrName, setOcrName] = useState<ScannerOcr["engine"] | null>(null);
   const closeRef = useRef<HTMLDivElement>(null);
@@ -799,6 +808,8 @@ function ScannerScreen({
   const [cameraId, setCameraId] = useState<string | null>(() => savedCamera()?.id ?? null);
   /** What the camera in use delivers and can do (camera.tsx), kept for the diagnostics to come. */
   const [cameraNow, setCameraNow] = useState<CameraInfo | null>(null);
+  /** The picture's size, which the camera box fits by its height (fit.ts): null until it's known. */
+  const [frameSize, setFrameSize] = useState<{ w: number; h: number } | null>(null);
   /** A photo is being read: the camera loop waits, so the two can't both report a card. */
   const [photoBusy, setPhotoBusy] = useState(false);
   /** The camera is running (a close-up needs it). */
@@ -837,6 +848,12 @@ function ScannerScreen({
   const [nativeOpt, setNativeOpt] = useState(savedNativeCamera);
   const [nativeFailed, setNativeFailed] = useState<string | null>(null);
   const useNative = nativeOpt.on && !nativeFailed && nativeCameraAvailable();
+  /**
+   * A lens of its own that wouldn't open this visit (the main lens by default): the app's camera
+   * is opened on Automatic instead before the browser's camera is tried, and Scan settings says so.
+   */
+  const [lensFailed, setLensFailed] = useState<{ lens: NativeLens; why: string } | null>(null);
+  const lensAsked: NativeLens = lensFailed && lensFailed.lens === nativeOpt.lens ? "auto" : nativeOpt.lens;
   const nativeCam = useRef<NativeCamera | null>(null);
   const browserCam = useRef<CameraSource | null>(null);
   /** The camera frames are read from (cameraSource.ts): the app's own while it's open, else the browser's video. */
@@ -1129,23 +1146,39 @@ function ScannerScreen({
   useEffect(() => {
     autoZoomRef.current = cam.caps.zoom ? new AutoZoom(cam.caps.zoom) : null;
   }, [cam.caps.zoom]);
-  /** The collector line's letters are too small to read where the card is (closer.ts). */
-  const [far, setFar] = useState(false);
   /**
-   * Each frame's card, in video pixels (null when none): the "Move closer" hint, and auto-zoom's
-   * step toward the card filling the view (the view the camera box shows, at the camera's zoom).
+   * Where the card is for reading it (closer.ts): too far for the collector line's letters ("Move
+   * closer"), nearer than the lens focuses or too big to show whole ("further away"), or fine.
+   * Neither while auto-zoom can still make up the difference.
+   */
+  const [distance, setDistance] = useState<"far" | "close" | null>(null);
+  const far = distance === "far";
+  /** The lens in use, where the app's camera has one lens to itself: its focal length and nearest focus. */
+  const focusLens = (): FocusLens | null => {
+    const d = nativeCam.current?.described();
+    if (!d || !d.focusNearest) return null;
+    // A lens chosen by itself; or a phone that lists no lenses, whose one camera is what's open
+    // (Codex review of #202). Never Automatic over several lenses: its figures mix them.
+    const equivalent = d.lens !== "auto" ? (d.lenses.find((l) => l.lens === d.lens)?.equivalent ?? 0) : d.lenses.length === 0 ? (d.equivalent ?? 0) : 0;
+    return equivalent > 0 ? { equivalent, nearest: d.focusNearest } : null;
+  };
+  /**
+   * Each frame's card, in video pixels (null when none): the distance hints, and auto-zoom's step
+   * toward the card filling the view (the view the camera box shows, at the camera's zoom).
    */
   const seeCard = (quad: Quad | null, v: HTMLVideoElement) => {
-    // By the card's size in the camera's full frame (the app's own camera hands frames over smaller).
-    const full = camSrc().fullScale();
-    setFar(!!quad && tooFar(full === 1 ? quad : (quad.map(([x, y]) => [x * full, y * full]) as Quad)));
     const az = autoZoomRef.current;
     const c = camRef.current;
-    if (!az || c.userZoomed()) return;
-    const box = v.closest(".scan-camera")?.getBoundingClientRect();
-    const k = box && box.width > 0 && box.height > 0 ? Math.max(box.width / v.videoWidth, box.height / v.videoHeight) : 1;
-    const visibleH = box && box.height > 0 ? Math.min(v.videoHeight, box.height / k) : v.videoHeight;
-    const z = az.frame(quad ? cardHeight(quad) / visibleH : null, c.zoom, performance.now());
+    const zooms = !!az && !c.userZoomed();
+    // By the picture's height, nearly all of which always shows (fit.ts), whatever the sheet leaves.
+    const share = quad && v.videoHeight > 0 ? cardHeight(quad) / v.videoHeight : null;
+    // By the card's size in the camera's full frame (the app's own camera hands frames over smaller).
+    const full = camSrc().fullScale();
+    const tooSmall = !!quad && tooFar(full === 1 ? quad : (quad.map(([x, y]) => [x * full, y * full]) as Quad));
+    const unfocused = share != null && tooCloseToFocus(share, focusLens(), c.zoom);
+    setDistance(distanceHint({ share, tooSmall, unfocused, zoom: zooms ? { canZoomIn: az!.canZoomIn(c.zoom), canZoomOut: az!.canZoomOut(c.zoom) } : null }));
+    if (!zooms) return;
+    const z = az!.frame(share, c.zoom, performance.now());
     if (z != null) c.autoZoom(z);
   };
   /**
@@ -1631,6 +1664,32 @@ function ScannerScreen({
     });
   }, [mode, lock, lockOn]);
 
+  // The screen stays on while the camera runs (screenAwake.ts), and may sleep once it stops or the
+  // scanner closes.
+  useEffect(() => {
+    if (!live) return;
+    return keepScreenAwake();
+  }, [live]);
+
+  // The picture's shape, for fitting it to the camera box (fit.ts): the <video>, or the canvas the
+  // app's own camera fills, says when its size changes.
+  useEffect(() => {
+    const el = videoRef.current as (HTMLElement & { videoWidth?: number; videoHeight?: number }) | null;
+    if (!el) return;
+    const read = () => {
+      const w = el.videoWidth ?? 0;
+      const h = el.videoHeight ?? 0;
+      if (w > 0 && h > 0) setFrameSize((s) => (s && s.w === w && s.h === h ? s : { w, h }));
+    };
+    read();
+    el.addEventListener("resize", read);
+    el.addEventListener("loadedmetadata", read);
+    return () => {
+      el.removeEventListener("resize", read);
+      el.removeEventListener("loadedmetadata", read);
+    };
+  }, [useNative]);
+
   // Camera: the one chosen in Scan settings, else the main back camera (cameras.ts), else the
   // browser's back camera. The list of cameras is only named once the camera is allowed.
   useEffect(() => {
@@ -1648,7 +1707,7 @@ function ScannerScreen({
       };
       // The same sizes the browser's camera is asked for, below.
       const size = identityOnly ? { width: 1920, height: 1080 } : { width: 3840, height: 2160 };
-      const native = openNativeCamera(el, { lens: nativeOpt.lens, fps: nativeOpt.fps, ...size, torchLevel: nativeOpt.torchLevel }, { onInfo: told });
+      const native = openNativeCamera(el, { lens: lensAsked, fps: nativeOpt.fps, ...size, torchLevel: nativeOpt.torchLevel }, { onInfo: told });
       nativeCam.current = native;
       native.ready.then(
         (info) => {
@@ -1661,8 +1720,12 @@ function ScannerScreen({
           setPhase((p) => (p === "loading" ? "scanning" : p));
         },
         (e: unknown) => {
+          if (stopped) return;
+          const why = e instanceof Error ? e.message : "it didn't open";
+          // A lens of its own that won't open: the app's camera on Automatic first.
+          if (lensAsked !== "auto") setLensFailed({ lens: lensAsked, why });
           // It won't open here: the camera as before, and Scan settings say why.
-          if (!stopped) setNativeFailed(e instanceof Error ? e.message : "it didn't open");
+          else setNativeFailed(why);
         },
       );
       return () => {
@@ -1774,7 +1837,7 @@ function ScannerScreen({
     // cam.attach and haltReaders are stable for this purpose. The app's camera reopens for a new
     // lens or capture rate; its flashlight strength changes as it runs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cameraId, useNative, nativeOpt.lens, nativeOpt.fps]);
+  }, [cameraId, useNative, lensAsked, nativeOpt.fps]);
 
   /** The look at the found card's printings under way (look.ts): stopped when the card is done with or its printing chosen. */
   const lookRun = useRef<{ seq: number; stop: AbortController } | null>(null);
@@ -2224,6 +2287,8 @@ function ScannerScreen({
       clearTimeout(timer);
     };
     readers.current.add(halt);
+    // What the card's distance was is for this run of the loop only (a stale hint, after).
+    setDistance(null);
     let unknownFrames = 0;
     let textFrame = 0;
     /** Text-only reads in a row that found nothing, for the timing record. */
@@ -2270,7 +2335,7 @@ function ScannerScreen({
           const frameAt = Date.now();
           // A digital zoom gives the recognizer the middle of the frame, at more of its pixels.
           const box = v.closest(".scan-camera")?.getBoundingClientRect();
-          const zone = digitalRegion(v.videoWidth, v.videoHeight, digitalRef.current, box);
+          const zone = zoomRegion(v.videoWidth, v.videoHeight, digitalRef.current, box);
           const { image, k } = smallRegion(v, zone, canvasRef.current);
           // Taken with the frame (nothing runs between): where the app's own card finder placed the
           // card on it, in the recognizer's pixels. Then the web view's finder doesn't run on it.
@@ -2883,16 +2948,22 @@ function ScannerScreen({
     noteReads(foundSeq.current, ev);
     setReadProgress(null);
     const heldArt = start.art?.index ?? null;
+    const heldSeq = foundSeq.current;
     /** Where the card was last seen, in video pixels (not by art). */
     let lastQuad: Quad | null = null;
+    /** On the frame `locate` last looked at: another card plainly in view instead of this one. */
+    let otherInView = false;
     setHolding(true);
     setGaveUp(false);
+    setAnotherAt(null);
+    setDistance(null);
     const next = (ms: number) => {
       if (!stop) timer = setTimeout(tick, ms);
     };
     const done = (gaveUpNow = false) => {
       stop = true;
       setHolding(false);
+      setDistance(null);
       if (gaveUpNow) setGaveUp(true);
     };
     const settleOn = (c: Choice, text: string) => {
@@ -2910,23 +2981,28 @@ function ScannerScreen({
     const locate = async (src: CanvasImageSource, w: number, h: number, video: HTMLVideoElement | null): Promise<Quad | null> => {
       const art = artRef.current;
       canvasRef.current ??= document.createElement("canvas");
+      if (video) otherInView = false;
       if (art) {
         const box = video?.closest(".scan-camera")?.getBoundingClientRect();
-        const zone = video ? digitalRegion(w, h, digitalRef.current, box) : { x: 0, y: 0, w, h };
+        const zone = video ? zoomRegion(w, h, digitalRef.current, box) : { x: 0, y: 0, w, h };
         const { image, k } = smallRegion(src, zone, canvasRef.current);
         const r = await art.identify(image);
         if (!r.quad) return null;
         const quad = r.quad.map(([x, y]) => [x / k + zone.x, y / k + zone.y]) as Quad;
         const all = [...r.matches, ...(r.pool ?? [])];
+        const top = all.reduce<ArtMatch | null>((b, m) => (!b || m.score > b.score ? m : b), null);
+        const heldScore = heldArt == null ? -1 : Math.max(-1, ...all.filter((m) => m.index === heldArt).map((m) => m.score));
+        // Another card plainly in view (a frame of the camera, not a still): one the art knows surely,
+        // or that leads this one as a card's art must lead every other to name it (fuse.ts). A few
+        // such frames in a row end the read at once.
+        if (video && top && !sameCardName(top.name, start.name) && (top.score >= LOCK_ONCE || (heldArt != null && top.score >= LEAD_FLOOR && heldScore <= top.score - LEAD_MARGIN))) otherInView = true;
         if (heldArt != null) {
           // The held card must still be the best match in view (or as good as it): another card that
           // only looks a bit like it would have its collector line read against this card's printings.
-          const heldScore = Math.max(-1, ...all.filter((m) => m.index === heldArt).map((m) => m.score));
           const bestScore = Math.max(-1, ...all.map((m) => m.score));
           return heldScore >= ART_UNKNOWN && heldScore >= bestScore - (lockRef.current ? POOL_MARGIN : SAME_CARD_MARGIN) ? quad : null;
         }
         // Not known by its art: a card clearly recognised as another card isn't this one.
-        const top = all.reduce<ArtMatch | null>((b, m) => (!b || m.score > b.score ? m : b), null);
         if (top && top.score >= LOCK_ONCE && top.name !== start.name && !start.name.split(" // ").includes(top.name)) return null;
         const picked = pickHeldQuad([quad], w, h);
         // From frame to frame it may drift, not jump (a still is in its own pixels).
@@ -3016,10 +3092,14 @@ function ScannerScreen({
           done();
           setCloseup("collector");
           return;
-        case "stop":
+        case "stop": {
           start.rec?.reasons.add("hold-gave-up");
-          start.rec?.attempt(held.summary());
+          const summary = held.summary();
+          start.rec?.attempt(summary);
+          // Another card took its place: the camera says the scanner is still on this one.
+          if (summary.why === "another" && foundSeq.current === heldSeq) setAnotherAt(heldSeq);
           return done(true);
+        }
         default:
           return next(wait);
       }
@@ -3039,7 +3119,7 @@ function ScannerScreen({
         if (stop) return;
         seeCard(quad, v);
         let verdict: HeldVerdict;
-        if (!quad) verdict = held.missed(clock());
+        if (!quad) verdict = otherInView ? held.another(clock()) : held.missed(clock());
         else {
           lastQuad = quad;
           // Focus on the collector corner, once, where the browser lets it point focus.
@@ -3074,6 +3154,7 @@ function ScannerScreen({
       stop = true;
       clearTimeout(timer);
       setHolding(false);
+      setDistance(null);
       setLiveShot(null);
     };
     // buzz and the setters are stable for this purpose; the loop reads the card through foundRef.
@@ -3177,14 +3258,18 @@ function ScannerScreen({
   // (not a correction of a card already filed, a printing said to be wrong, or a rescan of one card).
   const laterNow = laterOffered && cardFirst && !!found && !found.correcting && !found.misread && !found.outside && !single && !(found.method === "name" && found.confidence === 1);
   const ready = identityOnly || !!chosen || laterNow;
-  // When the next step is a tap, not the camera, say so on the camera view, buzz, and bring it into view.
+  // Another card took this one's place while its printing was read: the scanner is still on this one.
+  const stillOn = phase === "found" && !!found && !holding && anotherAt != null && anotherAt === foundSeq.current;
+  // When the next step is a tap, not the camera, say so on the camera view, buzz, and bring it into
+  // view. The card is named wherever the camera says the scanner is working on it (Bryan, 22 Nov
+  // 2026: "make sure it's always obvious" which card it's on).
   const tapNeeded: string | null =
     phase !== "found" || !found || closeup || holding
       ? null
       : found.outside
         ? `Not in ${lockLabel}: another set?`
         : (!chosen || found.picking) && !found.reading && !!found.options && found.options.length > 1
-          ? "Tap your printing"
+          ? `${stillOn ? "Still on " : ""}${found.name}: tap its printing`
           : null;
   useEffect(() => {
     if (!tapNeeded) return;
@@ -3670,7 +3755,9 @@ function ScannerScreen({
             saveNativeCamera(o);
             setNativeOpt(o);
             setNativeFailed(null);
+            setLensFailed(null);
           }}
+          lensFailed={lensFailed && lensFailed.lens === nativeOpt.lens ? lensFailed.why : null}
           info={useNative ? (cameraNow as SourceInfo | null) : null}
           camera={useNative ? nativeCam.current : null}
           failed={nativeOpt.on ? nativeFailed : null}
@@ -3900,7 +3987,9 @@ function ScannerScreen({
   }
   const flashing = receipt && flash && sameAsNewest && !isFound && !lockOpen && !closeup;
   const flashPrice = flashing && newest && !identityOnly ? priceFor(newest.prices, newest.finish) : null;
-  // Once the strip has cards, waiting for one is known: the chip only speaks when it has news.
+  // With cards in the strip, waiting for the next one is said quietly, but always said (Bryan, 22 Nov
+  // 2026: "it's not always clear … when it's trying to scan the next card"; until then the chip
+  // went blank).
   const idleStatus = mode === "art" && (status === WAITING || status === NEXT);
   // Said in the head in place of the card's name: an event with no card (Took out …, Couldn't …),
   // news about the card ("Kept …"), or an add the newest entry isn't (its save came back late).
@@ -3917,7 +4006,12 @@ function ScannerScreen({
   return (
     // Any tap in the scanner lets sound play from then on (browsers and the app's web view start audio silent).
     <div className={`scan${needsSheet ? " is-deciding" : ""}`} onPointerDown={soundsProp && soundsSwitch ? () => void unlockSound() : undefined}>
-      <div ref={cameraRef} className="scan-camera">
+      <div
+        ref={cameraRef}
+        className="scan-camera"
+        // The picture's shape: it covers the box, centred, never losing more than 15% of its height (fit.ts, scanner.css).
+        style={frameSize ? ({ "--frame-ratio": `${frameSize.w} / ${frameSize.h}`, "--frame-k": frameSize.w / frameSize.h } as CSSProperties) : undefined}
+      >
         <div className="scan-zoom" style={cam.digital > 1 ? { transform: `scale(${cam.digital})` } : undefined}>
           {useNative ? (
             // The app's own camera: its preview is drawn behind the page, and this canvas (not
@@ -3974,7 +4068,8 @@ function ScannerScreen({
                   <svg className="scan-chip-tick" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <path d="M5 12.5l4.5 4.5L19 7.5" />
                   </svg>
-                  {flashPrice != null ? `Added, ${usd(flashPrice)}` : "Added"}
+                  {/* Which card it just scanned, by name, where the eye is. */}
+                  {`Added ${newest!.name}${flashPrice != null ? `, ${usd(flashPrice)}` : ""}`}
                 </>
               ) : inARow > 1 ? (
                 `${inARow} added`
@@ -3988,7 +4083,11 @@ function ScannerScreen({
               </Button>
             )}
           </div>
-        ) : receipt && !tapNeeded && !isFound && !lockOpen && idleStatus ? null : !receipt && !tapNeeded && !isFound && !lockOpen && justAdded?.card && (onUndo || (onCorrect && justAdded.printing)) ? (
+        ) : receipt && !tapNeeded && !isFound && !lockOpen && scanningNow && idleStatus && distance !== "close" ? (
+          <span className="scan-chip is-idle" role="status">
+            {NEXT}
+          </span>
+        ) : !receipt && !tapNeeded && !isFound && !lockOpen && justAdded?.card && (onUndo || (onCorrect && justAdded.printing)) ? (
           <div className="scan-chip found has-action">
             <span role="status">{justAdded.text}</span>
             {onUndo && (
@@ -4010,14 +4109,18 @@ function ScannerScreen({
               : isFound && (closeup === "collector" || holding)
                 ? holding
                   ? far
-                    ? "Move closer, so the set code and number can be read"
-                    : "Found it. Hold still for the printing"
-                  : "Found it. Now the printing"
+                    ? `${found!.name}: move closer, so the set code and number can be read`
+                    : distance === "close"
+                      ? `${found!.name}: ${FURTHER.toLowerCase()}`
+                      : `${found!.name}: hold still for the printing`
+                  : `${found!.name}: now the printing, up close`
                 : isFound
-                  ? "Found it"
+                  ? stillOn
+                    ? `Still on ${found!.name}: ${onAccept ? (addable ? "Add or Skip" : "Skip") : "Scan next"}`
+                    : `Found ${found!.name}`
                   : lockOpen
                     ? "Choose the sets"
-                    : ((receipt ? null : justAdded?.text) ?? (phase === "no-camera" ? "No camera" : mode ? status : loadingText)))}
+                    : ((receipt ? null : justAdded?.text) ?? (phase === "no-camera" ? "No camera" : phase === "scanning" && scanningNow && distance === "close" ? FURTHER : mode ? status : loadingText)))}
         </span>
         )}
       </div>
@@ -4516,7 +4619,9 @@ function DiagnosticsSwitch({ on, onChange }: { on: boolean; onChange: (on: boole
       <input id="scan-diagnostics" type="checkbox" checked={on} onChange={(e) => onChange(e.target.checked)} />
       <span>
         <label htmlFor="scan-diagnostics">
-          <strong>Scanner diagnostics.</strong> When the scanner struggles with a card (you pick the printing, say it's the wrong card or printing, or it gives up), keep what it saw: the card's bottom edge and set symbol at the camera's full resolution, a small photo, everything it read and the camera's settings. For every card it settles, keep how long that took and how, with no pictures. Kept in your account only, for checking and improving the scanner; not shared. On this device.
+          {/* In plain words (Bryan, 22 Nov 2026: "I don't really even know what it is"). What's kept,
+              exactly, is in docs/scanner.md; the records are owner-only (view_as.rs hides them). */}
+          <strong>Scanner diagnostics.</strong> Keeps a note of how each card's scan went, with pictures only of cards it had trouble with, to help improve the scanner. Only you can see these notes, and this switch is for this device only.
         </label>{" "}
         {summary && (summary.count > 0 || (summary.timings ?? 0) > 0) && (
           <>

@@ -242,7 +242,7 @@ export function SpeedTest({ ready = true, alongside = null, onRunning }: { ready
     <section className="scan-speed" aria-labelledby="scan-speed-title">
       <h3 id="scan-speed-title">Speed</h3>
       <p className="scan-note">
-        Times the scanner on this device, with a few cards' pictures from Scryfall instead of the camera: your models, the defaults and the faster ones, and the printing look. It takes about a minute, and may download the faster models and the look's model. The result is kept on your account, so Yama can see how fast the scanner is on this device.
+        Checks how fast the scanner runs on this device, using a few card pictures instead of the camera. It takes about a minute and may download a few extra files; the result is saved on your account, where only you can see it.
       </p>
       <ActionBar>
         <Button onClick={start} disabled={busy || !ready}>

@@ -4,7 +4,7 @@
 import { useState } from "react";
 import { Button, Field } from "../components/ui";
 import type { SourceInfo } from "./cameraSource";
-import { benchLine, LENS_NAMES, type BenchRow, type NativeCamera, type NativeCameraOption, type NativeLens } from "./nativeCamera";
+import { benchLine, DEFAULT_LENS, LENS_NAMES, type BenchRow, type NativeCamera, type NativeCameraOption, type NativeLens } from "./nativeCamera";
 
 const LENSES: NativeLens[] = ["auto", "main", "ultrawide", "telephoto"];
 
@@ -31,6 +31,7 @@ export function NativeCameraSetting({
   info,
   camera,
   failed,
+  lensFailed,
 }: {
   option: NativeCameraOption;
   onChange: (o: NativeCameraOption) => void;
@@ -39,6 +40,8 @@ export function NativeCameraSetting({
   camera: NativeCamera | null;
   /** Why the app's camera didn't open this time (the browser's is in use instead). */
   failed?: string | null;
+  /** Why the lens chosen didn't open by itself this time (the app's camera is on Automatic instead). */
+  lensFailed?: string | null;
 }) {
   const [bench, setBench] = useState<{ rows?: BenchRow[]; busy?: boolean; error?: string }>({});
   const d = camera?.described() ?? null;
@@ -62,7 +65,7 @@ export function NativeCameraSetting({
             <select value={option.lens} onChange={(e) => onChange({ ...option, lens: e.target.value as NativeLens })}>
               {offered.map((l) => (
                 <option key={l} value={l}>
-                  {l === "auto" ? "Automatic (the phone chooses)" : LENS_NAMES[l]}
+                  {l === "auto" ? "Automatic (the phone chooses)" : l === DEFAULT_LENS ? `${LENS_NAMES[l]} (the default)` : LENS_NAMES[l]}
                 </option>
               ))}
             </select>
@@ -92,6 +95,13 @@ export function NativeCameraSetting({
                 }}
               />
             </label>
+          )}
+          {/* Why Main is the default (Bryan, 22 Nov 2026: up close on Automatic his Pixel used its ultra-wide lens). */}
+          {option.lens === "auto" && <p className="scan-note">Automatic lets the phone switch to its ultra-wide lens when a card is close, which softens the picture and bends its edges.</p>}
+          {lensFailed && !failed && (
+            <p className="scan-note">
+              The {LENS_NAMES[option.lens].toLowerCase()} lens didn't open by itself ({lensFailed}), so the app's camera is choosing the lens this time.
+            </p>
           )}
           {failed && <p className="scan-note">The app's camera didn't open ({failed}), so the scanner is using the camera as before.</p>}
           {info?.source === "native" && <p className="scan-note">{inUseLine(info)}</p>}

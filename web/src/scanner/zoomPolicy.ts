@@ -49,6 +49,16 @@ export class AutoZoom {
 
   constructor(private readonly range: ZoomRange) {}
 
+  /** Whether auto-zoom can still zoom in from `zoom` (so "Move closer" can wait for it). */
+  canZoomIn(zoom: number): boolean {
+    return zoom < autoCeiling(this.range) - 0.05;
+  }
+
+  /** Whether auto-zoom can still zoom out from `zoom` (so "further away" can wait for it). */
+  canZoomOut(zoom: number): boolean {
+    return zoom > Math.max(1, this.range.min) + 0.05;
+  }
+
   frame(share: number | null, zoom: number, now: number): number | null {
     const dir: -1 | 0 | 1 = share == null ? 0 : share < FILL_LOW ? 1 : share > FILL_HIGH ? -1 : 0;
     if (dir === 0) {
