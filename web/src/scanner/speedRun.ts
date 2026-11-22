@@ -242,6 +242,9 @@ export async function runSpeedTest(onProgress: (p: SpeedProgress) => void, signa
         } catch (e) {
           if (signal?.aborted) throw e;
           t.error = message(e);
+          // Not run in the app after all: the web view's configuration stands for its roles.
+          configs.splice(configs.indexOf(t), 1);
+          configs.push(t);
         }
       }
       say(`Loaded ${name}`, 1);

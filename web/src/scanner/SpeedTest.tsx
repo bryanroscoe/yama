@@ -150,7 +150,7 @@ const say = (e: unknown) => (e instanceof Error ? e.message : String(e));
  * is what that recognizer holds loaded meanwhile, recorded with the result (Codex review of #182:
  * its memory is part of what the phone was doing).
  */
-export function SpeedTest({ ready = true, alongside = null, onFinished }: { ready?: boolean; alongside?: Alongside | null; onFinished?: () => void }) {
+export function SpeedTest({ ready = true, alongside = null, onRunning }: { ready?: boolean; alongside?: Alongside | null; onRunning?: (running: boolean) => void }) {
   const [progress, setProgress] = useState<SpeedProgress | null>(null);
   /** Running the test, then keeping it; busy either way. */
   const [stage, setStage] = useState<"running" | "saving" | null>(null);
@@ -194,6 +194,7 @@ export function SpeedTest({ ready = true, alongside = null, onFinished }: { read
     setStatus(null);
     setError(null);
     setProgress({ text: "Starting", done: 0, total: 1 });
+    onRunning?.(true);
     runSpeedTest((p) => !stop.signal.aborted && setProgress(p), stop.signal, undefined, alongside)
       .then(async (r) => {
         if (stop.signal.aborted) throw new Error("stopped");
@@ -220,7 +221,7 @@ export function SpeedTest({ ready = true, alongside = null, onFinished }: { read
         setProgress(null);
         setStage(null);
         // (The scanner loads its own models again where the test replaced them: the app's finder.)
-        onFinished?.();
+        onRunning?.(false);
       });
   };
   const cancel = () => {

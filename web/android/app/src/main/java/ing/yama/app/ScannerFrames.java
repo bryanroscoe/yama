@@ -116,8 +116,9 @@ final class ScannerFrames {
         } finally {
             lock.unlock();
         }
-        // pinLock before lock, always: a region cut holds pinLock alone.
-        pinLock.lock();
+        // pinLock before lock, always: a region cut holds pinLock alone. Interruptible, so the
+        // finder's thread stops at once even while a region is being cut.
+        pinLock.lockInterruptibly();
         try {
             lock.lock();
             try {

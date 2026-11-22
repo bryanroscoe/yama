@@ -250,12 +250,16 @@ describe("the art at corners handed in", () => {
     const m = new TurnMemory();
     expect(m.first(upright)).toEqual({ quad: upright, known: false, name: null });
     m.learn(upright, "Sol Ring");
-    // Nudged two pixels, the finder calling another corner the top: the same card, read as it was.
-    const nudged = [upright[1], upright[2], upright[3], upright[0]].map(([x, y]) => [x + 2, y]) as Quad;
+    // Nudged two pixels, the finder calling the far corner the top: the same card, read as it was.
+    const nudged = halfTurn(upright).map(([x, y]) => [x + 2, y]) as Quad;
     expect(m.first(nudged)).toEqual({ quad: [[102, 100], [302, 100], [302, 380], [102, 380]], known: true, name: "Sol Ring" });
     // Elsewhere, or another size: a new card.
     expect(m.first(upright.map(([x, y]) => [x + 150, y]) as Quad).known).toBe(false);
     expect(m.first(upright.map(([x, y]) => [x * 2, y * 2]) as Quad).known).toBe(false);
+    // Turned a quarter in place (its centre and short side as they were): a new reading, as the finder gives it.
+    const c = [200, 240];
+    const quarter = upright.map(([x, y]) => [c[0]! - (y - c[1]!), c[1]! + (x - c[0]!)]) as Quad;
+    expect(m.first(quarter)).toEqual({ quad: quarter, known: false, name: null });
   });
 
   it("describes a card for the placement gate at corners handed in, with no finder pass", async () => {

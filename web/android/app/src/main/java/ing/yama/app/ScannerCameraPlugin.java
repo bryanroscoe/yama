@@ -1152,12 +1152,7 @@ public class ScannerCameraPlugin extends Plugin {
             // Stopped meanwhile (it failed): a plain frame, which says so.
             if (finder.running()) throw new Failure("no-frame", "The camera has no frame yet");
         }
-        frames.lockPinned();
-        try {
-            return renderFrame(q, region, waitStart);
-        } finally {
-            frames.unlockPinned();
-        }
+        return renderFrame(q, region, waitStart);
     }
 
     /** The finder's snapshot as a reply: its pixels are already the frame's, at the finder's size. */
@@ -1184,22 +1179,36 @@ public class ScannerCameraPlugin extends Plugin {
         return r;
     }
 
-    /** A frame or region scaled and converted here, holding the frame taken last in place (`lockPinned`). */
+    /**
+     * A frame or region scaled and converted here, holding the frame taken last in place
+     * (`lockPinned`) while it's read, but not while waiting for the camera.
+     */
     private Reply renderFrame(JSONObject q, boolean region, long waitStart) throws Failure, InterruptedException {
-        ScannerFrames.Frame f;
         if (q.optBoolean("synthetic")) {
             // A made-up frame the size of the one asked for, so the crossing can be timed with no
             // camera (Scan settings, "Time the camera's frames", where the camera gives none).
-            f = synthetic(q.optInt("fullWidth", 3840), q.optInt("fullHeight", 2160));
-        } else {
-            if (opened == null) throw new Failure("closed", "The camera isn't open");
-            wantedUntil = System.currentTimeMillis() + 1000;
-            f = region || finder.running() ? frames.pinned() : null;
-            // While the finder runs it takes the camera's frames: a region or plain frame is cut from
-            // the one it took last, never taken from under it.
-            if (f == null && !finder.running()) f = frames.next(region ? 500 : 1500);
-            if (f == null) throw new Failure("no-frame", "The camera has no frame yet");
+            return convert(q, region, waitStart, synthetic(q.optInt("fullWidth", 3840), q.optInt("fullHeight", 2160)));
         }
+        if (opened == null) throw new Failure("closed", "The camera isn't open");
+        wantedUntil = System.currentTimeMillis() + 1000;
+        // While the finder runs it takes the camera's frames: a region or plain frame is cut from
+        // the one it took last, never taken from under it. Otherwise this thread takes them.
+        boolean takes = !region && !finder.running();
+        ScannerFrames.Frame taken = takes ? frames.next(1500) : null;
+        if (takes && taken == null) throw new Failure("no-frame", "The camera has no frame yet");
+        long takenSeq = taken == null ? 0 : taken.seq;
+        frames.lockPinned();
+        try {
+            ScannerFrames.Frame f = frames.pinned();
+            // The finder started meanwhile and took a newer one: this one may be overwritten.
+            if (f == null || (taken != null && (f != taken || f.seq != takenSeq))) throw new Failure("no-frame", "The camera has no frame yet");
+            return convert(q, region, waitStart, f);
+        } finally {
+            frames.unlockPinned();
+        }
+    }
+
+    private Reply convert(JSONObject q, boolean region, long waitStart, ScannerFrames.Frame f) throws Failure {
         long start = System.nanoTime();
         int uw = f.uprightWidth();
         int uh = f.uprightHeight();

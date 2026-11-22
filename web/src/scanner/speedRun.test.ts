@@ -254,6 +254,20 @@ describe("a speed test", () => {
     expect(speedSummary(r)).toContain("116 ms with your models");
   });
 
+  it("lets the web view's configuration stand for its roles when the app's won't load, where the device runs it", async () => {
+    const w = world();
+    w.deps.native = {
+      can: async () => ({ can: true, runs: true }),
+      load: async () => {
+        throw new Error("the app's card finder didn't load");
+      },
+      find: async () => ({ state: 2, quad: null, vote: 0, ms: 4, passes: 2, ageMs: 0, runs: [2, 2] }),
+    };
+    const r = await runSpeedTest(() => undefined, undefined, w.deps);
+    expect(r.configs.map((c) => c.runtime)).toEqual(["wasm-1-thread", "native-cpu", "wasm-1-thread", "native-cpu"]);
+    expect(speedSummary(r)).toContain("116 ms with your models");
+  });
+
   it("times every frame through each configuration's own worker, the warm-up apart, then the look", async () => {
     const w = world();
     const progress: SpeedProgress[] = [];

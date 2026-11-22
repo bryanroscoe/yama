@@ -220,6 +220,20 @@ describe("the card finder in the app's own code", () => {
     expect(nat.loads).toBe(1);
   });
 
+  it("says in the timing record that the web view's finder ran because the app's stopped", async () => {
+    localStorage.setItem("yama.scan.diagnostics", "1");
+    nat.score = 0.2;
+    act(() => root.render(<ScannerView identityOnly autoAdd closeups={false} onAccept={async () => true} />));
+    await until(() => (nat.matched.length >= 1 ? true : null), "a frame matched at the app's corners");
+    nat.state = 3;
+    await until(() => (nat.identified >= 2 ? true : null), "the web view's finder running");
+    nat.score = 0.93;
+    await until(() => (sent.timings.length > 0 ? true : null), "a timing record");
+    const t = sent.timings[0]!;
+    expect((t.models as Record<string, string>).detector).toBe("bundle-detector");
+    expect((t.detail as Record<string, unknown>).finder_fallback).toBe("The app's card finder stopped: out of memory");
+  });
+
   it("falls back as soon as it doesn't load", async () => {
     nat.score = 0.2;
     nat.failLoad = true;

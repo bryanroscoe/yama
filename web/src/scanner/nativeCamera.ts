@@ -893,7 +893,10 @@ export async function loadNativeFinder(
     const r = await ask();
     return { loadMs: r.loadMs, sent: false };
   } catch (e) {
-    if (codeOf(e) !== "need-model") throw e;
+    // It can't run here at all: nothing to hand over.
+    if (codeOf(e) === "unavailable") throw e;
+    // Not there yet, or the copy it keeps won't load (a file named by its bundle isn't checked
+    // against its bytes): handed over (again), once.
   }
   await plugin.finderModel({ key: file.key, data: toBase64(await file.bytes()) });
   const r = await ask();

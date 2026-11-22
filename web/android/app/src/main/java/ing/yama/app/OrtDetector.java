@@ -118,12 +118,15 @@ final class OrtDetector implements CardFinder.Detector, AutoCloseable {
         b.get(into, 0, n);
     }
 
+    /** Waits for a run under way (the speed test's, say), so a session is never let go mid-run. */
     @Override
     public void close() {
-        try {
-            session.close();
-        } catch (OrtException e) {
-            // Nothing more to let go of.
+        synchronized (input) {
+            try {
+                session.close();
+            } catch (OrtException e) {
+                // Nothing more to let go of.
+            }
         }
     }
 }

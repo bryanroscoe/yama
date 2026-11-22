@@ -12,7 +12,6 @@ import { isCardBack } from "./cardBack";
 import { artLead, LEAD_MARGIN } from "./fuse";
 import { cardThumb, frameSharpness } from "./gateFrame";
 import { fromBase64, galleryOf, readGallery, upTo, type Gallery } from "./gallery";
-import { alignCorners } from "./outline";
 import type { Point, Quad, RgbaImage } from "./types";
 
 /** `manifest.constants` of the bundle. */
@@ -152,19 +151,27 @@ const POOL_TOP = 3;
 export const halfTurn = (q: Quad): Quad => [q[2], q[3], q[0], q[1]];
 
 /**
- * Which way up the art was read best for the card last checked both ways (`matchAt` with `turn`),
- * so a card lying there isn't read twice on every frame: the same card (near where it was, about
- * as big) is read the way that won, and only a new card, or a doubtful read naming another card
- * than the one checked, is read both ways again.
+ * Which way up the art was read for the card last read (`matchAt` with `turn`): upright when that
+ * read was sure, else the better of upright and half round. So a card lying there isn't read
+ * twice on every frame: the same card (near where it was, about as big, its corners where they
+ * were) is read the way it was, and only a new card, or a doubtful read naming another card than
+ * the one remembered, is read both ways again.
  */
 export class TurnMemory {
   private last: { quad: Quad; name: string | null } | null = null;
 
-  /** The quad to read first: aligned to the way that won for this card, or as given. */
+  /**
+   * The quad to read first: as given or turned half round, whichever puts its corners where the
+   * remembered card's were. Never a quarter: the finder's long edges stay the card's sides, so a
+   * card turned a quarter in place is a new reading, not this one.
+   */
   first(quad: Quad): { quad: Quad; known: boolean; name: string | null } {
     const m = this.last;
     if (!m || !near(quad, m.quad)) return { quad, known: false, name: null };
-    return { quad: alignCorners(quad, m.quad), known: true, name: m.name };
+    const turned = halfTurn(quad);
+    const pick = cornerGap(turned, m.quad) < cornerGap(quad, m.quad) ? turned : quad;
+    if (cornerGap(pick, m.quad) > 0.15 * shortSide(m.quad)) return { quad, known: false, name: null };
+    return { quad: pick, known: true, name: m.name };
   }
 
   learn(won: Quad, name: string | null) {
@@ -175,6 +182,9 @@ export class TurnMemory {
     this.last = null;
   }
 }
+
+/** The furthest any corner of `a` is from the same corner of `b`. */
+const cornerGap = (a: Quad, b: Quad): number => Math.max(...a.map((p, i) => Math.hypot(p[0] - b[i]![0], p[1] - b[i]![1])));
 
 const centreOf = (q: Quad): Point => [(q[0][0] + q[1][0] + q[2][0] + q[3][0]) / 4, (q[0][1] + q[1][1] + q[2][1] + q[3][1]) / 4];
 

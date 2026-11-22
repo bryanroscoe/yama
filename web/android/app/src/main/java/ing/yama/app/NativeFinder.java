@@ -55,12 +55,15 @@ final class NativeFinder {
     private final Object lock = new Object();
     private CardFinder.Constants constants;
     private int shortSide;
-    private CardFinder.Detector detector;
-    private String key;
-    private int generation;
-    private double loadMs;
+    // Written under this object's lock; read without it (status from the main thread never waits on a compile).
+    private volatile CardFinder.Detector detector;
+    private volatile String key;
+    private volatile int generation;
+    private volatile double loadMs;
     private volatile CardFinder live;
     private Thread thread;
+    /** Counts the loops started and stopped: a loop runs only while it is the newest (a stop that timed out can't leave two). */
+    private volatile int loopGen;
     private volatile boolean running;
     private volatile String failure;
     private volatile Runnable wantFrames;
@@ -88,20 +91,20 @@ final class NativeFinder {
     }
 
     /** The model and constants it runs (any thread). */
-    synchronized String key() {
+    String key() {
         return key;
     }
 
     /** Counts the detectors it has run, so a finder made for one ({@link #testFinder}) is known for another's. */
-    synchronized int generation() {
+    int generation() {
         return generation;
     }
 
-    synchronized double loadMs() {
+    double loadMs() {
         return loadMs;
     }
 
-    synchronized boolean loaded() {
+    boolean loaded() {
         return detector != null;
     }
 
@@ -118,12 +121,14 @@ final class NativeFinder {
      * when it can't be loaded here (no ONNX Runtime for this processor, a graph that isn't a card
      * finder's).
      */
-    synchronized void load(String key, byte[] model, CardFinder.Constants c, int shortSide) throws Exception {
-        stop();
+    void load(String key, byte[] model, CardFinder.Constants c, int shortSide) throws Exception {
         long t0 = System.nanoTime();
+        // Compiled outside the lock: the page's status and the camera's start and stop don't wait on it.
         OrtDetector d = OrtDetector.load(model, c.detInput);
-        use(key, d, c, shortSide);
-        loadMs = (System.nanoTime() - t0) / 1e6;
+        synchronized (this) {
+            use(key, d, c, shortSide);
+            loadMs = (System.nanoTime() - t0) / 1e6;
+        }
     }
 
     /** Run this detector from now on (load's, or a test's). */
@@ -180,11 +185,14 @@ final class NativeFinder {
         synchronized (lock) {
             last = null;
         }
-        recentCount = 0;
-        frameCount = 0;
-        firstAt = 0;
+        synchronized (recent) {
+            recentCount = 0;
+            frameCount = 0;
+            firstAt = 0;
+        }
         running = true;
-        Thread t = new Thread(this::loop, "yama-card-finder");
+        int mine = ++loopGen;
+        Thread t = new Thread(() -> loop(mine), "yama-card-finder");
         // Under the camera's and the page's threads: the outline can wait a frame, they can't.
         t.setPriority(Thread.NORM_PRIORITY - 1);
         thread = t;
@@ -194,6 +202,7 @@ final class NativeFinder {
     /** Stop the loop and wait for it (the camera closed, or the scanner paused). */
     synchronized void stop() {
         running = false;
+        loopGen++;
         Thread t = thread;
         thread = null;
         if (t != null && t != Thread.currentThread()) {
@@ -220,13 +229,13 @@ final class NativeFinder {
         }
     }
 
-    private void loop() {
+    private void loop(int mine) {
         try {
-            while (running) {
+            while (running && mine == loopGen) {
                 Runnable want = wantFrames;
                 if (want != null) want.run();
                 ScannerFrames.Frame f = frames.next(250);
-                if (f == null || !running) continue;
+                if (f == null || !running || mine != loopGen) continue;
                 long taken = System.nanoTime();
                 int uw = f.uprightWidth();
                 int uh = f.uprightHeight();
@@ -259,6 +268,8 @@ final class NativeFinder {
                 s.convertMs = convertMs;
                 s.takenAt = taken;
                 synchronized (lock) {
+                    // Stopped while it looked: this frame isn't the page's any more.
+                    if (mine != loopGen) break;
                     s.seq = ++seq;
                     spare = published;
                     published = into;
@@ -272,7 +283,7 @@ final class NativeFinder {
         } catch (InterruptedException e) {
             // Stopped.
         } catch (Throwable e) {
-            fail(e);
+            if (mine == loopGen) fail(e);
         }
     }
 
