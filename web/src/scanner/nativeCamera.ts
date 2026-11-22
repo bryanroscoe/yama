@@ -24,7 +24,7 @@ import { Capacitor, registerPlugin } from "@capacitor/core";
 import { cameraInfo } from "./camera";
 import { CUT_SIDE, cutBox, draw, type BridgeCost, type CameraSource, type FrameElement, type SourceInfo } from "./cameraSource";
 import { RECOGNIZER_SHORT_SIDE } from "./artClient";
-import { DEFAULT_ASPECT, fitPicture } from "./fit";
+import { canFit, DEFAULT_ASPECT, fitPicture } from "./fit";
 import type { Quad, RgbaImage } from "./types";
 
 // ---- The option ----
@@ -562,16 +562,14 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
     srcObject: { configurable: true, get: () => (closed || !described ? null : track) },
   });
 
-  /** The picture's shape: the frames' once they arrive, else what the camera said it opened at. */
-  const aspect = (): number => {
-    if (hasFrame && el.height > 0) return el.width / el.height;
-    const d = described;
-    return d?.width && d.height ? d.width / d.height : DEFAULT_ASPECT;
-  };
+  /** The picture's shape: the frames' once they arrive, else the page's own default (as its layout takes it). */
+  const aspect = (): number => (hasFrame && el.height > 0 ? el.width / el.height : DEFAULT_ASPECT);
   /** Where the preview goes: the camera box, fitted as the page fits the picture (fit.ts). */
   const rect = (): NativeRect | null => {
     const box = (el.closest(".scan-camera") ?? el).getBoundingClientRect();
     if (!(box.width > 0 && box.height > 0)) return null;
+    // A web view too old for the page's fit covers the box, and so does the preview (FILL_CENTER).
+    if (!canFit()) return { x: box.left, y: box.top, width: box.width, height: box.height, viewWidth: window.innerWidth };
     const r = fitPicture(box, aspect());
     return { x: r.left, y: r.top, width: r.width, height: r.height, viewWidth: window.innerWidth };
   };

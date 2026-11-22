@@ -58,7 +58,7 @@ import { nativeId, nativeWanted, onNativeChange, saveNative, savedNative } from 
 import { cachedFile } from "./scanCache";
 import { NativeCameraSetting } from "./NativeCameraSetting";
 import { AUTO_MAX, AutoZoom, LENS_SWITCH, maySwitchLens } from "./zoomPolicy";
-import { cardHeight, TOO_BIG, tooCloseToFocus, tooFar, type FocusLens } from "./closer";
+import { cardHeight, distanceHint, tooCloseToFocus, tooFar, type FocusLens } from "./closer";
 import { createServerCatalog } from "./serverCatalog";
 import { availableEngines, createScannerOcr, ENGINE_LABEL, engineOrder, plannedEngine, type OcrChoice, type ScannerOcr } from "./ocrEngine";
 import { HeldRead, type HeldVerdict } from "./heldRead";
@@ -1167,9 +1167,8 @@ function ScannerScreen({
     // By the card's size in the camera's full frame (the app's own camera hands frames over smaller).
     const full = camSrc().fullScale();
     const tooSmall = !!quad && tooFar(full === 1 ? quad : (quad.map(([x, y]) => [x * full, y * full]) as Quad));
-    const tooNear = share != null && (share > TOO_BIG || tooCloseToFocus(share, focusLens(), c.zoom));
-    // Nearer than the lens focuses comes first: moving closer to a blurred card never helps.
-    setDistance(tooNear && !(zooms && az!.canZoomOut(c.zoom)) ? "close" : tooSmall && !(zooms && az!.canZoomIn(c.zoom)) ? "far" : null);
+    const unfocused = share != null && tooCloseToFocus(share, focusLens(), c.zoom);
+    setDistance(distanceHint({ share, tooSmall, unfocused, zoom: zooms ? { canZoomIn: az!.canZoomIn(c.zoom), canZoomOut: az!.canZoomOut(c.zoom) } : null }));
     if (!zooms) return;
     const z = az!.frame(share, c.zoom, performance.now());
     if (z != null) c.autoZoom(z);
@@ -2280,6 +2279,8 @@ function ScannerScreen({
       clearTimeout(timer);
     };
     readers.current.add(halt);
+    // What the card's distance was is for this run of the loop only (a stale hint, after).
+    setDistance(null);
     let unknownFrames = 0;
     let textFrame = 0;
     /** Text-only reads in a row that found nothing, for the timing record. */
@@ -2947,12 +2948,14 @@ function ScannerScreen({
     setHolding(true);
     setGaveUp(false);
     setAnotherAt(null);
+    setDistance(null);
     const next = (ms: number) => {
       if (!stop) timer = setTimeout(tick, ms);
     };
     const done = (gaveUpNow = false) => {
       stop = true;
       setHolding(false);
+      setDistance(null);
       if (gaveUpNow) setGaveUp(true);
     };
     const settleOn = (c: Choice, text: string) => {
@@ -3143,6 +3146,7 @@ function ScannerScreen({
       stop = true;
       clearTimeout(timer);
       setHolding(false);
+      setDistance(null);
       setLiveShot(null);
     };
     // buzz and the setters are stable for this purpose; the loop reads the card through foundRef.
@@ -4071,7 +4075,7 @@ function ScannerScreen({
               </Button>
             )}
           </div>
-        ) : receipt && !tapNeeded && !isFound && !lockOpen && idleStatus ? (
+        ) : receipt && !tapNeeded && !isFound && !lockOpen && scanningNow && idleStatus && distance !== "close" ? (
           <span className="scan-chip is-idle" role="status">
             {NEXT}
           </span>
@@ -4097,9 +4101,9 @@ function ScannerScreen({
               : isFound && (closeup === "collector" || holding)
                 ? holding
                   ? far
-                    ? "Move closer, so the set code and number can be read"
+                    ? `${found!.name}: move closer, so the set code and number can be read`
                     : distance === "close"
-                      ? FURTHER
+                      ? `${found!.name}: ${FURTHER.toLowerCase()}`
                       : `${found!.name}: hold still for the printing`
                   : `${found!.name}: now the printing, up close`
                 : isFound

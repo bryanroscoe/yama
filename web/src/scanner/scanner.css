@@ -35,8 +35,7 @@
   pointer-events: none;
 }
 .scan-guide {
-  /* Never wider than the picture it stands on (fit.ts): nine tenths of its width at most. */
-  height: min(100%, calc(62vw * 88 / 63), calc(var(--pic-h) * var(--frame-k, 0.5625) * 0.9 * 88 / 63));
+  height: min(100%, calc(62vw * 88 / 63));
   aspect-ratio: 63 / 88;
   border-radius: 14px;
   box-shadow:
@@ -75,7 +74,7 @@
 }
 /* The close-up step: a box for just the collector line or the title, the rest veiled. */
 .scan-closeup {
-  width: min(88%, 620px, calc(var(--pic-h) * var(--frame-k, 0.5625) * 0.94));
+  width: min(88%, 620px);
   border-radius: 10px;
   box-shadow:
     0 0 0 2px #fff,
@@ -585,24 +584,39 @@ button.scan-count {
   align-items: end;
   gap: 8px 12px;
 }
+/* Digital zoom: the video and the card outline are enlarged together, around the middle. */
+.scan-zoom {
+  position: absolute;
+  inset: 0;
+  transform-origin: 50% 50%;
+  transition: transform 0.15s;
+}
 /* The picture at its own shape, centred, covering the box but never losing more than 15% of its
    height (fit.ts, MIN_SHOWN): a box much wider than it, as the camera is above a raised sheet, gets
    dark bars at the sides rather than cutting off the top and bottom of the card (Bryan, 22 Nov
    2026). The video and the card outline fill it exactly; the app's own preview is placed on the
-   same rectangle (nativeCamera.ts). Digital zoom enlarges the two together, around the middle. */
-.scan-camera {
-  --pic-h: min(max(100cqh, 100cqw / var(--frame-k, 0.5625)), 100cqh / 0.85);
-}
-.scan-zoom {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  height: var(--pic-h);
-  aspect-ratio: var(--frame-ratio, 9 / 16);
-  translate: -50% -50%;
-  box-shadow: 0 0 0 100vmax #000;
-  transform-origin: 50% 50%;
-  transition: transform 0.15s;
+   same rectangle (nativeCamera.ts). A web view without container units (before Chrome 105) keeps
+   the cover fit above, and so does the preview (fit.ts, canFit). */
+@supports (height: 1cqh) {
+  .scan-camera {
+    --pic-h: min(max(100cqh, 100cqw / var(--frame-k, 0.5625)), 100cqh / 0.85);
+  }
+  .scan-zoom {
+    inset: auto;
+    top: 50%;
+    left: 50%;
+    height: var(--pic-h);
+    aspect-ratio: var(--frame-ratio, 9 / 16);
+    translate: -50% -50%;
+    box-shadow: 0 0 0 100vmax #000;
+  }
+  .scan-guide {
+    /* Never wider than the picture it stands on (fit.ts): nine tenths of its width at most. */
+    height: min(100%, calc(62vw * 88 / 63), calc(var(--pic-h) * var(--frame-k, 0.5625) * 0.9 * 88 / 63));
+  }
+  .scan-closeup {
+    width: min(88%, 620px, calc(var(--pic-h) * var(--frame-k, 0.5625) * 0.94));
+  }
 }
 /* Flashlight and zoom, down the right side of the camera. */
 .scan-tools {

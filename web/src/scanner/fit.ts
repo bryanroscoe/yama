@@ -19,6 +19,18 @@ export const DEFAULT_ASPECT = 9 / 16;
 /** The least share of the picture's height that shows (the rest is cut evenly top and bottom). */
 export const MIN_SHOWN = 0.85;
 
+/**
+ * Whether this browser can lay the picture out so (container query units, Chrome 105 on): older
+ * web views keep the cover fit, and the app's preview is placed the same way (nativeCamera.ts).
+ */
+export function canFit(): boolean {
+  try {
+    return typeof CSS !== "undefined" && typeof CSS.supports === "function" && CSS.supports("height: 1cqh");
+  } catch {
+    return false;
+  }
+}
+
 /** The picture's place in `box` for a picture `aspect` (width over height) wide: centred, see above. */
 export function fitPicture(box: Box, aspect: number): Box {
   const a = aspect > 0 && Number.isFinite(aspect) ? aspect : DEFAULT_ASPECT;
@@ -30,6 +42,7 @@ export function fitPicture(box: Box, aspect: number): Box {
 /** The part of a w × h picture that shows in a box of `view`'s size, in the box's pixels. */
 export function visibleView(view: { width: number; height: number }, w: number, h: number): { width: number; height: number } {
   if (!(view.width > 0 && view.height > 0 && w > 0 && h > 0)) return view;
-  const r = fitPicture({ left: 0, top: 0, ...view }, w / h);
+  // (A DOMRect's sizes are getters on its prototype: spread, it would give none.)
+  const r = fitPicture({ left: 0, top: 0, width: view.width, height: view.height }, w / h);
   return { width: Math.min(view.width, r.width), height: Math.min(view.height, r.height) };
 }

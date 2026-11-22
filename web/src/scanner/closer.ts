@@ -9,6 +9,7 @@
 
 import { MIN_SHOWN } from "./fit";
 import { COLLECTOR_REGION } from "./pipeline";
+import { FILL_HIGH, FILL_LOW } from "./zoomPolicy";
 import type { Quad } from "./types";
 
 /** A collector-line capital's height as a share of the card's height. */
@@ -65,3 +66,20 @@ export function tooCloseToFocus(share: number, lens: FocusLens | null, zoom = 1)
 
 /** Past this share of the picture's height the card may be cut off on screen (fit.ts) or at the frame's edge. */
 export const TOO_BIG = MIN_SHOWN;
+
+/**
+ * What to say about where the card is: "close" (hold the phone a little further away), "far" (move
+ * closer), or nothing. `share` is the card's height over the picture's; `zoom`, auto-zoom's room
+ * left where it runs (null where it doesn't). A hint waits only while auto-zoom is about to make up
+ * the difference itself (it zooms in below FILL_LOW and out above FILL_HIGH), and no zoom brings a
+ * card into focus, so that one never waits.
+ */
+export function distanceHint(o: { share: number | null; tooSmall: boolean; unfocused: boolean; zoom: { canZoomIn: boolean; canZoomOut: boolean } | null }): "far" | "close" | null {
+  const { share, zoom } = o;
+  const zoomsIn = !!zoom && share != null && share < FILL_LOW && zoom.canZoomIn;
+  const zoomsOut = !!zoom && share != null && share > FILL_HIGH && zoom.canZoomOut;
+  const tooBig = share != null && share > TOO_BIG && !zoomsOut;
+  // Nearer than the lens focuses comes first: moving closer to a blurred card never helps.
+  if (o.unfocused || tooBig) return "close";
+  return o.tooSmall && !zoomsIn ? "far" : null;
+}

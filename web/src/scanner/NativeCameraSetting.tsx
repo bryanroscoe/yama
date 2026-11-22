@@ -98,7 +98,7 @@ export function NativeCameraSetting({
           )}
           {/* Why Main is the default (Bryan, 22 Nov 2026: up close on Automatic his Pixel used its ultra-wide lens). */}
           {option.lens === "auto" && <p className="scan-note">Automatic lets the phone switch to its ultra-wide lens when a card is close, which softens the picture and bends its edges.</p>}
-          {lensFailed && (
+          {lensFailed && !failed && (
             <p className="scan-note">
               The {LENS_NAMES[option.lens].toLowerCase()} lens didn't open by itself ({lensFailed}), so the app's camera is choosing the lens this time.
             </p>

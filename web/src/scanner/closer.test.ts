@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cardDistance, tooCloseToFocus } from "./closer";
+import { cardDistance, distanceHint, tooCloseToFocus } from "./closer";
 
 describe("how far away the card is, for the lens's nearest focus (Bryan, 22 Nov 2026)", () => {
   it("estimates the distance from the card's share of the picture and the lens's focal length", () => {
@@ -25,5 +25,26 @@ describe("how far away the card is, for the lens's nearest focus (Bryan, 22 Nov 
     expect(tooCloseToFocus(0.9, { equivalent: 0, nearest: 0.15 })).toBe(false);
     expect(tooCloseToFocus(0.9, { equivalent: 26, nearest: 0 })).toBe(false);
     expect(tooCloseToFocus(0.9, { equivalent: 26, nearest: 5 })).toBe(false);
+  });
+});
+
+describe("which distance hint to give, and when auto-zoom is left to it (independent review of #202)", () => {
+  const room = { canZoomIn: true, canZoomOut: true };
+  it("says move closer unless auto-zoom is about to zoom in (below 45% of the picture)", () => {
+    expect(distanceHint({ share: 0.3, tooSmall: true, unfocused: false, zoom: room })).toBeNull();
+    // 1080p: too small for the letters at 0.6, where auto-zoom holds still.
+    expect(distanceHint({ share: 0.6, tooSmall: true, unfocused: false, zoom: room })).toBe("far");
+    expect(distanceHint({ share: 0.3, tooSmall: true, unfocused: false, zoom: { canZoomIn: false, canZoomOut: true } })).toBe("far");
+    expect(distanceHint({ share: 0.3, tooSmall: true, unfocused: false, zoom: null })).toBe("far");
+  });
+
+  it("says further away for a card nearer than the lens focuses whatever the zoom, and for one too big unless auto-zoom zooms out", () => {
+    expect(distanceHint({ share: 0.75, tooSmall: false, unfocused: true, zoom: room })).toBe("close");
+    expect(distanceHint({ share: 0.9, tooSmall: false, unfocused: false, zoom: room })).toBeNull();
+    expect(distanceHint({ share: 0.9, tooSmall: false, unfocused: false, zoom: { canZoomIn: true, canZoomOut: false } })).toBe("close");
+    expect(distanceHint({ share: 0.9, tooSmall: false, unfocused: false, zoom: null })).toBe("close");
+    // Blurred and small: further away, never closer.
+    expect(distanceHint({ share: 0.4, tooSmall: true, unfocused: true, zoom: null })).toBe("close");
+    expect(distanceHint({ share: null, tooSmall: false, unfocused: false, zoom: room })).toBeNull();
   });
 });

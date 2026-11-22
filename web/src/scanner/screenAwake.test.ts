@@ -44,6 +44,7 @@ describe("keeping the screen on while the scanner's camera runs (Bryan, 22 Nov 2
     await turn(false);
     expect(calls).toEqual([true, false, true]);
     release();
+    await flush();
     expect(calls).toEqual([true, false, true, false]);
     // The browser's lock is never asked for when the app holds the screen.
     expect(lock.locks).toHaveLength(0);
@@ -102,5 +103,27 @@ describe("keeping the screen on while the scanner's camera runs (Bryan, 22 Nov 2
     });
     await flush();
     release();
+  });
+
+  it("keeps the app's one flag on while any scanner holds it, in the order asked (independent review of #202)", async () => {
+    const calls: boolean[] = [];
+    const native = async (on: boolean) => (calls.push(on), true);
+    const first = keepScreenAwake({ native, wakeLock: null });
+    await flush();
+    // The camera restarts: the old hold is let go as a new one starts, before either is answered.
+    first();
+    const second = keepScreenAwake({ native, wakeLock: null });
+    await flush();
+    await flush();
+    // Whatever went between, the flag ends on.
+    expect(calls.at(-1)).toBe(true);
+    const third = keepScreenAwake({ native, wakeLock: null });
+    await flush();
+    second();
+    await flush();
+    expect(calls.at(-1)).toBe(true);
+    third();
+    await flush();
+    expect(calls.at(-1)).toBe(false);
   });
 });

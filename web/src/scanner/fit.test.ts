@@ -37,6 +37,16 @@ describe("fitting the camera's picture to its box", () => {
     expect(shown.height).toBe(386);
     expect(shown.width).toBeCloseTo((386 / MIN_SHOWN) * 0.5625, 6);
     expect(visibleView({ width: 412, height: 860 }, 2160, 3840)).toEqual({ width: 412, height: 860 });
+    // A DOMRect, as getBoundingClientRect gives: its sizes are getters on the prototype.
+    class Rect {
+      get width() {
+        return 412;
+      }
+      get height() {
+        return 386;
+      }
+    }
+    expect(visibleView(new Rect(), 2160, 3840)).toEqual(shown);
     // At 2× the middle of what shows: half the picture's width, half of the 85% of its height that shows.
     const zone = digitalRegion(2160, 3840, 2, shown);
     expect(zone.w).toBeCloseTo(1080, 3);
