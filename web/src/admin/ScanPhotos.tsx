@@ -1,16 +1,18 @@
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { ago, count } from "@yama/core";
 import { apiBlob } from "../api";
 import { Button, ErrorText, Loading } from "../components/ui";
-import { adminApi, type SharedScanSample } from "./api";
+import { adminApi, type ScanCorpus, type ScanCount, type SharedScanSample } from "./api";
 
 /**
  * Scan photos people's scanners shared with Yama's developer (server/src/scan_samples.rs;
  * ARCHITECTURE.md, "Scan photos shared with the developer"), newest first. Only photos saved
  * since the switch said they're shared appear here, with their full-resolution crops of the card
- * (the set symbol and the collector strip, since 20 Nov 2026). For bulk work, `yama-server
- * scan-samples-export` on the server writes them all with a manifest.
+ * (the set symbol and the collector strip, since 20 Nov 2026; the whole card since 22 Nov). Since
+ * 22 Nov 2026 every card the scanner names is kept, those let go without filing as "unconfirmed",
+ * and the top of the page says how the corpus is growing. For bulk work, `yama-server
+ * scan-samples-export` on the server (scanner-lab/corpus_pull.sh) writes them all with a manifest.
  */
 export function ScanPhotosPage() {
   const list = useInfiniteQuery({
@@ -30,6 +32,7 @@ export function ScanPhotosPage() {
         Card photos people's scanners shared to improve the scanner, with what they said the card was and what the scanner guessed. To export them all, run{" "}
         <code>yama-server scan-samples-export DIR</code> on the server.
       </p>
+      <CorpusSummary />
       <ErrorText error={list.error} retry={() => void list.refetch()} />
       {list.isPending && <Loading />}
       {list.data && rows.length === 0 && <p className="dim">No shared scan photos yet.</p>}
@@ -47,15 +50,39 @@ export function ScanPhotosPage() {
   );
 }
 
-const KIND: Record<SharedScanSample["kind"], string> = { added: "Added", corrected: "Corrected", wrong: "Marked wrong" };
+const KIND: Record<SharedScanSample["kind"], string> = { added: "Added", corrected: "Corrected", wrong: "Marked wrong", unconfirmed: "Not filed" };
+const CROP: Record<string, string> = { symbol: "Set symbol", strip: "Collector strip", card: "Whole card" };
+
+const mb = (bytes: number) => `${count(Math.round(bytes / (1024 * 1024)))} MB`;
+const counts = (rows: ScanCount[], word: (name: string) => string = (n) => n) => rows.map((r) => `${count(r.photos)} ${word(r.name)}`).join(", ");
+
+/** How the shared corpus is made up and how it grew over the last two weeks. */
+function CorpusSummary() {
+  const q = useQuery({ queryKey: ["admin-scan-corpus"], queryFn: () => adminApi.scanCorpus() });
+  const c: ScanCorpus | undefined = q.data;
+  if (!c || c.count === 0) return null;
+  const kind = (n: string) => (KIND[n as SharedScanSample["kind"]] ?? n).toLowerCase();
+  return (
+    <div className="small stack">
+      <p>
+        {count(c.count)} photos from {count(c.accounts)} {c.accounts === 1 ? "account" : "accounts"}, {mb(c.total_bytes)} with their crops: {counts(c.kinds, kind)}. {count(c.relabelled)} relabelled by a later answer.
+      </p>
+      <p className="dim">
+        Cameras: {counts(c.sources)}. Scans: {counts(c.modes, (n) => (n === "identity" ? "deck or box" : n === "printing" ? "collection" : n))}. Named by: {counts(c.rules)}. Crops:{" "}
+        {counts(c.crops, (n) => CROP[n]?.toLowerCase() ?? n)}; {count(c.with_every_crop)} with all three.
+      </p>
+      {c.days.length > 0 && <p className="dim">Last two weeks: {c.days.map((d) => `${d.day.slice(5)} ${count(d.photos)}`).join(", ")}.</p>}
+    </div>
+  );
+}
 
 function SampleRow({ s }: { s: SharedScanSample }) {
-  const said = s.label_name ?? (s.kind === "wrong" ? "not said" : "unknown");
+  const said = s.label_name ?? (s.kind === "wrong" ? "not said" : s.kind === "unconfirmed" ? "not said, let go" : "unknown");
   return (
     <li className="scan-sample-row">
       <SamplePhoto path={`/api/admin/scan-samples/${encodeURIComponent(s.id)}/image`} alt={`Scan photo of ${said}`} width={120} />
       {s.crops?.map((c) => (
-        <SamplePhoto key={c.name} path={c.url} alt={`${c.name === "symbol" ? "Set symbol" : "Collector strip"} of ${said}, ${c.width} × ${c.height}`} width={c.name === "symbol" ? 120 : 200} />
+        <SamplePhoto key={c.name} path={c.url} alt={`${CROP[c.name] ?? c.name} of ${said}, ${c.width} × ${c.height}`} width={c.name === "strip" ? 200 : 120} />
       ))}
       <div className="admin-text">
         <b>
@@ -65,10 +92,13 @@ function SampleRow({ s }: { s: SharedScanSample }) {
           Scanner guessed {s.guess_name ?? "nothing"}
           {s.method ? ` by ${s.method}` : ""}
           {s.score != null ? `, score ${s.score.toFixed(2)}` : ""}
+          {s.lead != null ? `, lead ${s.lead.toFixed(2)}` : ""}
+          {s.rule ? `, named by ${s.rule}` : ""}
         </span>
         <span className="dim">
           {s.owner_name} ({s.owner_id}), {ago(s.created_at)}
           {s.camera ? `, camera ${s.camera}` : ""}
+          {s.source ? `, ${s.source}` : ""}
         </span>
       </div>
     </li>

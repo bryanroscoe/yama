@@ -31,6 +31,8 @@ pub fn config() -> Config {
         scan_supplement: true,
         scan_looks: true,
         scan_query_model: true,
+        // Tests run on machines with any amount of disk free.
+        scan_photos_min_free: 0,
         scan_withdrawn: vec![],
         // The Mythic Tools bridge is on in tests, so its routes are covered (bridges/mythic).
         mythic_bridge: true,

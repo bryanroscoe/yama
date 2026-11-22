@@ -52,6 +52,34 @@ class ScannerLab(unittest.TestCase):
                     self.assertNotRegex(text.lower(), r"import\s+collectorvision|from\s+collectorvision|cv_bench")
                     self.assertNotRegex(text, r"/Users/|/home/[a-z]|\.agent-tasks")
 
+    def test_the_corpus_pull_script_parses(self):
+        import subprocess
+        subprocess.run(["sh", "-n", str(LAB / "corpus_pull.sh")], check=True)
+
+    def test_a_pulled_export_merges_one_line_per_photo_the_newest(self):
+        import json
+        import tempfile
+        sys.path.insert(0, str(LAB))
+        from corpus_merge import merge
+        with tempfile.TemporaryDirectory() as dest, tempfile.TemporaryDirectory() as incoming:
+            Path(dest, "a.jpg").write_bytes(b"old a")
+            Path(dest, "manifest.jsonl").write_text(json.dumps({"id": "a", "kind": "wrong", "created_at": "2026-11-22T01:00:00Z"}) + "\n")
+            lines = [{"id": "a", "kind": "corrected", "label_name": "Westvale Abbey", "created_at": "2026-11-22T01:00:00Z"},
+                     {"id": "b", "kind": "unconfirmed", "created_at": "2026-11-22T02:00:00Z"}]
+            Path(incoming, "manifest.jsonl").write_text("".join(json.dumps(r) + "\n" for r in lines))
+            for name in ["a.jpg", "b.jpg", "b.card.jpg", "b.strip.jpg", "../escape.jpg.txt", "notes.txt"]:
+                if "/" not in name:
+                    Path(incoming, name).write_bytes(name.encode())
+            new, updated, total, kinds = merge(dest, incoming)
+            self.assertEqual((new, updated, total), (1, 1, 2))
+            self.assertEqual(kinds, {"corrected": 1, "unconfirmed": 1})
+            rows = [json.loads(line) for line in Path(dest, "manifest.jsonl").read_text().splitlines()]
+            self.assertEqual([(r["id"], r["kind"]) for r in rows], [("a", "corrected"), ("b", "unconfirmed")])
+            self.assertEqual(Path(dest, "a.jpg").read_bytes(), b"a.jpg")
+            self.assertTrue(Path(dest, "b.card.jpg").exists())
+            # Only what the export writes is moved.
+            self.assertFalse(Path(dest, "notes.txt").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -61,6 +61,10 @@ pub struct Config {
     /// Scanner model options withdrawn by id (`YAMA_SCAN_WITHDRAW=look-v0,paddle`; scan.rs,
     /// `MODELS`): not offered, so phones that chose one run its slot's default, until it's put back.
     pub scan_withdrawn: Vec<String>,
+    /// Scan photos (scan_samples.rs) aren't kept while the data directory's disk has less than this
+    /// many bytes free: they're worth having, not worth filling the server for.
+    /// `YAMA_SCAN_PHOTOS_MIN_FREE_GB`, default 50.
+    pub scan_photos_min_free: u64,
     /// The Mythic Tools bridge (`bridges/mythic`): import games from Mythic Tools. Off unless
     /// `YAMA_MYTHIC_BRIDGE=1`; Mythic's API is private and can change, and the bridge may go.
     pub mythic_bridge: bool,
@@ -367,6 +371,10 @@ impl Config {
             scan_looks: !off("YAMA_SCAN_LOOKS"),
             scan_query_model: !off("YAMA_SCAN_QUERY_MODEL"),
             scan_withdrawn: list("YAMA_SCAN_WITHDRAW"),
+            scan_photos_min_free: match std::env::var("YAMA_SCAN_PHOTOS_MIN_FREE_GB") {
+                Ok(v) if !v.trim().is_empty() => v.trim().parse::<u64>().with_context(|| format!("YAMA_SCAN_PHOTOS_MIN_FREE_GB {v:?} must be a whole number"))?.saturating_mul(1 << 30),
+                _ => 50 << 30,
+            },
             mythic_bridge: flag("YAMA_MYTHIC_BRIDGE"),
             engine_card_data: Some(engine_card_data),
             cf_access_team: std::env::var("YAMA_CF_ACCESS_TEAM").ok().filter(|s| !s.is_empty()),

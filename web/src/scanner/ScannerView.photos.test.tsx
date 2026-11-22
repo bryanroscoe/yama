@@ -1,0 +1,229 @@
+// @vitest-environment jsdom
+// Scan photos of every card the scanner names (Bryan, 22 Nov 2026: "so we can have a better corpus
+// of training photos"; samples.ts): a card let go without filing is kept as `unconfirmed` with the
+// scanner's guess, scores and rule; a card filed is kept as added; one photo per card placed in
+// view, a later answer relabelling it; and nothing at all with the switch off. The camera and the
+// recognizer are faked, as in ScannerView.gate.test.tsx, and the photo's cutting too (no canvas
+// can encode here).
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ArtRecognizer, BundleInfo } from "./artClient";
+import type { Quad } from "./types";
+
+const V = "gallery-20261106T183001884398Z";
+const bundle = (): BundleInfo => ({
+  version: V,
+  ready: true,
+  error: null,
+  files: { detector: "d", embed: `/scan-bundle/${V}/embed.onnx`, search: "s", arts: "a" },
+  bytes: { detector: 1, embed: 1, search: 1, arts: 1 },
+  constants: { scene: 640 },
+  models: {
+    art: { default: "bundle", options: [{ id: "bundle", label: "ManaVault's art model", note: "", file: `/scan-bundle/${V}/embed.onnx`, bytes: 1 }] },
+    look: { default: "off", options: [{ id: "off", label: "Off", note: "" }] },
+    text: { default: "auto", options: [{ id: "auto", label: "Automatic", note: "" }] },
+    lock: { default: "lead", options: [{ id: "lead", label: "Art that leads", note: "" }] },
+  },
+});
+
+/** Every scan photo upload and label change the scanner sent. */
+const sent = vi.hoisted(() => ({ calls: [] as { path: string; method: string; json: Record<string, unknown> }[] }));
+vi.mock("../api", async (original) => ({
+  ...(await original<typeof import("../api")>()),
+  api: (path: string, init?: { method?: string; json?: Record<string, unknown> }) => {
+    if (path.startsWith("/api/scan/bundle")) return Promise.resolve(bundle());
+    if (path.startsWith("/api/scan/samples") && init?.method) {
+      sent.calls.push({ path, method: init.method, json: init.json ?? {} });
+      return Promise.resolve({ id: `photo${sent.calls.length}` });
+    }
+    if (path.startsWith("/api/scan/samples")) return Promise.resolve({ count: 0, bytes: 0, keep: 20000 });
+    if (path.startsWith("/api/scan/diagnostics")) return Promise.resolve({ count: 0, bytes: 0, keep: 200 });
+    return Promise.reject(new Error(`offline: ${path}`));
+  },
+}));
+// The photo and its crops, as the worker would cut them.
+vi.mock("./photoCut", async (original) => ({
+  ...(await original<typeof import("./photoCut")>()),
+  cutPhoto: async (shot: { quad: Quad }) => ({ image: "AAAA", quad: shot.quad, crops: [{ name: "card", image: "BBBB", width: 786, height: 1100 }] }),
+}));
+
+/** The faked art match: which card lies in view. */
+const cam = vi.hoisted(() => ({ card: "Arcane Signet", index: 4 }));
+const QUAD: Quad = [
+  [100, 100],
+  [400, 100],
+  [400, 520],
+  [100, 520],
+];
+vi.mock("./artClient", async (original) => ({
+  ...(await original<typeof import("./artClient")>()),
+  loadArtRecognizer: async () => {
+    const match = () => ({
+      quad: QUAD,
+      upright: 1,
+      matches: [
+        { index: cam.index, id: `p-${cam.index}`, name: cam.card, set: "eoc", number: "101", illustrationId: `ill-${cam.index}`, layout: "normal", printings: 1, score: 0.93 },
+        { index: 20, id: "p-20", name: "Other card", set: "fdn", number: "9", illustrationId: "ill-20", layout: "normal", printings: 1, score: 0.41 },
+      ],
+      timings: { detectMs: 1, embedMs: 1, totalMs: 2 },
+    });
+    const r: ArtRecognizer = {
+      embed: `${V}/embed.onnx`,
+      art: "bundle",
+      useArt: async () => undefined,
+      detector: "bundle-detector",
+      useDetector: async () => undefined,
+      look: "off",
+      useLook: async () => undefined,
+      lookAt: async () => ({ model: "none", frames: 0, queryMs: 0, scored: 0, cached: 0, fetchMs: 0, decodeMs: 0, embedMs: 0, ms: 0 }),
+      identify: async (_image, onSeen) => {
+        onSeen?.(QUAD);
+        return match();
+      },
+      locate: async (image) => ({ quad: QUAD, upright: 1, sharpness: 50, thumb: new Uint8Array(0), detectMs: 1, image }),
+      reset: () => undefined,
+      setPool: async () => -1,
+      dispose: () => undefined,
+    };
+    return r;
+  },
+}));
+vi.mock("./serverCatalog", () => ({ createServerCatalog: async () => ({ hasSet: () => false, lookup: async () => null, names: () => [] }) }));
+vi.mock("./ocrEngine", async (original) => ({
+  ...(await original<typeof import("./ocrEngine")>()),
+  createScannerOcr: async () => ({ engine: "tesseract", read: async () => ({ text: "", confidence: 0 }), terminate: async () => undefined }),
+}));
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+Element.prototype.scrollIntoView ??= () => undefined;
+vi.stubGlobal("Worker", class {});
+vi.stubGlobal(
+  "ImageData",
+  class {
+    constructor(
+      readonly data: Uint8ClampedArray,
+      readonly width: number,
+      readonly height: number,
+    ) {}
+  },
+);
+HTMLCanvasElement.prototype.getContext = function () {
+  return {
+    drawImage: () => undefined,
+    getImageData: (_x: number, _y: number, w: number, h: number) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }),
+    putImageData: () => undefined,
+  } as unknown as CanvasRenderingContext2D;
+} as unknown as typeof HTMLCanvasElement.prototype.getContext;
+// A camera that is always delivering a 1280 × 720 picture.
+Object.defineProperty(HTMLVideoElement.prototype, "videoWidth", { configurable: true, get: () => 1280 });
+Object.defineProperty(HTMLVideoElement.prototype, "videoHeight", { configurable: true, get: () => 720 });
+Object.defineProperty(HTMLVideoElement.prototype, "readyState", { configurable: true, get: () => 4 });
+Object.defineProperty(HTMLVideoElement.prototype, "srcObject", { configurable: true, writable: true, value: null });
+HTMLVideoElement.prototype.play = async () => undefined;
+Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
+
+const { ScannerView } = await import("./ScannerView");
+const { setSavingPhotos } = await import("./samples");
+
+let root: Root;
+let host: HTMLDivElement;
+beforeEach(() => {
+  const track = { stop: () => undefined, getSettings: () => ({ deviceId: "x", width: 1280, height: 720 }), getCapabilities: () => ({}), applyConstraints: async () => undefined, label: "fake" };
+  const stream = { getTracks: () => [track], getVideoTracks: () => [track] } as unknown as MediaStream;
+  Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: async () => stream, enumerateDevices: async () => [] } });
+  host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
+  Object.assign(cam, { card: "Arcane Signet", index: 4 });
+  sent.calls.length = 0;
+  setSavingPhotos(true);
+});
+afterEach(() => {
+  act(() => root.unmount());
+  host.remove();
+  localStorage.clear();
+  Reflect.deleteProperty(navigator, "mediaDevices");
+});
+
+const wait = (ms: number) => act(() => new Promise((r) => setTimeout(r, ms)));
+async function until<T>(get: () => T | null | undefined, what: string): Promise<T> {
+  for (let i = 0; i < 200; i += 1) {
+    const v = get();
+    if (v) return v;
+    await wait(20);
+  }
+  throw new Error(`never saw ${what}`);
+}
+const foundName = () => document.querySelector(".scan-info h3")?.textContent ?? "";
+const button = (name: string) => [...document.querySelectorAll("button")].find((b) => b.textContent?.trim() === name);
+const click = (el: HTMLElement) => act(() => el.click());
+const posts = () => sent.calls.filter((c) => c.method === "POST");
+
+describe("scan photos of every card the scanner names", () => {
+  it("keeps a card let go with Skip as unconfirmed, with the scanner's guess, scores and rule, once", async () => {
+    act(() => root.render(<ScannerView identityOnly onAccept={async () => true} />));
+    await until(() => (foundName().includes("Arcane Signet") ? true : null), "the card found");
+    await click(await until(() => button("Skip"), "Skip"));
+    await until(() => (posts().length ? true : null), "the photo sent");
+    const [photo] = posts();
+    expect(photo!.path).toBe("/api/scan/samples");
+    expect(photo!.json).toMatchObject({ kind: "unconfirmed", guess_name: "Arcane Signet", guess_illustration_id: "ill-4", method: "art", score: 0.93, rule: "sure", source: "browser", mode: "identity", shared: true, image: "AAAA" });
+    expect(photo!.json.label_name).toBeUndefined();
+    expect((photo!.json.scores as { name: string }[]).map((m) => m.name)).toEqual(["Arcane Signet", "Other card"]);
+    expect((photo!.json.crops as { name: string }[]).map((c) => c.name)).toEqual(["card"]);
+    // The card still lying there isn't another photo, however many frames see it.
+    await wait(300);
+    expect(sent.calls).toHaveLength(1);
+  });
+
+  it("keeps a card filed as added, and no second photo when it's let go after", async () => {
+    act(() => root.render(<ScannerView identityOnly onAccept={async () => true} />));
+    await until(() => (foundName().includes("Arcane Signet") ? true : null), "the card found");
+    await click(await until(() => button("Add"), "Add"));
+    await until(() => (posts().length ? true : null), "the photo sent");
+    expect(posts()[0]!.json).toMatchObject({ kind: "added", label_name: "Arcane Signet", rule: "sure" });
+    await wait(300);
+    expect(sent.calls).toHaveLength(1);
+  });
+
+  it("relabels the photo of a card called wrong when the card read next where it lies is filed", async () => {
+    act(() => root.render(<ScannerView identityOnly onAccept={async () => true} />));
+    await until(() => (foundName().includes("Arcane Signet") ? true : null), "the card found");
+    // Wrong card, nothing more said: kept as wrong, and the scanner reads the card again.
+    await click(await until(() => button("More"), "More"));
+    await click(await until(() => button("Wrong card"), "Wrong card"));
+    Object.assign(cam, { card: "Mind Stone", index: 5 });
+    await click(await until(() => button("Scan it again"), "Scan it again"));
+    await until(() => (posts().length ? true : null), "the photo sent");
+    expect(posts()[0]!.json).toMatchObject({ kind: "wrong", guess_name: "Arcane Signet" });
+    // It reads the right card this time, and it's filed: the same photo is relabelled.
+    await until(() => (foundName().includes("Mind Stone") ? true : null), "the right card found");
+    await click(await until(() => button("Add"), "Add"));
+    const patch = await until(() => sent.calls.find((c) => c.method === "PATCH"), "the label change");
+    expect(patch.path).toBe("/api/scan/samples/photo1");
+    expect(patch.json).toMatchObject({ kind: "corrected", label_name: "Mind Stone" });
+    await wait(200);
+    expect(posts()).toHaveLength(1);
+  });
+
+  it("keeps the card in hand when the scanner is closed", async () => {
+    act(() => root.render(<ScannerView identityOnly onAccept={async () => true} />));
+    await until(() => (foundName().includes("Arcane Signet") ? true : null), "the card found");
+    act(() => root.render(<></>));
+    await until(() => (posts().length ? true : null), "the photo sent");
+    expect(posts()[0]!.json).toMatchObject({ kind: "unconfirmed", guess_name: "Arcane Signet" });
+  });
+
+  it("sends nothing with Save scan photos off", async () => {
+    setSavingPhotos(false);
+    act(() => root.render(<ScannerView identityOnly onAccept={async () => true} />));
+    await until(() => (foundName().includes("Arcane Signet") ? true : null), "the card found");
+    await click(await until(() => button("Skip"), "Skip"));
+    Object.assign(cam, { card: "Mind Stone", index: 5 });
+    await until(() => (foundName().includes("Mind Stone") ? true : null), "the next card found");
+    await click(await until(() => button("Add"), "Add"));
+    await wait(300);
+    expect(sent.calls).toEqual([]);
+  });
+});
