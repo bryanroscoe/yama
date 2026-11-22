@@ -133,8 +133,9 @@ Three things run on the device so that game night needs no connection:
   With the app's camera on arm64-v8a and x86_64 APKs, the card finder runs in native code too (ONNX
   Runtime for Android, the same model file the web worker loads), on every frame the camera analyses,
   and draws the card's outline natively; each frame reaches the page with the card's corners, and the
-  web worker matches the art there. A failure gives the finding back to the web worker for the session.
-  The art match, the search and everything after stay in the web build. Besides the pinned art bundle it loads the server's small
+  art is read there too (the art model's own file, on the crop the worker would read), while the web
+  worker searches what it gives and decides as before. A failure gives the finding or the reading back
+  to the web worker for the session. The search and everything after stay in the web build. Besides the pinned art bundle it loads the server's small
   supplement of newer artworks, and embeds what the camera sees with Yama's own fine-tuned query
   model in place of the bundle's embedding graph. Each of its models can be switched on a device
   from the options the server lists, and the server can withdraw a broken one. When several
@@ -3434,6 +3435,13 @@ and the timing records say which ran (`<option>-native`). It is on by default wh
 per-device switch in Scan settings, Models. The native libraries are stored compressed in the APK
 (about 30 MB of download for ONNX Runtime's two). The parity checks, the numbers and what still needs
 a phone are in [docs/scanner.md](docs/scanner.md#the-card-finder-in-the-app-2026-11-22).
+
+Decided, stage 4 (the same day): the art is read in the app too, on the CPU, with the Art match
+slot's own file on exactly the crop the web worker would read (recognizer.ts's `cardWindow`, from
+the frame the finder looked at), so its answers are the worker's; the worker keeps the cascade's
+decision and the search, and asks the page for each embedding. A cut at more of the full frame's
+pixels, and the GPU through LiteRT, wait on measurements. On by default where the finder runs in
+the app, a per-device switch, and named in the records (`<option>-native`, `art_ms`).
 
 ## A scanner's row before its printing, and a tie by price (22 November 2026)
 

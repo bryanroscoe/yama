@@ -34,6 +34,7 @@ export interface ModelsSettingProps {
 
 const NATIVE_LABEL: Record<NativeSlot, string> = {
   detector: "Find the card in the app's own code, on every frame the camera takes, with the outline drawn there too.",
+  art: "Read the card's art in the app's own code too (the card finder must run there).",
 };
 
 export function ModelsSetting({ info, slots, can, runs, notes, onChoose, hide = [], native = {}, onNative }: ModelsSettingProps) {

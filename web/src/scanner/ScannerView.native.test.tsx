@@ -55,6 +55,13 @@ const nat = vi.hoisted(() => ({
   identified: 0,
   /** Each frame read, in order: by the web view's finder ("web") or at the app's corners ("app"). */
   order: [] as string[],
+  /** The art read in the app: loads, and each read asked of it (frame number, corners in the frame's pixels). */
+  artLoads: 0,
+  artUnloads: 0,
+  finderUnloads: 0,
+  artFails: false,
+  embeds: [] as { seq: number; quad: Quad }[],
+  embedGone: false,
   score: 0.93,
 }));
 
@@ -70,7 +77,22 @@ vi.mock("./nativeCamera", async (original) => {
       if (nat.failLoad) throw new Error("the model wouldn't load");
       return { loadMs: 5, sent: false };
     },
-    unloadNativeFinder: async () => undefined,
+    unloadNativeFinder: async () => {
+      nat.finderUnloads += 1;
+    },
+    loadNativeArt: async () => {
+      nat.artLoads += 1;
+      if (nat.artFails) throw new Error("the art model wouldn't load");
+      return { loadMs: 9, sent: false };
+    },
+    unloadNativeArt: async () => {
+      nat.artUnloads += 1;
+    },
+    nativeEmbed: async (seq: number, quad: Quad) => {
+      nat.embeds.push({ seq, quad });
+      if (nat.embedGone) throw new Error(real.NATIVE_GONE);
+      return { data: new Float32Array(4), rows: 1, dim: 4, ms: 6 };
+    },
     openNativeCamera: (el: HTMLCanvasElement) => {
       Object.defineProperty(el, "videoWidth", { configurable: true, get: () => 640 });
       Object.defineProperty(el, "videoHeight", { configurable: true, get: () => 1138 });
@@ -87,7 +109,7 @@ vi.mock("./nativeCamera", async (original) => {
         described: () => null,
         setTorchLevel: async () => undefined,
         bench: async () => [],
-        found: () => (nat.on ? { state: nat.state, quad: nat.state === real.FOUND_CARD ? quadAt(100) : null, vote: 1, ms: 8, passes: 1, ageMs: 3 } : null),
+        found: () => (nat.on ? { state: nat.state, quad: nat.state === real.FOUND_CARD ? quadAt(100) : null, vote: 1, ms: 8, passes: 1, ageMs: 3, seq: 41 } : null),
         setFinder: async (o: { on?: boolean; outline?: boolean }) => {
           nat.sets.push(o);
           if (o.on !== undefined) nat.on = o.on;
@@ -127,7 +149,19 @@ vi.mock("./artClient", async (original) => ({
       matchAt: async (_image, handed, opts) => {
         nat.matched.push({ handed, turn: opts?.turn });
         nat.order.push("app");
-        return match(handed.quad);
+        // As the worker does: the art read where it's asked to be read.
+        let remote: { reads: number; ms: number[]; failed?: string } | undefined;
+        if (opts?.remote && handed.quad) {
+          remote = { reads: 0, ms: [] };
+          try {
+            const got = await opts.remote(handed.quad, undefined);
+            remote.reads += 1;
+            if (got.ms != null) remote.ms.push(got.ms);
+          } catch (e) {
+            remote.failed = e instanceof Error ? e.message : String(e);
+          }
+        }
+        return { ...match(handed.quad), ...(remote ? { remote } : {}) };
       },
       locate: async () => {
         throw new Error("no placement gate here");
@@ -175,7 +209,7 @@ beforeEach(() => {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-  Object.assign(nat, { state: 1, loads: 0, failLoad: false, on: false, sets: [], matched: [], identified: 0, order: [], score: 0.93 });
+  Object.assign(nat, { state: 1, loads: 0, failLoad: false, on: false, sets: [], matched: [], identified: 0, order: [], score: 0.93, artLoads: 0, artUnloads: 0, finderUnloads: 0, artFails: false, embeds: [], embedGone: false });
   sent.timings = [];
 });
 afterEach(() => {
@@ -212,12 +246,15 @@ describe("the card finder in the app's own code", () => {
     nat.score = 0.2;
     act(() => root.render(<ScannerView identityOnly closeups={false} onAccept={async () => true} />));
     await until(() => (nat.matched.length >= 2 ? true : null), "frames matched at the app's corners");
+    const unloadsBefore = nat.finderUnloads;
     nat.state = 3;
     await until(() => (nat.identified >= 3 ? true : null), "the web view's finder running");
     const matched = nat.matched.length;
     await wait(200);
     expect(nat.matched.length).toBe(matched);
     expect(nat.loads).toBe(1);
+    // And the app lets the finder's model go, now it won't run this session.
+    expect(nat.finderUnloads).toBeGreaterThan(unloadsBefore);
   });
 
   it("says in the timing record that the web view's finder ran because the app's stopped", async () => {
@@ -264,5 +301,86 @@ describe("the card finder in the app's own code", () => {
     const t = sent.timings[0]!;
     expect((t.models as Record<string, string>).detector).toBe("bundle-detector-native");
     expect((t.detail as Record<string, unknown>).finder_ms).toBe(8);
+  });
+
+  it("reads the art in the app too, of the frame the app's finder found the card on, and names it in the record", async () => {
+    localStorage.setItem("yama.scan.diagnostics", "1");
+    nat.score = 0.2;
+    act(() => root.render(<ScannerView identityOnly autoAdd closeups={false} onAccept={async () => true} />));
+    await until(() => (nat.embeds.length >= 2 ? true : null), "art read in the app");
+    expect(nat.artLoads).toBe(1);
+    // That frame, and the corners in its own pixels (the recognizer's here are the whole canvas).
+    expect(nat.embeds[0]).toEqual({ seq: 41, quad: quadAt(100) });
+    nat.score = 0.93;
+    await until(() => (sent.timings.length > 0 ? true : null), "a timing record");
+    const t = sent.timings[0]!;
+    expect((t.models as Record<string, string>).art).toBe("bundle-native");
+    expect((t.detail as Record<string, unknown>).art_ms).toBe(6);
+  });
+
+  it("goes on reading the art in the app after a frame it no longer had", async () => {
+    nat.score = 0.2;
+    nat.embedGone = true;
+    act(() => root.render(<ScannerView identityOnly closeups={false} onAccept={async () => true} />));
+    await until(() => (nat.embeds.length >= 3 ? true : null), "reads asked of the app despite frames it no longer had");
+    nat.embedGone = false;
+    const before = nat.embeds.length;
+    await until(() => (nat.embeds.length > before + 1 ? true : null), "more reads in the app");
+  });
+
+  it("doesn't read the art in the app when that's turned off, or when its model won't load", async () => {
+    nat.score = 0.2;
+    localStorage.setItem("yama.scan.native", JSON.stringify({ art: false }));
+    act(() => root.render(<ScannerView identityOnly closeups={false} onAccept={async () => true} />));
+    await until(() => (nat.matched.length >= 3 ? true : null), "frames matched at the app's corners");
+    expect(nat.artLoads).toBe(0);
+    expect(nat.embeds).toEqual([]);
+    // And the app lets the art model go (it keeps no crops for it).
+    expect(nat.artUnloads).toBeGreaterThan(0);
+    act(() => root.unmount());
+    localStorage.clear();
+    root = createRoot(host);
+    Object.assign(nat, { matched: [], artFails: true, on: false });
+    act(() => root.render(<ScannerView identityOnly closeups={false} onAccept={async () => true} />));
+    await until(() => (nat.matched.length >= 3 ? true : null), "frames matched at the app's corners");
+    expect(nat.artLoads).toBe(1);
+    expect(nat.embeds).toEqual([]);
+  });
+
+  it("stops reading the art in the app for the session after a read fails, and lets its model go", async () => {
+    nat.score = 0.2;
+    act(() => root.render(<ScannerView identityOnly closeups={false} onAccept={async () => true} />));
+    await until(() => (nat.embeds.length >= 1 ? true : null), "art read in the app");
+    nat.embedGone = false;
+    // Every read from now on fails.
+    const reads = nat.embeds.length;
+    Object.assign(nat, { embedGone: false });
+    const failing = vi.fn();
+    nat.embeds.push = ((...items: { seq: number; quad: Quad }[]) => {
+      failing();
+      throw new Error("the app's art reader crashed");
+      return items.length;
+    }) as typeof nat.embeds.push;
+    await until(() => (failing.mock.calls.length >= 1 ? true : null), "a failed read");
+    await until(() => (nat.artUnloads > 0 ? true : null), "the art model let go");
+    const failed = failing.mock.calls.length;
+    await wait(300);
+    // No more reads asked of the app.
+    expect(failing.mock.calls.length).toBe(failed);
+    expect(nat.embeds.length).toBe(reads);
+  });
+
+  it("names the worker as the art's reader in the record when the app didn't read it", async () => {
+    localStorage.setItem("yama.scan.diagnostics", "1");
+    localStorage.setItem("yama.scan.native", JSON.stringify({ art: false }));
+    nat.score = 0.2;
+    act(() => root.render(<ScannerView identityOnly autoAdd closeups={false} onAccept={async () => true} />));
+    await until(() => (nat.matched.length >= 1 ? true : null), "a frame matched at the app's corners");
+    nat.score = 0.93;
+    await until(() => (sent.timings.length > 0 ? true : null), "a timing record");
+    const t = sent.timings[0]!;
+    expect((t.models as Record<string, string>).detector).toBe("bundle-detector-native");
+    expect((t.models as Record<string, string>).art).toBe("bundle");
+    expect((t.detail as Record<string, unknown>).art_ms).toBeUndefined();
   });
 });

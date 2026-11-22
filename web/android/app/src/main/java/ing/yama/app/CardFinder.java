@@ -225,6 +225,46 @@ final class CardFinder {
         return (long) Math.floor(v + 0.5);
     }
 
+    /**
+     * The part of a `width` × `height` frame the art graph reads for this quad (recognizer.ts,
+     * `cardWindow`): its box and a few pixels beyond, within the frame, as x0, y0, x1, y1; null
+     * where the frame as it is is read instead (the box is the whole frame, or the quad is off it,
+     * not a number, or folded over itself).
+     */
+    static int[] cardWindow(int width, int height, double[] quad) {
+        double minX = Double.POSITIVE_INFINITY, minY = Double.POSITIVE_INFINITY, maxX = Double.NEGATIVE_INFINITY, maxY = Double.NEGATIVE_INFINITY;
+        for (int i = 0; i < 4; i++) {
+            double x = quad[i * 2];
+            double y = quad[i * 2 + 1];
+            if (!Double.isFinite(x) || !Double.isFinite(y)) return null;
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x);
+            maxY = Math.max(maxY, y);
+        }
+        int x0 = (int) Math.max(0, Math.floor(minX) - 2);
+        int y0 = (int) Math.max(0, Math.floor(minY) - 2);
+        int x1 = (int) Math.min(width, Math.ceil(maxX) + 3);
+        int y1 = (int) Math.min(height, Math.ceil(maxY) + 3);
+        boolean whole = x0 == 0 && y0 == 0 && x1 == width && y1 == height;
+        if (whole || !(x1 - x0 >= 2 && y1 - y0 >= 2) || !convex(quad)) return null;
+        return new int[] { x0, y0, x1, y1 };
+    }
+
+    /** Whether the quad is convex: every turn along its edges the same way (recognizer.ts, `convex`). */
+    static boolean convex(double[] q) {
+        int sign = 0;
+        for (int i = 0; i < 4; i++) {
+            int b = (i + 1) % 4;
+            int c = (i + 2) % 4;
+            double cross = (q[b * 2] - q[i * 2]) * (q[c * 2 + 1] - q[b * 2 + 1]) - (q[b * 2 + 1] - q[i * 2 + 1]) * (q[c * 2] - q[b * 2]);
+            int sg = cross > 0 ? 1 : cross < 0 ? -1 : 0;
+            if (cross == 0 || (sign != 0 && sg != sign)) return false;
+            sign = sg;
+        }
+        return true;
+    }
+
     static double shortSide(double[] q) {
         double best = Double.POSITIVE_INFINITY;
         for (int i = 0; i < 4; i++) {

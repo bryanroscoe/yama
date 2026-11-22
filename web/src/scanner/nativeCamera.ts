@@ -128,6 +128,8 @@ export interface NativeFinderStatus {
   /** The median find of the last frames, ms, and frames found a second. */
   ms?: number;
   fps?: number;
+  /** The art model is loaded in the app too (`loadNativeArt`). */
+  art?: boolean;
 }
 
 /** The app's card finder on one frame, as the frame's reply carries it. */
@@ -143,6 +145,8 @@ export interface NativeFound {
   passes: number;
   /** How long ago the camera took the frame, when the reply was sent. */
   ageMs: number;
+  /** The frame's number in the app, to read its art there (`nativeEmbed`). */
+  seq?: number;
 }
 
 export const FOUND_OFF = 0;
@@ -218,7 +222,12 @@ export interface ScannerCameraPlugin {
   finderLoad?(o: { key: string; constants: Record<string, unknown>; shortSide: number }): Promise<{ key: string; loadMs: number }>;
   finderSet?(o: { on?: boolean; outline?: boolean; reset?: boolean }): Promise<NativeFinderStatus>;
   finderUnload?(): Promise<void>;
-  find?(o: { width: number; height: number; data: string; reset?: boolean }): Promise<{ state: number; quad?: [number, number][]; vote: number; ms: number; runs: number[] }>;
+  find?(o: { width: number; height: number; data: string; reset?: boolean }): Promise<{ state: number; quad?: [number, number][]; vote: number; ms: number; runs: number[]; seq?: number }>;
+  /** Rejects with code "need-model" when the app doesn't have `key` yet. */
+  artLoad?(o: { key: string }): Promise<{ key: string; loadMs: number }>;
+  artUnload?(): Promise<void>;
+  /** Rejects with code "gone" when the frame's crop isn't kept any more. */
+  embed?(o: { seq: number; quad: [number, number][]; cuts?: number[]; key?: string }): Promise<{ data: string; rows: number; dim: number; ms: number }>;
 }
 
 const ScannerCamera = registerPlugin<ScannerCameraPlugin>("ScannerCamera");
@@ -270,7 +279,7 @@ export function parseReply(buf: ArrayBuffer, now = Date.now()): { id: number; fr
   if (format === "rgba" && buf.byteLength - HEADER !== width * height * 4) return { id, error: "A camera frame doesn't match its size" };
   const state = h.getUint32(48, true);
   const corners = [0, 1, 2, 3].map((i) => [h.getFloat32(56 + i * 8, true), h.getFloat32(60 + i * 8, true)]);
-  const finder: NativeFound = { state, quad: state === FOUND_CARD ? quadOf(corners) : null, vote: h.getFloat32(52, true), ms: h.getFloat32(88, true), passes: h.getUint32(92, true), ageMs: h.getFloat32(96, true) };
+  const finder: NativeFound = { state, quad: state === FOUND_CARD ? quadOf(corners) : null, vote: h.getFloat32(52, true), ms: h.getFloat32(88, true), passes: h.getUint32(92, true), ageMs: h.getFloat32(96, true), seq: h.getUint32(24, true) };
   return {
     id,
     frame: {
@@ -366,7 +375,7 @@ export function base64Transport(plugin: Pick<ScannerCameraPlugin, "frame" | "reg
       const data = await fromBase64(r.data);
       // Decoding the base64 is part of what this way of crossing costs.
       const f = r.finder;
-      const finder: NativeFound | undefined = f ? { state: f.state, quad: f.state === FOUND_CARD ? quadOf(f.quad) : null, vote: f.vote, ms: f.ms, passes: f.passes, ageMs: f.ageMs } : undefined;
+      const finder: NativeFound | undefined = f ? { state: f.state, quad: f.state === FOUND_CARD ? quadOf(f.quad) : null, vote: f.vote, ms: f.ms, passes: f.passes, ageMs: f.ageMs, seq: r.seq } : undefined;
       return { width: r.width, height: r.height, fullWidth: r.fullWidth, fullHeight: r.fullHeight, seq: r.seq, format: r.format, data, convertMs: r.convertMs, waitMs: r.waitMs, transitMs: Math.max(0, arrived - r.sentAt) + (Date.now() - arrived), finder };
     },
     close() {},
@@ -917,8 +926,70 @@ export async function nativeFind(image: RgbaImage, reset: boolean, plugin: Pick<
   if (!plugin.find) throw new Error("This app is older than its card finder");
   const data = new Uint8Array(image.data.buffer, image.data.byteOffset, image.data.byteLength);
   const r = await plugin.find({ width: image.width, height: image.height, data: toBase64(data), reset });
-  return { state: r.state, quad: r.state === FOUND_CARD ? quadOf(r.quad) : null, vote: r.vote, ms: r.ms, passes: r.runs.length, ageMs: 0, runs: r.runs };
+  return { state: r.state, quad: r.state === FOUND_CARD ? quadOf(r.quad) : null, vote: r.vote, ms: r.ms, passes: r.runs.length, ageMs: 0, runs: r.runs, ...(r.seq != null ? { seq: r.seq } : {}) };
 }
+
+/**
+ * Load the art model in the app (stage 4: the art read there), from the copy it keeps or, the
+ * first time, from `bytes`. From then on the app keeps each found frame's card crop a moment, for
+ * `nativeEmbed`.
+ */
+export async function loadNativeArt(file: { key: string; bytes: () => Promise<Uint8Array> }, plugin: Pick<ScannerCameraPlugin, "artLoad" | "finderModel"> = ScannerCamera): Promise<{ loadMs: number; sent: boolean }> {
+  if (!plugin.artLoad || !plugin.finderModel) throw new Error("This app is older than its art reader");
+  const ask = () => plugin.artLoad!({ key: file.key });
+  try {
+    const r = await ask();
+    return { loadMs: r.loadMs, sent: false };
+  } catch (e) {
+    // Only a file it doesn't have is handed over (as for the finder).
+    if (codeOf(e) !== "need-model") throw e;
+  }
+  await plugin.finderModel({ key: file.key, data: toBase64(await file.bytes()) });
+  const r = await ask();
+  return { loadMs: r.loadMs, sent: true };
+}
+
+export function unloadNativeArt(plugin: Pick<ScannerCameraPlugin, "artUnload"> = ScannerCamera): Promise<void> {
+  return plugin.artUnload?.().catch(() => undefined) ?? Promise.resolve();
+}
+
+/** Bytes of base64 as little-endian float32s (Android and every browser are little-endian). */
+export function floatsOf(base64: string): Float32Array {
+  const bin = atob(base64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+  return new Float32Array(bytes.buffer, 0, Math.floor(bytes.length / 4));
+}
+
+/**
+ * The art at `quad` (the frame's pixels) on the frame the app numbered `seq`, read in the app with
+ * the art model it has loaded, for these frame cuts (every one without): every row of the
+ * embedding, as the web worker's own graph gives it. Rejects when the frame isn't kept any more.
+ */
+export async function nativeEmbed(seq: number, quad: Quad, cuts: number[] | undefined, key?: string, plugin: Pick<ScannerCameraPlugin, "embed"> = ScannerCamera, timeoutMs = EMBED_TIMEOUT_MS): Promise<{ data: Float32Array; rows: number; dim: number; ms: number }> {
+  if (!plugin.embed) throw new Error("This app is older than its art reader");
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    // `key`: the model the read is for, so a read under one just switched is the worker's.
+    const asked = plugin.embed({ seq, quad: quad.map((p) => [p[0], p[1]] as [number, number]), ...(cuts ? { cuts } : {}), ...(key ? { key } : {}) });
+    // One that never answers would hold the scanner's read: it fails instead, and the worker reads.
+    const late = new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error("The app's art read didn't answer")), timeoutMs)));
+    const r = await Promise.race([asked, late]);
+    return { data: floatsOf(r.data), rows: r.rows, dim: r.dim, ms: r.ms };
+  } catch (e) {
+    // A frame it no longer keeps isn't a failure of the app's reader: this read is the worker's.
+    if (codeOf(e) === "gone") throw new Error(NATIVE_GONE);
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** How long an art read in the app may take before it counts as failed (a read takes tens of ms). */
+const EMBED_TIMEOUT_MS = 3000;
+
+/** What a read of a frame the app no longer keeps says (it's read by the worker instead, and nothing is wrong). */
+export const NATIVE_GONE = "The app no longer has that frame";
 
 function positiveOrNull(v: number | null | undefined): number | null {
   return positive(v) ? v : null;

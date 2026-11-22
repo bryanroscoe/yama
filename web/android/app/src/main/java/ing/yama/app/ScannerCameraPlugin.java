@@ -221,6 +221,7 @@ public class ScannerCameraPlugin extends Plugin {
         reader.shutdown();
         cameraThread.shutdown();
         loader.shutdownNow();
+        embedder.shutdownNow();
     }
 
     // ---- What the page calls ----
@@ -416,14 +417,111 @@ public class ScannerCameraPlugin extends Plugin {
         });
     }
 
-    /** Let the finder's model go (the scanner closed). */
+    /** Let the finder's model go (the scanner closed), and the art model with it. */
     @PluginMethod
     public void finderUnload(PluginCall call) {
         loader.execute(() -> {
             finder.unload();
+            finder.unloadArt();
             call.resolve();
         });
     }
+
+    /**
+     * `{ key }`: load the art model kept under `key` (rejects "need-model" when the page hasn't
+     * handed it over yet). From then on each frame with a card handed to the page keeps the card's
+     * crop for a while, and `embed` reads its art here. The same key loaded resolves at once.
+     */
+    @PluginMethod
+    public void artLoad(PluginCall call) {
+        String key = call.getString("key");
+        loader.execute(() -> {
+            try {
+                String why = OrtDetector.unavailable();
+                if (why != null) {
+                    call.reject(why, "unavailable");
+                    return;
+                }
+                if (!finder.artLoaded() || !String.valueOf(key).equals(finder.artKey())) {
+                    byte[] model = NativeFinder.readModel(NativeFinder.modelDir(getContext().getFilesDir()), key);
+                    if (model == null) {
+                        call.reject("The app doesn't have that model yet", "need-model");
+                        return;
+                    }
+                    try {
+                        finder.loadArt(key, model);
+                    } catch (ai.onnxruntime.OrtException e) {
+                        // As for the finder: a kept copy that won't load goes, to be handed over afresh.
+                        new File(NativeFinder.modelDir(getContext().getFilesDir()), NativeFinder.fileName(key)).delete();
+                        throw e;
+                    }
+                }
+                JSObject ret = new JSObject();
+                ret.put("key", key);
+                ret.put("loadMs", finder.artLoadMs());
+                call.resolve(ret);
+            } catch (Exception | OutOfMemoryError | UnsatisfiedLinkError e) {
+                call.reject("The app's art model didn't load: " + e.getMessage(), "failed");
+            }
+        });
+    }
+
+    @PluginMethod
+    public void artUnload(PluginCall call) {
+        loader.execute(() -> {
+            finder.unloadArt();
+            call.resolve();
+        });
+    }
+
+    /**
+     * `{ seq, quad, cuts?, key? }`: the art at `quad` (frame pixels, top-left first) on the frame handed
+     * to the page as `seq`, for these frame cuts (every one without). Resolves `{ data, rows, dim,
+     * ms }` (data: the float32 embedding, little-endian, base64), or rejects "gone" when that
+     * frame's crop isn't kept any more, or the model loaded isn't `key` (the page reads the art
+     * itself then).
+     */
+    @PluginMethod
+    public void embed(PluginCall call) {
+        double seqD = call.getData().optDouble("seq", Double.NaN);
+        JSArray q = call.getArray("quad");
+        JSArray c = call.getArray("cuts");
+        String artKey = call.getString("key");
+        embedder.execute(() -> {
+            try {
+                if (Double.isNaN(seqD) || q == null || q.length() != 4) throw new IllegalArgumentException("A read needs a frame and four corners");
+                double[] quad = new double[8];
+                for (int i = 0; i < 4; i++) {
+                    org.json.JSONArray p = q.getJSONArray(i);
+                    quad[i * 2] = p.getDouble(0);
+                    quad[i * 2 + 1] = p.getDouble(1);
+                }
+                long[] cuts = null;
+                if (c != null) {
+                    cuts = new long[c.length()];
+                    for (int i = 0; i < cuts.length; i++) cuts[i] = c.getLong(i);
+                }
+                NativeFinder.Embedding e = finder.embed((long) seqD, quad, cuts, artKey);
+                if (e == null) {
+                    call.reject("That frame isn't kept any more", "gone");
+                    return;
+                }
+                ByteBuffer b = ByteBuffer.allocate(e.data.length * 4).order(ByteOrder.LITTLE_ENDIAN);
+                for (float v : e.data) b.putFloat(v);
+                JSObject ret = new JSObject();
+                ret.put("data", Base64.encodeToString(b.array(), Base64.NO_WRAP));
+                ret.put("rows", e.rows);
+                ret.put("dim", e.dim);
+                ret.put("ms", e.ms);
+                call.resolve(ret);
+            } catch (Exception | OutOfMemoryError e) {
+                call.reject("The app couldn't read the art: " + e.getMessage(), "failed");
+            }
+        });
+    }
+
+    /** Art reads, one at a time, apart from the loads and from the frames. */
+    private final ExecutorService embedder = Executors.newSingleThreadExecutor();
 
     /**
      * `{ width, height, data, reset? }`: find the card on a frame the page hands over (RGBA,
@@ -447,6 +545,10 @@ public class ScannerCameraPlugin extends Plugin {
                 }
                 CardFinder.Result r = pageFinder.find(new CardFinder.Frame(width, height, rgba, 0));
                 JSObject ret = new JSObject();
+                // The page's frames are kept as negative numbers, apart from the camera's.
+                long seq = -(++pageSeq);
+                if (r.inView && finder.artLoaded()) finder.keepCrop(seq, rgba, 0, width, height, r.quad);
+                ret.put("seq", seq);
                 ret.put("state", r.inView ? NativeFinder.STATE_CARD : NativeFinder.STATE_NONE);
                 if (r.inView) ret.put("quad", quadOf(r.quad));
                 ret.put("vote", r.vote);
@@ -464,6 +566,7 @@ public class ScannerCameraPlugin extends Plugin {
     /** The speed test's own finder (the loader thread's), and the detector it was made for. */
     private CardFinder pageFinder;
     private int pageFinderFor;
+    private long pageSeq;
 
     private static JSArray quadOf(double[] q) {
         JSArray a = new JSArray();
@@ -503,6 +606,7 @@ public class ScannerCameraPlugin extends Plugin {
         double[] pace = finder.pace();
         if (pace[0] > 0) f.put("ms", Math.round(pace[0] * 10) / 10.0);
         if (pace[1] > 0) f.put("fps", Math.round(pace[1] * 10) / 10.0);
+        f.put("art", finder.artLoaded());
         return f;
     }
 

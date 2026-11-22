@@ -3,7 +3,10 @@
 // settings, Models, beside the model each slot runs. The card finder in native code
 // (NativeFinder.java) runs the same file the slot names, with ONNX Runtime for Android on the CPU,
 // on every frame the app's camera analyses; it needs the app's own camera, and an APK whose
-// processor ONNX Runtime ships for (arm64-v8a and x86_64; Bryan, 22 Nov 2026).
+// processor ONNX Runtime ships for (arm64-v8a and x86_64; Bryan, 22 Nov 2026). The art read in
+// native code (OrtEmbedder.java) reads the art model's file the same way, on the card's crop of the
+// frame the app's finder found it on: it needs the finder in the app, and the web worker still
+// searches what it gives.
 //
 // Records name what really ran: a slot run in the app is recorded as its option id with
 // NATIVE_SUFFIX (`yama-corners-20261120-native`), so Scanner diagnostics' timing records and the
@@ -11,8 +14,8 @@
 // from loading or running gives the slot back to the web view for the rest of the session, and the
 // records say so (`finder_fallback`).
 
-export type NativeSlot = "detector";
-export const NATIVE_SLOTS: readonly NativeSlot[] = ["detector"];
+export type NativeSlot = "detector" | "art";
+export const NATIVE_SLOTS: readonly NativeSlot[] = ["detector", "art"];
 
 /** What a slot's option is recorded as when the app's own code ran it. */
 export const NATIVE_SUFFIX = "-native";
@@ -25,7 +28,7 @@ export const NATIVE_RUNTIME = "native-cpu";
  * web view's on the same frames with the same model (docs/scanner.md, "The card finder in the app"),
  * and a failure falls back by itself. The phone check is Bryan's (the PR says what to look at).
  */
-export const NATIVE_DEFAULT: Record<NativeSlot, boolean> = { detector: true };
+export const NATIVE_DEFAULT: Record<NativeSlot, boolean> = { detector: true, art: true };
 
 export const NATIVE_KEY = "yama.scan.native";
 

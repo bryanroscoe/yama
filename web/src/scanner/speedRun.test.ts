@@ -104,13 +104,26 @@ function world(
           return r;
         },
         // The art at corners the app's card finder placed (speedRun.ts, its configurations in the app).
-        async matchAt(image, handed) {
+        async matchAt(image, handed, opts) {
           if (gone) throw new Error("The scanner is closed");
-          const embed = art.id === "yama-art-20261118-cascade" ? [15] : [60];
+          // Read in the app when asked (as the worker does): its time there instead of the worker's.
+          let remote: { reads: number; ms: number[]; failed?: string } | undefined;
+          let embed = art.id === "yama-art-20261118-cascade" ? [15] : [60];
+          if (opts?.remote && handed.quad) {
+            remote = { reads: 0, ms: [] };
+            try {
+              const got = await opts.remote(handed.quad, undefined);
+              remote.reads += 1;
+              remote.ms.push(got.ms ?? 0);
+              embed = [got.ms ?? 0];
+            } catch (e) {
+              remote.failed = e instanceof Error ? e.message : String(e);
+            }
+          }
           clock += embed[0]! + 5 + 1;
           shown = cards[image.data[0]!]!;
-          const top = { ...shown, layout: "normal", printings: 1, index: shown.index, score: 0.9 };
-          return { quad: handed.quad, upright: handed.upright ?? 1, matches: handed.quad ? [top] : [], timings: { detectMs: 0, embedMs: embed[0]! + 5, totalMs: embed[0]! + 5, cuts: 17, runs: { detector: [], embed, search: [5] } } };
+          const top = { ...shown, layout: "normal", printings: 1, index: shown.index, score: remote?.reads ? 0.9001 : 0.9 };
+          return { quad: handed.quad, upright: handed.upright ?? 1, matches: handed.quad ? [top] : [], timings: { detectMs: 0, embedMs: embed[0]! + 5, totalMs: embed[0]! + 5, cuts: 17, runs: { detector: [], embed, search: [5] } }, ...(remote ? { remote } : {}) };
         },
         reset() {
           tracking = false;
@@ -230,9 +243,63 @@ describe("a speed test", () => {
     expect(app!.stats!.tracked.median).toBe(75);
     expect(app!.stats!.detector.median).toBe(9);
     expect(web!.stats!.tracked.median).toBe(116);
-    expect(app!.parity).toEqual({ frames: SPEED_CARDS * FRAMES_PER_CARD, both: SPEED_CARDS * FRAMES_PER_CARD, disagreed: 0, maxPx: 0.5, medianPx: 0.5, sameTop: SPEED_CARDS * FRAMES_PER_CARD });
+    // (No art read in the app here: no score gap to give.)
+    expect(app!.parity).toEqual({ frames: SPEED_CARDS * FRAMES_PER_CARD, both: SPEED_CARDS * FRAMES_PER_CARD, disagreed: 0, maxPx: 0.5, medianPx: 0.5, sameTop: SPEED_CARDS * FRAMES_PER_CARD, scoreGap: null });
     expect(resets).toBe(SPEED_CARDS * 2);
     expect(speedSummary(r)).toContain("75 ms with your models");
+  });
+
+  it("reads the art in the app too where it can, and says how close its scores are to the worker's", async () => {
+    const w = world();
+    const embeds: number[] = [];
+    let seq = 0;
+    let unloads = 0;
+    w.deps.native = {
+      can: async () => ({ can: true, runs: true }),
+      load: async () => 100,
+      loadArt: async () => 50,
+      find: async () => ({ state: 1, quad: [[0, 0], [1, 0], [1, 1], [0, 1]], vote: 1, ms: 9, passes: 1, ageMs: 0, runs: [9], seq: (seq -= 1) }),
+      embed: async (s) => (embeds.push(s), { data: new Float32Array(4), rows: 1, dim: 4, ms: 20 }),
+      unloadArt: async () => void (unloads += 1),
+    };
+    const r = await runSpeedTest(() => undefined, undefined, w.deps);
+    const app = r.configs[0]!;
+    expect(app.runtimes).toEqual({ detector: "native-cpu", art: "native-cpu" });
+    expect(app.ran).toEqual({ detector: "bundle-detector-native", art: "yama-art-20261118-native" });
+    expect(app.loadMs).toBe(150);
+    // Each frame's art read in the app, on the frame the app's finder kept.
+    expect(embeds).toHaveLength(SPEED_CARDS * FRAMES_PER_CARD * 2);
+    expect(embeds[0]).toBe(-1);
+    // A frame: 9 ms to find, 20 to read the art in the app, 5 to search, and a ms of messaging.
+    expect(app.stats!.tracked.median).toBe(35);
+    // Against the worker's own read on the same corners: the art alone.
+    expect(app.parity!.scoreGap).toBe(0.0001);
+    // Each configuration's art model let go in the app after it (the scanner loads its own again).
+    expect(unloads).toBe(2);
+  });
+
+  it("ends a configuration in the app where its art read fails, rather than mixing in the worker's reads", async () => {
+    const w = world();
+    let reads = 0;
+    w.deps.native = {
+      can: async () => ({ can: true, runs: true }),
+      load: async () => 100,
+      loadArt: async () => 50,
+      find: async () => ({ state: 1, quad: [[0, 0], [1, 0], [1, 1], [0, 1]], vote: 1, ms: 9, passes: 1, ageMs: 0, runs: [9], seq: -1 }),
+      // Ten reads, then the reader breaks.
+      embed: async () => {
+        reads += 1;
+        if (reads > 10) throw new Error("the app's art reader crashed");
+        return { data: new Float32Array(4), rows: 1, dim: 4, ms: 20 };
+      },
+      unloadArt: async () => undefined,
+    };
+    const r = await runSpeedTest(() => undefined, undefined, w.deps);
+    const app = r.configs[0]!;
+    expect(app.runtimes).toEqual({ detector: "native-cpu", art: "native-cpu" });
+    expect(app.frames).toHaveLength(10);
+    expect(app.error).toBe("The art read in the app stopped: the app's art reader crashed");
+    expect(app.stats!.tracked.median).toBe(35);
   });
 
   it("puts the configuration in the app after the web view's where this device doesn't run it, and notes one that won't load", async () => {

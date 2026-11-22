@@ -74,7 +74,15 @@ export interface Recognition {
    * was doubtful (`true`), and that read won (`"won"`); absent when it wasn't read.
    */
   turned?: true | "won";
+  /**
+   * `matchAt` with `remote`: how many of the frame's art reads ran elsewhere (the app's own code),
+   * their milliseconds there, and why one didn't (then this frame's were read here).
+   */
+  remote?: { reads: number; ms: number[]; failed?: string };
 }
+
+/** An art read run elsewhere (the app's own code): every row of the embedding for these cuts (all without). */
+export type RemoteEmbed = (quad: Quad, cuts: number[] | undefined) => Promise<{ data: Float32Array; rows: number; dim: number; ms?: number }>;
 
 /** Milliseconds of each graph run in one frame, in the order they ran. */
 export interface GraphRuns {
@@ -116,7 +124,7 @@ export interface Recognizer {
    * doubtful is read again with the card turned half round, and the better kept (the plan's item
    * 20: the finder looks once, not four ways round).
    */
-  matchAt(frame: RgbaImage, handed: Handed, opts?: { turn?: boolean }): Promise<Recognition>;
+  matchAt(frame: RgbaImage, handed: Handed, opts?: { turn?: boolean; remote?: RemoteEmbed }): Promise<Recognition>;
   /** Forget the tracked card (after it was accepted, say). */
   reset(): void;
   /**
@@ -361,21 +369,32 @@ export function convex(q: Quad): boolean {
  * pads with zeros, so the box stops at the frame's edge exactly as the frame does.
  */
 export function cardWindow(frame: RgbaImage, quad: Quad): { frame: RgbaImage; quad: Quad } {
-  const xs = quad.map((p) => p[0]);
-  const ys = quad.map((p) => p[1]);
-  const x0 = Math.max(0, Math.floor(Math.min(...xs)) - 2);
-  const y0 = Math.max(0, Math.floor(Math.min(...ys)) - 2);
-  const x1 = Math.min(frame.width, Math.ceil(Math.max(...xs)) + 3);
-  const y1 = Math.min(frame.height, Math.ceil(Math.max(...ys)) + 3);
-  const whole = x0 === 0 && y0 === 0 && x1 === frame.width && y1 === frame.height;
-  // Nothing to gain, or a quad off the frame or folded over itself (a corner dragged past the diagonal
-  // samples far outside the corners' box): the frame as it is.
-  if (whole || !(x1 - x0 >= 2 && y1 - y0 >= 2) || [...xs, ...ys].some((v) => !Number.isFinite(v)) || !convex(quad)) return { frame, quad };
+  const box = cardBox(frame.width, frame.height, quad);
+  if (!box) return { frame, quad };
+  const { x0, y0, x1, y1 } = box;
   const w = x1 - x0;
   const h = y1 - y0;
   const data = new Uint8ClampedArray(w * h * 4);
   for (let y = 0; y < h; y++) data.set(frame.data.subarray(((y0 + y) * frame.width + x0) * 4, ((y0 + y) * frame.width + x1) * 4), y * w * 4);
   return { frame: { width: w, height: h, data }, quad: quad.map(([x, y]) => [x - x0, y - y0]) as Quad };
+}
+
+/**
+ * The box `cardWindow` cuts for this quad from a `width` × `height` frame, or null where the frame
+ * is read as it is: nothing to gain, or a quad off the frame or folded over itself (a corner dragged
+ * past the diagonal samples far outside the corners' box). The app's art reader cuts the same
+ * (CardFinder.java, `cardWindow`).
+ */
+export function cardBox(width: number, height: number, quad: Quad): { x0: number; y0: number; x1: number; y1: number } | null {
+  const xs = quad.map((p) => p[0]);
+  const ys = quad.map((p) => p[1]);
+  const x0 = Math.max(0, Math.floor(Math.min(...xs)) - 2);
+  const y0 = Math.max(0, Math.floor(Math.min(...ys)) - 2);
+  const x1 = Math.min(width, Math.ceil(Math.max(...xs)) + 3);
+  const y1 = Math.min(height, Math.ceil(Math.max(...ys)) + 3);
+  const whole = x0 === 0 && y0 === 0 && x1 === width && y1 === height;
+  if (whole || !(x1 - x0 >= 2 && y1 - y0 >= 2) || [...xs, ...ys].some((v) => !Number.isFinite(v)) || !convex(quad)) return null;
+  return { x0, y0, x1, y1 };
 }
 
 /**
@@ -476,6 +495,14 @@ export async function createRecognizer(
     side: Math.max((d.short * constants.card_aspect) / constants.refine_fill, constants.refine_min_side),
   });
 
+  /** A frame's art reads run elsewhere (`matchAt`'s `remote`), as they go. */
+  interface RemoteRun {
+    embed: RemoteEmbed;
+    reads: number;
+    ms: number[];
+    failed?: string;
+  }
+
   // The cascade (FIRST_STAGE): which cuts each stage embeds, for an embed graph that takes `cuts`.
   const frameNames = constants.frame_names ?? [];
   const allCuts = frameNames.map((_, i) => i);
@@ -486,9 +513,25 @@ export async function createRecognizer(
   /** The first stage settles the frame: a card FIRST_FLOOR or more, LEAD_MARGIN ahead of every other card listed. */
   const settles = (out: ArtMatch[]) => !!out[0] && out[0].score >= FIRST_FLOOR && artLead(out) >= LEAD_MARGIN;
   /** The embed graph's output for these cuts (every cut when it takes `cuts` and none are named). */
-  const embedRun = async (session: Session, whole: RgbaImage, at: Quad, cuts?: number[], into: GraphRuns = noRuns()) => {
+  const embedRun = async (session: Session, whole: RgbaImage, at: Quad, cuts?: number[], into: GraphRuns = noRuns(), remote?: RemoteRun) => {
     const takesCuts = session.inputNames.includes("cuts");
     if (takesCuts && !frameNames.length) throw new Error("This art model needs the bundle's frame names");
+    // Read in the app (the same model file, on the same pixels): this worker searches what it gives.
+    // One that fails is read here, this frame on.
+    if (remote && !remote.failed) {
+      try {
+        const t = now();
+        const got = await remote.embed(at, takesCuts ? (cuts ?? allCuts) : undefined);
+        // Its rows are the frame cuts this worker searches, every one of them a number.
+        if (got.data.length !== got.rows * got.dim || (frameNames.length > 0 && got.rows !== frameNames.length) || !got.data.every(Number.isFinite)) throw new Error("The app's art read isn't an embedding");
+        into.embed.push(now() - t);
+        remote.reads += 1;
+        if (got.ms != null) remote.ms.push(got.ms);
+        return new ort.Tensor("float32", got.data, [got.rows, got.dim]) as { data: Float32Array };
+      } catch (e) {
+        remote.failed = e instanceof Error ? e.message : String(e);
+      }
+    }
     const { frame, quad } = cardWindow(whole, at);
     const scene = new ort.Tensor("uint8", new Uint8Array(frame.data.buffer, frame.data.byteOffset, frame.data.byteLength), [frame.height, frame.width, 4]);
     const feeds: Record<string, unknown> = { scene, quad: new ort.Tensor("float32", Float32Array.from(quad.flat()), [4, 2]) };
@@ -498,7 +541,7 @@ export async function createRecognizer(
     }
     return Object.values(await timed(into, "embed", () => session.run(feeds)))[0]!;
   };
-  const match = async (frame: RgbaImage, quad: Quad, into: GraphRuns = noRuns()): Promise<{ matches: ArtMatch[]; pool?: ArtMatch[]; cuts?: number }> => {
+  const match = async (frame: RgbaImage, quad: Quad, into: GraphRuns = noRuns(), remote?: RemoteRun): Promise<{ matches: ArtMatch[]; pool?: ArtMatch[]; cuts?: number }> => {
     const fromExtra = (vector: Float32Array, local: Iterable<number>, k: number): ArtMatch[] =>
       extra ? extra.gallery.search(vector, local, k).flatMap(({ index, score }) => (extra.arts[index] ? [{ ...extra.arts[index]!, index: bundleCount + index, score }] : [])) : [];
     const rank = async (embedding: unknown): Promise<ArtMatch[]> => {
@@ -521,12 +564,12 @@ export async function createRecognizer(
     const session = embed;
     const lockPool = pool;
     const cascade = lockPool ? null : stagesFor(session);
-    let embedding: unknown = await embedRun(session, frame, quad, cascade?.first, into);
+    let embedding: unknown = await embedRun(session, frame, quad, cascade?.first, into, remote);
     let out = await rank(embedding);
     let cuts = cascade ? cascade.first.length : frameNames.length || undefined;
     if (cascade && !settles(out)) {
       const first = (embedding as { data: Float32Array }).data;
-      const rest = ((await embedRun(session, frame, quad, cascade.rest, into)) as { data: Float32Array }).data;
+      const rest = ((await embedRun(session, frame, quad, cascade.rest, into, remote)) as { data: Float32Array }).data;
       // Each stage fills only its own cuts' rows, so the whole embedding is their sum.
       const sum = Float32Array.from(first, (v, i) => v + rest[i]!);
       embedding = new ort.Tensor("float32", sum, [frameNames.length, sum.length / frameNames.length]);
@@ -583,9 +626,10 @@ export async function createRecognizer(
   };
 
   const turns = new TurnMemory();
-  const matchAt = async (frame: RgbaImage, handed: Handed, opts: { turn?: boolean } = {}): Promise<Recognition> => {
+  const matchAt = async (frame: RgbaImage, handed: Handed, opts: { turn?: boolean; remote?: RemoteEmbed } = {}): Promise<Recognition> => {
     const t0 = now();
     const runs = noRuns();
+    const remote: RemoteRun | undefined = opts.remote ? { embed: opts.remote, reads: 0, ms: [] } : undefined;
     const upright = handed.upright ?? (handed.quad ? 1 : 0);
     if (!handed.quad) {
       turns.forget();
@@ -594,14 +638,14 @@ export async function createRecognizer(
     const back = isCardBack(frame, handed.quad);
     const plan = opts.turn ? turns.first(handed.quad) : { quad: handed.quad, known: true, name: null };
     let quad = plan.quad;
-    let { cuts, ...found } = await match(frame, quad, runs);
+    let { cuts, ...found } = await match(frame, quad, runs, remote);
     let turned: Recognition["turned"];
     const top = found.matches[0];
     // Doubtful upright: read it the other way up too, unless this card was already read both ways
     // and the read still names the card it was then.
     if (opts.turn && !settles(found.matches) && !(plan.known && (top?.name ?? null) === plan.name)) {
       const other = halfTurn(quad);
-      const { cuts: otherCuts, ...again } = await match(frame, other, runs);
+      const { cuts: otherCuts, ...again } = await match(frame, other, runs, remote);
       turned = true;
       if ((again.matches[0]?.score ?? -Infinity) > (top?.score ?? -Infinity)) {
         quad = other;
@@ -612,7 +656,15 @@ export async function createRecognizer(
     }
     if (opts.turn) turns.learn(quad, found.matches[0]?.name ?? null);
     const t2 = now();
-    return { quad, upright, ...found, ...(back ? { back } : {}), timings: { detectMs: 0, embedMs: t2 - t0, totalMs: t2 - t0, cuts, runs }, ...(turned ? { turned } : {}) };
+    return {
+      quad,
+      upright,
+      ...found,
+      ...(back ? { back } : {}),
+      timings: { detectMs: 0, embedMs: t2 - t0, totalMs: t2 - t0, cuts, runs },
+      ...(turned ? { turned } : {}),
+      ...(remote ? { remote: { reads: remote.reads, ms: remote.ms, ...(remote.failed ? { failed: remote.failed } : {}) } } : {}),
+    };
   };
 
   const identify = async (frame: RgbaImage, onSeen?: (quad: Quad | null) => void, at?: Quad | null): Promise<Recognition> => {

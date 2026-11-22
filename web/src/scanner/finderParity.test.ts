@@ -15,7 +15,8 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createRecognizer, type OrtLike } from "./recognizer";
+import { cardBox, createRecognizer, type OrtLike } from "./recognizer";
+import type { Quad } from "./types";
 import type { RgbaImage } from "./types";
 
 const FIXTURE = join(__dirname, "../../android/app/src/test/resources/finder-parity.json");
@@ -169,7 +170,17 @@ describe("the card finder's windows, web and app", () => {
     expect(seen.filter((s) => s.windows.length === 1).length).toBeGreaterThanOrEqual(8);
     expect(seen.some((s) => s.windows.length === 3)).toBe(true);
     expect(seen.filter((s) => !s.inView).length).toBeGreaterThanOrEqual(3);
-    const fixture = { constants, width: W, height: H, frames: FRAMES, seen };
+    // The art reader's crop of each card found, and of the quads it refuses to crop (off the frame,
+    // folded over itself, the whole frame).
+    const quads: Quad[] = [
+      ...seen.filter((x) => x.quad).map((x) => [0, 1, 2, 3].map((i) => [x.quad![i * 2]!, x.quad![i * 2 + 1]!]) as Quad),
+      [[-5, -5], [W + 5, -5], [W + 5, H + 5], [-5, H + 5]],
+      [[10, 10], [300, 300], [300, 10], [10, 300]],
+      [[0.5, 0.5], [W - 2.5, 0.5], [W - 2.5, H - 2.5], [0.5, H - 2.5]],
+      [[100.2, 200.7], [400.9, 210.1], [390.5, 650.5], [95.5, 640.2]],
+    ];
+    const boxes = quads.map((q) => ({ quad: q.flat(), box: cardBox(W, H, q) }));
+    const fixture = { constants, width: W, height: H, frames: FRAMES, seen, boxes };
     if (process.env.UPDATE_FINDER_PARITY) writeFileSync(FIXTURE, `${JSON.stringify(fixture, null, 1)}\n`);
     expect(JSON.parse(readFileSync(FIXTURE, "utf8"))).toEqual(JSON.parse(JSON.stringify(fixture)));
   }, 60_000);

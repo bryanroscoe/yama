@@ -7,11 +7,13 @@ that leads, read when the card is still") and the app's own camera in the Androi
 default since PR #193). Stage 3, the card finder and the outline in native code with the art read
 upside down only when doubtful (items 1 to 4 and 20), is built: on by default on arm64-v8a and x86_64
 APKs, after the emulator's parity check ([scanner.md](../scanner.md#the-card-finder-in-the-app-2026-11-22));
-the phone check is Bryan's. Stage 5 is built too (22 Nov 2026): card first, printing after (22) and tie by price (26) as options in Scan
-settings, off by default; the border colour rule (24); feedback by price (28), on by default (docs/scanner.md,
-"Card first, printing after, border, tie and feedback by price"). Card first's default flips only when the
-Pixel's timing records (`get_scan_timings`, `rows`) support it. Next, stage 4: the art read in native code.
-No decision below waits on Bryan now.
+the phone check is Bryan's. Stage 4, the art read in native code on the CPU (items 17 and 30), is built too: the
+same model files on the same pixels as the web worker, which still searches; on by default where the finder runs
+in the app. The GPU route (LiteRT) waits for the Pixel's numbers to ask for it. Stage 5 is built too (22 Nov 2026):
+card first, printing after (22) and tie by price (26) as options in Scan settings, off by default; the border colour
+rule (24); feedback by price (28), on by default (docs/scanner.md, "Card first, printing after, border, tie and
+feedback by price"). Card first's default flips only when the Pixel's timing records (`get_scan_timings`, `rows`)
+support it. No decision below waits on Bryan now.
 
 **Asked for:** Bryan, 21 Nov 2026, after trying CardVision's Android beta (0.2.1-beta1): "It's by far the
 best one I've seen and it's the one that we should use as our gold standard but we should improve upon it
@@ -91,7 +93,7 @@ app only), or **both** (shared logic in TypeScript, fed by either camera).
 
 | # | What CardVision does | Yama today | Where |
 |---|---|---|---|
-| 17 | One embedding of one crop per read | 2 cuts first, 15 more when unsure (option). One crop needs a new art model with its own gallery: today's gallery holds one vector per artwork per frame style | models thread |
+| 17 | One embedding of one crop per read | 2 cuts first, 15 more when unsure (option). One crop needs a new art model with its own gallery: today's gallery holds one vector per artwork per frame style. In the app, read in native code since 22 Nov | models thread |
 | 18 | Says "card back, turn the card over" | Nothing | both |
 | 19 | Trims a sleeve's edge and reads once more when a read is refused | Art model trained on sleeves | both |
 | 20 | Reads upside down only when upright is doubtful | Detector tries four turns every pass (default finder); with the app's finder, the art is read upside down only when upright is doubtful (22 Nov) | both |
@@ -114,7 +116,7 @@ app only), or **both** (shared logic in TypeScript, fed by either camera).
 |---|---|---|---|
 | 28 | A quiet haptic per find, a different one for a valuable card; a chime pitched by price | Built 22 Nov 2026 (Feedback by price, on by default) | web |
 | 29 | Times the phone at start and says so when it's slow | One-tap speed test (being built in the models thread) | models thread |
-| 30 | Checks the GPU's answers against the CPU's before trusting it | n/a | native |
+| 30 | Checks the GPU's answers against the CPU's before trusting it | n/a; the app's CPU reads are checked against the web worker's on the emulator (22 Nov) | native |
 
 ## How the native camera fits
 
