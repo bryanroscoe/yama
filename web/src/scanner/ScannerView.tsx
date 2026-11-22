@@ -1090,6 +1090,8 @@ function ScannerScreen({
   const haltReaders = () => {
     camGen.current += 1;
     for (const halt of readers.current) halt();
+    // A provisional row stops reading its card too (card first): the new camera's frames are another view.
+    heldLater.current?.end();
     firstEvidence.current = null;
     // A first read of the collector line under way is dropped; the held card is read again on the new camera.
     setFound((cur) => (cur?.reading ? { ...cur, reading: false } : cur));
@@ -3308,9 +3310,11 @@ function ScannerScreen({
             const reads: string[] = [];
             let quality: StripQuality | null = null;
             for await (const text of readCollectorLines(read.image, read.quad, await ocrEngine(), { gate: (q) => ((quality = q), true) })) {
-              if (!row.finding) return;
+              if (!row.finding || camGen.current !== gen) return;
               reads.push(text);
             }
+            // A camera switch meanwhile: nothing read from the old camera counts (as on the sheet; Codex review of #195).
+            if (camGen.current !== gen) return;
             ev.add(reads);
             f.rec?.frame({ source: "later", reads, ...qualityNote(quality), cardPx: Math.round(cardHeight(read.quad)), verdict: ev.verdict() });
             proven();
@@ -3329,9 +3333,10 @@ function ScannerScreen({
             const scores: LookScores = {};
             const timer = setTimeout(() => lookStop.abort(), LATER_LOOK_MS);
             const done = await withTimeout(art.lookAt(index, candidates, (id, score) => void (scores[id] = score), lookStop.signal, kept.frames!), LATER_LOOK_MS).finally(() => clearTimeout(timer));
-            // Never before the first collector-line read is in the evidence: it may point elsewhere (Codex review of #195).
+            // Never before the first collector-line read is in the evidence: it may point elsewhere,
+            // and never on frames from a camera switched away from since (Codex review of #195).
             await firstRead;
-            if (!row.finding) return;
+            if (!row.finding || camGen.current !== gen) return;
             const got = lookSettles(pool, scores, (id) => ev.pointsAway(id));
             const option = slotsRef.current.look.option;
             const acts = !!option?.settles && option.id === model;
