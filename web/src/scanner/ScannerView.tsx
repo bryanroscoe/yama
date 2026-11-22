@@ -820,7 +820,8 @@ function ScannerScreen({
     // The card finder that placed the card: the app's own when it runs (recorded as `<id>-native`).
     const detector = nativeFinding.current ? nativeId(nativeFinding.current) : (artRef.current?.detector ?? NO_ART_MODEL);
     const artId = artRef.current?.art ?? NO_ART_MODEL;
-    const art = nativeFinding.current && nativeArtReadyRef.current === artId && !nativeArtFailedRef.current ? nativeId(artId) : artId;
+    // (Not under digital zoom, where the worker reads the art itself.)
+    const art = nativeFinding.current && nativeArtReadyRef.current === artId && !nativeArtFailedRef.current && digitalRef.current <= 1 ? nativeId(artId) : artId;
     return { detector, art, look: artRef.current?.look ?? "off", text: now.text.option?.id ?? "auto", lock: now.lock.option?.id ?? "lead" };
   };
   // Audio is paused once no scanner (or deck check) is open, rather than left running (sound.ts).
