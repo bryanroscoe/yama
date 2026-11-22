@@ -12,11 +12,12 @@ import { deleteSpeedTests, runSpeedTest, saveSpeedTest, speedTestCount, type Spe
 
 const ROLE_NAME: Record<SpeedRole, string> = { yours: "Your models", defaults: "The defaults", faster: "The faster ones" };
 
-/** A configuration's name in the table: "Your models (the defaults)", and ", card finder in the app" when it ran there. */
+/** A configuration's name in the table: "Your models (the defaults)", and what of it ran in the app. */
 export function configName(c: ConfigResult): string {
   const [first, ...rest] = c.roles;
   const head = ROLE_NAME[first ?? "yours"];
   const name = rest.length ? `${head} (${rest.map((r) => ROLE_NAME[r].toLowerCase()).join(", ")})` : head;
+  if (c.runtimes?.art === NATIVE_RUNTIME) return `${name}, card finder and art in the app`;
   return c.runtimes?.detector === NATIVE_RUNTIME ? `${name}, card finder in the app` : name;
 }
 
@@ -26,7 +27,8 @@ export function parityLine(c: ConfigResult): string | null {
   if (!p || p.frames === 0) return null;
   const agreed = p.frames - p.disagreed;
   const corners = p.maxPx == null ? "" : `, corners within ${p.maxPx} px (median ${p.medianPx})`;
-  return `${configName(c)}: found a card where the web view's finder did on ${agreed} of ${p.frames} frames${corners}; the same best match on ${p.sameTop}.`;
+  const scores = p.scoreGap == null ? "" : `, its score within ${p.scoreGap}`;
+  return `${configName(c)}: found a card where the web view's finder did on ${agreed} of ${p.frames} frames${corners}; the same best match on ${p.sameTop}${scores}.`;
 }
 
 const n = (v: number | null | undefined) => (v == null ? "–" : String(Math.round(v)));

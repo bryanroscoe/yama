@@ -12,9 +12,9 @@ import { Updater } from "../nativeUpdate";
 import { loadArtRecognizer, scanBundleInfo, type ArtRecognizer, type BundleInfo, type LoadState } from "./artClient";
 import type { LookTiming, LookWorkerReply, LookWorkerRequest, WireFrame } from "./look";
 import { defaultOption, modelsOf, running, savedModels, type DeviceCan, type ModelChoices, type ModelOption, type ModelsInfo } from "./models";
-import { finderKey, loadNativeFinder, nativeCameraAvailable, nativeFind, nativeFinderAbility, savedNativeCamera, type NativeFound } from "./nativeCamera";
+import { finderKey, loadNativeArt, loadNativeFinder, nativeCameraAvailable, nativeEmbed, nativeFind, nativeFinderAbility, NATIVE_GONE, savedNativeCamera, type NativeFound } from "./nativeCamera";
 import { NATIVE_RUNTIME, nativeId, nativeWanted, savedNative } from "./nativeModels";
-import type { Recognition } from "./recognizer";
+import type { Recognition, RemoteEmbed } from "./recognizer";
 import { cachedFile } from "./scanCache";
 import {
   captureEnv,
@@ -45,7 +45,7 @@ import {
   type Alongside,
   CARD_ASPECT,
 } from "./speed";
-import type { RgbaImage } from "./types";
+import type { Quad, RgbaImage } from "./types";
 
 /** What the test is doing, for the line under the button. */
 export interface SpeedProgress {
@@ -91,6 +91,9 @@ export interface NativeSpeed {
   load(info: BundleInfo, detector: ModelOption): Promise<number>;
   /** Find the card on a frame (tracking across calls until `reset`), timed in native code. */
   find(image: RgbaImage, reset: boolean): Promise<NativeFound & { runs: number[] }>;
+  /** Load this art model in the app too (stage 4), and read the art there of a frame `find` kept. */
+  loadArt?(info: BundleInfo, art: ModelOption): Promise<number>;
+  embed?(seq: number, quad: Quad, cuts: number[] | undefined): Promise<Awaited<ReturnType<RemoteEmbed>>>;
 }
 
 /** The art slot and card finder have files: the text reader's list doesn't matter here. */
@@ -203,8 +206,10 @@ export async function runSpeedTest(onProgress: (p: SpeedProgress) => void, signa
     const result: ConfigResult = { roles: p.roles, runtime: SPEED_RUNTIME, wanted: pair(p.detector, p.art), ran: null, loadMs: null, downloaded: false, firstFrameMs: null, stats: null, found: 0, right: 0, frames: [], error: null };
     configs.push(result);
     let rec: ArtRecognizer | null = null;
-    /** The same configuration with the card finder in the app, when it loaded there. */
+    /** The same configuration with the card finder in the app, when it loaded there; and its art read there too. */
     let twin: ConfigResult | null = null;
+    let twinArt = false;
+    let scoreGap: number | null = null;
     const gaps: number[] = [];
     const parity: FinderParity = { frames: 0, both: 0, disagreed: 0, maxPx: null, medianPx: null, sameTop: 0 };
     // Stopped: the worker goes at once (a frame under way is refused), not at the next step.
@@ -239,6 +244,19 @@ export async function runSpeedTest(onProgress: (p: SpeedProgress) => void, signa
           t.loadMs = round(await orStop(deps.native.load(info, p.detector), signal));
           t.ran = { detector: nativeId(p.detector.id), art: rec.art };
           twin = t;
+          // And the art read there too, where the app has it: the worker searches what it gives.
+          if (deps.native.loadArt && deps.native.embed && p.art.file) {
+            try {
+              say(`Loading ${p.art.label} in the app`);
+              t.loadMs = round(t.loadMs + (await orStop(deps.native.loadArt(info, p.art), signal)));
+              twinArt = true;
+              t.runtimes = { detector: NATIVE_RUNTIME, art: NATIVE_RUNTIME };
+              t.ran = { detector: nativeId(p.detector.id), art: nativeId(rec.art) };
+            } catch (e) {
+              if (signal?.aborted) throw e;
+              t.error = `The art wasn't read in the app: ${message(e)}`;
+            }
+          }
         } catch (e) {
           if (signal?.aborted) throw e;
           t.error = message(e);
@@ -294,7 +312,15 @@ export async function runSpeedTest(onProgress: (p: SpeedProgress) => void, signa
               const again = deps.frame(pic, at);
               const nf = await orStop(deps.native.find(again, f === 0), signal);
               const s1 = deps.now();
-              const r2 = await rec.matchAt(again, { quad: nf.quad, upright: nf.vote }, { turn: true });
+              const embed = deps.native.embed;
+              const remote: RemoteEmbed | undefined = twinArt && embed && nf.seq != null ? (q, cuts) => embed(nf.seq!, q, cuts) : undefined;
+              const r2 = await rec.matchAt(again, { quad: nf.quad, upright: nf.vote }, { turn: true, remote });
+              // The art read in the app failed (not a frame it no longer had): the rest are the worker's.
+              if (r2.remote?.failed && !r2.remote.failed.includes(NATIVE_GONE)) {
+                twinArt = false;
+                twin.error = `The art read in the app stopped: ${r2.remote.failed}`;
+                twin.runtimes = { detector: NATIVE_RUNTIME, art: SPEED_RUNTIME };
+              }
               // The frame as the live scanner has it: found in native code (its own time there; the
               // test's copy of the frame across the bridge isn't something the camera pays), then
               // the art matched in the worker.
@@ -319,7 +345,10 @@ export async function runSpeedTest(onProgress: (p: SpeedProgress) => void, signa
                 parity.both += 1;
                 gaps.push(cornerGap(r.quad, nf.quad));
               } else if (!!r.quad !== !!nf.quad) parity.disagreed += 1;
-              if (r.matches[0] && r2.matches[0] && r.matches[0].name === r2.matches[0].name) parity.sameTop += 1;
+              if (r.matches[0] && r2.matches[0] && r.matches[0].name === r2.matches[0].name) {
+                parity.sameTop += 1;
+                scoreGap = Math.max(scoreGap ?? 0, Math.abs(r.matches[0].score - r2.matches[0].score));
+              }
             } catch (e) {
               if (signal?.aborted) throw e;
               twin.error = message(e);
@@ -344,7 +373,7 @@ export async function runSpeedTest(onProgress: (p: SpeedProgress) => void, signa
         t.right = t.frames.filter((f) => f.right).length;
         t.stats = configStats(t.frames);
         const sorted = [...gaps].sort((a, b) => a - b);
-        t.parity = { ...parity, maxPx: sorted.length ? round(sorted[sorted.length - 1]!) : null, medianPx: sorted.length ? round(sorted[Math.floor(sorted.length / 2)]!) : null };
+        t.parity = { ...parity, maxPx: sorted.length ? round(sorted[sorted.length - 1]!) : null, medianPx: sorted.length ? round(sorted[Math.floor(sorted.length / 2)]!) : null, scoreGap: scoreGap == null ? null : Math.round(scoreGap * 10000) / 10000 };
       }
       signal?.removeEventListener("abort", end);
       rec?.dispose();
@@ -568,6 +597,14 @@ export function browserDeps(): SpeedDeps {
             return performance.now() - t0;
           },
           find: (image, reset) => nativeFind(image, reset),
+          async loadArt(_info, art) {
+            const file = art.file;
+            if (!file) throw new Error(`${art.label} has no model file`);
+            const t0 = performance.now();
+            await loadNativeArt({ key: finderKey(file), bytes: () => cachedFile(new URL(file, API_BASE || location.origin).href, art.bytes ?? 0, () => undefined) });
+            return performance.now() - t0;
+          },
+          embed: (seq, quad, cuts) => nativeEmbed(seq, quad, cuts),
         }
       : undefined,
   };

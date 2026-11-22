@@ -5,7 +5,7 @@
 // art matched at corners handed in, read upside down only when upright is doubtful.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { drawFront } from "./eval/syntheticCards";
-import { finderKey, FOUND_CARD, FOUND_FAILED, FOUND_NONE, HEADER, loadNativeFinder, nativeFind, openNativeCamera, parseReply, toBase64, type FrameChannel, type FrameRequest, type ScannerCameraPlugin } from "./nativeCamera";
+import { finderKey, floatsOf, FOUND_CARD, FOUND_FAILED, FOUND_NONE, HEADER, loadNativeArt, loadNativeFinder, nativeEmbed, NATIVE_GONE, nativeFind, openNativeCamera, parseReply, toBase64, type FrameChannel, type FrameRequest, type ScannerCameraPlugin } from "./nativeCamera";
 import { NATIVE_KEY, nativeId, nativeWanted, saveNative, savedNative } from "./nativeModels";
 import { createRecognizer, halfTurn, TurnMemory, type OrtLike } from "./recognizer";
 import type { Quad, RgbaImage } from "./types";
@@ -44,7 +44,7 @@ afterEach(() => {
 describe("a frame's reply", () => {
   it("says what the app's finder found on it", () => {
     const card = parseReply(reply({ id: 3, width: 2, height: 2, state: FOUND_CARD, quad: [1, 2, 3, 2, 3, 6, 1, 6], vote: 0.98, ms: 7.5, passes: 1 })).frame!;
-    expect(card.finder).toEqual({ state: FOUND_CARD, quad: [[1, 2], [3, 2], [3, 6], [1, 6]], vote: expect.closeTo(0.98, 5), ms: 7.5, passes: 1, ageMs: 4 });
+    expect(card.finder).toEqual({ state: FOUND_CARD, quad: [[1, 2], [3, 2], [3, 6], [1, 6]], vote: expect.closeTo(0.98, 5), ms: 7.5, passes: 1, ageMs: 4, seq: 1 });
     expect(parseReply(reply({ id: 3, width: 2, height: 2, state: FOUND_NONE })).frame!.finder).toMatchObject({ state: FOUND_NONE, quad: null });
     // A finder that stopped has nothing to say of the frame but that.
     expect(parseReply(reply({ id: 3, width: 2, height: 2, state: FOUND_FAILED, quad: [1, 2, 3, 2, 3, 6, 1, 6] })).frame!.finder).toMatchObject({ state: FOUND_FAILED, quad: null });
@@ -276,5 +276,77 @@ describe("the art at corners handed in", () => {
     expect(seen.thumb).toHaveLength(48 * 48);
     expect(seen.sharpness).toBeGreaterThan(0);
     expect(await r.locate(frame(), { quad: null })).toMatchObject({ quad: null });
+  });
+});
+
+describe("the art read in the app", () => {
+  beforeEach(() => void vi.spyOn(console, "warn").mockImplementation(() => undefined));
+
+  it("is searched by the worker as its own would be, and no embedding runs here", async () => {
+    const log: string[] = [];
+    const r = await createRecognizer(fakeOrt(log, () => 0.9), graphs, constants, arts);
+    log.length = 0;
+    const asked: { quad: Quad; cuts: number[] | undefined }[] = [];
+    const got = await r.matchAt(frame(), { quad: upright, upright: 1 }, {
+      turn: true,
+      remote: async (quad, cuts) => {
+        asked.push({ quad, cuts });
+        return { data: new Float32Array(4), rows: 1, dim: 4, ms: 3.5 };
+      },
+    });
+    expect(log).toEqual(["search"]);
+    expect(asked).toEqual([{ quad: upright, cuts: undefined }]);
+    expect(got.matches[0]).toMatchObject({ name: "Sol Ring" });
+    expect(got.remote).toEqual({ reads: 1, ms: [3.5] });
+  });
+
+  it("is read here when the app's read fails, and says why", async () => {
+    const log: string[] = [];
+    const r = await createRecognizer(fakeOrt(log, () => 0.9), graphs, constants, arts);
+    log.length = 0;
+    const got = await r.matchAt(frame(), { quad: upright, upright: 1 }, { remote: async () => Promise.reject(new Error("out of memory")) });
+    expect(log).toEqual(["embed", "search"]);
+    expect(got.matches[0]).toMatchObject({ name: "Sol Ring" });
+    expect(got.remote).toEqual({ reads: 0, ms: [], failed: "out of memory" });
+    // An embedding of the wrong size is a failure too, never searched.
+    const bad = await r.matchAt(frame(), { quad: upright, upright: 1 }, { remote: async () => ({ data: new Float32Array(3), rows: 1, dim: 4 }) });
+    expect(bad.remote?.failed).toMatch(/isn't an embedding/);
+  });
+
+  it("crosses the bridge as float32s, and a frame the app no longer keeps is said so", async () => {
+    const floats = Float32Array.of(0.5, -1.25, 3);
+    const data = toBase64(new Uint8Array(floats.buffer));
+    expect([...floatsOf(data)]).toEqual([0.5, -1.25, 3]);
+    const asked: unknown[] = [];
+    const plugin = {
+      embed: async (o: unknown) => {
+        asked.push(o);
+        return { data, rows: 1, dim: 3, ms: 4 };
+      },
+    } as unknown as ScannerCameraPlugin;
+    const got = await nativeEmbed(12, upright, [0, 1], plugin);
+    expect([...got.data]).toEqual([0.5, -1.25, 3]);
+    expect(asked).toEqual([{ seq: 12, quad: upright, cuts: [0, 1] }]);
+    const gone = { embed: async () => Promise.reject(Object.assign(new Error("That frame isn't kept any more"), { code: "gone" })) } as unknown as ScannerCameraPlugin;
+    await expect(nativeEmbed(12, upright, undefined, gone)).rejects.toThrow(NATIVE_GONE);
+  });
+
+  it("loads its model in the app, handing it over only when the app doesn't have it", async () => {
+    const asked: string[] = [];
+    let have = false;
+    const plugin = {
+      artLoad: async () => {
+        asked.push("load");
+        if (!have) throw Object.assign(new Error("not yet"), { code: "need-model" });
+        return { key: "k", loadMs: 30 };
+      },
+      finderModel: async () => {
+        asked.push("model");
+        have = true;
+        return { key: "k", bytes: 1 };
+      },
+    } as unknown as ScannerCameraPlugin;
+    expect(await loadNativeArt({ key: "k", bytes: async () => Uint8Array.of(1) }, plugin)).toEqual({ loadMs: 30, sent: true });
+    expect(asked).toEqual(["load", "model", "load"]);
   });
 });

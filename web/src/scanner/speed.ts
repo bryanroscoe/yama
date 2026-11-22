@@ -176,6 +176,8 @@ export interface FinderParity {
   medianPx: number | null;
   /** Frames whose best match was the same card both ways. */
   sameTop: number;
+  /** Over those: the most the best match's score differed (the art read in the app against the worker's). */
+  scoreGap?: number | null;
 }
 
 /** The furthest any corner of `a` is from the same corner of `b`. */

@@ -4,7 +4,7 @@
 import { api, API_BASE } from "../api";
 import { SERVER_MAX_IDS, serverId, type LookCandidate, type LookDone, type LookWorkerReply, type LookWorkerRequest, type ServerLooks, type WireFrame } from "./look";
 import type { ModelOption, ModelsInfo } from "./models";
-import type { Handed, Located, Recognition } from "./recognizer";
+import type { Handed, Located, Recognition, RemoteEmbed } from "./recognizer";
 import type { SpeedCard } from "./speed";
 import type { Quad, RgbaImage } from "./types";
 
@@ -45,7 +45,9 @@ export type ArtWorkerRequest =
   /** The card finder alone (the placement gate, gate.ts); with `handed`, the card is described at corners found elsewhere. */
   | { type: "locate"; id: number; width: number; height: number; buffer: ArrayBuffer; handed?: Handed }
   /** The art at corners found elsewhere (the app's own card finder): recognizer.ts, `matchAt`. */
-  | { type: "match-at"; id: number; width: number; height: number; buffer: ArrayBuffer; handed: Handed; turn?: boolean };
+  | { type: "match-at"; id: number; width: number; height: number; buffer: ArrayBuffer; handed: Handed; turn?: boolean; remote?: boolean }
+  /** The answer to an `embed-request`: the embedding's rows, or why there isn't one. */
+  | { type: "embed-reply"; req: number; data?: Float32Array; rows?: number; dim?: number; ms?: number; error?: string };
 
 export type ArtWorkerReply =
   | { type: "progress"; loaded: number; total: number }
@@ -59,6 +61,8 @@ export type ArtWorkerReply =
   | { type: "located"; id: number; located: Located; buffer: ArrayBuffer }
   | { type: "sampled"; id: number; cards: SpeedCard[] }
   | { type: "result"; id: number; result: Recognition; buffer: ArrayBuffer }
+  /** A `match-at` with `remote` asks the page to read the art at these corners elsewhere (the app's own code). */
+  | { type: "embed-request"; id: number; req: number; quad: Quad; cuts?: number[] }
   | { type: "failed"; id: number; message: string; buffer: ArrayBuffer };
 
 export type { LookDone } from "./look";
@@ -89,7 +93,7 @@ export interface ArtRecognizer {
    * The art at corners the app's own card finder placed on this very frame (none: no card), as
    * recognizer.ts's `matchAt`. Takes `image.data`'s buffer, as identify does.
    */
-  matchAt(image: RgbaImage, handed: Handed, opts?: { turn?: boolean }): Promise<Recognition>;
+  matchAt(image: RgbaImage, handed: Handed, opts?: { turn?: boolean; remote?: RemoteEmbed }): Promise<Recognition>;
   /** Forget the card being tracked (between photos, say). */
   reset(opts?: { frames?: boolean }): void;
   /**
@@ -277,6 +281,8 @@ async function startRecognizer(
   const locating = new Map<number, { resolve: (l: Located & { buffer: ArrayBuffer }) => void; reject: (e: Error) => void }>();
   /** Who hears where the finder placed the card in each frame being identified. */
   const seeing = new Map<number, (quad: Quad | null) => void>();
+  /** Who reads the art elsewhere for each `matchAt` that asked to (the app's own code). */
+  const remotes = new Map<number, RemoteEmbed>();
   const pooling = new Map<number, (arts: number) => void>();
   const embedding = new Map<number, (error: string | null) => void>();
   const framing = new Map<number, (frames: WireFrame[]) => void>();
@@ -394,6 +400,19 @@ async function startRecognizer(
     }
     if (m.type === "seen") {
       seeing.get(m.id)?.(m.quad);
+      return;
+    }
+    if (m.type === "embed-request") {
+      const reply = (r: Omit<Extract<ArtWorkerRequest, { type: "embed-reply" }>, "type" | "req">, transfer: Transferable[] = []) => {
+        if (!disposed) worker.postMessage({ type: "embed-reply", req: m.req, ...r } satisfies ArtWorkerRequest, transfer);
+      };
+      const remote = remotes.get(m.id);
+      if (!remote) reply({ error: "Nothing reads the art elsewhere now" });
+      else
+        remote(m.quad, m.cuts).then(
+          (got) => reply({ data: got.data, rows: got.rows, dim: got.dim, ms: got.ms }, [got.data.buffer as ArrayBuffer]),
+          (e: unknown) => reply({ error: e instanceof Error ? e.message : String(e) }),
+        );
       return;
     }
     if (m.type === "sampled") {
@@ -566,9 +585,19 @@ async function startRecognizer(
       if (disposed) return Promise.reject(new Error("The scanner is closed"));
       const id = nextId++;
       const buffer = image.data.buffer as ArrayBuffer;
+      if (opts?.remote) remotes.set(id, opts.remote);
       return new Promise<Recognition>((resolve, reject) => {
-        pending.set(id, { resolve, reject });
-        worker.postMessage({ type: "match-at", id, width: image.width, height: image.height, buffer, handed, turn: opts?.turn } satisfies ArtWorkerRequest, [buffer]);
+        pending.set(id, {
+          resolve: (r) => {
+            remotes.delete(id);
+            resolve(r);
+          },
+          reject: (e) => {
+            remotes.delete(id);
+            reject(e);
+          },
+        });
+        worker.postMessage({ type: "match-at", id, width: image.width, height: image.height, buffer, handed, turn: opts?.turn, remote: !!opts?.remote } satisfies ArtWorkerRequest, [buffer]);
       });
     },
     identify(image, onSeen, at) {
@@ -606,6 +635,7 @@ async function startRecognizer(
       for (const p of pending.values()) p.reject(new Error("The scanner is closed"));
       pending.clear();
       seeing.clear();
+      remotes.clear();
       for (const p of locating.values()) p.reject(new Error("The scanner is closed"));
       locating.clear();
       for (const p of pooling.values()) p(-1);

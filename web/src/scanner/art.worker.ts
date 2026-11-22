@@ -5,7 +5,7 @@
 
 import * as ort from "onnxruntime-web/wasm";
 import wasmUrl from "onnxruntime-web/ort-wasm-simd-threaded.wasm?url";
-import { createRecognizer, parseArts, parseSupplement, poolIndices, type Art, type BundleConstants, type OrtLike, type Recognizer, type Supplement } from "./recognizer";
+import { createRecognizer, parseArts, parseSupplement, poolIndices, type Art, type BundleConstants, type OrtLike, type Recognizer, type RemoteEmbed, type Supplement } from "./recognizer";
 import type { ArtWorkerReply, ArtWorkerRequest, BundleInfo, EmbedFile } from "./artClient";
 import { isStale, namedPaths } from "./bundleCache";
 import { leadingCard, LookFrames, lookTops } from "./look";
@@ -21,6 +21,9 @@ let arts: Art[] = [];
 /** The bundle's own gallery (without the supplement), for the speed test's cards. */
 let bundleArts: Art[] = [];
 const reply = (m: ArtWorkerReply, transfer: Transferable[] = []) => (self as DedicatedWorkerGlobalScope).postMessage(m, transfer);
+/** Art reads asked of the page (the app reads them), by request number. */
+const remoteWaiting = new Map<number, { resolve: (r: Awaited<ReturnType<RemoteEmbed>>) => void; reject: (e: Error) => void }>();
+let remoteNext = 1;
 
 const file = cachedFile;
 const CACHE = SCAN_CACHE;
@@ -171,10 +174,28 @@ self.onmessage = async (event: MessageEvent<ArtWorkerRequest>) => {
       const located = await recognizer.locate({ width: m.width, height: m.height, data: new Uint8ClampedArray(m.buffer) }, m.handed);
       reply({ type: "located", id: m.id, located, buffer: m.buffer }, [m.buffer]);
     }
+    else if (m.type === "embed-reply") {
+      const w = remoteWaiting.get(m.req);
+      remoteWaiting.delete(m.req);
+      if (w) {
+        if (m.data && m.rows && m.dim) w.resolve({ data: m.data, rows: m.rows, dim: m.dim, ms: m.ms });
+        else w.reject(new Error(m.error ?? "The art wasn't read elsewhere"));
+      }
+    }
     else if (m.type === "identify" || m.type === "match-at") {
       if (!recognizer) throw new Error("The card recognizer isn't loaded");
       const frame = { width: m.width, height: m.height, data: new Uint8ClampedArray(m.buffer) };
-      const result = m.type === "match-at" ? await recognizer.matchAt(frame, m.handed, { turn: m.turn }) : await recognizer.identify(frame, (quad) => reply({ type: "seen", id: m.id, quad }), m.quad);
+      // Read in the app's own code: each embedding is asked of the page, which asks the app.
+      const remote: RemoteEmbed | undefined =
+        m.type === "match-at" && m.remote
+          ? (quad, cuts) =>
+              new Promise((resolve, reject) => {
+                const req = remoteNext++;
+                remoteWaiting.set(req, { resolve, reject });
+                reply({ type: "embed-request", id: m.id, req, quad, cuts });
+              })
+          : undefined;
+      const result = m.type === "match-at" ? await recognizer.matchAt(frame, m.handed, { turn: m.turn, remote }) : await recognizer.identify(frame, (quad) => reply({ type: "seen", id: m.id, quad }), m.quad);
       // With the look on, keep a copy of a frame with a card in it, for the look's side of the
       // comparison: the frame and quad this match used, under every artwork it matched (a title
       // read or Not this card can settle on one that wasn't the best). Copied into reused buffers.

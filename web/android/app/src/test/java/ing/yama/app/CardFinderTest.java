@@ -160,6 +160,41 @@ public class CardFinderTest {
     }
 
     @Test
+    public void theArtReadersCropIsTheWebWorkersOwn() throws Exception {
+        JSONObject fx = fixture();
+        int w = fx.getInt("width");
+        int h = fx.getInt("height");
+        JSONArray boxes = fx.getJSONArray("boxes");
+        byte[] frame = frame(w, h, null);
+        for (int i = 0; i < boxes.length(); i++) {
+            JSONObject b = boxes.getJSONObject(i);
+            JSONArray q = b.getJSONArray("quad");
+            double[] quad = new double[8];
+            for (int k = 0; k < 8; k++) quad[k] = q.getDouble(k);
+            int[] got = CardFinder.cardWindow(w, h, quad);
+            NativeFinder.Crop crop = NativeFinder.cropOf(i, frame, 0, w, h, quad);
+            if (b.isNull("box")) {
+                assertEquals("quad " + i + ": the frame as it is", null, got);
+                assertEquals(w, crop.width);
+                assertEquals(h, crop.height);
+                continue;
+            }
+            JSONObject want = b.getJSONObject("box");
+            assertArrayEquals("quad " + i, new int[] { want.getInt("x0"), want.getInt("y0"), want.getInt("x1"), want.getInt("y1") }, got);
+            assertEquals(got[2] - got[0], crop.width);
+            assertEquals(got[3] - got[1], crop.height);
+            // Its rows are the frame's.
+            for (int y = 0; y < crop.height; y += 7) for (int x = 0; x < crop.width * 4; x += 13) assertEquals(frame[((got[1] + y) * w + got[0]) * 4 + x], crop.rgba[y * crop.width * 4 + x]);
+            // The quad in the crop's pixels; and another frame's quad isn't this crop's.
+            float[] in = NativeFinder.inCrop(crop, quad);
+            assertEquals(quad[0] - got[0], in[0], 1e-4);
+            double[] far = quad.clone();
+            for (int k = 0; k < 8; k += 2) far[k] += 400;
+            assertEquals(null, NativeFinder.inCrop(crop, far));
+        }
+    }
+
+    @Test
     public void aWindowPastTheFrameRepeatsItsEdge() {
         // A 2 × 1 frame, black then white, seen through a 4 px window twice its size: the left
         // half of the window is the black pixel, repeated; the right half white, repeated.

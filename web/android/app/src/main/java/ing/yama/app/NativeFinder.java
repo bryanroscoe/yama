@@ -88,6 +88,165 @@ final class NativeFinder {
         void failed(String why);
     }
 
+    // ---- The art read in the app (stage 4) ----
+
+    /**
+     * A card's part of a frame handed to the page (or of a frame the page handed in, the speed
+     * test's), as recognizer.ts's `cardWindow` cuts it: what the art graph reads, so the art can be
+     * read in the app from exactly the pixels the web worker would have used.
+     */
+    static final class Crop {
+        long seq;
+        int x0;
+        int y0;
+        int width;
+        int height;
+        byte[] rgba;
+    }
+
+    /** The crops of the last frames with a card handed to the page: a read may come a little after. */
+    private static final int CROPS = 8;
+    private final Crop[] crops = new Crop[CROPS];
+    private int cropNext;
+    private volatile OrtEmbedder art;
+    private volatile String artKey;
+    private volatile double artLoadMs;
+
+    String artKey() {
+        return artKey;
+    }
+
+    double artLoadMs() {
+        return artLoadMs;
+    }
+
+    boolean artLoaded() {
+        return art != null;
+    }
+
+    /** Compile this art model (outside the lock), replacing any other. */
+    void loadArt(String key, byte[] model) throws Exception {
+        long t0 = System.nanoTime();
+        OrtEmbedder e = OrtEmbedder.load(model);
+        OrtEmbedder old;
+        synchronized (this) {
+            if (closed) {
+                e.close();
+                throw new IllegalStateException("The camera's plugin has closed");
+            }
+            old = art;
+            art = e;
+            artKey = key;
+            artLoadMs = (System.nanoTime() - t0) / 1e6;
+        }
+        if (old != null) old.close();
+    }
+
+    void unloadArt() {
+        OrtEmbedder old;
+        synchronized (this) {
+            old = art;
+            art = null;
+            artKey = null;
+        }
+        if (old != null) old.close();
+        synchronized (lock) {
+            java.util.Arrays.fill(crops, null);
+        }
+    }
+
+    /** keepCrop, from inside `lock` (take()): the lock is re-entrant. */
+    private void keepCropLocked(long seq, byte[] frame, int offset, int w, int h, double[] quad) {
+        keepCrop(seq, frame, offset, w, h, quad);
+    }
+
+    /** Keep the card's crop of this frame (RGBA, w × h) under `seq`, for the art read. */
+    void keepCrop(long seq, byte[] frame, int offset, int w, int h, double[] quad) {
+        Crop c = cropOf(seq, frame, offset, w, h, quad);
+        synchronized (lock) {
+            crops[cropNext % CROPS] = c;
+            cropNext++;
+        }
+    }
+
+    /** The card's crop of a frame, as recognizer.ts's `cardWindow` cuts it (the whole frame where it reads that). */
+    static Crop cropOf(long seq, byte[] frame, int offset, int w, int h, double[] quad) {
+        int[] box = CardFinder.cardWindow(w, h, quad);
+        Crop c = new Crop();
+        c.seq = seq;
+        if (box == null) {
+            c.width = w;
+            c.height = h;
+            c.rgba = java.util.Arrays.copyOfRange(frame, offset, offset + w * h * 4);
+        } else {
+            c.x0 = box[0];
+            c.y0 = box[1];
+            c.width = box[2] - box[0];
+            c.height = box[3] - box[1];
+            c.rgba = new byte[c.width * c.height * 4];
+            for (int y = 0; y < c.height; y++) System.arraycopy(frame, offset + ((c.y0 + y) * w + c.x0) * 4, c.rgba, y * c.width * 4, c.width * 4);
+        }
+        return c;
+    }
+
+    /**
+     * The quad (frame pixels) in the crop's own pixels, as float32s for the graph, or null when it
+     * isn't this crop's card (beyond its box and margin: another frame's).
+     */
+    static float[] inCrop(Crop c, double[] quad) {
+        float[] q = new float[8];
+        for (int i = 0; i < 4; i++) {
+            double x = quad[i * 2] - c.x0;
+            double y = quad[i * 2 + 1] - c.y0;
+            if (!(x >= -3 && y >= -3 && x <= c.width + 3 && y <= c.height + 3)) return null;
+            q[i * 2] = (float) x;
+            q[i * 2 + 1] = (float) y;
+        }
+        return q;
+    }
+
+    private Crop crop(long seq) {
+        synchronized (lock) {
+            for (Crop c : crops) if (c != null && c.seq == seq) return c;
+            return null;
+        }
+    }
+
+    /** What an art read in the app gives: every row of the embedding, its shape, and the run's ms. */
+    static final class Embedding {
+        float[] data;
+        int rows;
+        int dim;
+        double ms;
+    }
+
+    /**
+     * The art at `quad` (frame pixels) on the frame kept as `seq`, for these cuts (null: every one).
+     * Null when that frame's crop has gone or doesn't hold the quad: the page reads it itself.
+     */
+    Embedding embed(long seq, double[] quad, long[] cuts) throws Exception {
+        OrtEmbedder e = art;
+        if (e == null) throw new IllegalStateException("The app's art model isn't loaded");
+        Crop c = crop(seq);
+        if (c == null) return null;
+        float[] q = inCrop(c, quad);
+        if (q == null) return null;
+        long t0 = System.nanoTime();
+        Embedding out = new Embedding();
+        try {
+            out.data = e.embed(c.rgba, c.width, c.height, q, cuts);
+        } catch (RuntimeException | ai.onnxruntime.OrtException ex) {
+            // The model was switched (or let go) under this read: not the reader's failure, so the
+            // page reads this one itself, as for a frame no longer kept.
+            if (art != e) return null;
+            throw ex;
+        }
+        out.ms = (System.nanoTime() - t0) / 1e6;
+        out.rows = e.rows;
+        out.dim = e.dim;
+        return out;
+    }
+
     NativeFinder(ScannerFrames frames) {
         this.frames = frames;
     }
@@ -174,7 +333,10 @@ final class NativeFinder {
             closed = true;
             stop();
         }
-        Thread t = new Thread(this::unload, "yama-card-finder-close");
+        Thread t = new Thread(() -> {
+            unload();
+            unloadArt();
+        }, "yama-card-finder-close");
         t.setDaemon(true);
         t.start();
     }
@@ -391,6 +553,8 @@ final class NativeFinder {
             out.takenAt = s.takenAt;
             out.bytes = new byte[header + s.width * s.height * 4];
             System.arraycopy(published, 0, out.bytes, header, s.width * s.height * 4);
+            // With the art read in the app: the card's crop of this frame, for when it's asked for.
+            if (art != null && out.quad != null) keepCropLocked(out.seq, out.bytes, header, s.width, s.height, out.quad);
             return out;
         }
     }
