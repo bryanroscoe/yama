@@ -20,9 +20,9 @@ import { scannerSettled, SpeedTest } from "./SpeedTest";
 import { NameIndex } from "./fuzzy";
 import { normaliseName } from "./parse";
 import { applyH, rectQuad, squareToQuad } from "./image";
-import { deleteDiagnostics, diagnosticsOn, diagnosticsSummary, setDiagnosticsOn, ScanRecord, stepAppeared, TimingRecord, type Appeared, type DiagnosticsSummary, type Outcome, type PrintingWay, type Reason, type SettleRule } from "./diagnostics";
+import { cropTimesNote, deleteDiagnostics, diagnosticsOn, diagnosticsSummary, setDiagnosticsOn, ScanRecord, stepAppeared, TimingRecord, type Appeared, type DiagnosticsSummary, type Outcome, type PrintingWay, type Reason, type SettleRule } from "./diagnostics";
 import type { StripQuality } from "./quality";
-import { readCloseup, readCollectorLines, readTitles, scanFrame, SURE } from "./pipeline";
+import { readCloseup, readCollectorLines, readTitles, scanFrame, SURE, type CropTime } from "./pipeline";
 import { artHoldFrame, AWAY_FRAMES, hold, holdRead, type ArtHold, type Hold } from "./hold";
 import { NameEntry } from "./NameEntry";
 import { CollectorPeek } from "./peek";
@@ -356,6 +356,12 @@ const SLOW_FIND_MS = 3000;
 const SEEK_FRAMES = 60;
 /** Slow-find records kept per scanner session (the server keeps 200 records per account). */
 const SLOW_KEPT = 25;
+/**
+ * A printing the scanner settled itself this long or more after the card was named is kept by
+ * Scanner diagnostics ("slow-printing", at most SLOW_KEPT a session), so a slow read can be seen
+ * frame by frame (Bryan, 22 Nov 2026: a plainly readable "0019" took 6 to 8 s and left no record).
+ */
+export const SLOW_PRINTING_MS = 3000;
 /** For reading text: extra frame kept around the on-screen guide, and the longest side read. */
 const MARGIN = 0.12;
 const MAX_SIDE = 1500;
@@ -528,6 +534,50 @@ const optionsNote = (printings: Printing[]) =>
 
 /** A strip's sharpness and glare, rounded, for a frame note. */
 const qualityNote = (q: StripQuality | null) => (q ? { sharpness: Math.round(q.sharpness), clipped: Math.round(q.clipped * 1000) / 1000 } : {});
+
+/** What the first read of the collector line got from the view a card was named in. */
+interface FirstRead {
+  reads: string[];
+  quality: StripQuality | null;
+  /** Each crop's time (pipeline.ts, `CropTime`). */
+  times: CropTime[];
+}
+
+/**
+ * The collector line's first read, begun the moment the card is named, on the view it was named in
+ * (Bryan, 22 Nov 2026: "we very clearly can see the printing number and I don't know why it can't
+ * read it"): it used to wait for the printings to load, the border and the look to start before
+ * the reader saw anything. Every crop is read, one after another, as before; what they read is
+ * weighed once the printings are known, by the same rules (evidence.ts). `stop` ends it at the
+ * next crop (the card needs no read after all), and so does `live` turning false (another card, a
+ * camera switch). A read that fails leaves what was read before it, never the sheet's printings.
+ */
+function startFirstRead(read: Shot, ocr: () => Promise<OcrEngine>, live: () => boolean): { done: Promise<FirstRead>; stop(): void } {
+  let stopped = false;
+  const out: FirstRead = { reads: [], quality: null, times: [] };
+  const done = (async () => {
+    try {
+      const engine = await ocr();
+      // After what's already waiting: printings the device already has are weighed first, so a card
+      // with one printing (or one in the locked sets) stops this before any of it is read.
+      await new Promise((r) => setTimeout(r, 0));
+      if (stopped || !live()) return out;
+      for await (const text of readCollectorLines(read.image, read.quad, engine, { gate: (q) => ((out.quality = q), true), timed: (t) => out.times.push(t) })) {
+        if (stopped || !live()) break;
+        out.reads.push(text);
+      }
+    } catch (e) {
+      console.warn("The first read of the collector line failed", e);
+    }
+    return out;
+  })();
+  return {
+    done,
+    stop: () => {
+      stopped = true;
+    },
+  };
+}
 
 /** A card's record with one more reason it's kept (a fresh one when the record was already sent). */
 function withReason(rec: ScanRecord | undefined, reason: Reason): ScanRecord | undefined {
@@ -730,6 +780,8 @@ function ScannerScreen({
   const lookGoesOn = useRef(false);
   /** Records kept for a slow find this session: a cap, so they don't push every other kind out. */
   const slowKept = useRef(0);
+  /** Slow-printing records kept this session (SLOW_PRINTING_MS), apart from slow finds. */
+  const slowPrintKept = useRef(0);
   /**
    * With Scanner diagnostics on: when the card now in view first appeared, and the frames read
    * since, for its timing record. Kept only while diagnostics are on, so it costs nothing per
@@ -961,6 +1013,9 @@ function ScannerScreen({
       rec.note("scan", ctx);
       if (ctx.overruled) rec.reasons.add("title-overruled");
     }
+    // When the card was named, in the frames' clock (ms since the record started with the look):
+    // the first read's `t` less this is how long it took after the card was named.
+    rec.note("namedAt", rec.since());
     return rec;
   };
   /**
@@ -1956,9 +2011,13 @@ function ScannerScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [found, finish]);
 
-  /** Settle the printing of what was found (not needed when only the card's identity matters). */
+  /**
+   * Settle the printing of what was found (not needed when only the card's identity matters).
+   * `read`: the view the card was named in, whose collector line is read at once; `border`: whether
+   * its border colour may rule printings out too (only for a card found by its art, as before).
+   */
   const settle = useCallback(
-    async (seq: number, f: Found, query: { art?: string | null; id?: string; name?: string }, read?: { image: RgbaImage; quad: Quad } | null, known?: Known) => {
+    async (seq: number, f: Found, query: { art?: string | null; id?: string; name?: string }, read?: { image: RgbaImage; quad: Quad } | null, known?: Known, how: { border?: boolean } = {}) => {
       const update = (patch: Partial<Found>) => {
         if (foundSeq.current === seq) setFound((cur) => (cur ? { ...cur, ...patch } : cur));
       };
@@ -1967,8 +2026,15 @@ function ScannerScreen({
       // chooses one or carries on as evidence, and the held card is read again on the new camera.
       const gen = camGen.current;
       const sameCamera = () => camGen.current === gen;
+      // When the card was named, for the first read's timings (its timing record's clock, else now).
+      const namedAt = f.timing ? Date.now() - f.timing.since() : Date.now();
+      // The collector line is read now, from the view the card was named in, while the printings
+      // load (startFirstRead); it's weighed below once they're known, or stopped if not needed.
+      const first = read && sameCamera() ? startFirstRead(read, ocrEngine, () => foundSeq.current === seq && sameCamera()) : null;
       try {
+        const asked = performance.now();
         let opts = await printingOptions(query);
+        if (f.timing) f.timing.detail.options_ms ??= Math.round(performance.now() - asked);
         // Locked to sets: choose among the printings in them. None there: ask (outside).
         const lockNow = f.unlocked ? null : lockRef.current;
         let bySet = false;
@@ -1978,6 +2044,7 @@ function ScannerScreen({
           // A name typed by the person is what they say it is: no need to ask about the set.
           const typed = f.method === "name" && f.confidence === 1;
           if (inSets.length === 0 && !typed) {
+            first?.stop();
             update({ options: opts.printings, sameArt: opts.sameArt, outside: true, chosen: null, how: null, sure: false, reading: false });
             return;
           }
@@ -1991,7 +2058,7 @@ function ScannerScreen({
         // other colour are ruled out (never all of them), kept beside the candidates as the set
         // lock's are, and not once the person said a printing the border settled was wrong.
         const wasOnly = choosePrinting(opts).how === "only";
-        const border = read && sameCamera() && !f.borderOff ? readBorder(read.image, read.quad) : null;
+        const border = read && sameCamera() && !f.borderOff && how.border !== false ? readBorder(read.image, read.quad) : null;
         let ruledOut: Printing[] = [];
         if (border) {
           f.rec?.note("border", border);
@@ -2024,25 +2091,23 @@ function ScannerScreen({
             if (sameCamera()) firstEvidence.current = { seq, ev };
           }
         }
-        const how: Found["how"] = choice.how === "only" ? (ruledOut.length > 0 && !wasOnly ? "border" : bySet ? "set" : "only") : choice.how;
-        const reading = !choice.chosen && !!read && sameCamera();
+        const settledHow: Found["how"] = choice.how === "only" ? (ruledOut.length > 0 && !wasOnly ? "border" : bySet ? "set" : "only") : choice.how;
+        const reading = !choice.chosen && !!read && !!first && sameCamera();
         const sure = choice.how === "only" || !!choice.certain;
-        update({ options: choice.options, lockedOut, readFirst: choice.readFirst ?? 0, sameArt: opts.sameArt, outside: false, chosen: choice.chosen, how, sure, settledId: sure ? choice.chosen?.scryfall_id : undefined, reading, border: border?.border ?? null, borderOut: ruledOut });
+        update({ options: choice.options, lockedOut, readFirst: choice.readFirst ?? 0, sameArt: opts.sameArt, outside: false, chosen: choice.chosen, how: settledHow, sure, settledId: sure ? choice.chosen?.scryfall_id : undefined, reading, border: border?.border ?? null, borderOut: ruledOut });
         // Several printings share the art and none is settled: the look compares them (look.ts),
         // alongside the collector line's read, to order the list should a tap be needed.
         if (!choice.chosen && opts.sameArt) startLook.current(seq, f, opts.printings);
-        if (!reading) return;
-        // Several printings share the art: read the collector line to tell them apart, trying a
-        // few cuts of the corner until one settles it.
-        // The crops' reads are one frame of evidence (evidence.ts); it carries on into hold and read.
+        if (!reading || !first) {
+          first?.stop();
+          return;
+        }
+        // Several printings fit: the collector line, read from the view the card was named in (begun
+        // when it was named), tells them apart. The crops' reads are one frame of evidence
+        // (evidence.ts); it carries on into hold and read.
         const ev = new Evidence(opts.printings, lockedOut);
         noteReads(seq, ev);
-        const reads: string[] = [];
-        let quality: StripQuality | null = null;
-        for await (const text of readCollectorLines(read!.image, read!.quad, await ocrEngine(), { gate: (q) => ((quality = q), true) })) {
-          if (foundSeq.current !== seq || !sameCamera()) break;
-          reads.push(text);
-        }
+        const { reads, quality, times } = await first.done;
         if (foundSeq.current !== seq) return;
         if (!sameCamera()) {
           update({ reading: false });
@@ -2051,7 +2116,19 @@ function ScannerScreen({
         ev.add(reads);
         const v = ev.verdict();
         const raw = reads.join("\n");
-        f.rec?.frame({ source: "first", reads, ...qualityNote(quality), cardPx: Math.round(cardHeight(read!.quad)), verdict: v });
+        // How long the read waited after the card was named, and each crop's time (Scanner diagnostics).
+        const wait = times[0] ? Math.max(0, times[0].sentAt - namedAt) : undefined;
+        const crops = cropTimesNote(times);
+        f.rec?.frame({ source: "first", reads, ...qualityNote(quality), cardPx: Math.round(cardHeight(read!.quad)), verdict: v, ...(wait != null ? { wait } : {}), ...crops });
+        if (f.timing && f.timing.detail.first_ms === undefined) {
+          Object.assign(f.timing.detail, {
+            first_ms: Date.now() - namedAt,
+            ...(wait != null ? { first_wait_ms: wait } : {}),
+            ...(crops.ocrMs ? { first_ocr_ms: crops.ocrMs } : {}),
+            ...(crops.engineMs ? { first_engine_ms: crops.engineMs } : {}),
+            first_settled: v.kind === "settled",
+          });
+        }
         if (v.kind === "settled") {
           const hit = opts.printings.find((p) => p.scryfall_id === v.id)!;
           update({ options: [hit, ...choice.options.filter((p) => p !== hit)], readFirst: 1, chosen: hit, how: "collector", sure: true, settledId: hit.scryfall_id, raw, reading: false });
@@ -2062,6 +2139,7 @@ function ScannerScreen({
         const guessed = choosePrinting(opts, raw);
         update({ options: guessed.options, readFirst: guessed.readFirst ?? 0, chosen: null, how: null, sure: false, raw, reading: false });
       } catch (e) {
+        first?.stop();
         update({ options: [], reading: false, error: e instanceof Error ? e.message : String(e) });
       }
     },
@@ -2758,7 +2836,10 @@ function ScannerScreen({
     setWrongOpen(false);
     setCopies(1);
     setPhase("found");
-    if (!identityOnly) void settle(seq, f, { name });
+    // A title read from the camera: the collector line of the view it was read in is read at once
+    // too, as for a card found by its art (its border isn't weighed: all the card's printings are
+    // candidates here, not those sharing one artwork).
+    if (!identityOnly) void settle(seq, f, { name }, how === "name" ? (carry.shot ?? null) : null, undefined, { border: false });
   };
 
   /** Back to scanning. The card just shown isn't found again until it leaves the view. */
@@ -2934,9 +3015,11 @@ function ScannerScreen({
       return rectQuad(gx, gy, gw, gh);
     };
     /** Read one image of the card into the evidence; true when that settled it. */
-    const readInto = async (src: CanvasImageSource, w: number, h: number, quad: Quad, f: Found, source: "hold" | "still" = "hold"): Promise<"settled" | "read" | "blurred"> => {
+    const readInto = async (src: CanvasImageSource, w: number, h: number, quad: Quad, f: Found, source: "hold" | "still" = "hold", locateMs?: number): Promise<"settled" | "read" | "blurred"> => {
       // A still is cut from itself; a camera frame, by the camera (at its full resolution).
+      const cut0 = performance.now();
       const read = source === "still" ? around(src, w, h, quad, hiCanvasRef.current!) : await camSrc().around(quad, hiCanvasRef.current!);
+      const cutMs = Math.round(performance.now() - cut0);
       if (stop) return "read";
       setLiveShot(read);
       f.rec?.latestShot(read);
@@ -2945,11 +3028,13 @@ function ScannerScreen({
       let sharp = true;
       let quality: StripQuality | null = null;
       const reads: string[] = [];
-      for await (const text of readCollectorLines(read.image, read.quad, ocr, { gate: (q) => ((quality = q), (sharp = worthReading(q))) })) {
+      const times: CropTime[] = [];
+      for await (const text of readCollectorLines(read.image, read.quad, ocr, { gate: (q) => ((quality = q), (sharp = worthReading(q))), timed: (t) => times.push(t) })) {
         if (stop) return "read";
         reads.push(text);
       }
-      const note = { source, ...qualityNote(quality), cardPx: Math.round(cardHeight(quad) * (source === "still" ? 1 : camSrc().fullScale())), zoom: camRef.current.zoom };
+      // Where the time went (Scanner diagnostics): finding the card, cutting it from the full frame, each crop's read.
+      const note = { source, ...qualityNote(quality), cardPx: Math.round(cardHeight(quad) * (source === "still" ? 1 : camSrc().fullScale())), zoom: camRef.current.zoom, ...(locateMs != null ? { locateMs: Math.round(locateMs) } : {}), cutMs, ...cropTimesNote(times) };
       if (!sharp) {
         f.rec?.frame({ ...note, reads: [], skipped: true });
         return "blurred";
@@ -3029,7 +3114,9 @@ function ScannerScreen({
       if (!v || v.videoWidth === 0 || document.visibilityState !== "visible") return next(200);
       try {
         hiCanvasRef.current ??= document.createElement("canvas");
+        const located = performance.now();
         const quad = await locate(v, v.videoWidth, v.videoHeight, v);
+        const locateMs = performance.now() - located;
         if (stop) return;
         seeCard(quad, v);
         let verdict: HeldVerdict;
@@ -3045,7 +3132,7 @@ function ScannerScreen({
           // With the placement gate, the collector line is read only while the card is at rest
           // (gate.ts, `Motion`): a frame of a moving card counts as skipped, like a blurred one.
           const speed = gateOn() ? holdMotion.speed(performance.now(), quad) : 0;
-          const got = speed == null || speed > GATE_DEFAULTS.stillSpeed ? "blurred" : await readInto(v, v.videoWidth, v.videoHeight, quad, f);
+          const got = speed == null || speed > GATE_DEFAULTS.stillSpeed ? "blurred" : await readInto(v, v.videoWidth, v.videoHeight, quad, f, "hold", locateMs);
           // (A read that took a while leaves nothing recent to measure from: `Motion` then goes by
           // whether the card is where it was.)
           if (got === "settled" || stop) return;
@@ -3165,7 +3252,16 @@ function ScannerScreen({
     onPrintingRef.current?.(chosen);
     // Diagnostics' timing record: the scanner settled the printing (the only one, read, or by look), now.
     const f = foundRef.current;
-    if (chosen && f?.timing && f.chosen === chosen && !identityOnly && (f.how === "only" || f.how === "set" || f.how === "collector" || f.how === "look" || f.how === "border" || f.how === "price")) f.timing.printed(f.misread ? "corrected" : f.how);
+    if (chosen && f?.timing && f.chosen === chosen && !identityOnly && (f.how === "only" || f.how === "set" || f.how === "collector" || f.how === "look" || f.how === "border" || f.how === "price")) {
+      f.timing.printed(f.misread ? "corrected" : f.how);
+      // Settled, but slowly: its struggle record is kept too, so the reads can be seen frame by frame.
+      const ms = f.timing.printedMs;
+      if (f.rec && !f.misread && ms != null && ms >= SLOW_PRINTING_MS && !f.rec.reasons.has("slow-printing") && slowPrintKept.current < SLOW_KEPT) {
+        slowPrintKept.current += 1;
+        f.rec.reasons.add("slow-printing");
+        f.rec.note("printingMs", ms);
+      }
+    }
   }, [chosen, identityOnly]);
   // Card first, printing after: Add files the card now, provisional, its printing worked out after
   // (not a correction of a card already filed, a printing said to be wrong, or a rescan of one card).

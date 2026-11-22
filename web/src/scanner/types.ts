@@ -28,6 +28,8 @@ export interface OcrResult {
   text: string;
   /** 0..100, Tesseract's mean word confidence. */
   confidence: number;
+  /** The engine's own time for this read in ms, where it says (ML Kit), apart from handing the image over. */
+  ms?: number;
 }
 
 /** Anything that can read one line or block of text from a prepared grey crop. */

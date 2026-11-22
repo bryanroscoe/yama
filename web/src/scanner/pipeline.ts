@@ -146,19 +146,36 @@ export async function readCollectorLine(frame: RgbaImage, quad: Quad, ocr: OcrEn
 }
 
 /**
+ * One crop's read, timed (Scanner diagnostics): when it was handed to the reader (`Date.now()`),
+ * how long the reader took to answer, and the engine's own part of that where it says (ML Kit).
+ */
+export interface CropTime {
+  sentAt: number;
+  ms: number;
+  engineMs?: number;
+}
+
+/**
  * Reads of the collector line, one crop at a time, for a caller that stops at the first read that
  * settles the printing: the usual corner at the card's snapped edges, then at the detector's own
  * corners (when snapping moved them), then the corner cut wider, to the card's edge, with no band
  * clean-up (a line at the very edge, or a frame that puts it lower), then the bottom right.
+ * `timed` hears each crop's time as its read comes back.
  */
-export async function* readCollectorLines(frame: RgbaImage, quad: Quad, ocr: OcrEngine, opts: { gate?: (q: StripQuality) => boolean } = {}): AsyncGenerator<string> {
+export async function* readCollectorLines(frame: RgbaImage, quad: Quad, ocr: OcrEngine, opts: { gate?: (q: StripQuality) => boolean; timed?: (t: CropTime) => void } = {}): AsyncGenerator<string> {
   const gray = toGray(frame);
   const refined = refineQuad(gray, quad);
   const q = refined ?? quad;
   // A blurred or glare-clipped strip isn't worth the reader's time (quality.ts).
   if (opts.gate && !opts.gate(stripQuality(gray, q))) return;
-  const read = async (at: Quad, region: CardRegion, pad: number) =>
-    (await ocr.read(prepareText(warpRegion(gray, at, region, Math.round(((region.x1 - region.x0) * COLLECTOR_DENSITY * 63) / 88), Math.round((region.y1 - region.y0) * COLLECTOR_DENSITY)), pad), { mode: "block", whitelist: COLLECTOR_WHITELIST })).text;
+  const read = async (at: Quad, region: CardRegion, pad: number) => {
+    const img = prepareText(warpRegion(gray, at, region, Math.round(((region.x1 - region.x0) * COLLECTOR_DENSITY * 63) / 88), Math.round((region.y1 - region.y0) * COLLECTOR_DENSITY)), pad);
+    const sentAt = Date.now();
+    const t0 = now();
+    const r = await ocr.read(img, { mode: "block", whitelist: COLLECTOR_WHITELIST });
+    opts.timed?.({ sentAt, ms: now() - t0, ...(r.ms != null ? { engineMs: r.ms } : {}) });
+    return r.text;
+  };
   yield await read(q, COLLECTOR_REGION, 12);
   if (refined) yield await read(quad, COLLECTOR_REGION, 12);
   yield await read(q, WIDE_COLLECTOR_REGION, 16);
