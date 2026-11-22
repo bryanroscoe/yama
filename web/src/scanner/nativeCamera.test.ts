@@ -148,6 +148,17 @@ describe("the option", () => {
     available.mockReturnValue(false);
     expect(savedNativeCamera().on).toBe(false);
   });
+  it("takes the default over an off saved while the app's camera was opt-in, keeping the rest", () => {
+    vi.spyOn(Capacitor, "isNativePlatform").mockReturnValue(true);
+    vi.spyOn(Capacitor, "isPluginAvailable").mockImplementation((name) => name === "ScannerCamera");
+    // As the option was saved before 22 Nov 2026: no version, `on: false` beside a lens chosen.
+    store.set(NATIVE_CAMERA_KEY, JSON.stringify({ on: false, lens: "main", fps: 60, torchLevel: 2 }));
+    expect(savedNativeCamera()).toEqual({ on: true, lens: "main", fps: 60, torchLevel: 2 });
+    // Turned off since, it stays off.
+    saveNativeCamera({ on: false, lens: "main", fps: 60, torchLevel: 2 });
+    expect(JSON.parse(store.get(NATIVE_CAMERA_KEY)!)).toMatchObject({ v: 2, on: false });
+    expect(savedNativeCamera().on).toBe(false);
+  });
   it("is remembered on this device", () => {
     saveNativeCamera({ on: true, lens: "ultrawide", fps: 60, torchLevel: 3 });
     expect(savedNativeCamera()).toEqual({ on: true, lens: "ultrawide", fps: 60, torchLevel: 3 });

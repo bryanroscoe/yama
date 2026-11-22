@@ -1,5 +1,5 @@
 // Scan settings, inside the Android app only: use the app's own camera (nativeCamera.ts), and how
-// it's set. Off unless turned on, remembered on this device.
+// it's set. On by default where the app has it, remembered on this device.
 
 import { useState } from "react";
 import { Button, Field } from "../components/ui";
