@@ -9,6 +9,7 @@
 
 import { pickFinish, type Treated } from "@yama/core";
 import type { CollectionItem } from "../api";
+import type { Provisional } from "./later";
 import type { Prices } from "./price";
 
 export type Finish = "nonfoil" | "foil" | "etched" | "proxy";
@@ -39,6 +40,16 @@ export interface Added {
   pending?: Pending;
   /** A fix is finding the entry's row (a token for that lookup); the entry is locked meanwhile. */
   checking?: string;
+  /**
+   * Card first, printing after (later.ts): the provisional row this entry is while its printing
+   * isn't settled. It holds no printing yet (`scryfall_id` empty) and nothing of it is saved; once
+   * the row settles the entry takes its printing and saves, and the field goes.
+   */
+  later?: Provisional;
+  /** The finish chosen when a provisional row was scanned: it's filed in that (or its printing's own). */
+  wanted?: Finish;
+  /** Filed as the dearest of printings the scanner couldn't tell apart (Tie by price), until its printing is changed. */
+  byPrice?: boolean;
 }
 
 export interface Pending {
@@ -109,7 +120,10 @@ export const boxOf = (a: Pick<Added, "container">, fix: Pick<Fix, "container">):
 export function settled(a: Added): Added {
   const fix = a.pending?.fix;
   const { pending: _, ...rest } = a;
-  return fix ? { ...rest, ...fix, container: boxOf(rest, fix) } : rest;
+  if (!fix) return rest;
+  // Another printing than the one a tie by price chose: it's no longer "by price".
+  const byPrice = fix.scryfall_id === a.scryfall_id ? a.byPrice : undefined;
+  return { ...rest, ...fix, container: boxOf(rest, fix), byPrice };
 }
 
 /** The new state of an entry after a fix. 0 copies takes it back out. */
@@ -220,14 +234,18 @@ export function planFix(a: Added, fix: Fix, row: Row, newId: () => string): Coll
  * Move all to another box: the entries to move (their copies are elsewhere and nothing is waiting
  * on them), and how many can't move now (a save or a change still on its way, or one to try again).
  */
-export function toMove(added: readonly Added[], container: string | null): { move: Added[]; busy: number } {
+export function toMove(added: readonly Added[], container: string | null): { move: Added[]; busy: number; later: Added[] } {
   const elsewhere = added.filter((a) => a.copies > 0 && a.container !== container);
-  const move = elsewhere.filter((a) => !a.pending && !a.checking);
-  return { move, busy: elsewhere.length - move.length };
+  // A row still waiting for its printing (card first) has nothing saved to move: it's saved into
+  // the new box when it settles (`later`).
+  const later = elsewhere.filter((a) => a.later?.open);
+  const move = elsewhere.filter((a) => !a.pending && !a.checking && !a.later);
+  return { move, busy: elsewhere.length - move.length - later.length, later };
 }
 
 /**
  * Clear the list: the entries to keep, the ones whose write isn't confirmed (their only record is
- * here, so they stay until saved or given up). Cleared entries stay in the collection.
+ * here, so they stay until saved or given up), and rows still waiting for their printing (card
+ * first: not saved yet either). Cleared entries stay in the collection.
  */
-export const afterClear = (added: readonly Added[]): Added[] => added.filter((a) => !!a.pending || !!a.checking);
+export const afterClear = (added: readonly Added[]): Added[] => added.filter((a) => !!a.pending || !!a.checking || !!a.later?.open);

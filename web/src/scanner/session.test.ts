@@ -175,6 +175,16 @@ describe("move all to another box", () => {
     expect(move.map((a) => a.key)).toEqual(["a"]);
     expect(busy).toBe(2);
   });
+
+  it("leaves a row still waiting for its printing out of the moves, to be saved into the new box (card first)", async () => {
+    const { Provisional } = await import("./later");
+    const waiting = new Provisional({ name: "Sol Ring", confidence: 0.9, method: "art" }, 1, true, (p) => ({ name: p.name, confidence: 0.9, method: "art" }));
+    const list: Added[] = [{ ...entry, key: "a" }, { ...entry, key: "w", scryfall_id: "", later: waiting }];
+    const { move, busy, later } = toMove(list, "binder");
+    expect(move.map((a) => a.key)).toEqual(["a"]);
+    expect(later.map((a) => a.key)).toEqual(["w"]);
+    expect(busy).toBe(0);
+  });
 });
 
 describe("clear the list", () => {
@@ -187,5 +197,11 @@ describe("clear the list", () => {
     ];
     expect(afterClear(list).map((a) => a.key)).toEqual(["saving", "failed", "fixing"]);
     expect(afterClear([{ ...entry }])).toEqual([]);
+  });
+
+  it("keeps a row still waiting for its printing: nothing of it is saved yet (card first)", async () => {
+    const { Provisional } = await import("./later");
+    const waiting = new Provisional({ name: "Sol Ring", confidence: 0.9, method: "art" }, 1, true, (p) => ({ name: p.name, confidence: 0.9, method: "art" }));
+    expect(afterClear([{ ...entry, key: "saved" }, { ...entry, key: "w", later: waiting }]).map((a) => a.key)).toEqual(["w"]);
   });
 });

@@ -9,7 +9,7 @@ import { shortDate, usd } from "@yama/core";
 import { useEffect, useRef, type ReactNode } from "react";
 import { ActionBar, Button, CardThumb } from "../components/ui";
 import { PLAY_WORD, playTag, usePlayability } from "./playable";
-import { priceFor, sessionTotal, worthIt, type RecentCard } from "./price";
+import { priceFor, sessionTotal, unsettledTile, worthIt, type RecentCard } from "./price";
 
 const FINISH_SHORT = { nonfoil: null, foil: "Foil", etched: "Etched", proxy: "Proxy" } as const;
 
@@ -18,10 +18,13 @@ export function tileLabel(c: RecentCard, tag: string | null): string {
   const parts = [c.name];
   if (c.set) parts.push(`${c.set.toUpperCase()}${c.number ? ` ${c.number}` : ""}`);
   if (c.finish !== "nonfoil") parts.push(FINISH_SHORT[c.finish]!);
-  if (c.finish !== "proxy") {
+  if (c.state === "finding") parts.push("finding the printing, not saved yet");
+  else if (c.state === "pick") parts.push("pick the printing, not saved yet");
+  else if (c.finish !== "proxy") {
     const p = priceFor(c.prices, c.finish);
     parts.push(p == null ? "price unknown" : usd(p));
   }
+  if (c.byPrice) parts.push("printing by price");
   if (c.copies > 1) parts.push(`${c.copies} copies`);
   if (tag) parts.push(tag);
   if (c.state === "saving") parts.push("saving");
@@ -38,7 +41,10 @@ export function trayTotal(cards: readonly RecentCard[]): { head: string; note: s
   const t = sessionTotal(cards);
   const copies = cards.reduce((n, c) => n + c.copies, 0);
   const count = `${copies} ${copies === 1 ? "card" : "cards"}`;
-  if (t.priced === 0) return { head: count, note: t.missing ? "no prices" : null };
+  // Card first, printing after: cards whose printing isn't settled have no price yet, said apart.
+  const waiting = cards.reduce((n, c) => n + (unsettledTile(c) ? c.copies : 0), 0);
+  const wait = waiting ? `${waiting} without a printing yet` : null;
+  if (t.priced === 0) return { head: count, note: [t.missing ? "no prices" : null, wait].filter(Boolean).join(", ") || null };
   const priced = cards.filter((c) => priceFor(c.prices, c.finish) != null);
   const dates = priced.flatMap((c) => (c.prices?.date ? [c.prices.date] : [])).sort();
   // Priced copies whose price has no date: counted in the total, and said (review of #152).
@@ -47,7 +53,7 @@ export function trayTotal(cards: readonly RecentCard[]): { head: string; note: s
   const last = shortDate(dates.at(-1) ?? null);
   // Every price says when: one date, the span when they differ, or that it isn't known.
   const when = !last ? "date unknown" : `${first && first !== last ? `${first} to ${last}` : last}${undated ? `, ${undated} undated` : ""}`;
-  return { head: `${count}, ${usd(t.total)}`, note: `market, ${when}${t.missing ? `, ${t.missing} unpriced` : ""}` };
+  return { head: `${count}, ${usd(t.total)}`, note: `market, ${when}${t.missing ? `, ${t.missing} unpriced` : ""}${wait ? `, ${wait}` : ""}` };
 }
 
 /**
@@ -107,6 +113,8 @@ export function ScanTray({
             <p className="scan-tray-last">
               <strong>{last.name}</strong>
               {last.set && <span className="scan-tray-note"> {last.set.toUpperCase()}{last.number ? ` #${last.number}` : ""}</span>}
+              {unsettledTile(last) && <span className="scan-tray-note"> {last.state === "pick" ? "pick the printing" : "finding the printing"}</span>}
+              {last.byPrice && <span className="scan-tray-note"> by price</span>}
             </p>
           )}
           {actions && (
@@ -138,10 +146,13 @@ export function ScanTray({
       </div>
       <ol ref={list} className="scan-tray-list">
         {cards.map((c, i) => {
-          const price = c.finish === "proxy" ? null : priceFor(c.prices, c.finish);
+          const price = c.finish === "proxy" || unsettledTile(c) ? null : priceFor(c.prices, c.finish);
           const tag = playTag(play.get(c.oracleId ?? ""));
           const word = tag ? PLAY_WORD[tag] : null;
           const cls = ["scan-tile", i === 0 && "is-newest", worthIt(price, worth) && "is-worth", c.state && `is-${c.state === "change-failed" ? "failed" : c.state}`].filter(Boolean).join(" ");
+          // What goes where the price does: the state that matters more than a price.
+          const under =
+            c.state === "failed" ? "Unsaved" : c.state === "finding" ? "Finding…" : c.state === "pick" ? "Pick printing" : c.finish === "proxy" ? "Proxy" : price == null ? "No price" : usd(price);
           const body = (
             <>
               <span className="scan-tile-card">
@@ -152,10 +163,12 @@ export function ScanTray({
                     strip stays quiet (Bryan, 16 Nov 2026: too busy). */}
                 {word && i === 0 && c.state !== "failed" && <span className={`scan-tile-tag is-${tag}`}>{tag === "game-changer" ? "GC" : word}</span>}
               </span>
-              {/* A failed save says so where the price goes: the red ring alone is easy to miss. */}
-              <span className={`scan-tile-price${c.state === "failed" ? " is-failed" : price == null ? " is-none" : ""}`}>
-                {c.state === "failed" ? "Unsaved" : c.finish === "proxy" ? "Proxy" : price == null ? "No price" : usd(price)}
+              {/* A failed save says so where the price goes: the red ring alone is easy to miss. So
+                  does a card whose printing isn't settled (card first): it isn't saved yet. */}
+              <span className={`scan-tile-price${c.state === "failed" ? " is-failed" : unsettledTile(c) ? ` is-${c.state}` : price == null ? " is-none" : ""}`}>
+                {under}
               </span>
+              {c.byPrice && <span className="scan-tile-by">By price</span>}
             </>
           );
           return (

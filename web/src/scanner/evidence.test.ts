@@ -312,3 +312,32 @@ describe("collector-line evidence", () => {
     });
   });
 });
+
+describe("reads pointing outside the candidates (Codex review of #195)", () => {
+  it("says so when the set code of a printing left out is read exactly, or a printed set code is none of theirs", () => {
+    // WOC and CMM are the candidates; the set lock (or the border) left C19 out.
+    const left = new Evidence([p("woc", "woc", "145"), p("cmm", "cmm", "390")], [p("c19", "c19", "236")]);
+    left.add(["0236 R\nC19 • EN"]);
+    expect(left.pointsOutside()).toBe(true);
+    // Nothing read yet, or the candidates' own set read: nothing outside.
+    expect(new Evidence([p("woc", "woc", "145")], [p("c19", "c19", "236")]).pointsOutside()).toBe(false);
+    const own = new Evidence([p("woc", "woc", "145"), p("cmm", "cmm", "390")], [p("c19", "c19", "236")]);
+    own.add(["0145 R\nWOC • EN"]);
+    expect(own.pointsOutside()).toBe(false);
+    // Only the left-out printing's own number, read in its printed form on two frames (Codex review of #195).
+    const number = new Evidence([p("woc", "woc", "145"), p("cmm", "cmm", "390")], [p("c19", "c19", "236")]);
+    number.add(["0236 R"]);
+    expect(number.pointsOutside()).toBe(false);
+    number.add(["0236 R"]);
+    expect(number.pointsOutside()).toBe(true);
+    // A number a candidate has too says nothing about the one left out.
+    const shared = new Evidence([p("woc", "woc", "236"), p("cmm", "cmm", "390")], [p("c19", "c19", "236")]);
+    shared.add(["0236 R"]);
+    shared.add(["0236 R"]);
+    expect(shared.pointsOutside()).toBe(false);
+    // A set code printed where it's printed, which no candidate is in.
+    const other = new Evidence([p("woc", "woc", "145"), p("cmm", "cmm", "390")]);
+    other.add(["0236 R\nZNR • EN"]);
+    expect(other.pointsOutside()).toBe(true);
+  });
+});

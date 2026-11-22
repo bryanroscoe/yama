@@ -93,6 +93,8 @@ export interface ScanCandidate {
   method: ScanMethod;
   /** The printing's dated market prices by finish, once the printing is settled (price.ts). */
   prices?: Prices | null;
+  /** Filed as the dearest of printings the scanner couldn't tell apart, priced alike (Tie by price). */
+  byPrice?: boolean;
 }
 
 export interface ScanTimings {

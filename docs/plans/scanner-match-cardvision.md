@@ -7,7 +7,11 @@ that leads, read when the card is still") and the app's own camera in the Androi
 default since PR #193). Stage 3, the card finder and the outline in native code with the art read
 upside down only when doubtful (items 1 to 4 and 20), is built: on by default on arm64-v8a and x86_64
 APKs, after the emulator's parity check ([scanner.md](../scanner.md#the-card-finder-in-the-app-2026-11-22));
-the phone check is Bryan's. Next, stage 4: the art read in native code. One decision below waits on Bryan.
+the phone check is Bryan's. Stage 5 is built too (22 Nov 2026): card first, printing after (22) and tie by price (26) as options in Scan
+settings, off by default; the border colour rule (24); feedback by price (28), on by default (docs/scanner.md,
+"Card first, printing after, border, tie and feedback by price"). Card first's default flips only when the
+Pixel's timing records (`get_scan_timings`, `rows`) support it. Next, stage 4: the art read in native code.
+No decision below waits on Bryan now.
 
 **Asked for:** Bryan, 21 Nov 2026, after trying CardVision's Android beta (0.2.1-beta1): "It's by far the
 best one I've seen and it's the one that we should use as our gold standard but we should improve upon it
@@ -27,7 +31,8 @@ try to match it."
   the native side needs.
 - The scanner's rule about printings doesn't change: a scan never files a guessed printing
   (ARCHITECTURE.md). Nothing here saves a collection row before its printing is settled by the rules
-  that settle one today. Settling a tie by price would be a new rule and waits on Bryan (below).
+  that settle one today. Settling a tie by price is a new rule: Bryan said yes to it as an opt-in option
+  on 22 Nov 2026 (below).
 
 ## Why the web view is the wrong home for the camera loop
 
@@ -96,18 +101,18 @@ app only), or **both** (shared logic in TypeScript, fed by either camera).
 
 | # | What CardVision does | Yama today | Where |
 |---|---|---|---|
-| 22 | The card is logged at once; the printing is worked out after, only when unsure, and the row updates itself | The card waits in the sheet until its printing settles | web |
+| 22 | The card is logged at once; the printing is worked out after, only when unsure, and the row updates itself | Built 22 Nov 2026 as an option (Card first, printing after); off, the card waits in the sheet until its printing settles | web |
 | 23 | Set symbol matched against templates per set and rarity | The printing look model | models thread |
-| 24 | Border colour rules printings out (black against white) | Not used | web |
+| 24 | Border colour rules printings out (black against white) | Built 22 Nov 2026: says black or white only when the border differs from the table, so silent on a dark mat | web |
 | 25 | Collector number read by ML Kit, only on unsure reads | ML Kit in the app, evidence scoring | done |
-| 26 | Printings that can't be told apart and cost nearly the same: takes the dearest, marks it "by price" | Always asks | web, needs Bryan (below) |
+| 26 | Printings that can't be told apart and cost nearly the same: takes the dearest, marks it "by price" | Built 22 Nov 2026 as an option (Tie by price, off by default); off, it asks | web |
 | 27 | Foil can't be seen: assumes a finish, tap the price to flip | Finish picker per card | keep ours |
 
 ### Feedback
 
 | # | What CardVision does | Yama today | Where |
 |---|---|---|---|
-| 28 | A quiet haptic per find, a different one for a valuable card; a chime pitched by price | A tone and a buzz per verdict | web |
+| 28 | A quiet haptic per find, a different one for a valuable card; a chime pitched by price | Built 22 Nov 2026 (Feedback by price, on by default) | web |
 | 29 | Times the phone at start and says so when it's slow | One-tap speed test (being built in the models thread) | models thread |
 | 30 | Checks the GPU's answers against the CPU's before trusting it | n/a | native |
 
@@ -169,8 +174,8 @@ through the app's own updater (docs/mobile.md).
    GPU through LiteRT with a CPU check if a phone's numbers ask for it (17, 30). The web side searches.
 5. **Printing after the row** (22, 24), then feedback by price (28). The row shown at once is
    provisional: it is on screen and in the session, and it is saved to the collection only when its
-   printing settles (the collection can't save a row without a printing). Item 26 is not part of this
-   stage unless Bryan says yes to it.
+   printing settles (the collection can't save a row without a printing). Item 26 joined it as an
+   opt-in option (Bryan, 22 Nov 2026). Built 22 Nov 2026.
 
 Each stage is its own PR with a phone check on Bryan's Pixel recorded by Scanner diagnostics' timing
 records. A stage's default flips only when those records support it; until then it's an option in Scan
@@ -178,9 +183,9 @@ settings, as the faster models are.
 
 ## Decisions
 
-- **Settle a tie by price (26).** CardVision files the dearest of printings it can't tell apart when
-  they're within 15% of each other. That files a printing nobody read, which Yama's rule forbids today.
-  Proposed: offer it as an opt-in option marked "by price" on the row, off by default.
+- **Settle a tie by price (26).** Decided 22 Nov 2026 (Bryan: "let's go ahead and do all of this"): an
+  opt-in option, off by default, marked "by price" wherever the card shows, undone by Wrong printing.
+  CardVision files the dearest of printings it can't tell apart when they're within 15% of each other.
 - **App size: decided** (Bryan, 22 Nov 2026, approving the proposal). ONNX Runtime for Android ships for
   arm64-v8a and x86_64 (the emulator) only; 32-bit ARM phones keep the web scanner. Stored compressed in
   the APK, its two libraries add about 30 MB to the download (81 MB once installed).

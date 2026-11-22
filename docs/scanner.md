@@ -1,5 +1,7 @@
 # Card scanner
 
+Status (2026-11-22): stage 5 of docs/plans/scanner-match-cardvision.md. Three options in Scan settings and one new rule: **Card first, printing after** (off by default) puts a card's row in the strip as soon as it's named and goes on to the next card while it works out the printing; a row is saved to the collection only once its printing settles, and one it can't settle waits for a pick. The card's **border colour**, read from its edge, rules out printings of the other colour (black against white) when it's plainly one or the other. **Tie by price** (off by default) files the dearest of printings the scanner can't tell apart when they're priced within 15% of each other, marked "by price". **Feedback by price** (on by default): a short buzz per card, a double one for a card worth the sound's amount, and the chime pitched by price. See "Card first, printing after, border, tie and feedback by price".
+
 Status (2026-11-22): Save scan photos keeps a photo of **every card the scanner names**, not only cards filed: a card let go without filing (Skip, Scan next, closing the scanner) is kept as `unconfirmed` with the scanner's guess, scores and the rule that named it; one photo per card placed in view, a later answer relabelling it. Each photo keeps a third full-resolution crop, the whole card (at most 1,100 px tall), and is a file beside its crops instead of a row in the database; an invited account keeps its newest 20,000 photos and 8 GB. The cutting runs in a worker of its own. `scan-samples-export` writes it all, and `scanner-lab/corpus_pull.sh` pulls it into the lab. See "Scan photos of every card named: a training corpus". Not yet tried on a phone.
 
 Status (2026-11-21): "Test scanner speed" in Scan settings times the scanner on the phone itself, without the camera: synthetic frames of eight cards' Scryfall pictures through the real art worker with the device's models, the defaults and the faster ones, then the printing look, with the browser's threads and WebGPU recorded. The result is kept on the account and read with `get_scan_speed_tests`, so a phone's real numbers can replace the guesses in "Speed". See "Speed test".
@@ -216,6 +218,80 @@ Bryan's Westvale photo, through the same steps (`eval/sample.test.ts`): the titl
 - **The "worth it" amount** is $2 by default ("more than a couple bucks"); an amount already set on a device stays.
 
 **The sheet (2026-11-13).** Bryan, on the Pixel 3: "All this extra question stuff should be a tapable expandable thing. There should be a pinch-to-zoom on the picture too. I should be able to drag away this huge bottom drawer if I want as well." So (`sheet.tsx`): the choices that rarely change (finish, where cards go, Keep adding, Close-ups, Mute, Save scan photos) sit in one "Scan settings" row that shows what's set and opens with a tap, remembered per device (`yama.scan.settingsOpen`); progress notes and errors stay in view (`ScannerView`'s `controls` against `settings`). Two fingers on the camera pinch its zoom, within the camera's own range or 1× to 3× digital, alongside the + and − buttons. The sheet has a handle: drag it down to hide the sheet and see the whole camera, drag it up or tap it (or Enter) to bring it back; a card that needs a tap brings it back by itself.
+## Card first, printing after, border, tie and feedback by price (2026-11-22)
+
+Stage 5 of [the CardVision plan](plans/scanner-match-cardvision.md) (items 22, 24, 26 and 28), approved by
+Bryan on 22 Nov 2026 ("let's go ahead and do all of this"). The scanner's rule stays: a scan never files a
+printing that no rule the person can see settled, and every settle can be undone.
+
+**Card first, printing after** (`later.ts`, Scan settings, off by default). With it, a card named before its
+printing is settled becomes a provisional row at once and the scanner goes on to the next card: with Keep
+adding, as soon as the camera names it; without, when Add is pressed (Add no longer waits on "Finding the
+printing"). The printing is worked out after from what the scanner kept of the card, by the rules that settle
+one on the sheet, whichever settles first: the only printing (in the locked sets), its border, the collector
+line (the text reader's read, the view the card was named in, and up to six frames over four seconds while it
+still lies there, read by the read loop as it waits for the next card), and the printing look on the frames
+kept when it was named (which settles only under the look option that settles when sure); then a tie by price
+when that's on. A provisional row is in the session and the strip ("Finding…", then "Pick printing" if
+nothing settled, with a dashed ring) but nothing of it is saved: the Collection page saves it, in place, once
+its printing settles, by the scanner or by a tap on its tile or its Added-list row. Undo (or Remove) before
+then simply drops it; closing the scanner with rows still waiting asks first, and leaving any way (the
+page's own "Leave without saving" included) drops them. Move all sends a waiting row to the new box when it's saved, and Clear the list keeps it (it isn't
+saved yet). Its scan photo is labelled with the printing it settles on, or kept unconfirmed if it's taken
+out. On the sheet, printings a border read ruled out are listed last, never as the scanner's guess. Its scan photo is kept with the
+printing it settled on (the label is final), and its records end then. Typed names, corrections, Wrong
+printing and rescans of one card aren't filed first; deck and box scans (identity only) don't have it.
+
+Measured before (`get_scan_timings`, Bryan's 42 collection records of 22 Nov 2026, Pixel, the default
+settings) [ran]: a card is named in a median 791 ms (p90 3.5 s), and its printing settles a median 992 ms
+after that (p90 3.0 s); the 58% settled from the collector line take a median 1.4 s (p90 3.2 s). Until now the
+card's row appeared only then, so card first should bring the row forward by about a second for most cards
+and three for the slow ones. Timing records now say which way each card went (`detail.rows`: `card-first` or
+`printing-first`) and when its row appeared (`detail.row_ms`, from the card being named), and
+`get_scan_timings` compares the two (`rows`: time to name, printing time, row time). It stays an option until
+the Pixel's records show the printings it settles after the card has left are as often right.
+
+**Border colour** (`border.ts`). The band just inside the card's edge (1.2% to 2.4% of its width in, along the
+middle of each side) is read from the view the card was named in. It says black or white only when all four
+sides are plainly dark or plainly light and even, and at least three differ from what lies just outside the
+card, so a table seen through a sleeve's clear margin or a loose outline is never taken for a border; and
+only when the band further in (3.5% to 5%) isn't plainly the other colour on any side, so a coloured sleeve's
+margin (its back shows through the clear front around the card) isn't taken for the card's own border. A
+black border rules out white-bordered printings and a white one black-bordered printings (Scryfall's
+`border_color`, which `/api/scan/printings` already sends); borderless, silver and gold are never ruled out,
+nor every printing. When one printing is left it's settled ("border"); Wrong printing on it lists every
+printing with the art again, and the border isn't read again for that card. Measured [ran] on 120 of Bryan's
+own scan photos (the lab's data/own, his blue mat; 116 black-bordered, 3 borderless, 1 white) and on 160
+clean Scryfall pictures of white- and black-bordered printings drawn on a dark and a light table: it never
+said the wrong colour. On the clean pictures it read 35 of 35 white borders on the dark table and 44 of 45
+black borders on the light one (among them five 7th Edition foils, which Scryfall lists as black-bordered),
+and nothing where border and table were alike. On Bryan's dark mat it said
+nothing on any photo: a black border is too close to the mat to tell from it. Without the outside check it
+read 67 of the 116 black borders and never white, but then a white-bordered card in a sleeve on a dark mat
+could read black, so the check stays. Black-against-white printings sharing an artwork are mostly old core
+sets and Mystery Booster 2's playtest cards, so this settles few cards; timing records keep what each card
+read (`detail.border`).
+
+**Tie by price** (`price.ts` `priceTie`, Scan settings, off by default). When the scanner has stopped trying
+by itself (reading the held card gave up or asked for a close-up, there's no camera to read from, or a
+provisional row's work is done) and no look is under way, the printings that share the card's art and that
+the collector line hasn't pointed away from are weighed (none when it read a set code none of them is in, or
+the set code of one the set lock or the border left out, or that one's own number on two frames) (printings drawn differently can be told apart by
+eye, so a card named by its title alone never ties): if every one has a market price in the finish it would be filed in and the dearest is at
+most 15% above the cheapest, the dearest is settled ("price") and the card is marked "by price" in the strip,
+the Added list and its large view. English printings only when there are any; never with a price missing (an
+unknown price is never near another), for a proxy, for a typed name, or a printing said to be wrong. Keep
+adding files it; Wrong printing undoes it, and a changed printing drops the mark. Its scan photo names only
+the card, since nobody read which printing it is. Timing records count it as its own way (`price`), so how
+often it's then called wrong can be read.
+
+**Feedback by price** (`sounds.ts`, Scan settings, on by default; the collection only). A short buzz (12 ms)
+when a card is found or its printing settles; when it's filed, a double pulse for a card worth the sound's
+amount ($2 by default) and a short one otherwise. The chime is pitched by the market price in the finish
+filed, on a log scale from 523 Hz at $0.10 or less to 1568 Hz at $50 or more, with the bright third note for
+a card worth the amount. A missing price is unknown: an even two-note chime at 880 Hz, never the low one.
+Off, the scanner chimes and buzzes as before.
+
 ## The number that matters (2026-11-21)
 
 Bryan, 21 Nov 2026: "when it's reading the bottom left text, I think it's trying to be too perfect. It struggles with the spaces and the little brush stroke thing really throws it off… Even though it sees the number, like the 286, if that's enough to know for a particular card, we're good." And: "It also seems to give up really fast", and the outline "feels a teeny bit laggy".
@@ -896,6 +972,9 @@ Files, all under `web/src/scanner/`:
 | `gallery.ts` | the search graph's gallery read into JavaScript, and the server's art supplement scored the same way |
 | `art.worker.ts`, `artClient.ts` | the recognizer in a web worker; bundle download and Cache API |
 | `printings.ts` | `printingOptions` (`/api/scan/printings`) and `choosePrinting` |
+| `later.ts` | card first, printing after: the provisional row the scanner fills in and the host saves |
+| `border.ts` | `readBorder` (the card's border colour from its edge) and `byBorder` |
+| `prefs.ts` | the per-device options card first, tie by price and feedback by price |
 | `printings.test.ts` | unit tests for the printing choice and the recognizer's pure parts |
 | `serverCatalog.ts` | `ScanCatalog` on the server API and the offline card bundle |
 | `ScannerView.tsx`, `scanner.css` | camera screen |
