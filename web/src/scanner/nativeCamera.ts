@@ -893,10 +893,11 @@ export async function loadNativeFinder(
     const r = await ask();
     return { loadMs: r.loadMs, sent: false };
   } catch (e) {
-    // It can't run here at all: nothing to hand over.
-    if (codeOf(e) === "unavailable") throw e;
-    // Not there yet, or the copy it keeps won't load (a file named by its bundle isn't checked
-    // against its bytes): handed over (again), once.
+    // Only when it doesn't have the file: any other refusal (no memory, no runtime, a graph that
+    // won't load, whose kept copy the app then drops) is the answer, and the web view's finder
+    // runs. Handing a large file over again is the last thing a phone short of memory needs
+    // (Codex review of #196).
+    if (codeOf(e) !== "need-model") throw e;
   }
   await plugin.finderModel({ key: file.key, data: toBase64(await file.bytes()) });
   const r = await ask();

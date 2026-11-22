@@ -64,6 +64,8 @@ final class NativeFinder {
     private Thread thread;
     /** Counts the loops started and stopped: a loop runs only while it is the newest (a stop that timed out can't leave two). */
     private volatile int loopGen;
+    /** The plugin has gone (the app is closing): a load that finishes after this lets its model go at once. */
+    private volatile boolean closed;
     private volatile boolean running;
     private volatile String failure;
     private volatile Runnable wantFrames;
@@ -133,6 +135,11 @@ final class NativeFinder {
     void use(String key, CardFinder.Detector d, CardFinder.Constants c, int shortSide) {
         CardFinder.Detector old;
         synchronized (this) {
+            // A load still compiling when the plugin went: nothing to run it for (Codex review of #196).
+            if (closed) {
+                close(d);
+                throw new IllegalStateException("The camera's plugin has closed");
+            }
             stop();
             old = detector;
             detector = d;
@@ -155,6 +162,14 @@ final class NativeFinder {
                 // Nothing more to let go of.
             }
         }
+    }
+
+    /** The plugin is going: stop, let the model go, and refuse any load that finishes later. */
+    void shutdown() {
+        synchronized (this) {
+            closed = true;
+        }
+        unload();
     }
 
     /** Let the model go (the scanner closed). */

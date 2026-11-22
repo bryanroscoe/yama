@@ -117,6 +117,33 @@ public class NativeFinderTest {
     }
 
     @Test
+    public void aLoadThatFinishesAfterShutdownLetsItsModelGo() throws Exception {
+        ScannerFrames frames = new ScannerFrames();
+        NativeFinder f = finder(frames, new CardFinderTest.FakeDetector());
+        f.shutdown();
+        assertFalse(f.loaded());
+        AtomicInteger closed = new AtomicInteger();
+        class Closing implements CardFinder.Detector, AutoCloseable {
+            @Override
+            public CardFinder.Output run(byte[] window) {
+                return new CardFinderTest.FakeDetector().run(window);
+            }
+
+            @Override
+            public void close() {
+                closed.incrementAndGet();
+            }
+        }
+        try {
+            f.use("late", new Closing(), CardFinderTest.constants(CardFinderTest.fixture().getJSONObject("constants")), 640);
+            org.junit.Assert.fail("a load after shutdown was kept");
+        } catch (IllegalStateException expected) {
+            assertEquals(1, closed.get());
+            assertFalse(f.loaded());
+        }
+    }
+
+    @Test
     public void aFailureStopsItForGoodAndSaysSoOnce() throws Exception {
         ScannerFrames frames = new ScannerFrames();
         AtomicInteger runs = new AtomicInteger();

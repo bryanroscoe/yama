@@ -217,10 +217,10 @@ public class ScannerCameraPlugin extends Plugin {
         } catch (RuntimeException e) {
             Logger.warn(TAG, "Closing the camera as the app ends: " + e.getMessage());
         }
-        finder.unload();
+        finder.shutdown();
         reader.shutdown();
         cameraThread.shutdown();
-        loader.shutdown();
+        loader.shutdownNow();
     }
 
     // ---- What the page calls ----
@@ -371,7 +371,15 @@ public class ScannerCameraPlugin extends Plugin {
                         call.reject("The app doesn't have that model yet", "need-model");
                         return;
                     }
-                    finder.load(id, model, k, shortSide);
+                    try {
+                        finder.load(id, model, k, shortSide);
+                    } catch (ai.onnxruntime.OrtException e) {
+                        // A kept copy ONNX Runtime can't read (a file named by its bundle isn't checked
+                        // against its bytes): dropped, so the next session hands it over afresh. Not on
+                        // running out of memory: that isn't the file's fault.
+                        new File(NativeFinder.modelDir(getContext().getFilesDir()), NativeFinder.fileName(key)).delete();
+                        throw e;
+                    }
                 }
                 JSObject ret = new JSObject();
                 ret.put("key", key);

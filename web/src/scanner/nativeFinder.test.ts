@@ -124,9 +124,13 @@ describe("handing the app its card finder", () => {
     expect(asked).toEqual(["load", "model 3", "load"]);
     expect(await loadNativeFinder({ key: "k", bytes }, {}, plugin)).toEqual({ loadMs: 12, sent: false });
     expect(bytes).toHaveBeenCalledTimes(1);
-    // Any other refusal is the answer: it can't run here.
-    const broken = { finderLoad: async () => Promise.reject(Object.assign(new Error("no runtime"), { code: "unavailable" })), finderModel: async () => ({}) } as unknown as ScannerCameraPlugin;
+    // Any other refusal is the answer: it can't run here, or ran out of memory, and the file isn't sent again.
+    const sent = vi.fn(async () => ({}));
+    const broken = { finderLoad: async () => Promise.reject(Object.assign(new Error("no runtime"), { code: "unavailable" })), finderModel: sent } as unknown as ScannerCameraPlugin;
     await expect(loadNativeFinder({ key: "k", bytes }, {}, broken)).rejects.toThrow("no runtime");
+    const short = { finderLoad: async () => Promise.reject(Object.assign(new Error("out of memory"), { code: "failed" })), finderModel: sent } as unknown as ScannerCameraPlugin;
+    await expect(loadNativeFinder({ key: "k", bytes }, {}, short)).rejects.toThrow("out of memory");
+    expect(sent).not.toHaveBeenCalled();
   });
 
   it("encodes a large file a chunk at a time", () => {
