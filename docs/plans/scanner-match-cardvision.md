@@ -3,8 +3,10 @@
 **Status:** In progress, 21 Nov 2026 (Bryan approved it that day). Stages 1 and 2 are merged and live:
 the outline, the focus pin, 60 fps and "Card back" (PR #184, on by default), the placement gate (PR #186,
 an option: Settling by art, "Art that leads, read when the card is still") and the app's own camera in
-the Android app (PR #187, an option in Scan settings, APK 0.2.101). None of it has run on a real phone
-camera yet: stage 3 waits on Bryan's Pixel check (docs/scanner.md, "Left for a real phone test", item 8).
+the Android app (PR #187). The live Pixel comparison supports making the native camera the default
+on APKs with the plugin. The [ONNX model interfaces](../scanner.md#onnx-models-for-the-native-scanner)
+are documented and the one-crop art export has passed desktop CPU parity. The next implementation
+stage is the native finder and outline, with the Android runtime packaging decision below.
 Item 20 (upside down only when doubtful) moved to stage 3 with the native finder. Two decisions below
 wait on Bryan.
 
@@ -135,10 +137,9 @@ What the models are, for the native side (from the models thread, 21 Nov 2026):
   ONNX Runtime for Android runs it as it is. The window logic around it (a tracked frame reuses the last
   card's box, a fresh one searches in two passes) is code in `recognizer.ts` and has to be written
   natively too. A 320 px input would mean retraining, not a re-export.
-- **Art model:** the shipped files take the whole frame and the corners and do the cut inside the graph,
-  so stage 4 can start with them unchanged on the CPU and match the web scanner exactly. The models
-  thread can also export the network alone (128 × 128 crops in, 128 numbers out) with the crop recipe
-  written in docs/scanner.md.
+- **Art model:** the shipped graph takes the whole frame and the corners and does the cuts in the graph,
+  so stage 4 can use it as the CPU reference. The fixed one-crop export takes a normalised 128 × 128 RGB
+  crop and returns a 128-element embedding. The native warp and frame-style cuts must match the reference.
 - **GPU:** ONNX Runtime for Android has no general GPU backend, so the GPU route is LiteRT's GPU
   delegate with the models converted to `.tflite` by the models thread. The shipped art graph warps
   the card inside the graph (GridSample), which LiteRT's GPU delegate doesn't list, so on that route

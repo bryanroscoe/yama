@@ -3,6 +3,7 @@
 // binary channel or as base64, the canvas standing in for the video, regions cut from the full
 // frame, and the camera's controls shaped as a track.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Capacitor } from "@capacitor/core";
 import {
   base64Transport,
   benchLine,
@@ -128,12 +129,24 @@ afterEach(() => {
 });
 
 describe("the option", () => {
-  it("is off, automatic and 30 a second until it's set, whatever is stored", () => {
+  it("defaults to the browser camera without the plugin and ignores malformed settings", () => {
     expect(savedNativeCamera()).toEqual({ on: false, lens: "auto", fps: 30, torchLevel: null });
     store.set(NATIVE_CAMERA_KEY, "not json");
     expect(savedNativeCamera().on).toBe(false);
     store.set(NATIVE_CAMERA_KEY, JSON.stringify({ on: "yes", lens: "fisheye", fps: -3, focus: "near" }));
     expect(savedNativeCamera()).toEqual({ on: false, lens: "auto", fps: 30, torchLevel: null });
+  });
+  it("uses the native camera when supported and preserves an explicit opt-out", () => {
+    vi.spyOn(Capacitor, "isNativePlatform").mockReturnValue(true);
+    const available = vi.spyOn(Capacitor, "isPluginAvailable").mockImplementation((name) => name === "ScannerCamera");
+    expect(savedNativeCamera()).toEqual({ on: true, lens: "auto", fps: 30, torchLevel: null });
+    store.set(NATIVE_CAMERA_KEY, JSON.stringify({ lens: "main", fps: 60 }));
+    expect(savedNativeCamera()).toEqual({ on: true, lens: "main", fps: 60, torchLevel: null });
+    saveNativeCamera({ on: false, lens: "main", fps: 60, torchLevel: null });
+    expect(savedNativeCamera()).toEqual({ on: false, lens: "main", fps: 60, torchLevel: null });
+    store.delete(NATIVE_CAMERA_KEY);
+    available.mockReturnValue(false);
+    expect(savedNativeCamera().on).toBe(false);
   });
   it("is remembered on this device", () => {
     saveNativeCamera({ on: true, lens: "ultrawide", fps: 60, torchLevel: 3 });
@@ -322,6 +335,31 @@ describe("the app's camera as a source", () => {
       throw new Error("The camera isn't allowed.");
     };
     await expect(openNativeCamera(document.createElement("canvas"), { lens: "auto", fps: 30, width: 1920, height: 1080 }, { plugin, channel, settleMs: 0 }).ready).rejects.toThrow("isn't allowed");
+  });
+
+  it("releases a bound camera that sends no frames before allowing browser fallback", async () => {
+    vi.useFakeTimers();
+    try {
+      const { plugin } = fakes({ ...DESCRIBED, binary: false });
+      plugin.frame = vi.fn().mockRejectedValue(new Error("No frame"));
+      let release!: () => void;
+      const closed = new Promise<void>((resolve) => { release = resolve; });
+      const close = vi.spyOn(plugin, "close").mockReturnValue(closed);
+      const cam = openNativeCamera(document.createElement("canvas"), { lens: "auto", fps: 30, width: 1920, height: 1080 }, { plugin, channel: null, settleMs: 0 });
+      const fallback = vi.fn();
+      void cam.ready.catch(fallback);
+      await vi.advanceTimersByTimeAsync(3100);
+      expect(close).toHaveBeenCalledOnce();
+      expect(fallback).not.toHaveBeenCalled();
+      release();
+      await expect(cam.ready).rejects.toThrow("didn't deliver a frame");
+      expect(fallback).toHaveBeenCalledOnce();
+      expect(document.documentElement.classList.contains(NATIVE_CLASS)).toBe(false);
+      cam.close();
+      expect(close).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("learns the capture rate delivered a moment after opening", async () => {

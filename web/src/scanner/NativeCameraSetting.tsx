@@ -52,7 +52,7 @@ export function NativeCameraSetting({
         <input id="scan-native-camera" type="checkbox" checked={option.on} onChange={(e) => onChange({ ...option, on: e.target.checked })} />
         <span>
           <label htmlFor="scan-native-camera">
-            <strong>Use the app's own camera.</strong> The app opens the camera itself rather than through its web view, so it can choose a lens, ask for 60 frames a second and set the flashlight's strength. Being tried out: off scans as before. On this device.
+            <strong>Use the app's own camera.</strong> Choose a lens, capture rate and flashlight strength where supported. Turn this off to use the browser camera on this device.
           </label>
         </span>
       </div>
