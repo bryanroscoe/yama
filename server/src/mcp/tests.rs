@@ -1883,6 +1883,45 @@ async fn scan_timings_are_summarised_for_their_owner_only() {
 }
 
 #[tokio::test]
+async fn scan_photos_are_described_to_their_owner_only() {
+    let (app, pool) = app().await;
+    let (me, session) = user(&pool, "bryan@example.com").await;
+    let (_, other) = user(&pool, "other@example.com").await;
+    let jpeg = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, [0xFF, 0xD8, 0xFF, 0xD9]);
+    for (kind, source) in [("unconfirmed", "native"), ("unconfirmed", "native"), ("added", "browser")] {
+        let body = json!({"image": jpeg, "kind": kind, "guess_name": "Sol Ring", "method": "art", "score": 0.8, "rule": "leads", "lead": 0.12, "source": source, "mode": "printing",
+            "crops": [{"name": "card", "image": jpeg, "width": 786, "height": 1100}], "shared": true});
+        let (status, made) = send(&app, Method::POST, "/api/scan/samples", Some(&session), Some(body)).await;
+        assert_eq!(status, StatusCode::OK, "{made}");
+    }
+    let mine = key(&app, &session, Some("mcp")).await;
+    let (err, text) = call(&app, &mine, "get_scan_photos", json!({})).await;
+    assert!(!err, "{text}");
+    let s: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(s["count"], 3);
+    assert_eq!(s["kinds"][0], json!({"name": "unconfirmed", "photos": 2, "bytes": 16}));
+    assert_eq!(s["sources"][0]["name"], "native");
+    assert_eq!(s["crops"][0], json!({"name": "card", "photos": 3, "bytes": 12}));
+    assert_eq!(s["keep"], crate::scan_samples::INVITED.photos);
+    assert_eq!(s["newest"].as_array().unwrap().len(), 3);
+    assert_eq!(s["newest"][0]["rule"], "leads");
+    assert!(s["newest"][0].get("image").is_none());
+    let (_, text) = call(&app, &mine, "get_scan_photos", json!({"newest": 1})).await;
+    assert_eq!(serde_json::from_str::<Value>(&text).unwrap()["newest"].as_array().unwrap().len(), 1);
+    let (err, _) = call(&app, &mine, "get_scan_photos", json!({"newest": 50})).await;
+    assert!(err);
+
+    // Someone else's tools see none of them.
+    let theirs = key(&app, &other, Some("mcp")).await;
+    let (err, text) = call(&app, &theirs, "get_scan_photos", json!({})).await;
+    assert!(!err, "{text}");
+    let s: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(s["count"], 0);
+    assert_eq!(s["newest"], json!([]));
+    crate::scan_samples::remove_owner_files(&std::env::temp_dir(), &me);
+}
+
+#[tokio::test]
 async fn scan_speed_tests_are_read_by_their_owner_only() {
     let (app, pool) = app().await;
     let (_, session) = user(&pool, "bryan@example.com").await;

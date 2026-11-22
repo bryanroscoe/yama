@@ -91,7 +91,7 @@ export function noteWrite(seen: Map<string, number>, a: Added): Pick<Added, "nam
   const taken = p.ops.reduce((n, o) => n + (o.kind === "adjust" ? o.delta : 0), 0);
   if (p.base !== undefined) seen.set(identity(a), p.base + taken);
   else seen.delete(identity(a));
-  const to = { name: p.fix.name, scryfall_id: p.fix.scryfall_id, finish: p.fix.finish, container: a.container };
+  const to = { name: p.fix.name, scryfall_id: p.fix.scryfall_id, finish: p.fix.finish, container: boxOf(a, p.fix) };
   if (identity(to) !== identity(a) && p.fix.copies > 0) grow(to, p.fix.copies);
   return unknown;
 }
@@ -101,7 +101,7 @@ export function touched(a: Added): string[] {
   const keys = [identity(a)];
   const fix = a.pending?.fix;
   if (fix && fix.copies > 0) {
-    const to = identity({ scryfall_id: fix.scryfall_id, finish: fix.finish, container: a.container });
+    const to = identity({ scryfall_id: fix.scryfall_id, finish: fix.finish, container: boxOf(a, fix) });
     if (to !== keys[0]) keys.push(to);
   }
   return keys;
@@ -113,6 +113,9 @@ export const changedElsewhere = (seen: Map<string, number>, a: Pick<Added, "scry
   return expected !== undefined && rowQty < expected;
 };
 
+/** The box a fix leaves an entry's copies in: the one it moves them to, else their own. */
+export const boxOf = (a: Pick<Added, "container">, fix: Pick<Fix, "container">): string | null => (fix.container === undefined ? a.container : fix.container);
+
 /** The entry once its pending write is confirmed. */
 export function settled(a: Added): Added {
   const fix = a.pending?.fix;
@@ -120,7 +123,7 @@ export function settled(a: Added): Added {
   if (!fix) return rest;
   // Another printing than the one a tie by price chose: it's no longer "by price".
   const byPrice = fix.scryfall_id === a.scryfall_id ? a.byPrice : undefined;
-  return { ...rest, ...fix, byPrice };
+  return { ...rest, ...fix, container: boxOf(rest, fix), byPrice };
 }
 
 /** The new state of an entry after a fix. 0 copies takes it back out. */
@@ -136,6 +139,8 @@ export interface Fix {
   copies: number;
   /** The new printing's prices, when the printing changes. */
   prices?: Prices | null;
+  /** The box to move the copies to (null: not filed anywhere); absent, they stay where they are. */
+  container?: string | null;
 }
 
 export type CollectionOp =
@@ -153,6 +158,12 @@ export const treatmentOf = (p: Treated): Treated => ({ promo_types: p.promo_type
 
 /** The fix that takes an entry's copies back out: Remove in the Added list, and Undo on the scanner. */
 export const removeFix = (a: Added): Fix => ({ scryfall_id: a.scryfall_id, set: a.set, number: a.number, name: a.name, image: a.image, finish: a.finish, finishes: a.finishes, treatment: a.treatment, copies: 0 });
+
+/**
+ * The fix that moves an entry's copies to another box (Bryan, 22 Nov 2026: "an easy way to add all
+ * the things recently scanned to a different box"): the same printing, finish and copies.
+ */
+export const boxFix = (a: Added, container: string | null): Fix => ({ ...removeFix(a), prices: a.prices, copies: a.copies, container });
 
 /**
  * The fix that moves an entry's copies to another printing (Wrong printing, after filing): the same
@@ -199,13 +210,15 @@ export function findRow<R extends Row>(rows: R[], a: Pick<Added, "scryfall_id" |
 
 /**
  * The ops that turn what an entry added into `fix`. Only the copy count changed: one adjust.
- * Anything else: take this session's copies back out of their row, and add them the new way.
+ * Anything else (another printing, finish or box): take this session's copies back out of their
+ * row, and add them the new way.
  * `row` is the entry's row (findRow); `newId` makes op ids.
  */
 export function planFix(a: Added, fix: Fix, row: Row, newId: () => string): CollectionOp[] {
   // Never take back more than the row still holds (some may have been removed elsewhere).
   const mine = Math.min(a.copies, row.qty);
-  const same = fix.scryfall_id === a.scryfall_id && fix.finish === a.finish;
+  const box = boxOf(a, fix);
+  const same = fix.scryfall_id === a.scryfall_id && fix.finish === a.finish && box === a.container;
   if (same) {
     const delta = Math.max(fix.copies, 0) - a.copies;
     if (delta === 0) return [];
@@ -213,6 +226,26 @@ export function planFix(a: Added, fix: Fix, row: Row, newId: () => string): Coll
   }
   const ops: CollectionOp[] = [];
   if (mine > 0) ops.push({ op_id: newId(), kind: "adjust", item_id: row.id, delta: -mine });
-  if (fix.copies > 0) ops.push(addOp(fix.scryfall_id, fix.copies, fix.finish, a.container, newId()));
+  if (fix.copies > 0) ops.push(addOp(fix.scryfall_id, fix.copies, fix.finish, box, newId()));
   return ops;
 }
+
+/**
+ * Move all to another box: the entries to move (their copies are elsewhere and nothing is waiting
+ * on them), and how many can't move now (a save or a change still on its way, or one to try again).
+ */
+export function toMove(added: readonly Added[], container: string | null): { move: Added[]; busy: number; later: Added[] } {
+  const elsewhere = added.filter((a) => a.copies > 0 && a.container !== container);
+  // A row still waiting for its printing (card first) has nothing saved to move: it's saved into
+  // the new box when it settles (`later`).
+  const later = elsewhere.filter((a) => a.later?.open);
+  const move = elsewhere.filter((a) => !a.pending && !a.checking && !a.later);
+  return { move, busy: elsewhere.length - move.length - later.length, later };
+}
+
+/**
+ * Clear the list: the entries to keep, the ones whose write isn't confirmed (their only record is
+ * here, so they stay until saved or given up), and rows still waiting for their printing (card
+ * first: not saved yet either). Cleared entries stay in the collection.
+ */
+export const afterClear = (added: readonly Added[]): Added[] => added.filter((a) => !!a.pending || !!a.checking || !!a.later?.open);

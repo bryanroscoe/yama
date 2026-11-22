@@ -3,7 +3,7 @@
 // `ScannedCard` is one of them large, opened from its tile in the scanner's strip (Bryan, 16 Nov
 // 2026: "Being able to tap them to see them bigger, to make sure you get the right printing").
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { copyWords, count, finishesOf, finishName, pickFinish, shortDate, treatmentLabel, usd } from "@yama/core";
 import type { Printing } from "../api";
 import { playLine, PLAY_WORD, playTag, usePlayability } from "./playable";
@@ -24,9 +24,11 @@ export interface AddedListProps {
   onClose: () => void;
   /** Open one card large (its ScannedCard). */
   onOpen?: (a: Added) => void;
+  /** Shown under the summary: the host's Move all and Clear the list. */
+  actions?: ReactNode;
 }
 
-export function AddedList({ added, onFix, onRetry, onClose, onOpen }: AddedListProps) {
+export function AddedList({ added, onFix, onRetry, onClose, onOpen, actions }: AddedListProps) {
   const copies = added.reduce((n, a) => n + a.copies, 0);
   return (
     <div className="scan-added">
@@ -34,6 +36,7 @@ export function AddedList({ added, onFix, onRetry, onClose, onOpen }: AddedListP
       <p className="dim small">
         {copies === 1 ? "1 card" : `${copies} cards`}, newest first. Fixes change only the copies added here.
       </p>
+      {actions}
       {added.length === 0 ? <p className="dim">Nothing added yet.</p> : (
         <ul className="scan-added-list">
           {added.map((a) => (a.later ? <LaterRow key={a.key} a={a} onOpen={onOpen} /> : <AddedRow key={a.key} a={a} onFix={onFix} onRetry={onRetry} onOpen={onOpen} />))}

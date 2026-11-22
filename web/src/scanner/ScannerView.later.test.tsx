@@ -66,9 +66,21 @@ vi.mock("../api", async (original) => ({
     return Promise.reject(new Error(`offline: ${path}`));
   },
 }));
+// Each card's scan photo (samples.ts, ScanPhoto): its labels, as given.
 vi.mock("./samples", async (original) => ({
   ...(await original<typeof import("./samples")>()),
-  keepSample: async (_shot: unknown, label: { label_scryfall_id?: string; kind: string }) => void state.samples.push(label),
+  ScanPhoto: class {
+    constructor(readonly shot: unknown) {}
+    get labelled() {
+      return false;
+    }
+    label(label: { label_scryfall_id?: string; kind: string }) {
+      state.samples.push(label);
+    }
+    letGo() {
+      state.samples.push({ kind: "unconfirmed" });
+    }
+  },
 }));
 vi.mock("./artClient", async (original) => ({
   ...(await original<typeof import("./artClient")>()),
@@ -287,6 +299,8 @@ describe("card first, printing after (opt-in)", () => {
     expect(row.state.phase).toBe("dropped");
     expect(accepted).toEqual([]);
     await until(() => document.body.textContent?.includes("Took out Arcane Signet"), "Took out");
+    // Its photo is kept as a card let go, with no printing said (the training corpus, samples.ts).
+    expect(state.samples).toEqual([{ kind: "unconfirmed" }]);
   });
 
   it("without Keep adding, Add files the card first while its printing is still being read", async () => {

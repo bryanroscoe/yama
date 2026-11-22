@@ -114,6 +114,18 @@ describe("the strip's head is the receipt (design pass, 16 Nov 2026)", () => {
     expect(head.querySelector(".scan-tray-last")?.textContent).toBe("Took out Sol Ring (ECC 57)");
     expect(head.querySelector(".scan-tray-do")).toBeNull();
   });
+
+  it("offers Clear beside Review all when the host can clear the list", async () => {
+    const clear = vi.fn();
+    act(() => root.render(<ScanTray cards={cards} worth={2} onReview={() => undefined} onClear={clear} />));
+    await settle();
+    const button = host.querySelector<HTMLButtonElement>(".scan-tray-clear");
+    expect(button?.textContent).toBe("Clear");
+    act(() => button!.click());
+    expect(clear).toHaveBeenCalledOnce();
+    act(() => root.render(<ScanTray cards={cards} worth={2} onReview={() => undefined} />));
+    expect(host.querySelector(".scan-tray-clear")).toBeNull();
+  });
 });
 
 describe("card first, printing after, and tie by price, in the strip", () => {

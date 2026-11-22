@@ -488,6 +488,31 @@ button.scan-count {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+/* Test scan's note on the sheet (testScan.tsx): plain to see while it's on, so it's never left on by mistake. */
+.scan-test-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px dashed var(--text-dim);
+  border-radius: var(--r-input);
+}
+.scan-test-note p {
+  margin: 0;
+  font-size: var(--t-sm);
+}
+.scan-test-note > button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.scan-clear {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .scan-keep {
   grid-column: 1 / -1;
   display: flex;
@@ -1110,6 +1135,20 @@ button.scan-count {
   font-size: var(--t-sm);
   white-space: nowrap;
 }
+.scan-tray-buttons {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.scan .scan-tray-clear {
+  min-height: 32px;
+  padding: 2px 10px;
+  background: none;
+  color: var(--on-art-dim);
+  font-size: var(--t-sm);
+  white-space: nowrap;
+}
 .scan .scan-tray-review.is-failed {
   border-color: var(--bad);
   color: var(--bad);
@@ -1617,6 +1656,7 @@ button.scan-count {
 @media (pointer: coarse) {
   .scan .scan-act,
   .scan .scan-tray-review,
+  .scan .scan-tray-clear,
   .scan .scan-filing,
   .scan .scan-tool,
   .scan .scan-chip-action {
@@ -1624,6 +1664,7 @@ button.scan-count {
   }
   .scan .scan-act::after,
   .scan .scan-tray-review::after,
+  .scan .scan-tray-clear::after,
   .scan .scan-filing::after,
   .scan .scan-chip-action::after {
     content: "";
@@ -1712,4 +1753,19 @@ html.native-camera .scan-camera {
   padding-left: 18px;
   color: var(--dim);
   font-size: var(--t-sm);
+}
+/* Move all and Clear the list, at the top of the Added list (Collection.tsx). */
+.scan-move-all {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 0 12px;
+}
+.scan-move-all > .row {
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.scan-move-all p {
+  margin: 0;
 }

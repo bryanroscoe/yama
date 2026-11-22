@@ -18,7 +18,7 @@ import { Link, useSearchParams } from "react-router";
 import { exportLink } from "../download";
 import { api, API_BASE, ApiError, placeName, type CollectionItem, type CollectionSummary, type Container, type DeckSummary, type Printing } from "../api";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
-import { ActionBar, BackLink, Button, ButtonLink, CardImage, CardThumb, Details, Dialog, EmptyState, ErrorText, Field, Loading, Segmented, Tag } from "../components/ui";
+import { ActionBar, BackLink, Button, ButtonLink, CardImage, CardThumb, Details, Dialog, EmptyState, ErrorText, Field, Loading, PageHeader, Segmented, Tag } from "../components/ui";
 import "./collection.css";
 import "../decks/collect.css";
 import { changeText, keptText, missingLabel, missingText, previewLines, resultLines, type MythicReport } from "./mythicImport";
@@ -816,6 +816,33 @@ function NewContainer({ onClose }: { onClose: () => void }) {
   );
 }
 
+/**
+ * The Scan tab (/scan, the phone's bottom bar; Bryan, 22 Nov 2026: "replace that with a scanner
+ * button"): the camera opens straight away, filing into the collection. Closing it leaves this
+ * page, to scan again or find the other scans (a deck's, a box's).
+ */
+export function ScanPage() {
+  const containers = useQuery({ queryKey: ["containers"], queryFn: ({ signal }) => api<Container[]>("/api/containers", { signal }) });
+  const [scanning, setScanning] = useState(true);
+  return (
+    <main className="page stack scan-home">
+      <PageHeader title="Scan cards" />
+      <p>Hold a card up to the camera and Yama adds it to your collection, in the box you pick in Scan settings.</p>
+      <ActionBar>
+        <Button variant="primary" onClick={() => setScanning(true)}>
+          Scan cards into your collection
+        </Button>
+      </ActionBar>
+      <p className="dim">
+        To scan a deck or check one card by card, open it in <Link to="/decks">Decks</Link>: Scan this deck and Check this deck are on its page. To check what's in a box, open the box in{" "}
+        <Link to="/collection">Collection</Link>. Every scanner has Test scan in its settings, to try it without saving anything.
+      </p>
+      <ErrorText error={containers.error} />
+      {scanning && <ScanToCollection containers={containers.data ?? []} onClose={() => setScanning(false)} />}
+    </main>
+  );
+}
+
 export function ScanToCollection({ containers, onClose }: { containers: Container[]; onClose: () => void }) {
   const qc = useQueryClient();
   /** The finish chosen last. Each card is filed in the finish its printing comes in (`pickFinish`). */
@@ -1095,6 +1122,64 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
     if (!(await send(a.key))) throw new Error("Still couldn't save it. Try again in a moment.");
   };
 
+  /** What Move all or Clear the list just did, said on the sheet and in the Added list. */
+  const [notice, setNotice] = useState<string | null>(null);
+  const [moving, setMoving] = useState(false);
+  /** The scanner has closed: a Move all under way starts no more moves (Close without saving means it). */
+  const closed = useRef(false);
+  useEffect(() => {
+    closed.current = false;
+    return () => {
+      closed.current = true;
+    };
+  }, []);
+  /**
+   * Move all (Bryan, 22 Nov 2026: "an easy way to add all the things recently scanned to a
+   * different box that was selected"): every card this session added, into `to`, one fix each, so
+   * copies owned before the session stay where they were.
+   */
+  const moveAll = async (to: string | null) => {
+    const { boxFix, toMove } = await scanner();
+    const { move, busy, later } = toMove(listRef.current, to);
+    const where = placeLabel(to, containers) ?? "not filed anywhere";
+    // Rows still waiting for their printing (card first) are saved into the new place when they settle.
+    for (const a of later) patch(a.key, (x) => (x.later?.open ? { ...x, container: to } : x));
+    setMoving(true);
+    setNotice(null);
+    let moved = 0;
+    const failed: string[] = [];
+    for (const { key } of move) {
+      if (closed.current) return;
+      // As it is now: a fix or Clear the list during the move (each move waits on the server) must
+      // neither be undone by a plan made from the entry as it was, nor be counted as moved.
+      const a = listRef.current.find((x) => x.key === key);
+      if (!a || a.copies === 0 || a.container === to) continue;
+      try {
+        // fix() locks the entry before it first waits, so nothing changes it between here and there.
+        await fix(a, boxFix(a, to));
+        moved += a.copies;
+      } catch {
+        failed.push(a.name);
+      }
+    }
+    setMoving(false);
+    const parts = [moved > 0 ? `Moved ${plural(moved, "card")} ${to ? `into ${where}` : "out of their box"}.` : null];
+    if (failed.length) parts.push(`Couldn't move ${failed.length === 1 ? failed[0] : `${failed.length} cards`}: open ${failed.length === 1 ? "it" : "them"} in Review all.`);
+    if (busy) parts.push(`${plural(busy, "card")} still saving, so left where ${busy === 1 ? "it is" : "they are"}.`);
+    if (later.length) parts.push(`${plural(later.length, "card")} waiting for ${later.length === 1 ? "its printing goes" : "their printings go"} ${to ? `into ${where}` : "unfiled"} once saved.`);
+    setNotice(parts.filter(Boolean).join(" ") || "Nothing to move.");
+  };
+  /** Clear the list: the strip starts again; the cards stay in the collection. */
+  const clearList = async () => {
+    const { afterClear } = await scanner();
+    const kept = afterClear(listRef.current);
+    const cleared = listRef.current.length - kept.length;
+    put(kept);
+    setNotice(kept.length ? `Cleared ${plural(cleared, "card")}. ${plural(kept.length, "card")} not saved yet stay${kept.length === 1 ? "s" : ""} in the list.` : null);
+  };
+  /** Cards this session put somewhere other than the box chosen now, for "Move them here". */
+  const elsewhere = added.filter((a) => a.copies > 0 && a.container !== (container || null)).reduce((n, a) => n + a.copies, 0);
+
   // Closing with scans that haven't reached the collection asks first (scanClose.ts): a failed
   // save lives only on this screen, and one still on its way could fail after the scanner is gone.
   const [closing, setClosing] = useState(false);
@@ -1151,6 +1236,15 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
           {treeOrder(containers).map((c) => <option key={c.id} value={c.id}>{optionLabel(c, containers)}</option>)}
         </select>
       </Field>
+      {/* A box chosen after scanning into another: the cards so far can follow it. */}
+      {elsewhere > 0 && (
+        <div className="scan-clear">
+          <Button size="small" variant="outline" disabled={moving} onClick={() => void moveAll(container || null)}>
+            {moving ? "Moving…" : `Move the ${plural(elsewhere, "card")} scanned so far ${container ? `into ${filedIn}` : "out of their box"}`}
+          </Button>
+        </div>
+      )}
+      {notice && <p className="scan-note" role="status">{notice}</p>}
       <label className="scan-keep">
         <input
           type="checkbox"
@@ -1179,7 +1273,12 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
       </label>
     </>
   );
-  const controls = error ? <ErrorText error={error} /> : null;
+  const controls = error || notice ? (
+    <>
+      {notice && <p className="scan-note" role="status">{notice}</p>}
+      <ErrorText error={error} />
+    </>
+  ) : null;
   // Removed (its copies taken back out): the large view has nothing left to show.
   // The card opened large from the scanner's strip (or the Added list); gone once removed.
   const { entry: openedEntry, open: setOpened, close: closeOpened } = useOpenedEntry(added);
@@ -1207,10 +1306,19 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
           settings={settings}
           settingsSummary={settingsSummary}
           acceptLabel="Add and scan next"
+          onClear={() => void clearList()}
+          clearNote="The cards stay in your collection."
         />
         {reviewing && (
           <Dialog onClose={() => setReviewing(false)} label="Added while scanning">
-            <AddedList added={added} onFix={fix} onRetry={retry} onClose={() => setReviewing(false)} onOpen={(a) => setOpened(a.key)} />
+            <AddedList
+              added={added}
+              onFix={fix}
+              onRetry={retry}
+              onClose={() => setReviewing(false)}
+              onOpen={(a) => setOpened(a.key)}
+              actions={<MoveAllBar containers={containers} chosen={container} moving={moving} notice={notice} count={added.reduce((n, a) => n + a.copies, 0)} onMove={(to) => void moveAll(to)} onClear={() => void clearList()} />}
+            />
           </Dialog>
         )}
         {openedEntry && (
@@ -1232,6 +1340,35 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
           </Dialog>
         )}
       </Suspense>
+    </div>
+  );
+}
+
+/**
+ * At the top of the Added list: move every card added this session into one box, or clear the list
+ * (the cards stay in the collection). The box offered first is the one chosen in Scan settings.
+ */
+function MoveAllBar({ containers, chosen, moving, notice, count, onMove, onClear }: { containers: Container[]; chosen: string; moving: boolean; notice: string | null; count: number; onMove: (to: string | null) => void; onClear: () => void }) {
+  const [to, setTo] = useState(chosen);
+  if (count === 0) return notice ? <p className="scan-note" role="status">{notice}</p> : null;
+  return (
+    <div className="scan-move-all">
+      <div className="row">
+        <Field label="Move all to">
+          <select value={to} onChange={(e) => setTo(e.target.value)} disabled={moving}>
+            <option value="">Not filed anywhere</option>
+            {treeOrder(containers).map((c) => <option key={c.id} value={c.id}>{optionLabel(c, containers)}</option>)}
+          </select>
+        </Field>
+        <Button variant="primary" disabled={moving} onClick={() => onMove(to || null)}>
+          {moving ? "Moving…" : `Move ${plural(count, "card")}`}
+        </Button>
+        <Button variant="quiet" disabled={moving} onClick={onClear}>
+          Clear the list
+        </Button>
+      </div>
+      <p className="dim small">Moves only the copies added here. Clearing starts the list again; the cards stay in your collection.</p>
+      {notice && <p className="scan-note" role="status">{notice}</p>}
     </div>
   );
 }

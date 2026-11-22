@@ -15,6 +15,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-22-scan-photos-every-card",
+    date: "2026-11-22",
+    title: "Scan photos now keep every card the scanner names",
+    items: [
+      "With Save scan photos on, the scanner now keeps a small photo of every card it names, whether you add it, correct it or skip it, not only the cards you add. Each keeps what the scanner thought it was and how sure it was, what you said, and close-ups of the card from the camera, now including the whole card. They're shared with Yama's developer to train and improve the scanner, and shown to no one else.",
+      "One photo per card: if you say a card is wrong and then add the right one, that's one photo, corrected. Scan settings says how many are kept and of what kind. Turning the switch off stops it, Delete them removes the ones kept, and if you had turned it off before, it stays off.",
+    ],
+    link: { to: "/collection", label: "Scan cards" },
+  },
+  {
     id: "2026-11-21-bug-bash",
     date: "2026-11-21",
     title: "About a hundred small fixes",

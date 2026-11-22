@@ -246,7 +246,8 @@ export interface SharedScanSample {
   owner_id: string;
   owner_name: string;
   created_at: string;
-  kind: "added" | "corrected" | "wrong";
+  /** Since 22 Nov 2026 also "unconfirmed": a card the scanner named that was let go without filing. */
+  kind: "added" | "corrected" | "wrong" | "unconfirmed";
   label_scryfall_id: string | null;
   label_name: string | null;
   guess_name: string | null;
@@ -258,9 +259,41 @@ export interface SharedScanSample {
   camera: string | null;
   bundle: string | null;
   bytes: number;
-  /** Full-resolution crops of the card kept with the photo (since 20 Nov 2026; none before). */
-  crops?: { name: "symbol" | "strip"; width: number | null; height: number | null; bytes: number; url: string }[];
+  /** Full-resolution crops of the card kept with the photo (since 20 Nov 2026, the whole card since 22 Nov; none before). */
+  crops?: { name: "symbol" | "strip" | "card"; width: number | null; height: number | null; bytes: number; url: string }[];
   crop_bytes?: number;
+  /** browser, native or photo (from the camera label for older photos). */
+  source?: string;
+  mode?: string | null;
+  /** The rule that named the card, the art's lead and best matches (since 22 Nov 2026). */
+  rule?: string | null;
+  lead?: number | null;
+  scores?: { name: string | null; set: string | null; number: string | null; score: number }[];
+  labelled_at?: string | null;
+}
+
+/** One count in the corpus's make-up (scan_samples.rs, `stats`). */
+export interface ScanCount {
+  name: string;
+  photos: number;
+  bytes: number;
+}
+
+/** How the shared scan photos are made up: what `scan-samples-export` gives. */
+export interface ScanCorpus {
+  count: number;
+  total_bytes: number;
+  accounts: number;
+  relabelled: number;
+  first: string | null;
+  last: string | null;
+  kinds: ScanCount[];
+  sources: ScanCount[];
+  modes: ScanCount[];
+  rules: ScanCount[];
+  crops: ScanCount[];
+  with_every_crop: number;
+  days: { day: string; photos: number; bytes: number; unconfirmed: number }[];
 }
 
 export interface SharedScanPage {
@@ -271,6 +304,7 @@ export interface SharedScanPage {
 
 export const adminApi = {
   scanSamples: (before: string | null) => api<SharedScanPage>(`/api/admin/scan-samples${before ? `?before=${encodeURIComponent(before)}` : ""}`),
+  scanCorpus: () => api<ScanCorpus>("/api/admin/scan-samples/stats"),
   bugReports: (show: "open" | "resolved") => api<BugReportList>(`/api/admin/bug-reports?show=${show}`),
   resolveBug: (id: string, resolved: boolean) => api(`/api/admin/bug-reports/${encodeURIComponent(id)}`, { method: "PATCH", json: { resolved } }),
   deleteBug: (id: string) => api(`/api/admin/bug-reports/${encodeURIComponent(id)}`, { method: "DELETE" }),

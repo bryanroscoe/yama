@@ -1608,6 +1608,23 @@ pub(super) const TOOLS: &[Tool] = &[
         needs: Needs::Nothing,
     },
     Tool {
+        name: "get_scan_photos",
+        aliases: &[],
+        title: "Your scan photos, as a training set",
+        description: "The scan photos this account kept (Save scan photos, on unless a device turned it off): how many and their bytes, by kind (added, corrected, wrong, unconfirmed), camera, mode and the rule that named the card, how many have each full-resolution crop (symbol, strip, card), the last 14 days, the caps, and the newest few with no images.",
+        schema: || json!({"type": "object", "properties": {
+            "newest": {"type": "integer", "minimum": 0, "maximum": 20, "description": "How many of the newest photos to describe, default 5."}}, "additionalProperties": false}),
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_scan_photos),
+        stages: None,
+        output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
+    },
+    Tool {
         name: "apply_change",
         aliases: &[],
         title: "Apply a staged change",
@@ -1707,6 +1724,16 @@ async fn run_scan_timings(c: Ctx<'_>, args: &Value) -> AppResult<String> {
     let mut out = crate::scan_timings::summary(&c.st.pool, &c.user.id, &filter, page.offset, page.limit).await?;
     let total = out["records"].as_u64().unwrap_or(0) as usize;
     out["next_cursor"] = json!(page.next(&scope, total));
+    Ok(out.to_string())
+}
+
+async fn run_scan_photos(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let newest = match args.get("newest") {
+        None | Some(Value::Null) => 5,
+        Some(v) => v.as_u64().filter(|n| *n <= 20).ok_or_else(|| AppError::bad("newest is a whole number from 0 to 20"))? as i64,
+    };
+    let mut out = crate::scan_samples::own_summary(&c.st.pool, c.user).await?;
+    out["newest"] = json!(crate::scan_samples::newest(&c.st.pool, &c.user.id, newest).await?);
     Ok(out.to_string())
 }
 
