@@ -21,26 +21,14 @@
 
 import { accountSignal, api } from "../api";
 import type { LockRule } from "./fuse";
-import { warpRegionRgba, type CardRegion } from "./image";
+import { CARD_SIDE, cardOf, STRIP_MAX, stripOf, SYMBOL_MAX, symbolOf, type Shot } from "./crops";
 import type { Gray, Quad, RgbaImage } from "./types";
+
+// The crops' geometry lives in crops.ts (no API, so the scan photo worker can use it too).
+export { cardOf, STRIP, stripOf, stripQuad, stripSize, SYMBOL, symbolOf, symbolSize } from "./crops";
 
 /** On this device, "1" when Scanner diagnostics is on. Off by default. */
 export const DIAGNOSTICS_KEY = "yama.scan.diagnostics";
-/** The card's bottom edge, corner to corner: both collector areas, with room for a card cut high. */
-export const STRIP: CardRegion = { x0: 0, y0: 0.86, x1: 1, y1: 1 };
-/** The longest side of the card photo kept. */
-const CARD_SIDE = 640;
-/** The whole card, corner to corner: the photo kept is the card alone, never the frame around it. */
-const WHOLE: CardRegion = { x0: 0, y0: 0, x1: 1, y1: 1 };
-/** A strip is never drawn wider than this (a card nearly filling a 4K frame). */
-const STRIP_MAX = 2400;
-/**
- * The set symbol's area: the type line's right end, with room for a card cut a little off (card
- * y 0.50 to 0.63, x 0.70 to 1). What a printing model looks at (docs/plans/scanner-models.md).
- */
-export const SYMBOL: CardRegion = { x0: 0.7, y0: 0.5, x1: 1, y1: 0.63 };
-/** A symbol crop is never drawn wider than this. */
-const SYMBOL_MAX = 800;
 /** Frames written down per record, and the longest text kept per read. */
 const MAX_FRAMES = 120;
 const MAX_TEXT = 200;
@@ -84,10 +72,7 @@ export type Reason = "picked" | "wrong-card" | "wrong-printing" | "hold-gave-up"
 export type Outcome = "filed" | "picked" | "wrong" | "skipped" | "left";
 
 /** A card in view and the image it's in. */
-export interface Shot {
-  image: RgbaImage;
-  quad: Quad;
-}
+export type { Shot } from "./crops";
 
 /** One frame (or still) of the card read: what each crop read, how readable it was, and what the evidence said after it. */
 export interface FrameNote {
@@ -107,61 +92,6 @@ export interface FrameNote {
 }
 
 const clip = (s: string) => (s.length > MAX_TEXT ? `${s.slice(0, MAX_TEXT)}…` : s);
-
-/** Pixels across the strip at the card's own resolution (never enlarged), and its height. */
-export function stripSize(quad: Quad): { width: number; height: number } {
-  const cardW = Math.max(Math.hypot(quad[1][0] - quad[0][0], quad[1][1] - quad[0][1]), Math.hypot(quad[2][0] - quad[3][0], quad[2][1] - quad[3][1]));
-  const width = Math.max(64, Math.min(STRIP_MAX, Math.round(cardW * (STRIP.x1 - STRIP.x0))));
-  const height = Math.max(8, Math.round((width * ((STRIP.y1 - STRIP.y0) * 88)) / ((STRIP.x1 - STRIP.x0) * 63)));
-  return { width, height };
-}
-
-/** The card's bottom strip, warped upright at the card's own resolution in the frame. */
-export function stripOf(shot: Shot): RgbaImage {
-  const { width, height } = stripSize(shot.quad);
-  return warpRegionRgba(shot.image, shot.quad, STRIP, width, height);
-}
-
-/** Pixels across the set symbol's area at the card's own resolution (never enlarged, at most SYMBOL_MAX), and its height. */
-export function symbolSize(quad: Quad): { width: number; height: number } {
-  const cardW = Math.max(Math.hypot(quad[1][0] - quad[0][0], quad[1][1] - quad[0][1]), Math.hypot(quad[2][0] - quad[3][0], quad[2][1] - quad[3][1]));
-  const width = Math.max(32, Math.min(SYMBOL_MAX, Math.round(cardW * (SYMBOL.x1 - SYMBOL.x0))));
-  const height = Math.max(8, Math.round((width * ((SYMBOL.y1 - SYMBOL.y0) * 88)) / ((SYMBOL.x1 - SYMBOL.x0) * 63)));
-  return { width, height };
-}
-
-/** The set symbol's area, warped upright at the card's own resolution in the frame: only the card. */
-export function symbolOf(shot: Shot): RgbaImage {
-  const { width, height } = symbolSize(shot.quad);
-  return warpRegionRgba(shot.image, shot.quad, SYMBOL, width, height);
-}
-
-/**
- * The card alone, warped upright, at most CARD_SIDE tall (never enlarged): nothing of the camera
- * frame or photo around it, which may show the room, a hand or other cards.
- */
-export function cardOf(shot: Shot): RgbaImage {
-  const q = shot.quad;
-  const cardH = Math.max(Math.hypot(q[3][0] - q[0][0], q[3][1] - q[0][1]), Math.hypot(q[2][0] - q[1][0], q[2][1] - q[1][1]));
-  const height = Math.max(8, Math.min(CARD_SIDE, Math.round(cardH)));
-  const width = Math.max(6, Math.round((height * 63) / 88));
-  return warpRegionRgba(shot.image, shot.quad, WHOLE, width, height);
-}
-
-/**
- * The card's corners in a strip image's pixels (top above the image): reading the strip with
- * readCollectorLines as if it were the whole card cuts the same corners. For replay.
- */
-export function stripQuad(width: number, height: number): Quad {
-  const cardH = height / (STRIP.y1 - STRIP.y0);
-  const top = height - cardH * STRIP.y1;
-  return [
-    [0, top],
-    [width, top],
-    [width, top + cardH],
-    [0, top + cardH],
-  ];
-}
 
 /** A Gray or RGBA image as a JPEG no longer than `side`, base64. Null where canvases can't encode. */
 export async function encodeJpeg(img: RgbaImage | Gray, side: number, quality = 0.88): Promise<{ data: string; width: number; height: number } | null> {

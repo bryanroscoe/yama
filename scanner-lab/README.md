@@ -28,6 +28,7 @@ Run every script from a work directory **outside the repository**: `python <lab>
 | `data/train_rows.json` | the gallery rows picked for training (`pick_train.py`) | 0.2 MB |
 | `data/cards/` | Scryfall `normal` images of those cards (`download.py`) | 2.5 GB |
 | `data/crops/` | simulated captures cut to 128 × 128 crops (`gen.py`) | 0.5 GB |
+| `data/corpus/` | the shared scan photos with their crops and manifest, pulled by `corpus_pull.sh` (people's data, mode 700) | about 0.3 to 0.5 MB a photo |
 | `data/real_crops.npz` | the real photos' crops, cached by `evalreal.py` (people's data) | 200 MB |
 | `runs/<run>/epN.pt` | a checkpoint per epoch (`train.py`) | 4 MB each |
 | `out/` | `realeval.py`'s per-photo scores | small |
@@ -49,6 +50,29 @@ Card images are Scryfall's, fetched for training and never published: delete `da
   scanned with "Save scan photos" on (docs/scanner.md, "Scan photos"). Use your own: they are
   people's photos, and stay out of the repository and anything public. Every card name in them is
   held out of training, so they are a fair test.
+- **The scan photo corpus** (since 22 Nov 2026; docs/scanner.md, "Scan photos of every card named"):
+  every card the scanner names keeps a photo, `<id>.jpg`, with three full-resolution crops of the card,
+  `<id>.symbol.jpg`, `<id>.strip.jpg` and `<id>.card.jpg` (the whole card, at most 1,100 px tall). On
+  Yama's own server, from a work directory outside the repository:
+
+  ```sh
+  sh <lab>/corpus_pull.sh                      # into data/corpus (or --dest DIR, or SCANNER_CORPUS_DIR)
+  export SCANNER_REAL_DIR=data/corpus           # the scripts above read it like data/own
+  ```
+
+  It runs `yama-server scan-samples-export` on the server over ssh (the address comes from
+  `deploy/target.sh`, so `~/.config/yama/deploy.env`), copies the result here and removes the
+  server's copy; `corpus_merge.py` checks every file the manifest lists came, keeps `manifest.jsonl`
+  one line per photo, its newest, and removes the photos the server no longer shares (their owner
+  deleted them or the account, or the caps pushed them out: the export's `shared_ids.txt`). The first
+  pull takes everything; each later one only what was made or relabelled since the last (`--since
+  DATE` or `--all` to choose). The folder is made mode 700 and the script refuses one inside a git
+  checkout. Each manifest line has the photo's `kind` (`added`, `corrected`, `wrong`, `unconfirmed`),
+  the person's label and the scanner's guess, its `score`, `lead`, best matches (`scores`) and the
+  `rule` that named it, the camera (`source`) and the scan's `mode`, and each crop's file and size.
+  An `unconfirmed` photo has no answer from a person (the card was let go without filing): its guess
+  is the scanner's, so treat it as unlabelled or pseudo-labelled, never as an evaluation's truth;
+  `realeval.py`, `look_crops.py` and `look_groups.py` read only labelled photos already.
 - **A copy of Yama's database** (`YAMA_DB`): to look up each photo's artwork. Opened read-only and
   immutable. Your own server's `data/yama.db`, copied while it's stopped, does; it holds people's
   data too, so keep it outside the repository and delete it when done.

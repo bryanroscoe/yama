@@ -181,7 +181,10 @@ pub struct Limits {
     /// Collection changes (batches of ops, and making, renaming and deleting containers), per
     /// account. A scanning session sends a batch per card, so this allows one a second.
     pub collection_writes: RateLimiter,
-    /// Scan photos kept for improving the scanner (scan_samples.rs), per account.
+    /// Scan photos kept for improving the scanner (scan_samples.rs), per account: one per card the
+    /// scanner names, and a label change when the person answers later. One a second, as for
+    /// collection changes: a box scanned with Keep going names a card every two or three seconds
+    /// (Bryan, 22 Nov 2026: 41 cards in four minutes).
     pub scan_samples: RateLimiter,
     /// Scanner diagnostics (scan_diagnostics.rs), per account: one per card the scanner struggled with.
     pub scan_diagnostics: RateLimiter,
@@ -266,7 +269,7 @@ impl Default for Limits {
             imports: RateLimiter::new("imports", 60, 60 * MINUTE),
             collection_previews: RateLimiter::new("import previews", 200, 60 * MINUTE),
             collection_writes: RateLimiter::new("collection changes", 600, 10 * MINUTE),
-            scan_samples: RateLimiter::new("scan photos", 600, 60 * MINUTE),
+            scan_samples: RateLimiter::new("scan photos", 600, 10 * MINUTE),
             scan_diagnostics: RateLimiter::new("scanner diagnostics", 200, 60 * MINUTE),
             scan_timings: RateLimiter::new("scanner timings", 2000, 60 * MINUTE),
             scan_speed_tests: RateLimiter::new("scanner speed tests", 30, 60 * MINUTE),

@@ -2996,6 +2996,32 @@
     },
     {
       "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "The scan photos this account kept (Save scan photos, on unless a device turned it off): how many and their bytes, by kind (added, corrected, wrong, unconfirmed), camera, mode and the rule that named the card, how many have each full-resolution crop (symbol, strip, card), the last 14 days, the caps, and the newest few with no images.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "newest": {
+            "description": "How many of the newest photos to describe, default 5.",
+            "maximum": 20,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "name": "get_scan_photos",
+      "title": "Your scan photos, as a training set"
+    },
+    {
+      "annotations": {
         "destructiveHint": true,
         "idempotentHint": true,
         "openWorldHint": false,

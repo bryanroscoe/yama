@@ -191,14 +191,15 @@ would make a later move a rewrite. The schema is the numbered migrations in
   a value changes. A missing price is `NULL` and is shown as "no price", never as 0.
 - **Games are event logs.** An in-person game is a list of table events; an online game is a
   seed and an action log. Both use the same `games` table, so stats cover both.
-- **Files beside the database: scanner diagnostics and scan photo crops only.** Diagnostics'
+- **Files beside the database: scanner diagnostics and scan photos only.** Diagnostics'
   images (a card's full-resolution bottom strip and set symbol, and a 640 px photo, per record)
   are files under the data directory, `scan-diagnostics/<owner>/<id>/`, with a metadata row in
-  `scan_diagnostics`; a scan photo's full-resolution crops (its set symbol and collector strip)
-  are files under `scan-samples/<owner>/<id>/`, listed in its `scan_samples` row (the photo
-  itself stays in the database). Deleting the row, the record, the photo or the account removes
-  them ([Scanner diagnostics](#scanner-diagnostics-15-november-2026),
-  [Scanner timings and full-resolution crops](#scanner-timings-and-full-resolution-crops-20-november-2026)).
+  `scan_diagnostics`; a scan photo and its full-resolution crops (its set symbol, collector strip
+  and whole card) are files under `scan-samples/<owner>/<id>/`, listed in its `scan_samples` row
+  (photos kept before 22 November 2026 stay in the row). Deleting the row, the record, the photo
+  or the account removes them ([Scanner diagnostics](#scanner-diagnostics-15-november-2026),
+  [Scanner timings and full-resolution crops](#scanner-timings-and-full-resolution-crops-20-november-2026),
+  [A training corpus from every card the scanner names](#a-training-corpus-from-every-card-the-scanner-names-22-november-2026)).
 - **Backups.** The release gate copies an existing database before every activation. A nightly job on
   the host keeps verified snapshots for 14 days, and another copies the live database offsite.
 
@@ -436,7 +437,7 @@ section 4 is the first sketch; the current system is [above](#the-system-at-a-gl
 - **Shopping:** [Live store stock (13 November 2026)](#live-store-stock-13-november-2026).
 - **The Android app:** [The Android app, sideloaded (13 November 2026)](#the-android-app-sideloaded-13-november-2026), [Which build each device runs (15 November 2026)](#which-build-each-device-runs-15-november-2026).
 - **Game night:** [Table and playgroup stats (2026-10-19)](#table-and-playgroup-stats-2026-10-19).
-- **The scanner:** [Scan photos shared with the developer (15 November 2026)](#scan-photos-shared-with-the-developer-15-november-2026), [The scanner's own art supplement (15 November 2026)](#the-scanners-own-art-supplement-15-november-2026), [Yama's own query embedder for the scanner (18 November 2026)](#yamas-own-query-embedder-for-the-scanner-18-november-2026), [Scanner models you can switch (20 November 2026)](#scanner-models-you-can-switch-20-november-2026), [The scanner's printing look (20 November 2026)](#the-scanners-printing-look-20-november-2026), [The printing look's vectors from the server (21 November 2026)](#the-printing-looks-vectors-from-the-server-21-november-2026), [Scanner diagnostics (15 November 2026)](#scanner-diagnostics-15-november-2026), [Scanner timings and full-resolution crops (20 November 2026)](#scanner-timings-and-full-resolution-crops-20-november-2026), [The scanner speed test (21 November 2026)](#the-scanner-speed-test-21-november-2026).
+- **The scanner:** [A training corpus from every card the scanner names (22 November 2026)](#a-training-corpus-from-every-card-the-scanner-names-22-november-2026), [Scan photos shared with the developer (15 November 2026)](#scan-photos-shared-with-the-developer-15-november-2026), [The scanner's own art supplement (15 November 2026)](#the-scanners-own-art-supplement-15-november-2026), [Yama's own query embedder for the scanner (18 November 2026)](#yamas-own-query-embedder-for-the-scanner-18-november-2026), [Scanner models you can switch (20 November 2026)](#scanner-models-you-can-switch-20-november-2026), [The scanner's printing look (20 November 2026)](#the-scanners-printing-look-20-november-2026), [The printing look's vectors from the server (21 November 2026)](#the-printing-looks-vectors-from-the-server-21-november-2026), [Scanner diagnostics (15 November 2026)](#scanner-diagnostics-15-november-2026), [Scanner timings and full-resolution crops (20 November 2026)](#scanner-timings-and-full-resolution-crops-20-november-2026), [The scanner speed test (21 November 2026)](#the-scanner-speed-test-21-november-2026).
 - **Cards, collection and prices:** [Mana symbols (2026-11-12)](#mana-symbols-2026-11-12), [Release calendar and What's new (2026-10-19)](#release-calendar-and-whats-new-2026-10-19), [A deck's cards in the collection, and Mythic re-imports (2026-10-23)](#a-decks-cards-in-the-collection-and-mythic-re-imports-2026-10-23), [Deck market values (2026-10-27)](#deck-market-values-2026-10-27), [Scan this deck (2026-10-29)](#scan-this-deck-2026-10-29), [Mythic Tools bridge (2026-10-31, proposal)](#mythic-tools-bridge-2026-10-31-proposal), [Store trips (2026-11-01)](#store-trips-2026-11-01), [Deleting collection containers (2026-11-02)](#deleting-collection-containers-2026-11-02), [Sell lists for store buylists (2026-11-02)](#sell-lists-for-store-buylists-2026-11-02), [Local buylist offers (2026-11-02)](#local-buylist-offers-2026-11-02), [Price history (2026-11-02)](#price-history-2026-11-02), [Recording printed copies in a deck box (2026-11-02)](#recording-printed-copies-in-a-deck-box-2026-11-02), [Sections in boxes, and scanning a box (16 November 2026)](#sections-in-boxes-and-scanning-a-box-16-november-2026).
 - **Decks, plans and sharing:** [Where a plan came from (21 November 2026)](#where-a-plan-came-from-21-november-2026), [Plans don't wait for approval (20 November 2026)](#plans-dont-wait-for-approval-20-november-2026), [Swappable spares in the deck box (15 November 2026)](#swappable-spares-in-the-deck-box-15-november-2026), [Brackets, deck stats and exports (2026-10-19)](#brackets-deck-stats-and-exports-2026-10-19), [Deck import (2026-10-22)](#deck-import-2026-10-22), [Sharing and deck configurations (2026-10-28)](#sharing-and-deck-configurations-2026-10-28), [Review, installed decks and the Lab tab (2026-10-28)](#review-installed-decks-and-the-lab-tab-2026-10-28), [Check this deck (2026-11-01)](#check-this-deck-2026-11-01), [Deck configurations and quieter editing (2026-11-03)](#deck-configurations-and-quieter-editing-2026-11-03), [One plan page (2026-11-04)](#one-plan-page-2026-11-04), [Printing with MakePlayingCards (2026-11-05)](#printing-with-makeplayingcards-2026-11-05), [Plans: one plan per deck (2026-11-06)](#plans-one-plan-per-deck-2026-11-06), [Site design pass (2026-11-08)](#site-design-pass-2026-11-08), [Public by default and the navigation (2026-11-12)](#public-by-default-and-the-navigation-2026-11-12), [Check a deck without an account (2026-11-12)](#check-a-deck-without-an-account-2026-11-12).
 - **Assistants:** [Ask Claude, the advisor (2026-10-22)](#ask-claude-the-advisor-2026-10-22), [Yama's tools for Claude (MCP, 2026-10-22)](#yamas-tools-for-claude-mcp-2026-10-22).
@@ -3531,3 +3532,35 @@ versions of the scanner."
 - **Moving a session to another box** is a fix like any other (`boxFix`): a `container` on `Fix`
   takes this session's copies out of their row and adds them to the new box's, so copies owned
   before the session never move, and entries still saving are left where they are.
+
+## A training corpus from every card the scanner names (22 November 2026)
+
+Bryan, 22 Nov 2026: "Can we turn on the saving [by default] so we can have a better corpus of
+training photos? let's go ahead and do all of this." Save scan photos was already on by default, but
+kept a photo only when a card was filed, corrected or marked wrong; in his last session 41 of 42
+cards ended with Skip or Scan next and nothing was kept. Decided:
+
+- **Every card the scanner names keeps one photo** while the switch is on, in every scanner: a card
+  let go without filing is kept as `unconfirmed`, with the scanner's guess, its scores and the rule
+  that named it; filed, corrected and wrong as before. One photo per card placed in view, never per
+  frame: a later answer about the same card relabels it (`PATCH /api/scan/samples/{id}`, owner-bound)
+  instead of keeping a second. Same sharing as before: the switch, the privacy page and What's new
+  say every card the scanner names is kept and shared with Yama's developer; a device that turned it
+  off stays off; photos saved before 15 November 2026 are never shown to an admin.
+- **A third crop, the whole card** (at most 1,100 px tall, never enlarged), cut like the others from
+  the full camera frame (on the app's own camera through its region request), for a whole-card art
+  model and the printing look. The cutting moves into a worker of its own (`photo.worker.ts`), so the
+  camera's frames never wait on it.
+- **Photos are files now**, beside their crops (`scan-samples/<owner>/<id>/photo.jpg`); those kept
+  before stay in the database. The per-account caps rise to the newest 20,000 photos and 8 GB of
+  photos and crops for an invited account (2,000 and 800 MB for one without an invite), and nothing
+  new is kept while the data disk has under 50 GB free, so open sign-up can't fill the server. The
+  upload limit is one a second (600 in ten minutes) to fit box scans.
+- **Measured and exported**: counts by kind, camera, rule and crop, with bytes, for the owner (Scan
+  settings, `get_scan_photos`) and for the admin (the Scan photos page); `scan-samples-export` gives
+  the new crop, kind and scores, with `--since` matching relabels too; `scanner-lab/corpus_pull.sh`
+  pulls it over ssh into a lab folder outside the repository.
+
+No new process, service or trust boundary: the admin's read of shared photos is the one decided on
+15 November 2026, and the worker is the page's own. Details: [docs/scanner.md](docs/scanner.md),
+"Scan photos of every card named: a training corpus".

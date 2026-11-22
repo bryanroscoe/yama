@@ -34,7 +34,7 @@ import { holdSound } from "../sound";
 import { filedSound, playScanSound, setSoundsOn, setWorthThreshold, soundsOn, unlockSound, worthThreshold, type ScanSound } from "./sounds";
 import { choosePrinting, printingOptions, type Choice } from "./printings";
 import type { ArtMatch, Recognition } from "./recognizer";
-import { deleteSamples, keepSample, sampleSummary, savingPhotos, setSavingPhotos, type SampleLabel, type SampleSummary, type Shot } from "./samples";
+import { deleteSamples, photosLine, sameCardView, sampleSummary, savingPhotos, ScanPhoto, setSavingPhotos, type ArtScore, type SampleLabel, type SampleSummary, type Shot } from "./samples";
 import { SetLockPicker } from "./SetLockPicker";
 import { treatmentOf } from "./session";
 import { artInSets, inLockedSets, KNOWN_ART, knownArtShare, leadCounts, POOL_MARGIN, judgeLocked, lockedNames, lockedSet, poolKeys, readTitleFirst, savedLock, saveLock, suggestLock, type LockedSet } from "./setlock";
@@ -222,6 +222,8 @@ interface Found {
   known?: Known;
   /** The part of the frame around the card, for Save scan photos. */
   shot?: Shot | null;
+  /** Its scan photo (samples.ts): one per card placed in view, carried through Wrong card and Wrong printing. */
+  photo?: ScanPhoto;
   /** What the scanner first said, when the person corrected it (Wrong card). */
   guess?: Pick<SampleLabel, "guess_name" | "guess_scryfall_id" | "guess_illustration_id" | "method" | "score">;
   /** The scanner settled the printing itself, with proof (not a guess, not a tap). */
@@ -480,6 +482,19 @@ const guessOf = (f: Found): NonNullable<Found["guess"]> => ({
   method: f.method,
   score: f.confidence,
 });
+
+/** The art's best matches, as a scan photo keeps them: different artworks only, best first. */
+function artScores(r: Recognition): ArtScore[] {
+  const seen = new Set<number>();
+  return [...r.matches, ...(r.pool ?? [])]
+    .sort((a, b) => b.score - a.score)
+    .filter((m) => !seen.has(m.index) && !!seen.add(m.index))
+    .slice(0, 8)
+    .map((m) => ({ name: m.name, set: m.set, number: m.number, score: Math.round(m.score * 1000) / 1000 }));
+}
+
+/** How long a card called wrong (Wrong card, nothing more said) waits for its answer, read again where it lies. */
+const WRONG_PHOTO_MS = 30_000;
 
 /** The lowest and highest market price among printings, for a card whose printing isn't settled. */
 export function priceRange(printings: Printing[], finish: ScanFinish): { low: number; high: number; date: string | null } | null {
@@ -757,6 +772,8 @@ function ScannerScreen({
   const diagRef = useRef(diag);
   diagRef.current = diag;
   const scanCtx = useRef<Record<string, unknown> | null>(null);
+  /** The photo of a card just called wrong with nothing more said (wrongAgain), until the next card is named or the view empties. */
+  const wrongPhoto = useRef<{ photo: ScanPhoto; at: number } | null>(null);
   const cameraNowRef = useRef<Record<string, unknown> | null>(null);
   const ocrNameRef = useRef<string | null>(null);
   /** A record for a card just found, when diagnostics are on (or the one carried from the card before). */
@@ -820,6 +837,39 @@ function ScannerScreen({
     if (gateOn() && timed && gate.attempts > 0) timing.detail.gate_attempts = gate.attempts;
     return timing;
   };
+  /**
+   * The scan photo of a card just named (Save scan photos, samples.ts): the one carried from the
+   * card before (Wrong card), or the one of a card just called wrong and read again where it lies
+   * (its answer relabels that photo; one photo per card), or a new one. Before `newRecord`, which
+   * takes the frame's note. `fallback` is the rule when the frame didn't say, as for timings.
+   */
+  const newPhoto = (shot: Shot | null | undefined, carry: ScanPhoto | undefined, fallback: SettleRule, scores?: ArtScore[]): ScanPhoto | undefined => {
+    // Test scan keeps nothing: its cards weren't confirmed, so they'd be wrong labels.
+    if (testScan) return undefined;
+    if (carry) return carry;
+    const ctx = scanCtx.current as { lock?: SettleRule; photo?: boolean; lead?: number; art?: ArtScore[] } | null;
+    const wrong = wrongPhoto.current;
+    wrongPhoto.current = null;
+    // Only the same card where it lay: with the card finder, whose empty view ends it (`endSeek`),
+    // soon after, and looking like it (another card laid in its place gets a photo of its own).
+    // (Refs only: memoized callbacks call this.)
+    if (wrong && shot && artRef.current && !ctx?.photo && Date.now() - wrong.at < WRONG_PHOTO_MS && sameCardView(wrong.photo.shot, shot)) return wrong.photo;
+    if (!shot || !savingPhotos()) return undefined;
+    return new ScanPhoto(shot, {
+      source: ctx?.photo ? "photo" : camSrc().kind,
+      mode: identityOnly ? "identity" : "printing",
+      rule: fallback === "typed" ? "typed" : (ctx?.lock ?? fallback),
+      lead: ctx?.lead,
+      scores: scores ?? ctx?.art,
+      camera: cameraLabel.current ?? undefined,
+      embed: artRef.current?.embed ?? NO_ART_MODEL,
+      models: modelsNow(),
+    });
+  };
+  /** A card let go without filing (Skip, Scan next, closing the scanner): its photo is kept unconfirmed, unless already kept. */
+  const letGo = (f: Found | null | undefined) => {
+    if (f?.photo) f.photo.letGo(f.guess ?? guessOf(f));
+  };
   /** A fresh record with the camera and text reader in use. */
   const baseRecord = () => {
     const rec = new ScanRecord();
@@ -847,6 +897,8 @@ function ScannerScreen({
    * look is kept as a record with no card ("slow-find", outcome "left"), so the stall can be seen.
    */
   const endSeek = () => {
+    // The view emptied (or the reading stopped): a card called wrong has gone with it.
+    wrongPhoto.current = null;
     const looked = seek.current;
     seek.current = null;
     if (!looked || !diagRef.current || Date.now() - looked.started < SLOW_FIND_MS || slowKept.current >= SLOW_KEPT) return;
@@ -866,6 +918,7 @@ function ScannerScreen({
   // Closing the scanner with a card still in hand ends its record ("left").
   useEffect(
     () => () => {
+      letGo(foundRef.current);
       endRecord("left");
       endSeek();
     },
@@ -1598,10 +1651,11 @@ function ScannerScreen({
 
   /** Show a card recognised by its art. `read` is a sharp view of it for the collector line. */
   const showArt = useCallback(
-    (r: Recognition, top: ArtMatch, read: { image: RgbaImage; quad: Quad } | null, carry: Pick<Found, "shot" | "guess" | "unlocked" | "rec" | "timing" | "titled" | "leads"> = {}) => {
+    (r: Recognition, top: ArtMatch, read: { image: RgbaImage; quad: Quad } | null, carry: Pick<Found, "shot" | "photo" | "guess" | "unlocked" | "rec" | "timing" | "titled" | "leads"> = {}) => {
       stopLook();
       const seq = ++foundSeq.current;
       const timing = newTiming(carry.timing, "sure", top.score);
+      const photo = newPhoto(carry.shot ?? read, carry.photo, "sure", artScores(r));
       const rec = newRecord(carry.rec);
       rec?.setShot(read);
       if (rec) {
@@ -1611,6 +1665,7 @@ function ScannerScreen({
       const f: Found = {
         shot: read,
         ...carry,
+        photo,
         rec,
         timing,
         name: top.name,
@@ -1643,6 +1698,7 @@ function ScannerScreen({
       const best = res.candidates[0]!;
       const seq = ++foundSeq.current;
       const timing = newTiming(undefined, "text");
+      const photo = newPhoto(shot, undefined, "text");
       const rec = newRecord();
       rec?.setShot(shot);
       if (rec) {
@@ -1655,6 +1711,7 @@ function ScannerScreen({
         rec,
         timing,
         shot,
+        photo,
         known: { set: best.set, number: best.number, text: res.raw.collector },
         name: best.name,
         method: best.method,
@@ -2212,18 +2269,19 @@ function ScannerScreen({
   };
 
   /** A card typed by name: straight to its printings. */
-  const fromName = (name: string, how: "typed" | "name" = "typed", carry: Pick<Found, "shot" | "guess" | "rec" | "timing"> = {}) => {
+  const fromName = (name: string, how: "typed" | "name" = "typed", carry: Pick<Found, "shot" | "photo" | "guess" | "rec" | "timing"> = {}) => {
     stopLook();
     const seq = ++foundSeq.current;
     // A title read names the card ("title", from the frame), or the title close-up does.
     const timing = newTiming(carry.timing, how === "typed" ? "typed" : "closeup");
+    const photo = newPhoto(carry.shot, carry.photo, how === "typed" ? "typed" : "closeup");
     const rec = newRecord(carry.rec);
     rec?.setShot(carry.shot);
     if (rec) {
       rec.cardName = name;
       rec.note(carry.rec ? "renamed" : "found", { method: how === "typed" ? "typed" : "title", name });
     }
-    const f: Found = { name, method: "name", confidence: how === "typed" ? 1 : 0.9, others: [], options: null, sameArt: false, chosen: null, how: null, picking: false, ...carry, rec, timing };
+    const f: Found = { name, method: "name", confidence: how === "typed" ? 1 : 0.9, others: [], options: null, sameArt: false, chosen: null, how: null, picking: false, ...carry, photo, rec, timing };
     setFound(f);
     setShowAll(false);
     setWrongOpen(false);
@@ -2234,7 +2292,9 @@ function ScannerScreen({
 
   /** Back to scanning. The card just shown isn't found again until it leaves the view. */
   const again = (held: Found | null = found) => {
-    // A card let go without filing (Skip, Scan next): its record ends here, unless already sent.
+    // A card let go without filing (Skip, Scan next): its photo is kept unconfirmed and its record
+    // ends here, unless already kept or sent.
+    letGo(foundRef.current);
     endRecord("skipped", foundRef.current);
     stopLook();
     foundSeq.current += 1;
@@ -2261,6 +2321,7 @@ function ScannerScreen({
     if (!found?.art) return;
     showArt({ quad: null, upright: 1, matches: [m, found.art, ...found.others.filter((o) => o !== m)], timings: { detectMs: 0, embedMs: 0, totalMs: found.ms ?? 0 } }, m, identityOnly ? null : (found.shot ?? null), {
       shot: found.shot,
+      photo: found.photo,
       guess: found.guess ?? guessOf(found),
       unlocked: found.unlocked,
       rec: withReason(found.rec, "wrong-card"),
@@ -2268,24 +2329,16 @@ function ScannerScreen({
     });
   };
 
-  /** Keep the photo of this card, if Save scan photos is on, with what the person said it was. */
+  /** Keep the photo of this card, if Save scan photos is on, with what the person said it was (a later answer relabels it). */
   const keep = (f: Found, kind: SampleLabel["kind"], label?: ScanCandidate) => {
-    // Test scan keeps nothing: its cards weren't confirmed as added, so they'd be wrong labels.
-    if (!f.shot || testScan) return;
-    void keepSample(f.shot, {
-      ...(f.guess ?? guessOf(f)),
-      kind: sampleKind(f, kind, label),
-      label_name: label?.name,
-      label_scryfall_id: label?.scryfall_id,
-      camera: camera ?? undefined,
-      embed: artRef.current?.embed ?? NO_ART_MODEL,
-      models: modelsNow(),
-    });
+    // (Test scan keeps nothing: it makes no photo, `newPhoto`.)
+    f.photo?.label({ ...(f.guess ?? guessOf(f)), kind: sampleKind(f, kind, label), label_name: label?.name, label_scryfall_id: label?.scryfall_id });
   };
 
-  /** Wrong card, with nothing more said: keep the photo as a miss and scan again. */
+  /** Wrong card, with nothing more said: keep the photo as a miss and scan again; the answer read next where it lies relabels it. */
   const wrongAgain = () => {
     if (found) keep(found, "wrong");
+    if (found?.photo) wrongPhoto.current = { photo: found.photo, at: Date.now() };
     found?.rec?.reasons.add("wrong-card");
     endRecord("wrong");
     again();
@@ -3401,7 +3454,7 @@ function ScannerScreen({
                   </div>
                 )}
                 <div className="scan-other-ways">
-                  <NameEntry onPick={(n) => fromName(n, "typed", { shot: found.shot, guess: found.guess ?? guessOf(found), rec: withReason(found.rec, "wrong-card"), timing: found.timing?.cardCorrected() })} />
+                  <NameEntry onPick={(n) => fromName(n, "typed", { shot: found.shot, photo: found.photo, guess: found.guess ?? guessOf(found), rec: withReason(found.rec, "wrong-card"), timing: found.timing?.cardCorrected() })} />
                   <Button onClick={wrongAgain}>Scan it again</Button>
                 </div>
               </div>
@@ -3568,17 +3621,17 @@ function SavePhotosSwitch() {
       />
       <span>
         <label htmlFor="scan-save-photos">
-          <strong>Save scan photos.</strong> Keep a small photo of each card you add or correct, with what it was and two close-ups of the card from the camera (its set symbol and its bottom edge), and share them with Yama's developer to test and improve the scanner. Only the card is kept, not the rest of the camera's view, and it's shown to no one else. On unless you turn it off; turning it off stops it.
+          <strong>Save scan photos.</strong> Keep a small photo of every card the scanner names, whether you add it, correct it or skip it, with what the scanner thought it was and what you said, and three close-ups of the card from the camera (its set symbol, its bottom edge and the whole card). They're shared with Yama's developer to test and improve the scanner. Only the card is kept, not the rest of the camera's view, and it's shown to no one else. On unless you turn it off; turning it off stops it.
         </label>{" "}
         {on && summary && summary.count > 0 && (
           <>
-            {summary.count} saved.{" "}
+            {photosLine(summary)}{" "}
             <Button
               className="scan-alt"
               onClick={() =>
                 deleteSamples().then(
                   (r) => {
-                    setSummary({ ...summary, count: 0, bytes: 0 });
+                    setSummary({ count: 0, bytes: 0, keep: summary.keep });
                     setNote(`Deleted ${r.deleted}.`);
                   },
                   (e: unknown) => setNote(e instanceof Error ? e.message : String(e)),
