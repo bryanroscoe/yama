@@ -228,6 +228,10 @@ describe("card first, printing after (opt-in)", () => {
     expect(accepted).toEqual([]);
     await until(() => row.state.phase === "settled", "the row to settle");
     expect(row.state).toMatchObject({ how: "collector", chosen: { scryfall_id: "p-mid" }, filed: { scryfall_id: "p-mid", set: "woc", number: "145" } });
+    // "Added" only once the host says it saved it (Codex review of #195).
+    expect(document.body.textContent).toContain("finding the printing");
+    act(() => row.saved(true));
+    await until(() => document.body.textContent?.includes("Added Arcane Signet (WOC 145)"), "Added, once saved");
     // The host saves it (the row's filed card), not onAccept; the photo is kept with its final label.
     expect(accepted).toEqual([]);
     await until(() => state.samples.length > 0, "the scan photo");
@@ -238,6 +242,16 @@ describe("card first, printing after (opt-in)", () => {
     expect(detail.rows).toBe("card-first");
     expect(detail.auto).toBe(true);
     expect(detail.row_ms as number).toBeLessThanOrEqual(t.printing_ms as number);
+  });
+
+  it("says a settled row couldn't be saved when the host couldn't, rather than Added", async () => {
+    state.printings = [printing("p-only", "woc", "145", "2023-09-08")];
+    const { rows } = scanner({ autoAdd: true });
+    await scanPhoto();
+    const row = await until(() => rows[0], "the provisional row");
+    await until(() => row.state.phase === "settled", "the row to settle");
+    act(() => row.saved(false));
+    await until(() => document.body.textContent?.includes("Couldn't save Arcane Signet (WOC 145)"), "the failed save");
   });
 
   it("settles a card with one printing at once, as the only one", async () => {

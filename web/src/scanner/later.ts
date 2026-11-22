@@ -33,6 +33,11 @@ export interface LaterState {
   filed: ScanCandidate | null;
   /** Why it waits for a pick, when it does ("Not in WOC", "Couldn't read the corner"). */
   why?: string;
+  /**
+   * Once settled, whether the host saved it to the collection ("saved") or couldn't ("failed",
+   * kept to try again there): the scanner says "Added" only after "saved".
+   */
+  save?: "saved" | "failed";
 }
 
 let next = 0;
@@ -112,6 +117,11 @@ export class Provisional {
   /** The person picked the printing (the row's own picker). */
   pick(p: Printing): boolean {
     return this.settle(p, "picked");
+  }
+
+  /** The host's answer once it tried to save the settled row. */
+  saved(ok: boolean) {
+    if (this.now.phase === "settled") this.set({ save: ok ? "saved" : "failed" });
   }
 
   /** Taken back out before it was saved (Undo, Remove): nothing reaches the collection. */

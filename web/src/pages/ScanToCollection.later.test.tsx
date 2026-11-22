@@ -98,6 +98,8 @@ describe("the collection scanner's host, card first", () => {
     expect(got.ops[0]).toEqual([expect.objectContaining({ kind: "add", scryfall_id: "p-b", qty: 1, finish: "nonfoil", proxy: false, container_id: null })]);
     tiles = await until(() => (got.props!.recentCards![0]!.state === undefined ? got.props!.recentCards! : null), "the saved tile");
     expect(tiles[0]).toMatchObject({ key: r.key, set: "c19", number: "236" });
+    // And tells the scanner it's saved, so it says "Added".
+    await until(() => r.state.save === "saved", "the save told to the row");
   });
 
   it("marks a row settled by price", async () => {

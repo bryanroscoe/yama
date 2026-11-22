@@ -992,7 +992,7 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
       }
       if (st.phase === "settled" && st.filed) {
         stop();
-        void saveLater(row.key, st.filed);
+        void saveLater(row.key, st.filed).then((ok) => row.saved(ok));
         return;
       }
       // Its printings came (a picture for its tile), or it waits for a pick now.
@@ -1001,9 +1001,9 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
     });
   };
   /** A provisional row's printing settled: the entry takes it and is saved, as `accept` saves a card. */
-  const saveLater = async (key: string, c: ScanCandidate) => {
+  const saveLater = async (key: string, c: ScanCandidate): Promise<boolean> => {
     const a = listRef.current.find((x) => x.key === key);
-    if (!a || !c.scryfall_id) return;
+    if (!a || !c.scryfall_id) return false;
     const { addOp } = await scanner();
     const wanted = a.wanted ?? "nonfoil";
     const filed: Finish = wanted === "proxy" ? "proxy" : (pickFinish({ finishes: c.finishes }, wanted) as Finish);
@@ -1026,6 +1026,7 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
     filedAs.current.set(c, key);
     const ok = await send(key);
     setError(ok ? null : new Error(`Couldn't save ${c.name}. It's kept in the Added list to try again.`));
+    return ok;
   };
 
   /** The session entry each card the scanner filed went into, for its Undo. */

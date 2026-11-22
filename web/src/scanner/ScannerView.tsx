@@ -2899,9 +2899,6 @@ export function ScannerView({
       setJustAdded({ text: `${addedWord} ${label}${at != null ? `, ${usd(at)}` : ""}`, card: onUndo || onCorrect ? card : undefined, label, found: f, printing: c });
     }, failed);
   };
-  /** What the host files a card with now, for "+1 copy" on a provisional row once it settles. */
-  const fileSettingsRef = useRef(fileSettings);
-  fileSettingsRef.current = fileSettings;
   /**
    * Card first, printing after (later.ts; docs/scanner.md, "Card first, printing after"): the card's
    * row goes to the host at once, provisional, and scanning goes on; its printing is worked out
@@ -2912,6 +2909,9 @@ export function ScannerView({
     const host = onProvisional;
     if (!onAccept || !host) return;
     const wanted = finish;
+    // What it was scanned under: the set lock, and what the host files it with ("+1 copy" later).
+    const lockAt = f.unlocked ? null : lockRef.current;
+    const settingsAt = fileSettings;
     const row = new Provisional(candidateOf(f, null), n, auto, (p, how) => candidateOf({ ...f, chosen: p, how: how === "picked" ? "picked" : how }, p));
     // The timing record: the row is on screen now, long before its printing.
     f.timing?.rowShown();
@@ -2930,26 +2930,34 @@ export function ScannerView({
         return;
       }
       if (st.phase !== "settled" || !st.chosen || !st.filed || !st.how) return;
-      unwatch();
       const c = st.chosen;
       const card = st.filed;
       const how: Found["how"] = st.how;
       // Its printings, for Wrong printing from the receipt.
       const done: Found = { ...f, options: st.options ?? f.options, chosen: c, how, sure: how !== "picked", settledId: how !== "picked" ? c.scryfall_id : undefined };
-      // The photo's label is the printing it settled on (samples.ts); a tie by price names only the
-      // card, since nobody read which printing it is.
-      keep(done, "added", how === "price" ? { ...card, scryfall_id: undefined } : card);
-      if (f.timing) f.timing.printed(printingWay(done, c));
-      f.rec?.note("final", { id: c.scryfall_id, set: c.set_code, number: c.collector_number, how, later: true });
-      endRecord(how === "picked" ? "picked" : "filed", f);
-      filedSetNames.current.set(c.set_code, c.set_name);
-      setFiledSets((sets) => [c.set_code, ...sets].slice(0, 10));
       const label = `${c.name} (${c.set_code.toUpperCase()} ${c.collector_number})`;
+      if (!st.save) {
+        // Settled: its records and photo now (the photo's label is the printing it settled on; a
+        // tie by price names only the card, since nobody read which printing it is).
+        keep(done, "added", how === "price" ? { ...card, scryfall_id: undefined } : card);
+        if (f.timing) f.timing.printed(printingWay(done, c));
+        f.rec?.note("final", { id: c.scryfall_id, set: c.set_code, number: c.collector_number, how, later: true });
+        endRecord(how === "picked" ? "picked" : "filed", f);
+        filedSetNames.current.set(c.set_code, c.set_name);
+        setFiledSets((sets) => [c.set_code, ...sets].slice(0, 10));
+        return;
+      }
+      unwatch();
+      // "Added" only once the host saved it, as for a card filed with its printing (Codex review of #195).
+      if (st.save === "failed") {
+        setJustAdded((j) => (j?.later === row ? { text: `Couldn't save ${label}. Tap it below to try again` } : j));
+        return;
+      }
       const at = priceFor(card.prices, filedFinish(card.finishes, wanted));
       filedFeedback(at);
       setJustAdded((j) => (j?.later === row ? { text: `${addedWord} ${label}${at != null ? `, ${usd(at)}` : ""}`, card: onUndo || onCorrect ? card : undefined, label, found: done, printing: c } : j));
-      // Still in view: "+1 copy" files another of the printing it settled on.
-      if (!single && f.art && blocked.current?.index === f.art.index) setDupe({ found: done, printing: c, label, settings: fileSettingsRef.current });
+      // Still in view: "+1 copy" files another of the printing it settled on, under the settings it was scanned with.
+      if (!single && f.art && blocked.current?.index === f.art.index) setDupe({ found: done, printing: c, label, settings: settingsAt });
     });
     host(row);
     filedName.current = f.name;
@@ -2957,7 +2965,7 @@ export function ScannerView({
     setJustAdded({ text: `${addedWord} ${f.name}, finding the printing`, card: row.card, label: f.name, later: row });
     // The read loop handed this card over and goes on to the next.
     setScanRun((n) => n + 1);
-    void workOut(row, f, kept, wanted);
+    void workOut(row, f, kept, wanted, lockAt);
   };
   fileLaterRef.current = fileLater;
 
@@ -2968,7 +2976,7 @@ export function ScannerView({
    * there), the printing look when its option settles, and last a tie by price when that's on.
    * Whatever settles first wins; with nothing settled, the row waits for a pick.
    */
-  const workOut = async (row: Provisional, f: Found, kept: LaterKept, wanted: ScanFinish) => {
+  const workOut = async (row: Provisional, f: Found, kept: LaterKept, wanted: ScanFinish, lockNow: typeof lockRef.current) => {
     const gen = camGen.current;
     const typed = f.method === "name" && f.confidence === 1;
     // Once the scanner has closed, nothing it was working out settles (the page drops the rows).
@@ -2982,7 +2990,7 @@ export function ScannerView({
     try {
       let opts = await printingOptions(f.art ? { art: f.art.illustrationId, id: f.art.id } : { name: f.name });
       if (!row.finding || !alive.current) return;
-      const lockNow = f.unlocked ? null : lockRef.current;
+      // (The set lock it was scanned under, not one chosen since.)
       let lockedOut: Printing[] = [];
       let bySet = false;
       if (lockNow) {
