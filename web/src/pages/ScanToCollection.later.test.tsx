@@ -117,6 +117,21 @@ describe("the collection scanner's host, card first", () => {
     expect(got.ops).toEqual([]);
   });
 
+  it("marks a card the sheet settled by price, with card first off too (review of #195)", async () => {
+    const props = await until(() => got.props, "the scanner");
+    await act(async () => void (await props.onAccept!({ name: "Arcane Signet", set: "woc", number: "145", scryfall_id: "p-a", finishes: ["nonfoil"], confidence: 0.93, method: "art", byPrice: true }, 1, true)));
+    expect(got.props!.recentCards![0]).toMatchObject({ set: "woc", byPrice: true });
+  });
+
+  it("lets waiting rows go when the page goes, so none saves afterwards", async () => {
+    const props = await until(() => got.props, "the scanner");
+    const r = row();
+    act(() => props.onProvisional!(r));
+    act(() => root.unmount());
+    expect(r.state.phase).toBe("dropped");
+    root = createRoot(host);
+  });
+
   it("asks before closing with rows still waiting for their printing", async () => {
     const props = await until(() => got.props, "the scanner");
     act(() => props.onProvisional!(row()));

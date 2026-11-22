@@ -36,6 +36,8 @@ const state = vi.hoisted(() => ({
   drawCard: false,
   /** The artwork matched: one per test, as printings.ts keeps each artwork's printings for the session. */
   ill: 0,
+  /** Whether the printings share the art (false: a card's every printing, as for a title read). */
+  sameArt: true,
 }));
 const bundle = (): BundleInfo => ({
   version: V,
@@ -55,7 +57,7 @@ vi.mock("../api", async (original) => ({
   ...(await original<typeof import("../api")>()),
   api: (path: string, opts?: { json?: unknown }) => {
     if (path === "/api/scan/bundle?can=cuts,settle") return Promise.resolve(bundle());
-    if (path.startsWith("/api/scan/printings")) return Promise.resolve({ same_art: true, printings: state.printings });
+    if (path.startsWith("/api/scan/printings")) return Promise.resolve({ same_art: state.sameArt, printings: state.printings });
     if (path === "/api/scan/diagnostics/timings") {
       state.timings.push(opts?.json as Record<string, unknown>);
       return Promise.resolve({ id: "t" });
@@ -165,6 +167,7 @@ beforeEach(() => {
   state.samples.length = 0;
   state.drawCard = false;
   state.ill += 1;
+  state.sameArt = true;
   setDiagnosticsOn(true);
 });
 afterEach(() => {
@@ -344,6 +347,15 @@ describe("tie by price (opt-in)", () => {
     const row = await until(() => rows[0], "the provisional row");
     await until(() => row.state.phase === "settled", "the row to settle");
     expect(row.state).toMatchObject({ how: "price", filed: { scryfall_id: "p-mid", byPrice: true } });
+  });
+
+  it("never ties printings drawn differently: they can be told apart by eye", async () => {
+    localStorage.setItem("yama.scan.tieByPrice", "1");
+    state.sameArt = false;
+    const { accepted } = scanner({ autoAdd: true });
+    await scanPhoto();
+    await until(() => document.body.textContent?.includes("Tap your printing"), "the picker");
+    expect(accepted).toEqual([]);
   });
 
   it("asks as before when it's off, or when the prices are further apart", async () => {

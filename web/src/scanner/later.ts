@@ -79,7 +79,14 @@ export class Provisional {
 
   private set(patch: Partial<LaterState>) {
     this.now = { ...this.now, ...patch };
-    for (const fn of [...this.watchers]) fn(this.now);
+    // One watcher failing (the scanner's records) mustn't keep another (the page that saves it) from hearing.
+    for (const fn of [...this.watchers]) {
+      try {
+        fn(this.now);
+      } catch (e) {
+        console.error("A provisional row's watcher failed", e);
+      }
+    }
   }
 
   /** The printings it may be. */

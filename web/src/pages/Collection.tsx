@@ -949,6 +949,7 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
       copies,
       auto,
       prices: c.prices ?? null,
+      byPrice: c.byPrice,
       pending: { ops: [addOp(c.scryfall_id, copies, filed, box, crypto.randomUUID())], fix: null },
     };
     put([entry, ...listRef.current]);
@@ -1104,6 +1105,14 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
     for (const a of listRef.current) a.later?.drop();
     onClose();
   };
+  // Left some other way (Back, a link, after "leave without saving"): those rows go too, so none
+  // settles and saves after the person was told closing drops them.
+  useEffect(
+    () => () => {
+      for (const a of listRef.current) a.later?.drop();
+    },
+    [],
+  );
   // The scanner's own Close asks above; Back, a link, a reload or closing the tab ask through the
   // unsaved-work guard, since any of them takes the scanner away with what it couldn't save.
   const guard = useUnsavedChanges(question !== null);

@@ -123,9 +123,6 @@ export function settled(a: Added): Added {
   return { ...rest, ...fix, byPrice };
 }
 
-/** A provisional row's entry whose printing isn't settled yet (nothing of it saved). */
-export const unsettledRow = (a: Pick<Added, "later">) => !!a.later?.open;
-
 /** The new state of an entry after a fix. 0 copies takes it back out. */
 export interface Fix {
   scryfall_id: string;

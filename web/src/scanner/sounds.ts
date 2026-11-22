@@ -103,7 +103,7 @@ export function playPriceSound(price: number | null, threshold: number) {
  * The buzz with feedback by price: a short tap for a card found, and for one filed a double pulse
  * when it's worth the threshold (a missing price never is). Patterns for `navigator.vibrate`.
  */
-export const BUZZ = { found: 12, filed: 18, valuable: [30, 60, 30, 60, 50] } as const;
+export const BUZZ = { found: 12, filed: 18, valuable: [30, 60, 50] } as const;
 export const filedBuzz = (price: number | null, threshold: number): number | number[] => (worthIt(price, threshold) ? [...BUZZ.valuable] : BUZZ.filed);
 
 export { unlockSound };
