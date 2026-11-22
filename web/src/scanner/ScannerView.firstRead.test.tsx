@@ -13,6 +13,7 @@ import type { Printing } from "../api";
 import type { ArtRecognizer, BundleInfo, LookDone } from "./artClient";
 import type { ArtMatch } from "./recognizer";
 import { setDiagnosticsOn } from "./diagnostics";
+import type { Provisional } from "./later";
 import type { ScanCandidate } from "./types";
 
 const V = "gallery-20261106T183001884398Z";
@@ -193,7 +194,7 @@ async function scanPhoto() {
   Object.defineProperty(input, "files", { configurable: true, value: [new File(["photo"], "card.jpg", { type: "image/jpeg" })] });
   await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
 }
-function scanner() {
+function scanner(rows?: Provisional[]) {
   const accepted: ScanCandidate[] = [];
   act(() =>
     root.render(
@@ -203,6 +204,7 @@ function scanner() {
           accepted.push(c);
           return true;
         }}
+        {...(rows ? { onUndo: async () => undefined, onProvisional: (row: Provisional) => void rows.push(row) } : {})}
       />,
     ),
   );
@@ -329,6 +331,25 @@ describe("the collector line's first read", () => {
     expect(first.wait).toBeGreaterThanOrEqual(0);
     // The frame's time, less when the card was named, is how long the first read took.
     expect(first.t - detail.namedAt).toBeGreaterThanOrEqual(4000);
+  });
+
+  it("keeps a slow-printing record for a card-first row settled slowly too (Codex review of #200)", async () => {
+    localStorage.setItem("yama.scan.cardFirst", "1");
+    fake.matches = [match("Stridehangar Automaton", "ill-row", 0.93)];
+    fake.line = "R 0019\nDRC • EN AARON J. RILEY";
+    const reads = gate();
+    fake.ocrGate = reads.promise;
+    const rows: Provisional[] = [];
+    scanner(rows);
+    await scanPhoto();
+    const row = await until(() => rows[0], "the provisional row");
+    await until(() => (fake.collectorReads.length > 0 ? true : null), "the read under way");
+    skew += 4000;
+    await act(async () => reads.open());
+    await until(() => (row.state.phase === "settled" ? true : null), "the row to settle");
+    expect(row.state).toMatchObject({ how: "collector", chosen: { scryfall_id: "p19" } });
+    const rec = await until(() => fake.records[0], "the struggle record");
+    expect((rec.detail as { reasons: string[] }).reasons).toContain("slow-printing");
   });
 
   it("keeps no slow-printing record for a printing settled at once", async () => {

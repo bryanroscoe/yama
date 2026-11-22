@@ -3253,6 +3253,22 @@ function ScannerScreen({
   }, [closeup, paused, live, ocrEngine, textReader]);
 
   const chosen = found?.chosen ?? null;
+  /**
+   * A printing the scanner settled itself (on the sheet, or for a card-first row), but slowly: its
+   * struggle record is kept too ("slow-printing"), so the reads can be seen frame by frame. Not when
+   * the person had a hand in the wait (Wrong card, another set, Wrong printing): the time runs from
+   * the first naming, and the record is kept for that already. After `timing.printed`.
+   */
+  const keepIfSlow = (f: Found) => {
+    const ms = f.timing?.printedMs;
+    if (!f.rec || ms == null || ms < SLOW_PRINTING_MS || f.rec.reasons.has("slow-printing") || slowPrintKept.current >= SLOW_KEPT) return;
+    const way = f.timing?.printedAs;
+    if (way === "picked" || way === "corrected") return;
+    if (f.misread || f.unlocked || f.timing?.detail.card_corrected || f.rec.reasons.has("wrong-card")) return;
+    slowPrintKept.current += 1;
+    f.rec.reasons.add("slow-printing");
+    f.rec.note("printingMs", ms);
+  };
   // The host offers the chosen printing's finishes (a surge-foil-only printing: Foil alone).
   const onPrintingRef = useRef(onPrinting);
   onPrintingRef.current = onPrinting;
@@ -3262,17 +3278,10 @@ function ScannerScreen({
     const f = foundRef.current;
     if (chosen && f?.timing && f.chosen === chosen && !identityOnly && (f.how === "only" || f.how === "set" || f.how === "collector" || f.how === "look" || f.how === "border" || f.how === "price")) {
       f.timing.printed(f.misread ? "corrected" : f.how);
-      // Settled, but slowly: its struggle record is kept too, so the reads can be seen frame by frame.
-      // Not when the person had a hand in the wait (Wrong card, another set, Wrong printing): the
-      // time runs from the first naming, and the record is kept for that already.
-      const ms = f.timing.printedMs;
-      const corrected = !!f.misread || !!f.unlocked || !!f.timing.detail.card_corrected || !!f.rec?.reasons.has("wrong-card");
-      if (f.rec && !corrected && ms != null && ms >= SLOW_PRINTING_MS && !f.rec.reasons.has("slow-printing") && slowPrintKept.current < SLOW_KEPT) {
-        slowPrintKept.current += 1;
-        f.rec.reasons.add("slow-printing");
-        f.rec.note("printingMs", ms);
-      }
+      keepIfSlow(f);
     }
+    // keepIfSlow reads refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chosen, identityOnly]);
   // Card first, printing after: Add files the card now, provisional, its printing worked out after
   // (not a correction of a card already filed, a printing said to be wrong, or a rescan of one card).
@@ -3413,6 +3422,7 @@ function ScannerScreen({
         // tie by price names only the card, since nobody read which printing it is).
         keep(done, "added", how === "price" ? { ...card, scryfall_id: undefined } : card);
         if (f.timing) f.timing.printed(printingWay(done, c));
+        keepIfSlow(f);
         f.rec?.note("final", { id: c.scryfall_id, set: c.set_code, number: c.collector_number, how, later: true });
         endRecord(how === "picked" ? "picked" : "filed", f);
         filedSetNames.current.set(c.set_code, c.set_name);
