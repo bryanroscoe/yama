@@ -367,6 +367,32 @@ describe("tie by price (opt-in)", () => {
     expect(t.printing).toBe("price");
   });
 
+  it("weighs a tie again when the finish changes before Add, and asks when the new finish doesn't tie (Codex review of #195)", async () => {
+    localStorage.setItem("yama.scan.tieByPrice", "1");
+    // Tied in regular; in foil only one has a price.
+    state.printings = [
+      printing("p-new", "eoc", "101", "2025-08-01", { usd: 1.0, finishes: ["nonfoil", "foil"], usd_foil: 3 }),
+      printing("p-mid", "woc", "145", "2023-09-08", { usd: 1.1, finishes: ["nonfoil", "foil"] }),
+    ];
+    const accepted: ScanCandidate[] = [];
+    const view = (finish: "nonfoil" | "foil") => (
+      <ScannerView
+        finish={finish}
+        onAccept={async (c) => {
+          accepted.push(c);
+          return true;
+        }}
+      />
+    );
+    act(() => root.render(view("nonfoil")));
+    await scanPhoto();
+    await until(() => document.body.textContent?.includes("they cost within 15%") || button("Add and scan next") || button("Add"), "the tie");
+    expect(document.querySelector(".scan-result")?.textContent).toContain("WOC");
+    act(() => root.render(view("foil")));
+    await until(() => document.body.textContent?.includes("Tap your printing"), "the picker again");
+    expect(accepted).toEqual([]);
+  });
+
   it("settles a provisional row by price too", async () => {
     localStorage.setItem("yama.scan.tieByPrice", "1");
     localStorage.setItem("yama.scan.cardFirst", "1");

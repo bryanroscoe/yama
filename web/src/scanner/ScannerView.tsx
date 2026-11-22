@@ -235,6 +235,8 @@ interface Found {
   borderOut?: Printing[];
   /** The person said it's another printing after a border read settled it: the border isn't used again. */
   borderOff?: boolean;
+  /** A tie by price's finish: the one its prices were weighed in (a change re-weighs it). */
+  tieFinish?: ScanFinish;
   /** Locked to sets, and none of this card's printings (of this art) is in them: ask. */
   outside?: boolean;
   /** The person said it's from another set: the lock doesn't apply to this card. */
@@ -1681,12 +1683,32 @@ function ScannerScreen({
     const tie = readsOutside(seq) ? null : priceTie(pool, finish);
     f.rec?.note("priceTie", tie ? { id: tie.printing.scryfall_id, low: tie.low, high: tie.high } : { tied: false, pool: pool.length });
     if (!tie) return;
-    setFound((cur) => (cur && cur === f ? { ...cur, chosen: tie.printing, how: "price", sure: true, settledId: tie.printing.scryfall_id, picking: false } : cur));
+    setFound((cur) => (cur && cur === f ? { ...cur, chosen: tie.printing, how: "price", sure: true, settledId: tie.printing.scryfall_id, picking: false, tieFinish: finish } : cur));
     setCloseup((c) => (c === "collector" ? null : c));
     buzzFound();
     // buzzFound and readsOther read refs; the rest is listed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tieOn, found, phase, wrongOpen, paused, holding, gaveUp, closeup, live, look, lookTouched, identityOnly, finish]);
+  // The finish changed after a tie by price settled the card, before it was added: weighed again in
+  // the new finish, and if they no longer tie (or a price is missing in it), the printing is
+  // unsettled again and the person picks (Codex review of #195).
+  useEffect(() => {
+    const f = found;
+    if (!f || f.how !== "price" || !f.chosen || !f.options || f.tieFinish === undefined || f.tieFinish === finish) return;
+    const seq = foundSeq.current;
+    const pool = f.options.filter((p) => !readsOther(seq, p.scryfall_id));
+    const tie = readsOutside(seq) ? null : priceTie(pool, finish);
+    f.rec?.note("priceTie", tie ? { id: tie.printing.scryfall_id, low: tie.low, high: tie.high, refinish: finish } : { tied: false, refinish: finish });
+    setFound((cur) =>
+      cur !== f
+        ? cur
+        : tie
+          ? { ...cur, chosen: tie.printing, settledId: tie.printing.scryfall_id, tieFinish: finish }
+          : { ...cur, chosen: null, how: null, sure: false, settledId: undefined, tieFinish: undefined },
+    );
+    // readsOther and readsOutside read refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [found, finish]);
 
   /** Settle the printing of what was found (not needed when only the card's identity matters). */
   const settle = useCallback(
