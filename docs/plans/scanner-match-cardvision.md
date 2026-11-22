@@ -181,7 +181,8 @@ through the app's own updater (docs/mobile.md).
 6. **Live speed** (22 Nov 2026, after the Pixel's first scans with stages 3 and 4: the finder took 140 to
    230 ms a frame scanning against 41 ms in the speed test). The finder's loop runs at normal priority
    (one below was a niceness of 10) and scales the camera's frame in tiles, to the same bytes
-   ([scanner.md](../scanner.md#the-finders-speed-on-the-live-camera-2026-11-22)). Next, a proposal: while the
+   ([scanner.md](../scanner.md#the-finders-speed-on-the-live-camera-2026-11-22)), and the faster models are the
+   defaults ([scanner.md](../scanner.md#the-faster-models-as-the-defaults-2026-11-22)). Next, a proposal: while the
    finder and the art read both run in the app, the page takes only the corners and asks for pixels when
    the card back, the gate, the look, the border or a scan photo needs them.
 

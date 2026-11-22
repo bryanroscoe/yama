@@ -166,7 +166,7 @@ pub(crate) const QUERY_MODEL: ModelOption = ModelOption {
         sha256: "52420d900728e25e2c4733c7fce45dbea0ae7f4f244fa027421a0f00cdd8faee",
     },
     recogniser: Some(RECOGNISER_20261026),
-    default: true,
+    default: false,
     base: false,
     needs: None,
     settles: false,
@@ -178,7 +178,9 @@ pub(crate) const QUERY_MODEL: ModelOption = ModelOption {
 /// the real photos and the held-out simulated captures, the art match about four times faster on one
 /// WASM thread (docs/scanner.md, "Speed"). Made by `scanner-lab/cascade.py` from QUERY_MODEL's file
 /// (MPL-2.0, as that file is). A web build from before `cuts` can't run it, so it's listed only to
-/// apps that say they can (`needs`), and never served as `files.embed`.
+/// apps that say they can (`needs`), and never served as `files.embed`. The art slot's default
+/// since 22 Nov 2026 (docs/scanner.md, "The faster models as the defaults"): an app that can't feed
+/// `cuts`, and `files.embed`, get QUERY_MODEL in its place (`STANDS_IN`).
 pub(crate) const QUERY_CASCADE: ModelOption = ModelOption {
     slot: Slot::Art,
     id: "yama-art-20261118-cascade",
@@ -192,7 +194,7 @@ pub(crate) const QUERY_CASCADE: ModelOption = ModelOption {
         sha256: "103b3d9af4982466ae3d69fb1528f2a82f23cb411bda32c4b2ec782f60d1048b",
     },
     recogniser: Some(RECOGNISER_20261026),
-    default: false,
+    default: true,
     base: false,
     needs: Some("cuts"),
     settles: false,
@@ -207,7 +209,7 @@ const BUNDLE_DETECTOR: ModelOption = ModelOption {
     licence: Some("MPL-2.0"),
     source: Source::Bundle("detector.onnx"),
     recogniser: None,
-    default: true,
+    default: false,
     base: true,
     needs: None,
     settles: false,
@@ -219,6 +221,8 @@ const BUNDLE_DETECTOR: ModelOption = ModelOption {
 /// printed, covered ones included. Same input (`window`) and outputs (`quad`, `up`, `centre`,
 /// `short`) as the bundle's detector, so recognizer.ts runs it unchanged. Offered only with a bundle
 /// whose detector reads a 256 px window and votes over four views (`fits`), as the pinned one does.
+/// The card finder slot's default since 22 Nov 2026 (docs/scanner.md, "The faster models as the
+/// defaults"); until it's downloaded, or if it's withdrawn, the bundle's runs (the slot's base).
 pub(crate) const CORNERS_MODEL: ModelOption = ModelOption {
     slot: Slot::Detector,
     id: "yama-corners-20261120",
@@ -232,7 +236,7 @@ pub(crate) const CORNERS_MODEL: ModelOption = ModelOption {
         sha256: "18f9d6aab2a4688d8c576eee6e09e9f449cf8ebb38e2ccceabf148ad1b557dd3",
     },
     recogniser: None,
-    default: false,
+    default: true,
     base: false,
     needs: None,
     settles: false,
@@ -513,10 +517,11 @@ pub(crate) async fn offered(off: &Withdrawn, dir: &Path, manifest: Option<&serde
     out
 }
 
-/// When a slot's default isn't on offer (still downloading after a deploy, or withdrawn because
-/// it broke), the option that stands in for it before the slot's base: the default before it. So
-/// `YAMA_SCAN_WITHDRAW=look-v1` puts phones back on v0, not off.
-const STANDS_IN: &[(&str, &str)] = &[("look-v1", "look-v0")];
+/// When a slot's default isn't on offer (still downloading after a deploy, withdrawn because it
+/// broke, or needing what an app can't run), the option that stands in for it before the slot's
+/// base: the default before it. So `YAMA_SCAN_WITHDRAW=look-v1` puts phones back on v0, not off,
+/// and an app that can't feed the cascade its `cuts` runs the same model whole.
+const STANDS_IN: &[(&str, &str)] = &[("look-v1", "look-v0"), ("yama-art-20261118-cascade", "yama-art-20261118")];
 
 /// The option a slot runs unless the app chooses another: its default if on offer, else what
 /// stands in for it (`STANDS_IN`, in turn), else its base, else the first on offer.
@@ -780,13 +785,15 @@ pub(crate) async fn read_manifest(dir: &Path) -> Option<serde_json::Value> {
     serde_json::from_slice(&tokio::fs::read(dir.join("manifest.json")).await.ok()?).ok()
 }
 
-/// The art model a phone that doesn't say which it chose runs: the art slot's default on offer.
+/// The art model a phone that doesn't say which it chose runs: the art slot's default on offer to
+/// a web build that asks for nothing more (one that doesn't say predates every `needs`).
 async fn default_art(cfg: &crate::config::Config, dir: &Path) -> Option<&'static ModelOption> {
     if !is_ready(dir) {
         return None;
     }
     let manifest = read_manifest(dir).await?;
-    default_of(Slot::Art, &offered(&Withdrawn::of(cfg), dir, Some(&manifest)).await)
+    let plain: Vec<&'static ModelOption> = offered(&Withdrawn::of(cfg), dir, Some(&manifest)).await.into_iter().filter(|o| o.needs.is_none()).collect();
+    default_of(Slot::Art, &plain)
 }
 
 /// The bundle a kept scan photo or diagnostic is recorded with: the bundle version the phone ran,
@@ -1200,8 +1207,17 @@ mod tests {
             // Only a model of ours can be tied to a gallery.
             assert!(o.recogniser.is_none() || matches!(o.source, Source::File { .. }), "{}", o.id);
             assert!(!o.base || o.recogniser.is_none(), "a base option must always fit: {}", o.id);
-            // Some apps can't run it, so it can't be what a slot runs by default.
-            assert!(o.needs.is_none() || !(o.default || o.base), "{} needs {:?} and is a default", o.id, o.needs);
+            // Some apps can't run it, so it's never a slot's base, and a default only with an
+            // option every app can run standing in for it (STANDS_IN, in turn).
+            assert!(o.needs.is_none() || !o.base, "{} needs {:?} and is a base", o.id, o.needs);
+            if o.default && o.needs.is_some() {
+                let mut at = o.id;
+                let plain = (0..=STANDS_IN.len()).find_map(|_| {
+                    at = STANDS_IN.iter().find(|(from, _)| *from == at)?.1;
+                    MODELS.iter().find(|m| m.id == at).filter(|m| m.needs.is_none())
+                });
+                assert!(plain.is_some_and(|p| p.slot == o.slot), "{} needs {:?} and nothing every app runs stands in for it", o.id, o.needs);
+            }
         }
         // Two options share a file only as the same pin (look-v1-sure runs look-v1's), never two
         // pins under one name.
@@ -1404,7 +1420,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_card_finder_and_the_cascade_are_options_never_defaults() {
+    async fn the_card_finder_and_the_cascade_are_the_defaults_once_here_and_an_older_app_keeps_what_it_can_run() {
         let data = tempfile::tempdir().unwrap();
         let dir = ready_bundle(data.path(), RECOGNISER);
         let pool = crate::db::test_pool().await;
@@ -1422,19 +1438,35 @@ mod tests {
         assert_eq!(info["models"]["detector"]["options"][0]["file"], file(&BUNDLE_DETECTOR).as_str());
         assert_eq!(info["files"]["detector"], file(&BUNDLE_DETECTOR).as_str());
 
-        // Downloaded: both on offer, neither the default, and files.embed stays the art default. The
-        // cascade is listed only to an app that says it can feed `cuts`: one from before can't run it.
+        // Downloaded: Yama's card finder is the default (the bundle's still served as files.detector,
+        // for web builds that read only that). The cascade is listed, and the art default, only to an
+        // app that says it can feed `cuts`: one from before can't run it, so it gets the same model
+        // whole (STANDS_IN), which also stays files.embed.
         for o in [&CORNERS_MODEL, &QUERY_MODEL, &QUERY_CASCADE] {
             std::fs::write(dir.join(o.file().unwrap()), vec![0u8; o.bytes().unwrap() as usize]).unwrap();
         }
         let (_, info) = testutil::send(&app, Method::GET, "/api/scan/bundle", Some(&token), None).await;
-        assert_eq!(slot(&info, "detector"), (ids(&["bundle-detector", "yama-corners-20261120"]), "bundle-detector".into()));
+        assert_eq!(slot(&info, "detector"), (ids(&["bundle-detector", "yama-corners-20261120"]), "yama-corners-20261120".into()));
         assert_eq!(info["models"]["detector"]["options"][1]["file"], file(&CORNERS_MODEL).as_str());
         assert_eq!(slot(&info, "art"), (ids(&["bundle", "yama-art-20261118"]), "yama-art-20261118".into()));
+        assert_eq!(info["files"]["embed"], file(&QUERY_MODEL).as_str());
         let (_, info) = testutil::send(&app, Method::GET, "/api/scan/bundle?can=cuts", Some(&token), None).await;
-        assert_eq!(slot(&info, "art"), (ids(&["bundle", "yama-art-20261118", "yama-art-20261118-cascade"]), "yama-art-20261118".into()));
+        assert_eq!(slot(&info, "art"), (ids(&["bundle", "yama-art-20261118", "yama-art-20261118-cascade"]), "yama-art-20261118-cascade".into()));
         assert_eq!(info["files"]["embed"], file(&QUERY_MODEL).as_str());
         assert_eq!(info["files"]["detector"], file(&BUNDLE_DETECTOR).as_str());
+        // A phone that doesn't say which art model it ran predates `cuts`: recorded with the whole model.
+        let mut cfg = testutil::config();
+        cfg.data_dir = data.path().to_path_buf();
+        cfg.offline = true;
+        assert_eq!(recorded_version(&cfg, None).await, format!("{BUNDLE_VERSION}+yama-art-20261118"));
+        // Withdrawn, Yama's card finder gives way to the bundle's, and the cascade to the whole model.
+        cfg.scan_withdrawn = vec!["yama-corners-20261120".into(), "yama-art-20261118-cascade".into()];
+        let pool2 = crate::db::test_pool().await;
+        let (_, token2) = testutil::user(&pool2, "finder2@example.com").await;
+        let app2 = crate::routes::app(testutil::state_with(cfg, pool2).await);
+        let (_, info) = testutil::send(&app2, Method::GET, "/api/scan/bundle?can=cuts", Some(&token2), None).await;
+        assert_eq!(slot(&info, "detector"), (ids(&["bundle-detector"]), "bundle-detector".into()));
+        assert_eq!(slot(&info, "art"), (ids(&["bundle", "yama-art-20261118"]), "yama-art-20261118".into()));
         assert_eq!(CORNERS_MODEL.file().unwrap(), "corners-18f9d6aab2a4.onnx");
         assert_eq!(QUERY_CASCADE.file().unwrap(), "query-103b3d9af498.onnx");
         // A bundle whose detector reads another window gets none of ours.

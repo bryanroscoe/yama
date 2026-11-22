@@ -442,7 +442,7 @@ section 4 is the first sketch; the current system is [above](#the-system-at-a-gl
 - **Shopping:** [Live store stock (13 November 2026)](#live-store-stock-13-november-2026).
 - **The Android app:** [The Android app, sideloaded (13 November 2026)](#the-android-app-sideloaded-13-november-2026), [Which build each device runs (15 November 2026)](#which-build-each-device-runs-15-november-2026).
 - **Game night:** [Table and playgroup stats (2026-10-19)](#table-and-playgroup-stats-2026-10-19).
-- **The scanner:** [A training corpus from every card the scanner names (22 November 2026)](#a-training-corpus-from-every-card-the-scanner-names-22-november-2026), [Scan photos shared with the developer (15 November 2026)](#scan-photos-shared-with-the-developer-15-november-2026), [The scanner's own art supplement (15 November 2026)](#the-scanners-own-art-supplement-15-november-2026), [Yama's own query embedder for the scanner (18 November 2026)](#yamas-own-query-embedder-for-the-scanner-18-november-2026), [Scanner models you can switch (20 November 2026)](#scanner-models-you-can-switch-20-november-2026), [The scanner's printing look (20 November 2026)](#the-scanners-printing-look-20-november-2026), [The printing look's vectors from the server (21 November 2026)](#the-printing-looks-vectors-from-the-server-21-november-2026), [Scanner diagnostics (15 November 2026)](#scanner-diagnostics-15-november-2026), [Scanner timings and full-resolution crops (20 November 2026)](#scanner-timings-and-full-resolution-crops-20-november-2026), [The scanner speed test (21 November 2026)](#the-scanner-speed-test-21-november-2026), [A scanner's row before its printing, and a tie by price (22 November 2026)](#a-scanners-row-before-its-printing-and-a-tie-by-price-22-november-2026).
+- **The scanner:** [A training corpus from every card the scanner names (22 November 2026)](#a-training-corpus-from-every-card-the-scanner-names-22-november-2026), [Scan photos shared with the developer (15 November 2026)](#scan-photos-shared-with-the-developer-15-november-2026), [The scanner's own art supplement (15 November 2026)](#the-scanners-own-art-supplement-15-november-2026), [Yama's own query embedder for the scanner (18 November 2026)](#yamas-own-query-embedder-for-the-scanner-18-november-2026), [Scanner models you can switch (20 November 2026)](#scanner-models-you-can-switch-20-november-2026), [The scanner's printing look (20 November 2026)](#the-scanners-printing-look-20-november-2026), [The printing look's vectors from the server (21 November 2026)](#the-printing-looks-vectors-from-the-server-21-november-2026), [Scanner diagnostics (15 November 2026)](#scanner-diagnostics-15-november-2026), [Scanner timings and full-resolution crops (20 November 2026)](#scanner-timings-and-full-resolution-crops-20-november-2026), [The scanner speed test (21 November 2026)](#the-scanner-speed-test-21-november-2026), [A scanner's row before its printing, and a tie by price (22 November 2026)](#a-scanners-row-before-its-printing-and-a-tie-by-price-22-november-2026), [The scanner's faster models as the defaults, and the live finder's speed (22 November 2026)](#the-scanners-faster-models-as-the-defaults-and-the-live-finders-speed-22-november-2026).
 - **Cards, collection and prices:** [Mana symbols (2026-11-12)](#mana-symbols-2026-11-12), [Release calendar and What's new (2026-10-19)](#release-calendar-and-whats-new-2026-10-19), [A deck's cards in the collection, and Mythic re-imports (2026-10-23)](#a-decks-cards-in-the-collection-and-mythic-re-imports-2026-10-23), [Deck market values (2026-10-27)](#deck-market-values-2026-10-27), [Scan this deck (2026-10-29)](#scan-this-deck-2026-10-29), [Mythic Tools bridge (2026-10-31, proposal)](#mythic-tools-bridge-2026-10-31-proposal), [Store trips (2026-11-01)](#store-trips-2026-11-01), [Deleting collection containers (2026-11-02)](#deleting-collection-containers-2026-11-02), [Sell lists for store buylists (2026-11-02)](#sell-lists-for-store-buylists-2026-11-02), [Local buylist offers (2026-11-02)](#local-buylist-offers-2026-11-02), [Price history (2026-11-02)](#price-history-2026-11-02), [Recording printed copies in a deck box (2026-11-02)](#recording-printed-copies-in-a-deck-box-2026-11-02), [Sections in boxes, and scanning a box (16 November 2026)](#sections-in-boxes-and-scanning-a-box-16-november-2026).
 - **Decks, plans and sharing:** [Where a plan came from (21 November 2026)](#where-a-plan-came-from-21-november-2026), [Plans don't wait for approval (20 November 2026)](#plans-dont-wait-for-approval-20-november-2026), [Swappable spares in the deck box (15 November 2026)](#swappable-spares-in-the-deck-box-15-november-2026), [Brackets, deck stats and exports (2026-10-19)](#brackets-deck-stats-and-exports-2026-10-19), [Deck import (2026-10-22)](#deck-import-2026-10-22), [Sharing and deck configurations (2026-10-28)](#sharing-and-deck-configurations-2026-10-28), [Review, installed decks and the Lab tab (2026-10-28)](#review-installed-decks-and-the-lab-tab-2026-10-28), [Check this deck (2026-11-01)](#check-this-deck-2026-11-01), [Deck configurations and quieter editing (2026-11-03)](#deck-configurations-and-quieter-editing-2026-11-03), [One plan page (2026-11-04)](#one-plan-page-2026-11-04), [Printing with MakePlayingCards (2026-11-05)](#printing-with-makeplayingcards-2026-11-05), [Plans: one plan per deck (2026-11-06)](#plans-one-plan-per-deck-2026-11-06), [Site design pass (2026-11-08)](#site-design-pass-2026-11-08), [Public by default and the navigation (2026-11-12)](#public-by-default-and-the-navigation-2026-11-12), [Check a deck without an account (2026-11-12)](#check-a-deck-without-an-account-2026-11-12).
 - **Assistants:** [Ask Claude, the advisor (2026-10-22)](#ask-claude-the-advisor-2026-10-22), [Yama's tools for Claude (MCP, 2026-10-22)](#yamas-tools-for-claude-mcp-2026-10-22).
@@ -3442,6 +3442,33 @@ the frame the finder looked at), so its answers are the worker's; the worker kee
 decision and the search, and asks the page for each embedding. A cut at more of the full frame's
 pixels, and the GPU through LiteRT, wait on measurements. On by default where the finder runs in
 the app, a per-device switch, and named in the records (`<option>-native`, `art_ms`).
+
+## The scanner's faster models as the defaults, and the live finder's speed (22 November 2026)
+
+Bryan, 22 Nov 2026, after scanning with app 0.2.104 on his Pixel: "it's a little bit slower than I want it
+to be. I'm not sure what we can do to speed it up even more. It's massively better and is resolving
+pretty much every card."
+
+Decided: Yama's card finder (`yama-corners-20261120`) and Yama's art model with two cuts first
+(`yama-art-20261118-cascade`) are the scanner's default models.
+
+- The bundle's card finder and the whole art model stay options per device. A choice a device has saved stands.
+- An option that needs something an app may lack (the cascade's `cuts`) may now be a default only
+  if something every app runs stands in for it (`STANDS_IN`). Older web builds, `files.embed`, and
+  records from phones that don't say which model they ran all get the whole model.
+- The cascade's first stage asks for 0.70 rather than 0.68 before it answers alone.
+- The evidence: the Pixel's speed test (finder 41 → 15 ms, art read 51 → 28 ms), one tester's 124 real
+  photos (within a photo of the old pair), and 1,840 simulated frames (more found and locked right). At
+  0.68, 3 first stages between 0.68 and 0.70 named the wrong card; none did at 0.70 or above. The details
+  are in [docs/scanner.md](docs/scanner.md#the-faster-models-as-the-defaults-2026-11-22).
+- Withdrawing both ids puts everyone back on the old pair.
+
+Fixed the same day: the Android app's card finder ran one Java priority below normal, which Android makes
+a niceness of 10, so it ran three to five times slower while scanning than in the speed test. It now runs
+at normal priority, and the camera's quarter-turned 4K frame is scaled for it in tiles, to the same bytes
+([docs/scanner.md](docs/scanner.md#the-finders-speed-on-the-live-camera-2026-11-22)). The page still
+takes each found frame's pixels, since the card back, the gate, the look, the border and scan photos read
+them; taking only the corners is the plan's next step (docs/plans/scanner-match-cardvision.md, stage 6).
 
 ## A scanner's row before its printing, and a tie by price (22 November 2026)
 
