@@ -63,7 +63,7 @@ import { createServerCatalog } from "./serverCatalog";
 import { availableEngines, createScannerOcr, ENGINE_LABEL, engineOrder, plannedEngine, type OcrChoice, type ScannerOcr } from "./ocrEngine";
 import { HeldRead, type HeldVerdict } from "./heldRead";
 import { Evidence, progressLine, proofOf } from "./evidence";
-import { artDecides, artHas, artLead, fuseTitle, LeadRun, leads, needsTitle, titleRead, type Fused, type LockRule } from "./fuse";
+import { artDecides, artHas, artLead, fuseTitle, LEAD_FLOOR, LEAD_MARGIN, LeadRun, leads, needsTitle, titleRead, type Fused, type LockRule } from "./fuse";
 import { worthReading } from "./quality";
 import { pickHeldQuad, sameHeldCard } from "./heldCard";
 import { VersionLine } from "../version";
@@ -429,8 +429,6 @@ const READING: string = GATE_SAYS.reading;
 const SAME_CARD_MARGIN = 0.02;
 /** The card is nearer than the lens focuses, or too big to show whole (closer.ts). */
 const FURTHER = "Hold the phone a little further away";
-/** While a card's printing is read: another card scoring this far above it (and at least LOCK_TWICE) is plainly another card. */
-const OTHER_MARGIN = 0.08;
 
 const sameCard = (a: ScanCandidate | undefined, b: ScanCandidate | undefined) => !!a && !!b && a.name === b.name && a.set === b.set && a.number === b.number;
 
@@ -2984,8 +2982,9 @@ function ScannerScreen({
         const top = all.reduce<ArtMatch | null>((b, m) => (!b || m.score > b.score ? m : b), null);
         const heldScore = heldArt == null ? -1 : Math.max(-1, ...all.filter((m) => m.index === heldArt).map((m) => m.score));
         // Another card plainly in view (a frame of the camera, not a still): one the art knows surely,
-        // or fairly well and well ahead of this one. A few such frames in a row end the read at once.
-        if (video && top && !sameCardName(top.name, start.name) && (top.score >= LOCK_ONCE || (heldArt != null && top.score >= LOCK_TWICE && heldScore < top.score - OTHER_MARGIN))) otherInView = true;
+        // or that leads this one as a card's art must lead every other to name it (fuse.ts). A few
+        // such frames in a row end the read at once.
+        if (video && top && !sameCardName(top.name, start.name) && (top.score >= LOCK_ONCE || (heldArt != null && top.score >= LEAD_FLOOR && heldScore <= top.score - LEAD_MARGIN))) otherInView = true;
         if (heldArt != null) {
           // The held card must still be the best match in view (or as good as it): another card that
           // only looks a bit like it would have its collector line read against this card's printings.
