@@ -579,6 +579,25 @@ function startFirstRead(read: Shot, ocr: () => Promise<OcrEngine>, live: () => b
   };
 }
 
+/**
+ * The first read's timings (Scanner diagnostics), from `startedAt`, when the work on the card's
+ * printing began: written once into its timing record, and returned for the frame's note.
+ */
+function noteFirstRead(timing: TimingRecord | undefined, times: readonly CropTime[], startedAt: number, settled: boolean): { wait?: number; ocrMs?: number[]; engineMs?: number[] } {
+  const wait = times[0] ? Math.max(0, times[0].sentAt - startedAt) : undefined;
+  const crops = cropTimesNote(times);
+  if (timing && timing.detail.first_ms === undefined) {
+    Object.assign(timing.detail, {
+      first_ms: Date.now() - startedAt,
+      ...(wait != null ? { first_wait_ms: wait } : {}),
+      ...(crops.ocrMs ? { first_ocr_ms: crops.ocrMs } : {}),
+      ...(crops.engineMs ? { first_engine_ms: crops.engineMs } : {}),
+      first_settled: settled,
+    });
+  }
+  return { ...(wait != null ? { wait } : {}), ...crops };
+}
+
 /** A card's record with one more reason it's kept (a fresh one when the record was already sent). */
 function withReason(rec: ScanRecord | undefined, reason: Reason): ScanRecord | undefined {
   const r = rec?.continued();
@@ -2122,18 +2141,8 @@ function ScannerScreen({
         const v = ev.verdict();
         const raw = reads.join("\n");
         // How long the read waited after the card was named, and each crop's time (Scanner diagnostics).
-        const wait = times[0] ? Math.max(0, times[0].sentAt - startedAt) : undefined;
-        const crops = cropTimesNote(times);
-        f.rec?.frame({ source: "first", reads, ...qualityNote(quality), cardPx: Math.round(cardHeight(read!.quad)), verdict: v, ...(wait != null ? { wait } : {}), ...crops });
-        if (f.timing && f.timing.detail.first_ms === undefined) {
-          Object.assign(f.timing.detail, {
-            first_ms: Date.now() - startedAt,
-            ...(wait != null ? { first_wait_ms: wait } : {}),
-            ...(crops.ocrMs ? { first_ocr_ms: crops.ocrMs } : {}),
-            ...(crops.engineMs ? { first_engine_ms: crops.engineMs } : {}),
-            first_settled: v.kind === "settled",
-          });
-        }
+        const timed = noteFirstRead(f.timing, times, startedAt, v.kind === "settled");
+        f.rec?.frame({ source: "first", reads, ...qualityNote(quality), cardPx: Math.round(cardHeight(read!.quad)), verdict: v, ...timed });
         if (v.kind === "settled") {
           const hit = opts.printings.find((p) => p.scryfall_id === v.id)!;
           update({ options: [hit, ...choice.options.filter((p) => p !== hit)], readFirst: 1, chosen: hit, how: "collector", sure: true, settledId: hit.scryfall_id, raw, reading: false });
@@ -3469,6 +3478,11 @@ function ScannerScreen({
       if (st.phase !== "finding") lookStop.abort();
     });
     let held = false;
+    // The collector line of the view it was named in is read now, while its printings load, as on
+    // the sheet (startFirstRead; Codex review of #200); not for art the bundle knows in one printing.
+    const startedAt = Date.now();
+    const readNow = () => (kept.read && camGen.current === gen ? startFirstRead(kept.read, ocrEngine, () => row.finding && alive.current && camGen.current === gen) : null);
+    let eager = f.art && f.art.printings <= 1 ? null : readNow();
     try {
       let opts = await printingOptions(f.art ? { art: f.art.illustrationId, id: f.art.id } : { name: f.name });
       if (!row.finding || !alive.current) return;
@@ -3524,19 +3538,18 @@ function ScannerScreen({
       const read = kept.read;
       /** The first read of the view it was named in: the look never settles before it's weighed (as on the sheet). */
       let firstRead: Promise<unknown> = Promise.resolve();
-      if (read && camGen.current === gen) {
+      eager ??= readNow();
+      const first = eager;
+      if (read && first && camGen.current === gen) {
         tasks.push(
           (firstRead = (async () => {
-            const reads: string[] = [];
-            let quality: StripQuality | null = null;
-            for await (const text of readCollectorLines(read.image, read.quad, await ocrEngine(), { gate: (q) => ((quality = q), true) })) {
-              if (!row.finding || camGen.current !== gen) return;
-              reads.push(text);
-            }
+            const { reads, quality, times } = await first.done;
+            if (!row.finding) return;
             // A camera switch meanwhile: nothing read from the old camera counts (as on the sheet; Codex review of #195).
             if (camGen.current !== gen) return;
             ev.add(reads);
-            f.rec?.frame({ source: "later", reads, ...qualityNote(quality), cardPx: Math.round(cardHeight(read.quad)), verdict: ev.verdict() });
+            const v = ev.verdict();
+            f.rec?.frame({ source: "later", reads, ...qualityNote(quality), cardPx: Math.round(cardHeight(read.quad)), verdict: v, ...noteFirstRead(f.timing, times, startedAt, v.kind === "settled") });
             proven();
           })().catch((e: unknown) => console.warn("Couldn't read the collector line for its row", e))),
         );
@@ -3595,6 +3608,9 @@ function ScannerScreen({
       console.warn("Couldn't work out the printing", e);
       row.giveUp(e instanceof Error ? e.message : String(e));
     } finally {
+      // Not needed after all (one printing, outside the set lock, proven by the text reader's
+      // line): it stops at its next crop. Once weighed, stopping it changes nothing.
+      eager?.stop();
       stopWatch();
       lookStop.abort();
     }

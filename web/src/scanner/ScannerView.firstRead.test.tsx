@@ -333,6 +333,26 @@ describe("the collector line's first read", () => {
     expect(first.t - detail.namedAt).toBeGreaterThanOrEqual(4000);
   });
 
+  it("reads a card-first row's collector line while its printings load too (Codex review of #200)", async () => {
+    localStorage.setItem("yama.scan.cardFirst", "1");
+    fake.matches = [match("Stridehangar Automaton", "ill-row-eager", 0.93)];
+    fake.line = "R 0019\nDRC • EN AARON J. RILEY";
+    const printings = gate();
+    fake.printingsGate = printings.promise;
+    const rows: Provisional[] = [];
+    scanner(rows);
+    await scanPhoto();
+    const row = await until(() => rows[0], "the provisional row");
+    await until(() => (fake.collectorReads.length > 0 ? true : null), "a collector-line read");
+    expect(fake.collectorReads[0]).toEqual({ printingsAnswered: false });
+    await act(async () => printings.open());
+    await until(() => (row.state.phase === "settled" ? true : null), "the row to settle");
+    expect(row.state).toMatchObject({ how: "collector", chosen: { scryfall_id: "p19" } });
+    act(() => row.saved(true));
+    const t = await until(() => fake.timings.find((x) => x.printing === "collector"), "the timing record");
+    expect(t.detail).toMatchObject({ rows: "card-first", first_settled: true, first_wait_ms: expect.any(Number), first_ocr_ms: expect.any(Array) });
+  });
+
   it("keeps a slow-printing record for a card-first row settled slowly too (Codex review of #200)", async () => {
     localStorage.setItem("yama.scan.cardFirst", "1");
     fake.matches = [match("Stridehangar Automaton", "ill-row", 0.93)];
