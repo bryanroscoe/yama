@@ -12,6 +12,13 @@
 //
 // It is an option in Scan settings (off unless turned on, per device), offered only inside the
 // app with native code that has the plugin.
+//
+// The card finder can run in native code too (NativeFinder.java; docs/plans/scanner-match-cardvision.md,
+// stage 3): on every frame the camera analyses, drawing the outline natively. Each frame the page
+// pulls then comes with the card's corners already found on it (`found()`), so the web recognizer
+// matches the art there and doesn't look for the card again. `loadNativeFinder` hands the app the
+// card finder's file (the page has it in its cache; the app keeps a copy) and `nativeFind` runs it
+// on a frame from the page (the speed test).
 
 import { Capacitor, registerPlugin } from "@capacitor/core";
 import { cameraInfo } from "./camera";
@@ -107,7 +114,41 @@ export interface NativeDescribed {
   /** Metres: as near as the lens focuses, and where everything beyond is sharp. Absent when focus can't be set. */
   focusNearest?: number;
   focusFarthest?: number;
+  /** The app's own card finder (NativeFinder.java), where this APK has it. */
+  finder?: NativeFinderStatus;
 }
+
+/** What the app's card finder is doing. */
+export interface NativeFinderStatus {
+  loaded: boolean;
+  on: boolean;
+  /** Why it stopped: it never starts again for this camera. */
+  failed?: string;
+  loadMs?: number;
+  /** The median find of the last frames, ms, and frames found a second. */
+  ms?: number;
+  fps?: number;
+}
+
+/** The app's card finder on one frame, as the frame's reply carries it. */
+export interface NativeFound {
+  /** FOUND_CARD: a card in view (with its corners); FOUND_NONE: none; FOUND_FAILED: the finder stopped; FOUND_OFF: it isn't running. */
+  state: number;
+  /** The card's corners in the frame's pixels, top-left as printed first, when one is in view. */
+  quad: Quad | null;
+  /** How sure the finder is that a card is there (0 to 1). */
+  vote: number;
+  /** The find's milliseconds in native code, and its detector runs. */
+  ms: number;
+  passes: number;
+  /** How long ago the camera took the frame, when the reply was sent. */
+  ageMs: number;
+}
+
+export const FOUND_OFF = 0;
+export const FOUND_CARD = 1;
+export const FOUND_NONE = 2;
+export const FOUND_FAILED = 3;
 
 export interface NativeRect {
   x: number;
@@ -143,6 +184,8 @@ export interface FrameRequest {
   synthetic?: boolean;
   fullWidth?: number;
   fullHeight?: number;
+  /** A frame the app's card finder looked at, with what it found (while it runs). */
+  found?: boolean;
 }
 
 interface Base64Frame {
@@ -156,6 +199,7 @@ interface Base64Frame {
   waitMs: number;
   sentAt: number;
   data: string;
+  finder?: Omit<NativeFound, "quad"> & { quad?: [number, number][] };
 }
 
 export interface ScannerCameraPlugin {
@@ -167,6 +211,14 @@ export interface ScannerCameraPlugin {
   status(): Promise<NativeDescribed>;
   frame(o: FrameRequest): Promise<Base64Frame>;
   region(o: FrameRequest): Promise<Base64Frame>;
+  /** Whether this APK can run the card finder (ONNX Runtime ships for arm64-v8a and x86_64 only). */
+  finderAvailable?(): Promise<{ finder: boolean; reason?: string; abi?: string }>;
+  finderModel?(o: { key: string; data: string }): Promise<{ key: string; bytes: number }>;
+  /** Rejects with code "need-model" when the app doesn't have `key` yet. */
+  finderLoad?(o: { key: string; constants: Record<string, unknown>; shortSide: number }): Promise<{ key: string; loadMs: number }>;
+  finderSet?(o: { on?: boolean; outline?: boolean; reset?: boolean }): Promise<NativeFinderStatus>;
+  finderUnload?(): Promise<void>;
+  find?(o: { width: number; height: number; data: string; reset?: boolean }): Promise<{ state: number; quad?: [number, number][]; vote: number; ms: number; runs: number[] }>;
 }
 
 const ScannerCamera = registerPlugin<ScannerCameraPlugin>("ScannerCamera");
@@ -190,6 +242,8 @@ export interface NativeFrame {
   waitMs: number;
   /** From native's send to here. */
   transitMs: number;
+  /** The app's card finder on this frame (absent from a plain frame of an APK without it). */
+  finder?: NativeFound;
 }
 
 export interface FrameTransport {
@@ -199,7 +253,10 @@ export interface FrameTransport {
 }
 
 /** A binary reply's header (ScannerCameraPlugin.HEADER). */
-export const HEADER = 48;
+export const HEADER = 104;
+
+const quadOf = (q: readonly (readonly number[])[] | undefined | null): Quad | null =>
+  q && q.length === 4 && q.every((p) => p.length === 2 && Number.isFinite(p[0]) && Number.isFinite(p[1])) ? (q.map((p) => [p[0]!, p[1]!]) as Quad) : null;
 
 /** A binary reply: its request's id, and the frame or the reason there is none. */
 export function parseReply(buf: ArrayBuffer, now = Date.now()): { id: number; frame?: NativeFrame; error?: string } {
@@ -211,6 +268,9 @@ export function parseReply(buf: ArrayBuffer, now = Date.now()): { id: number; fr
   const height = h.getUint32(12, true);
   const format = h.getUint32(28, true) === 1 ? "jpeg" : "rgba";
   if (format === "rgba" && buf.byteLength - HEADER !== width * height * 4) return { id, error: "A camera frame doesn't match its size" };
+  const state = h.getUint32(48, true);
+  const corners = [0, 1, 2, 3].map((i) => [h.getFloat32(56 + i * 8, true), h.getFloat32(60 + i * 8, true)]);
+  const finder: NativeFound = { state, quad: state === FOUND_CARD ? quadOf(corners) : null, vote: h.getFloat32(52, true), ms: h.getFloat32(88, true), passes: h.getUint32(92, true), ageMs: h.getFloat32(96, true) };
   return {
     id,
     frame: {
@@ -224,6 +284,7 @@ export function parseReply(buf: ArrayBuffer, now = Date.now()): { id: number; fr
       convertMs: h.getFloat32(40, true),
       waitMs: h.getFloat32(44, true),
       transitMs: Math.max(0, now - h.getFloat64(32, true)),
+      finder,
     },
   };
 }
@@ -304,7 +365,9 @@ export function base64Transport(plugin: Pick<ScannerCameraPlugin, "frame" | "reg
       const arrived = Date.now();
       const data = await fromBase64(r.data);
       // Decoding the base64 is part of what this way of crossing costs.
-      return { width: r.width, height: r.height, fullWidth: r.fullWidth, fullHeight: r.fullHeight, seq: r.seq, format: r.format, data, convertMs: r.convertMs, waitMs: r.waitMs, transitMs: Math.max(0, arrived - r.sentAt) + (Date.now() - arrived) };
+      const f = r.finder;
+      const finder: NativeFound | undefined = f ? { state: f.state, quad: f.state === FOUND_CARD ? quadOf(f.quad) : null, vote: f.vote, ms: f.ms, passes: f.passes, ageMs: f.ageMs } : undefined;
+      return { width: r.width, height: r.height, fullWidth: r.fullWidth, fullHeight: r.fullHeight, seq: r.seq, format: r.format, data, convertMs: r.convertMs, waitMs: r.waitMs, transitMs: Math.max(0, arrived - r.sentAt) + (Date.now() - arrived), finder };
     },
     close() {},
   };
@@ -359,6 +422,18 @@ export interface NativeCamera extends CameraSource {
   setTorchLevel(level: number | null): Promise<void>;
   /** Time every way a frame can cross to the page. */
   bench(frames?: number): Promise<BenchRow[]>;
+  /**
+   * What the app's card finder found on the frame in the canvas now (null when the frame came
+   * without it: the finder isn't running, or this frame was taken before it started).
+   */
+  found(): NativeFound | null;
+  /**
+   * Run the app's card finder on this camera's frames (it must be loaded: `loadNativeFinder`), or
+   * stop it; show its outline or not; forget the card it tracks. Resolves with what it's doing.
+   */
+  setFinder(o: { on?: boolean; outline?: boolean; reset?: boolean }): Promise<NativeFinderStatus | null>;
+  /** What the app's card finder is doing, as the camera last said. */
+  finderStatus(): NativeFinderStatus | null;
   close(): void;
 }
 
@@ -413,6 +488,9 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
   let full: { w: number; h: number } | null = null;
   let hasFrame = false;
   let benching = false;
+  /** The app's card finder runs: frames are asked for with what it found on them. */
+  let finding = false;
+  let lastFound: NativeFound | null = null;
   let torchLevel: number | null = positiveOrNull(req.torchLevel);
   /** What the track's callers last asked for, so a repeat isn't sent again. */
   const cleanups: (() => void)[] = [];
@@ -445,6 +523,8 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
     if (el.height !== f.height) el.height = f.height;
     el.getContext("2d", { willReadFrequently: true })?.putImageData(imageOf(f) as ImageData, 0, 0);
     full = { w: f.fullWidth, h: f.fullHeight };
+    // With the canvas: the read loop takes the two together (`found()`).
+    lastFound = f.finder && f.finder.state !== FOUND_OFF ? f.finder : null;
     hasFrame = true;
     costs.push({ convert: f.convertMs, transit: f.transitMs, draw: performance.now() - started, bytes: f.data.byteLength });
     if (costs.length > COST_WINDOW) costs.shift();
@@ -555,7 +635,7 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
       }
       const started = performance.now();
       try {
-        const f = await t.request({ op: "frame", shortSide: RECOGNIZER_SHORT_SIDE });
+        const f = await t.request({ op: "frame", shortSide: RECOGNIZER_SHORT_SIDE, ...(finding ? { found: true } : {}) });
         if (closed) return;
         put(f);
         firstFrame();
@@ -739,8 +819,101 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
       }
       return rows;
     },
+    found: () => (closed ? null : lastFound),
+    async setFinder(o) {
+      if (closed || !described || !plugin.finderSet) return null;
+      const st = await inTurn(() => plugin.finderSet!(o));
+      if (o.on !== undefined) finding = !!st.on;
+      if (!finding) lastFound = null;
+      described = { ...(described as NativeDescribed), finder: st };
+      return st;
+    },
+    finderStatus: () => described?.finder ?? null,
     close,
   };
+}
+
+// ---- The app's card finder, apart from any camera ----
+
+export interface NativeFinderAbility {
+  finder: boolean;
+  /** Why it can't run here. */
+  reason?: string;
+  abi?: string;
+}
+
+let ability: Promise<NativeFinderAbility> | null = null;
+
+/**
+ * Whether this app can run the card finder in native code (asked once). Only the Android app's
+ * own camera has it, and ONNX Runtime ships for arm64-v8a and x86_64 phones only (Bryan, 22 Nov
+ * 2026): a 32-bit phone keeps the web view's finder.
+ */
+export function nativeFinderAbility(plugin: Pick<ScannerCameraPlugin, "finderAvailable"> = ScannerCamera): Promise<NativeFinderAbility> {
+  if (plugin === ScannerCamera && !nativeCameraAvailable()) return Promise.resolve({ finder: false, reason: "Only the Android app can" });
+  if (plugin !== ScannerCamera) return (plugin.finderAvailable?.() ?? Promise.resolve({ finder: false })).catch((e: unknown) => ({ finder: false, reason: message(e) }));
+  return (ability ??= (plugin.finderAvailable?.() ?? Promise.resolve({ finder: false, reason: "This app is older than its card finder" })).catch((e: unknown) => ({ finder: false, reason: message(e) })));
+}
+
+const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
+const codeOf = (e: unknown) => (e && typeof e === "object" && "code" in e ? String((e as { code: unknown }).code) : "");
+
+/** Bytes as base64, a chunk at a time (one call per byte would overflow the stack). */
+export function toBase64(bytes: Uint8Array): string {
+  let s = "";
+  const step = 0x8000;
+  for (let i = 0; i < bytes.length; i += step) s += String.fromCharCode.apply(null, bytes.subarray(i, i + step) as unknown as number[]);
+  return btoa(s);
+}
+
+/**
+ * The name the app keeps a card finder's file under: its own name when it is content-addressed
+ * (`corners-18f9d6aab2a4.onnx`, as the server names Yama's files), else its bundle folder's name
+ * and its own (`<bundle version>-detector.onnx`), so another bundle's file is another name.
+ */
+export function finderKey(file: string): string {
+  const parts = new URL(file, "https://x.invalid").pathname.split("/").filter(Boolean);
+  const name = parts[parts.length - 1] ?? "detector.onnx";
+  const key = /-[0-9a-f]{12}\.onnx$/.test(name) ? name : `${parts[parts.length - 2] ?? "bundle"}-${name}`;
+  return key.replace(/[^A-Za-z0-9._-]/g, "_").replace(/^\.+/, "").slice(-120);
+}
+
+/**
+ * Load the card finder in the app: from the copy it keeps, or, the first time, from `bytes` (the
+ * page's cached file, handed over once). Rejects when it can't run here or won't load.
+ */
+export async function loadNativeFinder(
+  file: { key: string; bytes: () => Promise<Uint8Array> },
+  constants: Record<string, unknown>,
+  plugin: Pick<ScannerCameraPlugin, "finderLoad" | "finderModel"> = ScannerCamera,
+): Promise<{ loadMs: number; sent: boolean }> {
+  if (!plugin.finderLoad || !plugin.finderModel) throw new Error("This app is older than its card finder");
+  const ask = () => plugin.finderLoad!({ key: file.key, constants, shortSide: RECOGNIZER_SHORT_SIDE });
+  try {
+    const r = await ask();
+    return { loadMs: r.loadMs, sent: false };
+  } catch (e) {
+    if (codeOf(e) !== "need-model") throw e;
+  }
+  await plugin.finderModel({ key: file.key, data: toBase64(await file.bytes()) });
+  const r = await ask();
+  return { loadMs: r.loadMs, sent: true };
+}
+
+/** Let the app's card finder go (the scanner closed). */
+export function unloadNativeFinder(plugin: Pick<ScannerCameraPlugin, "finderUnload"> = ScannerCamera): Promise<void> {
+  return plugin.finderUnload?.().catch(() => undefined) ?? Promise.resolve();
+}
+
+/**
+ * The app's card finder on a frame from the page (the speed test's), with its own tracking across
+ * calls until `reset`. `runs`: each detector run's ms, timed in native code.
+ */
+export async function nativeFind(image: RgbaImage, reset: boolean, plugin: Pick<ScannerCameraPlugin, "find"> = ScannerCamera): Promise<NativeFound & { runs: number[] }> {
+  if (!plugin.find) throw new Error("This app is older than its card finder");
+  const data = new Uint8Array(image.data.buffer, image.data.byteOffset, image.data.byteLength);
+  const r = await plugin.find({ width: image.width, height: image.height, data: toBase64(data), reset });
+  return { state: r.state, quad: r.state === FOUND_CARD ? quadOf(r.quad) : null, vote: r.vote, ms: r.ms, passes: r.runs.length, ageMs: 0, runs: r.runs };
 }
 
 function positiveOrNull(v: number | null | undefined): number | null {

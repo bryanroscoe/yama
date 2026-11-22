@@ -10,6 +10,8 @@ ext {
     coreSplashScreenVersion = '1.2.0'
     androidxWebkitVersion = '1.14.0'
     androidxCameraVersion = '1.6.2'
+    onnxruntimeVersion = '1.32.0'
+    orgJsonVersion = '20250517'
     junitVersion = '4.13.2'
     androidxJunitVersion = '1.3.0'
     androidxEspressoCoreVersion = '3.7.0'

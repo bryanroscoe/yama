@@ -130,7 +130,11 @@ Three things run on the device so that game night needs no connection:
   browsers, ML Kit in the Android app). On Android with the camera plugin, CameraX draws the preview
   behind a transparent web view and hands frames to the page in memory. The browser camera serves web
   installs and Android devices without the plugin, with the option off, or when CameraX fails to open.
-  Art recognition stays in the web build. Besides the pinned art bundle it loads the server's small
+  With the app's camera on arm64-v8a and x86_64 APKs, the card finder runs in native code too (ONNX
+  Runtime for Android, the same model file the web worker loads), on every frame the camera analyses,
+  and draws the card's outline natively; each frame reaches the page with the card's corners, and the
+  web worker matches the art there. A failure gives the finding back to the web worker for the session.
+  The art match, the search and everything after stay in the web build. Besides the pinned art bundle it loads the server's small
   supplement of newer artworks, and embeds what the camera sees with Yama's own fine-tuned query
   model in place of the bundle's embedding graph. Each of its models can be switched on a device
   from the options the server lists, and the server can withdraw a broken one. When several
@@ -3412,6 +3416,24 @@ are in [docs/plans/scanner-match-cardvision.md](docs/plans/scanner-match-cardvis
 The Pixel comparison on 21 Nov supported making CameraX the Android default where the plugin is
 available. Keep a device's saved camera choice and fall back to the WebView camera if CameraX fails
 to open. The comparison and its limits are in [docs/scanner.md](docs/scanner.md#the-camera-source-and-the-apps-own-camera-2026-11-21).
+
+## The card finder runs in the Android app (22 November 2026)
+
+Bryan, 22 Nov 2026, after the native camera ("it is night and day"): "let's go ahead and do all of
+this", approving the plan's stages 3 and 4 and its proposal on app size: ONNX Runtime for Android
+ships in the APK for arm64-v8a and x86_64 only, and 32-bit ARM phones keep the web scanner.
+
+Decided, stage 3: with the app's own camera open, the card finder runs in native code on every frame
+the camera analyses (ONNX Runtime for Android on the CPU, the window logic of `recognizer.ts` ported
+to Java and checked against it), and the outline is drawn natively from the latest corners. The page
+is handed each frame with the corners found on it and matches the art there (`matchAt`), reading it
+upside down only when upright is doubtful. The model is the one the Card finder slot names, handed
+over from the page's cache once and kept in the app's private files; the art worker keeps it loaded
+too, so any failure to load or run in the app gives the finding back to the web view for the session,
+and the timing records say which ran (`<option>-native`). It is on by default where it can run, and a
+per-device switch in Scan settings, Models. The native libraries are stored compressed in the APK
+(about 30 MB of download for ONNX Runtime's two). The parity checks, the numbers and what still needs
+a phone are in [docs/scanner.md](docs/scanner.md#the-card-finder-in-the-app-2026-11-22).
 
 ## Where a plan came from (21 November 2026)
 

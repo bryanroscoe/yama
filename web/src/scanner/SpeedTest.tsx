@@ -6,16 +6,27 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ActionBar, Button } from "../components/ui";
+import { NATIVE_RUNTIME } from "./nativeModels";
 import { speedSummary, type Alongside, type ConfigResult, type SpeedReport, type SpeedRole, type Stat } from "./speed";
 import { deleteSpeedTests, runSpeedTest, saveSpeedTest, speedTestCount, type SpeedProgress } from "./speedRun";
 
 const ROLE_NAME: Record<SpeedRole, string> = { yours: "Your models", defaults: "The defaults", faster: "The faster ones" };
 
-/** A configuration's name in the table: "Your models (the defaults)". */
+/** A configuration's name in the table: "Your models (the defaults)", and ", card finder in the app" when it ran there. */
 export function configName(c: ConfigResult): string {
   const [first, ...rest] = c.roles;
   const head = ROLE_NAME[first ?? "yours"];
-  return rest.length ? `${head} (${rest.map((r) => ROLE_NAME[r].toLowerCase()).join(", ")})` : head;
+  const name = rest.length ? `${head} (${rest.map((r) => ROLE_NAME[r].toLowerCase()).join(", ")})` : head;
+  return c.runtimes?.detector === NATIVE_RUNTIME ? `${name}, card finder in the app` : name;
+}
+
+/** "The app's card finder matched the web view's on 32 of 32 frames, corners within 0.4 px." */
+export function parityLine(c: ConfigResult): string | null {
+  const p = c.parity;
+  if (!p || p.frames === 0) return null;
+  const agreed = p.frames - p.disagreed;
+  const corners = p.maxPx == null ? "" : `, corners within ${p.maxPx} px (median ${p.medianPx})`;
+  return `${configName(c)}: found a card where the web view's finder did on ${agreed} of ${p.frames} frames${corners}; the same best match on ${p.sameTop}.`;
 }
 
 const n = (v: number | null | undefined) => (v == null ? "–" : String(Math.round(v)));
@@ -87,6 +98,14 @@ export function SpeedResult({ report }: { report: SpeedReport }) {
           </p>
         ) : null,
       )}
+      {ran.map((c) => {
+        const line = parityLine(c);
+        return line ? (
+          <p key={`parity-${configName(c)}`} className="scan-note">
+            {line}
+          </p>
+        ) : null;
+      })}
       {ran.map((c) =>
         c.error && c.stats ? (
           <p key={`error-${configName(c)}`} className="scan-note">
@@ -131,7 +150,7 @@ const say = (e: unknown) => (e instanceof Error ? e.message : String(e));
  * is what that recognizer holds loaded meanwhile, recorded with the result (Codex review of #182:
  * its memory is part of what the phone was doing).
  */
-export function SpeedTest({ ready = true, alongside = null }: { ready?: boolean; alongside?: Alongside | null }) {
+export function SpeedTest({ ready = true, alongside = null, onFinished }: { ready?: boolean; alongside?: Alongside | null; onFinished?: () => void }) {
   const [progress, setProgress] = useState<SpeedProgress | null>(null);
   /** Running the test, then keeping it; busy either way. */
   const [stage, setStage] = useState<"running" | "saving" | null>(null);
@@ -200,6 +219,8 @@ export function SpeedTest({ ready = true, alongside = null }: { ready?: boolean;
         if (run.current === stop) run.current = null;
         setProgress(null);
         setStage(null);
+        // (The scanner loads its own models again where the test replaced them: the app's finder.)
+        onFinished?.();
       });
   };
   const cancel = () => {

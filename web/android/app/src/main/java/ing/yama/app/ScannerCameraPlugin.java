@@ -64,6 +64,7 @@ import com.getcapacitor.annotation.PermissionCallback;
 import com.getcapacitor.util.WebColor;
 import com.google.common.util.concurrent.ListenableFuture;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
@@ -84,6 +85,10 @@ import org.json.JSONObject;
  *
  * What a browser can't ask of the camera is asked here: a lens by name, a capture rate, a pinned
  * focus distance, the torch's strength. Frames live in memory only; nothing is written to a file.
+ *
+ * The card finder can run here too (NativeFinder.java, `finderLoad` and `finderSet`): on every
+ * frame the camera analyses, with the outline drawn natively over the preview (CardOutlineView),
+ * and the web scanner handed each frame with the card's corners already found.
  */
 @OptIn(markerClass = ExperimentalCamera2Interop.class)
 @CapacitorPlugin(name = "ScannerCamera", permissions = { @Permission(alias = "camera", strings = { Manifest.permission.CAMERA }) })
@@ -92,8 +97,13 @@ public class ScannerCameraPlugin extends Plugin {
     private static final String TAG = "ScannerCamera";
     /** The object the page posts frame requests to, and hears the frames from as ArrayBuffers. */
     private static final String CHANNEL = "yamaScannerCamera";
-    /** A reply's header: id, status, width, height, full width, full height, frame, format (u32 each), sent at (f64), convert ms, wait ms (f32 each). */
-    static final int HEADER = 48;
+    /**
+     * A reply's header: id, status, width, height, full width, full height, frame, format (u32
+     * each), sent at (f64), convert ms, wait ms (f32 each); then the app's card finder on this frame:
+     * its state (u32, NativeFinder.STATE_*), vote, the four corners (x0, y0, …), the find's ms
+     * (f32 each), its detector runs (u32), and how long ago the camera took the frame (f32 ms).
+     */
+    static final int HEADER = 104;
     /** The most pixels one reply carries: a 4K frame's worth. */
     private static final long MAX_PIXELS = 3840L * 2160L;
     private static final int FORMAT_RGBA = 0;
@@ -104,6 +114,16 @@ public class ScannerCameraPlugin extends Plugin {
     private final ExecutorService reader = Executors.newSingleThreadExecutor();
     private final ExecutorService cameraThread = Executors.newSingleThreadExecutor();
     private final ScannerFrames frames = new ScannerFrames();
+    /** The card finder in native code, and where it loads and the page's own frames are found (the speed test). */
+    private final NativeFinder finder = new NativeFinder(frames);
+    private final ExecutorService loader = Executors.newSingleThreadExecutor();
+    private CardOutlineView outlineView;
+    /** Whether the web scanner shows the outline now (it hides it while a card's sheet is open, say). */
+    private volatile boolean outlineWanted = true;
+    /** The reader thread's: the finder's result it handed the page last. */
+    private long handed;
+    /** A new camera: the reader starts its count of the finder's results again. */
+    private volatile boolean handedReset;
 
     private boolean binary;
     private ProcessCameraProvider provider;
@@ -197,8 +217,10 @@ public class ScannerCameraPlugin extends Plugin {
         } catch (RuntimeException e) {
             Logger.warn(TAG, "Closing the camera as the app ends: " + e.getMessage());
         }
+        finder.unload();
         reader.shutdown();
         cameraThread.shutdown();
+        loader.shutdown();
     }
 
     // ---- What the page calls ----
@@ -285,6 +307,195 @@ public class ScannerCameraPlugin extends Plugin {
     @PluginMethod
     public void region(PluginCall call) {
         ask(call, "region");
+    }
+
+    // ---- The card finder in native code ----
+
+    /** `{ finder, reason?, abi }`: whether ONNX Runtime runs on this phone (arm64-v8a and x86_64 APKs only). */
+    @PluginMethod
+    public void finderAvailable(PluginCall call) {
+        loader.execute(() -> {
+            String why = OrtDetector.unavailable();
+            JSObject ret = new JSObject();
+            ret.put("finder", why == null);
+            if (why != null) ret.put("reason", why);
+            String[] abis = Build.SUPPORTED_ABIS;
+            ret.put("abi", abis != null && abis.length > 0 ? abis[0] : "unknown");
+            call.resolve(ret);
+        });
+    }
+
+    /** `{ key, data }`: keep a model file the page hands over (base64), by its file name. */
+    @PluginMethod
+    public void finderModel(PluginCall call) {
+        String key = call.getString("key");
+        String data = call.getString("data");
+        loader.execute(() -> {
+            try {
+                if (data == null) throw new IllegalArgumentException("No model was given");
+                byte[] bytes = Base64.decode(data, Base64.DEFAULT);
+                NativeFinder.writeModel(NativeFinder.modelDir(getContext().getFilesDir()), key, bytes);
+                JSObject ret = new JSObject();
+                ret.put("key", key);
+                ret.put("bytes", bytes.length);
+                call.resolve(ret);
+            } catch (Exception | OutOfMemoryError e) {
+                call.reject("The app couldn't keep that model: " + e.getMessage(), "failed");
+            }
+        });
+    }
+
+    /**
+     * `{ key, constants, shortSide }`: load the card finder kept under `key` (rejects "need-model"
+     * when the page hasn't handed it over yet) for the bundle's constants, on frames scaled to
+     * `shortSide`. Resolves with `{ key, loadMs }`; the same key already loaded resolves at once.
+     */
+    @PluginMethod
+    public void finderLoad(PluginCall call) {
+        String key = call.getString("key");
+        JSObject c = call.getObject("constants", new JSObject());
+        int shortSide = call.getInt("shortSide", 640);
+        loader.execute(() -> {
+            try {
+                String why = OrtDetector.unavailable();
+                if (why != null) {
+                    call.reject(why, "unavailable");
+                    return;
+                }
+                CardFinder.Constants k = constants(c);
+                String id = key + "|" + k.scene + "|" + k.detInput + "|" + k.rotations + "|" + k.refineFill + "|" + k.refineMinSide + "|" + k.cardAspect + "|" + shortSide;
+                // Loaded again for another model, or after it failed (ticking the option again tries once more).
+                if (!id.equals(finder.key()) || !finder.loaded() || finder.failure() != null) {
+                    byte[] model = NativeFinder.readModel(NativeFinder.modelDir(getContext().getFilesDir()), key);
+                    if (model == null) {
+                        call.reject("The app doesn't have that model yet", "need-model");
+                        return;
+                    }
+                    finder.load(id, model, k, shortSide);
+                }
+                JSObject ret = new JSObject();
+                ret.put("key", key);
+                ret.put("loadMs", finder.loadMs());
+                call.resolve(ret);
+            } catch (Exception | OutOfMemoryError | UnsatisfiedLinkError e) {
+                call.reject("The app's card finder didn't load: " + e.getMessage(), "failed");
+            }
+        });
+    }
+
+    /** `{ on?, outline?, reset? }`: run the loaded finder on the open camera's frames, or stop; show its outline or not. */
+    @PluginMethod
+    public void finderSet(PluginCall call) {
+        Boolean on = call.getBoolean("on");
+        Boolean outline = call.getBoolean("outline");
+        boolean reset = Boolean.TRUE.equals(call.getBoolean("reset"));
+        main.post(() -> {
+            try {
+                if (outline != null) {
+                    outlineWanted = outline;
+                    if (outlineView != null) outlineView.show(outline);
+                }
+                if (reset) finder.resetTracking();
+                if (Boolean.TRUE.equals(on)) {
+                    if (camera == null) throw new IllegalStateException("The camera isn't open");
+                    // One that failed stays stopped: the status says why, and the page's own finder runs.
+                    if (finder.failure() == null) finder.start(() -> wantedUntil = System.currentTimeMillis() + 1000, outlineView, why -> Logger.warn(TAG, why));
+                } else if (Boolean.FALSE.equals(on)) finder.stop();
+                call.resolve(finderStatus());
+            } catch (RuntimeException e) {
+                call.reject(e.getMessage(), "failed");
+            }
+        });
+    }
+
+    /** Let the finder's model go (the scanner closed). */
+    @PluginMethod
+    public void finderUnload(PluginCall call) {
+        loader.execute(() -> {
+            finder.unload();
+            call.resolve();
+        });
+    }
+
+    /**
+     * `{ width, height, data, reset? }`: find the card on a frame the page hands over (RGBA,
+     * base64), with a finder of its own that tracks across calls until `reset`: the speed test's
+     * frames, timed here as the camera's are. Resolves `{ state, quad?, vote, ms, runs }`.
+     */
+    @PluginMethod
+    public void find(PluginCall call) {
+        int width = call.getInt("width", 0);
+        int height = call.getInt("height", 0);
+        String data = call.getString("data");
+        boolean reset = Boolean.TRUE.equals(call.getBoolean("reset"));
+        loader.execute(() -> {
+            try {
+                if (data == null || width <= 0 || height <= 0) throw new IllegalArgumentException("No frame was given");
+                byte[] rgba = Base64.decode(data, Base64.DEFAULT);
+                if (rgba.length != width * height * 4) throw new IllegalArgumentException("The frame doesn't match its size");
+                if (reset || pageFinder == null || pageFinderFor != finder.generation()) {
+                    pageFinder = finder.testFinder();
+                    pageFinderFor = finder.generation();
+                }
+                CardFinder.Result r = pageFinder.find(new CardFinder.Frame(width, height, rgba, 0));
+                JSObject ret = new JSObject();
+                ret.put("state", r.inView ? NativeFinder.STATE_CARD : NativeFinder.STATE_NONE);
+                if (r.inView) ret.put("quad", quadOf(r.quad));
+                ret.put("vote", r.vote);
+                ret.put("ms", r.ms);
+                JSArray runs = new JSArray();
+                for (double ms : r.runs) runs.put(ms);
+                ret.put("runs", runs);
+                call.resolve(ret);
+            } catch (Exception | OutOfMemoryError e) {
+                call.reject("The app's card finder couldn't look at that frame: " + e.getMessage(), "failed");
+            }
+        });
+    }
+
+    /** The speed test's own finder (the loader thread's), and the detector it was made for. */
+    private CardFinder pageFinder;
+    private int pageFinderFor;
+
+    private static JSArray quadOf(double[] q) {
+        JSArray a = new JSArray();
+        for (int i = 0; i < 4; i++) {
+            JSArray p = new JSArray();
+            try {
+                p.put(q[i * 2]);
+                p.put(q[i * 2 + 1]);
+            } catch (org.json.JSONException e) {
+                throw new IllegalStateException(e);
+            }
+            a.put(p);
+        }
+        return a;
+    }
+
+    private static CardFinder.Constants constants(JSObject c) {
+        CardFinder.Constants k = new CardFinder.Constants();
+        k.scene = c.optDouble("scene", 0);
+        k.detInput = c.optInt("det_input", 0);
+        k.rotations = c.optDouble("rotations", 0);
+        k.refineFill = c.optDouble("refine_fill", 0);
+        k.refineMinSide = c.optDouble("refine_min_side", 0);
+        k.cardAspect = c.optDouble("card_aspect", 0);
+        if (!(k.scene > 0 && k.detInput > 0 && k.detInput <= 1024 && k.rotations > 0 && k.refineFill > 0 && k.cardAspect > 0)) throw new IllegalArgumentException("The bundle's constants aren't a card finder's");
+        return k;
+    }
+
+    /** What the finder is doing, for `status` and `finderSet`. */
+    private JSObject finderStatus() {
+        JSObject f = new JSObject();
+        f.put("loaded", finder.loaded());
+        f.put("on", finder.running());
+        String failed = finder.failure();
+        if (failed != null) f.put("failed", failed);
+        if (finder.loaded()) f.put("loadMs", finder.loadMs());
+        double[] pace = finder.pace();
+        if (pace[0] > 0) f.put("ms", Math.round(pace[0] * 10) / 10.0);
+        if (pace[1] > 0) f.put("fps", Math.round(pace[1] * 10) / 10.0);
+        return f;
     }
 
     // ---- Opening and closing ----
@@ -398,7 +609,9 @@ public class ScannerCameraPlugin extends Plugin {
         o.fpsRanges = logical.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES);
         o.fpsRange = pickRate(o.fpsRanges, fpsAsked);
 
+        finder.stop();
         frames.clear();
+        handedReset = true;
         synchronized (arrivals) {
             arrivalCount = 0;
         }
@@ -492,6 +705,7 @@ public class ScannerCameraPlugin extends Plugin {
             ((DisplayManager) getContext().getSystemService(Context.DISPLAY_SERVICE)).unregisterDisplayListener(displayListener);
             displayListener = null;
         }
+        finder.stop();
         if (analysis != null) analysis.clearAnalyzer();
         if (provider != null) {
             try {
@@ -513,6 +727,11 @@ public class ScannerCameraPlugin extends Plugin {
             ViewGroup parent = (ViewGroup) previewView.getParent();
             if (parent != null) parent.removeView(previewView);
             previewView = null;
+        }
+        if (outlineView != null) {
+            ViewGroup parent = (ViewGroup) outlineView.getParent();
+            if (parent != null) parent.removeView(outlineView);
+            outlineView = null;
         }
         web.setBackgroundColor(ground());
     }
@@ -540,6 +759,13 @@ public class ScannerCameraPlugin extends Plugin {
             previewView.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
             ((ViewGroup) web.getParent()).addView(previewView, 0, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         }
+        if (outlineView == null) {
+            // Over the preview, under the web view: the app's own finder draws the card's outline here.
+            outlineView = new CardOutlineView(getContext());
+            outlineView.show(outlineWanted);
+            ViewGroup parent = (ViewGroup) web.getParent();
+            parent.addView(outlineView, parent.indexOfChild(previewView) + 1, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        }
         place(rect);
         web.setBackgroundColor(Color.TRANSPARENT);
     }
@@ -565,6 +791,14 @@ public class ScannerCameraPlugin extends Plugin {
             previewView.setTranslationY(web.getTop() + (float) (rect.optDouble("y", 0) * k));
         }
         previewView.setLayoutParams(lp);
+        if (outlineView != null) {
+            ViewGroup.LayoutParams olp = outlineView.getLayoutParams();
+            olp.width = lp.width;
+            olp.height = lp.height;
+            outlineView.setLayoutParams(olp);
+            outlineView.setTranslationX(previewView.getTranslationX());
+            outlineView.setTranslationY(previewView.getTranslationY());
+        }
     }
 
     private int rotation() {
@@ -809,6 +1043,7 @@ public class ScannerCameraPlugin extends Plugin {
             ret.put("focusNearest", 1.0 / o.nearestDiopters);
             ret.put("focusFarthest", o.hyperfocalDiopters > 0 ? 1.0 / o.hyperfocalDiopters : 10.0);
         }
+        ret.put("finder", finderStatus());
         return ret;
     }
 
@@ -888,12 +1123,69 @@ public class ScannerCameraPlugin extends Plugin {
         float convertMs;
         float waitMs;
         double sentAt;
+        /** The app's card finder on this frame (NativeFinder.STATE_*), and what it found. */
+        int finderState;
+        double[] quad;
+        float vote;
+        float findMs;
+        int passes;
+        float ageMs;
     }
 
     /** The reader thread: make the frame or region a request asks for. */
     private Reply render(JSONObject q) throws Failure, InterruptedException {
         boolean region = "region".equals(q.optString("op"));
         long waitStart = System.nanoTime();
+        if (handedReset) {
+            handedReset = false;
+            handed = 0;
+        }
+        // The frame the app's own finder looked at last, with the card's corners on it: the page
+        // asks for these (`found`) while the finder runs, rather than a frame scaled again here.
+        if (!region && q.optBoolean("found") && !q.optBoolean("synthetic") && finder.running()) {
+            if (opened == null) throw new Failure("closed", "The camera isn't open");
+            NativeFinder.Snapshot snap = finder.take(handed, 1500, HEADER);
+            if (snap != null) {
+                handed = snap.seq;
+                return replyOf(snap, waitStart);
+            }
+            // Stopped meanwhile (it failed): a plain frame, which says so.
+            if (finder.running()) throw new Failure("no-frame", "The camera has no frame yet");
+        }
+        frames.lockPinned();
+        try {
+            return renderFrame(q, region, waitStart);
+        } finally {
+            frames.unlockPinned();
+        }
+    }
+
+    /** The finder's snapshot as a reply: its pixels are already the frame's, at the finder's size. */
+    private Reply replyOf(NativeFinder.Snapshot snap, long waitStart) {
+        long now = System.nanoTime();
+        Reply r = new Reply();
+        r.bytes = snap.bytes;
+        r.length = snap.bytes.length;
+        r.width = snap.width;
+        r.height = snap.height;
+        r.fullWidth = snap.fullWidth;
+        r.fullHeight = snap.fullHeight;
+        r.seq = snap.seq;
+        r.format = FORMAT_RGBA;
+        r.convertMs = (float) snap.convertMs;
+        r.waitMs = (now - waitStart) / 1e6f;
+        r.finderState = snap.state;
+        r.quad = snap.quad;
+        r.vote = (float) snap.vote;
+        r.findMs = (float) snap.ms;
+        r.passes = snap.passes;
+        r.ageMs = (now - snap.takenAt) / 1e6f;
+        r.sentAt = System.currentTimeMillis();
+        return r;
+    }
+
+    /** A frame or region scaled and converted here, holding the frame taken last in place (`lockPinned`). */
+    private Reply renderFrame(JSONObject q, boolean region, long waitStart) throws Failure, InterruptedException {
         ScannerFrames.Frame f;
         if (q.optBoolean("synthetic")) {
             // A made-up frame the size of the one asked for, so the crossing can be timed with no
@@ -902,8 +1194,10 @@ public class ScannerCameraPlugin extends Plugin {
         } else {
             if (opened == null) throw new Failure("closed", "The camera isn't open");
             wantedUntil = System.currentTimeMillis() + 1000;
-            f = region ? frames.pinned() : null;
-            if (f == null) f = frames.next(region ? 500 : 1500);
+            f = region || finder.running() ? frames.pinned() : null;
+            // While the finder runs it takes the camera's frames: a region or plain frame is cut from
+            // the one it took last, never taken from under it.
+            if (f == null && !finder.running()) f = frames.next(region ? 500 : 1500);
             if (f == null) throw new Failure("no-frame", "The camera has no frame yet");
         }
         long start = System.nanoTime();
@@ -954,6 +1248,7 @@ public class ScannerCameraPlugin extends Plugin {
         long done = System.nanoTime();
         r.waitMs = (start - waitStart) / 1e6f;
         r.convertMs = (done - start) / 1e6f;
+        r.finderState = finder.failure() != null ? NativeFinder.STATE_FAILED : NativeFinder.STATE_OFF;
         r.sentAt = System.currentTimeMillis();
         return r;
     }
@@ -1007,6 +1302,9 @@ public class ScannerCameraPlugin extends Plugin {
             ByteBuffer h = header(r.bytes, id, 0);
             h.putInt(r.width).putInt(r.height).putInt(r.fullWidth).putInt(r.fullHeight).putInt((int) r.seq).putInt(r.format);
             h.putDouble(r.sentAt).putFloat(r.convertMs).putFloat(r.waitMs);
+            h.putInt(r.finderState).putFloat(r.vote);
+            for (int i = 0; i < 8; i++) h.putFloat(r.quad == null ? Float.NaN : (float) r.quad[i]);
+            h.putFloat(r.findMs).putInt(r.passes).putFloat(r.ageMs).putInt(0);
             out = r.bytes;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -1056,6 +1354,14 @@ public class ScannerCameraPlugin extends Plugin {
                 ret.put("format", r.format == FORMAT_JPEG ? "jpeg" : "rgba");
                 ret.put("convertMs", r.convertMs);
                 ret.put("waitMs", r.waitMs);
+                JSObject found = new JSObject();
+                found.put("state", r.finderState);
+                if (r.quad != null) found.put("quad", quadOf(r.quad));
+                found.put("vote", r.vote);
+                found.put("ms", r.findMs);
+                found.put("passes", r.passes);
+                found.put("ageMs", r.ageMs);
+                ret.put("finder", found);
                 ret.put("data", data);
                 // After the base64 is made, so the page's "in transit" doesn't count making it.
                 ret.put("encodeMs", (float) (System.currentTimeMillis() - r.sentAt));

@@ -11,8 +11,8 @@
 // Needs a secure context for the camera (https or localhost). "Use a photo" works anywhere.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
-import { api, type Printing } from "../api";
-import { loadArtRecognizer, NO_ART_MODEL, RECOGNIZER_SHORT_SIDE, scanBundleInfo, type ArtRecognizer, type LoadState, type LookDone } from "./artClient";
+import { api, API_BASE, type Printing } from "../api";
+import { loadArtRecognizer, NO_ART_MODEL, RECOGNIZER_SHORT_SIDE, scanBundleInfo, type ArtRecognizer, type BundleInfo, type LoadState, type LookDone } from "./artClient";
 import { lookBest, lookCandidates, lookLead, lookOrder, lookSettles, lookTimingDetail, withoutMisread, type LookScores } from "./look";
 import { GATE_LOCK, modelsOf, onModelsChange, running, runningAll, saveModel, savedModels, usesLead, type DeviceCan, type ModelChoices, type ModelSlot, type ModelsInfo, type Running } from "./models";
 import { ModelsSetting } from "./ModelsSetting";
@@ -33,7 +33,7 @@ import { PLAY_WORD, playTag, usePlayability } from "./playable";
 import { holdSound } from "../sound";
 import { filedSound, playScanSound, setSoundsOn, setWorthThreshold, soundsOn, unlockSound, worthThreshold, type ScanSound } from "./sounds";
 import { choosePrinting, printingOptions, type Choice } from "./printings";
-import type { ArtMatch, Recognition } from "./recognizer";
+import type { ArtMatch, Handed, Recognition } from "./recognizer";
 import { deleteSamples, photosLine, sameCardView, sampleSummary, savingPhotos, ScanPhoto, setSavingPhotos, type ArtScore, type SampleLabel, type SampleSummary, type Shot } from "./samples";
 import { SetLockPicker } from "./SetLockPicker";
 import { treatmentOf } from "./session";
@@ -47,7 +47,9 @@ import { GATE_DEFAULTS, Motion, PlacementGate } from "./gate";
 import { BACK_KEY, GATE_PASS_MS, GATE_SAYS, gateStatus, type GateFrame, type GateRead } from "./gateLoop";
 import { defaultCamera, nameCameras, resolveSaved, saveCamera, savedCamera, type NamedCamera } from "./cameras";
 import { browserCameraSource, draw, sourceLabel, type CameraSource, type SourceInfo } from "./cameraSource";
-import { nativeCameraAvailable, openNativeCamera, saveNativeCamera, savedNativeCamera, type NativeCamera } from "./nativeCamera";
+import { finderKey, FOUND_CARD, FOUND_FAILED, FOUND_NONE, loadNativeFinder, nativeCameraAvailable, nativeFinderAbility, openNativeCamera, saveNativeCamera, savedNativeCamera, unloadNativeFinder, type NativeCamera, type NativeFinderAbility } from "./nativeCamera";
+import { nativeId, nativeWanted, onNativeChange, saveNative, savedNative } from "./nativeModels";
+import { cachedFile } from "./scanCache";
 import { NativeCameraSetting } from "./NativeCameraSetting";
 import { AUTO_MAX, AutoZoom, LENS_SWITCH, maySwitchLens } from "./zoomPolicy";
 import { cardHeight, tooFar } from "./closer";
@@ -369,6 +371,11 @@ const READING: string = GATE_SAYS.reading;
 const SAME_CARD_MARGIN = 0.02;
 
 const sameCard = (a: ScanCandidate | undefined, b: ScanCandidate | undefined) => !!a && !!b && a.name === b.name && a.set === b.set && a.number === b.number;
+
+const median = (xs: readonly number[]): number => {
+  const s = [...xs].sort((a, b) => a - b);
+  return s.length ? s[Math.floor(s.length / 2)]! : 0;
+};
 
 /** The whole source with its short side at RECOGNIZER_SHORT_SIDE (never enlarged), and the scale used. */
 function small(source: CanvasImageSource, width: number, height: number, canvas: HTMLCanvasElement): { image: RgbaImage; k: number } {
@@ -731,6 +738,36 @@ function ScannerScreen({
   const browserCam = useRef<CameraSource | null>(null);
   /** The camera frames are read from (cameraSource.ts): the app's own while it's open, else the browser's video. */
   const camSrc = (): CameraSource => nativeCam.current ?? (browserCam.current ??= browserCameraSource(() => videoRef.current));
+  /**
+   * The card finder in the app's own code (nativeModels.ts, NativeFinder.java; stage 3 of
+   * docs/plans/scanner-match-cardvision.md): whether this APK can run it, this device's choice,
+   * and why it isn't running this session when it failed (the web view's finder runs instead, and
+   * timing records say so).
+   */
+  const [nativeAbility, setNativeAbility] = useState<NativeFinderAbility | null>(null);
+  useEffect(() => {
+    if (!nativeCameraAvailable()) return;
+    let on = true;
+    void nativeFinderAbility().then((a) => on && setNativeAbility(a));
+    return () => {
+      on = false;
+    };
+  }, []);
+  const [nativeChoices, setNativeChoices] = useState(savedNative);
+  useEffect(() => onNativeChange(() => setNativeChoices(savedNative())), []);
+  const [nativeFinderFailed, setNativeFinderFailed] = useState<string | null>(null);
+  const nativeFinderFailedRef = useRef(nativeFinderFailed);
+  nativeFinderFailedRef.current = nativeFinderFailed;
+  const nativeFinderWanted = useNative && !!nativeAbility?.finder && nativeWanted("detector", nativeChoices) && !nativeFinderFailed;
+  /** The card finder option the app's code has loaded (its id), and the load it belongs to. */
+  const [nativeFinderReady, setNativeFinderReady] = useState<{ id: string; gen: number } | null>(null);
+  /** The option the app's finder is running on the camera's frames now (frames come with the card's corners), or null. */
+  const nativeFinding = useRef<string | null>(null);
+  /** The app's finder's last finds (ms each), for the timing record. */
+  const nativeMs = useRef<number[]>([]);
+  /** Bumped to load the app's finder again (the speed test loads other models in it). */
+  const [nativeGen, setNativeGen] = useState(0);
+  const bundleInfoRef = useRef<BundleInfo | null>(null);
   /** Scan settings are open over the scanner: it stops reading, as for anything else shown over it. */
   const [settingsOpen, setSettingsOpen] = useState(false);
   const paused = pausedProp || settingsOpen;
@@ -761,7 +798,9 @@ function ScannerScreen({
   /** The option each slot runs now, for kept photos and diagnostics. */
   const modelsNow = (): Record<string, string> => {
     const now = slotsRef.current;
-    return { detector: artRef.current?.detector ?? NO_ART_MODEL, art: artRef.current?.art ?? NO_ART_MODEL, look: artRef.current?.look ?? "off", text: now.text.option?.id ?? "auto", lock: now.lock.option?.id ?? "lead" };
+    // The card finder that placed the card: the app's own when it runs (recorded as `<id>-native`).
+    const detector = nativeFinding.current ? nativeId(nativeFinding.current) : (artRef.current?.detector ?? NO_ART_MODEL);
+    return { detector, art: artRef.current?.art ?? NO_ART_MODEL, look: artRef.current?.look ?? "off", text: now.text.option?.id ?? "auto", lock: now.lock.option?.id ?? "lead" };
   };
   // Audio is paused once no scanner (or deck check) is open, rather than left running (sound.ts).
   useEffect(() => holdSound(), []);
@@ -835,6 +874,15 @@ function ScannerScreen({
     if (camRef.current.focus != null) timing.detail.focus_pinned = camRef.current.focus;
     // With the placement gate: which try named the card (gate.ts).
     if (gateOn() && timed && gate.attempts > 0) timing.detail.gate_attempts = gate.attempts;
+    // The app's own card finder: its median find (ms, native code) and frames found a second; or,
+    // when it failed this session, why the web view's finder ran instead.
+    const finding = (fm?.models ?? modelsNow()).detector?.endsWith("-native");
+    if (finding && nativeMs.current.length) {
+      timing.detail.finder_ms = Math.round(median(nativeMs.current) * 10) / 10;
+      const fps = nativeCam.current?.finderStatus()?.fps;
+      if (fps) timing.detail.finder_fps = fps;
+    }
+    if (nativeFinderFailedRef.current) timing.detail.finder_fallback = nativeFinderFailedRef.current.slice(0, 120);
     return timing;
   };
   /**
@@ -963,6 +1011,34 @@ function ScannerScreen({
     const visibleH = box && box.height > 0 ? Math.min(v.videoHeight, box.height / k) : v.videoHeight;
     const z = az.frame(quad ? cardHeight(quad) / visibleH : null, c.zoom, performance.now());
     if (z != null) c.autoZoom(z);
+  };
+  /**
+   * What the app's own card finder found on the frame in the camera's canvas now, as corners in a
+   * region of it (`zone`, drawn at `k`): null when the frame came without it (the web view's
+   * finder runs). Its failure ends it for this session: the web view's finder takes over.
+   */
+  const nativeHanded = (zone: { x: number; y: number }, k: number): Handed | null => {
+    const native = nativeCam.current;
+    if (!nativeFinding.current || !native) return null;
+    const f = native.found();
+    if (!f) return null;
+    if (f.state === FOUND_FAILED) {
+      nativeFinding.current = null;
+      setNativeFinderFailed(native.finderStatus()?.failed ?? "the app's card finder stopped");
+      return null;
+    }
+    if (f.state !== FOUND_CARD && f.state !== FOUND_NONE) return null;
+    nativeMs.current.push(f.ms);
+    if (nativeMs.current.length > 30) nativeMs.current.shift();
+    return { quad: f.quad ? (f.quad.map(([x, y]) => [(x - zone.x) * k, (y - zone.y) * k]) as Quad) : null, upright: f.vote };
+  };
+  /** What the app's card finder is doing, for Scan settings. */
+  const nativeFinderLine = (): string | undefined => {
+    if (nativeFinderFailed) return `It stopped (${nativeFinderFailed}), so the web view's finder runs for the rest of this session.`;
+    if (!nativeWanted("detector", nativeChoices)) return undefined;
+    const st = nativeCam.current?.finderStatus();
+    if (nativeFinding.current && st?.ms) return `Running in the app: ${st.ms} ms a frame${st.fps ? `, ${st.fps} frames a second` : ""}.`;
+    return nativeFinderReady ? "Loaded in the app." : "Loading in the app…";
   };
   /** What the host files a card with (finish, where it goes), as far as the scanner is told. */
   const fileSettings = `${finish ?? ""}|${settingsSummary ?? ""}`;
@@ -1103,6 +1179,7 @@ function ScannerScreen({
           return null;
         });
         if (cancelled) return;
+        bundleInfoRef.current = info;
         const models = modelsOf(info);
         setModelsInfo(models);
         // The text slot as the server lists it, before any reader starts (a withdrawn one isn't
@@ -1143,6 +1220,8 @@ function ScannerScreen({
       ocrSession.current += 1;
       artRef.current = null;
       art?.dispose();
+      // The app's card finder lets its model go with the scanner.
+      if (nativeCameraAvailable()) void unloadNativeFinder();
       void ownedOcr.current?.terminate();
       ownedOcr.current = null;
       ocrRef.current = null;
@@ -1240,6 +1319,61 @@ function ScannerScreen({
     // As for the art model above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, artGen, detectorWant?.id, detectorWant?.file]);
+
+  // The card finder in the app's own code: the same file the art worker's finder runs (which stays
+  // loaded there, for photos and to fall back on), loaded once the app's camera is open. The app
+  // keeps its own copy of the file, so it's handed over from the page's cache only the first time.
+  // Anything that stops it loading gives the web view's finder the rest of this session.
+  useEffect(() => {
+    const native = nativeCam.current;
+    const constants = bundleInfoRef.current?.constants;
+    const option = detectorWant;
+    const file = option?.file;
+    if (!nativeFinderWanted || mode !== "art" || !live || !native || !constants || !option || !file) return;
+    let on = true;
+    const gen = nativeGen;
+    void loadNativeFinder({ key: finderKey(file), bytes: () => cachedFile(new URL(file, API_BASE || location.origin).href, option.bytes ?? 0, () => undefined) }, constants).then(
+      () => {
+        if (on) setNativeFinderReady({ id: option.id, gen });
+      },
+      (e: unknown) => {
+        if (!on) return;
+        console.warn("The app's card finder didn't load; the web view's runs", e);
+        setNativeFinderFailed(`it didn't load: ${e instanceof Error ? e.message : String(e)}`);
+      },
+    );
+    return () => {
+      on = false;
+      setNativeFinderReady(null);
+    };
+  }, [nativeFinderWanted, mode, live, detectorWant?.id, detectorWant?.file, nativeGen]);
+
+  // While the scanner reads frames (the outline's own rule, below), the app's finder runs on the
+  // camera's frames and draws the outline; otherwise it rests, and so does the phone.
+  const scanningNow = phase === "scanning" && mode === "art" && live && !closeup && !photoBusy && !paused && !lockOpen;
+  useEffect(() => {
+    const native = nativeCam.current;
+    const ready = nativeFinderReady;
+    if (!native || !ready) return;
+    let on = true;
+    void native.setFinder({ on: scanningNow, outline: scanningNow, reset: true }).then(
+      (st) => {
+        if (!on) return;
+        nativeFinding.current = st?.on ? ready.id : null;
+        nativeMs.current = [];
+        if (st?.failed) setNativeFinderFailed(st.failed);
+      },
+      (e: unknown) => {
+        // The camera closing meanwhile isn't a failure of the finder.
+        if (on) console.warn("The app's card finder didn't start", e);
+      },
+    );
+    return () => {
+      on = false;
+      nativeFinding.current = null;
+      void native.setFinder({ on: false }).catch(() => undefined);
+    };
+  }, [nativeFinderReady, scanningNow]);
 
   // Another text reader chosen (or one withdrawn): the next read starts the new one, and the one
   // running is stopped once the reads it has under way are done (OCR_RETIRE_MS), so a collector
@@ -1825,15 +1959,19 @@ function ScannerScreen({
           // (the timing record; Codex review of #171: stamped after recognition, a one-frame
           // settle measured nothing of its own read).
           const frameAt = Date.now();
-          if (diagRef.current) frameModel.current = { embed: art.embed, models: modelsNow() };
           // A digital zoom gives the recognizer the middle of the frame, at more of its pixels.
           const box = v.closest(".scan-camera")?.getBoundingClientRect();
           const zone = digitalRegion(v.videoWidth, v.videoHeight, digitalRef.current, box);
           const { image, k } = smallRegion(v, zone, canvasRef.current);
+          // Taken with the frame (nothing runs between): where the app's own card finder placed the
+          // card on it, in the recognizer's pixels. Then the web view's finder doesn't run on it.
+          const handed = nativeHanded(zone, k);
+          if (diagRef.current) frameModel.current = { embed: art.embed, models: modelsNow() };
           let toVideo = (q: Quad) => q.map(([x, y]) => [x / k + zone.x, y / k + zone.y]) as Quad;
-          // The outline follows the card finder, which answers before the art is matched.
+          // The outline follows the card finder, which answers before the art is matched. (The
+          // app's finder draws its own, natively, on every frame.)
           const outlined = (q: Quad | null) => {
-            if (!stop) outlines.see(q ? [toVideo(q)] : [], { w: v.videoWidth, h: v.videoHeight });
+            if (!stop && !handed) outlines.see(q ? [toVideo(q)] : [], { w: v.videoWidth, h: v.videoHeight });
           };
           const gated = gateOn();
           let r: Recognition;
@@ -1841,7 +1979,7 @@ function ScannerScreen({
             // The placement gate (gate.ts): every frame goes to the card finder alone; the art is
             // matched only when the gate says the card has come to rest, on the sharpest frame of
             // its stay, and not again while it lies there.
-            const seen = await art.locate(image);
+            const seen = handed ? await art.locate(image, handed) : await art.locate(image);
             if (stop) return;
             outlined(seen.quad);
             seeCard(seen.quad ? toVideo(seen.quad) : null, v);
@@ -1872,10 +2010,10 @@ function ScannerScreen({
             toVideo = kept.toVideo;
             // Diagnostics' timing record: the card appeared when the gate first saw it, not at this read.
             if (diagRef.current && !appeared.current && d.since != null) appeared.current = { at: Date.now() - (at - d.since), frames: 0 };
-            r = await art.identify(kept.image, undefined, d.quad);
+            r = handed ? await art.matchAt(kept.image, { quad: d.quad, upright: 1 }, { turn: true }) : await art.identify(kept.image, undefined, d.quad);
             if (stop) return;
           } else {
-            r = await art.identify(image, outlined);
+            r = handed ? await art.matchAt(image, handed, { turn: true }) : await art.identify(image, outlined);
             if (stop) return;
             outlined(r.quad);
             seeCard(r.quad ? toVideo(r.quad) : null, v);
@@ -2949,9 +3087,22 @@ function ScannerScreen({
           }}
           hide={identityOnly ? ["look"] : []}
           onChoose={(slot, id) => saveModel(slot, id)}
+          native={useNative && nativeAbility?.finder ? { detector: { chosen: nativeChoices.detector ?? null, on: nativeWanted("detector", nativeChoices), runs: nativeFinderLine() } } : undefined}
+          onNative={(slot, on) => {
+            saveNative(slot, on);
+            // A choice made here tries the app's finder again.
+            setNativeFinderFailed(null);
+          }}
         />
       )}
-      {modelsInfo && <SpeedTest ready={scannerSettled(mode, loadState, modelNotes)} alongside={mode === "art" ? { detector: detectorNow, art: artNow, look: lookNow } : null} />}
+      {modelsInfo && (
+        <SpeedTest
+          ready={scannerSettled(mode, loadState, modelNotes)}
+          alongside={mode === "art" ? { detector: nativeFinding.current ? nativeId(nativeFinding.current) : detectorNow, art: artNow, look: lookNow } : null}
+          // The test loads its models in the app's finder too: the scanner's is loaded again after.
+          onFinished={() => setNativeGen((g) => g + 1)}
+        />
+      )}
       {mode === "text" && <p className="scan-note">Card recognition isn't available right now, so the scanner reads the card's text: line the card up with the frame.</p>}
       <p className="scan-note">Reads text with {ENGINE_LABEL[ocrName ?? plannedEngine(ocrChoice.current)]}{ocrName ? "" : " (starts with the first read)"}.</p>
       <VersionLine className="scan-note" />
@@ -3095,7 +3246,7 @@ function ScannerScreen({
           ) : (
             <video ref={videoRef} className="scan-video" playsInline muted autoPlay aria-hidden="true" />
           )}
-          <CardOutline tracker={outlines} show={phase === "scanning" && mode === "art" && live && !closeup && !photoBusy && !paused && !lockOpen} />
+          <CardOutline tracker={outlines} show={scanningNow && !nativeFinderReady} />
         </div>
         {/* With no camera there is nothing to line a card up with: the guide is put away. */}
         <div className="scan-frame" aria-hidden="true" style={phase === "no-camera" ? { display: "none" } : undefined}>
