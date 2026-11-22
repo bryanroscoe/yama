@@ -73,6 +73,16 @@ describe("NativeCameraSetting", () => {
     expect(changes[0]).toMatchObject({ lens: "main", fps: 60, on: true });
   });
 
+  it("marks Main as the default, says what Automatic does, and why the lens chosen didn't open (22 Nov 2026)", () => {
+    act(() => root.render(<NativeCameraSetting option={{ ...OFF, on: true, lens: "auto" }} onChange={() => undefined} info={null} camera={null} />));
+    const lens = host.querySelector("select")!;
+    expect([...lens.options].find((o) => o.value === "main")?.textContent).toBe("Main (the default)");
+    expect(host.textContent).toContain("Automatic lets the phone switch to its ultra-wide lens when a card is close");
+    act(() => root.render(<NativeCameraSetting option={{ ...OFF, on: true, lens: "main" }} onChange={() => undefined} info={null} camera={null} lensFailed="that lens wouldn't bind" />));
+    expect(host.textContent).not.toContain("Automatic lets the phone switch");
+    expect(host.textContent).toContain("The main lens didn't open by itself (that lens wouldn't bind), so the app's camera is choosing the lens this time.");
+  });
+
   it("shows the flashlight at the strength the camera reports until one is chosen (Codex review)", () => {
     const camera = { described: () => ({ lenses: [], fpsRanges: [], torchLevels: 5, torchLevel: 2 }), setTorchLevel: async () => undefined } as unknown as NativeCamera;
     const changes: NativeCameraOption[] = [];

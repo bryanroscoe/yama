@@ -383,7 +383,7 @@ describe("card first off (the default)", () => {
   it("keeps the card in the sheet until its printing settles, as before: no provisional row", async () => {
     const { accepted, rows } = scanner({ autoAdd: true });
     await scanPhoto();
-    await until(() => document.body.textContent?.includes("Tap your printing"), "the picker");
+    await until(() => document.body.textContent?.includes("Arcane Signet: tap its printing"), "the picker");
     expect(rows).toEqual([]);
     expect(accepted).toEqual([]);
     expect(button("Add")).toBeUndefined();
@@ -431,7 +431,7 @@ describe("tie by price (opt-in)", () => {
     await until(() => document.body.textContent?.includes("they cost within 15%") || button("Add and scan next") || button("Add"), "the tie");
     expect(document.querySelector(".scan-result")?.textContent).toContain("WOC");
     act(() => root.render(view("foil")));
-    await until(() => document.body.textContent?.includes("Tap your printing"), "the picker again");
+    await until(() => document.body.textContent?.includes("Arcane Signet: tap its printing"), "the picker again");
     expect(accepted).toEqual([]);
   });
 
@@ -450,14 +450,14 @@ describe("tie by price (opt-in)", () => {
     state.sameArt = false;
     const { accepted } = scanner({ autoAdd: true });
     await scanPhoto();
-    await until(() => document.body.textContent?.includes("Tap your printing"), "the picker");
+    await until(() => document.body.textContent?.includes("Arcane Signet: tap its printing"), "the picker");
     expect(accepted).toEqual([]);
   });
 
   it("asks as before when it's off, or when the prices are further apart", async () => {
     const { accepted } = scanner({ autoAdd: true });
     await scanPhoto();
-    await until(() => document.body.textContent?.includes("Tap your printing"), "the picker");
+    await until(() => document.body.textContent?.includes("Arcane Signet: tap its printing"), "the picker");
     expect(accepted).toEqual([]);
     act(() => root.unmount());
     root = createRoot(host);
@@ -466,7 +466,7 @@ describe("tie by price (opt-in)", () => {
     state.ill += 1;
     const again = scanner({ autoAdd: true });
     await scanPhoto();
-    await until(() => document.body.textContent?.includes("Tap your printing"), "the picker");
+    await until(() => document.body.textContent?.includes("Arcane Signet: tap its printing"), "the picker");
     expect(again.accepted).toEqual([]);
   });
 });
@@ -488,7 +488,7 @@ describe("border colour (item 24)", () => {
     state.printings = [printing("p-white", "4ed", "300", "1995-04-01", { border_color: "white" }), printing("p-black", "m10", "210", "2009-07-17", { border_color: "black" })];
     const { accepted } = scanner({ autoAdd: true });
     await scanPhoto();
-    await until(() => document.body.textContent?.includes("Tap your printing"), "the picker");
+    await until(() => document.body.textContent?.includes("Arcane Signet: tap its printing"), "the picker");
     expect(accepted).toEqual([]);
   });
 });

@@ -130,16 +130,16 @@ afterEach(() => {
 
 describe("the option", () => {
   it("defaults to the browser camera without the plugin and ignores malformed settings", () => {
-    expect(savedNativeCamera()).toEqual({ on: false, lens: "auto", fps: 30, torchLevel: null });
+    expect(savedNativeCamera()).toEqual({ on: false, lens: "main", fps: 30, torchLevel: null });
     store.set(NATIVE_CAMERA_KEY, "not json");
     expect(savedNativeCamera().on).toBe(false);
     store.set(NATIVE_CAMERA_KEY, JSON.stringify({ on: "yes", lens: "fisheye", fps: -3, focus: "near" }));
-    expect(savedNativeCamera()).toEqual({ on: false, lens: "auto", fps: 30, torchLevel: null });
+    expect(savedNativeCamera()).toEqual({ on: false, lens: "main", fps: 30, torchLevel: null });
   });
   it("uses the native camera when supported and preserves an explicit opt-out", () => {
     vi.spyOn(Capacitor, "isNativePlatform").mockReturnValue(true);
     const available = vi.spyOn(Capacitor, "isPluginAvailable").mockImplementation((name) => name === "ScannerCamera");
-    expect(savedNativeCamera()).toEqual({ on: true, lens: "auto", fps: 30, torchLevel: null });
+    expect(savedNativeCamera()).toEqual({ on: true, lens: "main", fps: 30, torchLevel: null });
     store.set(NATIVE_CAMERA_KEY, JSON.stringify({ lens: "main", fps: 60 }));
     expect(savedNativeCamera()).toEqual({ on: true, lens: "main", fps: 60, torchLevel: null });
     saveNativeCamera({ on: false, lens: "main", fps: 60, torchLevel: null });
@@ -147,6 +147,20 @@ describe("the option", () => {
     store.delete(NATIVE_CAMERA_KEY);
     available.mockReturnValue(false);
     expect(savedNativeCamera().on).toBe(false);
+  });
+  it("takes the main lens over an Automatic saved before it became the default, and keeps any other lens or a choice since (22 Nov 2026)", () => {
+    vi.spyOn(Capacitor, "isNativePlatform").mockReturnValue(true);
+    vi.spyOn(Capacitor, "isPluginAvailable").mockImplementation((name) => name === "ScannerCamera");
+    // Bryan's Pixel: saved with the version before, on Automatic, which was then the default.
+    store.set(NATIVE_CAMERA_KEY, JSON.stringify({ v: 2, on: true, lens: "auto", fps: 30, torchLevel: null }));
+    expect(savedNativeCamera()).toEqual({ on: true, lens: "main", fps: 30, torchLevel: null });
+    store.set(NATIVE_CAMERA_KEY, JSON.stringify({ lens: "auto", fps: 60 }));
+    expect(savedNativeCamera()).toMatchObject({ lens: "main", fps: 60 });
+    store.set(NATIVE_CAMERA_KEY, JSON.stringify({ v: 2, on: true, lens: "ultrawide", fps: 30 }));
+    expect(savedNativeCamera().lens).toBe("ultrawide");
+    // Automatic chosen since: kept.
+    saveNativeCamera({ on: true, lens: "auto", fps: 30, torchLevel: null });
+    expect(savedNativeCamera().lens).toBe("auto");
   });
   it("takes the default over an off saved while the app's camera was opt-in, keeping the rest", () => {
     vi.spyOn(Capacitor, "isNativePlatform").mockReturnValue(true);
@@ -156,7 +170,7 @@ describe("the option", () => {
     expect(savedNativeCamera()).toEqual({ on: true, lens: "main", fps: 60, torchLevel: 2 });
     // Turned off since, it stays off.
     saveNativeCamera({ on: false, lens: "main", fps: 60, torchLevel: 2 });
-    expect(JSON.parse(store.get(NATIVE_CAMERA_KEY)!)).toMatchObject({ v: 2, on: false });
+    expect(JSON.parse(store.get(NATIVE_CAMERA_KEY)!)).toMatchObject({ v: 3, on: false });
     expect(savedNativeCamera().on).toBe(false);
   });
   it("is remembered on this device", () => {
