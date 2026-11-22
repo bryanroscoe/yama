@@ -95,6 +95,13 @@ class ScannerLab(unittest.TestCase):
             row = {"id": "a", "kind": "added", "crops": [{"name": "card", "file": "a.card.jpg"}]}
             Path(incoming, "manifest.jsonl").write_text(json.dumps(row) + "\n")
             Path(incoming, "a.jpg").write_bytes(b"a")
+            Path(incoming, "shared_ids.txt").write_text("a\n")
+            with self.assertRaises(SystemExit):
+                merge(dest, incoming)
+            self.assertEqual(sorted(os.listdir(dest)), [])
+            # Every file there, but no list of what the server still shares: refused too.
+            Path(incoming, "a.card.jpg").write_bytes(b"a")
+            Path(incoming, "shared_ids.txt").unlink()
             with self.assertRaises(SystemExit):
                 merge(dest, incoming)
             self.assertEqual(sorted(os.listdir(dest)), [])

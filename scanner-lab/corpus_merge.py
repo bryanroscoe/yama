@@ -6,7 +6,8 @@ manifest.jsonl keeps one line per photo, the newest: a photo relabelled since an
 called wrong, then filed) comes again with its new label. A photo no longer shared on the server
 (deleted by its owner's Delete them, with its account, or by the caps: not in the export's
 shared_ids.txt) goes from DEST too, files and line, so the copy is never kept longer than the
-server keeps it. An export missing a file its manifest lists is refused, and DEST is left as it was.
+server keeps it. An export missing a file its manifest lists, or that list, is refused, and DEST is
+left as it was.
 Prints what changed, by kind. Standard library only. The photos are people's data: DEST stays
 outside the repository and anything public."""
 import collections
@@ -47,10 +48,12 @@ def merge(dest, incoming):
     missing = missing_files(incoming, pulled)
     if missing:
         raise SystemExit(f"The export is missing {len(missing)} files it lists ({missing[:3]}): nothing merged. Pull again.")
-    shared = None
-    if os.path.exists(os.path.join(incoming, "shared_ids.txt")):
-        with open(os.path.join(incoming, "shared_ids.txt")) as f:
-            shared = {line.strip() for line in f if line.strip()}
+    # Without the list of what the server shares now, nothing deleted there could go here: refused
+    # (Codex review of #197), as an export cut short is.
+    if not os.path.exists(os.path.join(incoming, "shared_ids.txt")):
+        raise SystemExit("The export has no shared_ids.txt (a server from before 22 Nov 2026, or a copy cut short): nothing merged.")
+    with open(os.path.join(incoming, "shared_ids.txt")) as f:
+        shared = {line.strip() for line in f if line.strip()}
     new = updated = 0
     for row in pulled.values():
         if row["id"] in rows:
@@ -62,16 +65,13 @@ def merge(dest, incoming):
         if FILE.match(name):
             os.replace(os.path.join(incoming, name), os.path.join(dest, name))
     # What the server no longer shares goes here too, files and line.
-    removed = 0
-    if shared is not None:
-        gone = {i for i in rows if i not in shared}
-        removed = len(gone)
-        for i in gone:
-            del rows[i]
-        for name in os.listdir(dest):
-            m = FILE.match(name)
-            if m and name.split(".", 1)[0] in gone:
-                os.remove(os.path.join(dest, name))
+    gone = {i for i in rows if i not in shared}
+    removed = len(gone)
+    for i in gone:
+        del rows[i]
+    for name in os.listdir(dest):
+        if FILE.match(name) and name.split(".", 1)[0] in gone:
+            os.remove(os.path.join(dest, name))
     part = path + ".part"
     with open(part, "w") as f:
         for row in sorted(rows.values(), key=lambda r: (r.get("created_at") or "", r["id"])):

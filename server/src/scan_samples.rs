@@ -740,8 +740,19 @@ fn shared_columns() -> String {
     )
 }
 
+/// A date (midnight UTC) or an RFC 3339 moment, as the stored times are written (`util::now`: UTC,
+/// to the second, `Z`), so the two compare as text. Codex review of #197: a moment with another
+/// offset compared as text missed newer photos or took older ones.
+pub fn since_utc(since: &str) -> Option<String> {
+    let since = since.trim();
+    if let Ok(at) = chrono::DateTime::parse_from_rfc3339(since) {
+        return Some(at.with_timezone(&chrono::Utc).format("%Y-%m-%dT%H:%M:%SZ").to_string());
+    }
+    chrono::NaiveDate::parse_from_str(since, "%Y-%m-%d").ok().map(|d| format!("{}T00:00:00Z", d.format("%Y-%m-%d")))
+}
+
 /// Shared photos, newest first: everyone's, or one account's (`owner`), made or labelled from
-/// `since` (a date or moment), before the cursor `before` (`created_at|id` of the last one already seen).
+/// `since` (as [`since_utc`] gives it), before the cursor `before` (`created_at|id` of the last one already seen).
 async fn shared_page(pool: &SqlitePool, owner: Option<&str>, since: Option<&str>, before: Option<(&str, &str)>, limit: i64) -> AppResult<Vec<SharedSample>> {
     Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT {} FROM scan_samples s JOIN users u ON u.id = s.owner_id
@@ -771,7 +782,11 @@ struct AdminPage {
 async fn admin_list(State(st): State<AppState>, AdminUser(_): AdminUser, Query(q): Query<AdminPage>) -> AppResult<Json<Value>> {
     let limit = q.limit.unwrap_or(50).clamp(1, 200);
     let before = q.before.as_deref().and_then(|b| b.split_once('|'));
-    let samples = shared_page(&st.pool, q.owner.as_deref(), q.since.as_deref(), before, limit).await?;
+    let since = match q.since.as_deref().filter(|s| !s.trim().is_empty()) {
+        Some(s) => Some(since_utc(s).ok_or_else(|| AppError::bad("since is a date (2026-11-22) or a moment (2026-11-22T10:00:00Z)"))?),
+        None => None,
+    };
+    let samples = shared_page(&st.pool, q.owner.as_deref(), since.as_deref(), before, limit).await?;
     let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM scan_samples WHERE shared = 1").fetch_one(&st.pool).await?;
     let next = (samples.len() as i64 == limit).then(|| samples.last().map(|s| format!("{}|{}", s.created_at, s.id))).flatten();
     let samples = samples.iter().map(|s| s.json("url", |name| format!("/api/admin/scan-samples/{}/crops/{name}", s.id))).collect::<AppResult<Vec<_>>>()?;
@@ -820,7 +835,11 @@ pub async fn export_cli(pool: &SqlitePool, data_dir: &std::path::Path, args: &[S
     }
     let dir = std::path::Path::new(dir);
     std::fs::create_dir_all(dir)?;
-    let (since, owner) = (flag("--since"), flag("--owner"));
+    let since = match flag("--since") {
+        Some(s) => Some(since_utc(&s).with_context(|| format!("--since {s:?} isn't a date (2026-11-22) or a moment (2026-11-22T10:00:00Z)"))?),
+        None => None,
+    };
+    let owner = flag("--owner");
     let mut manifest = String::new();
     let mut before: Option<(String, String)> = None;
     let (mut n, mut crops, mut missing) = (0usize, 0usize, 0usize);
@@ -1280,6 +1299,14 @@ mod tests {
         assert!(manifest.contains("\"kind\":\"unconfirmed\""));
         std::fs::remove_dir_all(&dir).unwrap();
         assert!(export_cli(&pool, &data(), &[dir.to_string_lossy().into_owned(), "--kind".into(), "added".into()]).await.is_err());
+        assert!(export_cli(&pool, &data(), &[dir.to_string_lossy().into_owned(), "--since".into(), "last week".into()]).await.is_err());
+        // A moment with an offset is the instant it names: 02:00 at +02:00 is midnight UTC, before
+        // the photo made now, so it's taken.
+        let dir = data().join(format!("yama-scan-export-{}", crate::util::new_id()));
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        export_cli(&pool, &data(), &[dir.to_string_lossy().into_owned(), "--since".into(), format!("{today}T02:00:00+02:00")]).await.unwrap();
+        assert!(std::fs::read_to_string(dir.join("manifest.jsonl")).unwrap().contains(ids[2].as_str()));
+        std::fs::remove_dir_all(&dir).unwrap();
         remove_owner_files(&data(), &me);
     }
 
@@ -1372,6 +1399,17 @@ mod tests {
         let (status, _) = testutil::send(&app, Method::POST, "/api/scan/samples", Some(&token), Some(with_crops("added"))).await;
         assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
         assert!(files(&me).is_empty());
+    }
+
+    #[test]
+    fn since_is_compared_as_the_stored_utc_times() {
+        assert_eq!(since_utc("2026-11-22").as_deref(), Some("2026-11-22T00:00:00Z"));
+        assert_eq!(since_utc("2026-11-22T10:00:00Z").as_deref(), Some("2026-11-22T10:00:00Z"));
+        // Another offset is the same instant in UTC, not its text.
+        assert_eq!(since_utc("2026-11-22T10:00:00+02:00").as_deref(), Some("2026-11-22T08:00:00Z"));
+        assert_eq!(since_utc("2026-11-21T22:30:00.250-05:00").as_deref(), Some("2026-11-22T03:30:00Z"));
+        assert_eq!(since_utc("yesterday"), None);
+        assert_eq!(since_utc("2026-13-01"), None);
     }
 
     #[test]
