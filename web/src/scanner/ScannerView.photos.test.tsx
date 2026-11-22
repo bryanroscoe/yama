@@ -251,6 +251,18 @@ describe("scan photos of every card the scanner names", () => {
     expect(posts()[0]!.json).toMatchObject({ kind: "unconfirmed", guess_name: "Arcane Signet" });
   });
 
+  it("keeps nothing in test scan, whatever it names", async () => {
+    act(() => root.render(<ScannerView identityOnly onAccept={async () => true} />));
+    await click(await until(() => document.querySelector<HTMLButtonElement>('button[aria-label="Scan settings"]'), "Scan settings"));
+    const testing = await until(() => [...document.querySelectorAll<HTMLLabelElement>("label.scan-keep")].find((l) => l.textContent?.includes("Test scan."))?.querySelector("input"), "the test scan switch");
+    await click(testing);
+    // Test scan goes on card after card by itself; let it name a couple.
+    await until(() => (foundName().includes("Arcane Signet") || document.body.textContent?.includes("scanned, none saved") ? true : null), "a card named");
+    Object.assign(cam, { card: "Mind Stone", index: 5, picture: 53 });
+    await wait(600);
+    expect(sent.calls).toEqual([]);
+  });
+
   it("sends nothing with Save scan photos off", async () => {
     setSavingPhotos(false);
     act(() => root.render(<ScannerView identityOnly onAccept={async () => true} />));
