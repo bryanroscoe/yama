@@ -1474,10 +1474,11 @@ function ScannerScreen({
   const afterNative = (r: Recognition) => {
     const failed = r.remote?.failed;
     if (failed && !failed.includes(NATIVE_GONE)) setNativeArtFailed(failed);
-    // What read this frame's art, for its timing record.
-    if (diagRef.current && frameModel.current && r.remote) {
+    // What read this frame's art, for its timing record: the app only when it did (not under
+    // digital zoom, not for a frame the web view's finder placed; Codex review of #198).
+    if (diagRef.current && frameModel.current) {
       const artId = artRef.current?.art ?? NO_ART_MODEL;
-      frameModel.current = { ...frameModel.current, models: { ...frameModel.current.models, art: r.remote.reads > 0 && !failed ? nativeId(artId) : artId } };
+      frameModel.current = { ...frameModel.current, models: { ...frameModel.current.models, art: r.remote && r.remote.reads > 0 && !failed ? nativeId(artId) : artId } };
     }
   };
 

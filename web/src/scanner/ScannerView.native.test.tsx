@@ -369,4 +369,18 @@ describe("the card finder in the app's own code", () => {
     expect(failing.mock.calls.length).toBe(failed);
     expect(nat.embeds.length).toBe(reads);
   });
+
+  it("names the worker as the art's reader in the record when the app didn't read it", async () => {
+    localStorage.setItem("yama.scan.diagnostics", "1");
+    localStorage.setItem("yama.scan.native", JSON.stringify({ art: false }));
+    nat.score = 0.2;
+    act(() => root.render(<ScannerView identityOnly autoAdd closeups={false} onAccept={async () => true} />));
+    await until(() => (nat.matched.length >= 1 ? true : null), "a frame matched at the app's corners");
+    nat.score = 0.93;
+    await until(() => (sent.timings.length > 0 ? true : null), "a timing record");
+    const t = sent.timings[0]!;
+    expect((t.models as Record<string, string>).detector).toBe("bundle-detector-native");
+    expect((t.models as Record<string, string>).art).toBe("bundle");
+    expect((t.detail as Record<string, unknown>).art_ms).toBeUndefined();
+  });
 });
