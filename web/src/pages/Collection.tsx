@@ -1064,8 +1064,13 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
     setNotice(null);
     let moved = 0;
     const failed: string[] = [];
-    for (const a of move) {
+    for (const { key } of move) {
+      // As it is now: a fix or Clear the list during the move (each move waits on the server) must
+      // neither be undone by a plan made from the entry as it was, nor be counted as moved.
+      const a = listRef.current.find((x) => x.key === key);
+      if (!a || a.copies === 0 || a.container === to) continue;
       try {
+        // fix() locks the entry before it first waits, so nothing changes it between here and there.
         await fix(a, boxFix(a, to));
         moved += a.copies;
       } catch {
