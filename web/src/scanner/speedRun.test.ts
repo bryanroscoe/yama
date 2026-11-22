@@ -103,6 +103,15 @@ function world(
           };
           return r;
         },
+        // The art at corners the app's card finder placed (speedRun.ts, its configurations in the app).
+        async matchAt(image, handed) {
+          if (gone) throw new Error("The scanner is closed");
+          const embed = art.id === "yama-art-20261118-cascade" ? [15] : [60];
+          clock += embed[0]! + 5 + 1;
+          shown = cards[image.data[0]!]!;
+          const top = { ...shown, layout: "normal", printings: 1, index: shown.index, score: 0.9 };
+          return { quad: handed.quad, upright: handed.upright ?? 1, matches: handed.quad ? [top] : [], timings: { detectMs: 0, embedMs: embed[0]! + 5, totalMs: embed[0]! + 5, cuts: 17, runs: { detector: [], embed, search: [5] } } };
+        },
         reset() {
           tracking = false;
         },
@@ -190,6 +199,75 @@ describe("which models the speed test times", () => {
 });
 
 describe("a speed test", () => {
+  it("times the card finder in the app beside each configuration, on the same frames, against the web view's", async () => {
+    const w = world();
+    const loaded: string[] = [];
+    let resets = 0;
+    w.deps.native = {
+      can: async () => ({ can: true, runs: true }),
+      load: async (_info, d) => (loaded.push(d.id), 150),
+      // Its own time (9 ms, one pass), a corner half a pixel from the web view's.
+      find: async (_image, reset) => {
+        if (reset) resets += 1;
+        return { state: 1, quad: [[0, 0], [1, 0], [1, 1.5], [0, 1]], vote: 1, ms: 9, passes: 1, ageMs: 0, runs: [9] };
+      },
+    };
+    const r = await runSpeedTest(() => undefined, undefined, w.deps);
+    expect(loaded).toEqual(["bundle-detector", "yama-corners-20261120"]);
+    // This device's scanner runs it: each configuration in the app comes first, so "yours" is what it runs.
+    expect(r.configs.map((c) => [c.roles, c.runtime])).toEqual([
+      [["yours", "defaults"], "native-cpu"],
+      [["yours", "defaults"], "wasm-1-thread"],
+      [["faster"], "native-cpu"],
+      [["faster"], "wasm-1-thread"],
+    ]);
+    const [app, web] = r.configs;
+    expect(app!.ran).toEqual({ detector: "bundle-detector-native", art: "yama-art-20261118" });
+    expect(app!.runtimes).toEqual({ detector: "native-cpu", art: "wasm-1-thread" });
+    expect(app!.loadMs).toBe(150);
+    expect(app!.frames).toHaveLength(SPEED_CARDS * FRAMES_PER_CARD);
+    // A frame: the app's 9 ms, then the art at its corners in the worker (60 + 5, and a ms of messaging).
+    expect(app!.stats!.tracked.median).toBe(75);
+    expect(app!.stats!.detector.median).toBe(9);
+    expect(web!.stats!.tracked.median).toBe(116);
+    expect(app!.parity).toEqual({ frames: SPEED_CARDS * FRAMES_PER_CARD, both: SPEED_CARDS * FRAMES_PER_CARD, disagreed: 0, maxPx: 0.5, medianPx: 0.5, sameTop: SPEED_CARDS * FRAMES_PER_CARD });
+    expect(resets).toBe(SPEED_CARDS * 2);
+    expect(speedSummary(r)).toContain("75 ms with your models");
+  });
+
+  it("puts the configuration in the app after the web view's where this device doesn't run it, and notes one that won't load", async () => {
+    const w = world();
+    w.deps.native = {
+      can: async () => ({ can: true, runs: false }),
+      load: async (_info, d) => {
+        if (d.id === "yama-corners-20261120") throw new Error("the app's card finder didn't load");
+        return 100;
+      },
+      find: async () => ({ state: 2, quad: null, vote: 0, ms: 4, passes: 2, ageMs: 0, runs: [2, 2] }),
+    };
+    const r = await runSpeedTest(() => undefined, undefined, w.deps);
+    expect(r.configs.map((c) => c.runtime)).toEqual(["wasm-1-thread", "native-cpu", "wasm-1-thread", "native-cpu"]);
+    // Finding nothing where the web view found a card: said so.
+    expect(r.configs[1]!.parity).toMatchObject({ both: 0, disagreed: SPEED_CARDS * FRAMES_PER_CARD });
+    expect(r.configs[3]!.error).toBe("the app's card finder didn't load");
+    expect(r.configs[3]!.stats).toBeNull();
+    expect(speedSummary(r)).toContain("116 ms with your models");
+  });
+
+  it("lets the web view's configuration stand for its roles when the app's won't load, where the device runs it", async () => {
+    const w = world();
+    w.deps.native = {
+      can: async () => ({ can: true, runs: true }),
+      load: async () => {
+        throw new Error("the app's card finder didn't load");
+      },
+      find: async () => ({ state: 2, quad: null, vote: 0, ms: 4, passes: 2, ageMs: 0, runs: [2, 2] }),
+    };
+    const r = await runSpeedTest(() => undefined, undefined, w.deps);
+    expect(r.configs.map((c) => c.runtime)).toEqual(["wasm-1-thread", "native-cpu", "wasm-1-thread", "native-cpu"]);
+    expect(speedSummary(r)).toContain("116 ms with your models");
+  });
+
   it("times every frame through each configuration's own worker, the warm-up apart, then the look", async () => {
     const w = world();
     const progress: SpeedProgress[] = [];
@@ -227,7 +305,7 @@ describe("a speed test", () => {
     expect(w.looks[0]!.times.map((t) => t.url)).toEqual(cards.map((c) => `https://cards.scryfall.io/normal/front/${c.id}.jpg`));
     expect(w.looks[0]!.times[0]!.quad).toHaveLength(4);
     expect(r.look).toMatchObject({ option: "look-v1", loadMs: 500, firstMs: 700, picture: { median: 70, n: SPEED_CARDS - 1 }, frame: { median: 65 }, fetch: { median: 300 }, decode: { median: 12 }, error: null });
-    expect(r).toMatchObject({ version: 1, bundle: V, device: "Pixel 10 Pro, Android 16", choices: {}, alongside: null });
+    expect(r).toMatchObject({ version: 2, bundle: V, device: "Pixel 10 Pro, Android 16", choices: {}, alongside: null });
     const beside = await runSpeedTest(() => undefined, undefined, world().deps, { detector: "bundle-detector", art: "yama-art-20261118", look: "look-v1" });
     expect(beside.alongside).toEqual({ detector: "bundle-detector", art: "yama-art-20261118", look: "look-v1" });
     expect(r.cards.map((c) => c.id)).toEqual(cards.map((c) => c.id));

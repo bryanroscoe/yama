@@ -19,8 +19,11 @@ export const FRAMES_PER_CARD = 4;
 /** The faster options (docs/scanner.md, "Faster options"), timed beside this device's and the defaults. */
 export const FAST_DETECTOR = "yama-corners-20261120";
 export const FAST_ART = "yama-art-20261118-cascade";
-/** The report's form, for readers of saved tests. */
-export const SPEED_REPORT_VERSION = 1;
+/**
+ * The report's form, for readers of saved tests. 2 (22 Nov 2026): a configuration may run its card
+ * finder in the app's own code (`runtime` "native-cpu", `runtimes`, `parity`).
+ */
+export const SPEED_REPORT_VERSION = 2;
 /**
  * What ran the models: onnxruntime-web's WASM build on one thread, as the scanner does. Native runs
  * (ONNX Runtime for Android) and GPU ones will say otherwise, so they can be told apart.
@@ -162,6 +165,24 @@ export interface FrameTime {
   right: boolean;
 }
 
+/** The app's card finder against the web view's on the same frames (speedRun.ts). */
+export interface FinderParity {
+  frames: number;
+  /** Frames both found a card on, and frames only one of them did. */
+  both: number;
+  disagreed: number;
+  /** Over the frames both found it on: the furthest any corner was from the other's (px), the median of each frame's furthest. */
+  maxPx: number | null;
+  medianPx: number | null;
+  /** Frames whose best match was the same card both ways. */
+  sameTop: number;
+}
+
+/** The furthest any corner of `a` is from the same corner of `b`. */
+export function cornerGap(a: Quad, b: Quad): number {
+  return Math.max(...a.map((p, i) => Math.hypot(p[0] - b[i]![0], p[1] - b[i]![1])));
+}
+
 /** What a configuration's frames add up to. */
 export interface ConfigStats {
   /** One detector pass. */
@@ -208,8 +229,17 @@ export type SpeedRole = "yours" | "defaults" | "faster";
 
 export interface ConfigResult {
   roles: SpeedRole[];
-  /** What ran the models (SPEED_RUNTIME). */
+  /**
+   * What ran the models (SPEED_RUNTIME): "native-cpu" when the card finder ran in the app's own
+   * code (nativeModels.ts), the art match still in the web view (`runtimes` says which ran what).
+   */
   runtime: string;
+  runtimes?: { detector: string; art: string };
+  /**
+   * A configuration run in the app: its card finder's corners against the web view's own on the
+   * same frames, with the same model (the web configuration it stands beside).
+   */
+  parity?: FinderParity | null;
   /** What was asked for, and what the worker ran (a model that doesn't load gives way to the defaults). */
   wanted: ModelPair;
   ran: { detector: string; art: string } | null;

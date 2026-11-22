@@ -69,6 +69,11 @@ export interface Recognition {
    * reads them: a detector pass, the art embedding, the search).
    */
   timings: { detectMs: number; embedMs: number; totalMs: number; cuts?: number; runs?: GraphRuns };
+  /**
+   * `matchAt` with `turn`: the art was also read with the card turned half round, because upright
+   * was doubtful (`true`), and that read won (`"won"`); absent when it wasn't read.
+   */
+  turned?: true | "won";
 }
 
 /** Milliseconds of each graph run in one frame, in the order they ran. */
@@ -99,8 +104,19 @@ export interface Recognizer {
    * corners is matched.
    */
   identify(frame: RgbaImage, onSeen?: (quad: Quad | null) => void, at?: Quad | null): Promise<Recognition>;
-  /** The card finder alone: where the card is, how sharp, and its thumbnail. For the placement gate. */
-  locate(frame: RgbaImage): Promise<Located>;
+  /**
+   * The card finder alone: where the card is, how sharp, and its thumbnail. For the placement gate.
+   * With `handed` (corners another finder placed on this very frame: the app's own, nativeCamera.ts)
+   * the finder isn't run: the card is described at those corners, or there is none.
+   */
+  locate(frame: RgbaImage, handed?: Handed): Promise<Located>;
+  /**
+   * The art at corners found elsewhere (the app's own card finder found them on this very frame):
+   * none (`quad` null) is no card, and nothing runs. With `turn`, a read whose upright answer is
+   * doubtful is read again with the card turned half round, and the better kept (the plan's item
+   * 20: the finder looks once, not four ways round).
+   */
+  matchAt(frame: RgbaImage, handed: Handed, opts?: { turn?: boolean }): Promise<Recognition>;
   /** Forget the tracked card (after it was accepted, say). */
   reset(): void;
   /**
@@ -122,8 +138,64 @@ export interface Recognizer {
   setDetector(graph: Uint8Array): Promise<void>;
 }
 
+/** Corners another card finder placed on a frame, and how sure it was a card is there (0 to 1). */
+export interface Handed {
+  quad: Quad | null;
+  upright?: number;
+}
+
 /** Pool matches kept per frame. */
 const POOL_TOP = 3;
+
+/** The quad turned half round: its top-left is the far corner. */
+export const halfTurn = (q: Quad): Quad => [q[2], q[3], q[0], q[1]];
+
+/**
+ * Which way up the art was read for the card last read (`matchAt` with `turn`): upright when that
+ * read was sure, else the better of upright and half round. So a card lying there isn't read
+ * twice on every frame: the same card (near where it was, about as big, its corners where they
+ * were) is read the way it was, and only a new card, or a doubtful read naming another card than
+ * the one remembered, is read both ways again.
+ */
+export class TurnMemory {
+  private last: { quad: Quad; name: string | null } | null = null;
+
+  /**
+   * The quad to read first: as given or turned half round, whichever puts its corners where the
+   * remembered card's were. Never a quarter: the finder's long edges stay the card's sides, so a
+   * card turned a quarter in place is a new reading, not this one.
+   */
+  first(quad: Quad): { quad: Quad; known: boolean; name: string | null } {
+    const m = this.last;
+    if (!m || !near(quad, m.quad)) return { quad, known: false, name: null };
+    const turned = halfTurn(quad);
+    const pick = cornerGap(turned, m.quad) < cornerGap(quad, m.quad) ? turned : quad;
+    if (cornerGap(pick, m.quad) > 0.15 * shortSide(m.quad)) return { quad, known: false, name: null };
+    return { quad: pick, known: true, name: m.name };
+  }
+
+  learn(won: Quad, name: string | null) {
+    this.last = { quad: won, name };
+  }
+
+  forget() {
+    this.last = null;
+  }
+}
+
+/** The furthest any corner of `a` is from the same corner of `b`. */
+const cornerGap = (a: Quad, b: Quad): number => Math.max(...a.map((p, i) => Math.hypot(p[0] - b[i]![0], p[1] - b[i]![1])));
+
+const centreOf = (q: Quad): Point => [(q[0][0] + q[1][0] + q[2][0] + q[3][0]) / 4, (q[0][1] + q[1][1] + q[2][1] + q[3][1]) / 4];
+
+/** The same card's corners: its centre within a quarter of its short side, its size within 20%. */
+function near(a: Quad, b: Quad): boolean {
+  const sa = shortSide(a);
+  const sb = shortSide(b);
+  const [ax, ay] = centreOf(a);
+  const [bx, by] = centreOf(b);
+  return sb > 0 && sa / sb >= 0.8 && sa / sb <= 1.25 && Math.hypot(ax - bx, ay - by) <= 0.25 * sb;
+}
 
 /** The parts of onnxruntime-web this uses. */
 export interface OrtLike {
@@ -502,12 +574,45 @@ export async function createRecognizer(
     return { fine, inView };
   };
 
-  const locate = async (frame: RgbaImage): Promise<Located> => {
+  const locate = async (frame: RgbaImage, handed?: Handed): Promise<Located> => {
     const t0 = now();
-    const { fine, inView } = await find(frame);
+    const { fine, inView } = handed ? { fine: { quad: handed.quad!, vote: handed.upright ?? (handed.quad ? 1 : 0) }, inView: !!handed.quad } : await find(frame);
     if (!inView) return { quad: null, upright: fine.vote, detectMs: now() - t0 };
     const back = isCardBack(frame, fine.quad);
     return { quad: fine.quad, upright: fine.vote, ...(back ? { back } : {}), sharpness: frameSharpness(frame, fine.quad), thumb: cardThumb(frame, fine.quad), detectMs: now() - t0 };
+  };
+
+  const turns = new TurnMemory();
+  const matchAt = async (frame: RgbaImage, handed: Handed, opts: { turn?: boolean } = {}): Promise<Recognition> => {
+    const t0 = now();
+    const runs = noRuns();
+    const upright = handed.upright ?? (handed.quad ? 1 : 0);
+    if (!handed.quad) {
+      turns.forget();
+      return { quad: null, upright, matches: [], pool: pool && gallery ? [] : undefined, timings: { detectMs: 0, embedMs: 0, totalMs: now() - t0, cuts: 0, runs } };
+    }
+    const back = isCardBack(frame, handed.quad);
+    const plan = opts.turn ? turns.first(handed.quad) : { quad: handed.quad, known: true, name: null };
+    let quad = plan.quad;
+    let { cuts, ...found } = await match(frame, quad, runs);
+    let turned: Recognition["turned"];
+    const top = found.matches[0];
+    // Doubtful upright: read it the other way up too, unless this card was already read both ways
+    // and the read still names the card it was then.
+    if (opts.turn && !settles(found.matches) && !(plan.known && (top?.name ?? null) === plan.name)) {
+      const other = halfTurn(quad);
+      const { cuts: otherCuts, ...again } = await match(frame, other, runs);
+      turned = true;
+      if ((again.matches[0]?.score ?? -Infinity) > (top?.score ?? -Infinity)) {
+        quad = other;
+        found = again;
+        cuts = otherCuts;
+        turned = "won";
+      }
+    }
+    if (opts.turn) turns.learn(quad, found.matches[0]?.name ?? null);
+    const t2 = now();
+    return { quad, upright, ...found, ...(back ? { back } : {}), timings: { detectMs: 0, embedMs: t2 - t0, totalMs: t2 - t0, cuts, runs }, ...(turned ? { turned } : {}) };
   };
 
   const identify = async (frame: RgbaImage, onSeen?: (quad: Quad | null) => void, at?: Quad | null): Promise<Recognition> => {
@@ -534,9 +639,11 @@ export async function createRecognizer(
   return {
     identify,
     locate,
+    matchAt,
     reset() {
       tracked = null;
       trackedFor = 0;
+      turns.forget();
     },
     setPool(indices) {
       if (!gallery) {
