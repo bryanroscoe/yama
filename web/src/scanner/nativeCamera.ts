@@ -10,8 +10,8 @@
 // base64 through plugin calls. What a frame costs to cross is measured as it runs (`bridge` in
 // `info()`), and `bench` times every way of crossing for the PR and Scan settings.
 //
-// It is an option in Scan settings (off unless turned on, per device), offered only inside the
-// app with native code that has the plugin.
+// It is an option in Scan settings (on by default since 22 Nov 2026, per device), offered only
+// inside the app with native code that has the plugin.
 //
 // The card finder can run in native code too (NativeFinder.java; docs/plans/scanner-match-cardvision.md,
 // stage 3): on every frame the camera analyses, drawing the outline natively. Each frame the page
@@ -48,14 +48,24 @@ export const NATIVE_CAMERA_KEY = "yama.scan.nativeCamera";
 const isLens = (v: unknown): v is NativeLens => v === "auto" || v === "main" || v === "ultrawide" || v === "telephoto";
 const positive = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v > 0;
 
+/**
+ * The saved option's version. Until 22 Nov 2026 (PR #193) the app's camera was opt-in, and any
+ * change in its settings saved `on: false` beside the lens or rate: that meant "not turned on
+ * yet", not "turned off", so an option saved without this version keeps its lens, rate and
+ * flashlight strength but takes the default for `on` (Bryan, 22 Nov 2026: the app's camera
+ * wasn't selected on his Pixel after it became the default). Only a choice saved since counts
+ * as opting out.
+ */
+const SAVED_VERSION = 2;
+
 /** Use the app's own camera where the plugin is available unless this device opted out. */
 export function savedNativeCamera(): NativeCameraOption {
   const defaults: NativeCameraOption = { on: nativeCameraAvailable(), lens: "auto", fps: 30, torchLevel: null };
   try {
-    const v = JSON.parse(localStorage.getItem(NATIVE_CAMERA_KEY) ?? "null") as Partial<NativeCameraOption> | null;
+    const v = JSON.parse(localStorage.getItem(NATIVE_CAMERA_KEY) ?? "null") as (Partial<NativeCameraOption> & { v?: unknown }) | null;
     if (!v || typeof v !== "object") return defaults;
     return {
-      on: typeof v.on === "boolean" ? v.on : defaults.on,
+      on: v.v === SAVED_VERSION && typeof v.on === "boolean" ? v.on : defaults.on,
       lens: isLens(v.lens) ? v.lens : defaults.lens,
       fps: v.fps === 60 ? 60 : defaults.fps,
       torchLevel: positive(v.torchLevel) ? Math.round(v.torchLevel) : defaults.torchLevel,
@@ -67,7 +77,7 @@ export function savedNativeCamera(): NativeCameraOption {
 
 export function saveNativeCamera(o: NativeCameraOption) {
   try {
-    localStorage.setItem(NATIVE_CAMERA_KEY, JSON.stringify(o));
+    localStorage.setItem(NATIVE_CAMERA_KEY, JSON.stringify({ v: SAVED_VERSION, on: o.on, lens: o.lens, fps: o.fps, torchLevel: o.torchLevel }));
   } catch {
     /* storage off */
   }

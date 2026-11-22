@@ -360,6 +360,8 @@ const SLOW_KEPT = 25;
 const MARGIN = 0.12;
 const MAX_SIDE = 1500;
 const CARD_ASPECT = 88 / 63;
+/** A see-through 1 × 1 GIF, the browser camera's poster (see the <video> below). */
+const NO_POSTER = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 const PICKER_FIRST = 24;
 /** How long "Added …" stays on the camera when it offers Undo. */
 const UNDO_MS = 6000;
@@ -3916,7 +3918,9 @@ function ScannerScreen({
             // painted) holds the frames the scanner reads, where the video would be.
             <canvas ref={videoRef as unknown as Ref<HTMLCanvasElement>} className="scan-video is-native" aria-hidden="true" />
           ) : (
-            <video ref={videoRef} className="scan-video" playsInline muted autoPlay aria-hidden="true" />
+            // A see-through poster: without one, Android's web view draws its own grey "play"
+            // picture until the camera's first frame arrives (Bryan, 22 Nov 2026).
+            <video ref={videoRef} className="scan-video" playsInline muted autoPlay poster={NO_POSTER} aria-hidden="true" />
           )}
           <CardOutline tracker={outlines} show={scanningNow && !nativeDrawing} />
         </div>
