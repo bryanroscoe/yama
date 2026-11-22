@@ -1,6 +1,6 @@
 # Scanner models of our own, sleeves, and a fallback on the server
 
-Status: in progress, updated 20 Nov 2026.
+Status: in progress, updated 21 Nov 2026.
 - **Shipped, 18 Nov:** locking on the art's lead (PR #166), and our own art model (PR #167,
   `yama-art-20261118`).
 - **Shipped, 20 Nov:**
@@ -13,6 +13,11 @@ Status: in progress, updated 20 Nov 2026.
   - two faster models to choose, after CardVision: Yama's card finder, and the art model with two cuts
     first (PRs #169 and #174). A frame on one WASM thread takes 39 ms with both, against 125 ms;
   - the look settling the sure printings, as an opt-in option (`look-v1-sure`; "Next", item 1).
+- **Shipped, 21 Nov:** the one-tap speed test (PR #182) and server-prepared printing vectors (PR #185).
+  The faster finder and art model took 53 ms while tracking and 68 ms while searching on a Pixel 11 Pro,
+  against 214 ms and 213 ms with the defaults. The test used downloaded card images and one WASM CPU
+  thread. The WebView reported a hardware WebGPU adapter. The default and faster model choices still
+  need a live, same-camera comparison.
 - **Waiting:** CollectorVision's licence, asked 20 Nov (now optional), and the server fallback; see
   "Decisions for Bryan".
 
@@ -200,11 +205,12 @@ added the bench, `scanner-lab/speed/`):
   bench frame.
 
 **Not done yet:**
-- WebGPU is measured (about 35 ms a frame) but not shipped: its build adds 4.4 MB to every Android web
-  update, and the Pixel's WebView support is unconfirmed.
+- WebGPU is measured on desktop (about 35 ms a frame) but has yet to run the scanner on Android.
+  The Pixel's WebView reported a hardware adapter in the speed test. Shipping the WebGPU build adds
+  4.4 MB to every Android web update.
 - Native ONNX Runtime in the Android app, and a bigger ArcFace art model with our own gallery, aren't built.
-- Nothing has been timed on a phone. Scanner diagnostics' timing records (PR #171) name the models each
-  scan used, so the defaults and the new options can be compared on Bryan's phone.
+- The speed test measured model latency on the Pixel. Use Scanner diagnostics' timing records (PR #171)
+  to compare live scans with the defaults and the faster options before switching the defaults.
 
 **The printing look's pictures, from the server (21 Nov 2026).** The look spent most of its time
 fetching each printing's Scryfall picture (about half a second each on a cold connection) and embedding

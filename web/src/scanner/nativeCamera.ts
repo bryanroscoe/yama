@@ -38,19 +38,23 @@ export interface NativeCameraOption {
 /** On this device: whether the scanner uses the app's own camera, and how it's set. */
 export const NATIVE_CAMERA_KEY = "yama.scan.nativeCamera";
 
-const OFF: NativeCameraOption = { on: false, lens: "auto", fps: 30, torchLevel: null };
-
 const isLens = (v: unknown): v is NativeLens => v === "auto" || v === "main" || v === "ultrawide" || v === "telephoto";
 const positive = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v > 0;
 
-/** The saved option; anything missing or malformed is as it is when never set (off, automatic, 30). */
+/** Use the app's own camera where the plugin is available unless this device opted out. */
 export function savedNativeCamera(): NativeCameraOption {
+  const defaults: NativeCameraOption = { on: nativeCameraAvailable(), lens: "auto", fps: 30, torchLevel: null };
   try {
     const v = JSON.parse(localStorage.getItem(NATIVE_CAMERA_KEY) ?? "null") as Partial<NativeCameraOption> | null;
-    if (!v || typeof v !== "object") return { ...OFF };
-    return { on: v.on === true, lens: isLens(v.lens) ? v.lens : "auto", fps: v.fps === 60 ? 60 : 30, torchLevel: positive(v.torchLevel) ? Math.round(v.torchLevel) : null };
+    if (!v || typeof v !== "object") return defaults;
+    return {
+      on: typeof v.on === "boolean" ? v.on : defaults.on,
+      lens: isLens(v.lens) ? v.lens : defaults.lens,
+      fps: v.fps === 60 ? 60 : defaults.fps,
+      torchLevel: positive(v.torchLevel) ? Math.round(v.torchLevel) : defaults.torchLevel,
+    };
   } catch {
-    return { ...OFF };
+    return defaults;
   }
 }
 
@@ -387,6 +391,8 @@ function inTurn<T>(fn: () => Promise<T>): Promise<T> {
 const STATUS_MS = 2500;
 /** How long a new camera waits before it's asked for (see `ready`). */
 const SETTLE_MS = 30;
+/** After binding, try the browser camera if CameraX still hasn't supplied a usable frame. */
+const FIRST_FRAME_MS = 3000;
 /** Frames are pulled no faster than this: the recognizer reads fewer than that a second. */
 const PULL_RATE = 20;
 /** Frames timed for `bridge`. */
@@ -564,6 +570,15 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
     }
   };
 
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    for (const c of cleanups) c();
+    transport?.close();
+    document.documentElement.classList.remove(NATIVE_CLASS);
+    if (asked) return inTurn(() => plugin.close()).catch(() => undefined);
+  };
+
   const ready = (async (): Promise<SourceInfo> => {
     // A scanner mounted and unmounted at once (React's strict mode) never reaches the camera.
     // (The plugin itself waits for the web view's own camera to let go before it opens.)
@@ -594,7 +609,7 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
     });
     follow();
     const first = new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, 3000);
+      const timer = setTimeout(resolve, FIRST_FRAME_MS);
       void pull(transport!, () => {
         clearTimeout(timer);
         resolve();
@@ -602,6 +617,11 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
     });
     await first;
     if (closed) throw new Error("The camera closed");
+    if (!hasFrame) {
+      // Give the device back before the WebView tries to open it on the ready rejection.
+      await close();
+      throw new Error("The app's camera didn't deliver a frame");
+    }
     // The capture rate the camera really delivers, and the lens the phone is using, are known
     // once it has run a moment, and can change: asked now and then, told when they differ.
     let told = "";
@@ -719,14 +739,7 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
       }
       return rows;
     },
-    close() {
-      if (closed) return;
-      closed = true;
-      for (const c of cleanups) c();
-      transport?.close();
-      document.documentElement.classList.remove(NATIVE_CLASS);
-      if (asked) void inTurn(() => plugin.close()).catch(() => undefined);
-    },
+    close,
   };
 }
 

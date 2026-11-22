@@ -127,10 +127,10 @@ Three things run on the device so that game night needs no connection:
   and lookups in a web worker. It is refreshed with a conditional request about once a day.
 - **The scanner** recognises a card by its art with ONNX models in a web worker
   (`onnxruntime-web`), and reads the collector line when the art is not enough (PaddleOCR in
-  browsers, ML Kit in the Android app). Its frames come from a camera source: the browser's
-  camera, or, as an option inside the Android app, the app's own camera (a CameraX plugin that
-  draws the preview behind a transparent web view and hands frames to the page in memory; the
-  recognition stays in the web build). Besides the pinned art bundle it loads the server's small
+  browsers, ML Kit in the Android app). On Android with the camera plugin, CameraX draws the preview
+  behind a transparent web view and hands frames to the page in memory. The browser camera serves web
+  installs and Android devices without the plugin, with the option off, or when CameraX fails to open.
+  Art recognition stays in the web build. Besides the pinned art bundle it loads the server's small
   supplement of newer artworks, and embeds what the camera sees with Yama's own fine-tuned query
   model in place of the bundle's embedding graph. Each of its models can be switched on a device
   from the options the server lists, and the server can withdraw a broken one. When several
@@ -3406,8 +3406,11 @@ the card finder, the outline and the art read) moves into a native Capacitor plu
 the card is named stays in the web app: the search, the printing rules, the sheet, and the collection,
 deck check and box check behind it. Browsers keep the web scanner. Nothing of CardVision's is used
 (code, models or index); its behaviour is the yardstick. The list, the stages and the open decisions
-are in [docs/plans/scanner-match-cardvision.md](docs/plans/scanner-match-cardvision.md). "How Yama
-works today" changes when the first native stage ships, not before.
+are in [docs/plans/scanner-match-cardvision.md](docs/plans/scanner-match-cardvision.md).
+
+The Pixel comparison on 21 Nov supported making CameraX the Android default where the plugin is
+available. Keep a device's saved camera choice and fall back to the WebView camera if CameraX fails
+to open. The comparison and its limits are in [docs/scanner.md](docs/scanner.md#the-camera-source-and-the-apps-own-camera-2026-11-21).
 
 ## Where a plan came from (21 November 2026)
 
