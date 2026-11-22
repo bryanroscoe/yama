@@ -3458,7 +3458,8 @@ Decided: Yama's card finder (`yama-corners-20261120`) and Yama's art model with 
   records from phones that don't say which model they ran all get the whole model.
 - The cascade's first stage asks for 0.70 rather than 0.68 before it answers alone.
 - The evidence: the Pixel's speed test (finder 41 → 15 ms, art read 51 → 28 ms), one tester's 124 real
-  photos (within a photo of the old pair), and 1,840 simulated frames (more found and locked right). At
+  photos (within a photo of the old pair), and 1,840 simulated frames (more found and locked right, as
+  many wrong on known cards, and 11 locks on cards the gallery doesn't know against 8, within noise). At
   0.68, 3 first stages between 0.68 and 0.70 named the wrong card; none did at 0.70 or above. The details
   are in [docs/scanner.md](docs/scanner.md#the-faster-models-as-the-defaults-2026-11-22).
 - Withdrawing both ids puts everyone back on the old pair.
