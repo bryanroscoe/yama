@@ -78,7 +78,8 @@ export type { Shot } from "./crops";
 export interface FrameNote {
   /** ms since the record started. */
   t: number;
-  source: "first" | "hold" | "still" | "closeup";
+  /** "later": read for a provisional row (card first, printing after), from the frames it was named in or still lay in. */
+  source: "first" | "hold" | "still" | "closeup" | "later";
   /** Each crop's text, in readCollectorLines' order: edges, detector (when snapping moved the corners), wide, right. */
   reads: string[];
   sharpness?: number;
@@ -284,10 +285,11 @@ export class ScanRecord {
 export type SettleRule = LockRule | "closeup" | "typed";
 /**
  * How a printing was settled: the only one (or the only one in the locked sets), the collector
- * line, the printing look when it's sure (the look option that settles, look.ts `lookSettles`), a
- * pick, or a correction.
+ * line, the printing look when it's sure (the look option that settles, look.ts `lookSettles`), the
+ * only one left with the border read (border.ts), the dearest of a tie by price (price.ts
+ * `priceTie`, opt-in), a pick, or a correction.
  */
-export type PrintingWay = "only" | "set" | "collector" | "look" | "picked" | "corrected";
+export type PrintingWay = "only" | "set" | "collector" | "look" | "border" | "price" | "picked" | "corrected";
 
 /** What was known when a card was named, for its timing record. */
 export interface Named {
@@ -389,6 +391,14 @@ export class TimingRecord {
   printed(how: PrintingWay) {
     if (this.printing && (how !== "corrected" || this.printing.how === "corrected")) return;
     this.printing = { how, ms: Date.now() - this.named };
+  }
+
+  /**
+   * The card's row appeared (`detail.row_ms`, from the card being named): at once with card first,
+   * printing after; else when its printing settled and it was filed. Once.
+   */
+  rowShown() {
+    if (this.detail.row_ms === undefined) this.detail.row_ms = Date.now() - this.named;
   }
 
   /**

@@ -127,3 +127,33 @@ describe("the strip's head is the receipt (design pass, 16 Nov 2026)", () => {
     expect(host.querySelector(".scan-tray-clear")).toBeNull();
   });
 });
+
+describe("card first, printing after, and tie by price, in the strip", () => {
+  const waiting: RecentCard[] = [
+    { key: "w", name: "Arcane Signet", finish: "nonfoil", copies: 1, prices: null, image: null, state: "finding" },
+    { key: "p", name: "Command Tower", finish: "nonfoil", copies: 1, prices: null, image: null, state: "pick" },
+    { key: "s", name: "Sol Ring", set: "ecc", number: "57", finish: "nonfoil", copies: 1, prices: prices(1.5), byPrice: true },
+  ];
+
+  it("says where a card's printing is in place of its price, and marks one filed by price", async () => {
+    act(() => root.render(<ScanTray cards={waiting} worth={2} />));
+    await settle();
+    const under = [...host.querySelectorAll(".scan-tile-price")].map((e) => e.textContent);
+    expect(under).toEqual(["Finding…", "Pick printing", "$1.50"]);
+    expect(host.querySelector(".scan-tile.is-finding")).not.toBeNull();
+    expect(host.querySelector(".scan-tile.is-pick")).not.toBeNull();
+    expect(host.querySelector(".scan-tile-by")?.textContent).toBe("By price");
+    expect(host.querySelector(".scan-tray-last")?.textContent).toContain("finding the printing");
+  });
+
+  it("leaves cards without a printing out of the total, and says how many", () => {
+    expect(trayTotal(waiting)).toEqual({ head: "3 cards, $1.50", note: "market, Nov 14, 2 without a printing yet" });
+    expect(trayTotal(waiting.slice(0, 1))).toEqual({ head: "1 card", note: "1 without a printing yet" });
+  });
+
+  it("tells a screen reader that a tile isn't saved yet", async () => {
+    const { tileLabel } = await import("./ScanTray");
+    expect(tileLabel(waiting[0]!, null)).toBe("Arcane Signet, finding the printing, not saved yet");
+    expect(tileLabel(waiting[2]!, null)).toBe("Sol Ring, ECC 57, $1.50, printing by price");
+  });
+});

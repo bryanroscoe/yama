@@ -17,3 +17,4 @@ export { createTesseractOcr, type TesseractPaths } from "./tesseract";
 export { createServerCatalog } from "./serverCatalog";
 export type * from "./types";
 export type { RecentCard } from "./price";
+export type { LaterState, LaterWay, Provisional } from "./later";

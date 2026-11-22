@@ -15,6 +15,17 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-22-scanner-card-first-by-price",
+    date: "2026-11-22",
+    title: "The scanner's chime follows the price, and a card can come before its printing",
+    items: [
+      "When a card is added, the chime is higher the more it's worth, and a card worth your amount gets a double buzz. A card with no price gets its own even chime, never the low one. Feedback by price in Scan settings turns this off.",
+      "New in Scan settings, off unless you turn them on: Card first, printing after puts a card in the strip as soon as it's named and goes on to the next one while it works out the printing (nothing is saved until it has one, and a tap picks it if the scanner can't). Tie by price takes the dearest of printings that look alike and cost within 15% of each other, marked \"by price\".",
+      "The scanner also reads a card's border: a black border rules out white-bordered printings of the same art, and a white one black-bordered ones, when the border plainly stands out from the table.",
+    ],
+    link: { to: "/collection", label: "Scan cards" },
+  },
+  {
     id: "2026-11-22-scan-photos-every-card",
     date: "2026-11-22",
     title: "Scan photos now keep every card the scanner names",

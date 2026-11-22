@@ -35,7 +35,7 @@ export function tileMeta(copies: number, proxies: number | undefined, value: num
   if (copies <= 0) return cards;
   return `${cards}${value ? `, ${money(value)}` : ""}${unpriced ? `, ${unpriced} with no price` : ""}`;
 }
-import type { Added, Finish, Fix, RecentCard, ScanCandidate } from "../scanner";
+import type { Added, Finish, Fix, Provisional, RecentCard, ScanCandidate } from "../scanner";
 import { useOpenedEntry } from "../scanner/opened";
 import { useDebounced } from "../useDebounced";
 // The scan choices and their notes, shown here outside the scanner too.
@@ -976,11 +976,82 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
       copies,
       auto,
       prices: c.prices ?? null,
+      byPrice: c.byPrice,
       pending: { ops: [addOp(c.scryfall_id, copies, filed, box, crypto.randomUUID())], fix: null },
     };
     put([entry, ...listRef.current]);
     filedAs.current.set(c, entry.key);
     const ok = await send(entry.key);
+    setError(ok ? null : new Error(`Couldn't save ${c.name}. It's kept in the Added list to try again.`));
+    return ok;
+  };
+
+  /**
+   * Card first, printing after (scanner/later.ts): a card named before its printing is settled
+   * comes as a provisional row. Its entry is in the session at once, holding no printing and saving
+   * nothing; once its printing settles (the scanner's work, or a pick here) it takes that printing
+   * and is saved as an add is, in place. Taken back out before then, it simply goes.
+   */
+  const provisional = (row: Provisional) => {
+    const entry: Added = {
+      key: row.key,
+      name: row.card.name,
+      scryfall_id: "",
+      oracle_id: row.card.oracle_id,
+      set: "",
+      number: "",
+      image: null,
+      // The finish and box chosen now are the ones it's filed with, whenever it settles.
+      finish: finish === "proxy" ? "proxy" : "nonfoil",
+      wanted: finish,
+      container: container || null,
+      copies: row.copies,
+      auto: row.auto,
+      later: row,
+    };
+    put([entry, ...listRef.current]);
+    filedAs.current.set(row.card, row.key);
+    const stop = row.watch((st) => {
+      if (st.phase === "dropped") {
+        stop();
+        put(listRef.current.filter((x) => x.key !== row.key));
+        return;
+      }
+      if (st.phase === "settled" && st.filed) {
+        stop();
+        void saveLater(row.key, st.filed).then((ok) => row.saved(ok));
+        return;
+      }
+      // Its printings came (a picture for its tile), or it waits for a pick now.
+      const picture = st.options?.find((p) => p.image_small)?.image_small ?? null;
+      patch(row.key, (x) => ({ ...x, image: x.image ?? picture }));
+    });
+  };
+  /** A provisional row's printing settled: the entry takes it and is saved, as `accept` saves a card. */
+  const saveLater = async (key: string, c: ScanCandidate): Promise<boolean> => {
+    const a = listRef.current.find((x) => x.key === key);
+    if (!a || !c.scryfall_id) return false;
+    const { addOp } = await scanner();
+    const wanted = a.wanted ?? "nonfoil";
+    const filed: Finish = wanted === "proxy" ? "proxy" : (pickFinish({ finishes: c.finishes }, wanted) as Finish);
+    patch(key, (x) => ({
+      ...x,
+      later: undefined,
+      name: c.name,
+      scryfall_id: c.scryfall_id!,
+      oracle_id: c.oracle_id,
+      set: c.set ?? "",
+      number: c.number ?? "",
+      image: c.thumb ?? c.image ?? x.image,
+      finish: filed,
+      finishes: c.finishes,
+      treatment: c.treatment,
+      prices: c.prices ?? null,
+      byPrice: c.byPrice,
+      pending: { ops: [addOp(c.scryfall_id!, x.copies, filed, x.container, crypto.randomUUID())], fix: null },
+    }));
+    filedAs.current.set(c, key);
+    const ok = await send(key);
     setError(ok ? null : new Error(`Couldn't save ${c.name}. It's kept in the Added list to try again.`));
     return ok;
   };
@@ -992,6 +1063,8 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
     const key = filedAs.current.get(c);
     const a = key ? listRef.current.find((x) => x.key === key) : undefined;
     if (!a) throw new Error("It's no longer in the Added list");
+    // Its printing isn't settled: nothing was saved, so it simply goes.
+    if (a.later?.open) return a.later.drop();
     const { removeFix } = await scanner();
     await fix(a, removeFix(a));
   };
@@ -1014,6 +1087,7 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
   const fix = async (a: Added, f: Fix) => {
     const before = listRef.current.find((x) => x.key === a.key);
     if (!before) return;
+    if (before.later) throw new Error(`Pick the printing of ${before.name} first.`);
     if (before.pending || before.checking) throw new Error(busyMessage(before));
     // Lock the entry before anything waits, so no other change starts from the same state.
     const token = crypto.randomUUID();
@@ -1066,8 +1140,10 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
    */
   const moveAll = async (to: string | null) => {
     const { boxFix, toMove } = await scanner();
-    const { move, busy } = toMove(listRef.current, to);
+    const { move, busy, later } = toMove(listRef.current, to);
     const where = placeLabel(to, containers) ?? "not filed anywhere";
+    // Rows still waiting for their printing (card first) are saved into the new place when they settle.
+    for (const a of later) patch(a.key, (x) => (x.later?.open ? { ...x, container: to } : x));
     setMoving(true);
     setNotice(null);
     let moved = 0;
@@ -1090,6 +1166,7 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
     const parts = [moved > 0 ? `Moved ${plural(moved, "card")} ${to ? `into ${where}` : "out of their box"}.` : null];
     if (failed.length) parts.push(`Couldn't move ${failed.length === 1 ? failed[0] : `${failed.length} cards`}: open ${failed.length === 1 ? "it" : "them"} in Review all.`);
     if (busy) parts.push(`${plural(busy, "card")} still saving, so left where ${busy === 1 ? "it is" : "they are"}.`);
+    if (later.length) parts.push(`${plural(later.length, "card")} waiting for ${later.length === 1 ? "its printing goes" : "their printings go"} ${to ? `into ${where}` : "unfiled"} once saved.`);
     setNotice(parts.filter(Boolean).join(" ") || "Nothing to move.");
   };
   /** Clear the list: the strip starts again; the cards stay in the collection. */
@@ -1109,9 +1186,25 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
   const unsaved = unsavedScans(added);
   const question = closeQuestion(unsaved);
   const close = () => (closeQuestion(unsavedScans(listRef.current)) ? setClosing(true) : onClose());
+  /** Close, letting go of rows whose printing isn't settled (nothing of them was saved). */
+  const closeAnyway = () => {
+    for (const a of listRef.current) a.later?.drop();
+    onClose();
+  };
+  // Left some other way (Back, a link, after "leave without saving"): those rows go too, so none
+  // settles and saves after the person was told closing drops them.
+  useEffect(
+    () => () => {
+      for (const a of listRef.current) a.later?.drop();
+    },
+    [],
+  );
   // The scanner's own Close asks above; Back, a link, a reload or closing the tab ask through the
   // unsaved-work guard, since any of them takes the scanner away with what it couldn't save.
-  const guard = useUnsavedChanges(question !== null);
+  // Leaving through the guard's question drops what isn't saved here and closes the scanner, even
+  // when the page stays mounted at the new address (Back between two /collection addresses): no
+  // waiting row may settle and save after "Leave without saving" (Codex review of #195).
+  const guard = useUnsavedChanges(question !== null, { onLeave: closeAnyway });
   useEffect(() => {
     // Asked to close while saves were out, and they have all gone through since.
     if (closing && !question) onClose();
@@ -1203,9 +1296,10 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
           autoAdd={keepAdding}
           closeups={closeups}
           paused={reviewing || closing || openedEntry != null}
-          recentCards={added.map((a) => ({ key: a.key, name: a.name, set: a.set, number: a.number, finish: a.finish, copies: a.copies, prices: a.prices, image: a.image, oracleId: a.oracle_id, state: entryState(a) }))}
+          recentCards={added.map((a) => ({ key: a.key, name: a.name, set: a.set || undefined, number: a.number || undefined, finish: a.finish, copies: a.copies, prices: a.prices, image: a.image, oracleId: a.oracle_id, state: entryState(a), byPrice: a.byPrice }))}
           entryOf={(c) => filedAs.current.get(c)}
           onOpenCard={setOpened}
+          onProvisional={provisional}
           finish={finish}
           onPrinting={setPrinting}
           controls={controls}
@@ -1240,7 +1334,7 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
               <div className="row">
                 {unsaved.failed > 0 && <Button variant="primary" disabled={unsaved.sending > 0} onClick={retryAll}>{unsaved.sending > 0 ? "Saving…" : "Try again"}</Button>}
                 <Button onClick={() => setClosing(false)}>Keep scanning</Button>
-                <Button variant="quiet" onClick={onClose}>Close without saving</Button>
+                <Button variant="quiet" onClick={closeAnyway}>Close without saving</Button>
               </div>
             </div>
           </Dialog>
@@ -1281,6 +1375,8 @@ function MoveAllBar({ containers, chosen, moving, notice, count, onMove, onClear
 
 /** An entry's state for its tile in the scanner's strip: its add not saved, a change to it not saved, or on its way. */
 function entryState(a: Added): RecentCard["state"] {
+  // Card first, printing after: its printing still being worked out, or waiting for a pick.
+  if (a.later?.open) return a.later.state.phase === "pick" ? "pick" : "finding";
   if (!a.pending) return undefined;
   if (!a.pending.error) return "saving";
   return a.pending.fix ? "change-failed" : "failed";
