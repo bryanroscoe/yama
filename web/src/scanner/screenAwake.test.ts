@@ -126,4 +126,25 @@ describe("keeping the screen on while the scanner's camera runs (Bryan, 22 Nov 2
     await flush();
     expect(calls.at(-1)).toBe(false);
   });
+
+  it("lets the app's flag go when the app goes to the background before it answered (Codex review of #202)", async () => {
+    const calls: boolean[] = [];
+    let answer: (ok: boolean) => void = () => undefined;
+    const native = (on: boolean) => {
+      calls.push(on);
+      return on ? new Promise<boolean>((r) => (answer = r)) : Promise.resolve(true);
+    };
+    const release = keepScreenAwake({ native, wakeLock: null });
+    await flush();
+    expect(calls).toEqual([true]);
+    await turn(true);
+    answer(true);
+    await flush();
+    await flush();
+    // Off once the first answer is in: hidden, nothing holds the screen.
+    expect(calls).toEqual([true, false]);
+    release();
+    await flush();
+    expect(calls).toEqual([true, false]);
+  });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { digitalRegion } from "./camera";
-import { DEFAULT_ASPECT, fitPicture, MIN_SHOWN, visibleView } from "./fit";
+import { DEFAULT_ASPECT, fitPicture, MIN_SHOWN, zoomRegion } from "./fit";
 
 // Bryan, 22 Nov 2026: with the sheet part way up, the camera left above it cut the card off top and
 // bottom. The picture now never loses more than a sixth or so of its height.
@@ -32,11 +32,13 @@ describe("fitting the camera's picture to its box", () => {
     expect(fitPicture({ left: 0, top: 0, width: 100, height: 200 }, Number.NaN).width).toBeCloseTo(200 * DEFAULT_ASPECT);
   });
 
-  it("gives the part of the picture that shows, and digital zoom takes the middle of that", () => {
-    const shown = visibleView({ width: 412, height: 386 }, 2160, 3840);
-    expect(shown.height).toBe(386);
-    expect(shown.width).toBeCloseTo((386 / MIN_SHOWN) * 0.5625, 6);
-    expect(visibleView({ width: 412, height: 860 }, 2160, 3840)).toEqual({ width: 412, height: 860 });
+  it("takes for digital zoom what shows on screen: the bars fill as the fitted picture is enlarged (Codex review of #202)", () => {
+    // The 412 × 386 box: the picture laid out 255 px wide; at 2× it is 511 px wide, 412 of them shown.
+    const zone = zoomRegion(2160, 3840, 2, { width: 412, height: 386 }, true);
+    const laid = (386 / MIN_SHOWN) * 0.5625;
+    expect(zone.w / 2160).toBeCloseTo(412 / (2 * laid), 6);
+    expect(zone.h / 3840).toBeCloseTo(386 / (2 * (386 / MIN_SHOWN)), 6);
+    expect(zone.x).toBeCloseTo((2160 - zone.w) / 2, 6);
     // A DOMRect, as getBoundingClientRect gives: its sizes are getters on the prototype.
     class Rect {
       get width() {
@@ -46,10 +48,21 @@ describe("fitting the camera's picture to its box", () => {
         return 386;
       }
     }
-    expect(visibleView(new Rect(), 2160, 3840)).toEqual(shown);
-    // At 2× the middle of what shows: half the picture's width, half of the 85% of its height that shows.
-    const zone = digitalRegion(2160, 3840, 2, shown);
-    expect(zone.w).toBeCloseTo(1080, 3);
-    expect(zone.h).toBeCloseTo(3840 * MIN_SHOWN * 0.5, 3);
+    expect(zoomRegion(2160, 3840, 2, new Rect(), true)).toEqual(zone);
+    // At 1× the whole frame, as before.
+    expect(zoomRegion(2160, 3840, 1, { width: 412, height: 386 }, true)).toEqual({ x: 0, y: 0, w: 2160, h: 3840 });
+  });
+
+  it("is the cover fit's digital zoom where the page covers the box (an older web view)", () => {
+    for (const box of [{ width: 300, height: 600 }, { width: 412, height: 386 }, { width: 412, height: 860 }])
+      for (const z of [1.5, 2, 3]) {
+        const a = zoomRegion(1000, 600, z, box, false);
+        const b = digitalRegion(1000, 600, z, box);
+        expect(a.x).toBeCloseTo(b.x, 6);
+        expect(a.y).toBeCloseTo(b.y, 6);
+        expect(a.w).toBeCloseTo(b.w, 6);
+        expect(a.h).toBeCloseTo(b.h, 6);
+      }
+    expect(zoomRegion(1000, 600, 2, null, true)).toEqual(digitalRegion(1000, 600, 2));
   });
 });

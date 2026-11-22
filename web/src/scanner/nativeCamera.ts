@@ -135,6 +135,8 @@ export interface NativeDescribed {
   torchLevel?: number;
   focusMode: string;
   focusDistance?: number;
+  /** The open camera's focal length as a 35 mm camera's (APKs since 22 Nov 2026), or absent. */
+  equivalent?: number;
   /** Metres: as near as the lens focuses, and where everything beyond is sharp. Absent when focus can't be set. */
   focusNearest?: number;
   focusFarthest?: number;

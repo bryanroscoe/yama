@@ -162,6 +162,8 @@ public class ScannerCameraPlugin extends Plugin {
         Range<Integer> fpsRange;
         Range<Integer>[] fpsRanges;
         float nearestDiopters;
+        /** The open camera's focal length as a 35 mm camera's, or 0 when the phone doesn't say. */
+        float equivalent;
         float hyperfocalDiopters;
         List<Lens> lenses;
     }
@@ -742,6 +744,7 @@ public class ScannerCameraPlugin extends Plugin {
         Float nearest = chosen.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE);
         Float hyperfocal = chosen.get(CameraCharacteristics.LENS_INFO_HYPERFOCAL_DISTANCE);
         o.nearestDiopters = nearest == null ? 0 : nearest;
+        o.equivalent = equivalent(chosen);
         o.hyperfocalDiopters = hyperfocal == null ? 0 : hyperfocal;
         o.fpsAsked = fpsAsked;
         o.fpsRanges = logical.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES);
@@ -1176,6 +1179,8 @@ public class ScannerCameraPlugin extends Plugin {
         else if (torchLevel > 0) ret.put("torchLevel", torchLevel);
         ret.put("focusMode", focusMode);
         if (focusDistance > 0) ret.put("focusDistance", focusDistance);
+        // With the nearest focus, how near a card is can be estimated (web/src/scanner/closer.ts).
+        if (o.equivalent > 0) ret.put("equivalent", Math.round(o.equivalent * 10) / 10.0);
         if (o.nearestDiopters > 0) {
             // In metres: from as near as the lens focuses to where everything beyond is sharp.
             ret.put("focusNearest", 1.0 / o.nearestDiopters);

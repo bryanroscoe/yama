@@ -39,10 +39,22 @@ export function fitPicture(box: Box, aspect: number): Box {
   return { left: box.left + (box.width - width) / 2, top: box.top + (box.height - height) / 2, width, height };
 }
 
-/** The part of a w × h picture that shows in a box of `view`'s size, in the box's pixels. */
-export function visibleView(view: { width: number; height: number }, w: number, h: number): { width: number; height: number } {
-  if (!(view.width > 0 && view.height > 0 && w > 0 && h > 0)) return view;
-  // (A DOMRect's sizes are getters on its prototype: spread, it would give none.)
-  const r = fitPicture({ left: 0, top: 0, width: view.width, height: view.height }, w / h);
-  return { width: Math.min(view.width, r.width), height: Math.min(view.height, r.height) };
+/**
+ * The part of a w × h picture that shows at digital zoom `z` in a box of `box`'s size: the middle
+ * of the picture as it's laid out (fitted, or covering the box where `fit` is false, as an older
+ * web view lays it out), enlarged z times around its middle and cut by the box. With the picture
+ * fitted smaller than the box, zooming fills the bars, so more than the middle 1/z shows (Codex
+ * review of #202). At 1× the whole frame is used, as before.
+ */
+export function zoomRegion(w: number, h: number, z: number, box?: { width: number; height: number } | null, fit = canFit()): { x: number; y: number; w: number; h: number } {
+  if (z <= 1) return { x: 0, y: 0, w, h };
+  let rw = w / z;
+  let rh = h / z;
+  if (box && box.width > 0 && box.height > 0 && w > 0 && h > 0) {
+    // Box pixels per picture pixel, before the zoom. (A DOMRect's sizes are getters: read them.)
+    const s = fit ? fitPicture({ left: 0, top: 0, width: box.width, height: box.height }, w / h).height / h : Math.max(box.width / w, box.height / h);
+    rw = Math.min(w, box.width / (s * z));
+    rh = Math.min(h, box.height / (s * z));
+  }
+  return { x: (w - rw) / 2, y: (h - rh) / 2, w: rw, h: rh };
 }

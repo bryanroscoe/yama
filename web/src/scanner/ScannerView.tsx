@@ -42,8 +42,8 @@ import { deleteSamples, photosLine, sameCardView, sampleSummary, savingPhotos, S
 import { SetLockPicker } from "./SetLockPicker";
 import { treatmentOf } from "./session";
 import { artInSets, inLockedSets, KNOWN_ART, knownArtShare, leadCounts, POOL_MARGIN, judgeLocked, lockedNames, lockedSet, poolKeys, readTitleFirst, savedLock, saveLock, suggestLock, type LockedSet } from "./setlock";
-import { CameraControls, cameraInfo, digitalRegion, useCameraControls, type CameraInfo } from "./camera";
-import { visibleView } from "./fit";
+import { CameraControls, cameraInfo, useCameraControls, type CameraInfo } from "./camera";
+import { zoomRegion } from "./fit";
 import { keepScreenAwake } from "./screenAwake";
 import { saysCardBack } from "./cardBack";
 import { CardOutline } from "./CardOutline";
@@ -1150,8 +1150,10 @@ function ScannerScreen({
   /** The lens in use, where the app's camera has one lens to itself: its focal length and nearest focus. */
   const focusLens = (): FocusLens | null => {
     const d = nativeCam.current?.described();
-    if (!d || d.lens === "auto" || !d.focusNearest) return null;
-    const equivalent = d.lenses.find((l) => l.lens === d.lens)?.equivalent ?? 0;
+    if (!d || !d.focusNearest) return null;
+    // A lens chosen by itself; or a phone that lists no lenses, whose one camera is what's open
+    // (Codex review of #202). Never Automatic over several lenses: its figures mix them.
+    const equivalent = d.lens !== "auto" ? (d.lenses.find((l) => l.lens === d.lens)?.equivalent ?? 0) : d.lenses.length === 0 ? (d.equivalent ?? 0) : 0;
     return equivalent > 0 ? { equivalent, nearest: d.focusNearest } : null;
   };
   /**
@@ -2327,7 +2329,7 @@ function ScannerScreen({
           const frameAt = Date.now();
           // A digital zoom gives the recognizer the middle of the frame, at more of its pixels.
           const box = v.closest(".scan-camera")?.getBoundingClientRect();
-          const zone = digitalRegion(v.videoWidth, v.videoHeight, digitalRef.current, box && visibleView(box, v.videoWidth, v.videoHeight));
+          const zone = zoomRegion(v.videoWidth, v.videoHeight, digitalRef.current, box);
           const { image, k } = smallRegion(v, zone, canvasRef.current);
           // Taken with the frame (nothing runs between): where the app's own card finder placed the
           // card on it, in the recognizer's pixels. Then the web view's finder doesn't run on it.
@@ -2976,7 +2978,7 @@ function ScannerScreen({
       if (video) otherInView = false;
       if (art) {
         const box = video?.closest(".scan-camera")?.getBoundingClientRect();
-        const zone = video ? digitalRegion(w, h, digitalRef.current, box && visibleView(box, w, h)) : { x: 0, y: 0, w, h };
+        const zone = video ? zoomRegion(w, h, digitalRef.current, box) : { x: 0, y: 0, w, h };
         const { image, k } = smallRegion(src, zone, canvasRef.current);
         const r = await art.identify(image);
         if (!r.quad) return null;

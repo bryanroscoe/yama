@@ -412,6 +412,15 @@ describe("the app's camera lens (Bryan, 22 Nov 2026: up close on Automatic it 'l
     nat.score = 0.2;
     act(() => root.render(<ScannerView identityOnly closeups={false} onAccept={async () => true} />));
     await until(() => (document.querySelector(".scan-chip")?.textContent === "Hold the phone a little further away" ? true : null), "further away");
+    // A phone that lists no lenses: its one camera's figures, though the app says Automatic (Codex review of #202).
+    nat.described = { lens: "auto", lenses: [], equivalent: 24, focusNearest: 0.2 };
+    await wait(300);
+    expect(document.querySelector(".scan-chip")?.textContent).toBe("Hold the phone a little further away");
+    // Automatic over several lenses: its figures mix them, so nothing is said from them.
+    nat.described = { lens: "auto", lenses: [{ lens: "main", equivalent: 24 }, { lens: "ultrawide", equivalent: 13 }], equivalent: 24, focusNearest: 0.2 };
+    await until(() => (document.querySelector(".scan-chip")?.textContent !== "Hold the phone a little further away" ? true : null), "no hint on Automatic");
+    nat.described = { lens: "main", lenses: [{ lens: "main", equivalent: 24 }], focusNearest: 0.2 };
+    await until(() => (document.querySelector(".scan-chip")?.textContent === "Hold the phone a little further away" ? true : null), "further away again");
     // A lens that focuses as near as 15 cm: nothing said.
     nat.described = { lens: "main", lenses: [{ lens: "main", equivalent: 24 }], focusNearest: 0.15 };
     await until(() => (document.querySelector(".scan-chip")?.textContent !== "Hold the phone a little further away" ? true : null), "the hint gone");
