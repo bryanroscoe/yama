@@ -328,6 +328,8 @@ export class Evidence {
   /** Printings sharing the art that aren't candidates (left out by the set lock): numberAlone checks against them too. */
   private readonly beside: Expected[];
   private frames = 0;
+  /** A printing left out (`beside`) had its own set code read exactly, a set none of the candidates is in. */
+  private besideRead = false;
 
   /**
    * `beside`: the printings sharing the card's art that the candidates leave out (the set lock's
@@ -355,6 +357,18 @@ export class Evidence {
       if (s.printedNumber) t.exactNumberFrames += 1;
       t.setAgainst ||= s.setAgainst;
     }
+    for (const b of this.beside) if (!this.besideRead && !this.tallies.some((t) => t.e.set === b.set) && scoreFrame(b, reads).exactSet) this.besideRead = true;
+  }
+
+  /**
+   * Whether what has been read points outside the candidates altogether: a set code read where
+   * it's printed that is none of theirs, or the set code of a printing left out (the set lock's,
+   * the border's) read exactly. Then no candidate can be chosen by elimination: a tie by price
+   * waits for a pick (Codex review of #195).
+   */
+  pointsOutside(): boolean {
+    if (this.frames === 0) return false;
+    return this.besideRead || (this.tallies.length > 0 && this.tallies.every((t) => t.setAgainst));
   }
 
   /**

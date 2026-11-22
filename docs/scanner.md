@@ -250,15 +250,18 @@ the Pixel's records show the printings it settles after the card has left are as
 **Border colour** (`border.ts`). The band just inside the card's edge (1.2% to 2.4% of its width in, along the
 middle of each side) is read from the view the card was named in. It says black or white only when all four
 sides are plainly dark or plainly light and even, and at least three differ from what lies just outside the
-card, so a table seen through a sleeve's clear margin or a loose outline is never taken for a border. A
+card, so a table seen through a sleeve's clear margin or a loose outline is never taken for a border; and
+only when the band further in (3.5% to 5%) isn't plainly the other colour on any side, so a coloured sleeve's
+margin (its back shows through the clear front around the card) isn't taken for the card's own border. A
 black border rules out white-bordered printings and a white one black-bordered printings (Scryfall's
 `border_color`, which `/api/scan/printings` already sends); borderless, silver and gold are never ruled out,
 nor every printing. When one printing is left it's settled ("border"); Wrong printing on it lists every
 printing with the art again, and the border isn't read again for that card. Measured [ran] on 120 of Bryan's
 own scan photos (the lab's data/own, his blue mat; 116 black-bordered, 3 borderless, 1 white) and on 160
 clean Scryfall pictures of white- and black-bordered printings drawn on a dark and a light table: it never
-said the wrong colour. On the clean pictures it read 35 of 35 white borders on the dark table and 39 of 40
-black borders on the light one, and nothing where border and table were alike. On Bryan's dark mat it said
+said the wrong colour. On the clean pictures it read 35 of 35 white borders on the dark table and 44 of 45
+black borders on the light one (among them five 7th Edition foils, which Scryfall lists as black-bordered),
+and nothing where border and table were alike. On Bryan's dark mat it said
 nothing on any photo: a black border is too close to the mat to tell from it. Without the outside check it
 read 67 of the 116 black borders and never white, but then a white-bordered card in a sleeve on a dark mat
 could read black, so the check stays. Black-against-white printings sharing an artwork are mostly old core
@@ -268,7 +271,8 @@ read (`detail.border`).
 **Tie by price** (`price.ts` `priceTie`, Scan settings, off by default). When the scanner has stopped trying
 by itself (reading the held card gave up or asked for a close-up, there's no camera to read from, or a
 provisional row's work is done) and no look is under way, the printings that share the card's art and that
-the collector line hasn't pointed away from are weighed (printings drawn differently can be told apart by
+the collector line hasn't pointed away from are weighed (none when it read a set code none of them is in, or
+one the set lock or the border left out) (printings drawn differently can be told apart by
 eye, so a card named by its title alone never ties): if every one has a market price in the finish it would be filed in and the dearest is at
 most 15% above the cheapest, the dearest is settled ("price") and the card is marked "by price" in the strip,
 the Added list and its large view. English printings only when there are any; never with a price missing (an

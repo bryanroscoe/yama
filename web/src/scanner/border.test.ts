@@ -55,6 +55,29 @@ describe("reading the border colour", () => {
     expect(readBorder(w.image, wide).border).not.toBe("black");
   });
 
+  it("never takes a coloured sleeve's margin for the card's border: further in, the card's own border shows (Codex review of #195)", () => {
+    // A black sleeve's margin around a white-bordered card, on a light table, outlined at the sleeve.
+    const sleeved = (table: RGB, margin: RGB, border: RGB) => {
+      const w = 252;
+      const m = Math.round(0.023 * w);
+      const inner = cardOn(table, border, { x: 40 + m, y: 40 + m, w: w - 2 * m });
+      const { image } = inner;
+      const h = Math.round((w * 88) / 63);
+      // Paint the margin ring between the sleeve's outline and the card.
+      for (let j = 40; j < 40 + h; j++)
+        for (let i = 40; i < 40 + w; i++) {
+          const inCard = i >= 40 + m && i < 40 + w - m && j >= 40 + m && j < 40 + m + Math.round(((w - 2 * m) * 88) / 63);
+          if (!inCard && i < image.width && j < image.height) image.data.set([...margin, 255], (j * image.width + i) * 4);
+        }
+      const quad: Quad = [[40, 40], [40 + w, 40], [40 + w, 40 + h], [40, 40 + h]];
+      return readBorder(image, quad).border;
+    };
+    expect(sleeved(light, black, white)).toBeNull();
+    expect(sleeved(dark, white, black)).toBeNull();
+    // A black sleeve on a black-bordered card is black all the way in: still black.
+    expect(sleeved(light, black, black)).toBe("black");
+  });
+
   it("says nothing for a borderless card, whose edge is its art", () => {
     const b = cardOn(light, [0, 0, 0], { b: 0 });
     expect(readBorder(b.image, b.quad).border).toBeNull();

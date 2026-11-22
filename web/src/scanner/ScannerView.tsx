@@ -721,6 +721,8 @@ export function ScannerView({
   };
   /** Whether the collector line has read, for this card, something that points to a printing other than `id`. */
   const readsOther = (seq: number, id: string) => cardReads.current?.seq === seq && cardReads.current.evs.some((ev) => ev.pointsAway(id));
+  /** Whether it has read something that points outside this card's candidates altogether (evidence.ts `pointsOutside`). */
+  const readsOutside = (seq: number) => cardReads.current?.seq === seq && cardReads.current.evs.some((ev) => ev.pointsOutside());
   /** What the hold-and-read loop has read so far, for the sheet ("Read the set code (WOC), not the number yet"). */
   const [readProgress, setReadProgress] = useState<string | null>(null);
   /** Bumped to start a new, full attempt at reading the held card's printing (Keep reading, Wrong printing). */
@@ -1595,7 +1597,8 @@ export function ScannerView({
     if (lookRun.current?.seq === seq || lookTouched === seq || tieWeighed.current === seq) return;
     tieWeighed.current = seq;
     const pool = f.options.filter((p) => !readsOther(seq, p.scryfall_id));
-    const tie = priceTie(pool, finish);
+    // A read naming a printing outside the list (the set lock's or the border's): it may be that one.
+    const tie = readsOutside(seq) ? null : priceTie(pool, finish);
     f.rec?.note("priceTie", tie ? { id: tie.printing.scryfall_id, low: tie.low, high: tie.high } : { tied: false, pool: pool.length });
     if (!tie) return;
     setFound((cur) => (cur && cur === f ? { ...cur, chosen: tie.printing, how: "price", sure: true, settledId: tie.printing.scryfall_id, picking: false } : cur));
@@ -3080,7 +3083,7 @@ export function ScannerView({
       if (!row.finding || !alive.current) return;
       // Tie by price, last (opt-in): only printings sharing its art, never for a typed name, never
       // against what was read, and in the finish it was scanned to be filed in.
-      if (tieRef.current && !typed && opts.sameArt) {
+      if (tieRef.current && !typed && opts.sameArt && !ev.pointsOutside()) {
         const tie = priceTie(
           pool.filter((p) => !ev.pointsAway(p.scryfall_id)),
           wanted,

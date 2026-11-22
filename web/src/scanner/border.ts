@@ -22,6 +22,9 @@ export interface BorderRead {
   chroma: number[];
   /** Each side's median brightness just outside the card (null where that's out of the frame). */
   outside: (number | null)[];
+  /** Each side's median brightness further in (INNER), and its spread. */
+  inner: number[];
+  innerSpread: number[];
 }
 
 /**
@@ -32,6 +35,12 @@ export interface BorderRead {
 export const BAND = { from: 0.012, to: 0.024 } as const;
 /** And what lies just outside it (the table, a sleeve's margin), which the band must differ from. */
 export const OUTSIDE = { from: -0.03, to: -0.012 } as const;
+/**
+ * And further in, where a sleeve's margin gives way to the card's own border (a sleeve is about 3 mm
+ * wider than its card, and its coloured back shows through the clear front around it): this must
+ * not be plainly the other colour, or the band read was the sleeve's (Codex review of #195).
+ */
+export const INNER = { from: 0.035, to: 0.05 } as const;
 /** How far along each side the band runs (the corners are rounded, and the type line can touch the frame). */
 const ALONG = { from: 0.18, to: 0.82 } as const;
 /** Samples along each side, and across the band. */
@@ -92,6 +101,8 @@ export function readBorder(image: RgbaImage, quad: Quad): BorderRead {
   const spread: number[] = [];
   const chroma: number[] = [];
   const outside: (number | null)[] = [];
+  const inner: number[] = [];
+  const innerSpread: number[] = [];
   let short = false;
   for (let side = 0; side < 4; side++) {
     const band = along(side, BAND);
@@ -101,8 +112,15 @@ export function readBorder(image: RgbaImage, quad: Quad): BorderRead {
     chroma.push(Math.round(median(band.chr)));
     const out = along(side, OUTSIDE);
     outside.push(out.enough ? Math.round(median(out.lum)) : null);
+    const deeper = along(side, INNER);
+    inner.push(Math.round(median(deeper.lum)));
+    innerSpread.push(Math.round(quartiles(deeper.lum)));
   }
-  return { border: short ? null : judge(sides, spread, chroma, outside), sides, spread, chroma, outside };
+  const read = judge(sides, spread, chroma, outside);
+  // Further in, plainly and evenly the other colour on any side: the band was a sleeve's margin.
+  const other = (i: number) => innerSpread[i]! < BORDER_RULE.even && (read === "black" ? inner[i]! > BORDER_RULE.light : inner[i]! < BORDER_RULE.dark);
+  const sleeve = read != null && [0, 1, 2, 3].some(other);
+  return { border: short || sleeve ? null : read, sides, spread, chroma, outside, inner, innerSpread };
 }
 
 /**
