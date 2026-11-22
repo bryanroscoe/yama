@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { applyH, rectQuad, squareToQuad, warpRegion } from "./image";
-import { CARD_CHANGE_FRAMES, DIAGNOSTICS_KEY, STRIP, SYMBOL, ScanRecord, TimingRecord, cardOf, deleteDiagnostics, setDiagnosticsOn, stepAppeared, stripQuad, stripSize, symbolOf, symbolSize } from "./diagnostics";
+import { CARD_CHANGE_FRAMES, DIAGNOSTICS_KEY, STRIP, SYMBOL, ScanRecord, TimingRecord, cardOf, cropTimesNote, deleteDiagnostics, setDiagnosticsOn, stepAppeared, stripQuad, stripSize, symbolOf, symbolSize } from "./diagnostics";
 import { COLLECTOR_REGION, RIGHT_COLLECTOR_REGION } from "./pipeline";
 
 const posted = vi.hoisted(() => ({ bodies: [] as unknown[], hold: null as Promise<void> | null }));
@@ -322,5 +322,30 @@ describe("scanner timing records", () => {
     setDiagnosticsOn(false);
     expect(await new TimingRecord(named).send("filed")).toBe(false);
     expect(posted.bodies).toHaveLength(0);
+  });
+});
+
+describe("the first read's timings (22 Nov 2026)", () => {
+  it("keeps each crop's time rounded, and the engine's only when every crop has one", () => {
+    expect(cropTimesNote([])).toEqual({});
+    expect(cropTimesNote([{ ms: 41.6, engineMs: 30.2 }, { ms: 52.4, engineMs: 39.9 }])).toEqual({ ocrMs: [42, 52], engineMs: [30, 40] });
+    expect(cropTimesNote([{ ms: 41.6, engineMs: 30.2 }, { ms: 52.4 }])).toEqual({ ocrMs: [42, 52] });
+  });
+
+  it("says how long since the card was named, and when its printing was settled", () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    try {
+      const t = new TimingRecord({ rule: "leads", mode: "printing" });
+      const rec = new ScanRecord();
+      now.mockReturnValue(1_250);
+      expect(t.since()).toBe(250);
+      expect(rec.since()).toBe(250);
+      expect(t.printedMs).toBeNull();
+      now.mockReturnValue(4_500);
+      t.printed("collector");
+      expect(t.printedMs).toBe(3_500);
+    } finally {
+      now.mockRestore();
+    }
   });
 });

@@ -78,8 +78,9 @@ export async function createMlKitOcr(): Promise<OcrEngine | null> {
   }
   return {
     async read(img, opts) {
-      const { lines } = await TextReader.read({ width: img.width, height: img.height, data: greyToBase64(img) });
-      return combineLines(lines, opts);
+      const { lines, ms } = await TextReader.read({ width: img.width, height: img.height, data: greyToBase64(img) });
+      // ML Kit's own time (TextReaderPlugin.java), apart from the crossing: Scanner diagnostics keep both.
+      return { ...combineLines(lines, opts), ...(typeof ms === "number" ? { ms } : {}) };
     },
   };
 }

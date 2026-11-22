@@ -68,7 +68,8 @@ export function setDiagnosticsOn(on: boolean) {
 }
 
 /** Why a record is kept. */
-export type Reason = "picked" | "wrong-card" | "wrong-printing" | "hold-gave-up" | "closeup" | "title-overruled" | "slow-find";
+/** "slow-printing": the scanner settled the printing itself, but SLOW_PRINTING_MS or more after the card was named. */
+export type Reason = "picked" | "wrong-card" | "wrong-printing" | "hold-gave-up" | "closeup" | "title-overruled" | "slow-find" | "slow-printing";
 export type Outcome = "filed" | "picked" | "wrong" | "skipped" | "left";
 
 /** A card in view and the image it's in. */
@@ -90,6 +91,22 @@ export interface FrameNote {
   cardPx?: number;
   zoom?: number;
   verdict?: unknown;
+  /** The first read: ms from the card being named to its first crop going to the reader. */
+  wait?: number;
+  /** Each crop's read, ms from being handed to the reader to its answer, in `reads`' order. */
+  ocrMs?: number[];
+  /** The engine's own part of each (ML Kit says; the rest is the crossing and waiting its turn). */
+  engineMs?: number[];
+  /** Hold and read: finding the card in the frame (ms), and cutting it from the camera's full frame. */
+  locateMs?: number;
+  cutMs?: number;
+}
+
+/** Each crop's time, rounded, as a frame note keeps it (`ocrMs`, and `engineMs` where the engine says). */
+export function cropTimesNote(times: readonly { ms: number; engineMs?: number }[]): Pick<FrameNote, "ocrMs" | "engineMs"> {
+  if (times.length === 0) return {};
+  const engine = times.every((t) => t.engineMs != null);
+  return { ocrMs: times.map((t) => Math.round(t.ms)), ...(engine ? { engineMs: times.map((t) => Math.round(t.engineMs!)) } : {}) };
 }
 
 const clip = (s: string) => (s.length > MAX_TEXT ? `${s.slice(0, MAX_TEXT)}…` : s);
@@ -169,6 +186,11 @@ export class ScanRecord {
 
   get isSent() {
     return this.sent;
+  }
+
+  /** ms since the record started (the time frame notes are given in). */
+  since(): number {
+    return Date.now() - this.started;
   }
 
   /**
@@ -381,6 +403,16 @@ export class TimingRecord {
 
   get printedAs(): PrintingWay | null {
     return this.printing?.how ?? null;
+  }
+
+  /** ms from the card being named to its printing being settled, once it is. */
+  get printedMs(): number | null {
+    return this.printing?.ms ?? null;
+  }
+
+  /** ms since the card was named. */
+  since(): number {
+    return Date.now() - this.named;
   }
 
   /**
