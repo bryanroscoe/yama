@@ -55,6 +55,7 @@ describe("test scan", () => {
     const s = mount({ onAccept, autoAdd: false, settings: <p>host settings</p>, settingsSummary: "Regular, into Binder" });
     expect(s.props.onAccept).toBe(onAccept);
     expect(s.props.autoAdd).toBe(false);
+    expect(s.props.testScan).toBeUndefined();
     expect(s.props.settingsSummary).toBe("Regular, into Binder");
     expect(host.textContent).toContain("host settings");
     expect(host.textContent).toContain("Test scan.");
@@ -75,6 +76,8 @@ describe("test scan", () => {
       const p = s.props;
       expect(p.onAccept).not.toBe(onAccept);
       expect(p.autoAdd).toBe(true);
+      // Marks the scanner as testing: no scan photos, and it starts afresh on the switch.
+      expect(p.testScan).toBe(true);
       expect(p.single).toBe(false);
       expect(p.onShowAdded).toBeUndefined();
       expect(p.onOpenCard).toBeUndefined();

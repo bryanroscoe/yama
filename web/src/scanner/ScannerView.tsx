@@ -181,6 +181,11 @@ export interface ScannerViewProps {
   onClear?: () => void;
   /** What Clear the list does, in a few words, beside its button. */
   clearNote?: string;
+  /**
+   * Set by test scan (testScan.tsx), never by a host: no scan photo is kept, and Scanner
+   * diagnostics' timing records are marked `test_scan`.
+   */
+  testScan?: boolean;
 }
 
 type Phase = "loading" | "scanning" | "found" | "no-camera";
@@ -514,7 +519,10 @@ const candidateOf = (f: Found, p: Printing | null): ScanCandidate => ({
  * as they are; on, nothing the scanner finds reaches the host.
  */
 export function ScannerView(props: ScannerViewProps) {
-  return <ScannerScreen {...useTestScan(props)} />;
+  const shown = useTestScan(props);
+  // Switching test scan on or off starts the camera screen afresh, so a card found (or still being
+  // read) under one mode is never filed under the other: a test card never reaches the host's save.
+  return <ScannerScreen key={shown.testScan ? "test" : "scan"} {...shown} />;
 }
 
 function ScannerScreen({
@@ -549,6 +557,7 @@ function ScannerScreen({
   haptics = true,
   setLock: lockOffered = !identityOnly,
   onClear,
+  testScan = false,
 }: ScannerViewProps) {
   // Read through a ref, so callbacks made in an earlier render follow a change (a Mute switch).
   const hapticsRef = useRef(haptics);
@@ -2261,7 +2270,8 @@ function ScannerScreen({
 
   /** Keep the photo of this card, if Save scan photos is on, with what the person said it was. */
   const keep = (f: Found, kind: SampleLabel["kind"], label?: ScanCandidate) => {
-    if (!f.shot) return;
+    // Test scan keeps nothing: its cards weren't confirmed as added, so they'd be wrong labels.
+    if (!f.shot || testScan) return;
     void keepSample(f.shot, {
       ...(f.guess ?? guessOf(f)),
       kind: sampleKind(f, kind, label),
@@ -2659,6 +2669,7 @@ function ScannerScreen({
     if (f.timing) {
       if (!identityOnly && c) f.timing.printed(printingWay(f, c));
       f.timing.detail.auto = auto;
+      if (testScan) f.timing.detail.test_scan = true;
       // Whether the look's closest printing is the one filed (the first filing only): with the
       // lead it had (`look_lead`), what settling by look would have done, whichever option ran.
       const lookScores = look?.complete && look.seq === foundSeq.current ? look.scores : undefined;

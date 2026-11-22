@@ -95,6 +95,7 @@ export function useTestScan(props: ScannerViewProps): ScannerViewProps {
   if (!testing) return { ...props, settings: shownSettings };
   return {
     ...props,
+    testScan: true,
     onAccept: accept,
     onUndo: undo,
     onCorrect: correct,
@@ -144,7 +145,7 @@ function TestScanSettings({ testing, onTesting, count, onClear, note }: { testin
       <label className="scan-keep">
         <input type="checkbox" checked={testing} onChange={(e) => onTesting(e.target.checked)} />
         <span>
-          <strong>Test scan.</strong> Scan card after card to try the scanner. Each card it finds is shown and counted here, and nothing is saved, added or checked off. Off again next time the scanner opens.
+          <strong>Test scan.</strong> Scan card after card to try the scanner. Each card it finds is shown and counted here, and nothing is saved, added or checked off, nor kept as a scan photo. Off again next time the scanner opens.
         </span>
       </label>
       {onClear && count > 0 && (

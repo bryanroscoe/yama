@@ -1051,6 +1051,14 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
   /** What Move all or Clear the list just did, said on the sheet and in the Added list. */
   const [notice, setNotice] = useState<string | null>(null);
   const [moving, setMoving] = useState(false);
+  /** The scanner has closed: a Move all under way starts no more moves (Close without saving means it). */
+  const closed = useRef(false);
+  useEffect(() => {
+    closed.current = false;
+    return () => {
+      closed.current = true;
+    };
+  }, []);
   /**
    * Move all (Bryan, 22 Nov 2026: "an easy way to add all the things recently scanned to a
    * different box that was selected"): every card this session added, into `to`, one fix each, so
@@ -1065,6 +1073,7 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
     let moved = 0;
     const failed: string[] = [];
     for (const { key } of move) {
+      if (closed.current) return;
       // As it is now: a fix or Clear the list during the move (each move waits on the server) must
       // neither be undone by a plan made from the entry as it was, nor be counted as moved.
       const a = listRef.current.find((x) => x.key === key);

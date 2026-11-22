@@ -3522,7 +3522,10 @@ versions of the scanner."
   printing and the strip go to a list on the screen, Keep adding is on, and the host's own
   `onAccept`, `onUndo` and `onCorrect` are never called, so no host can save a test card. It is not
   remembered: each scanner opens with it off, so a forgotten switch never drops a real session.
-  Kept scan photos and diagnostics still record test cards (useful when testing the scanner).
+  Switching it starts the camera screen afresh (a `key` on `ScannerScreen`), so a card found or
+  still being read under one mode is never filed under the other. No scan photo is kept for a
+  test card (it was never confirmed, so it would be a wrong label); Scanner diagnostics, when on,
+  still time test cards and mark them `test_scan`.
 - **Clear the list** is the host's `onClear`: the collection's list keeps only entries whose write
   isn't confirmed (`afterClear`); the deck scan, deck check and box scan ask, then start over.
 - **Moving a session to another box** is a fix like any other (`boxFix`): a `container` on `Fix`
