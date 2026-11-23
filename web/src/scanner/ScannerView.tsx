@@ -948,11 +948,14 @@ function ScannerScreen({
   const [stuck, setStuckState] = useState<"stuck" | "sending" | "sent" | "failed" | null>(null);
   const stuckRef = useRef<typeof stuck>(null);
   const setStuck = (v: typeof stuck) => {
+    if (v === null) stuckSend.current += 1;
     if (stuckRef.current === v) return;
     stuckRef.current = v;
     setStuckState(v);
   };
   const stuckShot = useRef<{ shot: Shot; art: unknown } | null>(null);
+  /** Counts sends from the chip, and the card leaving it, so a late answer never lands on another card. */
+  const stuckSend = useRef(0);
   const cam = useCameraControls();
   /**
    * The app's own camera (nativeCamera.ts): the option on this device, why it didn't open this
@@ -1276,13 +1279,19 @@ function ScannerScreen({
     const s = stuckShot.current;
     if (!s) return;
     setStuck("sending");
-    const looked = seek.current;
-    const rec = looked?.rec.isLive ? looked.rec.copy() : baseRecord();
+    // This send's answer, if it's still the one on the chip (a card named meanwhile clears it).
+    const token = ++stuckSend.current;
+    // The look so far only while its record is live: not from before Delete them or another
+    // sign-in (review of #204).
+    const looked = seek.current?.rec.isLive ? seek.current : null;
+    const rec = looked ? looked.rec.copy() : baseRecord();
     rec.setShot(s.shot);
     rec.reasons.add("reported");
     rec.note("reported", { found: false, art: s.art, switchOn: diagRef.current });
     if (looked) rec.note("seek", { ms: Date.now() - looked.started, frames: looked.frames });
-    void rec.send("reported", true).then((ok) => setStuck(ok ? "sent" : "failed"));
+    void rec.send("reported", true).then((ok) => {
+      if (token === stuckSend.current && stuckRef.current === "sending") setStuck(ok ? "sent" : "failed");
+    });
   };
   /**
    * Test scan's text reading test (textTest.ts): the title and collector line of a card the art
@@ -2797,13 +2806,14 @@ function ScannerScreen({
           }
           // Not while a card filed by its name is held: it may be that card, still in view.
           if (!blockedName.current) setStatus(faceDown ? CARD_BACK : READING);
-          // (A back lying in view isn't a card the scanner is slow to find.)
-          const seen = blockedName.current || faceDown ? null : seekFrame({ art: artNote.art.slice(0, 3), lead: artNote.lead, cardPx: artNote.cardPx });
           // The title and text reads take seconds on a phone, and the art isn't looked at again
           // meanwhile: between them, the art has TEXT_GAP_MS of frames of its own, where a sure or
           // leading match names the card at once (Bryan, 23 Nov 2026: "Teyo was a nightmare to
-          // scan"; his hard foils got one look every 2.5 to 4 s, Jiang Yanggu 7 in 28 s).
+          // scan"; his hard foils got one look every 2.5 to 4 s, Jiang Yanggu 7 in 28 s). Those
+          // frames aren't written down: a slow find's record keeps the frames that read text.
           if (!gated && textEnded > 0 && Date.now() - textEnded < TEXT_GAP_MS) return next(30);
+          // (A back lying in view isn't a card the scanner is slow to find.)
+          const seen = blockedName.current || faceDown ? null : seekFrame({ art: artNote.art.slice(0, 3), lead: artNote.lead, cardPx: artNote.cardPx });
           // A match that is at least fair is read on every frame; a card the art index plainly
           // doesn't know (a battle, a weak match) after a few frames, as before.
           if (top.score >= ART_UNKNOWN || artUnknown || gated || ++unknownFrames >= 3) {
@@ -4438,7 +4448,7 @@ function ScannerScreen({
           </div>
         ) : stuck && phase === "scanning" && !isFound && !tapNeeded && !lockOpen ? (
           <div className="scan-chip has-action">
-            <span role="status">{stuck === "sent" ? "Sent. Keep trying, or tilt it out of the glare" : stuck === "failed" ? "Couldn't send it" : status}</span>
+            <span role="status">{stuck === "sent" ? "Sent. Keep trying, or tilt it out of the glare" : stuck === "failed" ? "Couldn't send it" : distance === "close" ? FURTHER : status}</span>
             {stuck !== "sent" && (
               <Button className="scan-chip-action" onClick={sendStuck} disabled={stuck === "sending"}>
                 {stuck === "sending" ? "Sending…" : "Send this scan"}
