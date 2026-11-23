@@ -104,6 +104,8 @@ export const TORCH_GLARE_MS = 600;
 export class TorchOnGlare {
   private since: number | null = null;
   private turnedOff = false;
+  /** The flashlight seen off since it was turned off (the camera's state lags the call). */
+  private seenOff = false;
   private kept = false;
 
   /** Whether it turned the flashlight off this session (and the person hasn't turned it back on). */
@@ -113,8 +115,10 @@ export class TorchOnGlare {
 
   /** One frame: true when the flashlight should go off now. */
   frame(glary: boolean, torchOn: boolean, now: number): boolean {
-    // Back on after it went off: the person wants it.
-    if (torchOn && this.turnedOff) this.kept = true;
+    // Back on after it was seen off: the person wants it. (On before it was seen off is the
+    // camera not having caught up yet.)
+    if (this.turnedOff && !torchOn) this.seenOff = true;
+    if (torchOn && this.seenOff) this.kept = true;
     if (!torchOn || this.kept || this.turnedOff || !glary) {
       this.since = null;
       return false;

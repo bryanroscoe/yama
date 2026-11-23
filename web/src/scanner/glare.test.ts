@@ -72,6 +72,9 @@ describe("TorchOnGlare", () => {
     expect(t.frame(true, true, TORCH_GLARE_MS - 1)).toBe(false);
     expect(t.frame(true, true, TORCH_GLARE_MS)).toBe(true);
     expect(t.off).toBe(true);
+    // The camera's state still says on for a frame or two: that isn't the person turning it back on.
+    expect(t.frame(true, true, TORCH_GLARE_MS + 30)).toBe(false);
+    expect(t.off).toBe(true);
     // Off now: nothing more to do.
     expect(t.frame(true, false, TORCH_GLARE_MS + 100)).toBe(false);
     // The person turns it back on: theirs from now on, glare or not.

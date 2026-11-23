@@ -204,6 +204,15 @@ describe("glare and going wide", { timeout: 20_000 }, () => {
     await until(() => (applied.at(-1)?.zoom === 1 ? true : null), "back to 1x");
   });
 
+  it("doesn't step out for the card just filed, lying there", async () => {
+    const accepted: ScanCandidate[] = [];
+    act(() => root.render(<Host accepted={accepted} />));
+    await until(() => (accepted.length === 1 ? true : null), "the card filed");
+    await wait(4500);
+    expect(zoomedTo(0.5)).toBe(false);
+    expect(accepted).toHaveLength(1);
+  });
+
   it("turns the flashlight off when its glare is on the art of a card it can't name, says so, then says to tilt it", async () => {
     cam.card = "none";
     const accepted: ScanCandidate[] = [];

@@ -1411,8 +1411,9 @@ function ScannerScreen({
   const lastSeenQuad = useRef<Quad | null>(null);
   /**
    * The read loop is trying to name the card in view: set by each pass that reads a card not held
-   * as the one just added or filed, cleared by a pass that holds one or sees a card back, and once
-   * the view has been clear for AWAY_FRAMES. Going wide waits only while it's off. The card filed
+   * as the one just added or filed, cleared by a pass that holds one or sees a card back. (A clear
+   * view leaves it: going wide has its own rule for an empty view, and a card lost for a moment and
+   * read again isn't the next card's turn to go wide.) Going wide waits only while it's off. The card filed
    * last is held by its name until another card leads surely (review of #205), so a glary foil laid
    * down next counted as named and never went wide (Bryan, 23 Nov 2026, after #205: it didn't seem
    * to switch lenses "to try to scan the card better" any more).
@@ -1435,13 +1436,17 @@ function ScannerScreen({
       void c.setTorch(false);
     }
   };
-  /** A pass that holds the card just added or filed, sees a card back, or finds the view clear. */
-  const notSeeking = () => {
-    seekingRef.current = false;
+  /** The view clear of cards: the next card's glare is its own. */
+  const clearGlare = () => {
     glareWatch.current.reset();
     glareNow.current = { glary: false, hint: false };
     // (So a flashlight the person turned back on after it went off is known to be theirs.)
     torchGlare.current.frame(false, camRef.current.torch, performance.now());
+  };
+  /** A pass that holds the card just added or filed, or sees a card back: no card being named. */
+  const notSeeking = () => {
+    seekingRef.current = false;
+    clearGlare();
   };
   /** What the camera says while it reads a card it can't name yet: READING, or what to do about the glare on it. */
   const readingSays = (): string => {
@@ -2753,7 +2758,7 @@ function ScannerScreen({
                 blocked.current = null;
                 blockedName.current = null;
                 filedName.current = null;
-                notSeeking();
+                clearGlare();
                 endSeek();
                 appeared.current = null;
               }
@@ -2772,6 +2777,8 @@ function ScannerScreen({
               // A lead counts over reads in a row of one card at rest: anything else between ends it.
               if (d.kind !== "steadying" && d.kind !== "reading") leadRun.step(null);
               const holding = !!blocked.current || !!blockedName.current;
+              // The card just added, latched where it lies: not one being named (going wide waits).
+              if (holding) notSeeking();
               if (!holding && !filedName.current) setDupe(null);
               setStatus(gateStatus(d, holding));
               return next(d.kind === "none" ? 60 : GATE_PASS_MS);
@@ -2823,7 +2830,7 @@ function ScannerScreen({
             if (++noCard.current >= AWAY_FRAMES) {
               blockedName.current = null;
               filedName.current = null;
-              notSeeking();
+              clearGlare();
               endSeek();
               appeared.current = null;
             }
