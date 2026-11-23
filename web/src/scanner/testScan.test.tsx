@@ -121,6 +121,29 @@ describe("test scan", () => {
     expect(s.props.onClear).toBe(hostClear);
   });
 
+  it("reads the text on every card when asked, and says card by card what it read", async () => {
+    const s = mount({ onAccept: vi.fn(async () => true) });
+    // Offered only while testing.
+    expect(host.textContent).not.toContain("Read the text on every card");
+    toggle();
+    expect(s.props.onTextTest).toBeUndefined();
+    const boxes = () => host.querySelectorAll<HTMLInputElement>(".settings input[type=checkbox]");
+    expect(boxes()).toHaveLength(2);
+    act(() => boxes()[1]!.click());
+    expect(host.querySelector(".controls")?.textContent).toContain("Text reading test. No cards read yet.");
+    const report = s.props.onTextTest!;
+    act(() => report({ name: "Fatehold Charm", title: "Fatehold Charm", titleOk: true, line: "R 0432 / FRA • EN", read: "FRA 432", settled: true, twin: false, ms: 800 }));
+    act(() => report({ name: "Teyo, Lightshield Expert", title: "", titleOk: false, line: "", read: null, settled: false, twin: false, ms: 700 }));
+    const text = host.querySelector(".scan-text-test")!.textContent!;
+    expect(text).toContain("Name read on 1 of 2 cards; set and number on 1.");
+    expect(text).toContain("Fatehold Charm Name read. Read FRA 432.");
+    expect(text).toContain("Teyo, Lightshield Expert Name not read. Number not read.");
+    // Clear the list starts it again too.
+    await act(async () => void (await s.props.onAccept!(card("Sol Ring"), 1, true)));
+    act(() => button("Clear the list")!.click());
+    expect(host.querySelector(".scan-text-test")!.textContent).toContain("No cards read yet.");
+  });
+
   it("starts each test with an empty list", async () => {
     const s = mount({ onAccept: vi.fn(async () => true) });
     toggle();

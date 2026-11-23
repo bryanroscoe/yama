@@ -29,6 +29,7 @@ import { CollectorPeek } from "./peek";
 import { filedFinish, priceFor, pricesOf, priceTie, TIE_WITHIN, worthIt, type RecentCard, type ScanFinish } from "./price";
 import { ScanTray } from "./ScanTray";
 import { useTestScan } from "./testScan";
+import { judgeText, type TextTest } from "./textTest";
 import { PLAY_WORD, playTag, usePlayability } from "./playable";
 import { holdSound } from "../sound";
 import { BUZZ, filedBuzz, filedSound, playPriceSound, playScanSound, setSoundsOn, setWorthThreshold, soundsOn, unlockSound, worthThreshold, type ScanSound } from "./sounds";
@@ -202,6 +203,11 @@ export interface ScannerViewProps {
    * diagnostics' timing records are marked `test_scan`.
    */
   testScan?: boolean;
+  /**
+   * Set by test scan's "Read the text on every card" (testScan.tsx, textTest.ts): each card the art
+   * names has its title and collector line read too, judged and handed here.
+   */
+  onTextTest?: (t: TextTest) => void;
 }
 
 type Phase = "loading" | "scanning" | "found" | "no-camera";
@@ -352,6 +358,15 @@ const ART_UNKNOWN = 0.5;
  * still"). [inferred]
  */
 const TEXT_VETO = 0.6;
+/**
+ * In the collection, a whole-card text read at least this sure that names one of the art's matches
+ * names the card (TEXT_VETO is the bar where only the card matters). Bryan, 23 Nov 2026: "I don't
+ * think it correctly read the text on any of the cards": his foils' text read named the right card
+ * at 0.9 (Fatehold Charm, Theorix Annex, Hunter's Axe) while their art sat at 0.53 to 0.71, and
+ * the collection never used it, leaving each card unfound for 10 to 20 s. Higher than TEXT_VETO,
+ * as a card named here with one printing files itself. [inferred]
+ */
+const TEXT_AGREE_FILES = 0.85;
 /** A card that takes longer than this to find is kept by Scanner diagnostics ("slow-find"). */
 const SLOW_FIND_MS = 3000;
 /** Frames written down while looking for one card. */
@@ -711,6 +726,7 @@ function ScannerScreen({
   onProvisional,
   onClear,
   testScan = false,
+  onTextTest,
 }: ScannerViewProps) {
   // Read through a ref, so callbacks made in an earlier render follow a change (a Mute switch).
   const hapticsRef = useRef(haptics);
@@ -1232,6 +1248,30 @@ function ScannerScreen({
     });
     return rec.send("reported", true);
   };
+  /**
+   * Test scan's text reading test (textTest.ts): the title and collector line of a card the art
+   * named, read from the view it was named in whatever the art settled, judged against it and its
+   * printings, and handed to test scan. Never holds the scanner up; a read that fails is left out.
+   */
+  const runTextTest = async (top: ArtMatch, read: Shot | null) => {
+    const report = onTextTest;
+    if (!report || !read) return;
+    try {
+      const t0 = performance.now();
+      const ocr = await ocrEngine();
+      const titles = await readTitles(read.image, read.quad, ocr);
+      const reads: string[] = [];
+      for await (const text of readCollectorLines(read.image, read.quad, ocr)) reads.push(text);
+      const ms = performance.now() - t0;
+      // (Without its printings, offline say, the title is still judged.)
+      const opts = await printingOptions({ art: top.illustrationId, id: top.id }).catch(() => null);
+      report(judgeText(top.name, titles, reads, opts?.printings ?? [], ms));
+    } catch (e) {
+      console.info("The text reading test couldn't read the card", e);
+    }
+  };
+  const runTextTestRef = useRef(runTextTest);
+  runTextTestRef.current = runTextTest;
   cameraNowRef.current = cameraNow as Record<string, unknown> | null;
   ocrNameRef.current = ocrName;
   // Closing the scanner with a card still in hand ends its record ("left").
@@ -2280,6 +2320,8 @@ function ScannerScreen({
     (r: Recognition, top: ArtMatch, read: { image: RgbaImage; quad: Quad } | null, carry: Pick<Found, "shot" | "photo" | "guess" | "unlocked" | "rec" | "timing" | "titled" | "leads"> = {}) => {
       stopLook();
       const seq = ++foundSeq.current;
+      // Test scan's text reading test, beside whatever the art settles (textTest.ts).
+      void runTextTestRef.current(top, read);
       const timing = newTiming(carry.timing, "sure", top.score);
       const photo = newPhoto(carry.shot ?? read, carry.photo, "sure", artScores(r));
       const rec = newRecord(carry.rec);
@@ -2728,9 +2770,10 @@ function ScannerScreen({
             if (stop) return;
             const said = res.candidates[0];
             if (seen) seen.text = said ? { name: said.name, confidence: Math.round(said.confidence * 1000) / 1000 } : null;
-            // The card's text names one of the art's matches, fairly surely: the two agree. Only where
-            // just the card matters, and not while a card filed by its name is held (as above).
-            const agreed = identityOnly && said && said.confidence >= TEXT_VETO && !artUnknown && !blockedName.current ? artHas(ranked, said.name) : undefined;
+            // The card's text names one of the art's matches, fairly surely: the two agree. In the
+            // collection only surely (TEXT_AGREE_FILES), and not while a card filed by its name is
+            // held (as above).
+            const agreed = said && said.confidence >= (identityOnly ? TEXT_VETO : TEXT_AGREE_FILES) && !artUnknown && !blockedName.current ? artHas(ranked, said.name) : undefined;
             if (agreed) {
               lockBy("text");
               showArt(r, agreed, read(hi), { titled: true });
