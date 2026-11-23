@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AUTO_MAX, AutoZoom, autoCeiling, CLOSE_MS, LOST_FRAMES, LOST_MS, maySwitchLens, STEADY, STEP_MS, WIDE_AFTER_MS, WIDE_BACK_MS, WIDE_GLARE_MS, WIDE_MAX_MS, WideOnStruggle } from "./zoomPolicy";
+import { AUTO_MAX, AutoZoom, autoCeiling, CLOSE_MS, closeupZoom, LENS_SWITCH, LOST_FRAMES, LOST_MS, maySwitchLens, STEADY, STEP_MS, WIDE_AFTER_MS, WIDE_BACK_MS, WIDE_GLARE_MS, WIDE_MAX_MS, WideOnStruggle } from "./zoomPolicy";
 import { cardHeight, LETTER_SHARE, letterPx, tooFar } from "./closer";
 import { rectQuad } from "./image";
 
@@ -132,7 +132,7 @@ describe("going wide when a card struggles", () => {
     expect(w.frame(0.6, true, false, 1, (t += 100))).toBe(0.5);
   });
 
-  it("gives up on 0.5x when it doesn't help, and not again for that card until the view empties", () => {
+  it("takes turns for a card it can't name: 0.5x for a while, 1x for a while, then 0.5x again (23 Nov 2026, after #207)", () => {
     const w = new WideOnStruggle(pixel);
     let t = 0;
     for (; t < WIDE_AFTER_MS; t += 100) w.frame(0.6, true, false, 1, t);
@@ -140,13 +140,13 @@ describe("going wide when a card struggles", () => {
     const went = t;
     for (t += 100; t < went + WIDE_MAX_MS; t += 100) expect(w.frame(0.3, true, false, 0.5, t)).toBeNull();
     expect(w.frame(0.3, true, false, 0.5, t)).toBe(1);
-    // The same card, still unnamed at 1x: stays at 1x.
-    for (let i = 0; i < 2 * (WIDE_AFTER_MS / 100); i += 1) expect(w.frame(0.6, true, false, 1, (t += 100))).toBeNull();
-    // The view empties; the next card may go wide.
-    expect(w.frame(null, false, false, 1, (t += 100))).toBeNull();
-    expect(w.frame(null, false, false, 1, (t += WIDE_BACK_MS))).toBeNull();
-    for (let i = 0; i < WIDE_AFTER_MS / 100; i += 1) w.frame(0.6, true, false, 1, (t += 100));
-    expect(w.frame(0.6, true, false, 1, (t += 100))).toBe(0.5);
+    // A turn at 1x, the struggle's wait again, then wide again: each lens sees the card from its own spot.
+    const back = t;
+    for (t += 100; t < back + 100 + WIDE_AFTER_MS; t += 100) expect(w.frame(0.6, true, false, 1, t)).toBeNull();
+    expect(w.frame(0.6, true, false, 1, t)).toBe(0.5);
+    // Named meanwhile: back to 1x, and it stays.
+    expect(w.frame(0.3, true, true, 0.5, (t += 100))).toBe(1);
+    for (let i = 0; i < 2 * (WIDE_AFTER_MS / 100); i += 1) expect(w.frame(0.6, true, true, 1, (t += 100))).toBeNull();
   });
 
   it("isn't put off by a missed frame or two: a glary card the finder loses now and then still goes wide (23 Nov 2026, after #205)", () => {
@@ -197,3 +197,25 @@ describe("going wide when a card struggles", () => {
     expect(w.isWide).toBe(false);
   });
 });
+
+describe("the close-ups zoom in themselves", () => {
+  const pixel = { min: 0.507, max: 30 };
+  it("zooms so the name would fill the box from where the card is, more for the set code and number", () => {
+    // A card 60% of the view's height: about 1.3x for its name, to the main lens's 2.5x for the collector line.
+    expect(closeupZoom("title", 0.6, 1, pixel)).toBeCloseTo(1.3, 1);
+    expect(closeupZoom("collector", 0.6, 1, pixel)).toBe(AUTO_MAX);
+    // Further away (30%): more.
+    expect(closeupZoom("title", 0.3, 1, pixel)).toBeCloseTo(2.5, 1);
+    // From 2x already, the share seen at 2x.
+    expect(closeupZoom("title", 0.6, 2, pixel)).toBeCloseTo(2.5, 1);
+  });
+
+  it("goes to the telephoto only for a card far enough to need it, and never on a camera without one", () => {
+    expect(closeupZoom("title", 0.15, 1, pixel)).toBe(LENS_SWITCH);
+    expect(closeupZoom("title", 0.15, 1, { min: 1, max: 3 })).toBe(3);
+    // Close enough already, or nothing seen: nothing to do.
+    expect(closeupZoom("title", 0.9, 1, pixel)).toBeNull();
+    expect(closeupZoom("title", 0, 1, pixel)).toBeNull();
+  });
+});
+

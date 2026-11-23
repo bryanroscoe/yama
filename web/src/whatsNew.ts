@@ -15,6 +15,17 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-23-scanner-foil-sheen",
+    date: "2026-11-23",
+    title: "The scanner tells foils by their shine",
+    items: [
+      "With the finish at Regular, a card whose text box shows a foil's rainbow is added as Foil. Not foil, beside Undo, changes it, and Foil does the opposite. Turn it off in Scan settings, Foil by its shine.",
+      "Asked for a card's name or set code up close, the camera zooms in itself: point the box at it instead of bringing the phone close.",
+      "A card the scanner can't name takes turns between the main lens and 0.5x, each seeing the card from its own spot, until it's named.",
+    ],
+    link: { to: "/collection", label: "Scan cards" },
+  },
+  {
     id: "2026-11-23-scanner-glare",
     date: "2026-11-23",
     title: "The scanner works around glare on foils",

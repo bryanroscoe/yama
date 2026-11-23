@@ -109,8 +109,13 @@ export const WIDE_BACK_MS = 1500;
 // without a name (it isn't helping; not again until the view empties), and the close rule waits
 // for the card to overfill the view for CLOSE_MS, not three frames.
 
-/** Wide this long with the card still unnamed: back to 1×, and not wide again for that card. */
-export const WIDE_MAX_MS = 6000;
+// Taking turns (Bryan, 23 Nov 2026, after #207: "The lenses are all in different spots on the phone
+// so switching between the three lenses helps"). A card still unnamed after WIDE_MAX_MS at 0.5×
+// goes back to 1×, and if it stays unnamed there for another struggle's wait, out to 0.5× again: each
+// lens sees the card from its own spot, so the glare moves. Until #208 it went wide once a card.
+
+/** Wide this long with the card still unnamed: back to 1×, to take another turn wide later. */
+export const WIDE_MAX_MS = 4000;
 /** A card held at 1× overfilling the view this long steps out wide. */
 export const CLOSE_MS = 600;
 
@@ -137,9 +142,6 @@ export class WideOnStruggle {
   private closeSince: number | null = null;
   private wideSince = 0;
   private wide = false;
-  /** Went wide for the card in view and came back unnamed: not again until the view empties or it's named. */
-  private spent = false;
-  private wasNamed = false;
   /** Frames with no steady card in a row, and when one was last there. */
   private missRun = 0;
   private lastThere = 0;
@@ -172,8 +174,6 @@ export class WideOnStruggle {
   reset(): number | null {
     const was = this.wide;
     this.wide = false;
-    this.spent = false;
-    this.wasNamed = false;
     this.missRun = 0;
     this.emptySince = null;
     this.restart();
@@ -201,20 +201,15 @@ export class WideOnStruggle {
     if (there) this.emptySince = null;
     else this.emptySince ??= now;
     const emptied = !there && now - this.emptySince! >= WIDE_BACK_MS;
-    // The view clear, or the card named and let go (the next card's turn): it may go wide again.
-    if (emptied || (this.wasNamed && !named)) this.spent = false;
-    this.wasNamed = named;
     if (this.wide) {
       // Named while wide: going wide has done its job, and the next card starts at 1×.
       if (named) return this.back();
       if (emptied) return this.back();
-      if (there && now - this.wideSince >= WIDE_MAX_MS) {
-        this.spent = true;
-        return this.back();
-      }
+      // Unnamed for its turn: back to 1× for a turn there (the struggle's wait starts again).
+      if (there && now - this.wideSince >= WIDE_MAX_MS) return this.back();
       return null;
     }
-    if (named || this.spent) {
+    if (named) {
       this.restart();
       this.missRun = 0;
       return null;
@@ -243,4 +238,32 @@ export class WideOnStruggle {
     this.wideSince = now;
     return round(Math.max(this.range.min, WIDE_ZOOM));
   }
+}
+
+// The close-ups zoom in themselves (Bryan, 23 Nov 2026: "you asked me to find a name with a zoom but
+// you could totally zoom in yourself in some cases with the zoom lens. Make sure you try that as
+// well"). Asked for the card's name or its set code and number up close, the camera zooms so that
+// line would fill the close-up's box (88% of the view's width) from where the card was, and the
+// person only points the box at it. A card is 63 × 88 mm; in a 9:16 portrait view, a card `share` of
+// the view's height is share × 16/9 × 63/88 = 1.27 × share of its width. The name runs about 3/4
+// of the card's width, the set code and number about 3/10.
+
+/** How wide the card should be, in view widths, for each close-up's line to fill the box. */
+const CLOSE_CARD_WIDTH = { title: 1.0, collector: 2.05 } as const;
+const CARD_WIDTH_PER_HEIGHT = (16 / 9) * (63 / 88);
+
+/**
+ * The zoom for a close-up, from the card's last height share of the view (`share`, at zoom `at`):
+ * never below where it is; on a camera that switches lens as it zooms, at most AUTO_MAX on the main
+ * lens, or the telephoto's switch (LENS_SWITCH) when the card is far enough to need it (a telephoto
+ * can't focus as close as a card is held); elsewhere as far as the camera zooms. Null
+ * when there's nothing to gain (within 5% of where it is).
+ */
+export function closeupZoom(kind: "title" | "collector", share: number, at: number, range: ZoomRange): number | null {
+  if (!(share > 0) || !(at > 0)) return null;
+  const want = (at * CLOSE_CARD_WIDTH[kind]) / (CARD_WIDTH_PER_HEIGHT * share);
+  // (Below the lens switch on a camera that has one, unless the card is far; else as far as it zooms.)
+  const ceiling = maySwitchLens(range) ? (want >= LENS_SWITCH * 0.9 ? LENS_SWITCH : AUTO_MAX) : Math.max(1, range.max);
+  const z = round(Math.min(ceiling, Math.max(at, want)));
+  return z > at * 1.05 ? z : null;
 }

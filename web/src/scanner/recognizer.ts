@@ -10,6 +10,7 @@
 
 import { isCardBack } from "./cardBack";
 import { artGlare } from "./glare";
+import { cardSheen, type Sheen } from "./foil";
 import { artLead, LEAD_MARGIN } from "./fuse";
 import { cardThumb, frameSharpness } from "./gateFrame";
 import { fromBase64, galleryOf, readGallery, upTo, type Gallery } from "./gallery";
@@ -70,6 +71,8 @@ export interface Recognition {
    * can't read them after the call. With a card only.
    */
   glare?: number;
+  /** The sheen of the card's text box (foil.ts), measured here for the same reason. With a card only. */
+  sheen?: Sheen;
   /**
    * `cuts`: frame cuts the art model embedded (all of them, or fewer when the first stage of a cascade
    * settled it). `runs`: each graph run's milliseconds this frame, by graph (the speed test, speed.ts,
@@ -677,6 +680,7 @@ export async function createRecognizer(
       ...found,
       ...(back ? { back } : {}),
       glare: artGlare(frame, quad),
+      sheen: cardSheen(frame, quad),
       timings: { detectMs: 0, embedMs: t2 - t0, totalMs: t2 - t0, cuts, runs },
       ...(turned ? { turned } : {}),
       ...(remote ? { remote: { reads: remote.reads, ms: remote.ms, ...(remote.failed ? { failed: remote.failed } : {}) } } : {}),
@@ -693,7 +697,7 @@ export async function createRecognizer(
     const back = inView && isCardBack(frame, fine.quad);
     const { cuts, ...found } = inView ? await match(frame, fine.quad, runs) : { matches: [], pool: pool && gallery ? [] : undefined, cuts: 0 };
     const t2 = now();
-    return { quad: inView ? fine.quad : null, upright: fine.vote, ...found, ...(back ? { back } : {}), ...(inView ? { glare: artGlare(frame, fine.quad) } : {}), timings: { detectMs: t1 - t0, embedMs: t2 - t1, totalMs: t2 - t0, cuts, runs } };
+    return { quad: inView ? fine.quad : null, upright: fine.vote, ...found, ...(back ? { back } : {}), ...(inView ? { glare: artGlare(frame, fine.quad), sheen: cardSheen(frame, fine.quad) } : {}), timings: { detectMs: t1 - t0, embedMs: t2 - t1, totalMs: t2 - t0, cuts, runs } };
   };
 
   // Each graph's first run sets up its kernels; pay that before the first real frame.
