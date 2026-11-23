@@ -858,6 +858,8 @@ function ScannerScreen({
   const filedFound = useRef<Found | null>(null);
   /** The card filed last: its name holds it until the view clears (`stillFiledAs`). */
   const fileAs = (f: Found) => {
+    // Named and filed: no card being read until a pass reads one (the gate may latch it under another name).
+    notSeeking();
     filedName.current = f.name;
     filedFound.current = f;
     // (With the art the camera last led with while it lay there: a card named by its title.)
@@ -2840,7 +2842,8 @@ function ScannerScreen({
               else zoomVerdict(!seekingRef.current);
               if (!holding && !filedName.current) setDupe(null);
               // (What to do about the glare on a card being read stays said between its reads.)
-              const says = seekingRef.current && d.kind !== "none" ? glareText() : null;
+              // (Not over "No match, move the card": moving it is what starts the reads again.)
+              const says = seekingRef.current && d.kind !== "none" && d.kind !== "no-match" ? glareText() : null;
               setStatus(says ?? gateStatus(d, holding));
               return next(d.kind === "none" ? 60 : GATE_PASS_MS);
             }
@@ -2981,8 +2984,9 @@ function ScannerScreen({
           // A card being read to name it (a struggle, if it goes on: going wide, the glare said and the
           // flashlight off), or a back, which isn't. Art that's sure or leads may name it on this
           // pass: no stepping out under it.
+          // (Art the set lock can't use for this card settles nothing: it doesn't hold the step back.)
           if (faceDown) notSeeking();
-          else seeking(glare, top.score >= LOCK_ONCE || leading);
+          else seeking(glare, !artUnknown && (top.score >= LOCK_ONCE || leading));
           // A strong match decides by art, unless another card scores close to it. Otherwise the
           // title is read first (Bryan, 15 Nov 2026: no Star Trek card scanned; their art isn't in
           // the bundle, so lookalikes scored 0.5 to 0.8 and the scanner named them, or waited on
