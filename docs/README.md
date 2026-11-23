@@ -120,6 +120,7 @@ Four kinds of page live in this folder, and it helps to know which you are readi
 | [plans/README.md](plans/README.md) | What goes in the plans folder, and every plan with its status. |
 | [plans/forge-in-multiplayer.md](plans/forge-in-multiplayer.md) | Choosing Forge or Phase when hosting a game, then moving a game between them. Proposed. |
 | [plans/scanner-models.md](plans/scanner-models.md) | The scanner's own models: what real sleeved scans showed, the art model, lead lock and printing look that shipped, what comes next, and an optional server fallback. In progress. |
+| [plans/card-rating.md](plans/card-rating.md) | A 0 to 100 rating for every card (play share where it can be played, and price) to replace the EDHREC-rank tags in the scanner and the sorting bar: what other sites do, the formula, six checks against the rank, and what Bryan has to decide. Proposed. |
 
 ## Dated reports
 
