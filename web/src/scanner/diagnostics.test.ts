@@ -141,13 +141,33 @@ describe("scanner diagnostics", () => {
     before.reasons.add("reported");
     await deleteDiagnostics();
     expect(await before.send("reported", true)).toBe(false);
+    expect(before.isLive).toBe(false);
     // Nor a cancelled one.
     const cancelled = new ScanRecord();
     cancelled.reasons.add("reported");
     cancelled.cancel();
-    expect(cancelled.isCancelled).toBe(true);
+    expect(cancelled.isLive).toBe(false);
     expect(await cancelled.send("reported", true)).toBe(false);
     expect(posted.bodies.filter((b) => (b as { path: string }).path === "/api/scan/diagnostics" && !(b as { method?: string }).method)).toHaveLength(1);
+  });
+
+  it("Send this scan sends a copy: the card's own record is still sent when the card is done with, without the note", async () => {
+    const own = new ScanRecord();
+    own.frame({ source: "hold", reads: ["0122 FRA • EN"] });
+    const sent = own.copy();
+    sent.reasons.add("reported");
+    sent.note("note", "Foil");
+    expect(await sent.send("reported", true)).toBe(true);
+    own.reasons.add("picked");
+    expect(own.isLive).toBe(true);
+    expect(await own.send("picked")).toBe(true);
+    const [a, b] = posted.bodies as { outcome: string; detail: { reasons: string[]; note?: string; frames: unknown[] } }[];
+    expect(a!.detail).toMatchObject({ reasons: ["reported"], note: "Foil" });
+    expect(a!.detail.frames).toHaveLength(1);
+    expect(b!.outcome).toBe("picked");
+    expect(b!.detail.reasons).toEqual(["picked"]);
+    expect(b!.detail.note).toBeUndefined();
+    expect(b!.detail.frames).toHaveLength(1);
   });
 
   it("a cancelled record keeps nothing more and is never sent, nor what follows it", async () => {

@@ -1195,13 +1195,14 @@ function ScannerScreen({
   /**
    * "Send this scan": the card in hand as a Scanner diagnostic, now, with the person's note, whether
    * or not the switch is on (their tap is the yes; the record is theirs alone, as any diagnostic).
-   * With the switch on, it is the card's own record so far (every frame read); off, one made now
-   * from what the card shows: its photo, strip and symbol as found, the latest held view's strip,
-   * the art's matches, the printings and what was read. With the switch on, how the card ends is
-   * kept in a record after it, as for any card.
+   * With the switch on, a copy of the card's own record so far (every frame read), which goes on
+   * and is sent as any is; off, one made now from what the card shows: its photo, strip and symbol
+   * as found, the latest held view's strip, the art's matches, the printings and what was read.
    */
   const reportScan = async (f: Found, note: string, latest: Shot | null): Promise<boolean> => {
-    const own = f.rec && !f.rec.isCancelled ? f.rec.continued() : null;
+    // A copy of the card's own record, which goes on and is sent as it would have been (a failed
+    // send loses nothing of it); none after the switch went off or "Delete them" (review of #203).
+    const own = f.rec?.isLive ? f.rec.copy() : null;
     const rec = own ?? baseRecord();
     if (!own) {
       rec.setShot(f.shot);
@@ -1229,10 +1230,7 @@ function ScannerScreen({
       misread: f.misread?.scryfall_id,
       switchOn: diagRef.current,
     });
-    const ok = await rec.send("reported", true);
-    // The card's own record went: what happens to it next is a record of its own.
-    if (ok && own) setFound((cur) => (cur && cur.rec === f.rec ? { ...cur, rec: rec.continued() } : cur));
-    return ok;
+    return rec.send("reported", true);
   };
   cameraNowRef.current = cameraNow as Record<string, unknown> | null;
   ocrNameRef.current = ocrName;
@@ -3097,6 +3095,8 @@ function ScannerScreen({
     const heldSeq = foundSeq.current;
     /** Where the card was last seen, in video pixels (not by art). */
     let lastQuad: Quad | null = null;
+    /** The evidence's frames when the last frame was read: a frame that read nothing adds none. */
+    let evFrames = ev.framesRead;
     /** On the frame `locate` last looked at: another card plainly in view instead of this one. */
     let otherInView = false;
     setHolding(true);
@@ -3288,8 +3288,11 @@ function ScannerScreen({
           // whether the card is where it was.)
           if (got === "settled" || stop) return;
           // The line naming the same printing and its twin, frame after frame, ends it early (heldRead.ts).
+          // Only a frame that read something counts toward it (the verdict is the evidence so far).
           const weighed = got === "blurred" ? null : ev.verdict();
-          verdict = got === "blurred" ? held.skipped(clock()) : held.frame(clock(), weighed?.kind === "unsure" && weighed.twin ? weighed.leader : null);
+          const readNow = ev.framesRead > evFrames;
+          evFrames = ev.framesRead;
+          verdict = got === "blurred" ? held.skipped(clock()) : held.frame(clock(), weighed?.kind === "unsure" && readNow && weighed.twin ? weighed.leader : null);
           // Stalled (several frames read, not settled): one still photo, read the same way, alongside
           // the frames (never holding them up); a still that settles it ends the attempt.
           if (verdict === "again" && held.summary().frames >= STILL_AFTER) void tryStill(f);

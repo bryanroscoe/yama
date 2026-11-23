@@ -274,7 +274,8 @@ export function scoreFrame(e: Expected, reads: readonly string[]): FieldScores {
     // A year ("© 2023", the copyright line in the same strip) is never a number by itself (Codex review
     // of #180): a printing numbered 1900 to 2099 needs its set code read too.
     const printed = asNumber(toks[best.n]!);
-    s.printedNumber = s.exactNumber && printed.length >= 3 && !/^(19|20)\d\d$/.test(printed);
+    // (Its zeros taken off: "©2023" read glued as "O2023" is "02023", still a year; review of #203.)
+    s.printedNumber = s.exactNumber && printed.length >= 3 && !/^(19|20)\d\d$/.test(stripZeros(printed));
   }
   if (best.s >= 0) {
     s.set = sets[best.s]!;
@@ -338,6 +339,12 @@ export class Evidence {
   /** Printings sharing the art that aren't candidates (left out by the set lock): numberAlone checks against them too. */
   private readonly beside: Expected[];
   private frames = 0;
+
+  /** Frames that read anything (an empty read adds none). */
+  get framesRead(): number {
+    return this.frames;
+  }
+
   /**
    * A printing left out (`beside`) was read: its own set code exactly, a set none of the candidates
    * is in, or its number in the printed form on NUMBER_ALONE_FRAMES frames when no candidate has

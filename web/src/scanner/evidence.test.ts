@@ -46,6 +46,9 @@ describe("collector-line evidence", () => {
     expect(unpadded("O14S")).toBe("O14S");
     expect(unpadded("O45")).toBe("O45");
     expect(unpadded("ODQ")).toBe("ODQ");
+    // "©2023" read glued as "O2023" is still a year, never a number by itself.
+    const sld = [p("sld2023", "sld", "2023", { released_at: "2024-01-01" }), p("sld99", "sld", "99", { released_at: "2024-01-01" })];
+    expect(verdict(sld, Array(3).fill(["O2023 WIZARDS OF THE COAST"])).kind).toBe("unsure");
     // Tidus, Yuna's Guardian (fic 5, 187, 224): the one clean frame names fic 5.
     const tidus = [p("fic5", "fic", "5", { rarity: "mythic" }), p("fic187", "fic", "187", { rarity: "mythic" }), p("fic224", "fic", "224", { rarity: "mythic" })];
     expect(verdict(tidus, [["M O005 FFX\nFIC*EN"]])).toMatchObject({ kind: "settled", id: "fic5" });

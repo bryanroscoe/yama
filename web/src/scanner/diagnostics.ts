@@ -192,9 +192,12 @@ export class ScanRecord {
     return this.sent;
   }
 
-  /** Scanner diagnostics were turned off while it was kept: it keeps nothing and is never sent. */
-  get isCancelled() {
-    return this.cancelled;
+  /**
+   * Still this account's and this switch's: not cancelled, the same account signed in, and no
+   * "Delete them" or switch turned off since it started. Only such a record is copied for "Send this scan".
+   */
+  get isLive() {
+    return !this.cancelled && !this.account.aborted && this.generation === generation;
   }
 
   /** ms since the record started (the time frame notes are given in). */
@@ -230,6 +233,14 @@ export class ScanRecord {
    */
   continued(): ScanRecord {
     if (!this.sent || this.cancelled) return this;
+    return this.copy();
+  }
+
+  /**
+   * A copy of what it holds so far, as a record of its own ("Send this scan"): sending the copy
+   * leaves this one to be sent when the card is done with, as it would have been.
+   */
+  copy(): ScanRecord {
     const r = new ScanRecord(this.account, this.generation);
     Object.assign(r.facts, this.facts);
     r.camera = this.camera;
