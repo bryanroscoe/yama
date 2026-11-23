@@ -66,6 +66,13 @@ const M15 = "2014-07-18";
 const SHAPE: Record<string, string> = { O: "0", D: "0", Q: "0", I: "1", L: "1", T: "1", S: "5", B: "8", Z: "2", G: "6", A: "4", V: "U" };
 const shape = (s: string) => [...s].map((c) => SHAPE[c] ?? c).join("");
 const stripZeros = (s: string) => s.replace(/^0+(?=.)/, "");
+/**
+ * A number printed with its leading zeros ("0122", "0005") whose zeros were read as O, D or Q
+ * ("O122", "O005", "OO05"): the zeros, as printed. Only a token of four or more characters whose
+ * rest is real digits (at least three before a suffix letter): the printed padding, never "O14S"
+ * (diagnostics of 22 and 23 Nov 2026: "M O005 FFX" for FIC 5, "M O122 FRA" for FRA 122 on every frame).
+ */
+export const unpadded = (t: string) => (t.length >= 4 && /^[ODQ]+(?:\d{3,}[A-Z]?|\d{2,})$/.test(t) ? t.replace(/^[ODQ]+/, (m) => "0".repeat(m.length)) : t);
 
 function editDistance(a: string, b: string): number {
   const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array<number>(b.length).fill(0)]);
@@ -237,7 +244,10 @@ export function scoreFrame(e: Expected, reads: readonly string[]): FieldScores {
   const s: FieldScores = { number: 0, set: 0, rarity: 0, lang: 0, suffixRead: false, exactNumber: false, exactSet: false, printedNumber: false, setAgainst: false };
   const toks = reads.flatMap(tokens);
   /** The token as this printing's number: its own rarity letter, glued on, taken off ("0286M" for a mythic 286). */
-  const asNumber = (t: string) => (!e.suffix && e.rarity && RARITY_LETTERS.has(e.rarity) && t.length > 1 && t.endsWith(e.rarity) && /\d$/.test(t.slice(0, -1)) ? t.slice(0, -1) : t);
+  const asNumber = (raw: string) => {
+    const t = unpadded(raw);
+    return !e.suffix && e.rarity && RARITY_LETTERS.has(e.rarity) && t.length > 1 && t.endsWith(e.rarity) && /\d$/.test(t.slice(0, -1)) ? t.slice(0, -1) : t;
+  };
   const numberOf = (raw: string) => {
     if (!looksLikeNumber(raw)) return 0;
     const t = asNumber(raw);

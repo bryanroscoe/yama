@@ -45,8 +45,9 @@ pub const MAX_TOTAL: usize = 4 * 1024 * 1024;
 const MAX_DETAIL: usize = 256 * 1024;
 const MAX_CAMERA: usize = 8 * 1024;
 const MAX_TEXT: usize = 200;
-/// How a record may end.
-pub const OUTCOMES: [&str; 5] = ["filed", "picked", "wrong", "skipped", "left"];
+/// How a record may end. "reported": the person sent it themselves while the card was in hand
+/// (the scanner's "Send this scan", 23 Nov 2026), with their note in `detail.note`.
+pub const OUTCOMES: [&str; 6] = ["filed", "picked", "wrong", "skipped", "left", "reported"];
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -276,6 +277,8 @@ pub async fn list(pool: &SqlitePool, owner: &str, offset: i64, limit: i64) -> Ap
                 "id": id, "created_at": created_at, "outcome": outcome, "card_name": card_name, "engine": engine,
                 "reasons": detail.get("reasons").cloned().unwrap_or(Value::Null),
                 "chosen": detail.get("final").cloned().unwrap_or(Value::Null),
+                // What the person said, for a scan they sent themselves ("Send this scan").
+                "note": detail.get("note").cloned().unwrap_or(Value::Null),
                 "bytes": bytes, "images": names,
             })
         })
@@ -529,6 +532,25 @@ pub(crate) mod tests {
         assert_eq!(rows, 0);
         assert_eq!(files(&pat), 0);
         assert!(!owner_dir(&std::env::temp_dir(), &pat).exists());
+    }
+
+    #[tokio::test]
+    async fn a_scan_sent_by_hand_is_kept_with_its_note() {
+        let (app, pool) = testutil::app().await;
+        let (_, mine) = testutil::user(&pool, "me@example.com").await;
+        let mut sent = body("reported");
+        sent["detail"] = json!({"reasons": ["reported"], "note": "Foil, the number won't read", "frames": []});
+        let (status, made) = testutil::send(&app, Method::POST, "/api/scan/diagnostics", Some(&mine), Some(sent)).await;
+        assert_eq!(status, StatusCode::OK, "{made}");
+        let (_, l) = testutil::send(&app, Method::GET, "/api/scan/diagnostics", Some(&mine), None).await;
+        assert_eq!(l["items"][0]["outcome"], "reported");
+        assert_eq!(l["items"][0]["reasons"], json!(["reported"]));
+        assert_eq!(l["items"][0]["note"], "Foil, the number won't read");
+        // A record with no note lists none.
+        let (status, _) = testutil::send(&app, Method::POST, "/api/scan/diagnostics", Some(&mine), Some(body("picked"))).await;
+        assert_eq!(status, StatusCode::OK);
+        let (_, l) = testutil::send(&app, Method::GET, "/api/scan/diagnostics", Some(&mine), None).await;
+        assert_eq!(l["items"][0]["note"], Value::Null);
     }
 
     #[tokio::test]

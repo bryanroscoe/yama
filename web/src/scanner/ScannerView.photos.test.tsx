@@ -28,7 +28,7 @@ const bundle = (): BundleInfo => ({
 });
 
 /** Every scan photo upload and label change the scanner sent. */
-const sent = vi.hoisted(() => ({ calls: [] as { path: string; method: string; json: Record<string, unknown> }[] }));
+const sent = vi.hoisted(() => ({ calls: [] as { path: string; method: string; json: Record<string, unknown> }[], reports: [] as Record<string, unknown>[] }));
 vi.mock("../api", async (original) => ({
   ...(await original<typeof import("../api")>()),
   api: (path: string, init?: { method?: string; json?: Record<string, unknown> }) => {
@@ -38,6 +38,11 @@ vi.mock("../api", async (original) => ({
       return Promise.resolve({ id: `photo${sent.calls.length}` });
     }
     if (path.startsWith("/api/scan/samples")) return Promise.resolve({ count: 0, bytes: 0, keep: 20000 });
+    // A scan sent by hand ("Send this scan"), kept apart from the photos.
+    if (path === "/api/scan/diagnostics" && init?.method === "POST") {
+      sent.reports.push(init.json ?? {});
+      return Promise.resolve({ id: "diag1" });
+    }
     if (path.startsWith("/api/scan/diagnostics")) return Promise.resolve({ count: 0, bytes: 0, keep: 200 });
     return Promise.reject(new Error(`offline: ${path}`));
   },
@@ -276,5 +281,32 @@ describe("scan photos of every card the scanner names", () => {
     await click(await until(() => button("Add"), "Add"));
     await wait(300);
     expect(sent.calls).toEqual([]);
+  });
+
+  it("sends the card in hand by hand (Send this scan), with the person's note, with Scanner diagnostics off", async () => {
+    sent.reports.length = 0;
+    // No JPEG encoder here: the record goes without its pictures.
+    HTMLCanvasElement.prototype.toBlob = function (cb: BlobCallback) {
+      cb(null);
+    };
+    act(() => root.render(<ScannerView identityOnly onAccept={async () => true} />));
+    await until(() => (foundName().includes("Arcane Signet") ? true : null), "the card found");
+    await click(await until(() => button("More"), "More"));
+    await click(await until(() => button("Send this scan"), "Send this scan"));
+    const note = await until(() => document.querySelector<HTMLTextAreaElement>(".scan-report textarea"), "the note");
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(note, "Foil, the number won't read");
+      note.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await click(button("Send")!);
+    await until(() => (document.querySelector(".scan-report")?.textContent?.includes("Sent.") ? true : null), "Sent");
+    expect(sent.reports).toHaveLength(1);
+    const r = sent.reports[0] as { outcome: string; card_name: string; detail: { reasons: string[]; note: string; found: { art: { name: string } }; reported: { switchOn: boolean } } };
+    expect(r.outcome).toBe("reported");
+    expect(r.card_name).toBe("Arcane Signet");
+    expect(r.detail.reasons).toEqual(["reported"]);
+    expect(r.detail.note).toBe("Foil, the number won't read");
+    expect(r.detail.found.art.name).toBe("Arcane Signet");
+    expect(r.detail.reported.switchOn).toBe(false);
   });
 });

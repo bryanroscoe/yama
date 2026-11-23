@@ -18,6 +18,12 @@
 // Another card, clearly in view, ends it at once (Bryan, 22 Nov 2026: the camera showed the next
 // card while the chip still said "Hold still for the printing" of the last): the away time is for
 // the same card brought close or half out of view, not for a different card laid in its place.
+//
+// A twin ends it early (Bryan, 23 Nov 2026: the text read "is not nearly as good"): the diagnostics
+// of that morning read "0122 FRA • EN" cleanly on every frame of cards whose promo (pfra 122p) or
+// variant (fra 101b) prints the same line, and kept reading for 12 to 49 s, then the close-up read
+// the same line again. Once the line has named the same twin on `twinFrames` frames in a row, no
+// more frames of it can tell them apart: the picker (and the printing look) take over at once.
 
 export interface HoldBudget {
   /** With Close-ups on: read this long (and at least `closeupFrames`) before the close-up box takes over. */
@@ -37,6 +43,8 @@ export interface HoldBudget {
   failures: number;
   /** Frames in a row with another card plainly in view that stop it (not the away time). */
   anotherFrames: number;
+  /** Frames in a row whose reads name the same printing and its twin (evidence.ts, `Verdict.twin`) that stop it. */
+  twinFrames: number;
 }
 
 /** Every hold-and-read time and count, in one place. */
@@ -49,6 +57,7 @@ export const HOLD_BUDGET: HoldBudget = {
   findMs: 10_000,
   failures: 8,
   anotherFrames: 3,
+  twinFrames: 4,
 };
 
 export type HeldVerdict = "again" | "closeup" | "stop";
@@ -63,7 +72,7 @@ export interface HeldSummary {
   failures: number;
   ms: number;
   ended: HeldVerdict | null;
-  why?: "away" | "failures" | "time" | "never-seen" | "another";
+  why?: "away" | "failures" | "time" | "never-seen" | "another" | "twin";
 }
 
 export class HeldRead {
@@ -73,6 +82,9 @@ export class HeldRead {
   private failedInARow = 0;
   private failures = 0;
   private anotherInARow = 0;
+  /** The printing the last read frames named with a twin, and how many frames in a row. */
+  private twinOf: string | null = null;
+  private twinInARow = 0;
   private lastSeen: number;
   private ended: HeldVerdict | null = null;
   private why: HeldSummary["why"];
@@ -110,8 +122,12 @@ export class HeldRead {
     return "again";
   }
 
-  /** One frame of the card read (its reads go to evidence.ts, which settles the printing). */
-  frame(now: number): HeldVerdict {
+  /**
+   * One frame of the card read (its reads go to evidence.ts, which settles the printing). `twin`:
+   * the printing the evidence leads with when it says only a twin stands in the way (the verdict's
+   * `twin`), else null. `twinFrames` of them in a row, the same printing, stop it ("twin").
+   */
+  frame(now: number, twin: string | null = null): HeldVerdict {
     if (this.ended) return this.ended;
     this.latest = now;
     this.lastSeen = now;
@@ -119,6 +135,9 @@ export class HeldRead {
     this.failedInARow = 0;
     this.anotherInARow = 0;
     this.frames += 1;
+    this.twinInARow = twin && twin === this.twinOf ? this.twinInARow + 1 : twin ? 1 : 0;
+    this.twinOf = twin;
+    if (this.twinInARow >= this.budget.twinFrames) return this.end("stop", "twin");
     return this.timeUp(now);
   }
 

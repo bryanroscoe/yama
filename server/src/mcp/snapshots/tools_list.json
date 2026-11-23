@@ -2807,7 +2807,7 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
-      "description": "The scanner diagnostics this account kept (Scan settings, off by default): one per card the scanner struggled with, newest first, with how it ended, why it was kept and its images. Read one with get_scan_diagnostic.",
+      "description": "The scanner diagnostics this account kept (Scan settings, off by default): one per card the scanner struggled with, or that the person sent from the scanner (Send this scan: outcome and reason reported, with their note), newest first, with how it ended, why it was kept and its images. Read one with get_scan_diagnostic.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {

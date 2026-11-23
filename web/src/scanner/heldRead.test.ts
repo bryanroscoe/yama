@@ -134,4 +134,26 @@ describe("HeldRead, the outer cap on reading a held card", () => {
     for (let t = 100; t < 2 * HOLD_BUDGET.giveUpAfterMs; t += 3000) expect(never.capped(t)).toBeNull();
     expect(never.capped(2 * HOLD_BUDGET.giveUpAfterMs)).toBe("stop");
   });
+
+  it("stops at once, to the picker and not the close-up, when frame after frame names the same printing and its twin", () => {
+    // Compel Brutality, 23 Nov 2026: "0101 FRA • EN" on every frame, fra 101 and fra 101b alike.
+    const h = new HeldRead(true, 0);
+    const v: HeldVerdict[] = [];
+    for (let i = 1; i <= HOLD_BUDGET.twinFrames; i += 1) v.push(h.frame(i * 1000, "fra-101"));
+    expect(v.slice(0, -1)).not.toContain("stop");
+    expect(v.at(-1)).toBe("stop");
+    expect(h.summary().why).toBe("twin");
+    // Frames that name another printing, or none, start the count again.
+    const mixed = new HeldRead(false, 0);
+    const twins = ["a", "a", "a", null, "a", "a", "a", "b", "a", "a", "a"];
+    expect(twins.map((t, i) => mixed.frame((i + 1) * 200, t))).not.toContain("stop");
+    expect(mixed.frame(5000, "a")).toBe("stop");
+    // A blurred frame between doesn't break the run (it reads nothing).
+    const blurred = new HeldRead(false, 0);
+    blurred.frame(100, "a");
+    blurred.frame(200, "a");
+    blurred.skipped(300);
+    blurred.frame(400, "a");
+    expect(blurred.frame(500, "a")).toBe("stop");
+  });
 });

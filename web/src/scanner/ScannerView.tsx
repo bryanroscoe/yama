@@ -20,7 +20,7 @@ import { scannerSettled, SpeedTest } from "./SpeedTest";
 import { NameIndex } from "./fuzzy";
 import { normaliseName } from "./parse";
 import { applyH, rectQuad, squareToQuad } from "./image";
-import { cropTimesNote, deleteDiagnostics, diagnosticsOn, diagnosticsSummary, setDiagnosticsOn, ScanRecord, stepAppeared, TimingRecord, type Appeared, type DiagnosticsSummary, type Outcome, type PrintingWay, type Reason, type SettleRule } from "./diagnostics";
+import { cropTimesNote, deleteDiagnostics, diagnosticsOn, diagnosticsSummary, MAX_NOTE, setDiagnosticsOn, ScanRecord, stepAppeared, TimingRecord, type Appeared, type DiagnosticsSummary, type Outcome, type PrintingWay, type Reason, type SettleRule } from "./diagnostics";
 import type { StripQuality } from "./quality";
 import { readCloseup, readCollectorLines, readTitles, scanFrame, SURE, type CropTime } from "./pipeline";
 import { artHoldFrame, AWAY_FRAMES, hold, holdRead, type ArtHold, type Hold } from "./hold";
@@ -911,6 +911,12 @@ function ScannerScreen({
   const [liveShot, setLiveShot] = useState<Shot | null>(null);
   /** Wrong card was tapped: the other cards it might be, a name box, or just scan again. */
   const [wrongOpen, setWrongOpen] = useState(false);
+  /**
+   * "Send this scan" (Bryan, 23 Nov 2026: a card that's hard to scan should be easy to send "as a
+   * diag"): the card it was opened for (`foundSeq`), the note being typed, and how the send went.
+   * Keyed by the card, so a new card closes it with no reset anywhere else.
+   */
+  const [report, setReport] = useState<{ seq: number; note: string; state: "open" | "sending" | "sent" | "failed" } | null>(null);
   const cam = useCameraControls();
   /**
    * The app's own camera (nativeCamera.ts): the option on this device, why it didn't open this
@@ -1185,6 +1191,48 @@ function ScannerScreen({
   const endRecord = (outcome: Outcome, f: Found | null | undefined = foundRef.current) => {
     if (f?.rec) void f.rec.send(outcome);
     if (f?.timing) void f.timing.send(outcome);
+  };
+  /**
+   * "Send this scan": the card in hand as a Scanner diagnostic, now, with the person's note, whether
+   * or not the switch is on (their tap is the yes; the record is theirs alone, as any diagnostic).
+   * With the switch on, it is the card's own record so far (every frame read); off, one made now
+   * from what the card shows: its photo, strip and symbol as found, the latest held view's strip,
+   * the art's matches, the printings and what was read. With the switch on, how the card ends is
+   * kept in a record after it, as for any card.
+   */
+  const reportScan = async (f: Found, note: string, latest: Shot | null): Promise<boolean> => {
+    const own = f.rec && !f.rec.isCancelled ? f.rec.continued() : null;
+    const rec = own ?? baseRecord();
+    if (!own) {
+      rec.setShot(f.shot);
+      rec.cardName = f.name;
+      rec.note("found", {
+        method: f.method,
+        confidence: Math.round(f.confidence * 1000) / 1000,
+        art: f.art ? { name: f.art.name, set: f.art.set, number: f.art.number, score: Math.round(f.art.score * 1000) / 1000 } : undefined,
+        others: f.others.slice(0, 8).map((m) => ({ name: m.name, set: m.set, number: m.number, score: Math.round(m.score * 1000) / 1000 })),
+      });
+      if (f.options) rec.note("options", optionsNote(f.options));
+    }
+    if (latest) rec.latestShot(latest);
+    rec.reasons.add("reported");
+    const said = note.trim().slice(0, MAX_NOTE);
+    if (said) rec.note("note", said);
+    // Where the card stood when it was sent.
+    rec.note("reported", {
+      how: f.how,
+      chosen: f.chosen ? { id: f.chosen.scryfall_id, set: f.chosen.set_code, number: f.chosen.collector_number } : null,
+      reading: !!f.reading,
+      picking: f.picking,
+      read: f.raw ?? undefined,
+      border: f.border ?? undefined,
+      misread: f.misread?.scryfall_id,
+      switchOn: diagRef.current,
+    });
+    const ok = await rec.send("reported", true);
+    // The card's own record went: what happens to it next is a record of its own.
+    if (ok && own) setFound((cur) => (cur && cur.rec === f.rec ? { ...cur, rec: rec.continued() } : cur));
+    return ok;
   };
   cameraNowRef.current = cameraNow as Record<string, unknown> | null;
   ocrNameRef.current = ocrName;
@@ -3239,7 +3287,9 @@ function ScannerScreen({
           // (A read that took a while leaves nothing recent to measure from: `Motion` then goes by
           // whether the card is where it was.)
           if (got === "settled" || stop) return;
-          verdict = got === "blurred" ? held.skipped(clock()) : held.frame(clock());
+          // The line naming the same printing and its twin, frame after frame, ends it early (heldRead.ts).
+          const weighed = got === "blurred" ? null : ev.verdict();
+          verdict = got === "blurred" ? held.skipped(clock()) : held.frame(clock(), weighed?.kind === "unsure" && weighed.twin ? weighed.leader : null);
           // Stalled (several frames read, not settled): one still photo, read the same way, alongside
           // the frames (never holding them up); a still that settles it ends the attempt.
           if (verdict === "again" && held.summary().frames >= STILL_AFTER) void tryStill(f);
@@ -4045,6 +4095,8 @@ function ScannerScreen({
   // With the strip, what just happened is said there, beside the card (ScanTray's head), and the
   // camera's chip says only what the scanner is doing now (Bryan, 16 Nov 2026: the options popped up
   // in your face, not what happened). Without it (deck and swap scans) the chip says both, as before.
+  // "Send this scan" open for the card in hand (a new card closes it).
+  const reportHere = isFound && !!report && report.seq === foundSeq.current;
   const moreItems =
     isFound && found
       ? [
@@ -4071,6 +4123,13 @@ function ScannerScreen({
           upClose && (
             <Button key="closeup" onClick={() => setCloseup("collector")}>
               Read the collector number up close
+            </Button>
+          ),
+          // A scan that's hard: one tap to send it, switch or no switch (Bryan, 23 Nov 2026). Only a
+          // card the camera saw (a typed name has no pictures to send), and not over Wrong card.
+          !reportHere && !wrongOpen && !!found.shot && (
+            <Button key="report" onClick={() => setReport({ seq: foundSeq.current, note: "", state: "open" })}>
+              Send this scan
             </Button>
           ),
           // Choosing sets is for the cards to come, so it's here too, not only when idle (review).
@@ -4526,6 +4585,47 @@ function ScannerScreen({
                   <NameEntry onPick={(n) => fromName(n, "typed", { shot: found.shot, photo: found.photo, guess: found.guess ?? guessOf(found), rec: withReason(found.rec, "wrong-card"), timing: found.timing?.cardCorrected() })} />
                   <Button onClick={wrongAgain}>Scan it again</Button>
                 </div>
+              </div>
+            )}
+            {reportHere && report && (
+              <div className="scan-step scan-report">
+                {report.state === "sent" ? (
+                  <p>
+                    <strong>Sent.</strong> Kept with your scanner diagnostics, for you only, to help fix the scanner.{" "}
+                    <Button className="scan-alt" onClick={() => setReport(null)}>
+                      Done
+                    </Button>
+                  </p>
+                ) : (
+                  <>
+                    <label className="scan-report-say">
+                      <strong>Send this scan</strong>
+                      <span className="dim"> Its pictures and what the scanner read, kept for you only, to help fix the scanner. What went wrong? (optional)</span>
+                      <textarea
+                        rows={2}
+                        maxLength={MAX_NOTE}
+                        value={report.note}
+                        placeholder="Foil, wrong set, couldn't read the number…"
+                        onChange={(e) => setReport({ ...report, note: e.target.value })}
+                      />
+                    </label>
+                    <div className="scan-other-ways">
+                      <Button
+                        variant="primary"
+                        disabled={report.state === "sending"}
+                        onClick={() => {
+                          const seq = report.seq;
+                          setReport({ ...report, state: "sending" });
+                          void reportScan(found, report.note, peekShot).then((ok) => setReport((r) => (r && r.seq === seq ? { ...r, state: ok ? "sent" : "failed" } : r)));
+                        }}
+                      >
+                        {report.state === "sending" ? "Sending…" : "Send"}
+                      </Button>
+                      <Button onClick={() => setReport(null)}>Cancel</Button>
+                    </div>
+                    {report.state === "failed" && <p className="error">Couldn't send it. Check the connection and try again.</p>}
+                  </>
+                )}
               </div>
             )}
             {/* The decision, on one row; everything lesser on one quiet row under it. */}

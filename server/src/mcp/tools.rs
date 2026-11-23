@@ -1533,7 +1533,7 @@ pub(super) const TOOLS: &[Tool] = &[
         name: "list_scan_diagnostics",
         aliases: &[],
         title: "Your scanner diagnostics",
-        description: "The scanner diagnostics this account kept (Scan settings, off by default): one per card the scanner struggled with, newest first, with how it ended, why it was kept and its images. Read one with get_scan_diagnostic.",
+        description: "The scanner diagnostics this account kept (Scan settings, off by default): one per card the scanner struggled with, or that the person sent from the scanner (Send this scan: outcome and reason reported, with their note), newest first, with how it ended, why it was kept and its images. Read one with get_scan_diagnostic.",
         schema: || json!({"type": "object", "properties": {
             "limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Records per page, default 20."},
             "cursor": {"type": "string", "maxLength": 200, "description": "next_cursor from the answer before."}}, "additionalProperties": false}),
