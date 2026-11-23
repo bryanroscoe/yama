@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AUTO_MAX, AutoZoom, autoCeiling, CLOSE_MS, maySwitchLens, STEADY, STEP_MS, WIDE_AFTER_MS, WIDE_BACK_MS, WIDE_MAX_MS, WideOnStruggle } from "./zoomPolicy";
+import { AUTO_MAX, AutoZoom, autoCeiling, CLOSE_MS, LOST_FRAMES, LOST_MS, maySwitchLens, STEADY, STEP_MS, WIDE_AFTER_MS, WIDE_BACK_MS, WIDE_GLARE_MS, WIDE_MAX_MS, WideOnStruggle } from "./zoomPolicy";
 import { cardHeight, LETTER_SHARE, letterPx, tooFar } from "./closer";
 import { rectQuad } from "./image";
 
@@ -95,8 +95,9 @@ describe("going wide when a card struggles", () => {
   });
 
   it("never for a 'card' that jumps (nothing there), a card named quickly, or a camera with no wider lens", () => {
+    // The finder's "cards" on an empty table: steady now and then, jumping on most frames.
     const w = new WideOnStruggle(pixel);
-    for (let t = 0; t < 3 * WIDE_AFTER_MS; t += 100) expect(w.frame(0.6, t % 300 !== 0, false, 1, t)).toBeNull();
+    for (let t = 0; t < 3 * WIDE_AFTER_MS; t += 100) expect(w.frame(0.6, t % 300 === 0, false, 1, t)).toBeNull();
     const named = new WideOnStruggle(pixel);
     for (let t = 0; t < 3 * WIDE_AFTER_MS; t += 100) expect(named.frame(0.6, true, true, 1, t)).toBeNull();
     const one = new WideOnStruggle({ min: 1, max: 8 });
@@ -146,5 +147,53 @@ describe("going wide when a card struggles", () => {
     expect(w.frame(null, false, false, 1, (t += WIDE_BACK_MS))).toBeNull();
     for (let i = 0; i < WIDE_AFTER_MS / 100; i += 1) w.frame(0.6, true, false, 1, (t += 100));
     expect(w.frame(0.6, true, false, 1, (t += 100))).toBe(0.5);
+  });
+
+  it("isn't put off by a missed frame or two: a glary card the finder loses now and then still goes wide (23 Nov 2026, after #205)", () => {
+    const w = new WideOnStruggle(pixel);
+    let t = 0;
+    // One frame in five without a steady card (a glare frame the finder missed, a twitch).
+    for (; t < WIDE_AFTER_MS; t += 100) expect(w.frame(0.6, t % 500 !== 400, false, 1, t)).toBeNull();
+    expect(w.frame(0.6, true, false, 1, t)).toBe(0.5);
+    // Two misses in a row, then the card again: the same struggle.
+    const v = new WideOnStruggle(pixel);
+    let u = 0;
+    for (; u < WIDE_AFTER_MS; u += 100) v.frame(0.6, u !== 1000 && u !== 1100, false, 1, u);
+    expect(v.frame(0.6, true, false, 1, u)).toBe(0.5);
+  });
+
+  it("starts the struggle again once the card has been gone a while (LOST_FRAMES over LOST_MS)", () => {
+    const w = new WideOnStruggle(pixel);
+    let t = 0;
+    for (; t < WIDE_AFTER_MS - 500; t += 100) w.frame(0.6, true, false, 1, t);
+    // Gone for LOST_FRAMES frames spread over LOST_MS.
+    const gap = Math.ceil(LOST_MS / (LOST_FRAMES - 1));
+    for (let i = 0; i < LOST_FRAMES; i += 1) w.frame(null, false, false, 1, (t += gap));
+    // Back: the 3 s count from here.
+    const back = (t += 100);
+    for (; t < back + WIDE_AFTER_MS; t += 100) expect(w.frame(0.6, true, false, 1, t)).toBeNull();
+    expect(w.frame(0.6, true, false, 1, t)).toBe(0.5);
+  });
+
+  it("goes wide sooner when glare is what keeps the card from being named", () => {
+    const w = new WideOnStruggle(pixel);
+    let t = 0;
+    for (; t < WIDE_GLARE_MS; t += 100) expect(w.frame(0.6, true, false, 1, t, true)).toBeNull();
+    expect(w.frame(0.6, true, false, 1, t, true)).toBe(0.5);
+    expect(WIDE_GLARE_MS).toBeLessThan(WIDE_AFTER_MS);
+  });
+
+  it("forgets a struggle when the read loop stops, and comes back from 0.5x", () => {
+    const w = new WideOnStruggle(pixel);
+    let t = 0;
+    for (; t < WIDE_AFTER_MS - 100; t += 100) w.frame(0.6, true, false, 1, t);
+    // A pause (Scan settings) of a minute: not time spent struggling.
+    expect(w.reset()).toBeNull();
+    t += 60_000;
+    for (let i = 0; i < WIDE_AFTER_MS / 100; i += 1) expect(w.frame(0.6, true, false, 1, (t += 100))).toBeNull();
+    expect(w.frame(0.6, true, false, 1, (t += 100))).toBe(0.5);
+    // Into a close-up while wide: back to 1x.
+    expect(w.reset()).toBe(1);
+    expect(w.isWide).toBe(false);
   });
 });

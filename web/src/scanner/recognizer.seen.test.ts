@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { drawBack, drawFront } from "./eval/syntheticCards";
 import { createRecognizer, parseArts, type OrtLike } from "./recognizer";
 import type { Quad, RgbaImage } from "./types";
+import { GLARE_ART } from "./glare";
 
 // The recognizer says where the card finder placed the card before the art is matched, for the
 // outline (outline.ts), and whether the card in view is face down (cardBack.ts).
@@ -75,6 +76,16 @@ describe("where the finder placed the card", () => {
     expect(result.quad?.[0]?.[0]).toBeCloseTo(206.3, 1);
     expect(result.quad?.[0]?.[1]).toBeCloseTo(160.9, 1);
     expect(result.back).toBeUndefined();
+    // Under the glare line on this art (glare.ts), measured here: the page can't read the frame after the call.
+    expect(result.glare).toBeLessThan(GLARE_ART);
+  });
+
+  it("measures the glare on the card's art, on the frame it read", async () => {
+    const r = await createRecognizer(fakeOrt([]), graphs, constants, arts);
+    const result = await r.identify(frameWith(drawFront({ frame: [40, 110, 170], box: [200, 220, 235], art: [[255, 255, 255], [252, 252, 252]] }, AT.w, AT.h)));
+    expect(result.glare).toBeGreaterThan(0.5);
+    const none = await r.identify(frameWith(null));
+    expect(none.glare).toBeUndefined();
   });
 
   it("is said as nothing when no card is in view", async () => {

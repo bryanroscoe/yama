@@ -239,16 +239,20 @@ export function useCameraControls() {
     setZoomState(1);
     setError(null);
   }, []);
-  const setTorch = useCallback(async (on: boolean) => {
+  /** Turn the flashlight on or off: whether the camera open now took it (false: another camera, or refused). */
+  const setTorch = useCallback(async (on: boolean): Promise<boolean> => {
     const t = track.current;
-    if (!t) return;
+    if (!t) return false;
     try {
       // Only for the camera it was meant for (another may be open by the time it's done).
-      if (!(await apply(t, { torch: on }))) return;
+      if (!(await apply(t, { torch: on }))) return false;
+      if (track.current !== t) return false;
       setTorchState(on);
       setError(null);
+      return true;
     } catch {
-      if (track.current === t) setError("The flashlight didn't turn on");
+      if (track.current === t) setError(on ? "The flashlight didn't turn on" : "The flashlight didn't turn off");
+      return false;
     }
   }, []);
   /**
