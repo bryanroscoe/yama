@@ -159,7 +159,7 @@ and 155 drop to bulk. Of 635 bulk cards, 36 rise to Playable or better.
    needs no request. The card page and the scanned card's sheet say why in one sentence ("In
    about a third of black-green decks; $1.17"). `get_cards`, `search_cards` and
    `list_collection_cards` return it and sort by it.
-3. **Roles.** Scryfall publishes its community role tags in bulk since 2026 (`oracle_tags`: ramp,
+3. **Roles.** Scryfall now publishes its community role tags in bulk (`oracle_tags`, read 23 Nov 2026: ramp,
    removal, sweeper, draw, tutor, counterspell, protection, recursion). With them, "the best
    removal I own and am not using" is one query, which is what `commander-decks` needs for
    spares ("Use the spares and leftovers").
@@ -184,7 +184,8 @@ and 155 drop to bulk. Of 635 bulk cards, 36 rise to Playable or better.
 2. **The words and the bars.** Recommended: Top (80), Strong (68) and Playable (55) in place of
    Staple and Played, with Game Changer still a separate mark. For the boxes: Playables takes
    Strong and up, Viable takes Playable, and "a land that makes two or more colors" stays a
-   rule of its own. That moves about 120 cards out of the Playables box and 25 in.
+   rule of its own. On the 13 Nov export that moves about 120 cards out of the Playables box and 25 in, before the
+   land rule keeps some of the lands.
 3. **cEDH data.** Make a TopDeck.gg account and key (free), or leave cEDH out for now.
 4. **Ask Playgroup.gg for a per-card file.** A short email from Bryan; they invite the request.
 5. **Go.** Build stages 1 and 2, then 3 and 4.
