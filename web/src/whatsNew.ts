@@ -15,6 +15,17 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-23-scanner-glare",
+    date: "2026-11-23",
+    title: "The scanner works around glare on foils",
+    items: [
+      "When glare on a card's art keeps the scanner from naming it, the camera says so: tilt the card a little, and it reads the new view.",
+      "With the flashlight on, its reflection was most of the glare on foils. The scanner now turns the flashlight off once when it's glaring on a card it can't name. Turn it back on and it stays on.",
+      "The step out to the 0.5x lens for a card it can't name works again for a card laid down where the last one was added, and it comes sooner when glare is the trouble.",
+    ],
+    link: { to: "/collection", label: "Scan cards" },
+  },
+  {
     id: "2026-11-23-scanner-scan-next-card",
     date: "2026-11-23",
     title: "The scanner won't add a card twice, and Scan next card",

@@ -59,6 +59,7 @@ import { nativeId, nativeWanted, onNativeChange, saveNative, savedNative } from 
 import { cachedFile } from "./scanCache";
 import { NativeCameraSetting } from "./NativeCameraSetting";
 import { AUTO_MAX, AutoZoom, LENS_SWITCH, maySwitchLens, WideOnStruggle } from "./zoomPolicy";
+import { artGlare, GlareWatch, TorchOnGlare } from "./glare";
 import { agrees, FOLLOW_MOVE } from "./outline";
 import { cardHeight, distanceHint, tooCloseToFocus, tooFar, type FocusLens } from "./closer";
 import { createServerCatalog } from "./serverCatalog";
@@ -473,6 +474,15 @@ const READING: string = GATE_SAYS.reading;
 const SAME_CARD_MARGIN = 0.02;
 /** The card is nearer than the lens focuses, or too big to show whole (closer.ts). */
 const FURTHER = "Hold the phone a little further away";
+/** Glare on the art of a card the scanner can't name yet (glare.ts): another view gets past it. */
+const GLARE_TILT = "Glare on the card: tilt it a little";
+const GLARE_TORCH = "Glare on the card: tilt it, or turn the flashlight off";
+/** The flashlight was turned off for the glare it put on the card (glare.ts TorchOnGlare), said this long. */
+const TORCH_OFF = "Flashlight off: it put glare on the card";
+const TORCH_OFF_MS = 2500;
+
+/** A frame's glare (glare.ts), rounded for a record. */
+const glareNote = (g: number | null) => (g == null ? null : Math.round(g * 1000) / 1000);
 
 const sameCard = (a: ScanCandidate | undefined, b: ScanCandidate | undefined) => !!a && !!b && a.name === b.name && a.set === b.set && a.number === b.number;
 
@@ -1192,6 +1202,12 @@ function ScannerScreen({
     // The art read in the app: its median read (ms, native code), or why the worker read it.
     if ((fm?.models ?? modelsNow()).art?.endsWith("-native") && nativeArtMs.current.length) timing.detail.art_ms = Math.round(median(nativeArtMs.current) * 10) / 10;
     if (nativeArtFailedRef.current) timing.detail.art_fallback = nativeArtFailedRef.current.slice(0, 120);
+    // The most glare on the card's art while it was looked for (glare.ts), the flashlight, the zoom
+    // it was named at (0.5: gone wide), and whether the flashlight was turned off for glare this session.
+    if (glareWatch.current.peak > 0) timing.detail.glare = glareNote(glareWatch.current.peak);
+    timing.detail.torch = camRef.current.torch;
+    timing.detail.zoom = Math.round(camRef.current.zoom * 100) / 100;
+    if (torchGlare.current.off) timing.detail.torch_off_glare = true;
     return timing;
   };
   /**
@@ -1246,7 +1262,8 @@ function ScannerScreen({
     seek.current ??= { rec: baseRecord(), started: Date.now(), frames: [] };
     if (seek.current.frames.length >= SEEK_FRAMES) return null;
     // The camera's zoom with each frame: 0.5 when it stepped out wide (zoomPolicy.ts).
-    const frame = { t: Date.now() - seek.current.started, zoom: Math.round(camRef.current.zoom * 100) / 100, ...note };
+    // And the flashlight: glare on a foil is mostly its reflection (glare.ts).
+    const frame = { t: Date.now() - seek.current.started, zoom: Math.round(camRef.current.zoom * 100) / 100, torch: camRef.current.torch, ...note };
     seek.current.frames.push(frame);
     return frame;
   };
@@ -1390,8 +1407,48 @@ function ScannerScreen({
   const autoZoomRef = useRef<AutoZoom | null>(null);
   /** Wide when it struggles (zoomPolicy.ts): a steady card unnamed for a while steps out to the wide lens. */
   const wideRef = useRef<WideOnStruggle | null>(null);
-  /** The card's corners on the frame before, for whether it's steady (outline.ts `agrees`). */
+  /** The card's corners on the last frame that had one, for whether it's steady (outline.ts `agrees`). */
   const lastSeenQuad = useRef<Quad | null>(null);
+  /**
+   * The read loop is trying to name the card in view: set by each pass that reads a card not held
+   * as the one just added or filed, cleared by a pass that holds one or sees a card back, and once
+   * the view has been clear for AWAY_FRAMES. Going wide waits only while it's off. The card filed
+   * last is held by its name until another card leads surely (review of #205), so a glary foil laid
+   * down next counted as named and never went wide (Bryan, 23 Nov 2026, after #205: it didn't seem
+   * to switch lenses "to try to scan the card better" any more).
+   */
+  const seekingRef = useRef(false);
+  /** Glare on the art of the card being looked for (glare.ts), as of the last pass that read it. */
+  const glareWatch = useRef(new GlareWatch());
+  const glareNow = useRef({ glary: false, hint: false });
+  /** The flashlight off when it's what glares on the card (glare.ts), and when it went off. */
+  const torchGlare = useRef(new TorchOnGlare());
+  const torchOffAt = useRef(-Infinity);
+  /** A pass of the read loop reads a card it hasn't named: its glare (null: unmeasured), and the flashlight off if that's the glare. */
+  const seeking = (glare: number | null) => {
+    seekingRef.current = true;
+    const now = performance.now();
+    glareNow.current = glareWatch.current.frame(glare, true, now);
+    const c = camRef.current;
+    if (c.caps.torch && torchGlare.current.frame(glareNow.current.glary, c.torch, now)) {
+      torchOffAt.current = now;
+      void c.setTorch(false);
+    }
+  };
+  /** A pass that holds the card just added or filed, sees a card back, or finds the view clear. */
+  const notSeeking = () => {
+    seekingRef.current = false;
+    glareWatch.current.reset();
+    glareNow.current = { glary: false, hint: false };
+    // (So a flashlight the person turned back on after it went off is known to be theirs.)
+    torchGlare.current.frame(false, camRef.current.torch, performance.now());
+  };
+  /** What the camera says while it reads a card it can't name yet: READING, or what to do about the glare on it. */
+  const readingSays = (): string => {
+    if (performance.now() - torchOffAt.current < TORCH_OFF_MS) return TORCH_OFF;
+    if (!glareNow.current.hint) return READING;
+    return camRef.current.torch ? GLARE_TORCH : GLARE_TILT;
+  };
   useEffect(() => {
     autoZoomRef.current = cam.caps.zoom ? new AutoZoom(cam.caps.zoom) : null;
     wideRef.current = cam.caps.zoom ? new WideOnStruggle(cam.caps.zoom) : null;
@@ -1435,19 +1492,21 @@ function ScannerScreen({
     const waits = !!wideRef.current?.isWide;
     setDistance(distanceHint({ share, tooSmall, unfocused, zoom: zooms ? { canZoomIn: !waits && az!.canZoomIn(c.zoom), canZoomOut: az!.canZoomOut(c.zoom) } : null }));
     // Steady: about where and as big as on the frame before (a "card" on an empty table jumps).
+    // (A frame without the card keeps its last place: one missed frame isn't a jump.)
     const steady = !!quad && !!lastSeenQuad.current && agrees(quad, lastSeenQuad.current, FOLLOW_MOVE);
-    lastSeenQuad.current = quad;
+    if (quad) lastSeenQuad.current = quad;
     setCardInView(!!quad);
     if (!zooms) return;
     const now = performance.now();
-    // Wide when it struggles: a steady card not named for a while (or overfilling the view at 1×)
-    // steps out to the wide lens, and auto-zoom waits until it comes back (named, given up, or the view empty).
+    // Wide when it struggles: a steady card not named for a while (or overfilling the view at 1×,
+    // or sooner with glare on its art) steps out to the wide lens, and auto-zoom waits until it
+    // comes back (named, given up, or the view empty).
     const wide = wideRef.current;
-    // Named: the card in hand, or one just filed and still held, or a provisional row still
-    // reading its printing (card first): none of them is a struggle (review of #204).
-    // (And the card filed last, still in view: not read again, so not a struggle either.)
-    const named = !!foundRef.current || !!blocked.current || !!blockedName.current || !!heldLater.current || !!filedName.current;
-    const wz = wide ? wide.frame(share, steady, named, c.zoom, now) : null;
+    // Named: the card in hand, or a provisional row still reading its printing (card first), or no
+    // card being read (the one just added or filed, still held where it lies): none of them is a
+    // struggle (review of #204). A card the loop is reading but can't name is, whatever is held.
+    const named = !!foundRef.current || !!heldLater.current || !seekingRef.current;
+    const wz = wide ? wide.frame(share, steady, named, c.zoom, now, glareNow.current.glary) : null;
     if (wz != null) {
       c.autoZoom(wz);
       return;
@@ -2676,6 +2735,8 @@ function ScannerScreen({
           };
           const gated = gateOn();
           let r: Recognition;
+          /** The frame the art was read from (with the gate, the sharpest of the card's stay), for its glare. */
+          let readImage = image;
           if (gated) {
             // The placement gate (gate.ts): every frame goes to the card finder alone; the art is
             // matched only when the gate says the card has come to rest, on the sharpest frame of
@@ -2692,6 +2753,7 @@ function ScannerScreen({
                 blocked.current = null;
                 blockedName.current = null;
                 filedName.current = null;
+                notSeeking();
                 endSeek();
                 appeared.current = null;
               }
@@ -2715,6 +2777,7 @@ function ScannerScreen({
               return next(d.kind === "none" ? 60 : GATE_PASS_MS);
             }
             const kept = d.frame!;
+            readImage = kept.image;
             gateRead = { placement: d.placement, key: "", held: false };
             toVideo = kept.toVideo;
             // Diagnostics' timing record: the card appeared when the gate first saw it, not at this read.
@@ -2736,6 +2799,8 @@ function ScannerScreen({
           const locked = lockRef.current;
           const judged = locked && r.quad ? judgeLocked(r.matches, r.pool, locked.inSets, ART_UNKNOWN) : null;
           const top = judged && judged.kind !== "none" ? judged.match : r.matches[0];
+          // Glare on the card's art, on the frame it was read from (glare.ts).
+          const glare = r.quad ? artGlare(readImage, r.quad) : null;
           // The card just added stays held until it has clearly gone (hold.ts): one missed
           // detection while it's still in view, or on its way out, would add it again.
           // The held card still counts as seen when any match names it (with the set lock, the
@@ -2758,6 +2823,7 @@ function ScannerScreen({
             if (++noCard.current >= AWAY_FRAMES) {
               blockedName.current = null;
               filedName.current = null;
+              notSeeking();
               endSeek();
               appeared.current = null;
             }
@@ -2781,6 +2847,7 @@ function ScannerScreen({
           // ("Still in view" stays while the card filed last holds: a lookalike's frame doesn't end it.)
           if (!blocked.current && !blockedName.current && !filedName.current) setDupe(null);
           if (blocked.current) {
+            notSeeking();
             // With the gate: the card just added, seen again, is latched; a read that didn't show
             // it (a weak match) is a miss, tried again, and the hold ends by its own rule (hold.ts).
             if (gateRead) gateRead.held = !!stillHeld;
@@ -2790,7 +2857,9 @@ function ScannerScreen({
               await later.read(toVideo(r.quad));
               if (stop) return;
             }
-            if (filedName.current) filedArts.current.add(top.index);
+            // Only a frame that showed the held card: the weak art of a glary card laid down next
+            // isn't the filed card's (with it among them, that card could never end the hold by its art).
+            if (filedName.current && stillHeld) filedArts.current.add(top.index);
             setStatus(NEXT);
             return next(later ? 60 : HELD_PASS_MS);
           }
@@ -2812,6 +2881,7 @@ function ScannerScreen({
           const isHeld = (name: string) => (!!heldName && sameCardName(name, heldName)) || stillFiledAs(filedName, name);
           // (With the gate: also a card named again within 3 s that never left the view, gate.ts.)
           if (isHeld(top.name) || (gated && gate.suppresses(top.name, performance.now()))) {
+            notSeeking();
             if (gateRead) gateRead.held = true;
             leadRun.step(null);
             if (filedName.current) filedArts.current.add(top.index);
@@ -2823,6 +2893,10 @@ function ScannerScreen({
           // the art doesn't know (a front that only looks like a back has a name to read); what
           // changes is what's said meanwhile, and that no close-up is asked of a back.
           const faceDown = saysCardBack(r.back, top.score, LOCK_TWICE);
+          // A card being read to name it (a struggle, if it goes on: going wide, the glare said and the
+          // flashlight off), or a back, which isn't.
+          if (faceDown) notSeeking();
+          else seeking(glare);
           // Diagnostics' timing record: the card in view appeared on this frame, or one more frame
           // read (and another card taking its place starts it again).
           if (diagRef.current && !faceDown) appeared.current = stepAppeared(appeared.current, top.score >= ART_UNKNOWN ? top.name : null, frameAt, sameCardName);
@@ -2865,7 +2939,7 @@ function ScannerScreen({
             // It leads on its first frame: one more, with no title read between.
             if (!by) {
               setStatus(READING);
-              seekFrame({ art: artNote.art.slice(0, 3), lead: artNote.lead, cardPx: artNote.cardPx });
+              seekFrame({ art: artNote.art.slice(0, 3), lead: artNote.lead, cardPx: artNote.cardPx, glare: glareNote(glare) });
               return next(30);
             }
             const view = keepsView ? await camSrc().around(toVideo(r.quad), hiCanvasRef.current, side) : null;
@@ -2875,7 +2949,8 @@ function ScannerScreen({
             return;
           }
           // Not while a card filed by its name is held: it may be that card, still in view.
-          if (!blockedName.current) setStatus(faceDown ? CARD_BACK : READING);
+          // (Or what to do about the glare on it, glare.ts.)
+          if (!blockedName.current) setStatus(faceDown ? CARD_BACK : readingSays());
           // The title and text reads take seconds on a phone, and the art isn't looked at again
           // meanwhile: between them, the art has TEXT_GAP_MS of frames of its own, where a sure or
           // leading match names the card at once (Bryan, 23 Nov 2026: "Teyo was a nightmare to
@@ -2883,7 +2958,7 @@ function ScannerScreen({
           // frames aren't written down: a slow find's record keeps the frames that read text.
           if (!gated && textEnded > 0 && Date.now() - textEnded < TEXT_GAP_MS) return next(30);
           // (A back lying in view isn't a card the scanner is slow to find.)
-          const seen = blockedName.current || faceDown ? null : seekFrame({ art: artNote.art.slice(0, 3), lead: artNote.lead, cardPx: artNote.cardPx });
+          const seen = blockedName.current || faceDown ? null : seekFrame({ art: artNote.art.slice(0, 3), lead: artNote.lead, cardPx: artNote.cardPx, glare: glareNote(glare) });
           // A match that is at least fair is read on every frame; a card the art index plainly
           // doesn't know (a battle, a weak match) after a few frames, as before.
           if (top.score >= ART_UNKNOWN || artUnknown || gated || ++unknownFrames >= 3) {
@@ -2916,6 +2991,7 @@ function ScannerScreen({
             if (seen) Object.assign(seen, { titles, title, fused: fused.kind });
             // The card just filed, by its art or its title: still held. Not a new card appearing.
             if (fusedHeld(fused, heldName) || fusedHeld(fused, filedName.current ?? undefined)) {
+              notSeeking();
               if (gateRead) gateRead.held = true;
               if (filedName.current) filedArts.current.add(top.index);
               appeared.current = null;
@@ -2951,6 +3027,7 @@ function ScannerScreen({
             // held (as above).
             const agreed = said && said.confidence >= (identityOnly ? TEXT_VETO : TEXT_AGREE_FILES) && !artUnknown && !blockedName.current ? artHas(ranked, said.name) : undefined;
             if (agreed && isHeld(agreed.name)) {
+              notSeeking();
               if (gateRead) gateRead.held = true;
               if (filedName.current) filedArts.current.add(top.index);
               appeared.current = null;

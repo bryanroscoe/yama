@@ -114,6 +114,23 @@ export const WIDE_MAX_MS = 6000;
 /** A card held at 1× overfilling the view this long steps out wide. */
 export const CLOSE_MS = 600;
 
+// Sooner, and not undone by one bad frame (Bryan, 23 Nov 2026, after #205: it no longer seemed to
+// switch lenses "to try to scan the card better"). His records that afternoon: the step out came 9
+// to 11 s into a struggle (Watery Grave, Deep Space 9), or never. Two things held it back. One
+// frame without a steady card (the finder missing a glary frame, a hand's twitch) started the 3 s
+// again; now only LOST_FRAMES of them in a row, over LOST_MS, do, and the card must have been there
+// on two frames of three meanwhile (the finder's "cards" on an empty table jump on most frames).
+// And the card filed last counted as named while the next card lay there unnamed (ScannerView's
+// `seeking`). With glare on the art (glare.ts) it steps out after WIDE_GLARE_MS: glare is what
+// another view gets past (two scans of a printing: the better one named 99.3%), and the wide lens
+// sees the card from elsewhere, away from the flashlight's reflection.
+
+/** Frames in a row with no steady card, over at least LOST_MS, before the struggle starts again. */
+export const LOST_FRAMES = 3;
+export const LOST_MS = 500;
+/** A steady, unnamed card with glare on its art goes wide this soon. */
+export const WIDE_GLARE_MS = 1500;
+
 export class WideOnStruggle {
   private since: number | null = null;
   private emptySince: number | null = null;
@@ -123,6 +140,12 @@ export class WideOnStruggle {
   /** Went wide for the card in view and came back unnamed: not again until the view empties or it's named. */
   private spent = false;
   private wasNamed = false;
+  /** Frames with no steady card in a row, and when one was last there. */
+  private missRun = 0;
+  private lastThere = 0;
+  /** Since `since`: frames with the card there, and without. */
+  private there = 0;
+  private missed = 0;
 
   constructor(private readonly range: ZoomRange) {}
 
@@ -138,18 +161,25 @@ export class WideOnStruggle {
 
   private back(): number {
     this.wide = false;
+    this.restart();
+    return Math.max(1, this.range.min);
+  }
+
+  private restart(): void {
     this.since = null;
     this.closeSince = null;
-    return Math.max(1, this.range.min);
+    this.there = 0;
+    this.missed = 0;
   }
 
   /**
    * One frame: `share`, the card's height over the view's (null with no card in view); `steady`,
    * whether it's about where and as big as on the frame before (outline.ts `agrees`: the finder's
-   * "card" on an empty table jumps); `named`, whether the card in view has been named. The zoom to
-   * set now, or null.
+   * "card" on an empty table jumps); `named`, whether the card in view has been named (or is the
+   * card just filed, still lying there); `glary`, glare on its art (glare.ts GlareWatch). The zoom
+   * to set now, or null.
    */
-  frame(share: number | null, steady: boolean, named: boolean, zoom: number, now: number): number | null {
+  frame(share: number | null, steady: boolean, named: boolean, zoom: number, now: number, glary = false): number | null {
     if (!this.can) return null;
     // A card in view: seen steady (a "card" that jumps on an empty table isn't one).
     const there = share != null && steady;
@@ -169,15 +199,29 @@ export class WideOnStruggle {
       }
       return null;
     }
-    if (!there || named || this.spent) {
-      this.since = null;
-      this.closeSince = null;
+    if (named || this.spent) {
+      this.restart();
+      this.missRun = 0;
       return null;
     }
-    this.since ??= now;
+    if (!there) {
+      this.closeSince = null;
+      this.missRun += 1;
+      if (this.since != null) this.missed += 1;
+      if (this.missRun >= LOST_FRAMES && now - this.lastThere >= LOST_MS) this.restart();
+      return null;
+    }
+    this.missRun = 0;
+    this.lastThere = now;
+    if (this.since == null) {
+      this.since = now;
+      this.there = 0;
+      this.missed = 0;
+    }
+    this.there += 1;
     if (share > FILL_HIGH && zoom <= 1.05) this.closeSince ??= now;
     else this.closeSince = null;
-    const struggling = now - this.since >= WIDE_AFTER_MS;
+    const struggling = now - this.since >= (glary ? WIDE_GLARE_MS : WIDE_AFTER_MS) && this.there >= 2 * this.missed;
     const overfills = this.closeSince != null && now - this.closeSince >= CLOSE_MS;
     if (!struggling && !overfills) return null;
     this.wide = true;
