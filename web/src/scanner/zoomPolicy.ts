@@ -80,3 +80,78 @@ export class AutoZoom {
     return next;
   }
 }
+
+// Wide when it struggles (Bryan, 23 Nov 2026: "Quite a few of the foils were hard to scan ... using
+// the 0.5x camera worked better ... we're supposed to have something in there that switches camera
+// lenses and zoomed in and zoomed out if we struggled"). His diagnostics that day: a foil (Jiang
+// Yanggu) sat at art 0.55 to 0.64 for 21 s at 1x and was named at once at 0.5x (0.734, lead 0.175);
+// cards at 0.5x were 1,020 to 1,190 px tall (about half of 1x), still well above the collector
+// line's reading floor, and the 1x foils showed a blown highlight in the art that the 0.5x ones
+// didn't [inferred: nearer the main lens's closest focus, and a different angle to the light].
+// So: a card held steady in view and not named for WIDE_AFTER_MS, or held so close at 1x that it
+// overfills the view, steps the camera out to its wide lens (WIDE_ZOOM) once; the view empty (no
+// steady card) for WIDE_BACK_MS brings it back to 1x for the next card. Only on a camera that zooms
+// out that far (a phone with an ultra-wide behind one logical camera), never once the person zoomed.
+
+/** A steady card in view and not named this long goes wide. */
+export const WIDE_AFTER_MS = 3000;
+/** The zoom it goes to (the ultra-wide on a Pixel: 0.5×). */
+export const WIDE_ZOOM = 0.5;
+/** Only a camera whose zoom reaches this far out has a wider lens to go to. */
+export const WIDE_MIN = 0.65;
+/** The view empty this long after going wide: back to 1× for the next card. */
+export const WIDE_BACK_MS = 1500;
+
+export class WideOnStruggle {
+  private since: number | null = null;
+  private emptySince: number | null = null;
+  private close = 0;
+  private wide = false;
+
+  constructor(private readonly range: ZoomRange) {}
+
+  /** Whether the camera was sent wide and hasn't come back (auto-zoom waits meanwhile). */
+  get isWide(): boolean {
+    return this.wide;
+  }
+
+  /** Whether this camera can go wide at all. */
+  get can(): boolean {
+    return this.range.min <= WIDE_MIN;
+  }
+
+  /**
+   * One frame: `share`, the card's height over the view's (null with no card in view); `steady`,
+   * whether it's about where and as big as on the frame before (outline.ts `agrees`: the finder's
+   * "card" on an empty table jumps); `named`, whether the card in view has been named. The zoom to
+   * set now, or null.
+   */
+  frame(share: number | null, steady: boolean, named: boolean, zoom: number, now: number): number | null {
+    if (!this.can) return null;
+    if (this.wide) {
+      // A card still there: seen steady (a "card" that jumps on an empty table isn't one).
+      if (share != null && steady) {
+        this.emptySince = null;
+        return null;
+      }
+      this.emptySince ??= now;
+      if (now - this.emptySince < WIDE_BACK_MS) return null;
+      this.wide = false;
+      this.since = null;
+      this.emptySince = null;
+      this.close = 0;
+      return Math.max(1, this.range.min);
+    }
+    if (share == null || !steady || named) {
+      this.since = null;
+      this.close = 0;
+      return null;
+    }
+    this.since ??= now;
+    this.close = share > FILL_HIGH && zoom <= 1.05 ? this.close + 1 : 0;
+    if (now - this.since < WIDE_AFTER_MS && this.close < STEADY) return null;
+    this.wide = true;
+    this.emptySince = null;
+    return round(Math.max(this.range.min, WIDE_ZOOM));
+  }
+}

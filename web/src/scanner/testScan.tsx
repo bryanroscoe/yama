@@ -7,6 +7,10 @@
 //
 // The same place offers Clear the list (Bryan: "maybe even clear the current scan list"): the
 // test list here, or the host's own list through its `onClear`.
+//
+// And, while it's on, "Read the text on every card" (Bryan, 23 Nov 2026: "a text reading test ...
+// so I can test it in test mode"): each card the art names has its title and collector line read
+// too, and the sheet says, card by card, what was read and whether it was right (textTest.ts).
 
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { pickFinish } from "@yama/core";
@@ -14,6 +18,10 @@ import { Button } from "../components/ui";
 import type { RecentCard, ScanFinish } from "./price";
 import type { ScanCandidate } from "./types";
 import type { ScannerViewProps } from "./ScannerView";
+import { textTestSummary, type TextTest } from "./textTest";
+
+/** Cards whose text test is shown on the sheet, newest first. */
+const TEXT_TESTS_SHOWN = 8;
 
 /** One card seen in test scan. */
 interface Tested extends RecentCard {
@@ -37,6 +45,25 @@ export const TEST_SUMMARY = "Test scan, nothing saved";
 export function useTestScan(props: ScannerViewProps): ScannerViewProps {
   const [testing, setTesting] = useState(false);
   const [tested, setTested] = useState<Tested[]>([]);
+  /** "Read the text on every card", and what it read, newest first. */
+  const [readText, setReadText] = useState(false);
+  const [textTests, setTextTestsState] = useState<TextTest[]>([]);
+  /** Moves on each time the list starts again: a read still on its way from before is dropped. */
+  const [textRun, setTextRun] = useState(0);
+  const textRunRef = useRef(0);
+  const setTextTests = (list: TextTest[]) => {
+    if (list.length === 0) {
+      textRunRef.current += 1;
+      setTextRun(textRunRef.current);
+    }
+    setTextTestsState(list);
+  };
+  const onTextTest = useCallback(
+    (t: TextTest) => {
+      if (textRun === textRunRef.current) setTextTestsState((list) => [t, ...list]);
+    },
+    [textRun],
+  );
   const listRef = useRef<Tested[]>([]);
   const put = (list: Tested[]) => {
     listRef.current = list;
@@ -66,7 +93,10 @@ export function useTestScan(props: ScannerViewProps): ScannerViewProps {
     return "changed";
   }, []);
   const entryOf = useCallback((card: ScanCandidate) => keyOf.current.get(card), []);
-  const clearTested = useCallback(() => put([]), []);
+  const clearTested = useCallback(() => {
+    put([]);
+    setTextTests([]);
+  }, []);
 
   const { onClear, clearNote, settings, settingsSummary, controls, addedCount = 0, recentCards } = props;
   const count = testing ? tested.length : (recentCards?.reduce((n, c) => n + c.copies, 0) ?? addedCount);
@@ -77,7 +107,15 @@ export function useTestScan(props: ScannerViewProps): ScannerViewProps {
       onTesting={(on) => {
         setTesting(on);
         // Each test starts with an empty list.
-        if (on) put([]);
+        if (on) {
+          put([]);
+          setTextTests([]);
+        }
+      }}
+      readText={readText}
+      onReadText={(on) => {
+        setReadText(on);
+        setTextTests([]);
       }}
       count={count}
       onClear={clear}
@@ -115,9 +153,11 @@ export function useTestScan(props: ScannerViewProps): ScannerViewProps {
     acceptLabel: "Scan next",
     settings: shownSettings,
     settingsSummary: settingsSummary ? `${TEST_SUMMARY}; ${settingsSummary}` : TEST_SUMMARY,
+    ...(readText ? { onTextTest } : {}),
     controls: (
       <>
         <TestScanNote count={tested.length} onStop={() => setTesting(false)} />
+        {readText && <TextTestNote tests={textTests} />}
         {controls}
       </>
     ),
@@ -138,8 +178,49 @@ function TestScanNote({ count, onStop }: { count: number; onStop: () => void }) 
   );
 }
 
-/** The switch, and Clear the list, in Scan settings. */
-function TestScanSettings({ testing, onTesting, count, onClear, note }: { testing: boolean; onTesting: (on: boolean) => void; count: number; onClear?: () => void; note: string }): ReactNode {
+/** The text reading test's results: the tally, then card by card, newest first. */
+function TextTestNote({ tests }: { tests: readonly TextTest[] }) {
+  return (
+    <div className="scan-text-test" role="status">
+      <p>
+        <strong>Text reading test.</strong> {textTestSummary(tests)}
+      </p>
+      {tests.length > 0 && (
+        <ul>
+          {tests.slice(0, TEXT_TESTS_SHOWN).map((t, i) => (
+            <li key={tests.length - i}>
+              <strong>{t.name}</strong>
+              <span className="dim">
+                {" "}
+                {t.titleOk ? "Name read." : t.title ? `Name not read (read "${t.title}").` : "Name not read."}{" "}
+                {t.settled ? `Read ${t.read}.` : t.twin ? `Read ${t.read}, which a twin printing shows too.` : t.read ? `Read only ${t.read}.` : t.line ? `Number not read (read "${t.line}").` : "Number not read."}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** The switch, Read the text on every card, and Clear the list, in Scan settings. */
+function TestScanSettings({
+  testing,
+  onTesting,
+  readText,
+  onReadText,
+  count,
+  onClear,
+  note,
+}: {
+  testing: boolean;
+  onTesting: (on: boolean) => void;
+  readText: boolean;
+  onReadText: (on: boolean) => void;
+  count: number;
+  onClear?: () => void;
+  note: string;
+}): ReactNode {
   return (
     <>
       <label className="scan-keep">
@@ -148,6 +229,14 @@ function TestScanSettings({ testing, onTesting, count, onClear, note }: { testin
           <strong>Test scan.</strong> Scan card after card to try the scanner. Each card it finds is shown and counted here, and nothing is saved, added or checked off, nor kept as a scan photo. Off again next time the scanner opens.
         </span>
       </label>
+      {testing && (
+        <label className="scan-keep">
+          <input type="checkbox" checked={readText} onChange={(e) => onReadText(e.target.checked)} />
+          <span>
+            <strong>Read the text on every card.</strong> Reads each card's name and collector number too, whatever its art said, and says on the sheet what was read and whether it was right. Slower: for testing the text reader.
+          </span>
+        </label>
+      )}
       {onClear && count > 0 && (
         <div className="scan-clear">
           <Button size="small" variant="outline" onClick={onClear}>

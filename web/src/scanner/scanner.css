@@ -517,6 +517,24 @@ button.scan-count {
   flex: 0 0 auto;
   white-space: nowrap;
 }
+/* Test scan's text reading test (testScan.tsx, textTest.ts): the tally, then card by card. */
+.scan-text-test {
+  padding: 8px 12px;
+  border: 1px dashed var(--text-dim);
+  border-radius: var(--r-input);
+  font-size: var(--t-sm);
+}
+.scan-text-test p {
+  margin: 0;
+}
+.scan-text-test ul {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
 .scan-clear {
   grid-column: 1 / -1;
   display: flex;
