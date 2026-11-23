@@ -58,7 +58,8 @@ import { finderKey, FOUND_CARD, FOUND_FAILED, FOUND_NONE, loadNativeArt, loadNat
 import { nativeId, nativeWanted, onNativeChange, saveNative, savedNative } from "./nativeModels";
 import { cachedFile } from "./scanCache";
 import { NativeCameraSetting } from "./NativeCameraSetting";
-import { AUTO_MAX, AutoZoom, LENS_SWITCH, maySwitchLens } from "./zoomPolicy";
+import { AUTO_MAX, AutoZoom, LENS_SWITCH, maySwitchLens, WideOnStruggle } from "./zoomPolicy";
+import { agrees, FOLLOW_MOVE } from "./outline";
 import { cardHeight, distanceHint, tooCloseToFocus, tooFar, type FocusLens } from "./closer";
 import { createServerCatalog } from "./serverCatalog";
 import { availableEngines, createScannerOcr, ENGINE_LABEL, engineOrder, plannedEngine, type OcrChoice, type ScannerOcr } from "./ocrEngine";
@@ -1303,8 +1304,13 @@ function ScannerScreen({
   };
   /** Auto-zoom (zoomPolicy.ts), for a camera that zooms itself. */
   const autoZoomRef = useRef<AutoZoom | null>(null);
+  /** Wide when it struggles (zoomPolicy.ts): a steady card unnamed for a while steps out to the wide lens. */
+  const wideRef = useRef<WideOnStruggle | null>(null);
+  /** The card's corners on the frame before, for whether it's steady (outline.ts `agrees`). */
+  const lastSeenQuad = useRef<Quad | null>(null);
   useEffect(() => {
     autoZoomRef.current = cam.caps.zoom ? new AutoZoom(cam.caps.zoom) : null;
+    wideRef.current = cam.caps.zoom ? new WideOnStruggle(cam.caps.zoom) : null;
   }, [cam.caps.zoom]);
   /**
    * Where the card is for reading it (closer.ts): too far for the collector line's letters ("Move
@@ -1337,8 +1343,21 @@ function ScannerScreen({
     const tooSmall = !!quad && tooFar(full === 1 ? quad : (quad.map(([x, y]) => [x * full, y * full]) as Quad));
     const unfocused = share != null && tooCloseToFocus(share, focusLens(), c.zoom);
     setDistance(distanceHint({ share, tooSmall, unfocused, zoom: zooms ? { canZoomIn: az!.canZoomIn(c.zoom), canZoomOut: az!.canZoomOut(c.zoom) } : null }));
+    // Steady: about where and as big as on the frame before (a "card" on an empty table jumps).
+    const steady = !!quad && !!lastSeenQuad.current && agrees(quad, lastSeenQuad.current, FOLLOW_MOVE);
+    lastSeenQuad.current = quad;
     if (!zooms) return;
-    const z = az!.frame(share, c.zoom, performance.now());
+    const now = performance.now();
+    // Wide when it struggles: a steady card not named for a while (or overfilling the view at 1×)
+    // steps out to the wide lens, and auto-zoom waits until the view empties and it comes back.
+    const wide = wideRef.current;
+    const wz = wide ? wide.frame(share, steady, !!foundRef.current, c.zoom, now) : null;
+    if (wz != null) {
+      c.autoZoom(wz);
+      return;
+    }
+    if (wide?.isWide) return;
+    const z = az!.frame(share, c.zoom, now);
     if (z != null) c.autoZoom(z);
   };
   /**

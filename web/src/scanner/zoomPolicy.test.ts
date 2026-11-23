@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AUTO_MAX, AutoZoom, autoCeiling, maySwitchLens, STEADY, STEP_MS } from "./zoomPolicy";
+import { AUTO_MAX, AutoZoom, autoCeiling, maySwitchLens, STEADY, STEP_MS, WIDE_AFTER_MS, WIDE_BACK_MS, WideOnStruggle } from "./zoomPolicy";
 import { cardHeight, LETTER_SHARE, letterPx, tooFar } from "./closer";
 import { rectQuad } from "./image";
 
@@ -69,5 +69,47 @@ describe("whether auto-zoom has room left (so the distance hints wait for it)", 
     const fixed = new AutoZoom({ min: 1, max: 1 });
     expect(fixed.canZoomIn(1)).toBe(false);
     expect(fixed.canZoomOut(1)).toBe(false);
+  });
+});
+
+describe("going wide when a card struggles", () => {
+  const pixel = { min: 0.507, max: 30 };
+  it("steps out to the wide lens once a steady card goes unnamed, and back to 1x once the view is empty", () => {
+    const w = new WideOnStruggle(pixel);
+    expect(w.can).toBe(true);
+    let t = 0;
+    for (; t < WIDE_AFTER_MS; t += 100) expect(w.frame(0.6, true, false, 1, t)).toBeNull();
+    expect(w.frame(0.6, true, false, 1, t)).toBe(0.5);
+    expect(w.isWide).toBe(true);
+    // Named now, still in view: stays wide.
+    expect(w.frame(0.3, true, true, 0.5, (t += 100))).toBeNull();
+    // Gone: back to 1x after a moment.
+    expect(w.frame(null, false, false, 0.5, (t += 100))).toBeNull();
+    expect(w.frame(null, false, false, 0.5, (t += WIDE_BACK_MS))).toBe(1);
+    expect(w.isWide).toBe(false);
+    // Gone, with the finder's "cards" jumping on the empty table: back to 1x all the same.
+    const v = new WideOnStruggle(pixel);
+    let u = 0;
+    for (; u <= WIDE_AFTER_MS; u += 100) v.frame(0.6, true, false, 1, u);
+    expect(v.isWide).toBe(true);
+    expect(v.frame(0.9, false, false, 0.5, (u += 100))).toBeNull();
+    expect(v.frame(0.4, false, false, 0.5, (u += WIDE_BACK_MS))).toBe(1);
+  });
+
+  it("never for a 'card' that jumps (nothing there), a card named quickly, or a camera with no wider lens", () => {
+    const w = new WideOnStruggle(pixel);
+    for (let t = 0; t < 3 * WIDE_AFTER_MS; t += 100) expect(w.frame(0.6, t % 300 !== 0, false, 1, t)).toBeNull();
+    const named = new WideOnStruggle(pixel);
+    for (let t = 0; t < 3 * WIDE_AFTER_MS; t += 100) expect(named.frame(0.6, true, true, 1, t)).toBeNull();
+    const one = new WideOnStruggle({ min: 1, max: 8 });
+    expect(one.can).toBe(false);
+    for (let t = 0; t < 3 * WIDE_AFTER_MS; t += 100) expect(one.frame(0.6, true, false, 1, t)).toBeNull();
+  });
+
+  it("steps out at once when a card held at 1x overfills the view", () => {
+    const w = new WideOnStruggle(pixel);
+    expect(w.frame(0.9, true, false, 1, 0)).toBeNull();
+    expect(w.frame(0.9, true, false, 1, 33)).toBeNull();
+    expect(w.frame(0.9, true, false, 1, 66)).toBe(0.5);
   });
 });
