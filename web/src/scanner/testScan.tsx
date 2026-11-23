@@ -146,6 +146,8 @@ export function useTestScan(props: ScannerViewProps): ScannerViewProps {
     onUndo: undo,
     onCorrect: correct,
     onFinish: props.onFinish ? flip : undefined,
+    // Card first saves its rows through the host's own path: never in a test (Codex review of #211).
+    onProvisional: undefined,
     entryOf,
     // A tile opens nothing: there is no saved copy to fix.
     onOpenCard: undefined,

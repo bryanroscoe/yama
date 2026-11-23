@@ -232,6 +232,8 @@ interface Found {
   name: string;
   /** What its sheen said on the frames before it was named (foil.ts), for the finish it's filed in. */
   foil?: FoilVerdict;
+  /** Foil or Not foil, chosen by the person after filing: "+1 copy" goes in it too. */
+  finishSet?: "foil" | "nonfoil";
   method: ScanCandidate["method"];
   confidence: number;
   /** The art match, when the card was recognised by its artwork. */
@@ -720,6 +722,8 @@ export function priceRange(printings: Printing[], finish: ScanFinish): { low: nu
  * and it comes in regular. Otherwise the host's choice stands (no `finish`).
  */
 const sheenFinish = (f: Found, p: Printing | null, finish: ScanFinish, bySheen: boolean): Pick<ScanCandidate, "finish" | "foil"> => {
+  // The person's own Foil or Not foil for this card stands (another copy of it goes in the same).
+  if (p && f.finishSet && p.finishes.includes(f.finishSet)) return { finish: f.finishSet };
   const foil = f.foil;
   if (!p || !foil || foil.frames === 0) return {};
   if (!bySheen || finish !== "nonfoil" || !hasTextBox(treatmentOf(p))) return { foil };
@@ -727,6 +731,8 @@ const sheenFinish = (f: Found, p: Printing | null, finish: ScanFinish, bySheen: 
   if (!foil.foil && p.finishes.includes("nonfoil")) return { finish: "nonfoil", foil };
   return { foil };
 };
+/** The finish a tie by price is weighed in: the one the card would be filed in (its sheen's, or the person's). */
+const tieFinishOf = (f: Found, base: ScanFinish, bySheen: boolean): ScanFinish => (bySheen && base === "nonfoil" && (f.finishSet ? f.finishSet === "foil" : !!f.foil?.foil) ? "foil" : base);
 /** ", foil" (or ", foil?" when the sheen wasn't sure) for a card the scanner filed as foil by its sheen. */
 const foilWord = (c: ScanCandidate) => (c.finish === "foil" ? (c.foil?.sure ? ", foil" : ", foil?") : "");
 
@@ -824,6 +830,9 @@ function ScannerScreen({
   const [tieOn, setTieOn] = useState(tieByPriceOn);
   const tieRef = useRef(false);
   tieRef.current = tieOn && !identityOnly;
+  /** Foil by its sheen, for work that outlives a render (a card-first row's tie by price). */
+  const foilBySheenRef = useRef(foilBySheen);
+  foilBySheenRef.current = foilBySheen;
   const autoAddRef = useRef(autoAdd);
   autoAddRef.current = autoAdd;
   const finishRef = useRef(finish);
@@ -893,6 +902,8 @@ function ScannerScreen({
   const filedFound = useRef<Found | null>(null);
   /** The card filed last: its name holds it until the view clears (`stillFiledAs`). */
   const fileAs = (f: Found) => {
+    // Filed: the next card's sheen is its own.
+    sheenWatch.current.reset();
     // Named and filed: no card being read until a pass reads one (the gate may latch it under another name).
     notSeeking();
     filedName.current = f.name;
@@ -1508,7 +1519,6 @@ function ScannerScreen({
   /** The view clear of cards: the next card's glare is its own. */
   const clearGlare = () => {
     glareWatch.current.reset();
-    sheenWatch.current.reset();
     glareNow.current = { glary: false, hint: false };
     // (So a flashlight the person turned back on after it went off is known to be theirs.)
     torchHelp.current.frame(false, camRef.current.torch, performance.now(), { person: camRef.current.torchTouched() });
@@ -1605,9 +1615,10 @@ function ScannerScreen({
     const range = c.caps.zoom;
     if (closeZoomFrom.current != null || !range || c.userZoomed()) return;
     const seen = lastSeenShare.current;
-    const z = seen ? closeupZoom(kind, seen.share, Math.max(c.zoom, Math.max(1, range.min)), range) : null;
+    // (From the zoom the card was measured at; back to where the camera was, or 1× from 0.5×.)
+    const z = seen ? closeupZoom(kind, seen.share, seen.zoom, range) : null;
     if (z == null) return;
-    closeZoomFrom.current = Math.max(1, range.min);
+    closeZoomFrom.current = c.zoom >= 1 ? c.zoom : Math.max(1, range.min);
     c.autoZoom(z);
     setCloseZoomed(true);
   };
@@ -2455,10 +2466,12 @@ function ScannerScreen({
     tieWeighed.current = seq;
     const pool = f.options.filter((p) => !readsOther(seq, p.scryfall_id));
     // A read naming a printing outside the list (the set lock's or the border's): it may be that one.
-    const tie = readsOutside(seq) ? null : priceTie(pool, finish);
+    // (In the finish it would be filed in: a foil by its sheen is weighed at foil prices.)
+    const tf = tieFinishOf(f, finish, foilBySheen);
+    const tie = readsOutside(seq) ? null : priceTie(pool, tf);
     f.rec?.note("priceTie", tie ? { id: tie.printing.scryfall_id, low: tie.low, high: tie.high } : { tied: false, pool: pool.length });
     if (!tie) return;
-    setFound((cur) => (cur && cur === f ? { ...cur, chosen: tie.printing, how: "price", sure: true, settledId: tie.printing.scryfall_id, picking: false, tieFinish: finish } : cur));
+    setFound((cur) => (cur && cur === f ? { ...cur, chosen: tie.printing, how: "price", sure: true, settledId: tie.printing.scryfall_id, picking: false, tieFinish: tf } : cur));
     setCloseup((c) => (c === "collector" ? null : c));
     buzzFound();
     // buzzFound and readsOther read refs; the rest is listed.
@@ -2469,21 +2482,22 @@ function ScannerScreen({
   // unsettled again and the person picks (Codex review of #195).
   useEffect(() => {
     const f = found;
-    if (!f || f.how !== "price" || !f.chosen || !f.options || f.tieFinish === undefined || f.tieFinish === finish) return;
+    if (!f || f.how !== "price" || !f.chosen || !f.options || f.tieFinish === undefined || f.tieFinish === tieFinishOf(f, finish, foilBySheen)) return;
     const seq = foundSeq.current;
     const pool = f.options.filter((p) => !readsOther(seq, p.scryfall_id));
-    const tie = readsOutside(seq) ? null : priceTie(pool, finish);
-    f.rec?.note("priceTie", tie ? { id: tie.printing.scryfall_id, low: tie.low, high: tie.high, refinish: finish } : { tied: false, refinish: finish });
+    const tf = tieFinishOf(f, finish, foilBySheen);
+    const tie = readsOutside(seq) ? null : priceTie(pool, tf);
+    f.rec?.note("priceTie", tie ? { id: tie.printing.scryfall_id, low: tie.low, high: tie.high, refinish: tf } : { tied: false, refinish: tf });
     setFound((cur) =>
       cur !== f
         ? cur
         : tie
-          ? { ...cur, chosen: tie.printing, settledId: tie.printing.scryfall_id, tieFinish: finish }
+          ? { ...cur, chosen: tie.printing, settledId: tie.printing.scryfall_id, tieFinish: tf }
           : { ...cur, chosen: null, how: null, sure: false, settledId: undefined, tieFinish: undefined },
     );
     // readsOther and readsOutside read refs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [found, finish]);
+  }, [found, finish, foilBySheen]);
 
   /**
    * Settle the printing of what was found (not needed when only the card's identity matters).
@@ -2892,11 +2906,15 @@ function ScannerScreen({
                 blockedName.current = null;
                 filedName.current = null;
                 clearGlare();
+                sheenWatch.current.reset();
                 endSeek();
                 appeared.current = null;
               }
-              // A card moving is a new placement: its struggle (glare, the flashlight's wait) starts again.
-              if (d.kind === "moving") clearGlare();
+              // A card moving is a new placement: its struggle (glare, the flashlight's wait) and its sheen start again.
+              if (d.kind === "moving") {
+                clearGlare();
+                sheenWatch.current.reset();
+              }
               // A provisional row's card still lying there (card first): its collector line is read
               // from this frame; once it's gone, or another card lies there, that ends.
               const later = heldLater.current;
@@ -2974,6 +2992,7 @@ function ScannerScreen({
               blockedName.current = null;
               filedName.current = null;
               clearGlare();
+              sheenWatch.current.reset();
               endSeek();
               appeared.current = null;
             }
@@ -2992,7 +3011,11 @@ function ScannerScreen({
           }
           noCard.current = 0;
           const seenNow = toVideo(r.quad);
-          if (!seenQuad || !agrees(seenNow, seenQuad, FOLLOW_MOVE)) seenSince = Date.now();
+          if (!seenQuad || !agrees(seenNow, seenQuad, FOLLOW_MOVE)) {
+            seenSince = Date.now();
+            // Another place, likely another card slid in: its sheen is its own (Codex review of #211).
+            sheenWatch.current.reset();
+          }
           seenQuad = seenNow;
           // ("Still in view" stays while the card filed last holds: a lookalike's frame doesn't end it.)
           if (!blocked.current && !blockedName.current && !filedName.current) setDupe(null);
@@ -3307,6 +3330,9 @@ function ScannerScreen({
         art.reset({ frames: true });
         const { image, k } = small(bmp, bmp.width, bmp.height, canvasRef.current);
         const r = await art.identify(image);
+        // The photo's own sheen (foil.ts), not the camera's frames before it.
+        sheenWatch.current.reset();
+        sheenWatch.current.add(r.sheen);
         const locked = lockRef.current;
         const judged = locked && r.quad ? judgeLocked(r.matches, r.pool, locked.inSets, ART_UNKNOWN) : null;
         const top = judged && judged.kind !== "none" ? judged.match : r.matches[0];
@@ -3412,7 +3438,9 @@ function ScannerScreen({
       rec.cardName = name;
       rec.note(carry.rec ? "renamed" : "found", { method: how === "typed" ? "typed" : "title", name });
     }
-    const f: Found = { name, method: "name", confidence: how === "typed" ? 1 : 0.9, others: [], options: null, sameArt: false, chosen: null, how: null, picking: false, ...carry, photo, rec, timing };
+    // Named from the camera (a title read, or the close-up): the sheen of its frames (foil.ts).
+    const foil = how === "name" ? sheenWatch.current.verdict() : undefined;
+    const f: Found = { name, method: "name", confidence: how === "typed" ? 1 : 0.9, others: [], options: null, sameArt: false, chosen: null, how: null, picking: false, ...carry, ...(foil?.frames ? { foil } : {}), photo, rec, timing };
     heldLater.current?.end();
     if (!identityOnly && laterAuto(f)) {
       buzzFound();
@@ -4043,6 +4071,8 @@ function ScannerScreen({
         // tie by price names only the card, since nobody read which printing it is).
         keep(done, "added", how === "price" ? { ...card, scryfall_id: undefined } : card);
         if (f.timing) f.timing.printed(printingWay(done, c));
+        // The finish it goes in (the corpus's label), before its record is sent (Codex review of #211).
+        if (f.timing) f.timing.detail.finish = filedFinish(card.finishes, card.finish ?? wanted);
         keepIfSlow(f);
         f.rec?.note("final", { id: c.scryfall_id, set: c.set_code, number: c.collector_number, how, later: true });
         endRecord(how === "picked" ? "picked" : "filed", f);
@@ -4213,7 +4243,7 @@ function ScannerScreen({
       if (tieRef.current && !typed && opts.sameArt && !ev.pointsOutside()) {
         const tie = priceTie(
           pool.filter((p) => !ev.pointsAway(p.scryfall_id)),
-          wanted,
+          tieFinishOf(f, wanted, foilBySheenRef.current),
         );
         f.rec?.note("priceTie", tie ? { id: tie.printing.scryfall_id, low: tie.low, high: tie.high, later: true } : { tied: false, later: true });
         if (tie && settleRow(tie.printing, "price")) return;
@@ -4360,28 +4390,37 @@ function ScannerScreen({
     );
   };
   /** Whether the card just filed can be switched between foil and not (its printing comes in both). */
-  const flips = (j: JustAdded | null): j is JustAdded & { card: ScanCandidate; finish: "foil" | "nonfoil" } =>
-    !!j?.card && !j.busy && !!onFinish && (j.finish === "foil" || j.finish === "nonfoil") && !!j.card.finishes?.includes("foil") && !!j.card.finishes.includes("nonfoil");
+  const flips = (j: JustAdded | null, now: ScanFinish | undefined = j?.finish): j is JustAdded & { card: ScanCandidate } =>
+    !!j?.card && !j.busy && !!onFinish && (now === "foil" || now === "nonfoil") && !!j.card.finishes?.includes("foil") && !!j.card.finishes.includes("nonfoil");
+  /** A Foil or Not foil under way: "+1 copy" waits for it. */
+  const flipping = useRef(false);
   /** Foil or not, for the card just filed: the host changes that copy, and the chip says what it is now. */
-  const flipFinish = (j: JustAdded) => {
-    if (!flips(j)) return;
-    const to = j.finish === "foil" ? "nonfoil" : "foil";
+  const flipFinish = (j: JustAdded, now: ScanFinish | undefined = j.finish) => {
+    if (!flips(j, now) || flipping.current) return;
+    flipping.current = true;
+    const to = now === "foil" ? "nonfoil" : "foil";
     const word = to === "foil" ? "foil" : "not foil";
     const changing: JustAdded = { ...j, text: `Making ${j.label} ${word}…`, busy: true };
     setJustAdded(changing);
     onFinish!(j.card, to).then(
       () => {
+        flipping.current = false;
+        // "+1 copy" of it, while it lies there, goes in the finish chosen now.
+        setDupe((d) => (d && j.found && d.found.name === j.found.name && d.printing?.scryfall_id === j.printing?.scryfall_id ? { ...d, found: { ...d.found, finishSet: to } } : d));
         const at = identityOnly ? null : priceFor(j.card.prices, to);
         // (Still this flip's chip: a card filed meanwhile shows its own. The same card, so the host
         // still knows which copy it is, `entryOf`; the finish it's in now is the chip's.)
         setJustAdded((cur) => (cur === changing ? { ...j, finish: to, busy: false, say: true, text: `${j.label}: ${word}${at != null ? `, ${usd(at)}` : ""}` } : cur));
       },
-      (e: unknown) => setJustAdded((cur) => (cur === changing ? { ...j, busy: false, say: true, text: `Couldn't make ${j.label} ${word}: ${e instanceof Error ? e.message : String(e)}` } : cur)),
+      (e: unknown) => {
+        flipping.current = false;
+        setJustAdded((cur) => (cur === changing ? { ...j, busy: false, say: true, text: `Couldn't make ${j.label} ${word}: ${e instanceof Error ? e.message : String(e)}` } : cur));
+      },
     );
   };
   /** One more copy of the card just filed, same printing and finish, by the same path as Add. */
   const scanAnyway = () => {
-    if (!dupe || dupeBusy.current || dupe.settings !== fileSettings) return;
+    if (!dupe || dupeBusy.current || flipping.current || dupe.settings !== fileSettings) return;
     dupeBusy.current = true;
     setDupeSaving(true);
     void Promise.resolve(file(dupe.found, dupe.printing, 1, false)).finally(() => {
@@ -4668,7 +4707,9 @@ function ScannerScreen({
   const jc = justAdded?.card;
   const sameAsNewest =
     !!jc && !!newest && (entryOf ? entryOf(jc) === newest.key : jc.name === newest.name && (jc.set ?? "") === (newest.set ?? "") && (jc.number ?? "") === (newest.number ?? ""));
-  const undoable = !!jc && !justAdded!.busy && sameAsNewest && (!!onUndo || (!!onCorrect && !!justAdded!.printing) || flips(justAdded));
+  // The strip's own record of that copy says the finish it's in now (changed from its tile, say).
+  const finishNow = sameAsNewest ? newest!.finish : justAdded?.finish;
+  const undoable = !!jc && !justAdded!.busy && sameAsNewest && (!!onUndo || (!!onCorrect && !!justAdded!.printing) || flips(justAdded, finishNow));
   const dupeHere = !!dupe && !!onAccept && !!newest && dupe.found.name === newest.name;
   // Wrong printing beside Undo only when the scanner read the printing itself: one you tapped is
   // rarely wrong, and the card's own sheet (tap it in the strip) has Wrong printing anyway.
@@ -4681,9 +4722,9 @@ function ScannerScreen({
             Undo
           </Button>
         )}
-        {flips(justAdded) && (
-          <Button className="scan-act" onClick={() => flipFinish(justAdded!)}>
-            {justAdded!.finish === "foil" ? "Not foil" : "Foil"}
+        {flips(justAdded, finishNow) && (
+          <Button className="scan-act" onClick={() => flipFinish(justAdded!, finishNow)}>
+            {finishNow === "foil" ? "Not foil" : "Foil"}
           </Button>
         )}
         {onCorrect && readByScanner && justAdded!.found && justAdded!.printing && (

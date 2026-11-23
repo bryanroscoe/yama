@@ -1129,6 +1129,10 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
     const a = key ? listRef.current.find((x) => x.key === key) : undefined;
     if (!a) throw new Error("It's no longer in the Added list");
     if (a.finish === to) return;
+    // Checked against the copy as it is now: it may have been changed from its own view since
+    // (another printing, Proxy) after the scanner offered this (Codex review of #211).
+    if (a.finish !== "foil" && a.finish !== "nonfoil") throw new Error(`${a.name} is ${finishName(a.finish)} now: change it in its own view`);
+    if (!a.finishes?.includes(to)) throw new Error(`That printing of ${a.name} doesn't come in ${to === "foil" ? "foil" : "regular"}`);
     await fix(a, { scryfall_id: a.scryfall_id, set: a.set, number: a.number, name: a.name, image: a.image, finish: to, finishes: a.finishes, treatment: a.treatment, copies: a.copies, prices: a.prices });
   };
   const busyMessage = (a: Added) => (a.pending?.error ? "Try the last change again first." : "Still saving the last change.");

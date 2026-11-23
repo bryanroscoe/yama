@@ -248,22 +248,29 @@ export class WideOnStruggle {
 // the view's height is share × 16/9 × 63/88 = 1.27 × share of its width. The name runs about 3/4
 // of the card's width, the set code and number about 3/10.
 
+/**
+ * A close-up's zoom on a camera that switches lens as it zooms: the main lens's sensor, short of the
+ * switch (the telephoto can't focus as close as a card is held).
+ */
+export const CLOSE_MAX = 4;
 /** How wide the card should be, in view widths, for each close-up's line to fill the box. */
 const CLOSE_CARD_WIDTH = { title: 1.0, collector: 2.05 } as const;
 const CARD_WIDTH_PER_HEIGHT = (16 / 9) * (63 / 88);
 
 /**
  * The zoom for a close-up, from the card's last height share of the view (`share`, at zoom `at`):
- * never below where it is; on a camera that switches lens as it zooms, at most AUTO_MAX on the main
- * lens, or the telephoto's switch (LENS_SWITCH) when the card is far enough to need it (a telephoto
- * can't focus as close as a card is held); elsewhere as far as the camera zooms. Null
+ * never below where it is or 1×; on a camera that switches lens as it zooms, at most CLOSE_MAX, on the main
+ * lens; elsewhere as far as the camera zooms. Null
  * when there's nothing to gain (within 5% of where it is).
  */
 export function closeupZoom(kind: "title" | "collector", share: number, at: number, range: ZoomRange): number | null {
   if (!(share > 0) || !(at > 0)) return null;
   const want = (at * CLOSE_CARD_WIDTH[kind]) / (CARD_WIDTH_PER_HEIGHT * share);
-  // (Below the lens switch on a camera that has one, unless the card is far; else as far as it zooms.)
-  const ceiling = maySwitchLens(range) ? (want >= LENS_SWITCH * 0.9 ? LENS_SWITCH : AUTO_MAX) : Math.max(1, range.max);
-  const z = round(Math.min(ceiling, Math.max(at, want)));
-  return z > at * 1.05 ? z : null;
+  // (Below the lens switch on a camera that has one, else as far as it zooms; the camera's own cap,
+  // camera.tsx HAND_MAX, still applies.)
+  const ceiling = maySwitchLens(range) ? CLOSE_MAX : Math.max(1, range.max);
+  // Never below where it is, nor below 1× (a card seen at 0.5× is read at 1×).
+  const base = Math.max(at, Math.max(1, range.min));
+  const z = round(Math.min(ceiling, Math.max(base, want)));
+  return z > base * 1.05 ? z : null;
 }

@@ -3,7 +3,7 @@
 // the rainbow sheen ... it should be easier to switch between foil and not foil"). The camera and
 // the recognizer are faked as in ScannerView.rescan.test.tsx; the recognizer says each frame's
 // sheen (foil.ts), and Arcane Signet's printing comes in regular and foil.
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Printing } from "../api";
@@ -218,5 +218,43 @@ describe("foil by its sheen", { timeout: 20_000 }, () => {
     expect(full[0]!.finish).toBeUndefined();
     // What its sheen said is still kept for its record.
     expect(full[0]!.foil?.foil).toBe(true);
+  });
+
+  it("files +1 copy in the finish chosen with Not foil, not the sheen's again (Codex review of #211)", async () => {
+    cam.sheen = { spread: 24, hues: 4 };
+    const accepted: ScanCandidate[] = [];
+    function Strip() {
+      const [cards, setCards] = useState<ScanCandidate[]>([]);
+      const [finishes, setFinishes] = useState<Record<number, string>>({});
+      return (
+        <ScannerView
+          autoAdd
+          foilBySheen
+          onAccept={async (c) => {
+            accepted.push(c);
+            setCards((a) => [c, ...a]);
+            return true;
+          }}
+          onUndo={async () => undefined}
+          onFinish={async (c, to) => {
+            setFinishes((f) => ({ ...f, [accepted.indexOf(c)]: to }));
+          }}
+          entryOf={(c) => `k${accepted.indexOf(c)}`}
+          recentCards={cards.map((c) => {
+            const i = accepted.indexOf(c);
+            return { key: `k${i}`, name: c.name, set: c.set, number: c.number, finish: (finishes[i] ?? c.finish ?? "nonfoil") as "foil" | "nonfoil", copies: 1, prices: c.prices, image: null, oracleId: c.oracle_id };
+          })}
+        />
+      );
+    }
+    act(() => root.render(<Strip />));
+    await until(() => (accepted.length === 1 ? true : null), "the card filed");
+    expect(accepted[0]!.finish).toBe("foil");
+    await click(await until(() => button("Not foil"), "Not foil on the strip"));
+    // The strip's copy is regular now: the button offers Foil back.
+    await until(() => button("Foil"), "Foil on the strip");
+    await click(await until(() => button("+1 copy"), "+1 copy"));
+    await until(() => (accepted.length === 2 ? true : null), "the second copy");
+    expect(accepted[1]!.finish).toBe("nonfoil");
   });
 });

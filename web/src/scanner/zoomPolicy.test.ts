@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AUTO_MAX, AutoZoom, autoCeiling, CLOSE_MS, closeupZoom, LENS_SWITCH, LOST_FRAMES, LOST_MS, maySwitchLens, STEADY, STEP_MS, WIDE_AFTER_MS, WIDE_BACK_MS, WIDE_GLARE_MS, WIDE_MAX_MS, WideOnStruggle } from "./zoomPolicy";
+import { AUTO_MAX, AutoZoom, autoCeiling, CLOSE_MAX, CLOSE_MS, closeupZoom, LENS_SWITCH, LOST_FRAMES, LOST_MS, maySwitchLens, STEADY, STEP_MS, WIDE_AFTER_MS, WIDE_BACK_MS, WIDE_GLARE_MS, WIDE_MAX_MS, WideOnStruggle } from "./zoomPolicy";
 import { cardHeight, LETTER_SHARE, letterPx, tooFar } from "./closer";
 import { rectQuad } from "./image";
 
@@ -201,17 +201,21 @@ describe("going wide when a card struggles", () => {
 describe("the close-ups zoom in themselves", () => {
   const pixel = { min: 0.507, max: 30 };
   it("zooms so the name would fill the box from where the card is, more for the set code and number", () => {
-    // A card 60% of the view's height: about 1.3x for its name, to the main lens's 2.5x for the collector line.
+    // A card 60% of the view's height: about 1.3x for its name, 2.7x for the collector line.
     expect(closeupZoom("title", 0.6, 1, pixel)).toBeCloseTo(1.3, 1);
-    expect(closeupZoom("collector", 0.6, 1, pixel)).toBe(AUTO_MAX);
+    expect(closeupZoom("collector", 0.6, 1, pixel)).toBeCloseTo(2.7, 1);
     // Further away (30%): more.
-    expect(closeupZoom("title", 0.3, 1, pixel)).toBeCloseTo(2.5, 1);
+    expect(closeupZoom("title", 0.3, 1, pixel)).toBeCloseTo(2.6, 1);
+    // Seen at 0.5x (gone wide): 30% there is 60% at 1x, about 1.3x; 60% there needs no more than 1x.
+    expect(closeupZoom("title", 0.3, 0.5, pixel)).toBeCloseTo(1.3, 1);
+    expect(closeupZoom("title", 0.6, 0.5, pixel)).toBeNull();
     // From 2x already, the share seen at 2x.
-    expect(closeupZoom("title", 0.6, 2, pixel)).toBeCloseTo(2.5, 1);
+    expect(closeupZoom("title", 0.6, 2, pixel)).toBeCloseTo(2.6, 1);
   });
 
-  it("goes to the telephoto only for a card far enough to need it, and never on a camera without one", () => {
-    expect(closeupZoom("title", 0.15, 1, pixel)).toBe(LENS_SWITCH);
+  it("stays short of the lens switch on a camera that has one, and goes as far as a camera without one zooms", () => {
+    expect(closeupZoom("title", 0.15, 1, pixel)).toBe(CLOSE_MAX);
+    expect(CLOSE_MAX).toBeLessThan(LENS_SWITCH);
     expect(closeupZoom("title", 0.15, 1, { min: 1, max: 3 })).toBe(3);
     // Close enough already, or nothing seen: nothing to do.
     expect(closeupZoom("title", 0.9, 1, pixel)).toBeNull();
