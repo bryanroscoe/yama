@@ -13,6 +13,39 @@ function track(zoom: { min: number; max: number } | null, apply: () => Promise<v
   return { getCapabilities: () => (zoom ? { zoom, torch: true } : {}), applyConstraints: apply, getSettings: () => ({}) } as unknown as MediaStreamTrack;
 }
 
+describe("the flashlight", () => {
+  it("isn't counted on when the camera resolves without turning it on, and knows the person's own taps (review of #208)", async () => {
+    let cam!: CameraControlState;
+    function Probe() {
+      cam = useCameraControls();
+      return null;
+    }
+    const root = createRoot(document.createElement("div"));
+    act(() => root.render(<Probe />));
+    // A browser that skips the setting it can't meet and still resolves: its own report says off.
+    const ignoring = { getCapabilities: () => ({ torch: true }), applyConstraints: async () => undefined, getSettings: () => ({ torch: false }) } as unknown as MediaStreamTrack;
+    act(() => cam.attach(ignoring));
+    let took: boolean | undefined;
+    await act(async () => {
+      took = await cam.setTorch(true);
+    });
+    expect(took).toBe(false);
+    expect(cam.torch).toBe(false);
+    // One that takes it, by the person's own tap.
+    let lit = false;
+    const taking = { getCapabilities: () => ({ torch: true }), applyConstraints: async (c: { advanced?: { torch?: boolean }[] }) => void (lit = c.advanced?.[0]?.torch ?? lit), getSettings: () => ({ torch: lit }) } as unknown as MediaStreamTrack;
+    act(() => cam.attach(taking));
+    expect(cam.torchTouched()).toBe(false);
+    await act(async () => {
+      took = await cam.personSetsTorch(true);
+    });
+    expect(took).toBe(true);
+    expect(cam.torch).toBe(true);
+    expect(cam.torchTouched()).toBe(true);
+    act(() => root.unmount());
+  });
+});
+
 describe("useCameraControls across a camera switch", () => {
   it("doesn't publish a zoom or torch that finished after the camera changed", async () => {
     let cam!: CameraControlState;

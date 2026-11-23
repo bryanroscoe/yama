@@ -102,36 +102,31 @@ export const TORCH_ON_MS = 1500;
  * The flashlight on for a card the scanner struggles with (Bryan, 23 Nov 2026, after #207 turned it
  * off for glare: "The flashlight made it better ... It was hard to scan them with no flashlight on
  * too"). A card it's reading and can't name for TORCH_ON_MS with the flashlight off: on, once a
- * session. The person's choice stands: once the flashlight has been on and is then off (they turned
- * it off, or the camera reopened), it's never turned on by itself again that session. `frame` asks
- * once; `answered` says whether the camera took it.
+ * session. The person's choice stands: once they have used the flashlight button (`person`), or the
+ * flashlight has been seen on and then off (the camera reopened), it's never turned on by itself
+ * again that session. Not on a frame whose art may name the card this pass (`hold`): the next frame
+ * that doesn't. `frame` asks once; `answered` says whether the camera took it.
  */
 export class TorchOnStruggle {
   private since: number | null = null;
   /** Asked the camera to turn it on (once a session). */
   private asked = false;
-  /** The camera turned it on. */
-  private turnedOn = false;
+  /** The camera turned it on this session (for the record, whatever happened after). */
+  turnedOn = false;
   /** Seen on, by anyone, and then seen off. */
   private seenOn = false;
   private leftOff = false;
 
-  /** Whether it turned the flashlight on this session (and it hasn't been turned off since). */
-  get on(): boolean {
-    return this.turnedOn && !this.leftOff;
-  }
-
   /** One frame: `struggling`, a card being read and not yet named. True when the flashlight should go on now. */
-  frame(struggling: boolean, torchOn: boolean, now: number): boolean {
-    // (Off before the camera has reported it on is its state not having caught up.)
+  frame(struggling: boolean, torchOn: boolean, now: number, o: { person?: boolean; hold?: boolean } = {}): boolean {
     if (torchOn) this.seenOn = true;
     else if (this.seenOn) this.leftOff = true;
-    if (torchOn || this.asked || this.leftOff || !struggling) {
+    if (torchOn || this.asked || this.leftOff || o.person || !struggling) {
       this.since = null;
       return false;
     }
     this.since ??= now;
-    if (now - this.since < TORCH_ON_MS) return false;
+    if (o.hold || now - this.since < TORCH_ON_MS) return false;
     this.asked = true;
     this.since = null;
     return true;

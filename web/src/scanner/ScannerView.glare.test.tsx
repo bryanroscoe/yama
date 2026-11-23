@@ -260,4 +260,18 @@ describe("glare and going wide", { timeout: 20_000 }, () => {
     await wait(2500);
     expect(torchNow()).toBe(false);
   });
+
+  it("leaves the flashlight alone once the person has used it, even while no card was being read (review of #208)", async () => {
+    cam.card = "none";
+    act(() => root.render(<Host accepted={[]} />));
+    // On and off again before any card is laid down: no reading pass sees either.
+    await click(await until(() => document.querySelector('[aria-label="Turn the flashlight on"]'), "the flashlight button"));
+    await until(() => (torchNow() === true ? true : null), "the flashlight on");
+    await click(await until(() => document.querySelector('[aria-label="Turn the flashlight off"]'), "the flashlight off button"));
+    await until(() => (torchNow() === false ? true : null), "the flashlight off");
+    cam.card = "foil";
+    await wait(2500);
+    expect(torchNow()).toBe(false);
+    expect(chip()).not.toContain("Flashlight on");
+  });
 });

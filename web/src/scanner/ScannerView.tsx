@@ -1204,8 +1204,8 @@ function ScannerScreen({
     if ((fm?.models ?? modelsNow()).art?.endsWith("-native") && nativeArtMs.current.length) timing.detail.art_ms = Math.round(median(nativeArtMs.current) * 10) / 10;
     if (nativeArtFailedRef.current) timing.detail.art_fallback = nativeArtFailedRef.current.slice(0, 120);
     // On the live camera: the most glare on the card's art while it was looked for (glare.ts), the
-    // flashlight and zoom of the last frame read (0.5: gone wide), and whether the flashlight was
-    // turned off for glare this session. (Not for a photo or a typed name.)
+    // flashlight and zoom of the frame read (0.5: gone wide), and whether the scanner turned the
+    // flashlight on for a struggling card this session. (Not for a photo or a typed name.)
     if (timed) {
       if (glareWatch.current.peak > 0) timing.detail.glare = glareNote(glareWatch.current.peak);
       const at = frameCam.current;
@@ -1213,7 +1213,7 @@ function ScannerScreen({
         timing.detail.torch = at.torch;
         timing.detail.zoom = Math.round(at.zoom * 100) / 100;
       }
-      if (torchHelp.current.on) timing.detail.torch_on_struggle = true;
+      if (torchHelp.current.turnedOn) timing.detail.torch_on_struggle = true;
     }
     return timing;
   };
@@ -1439,7 +1439,8 @@ function ScannerScreen({
   const [glareSays, setGlareSays] = useState<string | null>(null);
   const glareSaid = useRef<string | null>(null);
   const glareText = (): string | null => {
-    if (performance.now() - torchOnAt.current < TORCH_ON_SAID_MS) return TORCH_ON;
+    // (Only while it's still on: turned off since, it isn't said.)
+    if (performance.now() - torchOnAt.current < TORCH_ON_SAID_MS && camRef.current.torch) return TORCH_ON;
     if (!glareNow.current.hint) return null;
     return GLARE_TILT;
   };
@@ -1455,7 +1456,7 @@ function ScannerScreen({
     const now = performance.now();
     glareNow.current = glareWatch.current.frame(glare, true, now);
     const c = camRef.current;
-    if (c.caps.torch && torchHelp.current.frame(true, c.torch, now)) {
+    if (c.caps.torch && torchHelp.current.frame(true, c.torch, now, { person: c.torchTouched(), hold: mayName })) {
       // Said, and counted as on, only once the camera has taken it.
       void c.setTorch(true).then((ok) => {
         torchHelp.current.answered(ok);
@@ -1470,7 +1471,7 @@ function ScannerScreen({
     glareWatch.current.reset();
     glareNow.current = { glary: false, hint: false };
     // (So a flashlight the person turned back on after it went off is known to be theirs.)
-    torchHelp.current.frame(false, camRef.current.torch, performance.now());
+    torchHelp.current.frame(false, camRef.current.torch, performance.now(), { person: camRef.current.torchTouched() });
     sayGlare();
   };
   /** A pass that holds the card just added or filed, or sees a card back: no card being named. */
@@ -2819,6 +2820,8 @@ function ScannerScreen({
                 endSeek();
                 appeared.current = null;
               }
+              // A card moving is a new placement: its struggle (glare, the flashlight's wait) starts again.
+              if (d.kind === "moving") clearGlare();
               // A provisional row's card still lying there (card first): its collector line is read
               // from this frame; once it's gone, or another card lies there, that ends.
               const later = heldLater.current;

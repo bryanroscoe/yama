@@ -72,20 +72,29 @@ describe("TorchOnStruggle", () => {
     expect(t.frame(true, false, TORCH_ON_MS - 1)).toBe(false);
     expect(t.frame(true, false, TORCH_ON_MS)).toBe(true);
     // On only once the camera has taken it.
-    expect(t.on).toBe(false);
+    expect(t.turnedOn).toBe(false);
     t.answered(true);
-    expect(t.on).toBe(true);
-    // The camera's state still says off for a frame or two: that isn't the person turning it off.
+    expect(t.turnedOn).toBe(true);
+    // The camera's state still says off for a frame or two: not asked again meanwhile.
     expect(t.frame(true, false, TORCH_ON_MS + 30)).toBe(false);
-    expect(t.on).toBe(true);
     expect(t.frame(true, true, TORCH_ON_MS + 100)).toBe(false);
-    // The person turns it off: theirs from now on.
+    // Off since (the person, or the camera reopened): left off, and still on the record as turned on.
     expect(t.frame(false, false, 5000)).toBe(false);
-    expect(t.on).toBe(false);
     for (let at = 5000; at < 5000 + 4 * TORCH_ON_MS; at += 100) expect(t.frame(true, false, at)).toBe(false);
+    expect(t.turnedOn).toBe(true);
   });
 
-  it("never once the person has turned it off themselves, and only for a struggle that lasts", () => {
+  it("never once the person has used the flashlight, nor on a frame that may name the card", () => {
+    const p = new TorchOnStruggle();
+    for (let at = 0; at < 4 * TORCH_ON_MS; at += 100) expect(p.frame(true, false, at, { person: true })).toBe(false);
+    const h = new TorchOnStruggle();
+    h.frame(true, false, 0);
+    // Due, but this frame's art may name the card: the next frame that doesn't.
+    expect(h.frame(true, false, TORCH_ON_MS, { hold: true })).toBe(false);
+    expect(h.frame(true, false, TORCH_ON_MS + 50)).toBe(true);
+  });
+
+  it("never once the flashlight has been on and off, and only for a struggle that lasts", () => {
     const t = new TorchOnStruggle();
     // On by the person, then off by the person: left off.
     t.frame(false, true, 0);
@@ -104,7 +113,7 @@ describe("TorchOnStruggle", () => {
     t.frame(true, false, 0);
     expect(t.frame(true, false, TORCH_ON_MS)).toBe(true);
     t.answered(false);
-    expect(t.on).toBe(false);
+    expect(t.turnedOn).toBe(false);
     for (let at = TORCH_ON_MS; at < 5 * TORCH_ON_MS; at += 100) expect(t.frame(true, false, at)).toBe(false);
   });
 });
