@@ -9,7 +9,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ScannerViewProps } from "../scanner";
 
-const got = vi.hoisted(() => ({ props: null as ScannerViewProps | null, ops: [] as unknown[][], made: [] as unknown[] }));
+const got = vi.hoisted(() => ({ props: null as ScannerViewProps | null, ops: [] as unknown[][], made: [] as unknown[], hold: null as Promise<void> | null }));
 vi.mock("../scanner", async (original) => ({
   ...(await original<typeof import("../scanner")>()),
   ScannerView: (props: ScannerViewProps) => {
@@ -22,6 +22,7 @@ vi.mock("../api", async (original) => ({
   api: async (path: string, init?: { method?: string; json?: unknown }) => {
     if (path === "/api/containers" && init?.method === "POST") {
       got.made.push(init.json);
+      await got.hold;
       return { id: "c-new" };
     }
     if (path === "/api/collection/ops" && init?.method === "POST") {
@@ -41,7 +42,7 @@ let root: Root;
 let host: HTMLDivElement;
 let client: QueryClient;
 beforeEach(() => {
-  Object.assign(got, { props: null, ops: [], made: [] });
+  Object.assign(got, { props: null, ops: [], made: [], hold: null });
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -96,5 +97,23 @@ describe("a new box from the scanner's settings", () => {
     await until(() => invalidate.mock.calls.length > 0, "the pages fetched again");
     await wait(300);
     expect(invalidate).toHaveBeenCalledTimes(1);
+  });
+
+  it("doesn't switch to a box made after another place was chosen meanwhile (Codex review of #205)", async () => {
+    let release = () => undefined as void;
+    got.hold = new Promise<void>((r) => (release = r));
+    const select = await until(() => [...host.querySelectorAll<HTMLSelectElement>("select")].find((s) => [...s.options].some((o) => o.textContent === "Not filed anywhere")), "Put in");
+    await setValue(select, "__new");
+    const name = await until(() => host.querySelector<HTMLInputElement>('input[placeholder="Trade binder"]'), "the new box's name");
+    await setValue(name, "Slow box");
+    await act(async () => host.querySelector("form")!.requestSubmit());
+    await until(() => got.made.length === 1, "the box asked for");
+    // Changed their mind while it's made: not filed anywhere.
+    await setValue(select, "");
+    await act(async () => release());
+    await wait(100);
+    await act(async () => void (await got.props!.onAccept!({ name: "Arcane Signet", set: "woc", number: "145", scryfall_id: "p-a", oracle_id: "o", finishes: ["nonfoil"], confidence: 1, method: "art" }, 1, false)));
+    await until(() => got.ops.length === 1, "the add");
+    expect(got.ops[0]).toEqual([expect.objectContaining({ kind: "add", container_id: null })]);
   });
 });

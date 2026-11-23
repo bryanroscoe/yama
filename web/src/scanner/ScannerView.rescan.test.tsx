@@ -268,4 +268,18 @@ describe("a card just filed isn't scanned again while it lies there", { timeout:
     await wait(1500);
     expect(accepted).toHaveLength(1);
   });
+
+  it("doesn't ask for the name up close while the card just filed still lies there (Codex review of #205)", async () => {
+    cam.printings = 1;
+    const accepted: ScanCandidate[] = [];
+    act(() => root.render(<Host accepted={accepted} />));
+    await until(() => (accepted.length === 1 ? true : null), "the card added");
+    // Glare frees the art hold, then the art leads weakly with a lookalike: nothing names it.
+    cam.card = "weak";
+    await wait(1000);
+    cam.card = "lookalike";
+    await wait(2500);
+    expect(document.querySelector(".scan-closeup.is-title")).toBeNull();
+    expect(accepted).toHaveLength(1);
+  });
 });

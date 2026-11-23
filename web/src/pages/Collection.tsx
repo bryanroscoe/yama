@@ -858,6 +858,9 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
   const [container, setContainer] = useState("");
   /** Making a new box from Scan settings (Bryan, 23 Nov 2026: "I need the ability to add a new box"). */
   const [making, setMaking] = useState(false);
+  /** Still making it: a box made after another place was chosen meanwhile isn't switched to (Codex review of #205). */
+  const makingRef = useRef(making);
+  makingRef.current = making;
   const [keepAdding, setKeepAdding] = useState(() => localStorage.getItem(KEEP_ADDING) === "1");
   const [closeups, setCloseups] = useState(() => localStorage.getItem(CLOSEUPS) !== "0");
   /**
@@ -1280,7 +1283,7 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
         </select>
       </Field>
       {/* Made here, it's where the next cards go. */}
-      {making && <NewContainer kind="box" onClose={() => setMaking(false)} onCreated={(id) => setContainer(id)} />}
+      {making && <NewContainer kind="box" onClose={() => setMaking(false)} onCreated={(id) => makingRef.current && setContainer(id)} />}
       {/* A box chosen after scanning into another: the cards so far can follow it. */}
       {elsewhere > 0 && (
         <div className="scan-clear">

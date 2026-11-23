@@ -844,9 +844,12 @@ function ScannerScreen({
   const filedArts = useRef(new Set<number>());
   /** Another card leading the art while the filed card is held: its artwork and frames in a row. */
   const filedOther = useRef<{ index: number; frames: number } | null>(null);
+  /** The card filed last itself (a card-first row's "+1 copy" is offered only for that one). */
+  const filedFound = useRef<Found | null>(null);
   /** The card filed last: its name holds it until the view clears (`stillFiledAs`). */
   const fileAs = (f: Found) => {
     filedName.current = f.name;
+    filedFound.current = f;
     // (With the art the camera last led with while it lay there: a card named by its title.)
     filedArts.current = new Set([...(f.art ? [f.art.index] : []), ...f.others.map((o) => o.index), ...(last.current ? [last.current.index] : [])]);
     filedOther.current = null;
@@ -2991,7 +2994,8 @@ function ScannerScreen({
             // Where only the card matters, a fair match (LOCK_TWICE) gets its UNTITLED_FRAMES first.
             const artWaits = identityOnly && top.score >= LOCK_TWICE && !artUnknown && untitled < UNTITLED_FRAMES;
             // (With the gate there's no close-up asked here: five tries, then "No match, move the card".)
-            if (!stop && closeups && !gated && !vetoed && !blockedName.current && ++failedReads >= TITLE_AFTER && !artWaits) {
+            // (Nor while the card filed last still lies there: the close-up would read it again.)
+            if (!stop && closeups && !gated && !vetoed && !blockedName.current && !filedName.current && ++failedReads >= TITLE_AFTER && !artWaits) {
               lookGoesOn.current = true;
               // Handed to the title close-up: a struggle, so its view can be sent from the chip now.
               if (stuckShot.current) setStuck("stuck");
@@ -3817,7 +3821,10 @@ function ScannerScreen({
       filedFeedback(at);
       setJustAdded((j) => (j?.later === row ? { text: `${addedWord} ${label}${at != null ? `, ${usd(at)}` : ""}`, card: onUndo || onCorrect ? card : undefined, label, found: done, printing: c } : j));
       // Still in view: "+1 copy" files another of the printing it settled on, under the settings it was scanned with.
-      if (!single && f.art && (blocked.current?.index === f.art.index || stillFiledAs(filedName, f.name))) setDupe({ found: done, printing: c, label, settings: settingsAt });
+      // (Or still held as the card filed last, by name: one named by its title too. Only while it
+      // is this card: a row saved late, after another of its name was filed, offers nothing.
+      // Codex review of #205.)
+      if (!single && ((f.art && blocked.current?.index === f.art.index) || (filedFound.current === f && !!filedName.current))) setDupe({ found: done, printing: c, label, settings: settingsAt });
     });
     host(row);
     fileAs(f);
@@ -4141,6 +4148,9 @@ function ScannerScreen({
     artRef.current?.reset();
     setDupe(null);
     setStatus(WAITING);
+    // The read loop starts again: a read under way began on the card before (and its frame), and
+    // mustn't name or latch it (Codex review of #205).
+    setScanRun((n) => n + 1);
   };
   // A changed finish or destination isn't "the same again": the offer goes rather than file a
   // copy the person didn't scan (the host files with its current settings).
