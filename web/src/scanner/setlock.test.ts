@@ -114,12 +114,12 @@ describe("camera controls", () => {
   const track = (caps: object) => ({ getCapabilities: () => caps }) as unknown as MediaStreamTrack;
   it("uses the camera's own zoom and torch where offered", () => {
     const caps = readCaps(track({ torch: true, zoom: { min: 1, max: 2.5 } }));
-    expect(caps).toEqual({ torch: true, zoom: { min: 1, max: 2.5 } });
+    expect(caps).toEqual({ torch: true, exposure: null, zoom: { min: 1, max: 2.5 } });
     expect(zoomLevels(caps)).toEqual([1, 1.5, 2]);
   });
   it("falls back to a digital zoom", () => {
     const caps = readCaps(track({}));
-    expect(caps).toEqual({ torch: false, zoom: null });
+    expect(caps).toEqual({ torch: false, exposure: null, zoom: null });
     expect(zoomLevels(caps)).toEqual([1, 1.5, 2, 3]);
     expect(digitalRegion(1000, 600, 2)).toEqual({ x: 250, y: 150, w: 500, h: 300 });
     expect(digitalRegion(1000, 600, 1)).toEqual({ x: 0, y: 0, w: 1000, h: 600 });
@@ -205,7 +205,7 @@ describe("gallery search", () => {
 
 describe("zoomSteps", () => {
   it("steps from a pinched zoom between levels, up to 4× (under a phone's switch to its telephoto), whatever the camera's top end", () => {
-    const cam = { torch: false, zoom: { min: 1, max: 8 } };
+    const cam = { torch: false, exposure: null, zoom: { min: 1, max: 8 } };
     expect(zoomSteps(cam, 2.5)).toEqual({ above: 3, below: 2 });
     expect(zoomSteps(cam, 4)).toEqual({ above: undefined, below: 3 });
     // A zoom left above the cap (from before it): only down.
@@ -214,7 +214,7 @@ describe("zoomSteps", () => {
   });
 
   it("goes to the digital limit from just under it", () => {
-    const digital = { torch: false, zoom: null };
+    const digital = { torch: false, exposure: null, zoom: null };
     expect(zoomSteps(digital, 2.8)).toEqual({ above: 3, below: 2 });
     expect(zoomSteps(digital, 3).above).toBeUndefined();
   });

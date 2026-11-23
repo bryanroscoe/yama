@@ -5,7 +5,7 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
-import { CameraControls, clampZoom, useCameraControls, type CameraControlState } from "./camera";
+import { CameraControls, clampExposure, clampZoom, readCaps, useCameraControls, type CameraControlState } from "./camera";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -141,8 +141,166 @@ describe("useCameraControls across a camera switch", () => {
     });
     expect(b.asked).toEqual([2]);
     expect(cam.zoom).toBe(2);
-    expect(clampZoom({ torch: false, zoom: { min: 1, max: 10 } }, 9)).toBe(4);
-    expect(clampZoom({ torch: false, zoom: null }, 9)).toBe(3);
+    expect(clampZoom({ torch: false, exposure: null, zoom: { min: 1, max: 10 } }, 9)).toBe(4);
+    expect(clampZoom({ torch: false, exposure: null, zoom: null }, 9)).toBe(3);
+    act(() => root.unmount());
+  });
+});
+
+
+/** A camera with exposure compensation from -2 to +2 EV in sixths, recording every constraint set it's given. */
+function exposureCamera(o: { at?: number; apply?: (all: Record<string, unknown>) => Promise<void>; caps?: object } = {}) {
+  const asked: Record<string, unknown>[] = [];
+  let at = o.at ?? 0;
+  let bound: ((ev: number) => Promise<boolean>) | null | undefined;
+  const t = {
+    getCapabilities: () => o.caps ?? { torch: true, exposureCompensation: { min: -2, max: 2, step: 1 / 6 } },
+    getSettings: () => ({ exposureCompensation: at }),
+    applyConstraints: async (c: { advanced: Record<string, unknown>[] }) => {
+      const all = c.advanced[0]!;
+      await (o.apply?.(all) ?? Promise.resolve());
+      asked.push(all);
+      // Like a real camera: the nearest step it has.
+      if (typeof all.exposureCompensation === "number") at = Math.round(all.exposureCompensation * 6) / 6;
+    },
+    bindExposure(f: ((ev: number) => Promise<boolean>) | null) {
+      bound = f;
+    },
+  } as unknown as MediaStreamTrack;
+  return { t, asked, bound: () => bound, at: () => at };
+}
+
+describe("exposure (23 Nov 2026)", () => {
+  function probe() {
+    const ref: { cam: CameraControlState } = {} as { cam: CameraControlState };
+    function Probe() {
+      ref.cam = useCameraControls();
+      return null;
+    }
+    const root = createRoot(document.createElement("div"));
+    act(() => root.render(<Probe />));
+    return { ref, root };
+  }
+
+  it("is offered only where the camera has a range to change", () => {
+    const caps = (c: object) => readCaps({ getCapabilities: () => c } as unknown as MediaStreamTrack).exposure;
+    expect(caps({ exposureCompensation: { min: -2, max: 2, step: 1 / 6 } })).toEqual({ min: -2, max: 2, step: 1 / 6 });
+    // What a camera that can't says: a range of nothing, or no step.
+    expect(caps({ exposureCompensation: { min: 0, max: 0, step: 0 } })).toBeNull();
+    expect(caps({ exposureCompensation: { min: -2, max: 2, step: 0 } })).toBeNull();
+    expect(caps({ exposureCompensation: { min: -2, max: 2 } })).toBeNull();
+    expect(caps({})).toBeNull();
+  });
+
+  it("keeps an exposure to the camera's range and its steps, counted from 0", () => {
+    const r = { min: -2, max: 2, step: 1 / 6 };
+    expect(clampExposure(r, -0.7)).toBe(-0.667);
+    expect(clampExposure(r, -9)).toBe(-2);
+    expect(clampExposure(r, 3)).toBe(2);
+    expect(Object.is(clampExposure(r, -0.01), 0)).toBe(true);
+    expect(clampExposure({ min: -3, max: 3, step: 0.5 }, 1.3)).toBe(1.5);
+  });
+
+  it("sets it through the same applier as the rest, says what the camera reports, and sends it again with later changes", async () => {
+    const { ref, root } = probe();
+    const cam = exposureCamera();
+    act(() => ref.cam.attach(cam.t));
+    expect(ref.cam.caps.exposure).toEqual({ min: -2, max: 2, step: 1 / 6 });
+    expect(ref.cam.exposure).toBe(0);
+    let took!: boolean;
+    await act(async () => {
+      took = await ref.cam.setExposure(-0.7);
+    });
+    expect(took).toBe(true);
+    expect(cam.asked.at(-1)).toEqual({ exposureCompensation: -0.667 });
+    expect(ref.cam.exposure).toBeCloseTo(-4 / 6, 6);
+    // Past the camera's range: its end.
+    await act(async () => {
+      await ref.cam.setExposure(-5);
+    });
+    expect(cam.asked.at(-1)).toEqual({ exposureCompensation: -2 });
+    expect(ref.cam.exposure).toBe(-2);
+    // A later flashlight goes with the exposure applied, as every setting does.
+    await act(async () => {
+      await ref.cam.setTorch(true);
+    });
+    expect(cam.asked.at(-1)).toEqual({ exposureCompensation: -2, torch: true });
+    act(() => root.unmount());
+  });
+
+  it("says no where the camera can't change it, and when the camera refuses", async () => {
+    const { ref, root } = probe();
+    const plain = exposureCamera({ caps: { torch: true } });
+    act(() => ref.cam.attach(plain.t));
+    expect(ref.cam.caps.exposure).toBeNull();
+    let took = true;
+    await act(async () => {
+      took = await ref.cam.setExposure(-1);
+    });
+    expect(took).toBe(false);
+    expect(plain.asked).toEqual([]);
+    const refusing = exposureCamera({ apply: async () => Promise.reject(new Error("no")) });
+    act(() => ref.cam.attach(refusing.t));
+    await act(async () => {
+      took = await ref.cam.setExposure(-1);
+    });
+    expect(took).toBe(false);
+    expect(ref.cam.exposure).toBe(0);
+    expect(ref.cam.error).toBe("The camera didn't change its exposure");
+    act(() => root.unmount());
+  });
+
+  it("never publishes an exposure that finished after the camera changed, and starts each camera where it is", async () => {
+    const { ref, root } = probe();
+    let release!: () => void;
+    const slow = new Promise<void>((r) => (release = r));
+    const a = exposureCamera({ apply: () => slow });
+    act(() => ref.cam.attach(a.t));
+    let took!: Promise<boolean>;
+    act(() => {
+      took = ref.cam.setExposure(-1);
+    });
+    // The app's camera, opened at the exposure chosen in Scan settings.
+    const b = exposureCamera({ at: -0.5 });
+    act(() => ref.cam.attach(b.t));
+    expect(ref.cam.exposure).toBe(-0.5);
+    await act(async () => {
+      release();
+      expect(await took).toBe(false);
+    });
+    expect(ref.cam.exposure).toBe(-0.5);
+    expect(b.asked).toEqual([]);
+    // A camera without exposure starts at 0 whatever the last one was at.
+    act(() => ref.cam.attach(exposureCamera({ at: -1, caps: {} }).t));
+    expect(ref.cam.exposure).toBe(0);
+    act(() => root.unmount());
+  });
+
+  it("lends a camera that changes its own exposure (the app's, from Scan settings) its setter, bound to that camera", async () => {
+    const { ref, root } = probe();
+    const a = exposureCamera();
+    act(() => ref.cam.attach(a.t));
+    const lent = a.bound()!;
+    expect(lent).toBeTypeOf("function");
+    let took!: boolean;
+    await act(async () => {
+      took = await lent(-1);
+    });
+    expect(took).toBe(true);
+    expect(ref.cam.exposure).toBe(-1);
+    // Another camera: the first gets nothing to call, and a setter it kept changes nothing.
+    const b = exposureCamera();
+    act(() => ref.cam.attach(b.t));
+    expect(a.bound()).toBeNull();
+    expect(b.bound()).toBeTypeOf("function");
+    await act(async () => {
+      took = await lent(-2);
+    });
+    expect(took).toBe(false);
+    expect(b.asked).toEqual([]);
+    expect(ref.cam.exposure).toBe(0);
+    act(() => ref.cam.attach(null));
+    expect(b.bound()).toBeNull();
     act(() => root.unmount());
   });
 });

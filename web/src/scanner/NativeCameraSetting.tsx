@@ -3,8 +3,9 @@
 
 import { useState } from "react";
 import { Button, Field } from "../components/ui";
+import { clampExposure } from "./camera";
 import type { SourceInfo } from "./cameraSource";
-import { benchLine, DEFAULT_LENS, LENS_NAMES, type BenchRow, type NativeCamera, type NativeCameraOption, type NativeLens } from "./nativeCamera";
+import { benchLine, DEFAULT_LENS, exposureRange, LENS_NAMES, type BenchRow, type NativeCamera, type NativeCameraOption, type NativeLens } from "./nativeCamera";
 
 const LENSES: NativeLens[] = ["auto", "main", "ultrawide", "telephoto"];
 
@@ -13,6 +14,17 @@ const LENSES: NativeLens[] = ["auto", "main", "ultrawide", "telephoto"];
  * which can't hand the scanner frames, so they aren't asked for.
  */
 export const RATES = [30, 60];
+
+/**
+ * An exposure for people, in EV: "0, the camera's own", "−0.7, darker", "+0.3, brighter". One
+ * decimal, two where one would round a step away to 0.
+ */
+export function exposureLabel(ev: number): string {
+  const a = Math.abs(ev);
+  if (a < 0.005) return "0, the camera's own";
+  const shown = Math.round(a * 10) / 10 || Math.round(a * 100) / 100;
+  return ev < 0 ? `−${shown}, darker` : `+${shown}, brighter`;
+}
 
 /** "In use: Main lens, 2160 × 3840, 60 a second asked for, 58.9 delivered." */
 export function inUseLine(info: SourceInfo): string {
@@ -49,13 +61,16 @@ export function NativeCameraSetting({
   const levels = d?.torchLevels ?? 0;
   // The strength chosen here, else the one the camera says it's at (the phone's own default, not always its brightest).
   const level = Math.min(levels, option.torchLevel ?? d?.torchLevel ?? levels);
+  // The exposure chosen here, kept to this camera's range and step (another phone's may differ).
+  const exposure = exposureRange(d?.exposure);
+  const ev = exposure ? clampExposure(exposure, option.exposure) : 0;
   return (
     <div className="scan-native-camera">
       <div className="scan-keep">
         <input id="scan-native-camera" type="checkbox" checked={option.on} onChange={(e) => onChange({ ...option, on: e.target.checked })} />
         <span>
           <label htmlFor="scan-native-camera">
-            <strong>Use the app's own camera.</strong> Choose a lens, capture rate and flashlight strength where supported. Turn this off to use the browser camera on this device.
+            <strong>Use the app's own camera.</strong> Choose a lens, capture rate, flashlight strength and exposure where supported. Turn this off to use the browser camera on this device.
           </label>
         </span>
       </div>
@@ -95,6 +110,28 @@ export function NativeCameraSetting({
                 }}
               />
             </label>
+          )}
+          {/* Bryan, 23 Nov 2026: foils' glare blows out the art; less exposure keeps the detail under the sheen. */}
+          {exposure && (
+            <>
+              <label className="scan-native-range">
+                <span className="dim">Exposure {exposureLabel(ev)}</span>
+                <input
+                  type="range"
+                  min={exposure.min}
+                  max={exposure.max}
+                  step={exposure.step}
+                  value={ev}
+                  aria-valuetext={exposureLabel(ev)}
+                  onChange={(e) => {
+                    const next = clampExposure(exposure, Number(e.target.value));
+                    onChange({ ...option, exposure: next });
+                    void camera?.setExposure(next).catch(() => undefined);
+                  }}
+                />
+              </label>
+              <p className="scan-note">Lower is darker: it keeps the art's detail under a foil's shine. Set here, it holds every time the app's camera opens on this device.</p>
+            </>
           )}
           {/* Automatic is the default (Bryan, 23 Nov 2026): only it reaches 0.5x for a card the scanner struggles with. */}
           {option.lens === "auto" && <p className="scan-note">Automatic lets the scanner step out to the ultra-wide lens (0.5x) when a card is hard to read, such as a foil in glare. Up close the phone may also switch to it by itself, which softens the picture a little.</p>}

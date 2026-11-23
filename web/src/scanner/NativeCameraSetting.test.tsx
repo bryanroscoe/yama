@@ -4,7 +4,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { inUseLine, NativeCameraSetting, RATES } from "./NativeCameraSetting";
+import { exposureLabel, inUseLine, NativeCameraSetting, RATES } from "./NativeCameraSetting";
 import type { NativeCamera, NativeCameraOption } from "./nativeCamera";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -21,7 +21,7 @@ afterEach(() => {
   host.remove();
 });
 
-const OFF: NativeCameraOption = { on: false, lens: "auto", fps: 30, torchLevel: null };
+const OFF: NativeCameraOption = { on: false, lens: "auto", fps: 30, torchLevel: null, exposure: 0 };
 
 describe("the capture rates", () => {
   it("are 30 and 60 only: faster ones are high-speed sessions the scanner can't read from", () => {
@@ -94,6 +94,46 @@ describe("NativeCameraSetting", () => {
     expect(slider.value).toBe("2");
     act(() => root.render(<NativeCameraSetting option={{ ...OFF, on: true, torchLevel: 4 }} onChange={() => undefined} info={null} camera={camera} />));
     expect(host.textContent).toContain("Flashlight strength 4 of 5");
+  });
+
+  it("offers the exposure from the camera's lowest to its highest in its steps, saves it and sets it at once (23 Nov 2026)", () => {
+    const set: number[] = [];
+    const exposure = { supported: true, min: -2, max: 2, step: 1 / 6, ev: 0, index: 0, minIndex: -12, maxIndex: 12, stepRational: [1, 6] };
+    const camera = { described: () => ({ lenses: [], fpsRanges: [], torchLevels: 1, exposure }), setExposure: async (ev: number) => (set.push(ev), true) } as unknown as NativeCamera;
+    const changes: NativeCameraOption[] = [];
+    act(() => root.render(<NativeCameraSetting option={{ ...OFF, on: true }} onChange={(o) => changes.push(o)} info={null} camera={camera} />));
+    expect(host.textContent).toContain("Exposure 0, the camera's own");
+    const slider = host.querySelector<HTMLInputElement>('input[type="range"]')!;
+    expect([slider.min, slider.max, Number(slider.step)]).toEqual(["-2", "2", 1 / 6]);
+    expect(slider.getAttribute("aria-valuetext")).toBe("0, the camera's own");
+    act(() => {
+      // React hears a range input's change through its value setter and an input event.
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(slider, String(-4 / 6));
+      slider.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(changes).toEqual([{ ...OFF, on: true, exposure: -0.667 }]);
+    expect(set).toEqual([-0.667]);
+    // Saved on another phone with a wider range: this camera's end.
+    act(() => root.render(<NativeCameraSetting option={{ ...OFF, on: true, exposure: -3 }} onChange={() => undefined} info={null} camera={camera} />));
+    expect(host.textContent).toContain("Exposure −2, darker");
+    expect(host.textContent).toContain("Lower is darker");
+  });
+
+  it("offers no exposure where the camera can't change it, or before it says", () => {
+    const camera = { described: () => ({ lenses: [], fpsRanges: [], torchLevels: 1, exposure: { supported: false } }), setExposure: async () => false } as unknown as NativeCamera;
+    act(() => root.render(<NativeCameraSetting option={{ ...OFF, on: true, exposure: -1 }} onChange={() => undefined} info={null} camera={camera} />));
+    expect(host.textContent).not.toContain("Exposure");
+    act(() => root.render(<NativeCameraSetting option={{ ...OFF, on: true, exposure: -1 }} onChange={() => undefined} info={null} camera={null} />));
+    expect(host.querySelector('input[type="range"]')).toBeNull();
+  });
+
+  it("says an exposure in words: brighter, darker or the camera's own", () => {
+    expect(exposureLabel(0)).toBe("0, the camera's own");
+    expect(exposureLabel(-0.667)).toBe("−0.7, darker");
+    expect(exposureLabel(1 / 3)).toBe("+0.3, brighter");
+    expect(exposureLabel(2)).toBe("+2, brighter");
+    // A step too small for one decimal still isn't called 0.
+    expect(exposureLabel(-0.04)).toBe("−0.04, darker");
   });
 
   it("says when the app's camera didn't open", () => {
