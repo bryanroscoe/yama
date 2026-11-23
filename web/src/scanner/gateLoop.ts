@@ -10,6 +10,8 @@ export interface GateFrame {
   toVideo: (q: Quad) => Quad;
   /** The frame's number in the Android app, when its card finder found the card there (its art can be read there too). */
   seq?: number;
+  /** The camera's zoom and flashlight as the frame was taken (timing records). */
+  cam?: { zoom: number; torch: boolean };
 }
 
 /** A read the gate asked for, answered when the frame is done: the card it named, and whether it's a card already held. */
