@@ -27,12 +27,36 @@ interface Track {
   opacity: number;
   /** Seen on the last pass: fading in or steady. Otherwise fading out. */
   live: boolean;
+  /** Seen on two passes in a row about where and as big (`agrees`): only then is it drawn. */
+  steady: boolean;
 }
+
+/**
+ * Steadiness (Bryan, 23 Nov 2026: "The outline jumps around all over the place when there's nothing
+ * there"): with no card in view the finder still sees a "card" on the table on many frames, at
+ * another place and size each time; a real card stays put. A card is drawn once seen on two passes
+ * in a row within STEADY_MOVE of its diagonal and STEADY_SIZE of its size (OutlineSteady.java, the
+ * app's own outline, the same rule).
+ */
+export const STEADY_MOVE = 0.35;
+export const STEADY_SIZE = 1.45;
+/** An outline already drawn follows its card this far between passes (a card being moved), at the same size. */
+export const FOLLOW_MOVE = 0.75;
 
 const centre = (q: Quad): Point => [(q[0][0] + q[1][0] + q[2][0] + q[3][0]) / 4, (q[0][1] + q[1][1] + q[2][1] + q[3][1]) / 4];
 const dist = (a: Point, b: Point) => Math.hypot(a[0] - b[0], a[1] - b[1]);
 const diagonal = (q: Quad) => Math.max(dist(q[0], q[2]), dist(q[1], q[3]));
 const finite = (q: Quad) => q.every((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]));
+
+/** Whether `q` is about where (within `move` of the diagonal) and as big (STEADY_SIZE) as `like`. */
+export function agrees(q: Quad, like: Quad, move = STEADY_MOVE): boolean {
+  const dq = diagonal(q);
+  const dl = diagonal(like);
+  if (!(dq > 0) || !(dl > 0)) return false;
+  const ratio = dq / dl;
+  if (ratio > STEADY_SIZE || ratio < 1 / STEADY_SIZE) return false;
+  return dist(centre(q), centre(like)) <= move * Math.max(dq, dl);
+}
 
 /**
  * `q` with its corners started from whichever one keeps each nearest the matching corner of `like`:
@@ -70,12 +94,12 @@ export class OutlineTracker {
     const fresh: Track[] = [];
     for (const q of seen) {
       const c = centre(q);
-      // The nearest track not yet taken, if the card could have moved that far.
+      // The nearest track not yet taken that it agrees with (about where and as big).
       let near: Track | null = null;
-      let nearDist = diagonal(q) * 0.75;
+      let nearDist = Infinity;
       for (const t of free) {
         const d = dist(centre(t.target), c);
-        if (d < nearDist) {
+        if (d < nearDist && agrees(q, t.target, t.steady ? FOLLOW_MOVE : STEADY_MOVE)) {
           near = t;
           nearDist = d;
         }
@@ -84,7 +108,8 @@ export class OutlineTracker {
         free.delete(near);
         near.target = alignCorners(q, near.target);
         near.live = true;
-      } else fresh.push({ shown: q, target: q, opacity: 0, live: true });
+        near.steady = true;
+      } else fresh.push({ shown: q, target: q, opacity: 0, live: true, steady: false });
     }
     for (const t of free) t.live = false;
     // The cards seen now come first, so they are the ones kept and drawn when there are too many.
@@ -111,12 +136,18 @@ export class OutlineTracker {
     const ease = this.still ? 1 : 1 - Math.exp(-dt / EASE_MS);
     for (const t of this.tracks) {
       t.shown = t.shown.map((p, i) => [p[0] + (t.target[i]![0] - p[0]) * ease, p[1] + (t.target[i]![1] - p[1]) * ease]) as Quad;
-      if (this.still) t.opacity = t.live ? 1 : 0;
-      else t.opacity = t.live ? Math.min(1, t.opacity + dt / FADE_IN_MS) : Math.max(0, t.opacity - dt / FADE_OUT_MS);
+      // Only a steady card is drawn: one seen once is waited on, unseen.
+      const on = t.live && t.steady;
+      if (this.still) t.opacity = on ? 1 : 0;
+      else t.opacity = on ? Math.min(1, t.opacity + dt / FADE_IN_MS) : Math.max(0, t.opacity - dt / FADE_OUT_MS);
     }
     this.tracks = this.tracks.filter((t) => t.live || t.opacity > 0);
     if (!this.tracks.length) this.last = null;
-    return this.tracks.slice(0, MAX_OUTLINES).map((t) => ({ quad: t.shown, opacity: t.opacity }));
+    // (A card seen once, not yet steady, is kept but not drawn.)
+    return this.tracks
+      .filter((t) => t.opacity > 0)
+      .slice(0, MAX_OUTLINES)
+      .map((t) => ({ quad: t.shown, opacity: t.opacity }));
   }
 }
 

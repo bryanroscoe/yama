@@ -37,6 +37,9 @@ final class CardOutlineView extends View {
     private int frameH;
     private boolean live;
     private boolean shown = true;
+    /** The finder's last corners, drawn or not, and frames in a row that didn't agree (OutlineSteady). */
+    private double[] lastSeen;
+    private int jumps;
 
     // The drawing thread's own.
     private double[] drawn;
@@ -59,16 +62,32 @@ final class CardOutlineView extends View {
         setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
     }
 
-    /** Any thread: the card's corners in a `w` × `h` frame, or null when no card is in view. */
+    /**
+     * Any thread: the card's corners in a `w` × `h` frame, or null when no card is in view. Drawn
+     * only once they agree with the frame before (OutlineSteady): a "card" the finder sees at another
+     * place and size each frame, with nothing there, is never drawn; a drawn one holds its place
+     * through one frame that jumps, and goes after OutlineSteady.JUMPS in a row.
+     */
     void see(double[] quad, int w, int h) {
         synchronized (lock) {
-            if (quad != null) {
-                double[] like = target != null ? target : drawn;
-                target = like != null ? alignCorners(quad, like) : quad.clone();
-                frameW = w;
-                frameH = h;
+            if (quad == null) {
+                live = false;
+                lastSeen = null;
+                jumps = 0;
+            } else {
+                boolean steady = OutlineSteady.agrees(quad, lastSeen) || (live && OutlineSteady.agrees(quad, target, OutlineSteady.FOLLOW));
+                lastSeen = quad.clone();
+                if (steady) {
+                    double[] like = target != null ? target : drawn;
+                    target = like != null ? alignCorners(quad, like) : quad.clone();
+                    frameW = w;
+                    frameH = h;
+                    live = true;
+                    jumps = 0;
+                } else if (live && ++jumps >= OutlineSteady.JUMPS) {
+                    live = false;
+                }
             }
-            live = quad != null;
         }
         postInvalidateOnAnimation();
     }
@@ -77,7 +96,11 @@ final class CardOutlineView extends View {
     void show(boolean on) {
         synchronized (lock) {
             shown = on;
-            if (!on) live = false;
+            if (!on) {
+                live = false;
+                lastSeen = null;
+                jumps = 0;
+            }
         }
         postInvalidateOnAnimation();
     }

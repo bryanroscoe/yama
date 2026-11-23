@@ -47,6 +47,8 @@ describe("the card outline", () => {
     // Nothing seen: nothing drawn, and no frames asked for.
     expect(groups().every((g) => g.getAttribute("opacity") === "0")).toBe(true);
     expect(frames).toHaveLength(0);
+    // Seen on two passes: steady, so drawn (outline.ts).
+    tracker.see([card], { w: 1920, h: 1080 });
     tracker.see([card], { w: 1920, h: 1080 });
     tick();
     const svg = host.querySelector(".scan-outline")!;
@@ -66,6 +68,8 @@ describe("the card outline", () => {
   it("fades out when the scanner stops looking, then stops redrawing", () => {
     const tracker = new OutlineTracker();
     act(() => root.render(<CardOutline tracker={tracker} show />));
+    // Seen on two passes: steady, so drawn (outline.ts).
+    tracker.see([card], { w: 1920, h: 1080 });
     tracker.see([card], { w: 1920, h: 1080 });
     for (let i = 0; i < 12; i += 1) tick();
     act(() => root.render(<CardOutline tracker={tracker} show={false} />));

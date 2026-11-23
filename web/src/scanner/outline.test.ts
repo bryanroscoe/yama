@@ -1,16 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { alignCorners, EASE_MS, FADE_IN_MS, FADE_OUT_MS, MAX_OUTLINES, OutlineTracker, outlinePath } from "./outline";
+import { agrees, alignCorners, EASE_MS, FADE_IN_MS, FADE_OUT_MS, MAX_OUTLINES, OutlineTracker, outlinePath } from "./outline";
 import type { Quad } from "./types";
 
 // The outline over each card the finder sees (outline.ts): it fades in and out, glides between the
 // finder's passes at the screen's rate, and never spins when the finder's "top" flips.
 
 const card = (x: number, y: number, w = 126, h = 176): Quad => [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
+/** Cards seen on two passes in a row: steady, so drawn. */
+const seen = (t: OutlineTracker, quads: Quad[], size?: { w: number; h: number }) => {
+  t.see(quads, size);
+  t.see(quads, size);
+};
 
 describe("the outline tracker", () => {
   it("fades a card in from nothing, where the finder placed it", () => {
     const t = new OutlineTracker();
-    t.see([card(100, 100)], { w: 1920, h: 1080 });
+    seen(t, [card(100, 100)], { w: 1920, h: 1080 });
     expect(t.size).toEqual({ w: 1920, h: 1080 });
     let f = t.frame(0);
     expect(f).toHaveLength(1);
@@ -25,7 +30,7 @@ describe("the outline tracker", () => {
 
   it("glides towards the next pass's corners between passes, never past them", () => {
     const t = new OutlineTracker();
-    t.see([card(100, 100)]);
+    seen(t, [card(100, 100)]);
     t.frame(0);
     t.see([card(160, 100)]);
     const xs: number[] = [];
@@ -38,7 +43,7 @@ describe("the outline tracker", () => {
     expect(Math.max(...xs)).toBeLessThanOrEqual(160);
     // About two thirds of the way after EASE_MS.
     const u = new OutlineTracker();
-    u.see([card(0, 0)]);
+    seen(u, [card(0, 0)]);
     u.frame(0);
     u.see([card(100, 0)]);
     expect(u.frame(EASE_MS)[0]!.quad[0][0]).toBeCloseTo(63.2, 0);
@@ -46,7 +51,7 @@ describe("the outline tracker", () => {
 
   it("fades out when the card goes, then is gone and idle", () => {
     const t = new OutlineTracker();
-    t.see([card(100, 100)]);
+    seen(t, [card(100, 100)]);
     t.frame(0);
     t.frame(FADE_IN_MS * 2);
     t.see([]);
@@ -63,7 +68,7 @@ describe("the outline tracker", () => {
 
   it("comes back in from where it faded to, if the card is seen again", () => {
     const t = new OutlineTracker();
-    t.see([card(100, 100)]);
+    seen(t, [card(100, 100)]);
     t.frame(0);
     t.frame(200);
     t.see([]);
@@ -76,7 +81,7 @@ describe("the outline tracker", () => {
 
   it("keeps each of several cards its own outline, and starts a new one for a card somewhere else", () => {
     const t = new OutlineTracker();
-    t.see([card(0, 0), card(400, 0)]);
+    seen(t, [card(0, 0), card(400, 0)]);
     t.frame(0);
     t.frame(300);
     // Reported in the other order, each moved a little: no outline crosses to the other card.
@@ -85,8 +90,10 @@ describe("the outline tracker", () => {
     expect(f).toHaveLength(2);
     expect(f[0]!.quad[0][0]).toBeLessThan(20);
     expect(f[1]!.quad[0][0]).toBeGreaterThan(390);
-    // A card far from both is a new outline, fading in (and first, being the one seen now),
-    // while the two it replaces fade out.
+    // A card far from both is a new outline, fading in once seen twice (and first, being the one
+    // seen now), while the two it replaces fade out.
+    t.see([card(900, 500)]);
+    expect(t.frame(324)).toHaveLength(2);
     t.see([card(900, 500)]);
     const g = t.frame(332);
     expect(g).toHaveLength(3);
@@ -97,17 +104,17 @@ describe("the outline tracker", () => {
 
   it(`draws at most ${MAX_OUTLINES} cards, and ignores corners that aren't numbers`, () => {
     const t = new OutlineTracker();
-    t.see([card(0, 0), card(200, 0), card(400, 0), card(600, 0), card(800, 0), [[NaN, 0], [1, 0], [1, 1], [0, 1]]]);
+    seen(t, [card(0, 0), card(200, 0), card(400, 0), card(600, 0), card(800, 0), [[NaN, 0], [1, 0], [1, 1], [0, 1]]]);
     expect(t.frame(0)).toHaveLength(MAX_OUTLINES);
   });
 
   it("draws the cards seen now ahead of ones fading out, when there are too many", () => {
     const t = new OutlineTracker();
-    t.see([card(0, 0), card(200, 0), card(400, 0), card(600, 0)]);
+    seen(t, [card(0, 0), card(200, 0), card(400, 0), card(600, 0)]);
     t.frame(0);
     t.frame(200);
     // Four other cards, far from those: the old four fade, and the new four are the ones drawn.
-    t.see([card(0, 900), card(200, 900), card(400, 900), card(600, 900)]);
+    seen(t, [card(0, 900), card(200, 900), card(400, 900), card(600, 900)]);
     const f = t.frame(216);
     expect(f).toHaveLength(MAX_OUTLINES);
     expect(f.every((o) => o.quad[0][1] === 900)).toBe(true);
@@ -125,10 +132,28 @@ describe("the outline tracker", () => {
     expect(t.frame(16)[0]!.quad).toEqual(q);
   });
 
+  it("draws nothing for a 'card' the finder sees at another place or size on every pass, with nothing there", () => {
+    // His diagnostics, 23 Nov 2026: no card in view, "cards" 3,444 then 2,047 then 1,360 px tall.
+    const t = new OutlineTracker();
+    const phantoms = [card(0, 0, 2465, 3444), card(200, 600, 1465, 2047), card(900, 300, 973, 1360), card(100, 1800, 600, 840), card(1200, 1500, 1000, 1400)];
+    let now = 0;
+    for (const q of phantoms) {
+      t.see([q]);
+      expect(t.frame((now += 33))).toEqual([]);
+    }
+    expect(agrees(card(0, 0, 2465, 3444), card(200, 600, 1465, 2047))).toBe(false);
+    expect(agrees(card(100, 100), card(110, 104))).toBe(true);
+    // A real card, still: drawn from its second pass.
+    t.see([card(500, 500)]);
+    expect(t.frame((now += 33))).toEqual([]);
+    t.see([card(502, 500)]);
+    expect(t.frame((now += 33))).toHaveLength(1);
+  });
+
   it("neither eases nor fades with reduced motion", () => {
     const t = new OutlineTracker();
     t.still = true;
-    t.see([card(0, 0)]);
+    seen(t, [card(0, 0)]);
     expect(t.frame(0)[0]!.opacity).toBe(1);
     t.see([card(50, 0)]);
     expect(t.frame(16)[0]!.quad[0][0]).toBe(50);
