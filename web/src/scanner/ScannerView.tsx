@@ -368,6 +368,12 @@ const TEXT_VETO = 0.6;
  * as a card named here with one printing files itself. [inferred]
  */
 const TEXT_AGREE_FILES = 0.85;
+/**
+ * After a card's title and text reads, the art alone is looked at for this long before they run
+ * again (the seek loop's `textEnded`): a few frames at 100 to 200 ms each, where a sure match
+ * (LOCK_ONCE) or one that leads (fuse.ts) names the card without waiting on the next reads. [inferred]
+ */
+const TEXT_GAP_MS = 1000;
 /** A card that takes longer than this to find is kept by Scanner diagnostics ("slow-find"). */
 const SLOW_FIND_MS = 3000;
 /** Frames written down while looking for one card. */
@@ -934,6 +940,19 @@ function ScannerScreen({
    * Keyed by the card, so a new card closes it with no reset anywhere else.
    */
   const [report, setReport] = useState<{ seq: number; note: string; state: "open" | "sending" | "sent" | "failed" } | null>(null);
+  /**
+   * "Send this scan" for a card the scanner hasn't named after SLOW_FIND_MS (Bryan, 23 Nov 2026:
+   * "Teyo was a nightmare to scan"; it was never named, so the found card's More never showed):
+   * on the camera's chip, sending the latest full-resolution view of it the title was read from.
+   */
+  const [stuck, setStuckState] = useState<"stuck" | "sending" | "sent" | "failed" | null>(null);
+  const stuckRef = useRef<typeof stuck>(null);
+  const setStuck = (v: typeof stuck) => {
+    if (stuckRef.current === v) return;
+    stuckRef.current = v;
+    setStuckState(v);
+  };
+  const stuckShot = useRef<{ shot: Shot; art: unknown } | null>(null);
   const cam = useCameraControls();
   /**
    * The app's own camera (nativeCamera.ts): the option on this device, why it didn't open this
@@ -1053,6 +1072,9 @@ function ScannerScreen({
   const ocrNameRef = useRef<string | null>(null);
   /** A record for a card just found, when diagnostics are on (or the one carried from the card before). */
   const newRecord = (carry?: ScanRecord): ScanRecord | undefined => {
+    // A card named: nothing stuck to send from the camera any more.
+    stuckShot.current = null;
+    setStuck(null);
     // The looking that led to this card ends here, and so does what the frame knew: it's this
     // card's whether or not anything is kept, so it can't label a later one (Codex review of #171).
     const looked = seek.current;
@@ -1249,6 +1271,19 @@ function ScannerScreen({
     });
     return rec.send("reported", true);
   };
+  /** "Send this scan" for a card not yet named: its latest view, what the art said, and the look so far. */
+  const sendStuck = () => {
+    const s = stuckShot.current;
+    if (!s) return;
+    setStuck("sending");
+    const looked = seek.current;
+    const rec = looked?.rec.isLive ? looked.rec.copy() : baseRecord();
+    rec.setShot(s.shot);
+    rec.reasons.add("reported");
+    rec.note("reported", { found: false, art: s.art, switchOn: diagRef.current });
+    if (looked) rec.note("seek", { ms: Date.now() - looked.started, frames: looked.frames });
+    void rec.send("reported", true).then((ok) => setStuck(ok ? "sent" : "failed"));
+  };
   /**
    * Test scan's text reading test (textTest.ts): the title and collector line of a card the art
    * named, read from the view it was named in whatever the art settled, judged against it and its
@@ -1273,6 +1308,9 @@ function ScannerScreen({
   };
   const runTextTestRef = useRef(runTextTest);
   runTextTestRef.current = runTextTest;
+  /** Whether the text reading test is on, for the scanning loop. */
+  const textTestOn = useRef(!!onTextTest);
+  textTestOn.current = !!onTextTest;
   cameraNowRef.current = cameraNow as Record<string, unknown> | null;
   ocrNameRef.current = ocrName;
   // Closing the scanner with a card still in hand ends its record ("left").
@@ -1342,7 +1380,9 @@ function ScannerScreen({
     const full = camSrc().fullScale();
     const tooSmall = !!quad && tooFar(full === 1 ? quad : (quad.map(([x, y]) => [x * full, y * full]) as Quad));
     const unfocused = share != null && tooCloseToFocus(share, focusLens(), c.zoom);
-    setDistance(distanceHint({ share, tooSmall, unfocused, zoom: zooms ? { canZoomIn: az!.canZoomIn(c.zoom), canZoomOut: az!.canZoomOut(c.zoom) } : null }));
+    // (Gone wide, auto-zoom waits: "Move closer" isn't held back for a zoom that won't come.)
+    const waits = !!wideRef.current?.isWide;
+    setDistance(distanceHint({ share, tooSmall, unfocused, zoom: zooms ? { canZoomIn: !waits && az!.canZoomIn(c.zoom), canZoomOut: az!.canZoomOut(c.zoom) } : null }));
     // Steady: about where and as big as on the frame before (a "card" on an empty table jumps).
     const steady = !!quad && !!lastSeenQuad.current && agrees(quad, lastSeenQuad.current, FOLLOW_MOVE);
     lastSeenQuad.current = quad;
@@ -1351,7 +1391,10 @@ function ScannerScreen({
     // Wide when it struggles: a steady card not named for a while (or overfilling the view at 1×)
     // steps out to the wide lens, and auto-zoom waits until the view empties and it comes back.
     const wide = wideRef.current;
-    const wz = wide ? wide.frame(share, steady, !!foundRef.current, c.zoom, now) : null;
+    // Named: the card in hand, or one just filed and still held, or a provisional row still
+    // reading its printing (card first): none of them is a struggle (review of #204).
+    const named = !!foundRef.current || !!blocked.current || !!blockedName.current || !!heldLater.current;
+    const wz = wide ? wide.frame(share, steady, named, c.zoom, now) : null;
     if (wz != null) {
       c.autoZoom(wz);
       return;
@@ -2340,7 +2383,8 @@ function ScannerScreen({
       stopLook();
       const seq = ++foundSeq.current;
       // Test scan's text reading test, beside whatever the art settles (textTest.ts).
-      void runTextTestRef.current(top, read);
+      // (Once per card: not again for Wrong card's other card, which carries the guess.)
+      if (!carry.guess) void runTextTestRef.current(top, read);
       const timing = newTiming(carry.timing, "sure", top.score);
       const photo = newPhoto(carry.shot ?? read, carry.photo, "sure", artScores(r));
       const rec = newRecord(carry.rec);
@@ -2494,6 +2538,18 @@ function ScannerScreen({
     let emptyReads = 0;
     /** Frames in a row this art match's title couldn't be read (see UNTITLED_FRAMES). */
     let untitled = 0;
+    /**
+     * When the last title and text reads of a card in view ended (`Date.now()`), 0 with no card:
+     * the art gets TEXT_GAP_MS of frames of its own after each.
+     */
+    let textEnded = 0;
+    /**
+     * Since when the card in view has held steady (about where and as big from frame to frame,
+     * outline.ts `agrees`; the finder's "card" on an empty table jumps, and starts it again), 0
+     * with none; and where it was last frame, in video pixels.
+     */
+    let seenSince = 0;
+    let seenQuad: Quad | null = null;
     /** Frames in a row one card has led every other card (fuse.ts, LEAD_FRAMES). */
     const leadRun = new LeadRun();
     setStatus(mode === "art" ? WAITING : "Line the card up with the frame");
@@ -2634,11 +2690,19 @@ function ScannerScreen({
             last.current = undefined;
             lastText.current = undefined;
             unknownFrames = 0;
+            textEnded = 0;
+            seenSince = 0;
+            seenQuad = null;
+            stuckShot.current = null;
+            setStuck(null);
             leadRun.step(null);
             setStatus(blocked.current || blockedName.current ? NEXT : WAITING);
             return next(60);
           }
           noCard.current = 0;
+          const seenNow = toVideo(r.quad);
+          if (!seenQuad || !agrees(seenNow, seenQuad, FOLLOW_MOVE)) seenSince = Date.now();
+          seenQuad = seenNow;
           if (!blocked.current && !blockedName.current) setDupe(null);
           if (blocked.current) {
             // With the gate: the card just added, seen again, is latched; a read that didn't show
@@ -2661,7 +2725,8 @@ function ScannerScreen({
           const artUnknown = !!locked && judged?.kind !== "in-set" && poolShare.current < KNOWN_ART;
           const side = identityOnly ? IDENTITY_SIDE : undefined;
           // The view of the card kept with it: none where only the card matters and photos aren't saved.
-          const keepsView = !(identityOnly && !savingPhotos());
+          // (Test scan's text reading test reads that view too, photos or not.)
+          const keepsView = !(identityOnly && !savingPhotos()) || !!textTestOn.current;
           const read = (at: { image: RgbaImage; quad: Quad }) => (keepsView ? at : null);
           // A card just filed by its name stays held (hold.ts): its art mustn't file it again, by
           // art, by a title read or by the two-frame fallback below.
@@ -2734,6 +2799,11 @@ function ScannerScreen({
           if (!blockedName.current) setStatus(faceDown ? CARD_BACK : READING);
           // (A back lying in view isn't a card the scanner is slow to find.)
           const seen = blockedName.current || faceDown ? null : seekFrame({ art: artNote.art.slice(0, 3), lead: artNote.lead, cardPx: artNote.cardPx });
+          // The title and text reads take seconds on a phone, and the art isn't looked at again
+          // meanwhile: between them, the art has TEXT_GAP_MS of frames of its own, where a sure or
+          // leading match names the card at once (Bryan, 23 Nov 2026: "Teyo was a nightmare to
+          // scan"; his hard foils got one look every 2.5 to 4 s, Jiang Yanggu 7 in 28 s).
+          if (!gated && textEnded > 0 && Date.now() - textEnded < TEXT_GAP_MS) return next(30);
           // A match that is at least fair is read on every frame; a card the art index plainly
           // doesn't know (a battle, a weak match) after a few frames, as before.
           if (top.score >= ART_UNKNOWN || artUnknown || gated || ++unknownFrames >= 3) {
@@ -2745,6 +2815,11 @@ function ScannerScreen({
             const reader = lockRef.current?.names ? { ...full, names: lockRef.current.names } : full;
             const quad = toVideo(r.quad);
             const hi = await camSrc().around(quad, hiCanvasRef.current, side);
+            // The view to send if it stays stuck ("Send this scan" on the chip, after SLOW_FIND_MS).
+            if (!blockedName.current && !faceDown) {
+              stuckShot.current = { shot: hi, art: artNote };
+              if (Date.now() - seenSince >= SLOW_FIND_MS && !stuckRef.current) setStuck("stuck");
+            }
             if (stop) return;
             // The card from title and art together (fuse.ts): a clear title settles the card when
             // the art has it among its matches, and overrules the art when it doesn't. Matches from
@@ -2787,6 +2862,7 @@ function ScannerScreen({
             // battles, upside down), so the camera stays responsive.
             const res = await readAt(hi.image, hi.quad, reader, [quarterTurns(hi.quad)[textFrame++ % 3]!]);
             if (stop) return;
+            textEnded = Date.now();
             const said = res.candidates[0];
             if (seen) seen.text = said ? { name: said.name, confidence: Math.round(said.confidence * 1000) / 1000 } : null;
             // The card's text names one of the art's matches, fairly surely: the two agree. In the
@@ -2832,6 +2908,8 @@ function ScannerScreen({
             // (With the gate there's no close-up asked here: five tries, then "No match, move the card".)
             if (!stop && closeups && !gated && !vetoed && !blockedName.current && ++failedReads >= TITLE_AFTER && !artWaits) {
               lookGoesOn.current = true;
+              // Handed to the title close-up: a struggle, so its view can be sent from the chip now.
+              if (stuckShot.current) setStuck("stuck");
               setCloseup("title");
               return;
             }
@@ -4355,6 +4433,15 @@ function ScannerScreen({
             {onCorrect && justAdded.found && justAdded.printing && (
               <Button className="scan-chip-action" onClick={() => wrongPrinting({ ...justAdded.found!, chosen: justAdded.printing! }, justAdded.printing!, justAdded.card)}>
                 Wrong printing
+              </Button>
+            )}
+          </div>
+        ) : stuck && phase === "scanning" && !isFound && !tapNeeded && !lockOpen ? (
+          <div className="scan-chip has-action">
+            <span role="status">{stuck === "sent" ? "Sent. Keep trying, or tilt it out of the glare" : stuck === "failed" ? "Couldn't send it" : status}</span>
+            {stuck !== "sent" && (
+              <Button className="scan-chip-action" onClick={sendStuck} disabled={stuck === "sending"}>
+                {stuck === "sending" ? "Sending…" : "Send this scan"}
               </Button>
             )}
           </div>

@@ -47,8 +47,23 @@ export function useTestScan(props: ScannerViewProps): ScannerViewProps {
   const [tested, setTested] = useState<Tested[]>([]);
   /** "Read the text on every card", and what it read, newest first. */
   const [readText, setReadText] = useState(false);
-  const [textTests, setTextTests] = useState<TextTest[]>([]);
-  const onTextTest = useCallback((t: TextTest) => setTextTests((list) => [t, ...list]), []);
+  const [textTests, setTextTestsState] = useState<TextTest[]>([]);
+  /** Moves on each time the list starts again: a read still on its way from before is dropped. */
+  const [textRun, setTextRun] = useState(0);
+  const textRunRef = useRef(0);
+  const setTextTests = (list: TextTest[]) => {
+    if (list.length === 0) {
+      textRunRef.current += 1;
+      setTextRun(textRunRef.current);
+    }
+    setTextTestsState(list);
+  };
+  const onTextTest = useCallback(
+    (t: TextTest) => {
+      if (textRun === textRunRef.current) setTextTestsState((list) => [t, ...list]);
+    },
+    [textRun],
+  );
   const listRef = useRef<Tested[]>([]);
   const put = (list: Tested[]) => {
     listRef.current = list;

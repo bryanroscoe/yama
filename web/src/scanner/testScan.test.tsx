@@ -142,6 +142,11 @@ describe("test scan", () => {
     await act(async () => void (await s.props.onAccept!(card("Sol Ring"), 1, true)));
     act(() => button("Clear the list")!.click());
     expect(host.querySelector(".scan-text-test")!.textContent).toContain("No cards read yet.");
+    // A read still on its way from before the list started again counts for nothing.
+    act(() => report({ name: "Late", title: "", titleOk: false, line: "", read: null, settled: false, twin: false, ms: 1 }));
+    expect(host.querySelector(".scan-text-test")!.textContent).toContain("No cards read yet.");
+    act(() => s.props.onTextTest!({ name: "Now", title: "Now", titleOk: true, line: "", read: null, settled: false, twin: false, ms: 1 }));
+    expect(host.querySelector(".scan-text-test")!.textContent).toContain("Name read on 1 of 1 card;");
   });
 
   it("starts each test with an empty list", async () => {

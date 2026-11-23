@@ -49,7 +49,7 @@ vi.mock("../api", async (original) => ({
 }));
 
 /** The faked art match: which card the recognizer names, and the picture of the card lying in view. */
-const cam = vi.hoisted(() => ({ card: "Arcane Signet", index: 4, picture: 37 }));
+const cam = vi.hoisted(() => ({ card: "Arcane Signet", index: 4, picture: 37, score: 0.93 }));
 const QUAD: Quad = [
   [100, 100],
   [400, 100],
@@ -63,7 +63,7 @@ vi.mock("./artClient", async (original) => ({
       quad: QUAD,
       upright: 1,
       matches: [
-        { index: cam.index, id: `p-${cam.index}`, name: cam.card, set: "eoc", number: "101", illustrationId: `ill-${cam.index}`, layout: "normal", printings: 1, score: 0.93 },
+        { index: cam.index, id: `p-${cam.index}`, name: cam.card, set: "eoc", number: "101", illustrationId: `ill-${cam.index}`, layout: "normal", printings: 1, score: cam.score },
         { index: 20, id: "p-20", name: "Other card", set: "fdn", number: "9", illustrationId: "ill-20", layout: "normal", printings: 1, score: 0.41 },
       ],
       timings: { detectMs: 1, embedMs: 1, totalMs: 2 },
@@ -175,8 +175,8 @@ afterEach(() => {
 });
 
 const wait = (ms: number) => act(() => new Promise((r) => setTimeout(r, ms)));
-async function until<T>(get: () => T | null | undefined, what: string): Promise<T> {
-  for (let i = 0; i < 200; i += 1) {
+async function until<T>(get: () => T | null | undefined, what: string, ms = 4000): Promise<T> {
+  for (let i = 0; i < ms / 20; i += 1) {
     const v = get();
     if (v) return v;
     await wait(20);
@@ -309,4 +309,33 @@ describe("scan photos of every card the scanner names", () => {
     expect(r.detail.found.art.name).toBe("Arcane Signet");
     expect(r.detail.reported.switchOn).toBe(false);
   });
+
+  it("offers Send this scan on the camera for a card it can't name, and sends its view", async () => {
+    sent.reports.length = 0;
+    HTMLCanvasElement.prototype.toBlob = function (cb: BlobCallback) {
+      cb(null);
+    };
+    // Teyo, 23 Nov 2026: a foil whose art never got sure.
+    Object.assign(cam, { card: "Teyo, Lightshield Expert", index: 6, score: 0.55 });
+    try {
+      // (Close-ups off: with them on, the title close-up takes over after two reads.)
+      act(() => root.render(<ScannerView identityOnly closeups={false} onAccept={async () => true} />));
+      await click(await until(() => button("Send this scan"), "Send this scan on the chip", 9000));
+      await until(() => (document.querySelector(".scan-chip")?.textContent?.includes("Sent.") ? true : null), "Sent");
+      expect(sent.reports).toHaveLength(1);
+      // With close-ups on, the title close-up takes over after two reads: offered there too, at once.
+      act(() => root.unmount());
+      root = createRoot(host);
+      act(() => root.render(<ScannerView identityOnly onAccept={async () => true} />));
+      await click(await until(() => button("Send this scan"), "Send this scan beside the title close-up", 9000));
+      await until(() => (sent.reports.length === 2 ? true : null), "the second sent");
+      const r = sent.reports[0] as { outcome: string; detail: { reasons: string[]; reported: { found: boolean; art: { art: { name: string }[] } } } };
+      expect(r.outcome).toBe("reported");
+      expect(r.detail.reasons).toEqual(["reported"]);
+      expect(r.detail.reported.found).toBe(false);
+      expect(r.detail.reported.art.art[0]!.name).toBe("Teyo, Lightshield Expert");
+    } finally {
+      Object.assign(cam, { card: "Arcane Signet", index: 4, score: 0.93 });
+    }
+  }, 15000);
 });
