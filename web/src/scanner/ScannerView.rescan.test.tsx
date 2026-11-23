@@ -179,7 +179,7 @@ describe("a card just filed isn't scanned again while it lies there", { timeout:
     expect(accepted).toHaveLength(1);
     // Glare washes its art out for a while (long enough for the art hold to let go), then it's clear again.
     cam.card = "weak";
-    await wait(400);
+    await wait(1000);
     cam.card = "signet";
     await wait(600);
     expect(accepted).toHaveLength(1);
@@ -209,5 +209,17 @@ describe("a card just filed isn't scanned again while it lies there", { timeout:
     act(() => root.render(<ScannerView onAccept={async () => true} />));
     const guide = await until(() => document.querySelector(".scan-guide.is-hint"), "the guide");
     await until(() => (guide.classList.contains("is-away") ? true : null), "the corners put away");
+  });
+
+  it("leaves the name close-up from the camera's chip, not only the sheet", async () => {
+    cam.card = "none";
+    act(() => root.render(<ScannerView onAccept={async () => true} />));
+    const more = await until(() => [...document.querySelectorAll("button")].find((b) => b.textContent === "More"), "More");
+    await click(more);
+    await click(await until(() => [...document.querySelectorAll("button")].find((b) => b.textContent === "Read the name up close"), "Read the name up close"));
+    await until(() => document.querySelector(".scan-closeup.is-title"), "the name close-up");
+    const back = await until(() => [...document.querySelectorAll(".scan-chip button")].find((b) => b.textContent === "Back to scanning"), "Back to scanning on the chip");
+    await click(back);
+    await until(() => (document.querySelector(".scan-closeup") ? null : true), "the close-up gone");
   });
 });

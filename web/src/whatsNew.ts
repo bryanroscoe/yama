@@ -22,6 +22,8 @@ export const NEWS: NewsEntry[] = [
       "A card you just added isn't scanned again while it's still in view, even when glare hides it for a moment. Got another copy? +1 copy adds it.",
       "Scan next card, beside +1 copy, tells the scanner the card in view is a different one, such as a Forest laid on a Forest, and it reads that card.",
       "The app's camera starts on Automatic, the setting that lets the scanner step out to 0.5x for a hard card such as a foil. It now comes back to 1x as soon as the card is named. Each card has one outline around it, not two.",
+      "Stuck reading a card's name up close? Back to scanning is now on the camera itself. A card held upside down has its name read from the other end.",
+      "Scan settings' Put in can make a new box, and the cards you scan next go into it.",
     ],
     link: { to: "/collection", label: "Scan cards" },
   },

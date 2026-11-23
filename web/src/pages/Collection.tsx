@@ -53,6 +53,8 @@ const ScannedCard = lazy(() => scanner().then((m) => ({ default: m.ScannedCard }
 const KEEP_ADDING = "yama.scan.keepAdding";
 /** The close-up step, on unless turned off on this device (a fixed camera). Shared with the deck scan. */
 const CLOSEUPS = "yama.scan.closeups";
+/** "Put in"'s choice that makes a new place to file into. */
+const NEW_PLACE = "__new";
 
 /** A collection row with its printing's art crop and artist, for the art thumbnails. */
 type Item = CollectionItem & { image_art_crop?: string | null; artist?: string | null };
@@ -779,14 +781,16 @@ export function DeleteContainer({ container, parent, onClose, onDeleted }: { con
   );
 }
 
-function NewContainer({ onClose }: { onClose: () => void }) {
+/** A new binder, box, deck box or list. `onCreated` hears its id (the scanner files into it next). */
+function NewContainer({ onClose, onCreated, kind: startKind = "binder" }: { onClose: () => void; onCreated?: (id: string) => void; kind?: string }) {
   const qc = useQueryClient();
-  const [kind, setKind] = useState("binder");
+  const [kind, setKind] = useState(startKind);
   const [name, setName] = useState("");
   const create = useMutation({
-    mutationFn: () => api("/api/containers", { method: "POST", json: { kind, name } }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["containers"] });
+    mutationFn: () => api<{ id: string }>("/api/containers", { method: "POST", json: { kind, name } }),
+    onSuccess: async (made) => {
+      await qc.invalidateQueries({ queryKey: ["containers"] });
+      if (made?.id) onCreated?.(made.id);
       onClose();
     },
   });
@@ -850,6 +854,8 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
   /** The printing the found card is settled on, whose finishes the Finish choice offers. */
   const [printing, setPrinting] = useState<Printing | null>(null);
   const [container, setContainer] = useState("");
+  /** Making a new box from Scan settings (Bryan, 23 Nov 2026: "I need the ability to add a new box"). */
+  const [making, setMaking] = useState(false);
   const [keepAdding, setKeepAdding] = useState(() => localStorage.getItem(KEEP_ADDING) === "1");
   const [closeups, setCloseups] = useState(() => localStorage.getItem(CLOSEUPS) !== "0");
   /**
@@ -1231,11 +1237,21 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
         </select>
       </Field>
       <Field label="Put in">
-        <select value={container} onChange={(e) => setContainer(e.target.value)}>
+        <select
+          value={making ? NEW_PLACE : container}
+          onChange={(e) => {
+            if (e.target.value === NEW_PLACE) return setMaking(true);
+            setMaking(false);
+            setContainer(e.target.value);
+          }}
+        >
           <option value="">Not filed anywhere</option>
           {treeOrder(containers).map((c) => <option key={c.id} value={c.id}>{optionLabel(c, containers)}</option>)}
+          <option value={NEW_PLACE}>New box, binder or deck box…</option>
         </select>
       </Field>
+      {/* Made here, it's where the next cards go. */}
+      {making && <NewContainer kind="box" onClose={() => setMaking(false)} onCreated={(id) => setContainer(id)} />}
       {/* A box chosen after scanning into another: the cards so far can follow it. */}
       {elsewhere > 0 && (
         <div className="scan-clear">

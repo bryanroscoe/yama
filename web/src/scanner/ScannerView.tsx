@@ -419,6 +419,13 @@ interface JustAdded {
  * within about 3 s at p90, docs/scanner.md "Speed"]
  */
 const LATER_HOLD = { ms: 4000, frames: 6 } as const;
+/**
+ * The pace of the read loop while the card just filed still lies in view: only whether it has
+ * left (or another card has come) is read, so a few passes a second are enough. Every pass reads
+ * its art, in the app or the web view (Bryan, 23 Nov 2026: "my phone is starting to get a little
+ * bit hot"). Four such passes without it (AWAY_FRAMES) take 0.6 s rather than 0.24 s.
+ */
+const HELD_PASS_MS = 150;
 const LATER_LOOK_MS = 10_000;
 
 /**
@@ -2752,7 +2759,7 @@ function ScannerScreen({
               if (stop) return;
             }
             setStatus(NEXT);
-            return next(60);
+            return next(later ? 60 : HELD_PASS_MS);
           }
           const prev = last.current && last.current.index === top.index && Date.now() - last.current.at < 1500;
           last.current = { index: top.index, at: Date.now() };
@@ -2775,7 +2782,7 @@ function ScannerScreen({
             if (gateRead) gateRead.held = true;
             leadRun.step(null);
             setStatus(NEXT);
-            return next(60);
+            return next(HELD_PASS_MS);
           }
           // Face down (cardBack.ts), and the art doesn't know it either. A card the art knows fairly
           // well is never called a back. Its title and text are still read below, as for any card
@@ -4503,6 +4510,21 @@ function ScannerScreen({
             {onCorrect && justAdded.found && justAdded.printing && (
               <Button className="scan-chip-action" onClick={() => wrongPrinting({ ...justAdded.found!, chosen: justAdded.printing! }, justAdded.printing!, justAdded.card)}>
                 Wrong printing
+              </Button>
+            )}
+          </div>
+        ) : closeup && !tapNeeded && !lockOpen ? (
+          // A close-up can be left from the camera itself, not only from the sheet, which may be
+          // hidden or out of reach (Bryan, 23 Nov 2026: "if we're stuck in the scan name thing, we
+          // should better revert back with a button press on the cell on the screen").
+          <div className="scan-chip has-action">
+            <span role="status">{closeup === "title" ? (stuck === "sent" ? "Sent" : status) : found ? `${found.name}: now the printing, up close` : status}</span>
+            <Button className="scan-chip-action" onClick={() => setCloseup(null)}>
+              {closeup === "title" ? "Back to scanning" : "Back to the whole card"}
+            </Button>
+            {closeup === "title" && stuck && stuck !== "sent" && (
+              <Button className="scan-chip-action" onClick={sendStuck} disabled={stuck === "sending"}>
+                {stuck === "sending" ? "Sending…" : "Send this scan"}
               </Button>
             )}
           </div>
