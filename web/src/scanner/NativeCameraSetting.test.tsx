@@ -73,13 +73,15 @@ describe("NativeCameraSetting", () => {
     expect(changes[0]).toMatchObject({ lens: "main", fps: 60, on: true });
   });
 
-  it("marks Main as the default, says what Automatic does, and why the lens chosen didn't open (22 Nov 2026)", () => {
+  it("marks Automatic as the default, says what it does, and why the lens chosen didn't open (23 Nov 2026)", () => {
     act(() => root.render(<NativeCameraSetting option={{ ...OFF, on: true, lens: "auto" }} onChange={() => undefined} info={null} camera={null} />));
     const lens = host.querySelector("select")!;
-    expect([...lens.options].find((o) => o.value === "main")?.textContent).toBe("Main (the default)");
-    expect(host.textContent).toContain("Automatic lets the phone switch to its ultra-wide lens when a card is close");
+    expect([...lens.options].find((o) => o.value === "auto")?.textContent).toBe("Automatic (the phone chooses), the default");
+    expect([...lens.options].find((o) => o.value === "main")?.textContent).toBe("Main");
+    expect(host.textContent).toContain("Automatic lets the scanner step out to the ultra-wide lens (0.5x)");
     act(() => root.render(<NativeCameraSetting option={{ ...OFF, on: true, lens: "main" }} onChange={() => undefined} info={null} camera={null} lensFailed="that lens wouldn't bind" />));
-    expect(host.textContent).not.toContain("Automatic lets the phone switch");
+    expect(host.textContent).not.toContain("Automatic lets the scanner");
+    expect(host.textContent).toContain("can't step out to 0.5x");
     expect(host.textContent).toContain("The main lens didn't open by itself (that lens wouldn't bind), so the app's camera is choosing the lens this time.");
   });
 

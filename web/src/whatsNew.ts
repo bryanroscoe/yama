@@ -15,6 +15,17 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-23-scanner-scan-next-card",
+    date: "2026-11-23",
+    title: "The scanner won't add a card twice, and Scan next card",
+    items: [
+      "A card you just added isn't scanned again while it's still in view, even when glare hides it for a moment. Got another copy? +1 copy adds it.",
+      "Scan next card, beside +1 copy, tells the scanner the card in view is a different one, such as a Forest laid on a Forest, and it reads that card.",
+      "The app's camera starts on Automatic, the setting that lets the scanner step out to 0.5x for a hard card such as a foil. It now comes back to 1x as soon as the card is named. Each card has one outline around it, not two.",
+    ],
+    link: { to: "/collection", label: "Scan cards" },
+  },
+  {
     id: "2026-11-22-scanner-card-first-by-price",
     date: "2026-11-22",
     title: "The scanner's chime follows the price, and a card can come before its printing",

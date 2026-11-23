@@ -421,6 +421,15 @@ interface JustAdded {
 const LATER_HOLD = { ms: 4000, frames: 6 } as const;
 const LATER_LOOK_MS = 10_000;
 
+/**
+ * Whether a card read from the camera under `name` is the one filed last, still in view: the view
+ * hasn't been clear of cards since. It isn't read again, by art, title or text, until it has
+ * gone or "Scan next card" says the card there now is another (Bryan, 23 Nov 2026: "Let's also
+ * make it so we don't automatically rescan things as well. It's kind of annoying"). The art hold
+ * alone lets go on a few blurry or glary frames, and the card was then filed a second time.
+ */
+const stillFiledAs = (filed: { current: string | null }, name: string) => !!filed.current && sameCardName(name, filed.current);
+
 /** A provisional row still reading its card while the card lies in view (card first, printing after). */
 interface HeldLater {
   row: Provisional;
@@ -1003,6 +1012,8 @@ function ScannerScreen({
   const nativeMs = useRef<number[]>([]);
   /** The app's finder runs on the camera's frames and draws the outline (so the web view's isn't drawn). */
   const [nativeDrawing, setNativeDrawing] = useState(false);
+  const nativeDrawingRef = useRef(nativeDrawing);
+  nativeDrawingRef.current = nativeDrawing;
   /**
    * The art read in the app's own code (stage 4): the art option it has loaded, and why it isn't
    * running this session when it failed (the web worker reads the art instead).
@@ -1209,7 +1220,8 @@ function ScannerScreen({
     if (!diagRef.current) return null;
     seek.current ??= { rec: baseRecord(), started: Date.now(), frames: [] };
     if (seek.current.frames.length >= SEEK_FRAMES) return null;
-    const frame = { t: Date.now() - seek.current.started, ...note };
+    // The camera's zoom with each frame: 0.5 when it stepped out wide (zoomPolicy.ts).
+    const frame = { t: Date.now() - seek.current.started, zoom: Math.round(camRef.current.zoom * 100) / 100, ...note };
     seek.current.frames.push(frame);
     return frame;
   };
@@ -1365,6 +1377,11 @@ function ScannerScreen({
    * Neither while auto-zoom can still make up the difference.
    */
   const [distance, setDistance] = useState<"far" | "close" | null>(null);
+  /**
+   * A card in view now: the guide's four faint corners step aside for the card's own outline, so a
+   * card isn't framed twice (Bryan, 23 Nov 2026: "Every card has double borders around it").
+   */
+  const [cardInView, setCardInView] = useState(false);
   const far = distance === "far";
   /** The lens in use, where the app's camera has one lens to itself: its focal length and nearest focus. */
   const focusLens = (): FocusLens | null => {
@@ -1395,14 +1412,16 @@ function ScannerScreen({
     // Steady: about where and as big as on the frame before (a "card" on an empty table jumps).
     const steady = !!quad && !!lastSeenQuad.current && agrees(quad, lastSeenQuad.current, FOLLOW_MOVE);
     lastSeenQuad.current = quad;
+    setCardInView(!!quad);
     if (!zooms) return;
     const now = performance.now();
     // Wide when it struggles: a steady card not named for a while (or overfilling the view at 1×)
-    // steps out to the wide lens, and auto-zoom waits until the view empties and it comes back.
+    // steps out to the wide lens, and auto-zoom waits until it comes back (named, given up, or the view empty).
     const wide = wideRef.current;
     // Named: the card in hand, or one just filed and still held, or a provisional row still
     // reading its printing (card first): none of them is a struggle (review of #204).
-    const named = !!foundRef.current || !!blocked.current || !!blockedName.current || !!heldLater.current;
+    // (And the card filed last, still in view: not read again, so not a struggle either.)
+    const named = !!foundRef.current || !!blocked.current || !!blockedName.current || !!heldLater.current || !!filedName.current;
     const wz = wide ? wide.frame(share, steady, named, c.zoom, now) : null;
     if (wz != null) {
       c.autoZoom(wz);
@@ -2517,6 +2536,12 @@ function ScannerScreen({
         if (!blocked.current) setDupe(null);
       }
       if (!best) return false;
+      // The card just filed, still in view (the view hasn't been clear since): not read again.
+      if (!single && stillFiledAs(filedName, best.name)) {
+        appeared.current = null;
+        setStatus(NEXT);
+        return false;
+      }
       const seen = lastText.current && Date.now() - lastText.current.at < 2500 ? lastText.current.card : undefined;
       const lock = single || best.confidence >= 0.95 || (best.confidence >= 0.6 && sameCard(best, seen));
       lastText.current = { card: best, at: Date.now() };
@@ -2613,8 +2638,11 @@ function ScannerScreen({
           let toVideo = (q: Quad) => q.map(([x, y]) => [x / k + zone.x, y / k + zone.y]) as Quad;
           // The outline follows the card finder, which answers before the art is matched. (The
           // app's finder draws its own, natively, on every frame.)
+          // Never while the app's finder draws: a frame it didn't hand over (its finder restarting
+          // after a card, a frame it timed out on) would draw the web view's outline beside the
+          // app's, a little apart (Bryan, 23 Nov 2026: "Every card has double borders around it").
           const outlined = (q: Quad | null) => {
-            if (!stop && !handed) outlines.see(q ? [toVideo(q)] : [], { w: v.videoWidth, h: v.videoHeight });
+            if (!stop && !handed && !nativeDrawingRef.current) outlines.see(q ? [toVideo(q)] : [], { w: v.videoWidth, h: v.videoHeight });
           };
           const gated = gateOn();
           let r: Recognition;
@@ -2651,7 +2679,7 @@ function ScannerScreen({
               }
               // A lead counts over reads in a row of one card at rest: anything else between ends it.
               if (d.kind !== "steadying" && d.kind !== "reading") leadRun.step(null);
-              const holding = !!blocked.current || !!blockedName.current;
+              const holding = !!blocked.current || !!blockedName.current || !!filedName.current;
               if (!holding) setDupe(null);
               setStatus(gateStatus(d, holding));
               return next(d.kind === "none" ? 60 : GATE_PASS_MS);
@@ -2695,7 +2723,7 @@ function ScannerScreen({
               endSeek();
               appeared.current = null;
             }
-            if (!blocked.current && !blockedName.current) setDupe(null);
+            if (!blocked.current && !blockedName.current && !filedName.current) setDupe(null);
             last.current = undefined;
             lastText.current = undefined;
             unknownFrames = 0;
@@ -2712,7 +2740,7 @@ function ScannerScreen({
           const seenNow = toVideo(r.quad);
           if (!seenQuad || !agrees(seenNow, seenQuad, FOLLOW_MOVE)) seenSince = Date.now();
           seenQuad = seenNow;
-          if (!blocked.current && !blockedName.current) setDupe(null);
+          if (!blocked.current && !blockedName.current && !stillFiledAs(filedName, top.name)) setDupe(null);
           if (blocked.current) {
             // With the gate: the card just added, seen again, is latched; a read that didn't show
             // it (a weak match) is a miss, tried again, and the hold ends by its own rule (hold.ts).
@@ -2740,7 +2768,8 @@ function ScannerScreen({
           // A card just filed by its name stays held (hold.ts): its art mustn't file it again, by
           // art, by a title read or by the two-frame fallback below.
           const heldName = blockedName.current?.name;
-          const isHeld = (name: string) => !!heldName && sameCardName(name, heldName);
+          // (Or the card filed last, by any means, still in view: stillFiledAs.)
+          const isHeld = (name: string) => (!!heldName && sameCardName(name, heldName)) || stillFiledAs(filedName, name);
           // (With the gate: also a card named again within 3 s that never left the view, gate.ts.)
           if (isHeld(top.name) || (gated && gate.suppresses(top.name, performance.now()))) {
             if (gateRead) gateRead.held = true;
@@ -2845,7 +2874,7 @@ function ScannerScreen({
             scanCtx.current = { ...artNote, titles, title, fused: fused.kind, artUnknown, overruled: fused.kind === "title" && !!top && !sameCardName(top.name, fused.name) };
             if (seen) Object.assign(seen, { titles, title, fused: fused.kind });
             // The card just filed, by its art or its title: still held. Not a new card appearing.
-            if (fusedHeld(fused, heldName)) {
+            if (fusedHeld(fused, heldName) || fusedHeld(fused, filedName.current ?? undefined)) {
               if (gateRead) gateRead.held = true;
               appeared.current = null;
               setStatus(NEXT);
@@ -2879,6 +2908,12 @@ function ScannerScreen({
             // collection only surely (TEXT_AGREE_FILES), and not while a card filed by its name is
             // held (as above).
             const agreed = said && said.confidence >= (identityOnly ? TEXT_VETO : TEXT_AGREE_FILES) && !artUnknown && !blockedName.current ? artHas(ranked, said.name) : undefined;
+            if (agreed && isHeld(agreed.name)) {
+              if (gateRead) gateRead.held = true;
+              appeared.current = null;
+              setStatus(NEXT);
+              return next(60);
+            }
             if (agreed) {
               lockBy("text");
               showArt(r, agreed, read(hi), { titled: true });
@@ -4047,6 +4082,26 @@ function ScannerScreen({
       setDupeSaving(false);
     });
   };
+  /**
+   * "Scan next card" (Bryan, 23 Nov 2026, a Forest on a Forest: "It says 'Still in view, +1 copy'
+   * but it's not the correct one. There should be a 'Scan next card' button"): the card in view
+   * now isn't the one just filed. The hold on that one goes, and what lies there is read as a new card.
+   */
+  const scanNext = () => {
+    blocked.current = null;
+    blockedName.current = null;
+    filedName.current = null;
+    // A provisional row (card first) reads only its own card: the one there now is another.
+    heldLater.current?.end();
+    gate.unlatch();
+    noCard.current = 0;
+    last.current = undefined;
+    lastText.current = undefined;
+    appeared.current = null;
+    artRef.current?.reset();
+    setDupe(null);
+    setStatus(WAITING);
+  };
   // A changed finish or destination isn't "the same again": the offer goes rather than file a
   // copy the person didn't scan (the host files with its current settings).
   useEffect(() => {
@@ -4374,7 +4429,7 @@ function ScannerScreen({
           {closeup ? (
             <div ref={closeRef} className={`scan-closeup is-${closeup}`} />
           ) : (
-            <div ref={guideRef} className={`scan-guide${mode === "art" ? " is-hint" : ""}${phase === "found" ? " is-locked" : ""}`} />
+            <div ref={guideRef} className={`scan-guide${mode === "art" ? " is-hint" : ""}${mode === "art" && cardInView ? " is-away" : ""}${phase === "found" ? " is-locked" : ""}`} />
           )}
         </div>
         {onClose && (
@@ -4425,6 +4480,11 @@ function ScannerScreen({
             {stillInView && (
               <Button className="scan-chip-action" onClick={scanAnyway} disabled={dupeSaving} aria-label={`Scan anyway: add another ${dupe!.label}`}>
                 {dupeSaving ? "Adding…" : "+1 copy"}
+              </Button>
+            )}
+            {stillInView && (
+              <Button className="scan-chip-action" onClick={scanNext} disabled={dupeSaving} aria-label={`Scan next card: the card in view isn't ${dupe!.label}`}>
+                Scan next card
               </Button>
             )}
           </div>
@@ -4532,11 +4592,14 @@ function ScannerScreen({
             {dupe && onAccept && !dupeHere && (
               <div className="scan-step scan-dupe">
                 <p>
-                  <strong>{dupe.label} is still in view.</strong> The scanner waits for a different card. Got another copy of it?
+                  <strong>{dupe.label} is still in view.</strong> The scanner waits for a different card. Got another copy of it? Or is the card there now a different one?
                 </p>
                 <div className="scan-other-ways">
                   <Button variant="primary" onClick={scanAnyway} disabled={dupeSaving}>
                     {dupeSaving ? "Adding…" : "Scan anyway"}
+                  </Button>
+                  <Button onClick={scanNext} disabled={dupeSaving}>
+                    Scan next card
                   </Button>
                 </div>
               </div>

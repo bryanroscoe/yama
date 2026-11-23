@@ -65,7 +65,7 @@ export function NativeCameraSetting({
             <select value={option.lens} onChange={(e) => onChange({ ...option, lens: e.target.value as NativeLens })}>
               {offered.map((l) => (
                 <option key={l} value={l}>
-                  {l === "auto" ? "Automatic (the phone chooses)" : l === DEFAULT_LENS ? `${LENS_NAMES[l]} (the default)` : LENS_NAMES[l]}
+                  {`${l === "auto" ? "Automatic (the phone chooses)" : LENS_NAMES[l]}${l === DEFAULT_LENS ? ", the default" : ""}`}
                 </option>
               ))}
             </select>
@@ -96,8 +96,9 @@ export function NativeCameraSetting({
               />
             </label>
           )}
-          {/* Why Main is the default (Bryan, 22 Nov 2026: up close on Automatic his Pixel used its ultra-wide lens). */}
-          {option.lens === "auto" && <p className="scan-note">Automatic lets the phone switch to its ultra-wide lens when a card is close, which softens the picture and bends its edges.</p>}
+          {/* Automatic is the default (Bryan, 23 Nov 2026): only it reaches 0.5x for a card the scanner struggles with. */}
+          {option.lens === "auto" && <p className="scan-note">Automatic lets the scanner step out to the ultra-wide lens (0.5x) when a card is hard to read, such as a foil in glare. Up close the phone may also switch to it by itself, which softens the picture a little.</p>}
+          {option.lens !== "auto" && <p className="scan-note">With one lens chosen, the scanner can't step out to 0.5x when a card is hard to read.</p>}
           {lensFailed && !failed && (
             <p className="scan-note">
               The {LENS_NAMES[option.lens].toLowerCase()} lens didn't open by itself ({lensFailed}), so the app's camera is choosing the lens this time.
