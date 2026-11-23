@@ -591,6 +591,23 @@ describe("the app's camera's controls, as a track", () => {
     expect(await cam.setExposure(-1)).toBe(false);
   });
 
+  it("never sets the exposure from Scan settings while the camera opens: it waits, then goes through the controls (Codex review of #210)", async () => {
+    saveNativeCamera({ on: true, lens: "main", fps: 30, torchLevel: null, exposure: -1 });
+    const f = fakes({ ...DESCRIBED, exposure: EXPOSURE });
+    const cam = openNativeCamera(document.createElement("canvas"), { lens: "main", fps: 30, width: 3840, height: 2160 }, { plugin: f.plugin, channel: f.channel, settleMs: 0 });
+    // The scanner attaches the camera once it's ready, and lends its setter (camera.tsx).
+    const lent: number[] = [];
+    void cam.ready.then(() => (cam.track() as unknown as { bindExposure: (s: (ev: number) => Promise<boolean>) => void }).bindExposure(async (ev) => (lent.push(ev), true)));
+    // Moved before the camera was ready.
+    const took = cam.setExposure(0.5);
+    await cam.ready;
+    expect(await took).toBe(true);
+    // The opening's own exposure went to the camera alone; the slider's through the controls.
+    expect(f.sets).toEqual([{ exposure: -1 }]);
+    expect(lent).toEqual([0.5]);
+    cam.close();
+  });
+
   it("holds the focus where the camera view's slider puts it, and hands it back", async () => {
     const { cam, track, sets } = await opened();
     // camera.tsx's focus control: a distance in metres, then autofocus again (cameraFocus.ts).

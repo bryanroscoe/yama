@@ -1,7 +1,7 @@
 // Scan settings, inside the Android app only: use the app's own camera (nativeCamera.ts), and how
 // it's set. On by default where the app has it, remembered on this device.
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button, Field } from "../components/ui";
 import { clampExposure } from "./camera";
 import type { SourceInfo } from "./cameraSource";
@@ -15,15 +15,18 @@ const LENSES: NativeLens[] = ["auto", "main", "ultrawide", "telephoto"];
  */
 export const RATES = [30, 60];
 
-/**
- * An exposure for people, in EV: "0, the camera's own", "−0.7, darker", "+0.3, brighter". One
- * decimal, two where one would round a step away to 0.
- */
-export function exposureLabel(ev: number): string {
+/** An exposure in EV, signed: "0", "−0.7", "+0.3". One decimal, two where one would round a step away to 0. */
+export function exposureText(ev: number): string {
   const a = Math.abs(ev);
-  if (a < 0.005) return "0, the camera's own";
+  if (a < 0.005) return "0";
   const shown = Math.round(a * 10) / 10 || Math.round(a * 100) / 100;
-  return ev < 0 ? `−${shown}, darker` : `+${shown}, brighter`;
+  return `${ev < 0 ? "−" : "+"}${shown}`;
+}
+
+/** An exposure for people: "0, the camera's own", "−0.7, darker", "+0.3, brighter". */
+export function exposureLabel(ev: number): string {
+  const t = exposureText(ev);
+  return t === "0" ? "0, the camera's own" : `${t}, ${ev < 0 ? "darker" : "brighter"}`;
 }
 
 /** "In use: Main lens, 2160 × 3840, 60 a second asked for, 58.9 delivered." */
@@ -56,6 +59,38 @@ export function NativeCameraSetting({
   lensFailed?: string | null;
 }) {
   const [bench, setBench] = useState<{ rows?: BenchRow[]; busy?: boolean; error?: string }>({});
+  /**
+   * The exposure slider: where it is while the camera hasn't answered yet, and whether the camera
+   * refused the last one. Only what the camera took is saved (Codex review of #210), and only the
+   * newest of a drag is sent once the one before is answered, so a drag never queues up behind
+   * the camera.
+   */
+  const [evPending, setEvPending] = useState<number | null>(null);
+  const [evRefused, setEvRefused] = useState(false);
+  const latest = useRef({ option, onChange, camera });
+  latest.current = { option, onChange, camera };
+  const evQueue = useRef<{ busy: boolean; next: number | null }>({ busy: false, next: null });
+  const sendExposure = (ev: number) => {
+    const q = evQueue.current;
+    q.next = ev;
+    setEvPending(ev);
+    if (q.busy) return;
+    q.busy = true;
+    void (async () => {
+      while (q.next != null) {
+        const want = q.next;
+        q.next = null;
+        const cam = latest.current.camera;
+        const took = cam ? await cam.setExposure(want).catch(() => false) : false;
+        // A newer one is on its way: only the last is saved and said.
+        if (q.next != null) continue;
+        if (took) latest.current.onChange({ ...latest.current.option, exposure: want });
+        setEvRefused(!took);
+        setEvPending(null);
+      }
+      q.busy = false;
+    })();
+  };
   const d = camera?.described() ?? null;
   const offered = LENSES.filter((l) => l === "auto" || l === option.lens || !d || d.lenses.some((x) => x.lens === l));
   const levels = d?.torchLevels ?? 0;
@@ -63,7 +98,10 @@ export function NativeCameraSetting({
   const level = Math.min(levels, option.torchLevel ?? d?.torchLevel ?? levels);
   // The exposure chosen here, kept to this camera's range and step (another phone's may differ).
   const exposure = exposureRange(d?.exposure);
-  const ev = exposure ? clampExposure(exposure, option.exposure) : 0;
+  const ev = exposure ? (evPending ?? clampExposure(exposure, option.exposure)) : 0;
+  // Where the camera really is, when that isn't the setting: refused as it opened, or lowered by the scanner for a card in glare.
+  const cameraEv = d?.exposure?.ev;
+  const elsewhere = exposure && evPending == null && typeof cameraEv === "number" && Math.abs(cameraEv - ev) > exposure.step / 2 ? cameraEv : null;
   return (
     <div className="scan-native-camera">
       <div className="scan-keep">
@@ -123,13 +161,11 @@ export function NativeCameraSetting({
                   step={exposure.step}
                   value={ev}
                   aria-valuetext={exposureLabel(ev)}
-                  onChange={(e) => {
-                    const next = clampExposure(exposure, Number(e.target.value));
-                    onChange({ ...option, exposure: next });
-                    void camera?.setExposure(next).catch(() => undefined);
-                  }}
+                  onChange={(e) => sendExposure(clampExposure(exposure, Number(e.target.value)))}
                 />
               </label>
+              {evRefused && <p className="scan-note">The camera didn't take that exposure.</p>}
+              {elsewhere != null && <p className="scan-note">The camera is at {exposureText(elsewhere)} now.</p>}
               <p className="scan-note">Lower is darker: it keeps the art's detail under a foil's shine. Set here, it holds every time the app's camera opens on this device.</p>
             </>
           )}

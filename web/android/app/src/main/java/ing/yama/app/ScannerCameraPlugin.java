@@ -155,6 +155,11 @@ public class ScannerCameraPlugin extends Plugin {
      * ({@link #exposureWatch}): the page's slider and the scanner never see it drift.
      */
     private int exposureIndex;
+    /**
+     * The main thread's: exposure changes from the page not yet ended. While one is, the exposure
+     * isn't set again by the plugin itself ({@link #restoreExposure}), which would cancel it.
+     */
+    private int exposureWrites;
     /** Watches the open camera's state to set the exposure again when it reopens. */
     private Observer<CameraState> exposureWatch;
     private Camera exposureWatched;
@@ -790,6 +795,7 @@ public class ScannerCameraPlugin extends Plugin {
         focusDistance = 0;
         torchLevel = 0;
         exposureIndex = 0;
+        exposureWrites = 0;
 
         CameraSelector.Builder chosenCamera = new CameraSelector.Builder().requireLensFacing(CameraSelector.LENS_FACING_BACK);
         if (o.physicalId != null) chosenCamera.setPhysicalCameraId(o.physicalId);
@@ -1106,7 +1112,7 @@ public class ScannerCameraPlugin extends Plugin {
             boolean on = torch != null ? torch : level > 0;
             if (on && level != null && level > 0 && info.isTorchStrengthSupported()) {
                 torchLevel = Math.max(1, Math.min(info.getMaxTorchStrengthLevel(), level));
-                control.setTorchStrengthLevel(torchLevel);
+                pending.add(control.setTorchStrengthLevel(torchLevel));
             }
             pending.add(control.enableTorch(on));
         }
@@ -1123,7 +1129,7 @@ public class ScannerCameraPlugin extends Plugin {
             float diopters = (float) Math.max(0, Math.min(opened.nearestDiopters, 1 / metres));
             focusMode = "manual";
             focusDistance = diopters > 0 ? 1 / diopters : metres;
-            control.cancelFocusAndMetering();
+            pending.add(control.cancelFocusAndMetering());
             pending.add(
                 Camera2CameraControl.from(control).setCaptureRequestOptions(
                     new CaptureRequestOptions.Builder()
@@ -1140,58 +1146,116 @@ public class ScannerCameraPlugin extends Plugin {
                 float x = (float) Math.max(0, Math.min(1, point.optDouble("x", 0.5)));
                 float y = (float) Math.max(0, Math.min(1, point.optDouble("y", 0.5)));
                 FocusMeteringAction action = new FocusMeteringAction.Builder(new DisplayOrientedMeteringPointFactory(display, info, 1f, 1f).createPoint(x, y), FocusMeteringAction.FLAG_AF).build();
+                // Best effort, not waited for: it ends only once the lens has hunted, and a newer
+                // point cancels it.
                 if (info.isFocusMeteringSupported(action)) control.startFocusAndMetering(action);
             }
         }
-        if (exposure != null) {
-            int index = exposure;
-            Camera asked = camera;
-            ListenableFuture<Integer> set = control.setExposureCompensationIndex(index);
-            // Kept to set again when the camera reopens only once this camera has taken it: a
-            // refused or superseded one isn't brought back later.
-            set.addListener(
-                () -> {
-                    try {
-                        set.get();
-                        if (camera == asked) exposureIndex = index;
-                    } catch (Exception e) {
-                        // The call says why.
-                    }
-                },
-                ContextCompat.getMainExecutor(getContext())
-            );
-            pending.add(set);
-        }
-        settle(call, pending);
+        int mine = session;
+        ExposureWrite write = exposure != null ? setExposure(control, exposure, mine) : null;
+        if (write != null) pending.add(write.future);
+        settle(call, pending, write, mine);
+    }
+
+    /** How long a settings call waits for the camera to confirm a new exposure before counting it as taken. */
+    static final long EXPOSURE_WAIT_MS = 1000;
+
+    /** One exposure change from the page: it ends once, taken or refused. */
+    private static final class ExposureWrite {
+        ListenableFuture<Integer> future;
+        /** End it as taken: the camera has it, but hasn't confirmed it within {@link #EXPOSURE_WAIT_MS}. */
+        Runnable excuse;
+    }
+
+    /**
+     * Ask the camera for this exposure index. Kept, to set again when the camera reopens, only once
+     * the camera has taken it; a refused one puts the last one taken back, so what the page was
+     * told stays true. A newer change cancels this one, and ends it as refused.
+     */
+    private ExposureWrite setExposure(CameraControl control, int index, int mine) {
+        ExposureWrite w = new ExposureWrite();
+        exposureWrites++;
+        w.future = control.setExposureCompensationIndex(index);
+        boolean[] ended = { false };
+        java.util.function.Consumer<Boolean> end = took -> {
+            if (ended[0] || mine != session) return;
+            ended[0] = true;
+            exposureWrites--;
+            if (camera == null) return;
+            if (took) exposureIndex = index;
+            else restoreExposure();
+        };
+        w.excuse = () -> end.accept(true);
+        w.future.addListener(
+            () -> {
+                boolean took;
+                try {
+                    w.future.get();
+                    took = true;
+                } catch (Exception e) {
+                    took = false;
+                }
+                end.accept(took);
+            },
+            ContextCompat.getMainExecutor(getContext())
+        );
+        return w;
     }
 
     /**
      * Resolve the call with the settings once the camera has taken every change, or reject it with
-     * the first it refused. Heard on the main thread when each change lands, never waited for.
+     * the first it refused. Heard on the main thread when each change lands, never waited for. A
+     * camera closed (or another opened) meanwhile is said as closed, never described in its place.
+     *
+     * An exposure change is confirmed by CameraX only once the camera's auto-exposure has settled
+     * at it, which a foil moving under a light can hold off indefinitely (Codex review of #210):
+     * after {@link #EXPOSURE_WAIT_MS} it counts as taken (the camera is already using it), so the
+     * scanner's start and its later settings never wait on it.
      */
-    private void settle(PluginCall call, List<ListenableFuture<?>> pending) {
+    private void settle(PluginCall call, List<ListenableFuture<?>> pending, ExposureWrite exposure, int mine) {
         if (pending.isEmpty()) {
             call.resolve(describe());
             return;
         }
         int[] left = { pending.size() };
+        boolean[] excused = { false };
+        Runnable finish = () -> {
+            if (camera == null || mine != session) {
+                call.reject("The camera closed", "closed");
+                return;
+            }
+            for (ListenableFuture<?> done : pending) {
+                // Only an excused exposure can still be running; the rest are done, and get() only
+                // reads how each ended.
+                if (!done.isDone()) continue;
+                try {
+                    done.get();
+                } catch (Exception e) {
+                    call.reject("The camera refused that setting: " + e.getMessage(), "failed");
+                    return;
+                }
+            }
+            call.resolve(describe());
+        };
         for (ListenableFuture<?> f : pending) {
             f.addListener(
                 () -> {
-                    if (--left[0] > 0) return;
-                    // Every one is done by now: get() only reads how each ended.
-                    for (ListenableFuture<?> done : pending) {
-                        try {
-                            done.get();
-                        } catch (Exception e) {
-                            call.reject("The camera refused that setting: " + e.getMessage(), "failed");
-                            return;
-                        }
-                    }
-                    if (camera != null) call.resolve(describe());
-                    else call.reject("The camera closed", "closed");
+                    if (excused[0] && exposure != null && f == exposure.future) return;
+                    if (--left[0] == 0) finish.run();
                 },
                 ContextCompat.getMainExecutor(getContext())
+            );
+        }
+        if (exposure != null) {
+            main.postDelayed(
+                () -> {
+                    // Ended (or about to be heard ending) by itself, or the call is already answered.
+                    if (exposure.future.isDone() || left[0] == 0) return;
+                    excused[0] = true;
+                    exposure.excuse.run();
+                    if (--left[0] == 0) finish.run();
+                },
+                EXPOSURE_WAIT_MS
             );
         }
     }
@@ -1230,23 +1294,37 @@ public class ScannerCameraPlugin extends Plugin {
         Camera c = camera;
         if (c == null || getActivity() == null) return;
         exposureWatch = state -> {
-            if (camera != c || state.getType() != CameraState.Type.OPEN || exposureIndex == 0) return;
-            ExposureState ex = c.getCameraInfo().getExposureState();
-            if (!ex.isExposureCompensationSupported() || ex.getExposureCompensationIndex() == exposureIndex) return;
-            ListenableFuture<Integer> again = c.getCameraControl().setExposureCompensationIndex(exposureIndex);
-            again.addListener(
-                () -> {
-                    try {
-                        again.get();
-                    } catch (Exception e) {
-                        Logger.warn(TAG, "Setting the exposure again: " + e.getMessage());
-                    }
-                },
-                ContextCompat.getMainExecutor(getContext())
-            );
+            if (camera == c && state.getType() == CameraState.Type.OPEN) restoreExposure();
         };
         exposureWatched = c;
         c.getCameraInfo().getCameraState().observe(getActivity(), exposureWatch);
+    }
+
+    /**
+     * Put back the exposure the camera last took, where it has drifted from it (the camera reopened
+     * at 0, or a change was refused), unless the page is changing it now: that change ends by
+     * itself, and putting this back would cancel it. Only on an open camera; the watch puts it
+     * back once the camera opens. Main thread.
+     */
+    private void restoreExposure() {
+        Camera c = camera;
+        if (c == null || exposureWrites > 0) return;
+        CameraState state = c.getCameraInfo().getCameraState().getValue();
+        if (state == null || state.getType() != CameraState.Type.OPEN) return;
+        ExposureState ex = c.getCameraInfo().getExposureState();
+        if (!ex.isExposureCompensationSupported() || ex.getExposureCompensationIndex() == exposureIndex) return;
+        ListenableFuture<Integer> again = c.getCameraControl().setExposureCompensationIndex(exposureIndex);
+        again.addListener(
+            () -> {
+                try {
+                    again.get();
+                } catch (Exception e) {
+                    // A newer change from the page, or the camera closing: either way not this one's to say.
+                    Logger.info(TAG, "Setting the exposure again: " + e.getMessage());
+                }
+            },
+            ContextCompat.getMainExecutor(getContext())
+        );
     }
 
     private void unwatchExposure() {

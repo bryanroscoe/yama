@@ -276,6 +276,39 @@ describe("exposure (23 Nov 2026)", () => {
     act(() => root.unmount());
   });
 
+  it("never publishes an exposure whose apply was already running on the camera switched away from (Codex review of #210)", async () => {
+    const { ref, root } = probe();
+    let started!: () => void;
+    const running = new Promise<void>((r) => (started = r));
+    let release!: () => void;
+    const slow = new Promise<void>((r) => (release = r));
+    const a = exposureCamera({
+      apply: () => {
+        started();
+        return slow;
+      },
+    });
+    act(() => ref.cam.attach(a.t));
+    let took!: Promise<boolean>;
+    await act(async () => {
+      took = ref.cam.setExposure(-1);
+      // The apply has reached the camera before the switch.
+      await running;
+    });
+    const b = exposureCamera({ at: -0.5 });
+    act(() => ref.cam.attach(b.t));
+    await act(async () => {
+      release();
+      expect(await took).toBe(false);
+    });
+    // The first camera did take it, but it isn't the one in use: nothing of it is shown.
+    expect(a.asked).toEqual([{ exposureCompensation: -1 }]);
+    expect(ref.cam.exposure).toBe(-0.5);
+    expect(ref.cam.error).toBeNull();
+    expect(b.asked).toEqual([]);
+    act(() => root.unmount());
+  });
+
   it("lends a camera that changes its own exposure (the app's, from Scan settings) its setter, bound to that camera", async () => {
     const { ref, root } = probe();
     const a = exposureCamera();

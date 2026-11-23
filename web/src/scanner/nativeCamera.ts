@@ -540,8 +540,9 @@ export interface NativeCamera extends CameraSource {
   /** The flashlight's strength from now on (and now, if it's lit). */
   setTorchLevel(level: number | null): Promise<void>;
   /**
-   * The exposure (EV) now, from Scan settings: through the camera controls this camera is attached
-   * to (camera.tsx, so their `exposure` stays true), else straight to the camera. Whether it took it.
+   * The exposure (EV) now, from Scan settings, once the camera is ready: through the camera
+   * controls this camera is attached to (camera.tsx, so their `exposure` stays true), else straight
+   * to the camera. Whether it took it.
    */
   setExposure(ev: number): Promise<boolean>;
   /** Time every way a frame can cross to the page. */
@@ -948,7 +949,16 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
       await set({ torch: true, torchLevel });
     },
     async setExposure(ev) {
-      if (closed || !described || !Number.isFinite(ev)) return false;
+      if (closed || !Number.isFinite(ev)) return false;
+      // Never while the camera opens: that sets the saved exposure, and a change now would cancel
+      // it in CameraX and land outside camera.tsx's queue. Once ready, the scanner has attached the
+      // camera (its `ready.then` was first) and lent its setter (Codex review of #210).
+      try {
+        await ready;
+      } catch {
+        return false;
+      }
+      if (closed || !described) return false;
       if (lentExposure) return lentExposure(ev);
       try {
         await track.applyConstraints({ advanced: [{ exposureCompensation: ev } as MediaTrackConstraintSet] });
