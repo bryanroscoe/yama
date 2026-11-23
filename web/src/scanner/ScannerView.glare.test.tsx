@@ -232,32 +232,32 @@ describe("glare and going wide", { timeout: 20_000 }, () => {
     expect(performance.now() - laid).toBeLessThan(WIDE_AFTER_MS);
   });
 
-  it("turns the flashlight off when its glare is on the art of a card it can't name, says so, then says to tilt it", async () => {
+  it("turns the flashlight on for a card it can't name, says so, then says to tilt it out of the glare (23 Nov 2026, after #207)", async () => {
     cam.card = "none";
     const accepted: ScanCandidate[] = [];
     act(() => root.render(<Host accepted={accepted} />));
-    await click(await until(() => document.querySelector('[aria-label="Turn the flashlight on"]'), "the flashlight button"));
-    await until(() => (torchNow() === true ? true : null), "the flashlight on");
+    await until(() => document.querySelector('[aria-label="Turn the flashlight on"]'), "the flashlight button");
     cam.card = "foil";
-    await until(() => (torchNow() === false ? true : null), "the flashlight off");
-    await until(() => (chip().includes("Flashlight off: it put glare on the card") ? true : null), "the flashlight's note");
-    // The glare stays (another light): what to do about it, and the wide lens sooner than 3 s.
+    await until(() => (torchNow() === true ? true : null), "the flashlight on");
+    await until(() => (chip().includes("Flashlight on, to help read the card") ? true : null), "the flashlight's note");
+    // The glare stays: what to do about it, and the wide lens sooner than 3 s.
     await until(() => (chip().includes("Glare on the card: tilt it a little") ? true : null), "the glare said");
     await until(() => (zoomedTo(0.5) ? true : null), "the step out to 0.5x");
     expect(accepted).toHaveLength(0);
   });
 
-  it("leaves the flashlight to the person once they've turned it back on", async () => {
+  it("never turns off a flashlight the person turned on, and leaves it off once they turn it off", async () => {
     cam.card = "none";
     act(() => root.render(<Host accepted={[]} />));
     await click(await until(() => document.querySelector('[aria-label="Turn the flashlight on"]'), "the flashlight button"));
     await until(() => (torchNow() === true ? true : null), "the flashlight on");
     cam.card = "foil";
+    await wait(2500);
+    expect(applied.filter((a) => a.torch === false)).toHaveLength(0);
+    // Off by the person: the scanner doesn't turn it on again for the struggling card.
+    await click(await until(() => document.querySelector('[aria-label="Turn the flashlight off"]'), "the flashlight off button"));
     await until(() => (torchNow() === false ? true : null), "the flashlight off");
-    await click(await until(() => document.querySelector('[aria-label="Turn the flashlight on"]'), "the flashlight button again"));
-    await until(() => (torchNow() === true ? true : null), "the flashlight on again");
-    await wait(1500);
-    expect(torchNow()).toBe(true);
-    await until(() => (chip().includes("tilt it, or turn the flashlight off") ? true : null), "the glare said, flashlight on");
+    await wait(2500);
+    expect(torchNow()).toBe(false);
   });
 });

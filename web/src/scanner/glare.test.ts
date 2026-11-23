@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { artGlare, GLARE_ART, GLARE_HINT_MS, GlareWatch, TORCH_GLARE_MS, TorchOnGlare } from "./glare";
+import { artGlare, GLARE_ART, GLARE_HINT_MS, GlareWatch, TORCH_ON_MS, TorchOnStruggle } from "./glare";
 import { rectQuad } from "./image";
 import type { Quad, RgbaImage } from "./types";
 
@@ -65,43 +65,46 @@ describe("GlareWatch", () => {
   });
 });
 
-describe("TorchOnGlare", () => {
-  it("turns the flashlight off once glare has stayed a moment, and leaves it to the person after that", () => {
-    const t = new TorchOnGlare();
-    expect(t.frame(true, true, 0)).toBe(false);
-    expect(t.frame(true, true, TORCH_GLARE_MS - 1)).toBe(false);
-    expect(t.frame(true, true, TORCH_GLARE_MS)).toBe(true);
-    // Off only once the camera has taken it.
-    expect(t.off).toBe(false);
+describe("TorchOnStruggle", () => {
+  it("turns the flashlight on once a card has struggled a moment, once a session", () => {
+    const t = new TorchOnStruggle();
+    expect(t.frame(true, false, 0)).toBe(false);
+    expect(t.frame(true, false, TORCH_ON_MS - 1)).toBe(false);
+    expect(t.frame(true, false, TORCH_ON_MS)).toBe(true);
+    // On only once the camera has taken it.
+    expect(t.on).toBe(false);
     t.answered(true);
-    expect(t.off).toBe(true);
-    // The camera's state still says on for a frame or two: that isn't the person turning it back on.
-    expect(t.frame(true, true, TORCH_GLARE_MS + 30)).toBe(false);
-    expect(t.off).toBe(true);
-    // Off now: nothing more to do.
-    expect(t.frame(true, false, TORCH_GLARE_MS + 100)).toBe(false);
-    // The person turns it back on: theirs from now on, glare or not.
-    expect(t.frame(false, true, 5000)).toBe(false);
-    expect(t.off).toBe(false);
-    for (let at = 5000; at < 5000 + 4 * TORCH_GLARE_MS; at += 100) expect(t.frame(true, true, at)).toBe(false);
+    expect(t.on).toBe(true);
+    // The camera's state still says off for a frame or two: that isn't the person turning it off.
+    expect(t.frame(true, false, TORCH_ON_MS + 30)).toBe(false);
+    expect(t.on).toBe(true);
+    expect(t.frame(true, true, TORCH_ON_MS + 100)).toBe(false);
+    // The person turns it off: theirs from now on.
+    expect(t.frame(false, false, 5000)).toBe(false);
+    expect(t.on).toBe(false);
+    for (let at = 5000; at < 5000 + 4 * TORCH_ON_MS; at += 100) expect(t.frame(true, false, at)).toBe(false);
   });
 
-  it("never with the flashlight off, and only for glare that lasts", () => {
-    const t = new TorchOnGlare();
-    for (let at = 0; at < 3 * TORCH_GLARE_MS; at += 100) expect(t.frame(true, false, at)).toBe(false);
-    // Glare that comes and goes starts the wait again.
-    expect(t.frame(true, true, 10_000)).toBe(false);
-    expect(t.frame(false, true, 10_000 + TORCH_GLARE_MS / 2)).toBe(false);
-    expect(t.frame(true, true, 10_000 + TORCH_GLARE_MS)).toBe(false);
-    expect(t.frame(true, true, 10_000 + 2 * TORCH_GLARE_MS)).toBe(true);
+  it("never once the person has turned it off themselves, and only for a struggle that lasts", () => {
+    const t = new TorchOnStruggle();
+    // On by the person, then off by the person: left off.
+    t.frame(false, true, 0);
+    t.frame(false, false, 100);
+    for (let at = 200; at < 4 * TORCH_ON_MS; at += 100) expect(t.frame(true, false, at)).toBe(false);
+    const u = new TorchOnStruggle();
+    // A struggle that comes and goes starts the wait again.
+    expect(u.frame(true, false, 10_000)).toBe(false);
+    expect(u.frame(false, false, 10_000 + TORCH_ON_MS / 2)).toBe(false);
+    expect(u.frame(true, false, 10_000 + TORCH_ON_MS)).toBe(false);
+    expect(u.frame(true, false, 10_000 + 2 * TORCH_ON_MS)).toBe(true);
   });
 
-  it("asks once: a camera that refused isn't asked again, and says nothing went off", () => {
-    const t = new TorchOnGlare();
-    t.frame(true, true, 0);
-    expect(t.frame(true, true, TORCH_GLARE_MS)).toBe(true);
+  it("asks once: a camera that refused isn't asked again", () => {
+    const t = new TorchOnStruggle();
+    t.frame(true, false, 0);
+    expect(t.frame(true, false, TORCH_ON_MS)).toBe(true);
     t.answered(false);
-    expect(t.off).toBe(false);
-    for (let at = TORCH_GLARE_MS; at < 5 * TORCH_GLARE_MS; at += 100) expect(t.frame(true, true, at)).toBe(false);
+    expect(t.on).toBe(false);
+    for (let at = TORCH_ON_MS; at < 5 * TORCH_ON_MS; at += 100) expect(t.frame(true, false, at)).toBe(false);
   });
 });
